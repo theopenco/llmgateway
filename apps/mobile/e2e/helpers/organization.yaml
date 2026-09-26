@@ -1,0 +1,19 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: open-sidebar.yaml
+- runFlow:
+    when:
+      notVisible: ".*Current workspace: Test Organization"
+    commands:
+      - tapOn: "Switch workspace.*"
+      - scrollUntilVisible:
+          element: "Use Test Organization"
+          direction: DOWN
+          timeout: 15000
+      - tapOn: "Use Test Organization"
+- runFlow:
+    when:
+      visible: "Close sidebar"
+    commands:
+      - tapOn: "Close sidebar"
+- assertVisible: "New conversation"

@@ -158,6 +158,7 @@ describe("tiered gateway content filter", () => {
 		expect(log.internalContentFilter).toBe(true);
 		expect(log.gatewayContentFilterEvaluation).toEqual({
 			sampled: true,
+			classifier: "openai",
 			provider: "llmgateway",
 			tier: 0,
 			overridden: false,
@@ -206,6 +207,9 @@ describe("tiered gateway content filter", () => {
 			enforced: true,
 			matchedCategories: ["violence"],
 		});
+		// The org retains payloads, so the blocked request survives insertLog.
+		expect(log.content).toBe(GATEWAY_CONTENT_FILTER_MESSAGE);
+		expect(log.messages).not.toBeNull();
 	});
 
 	test("streams the block as a single content_filter chunk", async () => {

@@ -2,6 +2,7 @@
 
 import { Check, Loader2 } from "lucide-react";
 
+import { DevPassPlanChangeNotice } from "@/components/DevPassPlanChangeNotice";
 import { Button } from "@/components/ui/button";
 import { formatUsageRatio } from "@/lib/utils";
 
@@ -22,6 +23,9 @@ export default function InactivePlanChooser({
 }: InactivePlanChooserProps) {
 	return (
 		<div className="space-y-8">
+			<div className="mx-auto max-w-4xl">
+				<DevPassPlanChangeNotice />
+			</div>
 			<div className="grid gap-5 md:grid-cols-3 max-w-4xl mx-auto">
 				{plans.map((plan) => {
 					const ratioLabel = formatUsageRatio(plan.usage, plan.price);

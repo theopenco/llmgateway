@@ -1,12 +1,12 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
+import {
+	CONTENT_FILTER_CLASSIFIER_PROVIDERS,
+	evaluateContentFilterWithClassifiers,
+} from "@/chat/tools/content-filter-classifier.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
-import {
-	checkOpenAIContentFilter,
-	hasOpenAIContentFilterCredential,
-} from "@/chat/tools/openai-content-filter.js";
 import {
 	getCredentialSetting,
 	resolvePlatformCredential,
@@ -17,11 +17,7 @@ import {
 	shouldRetryRequest,
 	type RoutingAttempt,
 } from "@/chat/tools/retry-with-fallback.js";
-import {
-	buildGatewayContentFilterEvaluation,
-	evaluateTieredContentFilter,
-	resolveTieredContentFilterPlan,
-} from "@/chat/tools/tiered-content-filter.js";
+import { resolveTieredContentFilterPlan } from "@/chat/tools/tiered-content-filter.js";
 import { getAirsideRoutingSnapshot } from "@/lib/airside-routing-snapshot.js";
 import {
 	assertApiKeyWithinUsageLimits,
@@ -31,8 +27,7 @@ import {
 import {
 	findApiKeyByToken,
 	findEffectiveDiscount,
-	findAirsideRoutingAdjustment,
-	findEffectiveRoutingScoreMultiplier,
+	findRoutingScoreAdjustment,
 	findManagedProviderKey,
 	findOrganizationById,
 	findProjectById,
@@ -67,6 +62,15 @@ import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import { assertSpendLimit, recordSpend } from "@/lib/spend-limit.js";
 import { clientFacingUpstreamErrorMessage } from "@/lib/stealth-provider-errors.js";
+import {
+	releaseVideoSubmission,
+	reserveVideoSubmission,
+} from "@/lib/video-submission-reservation.js";
+import {
+	inlineVideoResponse,
+	videoProxyResponse,
+	videoRangeHeaders,
+} from "@/videos/video-content.js";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -88,6 +92,8 @@ import {
 	eq,
 	findManagedProviderKeyById,
 	getTableName,
+	gt,
+	isNull,
 	metricsKey,
 	sql,
 	shortid,
@@ -111,6 +117,8 @@ import {
 	type VertexTokenType,
 } from "@llmgateway/models";
 import {
+	buildVideoUsage,
+	type ContentFilterClassifier,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
 	getVideoProxyRedisKey,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
@@ -126,6 +134,10 @@ import {
 	buildSignedGatewayVideoLogContentUrl,
 	verifyVideoContentAccessToken,
 } from "@llmgateway/shared/video-access";
+import {
+	estimateVideoCostUsd,
+	isMinimaxV2VideoModel,
+} from "@llmgateway/shared/video-generation-config";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
@@ -142,18 +154,10 @@ function createProviderDiscountResolver(organizationId: string) {
 }
 
 function createProviderRoutingScoreMultiplierResolver() {
-	// Two independent signals: the admin prioritization multiplier and the
-	// carrier's own Airside margin/discount adjustment, applied additively.
 	return async (
 		provider: Pick<ProviderModelMapping, "providerId">,
 		modelId: string,
-	) => {
-		const [multiplier, airsideAdjustment] = await Promise.all([
-			findEffectiveRoutingScoreMultiplier(provider.providerId, modelId),
-			findAirsideRoutingAdjustment(provider.providerId, modelId),
-		]);
-		return String(Number(multiplier.scoreMultiplier) + airsideAdjustment);
-	};
+	) => await findRoutingScoreAdjustment(provider.providerId, modelId);
 }
 
 const TERMINAL_VIDEO_STATUSES = new Set([
@@ -525,6 +529,19 @@ const videoResponseSchema = z.object({
 	expires_at: z.number().nullable(),
 	error: videoErrorSchema.nullable(),
 	content: videoContentSchema.optional(),
+	usage: z
+		.object({
+			cost: z.number(),
+			cost_details: z.object({
+				video_output_cost: z.number(),
+				image_input_cost: z.number(),
+			}),
+		})
+		.optional()
+		.openapi({
+			description:
+				"Billed cost in USD. Present once the job reaches a terminal status and has been billed.",
+		}),
 });
 
 const createVideo = createRoute({
@@ -592,6 +609,35 @@ const getVideo = createRoute({
 	},
 });
 
+const videoRangeRequestHeaders = z.object({
+	range: z
+		.string()
+		.optional()
+		.openapi({ description: "Requested byte range for playback or seeking." }),
+	"if-range": z.string().optional().openapi({
+		description: "Return the range only if the upstream validator matches.",
+	}),
+});
+const videoRangeResponses = {
+	206: {
+		description: "Partial video bytes.",
+		headers: z.object({
+			"Content-Range": z.string(),
+			"Accept-Ranges": z.string(),
+		}),
+		content: {
+			"video/mp4": { schema: z.string().openapi({ format: "binary" }) },
+			"application/octet-stream": {
+				schema: z.string().openapi({ format: "binary" }),
+			},
+		},
+	},
+	416: {
+		description: "The requested byte range is not satisfiable.",
+		headers: z.object({ "Content-Range": z.string() }),
+	},
+};
+
 const getVideoContent = createRoute({
 	operationId: "v1_videos_content",
 	summary: "Video content",
@@ -605,6 +651,7 @@ const getVideoContent = createRoute({
 		},
 	],
 	request: {
+		headers: videoRangeRequestHeaders,
 		params: z.object({
 			video_id: z.string(),
 		}),
@@ -624,6 +671,7 @@ const getVideoContent = createRoute({
 		},
 
 		...standardErrorResponses(),
+		...videoRangeResponses,
 	},
 });
 
@@ -635,6 +683,7 @@ const getVideoLogContent = createRoute({
 	method: "get",
 	path: "/logs/{log_id}/content",
 	request: {
+		headers: videoRangeRequestHeaders,
 		params: z.object({
 			log_id: z.string(),
 		}),
@@ -657,6 +706,7 @@ const getVideoLogContent = createRoute({
 		},
 
 		...standardErrorResponses(),
+		...videoRangeResponses,
 	},
 });
 
@@ -795,20 +845,15 @@ function getAvailableCredits(
 	return regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 }
 
-function hasSufficientVideoGenerationBalance(
-	organization: InferSelectModel<typeof tables.organization>,
-): boolean {
-	return getAvailableCredits(organization) >= MIN_VIDEO_GENERATION_BALANCE;
-}
-
 /**
- * Deterministic pre-charge estimate for a credits-billed video job. Video
- * bills only at worker finalization, minutes after submission — without an
- * up-front counter advance, a burst of submissions would all pass the
- * spend-cap gate together and overshoot the cap by however many jobs fit in
- * the async window. The estimate is recorded against the spend counters at
- * submission, stamped on the job (`llmgateway_reserved_spend_usd`), and
- * reconciled to the actual billed cost when the worker finalizes.
+ * Pre-charge estimate for a credits-billed video job. Video bills only at
+ * worker finalization, minutes after submission — without an up-front figure,
+ * a burst of submissions would all pass the credit and spend-cap gates
+ * together and overshoot by however many jobs fit in the async window. The
+ * estimate gates submission against the org's available credits, is recorded
+ * against the spend counters, stamped on the job
+ * (`llmgateway_reserved_spend_usd`), and reconciled to the actual billed cost
+ * when the worker finalizes.
  */
 function estimateVideoSpendUsd(
 	mapping: ProviderModelMapping,
@@ -816,43 +861,80 @@ function estimateVideoSpendUsd(
 	durationSeconds: number,
 	inputImageCount: number,
 ): number {
-	let outputCost = 0;
-	const pricing = mapping.perSecondPrice;
-	if (pricing) {
-		// Prefer the audio-inclusive (higher) rate — overestimating is the safe
-		// direction for a cap, and the finalization reconcile settles the exact
-		// figure either way.
-		const candidates = [
-			`${resolution}_audio`,
-			`${resolution}_video`,
-			resolution,
-			"default",
-		];
-		let perSecond = candidates
-			.map((key) => Number(pricing[key]))
-			.find((value) => Number.isFinite(value));
-		if (perSecond === undefined) {
-			perSecond = Math.max(
-				0,
-				...Object.values(pricing)
-					.map(Number)
-					.filter((value) => Number.isFinite(value)),
-			);
-		}
-		outputCost = durationSeconds * perSecond;
-	} else if (mapping.requestPrice !== undefined) {
-		const requestPrice = Number(mapping.requestPrice);
-		outputCost = Number.isFinite(requestPrice) ? requestPrice : 0;
-	}
-	const perImage = Number(mapping.imageInputPrice ?? 0);
-	const imageCost = Number.isFinite(perImage) ? inputImageCount * perImage : 0;
-	return Number((outputCost + imageCost).toFixed(6));
+	return estimateVideoCostUsd(
+		mapping,
+		resolution,
+		durationSeconds,
+		inputImageCount,
+	);
 }
 
-function getInsufficientVideoGenerationBalanceError(): HTTPException {
+// Reservations of jobs the worker has not finalized yet still count against
+// the org's credits (the job row is the reservation: finalization stamps
+// logId). Bounded to the worker's job lifetime so a stuck row cannot block an
+// org forever.
+const PENDING_VIDEO_RESERVATION_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+async function getPendingVideoReservationUsd(
+	organizationId: string,
+): Promise<number> {
+	const [row] = await db
+		.select({
+			total: sql<string>`coalesce(sum((${tables.videoJob.upstreamCreateResponse} ->> 'llmgateway_reserved_spend_usd')::numeric), 0)`,
+		})
+		.from(tables.videoJob)
+		.where(
+			and(
+				eq(tables.videoJob.organizationId, organizationId),
+				eq(tables.videoJob.usedMode, "credits"),
+				isNull(tables.videoJob.logId),
+				isNull(tables.videoJob.endCustomerWalletId),
+				gt(
+					tables.videoJob.createdAt,
+					new Date(Date.now() - PENDING_VIDEO_RESERVATION_WINDOW_MS),
+				),
+			),
+		);
+	return Number(row?.total ?? 0) || 0;
+}
+
+interface VideoCreditShortfall {
+	requiredUsd: number;
+	availableUsd: number;
+	pendingUsd: number;
+}
+
+/**
+ * The org must hold the job's estimated cost (never less than the flat
+ * minimum) beyond what its still-running video jobs already reserve.
+ * Wallet-funded sessions bill the wallet, so they keep only the flat
+ * minimum check on the org.
+ */
+function getVideoCreditShortfall(
+	organization: InferSelectModel<typeof tables.organization>,
+	estimatedUsd: number,
+	pendingUsd: number,
+): VideoCreditShortfall | null {
+	const requiredUsd = Math.max(MIN_VIDEO_GENERATION_BALANCE, estimatedUsd);
+	const availableUsd = getAvailableCredits(organization) - pendingUsd;
+	return availableUsd < requiredUsd
+		? { requiredUsd, availableUsd, pendingUsd }
+		: null;
+}
+
+function formatUsd(value: number): string {
+	return `$${Math.max(0, value).toFixed(2)}`;
+}
+
+function getInsufficientVideoGenerationBalanceError(
+	shortfall: VideoCreditShortfall,
+): HTTPException {
+	const reserved =
+		shortfall.pendingUsd > 0
+			? ` after ${formatUsd(shortfall.pendingUsd)} reserved for videos still in progress`
+			: "";
 	return new HTTPException(402, {
-		message:
-			"Video generation requires at least $1.00 in available credits. Please add credits and try again.",
+		message: `Video generation requires an estimated ${formatUsd(shortfall.requiredUsd)} in available credits for this request (minimum ${formatUsd(MIN_VIDEO_GENERATION_BALANCE)}), but your organization has ${formatUsd(shortfall.availableUsd)} available${reserved}. Please add credits and try again.`,
 	});
 }
 
@@ -2563,6 +2645,7 @@ async function serializeVideoJob(job: VideoJobRecord, logId?: string | null) {
 					},
 				]
 			: undefined,
+		usage: buildVideoUsage(job),
 	};
 }
 
@@ -2714,34 +2797,16 @@ async function getVideoSourceUrlFromCacheOrJob(
 
 async function streamVideoFromUrl(
 	contentUrl: string,
+	requestHeaders: Headers,
 	contentType?: string | null,
 ): Promise<Response> {
 	// SSRF: refuse redirects so a tenant-controlled content URL cannot 3xx the
 	// gateway onward to an internal host whose body would then be streamed back.
 	const upstreamResponse = await fetchNoRedirect(contentUrl, {
 		redirect: "error",
+		headers: videoRangeHeaders(requestHeaders),
 	});
-	if (!upstreamResponse.ok || !upstreamResponse.body) {
-		throw new HTTPException(502, {
-			message: "Failed to fetch video content from upstream provider",
-		});
-	}
-
-	const headers = new Headers();
-	headers.set(
-		"Content-Type",
-		upstreamResponse.headers.get("Content-Type") ?? contentType ?? "video/mp4",
-	);
-
-	const contentLength = upstreamResponse.headers.get("Content-Length");
-	if (contentLength) {
-		headers.set("Content-Length", contentLength);
-	}
-
-	return new Response(upstreamResponse.body, {
-		status: 200,
-		headers,
-	});
+	return videoProxyResponse(upstreamResponse, contentType);
 }
 
 function shouldProxyDirectUpstreamVideoContent(job: VideoJobRecord): boolean {
@@ -2852,6 +2917,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 
 async function streamDirectUpstreamVideoContent(
 	job: VideoJobRecord,
+	requestHeaders: Headers,
 ): Promise<Response> {
 	const providerContext = await resolveVideoJobProviderContext(job);
 
@@ -2913,34 +2979,14 @@ async function streamDirectUpstreamVideoContent(
 		// SSRF: never follow redirects on a tenant-controlled content/baseUrl
 		// request; the followed body would be streamed back to the caller.
 		redirect: "error",
-		headers: getProviderHeaders(
-			providerContext.providerId,
-			providerContext.token,
-			{ requestId: providerContext.requestId },
-		),
+		headers: {
+			...getProviderHeaders(providerContext.providerId, providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+			...videoRangeHeaders(requestHeaders),
+		},
 	});
-	if (!upstreamResponse.ok || !upstreamResponse.body) {
-		throw new HTTPException(502, {
-			message: "Failed to fetch video content from upstream provider",
-		});
-	}
-
-	const headers = new Headers();
-	headers.set(
-		"Content-Type",
-		upstreamResponse.headers.get("Content-Type") ??
-			job.contentType ??
-			"video/mp4",
-	);
-	const contentLength = upstreamResponse.headers.get("Content-Length");
-	if (contentLength) {
-		headers.set("Content-Length", contentLength);
-	}
-
-	return new Response(upstreamResponse.body, {
-		status: 200,
-		headers,
-	});
+	return videoProxyResponse(upstreamResponse, job.contentType);
 }
 
 async function markVideoDownloaded(logId: string): Promise<void> {
@@ -3738,6 +3784,83 @@ function getMinimaxResolution(videoSize: VideoSizeConfig): string {
 	return "768P";
 }
 
+async function createMinimaxV2VideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	processedFirstFrame: ProcessedVideoImageInput | null,
+	processedLastFrame: ProcessedVideoImageInput | null,
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = providerMapping.externalId;
+	const content: Record<string, unknown>[] = [{ type: "text", text: prompt }];
+	for (const [frame, role] of [
+		[processedFirstFrame, "first_frame"],
+		[processedLastFrame, "last_frame"],
+	] as const) {
+		if (frame) {
+			content.push({
+				type: "image_url",
+				image_url: {
+					url: `data:${frame.mimeType};base64,${frame.bytesBase64Encoded}`,
+				},
+				role,
+			});
+		}
+	}
+	const hasFrames = content.length > 1;
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		content,
+		resolution: videoSize.resolution === "480p" ? "480P" : "768P",
+		duration: durationSeconds,
+		ratio: hasFrames
+			? "adaptive"
+			: videoSize.orientation === "portrait"
+				? "9:16"
+				: "16:9",
+	};
+
+	const rawResponse = await fetchUpstreamJson(
+		joinUrl(providerContext.baseUrl, "/v2/video_generation"),
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("minimax", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
+		},
+		providerContext.providerId,
+	);
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			model: upstreamModelName,
+			status: "queued",
+			duration: durationSeconds,
+		},
+		videoSize,
+	);
+
+	const upstreamId = extractUpstreamVideoId(upstreamResponse);
+	if (!upstreamId) {
+		throw new HTTPException(502, {
+			message: "MiniMax video response did not include a task id",
+		});
+	}
+
+	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
 async function createMinimaxVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -3745,11 +3868,24 @@ async function createMinimaxVideoJob(
 	prompt: string,
 	durationSeconds: number,
 	processedFirstFrame: ProcessedVideoImageInput | null,
+	processedLastFrame: ProcessedVideoImageInput | null,
 ): Promise<{
 	upstreamId: string;
 	upstreamRequest: Record<string, unknown>;
 	upstreamResponse: Record<string, unknown>;
 }> {
+	if (isMinimaxV2VideoModel(providerMapping.externalId)) {
+		return await createMinimaxV2VideoJob(
+			providerContext,
+			providerMapping,
+			videoSize,
+			prompt,
+			durationSeconds,
+			processedFirstFrame,
+			processedLastFrame,
+		);
+	}
+
 	const upstreamModelName = providerMapping.externalId;
 	const resolution = getMinimaxResolution(videoSize);
 	const effectiveDuration =
@@ -4045,6 +4181,7 @@ async function createUpstreamVideoJob(
 				prompt,
 				durationSeconds,
 				processedFirstFrame,
+				processedLastFrame,
 			);
 		case "alibaba":
 			return await createAlibabaVideoJob(
@@ -4237,36 +4374,42 @@ async function evaluateVideoContentFilter(options: {
 	images: Array<ProcessedVideoImageInput | null>;
 	signal: AbortSignal;
 }): Promise<GatewayContentFilterEvaluation | null> {
-	// Prompts must never reach OpenAI when the org's compliance policy excludes it.
-	if (
-		options.compliancePolicy &&
-		!isProviderIdCompliant("openai", options.compliancePolicy)
-	) {
-		return null;
-	}
+	// Prompts must never reach a classifier's provider when the org's compliance
+	// policy excludes it.
+	const classifierAllowed = (classifier: ContentFilterClassifier) =>
+		!options.compliancePolicy ||
+		isProviderIdCompliant(
+			CONTENT_FILTER_CLASSIFIER_PROVIDERS[classifier],
+			options.compliancePolicy,
+		);
 	const plan = await resolveTieredContentFilterPlan(
 		options.organization,
 		options.providerId,
 		await getContentFilterSettings(),
 	);
-	if (!plan || !(await hasOpenAIContentFilterCredential())) {
+	if (!plan) {
 		return null;
 	}
-	const moderation = await checkOpenAIContentFilter(
-		buildVideoModerationMessages(options.request.prompt, options.images),
-		{
+	const tiered = await evaluateContentFilterWithClassifiers({
+		plan,
+		messages: buildVideoModerationMessages(
+			options.request.prompt,
+			options.images,
+		),
+		context: {
 			requestId: options.requestId,
 			organizationId: options.organization.id,
 			projectId: options.project.id,
 			apiKeyId: options.apiKey.id,
 		},
-		options.signal,
-	);
-	const evaluation = buildGatewayContentFilterEvaluation(
-		plan,
-		evaluateTieredContentFilter(moderation.results, plan.level),
-		moderation.results.length === 0,
-	);
+		signal: options.signal,
+		imagesAllowed: classifierAllowed("openai"),
+		classifierAllowed,
+	});
+	if (!tiered) {
+		return null;
+	}
+	const evaluation = tiered.evaluation;
 	if (evaluation.violation) {
 		logger.debug("gateway_content_filter_tier", {
 			requestId: options.requestId,
@@ -4274,6 +4417,7 @@ async function evaluateVideoContentFilter(options: {
 			provider: options.providerId,
 			tier: plan.tier,
 			level: plan.level,
+			classifier: plan.classifier,
 			action: evaluation.action,
 			matchedCategories: evaluation.matchedCategories,
 		});
@@ -4702,8 +4846,50 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 	let upstreamId: string | undefined;
 	let upstreamRequest: Record<string, unknown> | undefined;
 	let upstreamResponse: Record<string, unknown> | undefined;
-	const hasVideoGenerationBalance =
-		hasSufficientVideoGenerationBalance(organization);
+	// The credit gate and the job insert are not one statement, so a
+	// submission counts itself in the org's in-flight total before reading the
+	// pending sum of job rows, and only drops out of it after its own row
+	// exists (or it fails). A concurrent submission therefore sees this one in
+	// one of the two and cannot pass on the same balance.
+	let inFlightVideoReservationUsd = 0;
+	const releaseInFlightVideoReservation = async () => {
+		if (inFlightVideoReservationUsd > 0) {
+			const releasedUsd = inFlightVideoReservationUsd;
+			inFlightVideoReservationUsd = 0;
+			await releaseVideoSubmission(organization.id, releasedUsd);
+		}
+	};
+	const getVideoCreditShortfallForMapping = async (
+		mapping: ProviderModelMapping,
+	): Promise<VideoCreditShortfall | null> => {
+		if (wallet) {
+			return getVideoCreditShortfall(organization, 0, 0);
+		}
+		const estimatedUsd = estimateVideoSpendUsd(
+			mapping,
+			videoSize.resolution,
+			videoDurationSeconds,
+			inputImageCount,
+		);
+		await releaseInFlightVideoReservation();
+		const inFlightTotalUsd = await reserveVideoSubmission(
+			organization.id,
+			estimatedUsd,
+		);
+		inFlightVideoReservationUsd = estimatedUsd;
+		const pendingUsd =
+			(await getPendingVideoReservationUsd(organization.id)) +
+			Math.max(0, inFlightTotalUsd - estimatedUsd);
+		const shortfall = getVideoCreditShortfall(
+			organization,
+			estimatedUsd,
+			pendingUsd,
+		);
+		if (shortfall) {
+			await releaseInFlightVideoReservation();
+		}
+		return shortfall;
+	};
 
 	// Video generation is the priciest endpoint per request, so the credits-billed
 	// path gets the same per-org spend-cap gate as the other paid endpoints.
@@ -4712,394 +4898,402 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		await assertSpendLimit(c, organization, false);
 	}
 
-	for (;;) {
-		if (
-			selectedProviderContext.usedMode === "credits" &&
-			!hasVideoGenerationBalance
-		) {
-			routingAttempts.push({
-				provider: selectedProviderContext.providerId,
-				model: modelInfo.id,
-				credentialSource: videoCredentialSource(selectedProviderContext),
-				...videoProviderKeyIdentity(selectedProviderContext),
-				status_code: 402,
-				error_type: "insufficient_credits",
-				succeeded: false,
-			});
-			failedProviders.add(selectedProviderContext.providerId);
-
-			const nextProvider =
-				!requestedProvider && !noFallback
-					? selectNextProvider(
-							enrichedRoutingMetadata?.providerScores ?? [],
-							failedProviders,
-							orderedMappings,
-						)
+	try {
+		for (;;) {
+			// Gate on this mapping's estimated cost: a cheaper fallback provider may
+			// still fit the remaining balance.
+			const creditShortfall =
+				selectedProviderContext.usedMode === "credits"
+					? await getVideoCreditShortfallForMapping(selectedProviderMapping)
 					: null;
-			if (!nextProvider) {
-				throw getInsufficientVideoGenerationBalanceError();
-			}
-
-			const nextMapping = orderedMappings.find(
-				(mapping) =>
-					mapping.providerId === nextProvider.providerId &&
-					(mapping.region ?? undefined) === nextProvider.region,
-			);
-			if (!nextMapping) {
-				throw getInsufficientVideoGenerationBalanceError();
-			}
-
-			selectedProviderMapping = nextMapping;
-			selectedProviderContext = await resolveProviderContext(
-				nextMapping.providerId as Provider,
-				project,
-				organization.id,
-				requestId,
-				modelInfo.id,
-			);
-			// A hybrid project can fall back from a BYOK provider to a
-			// credits-billed one mid-loop; re-apply the spend-cap gate the
-			// pre-loop check only enforced for the initial provider.
-			if (selectedProviderContext.usedMode === "credits" && !wallet) {
-				await assertSpendLimit(c, organization, false);
-			}
-			selectedUpstreamModelName = getVideoUpstreamModelName(
-				nextMapping.providerId as Provider,
-				nextMapping.externalId,
-				videoSize,
-				inputMode,
-			);
-			continue;
-		}
-
-		if (
-			isGoogleVertexVideoProvider(selectedProviderContext.providerId) &&
-			!getGoogleVertexVideoOutputBucket() &&
-			getEffectiveRetentionLevel(organization) === "none"
-		) {
-			const statusCode = 400;
-			routingAttempts.push({
-				provider: selectedProviderContext.providerId,
-				model: modelInfo.id,
-				credentialSource: videoCredentialSource(selectedProviderContext),
-				...videoProviderKeyIdentity(selectedProviderContext),
-				status_code: statusCode,
-				error_type: "client_error",
-				succeeded: false,
-			});
-			failedProviders.add(selectedProviderContext.providerId);
-
-			const nextProvider = selectNextProvider(
-				enrichedRoutingMetadata?.providerScores ?? [],
-				failedProviders,
-				orderedMappings,
-			);
-			if (!nextProvider || requestedProvider) {
-				throw new HTTPException(400, {
-					message:
-						"Vertex-compatible video generation requires either GCS output storage or data retention to be enabled.",
+			if (creditShortfall) {
+				routingAttempts.push({
+					provider: selectedProviderContext.providerId,
+					model: modelInfo.id,
+					credentialSource: videoCredentialSource(selectedProviderContext),
+					...videoProviderKeyIdentity(selectedProviderContext),
+					status_code: 402,
+					error_type: "insufficient_credits",
+					succeeded: false,
 				});
-			}
+				failedProviders.add(selectedProviderContext.providerId);
 
-			const nextMapping = orderedMappings.find(
-				(mapping) =>
-					mapping.providerId === nextProvider.providerId &&
-					(mapping.region ?? undefined) === nextProvider.region,
-			);
-			if (!nextMapping) {
-				throw new HTTPException(400, {
-					message:
-						"Google Vertex video generation requires either GCS output storage or data retention to be enabled.",
-				});
-			}
+				const nextProvider =
+					!requestedProvider && !noFallback
+						? selectNextProvider(
+								enrichedRoutingMetadata?.providerScores ?? [],
+								failedProviders,
+								orderedMappings,
+							)
+						: null;
+				if (!nextProvider) {
+					throw getInsufficientVideoGenerationBalanceError(creditShortfall);
+				}
 
-			selectedProviderMapping = nextMapping;
-			selectedProviderContext = await resolveProviderContext(
-				nextMapping.providerId as Provider,
-				project,
-				organization.id,
-				requestId,
-				modelInfo.id,
-			);
-			// A hybrid project can fall back from a BYOK provider to a
-			// credits-billed one mid-loop; re-apply the spend-cap gate the
-			// pre-loop check only enforced for the initial provider.
-			if (selectedProviderContext.usedMode === "credits" && !wallet) {
-				await assertSpendLimit(c, organization, false);
-			}
-			selectedUpstreamModelName = getVideoUpstreamModelName(
-				nextMapping.providerId as Provider,
-				nextMapping.externalId,
-				videoSize,
-				inputMode,
-			);
-			continue;
-		}
-
-		try {
-			const upstreamJob = await createUpstreamVideoJob(
-				selectedProviderContext,
-				selectedProviderMapping,
-				videoSize,
-				request.prompt,
-				videoDurationSeconds,
-				request.audio,
-				inputMode,
-				firstFrameInput,
-				lastFrameInput,
-				referenceImageInputs,
-				referenceVideoInputs,
-				referenceAudioInputs,
-				processedFirstFrame,
-				processedLastFrameInput,
-				processedReferenceImages,
-				videoId,
-				organization.id,
-				project.id,
-			);
-			upstreamId = upstreamJob.upstreamId;
-			upstreamRequest = upstreamJob.upstreamRequest;
-			upstreamResponse = upstreamJob.upstreamResponse;
-			routingAttempts.push({
-				provider: selectedProviderContext.providerId,
-				model: modelInfo.id,
-				credentialSource: videoCredentialSource(selectedProviderContext),
-				...videoProviderKeyIdentity(selectedProviderContext),
-				status_code: 200,
-				error_type: "none",
-				succeeded: true,
-			});
-			break;
-		} catch (error) {
-			const statusCode = error instanceof HTTPException ? error.status : 0;
-			if (statusCode === 400 && error instanceof HTTPException) {
-				await insertVideoClientErrorLog({
-					request,
-					requestId,
-					apiKey,
-					project,
-					organization,
-					normalizedModel,
-					requestedProvider,
-					providerContext: selectedProviderContext,
-					upstreamModelName: selectedUpstreamModelName,
-					routingMetadata: enrichedRoutingMetadata,
-					statusCode,
-					message: error.message,
-					startedAt,
-				});
-			}
-			const retryErrorType =
-				statusCode === 0
-					? "network_error"
-					: getFinishReasonFromError(statusCode);
-			routingAttempts.push({
-				provider: selectedProviderContext.providerId,
-				model: modelInfo.id,
-				credentialSource: videoCredentialSource(selectedProviderContext),
-				...videoProviderKeyIdentity(selectedProviderContext),
-				status_code: statusCode,
-				error_type: getErrorType(statusCode),
-				succeeded: false,
-			});
-			failedProviders.add(selectedProviderContext.providerId);
-
-			const remainingProviders = (enrichedRoutingMetadata?.providerScores ?? [])
-				.map((score) => score.providerId)
-				.filter((providerId) => !failedProviders.has(providerId)).length;
-			if (
-				!shouldRetryRequest({
-					requestedProvider,
-					noFallback,
-					errorType: retryErrorType,
-					retryCount,
-					remainingProviders,
-					usedProvider: selectedProviderContext.providerId,
-					maxRetries: routingCfg.retry.maxRetries,
-				})
-			) {
-				throw error;
-			}
-
-			const nextProvider = selectNextProvider(
-				enrichedRoutingMetadata?.providerScores ?? [],
-				failedProviders,
-				orderedMappings,
-			);
-
-			if (!nextProvider) {
-				throw error;
-			}
-
-			const nextMapping = orderedMappings.find(
-				(mapping) =>
-					mapping.providerId === nextProvider.providerId &&
-					(mapping.region ?? undefined) === nextProvider.region,
-			);
-			if (!nextMapping) {
-				throw error;
-			}
-
-			selectedProviderMapping = nextMapping;
-			selectedProviderContext = await resolveProviderContext(
-				nextMapping.providerId as Provider,
-				project,
-				organization.id,
-				requestId,
-				modelInfo.id,
-			);
-			// A hybrid project can fall back from a BYOK provider to a
-			// credits-billed one mid-loop; re-apply the spend-cap gate the
-			// pre-loop check only enforced for the initial provider.
-			if (selectedProviderContext.usedMode === "credits" && !wallet) {
-				await assertSpendLimit(c, organization, false);
-			}
-			selectedUpstreamModelName = getVideoUpstreamModelName(
-				nextMapping.providerId as Provider,
-				nextMapping.externalId,
-				videoSize,
-				inputMode,
-			);
-			retryCount++;
-		}
-	}
-
-	if (!upstreamId || !upstreamRequest || !upstreamResponse) {
-		throw new HTTPException(500, {
-			message: "Video provider selection failed before job creation",
-		});
-	}
-
-	if (enrichedRoutingMetadata) {
-		enrichedRoutingMetadata = {
-			...enrichedRoutingMetadata,
-			selectedProvider: selectedProviderContext.providerId,
-			routing: routingAttempts,
-			providerScores: enrichedRoutingMetadata.providerScores.map((score) => {
-				const failedAttempt = routingAttempts.find(
-					(attempt) =>
-						attempt.provider === score.providerId &&
-						attempt.succeeded === false,
+				const nextMapping = orderedMappings.find(
+					(mapping) =>
+						mapping.providerId === nextProvider.providerId &&
+						(mapping.region ?? undefined) === nextProvider.region,
 				);
-				return failedAttempt
-					? {
-							...score,
-							failed: true,
-							status_code: failedAttempt.status_code,
-							error_type: failedAttempt.error_type,
-						}
-					: score;
-			}),
-		};
-	}
-	const storageUri = extractStorageUri(upstreamResponse);
-	const parsedStorageUri = parseGcsUri(storageUri);
+				if (!nextMapping) {
+					throw getInsufficientVideoGenerationBalanceError(creditShortfall);
+				}
 
-	const initialStatus = normalizeVideoStatus(upstreamResponse.status);
-	// See estimateVideoSpendUsd: reserve the expected cost against the org's
-	// spend-cap counters now so concurrent submissions see each other; the
-	// worker reconciles the stamped figure to the actual billed cost (refunding
-	// it entirely for failed jobs) at finalization.
-	const reservedSpendUsd =
-		selectedProviderContext.usedMode === "credits" && !wallet
-			? estimateVideoSpendUsd(
+				selectedProviderMapping = nextMapping;
+				selectedProviderContext = await resolveProviderContext(
+					nextMapping.providerId as Provider,
+					project,
+					organization.id,
+					requestId,
+					modelInfo.id,
+				);
+				// A hybrid project can fall back from a BYOK provider to a
+				// credits-billed one mid-loop; re-apply the spend-cap gate the
+				// pre-loop check only enforced for the initial provider.
+				if (selectedProviderContext.usedMode === "credits" && !wallet) {
+					await assertSpendLimit(c, organization, false);
+				}
+				selectedUpstreamModelName = getVideoUpstreamModelName(
+					nextMapping.providerId as Provider,
+					nextMapping.externalId,
+					videoSize,
+					inputMode,
+				);
+				continue;
+			}
+
+			if (
+				isGoogleVertexVideoProvider(selectedProviderContext.providerId) &&
+				!getGoogleVertexVideoOutputBucket() &&
+				getEffectiveRetentionLevel(organization) === "none"
+			) {
+				const statusCode = 400;
+				routingAttempts.push({
+					provider: selectedProviderContext.providerId,
+					model: modelInfo.id,
+					credentialSource: videoCredentialSource(selectedProviderContext),
+					...videoProviderKeyIdentity(selectedProviderContext),
+					status_code: statusCode,
+					error_type: "client_error",
+					succeeded: false,
+				});
+				failedProviders.add(selectedProviderContext.providerId);
+
+				const nextProvider = selectNextProvider(
+					enrichedRoutingMetadata?.providerScores ?? [],
+					failedProviders,
+					orderedMappings,
+				);
+				if (!nextProvider || requestedProvider) {
+					throw new HTTPException(400, {
+						message:
+							"Vertex-compatible video generation requires either GCS output storage or data retention to be enabled.",
+					});
+				}
+
+				const nextMapping = orderedMappings.find(
+					(mapping) =>
+						mapping.providerId === nextProvider.providerId &&
+						(mapping.region ?? undefined) === nextProvider.region,
+				);
+				if (!nextMapping) {
+					throw new HTTPException(400, {
+						message:
+							"Google Vertex video generation requires either GCS output storage or data retention to be enabled.",
+					});
+				}
+
+				selectedProviderMapping = nextMapping;
+				selectedProviderContext = await resolveProviderContext(
+					nextMapping.providerId as Provider,
+					project,
+					organization.id,
+					requestId,
+					modelInfo.id,
+				);
+				// A hybrid project can fall back from a BYOK provider to a
+				// credits-billed one mid-loop; re-apply the spend-cap gate the
+				// pre-loop check only enforced for the initial provider.
+				if (selectedProviderContext.usedMode === "credits" && !wallet) {
+					await assertSpendLimit(c, organization, false);
+				}
+				selectedUpstreamModelName = getVideoUpstreamModelName(
+					nextMapping.providerId as Provider,
+					nextMapping.externalId,
+					videoSize,
+					inputMode,
+				);
+				continue;
+			}
+
+			try {
+				const upstreamJob = await createUpstreamVideoJob(
+					selectedProviderContext,
 					selectedProviderMapping,
-					videoSize.resolution,
+					videoSize,
+					request.prompt,
 					videoDurationSeconds,
-					inputImageCount,
+					request.audio,
+					inputMode,
+					firstFrameInput,
+					lastFrameInput,
+					referenceImageInputs,
+					referenceVideoInputs,
+					referenceAudioInputs,
+					processedFirstFrame,
+					processedLastFrameInput,
+					processedReferenceImages,
+					videoId,
+					organization.id,
+					project.id,
+				);
+				upstreamId = upstreamJob.upstreamId;
+				upstreamRequest = upstreamJob.upstreamRequest;
+				upstreamResponse = upstreamJob.upstreamResponse;
+				routingAttempts.push({
+					provider: selectedProviderContext.providerId,
+					model: modelInfo.id,
+					credentialSource: videoCredentialSource(selectedProviderContext),
+					...videoProviderKeyIdentity(selectedProviderContext),
+					status_code: 200,
+					error_type: "none",
+					succeeded: true,
+				});
+				break;
+			} catch (error) {
+				const statusCode = error instanceof HTTPException ? error.status : 0;
+				if (statusCode === 400 && error instanceof HTTPException) {
+					await insertVideoClientErrorLog({
+						request,
+						requestId,
+						apiKey,
+						project,
+						organization,
+						normalizedModel,
+						requestedProvider,
+						providerContext: selectedProviderContext,
+						upstreamModelName: selectedUpstreamModelName,
+						routingMetadata: enrichedRoutingMetadata,
+						statusCode,
+						message: error.message,
+						startedAt,
+					});
+				}
+				const retryErrorType =
+					statusCode === 0
+						? "network_error"
+						: getFinishReasonFromError(statusCode);
+				routingAttempts.push({
+					provider: selectedProviderContext.providerId,
+					model: modelInfo.id,
+					credentialSource: videoCredentialSource(selectedProviderContext),
+					...videoProviderKeyIdentity(selectedProviderContext),
+					status_code: statusCode,
+					error_type: getErrorType(statusCode),
+					succeeded: false,
+				});
+				failedProviders.add(selectedProviderContext.providerId);
+
+				const remainingProviders = (
+					enrichedRoutingMetadata?.providerScores ?? []
 				)
-			: 0;
-	const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
-		selectedProviderContext.providerId,
-		normalizedModel,
-	);
-	const created = await db
-		.insert(tables.videoJob)
-		.values({
-			id: videoId,
-			requestId,
-			organizationId: organization.id,
-			projectId: project.id,
-			apiKeyId: apiKey.id,
-			// Owner for per-end-user logging/isolation; null for normal developer
-			// keys.
-			endUserSessionId: apiKey.endUserSession?.id ?? null,
-			endCustomerWalletId: apiKey.endCustomerWalletId ?? null,
-			mode: project.mode,
-			usedMode: selectedProviderContext.usedMode,
-			model: normalizedModel,
-			requestedProvider: requestedProvider ?? null,
-			usedProvider: selectedProviderContext.providerId,
-			usedModel: selectedUpstreamModelName,
-			...airsideRoutingSnapshot,
-			providerConfigIndex: selectedProviderContext.configIndex,
-			managedProviderKeyId:
-				selectedProviderContext.managedProviderKeyId ?? null,
-			providerKeyId: selectedProviderContext.providerKeyId ?? null,
-			upstreamId,
-			prompt: retainVideoPayloads ? request.prompt : "",
-			status: initialStatus,
-			progress: extractProgress(upstreamResponse),
-			error: extractError(upstreamResponse),
-			contentUrl: extractContentUrl(upstreamResponse),
-			storageProvider: parsedStorageUri ? "gcs" : null,
-			storageBucket: parsedStorageUri?.bucket ?? null,
-			storageObjectPath: parsedStorageUri?.objectPath ?? null,
-			storageUri,
-			storageExpiresAt: null,
-			contentType:
-				typeof upstreamResponse.mime_type === "string"
-					? upstreamResponse.mime_type
-					: "video/mp4",
-			completedAt: parseTimestamp(upstreamResponse.completed_at),
-			expiresAt: parseTimestamp(upstreamResponse.expires_at),
-			lastPolledAt: null,
-			nextPollAt: new Date(),
-			pollAttemptCount: 0,
-			callbackUrl: request.callback_url ?? null,
-			callbackSecret: request.callback_secret ?? null,
-			callbackStatus: request.callback_url ? "pending" : "none",
-			routingMetadata: enrichedRoutingMetadata ?? null,
-			upstreamCreateResponse: {
-				...upstreamResponse,
-				llmgateway_requested_size: videoSize.size,
-				llmgateway_requested_resolution: videoSize.resolution,
-				llmgateway_requested_duration_seconds: videoDurationSeconds,
-				llmgateway_input_image_count: inputImageCount,
-				llmgateway_reserved_spend_usd: reservedSpendUsd,
-				// Carried onto the job's log row by the worker at finalization.
-				...(contentFilterEvaluation
-					? { llmgateway_content_filter_evaluation: contentFilterEvaluation }
-					: {}),
-				...(debugMode && retainVideoPayloads
-					? {
-							llmgateway_raw_request: rawBody,
-							llmgateway_upstream_request: upstreamRequest,
-						}
-					: {}),
-			},
-			upstreamStatusResponse: upstreamResponse,
-		})
-		.returning()
-		.then((rows) => rows[0]);
+					.map((score) => score.providerId)
+					.filter((providerId) => !failedProviders.has(providerId)).length;
+				if (
+					!shouldRetryRequest({
+						requestedProvider,
+						noFallback,
+						errorType: retryErrorType,
+						retryCount,
+						remainingProviders,
+						usedProvider: selectedProviderContext.providerId,
+						maxRetries: routingCfg.retry.maxRetries,
+					})
+				) {
+					throw error;
+				}
 
-	if (reservedSpendUsd > 0) {
+				const nextProvider = selectNextProvider(
+					enrichedRoutingMetadata?.providerScores ?? [],
+					failedProviders,
+					orderedMappings,
+				);
+
+				if (!nextProvider) {
+					throw error;
+				}
+
+				const nextMapping = orderedMappings.find(
+					(mapping) =>
+						mapping.providerId === nextProvider.providerId &&
+						(mapping.region ?? undefined) === nextProvider.region,
+				);
+				if (!nextMapping) {
+					throw error;
+				}
+
+				selectedProviderMapping = nextMapping;
+				selectedProviderContext = await resolveProviderContext(
+					nextMapping.providerId as Provider,
+					project,
+					organization.id,
+					requestId,
+					modelInfo.id,
+				);
+				// A hybrid project can fall back from a BYOK provider to a
+				// credits-billed one mid-loop; re-apply the spend-cap gate the
+				// pre-loop check only enforced for the initial provider.
+				if (selectedProviderContext.usedMode === "credits" && !wallet) {
+					await assertSpendLimit(c, organization, false);
+				}
+				selectedUpstreamModelName = getVideoUpstreamModelName(
+					nextMapping.providerId as Provider,
+					nextMapping.externalId,
+					videoSize,
+					inputMode,
+				);
+				retryCount++;
+			}
+		}
+
+		if (!upstreamId || !upstreamRequest || !upstreamResponse) {
+			throw new HTTPException(500, {
+				message: "Video provider selection failed before job creation",
+			});
+		}
+
+		if (enrichedRoutingMetadata) {
+			enrichedRoutingMetadata = {
+				...enrichedRoutingMetadata,
+				selectedProvider: selectedProviderContext.providerId,
+				routing: routingAttempts,
+				providerScores: enrichedRoutingMetadata.providerScores.map((score) => {
+					const failedAttempt = routingAttempts.find(
+						(attempt) =>
+							attempt.provider === score.providerId &&
+							attempt.succeeded === false,
+					);
+					return failedAttempt
+						? {
+								...score,
+								failed: true,
+								status_code: failedAttempt.status_code,
+								error_type: failedAttempt.error_type,
+							}
+						: score;
+				}),
+			};
+		}
+		const storageUri = extractStorageUri(upstreamResponse);
+		const parsedStorageUri = parseGcsUri(storageUri);
+
+		const initialStatus = normalizeVideoStatus(upstreamResponse.status);
+		// See estimateVideoSpendUsd: reserve the expected cost against the org's
+		// spend-cap counters now so concurrent submissions see each other; the
+		// worker reconciles the stamped figure to the actual billed cost (refunding
+		// it entirely for failed jobs) at finalization.
+		const reservedSpendUsd =
+			selectedProviderContext.usedMode === "credits" && !wallet
+				? estimateVideoSpendUsd(
+						selectedProviderMapping,
+						videoSize.resolution,
+						videoDurationSeconds,
+						inputImageCount,
+					)
+				: 0;
+		const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
+			selectedProviderContext.providerId,
+			normalizedModel,
+		);
+		const created = await db
+			.insert(tables.videoJob)
+			.values({
+				id: videoId,
+				requestId,
+				organizationId: organization.id,
+				projectId: project.id,
+				apiKeyId: apiKey.id,
+				// Owner for per-end-user logging/isolation; null for normal developer
+				// keys.
+				endUserSessionId: apiKey.endUserSession?.id ?? null,
+				endCustomerWalletId: apiKey.endCustomerWalletId ?? null,
+				mode: project.mode,
+				usedMode: selectedProviderContext.usedMode,
+				model: normalizedModel,
+				requestedProvider: requestedProvider ?? null,
+				usedProvider: selectedProviderContext.providerId,
+				usedModel: selectedUpstreamModelName,
+				...airsideRoutingSnapshot,
+				providerConfigIndex: selectedProviderContext.configIndex,
+				managedProviderKeyId:
+					selectedProviderContext.managedProviderKeyId ?? null,
+				providerKeyId: selectedProviderContext.providerKeyId ?? null,
+				upstreamId,
+				prompt: retainVideoPayloads ? request.prompt : "",
+				status: initialStatus,
+				progress: extractProgress(upstreamResponse),
+				error: extractError(upstreamResponse),
+				contentUrl: extractContentUrl(upstreamResponse),
+				storageProvider: parsedStorageUri ? "gcs" : null,
+				storageBucket: parsedStorageUri?.bucket ?? null,
+				storageObjectPath: parsedStorageUri?.objectPath ?? null,
+				storageUri,
+				storageExpiresAt: null,
+				contentType:
+					typeof upstreamResponse.mime_type === "string"
+						? upstreamResponse.mime_type
+						: "video/mp4",
+				completedAt: parseTimestamp(upstreamResponse.completed_at),
+				expiresAt: parseTimestamp(upstreamResponse.expires_at),
+				lastPolledAt: null,
+				nextPollAt: new Date(),
+				pollAttemptCount: 0,
+				callbackUrl: request.callback_url ?? null,
+				callbackSecret: request.callback_secret ?? null,
+				callbackStatus: request.callback_url ? "pending" : "none",
+				routingMetadata: enrichedRoutingMetadata ?? null,
+				upstreamCreateResponse: {
+					...upstreamResponse,
+					llmgateway_requested_size: videoSize.size,
+					llmgateway_requested_resolution: videoSize.resolution,
+					llmgateway_requested_duration_seconds: videoDurationSeconds,
+					llmgateway_input_image_count: inputImageCount,
+					llmgateway_reserved_spend_usd: reservedSpendUsd,
+					// Carried onto the job's log row by the worker at finalization.
+					...(contentFilterEvaluation
+						? { llmgateway_content_filter_evaluation: contentFilterEvaluation }
+						: {}),
+					...(debugMode && retainVideoPayloads
+						? {
+								llmgateway_raw_request: rawBody,
+								llmgateway_upstream_request: upstreamRequest,
+							}
+						: {}),
+				},
+				upstreamStatusResponse: upstreamResponse,
+			})
+			.returning()
+			.then((rows) => rows[0]);
+
 		// After the insert: the job row is what tells the worker a reservation
-		// exists to reconcile. recordSpend is fail-open, matching the counters'
-		// overall best-effort semantics.
+		// exists to reconcile. A zero reservation (BYOK, wallet) records no spend
+		// but still stamps org activity. recordSpend is fail-open, matching the
+		// counters' overall best-effort semantics.
 		await recordSpend(organization.id, reservedSpendUsd);
+
+		logger.info("Created video job", {
+			videoId: created.id,
+			upstreamId,
+			projectId: project.id,
+			organizationId: organization.id,
+			model: normalizedModel,
+			usedProvider: selectedProviderContext.providerId,
+		});
+
+		return c.json(await serializeVideoJob(created));
+	} finally {
+		await releaseInFlightVideoReservation();
 	}
-
-	logger.info("Created video job", {
-		videoId: created.id,
-		upstreamId,
-		projectId: project.id,
-		organizationId: organization.id,
-		model: normalizedModel,
-		usedProvider: selectedProviderContext.providerId,
-	});
-
-	return c.json(await serializeVideoJob(created));
 });
 
 videos.openapi(getVideo, async (c): Promise<any> => {
@@ -5138,8 +5332,13 @@ videos.openapi(getVideoLogContent, async (c) => {
 		videoJob,
 	);
 	if (directSourceUrl) {
-		const response = await streamVideoFromUrl(directSourceUrl);
-		await markVideoDownloaded(logId);
+		const response = await streamVideoFromUrl(
+			directSourceUrl,
+			c.req.raw.headers,
+		);
+		if (response.ok) {
+			await markVideoDownloaded(logId);
+		}
 		return response;
 	}
 
@@ -5151,14 +5350,25 @@ videos.openapi(getVideoLogContent, async (c) => {
 			});
 		}
 
-		const response = await streamVideoFromUrl(signedUrl, videoJob.contentType);
-		await markVideoDownloaded(logId);
+		const response = await streamVideoFromUrl(
+			signedUrl,
+			c.req.raw.headers,
+			videoJob.contentType,
+		);
+		if (response.ok) {
+			await markVideoDownloaded(logId);
+		}
 		return response;
 	}
 
 	if (shouldProxyDirectUpstreamVideoContent(videoJob)) {
-		const response = await streamDirectUpstreamVideoContent(videoJob);
-		await markVideoDownloaded(logId);
+		const response = await streamDirectUpstreamVideoContent(
+			videoJob,
+			c.req.raw.headers,
+		);
+		if (response.ok) {
+			await markVideoDownloaded(logId);
+		}
 		return response;
 	}
 
@@ -5173,14 +5383,10 @@ videos.openapi(getVideoLogContent, async (c) => {
 	}
 
 	await markVideoDownloaded(logId);
-	return new Response(
+	return inlineVideoResponse(
 		Uint8Array.from(Buffer.from(inlineVideo.bytesBase64Encoded, "base64")),
-		{
-			status: 200,
-			headers: {
-				"Content-Type": inlineVideo.mimeType,
-			},
-		},
+		inlineVideo.mimeType,
+		c.req.raw.headers,
 	);
 });
 
@@ -5202,8 +5408,11 @@ videos.openapi(getVideoContent, async (c) => {
 	if (!job.contentUrl && !job.storageUri) {
 		if (shouldProxyDirectUpstreamVideoContent(job)) {
 			const logId = job.logId;
-			const response = await streamDirectUpstreamVideoContent(job);
-			if (logId) {
+			const response = await streamDirectUpstreamVideoContent(
+				job,
+				c.req.raw.headers,
+			);
+			if (logId && response.ok) {
 				await markVideoDownloaded(logId);
 			}
 			return response;
@@ -5219,12 +5428,7 @@ videos.openapi(getVideoContent, async (c) => {
 		const bytes = Uint8Array.from(
 			Buffer.from(inlineVideo.bytesBase64Encoded, "base64"),
 		);
-		return new Response(bytes, {
-			status: 200,
-			headers: {
-				"Content-Type": inlineVideo.mimeType,
-			},
-		});
+		return inlineVideoResponse(bytes, inlineVideo.mimeType, c.req.raw.headers);
 	}
 
 	const contentUrl = job.contentUrl ?? (await getExternalVideoContentUrl(job));
@@ -5234,12 +5438,11 @@ videos.openapi(getVideoContent, async (c) => {
 			const bytes = Uint8Array.from(
 				Buffer.from(inlineVideo.bytesBase64Encoded, "base64"),
 			);
-			return new Response(bytes, {
-				status: 200,
-				headers: {
-					"Content-Type": inlineVideo.mimeType,
-				},
-			});
+			return inlineVideoResponse(
+				bytes,
+				inlineVideo.mimeType,
+				c.req.raw.headers,
+			);
 		}
 
 		throw new HTTPException(404, {
@@ -5248,8 +5451,12 @@ videos.openapi(getVideoContent, async (c) => {
 	}
 
 	const logId = job.logId;
-	const response = await streamVideoFromUrl(contentUrl, job.contentType);
-	if (logId) {
+	const response = await streamVideoFromUrl(
+		contentUrl,
+		c.req.raw.headers,
+		job.contentType,
+	);
+	if (logId && response.ok) {
 		await markVideoDownloaded(logId);
 	}
 	return response;

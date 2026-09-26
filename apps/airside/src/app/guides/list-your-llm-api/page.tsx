@@ -61,9 +61,18 @@ export default function ListingGuide() {
 					organizations or applies separately to each one.
 				</p>
 				<p className="mt-3">
-					Run preflight verification with your managed carrier key or a key
-					supplied for that run. Resolve failed checks before submitting the
-					model. Changing the verified mapping requires a new verification.
+					Paste a provider API key that can call this model and run preflight
+					verification. We store it encrypted as this carrier's test key, so
+					later runs reuse it — change or remove it under Settings at any time.
+					Use a key separate from the one behind your live integration:
+					preflight traffic is billed by your own platform and is not tracked in
+					LLMGateway usage or billing. Resolve failed checks before submitting
+					the model. Changing the verified mapping requires a new verification.
+				</p>
+				<p className="mt-3">
+					Every preflight stays on the record. The Verify dialog lists past runs
+					for the listing — yours and the ones we run from our side — so you can
+					select an older run and see what failed before it was fixed.
 				</p>
 			</section>
 			<section>

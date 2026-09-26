@@ -51,6 +51,10 @@ export default defineConfig({
 			name: "worker",
 			command: "node apps/worker/dist/index.js",
 			wait: { stdout: /Starting worker loops/ },
+			// The loops only start after the initial provider/model sync writes the
+			// whole catalogue, which routinely outlasts the 60s default while the
+			// other seven servers are booting alongside it.
+			timeout: 300_000,
 			env: backendEnv,
 		},
 		...[

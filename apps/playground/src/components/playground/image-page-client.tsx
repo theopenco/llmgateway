@@ -7,7 +7,10 @@ import { toast } from "sonner";
 
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { AuthDialog } from "@/components/playground/auth-dialog";
-import { ImageControls } from "@/components/playground/image-controls";
+import {
+	ImageControls,
+	type ImageServiceTier,
+} from "@/components/playground/image-controls";
 import { ImageGallery } from "@/components/playground/image-gallery";
 import { ImageHeader } from "@/components/playground/image-header";
 import { ImageSidebar } from "@/components/playground/image-sidebar";
@@ -16,7 +19,6 @@ import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import {
 	useImageHistory,
-	useImageHistoryItem,
 	useSaveImageHistory,
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
@@ -27,15 +29,22 @@ import {
 	organizationCreditErrorMessage,
 } from "@/lib/credit-error";
 import { useApi } from "@/lib/fetch-client";
+import { toGeneratedImage } from "@/lib/image-download";
 import {
 	getModelImageConfig,
+	historyImage,
+	historyInputImage,
 	ImageGenerationError,
+	inlineImage,
+	inlineImageFromDataUrl,
 	readImageGenerationResponse,
+	toDataUrl,
 } from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
 import {
 	getModelPreferenceCookie,
 	IMAGE_MODEL_COOKIE,
+	IMAGE_SERVICE_TIER_COOKIE,
 	setModelPreferenceCookie,
 } from "@/lib/model-preferences";
 import { shouldDisableFallback } from "@/lib/no-fallback";
@@ -43,7 +52,7 @@ import { shouldDisableFallback } from "@/lib/no-fallback";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
-import type { AspectRatio, GalleryItem } from "@/lib/image-gen";
+import type { AspectRatio, GalleryImage, GalleryItem } from "@/lib/image-gen";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
 
 interface ImagePageClientProps {
@@ -54,6 +63,7 @@ interface ImagePageClientProps {
 	projects: Project[];
 	selectedProject: Project | null;
 	initialModelPreference?: string | null;
+	initialServiceTierPreference?: string | null;
 }
 
 export default function ImagePageClient({
@@ -64,6 +74,7 @@ export default function ImagePageClient({
 	projects: _projects,
 	selectedProject,
 	initialModelPreference,
+	initialServiceTierPreference,
 }: ImagePageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const api = useApi();
@@ -155,6 +166,10 @@ export default function ImagePageClient({
 		return config.defaultModeration ?? "auto";
 	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
+	// Read server-side from the cookie so the toggle hydrates in its saved state.
+	const [imageServiceTier, setImageServiceTier] = useState<ImageServiceTier>(
+		initialServiceTierPreference === "flex" ? "flex" : "default",
+	);
 
 	// Input images for image-edit models
 	const [inputImages, setInputImages] = useState<
@@ -172,6 +187,33 @@ export default function ImagePageClient({
 			})
 			.filter((m): m is NonNullable<typeof m> => m !== null);
 	}, [selectedModels, imageGenModels]);
+
+	// Flex is a per-mapping capability, so a pinned "provider/model" only
+	// qualifies through that provider's mapping.
+	const modelSupportsFlex = useCallback(
+		(modelId: string) => {
+			const slash = modelId.indexOf("/");
+			const providerId = slash >= 0 ? modelId.slice(0, slash) : null;
+			const canonicalModelId = slash >= 0 ? modelId.slice(slash + 1) : modelId;
+			const def = imageGenModels.find((m) => m.id === canonicalModelId);
+			return (
+				def?.mappings.some(
+					(mapping) =>
+						(!providerId || mapping.providerId === providerId) &&
+						mapping.status === "active" &&
+						mapping.serviceTiers?.includes("flex"),
+				) ?? false
+			);
+		},
+		[imageGenModels],
+	);
+	const supportsFlex = useMemo(
+		() =>
+			(comparisonMode ? selectedModels : selectedModels.slice(0, 1)).some(
+				modelSupportsFlex,
+			),
+		[comparisonMode, selectedModels, modelSupportsFlex],
+	);
 
 	// Detect if all selected models support image input (editing)
 	const isEditModel = useMemo(() => {
@@ -200,67 +242,55 @@ export default function ImagePageClient({
 	const { mutate: saveImageHistory } = useSaveImageHistory();
 	const savedItemIdsRef = useRef<Set<string>>(new Set());
 	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
+	// Items generated this session, keyed by their saved history id. Their
+	// previews are already decoded, so the gallery keeps showing them instead of
+	// re-downloading the saved copies when the item moves into history.
+	const [savedInlineItems, setSavedInlineItems] = useState<
+		Record<string, GalleryItem>
+	>({});
 
-	// The history list is metadata-only (no base64). Image data is fetched per
-	// item below when one is selected.
+	// The history list carries counts only; every image is addressed by URL so
+	// the page never downloads full-resolution originals up front.
 	const galleryItems = useMemo<GalleryItem[]>(() => {
-		const historical: GalleryItem[] = (historyData?.items ?? []).map(
-			(item) => ({
+		const historical: GalleryItem[] = (historyData?.items ?? []).map((item) => {
+			const inline = savedInlineItems[item.id];
+			return {
 				id: item.id,
 				prompt: item.prompt,
 				timestamp: new Date(item.createdAt).getTime(),
 				thumbnailUrl: item.models.some((m) => m.imageCount > 0)
 					? `${config.apiUrl}/playground/image-history/${item.id}/thumbnail`
 					: null,
-				models: item.models.map((m) => ({
+				inputImages:
+					inline?.inputImages ??
+					Array.from({ length: item.inputImageCount }, (_, index) =>
+						historyInputImage(config.apiUrl, item.id, index),
+					),
+				models: item.models.map((m, modelIndex) => ({
 					modelId: m.modelId,
 					modelName: m.modelName,
-					images: [],
-					imageCount: m.imageCount,
+					images:
+						inline?.models[modelIndex]?.images ??
+						Array.from({ length: m.imageCount }, (_, index) =>
+							historyImage(config.apiUrl, item.id, modelIndex, index),
+						),
 					error: m.error,
 					isLoading: false,
 				})),
-			}),
-		);
+			};
+		});
 		return [...activeItems, ...historical];
-	}, [activeItems, historyData, config.apiUrl]);
-
-	const { data: selectedItemDetail } = useImageHistoryItem(
-		activeItems.length === 0 ? selectedItemId : null,
-	);
+	}, [activeItems, historyData, config.apiUrl, savedInlineItems]);
 
 	const displayItems = useMemo<GalleryItem[]>(() => {
 		if (activeItems.length > 0) {
 			return activeItems;
 		}
-		if (!selectedItemId) {
-			return [];
-		}
-		const detail = selectedItemDetail?.item;
-		if (detail && detail.id === selectedItemId) {
-			return [
-				{
-					id: detail.id,
-					prompt: detail.prompt,
-					timestamp: new Date(detail.createdAt).getTime(),
-					inputImages: detail.inputImages ?? undefined,
-					models: detail.models.map((m) => ({ ...m, isLoading: false })),
-				},
-			];
-		}
-		// Detail still loading: render the metadata item with per-model
-		// skeletons so the gallery shows progress instead of a blank page.
-		const light = galleryItems.find((i) => i.id === selectedItemId);
-		if (light) {
-			return [
-				{
-					...light,
-					models: light.models.map((m) => ({ ...m, isLoading: !m.error })),
-				},
-			];
-		}
-		return [];
-	}, [activeItems, selectedItemId, selectedItemDetail, galleryItems]);
+		const item = selectedItemId
+			? galleryItems.find((i) => i.id === selectedItemId)
+			: undefined;
+		return item ? [item] : [];
+	}, [activeItems, selectedItemId, galleryItems]);
 
 	// Auto-save completed active items to DB then remove from local state
 	useEffect(() => {
@@ -281,11 +311,19 @@ export default function ImagePageClient({
 						body: {
 							prompt: item.prompt,
 							organizationId: item.organizationId,
-							inputImages: item.inputImages,
+							inputImages: item.inputImages?.flatMap((image) =>
+								image.kind === "inline"
+									? [{ dataUrl: toDataUrl(image), mediaType: image.mediaType }]
+									: [],
+							),
 							models: item.models.map((m) => ({
 								modelId: m.modelId,
 								modelName: m.modelName,
-								images: m.images,
+								images: m.images.flatMap((image) =>
+									image.kind === "inline"
+										? [{ base64: image.base64, mediaType: image.mediaType }]
+										: [],
+								),
 								error: m.error,
 							})),
 						},
@@ -293,6 +331,7 @@ export default function ImagePageClient({
 					{
 						onSuccess: (data) => {
 							const newId = data.item.id;
+							setSavedInlineItems((prev) => ({ ...prev, [newId]: item }));
 							setSelectedItemId(newId);
 							const params = new URLSearchParams(window.location.search);
 							params.set("id", newId);
@@ -393,6 +432,13 @@ export default function ImagePageClient({
 			setModelPreferenceCookie(IMAGE_MODEL_COOKIE, selectedModels.join(","));
 		}
 	}, [selectedModels]);
+
+	// The tier only changes through this handler, so persist the cookie here
+	// instead of watching the state with an effect.
+	const handleServiceTierChange = useCallback((tier: ImageServiceTier) => {
+		setImageServiceTier(tier);
+		setModelPreferenceCookie(IMAGE_SERVICE_TIER_COOKIE, tier);
+	}, []);
 
 	// Sync URL → state for back/forward navigation
 	useEffect(() => {
@@ -510,6 +556,7 @@ export default function ImagePageClient({
 				aspect_ratio: imageAspectRatio,
 				image_count: imageCount,
 				has_input_images: inputImages.length > 0,
+				service_tier: imageServiceTier,
 			});
 
 			const itemId = crypto.randomUUID();
@@ -525,15 +572,13 @@ export default function ImagePageClient({
 				organizationId: selectedOrganization?.id,
 				inputImages:
 					inputImages.length > 0
-						? inputImages.map((img) => ({
-								dataUrl: img.dataUrl,
-								mediaType: img.mediaType,
-							}))
+						? inputImages.map(inlineImageFromDataUrl)
 						: undefined,
 				models: modelsToGenerate.map((modelId) => ({
 					modelId,
 					modelName: getModelName(modelId),
 					images: [],
+					imageCount,
 					isLoading: true,
 				})),
 			};
@@ -584,6 +629,8 @@ export default function ImagePageClient({
 
 			for (const modelId of modelsToGenerate) {
 				const noFallback = shouldDisableFallback(modelId);
+				const useFlex =
+					imageServiceTier === "flex" && modelSupportsFlex(modelId);
 				void (async () => {
 					try {
 						const response = await fetch("/api/image", {
@@ -596,6 +643,7 @@ export default function ImagePageClient({
 								prompt: currentPrompt,
 								model: modelId,
 								image_config: imageConfigBody,
+								...(useFlex ? { service_tier: "flex" } : {}),
 								...(inputImages.length > 0
 									? {
 											input_images: inputImages.map((img) => ({
@@ -645,7 +693,7 @@ export default function ImagePageClient({
 										}
 										return {
 											...m,
-											images: generatedImages,
+											images: generatedImages.map(inlineImage),
 											isLoading: false,
 										};
 									}),
@@ -699,6 +747,8 @@ export default function ImagePageClient({
 			imageQuality,
 			imageModeration,
 			imageCount,
+			imageServiceTier,
+			modelSupportsFlex,
 			inputImages,
 			posthog,
 			requiresImageInput,
@@ -792,14 +842,21 @@ export default function ImagePageClient({
 	);
 
 	const handleUseAsReference = useCallback(
-		(image: { base64: string; mediaType: string }) => {
-			handleNewChat();
-			setInputImages([
-				{
-					dataUrl: `data:${image.mediaType};base64,${image.base64}`,
-					mediaType: image.mediaType,
-				},
-			]);
+		async (image: GalleryImage) => {
+			try {
+				// Saved images are fetched at full resolution on demand.
+				const generated = await toGeneratedImage(image);
+				handleNewChat();
+				setInputImages([
+					{ dataUrl: toDataUrl(generated), mediaType: generated.mediaType },
+				]);
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Failed to load the reference image",
+				);
+			}
 		},
 		[handleNewChat],
 	);
@@ -897,6 +954,9 @@ export default function ImagePageClient({
 						setImageModeration={setImageModeration}
 						imageCount={imageCount}
 						setImageCount={setImageCount}
+						serviceTier={imageServiceTier}
+						setServiceTier={handleServiceTierChange}
+						supportsFlex={supportsFlex}
 						isGenerating={isGenerating}
 						onGenerate={generateImages}
 						isEditModel={isEditModel}

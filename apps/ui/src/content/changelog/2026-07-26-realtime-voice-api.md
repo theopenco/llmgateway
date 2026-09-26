@@ -4,6 +4,7 @@ slug: "realtime-voice-api"
 date: "2026-07-26"
 title: "Realtime Voice API"
 summary: "Speech-to-speech conversations now run through LLM Gateway over the OpenAI-compatible /v1/realtime WebSocket endpoint — with ephemeral client secrets for browsers, per-token audio billing in your activity feed, and a voice call surface in Lounge."
+tags: ["llmgateway", "lounge"]
 image:
   src: "/changelog/realtime-voice-api.png"
   alt: "A glowing microphone on a circuit-board chip surrounded by sound waves and audio icons, representing the LLM Gateway realtime voice API"

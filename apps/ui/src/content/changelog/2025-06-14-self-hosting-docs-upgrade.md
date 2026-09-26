@@ -4,6 +4,7 @@ slug: "self-hosting-docs-upgrade"
 date: "2025-06-14"
 title: "Self-Hosting Just Got Easier"
 summary: "New and improved self-hosting documentation for teams and enterprises looking to deploy LLM Gateway on their own infrastructure."
+tags: ["llmgateway"]
 image:
   src: "/changelog/self-host.png"
   alt: "Improved self-hosting setup guide for LLM Gateway"

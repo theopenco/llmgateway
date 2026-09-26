@@ -1,4 +1,5 @@
 import { capabilityCases, smokeCapabilityCases } from "./capability.js";
+import { codingCases } from "./coding.js";
 import { loadCases, performanceCases } from "./performance.js";
 import { qualityCases } from "./quality.js";
 
@@ -9,7 +10,7 @@ import type {
 } from "@/types.js";
 
 export type BuiltInSuite =
-	"capability" | "core" | "load" | "performance" | "quality";
+	"capability" | "coding" | "core" | "load" | "performance" | "quality";
 
 export const builtInProfiles: Record<BenchmarkProfileName, BenchmarkProfile> = {
 	smoke: {
@@ -26,6 +27,13 @@ export const builtInProfiles: Record<BenchmarkProfileName, BenchmarkProfile> = {
 		cases: [...capabilityCases, ...qualityCases, ...performanceCases],
 		defaults: { budgetMs: 60_000, concurrency: 1 },
 	},
+	coding: {
+		name: "coding",
+		description:
+			"Small coding tasks solved through a multi-turn tool-calling loop.",
+		cases: codingCases,
+		defaults: { budgetMs: 300_000, concurrency: 1 },
+	},
 	load: {
 		name: "load",
 		description:
@@ -38,6 +46,7 @@ export const builtInProfiles: Record<BenchmarkProfileName, BenchmarkProfile> = {
 export const builtInSuites: Record<BuiltInSuite, BenchmarkCase[]> = {
 	core: builtInProfiles.smoke.cases,
 	capability: capabilityCases,
+	coding: codingCases,
 	load: loadCases,
 	performance: performanceCases,
 	quality: [...capabilityCases, ...qualityCases],
@@ -62,6 +71,7 @@ export function getBuiltInProfile(name: string): BenchmarkProfile {
 }
 
 export { capabilityCases, smokeCapabilityCases } from "./capability.js";
+export { codingCases } from "./coding.js";
 export { loadCases, performanceCases } from "./performance.js";
 export {
 	extractFinalAnswer,

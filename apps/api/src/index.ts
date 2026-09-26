@@ -25,6 +25,7 @@ import { emailChange } from "./routes/email-change.js";
 import { routes } from "./routes/index.js";
 import { internalModels } from "./routes/internal-models.js";
 import { mcp } from "./routes/mcp.js";
+import { nativeConnectorCallback } from "./routes/native-connector-callback.js";
 import { platformConnect } from "./routes/platform-connect.js";
 import { platformCustomers } from "./routes/platform-customers.js";
 import { platformSessionRefresh } from "./routes/platform-session-refresh.js";
@@ -362,4 +363,5 @@ app.route("/v1/config", publicConfig);
 app.route("/scim/v2", scim);
 app.route("/v1/skills", cliSkills);
 
+app.get("/connectors/:connectorId/callback", nativeConnectorCallback);
 app.route("/", routes);

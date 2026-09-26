@@ -1,0 +1,66 @@
+---
+title: Kimi Code Integration
+description: Connect Kimi Code to LLM Gateway, discover models, and verify a coding task.
+icon: KimiCode
+---
+
+[Kimi Code](https://github.com/MoonshotAI/kimi-code) is a terminal coding agent. Its provider manager can discover LLM Gateway models and save the connection for future sessions.
+
+## Video walkthrough
+
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/BhJPdUAXhpE"
+		title="Kimi Code setup and coding demo with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
+
+## Install
+
+```bash
+pnpm add -g @moonshot-ai/kimi-code
+kimi --version
+```
+
+Use the current Kimi Code package. Additional installation options are in the&nbsp;[official documentation](https://github.com/MoonshotAI/kimi-code).
+
+## Connect your account
+
+Create an API key in your LLM Gateway or DevPass dashboard, then launch `kimi` from your project. Review the workspace trust prompt before continuing.
+
+1. Run `/provider`.
+2. Select **Add New Platform**, then **Known third-party provider**.
+3. Search for **LLM Gateway**.
+4. Choose **LLM Gateway** for pay-as-you-go usage or **DevPass (LLM Gateway)** for a coding plan.
+5. Enter your key when prompted, then choose a tool-capable model.
+
+The provider registry supplies model metadata. Use the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools) to check capabilities and account availability.
+
+> **Using DevPass?** Choose a canonical model ID included in your plan. An upstream provider prefix pins routing and is not supported by coding plans. A local provider name in Kimi's model alias is separate from the model ID sent to the gateway.
+
+## Verify a small task
+
+Ask Kimi to inspect a function, fix one failing test case, and run the existing tests without changing them. Review the diff and command output. Use `/model` to change the selected model for later work.
+
+The key determines which workspace receives the requests. Check usage in that workspace's dashboard.
+
+## Manual configuration
+
+Kimi stores its configuration in `~/.kimi-code/config.toml`. A custom OpenAI-compatible provider uses `type = "openai"` and `base_url = "https://api.llmgateway.io/v1"`. Keep the file private because it can contain your API key.
+
+Model entries refer to the local provider name and specify the gateway model ID. Match their context limits, output limits, and capabilities to the selected model. Prefer the provider manager when you want the registry to populate those values.
+
+## Troubleshooting
+
+**The provider list is unavailable:** check network access to the registry or use a custom provider configuration.
+
+**Authentication fails:** check that the key is active and belongs to the intended workspace.
+
+**A model is unavailable:** verify its exact ID and that your account or plan can use it.
+
+**Tool calls fail:** choose a model with tool support and check the model metadata in your configuration.

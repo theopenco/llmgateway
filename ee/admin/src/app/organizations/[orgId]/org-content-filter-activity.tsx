@@ -22,7 +22,20 @@ import {
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/components/ui/chart";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@/components/ui/table";
 import { getOrganizationContentFilterActivity } from "@/lib/admin-content-filter";
+
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { ChartConfig } from "@/components/ui/chart";
 import type { TokenWindow } from "@/lib/types";
@@ -106,8 +119,9 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 						<CardDescription>
 							Requests the gateway content filter sampled for this organization
 							over the selected window, and how many crossed their tier&apos;s
-							thresholds. Sampled counts every moderated request; blocked is the
-							subset actually rejected.
+							thresholds, broken down by category and by the model that served
+							the request. Sampled counts every moderated request; blocked is
+							the subset actually rejected.
 						</CardDescription>
 					</div>
 					<Link
@@ -133,13 +147,13 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 							<div>
 								<span className="text-muted-foreground">Sampled</span>
 								<p className="text-xl font-semibold tabular-nums">
-									{data.totals.sampledCount.toLocaleString("en-US")}
+									{formatNumber(data.totals.sampledCount)}
 								</p>
 							</div>
 							<div>
 								<span className="text-muted-foreground">Violations</span>
 								<p className="text-xl font-semibold tabular-nums">
-									{data.totals.violationCount.toLocaleString("en-US")}
+									{formatNumber(data.totals.violationCount)}
 								</p>
 							</div>
 							<div>
@@ -151,7 +165,7 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 							<div>
 								<span className="text-muted-foreground">Blocked</span>
 								<p className="text-xl font-semibold tabular-nums">
-									{data.totals.blockedCount.toLocaleString("en-US")}
+									{formatNumber(data.totals.blockedCount)}
 								</p>
 							</div>
 							{data.topCategories.length > 0 ? (
@@ -184,10 +198,11 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 									tickFormatter={formatTimestamp}
 								/>
 								<YAxis
+									tickFormatter={formatCompactNumber}
 									tickLine={false}
 									axisLine={false}
 									tickMargin={4}
-									width={40}
+									width={60}
 									allowDecimals={false}
 								/>
 								<ChartTooltip
@@ -215,6 +230,45 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 								/>
 							</BarChart>
 						</ChartContainer>
+						{data.topModels.length > 0 ? (
+							<div className="mt-4">
+								<p className="mb-2 text-sm font-medium">Top models</p>
+								<Table>
+									<TableHeader>
+										<TableRow>
+											<TableHead>Model</TableHead>
+											<TableHead className="text-right">Sampled</TableHead>
+											<TableHead className="text-right">Violations</TableHead>
+											<TableHead className="text-right">Rate</TableHead>
+											<TableHead className="text-right">Blocked</TableHead>
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{data.topModels.map((model) => (
+											<TableRow
+												key={`${model.usedProvider}/${model.usedModel}`}
+											>
+												<TableCell className="font-medium">
+													{model.usedModel}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{formatNumber(model.sampledCount)}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{formatNumber(model.violationCount)}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{percentFormatter.format(model.violationRate)}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{formatNumber(model.blockedCount)}
+												</TableCell>
+											</TableRow>
+										))}
+									</TableBody>
+								</Table>
+							</div>
+						) : null}
 					</>
 				)}
 			</CardContent>

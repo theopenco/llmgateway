@@ -3,7 +3,8 @@
 import { defineRegistry } from "@json-render/react";
 import { shadcnComponents } from "@json-render/shadcn";
 
-import { shadcnCatalog } from "./catalog";
+import { shadcnCatalog } from "@llmgateway/canvas/catalog";
+
 import {
 	BarChartComponent,
 	LineChartComponent,

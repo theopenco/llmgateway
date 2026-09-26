@@ -45,6 +45,7 @@ test-results/
 # Shipped marketing assets, deliberately committed despite the blanket *.mp4 rule
 # above (which exists to keep stray local screen recordings out of the repo).
 !apps/ui/public/videos/*.mp4
+!apps/docs/public/recordings/*.mp4
 scripts/*.jpg
 scripts/*.png
 .soulforge
@@ -52,5 +53,7 @@ scripts/*.png
 
 # Local demo recordings and PR screenshots (PR images live on assets/* orphan branches)
 /demo-videos/
+/.artifacts/
+.webreel/
 /pr-shots/
 /pg-*.png

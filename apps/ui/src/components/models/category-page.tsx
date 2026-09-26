@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 
+import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { AllModels } from "@/components/models/all-models";
 import { CategorySeoContent } from "@/components/models/category-seo-content";
@@ -107,6 +108,7 @@ export async function ModelCategoryPage({ slug }: { slug: ModelCategorySlug }) {
 			<JsonLd data={[collectionSchema, breadcrumbSchema, faqSchema]} />
 			<Suspense>
 				<AllModels
+					footer={<Footer />}
 					models={models}
 					providers={providers}
 					title={content.heading}

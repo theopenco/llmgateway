@@ -1,6 +1,6 @@
 ---
 name: knowledge-base
-description: Write a new LLM Gateway docs Knowledge base page under apps/docs/content/learn with light and dark dashboard screenshots. Use when the user asks for a knowledge base page, KB page, learn page, or documentation for a dashboard or playground page with screenshots.
+description: Write a new LLM Gateway docs Knowledge base page under apps/docs/content/(<product>)/learn with light and dark dashboard screenshots. Use when the user asks for a knowledge base page, KB page, learn page, or documentation for a dashboard or playground page with screenshots.
 ---
 
 # Knowledge Base Page
@@ -9,9 +9,10 @@ Write a docs "Knowledge base" page for a dashboard or playground page, take matc
 
 Each Knowledge base page documents exactly one page of the product UI:
 
-- Page: `apps/docs/content/learn/<slug>.mdx`
+- Product: docs are split into route-group folders per product — `(gateway)`, `(devpass)`, `(lounge)`, `(airside)` — under `apps/docs/content/`. The group name is not part of the URL, so every page still lives at `/learn/<slug>`.
+- Page: `apps/docs/content/(<product>)/learn/<slug>.mdx`
 - Screenshots: `apps/docs/public/learn/<slug>-light.png` + `apps/docs/public/learn/<slug>-dark.png` (plus `<slug>-<detail>-{light,dark}.png` pairs for dialogs/sub-views)
-- Registration: the `pages` array in `apps/docs/content/learn/meta.json` AND the bullet list in `apps/docs/content/learn/index.mdx`
+- Registration: the `pages` array in `apps/docs/content/(<product>)/learn/meta.json`, plus the bullet list in `apps/docs/content/(gateway)/learn/index.mdx` for LLM Gateway pages
 
 ## Prerequisites
 
@@ -75,7 +76,7 @@ Every `<basePath>` referenced from MDX MUST have both a `-light.png` and a `-dar
 
 ## Step 3 — Write the MDX page
 
-Read one or two recent pages in `apps/docs/content/learn/` (e.g. `master-keys.mdx`) and mirror their tone. Structure:
+Read one or two recent pages in `apps/docs/content/(gateway)/learn/` (e.g. `master-keys.mdx`) and mirror their tone. Structure:
 
 ```mdx
 ---
@@ -110,12 +111,12 @@ House style:
 
 ## Step 4 — Register the page
 
-Both registrations are required — the page is invisible in the sidebar and the index without them:
+The page is invisible in the sidebar without its `meta.json` entry:
 
-1. `apps/docs/content/learn/meta.json`: add `"<slug>"` to the `pages` array in
-   the existing product section and ordering that matches the documented UI.
-2. `apps/docs/content/learn/index.mdx`: add a bullet in the corresponding
-   existing section:
+1. `apps/docs/content/(<product>)/learn/meta.json`: add `"<slug>"` to the
+   `pages` array in the ordering that matches the documented UI.
+2. LLM Gateway pages only — `apps/docs/content/(gateway)/learn/index.mdx`: add a
+   bullet in the corresponding existing section:
 
    ```
    - [**<Page Name>**](/learn/<slug>) — <Short blurb> (Enterprise)

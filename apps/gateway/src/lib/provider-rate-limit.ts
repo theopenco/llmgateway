@@ -90,11 +90,18 @@ async function readWindowState(
 	source: RateLimitSource,
 ): Promise<ProviderRateLimitWindowState> {
 	if (limit === 0) {
+		const rateLimited =
+			source === "global_provider" ||
+			source === "global_model" ||
+			source === "global_provider_model";
 		return {
 			currentCount: 0,
 			limit: 0,
 			remaining: 0,
-			rateLimited: false,
+			rateLimited,
+			...(rateLimited && {
+				retryAfter: providerRateLimitWindows[window].seconds,
+			}),
 			source,
 		};
 	}

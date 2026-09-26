@@ -212,6 +212,20 @@ function assertAllowedModelsSupported(provider: string) {
 	}
 }
 
+/**
+ * Creating or editing custom providers is an enterprise feature. Existing keys
+ * on other plans keep serving and can still be toggled or deleted.
+ */
+function assertCustomProviderEnterprise(
+	organization: { id: string; plan: string } | null | undefined,
+) {
+	if (!hasOrganizationEnterpriseAccess(organization?.id, organization?.plan)) {
+		throw new HTTPException(403, {
+			message: "Custom providers require an enterprise plan",
+		});
+	}
+}
+
 // The custom provider name is the routing segment used in `custom/<name>/<model>`
 // model strings, so it must stay URL-safe and unique within the organization.
 export const customProviderNameSchema = z
@@ -538,10 +552,13 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
-	if (provider === "custom" && (!name || !baseUrl)) {
-		throw new HTTPException(400, {
-			message: "Custom providers require both a name and base URL",
-		});
+	if (provider === "custom") {
+		assertCustomProviderEnterprise(userOrgs[0]?.organization);
+		if (!name || !baseUrl) {
+			throw new HTTPException(400, {
+				message: "Custom providers require both a name and base URL",
+			});
+		}
 	}
 
 	// Stealth providers have no default base URL and an undisclosed platform, so
@@ -1020,6 +1037,17 @@ keysProvider.openapi(updateStatus, async (c) => {
 
 	assertOrganizationProviderKey(providerKey);
 
+	const editsConfiguration =
+		name !== undefined ||
+		description !== undefined ||
+		customModelsOnly !== undefined ||
+		complianceAttestation !== undefined ||
+		usageLimit !== undefined ||
+		requestedAllowedModels !== undefined;
+	if (providerKey.provider === "custom" && editsConfiguration) {
+		assertCustomProviderEnterprise(providerKey.organization);
+	}
+
 	if (name !== undefined) {
 		if (providerKey.provider !== "custom") {
 			throw new HTTPException(400, {
@@ -1036,17 +1064,6 @@ keysProvider.openapi(updateStatus, async (c) => {
 		if (providerKey.provider !== "custom") {
 			throw new HTTPException(400, {
 				message: "customModelsOnly can only be set on custom provider keys",
-			});
-		}
-		// Restricting to a custom catalog is an enterprise feature.
-		if (
-			!hasOrganizationEnterpriseAccess(
-				providerKey.organization?.id,
-				providerKey.organization?.plan,
-			)
-		) {
-			throw new HTTPException(403, {
-				message: "Custom models require an enterprise plan",
 			});
 		}
 	}
@@ -1074,16 +1091,6 @@ keysProvider.openapi(updateStatus, async (c) => {
 			throw new HTTPException(400, {
 				message:
 					"complianceAttestation can only be set on custom provider keys",
-			});
-		}
-		if (
-			!hasOrganizationEnterpriseAccess(
-				providerKey.organization?.id,
-				providerKey.organization?.plan,
-			)
-		) {
-			throw new HTTPException(403, {
-				message: "Compliance attestations require an enterprise plan",
 			});
 		}
 	}

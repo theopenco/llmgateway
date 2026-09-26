@@ -1509,6 +1509,459 @@ describe("managed credential reorder cache invalidation", () => {
 			expect(quiet?.totalTokens).toBe("0");
 		});
 	});
+	describe("recent error rate", () => {
+		const providerKeyId = "errors-cred";
+		const orgId = "errors-org";
+		const projectId = "errors-project";
+		const apiKeyId = "errors-api-key";
+
+		async function seedTraffic(
+			entries: { hasError: boolean; finishReason: string }[],
+		) {
+			await db.insert(tables.organization).values({
+				id: orgId,
+				name: "Errors Org",
+				billingEmail: "errors@example.com",
+				credits: "100",
+			});
+			await db.insert(tables.project).values({
+				id: projectId,
+				name: "Errors Project",
+				organizationId: orgId,
+				mode: "credits",
+			});
+			await db.insert(tables.apiKey).values({
+				id: apiKeyId,
+				...hashApiKeyForStorage("errors-api-key-token"),
+				projectId,
+				description: "Errors Key",
+				createdBy: "test-user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: providerKeyId,
+				...encryptProviderKeyForStorage("sk-errors-cred", providerKeyId, null),
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+			});
+
+			let index = 0;
+			for (const entry of entries) {
+				await db.insert(tables.log).values({
+					id: `errors-log-${index}`,
+					requestId: `errors-request-${index}`,
+					organizationId: orgId,
+					projectId,
+					apiKeyId,
+					providerKeyId,
+					cost: 0.01,
+					duration: 1000,
+					usedMode: "credits",
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 100,
+					mode: "credits",
+					hasError: entry.hasError,
+					unifiedFinishReason: entry.finishReason,
+				});
+				index++;
+			}
+
+			await aggregateLogsForTesting();
+		}
+
+		async function listCredential() {
+			const res = await app.request("/admin/provider-credentials", {
+				headers: { Cookie: cookie },
+			});
+			const body = (await res.json()) as {
+				credentials: {
+					id: string;
+					last24h: {
+						requestCount: number;
+						errorCount: number;
+						clientErrorCount: number;
+						gatewayErrorCount: number;
+						upstreamErrorCount: number;
+					};
+				}[];
+			};
+			return body.credentials.find(
+				(credential) => credential.id === providerKeyId,
+			);
+		}
+
+		test("reports 24h request and error counts per credential", async () => {
+			await seedTraffic([
+				{ hasError: false, finishReason: "completed" },
+				{ hasError: false, finishReason: "completed" },
+				{ hasError: true, finishReason: "upstream_error" },
+				{ hasError: true, finishReason: "gateway_error" },
+				{ hasError: true, finishReason: "client_error" },
+			]);
+
+			expect((await listCredential())?.last24h).toEqual({
+				requestCount: 5,
+				errorCount: 3,
+				clientErrorCount: 1,
+				gatewayErrorCount: 1,
+				upstreamErrorCount: 1,
+			});
+		});
+
+		test("reports zeroes for a credential with no attributed traffic", async () => {
+			await seedTraffic([]);
+
+			expect((await listCredential())?.last24h).toEqual({
+				requestCount: 0,
+				errorCount: 0,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 0,
+			});
+		});
+	});
+
+	describe("7d daily series", () => {
+		const providerKeyId = "daily-cred";
+		const projectId = "daily-project";
+		const orgId = "daily-org";
+
+		/** Start of a UTC day, `daysAgo` days back from today. */
+		const DAY_MS = 24 * 60 * 60 * 1000;
+		const HOUR_MS = 60 * 60 * 1000;
+
+		function utcDay(daysAgo: number) {
+			const day = new Date();
+			day.setUTCHours(0, 0, 0, 0);
+			const offsetMs = daysAgo * DAY_MS;
+			return new Date(day.getTime() - offsetMs);
+		}
+
+		/** `hour` hours into the UTC day `daysAgo` days back. */
+		function utcHour(daysAgo: number, hour: number) {
+			const offsetMs = hour * HOUR_MS;
+			return new Date(utcDay(daysAgo).getTime() + offsetMs);
+		}
+
+		async function seedHourlyStats(
+			rows: {
+				hourTimestamp: Date;
+				cost: number;
+				requestCount: number;
+				errorCount?: number;
+				clientErrorCount?: number;
+				upstreamErrorCount?: number;
+			}[],
+		) {
+			await db.insert(tables.organization).values({
+				id: orgId,
+				name: "Daily Org",
+				billingEmail: "daily@example.com",
+				credits: "100",
+			});
+			await db.insert(tables.project).values({
+				id: projectId,
+				name: "Daily Project",
+				organizationId: orgId,
+				mode: "credits",
+			});
+			await db.insert(tables.providerKey).values({
+				id: providerKeyId,
+				...encryptProviderKeyForStorage("sk-daily-cred", providerKeyId, null),
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+			});
+			// Written straight into the rollup: the series has to cover days the log
+			// aggregator cannot be made to backdate.
+			if (rows.length > 0) {
+				await db.insert(tables.providerKeyHourlyStats).values(
+					rows.map((row) => ({
+						providerKeyId,
+						projectId,
+						hourTimestamp: row.hourTimestamp,
+						cost: row.cost,
+						requestCount: row.requestCount,
+						errorCount: row.errorCount ?? 0,
+						clientErrorCount: row.clientErrorCount ?? 0,
+						upstreamErrorCount: row.upstreamErrorCount ?? 0,
+					})),
+				);
+			}
+		}
+
+		async function listDaily() {
+			const res = await app.request("/admin/provider-credentials", {
+				headers: { Cookie: cookie },
+			});
+			const body = (await res.json()) as {
+				credentials: {
+					id: string;
+					last7dDaily: {
+						date: string;
+						cost: number;
+						requestCount: number;
+						errorCount: number;
+						clientErrorCount: number;
+						gatewayErrorCount: number;
+						upstreamErrorCount: number;
+					}[];
+				}[];
+			};
+			return body.credentials.find(
+				(credential) => credential.id === providerKeyId,
+			)?.last7dDaily;
+		}
+
+		test("returns one zero-filled entry per UTC day, oldest first", async () => {
+			await seedHourlyStats([
+				{
+					hourTimestamp: utcHour(6, 3),
+					cost: 0.5,
+					requestCount: 10,
+					errorCount: 1,
+				},
+				// Two buckets on the same day must collapse into one point.
+				{
+					hourTimestamp: utcHour(0, 1),
+					cost: 0.25,
+					requestCount: 4,
+					errorCount: 2,
+					clientErrorCount: 1,
+					upstreamErrorCount: 1,
+				},
+				{
+					hourTimestamp: utcHour(0, 2),
+					cost: 0.25,
+					requestCount: 6,
+					errorCount: 0,
+				},
+			]);
+
+			const daily = await listDaily();
+			expect(daily).toHaveLength(7);
+			expect(daily?.map((point) => point.date)).toEqual(
+				Array.from({ length: 7 }, (_, index) =>
+					utcDay(6 - index).toISOString(),
+				),
+			);
+			expect(daily?.[0]).toEqual({
+				date: utcDay(6).toISOString(),
+				cost: 0.5,
+				requestCount: 10,
+				errorCount: 1,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 0,
+			});
+			expect(daily?.slice(1, 6).map((point) => point.requestCount)).toEqual([
+				0, 0, 0, 0, 0,
+			]);
+			expect(daily?.[6]).toEqual({
+				date: utcDay(0).toISOString(),
+				cost: 0.5,
+				requestCount: 10,
+				errorCount: 2,
+				clientErrorCount: 1,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 1,
+			});
+		});
+
+		test("excludes days older than the window", async () => {
+			await seedHourlyStats([
+				{
+					hourTimestamp: utcHour(7, 12),
+					cost: 9,
+					requestCount: 99,
+					errorCount: 9,
+				},
+			]);
+
+			const daily = await listDaily();
+			expect(daily).toHaveLength(7);
+			expect(daily?.every((point) => point.requestCount === 0)).toBe(true);
+			expect(daily?.every((point) => point.cost === 0)).toBe(true);
+		});
+
+		test("zero-fills the whole window for a credential with no traffic", async () => {
+			await seedHourlyStats([]);
+
+			const daily = await listDaily();
+			expect(daily).toHaveLength(7);
+			expect(daily?.map((point) => point.date)).toEqual(
+				Array.from({ length: 7 }, (_, index) =>
+					utcDay(6 - index).toISOString(),
+				),
+			);
+			expect(daily?.every((point) => point.errorCount === 0)).toBe(true);
+		});
+	});
+
+	describe("per-model error breakdown", () => {
+		const providerKeyId = "model-errors-cred";
+
+		/** Start of today UTC, which is inside the route's day window. */
+		function today() {
+			const day = new Date();
+			day.setUTCHours(0, 0, 0, 0);
+			return day;
+		}
+
+		async function seedCredential() {
+			await db.insert(tables.providerKey).values({
+				id: providerKeyId,
+				...encryptProviderKeyForStorage("sk-model-errors", providerKeyId, null),
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+			});
+		}
+
+		async function seedModelStats(
+			rows: {
+				usedModel: string;
+				requestCount: number;
+				errorCount: number;
+				clientErrorCount?: number;
+				upstreamErrorCount?: number;
+			}[],
+		) {
+			if (rows.length === 0) {
+				return;
+			}
+			await db.insert(tables.globalProviderKeyModelStats).values(
+				rows.map((row) => ({
+					dayTimestamp: today(),
+					providerKeyId,
+					usedModel: row.usedModel,
+					usedProvider: "openai",
+					usedMode: "credits" as const,
+					orgKind: "default" as const,
+					requestCount: row.requestCount,
+					errorCount: row.errorCount,
+					clientErrorCount: row.clientErrorCount ?? 0,
+					upstreamErrorCount: row.upstreamErrorCount ?? 0,
+				})),
+			);
+		}
+
+		async function fetchBreakdown(id = providerKeyId) {
+			const res = await app.request(`/admin/provider-keys/${id}/model-errors`, {
+				headers: { Cookie: cookie },
+			});
+			return {
+				status: res.status,
+				body: (await res.json().catch(() => null)) as {
+					since: string;
+					models: {
+						usedModel: string;
+						usedProvider: string;
+						requestCount: number;
+						errorCount: number;
+						clientErrorCount: number;
+						gatewayErrorCount: number;
+						upstreamErrorCount: number;
+					}[];
+					rest: {
+						modelCount: number;
+						requestCount: number;
+						errorCount: number;
+						clientErrorCount: number;
+						gatewayErrorCount: number;
+						upstreamErrorCount: number;
+					} | null;
+				} | null,
+			};
+		}
+
+		test("returns per-model counts sorted by error rate, excluding client errors", async () => {
+			await seedCredential();
+			await seedModelStats([
+				// Highest volume, lowest rate — must not lead just because it has
+				// the most errors in absolute terms.
+				{
+					usedModel: "openai/gpt-4o-mini",
+					requestCount: 1000,
+					errorCount: 10,
+					clientErrorCount: 6,
+					upstreamErrorCount: 4,
+				},
+				{
+					usedModel: "openai/gpt-4o",
+					requestCount: 20,
+					errorCount: 10,
+					upstreamErrorCount: 10,
+				},
+				// Only client errors: not a failing model, so it sorts last.
+				{
+					usedModel: "openai/o3",
+					requestCount: 4,
+					errorCount: 4,
+					clientErrorCount: 4,
+				},
+			]);
+
+			const { status, body } = await fetchBreakdown();
+			expect(status).toBe(200);
+			expect(body?.models.map((row) => row.usedModel)).toEqual([
+				"openai/gpt-4o",
+				"openai/gpt-4o-mini",
+				"openai/o3",
+			]);
+			expect(body?.models[0]).toEqual({
+				usedModel: "openai/gpt-4o",
+				usedProvider: "openai",
+				requestCount: 20,
+				errorCount: 10,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 10,
+			});
+			expect(body?.rest).toBeNull();
+		});
+
+		test("folds everything past the tenth model into rest", async () => {
+			await seedCredential();
+			await seedModelStats(
+				Array.from({ length: 12 }, (_, index) => ({
+					usedModel: `openai/model-${String(index).padStart(2, "0")}`,
+					requestCount: 100,
+					// Descending rate, so the two lowest-rate models are the ones cut.
+					errorCount: 12 - index,
+					upstreamErrorCount: 12 - index,
+				})),
+			);
+
+			const { body } = await fetchBreakdown();
+			expect(body?.models).toHaveLength(10);
+			expect(body?.models[0]?.usedModel).toBe("openai/model-00");
+			expect(body?.rest).toEqual({
+				modelCount: 2,
+				requestCount: 200,
+				errorCount: 3,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 3,
+			});
+		});
+
+		test("returns an empty breakdown for a credential with no model rows", async () => {
+			await seedCredential();
+
+			const { status, body } = await fetchBreakdown();
+			expect(status).toBe(200);
+			expect(body?.models).toEqual([]);
+			expect(body?.rest).toBeNull();
+		});
+
+		test("404s for an unknown credential", async () => {
+			expect((await fetchBreakdown("does-not-exist")).status).toBe(404);
+		});
+	});
 });
 
 describe("managed credential allowed models", () => {

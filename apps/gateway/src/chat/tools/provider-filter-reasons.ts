@@ -9,6 +9,7 @@ import {
 
 import type {
 	ProviderModelMapping,
+	ReasoningMode,
 	ToolChoiceType,
 	WebSearchTool,
 } from "@llmgateway/models";
@@ -33,6 +34,7 @@ export interface ProviderFilterOptions {
 	strictToolChoice?: boolean;
 	reasoningEffort?: string;
 	reasoningMaxTokens?: number;
+	reasoningMode?: ReasoningMode;
 	noReasoning?: boolean;
 	maxTokens?: number;
 	n?: number;
@@ -181,6 +183,12 @@ export function getProviderFilterReasons(
 		provider.reasoningMaxTokens !== true
 	) {
 		reasons.push(exclusionReason("reasoning_max_tokens"));
+	}
+	if (
+		options.reasoningMode !== undefined &&
+		!provider.reasoningModes?.includes(options.reasoningMode)
+	) {
+		reasons.push(exclusionReason("reasoning_mode"));
 	}
 	if (options.hasTools && provider.tools !== true) {
 		reasons.push(exclusionReason("tools"));

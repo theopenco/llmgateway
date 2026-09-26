@@ -6,25 +6,10 @@ export interface EmailValidationResult {
 	message?: string;
 }
 
-const BLACKLISTED_DOMAINS = [
-	"duck.com",
-	"duckduckgo.com",
-	"keemail.me",
-	"15p.me",
-	"vsheerid.me",
-	"addy.io",
-	"xigege.me",
-	"duckmail.sbs",
-	"web.id",
-	"web-library.net",
-	"hitbtcpool.cloud",
-	"tempmail.edu.ge",
-	"aghism.com",
-	"candaba.com",
-	"kingcq.com",
-];
-
-export function validateEmail(email: string): EmailValidationResult {
+export function validateEmail(
+	email: string,
+	blockedDomains: string[] = [],
+): EmailValidationResult {
 	const emailLower = email.toLowerCase();
 
 	// Check for + sign in local part (before @)
@@ -41,7 +26,7 @@ export function validateEmail(email: string): EmailValidationResult {
 	const domain = emailLower.split("@")[1];
 	if (
 		domain &&
-		BLACKLISTED_DOMAINS.some(
+		blockedDomains.some(
 			(blocked) => domain === blocked || domain.endsWith(`.${blocked}`),
 		)
 	) {

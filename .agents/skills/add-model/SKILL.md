@@ -28,7 +28,7 @@ git diff origin/main...HEAD -- packages/models/src/models/
 | Definitions, field docs                     | `packages/models/src/models/<family>.ts`; types in `packages/models/src/models.ts`                                                   |
 | Providers, env vars, regions, service tiers | `packages/models/src/providers.ts`                                                                                                   |
 | Catalogue invariants                        | `packages/models/src/model-metadata.spec.ts`, `packages/models/src/providers.spec.ts`, `packages/models/src/realtime-models.spec.ts` |
-| Cost engine                                 | `apps/gateway/src/lib/costs.ts`                                                                                                      |
+| Cost engine                                 | `packages/actions/src/costs.ts`                                                                                                       |
 | Token extraction                            | `apps/gateway/src/chat/tools/extract-token-usage.ts`, `apps/gateway/src/chat/tools/parse-provider-response.ts`                       |
 | Request shaping                             | `packages/actions/src/prepare-request-body.ts`                                                                                       |
 | New-provider endpoint wiring                | `packages/actions/src/get-provider-endpoint.ts`                                                                                      |
@@ -178,7 +178,7 @@ per-modality token prices. `realtimeTranscription` only on token-metered ASR
 mappings.
 
 Image and video are the one docs exception to never enumerating models: update
-`apps/docs/content/features/{image,video}-generation.mdx`.
+`apps/docs/content/(gateway)/features/{image,video}-generation.mdx`.
 
 ## 7. Verify
 
@@ -195,7 +195,7 @@ pnpm exec vitest run --no-file-parallelism \
   packages/models/src/model-metadata.spec.ts \
   packages/models/src/providers.spec.ts \
   packages/models/src/realtime-models.spec.ts \
-  apps/gateway/src/lib/costs.spec.ts
+  packages/actions/src/costs.spec.ts
 
 TEST_MODELS="<provider>/<model>" FULL_MODE=true pnpm test:e2e
 ```
@@ -226,19 +226,24 @@ sizes/qualities/durations match exactly what the deployment accepted in §6.
 
 ## 8. When something fails
 
-| Symptom                                       | Cause                                                                                                |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| JSON output cases fail                        | deployment rejects `response_format`; set `jsonOutput: false` and drop it from `supportedParameters` |
-| Reasoning-effort case 400s                    | trim the tier from `reasoningEfforts`                                                                |
-| Forced tool_choice 400s                       | narrow `supportedToolChoices`                                                                        |
-| Vision case 400s                              | `vision: false` on that mapping                                                                      |
-| Cost ~2x the provider's on reasoning requests | reasoning double-counted — add the provider to `completionIncludesReasoning`                         |
-| Cost far below on reasoning requests          | reasoning tokens never extracted (nested `completion_tokens_details`)                                |
-| Cost mismatch only on long prompts            | wrong or missing `pricingTiers` band                                                                 |
-| Manual curl hits the wrong provider           | missing `x-no-fallback: true`                                                                        |
+| Symptom                                       | Cause                                                                                                      |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| JSON output cases fail                        | deployment rejects `response_format`; set `jsonOutput: false` and drop it from `supportedParameters`       |
+| Reasoning-effort case 400s                    | trim the tier from `reasoningEfforts`                                                                      |
+| Forced tool_choice 400s                       | narrow `supportedToolChoices`                                                                              |
+| Vision case 400s                              | `vision: false` on that mapping                                                                            |
+| Cost ~2x the provider's on reasoning requests | reasoning double-counted — add the provider to `completionIncludesReasoning`                               |
+| Cost far below on reasoning requests          | reasoning tokens never extracted (nested `completion_tokens_details`)                                      |
+| Cost mismatch only on long prompts            | wrong or missing `pricingTiers` band                                                                       |
+| Manual curl hits the wrong provider           | missing `x-no-fallback: true`                                                                              |
+| `max_tokens` case returns no content          | reasoning spends the whole budget; declare the tiers the deployment actually honours in `reasoningEfforts` |
 
 If a failure predates the change, fix what's in scope and say in the PR that it
 also fails on `main`.
+
+A failing case is a metadata or gateway fix, never a reason to retire a mapping
+that still serves live requests. Before writing `deactivatedAt`, apply the
+7-day notice rule in `AGENTS.md`.
 
 ## 9. Finish
 

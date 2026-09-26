@@ -1,10 +1,18 @@
 "use client";
 
-import { ChevronDown, ChevronRight } from "lucide-react";
+import {
+	Boxes,
+	ChevronDown,
+	ChevronRight,
+	Filter,
+	Loader2,
+} from "lucide-react";
 import Link from "next/link";
 import { Fragment, useState } from "react";
 
+import { useFilterNavigation } from "@/components/filter-navigation";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
 	Table,
 	TableBody,
@@ -16,7 +24,8 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared";
+import { ERROR_CLASSIFICATIONS, getProviderIcon } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { UnstableWindow } from "@/lib/unstable-mappings-params";
 
@@ -43,37 +52,10 @@ interface UnstableMapping {
  */
 const UNATTRIBUTED_KEY = "__unattributed__";
 
-const percentFormatter = new Intl.NumberFormat("en-US", {
+export const percentFormatter = new Intl.NumberFormat("en-US", {
 	style: "percent",
 	maximumFractionDigits: 1,
 });
-
-// Human-readable labels and badge styling for the gateway's internal error
-// classification (the log's `unified_finish_reason`). Shown next to the HTTP
-// status because the status alone is misleading — some 4xx responses are
-// classified as gateway or upstream errors.
-const classificationBadges: Record<string, { label: string; class: string }> = {
-	client_error: {
-		label: "Client error",
-		class: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
-	},
-	gateway_error: {
-		label: "Gateway error",
-		class: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
-	},
-	upstream_error: {
-		label: "Upstream error",
-		class: "bg-red-500/15 text-red-600 dark:text-red-400",
-	},
-	content_filter: {
-		label: "Content filter",
-		class: "bg-purple-500/15 text-purple-600 dark:text-purple-400",
-	},
-	canceled: {
-		label: "Canceled",
-		class: "bg-muted text-muted-foreground",
-	},
-};
 
 function ClassificationBadge({
 	classification,
@@ -83,16 +65,25 @@ function ClassificationBadge({
 	if (!classification) {
 		return null;
 	}
-	const badge = classificationBadges[classification] ?? {
-		label: classification,
-		class: "bg-muted text-muted-foreground",
-	};
+	const badge = ERROR_CLASSIFICATIONS[classification];
 	return (
-		<Badge className={cn("font-medium", badge.class)}>{badge.label}</Badge>
+		<>
+			<Badge
+				className={cn(
+					"font-medium",
+					badge?.badgeClass ?? "bg-muted text-muted-foreground",
+				)}
+			>
+				{badge?.label ?? classification}
+			</Badge>
+			{badge && (
+				<span className="text-xs text-muted-foreground">{badge.hint}</span>
+			)}
+		</>
 	);
 }
 
-function errorRateClass(rate: number): string {
+export function errorRateClass(rate: number): string {
 	if (rate >= 0.5) {
 		return "bg-red-500/15 text-red-600 dark:text-red-400";
 	}
@@ -102,7 +93,7 @@ function errorRateClass(rate: number): string {
 	return "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400";
 }
 
-function ErrorDetails({
+export function ErrorDetails({
 	usedModel,
 	provider,
 	providerKeyId,
@@ -111,6 +102,7 @@ function ErrorDetails({
 	logLimit,
 	ignoreExpected,
 	includeByok,
+	incidentsOnly = false,
 }: {
 	usedModel: string;
 	provider: string;
@@ -120,9 +112,11 @@ function ErrorDetails({
 	logLimit: number;
 	ignoreExpected: boolean;
 	includeByok: boolean;
+	/** Only upstream and gateway errors, matching the Incidents counts. */
+	incidentsOnly?: boolean;
 }) {
 	const $api = useApi();
-	const { data, isLoading, isError } = $api.useQuery(
+	const { data, isLoading, isError, isFetching, refetch } = $api.useQuery(
 		"get",
 		"/admin/unstable-mappings/errors",
 		{
@@ -136,6 +130,7 @@ function ErrorDetails({
 					logLimit,
 					ignoreExpected: ignoreExpected ? "true" : "false",
 					includeByok: includeByok ? "true" : "false",
+					incidentsOnly: incidentsOnly ? "true" : "false",
 				},
 			},
 		},
@@ -143,7 +138,11 @@ function ErrorDetails({
 
 	if (isLoading) {
 		return (
-			<div className="space-y-2 p-4">
+			<div className="space-y-2 p-4" aria-busy>
+				<p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					<Loader2 className="h-3.5 w-3.5 animate-spin" />
+					Scanning logs for error details…
+				</p>
 				{[0, 1, 2].map((i) => (
 					<div key={i} className="h-8 animate-pulse rounded bg-muted/40" />
 				))}
@@ -153,9 +152,21 @@ function ErrorDetails({
 
 	if (isError) {
 		return (
-			<p className="p-4 text-sm text-muted-foreground">
-				Failed to load error details.
-			</p>
+			<div
+				role="alert"
+				className="m-4 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm"
+			>
+				<span>Failed to load error details.</span>
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={isFetching}
+					onClick={() => void refetch()}
+				>
+					{isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+					Retry
+				</Button>
+			</div>
 		);
 	}
 
@@ -188,7 +199,7 @@ function ErrorDetails({
 		<div className="space-y-4 p-4">
 			<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				Top {errors.length} error{errors.length === 1 ? "" : "s"} ·{" "}
-				{data?.sampledErrors.toLocaleString()} sampled
+				{data ? formatNumber(data.sampledErrors) : null} sampled
 			</p>
 			{groups.map((group) => (
 				<div key={group.label} className="space-y-2">
@@ -199,9 +210,9 @@ function ErrorDetails({
 						<span className="text-xs text-muted-foreground">
 							{group.errors.length} error
 							{group.errors.length === 1 ? "" : "s"} ·{" "}
-							{group.errors
-								.reduce((sum, error) => sum + error.count, 0)
-								.toLocaleString()}
+							{formatNumber(
+								group.errors.reduce((sum, error) => sum + error.count, 0),
+							)}
 							× total
 						</span>
 					</div>
@@ -212,7 +223,7 @@ function ErrorDetails({
 								className="rounded-md border border-border/60 bg-background/60 p-3"
 							>
 								<div className="flex items-center justify-between gap-3">
-									<div className="flex items-center gap-2">
+									<div className="flex flex-wrap items-center gap-2">
 										{error.statusCode !== null && (
 											<Badge variant="outline" className="font-mono">
 												{error.statusCode}
@@ -228,7 +239,7 @@ function ErrorDetails({
 										/>
 									</div>
 									<span className="shrink-0 text-sm font-semibold tabular-nums">
-										{error.count.toLocaleString()}×
+										{formatNumber(error.count)}×
 									</span>
 								</div>
 								{error.responseText && (
@@ -268,6 +279,7 @@ export function UnstableMappingsTable({
 	includeByok: boolean;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(null);
+	const { isPending, navigate } = useFilterNavigation();
 	const columnCount = splitByKey ? 7 : 6;
 
 	if (mappings.length === 0) {
@@ -326,17 +338,55 @@ export function UnstableMappingsTable({
 									</Link>
 								</TableCell>
 								<TableCell>
-									<Link
-										href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}${mapping.region ? `?region=${encodeURIComponent(mapping.region)}` : ""}`}
-										className="font-mono text-xs hover:underline"
-									>
-										{mapping.modelId}
-										{mapping.region && (
-											<span className="text-muted-foreground">
-												:{mapping.region}
-											</span>
-										)}
-									</Link>
+									<div className="flex items-center gap-1">
+										<Link
+											href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}${mapping.region ? `?region=${encodeURIComponent(mapping.region)}` : ""}`}
+											className="font-mono text-xs hover:underline"
+										>
+											{mapping.modelId}
+											{mapping.region && (
+												<span className="text-muted-foreground">
+													:{mapping.region}
+												</span>
+											)}
+										</Link>
+										<button
+											type="button"
+											className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
+											aria-label="Filter to this mapping"
+											title="Filter to this mapping"
+											disabled={isPending}
+											onClick={() =>
+												navigate(
+													`scope:mapping:${mapping.usedModel}`,
+													(params) => {
+														params.delete("modelId");
+														params.set("mapping", mapping.usedModel);
+													},
+												)
+											}
+										>
+											<Filter className="h-3.5 w-3.5" />
+										</button>
+										<button
+											type="button"
+											className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
+											aria-label="Filter to every mapping of this model"
+											title="Filter to every mapping of this model"
+											disabled={isPending}
+											onClick={() =>
+												navigate(
+													`scope:modelId:${mapping.modelId}`,
+													(params) => {
+														params.delete("mapping");
+														params.set("modelId", mapping.modelId);
+													},
+												)
+											}
+										>
+											<Boxes className="h-3.5 w-3.5" />
+										</button>
+									</div>
 								</TableCell>
 								{splitByKey && (
 									<TableCell>
@@ -380,10 +430,10 @@ export function UnstableMappingsTable({
 									</Badge>
 								</TableCell>
 								<TableCell className="text-right tabular-nums">
-									{mapping.errorsCount.toLocaleString()}
+									{formatNumber(mapping.errorsCount)}
 								</TableCell>
 								<TableCell className="text-right tabular-nums text-muted-foreground">
-									{mapping.logsCount.toLocaleString()}
+									{formatNumber(mapping.logsCount)}
 								</TableCell>
 							</TableRow>
 							{isOpen && (

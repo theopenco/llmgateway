@@ -1,0 +1,8 @@
+node_modules
+ios
+build
+coverage
+src/lib/api/v1.d.ts
+src/lib/api/gateway.d.ts
+
+src/generated/

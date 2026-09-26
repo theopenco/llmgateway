@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
 	dematerializeAirsideModel,
 	materializeAirsideModel,
+	setAirsideModelServing,
 	staticCatalogueHasActiveMapping,
 	syncAirsideModelMetadata,
 	updateAirsideMappingPrices,
@@ -29,14 +30,36 @@ import {
 	pickMetadataChanges,
 	quantizationValue,
 	REASONING_EFFORT_VALUES,
+	supportedToolChoicesValue,
 } from "@/lib/airside-metadata.js";
+import {
+	incidentsResponseSchema,
+	incidentsWindowSchema,
+	mappingErrorShapesSchema,
+	notRetriedClause,
+	incidentErrorsClause,
+	queryIncidentMappings,
+	queryMappingErrorShapes,
+	resolveMappingErrorWindow,
+} from "@/lib/mapping-error-shapes.js";
+import {
+	buildVerificationTarget,
+	enqueueModelVerification,
+	modelVerificationSchema,
+	pendingFiledCapabilities,
+	resolveVerificationCredential,
+	saveClaimVerificationKey,
+	serializeVerification,
+	serializeVerificationHistoryEntry,
+	verificationActors,
+	verificationHistoryEntrySchema,
+	verificationTargetsMatch,
+	type CapabilityOverrides,
+	type ModelVerificationRow,
+} from "@/lib/model-verification.js";
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
-import {
-	createQueuedModelVerificationChecks,
-	encryptModelVerificationCredential,
-} from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
 	AIRSIDE_DISCOUNT_MAX,
@@ -50,12 +73,10 @@ import {
 	eq,
 	gte,
 	inArray,
-	shortid,
 	sql,
 	tables,
 } from "@llmgateway/db";
 import {
-	hasProviderEnvironmentToken,
 	models as catalogueModels,
 	PROVIDER_API_FORMATS,
 	providers as catalogueProviders,
@@ -71,8 +92,6 @@ import { getStripe } from "./payments.js";
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 import type { ProviderModelMapping } from "@llmgateway/models";
-
-type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * Airside — the self-serve provider portal. Provider companies ("carriers")
@@ -194,6 +213,22 @@ const verificationMappingSchema = z.object({
 	vision: z.boolean().optional(),
 	audio: z.boolean().optional(),
 	tools: z.boolean().optional(),
+	supportedToolChoices: supportedToolChoicesValue.nullish(),
+	jsonOutput: z.boolean().optional(),
+	jsonOutputSchema: z.boolean().optional(),
+	reasoning: z.boolean().optional(),
+	reasoningMaxTokens: z.boolean().optional(),
+	reasoningEfforts: reasoningEffortsValue.nullish(),
+	webSearch: z.boolean().optional(),
+});
+
+/** The capability subset a carrier can preflight before saving an edit. */
+const proposedCapabilitiesSchema = z.object({
+	streaming: z.boolean().optional(),
+	vision: z.boolean().optional(),
+	audio: z.boolean().optional(),
+	tools: z.boolean().optional(),
+	supportedToolChoices: supportedToolChoicesValue.nullish(),
 	jsonOutput: z.boolean().optional(),
 	jsonOutputSchema: z.boolean().optional(),
 	reasoning: z.boolean().optional(),
@@ -226,6 +261,10 @@ const claimSchema = z.object({
 	// gateway has nothing to authenticate with, so an approved listing still
 	// serves no traffic — the portal says so instead of looking healthy.
 	hasManagedCredential: z.boolean(),
+	// The carrier's saved verification key, masked. Every preflight on this
+	// provider runs on it unless the carrier pastes another one.
+	verificationKeyMasked: z.string().nullable(),
+	verificationKeySetAt: z.string().nullable(),
 	createdAt: z.string(),
 });
 
@@ -293,23 +332,6 @@ const filingSchema = z.object({
 	createdAt: z.string(),
 });
 
-const modelVerificationSchema = z.object({
-	id: z.string(),
-	status: z.enum(["queued", "running", "passed", "failed"]),
-	checks: z.array(
-		z.object({
-			id: z.string(),
-			label: z.string(),
-			status: z.enum(["queued", "running", "passed", "failed", "skipped"]),
-			feedback: z.string().optional(),
-		}),
-	),
-	summary: z.string().nullable(),
-	createdAt: z.string(),
-	startedAt: z.string().nullable(),
-	completedAt: z.string().nullable(),
-});
-
 const modelSchema = z.object({
 	quantization: quantizationValue.nullable(),
 	id: z.string(),
@@ -328,6 +350,8 @@ const modelSchema = z.object({
 	vision: z.boolean(),
 	audio: z.boolean(),
 	tools: z.boolean(),
+	// Accepted tool_choice modes; null = all of them.
+	supportedToolChoices: supportedToolChoicesValue.nullable(),
 	jsonOutput: z.boolean(),
 	jsonOutputSchema: z.boolean(),
 	reasoning: z.boolean(),
@@ -341,6 +365,8 @@ const modelSchema = z.object({
 	// "global" = one counter across all organizations, "per_org" = one each.
 	rateLimitScope: z.enum(["global", "per_org"]),
 	status: z.enum(["draft", "active", "rejected", "delisted"]),
+	// Set while an active listing is paused by the carrier.
+	pausedAt: z.string().nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 	currentPricing: filingSchema.nullable(),
@@ -411,8 +437,6 @@ function serializeRoutingFiling(row: RoutingFilingRow) {
 type ProviderClaimRow = typeof tables.providerClaim.$inferSelect;
 type PriceFilingRow = typeof tables.providerPriceFiling.$inferSelect;
 type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
-type ModelVerificationRow =
-	typeof tables.providerModelVerification.$inferSelect;
 
 function serializeClaim(
 	row: ProviderClaimRow,
@@ -436,6 +460,8 @@ function serializeClaim(
 		// Unknown on the single-claim responses (nothing renders the warning
 		// off those); the companies listing the portal polls resolves it.
 		hasManagedCredential: credentialedProviders?.has(row.providerId) ?? true,
+		verificationKeyMasked: row.verificationKeyMasked,
+		verificationKeySetAt: row.verificationKeyUpdatedAt?.toISOString() ?? null,
 		createdAt: row.createdAt.toISOString(),
 	};
 }
@@ -471,135 +497,45 @@ async function credentialedProviderIds(
 function verificationTarget(
 	body: z.infer<typeof verificationMappingSchema>,
 ): ProviderModelVerificationTarget {
-	return {
-		providerId: body.providerId,
-		modelName: body.modelName,
-		externalId: body.externalId ?? body.modelName,
-		apiFormat: body.apiFormat ?? "openai-chat-completions",
-		streaming: body.streaming ?? true,
-		vision: body.vision ?? false,
-		audio: body.audio ?? false,
-		tools: body.tools ?? false,
-		jsonOutput: body.jsonOutput ?? false,
-		jsonOutputSchema: body.jsonOutputSchema ?? false,
-		reasoning: body.reasoning ?? false,
-		reasoningMaxTokens: body.reasoningMaxTokens ?? false,
-		reasoningEfforts: body.reasoningEfforts ?? null,
-		webSearch: body.webSearch ?? false,
-	};
+	return buildVerificationTarget(body);
 }
 
+/**
+ * The target for a listing's own row, optionally with the capabilities a
+ * carrier is proposing but has not filed yet. The pair (provider, model,
+ * upstream id, protocol) always comes from the row — only capabilities differ.
+ */
 function draftVerificationTarget(
 	model: DraftModelRow,
+	proposed: CapabilityOverrides = {},
 ): ProviderModelVerificationTarget {
+	// `null` is a meaningful proposal for the list-valued fields ("no
+	// restriction" / "parameter unsupported"), so they fall back on undefined
+	// only, not on nullish.
 	return verificationTarget({
 		providerCompanyId: model.providerCompanyId,
 		providerId: model.providerId,
 		modelName: model.modelName,
 		externalId: model.externalId,
 		apiFormat: model.apiFormat,
-		streaming: model.streaming,
-		vision: model.vision,
-		audio: model.audio,
-		tools: model.tools,
-		jsonOutput: model.jsonOutput,
-		jsonOutputSchema: model.jsonOutputSchema,
-		reasoning: model.reasoning,
-		reasoningMaxTokens: model.reasoningMaxTokens,
-		reasoningEfforts: model.reasoningEfforts as
+		streaming: proposed.streaming ?? model.streaming,
+		vision: proposed.vision ?? model.vision,
+		audio: proposed.audio ?? model.audio,
+		tools: proposed.tools ?? model.tools,
+		supportedToolChoices:
+			proposed.supportedToolChoices === undefined
+				? model.supportedToolChoices
+				: proposed.supportedToolChoices,
+		jsonOutput: proposed.jsonOutput ?? model.jsonOutput,
+		jsonOutputSchema: proposed.jsonOutputSchema ?? model.jsonOutputSchema,
+		reasoning: proposed.reasoning ?? model.reasoning,
+		reasoningMaxTokens: proposed.reasoningMaxTokens ?? model.reasoningMaxTokens,
+		reasoningEfforts: ((proposed.reasoningEfforts === undefined
+			? model.reasoningEfforts
+			: proposed.reasoningEfforts) ?? null) as
 			(typeof REASONING_EFFORT_VALUES)[number][] | null,
-		webSearch: model.webSearch,
+		webSearch: proposed.webSearch ?? model.webSearch,
 	});
-}
-
-function verificationTargetsMatch(
-	left: ProviderModelVerificationTarget,
-	right: ProviderModelVerificationTarget,
-): boolean {
-	return (
-		left.providerId === right.providerId &&
-		left.modelName === right.modelName &&
-		left.externalId === right.externalId &&
-		(left.apiFormat ?? "openai-chat-completions") ===
-			(right.apiFormat ?? "openai-chat-completions") &&
-		left.streaming === right.streaming &&
-		left.vision === right.vision &&
-		left.audio === right.audio &&
-		left.tools === right.tools &&
-		left.jsonOutput === right.jsonOutput &&
-		left.jsonOutputSchema === right.jsonOutputSchema &&
-		left.reasoning === right.reasoning &&
-		left.reasoningMaxTokens === right.reasoningMaxTokens &&
-		JSON.stringify(left.reasoningEfforts) ===
-			JSON.stringify(right.reasoningEfforts) &&
-		left.webSearch === right.webSearch
-	);
-}
-
-async function verificationCredentialSource(
-	target: ProviderModelVerificationTarget,
-	apiKey: string | undefined,
-): Promise<ModelVerificationRow["credentialSource"]> {
-	if (apiKey) {
-		return "supplied";
-	}
-	const managedKeys = await db.query.providerKey.findMany({
-		where: {
-			provider: { eq: target.providerId },
-			managed: { eq: true },
-			status: { eq: "active" },
-		},
-		columns: { allowedModels: true },
-	});
-	if (
-		managedKeys.some(
-			(key) =>
-				!key.allowedModels?.length ||
-				key.allowedModels.includes(target.externalId),
-		)
-	) {
-		return "managed";
-	}
-	if (hasProviderEnvironmentToken(target.providerId)) {
-		return "environment";
-	}
-	throw new HTTPException(400, {
-		message: "Enter a provider API key to run this verification.",
-	});
-}
-
-async function enqueueModelVerification(
-	input: {
-		providerCompanyId: string;
-		draftModelId?: string;
-		target: ProviderModelVerificationTarget;
-		apiKey?: string;
-		requestedBy: string;
-		credentialSource: ModelVerificationRow["credentialSource"];
-	},
-	transaction?: DbTransaction,
-): Promise<ModelVerificationRow> {
-	const id = shortid();
-	const [created] = await (transaction ?? db)
-		.insert(tables.providerModelVerification)
-		.values({
-			id,
-			providerCompanyId: input.providerCompanyId,
-			draftModelId: input.draftModelId ?? null,
-			requestedBy: input.requestedBy,
-			target: input.target,
-			checks: createQueuedModelVerificationChecks(input.target),
-			credentialSource: input.credentialSource,
-			credentialCiphertext: input.apiKey
-				? encryptModelVerificationCredential(
-						input.apiKey,
-						id,
-						input.providerCompanyId,
-					)
-				: null,
-		})
-		.returning();
-	return created;
 }
 
 function serializeFiling(row: PriceFilingRow) {
@@ -627,18 +563,6 @@ function serializeFiling(row: PriceFilingRow) {
 		reviewNote: row.reviewNote,
 		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
 		createdAt: row.createdAt.toISOString(),
-	};
-}
-
-function serializeVerification(row: ModelVerificationRow) {
-	return {
-		id: row.id,
-		status: row.status,
-		checks: row.checks,
-		summary: row.summary,
-		createdAt: row.createdAt.toISOString(),
-		startedAt: row.startedAt?.toISOString() ?? null,
-		completedAt: row.completedAt?.toISOString() ?? null,
 	};
 }
 
@@ -670,6 +594,7 @@ function serializeModel(
 		vision: row.vision,
 		audio: row.audio,
 		tools: row.tools,
+		supportedToolChoices: row.supportedToolChoices ?? null,
 		jsonOutput: row.jsonOutput,
 		jsonOutputSchema: row.jsonOutputSchema,
 		reasoning: row.reasoning,
@@ -681,6 +606,7 @@ function serializeModel(
 		maxRpd: row.maxRpd,
 		rateLimitScope: row.rateLimitScope,
 		status: row.status,
+		pausedAt: row.pausedAt ? row.pausedAt.toISOString() : null,
 		createdAt: row.createdAt.toISOString(),
 		updatedAt: row.updatedAt.toISOString(),
 		currentPricing: approved ? serializeFiling(approved) : null,
@@ -2100,6 +2026,88 @@ airside.openapi(updateClaimBranding, async (c) => {
 	return c.json({ claim: serializeClaim(updated, providerNamesById) });
 });
 
+const verificationKeySchema = z.object({
+	verificationKeyMasked: z.string().nullable(),
+	verificationKeySetAt: z.string().nullable(),
+});
+
+async function requireOwnedActiveClaim(userId: string, claimId: string) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: claimId } },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	await requireCompanyMembership(userId, claim.providerCompanyId);
+	if (claim.status !== "active") {
+		throw new HTTPException(409, {
+			message: "Only an active claim can hold a verification key.",
+		});
+	}
+	return claim;
+}
+
+const setVerificationKey = createRoute({
+	method: "put",
+	path: "/claims/{id}/verification-key",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ apiKey: z.string().min(1).max(20_000) }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: verificationKeySchema },
+			},
+			description: "The saved verification key, masked.",
+		},
+	},
+});
+
+airside.openapi(setVerificationKey, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const { apiKey } = c.req.valid("json");
+	const claim = await requireOwnedActiveClaim(user.id, id);
+	return c.json(await saveClaimVerificationKey(claim, apiKey));
+});
+
+const deleteVerificationKey = createRoute({
+	method: "delete",
+	path: "/claims/{id}/verification-key",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: verificationKeySchema },
+			},
+			description: "The cleared verification key.",
+		},
+	},
+});
+
+airside.openapi(deleteVerificationKey, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	await requireOwnedActiveClaim(user.id, id);
+	// cdb: claim rows feed the gateway's custom-carrier resolution cache.
+	await cdb
+		.update(tables.providerClaim)
+		.set({
+			verificationKeyCiphertext: null,
+			verificationKeyMasked: null,
+			verificationKeyUpdatedAt: null,
+		})
+		.where(eq(tables.providerClaim.id, id));
+	return c.json({ verificationKeyMasked: null, verificationKeySetAt: null });
+});
+
 // ---------------------------------------------------------------------------
 // Models (fleet)
 // ---------------------------------------------------------------------------
@@ -2225,10 +2233,14 @@ airside.openapi(queueNewModelVerification, async (c) => {
 		});
 	}
 	const target = verificationTarget(body);
-	const credentialSource = await verificationCredentialSource(
+	const credential = await resolveVerificationCredential(
 		target,
 		body.apiKey,
+		claim,
 	);
+	if (body.apiKey) {
+		await saveClaimVerificationKey(claim, body.apiKey);
+	}
 	let verification: ModelVerificationRow;
 	try {
 		verification = await db.transaction(async (tx) => {
@@ -2260,9 +2272,9 @@ airside.openapi(queueNewModelVerification, async (c) => {
 				{
 					providerCompanyId: body.providerCompanyId,
 					target,
-					apiKey: body.apiKey,
+					apiKey: credential.apiKey,
 					requestedBy: user.id,
-					credentialSource,
+					credentialSource: credential.credentialSource,
 				},
 				tx,
 			);
@@ -2303,6 +2315,9 @@ airside.openapi(getModelVerification, async (c) => {
 	if (!verification) {
 		throw new HTTPException(404, { message: "Verification not found" });
 	}
+	if (!verification.providerCompanyId) {
+		throw new HTTPException(404, { message: "Verification not found" });
+	}
 	await requireCompanyMembership(user.id, verification.providerCompanyId);
 	return c.json({ verification: serializeVerification(verification) });
 });
@@ -2317,6 +2332,10 @@ const queueExistingModelVerification = createRoute({
 				"application/json": {
 					schema: z.object({
 						apiKey: z.string().min(1).max(20_000).optional(),
+						// Capabilities to verify instead of the ones on the saved
+						// row, so a carrier can preflight an edit before filing it.
+						// The pair itself is immutable and always comes from the row.
+						proposed: proposedCapabilitiesSchema.optional(),
 					}),
 				},
 			},
@@ -2337,7 +2356,7 @@ const queueExistingModelVerification = createRoute({
 airside.openapi(queueExistingModelVerification, async (c) => {
 	const user = requireVerifiedUser(c.get("user"));
 	const { id } = c.req.valid("param");
-	const { apiKey } = c.req.valid("json");
+	const { apiKey, proposed } = c.req.valid("json");
 	const model = await db.query.providerDraftModel.findFirst({
 		where: { id: { eq: id } },
 	});
@@ -2350,17 +2369,37 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 			message: "Delisted mappings cannot be verified.",
 		});
 	}
-	const target = draftVerificationTarget(model);
-	const credentialSource = await verificationCredentialSource(target, apiKey);
+	const claim = await db.query.providerClaim.findFirst({
+		where: {
+			providerCompanyId: { eq: model.providerCompanyId },
+			providerId: { eq: model.providerId },
+			status: { eq: "active" },
+		},
+	});
+	if (!claim) {
+		throw new HTTPException(403, {
+			message: "The provider must have an active claim before verification.",
+		});
+	}
+	// Without an explicit proposal, verify what the listing currently claims —
+	// including a capability edit still awaiting review.
+	const target = draftVerificationTarget(model, {
+		...(await pendingFiledCapabilities(model.id)),
+		...proposed,
+	});
+	const credential = await resolveVerificationCredential(target, apiKey, claim);
+	if (apiKey) {
+		await saveClaimVerificationKey(claim, apiKey);
+	}
 	let verification: ModelVerificationRow;
 	try {
 		verification = await enqueueModelVerification({
 			providerCompanyId: model.providerCompanyId,
 			draftModelId: model.id,
 			target,
-			apiKey,
+			apiKey: credential.apiKey,
 			requestedBy: user.id,
-			credentialSource,
+			credentialSource: credential.credentialSource,
 		});
 	} catch (error) {
 		if (isUniqueViolation(error)) {
@@ -2371,6 +2410,55 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 		throw error;
 	}
 	return c.json({ verification: serializeVerification(verification) }, 202);
+});
+
+const listModelVerifications = createRoute({
+	method: "get",
+	path: "/models/{id}/verifications",
+	request: {
+		params: z.object({ id: z.string() }),
+		query: z.object({
+			limit: z.coerce.number().int().min(1).max(100).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						verifications: z.array(verificationHistoryEntrySchema),
+					}),
+				},
+			},
+			description: "Past preflight runs for this listing, newest first.",
+		},
+	},
+});
+
+airside.openapi(listModelVerifications, async (c) => {
+	const user = requireUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const { limit } = c.req.valid("query");
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: id } },
+		columns: { providerCompanyId: true },
+	});
+	if (!model) {
+		throw new HTTPException(404, { message: "Model not found" });
+	}
+	await requireCompanyMembership(user.id, model.providerCompanyId);
+	const rows = await db.query.providerModelVerification.findMany({
+		where: { draftModelId: { eq: id } },
+		orderBy: { createdAt: "desc" },
+		limit: limit ?? 20,
+	});
+	const actors = await verificationActors(rows);
+	return c.json({
+		// Carriers see which side ran a check, not who on ours did.
+		verifications: rows.map((row) =>
+			serializeVerificationHistoryEntry(row, actors, { audience: "carrier" }),
+		),
+	});
 });
 
 const listModels = createRoute({
@@ -2436,6 +2524,7 @@ const createModel = createRoute({
 						vision: z.boolean().optional(),
 						audio: z.boolean().optional(),
 						tools: z.boolean().optional(),
+						supportedToolChoices: supportedToolChoicesValue.nullish(),
 						jsonOutput: z.boolean().optional(),
 						jsonOutputSchema: z.boolean().optional(),
 						reasoning: z.boolean().optional(),
@@ -2560,6 +2649,7 @@ airside.openapi(createModel, async (c) => {
 					vision: body.vision ?? false,
 					audio: body.audio ?? false,
 					tools: body.tools ?? false,
+					supportedToolChoices: body.supportedToolChoices ?? null,
 					jsonOutput: body.jsonOutput ?? false,
 					jsonOutputSchema: body.jsonOutputSchema ?? false,
 					reasoning: body.reasoning ?? false,
@@ -2752,6 +2842,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 					vision: mapping.vision ?? false,
 					audio: Boolean(mapping.audio),
 					tools: mapping.tools ?? false,
+					supportedToolChoices: mapping.supportedToolChoices ?? null,
 					jsonOutput: mapping.jsonOutput ?? false,
 					jsonOutputSchema: mapping.jsonOutputSchema ?? false,
 					reasoning: mapping.reasoning ?? false,
@@ -3016,7 +3107,7 @@ airside.openapi(deleteModel, async (c) => {
 	await cdb.transaction(async (tx) => {
 		await tx
 			.update(tables.providerDraftModel)
-			.set({ status: "delisted", delistedAt: new Date() })
+			.set({ status: "delisted", delistedAt: new Date(), pausedAt: null })
 			.where(eq(tables.providerDraftModel.id, id));
 		// A delisted model's pending filing would otherwise linger in the admin
 		// queue and approve as a silent no-op.
@@ -3058,6 +3149,96 @@ airside.openapi(deleteModel, async (c) => {
 		await dematerializeAirsideModel(model.providerId, model.modelName, tx);
 	});
 	return c.json({ status: "delisted" as const });
+});
+
+const modelServiceRoute = (action: "pause" | "resume") =>
+	createRoute({
+		method: "post",
+		path: `/models/{id}/${action}`,
+		request: {
+			params: z.object({ id: z.string() }),
+		},
+		responses: {
+			200: {
+				content: {
+					"application/json": {
+						schema: z.object({ model: modelSchema }),
+					},
+				},
+				description:
+					action === "pause"
+						? "The paused model. Applies immediately without review: the listing stops receiving traffic until resumed. Filings stay open and apply to the paused listing."
+						: "The resumed model, back in service immediately.",
+			},
+		},
+	});
+
+async function setModelPaused(
+	userId: string,
+	id: string,
+	paused: boolean,
+): Promise<DraftModelRow> {
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!model) {
+		throw new HTTPException(404, { message: "Model not found" });
+	}
+	await requireCompanyMembership(userId, model.providerCompanyId);
+	// cdb: the gateway caches listing resolution off the mapping table. The
+	// row lock serializes against a concurrent approval re-materializing it.
+	return await cdb.transaction(async (tx) => {
+		const [locked] = await tx
+			.select()
+			.from(tables.providerDraftModel)
+			.where(eq(tables.providerDraftModel.id, id))
+			.for("update")
+			.$withCache(false);
+		if (!locked || locked.status !== "active") {
+			throw new HTTPException(409, {
+				message: "Only models in service can be paused or resumed.",
+			});
+		}
+		if (!!locked.pausedAt === paused) {
+			throw new HTTPException(409, {
+				message: paused
+					? "This model is already paused."
+					: "This model is not paused.",
+			});
+		}
+		const [row] = await tx
+			.update(tables.providerDraftModel)
+			.set({ pausedAt: paused ? new Date() : null })
+			.where(eq(tables.providerDraftModel.id, id))
+			.returning();
+		await setAirsideModelServing(row, !paused, tx);
+		return row;
+	});
+}
+
+async function serializeModelById(row: DraftModelRow) {
+	const withRelations = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: row.id } },
+		with: {
+			priceFilings: true,
+			modelVerifications: { orderBy: { createdAt: "desc" }, limit: 1 },
+		},
+	});
+	return serializeModel({ ...withRelations, ...row });
+}
+
+airside.openapi(modelServiceRoute("pause"), async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const row = await setModelPaused(user.id, id, true);
+	return c.json({ model: await serializeModelById(row) });
+});
+
+airside.openapi(modelServiceRoute("resume"), async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const row = await setModelPaused(user.id, id, false);
+	return c.json({ model: await serializeModelById(row) });
 });
 
 const deleteModelRegion = createRoute({
@@ -3417,10 +3598,14 @@ airside.openapi(statsRoute, async (c) => {
 		gte(mph.hourTimestamp, since),
 	);
 
+	// Gateway + upstream errors only, as in deriveStabilityMetrics: a caller's
+	// malformed request is not the provider's error.
+	const errorSum = sql<number>`COALESCE(SUM(${mph.gatewayErrorCount} + ${mph.upstreamErrorCount}), 0)::int`;
+
 	const [totalsRow] = await db
 		.select({
 			requestCount: sql<number>`COALESCE(SUM(${mph.requestCount}), 0)::int`,
-			errorCount: sql<number>`COALESCE(SUM(${mph.errorCount}), 0)::int`,
+			errorCount: errorSum,
 			cacheCount: sql<number>`COALESCE(SUM(${mph.cacheCount}), 0)::int`,
 			inputTokens: sql<number>`COALESCE(SUM(${mph.inputTokens}), 0)::float8`,
 			outputTokens: sql<number>`COALESCE(SUM(${mph.outputTokens}), 0)::float8`,
@@ -3435,7 +3620,7 @@ airside.openapi(statsRoute, async (c) => {
 			providerId: mph.usedProvider,
 			model: mph.usedModel,
 			requestCount: sql<number>`SUM(${mph.requestCount})::int`,
-			errorCount: sql<number>`SUM(${mph.errorCount})::int`,
+			errorCount: errorSum,
 			inputTokens: sql<number>`SUM(${mph.inputTokens})::float8`,
 			outputTokens: sql<number>`SUM(${mph.outputTokens})::float8`,
 			cost: sql<number>`SUM(${mph.cost})::float8`,
@@ -3450,7 +3635,7 @@ airside.openapi(statsRoute, async (c) => {
 		.select({
 			day: dayExpr,
 			requestCount: sql<number>`SUM(${mph.requestCount})::int`,
-			errorCount: sql<number>`SUM(${mph.errorCount})::int`,
+			errorCount: errorSum,
 			outputTokens: sql<number>`SUM(${mph.outputTokens})::float8`,
 			cost: sql<number>`SUM(${mph.cost})::float8`,
 		})
@@ -3486,6 +3671,120 @@ airside.openapi(statsRoute, async (c) => {
 			day: new Date(row.day).toISOString(),
 		})),
 	});
+});
+
+// ---------------------------------------------------------------------------
+// Incidents (per-mapping errors)
+// ---------------------------------------------------------------------------
+
+async function resolveIncidentProviderIds(
+	providerCompanyId: string,
+	providerId: string | undefined,
+): Promise<string[]> {
+	const providerIds = await getActiveClaimedProviderIds(providerCompanyId);
+	if (providerId === undefined) {
+		return providerIds;
+	}
+	if (!providerIds.includes(providerId)) {
+		throw new HTTPException(404, { message: "Provider not found" });
+	}
+	return [providerId];
+}
+
+const incidentsRoute = createRoute({
+	method: "get",
+	path: "/incidents",
+	request: {
+		query: z.object({
+			providerCompanyId: z.string(),
+			providerId: z.string().optional(),
+			/** Exact `used_model` (`provider/model[:region]`). */
+			mapping: z.string().optional(),
+			window: incidentsWindowSchema.default("24h").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: incidentsResponseSchema.openapi({}),
+				},
+			},
+			description:
+				"Per-mapping upstream + gateway error counts of the company's claimed providers.",
+		},
+	},
+});
+
+airside.openapi(incidentsRoute, async (c) => {
+	const user = requireUser(c.get("user"));
+	const query = c.req.valid("query");
+	await requireCompanyMembership(user.id, query.providerCompanyId);
+	const providerIds = await resolveIncidentProviderIds(
+		query.providerCompanyId,
+		query.providerId,
+	);
+	const { hours: windowHours } = resolveMappingErrorWindow(query.window, "24h");
+	const mapping = query.mapping ?? null;
+	return c.json({
+		windowHours,
+		providerIds,
+		mapping,
+		mappings: await queryIncidentMappings({
+			providerIds,
+			windowHours,
+			mapping,
+		}),
+	});
+});
+
+const incidentErrorsRoute = createRoute({
+	method: "get",
+	path: "/incidents/errors",
+	request: {
+		query: z.object({
+			providerCompanyId: z.string(),
+			providerId: z.string(),
+			/** Exact `used_model` (`provider/model[:region]`). */
+			mapping: z.string(),
+			window: incidentsWindowSchema.default("24h").optional(),
+			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: mappingErrorShapesSchema.openapi({}),
+				},
+			},
+			description:
+				"Top 10 error shapes of one mapping over its latest error logs.",
+		},
+	},
+});
+
+airside.openapi(incidentErrorsRoute, async (c) => {
+	const user = requireUser(c.get("user"));
+	const query = c.req.valid("query");
+	await requireCompanyMembership(user.id, query.providerCompanyId);
+	await resolveIncidentProviderIds(query.providerCompanyId, query.providerId);
+	const { interval: windowInterval } = resolveMappingErrorWindow(
+		query.window,
+		"24h",
+	);
+	return c.json(
+		await queryMappingErrorShapes({
+			usedModel: query.mapping,
+			provider: query.providerId,
+			windowInterval,
+			sampleLimit: 500,
+			extraClauses: [
+				incidentErrorsClause,
+				query.includeRetried === "false" ? notRetriedClause : sql``,
+			],
+		}),
+	);
 });
 
 // ---------------------------------------------------------------------------

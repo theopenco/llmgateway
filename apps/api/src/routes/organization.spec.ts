@@ -31,6 +31,7 @@ const internalOrganizationFields = [
 	"paymentFailureCount",
 	"lastPaymentFailureAt",
 	"paymentFailureStartedAt",
+	"subscriptionPaymentStatus",
 	"trustTierOverride",
 	"contentFilterTierOverride",
 	"contentFilterLogOnly",
@@ -38,8 +39,6 @@ const internalOrganizationFields = [
 	"devPlanCancelled",
 	"devPlanPendingTier",
 	"devPlanCardFingerprint",
-	"devPlanCreditsFrozen",
-	"devPlanCreditsLimitBeforeFreeze",
 	"devPlanTierChangeClaimedAt",
 	"chatPlanStripeSubscriptionId",
 	"chatPlanCancelled",
@@ -50,6 +49,8 @@ const internalOrganizationFields = [
 	"stripeConnectOnboarded",
 	"safetyIdentifier",
 	"riskFlagged",
+	// Served by GET /orgs/{id}/compliance-alerts.
+	"complianceAlertSettings",
 ];
 
 async function expectPublicOrganization(
@@ -912,5 +913,143 @@ describe("organization route", () => {
 		expect(body.balance).toBe(77);
 		// 77 / 1.1 = 70 days, capped to 31 ("30+").
 		expect(body.runwayDays).toBe(31);
+	});
+	describe("auto routing configuration", () => {
+		async function patchSmartRouting(body: unknown) {
+			return await app.request("/orgs/test-org-id", {
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({ smartRoutingConfig: body }),
+			});
+		}
+
+		async function storedConfig() {
+			return (
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.smartRoutingConfig;
+		}
+
+		beforeEach(async () => {
+			await db
+				.update(tables.organization)
+				.set({ plan: "enterprise" })
+				.where(eq(tables.organization.id, "test-org-id"));
+		});
+
+		test("stores a valid configuration", async () => {
+			const response = await patchSmartRouting({
+				classifier: "jev",
+				models: ["gpt-4o-mini", "gpt-4o"],
+			});
+
+			expect(response.status).toBe(200);
+			expect(await storedConfig()).toEqual({
+				classifier: "jev",
+				models: ["gpt-4o-mini", "gpt-4o"],
+			});
+		});
+
+		test("collapses duplicate references to the same model", async () => {
+			const response = await patchSmartRouting({
+				classifier: "none",
+				models: ["gpt-4o-mini", "gpt-4o-mini"],
+			});
+
+			expect(response.status).toBe(200);
+			expect(await storedConfig()).toEqual({
+				classifier: "none",
+				models: ["gpt-4o-mini"],
+			});
+		});
+
+		test("rejects unknown models, empty and oversized lists", async () => {
+			expect(
+				(await patchSmartRouting({ classifier: "none", models: ["nope-9000"] }))
+					.status,
+			).toBe(400);
+			expect(
+				(await patchSmartRouting({ classifier: "none", models: [] })).status,
+			).toBe(400);
+			expect(
+				(
+					await patchSmartRouting({
+						classifier: "none",
+						models: Array.from({ length: 31 }, () => "gpt-4o-mini"),
+					})
+				).status,
+			).toBe(400);
+			expect(
+				(
+					await patchSmartRouting({
+						classifier: "nope",
+						models: ["gpt-4o-mini"],
+					})
+				).status,
+			).toBe(400);
+		});
+
+		test("rejects a model that cannot emit text", async () => {
+			// Audio/image-only models fail upstream on /v1/chat/completions, so they
+			// are never valid smart-routing candidates.
+			const response = await patchSmartRouting({
+				classifier: "none",
+				models: ["tts-1"],
+			});
+			expect(response.status).toBe(400);
+		});
+
+		test("a pay-as-you-go organization can configure it", async () => {
+			await db
+				.update(tables.organization)
+				.set({ plan: "free" })
+				.where(eq(tables.organization.id, "test-org-id"));
+
+			expect(
+				(await patchSmartRouting({ classifier: "none", models: ["gpt-4o"] }))
+					.status,
+			).toBe(200);
+		});
+
+		test("rejects DevPass organizations, but still lets them clear", async () => {
+			// Through the cached client: a plain write leaves the cached
+			// organization row saying "devpass" for every later test in this file.
+			await cdb
+				.update(tables.organization)
+				.set({
+					kind: "devpass",
+					smartRoutingConfig: { classifier: "none", models: ["gpt-4o-mini"] },
+				})
+				.where(eq(tables.organization.id, "test-org-id"));
+
+			expect(
+				(await patchSmartRouting({ classifier: "none", models: ["gpt-4o"] }))
+					.status,
+			).toBe(403);
+			expect((await patchSmartRouting(null)).status).toBe(200);
+			expect(await storedConfig()).toBeNull();
+
+			await cdb
+				.update(tables.organization)
+				.set({ kind: "default" })
+				.where(eq(tables.organization.id, "test-org-id"));
+		});
+
+		test("rejects a member who is not an organization admin", async () => {
+			await db
+				.update(tables.userOrganization)
+				.set({ role: "developer" })
+				.where(eq(tables.userOrganization.organizationId, "test-org-id"));
+
+			const response = await patchSmartRouting({
+				classifier: "none",
+				models: ["gpt-4o-mini"],
+			});
+			expect(response.status).toBe(403);
+		});
 	});
 });

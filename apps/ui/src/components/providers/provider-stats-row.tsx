@@ -6,6 +6,8 @@ import { useApi } from "@/lib/fetch-client";
 import { formatCompact, gateProviderStats } from "@/lib/provider-stats";
 import { cn } from "@/lib/utils";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 // Live 7-day performance band for a provider detail page, from the same
 // public stats endpoint the /providers grid uses. Renders nothing until the
 // provider has traffic.
@@ -81,7 +83,7 @@ export function ProviderStatsRow({ providerId }: { providerId: string }) {
 			icon: Zap,
 			value:
 				gated.throughput !== null
-					? `${Math.round(gated.throughput).toLocaleString()} tok/s`
+					? `${formatNumber(Math.round(gated.throughput))} tok/s`
 					: null,
 		},
 	];

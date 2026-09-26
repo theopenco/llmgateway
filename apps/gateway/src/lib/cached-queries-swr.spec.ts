@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import {
 	redisClient,
-	SWR_PREFIX,
+	swrMirrorKey,
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
 import {
@@ -242,11 +242,13 @@ describe("cached-queries SWR integration", () => {
 			await waitForSwrMirrorWrites();
 
 			const mirror = await redisClient.get(
-				`${SWR_PREFIX}apiKey:token:${getApiKeyFingerprints(testApiKeyToken).join(":")}`,
+				swrMirrorKey(
+					`apiKey:token:${getApiKeyFingerprints(testApiKeyToken).join(":")}`,
+				),
 			);
 			expect(mirror).not.toBeNull();
 			const raw = await redisClient.get(
-				`${SWR_PREFIX}apiKey:token:${testApiKeyToken}`,
+				swrMirrorKey(`apiKey:token:${testApiKeyToken}`),
 			);
 			expect(raw).toBeNull();
 		});
@@ -257,7 +259,7 @@ describe("cached-queries SWR integration", () => {
 			await waitForSwrMirrorWrites();
 
 			const mirror = await redisClient.get(
-				`${SWR_PREFIX}project:${testProjectId}`,
+				swrMirrorKey(`project:${testProjectId}`),
 			);
 			expect(mirror).not.toBeNull();
 		});
@@ -267,7 +269,7 @@ describe("cached-queries SWR integration", () => {
 			expect(result?.id).toBe(testOrgId);
 			await waitForSwrMirrorWrites();
 
-			const mirror = await redisClient.get(`${SWR_PREFIX}org:${testOrgId}`);
+			const mirror = await redisClient.get(swrMirrorKey(`org:${testOrgId}`));
 			expect(mirror).not.toBeNull();
 		});
 
@@ -277,7 +279,7 @@ describe("cached-queries SWR integration", () => {
 			await waitForSwrMirrorWrites();
 
 			const mirror = await redisClient.get(
-				`${SWR_PREFIX}iamRules:${testApiKeyId}`,
+				swrMirrorKey(`iamRules:${testApiKeyId}`),
 			);
 			expect(mirror).not.toBeNull();
 		});
@@ -288,7 +290,7 @@ describe("cached-queries SWR integration", () => {
 			await waitForSwrMirrorWrites();
 
 			const mirror = await redisClient.get(
-				`${SWR_PREFIX}providerKey:${testOrgId}:openai`,
+				swrMirrorKey(`providerKey:${testOrgId}:openai`),
 			);
 			expect(mirror).not.toBeNull();
 		});
@@ -299,7 +301,7 @@ describe("cached-queries SWR integration", () => {
 			await waitForSwrMirrorWrites();
 
 			const mirror = await redisClient.get(
-				`${SWR_PREFIX}providerKey:active:${testOrgId}`,
+				swrMirrorKey(`providerKey:active:${testOrgId}`),
 			);
 			expect(mirror).not.toBeNull();
 		});
@@ -314,7 +316,7 @@ describe("cached-queries SWR integration", () => {
 			await waitForSwrMirrorWrites();
 
 			const mirror = await redisClient.get(
-				`${SWR_PREFIX}customModel:active:${testOrgId}`,
+				swrMirrorKey(`customModel:active:${testOrgId}`),
 			);
 			expect(mirror).not.toBeNull();
 		});
@@ -328,7 +330,7 @@ describe("cached-queries SWR integration", () => {
 			await waitForSwrMirrorWrites();
 
 			const mirror = await redisClient.get(
-				`${SWR_PREFIX}providerKey:byProviders:${testOrgId}:anthropic,openai`,
+				swrMirrorKey(`providerKey:byProviders:${testOrgId}:anthropic,openai`),
 			);
 			expect(mirror).not.toBeNull();
 		});
@@ -339,7 +341,7 @@ describe("cached-queries SWR integration", () => {
 			await waitForSwrMirrorWrites();
 
 			const mirror = await redisClient.get(
-				`${SWR_PREFIX}userFromOrg:${testOrgId}`,
+				swrMirrorKey(`userFromOrg:${testOrgId}`),
 			);
 			expect(mirror).not.toBeNull();
 		});
@@ -351,7 +353,7 @@ describe("cached-queries SWR integration", () => {
 			await waitForSwrMirrorWrites();
 
 			const mirror = await redisClient.get(
-				`${SWR_PREFIX}discount:${testOrgId}:openai:gpt-4`,
+				swrMirrorKey(`discount:${testOrgId}:openai:gpt-4`),
 			);
 			expect(mirror).not.toBeNull();
 		});
@@ -382,7 +384,7 @@ describe("cached-queries SWR integration", () => {
 			await waitForSwrMirrorWrites();
 
 			const mirror = await redisClient.get(
-				`${SWR_PREFIX}routingScoreMultiplier:openai:gpt-4`,
+				swrMirrorKey(`routingScoreMultiplier:openai:gpt-4`),
 			);
 			expect(mirror).not.toBeNull();
 		});
@@ -651,7 +653,7 @@ describe("cached-queries SWR integration", () => {
 			await findProjectById(testProjectId);
 			await waitForSwrMirrorWrites();
 			expect(
-				await redisClient.get(`${SWR_PREFIX}project:${testProjectId}`),
+				await redisClient.get(swrMirrorKey(`project:${testProjectId}`)),
 			).not.toBeNull();
 
 			await cdb
@@ -660,7 +662,7 @@ describe("cached-queries SWR integration", () => {
 				.where(eq(project.id, testProjectId));
 
 			expect(
-				await redisClient.get(`${SWR_PREFIX}project:${testProjectId}`),
+				await redisClient.get(swrMirrorKey(`project:${testProjectId}`)),
 			).toBeNull();
 		});
 	});

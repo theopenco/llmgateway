@@ -4,6 +4,7 @@ slug: "enterprise-guardrails"
 date: "2026-01-26"
 title: "Enterprise Guardrails"
 summary: "Protect your LLM usage with content guardrails. Detect and block prompt injections, PII, secrets, and more — available for Enterprise customers."
+tags: ["llmgateway"]
 image:
   src: "/changelog/guardrails.png"
   alt: "Guardrails configuration dashboard"

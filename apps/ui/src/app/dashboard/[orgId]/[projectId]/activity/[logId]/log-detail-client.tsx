@@ -52,6 +52,7 @@ import {
 	RoutingMetadataExpired,
 } from "@llmgateway/shared/components";
 import { isRoutingMetadataExpired } from "@llmgateway/shared/log-retention";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
@@ -557,7 +558,7 @@ export function LogDetailClient({
 							<span className="text-xs">Tokens</span>
 						</div>
 						<p className="text-lg font-semibold tabular-nums">
-							{Number(log.totalTokens ?? 0).toLocaleString()}
+							{formatNumber(Number(log.totalTokens ?? 0))}
 						</p>
 					</div>
 					<div className="rounded-lg border bg-card p-3">
@@ -697,6 +698,112 @@ export function LogDetailClient({
 											value={log.routingMetadata.selectionReason}
 											mono
 										/>
+									)}
+									{log.routingMetadata.dynamicRoute && (
+										<>
+											<Field
+												label="Dynamic route"
+												value={`${log.routingMetadata.dynamicRoute.name} (v${log.routingMetadata.dynamicRoute.version})`}
+												mono
+											/>
+											{log.routingMetadata.dynamicRoute.path &&
+												log.routingMetadata.dynamicRoute.path.length > 0 && (
+													<Field
+														label="Route path"
+														value={log.routingMetadata.dynamicRoute.path.join(
+															" → ",
+														)}
+														mono
+													/>
+												)}
+											{log.routingMetadata.dynamicRoute.classifier && (
+												<Field
+													label="Route classifier"
+													value={`${log.routingMetadata.dynamicRoute.classifier.kind}: ${
+														[
+															log.routingMetadata.dynamicRoute.classifier
+																.difficulty,
+															log.routingMetadata.dynamicRoute.classifier.task,
+															log.routingMetadata.dynamicRoute.classifier
+																.outputType,
+														]
+															.filter(Boolean)
+															.join(" / ") || "no verdict"
+													}`}
+													mono
+												/>
+											)}
+										</>
+									)}
+									{log.routingMetadata.smartRouting && (
+										<>
+											<Field
+												label="Smart routing"
+												value={`${log.routingMetadata.smartRouting.selectedModel} (${log.routingMetadata.smartRouting.classifier} classifier${
+													log.routingMetadata.smartRouting.classifierFailed
+														? ", failed open"
+														: log.routingMetadata.smartRouting.classifierReused
+															? ", reused for session"
+															: ""
+												})`}
+												mono
+											/>
+											{log.routingMetadata.smartRouting.difficulty && (
+												<Field
+													label="Difficulty"
+													value={`${log.routingMetadata.smartRouting.difficulty}${log.routingMetadata.smartRouting.band ? ` → ${log.routingMetadata.smartRouting.band} band` : ""}`}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting.task && (
+												<Field
+													label="Task"
+													value={`${log.routingMetadata.smartRouting.task}${log.routingMetadata.smartRouting.outputType ? ` / ${log.routingMetadata.smartRouting.outputType}` : ""}`}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting.bestModel && (
+												<Field
+													label="Classifier pick"
+													value={`${log.routingMetadata.smartRouting.bestModel}${
+														log.routingMetadata.smartRouting
+															.bestModelConfidence !== undefined
+															? ` (${Math.round(log.routingMetadata.smartRouting.bestModelConfidence * 100)}% confident)`
+															: ""
+													}`}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting.candidateModels &&
+												log.routingMetadata.smartRouting.candidateModels
+													.length > 0 && (
+													<Field
+														label="Candidates"
+														value={log.routingMetadata.smartRouting.candidateModels.join(
+															", ",
+														)}
+														mono
+													/>
+												)}
+											{log.routingMetadata.smartRouting.classifierLatencyMs !==
+												undefined && (
+												<Field
+													label="Classifier latency"
+													value={`${log.routingMetadata.smartRouting.classifierLatencyMs} ms`}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting.classifierCost !==
+												undefined && (
+												<Field
+													label="Classifier cost"
+													value={`$${Number(
+														log.routingMetadata.smartRouting.classifierCost,
+													).toFixed(8)}`}
+													mono
+												/>
+											)}
+										</>
 									)}
 									{log.routingMetadata.usedApiKeyHash && (
 										<Field
@@ -1015,6 +1122,14 @@ export function LogDetailClient({
 												}
 											/>
 										)}
+										{log.routingBaselineCost !== null &&
+											log.routingBaselineCost !== undefined && (
+												<Field
+													label="Priciest Routing Candidate"
+													value={`$${log.routingBaselineCost.toFixed(8)} (${log.routingBaselineModel ?? "unknown"})`}
+													muted
+												/>
+											)}
 										{log.pricingTier && (
 											<Field label="Pricing Tier" value={log.pricingTier} />
 										)}

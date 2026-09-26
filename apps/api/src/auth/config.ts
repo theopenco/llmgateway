@@ -12,6 +12,7 @@ import {
 	MIN_PASSWORD_LENGTH,
 } from "@/auth/password-policy.js";
 import { serializedPasswordReset } from "@/auth/password-reset.js";
+import { verificationCallback } from "@/auth/verification-callback.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { getClientIpFromHeaders } from "@/lib/client-ip.js";
@@ -22,6 +23,7 @@ import {
 } from "@/utils/country-blocking.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import { notifyUserSignup } from "@/utils/discord.js";
+import { getBlockedSignupEmailDomains } from "@/utils/email-domain-blocking.js";
 import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { resolveSignupName } from "@/utils/infer-name.js";
@@ -35,6 +37,7 @@ import {
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { accountBlockMessage } from "@llmgateway/shared/account-block";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
@@ -145,6 +148,10 @@ export const redisClient = new Redis({
 	host: process.env.REDIS_HOST ?? "localhost",
 	port: Number(process.env.REDIS_PORT) || 6379,
 	password: process.env.REDIS_PASSWORD,
+	// Must honour the same logical database as @llmgateway/cache: session and
+	// rate-limit keys are named after fixed user ids, so without this every
+	// parallel test worker shares them on database 0.
+	db: Number(process.env.REDIS_DB) || 0,
 });
 
 redisClient.on("error", (err: unknown) =>
@@ -736,7 +743,8 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					verificationUri: `${uiUrl}/connect/device`,
 					expiresIn: "10m",
 					interval: "5s",
-					validateClient: (clientId) => clientId === "llmgateway-cli",
+					validateClient: (clientId) =>
+						["llmgateway-cli", "llmgateway-lounge-ios"].includes(clientId),
 					onDeviceAuthRequest: async () => {
 						await db
 							.delete(tables.deviceCode)
@@ -911,14 +919,20 @@ If you didn't request this, you can safely ignore this email. Your password won'
 							{
 								user,
 								token,
+								url: verificationUrl,
 							}: {
 								user: { email: string; name?: string | null };
 								token: string;
+								url: string;
 							},
 							request?: Request,
 						) => {
 							const callbackBase = resolveCallbackBaseUrl(request);
-							const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${encodeURIComponent(`${callbackBase}/dashboard?emailVerified=true`)}`;
+							const callback = verificationCallback(
+								verificationUrl,
+								callbackBase,
+							);
+							const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${encodeURIComponent(callback)}`;
 
 							const text = `Hey${user.name ? ` ${user.name}` : ""}!
 
@@ -975,14 +989,13 @@ The LLM Gateway Team`.trim();
 						if (email) {
 							const existingUser = await db.query.user.findFirst({
 								where: { email: { eq: email } },
-								columns: { status: true },
+								columns: { status: true, blockReason: true },
 							});
 							if (existingUser?.status === "deactivated") {
 								return new Response(
 									JSON.stringify({
 										error: "account_deactivated",
-										message:
-											"Your account has been deactivated. Please contact support.",
+										message: accountBlockMessage(existingUser.blockReason),
 									}),
 									{
 										status: 403,
@@ -1107,7 +1120,10 @@ The LLM Gateway Team`.trim();
 						if (isHosted) {
 							const body = ctx.body as { email?: string } | undefined;
 							if (body?.email) {
-								const emailValidation = validateEmail(body.email);
+								const emailValidation = validateEmail(
+									body.email,
+									await getBlockedSignupEmailDomains(),
+								);
 								if (!emailValidation.valid) {
 									logger.warn("Signup blocked due to invalid email", {
 										ip: ipAddress,
@@ -1170,7 +1186,12 @@ The LLM Gateway Team`.trim();
 
 					const dbUser = await db.query.user.findFirst({
 						where: { id: { eq: userId } },
-						columns: { status: true, name: true, email: true },
+						columns: {
+							status: true,
+							blockReason: true,
+							name: true,
+							email: true,
+						},
 					});
 
 					if (dbUser && !dbUser.name?.trim() && dbUser.email) {
@@ -1191,8 +1212,7 @@ The LLM Gateway Team`.trim();
 						return new Response(
 							JSON.stringify({
 								error: "account_deactivated",
-								message:
-									"Your account has been deactivated. Please contact support.",
+								message: accountBlockMessage(dbUser.blockReason),
 							}),
 							{
 								status: 403,

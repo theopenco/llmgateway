@@ -25,7 +25,12 @@ const liteLlmFaqs: CompareFaqItem[] = [
 	},
 	{
 		question: "How does pricing work compared to LiteLLM?",
-		answer: `Managed usage is pay-as-you-go with a flat 5% platform fee on credits, or free when you bring your own provider keys; optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}. Self-hosting the AGPLv3 build is free.`,
+		answer: `Managed usage is pay-as-you-go with a flat 5% platform fee on credits, or free when you bring your own provider keys; optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}. Self-hosting the AGPLv3 build is free. LiteLLM's proxy is free to self-host, and its Enterprise tier (SSO, RBAC, audit logs, support) is quoted per deployment rather than per token.`,
+	},
+	{
+		question: "What about the March 2026 LiteLLM supply-chain incident?",
+		answer:
+			"On March 24, 2026 two malicious litellm releases (1.82.7 and 1.82.8) reached PyPI and were pulled after about 40 minutes; they harvested credentials from unpinned pip installs. Pinned Docker deployments were unaffected, and LiteLLM shipped a hardened release pipeline with 1.83.0. The lesson applies to any self-hosted proxy, LLM Gateway included: pin versions and own the patch cycle, or use a managed gateway where that work is done for you.",
 	},
 	{
 		question: "Does it provide analytics and routing out of the box?",

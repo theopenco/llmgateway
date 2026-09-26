@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { useCompany } from "@/components/dashboard/company-context";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
-import { Logo } from "@/components/Logo";
+import { ProductSwitcher } from "@/components/ProductSwitcher";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,9 +27,11 @@ const NAV = [
 	{ href: "/dashboard", label: "Operations", exact: true },
 	{ href: "/dashboard/fleet", label: "Fleet", exact: false },
 	{ href: "/dashboard/traffic", label: "Traffic", exact: false },
+	{ href: "/dashboard/incidents", label: "Incidents", exact: false },
 	{ href: "/dashboard/fares", label: "Fares", exact: false },
 	{ href: "/dashboard/filings", label: "Filings", exact: false },
 	{ href: "/dashboard/crew", label: "Crew", exact: false },
+	{ href: "/dashboard/settings", label: "Settings", exact: false },
 ];
 
 export function DashboardShell({ children }: { children: ReactNode }) {
@@ -49,14 +51,9 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 	return (
 		<div className="flex min-h-screen flex-col">
 			<header className="border-border/60 bg-background sticky top-0 z-40 border-b">
-				<div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
-					<div className="flex min-w-0 items-center gap-3">
-						<Link href="/" className="flex shrink-0 items-center gap-2">
-							<Logo className="size-6" />
-							<span className="font-display hidden font-black tracking-tight sm:inline">
-								AIRSIDE
-							</span>
-						</Link>
+				<div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-6 lg:flex lg:h-14 lg:justify-between lg:py-0">
+					<div className="flex min-w-0 shrink-0 flex-wrap items-center gap-3 lg:flex-nowrap">
+						<ProductSwitcher />
 						{companies.length > 0 ? (
 							<Select
 								value={company?.id ?? ""}
@@ -80,7 +77,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 						) : null}
 					</div>
 
-					<nav className="flex items-center gap-0.5 overflow-x-auto">
+					<nav className="order-3 col-span-2 flex min-w-0 items-center gap-0.5 overflow-x-auto lg:order-none">
 						{NAV.map((item) => {
 							const active = item.exact
 								? pathname === item.href

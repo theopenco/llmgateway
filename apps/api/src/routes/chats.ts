@@ -155,6 +155,8 @@ const createChatSchema = z.object({
 
 const updateChatSchema = z.object({
 	title: z.string().min(1).max(200).optional(),
+	model: z.string().min(1).optional(),
+	webSearch: z.boolean().optional(),
 	status: z.enum(["active", "archived"]).optional(),
 	pinned: z.boolean().optional(),
 });
@@ -180,12 +182,12 @@ const createMessageSchema = z
 	})
 	.refine(
 		(data) =>
-			data.content ??
-			data.images ??
-			data.audios ??
-			data.documents ??
-			data.reasoning ??
-			data.tools ??
+			data.content ||
+			data.images ||
+			data.audios ||
+			data.documents ||
+			data.reasoning ||
+			data.tools ||
 			data.sources,
 		{
 			message:
@@ -249,6 +251,7 @@ const listChats = createRoute({
 		query: z.object({
 			organizationId: z.string().trim().min(1).optional(),
 			projectId: z.string().trim().min(1).optional(),
+			status: z.enum(["active", "archived"]).optional().default("active"),
 		}),
 	},
 	responses: {
@@ -271,7 +274,7 @@ chats.openapi(listChats, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const { organizationId, projectId } = c.req.valid("query");
+	const { organizationId, projectId, status } = c.req.valid("query");
 	const orgFilter = await buildOrgHistoryFilter(
 		tables.chat.organizationId,
 		organizationId,
@@ -320,7 +323,7 @@ chats.openapi(listChats, async (c) => {
 		.where(
 			and(
 				eq(tables.chat.userId, user.id),
-				eq(tables.chat.status, "active"),
+				eq(tables.chat.status, status),
 				isNull(tables.chat.parentChatId),
 				orgFilter,
 				projectId ? eq(tables.chat.projectId, projectId) : undefined,
@@ -369,6 +372,8 @@ const searchChats = createRoute({
 	request: {
 		query: z.object({
 			q: z.string().optional(),
+			organizationId: z.string().trim().min(1).optional(),
+			status: z.enum(["active", "archived"]).optional().default("active"),
 			limit: z.coerce.number().min(1).max(100).default(50).optional(),
 			offset: z.coerce.number().min(0).default(0).optional(),
 		}),
@@ -394,8 +399,18 @@ chats.openapi(searchChats, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const { q = "", limit = 50, offset = 0 } = c.req.valid("query");
+	const {
+		q = "",
+		limit = 50,
+		offset = 0,
+		organizationId,
+		status,
+	} = c.req.valid("query");
 	const search = q.trim();
+	const orgFilter = await buildOrgHistoryFilter(
+		tables.chat.organizationId,
+		organizationId,
+	);
 
 	const searchCondition = search
 		? or(
@@ -409,17 +424,13 @@ chats.openapi(searchChats, async (c) => {
 			)
 		: undefined;
 
-	const conditions = [
+	const where = and(
 		eq(tables.chat.userId, user.id),
-		eq(tables.chat.status, "active"),
+		eq(tables.chat.status, status),
 		isNull(tables.chat.parentChatId),
-	];
-
-	if (searchCondition) {
-		conditions.push(searchCondition);
-	}
-
-	const where = and(...conditions);
+		orgFilter,
+		searchCondition,
+	);
 
 	const [chatsWithCount, totalResult] = await Promise.all([
 		db
@@ -860,6 +871,8 @@ chats.openapi(updateChat, async (c) => {
 	const isPinOnlyUpdate =
 		body.pinned !== undefined &&
 		body.title === undefined &&
+		body.model === undefined &&
+		body.webSearch === undefined &&
 		body.status === undefined;
 
 	const updateValues = isPinOnlyUpdate

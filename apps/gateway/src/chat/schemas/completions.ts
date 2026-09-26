@@ -408,6 +408,11 @@ export const completionsRequestSchema = z.object({
 						"How much replayed reasoning the model considers (OpenAI Responses API models only). Omitting the field is equivalent to 'auto'. Forwarded upstream as reasoning.context; ignored by other providers.",
 					example: "current_turn",
 				}),
+			mode: z.enum(["standard", "pro"]).optional().openapi({
+				description:
+					"Execution strategy: `pro` performs additional model work for difficult tasks at higher latency and token usage. Independent of effort, which controls how much reasoning happens within the mode. Only accepted by mappings that list it under `reasoning_modes` on `/v1/models` (OpenAI GPT-5.6 models); the request is rejected for any other model instead of the field being dropped.",
+				example: "pro",
+			}),
 		})
 		.optional()
 		.openapi({

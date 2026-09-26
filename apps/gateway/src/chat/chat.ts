@@ -28,8 +28,7 @@ import {
 	findActiveCustomModels,
 	findEffectiveDiscount,
 	findAirsideModel,
-	findAirsideRoutingAdjustment,
-	findEffectiveRoutingScoreMultiplier,
+	findRoutingScoreAdjustment,
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
@@ -48,6 +47,7 @@ import {
 import {
 	complianceBlockMessage,
 	getActiveCompliancePolicy,
+	getComplianceFailureReasons,
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
@@ -55,13 +55,6 @@ import {
 	logComplianceBlock,
 	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
-import {
-	calculateCosts as _calculateCosts,
-	isBilledFailureFinishReason,
-	isRefusalFinishReason,
-	shouldBillCancelledRequests,
-	zeroInferenceCosts,
-} from "@/lib/costs.js";
 import { customModelToProviderMapping } from "@/lib/custom-model.js";
 import { getPublishedDynamicRoute } from "@/lib/dynamic-route-loader.js";
 import {
@@ -113,6 +106,7 @@ import {
 import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
+import { createSmartRoutingSessionStore } from "@/lib/smart-routing-session.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	buildUpstreamErrorClientPayload,
@@ -131,6 +125,16 @@ import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 import {
 	applyGoogleServiceTier,
 	assumeServedServiceTier,
+	calculateCosts as _calculateCosts,
+	computeRoutingBaseline,
+	getDynamicRouteBaselineCandidates,
+	isRoutedRequestedModel,
+	prefetchRoutingBaselineDiscounts,
+	type RoutingBaselineCandidate,
+	isBilledFailureFinishReason,
+	isRefusalFinishReason,
+	shouldBillCancelledRequests,
+	zeroInferenceCosts,
 	getCheapestFromAvailableProviders,
 	getDiscountedProviderSelectionPrice,
 	getGcpServiceAccountAccessToken,
@@ -206,6 +210,8 @@ import {
 	getRegionSpecificEnvVarName,
 } from "@llmgateway/models";
 import {
+	complianceExclusionReason,
+	type ContentFilterClassifier,
 	detectCodingAgentFromReferer,
 	detectCodingAgentFromTitle,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
@@ -214,11 +220,19 @@ import {
 	isRecognizedCodingAgent,
 	normalizeSourceToAgentId,
 } from "@llmgateway/shared";
-import { parseCustomDynamicRouteModelRef } from "@llmgateway/shared/dynamic-route";
+import {
+	graphUsesClassifier,
+	parseCustomDynamicRouteModelRef,
+} from "@llmgateway/shared/dynamic-route";
 import {
 	applyRoutingPreference,
 	type ResolvedRoutingConfig,
 } from "@llmgateway/shared/routing-config";
+import {
+	DEFAULT_SMART_ROUTING_MODELS,
+	isSmartRoutingAvailable,
+	type RequestClassification,
+} from "@llmgateway/shared/smart-routing";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
@@ -232,6 +246,12 @@ import {
 import { chunkMayCompleteSseEvent } from "./tools/chunk-may-complete-sse-event.js";
 import { clampTemperature } from "./tools/clamp-temperature.js";
 import { collapseImageGenSse } from "./tools/collapse-image-gen-sse.js";
+import {
+	CONTENT_FILTER_CLASSIFIER_PROVIDERS,
+	evaluateContentFilterWithClassifiers,
+	runContentFilterClassifier,
+	type ContentFilterCheckResult,
+} from "./tools/content-filter-classifier.js";
 import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
 import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
@@ -281,14 +301,11 @@ import {
 	isUpstreamTermination,
 	normalizeStreamingError,
 } from "./tools/normalize-streaming-error.js";
-import {
-	checkOpenAIContentFilter,
-	hasOpenAIContentFilterCredential,
-} from "./tools/openai-content-filter.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { parseTrailingUpstreamError } from "./tools/parse-trailing-upstream-error.js";
+import { pickAutoReasoningEffort } from "./tools/pick-auto-reasoning-effort.js";
 import {
 	exclusionReason,
 	getProviderFilterReasons,
@@ -306,6 +323,7 @@ import {
 	mergeAirsideListingsIntoModel,
 	resolveAirsideModel,
 } from "./tools/resolve-airside-model.js";
+import { resolveDynamicRouteClassification } from "./tools/resolve-dynamic-route-classification.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import { resolvePlatformCredential } from "./tools/resolve-platform-credential.js";
 import {
@@ -335,11 +353,8 @@ import {
 	mappingSupportsRequestedServiceTier,
 	providerKeySupportsServiceTier,
 } from "./tools/service-tier.js";
-import {
-	buildGatewayContentFilterEvaluation,
-	evaluateTieredContentFilter,
-	resolveTieredContentFilterPlan,
-} from "./tools/tiered-content-filter.js";
+import { selectSmartRoutingModel } from "./tools/smart-routing-selection.js";
+import { resolveTieredContentFilterPlan } from "./tools/tiered-content-filter.js";
 import {
 	encodeChatMessages,
 	messageContentToString,
@@ -544,18 +559,10 @@ function createProviderDiscountResolver(organizationId: string) {
 }
 
 function createProviderRoutingScoreMultiplierResolver() {
-	// Two independent signals: the admin prioritization multiplier and the
-	// carrier's own Airside margin/discount adjustment, applied additively.
 	return async (
 		provider: Pick<ProviderModelMapping, "providerId">,
 		modelId: string,
-	) => {
-		const [multiplier, airsideAdjustment] = await Promise.all([
-			findEffectiveRoutingScoreMultiplier(provider.providerId, modelId),
-			findAirsideRoutingAdjustment(provider.providerId, modelId),
-		]);
-		return String(Number(multiplier.scoreMultiplier) + airsideAdjustment);
-	};
+	) => await findRoutingScoreAdjustment(provider.providerId, modelId);
 }
 
 async function collapseProvidersToBestRegionPerProvider(
@@ -1085,6 +1092,15 @@ const CODING_PLAN_CACHED_INPUT_FILTER_REASON =
 
 // Pre-compiled regex pattern to avoid recompilation per request
 const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
+
+/**
+ * Minimum `max_tokens` for auto routing to raise a hard request's default
+ * reasoning effort to "medium". Below it the thinking budget can consume the
+ * whole response allowance and return empty content, so the cheaper default
+ * stands.
+ */
+const SMART_ROUTING_MEDIUM_EFFORT_MIN_MAX_TOKENS = 8192;
+
 const IMMEDIATE_STREAM_ERROR_PEEK_LIMIT = 64 * 1024;
 
 function inferStreamingErrorStatusCode(
@@ -1704,6 +1720,9 @@ chat.openapi(completions, async (c) => {
 		after: readonly ProviderModelMapping[],
 		reason: string,
 		code: ProviderFilterReason["code"],
+		// Finer-grained reasons recorded alongside `code`, e.g. which compliance
+		// rule the mapping failed. Per mapping, since they depend on the mapping.
+		details?: (mapping: ProviderModelMapping) => ProviderFilterReason[],
 	) => {
 		// Provider-level, not mapping-level: with regional expansion a provider is
 		// only "filtered out" once none of its mappings survived.
@@ -1713,7 +1732,7 @@ chat.openapi(completions, async (c) => {
 				recordFilteredProvider(
 					preRoutingFilteredProviders,
 					mapping.providerId,
-					[{ code, message: reason }],
+					[{ code, message: reason }, ...(details?.(mapping) ?? [])],
 				);
 			}
 		}
@@ -1797,6 +1816,7 @@ chat.openapi(completions, async (c) => {
 	const reasoning_object_effort = validationResult.data.reasoning?.effort;
 	const reasoning_max_tokens = validationResult.data.reasoning?.max_tokens;
 	const reasoning_context = validationResult.data.reasoning?.context;
+	const reasoning_mode = validationResult.data.reasoning?.mode;
 
 	// Validate that reasoning_effort and reasoning.effort are not both specified
 	if (
@@ -1997,18 +2017,63 @@ chat.openapi(completions, async (c) => {
 	const logIdOverride = responsesContext?.logId;
 	const finalLogId = logIdOverride ?? shortid();
 
+	// Priciest models the router could have picked for an auto / smart /
+	// dynamic route request; filled while routing, priced per log row below.
+	const routingBaselineCandidates: RoutingBaselineCandidate[] = [];
+
+	const getRoutingBaselineFields = async (
+		logData: LogInsertData,
+	): Promise<
+		Pick<LogInsertData, "routingBaselineModel" | "routingBaselineCost">
+	> => {
+		if (
+			routingBaselineCandidates.length === 0 ||
+			sponsoredOnboarding ||
+			logData.cached ||
+			logData.retried ||
+			typeof logData.cost !== "number" ||
+			!isRoutedRequestedModel(logData.requestedModel)
+		) {
+			return {};
+		}
+		let baseline: Awaited<ReturnType<typeof computeRoutingBaseline>>;
+		try {
+			baseline = await computeRoutingBaseline({
+				candidates: routingBaselineCandidates,
+				usage: logData,
+				actualCost: logData.cost,
+				actualModel: logData.usedModel,
+				organizationId: logData.organizationId,
+			});
+		} catch (error) {
+			// An insight column must never cost us the log row itself.
+			logger.error("Failed to compute routing baseline", {
+				requestId: logData.requestId,
+				error: toError(error),
+			});
+			return {};
+		}
+		return baseline
+			? {
+					routingBaselineModel: baseline.model,
+					routingBaselineCost: baseline.cost,
+				}
+			: {};
+	};
+
 	// Wrapper that logs Responses API proxy requests under the resp_ id the
 	// client sees. Only override the id for the final log entry (retried !==
 	// true) to avoid PK conflicts when the request retries across multiple
 	// providers.
-	const insertLogEntry = (logData: LogInsertData) =>
-		insertLog({
+	const insertLogEntry = async (logData: LogInsertData) =>
+		await insertLog({
 			// Service tiers default from the request-level requested tier and the
 			// served tier resolved so far, so every log path (guardrail/validation
 			// rejections, cache hits, streaming/upstream errors, fetch errors)
 			// records them. Explicit values in logData still win.
 			requestedServiceTier,
 			usedServiceTier: servedServiceTier,
+			...(await getRoutingBaselineFields(logData)),
 			...logData,
 			...(logIdOverride && !logData.retried ? { id: logIdOverride } : {}),
 		});
@@ -2381,6 +2446,98 @@ chat.openapi(completions, async (c) => {
 			? "none"
 			: getEffectiveRetentionLevel(organization);
 
+	// Surface gateway-side rejections (guardrails, unsupported parameters,
+	// rate limits) in the activity feed as a client_error so users can see why
+	// the request never reached a provider. Uses _insertLog directly: the local
+	// insertLog wrapper is declared further down and would be in its temporal
+	// dead zone here.
+	const logGatewayRejection = async (rejection: {
+		message: string;
+		statusCode: number;
+		statusText: string;
+		cause: string;
+		responseText?: string;
+	}) => {
+		try {
+			await _insertLog(
+				{
+					...createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						undefined,
+						"",
+						undefined,
+						"llmgateway",
+						requestedModel,
+						requestedProvider,
+						messages as any[],
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort as "low" | "medium" | "high" | undefined,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+						image_config,
+					),
+					...(logIdOverride ? { id: logIdOverride } : {}),
+					apiOrigin,
+					sessionId: sessionId ?? null,
+					content: null,
+					responseSize: 0,
+					finishReason: "client_error",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: true,
+					streamed: !!stream,
+					canceled: false,
+					errorDetails: {
+						statusCode: rejection.statusCode,
+						statusText: rejection.statusText,
+						responseText: rejection.responseText ?? rejection.message,
+						cause: rejection.cause,
+					},
+					duration: 0,
+					timeToFirstToken: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost: 0,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					requestedServiceTier,
+					usedServiceTier: null,
+					dataStorageCost: "0",
+				},
+				{ retentionLevel },
+			);
+		} catch (error) {
+			logger.error("Failed to log gateway rejection", {
+				error: toError(error),
+				cause: rejection.cause,
+			});
+		}
+	};
+
 	// Note: the end-user-wallet credits substitution (withWalletCredits) happens
 	// further below — orgs backing end-user wallets are always regular
 	// PAYG/credits orgs, never dev-plan orgs, so it cannot affect the dev-plan
@@ -2477,86 +2634,17 @@ chat.openapi(completions, async (c) => {
 					: modelInfo.id;
 			const errorMessage = `Service tier '${service_tier}' is not available for model ${scopedModel}.`;
 
-			try {
-				await _insertLog(
-					{
-						...createLogEntry(
-							requestId,
-							project,
-							apiKey,
-							undefined,
-							"",
-							undefined,
-							"llmgateway",
-							requestedModel,
-							requestedProvider,
-							messages as any[],
-							temperature,
-							max_tokens,
-							top_p,
-							frequency_penalty,
-							presence_penalty,
-							reasoning_effort,
-							reasoning_max_tokens,
-							effort as "low" | "medium" | "high" | undefined,
-							response_format,
-							tools,
-							tool_choice,
-							source,
-							customHeaders,
-							debugMode,
-							userAgent,
-							image_config,
-						),
-						...(logIdOverride ? { id: logIdOverride } : {}),
-						apiOrigin,
-						content: null,
-						responseSize: 0,
-						finishReason: "client_error",
-						promptTokens: null,
-						completionTokens: null,
-						totalTokens: null,
-						reasoningTokens: null,
-						cachedTokens: null,
-						hasError: true,
-						streamed: !!stream,
-						canceled: false,
-						errorDetails: {
-							statusCode: 400,
-							statusText: "Bad Request",
-							responseText: JSON.stringify({
-								message: errorMessage,
-								service_tier,
-								model: scopedModel,
-							}),
-							cause: "unsupported_service_tier",
-						},
-						duration: 0,
-						timeToFirstToken: null,
-						inputCost: 0,
-						outputCost: 0,
-						cachedInputCost: 0,
-						requestCost: 0,
-						webSearchCost: 0,
-						imageInputTokens: null,
-						imageOutputTokens: null,
-						imageInputCost: null,
-						imageOutputCost: null,
-						cost: 0,
-						estimatedCost: false,
-						discount: null,
-						pricingTier: null,
-						requestedServiceTier,
-						usedServiceTier: null,
-						dataStorageCost: "0",
-					},
-					{ retentionLevel },
-				);
-			} catch (error) {
-				logger.error("Failed to log unsupported service tier rejection", {
-					error: toError(error),
-				});
-			}
+			await logGatewayRejection({
+				message: errorMessage,
+				statusCode: 400,
+				statusText: "Bad Request",
+				cause: "unsupported_service_tier",
+				responseText: JSON.stringify({
+					message: errorMessage,
+					service_tier,
+					model: scopedModel,
+				}),
+			});
 
 			return c.json(
 				{
@@ -2739,75 +2827,16 @@ chat.openapi(completions, async (c) => {
 			// Surface the block in the activity feed as a client_error so users
 			// can see that the gateway rejected their request before any provider
 			// was contacted.
-			try {
-				await insertLogEntry({
-					...createLogEntry(
-						requestId,
-						project,
-						apiKey,
-						undefined,
-						"",
-						undefined,
-						"llmgateway",
-						requestedModel,
-						requestedProvider,
-						messages as any[],
-						temperature,
-						max_tokens,
-						top_p,
-						frequency_penalty,
-						presence_penalty,
-						reasoning_effort,
-						reasoning_max_tokens,
-						effort as "low" | "medium" | "high" | undefined,
-						response_format,
-						tools,
-						tool_choice,
-						source,
-						customHeaders,
-						debugMode,
-						userAgent,
-					),
-					content: null,
-					responseSize: 0,
-					finishReason: "client_error",
-					promptTokens: null,
-					completionTokens: null,
-					totalTokens: null,
-					reasoningTokens: null,
-					cachedTokens: null,
-					hasError: true,
-					streamed: !!stream,
-					canceled: false,
-					errorDetails: {
-						statusCode: 400,
-						statusText: "Bad Request",
-						responseText: JSON.stringify({
-							message: errorMessage,
-							violations: blockedViolations,
-						}),
-						cause: "guardrail_violation",
-					},
-					duration: 0,
-					timeToFirstToken: null,
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					webSearchCost: 0,
-					imageInputTokens: null,
-					imageOutputTokens: null,
-					imageInputCost: null,
-					imageOutputCost: null,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
-					pricingTier: null,
-					dataStorageCost: "0",
-				});
-			} catch {
-				// Silently ignore logging failures
-			}
+			await logGatewayRejection({
+				message: errorMessage,
+				statusCode: 400,
+				statusText: "Bad Request",
+				cause: "guardrail_violation",
+				responseText: JSON.stringify({
+					message: errorMessage,
+					violations: blockedViolations,
+				}),
+			});
 
 			// Return the structured violation details directly. HTTPException's
 			// `cause` is dropped by the global error handler, so callers would
@@ -2933,6 +2962,7 @@ chat.openapi(completions, async (c) => {
 			response_format,
 			reasoning_effort,
 			reasoning_max_tokens,
+			reasoning_mode,
 			verbosity,
 			tools,
 			tool_choice,
@@ -2972,85 +3002,12 @@ chat.openapi(completions, async (c) => {
 			const message = supportsAdaptiveThinking
 				? `"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior.`
 				: `"thinking" is not supported for this model. Remove the "thinking" parameter or use a model that supports extended thinking.`;
-			try {
-				// Use _insertLog directly (not insertLogEntry): the local insertLog
-				// wrapper is declared further down and would be in its temporal dead
-				// zone here. Mirrors the early service-tier rejection log above.
-				await _insertLog(
-					{
-						...createLogEntry(
-							requestId,
-							project,
-							apiKey,
-							undefined,
-							"",
-							undefined,
-							"llmgateway",
-							requestedModel,
-							requestedProvider,
-							messages as any[],
-							temperature,
-							max_tokens,
-							top_p,
-							frequency_penalty,
-							presence_penalty,
-							reasoning_effort,
-							reasoning_max_tokens,
-							effort as "low" | "medium" | "high" | undefined,
-							response_format,
-							tools,
-							tool_choice,
-							source,
-							customHeaders,
-							debugMode,
-							userAgent,
-							image_config,
-						),
-						...(logIdOverride ? { id: logIdOverride } : {}),
-						apiOrigin,
-						content: null,
-						responseSize: 0,
-						finishReason: "client_error",
-						promptTokens: null,
-						completionTokens: null,
-						totalTokens: null,
-						reasoningTokens: null,
-						cachedTokens: null,
-						hasError: true,
-						streamed: !!stream,
-						canceled: false,
-						errorDetails: {
-							statusCode: 400,
-							statusText: "Bad Request",
-							responseText: message,
-							cause: "unsupported_reasoning_budget",
-						},
-						duration: 0,
-						timeToFirstToken: null,
-						inputCost: 0,
-						outputCost: 0,
-						cachedInputCost: 0,
-						requestCost: 0,
-						webSearchCost: 0,
-						imageInputTokens: null,
-						imageOutputTokens: null,
-						imageInputCost: null,
-						imageOutputCost: null,
-						cost: 0,
-						estimatedCost: false,
-						discount: null,
-						pricingTier: null,
-						requestedServiceTier,
-						usedServiceTier: null,
-						dataStorageCost: "0",
-					},
-					{ retentionLevel },
-				);
-			} catch (error) {
-				logger.error("Failed to log budget-thinking rejection", {
-					error: toError(error),
-				});
-			}
+			await logGatewayRejection({
+				message,
+				statusCode: 400,
+				statusText: "Bad Request",
+				cause: "unsupported_reasoning_budget",
+			});
 			throw new HTTPException(400, { message });
 		}
 		throw capabilityError;
@@ -3095,6 +3052,14 @@ chat.openapi(completions, async (c) => {
 	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
+	// Verdict a dynamic route's classifier nodes branched on, recorded on the
+	// log so an operator can see why a branch was taken.
+	let dynamicRouteClassification: RequestClassification | null = null;
+	// Set when an "auto" request ran against an organization-configured
+	// candidate list. Declared at function scope so the late-built metadata
+	// paths below can attach the decision no matter which branch produced it.
+	let smartRoutingClassification: RequestClassification | null = null;
+	let smartRoutingDecision: RoutingMetadata["smartRouting"] | undefined;
 
 	// Resolve a named dynamic route ("dynamic/<name>") to its target model and
 	// optional provider restriction. Official models continue through the auto
@@ -3126,9 +3091,36 @@ chat.openapi(completions, async (c) => {
 				message: `Dynamic route "${dynamicRouteName}" not found, disabled, or has no published version`,
 			});
 		}
+		// Resolved before evaluation so the evaluator stays synchronous and pure,
+		// and only when the graph actually branches on a verdict — a route
+		// without a classifier node never pays for the call.
+		if (graphUsesClassifier(publishedRoute.graph)) {
+			dynamicRouteClassification = await resolveDynamicRouteClassification({
+				organization,
+				context: {
+					requestId,
+					project,
+					apiKey,
+					retentionLevel,
+					requestedModel,
+					source,
+					userAgent,
+					apiOrigin,
+				},
+				sessionId,
+				sessionStickyEnabled,
+				routingCfg,
+				messages: (messages ?? []) as BaseMessage[],
+				tools,
+				hasImages,
+				requestSignal: c.req.raw.signal,
+			});
+		}
+
 		let evaluation: DynamicRouteEvaluation;
 		try {
 			evaluation = evaluateDynamicRoute(publishedRoute.graph, {
+				classification: dynamicRouteClassification,
 				getHeader: (name) => c.req.header(name),
 				body: rawBody as Record<string, unknown>,
 				metadata: {
@@ -3159,6 +3151,12 @@ chat.openapi(completions, async (c) => {
 			providers: evaluation.providers,
 			path: evaluation.path,
 		};
+		routingBaselineCandidates.push(
+			...prefetchRoutingBaselineDiscounts(
+				getDynamicRouteBaselineCandidates(publishedRoute.graph),
+				project.organizationId,
+			),
+		);
 
 		const customTarget = parseCustomDynamicRouteModelRef(evaluation.model);
 		if (customTarget) {
@@ -3275,7 +3273,7 @@ chat.openapi(completions, async (c) => {
 						customProviderName: providerKey.name,
 						activeModelInfo: { ...modelInfo, providers: [mapping] },
 						clientIp,
-						autoRouting: true,
+						smartRouting: true,
 					});
 					return customIam.allowed ? mapping : undefined;
 				}),
@@ -3350,20 +3348,39 @@ chat.openapi(completions, async (c) => {
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
 	const compliancePolicy = getActiveCompliancePolicy(organization);
 
+	const complianceContextFor = (
+		provider: ProviderModelMapping,
+	): ComplianceCheckContext =>
+		isCustomAutoRoutingMapping(provider)
+			? {
+					customAttestation:
+						routingCustomProviderKeysById.get(provider.customProviderKeyId)
+							?.complianceAttestation ?? null,
+					customProviderName: provider.customProviderName,
+				}
+			: complianceContext;
+
+	// Which policy rules a dropped mapping failed, recorded next to the coarse
+	// "compliance" code so the routing analytics can break the total down by rule
+	// instead of reporting one opaque bucket.
+	const complianceDetailReasons = (
+		provider: ProviderModelMapping,
+	): ProviderFilterReason[] =>
+		compliancePolicy
+			? getComplianceFailureReasons(
+					provider.providerId,
+					modelInfo.id,
+					compliancePolicy,
+					complianceContextFor(provider),
+				).map((failure) => exclusionReason(complianceExclusionReason(failure)))
+			: [];
+
 	const applyCompliancePolicy = <T extends ProviderModelMapping>(
 		list: T[],
 	): T[] =>
 		compliancePolicy
 			? list.filter((provider) => {
-					const context = isCustomAutoRoutingMapping(provider)
-						? {
-								customAttestation:
-									routingCustomProviderKeysById.get(
-										provider.customProviderKeyId,
-									)?.complianceAttestation ?? null,
-								customProviderName: provider.customProviderName,
-							}
-						: complianceContext;
+					const context = complianceContextFor(provider);
 					return (
 						isProviderIdCompliant(
 							provider.providerId,
@@ -3384,6 +3401,7 @@ chat.openapi(completions, async (c) => {
 			compliantProviders,
 			"excluded by compliance policy",
 			"compliance",
+			complianceDetailReasons,
 		);
 		iamFilteredModelProviders = compliantProviders;
 		expandedIamFilteredModelProviders = applyCompliancePolicy(
@@ -3477,10 +3495,11 @@ chat.openapi(completions, async (c) => {
 		}
 	};
 
-	// For auto routing, modelInfo is still the synthetic "llmgateway" model here;
-	// compliance is enforced after the real model/provider is resolved (and the
-	// auto candidate set is compliance-filtered during selection below).
-	if (usedInternalModel !== "auto") {
+	// For auto/smart routing, modelInfo is still the synthetic "llmgateway"
+	// model here; compliance is enforced after the real model/provider is
+	// resolved (and the candidate set is compliance-filtered during selection
+	// below).
+	if (usedInternalModel !== "auto" && usedInternalModel !== "smart") {
 		await enforceCompliancePolicy();
 		await enforceServiceTierKeyEligibility();
 	}
@@ -3636,6 +3655,13 @@ chat.openapi(completions, async (c) => {
 					message: `Model '${requestedModel}' is not configured to support reasoning. Remove the reasoning parameters or enable reasoning for this custom model.`,
 				});
 			}
+			// Custom upstreams are called with chat-completions bodies, which have
+			// no reasoning.mode field to carry the value.
+			if (reasoning_mode !== undefined) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' does not support reasoning.mode. Remove the reasoning.mode parameter; it is only available on OpenAI GPT-5.6 models.`,
+				});
+			}
 			if (customModelEntry.streaming === "false" && stream) {
 				throw new HTTPException(400, {
 					message: `Model '${requestedModel}' is configured as non-streaming. Set stream: false.`,
@@ -3685,10 +3711,17 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Apply routing logic after apiKey and project are available
+	// Apply routing logic after apiKey and project are available.
+	// "auto" and "smart" share this candidate loop. They differ only in where
+	// the candidate list comes from: "auto" is the fixed built-in set and is
+	// frozen so existing callers keep their behaviour, while "smart" uses the
+	// organization's configured list and classifier.
+	const isSmartRoutingModel = usedInternalModel === "smart";
 	if (
-		(usedProvider === "llmgateway" && usedInternalModel === "auto") ||
-		usedInternalModel === "auto"
+		(usedProvider === "llmgateway" &&
+			(usedInternalModel === "auto" || isSmartRoutingModel)) ||
+		usedInternalModel === "auto" ||
+		isSmartRoutingModel
 	) {
 		// Auto-routing and the context-window check below should react to image
 		// payloads, not just text (issue #2112). Recompute the estimate with an
@@ -3763,21 +3796,56 @@ chat.openapi(completions, async (c) => {
 			airsideListingsByModel.set(listing.model.id, listings);
 		}
 
-		// Find the cheapest model that meets our context size requirements
-		// Only consider hardcoded models for auto selection
-		const allowedAutoModels = [
-			"claude-opus-4-6",
-			"claude-sonnet-4-6",
-			"claude-haiku-4-5",
-		];
+		// Enterprise organizations can replace the built-in candidate set with
+		// their own, optionally ranked by a classifier. A project override wins
+		// over the organization default; losing enterprise access falls back to
+		// the built-in list rather than honouring a stale config.
+		// "smart" is an explicit opt-in, so it never degrades quietly into the
+		// built-in "auto" set: a caller that asked for their configured models
+		// and silently got someone else's defaults has no way to notice.
+		if (isSmartRoutingModel && !isSmartRoutingAvailable(organization.kind)) {
+			throw new HTTPException(403, {
+				message:
+					'Smart routing is not available for this organization. Use "auto" or a specific model.',
+			});
+		}
+		const smartRoutingConfig =
+			project.smartRoutingConfig ?? organization.smartRoutingConfig ?? null;
+		if (isSmartRoutingModel && !smartRoutingConfig) {
+			throw new HTTPException(400, {
+				message:
+					"Smart routing is not configured. Choose the models it may resolve to under Organization settings → Smart Routing, or use a specific model.",
+			});
+		}
+		// free_models_only narrows the configured list rather than replacing it:
+		// the list is a governance boundary, so a request parameter must not be
+		// able to route outside what the organization allowed. A dynamic route
+		// has already fixed the model, so it bypasses the list entirely.
+		const configuredSmartModels =
+			isSmartRoutingModel && smartRoutingConfig && !dynamicRouteSelection
+				? smartRoutingConfig.models
+				: null;
+		const eligibleSmartModels =
+			configuredSmartModels ?? DEFAULT_SMART_ROUTING_MODELS;
+		const smartRoutingClassifier = configuredSmartModels
+			? smartRoutingConfig!.classifier
+			: "none";
 
 		let selectedModel: ModelDefinition | undefined;
-		let selectedProviders: any[] = [];
+		let selectedProviders: ProviderModelMapping[] = [];
 		let selectedFilteredProviders: Array<{
 			providerId: string;
 			reasons: string[];
 		}> = [];
-		let lowestPrice = Number.MAX_VALUE;
+		// Every model that survived filtering, so the classifier can rank the
+		// full candidate set instead of the loop picking the cheapest in place.
+		const smartRoutingCandidates: Array<{
+			modelId: string;
+			modelDef: ModelDefinition;
+			providers: ProviderModelMapping[];
+			filteredOut: FilteredProvider[];
+			price: number;
+		}> = [];
 		const now = new Date(); // Cache current time for deprecation checks
 		const autoFilterOpts = {
 			webSearchTool: !!webSearchTool,
@@ -3799,6 +3867,7 @@ chat.openapi(completions, async (c) => {
 			strictToolChoice: !dynamicRouteSelection,
 			reasoningEffort: reasoning_effort,
 			reasoningMaxTokens: reasoning_max_tokens,
+			reasoningMode: reasoning_mode,
 			noReasoning: no_reasoning,
 			maxTokens: max_tokens,
 			n,
@@ -3816,7 +3885,11 @@ chat.openapi(completions, async (c) => {
 			const modelDef = listings
 				? mergeAirsideListingsIntoModel(staticModelDef, listings).modelInfo
 				: staticModelDef;
-			if (modelDef.id === "auto" || modelDef.id === "custom") {
+			if (
+				modelDef.id === "auto" ||
+				modelDef.id === "smart" ||
+				modelDef.id === "custom"
+			) {
 				continue;
 			}
 
@@ -3852,6 +3925,17 @@ chat.openapi(completions, async (c) => {
 					continue;
 				}
 			}
+			// A configured list is exhaustive: the audio/documents bypass and the
+			// Haiku size heuristic below describe the built-in candidate set only,
+			// and applying them would route outside what the organization allowed.
+			else if (configuredSmartModels) {
+				if (!configuredSmartModels.includes(modelDef.id)) {
+					continue;
+				}
+				if (effectiveFreeModelsOnly && !("free" in modelDef && modelDef.free)) {
+					continue;
+				}
+			}
 			// When free_models_only is true, only consider models marked as free
 			// Otherwise, only consider hardcoded allowed models
 			else if (effectiveFreeModelsOnly) {
@@ -3859,7 +3943,7 @@ chat.openapi(completions, async (c) => {
 					continue;
 				}
 			} else if (
-				!allowedAutoModels.includes(modelDef.id) &&
+				!eligibleSmartModels.includes(modelDef.id) &&
 				!hasAudio &&
 				!hasDocuments
 			) {
@@ -3881,7 +3965,7 @@ chat.openapi(completions, async (c) => {
 				requestedModel: modelDef.id,
 				activeModelInfo: modelDef,
 				clientIp,
-				autoRouting: true,
+				smartRouting: true,
 			});
 			const candidateAllowedProviders = candidateIam.allowedProviders;
 
@@ -3973,7 +4057,7 @@ chat.openapi(completions, async (c) => {
 								customProviderName: providerKey.name,
 								activeModelInfo: { ...modelDef, providers: [mapping] },
 								clientIp,
-								autoRouting: true,
+								smartRouting: true,
 							});
 							return customIam.allowed ? mapping : undefined;
 						}),
@@ -4029,6 +4113,24 @@ chat.openapi(completions, async (c) => {
 				if (!compliantProviders.has(provider)) {
 					recordFilteredProvider(filteredOutForModel, provider.providerId, [
 						exclusionReason("compliance"),
+						...(compliancePolicy
+							? getComplianceFailureReasons(
+									provider.providerId,
+									modelDef.id,
+									compliancePolicy,
+									isCustomAutoRoutingMapping(provider)
+										? {
+												customAttestation:
+													customProviderKeysById.get(
+														provider.customProviderKeyId,
+													)?.complianceAttestation ?? null,
+												customProviderName: provider.customProviderName,
+											}
+										: complianceContext,
+								).map((failure) =>
+									exclusionReason(complianceExclusionReason(failure)),
+								)
+							: []),
 					]);
 				}
 			}
@@ -4088,7 +4190,11 @@ chat.openapi(completions, async (c) => {
 			);
 
 			if (preferredSuitableProviders.length > 0) {
-				// Find the cheapest among the suitable providers for this model
+				// Rank the model by its cheapest suitable provider, then defer the
+				// pick to the selection step below so a classifier can see every
+				// candidate rather than only the running cheapest.
+				let modelPrice = Number.MAX_VALUE;
+				let cheapestProvider: ProviderModelMapping | undefined;
 				for (const provider of preferredSuitableProviders) {
 					const { price } = await getDiscountedProviderSelectionPrice(
 						provider,
@@ -4098,19 +4204,95 @@ chat.openapi(completions, async (c) => {
 							providerDiscountResolver,
 						},
 					);
-					const totalPrice = price.toNumber();
-
-					if (totalPrice < lowestPrice) {
-						lowestPrice = totalPrice;
-						selectedModel = {
-							...modelDef,
-							providers: preferredSuitableProviders,
-						};
-						selectedProviders = preferredSuitableProviders;
-						selectedFilteredProviders = filteredOutForModel;
+					if (price.toNumber() < modelPrice) {
+						modelPrice = price.toNumber();
+						cheapestProvider = provider;
 					}
 				}
+				if (cheapestProvider) {
+					// Audio/document requests widen the candidate set to every
+					// capable model; the baseline stays within the routing list.
+					if (
+						!dynamicRouteSelection &&
+						eligibleSmartModels.includes(modelDef.id)
+					) {
+						routingBaselineCandidates.push(
+							...prefetchRoutingBaselineDiscounts(
+								[
+									{
+										modelId: modelDef.id,
+										providerId: cheapestProvider.providerId,
+										region: cheapestProvider.region,
+									},
+								],
+								project.organizationId,
+							),
+						);
+					}
+					smartRoutingCandidates.push({
+						modelId: modelDef.id,
+						modelDef,
+						providers: preferredSuitableProviders,
+						filteredOut: filteredOutForModel,
+						price: modelPrice,
+					});
+				}
 			}
+		}
+
+		const smartRoutingSelection = await selectSmartRoutingModel({
+			candidates: smartRoutingCandidates,
+			configuredModels: configuredSmartModels,
+			classifier: smartRoutingClassifier,
+			// The classifier sends prompt text to TypeSafe, so an org whose
+			// compliance policy disallows that provider must not have its prompts
+			// sent there — same fail-closed rule as the model-backed content
+			// filter below. Routing then falls back to the cheapest candidate.
+			classifierAllowed:
+				!compliancePolicy ||
+				isProviderIdCompliant("typesafe", compliancePolicy),
+			// A sticky session classifies once and reuses that verdict for its
+			// remaining turns, so a conversation is not re-rated (and re-billed)
+			// per turn and does not migrate between models mid-thread.
+			sessionStore:
+				sessionStickyEnabled && sessionId
+					? createSmartRoutingSessionStore(
+							project.organizationId,
+							project.id,
+							sessionId,
+							routingCfg.session.ttlSeconds,
+						)
+					: undefined,
+			messages: (messages ?? []) as BaseMessage[],
+			toolNames: (tools ?? [])
+				.map((tool) =>
+					tool.type === "function" ? tool.function?.name : undefined,
+				)
+				.filter((name): name is string => Boolean(name)),
+			hasImages,
+			estimatedInputTokens,
+			context: {
+				requestId,
+				project,
+				apiKey,
+				retentionLevel,
+				requestedModel,
+				source,
+				userAgent,
+				apiOrigin,
+			},
+			requestSignal: c.req.raw.signal,
+		});
+		if (smartRoutingSelection) {
+			const { candidate, classification, decision } = smartRoutingSelection;
+			selectedModel = {
+				...candidate.modelDef,
+				providers: candidate.providers,
+			};
+			selectedProviders = candidate.providers;
+			selectedFilteredProviders = candidate.filteredOut;
+			smartRoutingClassification = classification;
+			smartRoutingDecision = decision;
 		}
 
 		let providerAgnosticSelectedProviders = selectedProviders;
@@ -4235,6 +4417,16 @@ chat.openapi(completions, async (c) => {
 						: `Dynamic route "${dynamicRouteSelection.name}" resolved to model "${dynamicRouteSelection.model}" but no matching provider is currently available for this request`,
 				});
 			}
+			// A configured candidate list is exhaustive: falling back to the
+			// built-in default would route to a model the organization did not
+			// allow, so fail instead.
+			if (configuredSmartModels) {
+				throw new HTTPException(400, {
+					message: effectiveFreeModelsOnly
+						? "None of the configured smart-routing models are free. Remove free_models_only or use a specific model."
+						: "None of the configured smart-routing models are available for this request",
+				});
+			}
 			if (effectiveFreeModelsOnly) {
 				// If free_models_only is true but no suitable model found, return error
 				throw new HTTPException(400, {
@@ -4288,7 +4480,7 @@ chat.openapi(completions, async (c) => {
 				usedProvider === "custom" ? customProviderName : undefined,
 			activeModelInfo: modelInfo,
 			clientIp,
-			autoRouting: true,
+			smartRouting: true,
 		});
 		if (!resolvedIamValidation.allowed) {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
@@ -4513,31 +4705,43 @@ chat.openapi(completions, async (c) => {
 		shouldApplyGatewayContentFilter && contentFilterMethod === "keywords"
 			? checkContentFilter(messages as BaseMessage[])
 			: null;
-	// The OpenAI content filter sends prompts to OpenAI's moderation API. When the
-	// org's compliance policy disallows OpenAI, skip it so prompt data never
-	// reaches a non-compliant provider (fail closed on the data guarantee).
-	const openAiContentFilterAllowed =
-		!compliancePolicy || isProviderIdCompliant("openai", compliancePolicy);
-	const openAIContentFilterContext = {
+	// A model-backed content filter sends prompts to its classifier's provider.
+	// When the org's compliance policy disallows that provider, skip it so prompt
+	// data never reaches a non-compliant one (fail closed on the data guarantee).
+	const contentFilterClassifierAllowed = (
+		classifier: ContentFilterClassifier,
+	) =>
+		!compliancePolicy ||
+		isProviderIdCompliant(
+			CONTENT_FILTER_CLASSIFIER_PROVIDERS[classifier],
+			compliancePolicy,
+		);
+	// Jev is text-only and delegates image parts to OpenAI moderation, which is
+	// only permitted when OpenAI itself is compliant for this organization.
+	const openAiContentFilterAllowed = contentFilterClassifierAllowed("openai");
+	const contentFilterContext = {
 		requestId,
 		organizationId: project.organizationId,
 		projectId: project.id,
 		apiKeyId: apiKey.id,
 	};
-	// Reassigned below when only the tiered filter needs the moderation call.
-	let openAIContentFilterResult =
+	const envFilterClassifier: ContentFilterClassifier | null =
+		contentFilterMethod === "keywords" ? null : contentFilterMethod;
+	const envContentFilterResult: ContentFilterCheckResult | null =
 		shouldApplyGatewayContentFilter &&
-		contentFilterMethod === "openai" &&
-		openAiContentFilterAllowed
-			? await checkOpenAIContentFilter(
+		envFilterClassifier !== null &&
+		contentFilterClassifierAllowed(envFilterClassifier)
+			? await runContentFilterClassifier(
+					envFilterClassifier,
 					messages as BaseMessage[],
-					openAIContentFilterContext,
+					contentFilterContext,
 					c.req.raw.signal,
+					{ imagesAllowed: openAiContentFilterAllowed },
 				)
 			: null;
 	const contentFilterMatched =
 		keywordContentFilterMatch !== null ||
-		openAIContentFilterResult?.flagged === true;
+		envContentFilterResult?.flagged === true;
 	const shouldRerouteContentFilter =
 		contentFilterMode === "enabled" && contentFilterMatched;
 	let contentFilterRoutingExcludedProviders: ProviderModelMapping[] = [];
@@ -4567,9 +4771,14 @@ chat.openapi(completions, async (c) => {
 					)
 					.join(" and ");
 
-				throw new HTTPException(429, {
-					message: `Rate limit exceeded: maximum ${blockedLimits} for ${requestedProvider}/${baseModelId}. Please try again later.`,
+				const message = `Rate limit exceeded: maximum ${blockedLimits} for ${requestedProvider}/${baseModelId}. Please try again later.`;
+				await logGatewayRejection({
+					message,
+					statusCode: 429,
+					statusText: "Too Many Requests",
+					cause: "rate_limit_exceeded",
 				});
+				throw new HTTPException(429, { message });
 			}
 
 			// Attempt to re-route to alternative providers (same pattern as low-uptime fallback)
@@ -5577,11 +5786,26 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
+	if (smartRoutingDecision && routingMetadata) {
+		routingMetadata.smartRouting = smartRoutingDecision;
+	}
+
 	if (dynamicRouteSelection && routingMetadata) {
 		routingMetadata.dynamicRoute = {
 			name: dynamicRouteSelection.name,
 			version: dynamicRouteSelection.version,
 			path: dynamicRouteSelection.path,
+			...(dynamicRouteClassification
+				? {
+						classifier: {
+							kind: "jev" as const,
+							difficulty: dynamicRouteClassification.difficulty,
+							difficultyScore: dynamicRouteClassification.difficultyScore,
+							task: dynamicRouteClassification.task,
+							outputType: dynamicRouteClassification.outputType,
+						},
+					}
+				: {}),
 		};
 	}
 
@@ -5674,7 +5898,7 @@ chat.openapi(completions, async (c) => {
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
 	// Skip when web_search tool is present since it's incompatible with "minimal" reasoning effort
 	if (
-		requestedModel === "auto" &&
+		(requestedModel === "auto" || requestedModel === "smart") &&
 		reasoning_effort === undefined &&
 		finalModelInfo &&
 		!webSearchTool
@@ -5685,11 +5909,26 @@ chat.openapi(completions, async (c) => {
 		);
 
 		if (selectedModelSupportsReasoning) {
-			// Set reasoning_effort to "minimal" for gpt-5* models, "low" for others
-			if (usedInternalModel.startsWith("gpt-5")) {
-				reasoning_effort = "minimal";
-			} else {
-				reasoning_effort = "low";
+			// A request the classifier rated hard gets a real thinking budget: the
+			// minimal default exists to keep easy auto-routed requests cheap, and
+			// applying it to a hard request wastes the model it selected.
+			//
+			// Only when the caller left room for an answer, though. Thinking is
+			// drawn from the same max_tokens budget as the response, and a hard
+			// prompt at "medium" was measured spending ~2000 reasoning tokens — so
+			// on a tight budget this default returns finish_reason "length" with
+			// empty content, and it would do so on exactly the hardest requests.
+			const preferMediumEffort =
+				smartRoutingClassification?.difficulty === "high" &&
+				(max_tokens === undefined ||
+					max_tokens >= SMART_ROUTING_MEDIUM_EFFORT_MIN_MAX_TOKENS);
+			const autoEffort = pickAutoReasoningEffort(
+				usedInternalModel,
+				getUsedProviderMapping()?.reasoningEfforts,
+				preferMediumEffort,
+			);
+			if (autoEffort) {
+				reasoning_effort = autoEffort;
 			}
 		}
 	}
@@ -6097,9 +6336,14 @@ chat.openapi(completions, async (c) => {
 		);
 
 		// Race condition: between peek and consume, the window may have filled.
-		// Only hard-block if the user explicitly requested this provider with no-fallback.
+		// Zero global caps always block, including when every routing candidate is capped.
 		if (!providerRateLimitResult.allowed) {
-			if (noFallback && requestedProvider) {
+			if (
+				(noFallback && requestedProvider) ||
+				providerRateLimitResult.blockedBy.some(
+					(window) => providerRateLimitResult.limits[window].limit === 0,
+				)
+			) {
 				const retryAfter = providerRateLimitResult.retryAfter;
 				if (retryAfter) {
 					c.header("Retry-After", retryAfter.toString());
@@ -6116,9 +6360,14 @@ chat.openapi(completions, async (c) => {
 					)
 					.join(" and ");
 
-				throw new HTTPException(429, {
-					message: `Rate limit exceeded: maximum ${blockedLimits} for this provider/model. Please try again later.`,
+				const message = `Rate limit exceeded: maximum ${blockedLimits} for this provider/model. Please try again later.`;
+				await logGatewayRejection({
+					message,
+					statusCode: 429,
+					statusText: "Too Many Requests",
+					cause: "rate_limit_exceeded",
 				});
+				throw new HTTPException(429, { message });
 			}
 			// Otherwise proceed — the provider was the best available option from routing
 			logger.warn(
@@ -6198,49 +6447,51 @@ chat.openapi(completions, async (c) => {
 		!contentFilterRoutingApplied;
 
 	// Tiered gateway content filter, keyed on the provider the request was routed
-	// to. Reuses the env filter's moderation result when it already ran so a
-	// request never triggers more than one moderation call.
+	// to. Reuses the env filter's moderation result when it ran on the same
+	// classifier so a request never triggers a duplicate moderation call.
 	let gatewayContentFilterEvaluation: GatewayContentFilterEvaluation | null =
 		null;
 	let tierContentFilterBlocked = false;
-	if (openAiContentFilterAllowed) {
-		const tieredPlan = await resolveTieredContentFilterPlan(
-			organization,
-			usedProvider,
-			await getContentFilterSettings(),
-		);
-		if (
-			tieredPlan &&
-			(openAIContentFilterResult !== null ||
-				(await hasOpenAIContentFilterCredential()))
-		) {
-			openAIContentFilterResult ??= await checkOpenAIContentFilter(
-				messages as BaseMessage[],
-				openAIContentFilterContext,
-				c.req.raw.signal,
-			);
-			const tieredEvaluation = evaluateTieredContentFilter(
-				openAIContentFilterResult.results,
-				tieredPlan.level,
-			);
-			gatewayContentFilterEvaluation = buildGatewayContentFilterEvaluation(
-				tieredPlan,
-				tieredEvaluation,
-				openAIContentFilterResult.results.length === 0,
-			);
-			tierContentFilterBlocked =
-				gatewayContentFilterEvaluation.action === "blocked";
-			if (tieredEvaluation.violation) {
-				logger.debug("gateway_content_filter_tier", {
-					requestId,
-					organizationId: project.organizationId,
-					provider: usedProvider,
-					tier: tieredPlan.tier,
-					level: tieredPlan.level,
-					action: gatewayContentFilterEvaluation.action,
-					matchedCategories: tieredEvaluation.matchedCategories,
-				});
+	const contentFilterResults: ContentFilterCheckResult[] = [];
+	if (envContentFilterResult) {
+		contentFilterResults.push(envContentFilterResult);
+	}
+	const tieredContentFilterPlan = await resolveTieredContentFilterPlan(
+		organization,
+		usedProvider,
+		await getContentFilterSettings(),
+	);
+	const tieredContentFilter = tieredContentFilterPlan
+		? await evaluateContentFilterWithClassifiers({
+				plan: tieredContentFilterPlan,
+				messages: messages as BaseMessage[],
+				context: contentFilterContext,
+				signal: c.req.raw.signal,
+				imagesAllowed: openAiContentFilterAllowed,
+				classifierAllowed: contentFilterClassifierAllowed,
+				existing: envContentFilterResult,
+			})
+		: null;
+	if (tieredContentFilterPlan && tieredContentFilter) {
+		gatewayContentFilterEvaluation = tieredContentFilter.evaluation;
+		tierContentFilterBlocked =
+			gatewayContentFilterEvaluation.action === "blocked";
+		for (const result of tieredContentFilter.results) {
+			if (!contentFilterResults.includes(result)) {
+				contentFilterResults.push(result);
 			}
+		}
+		if (gatewayContentFilterEvaluation.violation) {
+			logger.debug("gateway_content_filter_tier", {
+				requestId,
+				organizationId: project.organizationId,
+				provider: usedProvider,
+				tier: tieredContentFilterPlan.tier,
+				level: tieredContentFilterPlan.level,
+				classifier: tieredContentFilterPlan.classifier,
+				action: gatewayContentFilterEvaluation.action,
+				matchedCategories: gatewayContentFilterEvaluation.matchedCategories,
+			});
 		}
 	}
 
@@ -6252,9 +6503,10 @@ chat.openapi(completions, async (c) => {
 		gatewayContentFilterEvaluation?.violation === true;
 	// Stored for every moderated request; the 30-day data retention cleanup
 	// nulls it again, so the extra jsonb per sampled row is bounded.
-	const gatewayContentFilterResponse = openAIContentFilterResult?.responses
-		.length
-		? openAIContentFilterResult.responses
+	const gatewayContentFilterResponse = contentFilterResults.some(
+		(result) => result.responses.length > 0,
+	)
+		? contentFilterResults.flatMap((result) => result.responses)
 		: null;
 	const insertLog = (
 		logData: Parameters<typeof _insertLog>[0],
@@ -6286,65 +6538,68 @@ chat.openapi(completions, async (c) => {
 
 		// Log the filtered request
 		try {
-			await insertLog({
-				...createLogEntry(
-					requestId,
-					project,
-					apiKey,
-					undefined,
-					"",
-					undefined,
-					"llmgateway",
-					requestedModel,
-					requestedProvider,
-					messages as any[],
-					temperature,
-					max_tokens,
-					top_p,
-					frequency_penalty,
-					presence_penalty,
-					undefined,
-					undefined,
-					effort as "low" | "medium" | "high" | undefined,
-					response_format,
-					tools,
-					tool_choice,
-					source,
-					customHeaders,
-					c.req.header("x-debug") === "true",
-					c.req.header("user-agent"),
-				),
-				content: GATEWAY_CONTENT_FILTER_MESSAGE,
-				responseSize: GATEWAY_CONTENT_FILTER_MESSAGE.length,
-				finishReason: "llmgateway_content_filter",
-				unifiedFinishReason: "content_filter",
-				internalContentFilter: true,
-				promptTokens: null,
-				completionTokens: null,
-				totalTokens: null,
-				reasoningTokens: null,
-				cachedTokens: null,
-				hasError: false,
-				streamed: !!stream,
-				canceled: false,
-				errorDetails: null,
-				duration: 0,
-				timeToFirstToken: null,
-				inputCost: 0,
-				outputCost: 0,
-				cachedInputCost: 0,
-				requestCost: 0,
-				webSearchCost: 0,
-				imageInputTokens: null,
-				imageOutputTokens: null,
-				imageInputCost: null,
-				imageOutputCost: null,
-				cost: 0,
-				estimatedCost: false,
-				discount: null,
-				pricingTier: null,
-				dataStorageCost: "0",
-			});
+			await insertLog(
+				{
+					...createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						undefined,
+						"",
+						undefined,
+						"llmgateway",
+						requestedModel,
+						requestedProvider,
+						messages as any[],
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						undefined,
+						undefined,
+						effort as "low" | "medium" | "high" | undefined,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						c.req.header("x-debug") === "true",
+						c.req.header("user-agent"),
+					),
+					content: GATEWAY_CONTENT_FILTER_MESSAGE,
+					responseSize: GATEWAY_CONTENT_FILTER_MESSAGE.length,
+					finishReason: "llmgateway_content_filter",
+					unifiedFinishReason: "content_filter",
+					internalContentFilter: true,
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: false,
+					streamed: !!stream,
+					canceled: false,
+					errorDetails: null,
+					duration: 0,
+					timeToFirstToken: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost: 0,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: "0",
+				},
+				{ retentionLevel },
+			);
 		} catch {
 			// Silently ignore logging failures
 		}
@@ -7422,6 +7677,8 @@ chat.openapi(completions, async (c) => {
 			sessionId,
 			reasoning_context,
 			organization.safetyIdentifier,
+			getUsedProviderMapping(),
+			reasoning_mode,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -7897,6 +8154,7 @@ chat.openapi(completions, async (c) => {
 							explicitCacheUsed,
 							servedServiceTier,
 							customPricing: customPricingMapping,
+							rejectionWithoutUsage: true,
 						},
 						true,
 					);
@@ -9071,7 +9329,11 @@ chat.openapi(completions, async (c) => {
 										image_config?.image_quality,
 										null,
 										null,
-										{ servedServiceTier, customPricing: customPricingMapping },
+										{
+											servedServiceTier,
+											customPricing: customPricingMapping,
+											rejectionWithoutUsage: true,
+										},
 										true,
 									)
 								: null;
@@ -9724,6 +9986,7 @@ chat.openapi(completions, async (c) => {
 				// arrives, so the pair can be forwarded to native clients intact.
 				const toolSearchState: AnthropicToolSearchState = new Map();
 				const toolCallChoiceIndices = new Set<number>();
+				const googleToolCallIndices = new Map<number, number>();
 				const googleThoughtSignatureState = new Map<
 					number,
 					GoogleThoughtSignatureState
@@ -10604,6 +10867,7 @@ chat.openapi(completions, async (c) => {
 									{
 										cacheThoughtSignatures: !zeroDataRetentionEnabled,
 										googleThoughtSignatureState,
+										googleToolCallIndices,
 									},
 								);
 
@@ -10691,7 +10955,7 @@ chat.openapi(completions, async (c) => {
 									}
 								}
 
-								if (usedProvider === "openai") {
+								if (usedProvider === "openai" || usedProvider === "azure") {
 									const served = resolveOpenAIServiceTier(data);
 									if (served !== undefined) {
 										servedServiceTier = served;
@@ -10992,6 +11256,15 @@ chat.openapi(completions, async (c) => {
 									// For OpenAI Responses API, count web_search_call.completed events
 									if (data.type === "response.web_search_call.completed") {
 										webSearchCount++;
+									}
+								} else if (streamFormatProvider === "perplexity") {
+									// Perplexity's Agent API emits no per-search event, but
+									// reports the billed invocation count on the terminal event.
+									const invocations =
+										data.response?.usage?.tool_calls_details?.search_web
+											?.invocation;
+									if (typeof invocations === "number") {
+										webSearchCount = invocations;
 									}
 								}
 
@@ -13438,7 +13711,11 @@ chat.openapi(completions, async (c) => {
 							image_config?.image_quality,
 							null,
 							null,
-							{ servedServiceTier, customPricing: customPricingMapping },
+							{
+								servedServiceTier,
+								customPricing: customPricingMapping,
+								rejectionWithoutUsage: true,
+							},
 							true,
 						)
 					: null;
@@ -14258,7 +14535,7 @@ chat.openapi(completions, async (c) => {
 		),
 		json,
 	);
-	if (usedProvider === "openai") {
+	if (usedProvider === "openai" || usedProvider === "azure") {
 		const served = resolveOpenAIServiceTier(json);
 		if (served !== undefined) {
 			servedServiceTier = served;
@@ -14304,6 +14581,7 @@ chat.openapi(completions, async (c) => {
 		toolResults,
 		images,
 		annotations,
+		searchResults,
 		webSearchCount,
 	} = parsedResponse;
 
@@ -14591,6 +14869,7 @@ chat.openapi(completions, async (c) => {
 		echoedServiceTier,
 		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
 		transportProvider,
+		searchResults,
 	);
 	// Attach opaque reasoning payloads (e.g. OpenAI encrypted reasoning) to the
 	// assistant message so clients can replay them on later turns to preserve

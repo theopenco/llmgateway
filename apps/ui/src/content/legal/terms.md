@@ -1,7 +1,7 @@
 ---
 id: "1"
 slug: "terms"
-date: "2026-09-04"
+date: "2026-09-18"
 title: "Terms Of Use"
 description: "Terms of Use for LLM Gateway: account eligibility, billing and credits, AI outputs, acceptable use, warranties, liability, and dispute resolution."
 ---
@@ -9,7 +9,7 @@ description: "Terms of Use for LLM Gateway: account eligibility, billing and cre
 # Terms of Use
 
 **Effective Date:** June 11, 2026  
-**Last Updated:** September 4, 2026
+**Last Updated:** September 18, 2026
 
 Welcome to **LLM Gateway** (“we”, “our”, or “us”), operated by **Polar Lights LLC**, 16192 Coastal Highway, Lewes, DE 19958, United States. These Terms of Use (“Terms”) form a binding legal agreement between you (“you” or “Customer”) and LLM Gateway and govern your access to and use of the LLM Gateway platform, including our website **[llmgateway.io](https://llmgateway.io)**, APIs, SDKs, dashboards, and any related products or services (collectively, the “Service”).
 
@@ -67,11 +67,12 @@ LLM Gateway offers free and paid plans, including pay-as-you-go (“PAYG”) usa
 You agree to the following billing terms:
 
 - **Credits and fees are generally non-refundable**, except where a refund is required by applicable law or we expressly make a limited product-specific refund option available. Because AI providers charge us when requests are processed, starting to consume credits or included usage does not entitle you to a refund. Any voluntary refund option is a goodwill exception, is subject to its stated eligibility requirements, and does not create a general right to a refund. Unused credits may expire as described at the point of purchase.
+- **Self-service refund usage limit (effective October 15, 2026).** For credit top-ups and DevPass or Lounge plan payments made on or after **October 15, 2026, at 00:00 UTC**, the usage limit decreases from 20% to **10%** of the purchased credits or applicable plan allowance, not of the payment amount. Usage must remain strictly below the applicable limit; reaching the limit makes the payment ineligible. Payments made before that date retain the 20% limit for their existing refund window. Other eligibility requirements and refund windows remain unchanged. The separate unused Reset Pass refund policy is unchanged.
 - Billing is processed by **Stripe**. You authorize us (and our payment processor) to **charge your payment method** for all applicable fees, including recurring and usage-based charges, and to **automatically replenish credits** if you enable auto-recharge.
 - All fees are **exclusive of taxes**. You are responsible for all applicable taxes, duties, and similar charges, other than taxes based on our net income.
 - You are responsible for all charges incurred under your account, including charges resulting from unauthorized use of your credentials or API keys.
 - If a payment fails, is reversed, or is charged back, we may **suspend or terminate** your access and recover amounts owed. Initiating a chargeback for legitimate charges is a breach of these Terms.
-- We may change our pricing or plan features at any time. Price changes apply prospectively from the date posted or otherwise communicated.
+- We may change our pricing or plan features at any time. Price changes apply prospectively from the date posted or otherwise communicated. For DevPass, the [dated plan-change notice](https://devpass.llmgateway.io/legal/terms#october-2026-plan-changes) specifies the allowance, usage-limit, and Reset Pass changes from October 15, 2026, including which changes apply at renewal.
 
 Any service levels, support commitments, or uptime targets apply **only** if expressly stated in a separate written agreement signed by us (see Section 16). The free and standard PAYG Service is provided **without any service-level commitment**.
 
@@ -103,6 +104,8 @@ You agree **not to**, and not to permit any third party to:
 - Use the Service in any **high-risk activity** where failure or inaccuracy could lead to death, personal injury, or severe physical, environmental, or property damage (including medical diagnosis or treatment, life support, emergency services, autonomous vehicles, or critical infrastructure).
 
 You are solely responsible for your use of the Service and any content you submit or generate. We may, but are not obligated to, monitor use of the Service and may remove content or suspend access for any suspected violation.
+
+**Content filtering and violation rates (effective October 15, 2026).** This paragraph takes effect on **October 15, 2026**; for subscription plans it applies only to billing periods beginning on or after that date. Requests may be screened by our own content filter or by an AI provider's moderation systems before or after dispatch. A single blocked request is not by itself a breach of these Terms. However, from that date, if we detect a **high rate or volume of content filter violations** on an account, organization, or group of related accounts, we may **rate-limit, restrict, suspend, or permanently terminate** access to the Service, in whole or in part, **with or without prior notice**. What counts as a high rate of violations, how it is measured, and what action we take are determined **solely at our discretion**. We are not obligated to warn you first, to explain the specific requests involved, or to provide an appeal, and no refund or credit is due for fees or credits affected by such action. Nothing in this paragraph limits any other suspension or termination right in Section 11.
 
 ---
 
@@ -159,6 +162,7 @@ You may cancel your account at any time through the dashboard. Cancellation does
 We may **suspend or terminate** your access to all or part of the Service, with or without notice, if:
 
 - You violate or we reasonably suspect you have violated these Terms;
+- From October 15, 2026, your account shows a high rate or volume of content filter violations, as described in Section 6, which we assess solely at our discretion;
 - Your use poses a security, legal, or operational risk to us, other users, or third parties;
 - Your payment is overdue, fails, or is reversed; or
 - We are required to do so by law or by an AI provider.

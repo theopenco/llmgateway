@@ -109,6 +109,7 @@ describe("admin routing analytics endpoint", () => {
 		await db.delete(tables.routingExclusionHourly);
 		await db.delete(tables.modelProviderMapping);
 		await cdb.delete(tables.discount);
+		await cdb.delete(tables.routingScoreMultiplier);
 		await deleteAll();
 	});
 
@@ -197,6 +198,8 @@ describe("admin routing analytics endpoint", () => {
 				logsCount: 10,
 				errorsCount: 3,
 				clientErrorsCount: 1,
+				gatewayErrorsCount: 1,
+				upstreamErrorsCount: 1,
 				totalOutputTokens: 5000,
 				totalDuration: 10000,
 				totalTimeToFirstToken: 4000,
@@ -211,6 +214,8 @@ describe("admin routing analytics endpoint", () => {
 				logsCount: 10,
 				errorsCount: 1,
 				clientErrorsCount: 1,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: 0,
 				totalOutputTokens: 20000,
 				totalDuration: 10000,
 				totalTimeToFirstToken: 2000,
@@ -488,8 +493,8 @@ describe("admin routing analytics endpoint", () => {
 		});
 
 		expect(body.exclusions).toEqual([
-			{ reason: "service_tier", excludedCount: 6 },
-			{ reason: "vision", excludedCount: 1 },
+			{ reason: "service_tier", excludedCount: 6, details: [] },
+			{ reason: "vision", excludedCount: 1, details: [] },
 		]);
 		expect(body.serviceTier).toEqual({
 			requestCount: 10,
@@ -539,8 +544,119 @@ describe("admin routing analytics endpoint", () => {
 		// The per-reason breakdown still reports both, and still sums past the
 		// decision count — that is the point of keeping the two separate.
 		expect(eligibilityB.exclusions).toEqual([
-			{ reason: "service_tier", excludedCount: 5 },
-			{ reason: "vision", excludedCount: 5 },
+			{ reason: "service_tier", excludedCount: 5, details: [] },
+			{ reason: "vision", excludedCount: 5, details: [] },
+		]);
+	});
+
+	it("breaks down exclusions on provider ids outside the catalogue", async () => {
+		const hour = currentHourStart();
+		await db.insert(tables.routingExclusionHourly).values([
+			{
+				id: "routing-exclusion-custom-json",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: "custom",
+				reason: "json_output",
+				excludedCount: 4,
+				candidateCount: 8,
+				excludedDecisionCount: 4,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+		expect(body.exclusions).toEqual([
+			{ reason: "json_output", excludedCount: 4, details: [] },
+		]);
+		const eligibilityCustom = body.eligibility.find(
+			(e: { providerId: string }) => e.providerId === "custom",
+		);
+		expect(eligibilityCustom.exclusionRate).toBe(0.5);
+		expect(eligibilityCustom.exclusions).toEqual([
+			{ reason: "json_output", excludedCount: 4, details: [] },
+		]);
+	});
+
+	it("nests compliance rules under the compliance total", async () => {
+		const hour = currentHourStart();
+		// The gateway records the coarse code plus every rule that fired, so the
+		// rules must not be listed next to it: summing both double-counts the drop.
+		await db.insert(tables.routingExclusionHourly).values([
+			{
+				id: "routing-exclusion-compliance",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerB,
+				reason: "compliance",
+				excludedCount: 9,
+				candidateCount: 10,
+				excludedDecisionCount: 9,
+			},
+			{
+				id: "routing-exclusion-compliance-soc2",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerB,
+				reason: "compliance_soc2",
+				excludedCount: 9,
+				candidateCount: 10,
+				excludedDecisionCount: 9,
+			},
+			{
+				id: "routing-exclusion-compliance-gdpr",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerB,
+				reason: "compliance_gdpr",
+				excludedCount: 4,
+				candidateCount: 10,
+				excludedDecisionCount: 9,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+
+		expect(body.exclusions).toEqual([
+			{
+				reason: "compliance",
+				excludedCount: 9,
+				details: [
+					{ reason: "compliance_soc2", excludedCount: 9 },
+					{ reason: "compliance_gdpr", excludedCount: 4 },
+				],
+			},
+		]);
+		const eligibilityB = body.eligibility.find(
+			(e: { providerId: string }) => e.providerId === providerB,
+		);
+		expect(eligibilityB.topReason).toBe("compliance");
+		expect(eligibilityB.exclusions[0].details).toHaveLength(2);
+	});
+
+	it("keeps a compliance rule top-level when its parent has no row", async () => {
+		const hour = currentHourStart();
+		// A partially rerun rollup can leave a detail row without its parent.
+		// Attaching it to an invented parent count would report a total nobody
+		// measured, so it stays a row of its own.
+		await db.insert(tables.routingExclusionHourly).values([
+			{
+				id: "routing-exclusion-orphan-detail",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerB,
+				reason: "compliance_country",
+				excludedCount: 3,
+				candidateCount: 10,
+				excludedDecisionCount: 3,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+		expect(body.exclusions).toEqual([
+			{ reason: "compliance_country", excludedCount: 3, details: [] },
 		]);
 	});
 
@@ -619,6 +735,38 @@ describe("admin routing analytics endpoint", () => {
 		expect(summaryA.score).toBeLessThanOrEqual(baselineSummaryA.score);
 		expect(summaryA.breakdown.priceContribution).toBeLessThanOrEqual(
 			baselineSummaryA.breakdown.priceContribution,
+		);
+	});
+
+	it("scores the routing score multiplier", async () => {
+		const before = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const baseline = await before.json();
+		const baselineSummaryB = baseline.summary.find(
+			(s: { providerId: string }) => s.providerId === providerB,
+		);
+
+		await cdb.insert(tables.routingScoreMultiplier).values({
+			id: "routing-analytics-multiplier",
+			provider: providerA,
+			model: testModel.id,
+			scoreMultiplier: "-0.5",
+		});
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+		const mappingA = body.mappings.find(
+			(m: { providerId: string }) => m.providerId === providerA,
+		);
+		const summaryB = body.summary.find(
+			(s: { providerId: string }) => s.providerId === providerB,
+		);
+
+		// The multiplier only steers routing; the price shown is still billed.
+		expect(mappingA.routingAdjustment).toBe(-0.5);
+		expect(mappingA.discount).toBe(0);
+		// Boosting A makes every other mapping relatively more expensive.
+		expect(summaryB.breakdown.priceContribution).toBeGreaterThan(
+			baselineSummaryB.breakdown.priceContribution,
 		);
 	});
 });

@@ -11,14 +11,14 @@ import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harne
 // Regression tests for https://github.com/theopenco/llmgateway/issues/3347:
 // switching service tiers mid-session must not break session stickiness.
 //
-// gpt-5.5 is served by openai (the only mapping with serviceTiers) and azure.
-// Azure has provider priority 2, so with equal prices it is always the natural
-// routing winner — any request that lands on openai instead can only be
-// explained by the session pin. A `service_tier: "priority"` request narrows
-// the candidate list to just openai, which routes through the single-provider
-// shortcut in chat.ts; that shortcut must keep the session pin in sync so a
-// later request without the tier stays on openai instead of re-scoring to
-// azure and cold-starting a different provider's prompt cache.
+// gpt-5.5 is served by openai and azure. Azure has provider priority 2, so with
+// equal prices it is always the natural routing winner — any request that lands
+// on openai instead can only be explained by the session pin. Azure sells
+// Priority processing but no Flex tier, so a `service_tier: "flex"` request
+// narrows the candidate list to just openai, which routes through the
+// single-provider shortcut in chat.ts; that shortcut must keep the session pin
+// in sync so a later request without the tier stays on openai instead of
+// re-scoring to azure and cold-starting a different provider's prompt cache.
 describe("session stickiness across candidate changes", () => {
 	const harness = createGatewayApiTestHarness();
 	let mockServerUrl = "";
@@ -120,26 +120,26 @@ describe("session stickiness across candidate changes", () => {
 		expect(routing[0].provider).toBe("azure");
 	});
 
-	test("session started on priority tier stays on the tier provider after the tier is disabled", async () => {
+	test("session started on flex tier stays on the tier provider after the tier is disabled", async () => {
 		const token = await seedApiAndProviderKeys("tier-off");
-		const sessionId = "session-priority-then-default";
+		const sessionId = "session-flex-then-default";
 
-		// 1. Priority request: the tier filter narrows candidates to openai
-		// (the only tier-capable mapping), taking the single-provider shortcut.
-		const priorityRes = await chatCompletion(
+		// 1. Flex request: the tier filter narrows candidates to openai
+		// (the only flex-capable mapping), taking the single-provider shortcut.
+		const flexRes = await chatCompletion(
 			token,
 			{
 				model: MODEL,
-				service_tier: "priority",
+				service_tier: "flex",
 				messages: [{ role: "user", content: "start of session" }],
 			},
 			{ "x-session-id": sessionId },
 		);
 
-		expect(priorityRes.status).toBe(200);
-		const priorityJson = await priorityRes.json();
-		expect(priorityJson.metadata?.used_provider).toBe("openai");
-		expect(priorityJson.metadata?.used_service_tier).toBe("priority");
+		expect(flexRes.status).toBe(200);
+		const flexJson = await flexRes.json();
+		expect(flexJson.metadata?.used_provider).toBe("openai");
+		expect(flexJson.metadata?.used_service_tier).toBe("flex");
 
 		// The shortcut must have pinned the session to openai.
 		expect(await readSessionPin(sessionId)).toMatchObject({
@@ -177,12 +177,12 @@ describe("session stickiness across candidate changes", () => {
 		});
 	});
 
-	test("enabling the priority tier mid-session re-pins the session to the tier provider", async () => {
+	test("enabling the flex tier mid-session re-pins the session to the tier provider", async () => {
 		const token = await seedApiAndProviderKeys("tier-on");
-		const sessionId = "session-default-then-priority";
+		const sessionId = "session-default-then-flex";
 
 		// Session previously ran on azure (e.g. before the user enabled
-		// priority). The tier request is forced onto openai, so the pin must
+		// flex). The tier request is forced onto openai, so the pin must
 		// move with it — the session's cache is building on openai now.
 		await redisClient.set(
 			sessionPinKey(sessionId),
@@ -191,19 +191,19 @@ describe("session stickiness across candidate changes", () => {
 			3600,
 		);
 
-		const priorityRes = await chatCompletion(
+		const flexRes = await chatCompletion(
 			token,
 			{
 				model: MODEL,
-				service_tier: "priority",
-				messages: [{ role: "user", content: "switching to priority" }],
+				service_tier: "flex",
+				messages: [{ role: "user", content: "switching to flex" }],
 			},
 			{ "x-session-id": sessionId },
 		);
 
-		expect(priorityRes.status).toBe(200);
-		const priorityJson = await priorityRes.json();
-		expect(priorityJson.metadata?.used_provider).toBe("openai");
+		expect(flexRes.status).toBe(200);
+		const flexJson = await flexRes.json();
+		expect(flexJson.metadata?.used_provider).toBe("openai");
 		expect(await readSessionPin(sessionId)).toMatchObject({
 			providerId: "openai",
 		});
@@ -233,7 +233,7 @@ describe("session stickiness across candidate changes", () => {
 
 		const res = await chatCompletion(token, {
 			model: MODEL,
-			service_tier: "priority",
+			service_tier: "flex",
 			messages: [{ role: "user", content: "no session header" }],
 		});
 

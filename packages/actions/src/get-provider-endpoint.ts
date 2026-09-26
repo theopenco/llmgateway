@@ -232,6 +232,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	consensusprotocol: "https://api.consensusprotocol.org",
 	atria: "https://api.atria-asi.ai",
 	tencent: "https://tokenhub-intl.tencentcloudmaas.com",
+	typesafe: "https://api.typesafe.ai",
 };
 
 export function getProviderDefaultBaseUrl(
@@ -796,7 +797,9 @@ export function getProviderEndpoint(
 			return `${url}/v1/projects/${vaProjectId}/locations/${vaRegion}/publishers/anthropic/models/${vaModel}:${vaEndpoint}`;
 		}
 		case "perplexity":
-			return `${url}/chat/completions`;
+			return providerMapping?.usesPerplexityAgentApi
+				? `${url}/v1/agent`
+				: `${url}/chat/completions`;
 		case "novita":
 			return `${url}/chat/completions`;
 		case "runpod":

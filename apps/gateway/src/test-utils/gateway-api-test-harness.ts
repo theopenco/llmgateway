@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 
-import { db, eq, pool, tables } from "@llmgateway/db";
+import { db, eq, getTableName, pool, tables } from "@llmgateway/db";
 import { getProviderDefinition, models } from "@llmgateway/models";
 import {
 	CONTENT_FILTER_SETTING_ID,
@@ -12,6 +12,7 @@ import { verifyVideoContentAccessToken } from "@llmgateway/shared/video-access";
 
 import {
 	resetMockVideoState,
+	resetMockAudioState,
 	startMockServer,
 	stopMockServer,
 } from "./mock-openai-server.js";
@@ -28,48 +29,73 @@ const TEST_ORGANIZATION_ID = "org-id";
 const TEST_PROJECT_ID = "project-id";
 const GATEWAY_TEST_DB_LOCK_ID = 41001;
 
-async function resetGatewayTestData() {
-	await db.delete(tables.log);
-	await db.delete(tables.contentFilterHourlyStats);
-	await db.delete(tables.systemSetting);
+/**
+ * Emptied wholesale before every test, in this order so foreign keys stay
+ * satisfied. Airside-owned catalogue rows are handled separately below.
+ */
+const RESET_TABLES = [
+	tables.log,
+	tables.contentFilterHourlyModelStats,
+	tables.contentFilterHourlyStats,
+	tables.systemSetting,
 	// Routing reads uptime/latency from a 60-minute history window, so metric
 	// rows a test seeds (e.g. a 0%-uptime provider) must not leak into later
 	// tests' provider selection — or collide with a re-seed in the same minute.
-	await db.delete(tables.modelProviderMappingHistory);
-	await db.delete(tables.webhookDeliveryLog);
-	await db.delete(tables.videoJob);
-	await db.delete(tables.apiKey);
-	await db.delete(tables.providerKey);
-	const airsideModelIds = await db
-		.select({ modelId: tables.modelProviderMapping.modelId })
-		.from(tables.modelProviderMapping)
-		.where(eq(tables.modelProviderMapping.source, "airside"));
-	await db
-		.delete(tables.modelProviderMapping)
-		.where(eq(tables.modelProviderMapping.source, "airside"));
-	for (const modelId of new Set(airsideModelIds.map((row) => row.modelId))) {
-		const remaining = await db.query.modelProviderMapping.findFirst({
-			where: { modelId: { eq: modelId } },
-			columns: { id: true },
-		});
-		if (!remaining) {
-			await db.delete(tables.model).where(eq(tables.model.id, modelId));
-		}
-	}
-	await db.delete(tables.providerPriceFiling);
-	await db.delete(tables.providerDraftModel);
-	await db.delete(tables.providerClaim);
-	await db.delete(tables.providerCompanyMember);
-	await db.delete(tables.providerRoutingSettings);
-	await db.delete(tables.providerCompany);
-	await db.delete(tables.routingScoreMultiplier);
-	await db.delete(tables.userOrganization);
-	await db.delete(tables.project);
-	await db.delete(tables.organization);
-	await db.delete(tables.user);
-	await db.delete(tables.account);
-	await db.delete(tables.session);
-	await db.delete(tables.verification);
+	tables.modelProviderMappingHistory,
+	tables.webhookDeliveryLog,
+	tables.videoJob,
+	tables.apiKey,
+	tables.providerKey,
+	tables.providerPriceFiling,
+	tables.providerDraftModel,
+	tables.providerClaim,
+	tables.providerCompanyMember,
+	tables.providerRoutingSettings,
+	tables.providerCompany,
+	tables.routingScoreMultiplier,
+	// Global rate limits carry no organization, so they survive the org delete
+	// below and would cap later tests.
+	tables.rateLimit,
+	tables.userOrganization,
+	tables.project,
+	tables.organization,
+	tables.user,
+	tables.account,
+	tables.session,
+	tables.verification,
+];
+
+/**
+ * One round trip instead of ~25.
+ *
+ * This runs before every test in every suite using the harness, so each
+ * statement's latency is multiplied by a few thousand; issuing them as a single
+ * simple query (no bind parameters, so Postgres accepts the batch) is worth
+ * more than any of the individual deletes.
+ *
+ * The trailing statements drop the catalogue rows an Airside test created: the
+ * data-modifying CTE and the `NOT EXISTS` read see the same snapshot, so the
+ * mappings being deleted are excluded by `source <> 'airside'` rather than by
+ * the delete itself — a model goes away only if nothing else maps it.
+ */
+const RESET_SQL = `
+${RESET_TABLES.map((table) => `DELETE FROM "${getTableName(table)}";`).join("\n")}
+WITH deleted AS (
+	DELETE FROM "${getTableName(tables.modelProviderMapping)}"
+	WHERE source = 'airside'
+	RETURNING model_id
+)
+DELETE FROM "${getTableName(tables.model)}" m
+WHERE m.id IN (SELECT model_id FROM deleted)
+	AND NOT EXISTS (
+		SELECT 1
+		FROM "${getTableName(tables.modelProviderMapping)}" mpm
+		WHERE mpm.model_id = m.id AND mpm.source <> 'airside'
+	);
+`;
+
+async function resetGatewayTestData(client: LockClient) {
+	await client.query(RESET_SQL);
 }
 
 async function seedGatewayTestData() {
@@ -172,7 +198,8 @@ export function createGatewayApiTestHarness() {
 		]);
 		await clearCache();
 		resetMockVideoState();
-		await resetGatewayTestData();
+		resetMockAudioState();
+		await resetGatewayTestData(lockClient);
 		await seedGatewayTestData();
 	});
 

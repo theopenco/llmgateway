@@ -75,7 +75,12 @@ function getModelByJsonCapability(
 	const isChat = (m: ModelDefinition) =>
 		(m.output ?? ["text"]).some((o) => o === "text" || o === "image");
 	const m = (models as readonly ModelDefinition[]).find((model) => {
-		if (!isChat(model) || model.id === "auto" || model.id === "custom") {
+		if (
+			!isChat(model) ||
+			model.id === "auto" ||
+			model.id === "smart" ||
+			model.id === "custom"
+		) {
 			return false;
 		}
 		const soft = model.providers.some(
@@ -413,6 +418,43 @@ describe("validateModelCapabilities - reasoning.max_tokens", () => {
 				reasoning_max_tokens: 2048,
 			}),
 		).toThrow(HTTPException);
+	});
+});
+
+describe("validateModelCapabilities - reasoning.mode", () => {
+	const proModel = getModel("gpt-5.6-sol");
+	const nonProModel = getModel("gpt-4o-mini");
+
+	it("rejects reasoning.mode for a model no mapping serves in that mode", () => {
+		expect(() =>
+			validateModelCapabilities(nonProModel, nonProModel.id, undefined, {
+				reasoning_mode: "pro",
+			}),
+		).toThrow(/does not support reasoning.mode "pro"/);
+	});
+
+	it("accepts reasoning.mode when some mapping declares it", () => {
+		expect(() =>
+			validateModelCapabilities(proModel, proModel.id, undefined, {
+				reasoning_mode: "pro",
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects reasoning.mode on a pinned provider that does not declare it", () => {
+		expect(() =>
+			validateModelCapabilities(proModel, proModel.id, "aws-mantle", {
+				reasoning_mode: "pro",
+			}),
+		).toThrow(HTTPException);
+	});
+
+	it("accepts reasoning.mode on a pinned provider that declares it", () => {
+		expect(() =>
+			validateModelCapabilities(proModel, proModel.id, "openai", {
+				reasoning_mode: "standard",
+			}),
+		).not.toThrow();
 	});
 });
 

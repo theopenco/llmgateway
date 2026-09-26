@@ -22,9 +22,11 @@ import type React from "react";
 export default function UpdateCardForm({
 	onCancel,
 	onSuccess,
+	onCardSaved,
 }: {
 	onCancel: () => void;
 	onSuccess: () => void;
+	onCardSaved: () => void;
 }) {
 	const { stripe, isLoading: stripeLoading } = useStripe();
 
@@ -39,7 +41,11 @@ export default function UpdateCardForm({
 
 	return (
 		<Elements stripe={stripe}>
-			<UpdateCardFormInner onCancel={onCancel} onSuccess={onSuccess} />
+			<UpdateCardFormInner
+				onCancel={onCancel}
+				onSuccess={onSuccess}
+				onCardSaved={onCardSaved}
+			/>
 		</Elements>
 	);
 }
@@ -47,9 +53,11 @@ export default function UpdateCardForm({
 function UpdateCardFormInner({
 	onCancel,
 	onSuccess,
+	onCardSaved,
 }: {
 	onCancel: () => void;
 	onSuccess: () => void;
+	onCardSaved: () => void;
 }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -107,11 +115,42 @@ function UpdateCardFormInner({
 				return;
 			}
 
-			await updatePaymentMethod({ body: { paymentMethodId: newPmId } });
+			const { renewalPayment } = await updatePaymentMethod({
+				body: { paymentMethodId: newPmId },
+			});
 
+			onCardSaved();
 			await queryClient.invalidateQueries({ queryKey: paymentMethodQueryKey });
 
-			toast.success("Payment method updated");
+			if (renewalPayment.status === "failed") {
+				toast.error("Card saved, but renewal payment failed", {
+					description: `${renewalPayment.message} Complete the outstanding invoice above, or try another card.`,
+				});
+				return;
+			}
+			let renewalPaid = renewalPayment.status === "paid";
+			if (renewalPayment.status === "requires_action") {
+				const confirmation = await stripe.confirmCardPayment(
+					renewalPayment.clientSecret,
+				);
+				if (confirmation.error) {
+					toast.error("Card saved, but renewal payment needs confirmation", {
+						description: confirmation.error.message,
+					});
+					return;
+				}
+				renewalPaid = confirmation.paymentIntent.status === "succeeded";
+			}
+			await queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/dev-plans/status").queryKey,
+			});
+			toast.success(
+				renewalPaid
+					? "Card updated and renewal paid"
+					: renewalPayment.status === "not_needed"
+						? "Payment method updated"
+						: "Card saved, renewal payment processing",
+			);
 			onSuccess();
 		} catch (error) {
 			const message =
@@ -127,12 +166,19 @@ function UpdateCardFormInner({
 					: message;
 			toast.error(detail);
 		} finally {
+			await queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/dev-plans/outstanding-invoice")
+					.queryKey,
+			});
 			setLoading(false);
 		}
 	};
 
 	return (
 		<form onSubmit={handleSubmit} className="space-y-4">
+			<p className="text-sm text-muted-foreground">
+				Saving your card also retries any failed renewal payment.
+			</p>
 			<div className="rounded-md border bg-background p-3">
 				<CardElement
 					options={{

@@ -1,9 +1,10 @@
 ---
-id: "89"
+id: "107"
 slug: "realtime-transcription-sessions"
 date: "2026-09-06"
 title: "Realtime Transcription Sessions"
 summary: "The /v1/realtime WebSocket now opens transcription-only sessions: live speech-to-text with no speech model in the loop, billed per minute or per token against the transcription model alone. Lounge gets a Transcribe mode on the same page."
+tags: ["llmgateway", "lounge"]
 image:
   src: "/changelog/realtime-transcription-sessions.png"
   alt: "A glowing waveform turning into lines of text on a central chip, representing live speech-to-text transcription sessions on LLM Gateway"

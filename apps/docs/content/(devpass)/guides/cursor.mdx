@@ -1,0 +1,58 @@
+---
+title: Cursor Integration
+icon: Cursor
+description: Configure Cursor’s custom OpenAI endpoint for LLM Gateway and understand model compatibility, sign-in, and billing scope.
+---
+
+Cursor can use a custom OpenAI base URL for supported chat models. Connect LLM Gateway in the editor's model settings, then verify the selected model with a small request.
+
+## Video walkthrough
+
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/qqzLzMSP--I"
+		title="Cursor setup with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
+
+## Sign in and open model settings
+
+Install Cursor from its&nbsp;[official site](https://cursor.com/downloads), sign in to your Cursor account, and open **Cursor Settings → Models → API Keys**.
+
+Cursor account access and your gateway API key are separate requirements.
+
+## Add the gateway connection
+
+1. Enter your workspace key under **OpenAI API Key**.
+2. Enable **Override OpenAI Base URL** and set `https://api.llmgateway.io/v1`.
+3. Save or verify the key using the controls in your Cursor version.
+4. Select a supported chat model. If your version offers custom model entry, use the exact ID from the&nbsp;[live catalogue](https://llmgateway.io/models).
+
+With a&nbsp;[DevPass](https://devpass.llmgateway.io) key, choose a canonical model included in your plan. Upstream provider prefixes pin routing and are not supported on coding plans.
+
+## Verify the request
+
+Open a new chat, select the configured model explicitly, and send a short prompt. Check the request in the workspace that issued the gateway key before relying on the connection for agent tasks.
+
+Compatibility depends on Cursor's model support and the mode you use. A custom endpoint does not guarantee that every catalogue model or agent feature works.
+
+## Scope and billing
+
+Cursor documents custom keys for chat models; Tab completion continues using Cursor's built-in models. BYOK requests still pass through Cursor's backend for prompt building. Consult Cursor's&nbsp;[API key documentation](https://cursor.com/help/models-and-usage/api-keys) for current plan charges and data handling.
+
+## Troubleshooting
+
+**Sign-in blocks settings:** complete Cursor account sign-in before configuring the provider.
+
+**Authentication fails:** check the active gateway key and the exact base URL, including `/v1`.
+
+**A model is missing or rejected:** confirm Cursor supports it, check its exact catalogue ID, and test a supported chat model first.
+
+**An agent tool fails:** verify tool support and mode compatibility. Check the actual request and error instead of assuming every editor feature uses the override.
+
+**Tab completion uses Cursor's service:** this is expected; custom chat keys do not replace its completion models.

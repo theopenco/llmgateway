@@ -1,4 +1,4 @@
-import { isRecord } from "@/lib/message-metadata";
+import { describeGatewayError } from "@/lib/gateway-error";
 
 export {
 	getModelImageConfig,
@@ -11,6 +11,60 @@ export interface GeneratedImage {
 	mediaType: string;
 }
 
+// Freshly generated images arrive inline as base64. Saved history images are
+// addressed by URL so the page only ever downloads a downscaled preview until
+// the original is zoomed, downloaded or reused as a reference.
+export type GalleryImage =
+	| { kind: "inline"; base64: string; mediaType: string }
+	| { kind: "remote"; previewUrl: string; fullUrl: string };
+
+export function inlineImage(image: GeneratedImage): GalleryImage {
+	return { kind: "inline", base64: image.base64, mediaType: image.mediaType };
+}
+
+export function inlineImageFromDataUrl(input: {
+	dataUrl: string;
+	mediaType: string;
+}): GalleryImage {
+	const comma = input.dataUrl.indexOf(",");
+	return {
+		kind: "inline",
+		base64: comma >= 0 ? input.dataUrl.slice(comma + 1) : input.dataUrl,
+		mediaType: input.mediaType,
+	};
+}
+
+export function historyImage(
+	apiUrl: string,
+	itemId: string,
+	modelIndex: number,
+	imageIndex: number,
+): GalleryImage {
+	const base = `${apiUrl}/playground/image-history/${itemId}/images/${modelIndex}/${imageIndex}`;
+	return {
+		kind: "remote",
+		previewUrl: `${base}?variant=preview`,
+		fullUrl: base,
+	};
+}
+
+export function historyInputImage(
+	apiUrl: string,
+	itemId: string,
+	index: number,
+): GalleryImage {
+	const base = `${apiUrl}/playground/image-history/${itemId}/input-images/${index}`;
+	return {
+		kind: "remote",
+		previewUrl: `${base}?variant=thumbnail`,
+		fullUrl: base,
+	};
+}
+
+export function toDataUrl(image: GeneratedImage): string {
+	return `data:${image.mediaType};base64,${image.base64}`;
+}
+
 export interface GalleryItem {
 	id: string;
 	prompt: string;
@@ -19,16 +73,15 @@ export interface GalleryItem {
 	// front so the saved item is attributed to the right org even if the user
 	// switches organizations while the generation is in flight.
 	organizationId?: string;
-	inputImages?: { dataUrl: string; mediaType: string }[];
-	// Sidebar thumbnail URL for items loaded from the lightweight history
-	// list, which carries no base64 image data.
+	inputImages?: GalleryImage[];
+	// Sidebar thumbnail URL for items loaded from the history list; freshly
+	// generated items derive their thumbnail from the first inline image.
 	thumbnailUrl?: string | null;
 	models: {
 		modelId: string;
 		modelName: string;
-		images: GeneratedImage[];
-		// Number of stored images for history items whose image data hasn't
-		// been fetched yet (images stays empty until the detail query resolves).
+		images: GalleryImage[];
+		// Number of images still expected while a generation is in flight.
 		imageCount?: number;
 		error?: string;
 		isLoading: boolean;
@@ -192,39 +245,13 @@ export class ImageGenerationError extends Error {
 
 /**
  * Derive a user-facing message and HTTP status from an image generation
- * failure. Prefers the gateway's detailed message embedded in the provider
- * error's responseBody, falling back to the Error message and status 500.
+ * failure, falling back to a generation-specific message.
  */
 export function describeImageGenerationError(error: unknown): {
 	message: string;
 	status: number;
 } {
-	const status =
-		typeof error === "object" &&
-		error !== null &&
-		"status" in error &&
-		typeof (error as { status: unknown }).status === "number"
-			? (error as { status: number }).status
-			: 500;
-
-	let message =
-		error instanceof Error ? error.message : "Image generation failed";
-
-	if (typeof error === "object" && error !== null) {
-		const err = error as Record<string, unknown>;
-		if (typeof err.responseBody === "string") {
-			try {
-				const body: unknown = JSON.parse(err.responseBody);
-				if (isRecord(body) && typeof body.message === "string") {
-					message = body.message;
-				}
-			} catch {
-				// ignore parse errors
-			}
-		}
-	}
-
-	return { message, status };
+	return describeGatewayError(error, "Image generation failed");
 }
 
 /**
@@ -308,16 +335,4 @@ export async function readImageGenerationResponse(
 		);
 	}
 	return result.images;
-}
-
-export function downloadImage(image: GeneratedImage, filename?: string) {
-	const dataUrl = `data:${image.mediaType};base64,${image.base64}`;
-	const ext = image.mediaType.split("/")[1] ?? "png";
-	const name = filename ?? `image-${Date.now()}.${ext}`;
-	const a = document.createElement("a");
-	a.href = dataUrl;
-	a.download = name;
-	document.body.appendChild(a);
-	a.click();
-	document.body.removeChild(a);
 }

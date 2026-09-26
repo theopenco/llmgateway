@@ -6,6 +6,11 @@ import {
 	CUSTOM_PROVIDER_NAME_REGEX,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
 } from "./custom-providers.js";
+import {
+	SMART_ROUTING_DIFFICULTIES,
+	SMART_ROUTING_OUTPUT_TYPES,
+	SMART_ROUTING_TASK_TYPES,
+} from "./smart-routing.js";
 
 /**
  * Reserved model-string prefix that invokes a named dynamic route instead of a
@@ -179,6 +184,49 @@ const conditionalNodeSchema = z.object({
 	else: nodeIdSchema,
 });
 
+/**
+ * Classifiers a route may branch on. An enum rather than a boolean so further
+ * classifiers can be added without reshaping stored graphs.
+ */
+export const DYNAMIC_ROUTE_CLASSIFIER_KINDS = ["jev"] as const;
+export type DynamicRouteClassifierKind =
+	(typeof DYNAMIC_ROUTE_CLASSIFIER_KINDS)[number];
+
+/** The classifier answers a route can branch on, and their allowed values. */
+export const DYNAMIC_ROUTE_CLASSIFIER_FIELDS = {
+	difficulty: SMART_ROUTING_DIFFICULTIES,
+	task: SMART_ROUTING_TASK_TYPES,
+	outputType: SMART_ROUTING_OUTPUT_TYPES,
+} as const satisfies Record<string, readonly string[]>;
+
+export type DynamicRouteClassifierField =
+	keyof typeof DYNAMIC_ROUTE_CLASSIFIER_FIELDS;
+
+const classifierCaseSchema = z.object({
+	value: z.string().min(1).max(64),
+	next: nodeIdSchema,
+});
+
+/**
+ * Rates the request with a classifier and branches on one of its answers.
+ * `else` covers both "no case matched" and "no verdict": the classifier is
+ * fail-open, so an outage or a compliance policy that blocks its provider
+ * takes the same branch as an unmatched answer rather than failing the route.
+ */
+const classifierNodeSchema = z.object({
+	id: nodeIdSchema,
+	type: z.literal("classifier"),
+	kind: z.enum(DYNAMIC_ROUTE_CLASSIFIER_KINDS),
+	on: z.enum(
+		Object.keys(DYNAMIC_ROUTE_CLASSIFIER_FIELDS) as [
+			DynamicRouteClassifierField,
+			...DynamicRouteClassifierField[],
+		],
+	),
+	cases: z.array(classifierCaseSchema).min(1).max(20),
+	else: nodeIdSchema,
+});
+
 const percentageSplitSchema = z.object({
 	/** Relative weight; splits are normalized over the sum of all weights. */
 	weight: z.number().positive().finite(),
@@ -203,6 +251,7 @@ const endNodeSchema = z.object({
 const nodeSchema = z.discriminatedUnion("type", [
 	modelNodeSchema,
 	conditionalNodeSchema,
+	classifierNodeSchema,
 	percentageNodeSchema,
 	endNodeSchema,
 ]);
@@ -210,6 +259,7 @@ const nodeSchema = z.discriminatedUnion("type", [
 export type DynamicRouteModelNode = z.infer<typeof modelNodeSchema>;
 export type DynamicRouteCondition = z.infer<typeof conditionSchema>;
 export type DynamicRouteConditionalNode = z.infer<typeof conditionalNodeSchema>;
+export type DynamicRouteClassifierNode = z.infer<typeof classifierNodeSchema>;
 export type DynamicRoutePercentageNode = z.infer<typeof percentageNodeSchema>;
 export type DynamicRouteEndNode = z.infer<typeof endNodeSchema>;
 export type DynamicRouteNode = z.infer<typeof nodeSchema>;
@@ -218,11 +268,30 @@ function collectNodeReferences(node: DynamicRouteNode): string[] {
 	switch (node.type) {
 		case "conditional":
 			return [...node.conditions.map((c) => c.next), node.else];
+		case "classifier":
+			return [...node.cases.map((c) => c.next), node.else];
 		case "percentage":
 			return node.splits.map((s) => s.next);
 		default:
 			return [];
 	}
+}
+
+/**
+ * Whether evaluating this graph needs a classifier verdict. The gateway checks
+ * this before evaluation so a route that never branches on one does not pay
+ * for the call.
+ */
+export function graphUsesClassifier(graph: DynamicRouteGraph): boolean {
+	return graph.nodes.some((node) => node.type === "classifier");
+}
+
+export function getDynamicRouteModelNodes(
+	graph: DynamicRouteGraph,
+): DynamicRouteModelNode[] {
+	return graph.nodes.filter(
+		(node): node is DynamicRouteModelNode => node.type === "model",
+	);
 }
 
 export const dynamicRouteGraphSchema = z
@@ -259,6 +328,30 @@ export const dynamicRouteGraphSchema = z
 						message: `Node "${node.id}" references unknown node "${ref}"`,
 						path: ["nodes", index],
 					});
+				}
+			}
+			if (node.type === "classifier") {
+				const allowed = DYNAMIC_ROUTE_CLASSIFIER_FIELDS[
+					node.on
+				] as readonly string[];
+				const seen = new Set<string>();
+				for (let c = 0; c < node.cases.length; c++) {
+					const value = node.cases[c].value;
+					if (!allowed.includes(value)) {
+						ctx.addIssue({
+							code: z.ZodIssueCode.custom,
+							message: `Node "${node.id}": "${value}" is not a valid ${node.on} value (${allowed.join(", ")})`,
+							path: ["nodes", index, "cases", c, "value"],
+						});
+					}
+					if (seen.has(value)) {
+						ctx.addIssue({
+							code: z.ZodIssueCode.custom,
+							message: `Node "${node.id}": duplicate case "${value}"`,
+							path: ["nodes", index, "cases", c, "value"],
+						});
+					}
+					seen.add(value);
 				}
 			}
 			if (node.type === "model") {

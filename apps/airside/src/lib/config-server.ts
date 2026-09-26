@@ -3,6 +3,8 @@ export interface AppConfig {
 	apiUrl: string;
 	apiBackendUrl: string;
 	uiUrl: string;
+	playgroundUrl: string;
+	devpassUrl: string;
 	docsUrl: string;
 	githubUrl: string;
 	discordUrl: string;
@@ -32,8 +34,22 @@ export function getConfig(): AppConfig {
 	return {
 		hosted: process.env.HOSTED === "true",
 		apiUrl,
+		playgroundUrl:
+			process.env.PLAYGROUND_URL ??
+			(process.env.NODE_ENV === "development"
+				? "http://localhost:3003"
+				: "https://lounge.llmgateway.io"),
+		devpassUrl:
+			process.env.CODE_URL ??
+			(process.env.NODE_ENV === "development"
+				? "http://localhost:3004"
+				: "https://devpass.llmgateway.io"),
 		apiBackendUrl: process.env.API_BACKEND_URL ?? apiUrl,
-		uiUrl: process.env.UI_URL ?? "http://localhost:3002",
+		uiUrl:
+			process.env.UI_URL ??
+			(process.env.NODE_ENV === "development"
+				? "http://localhost:3002"
+				: "https://llmgateway.io"),
 		docsUrl: process.env.DOCS_URL ?? "http://localhost:3005",
 		githubUrl:
 			process.env.GITHUB_URL ?? "https://github.com/theopenco/llmgateway",

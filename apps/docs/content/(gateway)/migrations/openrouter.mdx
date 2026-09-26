@@ -1,0 +1,231 @@
+---
+title: Migrate from OpenRouter
+description: Switch to LLM Gateway for built-in analytics, self-hosting options, and free bring-your-own-keys at any volume. Two-line code change.
+icon: ArrowRightLeft
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+import { CopyMigrationPrompt } from "@/components/copy-migration-prompt";
+
+<section>
+
+LLM Gateway works just like OpenRouter—same OpenAI-compatible API, same `provider/model` naming—with built-in analytics and the option to self-host. Migration takes two lines of code.
+
+<Callout type="info">
+	Stripe announced its acquisition of OpenRouter on August 19, 2026. OpenRouter
+	says nothing changes for customers, so there is no fire to put out. This guide
+	is for teams that want an open-source gateway they can run themselves, or that
+	want to stop paying 5% on bring-your-own-key traffic above $25,000 a month.
+</Callout>
+
+<CopyMigrationPrompt slug="openrouter" provider="OpenRouter" />
+
+## Quick Migration
+
+Change your base URL and API key:
+
+```diff
+- const baseURL = "https://openrouter.ai/api/v1";
+- const apiKey = process.env.OPENROUTER_API_KEY;
++ const baseURL = "https://api.llmgateway.io/v1";
++ const apiKey = process.env.LLM_GATEWAY_API_KEY;
+```
+
+</section>
+
+<section>
+
+## Migration Steps
+
+<Steps>
+<Step>
+### Get Your LLM Gateway API Key
+
+Sign up at [llmgateway.io/signup](https://llmgateway.io/signup) and create an API key from your dashboard.
+
+</Step>
+
+<Step>
+### Update Environment Variables
+
+```bash
+# Remove OpenRouter credentials
+# OPENROUTER_API_KEY=sk-or-...
+
+# Add LLM Gateway credentials
+LLM_GATEWAY_API_KEY=llmgtwy_your_key_here
+```
+
+</Step>
+
+<Step>
+### Update Your Code
+
+#### Using fetch/axios
+
+The OpenRouter-only `HTTP-Referer` and `X-Title` headers can go; nothing on LLM Gateway reads them.
+
+```typescript
+// Before (OpenRouter)
+const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+	method: "POST",
+	headers: {
+		Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+		"HTTP-Referer": "https://example.com",
+		"X-Title": "My App",
+		"Content-Type": "application/json",
+	},
+	body: JSON.stringify({
+		model: "openai/gpt-6-astra",
+		messages: [{ role: "user", content: "Hello!" }],
+	}),
+});
+
+// After (LLM Gateway)
+const response = await fetch("https://api.llmgateway.io/v1/chat/completions", {
+	method: "POST",
+	headers: {
+		Authorization: `Bearer ${process.env.LLM_GATEWAY_API_KEY}`,
+		"Content-Type": "application/json",
+	},
+	body: JSON.stringify({
+		model: "openai/gpt-6-astra",
+		messages: [{ role: "user", content: "Hello!" }],
+	}),
+});
+```
+
+#### Using OpenAI SDK
+
+```typescript
+import OpenAI from "openai";
+
+// Before (OpenRouter)
+const client = new OpenAI({
+	baseURL: "https://openrouter.ai/api/v1",
+	apiKey: process.env.OPENROUTER_API_KEY,
+});
+
+// After (LLM Gateway)
+const client = new OpenAI({
+	baseURL: "https://api.llmgateway.io/v1",
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+// Usage remains the same
+const completion = await client.chat.completions.create({
+	model: "anthropic/claude-sonnet-5",
+	messages: [{ role: "user", content: "Hello!" }],
+});
+```
+
+#### Using Vercel AI SDK
+
+Both OpenRouter and LLM Gateway have native AI SDK providers, making migration straightforward:
+
+```typescript
+import { generateText } from "ai";
+
+// Before (OpenRouter AI SDK Provider)
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+
+const openrouter = createOpenRouter({
+	apiKey: process.env.OPENROUTER_API_KEY,
+});
+
+const { text } = await generateText({
+	model: openrouter("openai/gpt-6-astra"),
+	prompt: "Hello!",
+});
+
+// After (LLM Gateway AI SDK Provider)
+import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+
+const llmgateway = createLLMGateway({
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+const { text } = await generateText({
+	model: llmgateway("openai/gpt-6-astra"),
+	prompt: "Hello!",
+});
+```
+
+</Step>
+</Steps>
+
+</section>
+
+<section>
+
+## Model Name Mapping
+
+Most OpenRouter IDs work unchanged. A bare ID (no prefix) turns on smart routing across every provider that serves the model; a `provider/model` ID pins one provider. Anthropic versions use dashes instead of OpenRouter's dots.
+
+| OpenRouter Model              | LLM Gateway Model                                                 |
+| ----------------------------- | ----------------------------------------------------------------- |
+| openai/gpt-6-astra            | gpt-6-astra or openai/gpt-6-astra                                 |
+| anthropic/claude-sonnet-5     | claude-sonnet-5 or anthropic/claude-sonnet-5                      |
+| anthropic/claude-opus-4.8     | claude-opus-4-8 or anthropic/claude-opus-4-8                      |
+| google/gemini-3.1-pro-preview | gemini-3.1-pro-preview or google-ai-studio/gemini-3.1-pro-preview |
+
+Check the [models page](https://llmgateway.io/models) for the full list of available models.
+
+</section>
+
+<section>
+
+## Provider Routing
+
+OpenRouter selects the upstream through a `provider` object in the request body. LLM Gateway puts that choice in the model ID and a header:
+
+| OpenRouter                            | LLM Gateway                                                                                                 |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| No `provider` object                  | Bare model ID — routes on live uptime, throughput, price, and latency                                       |
+| `provider.order: ["Anthropic"]`       | `anthropic/claude-sonnet-5` — pinned; falls back to the best alternative only if its uptime drops below 90% |
+| `provider.order` with several entries | A dynamic route whose `providers` list is the same ordered fallback preference                              |
+| `provider.allow_fallbacks: false`     | Add the `x-no-fallback: true` header to fail instead of retrying elsewhere                                  |
+| Your own provider keys (BYOK)         | Add keys under Settings > Provider Keys — 0% gateway fee at any monthly volume                              |
+
+See the [routing](/features/routing) and [dynamic routes](/features/dynamic-routes) documentation for the details.
+
+</section>
+
+<section>
+
+## Streaming Support
+
+LLM Gateway supports streaming responses identically to OpenRouter:
+
+```typescript
+const stream = await client.chat.completions.create({
+	model: "anthropic/claude-sonnet-5",
+	messages: [{ role: "user", content: "Write a story" }],
+	stream: true,
+});
+
+for await (const chunk of stream) {
+	process.stdout.write(chunk.choices[0]?.delta?.content || "");
+}
+```
+
+</section>
+
+<section>
+
+## Full Comparison
+
+Want to see a detailed breakdown of all features? Check out our [LLM Gateway vs OpenRouter comparison page](https://llmgateway.io/compare/open-router).
+
+</section>
+
+<footer>
+
+## Need Help?
+
+- Browse available models at [llmgateway.io/models](https://llmgateway.io/models)
+- Read the [API documentation](https://docs.llmgateway.io)
+- Contact support at contact@llmgateway.io
+
+</footer>

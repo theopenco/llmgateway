@@ -154,12 +154,7 @@ export default async function Page(props: {
 				/>
 			</DocsBody>
 			<Feedback
-				onRateAction={async (url) => {
-					"use server";
-					return await Promise.resolve({
-						githubUrl: `https://github.com/theopenco/llmgateway/blob/main/apps/docs/content${url}.mdx`,
-					});
-				}}
+				githubUrl={`https://github.com/theopenco/llmgateway/blob/main/apps/docs/content/${page.path}`}
 			/>
 		</DocsPage>
 	);

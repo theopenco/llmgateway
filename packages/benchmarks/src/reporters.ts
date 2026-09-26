@@ -75,6 +75,50 @@ const SUMMARY_HEADERS = [
 	"Cost/correct",
 ];
 
+const AGENT_HEADERS = [
+	"Target",
+	"Solved",
+	"Solve rate",
+	"Turns p50",
+	"Tool calls p50",
+	"Invalid tool calls",
+	"Repeated tool calls",
+	"Wall clock p50 (ms)",
+	"First TTFT p50 (ms)",
+	"Tokens p50",
+	"Cost/solved task",
+	"Stop reasons",
+];
+
+function agentRow(
+	result: BenchmarkResult,
+	summary: BenchmarkTargetSummary,
+): string[] | null {
+	const agent = summary.agent;
+	if (!agent) {
+		return null;
+	}
+	const target = result.targets.find(
+		(candidate) => candidate.id === summary.targetId,
+	);
+	return [
+		target?.displayName ?? summary.targetId,
+		`${agent.solved}/${agent.attempted}`,
+		formatPercent(agent.solveRate),
+		formatNumber(agent.turns),
+		formatNumber(agent.toolCalls),
+		formatPercent(agent.invalidToolCallRate),
+		formatPercent(agent.repeatedToolCallRate),
+		formatNumber(agent.wallClockMs),
+		formatNumber(agent.firstTurnTtftMs),
+		formatNumber(agent.totalTokens),
+		formatCost(agent.costPerSolvedTaskUsd),
+		Object.entries(agent.stopReasons)
+			.map(([reason, count]) => `${reason}×${count}`)
+			.join(", ") || "—",
+	];
+}
+
 export function renderMarkdown(result: BenchmarkResult): string {
 	const lines = [
 		"# Model benchmark",
@@ -94,6 +138,22 @@ export function renderMarkdown(result: BenchmarkResult): string {
 		lines.push(
 			`| ${summaryRow(result, summary).map(markdownCell).join(" | ")} |`,
 		);
+	}
+
+	const agentRows = result.summary.targets
+		.map((summary) => agentRow(result, summary))
+		.filter((row): row is string[] => row !== null);
+	if (agentRows.length > 0) {
+		lines.push(
+			"",
+			"## Agentic coding",
+			"",
+			`| ${AGENT_HEADERS.join(" | ")} |`,
+			`| ${AGENT_HEADERS.map((_, index) => (index === 0 ? "---" : "---:")).join(" | ")} |`,
+		);
+		for (const row of agentRows) {
+			lines.push(`| ${row.map(markdownCell).join(" | ")} |`);
+		}
 	}
 
 	lines.push(
@@ -196,6 +256,11 @@ export function renderHtml(result: BenchmarkResult): string {
 			(summary) => `<tr>${htmlCells(summaryRow(result, summary), "td")}</tr>`,
 		)
 		.join("");
+	const agentRows = result.summary.targets
+		.map((summary) => agentRow(result, summary))
+		.filter((row): row is string[] => row !== null)
+		.map((row) => `<tr>${htmlCells(row, "td")}</tr>`)
+		.join("");
 	const caseRows = result.summary.cases
 		.map(
 			(summary) =>
@@ -271,6 +336,7 @@ export function renderHtml(result: BenchmarkResult): string {
 <p><small>Started ${escapeHtml(result.startedAt)} · Finished ${escapeHtml(result.finishedAt)} · Reference ${escapeHtml(result.config.referenceTargetId ?? "—")} · Budget ${result.config.budgetMs === null ? "unlimited" : `${result.config.budgetMs} ms`} · Seed ${result.config.seed}</small></p>
 <h2>Summary</h2>
 <table><thead><tr>${htmlCells(SUMMARY_HEADERS, "th")}</tr></thead><tbody>${summaryRows}</tbody></table>
+${agentRows ? `<h2>Agentic coding</h2><table><thead><tr>${htmlCells(AGENT_HEADERS, "th")}</tr></thead><tbody>${agentRows}</tbody></table>` : ""}
 <h2>Capability dimensions</h2>
 <table><thead><tr>${htmlCells(["Target", "Dimension", "Passed", "Score"], "th")}</tr></thead><tbody>${dimensionRows}</tbody></table>
 <h2>Cases</h2>

@@ -1134,6 +1134,15 @@ export const providers: ProviderDefinition[] = [
 			"The resource name can be found in your Azure base URL: https://<resource-name>.openai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
 		priority: 2,
+		serviceTiers: [
+			{
+				id: "priority",
+				name: "Priority",
+				multiplier: 2,
+				description:
+					"Premium low-latency tier at a 100% premium. Requires a Global Standard or Data Zone (US) deployment.",
+			},
+		],
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
 		usagePolicyUrl: "https://www.microsoft.com/en-us/legal/terms-of-use",
@@ -2159,6 +2168,46 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: null,
 	},
+	{
+		id: "typesafe",
+		name: "TypeSafe AI",
+		forwardsSafetyIdentifier: false,
+		description:
+			"TypeSafe AI serves Jev, a System One decision model that answers typed questions about a state with calibrated probabilities instead of generated text.",
+		env: {
+			required: {
+				apiKey: "LLM_TYPESAFE_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_TYPESAFE_BASE_URL",
+			},
+		},
+		streaming: false,
+		cancellation: true,
+		color: "#0f766e",
+		website: "https://typesafe.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://typesafe.ai/legal/mca",
+		privacyPolicyUrl: "https://typesafe.ai/legal/privacy-policy",
+		// The Master Customer Agreement names an Acceptable Use Policy at
+		// typesafe.ai/legal/aup, but that page is not published yet; its license
+		// restrictions section is the operative acceptable-use text until it is.
+		usagePolicyUrl: "https://typesafe.ai/legal/mca",
+		legalEntity: "TypeSafe AI, Inc.",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: null,
+			retentionPeriod: null,
+		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Agreement",
+				link: "https://typesafe.ai/legal/data-processing",
+			},
+		],
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
@@ -2281,6 +2330,9 @@ export type ComplianceFailureReason =
 	| "allowedCountries"
 	| "blockedProviders"
 	| "allowedProviders"
+	| "blockedModels"
+	| "allowedModels"
+	| "unknownProvider"
 	| "noAttestation";
 
 /**
@@ -2427,20 +2479,33 @@ export function isModelAllowedByPolicy(
 	modelRefs: readonly string[],
 	policy: ProviderCompliancePolicy,
 ): boolean {
+	return getModelPolicyListFailures(modelRefs, policy).length === 0;
+}
+
+/**
+ * The fine-grained model-list checks a model fails: an entry on the deny list,
+ * or absence from a non-empty allow list. Empty when the model passes both
+ * lists; always empty for a disabled policy.
+ */
+export function getModelPolicyListFailures(
+	modelRefs: readonly string[],
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
 	if (!policy.enabled) {
-		return true;
+		return [];
 	}
+	const failures: ComplianceFailureReason[] = [];
 	if (policy.blockedModels?.some((ref) => modelRefs.includes(ref))) {
-		return false;
+		failures.push("blockedModels");
 	}
 	if (
 		policy.allowedModels &&
 		policy.allowedModels.length > 0 &&
 		!policy.allowedModels.some((ref) => modelRefs.includes(ref))
 	) {
-		return false;
+		failures.push("allowedModels");
 	}
-	return true;
+	return failures;
 }
 
 /**
@@ -2495,6 +2560,54 @@ export function getProviderComplianceFailures(
 		...getProviderRefPolicyListFailures(provider.id, policy),
 		...getProviderRequirementFailures(provider, policy),
 	];
+}
+
+export interface ModelMappingAvailability {
+	providerId: string;
+	deprecatedAt?: Date | null;
+	deactivatedAt?: Date | null;
+}
+
+/** Whether a mapping is still served at `now`: neither deprecated nor deactivated. */
+export function isLiveMapping(
+	mapping: ModelMappingAvailability,
+	now: Date = new Date(),
+): boolean {
+	return !(
+		(mapping.deprecatedAt && mapping.deprecatedAt <= now) ||
+		(mapping.deactivatedAt && mapping.deactivatedAt <= now)
+	);
+}
+
+/**
+ * Catalogue providers that serve `modelId` under the policy: active,
+ * non-deprecated mappings whose provider has no compliance failures. Unknown
+ * providers (e.g. DB-only carriers) fail closed. Empty when the model itself is
+ * blocked by the policy's model lists.
+ */
+export function getCompliantProvidersForModel(
+	modelId: string,
+	mappings: readonly ModelMappingAvailability[],
+	policy: ProviderCompliancePolicy,
+	now: Date = new Date(),
+): string[] {
+	if (!isModelAllowedByPolicy([modelId], policy)) {
+		return [];
+	}
+	const compliant = new Set<string>();
+	for (const mapping of mappings) {
+		if (!isLiveMapping(mapping, now)) {
+			continue;
+		}
+		const provider = getProviderDefinition(mapping.providerId);
+		if (
+			provider &&
+			getProviderComplianceFailures(provider, policy).length === 0
+		) {
+			compliant.add(provider.id);
+		}
+	}
+	return [...compliant];
 }
 
 /**

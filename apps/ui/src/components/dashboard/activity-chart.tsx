@@ -38,6 +38,10 @@ import {
 	formatBucketLabelWithZone,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { TimeRangeValue } from "@/components/time-range-picker";
 import type { GroupBy } from "@/components/usage/group-by";
@@ -199,12 +203,11 @@ const CustomTooltip = ({
 						)}
 				</p>
 				<p className="text-sm">
-					<span className="font-medium">{data.requestCount}</span> requests
+					<span className="font-medium">{formatNumber(data.requestCount)}</span>{" "}
+					requests
 				</p>
 				<p className="text-sm">
-					<span className="font-medium">
-						{data.totalTokens.toLocaleString()}
-					</span>{" "}
+					<span className="font-medium">{formatNumber(data.totalTokens)}</span>{" "}
 					tokens
 				</p>
 				<p className="text-sm">
@@ -251,7 +254,7 @@ const CustomTooltip = ({
 									{entry.name}:{" "}
 									{breakdownField === "cost"
 										? `$${Number(entry.value).toFixed(4)}`
-										: entry.value}{" "}
+										: formatNumber(entry.value)}{" "}
 									{breakdownField === "tokens"
 										? "tokens"
 										: breakdownField === "cost"
@@ -633,7 +636,7 @@ export function ActivityChart({
 								if (breakdownField === "cost") {
 									return `$${Number(value).toFixed(2)}`;
 								}
-								return `${value}`;
+								return formatCompactNumber(value);
 							}}
 						/>
 						<Tooltip

@@ -394,8 +394,12 @@ responses.post("/", async (c) => {
 	if (req.reasoning?.effort) {
 		chatRequest.reasoning_effort = req.reasoning.effort;
 	}
-	if (req.reasoning?.context) {
-		chatRequest.reasoning = { context: req.reasoning.context };
+	const unifiedReasoning = {
+		...(req.reasoning?.context && { context: req.reasoning.context }),
+		...(req.reasoning?.mode && { mode: req.reasoning.mode }),
+	};
+	if (Object.keys(unifiedReasoning).length > 0) {
+		chatRequest.reasoning = unifiedReasoning;
 	}
 	if (req.text?.verbosity !== undefined) {
 		chatRequest.verbosity = req.text.verbosity;

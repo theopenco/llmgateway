@@ -170,20 +170,18 @@ export const customIcons: Record<string, IconComponent> = {
 		</svg>
 	),
 	Empryo: (props) => (
-		// Raster mark hosted at /integrations/empryo.png in the docs public dir,
-		// wrapped in an <svg> shell so the sidebar's svg sizing rules apply to it
-		// exactly as they do to every sibling icon.
-		<svg
-			style={{ flex: "none", lineHeight: "1" }}
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			{...props}
-		>
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {...props}>
 			<image
-				href="/integrations/empryo.png"
+				className="dark:hidden"
+				href="/integrations/empryo-light.svg"
 				width="24"
 				height="24"
-				preserveAspectRatio="xMidYMid meet"
+			/>
+			<image
+				className="hidden dark:block"
+				href="/integrations/empryo-dark.svg"
+				width="24"
+				height="24"
 			/>
 		</svg>
 	),

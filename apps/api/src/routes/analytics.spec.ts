@@ -926,4 +926,48 @@ describe("analytics endpoints", () => {
 			expect(gpt4.apiKeysCost).toBeCloseTo(0.3, 5);
 		});
 	});
+
+	describe("GET /analytics/routing-savings", () => {
+		test("aggregates routed spend across the organization's projects", async () => {
+			const hour = new Date(logTime);
+			hour.setUTCMinutes(0, 0, 0);
+			await db.insert(tables.projectHourlyRoutingStats).values({
+				projectId: PROJECT_ID,
+				hourTimestamp: hour,
+				routeKey: "smart",
+				requestCount: 2,
+				cost: 0.1,
+				baselineCost: 0.4,
+			});
+
+			const res = await app.request(
+				`/analytics/routing-savings?organizationId=${ORG_ID}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const body = await res.json();
+			expect(body.totals.savings).toBeCloseTo(0.3);
+			expect(body.routes).toEqual([
+				expect.objectContaining({
+					projectId: PROJECT_ID,
+					projectName: "Test Project",
+					routeKey: "smart",
+					requestCount: 2,
+				}),
+			]);
+		});
+
+		test("enforces the enterprise-admin gate", async () => {
+			await db
+				.update(tables.organization)
+				.set({ plan: "pro" })
+				.where(eq(tables.organization.id, ORG_ID));
+
+			const res = await app.request(
+				`/analytics/routing-savings?organizationId=${ORG_ID}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(403);
+		});
+	});
 });

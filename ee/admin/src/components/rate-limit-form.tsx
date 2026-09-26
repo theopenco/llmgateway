@@ -26,13 +26,24 @@ import {
 
 import { getProviderIcon } from "@llmgateway/shared";
 
-import type { RateLimitModelMapping } from "@/lib/types";
+import type {
+	RateLimitModelMapping,
+	RateLimitProviderOption,
+} from "@/lib/types";
+
+function AirsideBadge() {
+	return (
+		<span className="rounded-sm bg-muted px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+			Airside
+		</span>
+	);
+}
 
 type RateLimitType = "rpm" | "rpd";
 type RateLimitEnforcement = "per_org" | "global";
 
 interface RateLimitFormProps {
-	providers: Array<{ id: string; name: string }>;
+	providers: RateLimitProviderOption[];
 	mappings: RateLimitModelMapping[];
 	showEnforcement?: boolean;
 	onSubmit: (data: {
@@ -80,6 +91,7 @@ export function RateLimitForm({
 				modelId: string;
 				modelName: string;
 				family: string;
+				source: RateLimitModelMapping["source"];
 			}
 		>();
 		for (const mapping of filteredMappings) {
@@ -88,6 +100,7 @@ export function RateLimitForm({
 					modelId: mapping.modelId,
 					modelName: mapping.modelName,
 					family: mapping.family,
+					source: mapping.source,
 				});
 			}
 		}
@@ -121,9 +134,16 @@ export function RateLimitForm({
 		setError(null);
 		setLoading(true);
 
-		const parsedLimit = parseInt(maxRequests, 10);
-		if (isNaN(parsedLimit) || parsedLimit < 1) {
-			setError(`Max ${limitType.toUpperCase()} must be a positive integer`);
+		const parsedLimit = Number(maxRequests);
+		const minimum = showEnforcement ? 0 : 1;
+		if (
+			maxRequests.trim() === "" ||
+			!Number.isInteger(parsedLimit) ||
+			parsedLimit < minimum
+		) {
+			setError(
+				`Max ${limitType.toUpperCase()} must be a whole number of at least ${minimum}`,
+			);
 			setLoading(false);
 			return;
 		}
@@ -246,6 +266,7 @@ export function RateLimitForm({
 											<span className="flex items-center gap-2">
 												<Icon className="h-4 w-4" />
 												{p.name}
+												{p.source === "airside" && <AirsideBadge />}
 											</span>
 										</SelectItem>
 									);
@@ -268,11 +289,14 @@ export function RateLimitForm({
 								<SelectItem value="__all__">All Models</SelectItem>
 								{availableModels.map((m) => (
 									<SelectItem key={m.modelId} value={m.modelId}>
-										<span className="truncate">
-											{m.modelName}{" "}
-											<span className="text-muted-foreground">
-												({m.modelId})
+										<span className="flex items-center gap-2">
+											<span className="truncate">
+												{m.modelName}{" "}
+												<span className="text-muted-foreground">
+													({m.modelId})
+												</span>
 											</span>
+											{m.source === "airside" && <AirsideBadge />}
 										</span>
 									</SelectItem>
 								))}
@@ -290,7 +314,7 @@ export function RateLimitForm({
 						<Input
 							id="maxRequests"
 							type="number"
-							min="1"
+							min={showEnforcement ? 0 : 1}
 							step="1"
 							placeholder={limitType === "rpm" ? "e.g., 60" : "e.g., 5000"}
 							value={maxRequests}
@@ -301,6 +325,7 @@ export function RateLimitForm({
 							{limitType === "rpm"
 								? "Maximum requests per minute allowed"
 								: "Maximum requests per day allowed"}
+							{showEnforcement && ". Set 0 to block matching requests"}
 						</p>
 					</div>
 

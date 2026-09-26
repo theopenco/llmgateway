@@ -1,0 +1,90 @@
+---
+title: Continue CLI Integration
+description: Configure Continue CLI with LLM Gateway, choose a tool-capable model, and verify a coding task.
+icon: Continue
+---
+
+[Continue CLI](https://docs.continue.dev/cli/quickstart) runs a coding assistant in your terminal. Connect its OpenAI-compatible provider to LLM Gateway with a pay-as-you-go or DevPass API key.
+
+## Video walkthrough
+
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/EVNySX-7tzM"
+		title="Continue CLI setup and coding demo with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
+
+## Install
+
+```bash
+pnpm add -g @continuedev/cli
+cn --version
+```
+
+## Configure the model
+
+Create an API key in your&nbsp;[dashboard](https://llmgateway.io/dashboard). Save this configuration in `~/.continue/config.yaml`, merging it with any settings you already use:
+
+```yaml
+name: LLM Gateway
+version: 1.0.0
+schema: v1
+models:
+  - name: Gateway coding model
+    provider: openai
+    model: MODEL_ID
+    apiBase: https://api.llmgateway.io/v1
+    apiKey: ${{ secrets.LLMGATEWAY_API_KEY }}
+    capabilities:
+      - tool_use
+```
+
+Replace `MODEL_ID` with a text model that supports tools from the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools), and export your key in the terminal where you launch Continue:
+
+```bash
+export LLMGATEWAY_API_KEY="your_api_key"
+```
+
+Keep the key private. `capabilities: [tool_use]` tells Continue to enable tool calling; the selected model must actually support it.
+
+`provider: openai` selects the API format. LLM Gateway routes the request to the serving provider. With DevPass, use a canonical model ID supported by your plan, without an upstream provider prefix.
+
+## Start a session
+
+Launch Continue from your project with the configuration selected explicitly:
+
+```bash
+cd your-project
+cn --config ~/.continue/config.yaml
+```
+
+Ask it to fix a small failing test, leaving the test itself unchanged. Review requested tool permissions, inspect the diff, and confirm the test output. Requests appear in the dashboard for the workspace that issued your key.
+
+For a one-shot prompt:
+
+```bash
+cn --config ~/.continue/config.yaml -p "Explain this project without changing files"
+```
+
+## Change models
+
+Add another entry under `models` with a different name and model ID, keeping the gateway endpoint. Select the configured model in Continue. Check the live catalogue for each model's tool and image capabilities.
+
+A separate project configuration works too: pass its path to `--config` when launching the CLI.
+
+## Troubleshooting
+
+- **Configuration rejected:** Include `name`, `version`, and `schema: v1` at the top level, and check YAML indentation.
+- **Onboarding appears instead:** Pass the intended file with `--config`.
+- **Authentication failed:** Check the key and workspace in the dashboard.
+- **Request finishes without visible text:** Continue CLI 1.5.47 drops text chunks that also contain usage, which can affect Gemini responses through the gateway. Choose another tool-capable model and check for a Continue update.
+- **Tool calling unavailable:** Choose a model with tool support and include `tool_use` in its capabilities.
+- **Connection failed:** Use `https://api.llmgateway.io/v1` as `apiBase`.
+
+See the&nbsp;[Continue configuration reference](https://docs.continue.dev/reference) for additional options.
