@@ -2,9 +2,12 @@ import { describe, expect, test } from "vitest";
 
 import {
 	KNOWLEDGE_LLMS_TXT,
+	KNOWLEDGE_REFERENCE_DOCS,
 	KNOWLEDGE_SITEMAPS,
 	isAllowedKnowledgeUrl,
 	selectKnowledgeUrls,
+	summarizeCatalogue,
+	toDocsMarkdownUrl,
 } from "./chat-support-knowledge.js";
 
 test("indexes every public product", () => {
@@ -170,5 +173,73 @@ describe("selectKnowledgeUrls", () => {
 			mainGuides[0],
 			...laterProducts,
 		]);
+	});
+});
+
+describe("billing reference docs", () => {
+	test("covers billing, invoices, and refunds on the docs host", () => {
+		expect(KNOWLEDGE_REFERENCE_DOCS).toEqual(
+			expect.arrayContaining([
+				"https://docs.llmgateway.io/learn/billing",
+				"https://docs.llmgateway.io/learn/transactions",
+				"https://docs.llmgateway.io/learn/invoices",
+				"https://docs.llmgateway.io/learn/refunds",
+			]),
+		);
+		for (const url of KNOWLEDGE_REFERENCE_DOCS) {
+			expect(isAllowedKnowledgeUrl(url)).toBe(true);
+		}
+	});
+
+	test("maps a docs page to its markdown mirror", () => {
+		expect(toDocsMarkdownUrl("https://docs.llmgateway.io/learn/refunds")).toBe(
+			"https://docs.llmgateway.io/llms.mdx/learn/refunds",
+		);
+	});
+});
+
+describe("summarizeCatalogue", () => {
+	const now = new Date("2026-09-26T12:00:00Z");
+	const past = new Date("2026-09-01T00:00:00Z");
+	const future = new Date("2026-12-01T00:00:00Z");
+
+	test("counts only models routable on an active provider", () => {
+		const summary = summarizeCatalogue(
+			{
+				models: [
+					{ id: "gpt", free: false, output: ["text"] },
+					{ id: "flux", free: false, output: ["image"] },
+					{ id: "free-chat", free: true, output: ["text", "text"] },
+					{ id: "retired", free: false, output: ["text"] },
+					{ id: "orphan", free: false, output: ["text"] },
+					{ id: "no-mapping", free: false, output: ["text"] },
+				],
+				mappings: [
+					{ modelId: "gpt", providerId: "openai", deactivatedAt: null },
+					{ modelId: "gpt", providerId: "azure", deactivatedAt: future },
+					{ modelId: "flux", providerId: "bfl", deactivatedAt: null },
+					{ modelId: "free-chat", providerId: "openai", deactivatedAt: null },
+					{ modelId: "retired", providerId: "openai", deactivatedAt: past },
+					{ modelId: "orphan", providerId: "disabled", deactivatedAt: null },
+					{ modelId: "unknown", providerId: "openai", deactivatedAt: null },
+				],
+				providers: [
+					{ id: "openai", name: "OpenAI" },
+					{ id: "azure", name: "Azure" },
+					{ id: "bfl", name: "Black Forest Labs" },
+					{ id: "unused", name: "Unused" },
+				],
+			},
+			now,
+		);
+
+		expect(summary).toEqual({
+			modelCount: 3,
+			providerCount: 3,
+			freeModelCount: 1,
+			outputCounts: { text: 2, image: 1 },
+			providers: ["Azure", "Black Forest Labs", "OpenAI"],
+			generatedAt: now.toISOString(),
+		});
 	});
 });

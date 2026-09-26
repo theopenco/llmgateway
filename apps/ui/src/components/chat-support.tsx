@@ -61,6 +61,7 @@ const SUGGESTED_QUESTIONS = [
 	"How do I get started with LLM Gateway?",
 	"Which models and providers are supported?",
 	"How does pricing and billing work?",
+	"How do refunds and invoices work?",
 ];
 
 // Phrases that signal the visitor wants a human rather than the AI assistant.
