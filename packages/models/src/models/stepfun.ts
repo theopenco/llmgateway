@@ -5,7 +5,7 @@ export const stepfunModels = [
 		id: "step-3.7-flash",
 		name: "Step 3.7 Flash",
 		description:
-			"StepFun's high-efficiency multimodal MoE model (196B language backbone, ~11B active) with native image and video understanding.",
+			"StepFun's high-efficiency multimodal MoE model (196B language backbone, ~11B active) with native image understanding.",
 		family: "stepfun",
 		releasedAt: new Date("2026-05-28"),
 		providers: [

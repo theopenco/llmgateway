@@ -201,6 +201,7 @@ async function testToolCalls() {
 			console.log("─".repeat(80) + "\n");
 		} else {
 			// No more tool calls, got final response
+			messages.push({ ...message, content: message.content || "" });
 			continueLoop = false;
 			console.log("✓ Final response received\n");
 			console.log("=".repeat(80) + "\n");
@@ -208,11 +209,8 @@ async function testToolCalls() {
 	}
 
 	// Final results
-	const finalMessage = messages[
-		messages.length - 1
-	] as OpenAI.Chat.ChatCompletionAssistantMessageParam;
-	const finalResponse =
-		typeof finalMessage.content === "string" ? finalMessage.content : "";
+	const finalMessage = [...messages].reverse().find((message) => message.role === "assistant" && !message.tool_calls?.length);
+	const finalResponse = typeof finalMessage?.content === "string" ? finalMessage.content : "";
 
 	console.log("### FINAL RESULTS ###\n");
 	console.log("Response:", finalResponse);

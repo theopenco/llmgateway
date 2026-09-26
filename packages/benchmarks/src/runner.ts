@@ -76,6 +76,24 @@ function stripResponse(response: BenchmarkResponse): BenchmarkResponse {
 		reasoning: "",
 		toolCalls: [],
 		streamChunks: [],
+		agent: response.agent
+			? {
+					...response.agent,
+					invocations: response.agent.invocations.map(
+						({ detail: _detail, ...invocation }) => ({
+							...invocation,
+							arguments: "",
+						}),
+					),
+					turns: response.agent.turns.map((turn) => ({
+						...turn,
+						usage: { ...turn.usage, raw: null },
+						error: turn.error
+							? { ...turn.error, message: "Request failed" }
+							: null,
+					})),
+				}
+			: null,
 	};
 }
 
