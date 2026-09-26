@@ -30,6 +30,10 @@ import type {
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
+import type {
+	EmailCategory,
+	NotificationCategory,
+} from "@llmgateway/shared/email-unsubscribe";
 import type { AlertAudience } from "@llmgateway/shared/organization-roles";
 import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
@@ -922,6 +926,64 @@ export const modelSurveyResponse = pgTable(
 			"model_survey_response_speed_score_check",
 			sql`${table.speedScore} >= 1 AND ${table.speedScore} <= 5`,
 		),
+	],
+);
+
+// Mirrors `notificationCategories` / `emailCategories` in
+// @llmgateway/shared/email-unsubscribe. They cannot be imported: drizzle-kit
+// loads this file directly and fails on any runtime import from a workspace
+// package. The assertions below fail the build if the lists ever drift.
+export const notificationTypes = [
+	"budget",
+	"model_retirement",
+	"provider_issue",
+	"model_available",
+	"compliance_downgrade",
+] as const;
+
+const emailCategories = [
+	...notificationTypes,
+	"marketing",
+	"credit_alerts",
+] as const;
+
+type SameKeys<A extends string, B extends string> = [A] extends [B]
+	? [B] extends [A]
+		? true
+		: never
+	: never;
+const assertSameNotificationTypes: SameKeys<
+	NotificationCategory,
+	(typeof notificationTypes)[number]
+> = true;
+void assertSameNotificationTypes;
+const assertSameEmailCategories: SameKeys<
+	EmailCategory,
+	(typeof emailCategories)[number]
+> = true;
+void assertSameEmailCategories;
+
+/**
+ * Address-level suppression list for the optional email categories. Keyed on
+ * the lowercased address rather than a user id because a recipient resolved by
+ * `resolveVerifiedOrgRecipient` can be `organization.billingEmail`, which need
+ * not belong to a user row. Rows deliberately outlive account deletion — a
+ * suppression list that forgets is not a suppression list.
+ */
+export const emailUnsubscribe = pgTable(
+	"email_unsubscribe",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		email: text().notNull(),
+		category: text({ enum: emailCategories }).notNull(),
+		source: text({ enum: ["one_click", "dashboard", "admin"] })
+			.notNull()
+			.default("one_click"),
+	},
+	(table) => [
+		unique().on(table.email, table.category),
+		index("email_unsubscribe_email_idx").on(table.email),
 	],
 );
 
@@ -6549,14 +6611,6 @@ export const playgroundRealtimeHistory = pgTable(
 		index("playground_realtime_history_user_id_idx").on(table.userId),
 	],
 );
-
-export const notificationTypes = [
-	"budget",
-	"model_retirement",
-	"provider_issue",
-	"model_available",
-	"compliance_downgrade",
-] as const;
 
 export const organizationNotificationChannelKinds = ["slack"] as const;
 export type OrganizationNotificationChannelKind =
