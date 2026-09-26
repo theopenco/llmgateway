@@ -2113,6 +2113,22 @@ export const API_ORIGINS = [
 
 export type ApiOrigin = (typeof API_ORIGINS)[number];
 
+export const LOG_ERROR_CATEGORIES = [
+	"account_review",
+	"account_disabled",
+	"authentication",
+	"permission",
+	"billing",
+	"rate_limit",
+	"concurrency_limit",
+	"validation",
+	"guardrail",
+	"upstream",
+	"gateway",
+] as const;
+
+export type LogErrorCategory = (typeof LOG_ERROR_CATEGORIES)[number];
+
 export const log = pgTable(
 	"log",
 	{
@@ -2176,6 +2192,7 @@ export const log = pgTable(
 		effort: text(),
 		responseFormat: json(),
 		hasError: boolean().default(false),
+		errorCategory: text().$type<LogErrorCategory>(),
 		errorDetails: json().$type<z.infer<typeof errorDetails>>(),
 		// Raw upstream error for stealth providers, whose public-facing
 		// errorDetails are redacted to hide the underlying platform. Internal

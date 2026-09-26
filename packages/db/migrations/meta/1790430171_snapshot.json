@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "cedbdb31-be9f-4984-b37c-ad0f93e69f04",
+  "id": "c01d95c9-b5e3-449a-af2c-9ccd10329be1",
   "prevId": "77017ce3-4faa-4e05-b364-4ab71ccb6818",
   "ddl": [
     {
@@ -1788,102 +1788,6 @@
       "table": "api_key_hourly_model_stats"
     },
     {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_duration",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "duration_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_model_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_model_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_reasoning_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_reasoning_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_model_stats"
-    },
-    {
       "type": "real",
       "typeSchema": null,
       "notNull": true,
@@ -2605,102 +2509,6 @@
       "table": "api_key_hourly_source_stats"
     },
     {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_duration",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "duration_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_reasoning_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_reasoning_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
       "type": "real",
       "typeSchema": null,
       "notNull": true,
@@ -3404,102 +3212,6 @@
       "generated": null,
       "identity": null,
       "name": "cache_write_tokens",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_duration",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "duration_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_reasoning_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_reasoning_token_count",
       "entityType": "columns",
       "schema": "public",
       "table": "api_key_hourly_stats"
@@ -10991,6 +10703,19 @@
       "generated": null,
       "identity": null,
       "name": "has_error",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "error_category",
       "entityType": "columns",
       "schema": "public",
       "table": "log"
@@ -20602,102 +20327,6 @@
       "table": "project_hourly_model_stats"
     },
     {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_duration",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "duration_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_model_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_model_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_reasoning_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_reasoning_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_model_stats"
-    },
-    {
       "type": "real",
       "typeSchema": null,
       "notNull": true,
@@ -21602,102 +21231,6 @@
       "table": "project_hourly_source_stats"
     },
     {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_duration",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "duration_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_source_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_source_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_reasoning_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_reasoning_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_source_stats"
-    },
-    {
       "type": "real",
       "typeSchema": null,
       "notNull": true,
@@ -22388,102 +21921,6 @@
       "generated": null,
       "identity": null,
       "name": "cache_write_tokens",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_duration",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "duration_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_reasoning_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_reasoning_token_count",
       "entityType": "columns",
       "schema": "public",
       "table": "project_hourly_stats"
