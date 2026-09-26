@@ -11,6 +11,7 @@ import {
 import { currencyFormatter } from "@/components/analytics/chart-helpers";
 import { DimensionUsageCard } from "@/components/analytics/dimension-usage-card";
 import { DimensionUsageOverTimeCard } from "@/components/analytics/dimension-usage-over-time-card";
+import { RoutingSavingsCard } from "@/components/analytics/routing-savings-card";
 import {
 	UsageModeSelector,
 	useUsageMode,
@@ -237,6 +238,26 @@ export function OrgAnalyticsClient() {
 		},
 	);
 
+	const routingSavings = api.useQuery(
+		"get",
+		"/analytics/routing-savings",
+		{
+			params: {
+				query: {
+					organizationId,
+					from: fromStr,
+					to: toStr,
+					timezone: displayTimeZone,
+				},
+			},
+		},
+		{
+			enabled: !!organizationId && isEnterprise && isAdmin,
+			refetchOnWindowFocus: false,
+			staleTime: 1000 * 60 * 5,
+		},
+	);
+
 	const usageMode = useUsageMode();
 	const rows = ((data?.activity ?? []) as OrgActivityRow[]).map((row) => ({
 		...applyUsageMode(row, usageMode),
@@ -344,6 +365,11 @@ export function OrgAnalyticsClient() {
 							loading={isLoading}
 							title={`Cost by ${copy.noun}`}
 							description={copy.top}
+						/>
+						<RoutingSavingsCard
+							data={routingSavings.data}
+							loading={routingSavings.isLoading}
+							showProject
 						/>
 					</>
 				)}

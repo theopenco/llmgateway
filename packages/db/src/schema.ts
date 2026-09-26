@@ -2217,6 +2217,11 @@ export const log = pgTable(
 		lastVideoDownloadedAt: timestamp(),
 		estimatedCost: boolean().default(false),
 		discount: real(),
+		// Routed requests (auto / smart / dynamic/*) only: the priciest model the
+		// router could have picked, priced on this request's token counts. Never
+		// below `cost`; null for every other request.
+		routingBaselineModel: text(),
+		routingBaselineCost: real(),
 		// Snapshot of the used provider's Airside routing settings
 		// (`provider_routing_settings`) at request time, as fractions. Null when
 		// the provider has no settings row. Stamped so margin revenue can be
@@ -5587,6 +5592,36 @@ export const projectHourlySourceStats = pgTable(
 	],
 );
 
+// Routed-request spend vs. the priciest-candidate baseline, per project, hour
+// and route (`log.requestedModel`: auto, smart or dynamic/<name>).
+export const projectHourlyRoutingStats = pgTable(
+	"project_hourly_routing_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text().notNull(),
+		hourTimestamp: timestamp().notNull(),
+		routeKey: text().notNull(),
+		requestCount: integer().notNull().default(0),
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		cost: real().notNull().default(0),
+		baselineCost: real().notNull().default(0),
+	},
+	(table) => [
+		unique().on(table.projectId, table.hourTimestamp, table.routeKey),
+		index("project_hourly_routing_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+	],
+);
+
 // API key hourly statistics aggregation - for per-key breakdown queries
 export const apiKeyHourlyStats = pgTable(
 	"api_key_hourly_stats",
@@ -6183,6 +6218,8 @@ export const globalAggregationState = pgTable("global_aggregation_state", {
 	id: text().primaryKey().notNull().default("singleton"),
 	lastProcessedHour: timestamp(),
 	lastSafetyNetDay: timestamp(),
+	// Exclusive upper bound for one-off backfills that walk hours forward.
+	targetHour: timestamp(),
 	updatedAt: timestamp()
 		.notNull()
 		.defaultNow()
