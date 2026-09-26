@@ -129,6 +129,7 @@ import {
 	computeRoutingBaseline,
 	getDynamicRouteBaselineCandidates,
 	isRoutedRequestedModel,
+	prefetchRoutingBaselineDiscounts,
 	type RoutingBaselineCandidate,
 	isBilledFailureFinishReason,
 	isRefusalFinishReason,
@@ -3153,7 +3154,10 @@ chat.openapi(completions, async (c) => {
 			path: evaluation.path,
 		};
 		routingBaselineCandidates.push(
-			...getDynamicRouteBaselineCandidates(publishedRoute.graph),
+			...prefetchRoutingBaselineDiscounts(
+				getDynamicRouteBaselineCandidates(publishedRoute.graph),
+				project.organizationId,
+			),
 		);
 
 		const customTarget = parseCustomDynamicRouteModelRef(evaluation.model);
@@ -4214,11 +4218,18 @@ chat.openapi(completions, async (c) => {
 						!dynamicRouteSelection &&
 						eligibleSmartModels.includes(modelDef.id)
 					) {
-						routingBaselineCandidates.push({
-							modelId: modelDef.id,
-							providerId: cheapestProvider.providerId,
-							region: cheapestProvider.region,
-						});
+						routingBaselineCandidates.push(
+							...prefetchRoutingBaselineDiscounts(
+								[
+									{
+										modelId: modelDef.id,
+										providerId: cheapestProvider.providerId,
+										region: cheapestProvider.region,
+									},
+								],
+								project.organizationId,
+							),
+						);
 					}
 					smartRoutingCandidates.push({
 						modelId: modelDef.id,

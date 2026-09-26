@@ -20,7 +20,7 @@ import {
 	or,
 	sql,
 } from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 import {
 	type DynamicRouteGraph,
 	parseDynamicRouteModel,
@@ -167,13 +167,24 @@ async function backfillHour(hour: Date, cache: GraphCache): Promise<number> {
 			if (candidates.length === 0 || row.cost === null) {
 				continue;
 			}
-			const baseline = await computeRoutingBaseline({
-				candidates,
-				usage: row,
-				actualCost: row.cost,
-				actualModel: row.usedModel,
-				organizationId: row.organizationId,
-			});
+			let baseline: Awaited<ReturnType<typeof computeRoutingBaseline>>;
+			try {
+				baseline = await computeRoutingBaseline({
+					candidates,
+					usage: row,
+					actualCost: row.cost,
+					actualModel: row.usedModel,
+					organizationId: row.organizationId,
+				});
+			} catch (error) {
+				// One unpriceable row must not stall the backfill; database errors
+				// outside this call still propagate and keep the cursor in place.
+				logger.error("Failed to backfill routing baseline", {
+					logId: row.id,
+					error: toError(error),
+				});
+				continue;
+			}
 			if (!baseline) {
 				continue;
 			}

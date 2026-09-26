@@ -1,6 +1,6 @@
 import { Decimal } from "decimal.js";
 
-import { getEffectiveDiscount } from "@llmgateway/db";
+import { type EffectiveDiscount, getEffectiveDiscount } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
@@ -317,6 +317,11 @@ export async function calculateCosts(
 		 * input like any other response, which is what the provider charges.
 		 */
 		rejectionWithoutUsage?: boolean;
+		/**
+		 * An already-resolved `getEffectiveDiscount` result for this
+		 * organization, provider and model, so the call does no I/O.
+		 */
+		effectiveDiscount?: EffectiveDiscount;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -601,11 +606,9 @@ export async function calculateCosts(
 	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
 	// Discounts are keyed by the canonical model ID only.
-	const effectiveDiscountResult = await getEffectiveDiscount(
-		organizationId,
-		provider,
-		model,
-	);
+	const effectiveDiscountResult =
+		options?.effectiveDiscount ??
+		(await getEffectiveDiscount(organizationId, provider, model));
 	const discount = effectiveDiscountResult.discount;
 	const discountMultiplier = new Decimal(1).minus(discount);
 

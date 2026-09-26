@@ -5,6 +5,7 @@ import {
 	computeRoutingBaseline,
 	getDynamicRouteBaselineCandidates,
 	isRoutedRequestedModel,
+	prefetchRoutingBaselineDiscounts,
 	resolveCatalogueCandidate,
 } from "./routing-baseline.js";
 
@@ -66,6 +67,33 @@ describe("computeRoutingBaseline", () => {
 		});
 
 		expect(baseline).toEqual({ model: "openai/gpt-5", cost: 10 });
+	});
+
+	it("prices with prefetched discounts without looking them up again", async () => {
+		vi.mocked(mockGetEffectiveDiscount).mockResolvedValue({
+			discount: "0.5",
+			source: "organization",
+		});
+		const candidates = prefetchRoutingBaselineDiscounts([opus], "org-id");
+		expect(mockGetEffectiveDiscount).toHaveBeenCalledTimes(1);
+
+		const baseline = await computeRoutingBaseline({
+			candidates,
+			usage: { promptTokens: 1000, completionTokens: 500 },
+			actualCost: 0,
+			actualModel: "anthropic/claude-haiku-4-5",
+			organizationId: "org-id",
+		});
+
+		expect(mockGetEffectiveDiscount).toHaveBeenCalledTimes(1);
+		vi.mocked(mockGetEffectiveDiscount).mockResolvedValue({
+			discount: "0",
+			source: "none",
+		});
+		expect(baseline!.cost).toBeCloseTo(
+			(await totalCost("claude-opus-4-6", 1000, 500)) / 2,
+			10,
+		);
 	});
 
 	it("returns null for a request without token usage", async () => {

@@ -1,3 +1,4 @@
+import { type EffectiveDiscount, getEffectiveDiscount } from "@llmgateway/db";
 import {
 	isLiveMapping,
 	models,
@@ -16,6 +17,26 @@ export interface RoutingBaselineCandidate {
 	modelId: string;
 	providerId: string;
 	region?: string | null;
+	/** Discount lookup started while routing, so pricing at log time does no I/O. */
+	discount?: Promise<EffectiveDiscount>;
+}
+
+/**
+ * Starts each candidate's discount lookup now, so it resolves alongside the
+ * upstream call instead of delaying the log write.
+ */
+export function prefetchRoutingBaselineDiscounts(
+	candidates: RoutingBaselineCandidate[],
+	organizationId: string,
+): RoutingBaselineCandidate[] {
+	return candidates.map((candidate) => ({
+		...candidate,
+		discount: getEffectiveDiscount(
+			organizationId,
+			candidate.providerId,
+			candidate.modelId,
+		),
+	}));
 }
 
 type TokenCount = number | string | null | undefined;
@@ -131,29 +152,37 @@ export async function computeRoutingBaseline({
 	if (!promptTokens && !completionTokens) {
 		return null;
 	}
+	const priced = await Promise.all(
+		candidates.map(async (candidate) => {
+			const costs = await calculateCosts(
+				candidate.modelId,
+				candidate.providerId,
+				candidate.region ?? null,
+				promptTokens,
+				completionTokens,
+				toTokenCount(usage.cachedTokens),
+				undefined,
+				toTokenCount(usage.reasoningTokens),
+				0,
+				undefined,
+				0,
+				null,
+				organizationId,
+				undefined,
+				null,
+				null,
+				{
+					cacheWriteTokens: toTokenCount(usage.cacheWriteTokens),
+					effectiveDiscount: await candidate.discount,
+				},
+			);
+			return { candidate, cost: costs.totalCost };
+		}),
+	);
 	let baseline: RoutingBaseline = { model: actualModel, cost: actualCost };
-	for (const candidate of candidates) {
-		const costs = await calculateCosts(
-			candidate.modelId,
-			candidate.providerId,
-			candidate.region ?? null,
-			promptTokens,
-			completionTokens,
-			toTokenCount(usage.cachedTokens),
-			undefined,
-			toTokenCount(usage.reasoningTokens),
-			0,
-			undefined,
-			0,
-			null,
-			organizationId,
-			undefined,
-			null,
-			null,
-			{ cacheWriteTokens: toTokenCount(usage.cacheWriteTokens) },
-		);
-		if (costs.totalCost !== null && costs.totalCost > baseline.cost) {
-			baseline = { model: formatCandidate(candidate), cost: costs.totalCost };
+	for (const { candidate, cost } of priced) {
+		if (cost !== null && cost > baseline.cost) {
+			baseline = { model: formatCandidate(candidate), cost };
 		}
 	}
 	return baseline;
