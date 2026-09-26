@@ -57,6 +57,7 @@ import {
 import { downloadCsv } from "@/lib/download-csv";
 import { useApi } from "@/lib/fetch-client";
 import { formatDurationMs } from "@/lib/format-duration";
+import { formatErrorRate } from "@/lib/format-error-rate";
 import { formatRps, formatShare } from "@/lib/format-rps";
 import { buildLoadChart, type LoadMetric } from "@/lib/load-chart";
 
@@ -87,18 +88,41 @@ const METRIC_OPTIONS: { value: LoadMetric; label: string }[] = [
 	{ value: "rps", label: "Req/s" },
 	{ value: "duration", label: "Duration" },
 	{ value: "ttft", label: "TTFT" },
+	{ value: "errors", label: "Error rate" },
+	{ value: "client-errors", label: "Client errors" },
 ];
 
 const METRIC_TITLES: Record<LoadMetric, string> = {
 	rps: "Requests per second",
 	duration: "Average request duration",
 	ttft: "Average time to first token",
+	errors: "Error rate",
+	"client-errors": "Client error rate",
 };
 
 const METRIC_RANK_LABELS: Record<LoadMetric, string> = {
 	rps: "Average request rate over the selected window.",
 	duration: "Average request duration over the selected window.",
 	ttft: "Average time to first token over the selected window.",
+	errors:
+		"Gateway and upstream errors over non-client requests, ranked by error count.",
+	"client-errors":
+		"Share of requests rejected as the caller's own error over the selected window.",
+};
+
+const RANK_KEYS: Record<
+	LoadMetric,
+	| "avgRps"
+	| "avgDurationMs"
+	| "avgTimeToFirstTokenMs"
+	| "errorRate"
+	| "clientErrorRate"
+> = {
+	rps: "avgRps",
+	duration: "avgDurationMs",
+	ttft: "avgTimeToFirstTokenMs",
+	errors: "errorRate",
+	"client-errors": "clientErrorRate",
 };
 
 function parseMetric(value: string | null): LoadMetric {
@@ -186,9 +210,9 @@ export function LoadClient() {
 		searchParams.get("modelView") === "mapping" ? "mapping" : "canonical";
 	const mode = useUsageMode();
 	const metric = parseMetric(searchParams.get("metric"));
-	// Stacking averages is meaningless, and the "Other" band a stacked chart
-	// needs cannot be derived from one either, so the latency metrics are always
-	// drawn as lines regardless of the chart param.
+	// Stacking averages or rates is meaningless, and the "Other" band a stacked
+	// chart needs cannot be derived from one either, so every metric but req/s
+	// is always drawn as a line regardless of the chart param.
 	const chartType: ChartType =
 		metric === "rps" && searchParams.get("chart") === "bar" ? "bar" : "line";
 	const live = searchParams.get("live") === "1";
@@ -222,6 +246,9 @@ export function LoadClient() {
 					groupBy,
 					modelView,
 					mode,
+					// Ranking by traffic would hide a low-volume model that fails every
+					// request, which is exactly what this view is for.
+					...(metric === "errors" ? { rankBy: "errors" as const } : {}),
 					...(organizationId ? { organizationId } : {}),
 					...(projectId ? { projectId } : {}),
 					...(apiKeyId ? { apiKeyId } : {}),
@@ -269,12 +296,7 @@ export function LoadClient() {
 			})),
 		[breakdown],
 	);
-	const rankKey =
-		metric === "duration"
-			? "avgDurationMs"
-			: metric === "ttft"
-				? "avgTimeToFirstTokenMs"
-				: "avgRps";
+	const rankKey = RANK_KEYS[metric];
 	const rankChartConfig = useMemo<ChartConfig>(
 		() => ({
 			[rankKey]: {
@@ -287,15 +309,32 @@ export function LoadClient() {
 	// One formatter drives the axis, the tooltip and the legend so a metric
 	// switch can never leave "req/s" hanging off a millisecond value.
 	const formatMetric = useCallback(
-		(value: number | null | undefined) =>
-			metric === "rps"
-				? `${formatRps(Number(value ?? 0))} req/s`
-				: formatDurationMs(value ?? null),
+		(value: number | null | undefined) => {
+			switch (metric) {
+				case "rps":
+					return `${formatRps(Number(value ?? 0))} req/s`;
+				case "errors":
+				case "client-errors":
+					return formatErrorRate(value);
+				default:
+					return formatDurationMs(value ?? null);
+			}
+		},
 		[metric],
 	);
 	const formatMetricAxis = useCallback(
-		(value: number) =>
-			metric === "rps" ? formatRps(value) : formatDurationMs(value),
+		(value: number) => {
+			switch (metric) {
+				case "rps":
+					return formatRps(value);
+				case "errors":
+				case "client-errors":
+					// Three significant digits keeps ticks like 16% and 0.45% short.
+					return `${Number((value * 100).toPrecision(3))}%`;
+				default:
+					return formatDurationMs(value);
+			}
+		},
 		[metric],
 	);
 
@@ -308,12 +347,15 @@ export function LoadClient() {
 	// The tenant rollups carry one blended latency sum with no per-mode split,
 	// and buckets aggregated before the latency columns existed have no samples
 	// at all — both surface as nulls, so say which one it is.
-	const latencyHint =
-		mode !== "total" && data?.source === "project-stats"
-			? "Unavailable for a single billing mode"
-			: data?.summary.avgDurationMs === null
-				? "No samples recorded in this window"
-				: `Across the last ${activeWindow}`;
+	const modeBlended = mode !== "total" && data?.source === "project-stats";
+	const latencyHint = modeBlended
+		? "Unavailable for a single billing mode"
+		: data?.summary.avgDurationMs === null
+			? "No samples recorded in this window"
+			: `Across the last ${activeWindow}`;
+	const errorHint = modeBlended
+		? "Unavailable for a single billing mode"
+		: `Excludes ${formatErrorRate(data?.summary.clientErrorRate)} client errors`;
 
 	const grain = data?.bucket === "day" ? "day" : "hour";
 	const grainNote =
@@ -335,9 +377,14 @@ export function LoadClient() {
 			"peak_rps",
 			"share",
 			"error_rate",
+			"errors",
+			"client_error_rate",
+			"client_errors",
 			"avg_duration_ms",
 			"avg_ttft_ms",
 		];
+		const optional = (value: number | null, digits: number) =>
+			value === null ? "" : value.toFixed(digits);
 		const escape = (value: string) =>
 			/[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 		const lines = [
@@ -350,11 +397,12 @@ export function LoadClient() {
 					row.avgRps.toFixed(4),
 					row.peakRps.toFixed(4),
 					row.share.toFixed(4),
-					row.errorRate === null ? "" : row.errorRate.toFixed(4),
-					row.avgDurationMs === null ? "" : row.avgDurationMs.toFixed(0),
-					row.avgTimeToFirstTokenMs === null
-						? ""
-						: row.avgTimeToFirstTokenMs.toFixed(0),
+					optional(row.errorRate, 6),
+					optional(row.errorCount, 0),
+					optional(row.clientErrorRate, 6),
+					optional(row.clientErrorCount, 0),
+					optional(row.avgDurationMs, 0),
+					optional(row.avgTimeToFirstTokenMs, 0),
 				].join(","),
 			),
 		];
@@ -370,8 +418,8 @@ export function LoadClient() {
 				<div>
 					<h1 className="text-2xl font-semibold">Gateway Load</h1>
 					<p className="text-sm text-muted-foreground">
-						Live request throughput across the platform, ranked by{" "}
-						{GROUP_LABELS[groupBy].toLowerCase()}.
+						Live request throughput, latency and error rates across the
+						platform, ranked by {GROUP_LABELS[groupBy].toLowerCase()}.
 					</p>
 				</div>
 				<LiveRefreshToggle
@@ -410,7 +458,7 @@ export function LoadClient() {
 					options={METRIC_OPTIONS}
 					compact
 					// A stacked bar chart is only meaningful for the additive
-					// metric, so selecting a latency one drops the pin.
+					// metric, so selecting any other one drops the pin.
 					extraParams={{ chart: null }}
 				/>
 				<UsageModeSelector compact />
@@ -463,7 +511,7 @@ export function LoadClient() {
 				</Card>
 			) : null}
 
-			<section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+			<section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
 				<StatCard
 					label="Current"
 					value={`${formatRps(data?.summary.currentRps ?? 0)} req/s`}
@@ -489,12 +537,13 @@ export function LoadClient() {
 				<StatCard
 					label="Requests"
 					value={formatNumber(Math.round(data?.summary.totalRequests ?? 0))}
-					hint={
-						data?.summary.errorRate === null ||
-						data?.summary.errorRate === undefined
-							? "Error rate unavailable for a single billing mode"
-							: `${(data.summary.errorRate * 100).toFixed(1)}% errors`
-					}
+					hint={`Across the last ${activeWindow}`}
+					loading={isLoading}
+				/>
+				<StatCard
+					label="Error rate"
+					value={formatErrorRate(data?.summary.errorRate)}
+					hint={errorHint}
 					loading={isLoading}
 				/>
 				<StatCard
@@ -574,7 +623,9 @@ export function LoadClient() {
 										type="monotone"
 										stroke={`var(--color-${series.chartKey})`}
 										strokeWidth={2}
-										dot={false}
+										// Rates and averages leave empty buckets as gaps, so a bucket
+										// between two gaps has no segment and needs a dot to show.
+										dot={metric === "rps" ? false : { r: 2 }}
 									/>
 								))}
 							</LineChart>
@@ -650,7 +701,8 @@ export function LoadClient() {
 			<Card>
 				<CardHeader>
 					<CardTitle>
-						Top {GROUP_LABELS[groupBy].toLowerCase()}s by load
+						Top {GROUP_LABELS[groupBy].toLowerCase()}s by{" "}
+						{metric === "errors" ? "errors" : "load"}
 					</CardTitle>
 					<CardDescription>{METRIC_RANK_LABELS[metric]}</CardDescription>
 				</CardHeader>
@@ -717,7 +769,18 @@ export function LoadClient() {
 								<TableHead className="text-right">Avg req/s</TableHead>
 								<TableHead className="text-right">Peak req/s</TableHead>
 								<TableHead className="text-right">Share</TableHead>
-								<TableHead className="text-right">Errors</TableHead>
+								<TableHead
+									className="text-right"
+									title="Gateway and upstream errors over non-client requests"
+								>
+									Error rate
+								</TableHead>
+								<TableHead
+									className="text-right"
+									title="Requests rejected as the caller's own error"
+								>
+									Client errors
+								</TableHead>
 								<TableHead className="text-right">Avg duration</TableHead>
 								<TableHead className="text-right">Avg TTFT</TableHead>
 							</TableRow>
@@ -726,7 +789,7 @@ export function LoadClient() {
 							{breakdown.length === 0 ? (
 								<TableRow>
 									<TableCell
-										colSpan={8}
+										colSpan={9}
 										className="py-8 text-center text-sm text-muted-foreground"
 									>
 										No traffic in this window.
@@ -759,10 +822,25 @@ export function LoadClient() {
 										<TableCell className="text-right tabular-nums">
 											{formatShare(row.share)}
 										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{row.errorRate === null
-												? "—"
-												: `${(row.errorRate * 100).toFixed(1)}%`}
+										<TableCell
+											className="text-right tabular-nums"
+											title={
+												row.errorCount === null
+													? undefined
+													: `${formatNumber(row.errorCount)} errors`
+											}
+										>
+											{formatErrorRate(row.errorRate)}
+										</TableCell>
+										<TableCell
+											className="text-right tabular-nums text-muted-foreground"
+											title={
+												row.clientErrorCount === null
+													? undefined
+													: `${formatNumber(row.clientErrorCount)} client errors`
+											}
+										>
+											{formatErrorRate(row.clientErrorRate)}
 										</TableCell>
 										<TableCell className="text-right tabular-nums">
 											{formatDurationMs(row.avgDurationMs)}

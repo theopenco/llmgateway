@@ -38,6 +38,9 @@ interface LoadOverview {
 		peakAt: string | null;
 		totalRequests: number;
 		errorRate: number | null;
+		clientErrorRate: number | null;
+		errorCount: number | null;
+		clientErrorCount: number | null;
 		avgDurationMs: number | null;
 		avgTimeToFirstTokenMs: number | null;
 	};
@@ -50,12 +53,16 @@ interface LoadOverview {
 		rps: number;
 		avgDurationMs: number | null;
 		avgTimeToFirstTokenMs: number | null;
+		errorRate: number | null;
+		clientErrorRate: number | null;
 		entries: {
 			key: string;
 			requestCount: number;
 			rps: number;
 			avgDurationMs: number | null;
 			avgTimeToFirstTokenMs: number | null;
+			errorRate: number | null;
+			clientErrorRate: number | null;
 		}[];
 	}[];
 	breakdown: {
@@ -66,6 +73,9 @@ interface LoadOverview {
 		peakRps: number;
 		share: number;
 		errorRate: number | null;
+		clientErrorRate: number | null;
+		errorCount: number | null;
+		clientErrorCount: number | null;
 		avgDurationMs: number | null;
 		avgTimeToFirstTokenMs: number | null;
 	}[];
@@ -174,6 +184,9 @@ describe("admin — gateway load", () => {
 				minuteTimestamp: closedMinute,
 				logsCount: 120,
 				errorsCount: 12,
+				clientErrorsCount: 2,
+				gatewayErrorsCount: 2,
+				upstreamErrorsCount: 8,
 				totalDuration: 120 * 800,
 				totalTimeToFirstToken: 60 * 250,
 				timeToFirstTokenCount: 60,
@@ -229,6 +242,8 @@ describe("admin — gateway load", () => {
 				hourTimestamp: closedHour,
 				requestCount: 7200,
 				errorCount: 72,
+				clientErrorCount: 12,
+				upstreamErrorCount: 60,
 				creditsRequestCount: 7200,
 				totalDuration: 7200 * 1500,
 				durationCount: 7200,
@@ -254,6 +269,8 @@ describe("admin — gateway load", () => {
 				hourTimestamp: closedHour,
 				requestCount: 7200,
 				errorCount: 72,
+				clientErrorCount: 12,
+				upstreamErrorCount: 60,
 				creditsRequestCount: 7200,
 			},
 			{
@@ -273,6 +290,9 @@ describe("admin — gateway load", () => {
 				usedModel: `${PROVIDER_ID}/${MODEL_ID}`,
 				usedProvider: PROVIDER_ID,
 				requestCount: 5400,
+				errorCount: 60,
+				clientErrorCount: 6,
+				upstreamErrorCount: 54,
 				creditsRequestCount: 5400,
 			},
 			{
@@ -292,6 +312,9 @@ describe("admin — gateway load", () => {
 				usedModel: `${PROVIDER_ID}/${MODEL_ID}`,
 				usedProvider: PROVIDER_ID,
 				requestCount: 5400,
+				errorCount: 60,
+				clientErrorCount: 6,
+				upstreamErrorCount: 54,
 				creditsRequestCount: 5400,
 			},
 			{
@@ -362,7 +385,12 @@ describe("admin — gateway load", () => {
 			closedMinute.toISOString().replace(".000", ""),
 		);
 		expect(body.summary.totalRequests).toBe(210);
-		expect(body.summary.errorRate).toBeCloseTo(12 / 210, 6);
+		// Gateway + upstream errors over the non-client requests; the caller's
+		// own mistakes are reported on their own.
+		expect(body.summary.errorRate).toBeCloseTo(10 / 208, 6);
+		expect(body.summary.clientErrorRate).toBeCloseTo(2 / 210, 6);
+		expect(body.summary.errorCount).toBe(10);
+		expect(body.summary.clientErrorCount).toBe(2);
 	});
 
 	test("counts the bucket the window opens in", async () => {
@@ -408,7 +436,8 @@ describe("admin — gateway load", () => {
 			window: "1d",
 			groupBy: "organization",
 		});
-		expect(total.summary.errorRate).toBeCloseTo(72 / 9000, 6);
+		expect(total.summary.errorRate).toBeCloseTo(60 / (9000 - 12), 6);
+		expect(total.summary.clientErrorRate).toBeCloseTo(12 / 9000, 6);
 
 		const credits = await fetchLoad(cookie, {
 			window: "1d",
@@ -417,6 +446,102 @@ describe("admin — gateway load", () => {
 		});
 		// The per-mode request columns have no matching error split.
 		expect(credits.summary.errorRate).toBeNull();
+		expect(credits.summary.clientErrorRate).toBeNull();
+		expect(credits.summary.errorCount).toBeNull();
+		expect(credits.breakdown.every((row) => row.errorRate === null)).toBe(true);
+	});
+
+	test("keeps the error rate exact when a mode narrows the mapping history", async () => {
+		// The mapping history keys on `used_mode`, so its error split is per mode.
+		const body = await fetchLoad(cookie, {
+			window: "1h",
+			groupBy: "model",
+			mode: "credits",
+		});
+		expect(body.summary.errorRate).toBeCloseTo(10 / 208, 6);
+	});
+
+	test("reports the error rate per bucket and per series", async () => {
+		const body = await fetchLoad(cookie, { window: "1h", groupBy: "model" });
+
+		const closed = body.data.find(
+			(point) =>
+				point.timestamp === closedMinute.toISOString().replace(".000", ""),
+		);
+		expect(closed?.errorRate).toBeCloseTo(10 / 118, 6);
+		expect(closed?.clientErrorRate).toBeCloseTo(2 / 120, 6);
+		expect(closed?.entries[0].errorRate).toBeCloseTo(10 / 118, 6);
+
+		// A bucket with traffic but no failures is a real 0%.
+		expect(body.data[0].errorRate).toBe(0);
+		// A bucket with no traffic is a gap, not 0%.
+		const empty = body.data.find(
+			(point) => point.requestCount === 0 && !point.partial,
+		);
+		expect(empty?.errorRate).toBeNull();
+		expect(empty?.entries[0].errorRate).toBeNull();
+	});
+
+	test("reports the model error rate under an organization, project or API key filter", async () => {
+		const filters: Record<string, string>[] = [
+			{ organizationId: ORG_A },
+			{ projectId: PROJECT_A },
+			{ apiKeyId: API_KEY_A },
+		];
+		for (const filter of filters) {
+			const body = await fetchLoad(cookie, {
+				window: "1d",
+				groupBy: "model",
+				modelView: "mapping",
+				...filter,
+			});
+			const root = body.breakdown.find(
+				(row) => row.key === `${PROVIDER_ID}/${MODEL_ID}`,
+			);
+			expect(root?.errorRate).toBeCloseTo(54 / (5400 - 6), 6);
+			expect(root?.clientErrorRate).toBeCloseTo(6 / 5400, 6);
+			const regional = body.breakdown.find(
+				(row) => row.key === `${PROVIDER_ID}/${MODEL_ID}:us-east`,
+			);
+			expect(regional?.errorRate).toBe(0);
+		}
+	});
+
+	test("ranks series by error count on request", async () => {
+		const flakyModel = `${PROVIDER_ID}/load-flaky`;
+		await db.insert(tables.projectHourlyModelStats).values({
+			projectId: PROJECT_A,
+			hourTimestamp: closedHour,
+			usedModel: flakyModel,
+			usedProvider: PROVIDER_ID,
+			requestCount: 100,
+			creditsRequestCount: 100,
+			errorCount: 80,
+			upstreamErrorCount: 80,
+		});
+		const query = {
+			window: "1d",
+			groupBy: "model",
+			modelView: "mapping",
+			organizationId: ORG_A,
+		};
+
+		const byRequests = await fetchLoad(cookie, query);
+		expect(byRequests.breakdown.map((row) => row.key)).toEqual([
+			`${PROVIDER_ID}/${MODEL_ID}`,
+			`${PROVIDER_ID}/${MODEL_ID}:us-east`,
+			flakyModel,
+		]);
+
+		// 80 failures outrank 54 on far more traffic; the error-free regional
+		// mapping falls back to request order behind both.
+		const byErrors = await fetchLoad(cookie, { ...query, rankBy: "errors" });
+		expect(byErrors.breakdown.map((row) => row.key)).toEqual([
+			flakyModel,
+			`${PROVIDER_ID}/${MODEL_ID}`,
+			`${PROVIDER_ID}/${MODEL_ID}:us-east`,
+		]);
+		expect(byErrors.breakdown[0].errorRate).toBeCloseTo(0.8, 6);
 	});
 
 	test("reports average duration and TTFT per organization", async () => {

@@ -5,7 +5,12 @@ import { buildLoadChart } from "./load-chart";
 const point = (
 	timestamp: string,
 	rps: number,
-	entries: { key: string; rps: number; avgDurationMs?: number | null }[],
+	entries: {
+		key: string;
+		rps: number;
+		avgDurationMs?: number | null;
+		errorRate?: number | null;
+	}[],
 	partial = false,
 	avgDurationMs: number | null = null,
 ) => ({
@@ -16,12 +21,16 @@ const point = (
 	rps,
 	avgDurationMs,
 	avgTimeToFirstTokenMs: null,
+	errorRate: null,
+	clientErrorRate: null,
 	entries: entries.map((entry) => ({
 		key: entry.key,
 		requestCount: entry.rps * 60,
 		rps: entry.rps,
 		avgDurationMs: entry.avgDurationMs ?? null,
 		avgTimeToFirstTokenMs: null,
+		errorRate: entry.errorRate ?? null,
+		clientErrorRate: null,
 	})),
 });
 
@@ -139,5 +148,30 @@ describe("buildLoadChart", () => {
 
 		expect(chart.rows[0].series_0).toBe(500);
 		expect(chart.rows[0].series_1).toBeNull();
+	});
+
+	it("plots the error rate per series, keeping a real 0% apart from a gap", () => {
+		const chart = buildLoadChart({
+			series: [
+				{ key: "a", label: "a" },
+				{ key: "b", label: "b" },
+				{ key: "c", label: "c" },
+			],
+			data: [
+				point("2026-09-26T13:00:00Z", 3, [
+					{ key: "a", rps: 2, errorRate: 0.25 },
+					{ key: "b", rps: 1, errorRate: 0 },
+				]),
+			],
+			totalKeys: 5,
+			metric: "errors",
+		});
+
+		expect(chart.restCount).toBe(0);
+		expect(chart.rows[0]).toMatchObject({
+			series_0: 0.25,
+			series_1: 0,
+			series_2: null,
+		});
 	});
 });

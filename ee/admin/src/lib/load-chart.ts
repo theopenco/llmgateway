@@ -1,4 +1,5 @@
-export type LoadMetric = "rps" | "duration" | "ttft";
+export type LoadMetric =
+	"rps" | "duration" | "ttft" | "errors" | "client-errors";
 
 export interface LoadChartPointEntry {
 	key: string;
@@ -6,6 +7,8 @@ export interface LoadChartPointEntry {
 	rps: number;
 	avgDurationMs: number | null;
 	avgTimeToFirstTokenMs: number | null;
+	errorRate: number | null;
+	clientErrorRate: number | null;
 }
 
 export interface LoadChartPoint {
@@ -16,6 +19,8 @@ export interface LoadChartPoint {
 	rps: number;
 	avgDurationMs: number | null;
 	avgTimeToFirstTokenMs: number | null;
+	errorRate: number | null;
+	clientErrorRate: number | null;
 	entries: LoadChartPointEntry[];
 }
 
@@ -45,6 +50,8 @@ function metricValue(
 		rps: number;
 		avgDurationMs: number | null;
 		avgTimeToFirstTokenMs: number | null;
+		errorRate: number | null;
+		clientErrorRate: number | null;
 	},
 	metric: LoadMetric,
 ): number | null {
@@ -53,6 +60,10 @@ function metricValue(
 			return source.avgDurationMs;
 		case "ttft":
 			return source.avgTimeToFirstTokenMs;
+		case "errors":
+			return source.errorRate;
+		case "client-errors":
+			return source.clientErrorRate;
 		default:
 			return source.rps;
 	}
@@ -67,9 +78,9 @@ function metricValue(
  * for `rps` the remainder of each bucket's total becomes a single "Other"
  * series rather than silently shrinking the stack.
  *
- * The latency metrics get no "Other" band and no zero-fill: an average has no
- * residual to derive one from, and a bucket with no sample is a gap in the
- * line, not a drop to zero.
+ * The latency and error-rate metrics get no "Other" band and no zero-fill: a
+ * ratio has no residual to derive one from, and a bucket with no sample is a
+ * gap in the line, not a drop to zero.
  */
 export function buildLoadChart({
 	series,
