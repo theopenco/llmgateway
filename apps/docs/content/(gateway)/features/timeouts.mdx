@@ -31,6 +31,10 @@ longer than the limit is terminated.
   `tool_calls`, the HTTP request ends. The time your application spends
   running tools (or coordinating subagents) between requests never consumes
   the window.
+- **Deploys can end very long streams early.** When a gateway instance is
+  retired during a deploy, in-flight requests get up to 8 minutes to finish
+  before the connection is closed. Retry a stream that ends without its final
+  chunk.
 - **On timeout** the gateway returns a `504` with type `timeout_error` (see
   [Error Handling](/resources/error-handling)). If the limit is hit
   mid-stream, the stream terminates.
