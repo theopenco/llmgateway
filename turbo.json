@@ -17,6 +17,7 @@
 			"outputs": [
 				"dist/**",
 				".next/**",
+				"!.next/cache/**",
 				".next-dev/**",
 				".vercel/**",
 				".output/**",
