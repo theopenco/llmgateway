@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "cedbdb31-be9f-4984-b37c-ad0f93e69f04",
-  "prevId": "77017ce3-4faa-4e05-b364-4ab71ccb6818",
+  "id": "257b5c18-14cd-4106-aa90-e0bd2d228301",
+  "prevId": "c01d95c9-b5e3-449a-af2c-9ccd10329be1",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -10991,6 +10991,19 @@
       "generated": null,
       "identity": null,
       "name": "has_error",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "error_category",
       "entityType": "columns",
       "schema": "public",
       "table": "log"
