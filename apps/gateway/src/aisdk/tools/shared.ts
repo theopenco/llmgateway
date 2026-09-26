@@ -3,13 +3,7 @@ import { buildUsage } from "@/aisdk/spec.js";
 import type { SpecVersion } from "@/aisdk/spec.js";
 import type { Annotation } from "@/chat/tools/types.js";
 
-/**
- * Maps a chat-completions `finish_reason` onto the spec's finish reason.
- * `unknown` is the spec's own fallback for a provider that reported nothing.
- */
-export function mapFinishReason(
-	finishReason: string | null | undefined,
-): string {
+function mapFinishReason(finishReason: string | null | undefined): string {
 	switch (finishReason) {
 		case "stop":
 			return "stop";
@@ -25,6 +19,19 @@ export function mapFinishReason(
 		default:
 			return "unknown";
 	}
+}
+
+export function buildFinishReason(
+	specVersion: SpecVersion,
+	finishReason: string | null | undefined,
+) {
+	const unified = mapFinishReason(finishReason);
+	return specVersion === 2
+		? unified
+		: {
+				unified: unified === "unknown" ? "other" : unified,
+				raw: finishReason ?? undefined,
+			};
 }
 
 export interface ChatUsage {
