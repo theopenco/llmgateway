@@ -323,7 +323,7 @@ export async function selectSmartRoutingModel<
 	if (!saved) {
 		classification = await runClassifier();
 		const fallbackIndex =
-			!classification && params.fallbackModel
+			!classification && classifier === "jev" && params.fallbackModel
 				? sorted.findIndex((entry) => entry.modelId === params.fallbackModel)
 				: -1;
 		if (fallbackIndex >= 0) {

@@ -317,6 +317,21 @@ describe("projects route", () => {
 					})
 				).status,
 			).toBe(400);
+
+			// Without a classifier there is no verdict to fall back from.
+			expect(
+				(
+					await patchSmartRouting({
+						classifier: "none",
+						models: ["gpt-4o-mini", "gpt-4o"],
+						fallbackModel: "gpt-4o",
+					})
+				).status,
+			).toBe(200);
+			expect(await storedConfig()).toEqual({
+				classifier: "none",
+				models: ["gpt-4o-mini", "gpt-4o"],
+			});
 		});
 
 		test("rejects unknown models and oversized lists", async () => {

@@ -71,7 +71,9 @@ export function normalizeSmartRoutingConfig(
 			message: "Auto routing requires at least one model",
 		});
 	}
-	if (!config.fallbackModel) {
+	// Only the classifier can fail to give a verdict; without one the cheapest
+	// model always serves the request.
+	if (!config.fallbackModel || config.classifier !== "jev") {
 		return { classifier: config.classifier, models: modelIds };
 	}
 	const fallbackModel = resolveSmartRoutingModelId(config.fallbackModel);

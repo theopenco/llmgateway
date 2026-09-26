@@ -463,6 +463,39 @@ describe("selectSmartRoutingModel", () => {
 			});
 		});
 
+		it("upgrades for harder work when no candidate occupies the high band", async () => {
+			vi.mocked(classifyRequest).mockResolvedValue(
+				classification({
+					difficulty: "high",
+					effort: "high",
+					workChange: "harder",
+					workChangeConfidence: 0.9,
+				}),
+			);
+			const store = memoryStore(
+				entry({
+					selectedModel: "cheap",
+					effort: "low",
+					turnsSinceCheck: 3,
+				}),
+				activity(),
+			);
+
+			const result = await selectSmartRoutingModel(
+				params({
+					sessionStore: store,
+					messages: USER_TURN,
+					candidates: CANDIDATES.slice(0, 2),
+				}),
+			);
+
+			expect(result?.candidate.modelId).toBe("mid");
+			expect(result?.decision?.switch).toMatchObject({
+				direction: "upgrade",
+				reason: "harder-work",
+			});
+		});
+
 		it("keeps the current choice when the check fails", async () => {
 			vi.mocked(classifyRequest).mockResolvedValue(null);
 			const store = memoryStore(entry({ turnsSinceCheck: 3 }), activity());

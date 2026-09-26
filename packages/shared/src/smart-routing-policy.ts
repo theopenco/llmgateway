@@ -280,9 +280,12 @@ export function decideSmartRoutingSwitch(input: {
 	if (workChange === "same") {
 		return keep("work-unchanged");
 	}
+	// An upgrade only improves the fit, even when no candidate occupies the
+	// classified band and the proposal is the best one below it.
 	if (
+		direction !== "upgrade" &&
 		SMART_ROUTING_DIFFICULTIES.indexOf(proposed.band) <
-		SMART_ROUTING_DIFFICULTIES.indexOf(classification.difficulty)
+			SMART_ROUTING_DIFFICULTIES.indexOf(classification.difficulty)
 	) {
 		return keep("below-required-band");
 	}
