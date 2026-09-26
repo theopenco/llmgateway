@@ -134,23 +134,25 @@ async function startServer() {
 
 let isShuttingDown = false;
 
-// Grace period for in-flight requests to complete before force closing.
-// Defaults to 20 minutes to match AI_STREAMING_TIMEOUT_MS so long-running streams
-// aren't force-killed mid-flight during rollouts. Should remain <= k8s
-// terminationGracePeriodSeconds (minus any preStop sleep).
+// How long in-flight requests (and realtime sessions) get to finish after
+// SIGTERM before they are force-closed. Must leave room inside the pod's
+// terminationGracePeriodSeconds, minus any preStop sleep, for the billing and
+// logging tail and closing dependencies; past that the orchestrator SIGKILLs
+// and that work is lost. GKE Autopilot caps the grace period at 600s, so with
+// a 60s preStop sleep, 480s leaves about a minute for the tail.
 const shutdownGracePeriodMs =
-	Number(process.env.SHUTDOWN_GRACE_PERIOD_MS) || 1200000;
+	Number(process.env.SHUTDOWN_GRACE_PERIOD_MS) || 480000;
 
 // Realtime sessions are long-lived WebSockets rather than request/response, so
 // closeServer()'s idle-connection draining never retires them: a live call is
-// "idle" between audio frames. They get their own explicit drain, bounded by
-// the session-duration cap plus a minute so a rolling deploy converges even if
-// a session runs to its limit. Must stay <= the pod's
-// terminationGracePeriodSeconds, or the orchestrator SIGKILLs mid-call and the
-// wait accomplishes nothing.
+// "idle" between audio frames. They get their own explicit drain, sharing the
+// HTTP drain's deadline by default. Raise it only where the pod's
+// terminationGracePeriodSeconds allows (the Helm chart sets it to the session
+// cap plus a minute), or the orchestrator SIGKILLs mid-call before sessions
+// are finalized and billed.
 const realtimeShutdownGracePeriodMs =
 	Number(process.env.REALTIME_SHUTDOWN_GRACE_PERIOD_MS) ||
-	((Number(process.env.REALTIME_MAX_SESSION_SECONDS) || 3600) + 60) * 1000;
+	shutdownGracePeriodMs;
 
 // Warn when handler tails (billing, log insertion) outlive their HTTP
 // connection longer than expected. Shutdown continues waiting after this
@@ -159,7 +161,10 @@ const realtimeShutdownGracePeriodMs =
 const pendingWorkTimeoutMs =
 	Number(process.env.SHUTDOWN_PENDING_WORK_TIMEOUT_MS) || 20000;
 
-const closeServer = (server: ServerType): Promise<void> => {
+const closeServer = (
+	server: ServerType,
+	gracePeriodMs: number,
+): Promise<void> => {
 	return new Promise((resolve, reject) => {
 		const httpServer = server as Server;
 
@@ -185,11 +190,11 @@ const closeServer = (server: ServerType): Promise<void> => {
 		const timeout = setTimeout(() => {
 			logger.warn(
 				"Graceful shutdown timeout reached, forcing close of remaining connections",
-				{ gracePeriodMs: shutdownGracePeriodMs },
+				{ gracePeriodMs },
 			);
 			clearInterval(drainInterval);
 			httpServer.closeAllConnections();
-		}, shutdownGracePeriodMs);
+		}, gracePeriodMs);
 	});
 };
 
@@ -203,6 +208,10 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 	logger.info("Received shutdown signal, starting graceful shutdown", {
 		signal,
 	});
+	// HTTP requests keep running while realtime sessions drain, so both share
+	// one deadline instead of stacking their grace periods.
+	const drainDeadline = Date.now() + shutdownGracePeriodMs;
+	const remainingDrainMs = () => Math.max(0, drainDeadline - Date.now());
 
 	// Stop refreshing before the Redis connection closes below; the snapshot
 	// expires on its own once no gateway is publishing.
@@ -239,12 +248,12 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		}
 
 		logger.info("Closing HTTP server");
-		await closeServer(server);
+		await closeServer(server, remainingDrainMs());
 		logger.info("HTTP server closed");
 
 		if (metricsServer) {
 			logger.info("Closing metrics server");
-			await closeServer(metricsServer);
+			await closeServer(metricsServer, remainingDrainMs());
 			logger.info("Metrics server closed");
 		}
 

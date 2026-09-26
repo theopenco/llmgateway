@@ -1,10 +1,6 @@
 import { Decimal } from "decimal.js";
 
-import { estimateTokensFromContent } from "@/chat/tools/estimate-tokens-from-content.js";
-import { encodeChatMessages } from "@/chat/tools/tokenizer.js";
-
-import { mapXaiImageQuality, mapXaiImageResolution } from "@llmgateway/actions";
-import { getEffectiveDiscount } from "@llmgateway/db";
+import { type EffectiveDiscount, getEffectiveDiscount } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
@@ -16,6 +12,15 @@ import {
 	getSupportedServiceTiers,
 	resolveTimeBasedPricing,
 } from "@llmgateway/models";
+import {
+	estimateChatMessageTokens,
+	estimateTokensFromText,
+} from "@llmgateway/shared";
+
+import {
+	mapXaiImageQuality,
+	mapXaiImageResolution,
+} from "./prepare-request-body.js";
 
 /**
  * Resolve the price multiplier for a served processing tier (Flex / Priority).
@@ -312,6 +317,11 @@ export async function calculateCosts(
 		 * input like any other response, which is what the provider charges.
 		 */
 		rejectionWithoutUsage?: boolean;
+		/**
+		 * An already-resolved `getEffectiveDiscount` result for this
+		 * organization, provider and model, so the call does no I/O.
+		 */
+		effectiveDiscount?: EffectiveDiscount;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -382,10 +392,10 @@ export async function calculateCosts(
 		// gpt-tokenizer on the gateway hot path.
 		if (!promptTokens && fullOutput) {
 			if (fullOutput.messages) {
-				calculatedPromptTokens = encodeChatMessages(fullOutput.messages);
+				calculatedPromptTokens = estimateChatMessageTokens(fullOutput.messages);
 				promptTokensEstimated = true;
 			} else if (fullOutput.prompt) {
-				calculatedPromptTokens = estimateTokensFromContent(
+				calculatedPromptTokens = estimateTokensFromText(
 					JSON.stringify(fullOutput.prompt),
 				);
 				promptTokensEstimated = true;
@@ -421,7 +431,7 @@ export async function calculateCosts(
 			}
 
 			if (completionText) {
-				calculatedCompletionTokens = estimateTokensFromContent(completionText);
+				calculatedCompletionTokens = estimateTokensFromText(completionText);
 				completionTokensEstimated = true;
 			}
 		}
@@ -596,11 +606,9 @@ export async function calculateCosts(
 	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
 	// Discounts are keyed by the canonical model ID only.
-	const effectiveDiscountResult = await getEffectiveDiscount(
-		organizationId,
-		provider,
-		model,
-	);
+	const effectiveDiscountResult =
+		options?.effectiveDiscount ??
+		(await getEffectiveDiscount(organizationId, provider, model));
 	const discount = effectiveDiscountResult.discount;
 	const discountMultiplier = new Decimal(1).minus(discount);
 

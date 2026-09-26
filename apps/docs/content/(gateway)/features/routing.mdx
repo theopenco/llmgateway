@@ -728,6 +728,25 @@ Responses to `"model": "smart"` name the resolved model in `model`. They also ca
 
 Every smart-routed request made against a configured list records a `smartRouting` block on its log entry, visible in the request detail view: the classifier used, the eligible and surviving candidate models, the difficulty, task and output type, the classifier's preferred model and confidence, the band that was served, the selected model and effort, the classifier latency and cost, whether the classifier failed open, and whether the verdict was reused from earlier in the session. For a session it also records what triggered the check (`initial`, `reused`, `mid-turn`, `cache-expired` or `scan`), the recheck's view of how the work changed, why a recheck kept the current choice, and any switch with its reason and cost estimates.
 
+## Routing Savings
+
+The **Routing savings** card on a project's **Analytics** page (and org-wide on **Organization → Analytics** for enterprise admins) shows what `auto`, `smart` and [dynamic route](/features/dynamic-routes) requests cost compared with routing every one of them to the priciest model the router could have picked.
+
+For each routed request, the gateway prices the request's real token counts (input, cached, output and reasoning) on every candidate model, at the cheapest provider it could have used for that model and your organization's discounts. The most expensive result is the request's baseline; the saving is the baseline minus what the request actually cost, and is never negative. The candidates are:
+
+- **`auto`** — the built-in model set.
+- **`smart`** — the models left on your configured list after filtering for the request.
+- **Dynamic routes** — every catalogue model node in the route version that served the request. Custom-provider targets have no catalogue price and are left out.
+
+Cache hits, retried attempts and requests without token usage are excluded. Each request detail view shows its baseline under **Cost Information**.
+
+<Callout type="info">
+	The saving is an estimate: a different model would have produced a different
+	number of output tokens. Requests from the 30 days before this feature
+	launched were priced once, retroactively, at the catalogue prices in effect at
+	launch.
+</Callout>
+
 ## Best Practices
 
 ### For Development
