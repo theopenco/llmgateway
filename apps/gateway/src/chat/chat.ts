@@ -302,6 +302,7 @@ import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { parseTrailingUpstreamError } from "./tools/parse-trailing-upstream-error.js";
+import { pickAutoReasoningEffort } from "./tools/pick-auto-reasoning-effort.js";
 import {
 	exclusionReason,
 	getProviderFilterReasons,
@@ -5842,17 +5843,17 @@ chat.openapi(completions, async (c) => {
 			// prompt at "medium" was measured spending ~2000 reasoning tokens — so
 			// on a tight budget this default returns finish_reason "length" with
 			// empty content, and it would do so on exactly the hardest requests.
-			if (
+			const preferMediumEffort =
 				smartRoutingClassification?.difficulty === "high" &&
 				(max_tokens === undefined ||
-					max_tokens >= SMART_ROUTING_MEDIUM_EFFORT_MIN_MAX_TOKENS)
-			) {
-				reasoning_effort = "medium";
-			} else if (usedInternalModel.startsWith("gpt-5")) {
-				// Set reasoning_effort to "minimal" for gpt-5* models, "low" for others
-				reasoning_effort = "minimal";
-			} else {
-				reasoning_effort = "low";
+					max_tokens >= SMART_ROUTING_MEDIUM_EFFORT_MIN_MAX_TOKENS);
+			const autoEffort = pickAutoReasoningEffort(
+				usedInternalModel,
+				getUsedProviderMapping()?.reasoningEfforts,
+				preferMediumEffort,
+			);
+			if (autoEffort) {
+				reasoning_effort = autoEffort;
 			}
 		}
 	}
