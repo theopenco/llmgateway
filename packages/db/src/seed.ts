@@ -952,6 +952,11 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 		const isHighVolume = org?.plan === "enterprise";
 		const isMedVolume = org?.plan === "pro";
 		const numHours = isHighVolume ? 720 : isMedVolume ? 360 : 72;
+		// A project's latency is a property of what it runs, so it gets one
+		// baseline and hourly wobble around it. Redrawing it per hour would make
+		// every series on the load chart the same white noise.
+		const baseDurationMs = randomInt(900, 7000);
+		const baseTtftMs = randomInt(180, 900);
 		for (let h = 0; h < numHours; h++) {
 			const hourTs = hoursAgo(h);
 			hourTs.setMinutes(0, 0, 0);
@@ -969,8 +974,10 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 			const totalCost = baseRequests * costPerReq;
 			const creditsReqCount = Math.floor(baseRequests * 0.6);
 			const apiKeysReqCount = baseRequests - creditsReqCount;
-			const avgDurationMs = randomInt(600, 9000);
-			const avgTtftMs = randomInt(150, 1200);
+			const avgDurationMs = Math.round(
+				baseDurationMs * randomFloat(0.75, 1.35),
+			);
+			const avgTtftMs = Math.round(baseTtftMs * randomFloat(0.8, 1.3));
 
 			stats.push({
 				id: `phs-${statIdx}`,
@@ -1023,6 +1030,12 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 	return stats;
 }
 
+// Bigger models are slower. Derived from the model's own price so the seeded
+// latency ranking matches the seeded cost ranking instead of contradicting it.
+function modelBaseDurationMs(modelDef: { outputPrice: number }): number {
+	return 900 + modelDef.outputPrice * 80_000;
+}
+
 function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 	const stats = [];
 	let statIdx = 0;
@@ -1049,8 +1062,10 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 				const inputTok = reqCount * randomInt(100, 1500);
 				const outputTok = reqCount * randomInt(50, 1000);
 				const streamedReqs = Math.floor(reqCount * 0.6);
-				const avgDurationMs = randomInt(600, 9000);
-				const avgTtftMs = randomInt(150, 1200);
+				const avgDurationMs = Math.round(
+					modelBaseDurationMs(modelDef) * randomFloat(0.75, 1.35),
+				);
+				const avgTtftMs = randomInt(180, 900);
 				/* eslint-disable no-mixed-operators */
 				const costVal =
 					(inputTok / 1000) * modelDef.inputPrice +
