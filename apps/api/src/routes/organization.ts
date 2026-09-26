@@ -254,6 +254,9 @@ const projectSchema = z.object({
 	endUserMarkupPercent: z.string(),
 	endUserTopUpBonusPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),
+	endUserBrandName: z.string().nullable(),
+	endUserSupportEmail: z.string().nullable(),
+	endUserStatementDescriptorSuffix: z.string().nullable(),
 	smartRoutingConfig: smartRoutingConfigInputSchema.nullable(),
 });
 
