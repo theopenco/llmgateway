@@ -323,9 +323,19 @@ export function LoadClient() {
 		[metric],
 	);
 	const formatMetricAxis = useCallback(
-		(value: number) =>
-			metric === "rps" ? formatRps(value) : formatMetric(value),
-		[metric, formatMetric],
+		(value: number) => {
+			switch (metric) {
+				case "rps":
+					return formatRps(value);
+				case "errors":
+				case "client-errors":
+					// Three significant digits keeps ticks like 16% and 0.45% short.
+					return `${Number((value * 100).toPrecision(3))}%`;
+				default:
+					return formatDurationMs(value);
+			}
+		},
+		[metric],
 	);
 
 	const currentSeconds = data?.summary.currentSeconds ?? 0;
@@ -345,7 +355,7 @@ export function LoadClient() {
 			: `Across the last ${activeWindow}`;
 	const errorHint = modeBlended
 		? "Unavailable for a single billing mode"
-		: `${formatErrorRate(data?.summary.clientErrorRate)} client errors, excluded`;
+		: `Excludes ${formatErrorRate(data?.summary.clientErrorRate)} client errors`;
 
 	const grain = data?.bucket === "day" ? "day" : "hour";
 	const grainNote =
@@ -613,7 +623,9 @@ export function LoadClient() {
 										type="monotone"
 										stroke={`var(--color-${series.chartKey})`}
 										strokeWidth={2}
-										dot={false}
+										// Rates and averages leave empty buckets as gaps, so a bucket
+										// between two gaps has no segment and needs a dot to show.
+										dot={metric === "rps" ? false : { r: 2 }}
 									/>
 								))}
 							</LineChart>
