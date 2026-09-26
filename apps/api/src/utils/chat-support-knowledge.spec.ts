@@ -6,6 +6,7 @@ import {
 	KNOWLEDGE_SITEMAPS,
 	isAllowedKnowledgeUrl,
 	selectKnowledgeUrls,
+	isPublicCatalogueProvider,
 	summarizeCatalogue,
 	toDocsMarkdownUrl,
 } from "./chat-support-knowledge.js";
@@ -241,5 +242,48 @@ describe("summarizeCatalogue", () => {
 			providers: ["Azure", "Black Forest Labs", "OpenAI"],
 			generatedAt: now.toISOString(),
 		});
+	});
+
+	test("excludes the gateway's router models and stealth providers", () => {
+		const summary = summarizeCatalogue(
+			{
+				models: [
+					{ id: "gpt", free: false, output: ["text"] },
+					{ id: "auto", free: false, output: ["text"] },
+					{ id: "smart", free: false, output: ["text"] },
+					{ id: "stealth-model", free: false, output: ["text"] },
+				],
+				mappings: [
+					{ modelId: "gpt", providerId: "openai", deactivatedAt: null },
+					{ modelId: "gpt", providerId: "quartz", deactivatedAt: null },
+					{ modelId: "auto", providerId: "llmgateway", deactivatedAt: null },
+					{ modelId: "smart", providerId: "llmgateway", deactivatedAt: null },
+					{
+						modelId: "stealth-model",
+						providerId: "quartz",
+						deactivatedAt: null,
+					},
+				],
+				providers: [
+					{ id: "openai", name: "OpenAI" },
+					{ id: "llmgateway", name: "LLM Gateway" },
+					{ id: "custom", name: "Custom" },
+					{ id: "quartz", name: "Quartz" },
+				],
+			},
+			now,
+		);
+
+		expect(summary.modelCount).toBe(1);
+		expect(summary.providerCount).toBe(1);
+		expect(summary.providers).toEqual(["OpenAI"]);
+	});
+
+	test("keeps DB-only Airside carriers public", () => {
+		expect(isPublicCatalogueProvider("openai")).toBe(true);
+		expect(isPublicCatalogueProvider("airside-carrier")).toBe(true);
+		expect(isPublicCatalogueProvider("llmgateway")).toBe(false);
+		expect(isPublicCatalogueProvider("custom")).toBe(false);
+		expect(isPublicCatalogueProvider("quartz")).toBe(false);
 	});
 });

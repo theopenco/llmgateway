@@ -2,6 +2,7 @@ import { redisClient } from "@/auth/config.js";
 
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { isStealthProvider } from "@llmgateway/models";
 
 // Domains whose sitemaps are crawled to build the support assistant's
 // knowledge of every public page across the product suite. The agent links to
@@ -346,14 +347,29 @@ interface CatalogueRows {
 	providers: { id: string; name: string }[];
 }
 
+// The gateway's own router models (auto, smart, custom) and stealth providers
+// are routable but not public directory entries, so they must not inflate the
+// totals or leak into the provider list. Mirrors the public providers page.
+const NON_PUBLIC_PROVIDER_IDS = new Set(["llmgateway", "custom"]);
+
+export function isPublicCatalogueProvider(providerId: string): boolean {
+	return (
+		!NON_PUBLIC_PROVIDER_IDS.has(providerId) && !isStealthProvider(providerId)
+	);
+}
+
 // Counts what the public models directory lists as routable right now: active
-// models with at least one live mapping on an active provider. Deriving the
-// numbers from the database keeps the assistant from quoting stale totals.
+// models with at least one live mapping on an active public provider. Deriving
+// the numbers from the database keeps the assistant from quoting stale totals.
 export function summarizeCatalogue(
 	rows: CatalogueRows,
 	now: Date = new Date(),
 ): CatalogueSummary {
-	const providerNames = new Map(rows.providers.map((p) => [p.id, p.name]));
+	const providerNames = new Map(
+		rows.providers
+			.filter((provider) => isPublicCatalogueProvider(provider.id))
+			.map((provider) => [provider.id, provider.name]),
+	);
 	const liveProvidersByModel = new Map<string, Set<string>>();
 	for (const mapping of rows.mappings) {
 		if (!providerNames.has(mapping.providerId)) {
