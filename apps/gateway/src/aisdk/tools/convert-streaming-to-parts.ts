@@ -163,7 +163,10 @@ export function processChatChunk(
 	}
 
 	const choice = chunk.choices?.[0];
-	if (typeof choice?.finish_reason === "string") {
+	if (
+		typeof choice?.finish_reason === "string" &&
+		(choice.finish_reason || state.rawFinishReason === undefined)
+	) {
 		state.rawFinishReason = choice.finish_reason;
 	}
 
