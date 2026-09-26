@@ -14,6 +14,13 @@ LLMGateway supports integrating custom OpenAI-compatible providers, allowing you
 - Testing against different model endpoints
 
 <Callout type="info">
+	Custom providers are an **Enterprise** feature. Custom providers created
+	before this requirement keep serving requests on any plan and can still be
+	deactivated or deleted, but creating or editing them requires an enterprise
+	plan.
+</Callout>
+
+<Callout type="info">
 	Custom providers must be OpenAI-compatible, supporting the
 	`/v1/chat/completions` endpoint format.
 </Callout>
