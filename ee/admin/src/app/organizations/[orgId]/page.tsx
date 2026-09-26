@@ -8,6 +8,7 @@ import {
 	FolderOpen,
 	Key,
 	KeyRound,
+	List,
 	Lock,
 	Receipt,
 	ScrollText,
@@ -21,6 +22,7 @@ import { notFound } from "next/navigation";
 import { BlockOrgButton } from "@/components/block-org-button";
 import { EnterpriseDealDialog } from "@/components/enterprise-deal-dialog";
 import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
+import { LogsSection } from "@/components/logs-section";
 import { ManualCreditsDialog } from "@/components/manual-credits-dialog";
 import { PlanTermBadge } from "@/components/plan-term-badge";
 import { RefundPaymentDialog } from "@/components/refund-payment-dialog";
@@ -53,6 +55,10 @@ import {
 	updateReferralBonus,
 } from "@/lib/admin-organizations";
 import { KEY_STATUS_DEFAULT, parseKeyStatus } from "@/lib/key-status";
+import {
+	buildLogModelOptions,
+	buildLogProviderOptions,
+} from "@/lib/log-filter-options";
 import { getOrgDeletionBlockedReason } from "@/lib/org-deletion";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
@@ -327,6 +333,9 @@ export default async function OrganizationPage({
 	const providerKeys = providerKeysData?.providerKeys ?? [];
 	const pkCounts = providerKeysData?.counts ?? emptyKeyCounts;
 	const membersTotal = membersData?.total ?? 0;
+	const seatOptions = (membersData?.members ?? [])
+		.map((member) => ({ email: member.user.email, name: member.user.name }))
+		.toSorted((a, b) => a.email.localeCompare(b.email));
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
@@ -701,6 +710,10 @@ export default async function OrganizationPage({
 						<Users className="mr-1.5 h-4 w-4" />
 						Members ({membersTotal})
 					</TabsTrigger>
+					<TabsTrigger value="logs">
+						<List className="mr-1.5 h-4 w-4" />
+						Request Logs
+					</TabsTrigger>
 					<TabsTrigger value="audit-logs">
 						<ScrollText className="mr-1.5 h-4 w-4" />
 						Audit Logs ({auditLogsData?.total ?? 0})
@@ -975,6 +988,20 @@ export default async function OrganizationPage({
 							Failed to load members and teams
 						</p>
 					)}
+				</TabsContent>
+
+				<TabsContent value="logs">
+					<LogsSection
+						orgId={orgId}
+						providerOptions={buildLogProviderOptions()}
+						modelOptions={buildLogModelOptions()}
+						seatOptions={seatOptions}
+						projectOptions={projects.map((p) => ({
+							id: p.id,
+							name: p.name,
+						}))}
+						title="Requests across all projects"
+					/>
 				</TabsContent>
 
 				<TabsContent value="audit-logs">
