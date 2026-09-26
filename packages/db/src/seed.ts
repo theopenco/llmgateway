@@ -1033,7 +1033,8 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 // Bigger models are slower. Derived from the model's own price so the seeded
 // latency ranking matches the seeded cost ranking instead of contradicting it.
 function modelBaseDurationMs(modelDef: { outputPrice: number }): number {
-	return 900 + modelDef.outputPrice * 80_000;
+	const priceComponent = modelDef.outputPrice * 80_000;
+	return 900 + priceComponent;
 }
 
 function generateProjectHourlyModelStats(projects: ProjectDef[]) {
