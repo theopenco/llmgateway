@@ -483,11 +483,12 @@ describe("admin — gateway load", () => {
 	});
 
 	test("reports the model error rate under an organization, project or API key filter", async () => {
-		for (const filter of [
+		const filters: Record<string, string>[] = [
 			{ organizationId: ORG_A },
 			{ projectId: PROJECT_A },
 			{ apiKeyId: API_KEY_A },
-		]) {
+		];
+		for (const filter of filters) {
 			const body = await fetchLoad(cookie, {
 				window: "1d",
 				groupBy: "model",
