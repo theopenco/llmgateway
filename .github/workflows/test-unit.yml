@@ -32,7 +32,7 @@ jobs:
           pnpm run setup
           # Never fail here: the merge job reports the combined result, and a
           # failing shard must still upload its blob so that report is complete.
-          pnpm vitest run --no-file-parallelism \
+          pnpm vitest run \
             --shard=${{ matrix.shard }}/${{ strategy.job-total }} \
             --reporter=blob --outputFile=unit-results-${{ matrix.shard }}.blob || true
 

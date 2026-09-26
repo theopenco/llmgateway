@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	eachDay,
 	MAX_ORG_ACTIVITY_RANGE_DAYS,
 	rangeDaysInclusive,
 	resolveDateRange,
@@ -14,6 +15,10 @@ import {
 } from "@/lib/mode-split.js";
 import { getOrgProjectIds } from "@/lib/org-projects.js";
 import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
+import {
+	getRoutingSavings,
+	routingSavingsSchema,
+} from "@/lib/routing-savings.js";
 import { getUserUsageBreakdown } from "@/lib/user-usage-breakdown.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
 import { bucketDate, timezoneQueryField } from "@/utils/timezone.js";
@@ -936,17 +941,6 @@ function canonicalModelId(usedModel: string): string {
 // Inclusive list of UTC calendar dates between two YYYY-MM-DD strings, used to
 // pad the activity series so charts render a continuous axis even on idle days.
 // Callers must validate the span first (see MAX_ORG_ACTIVITY_RANGE_DAYS).
-function eachDay(fromStr: string, toStr: string): string[] {
-	const slots: string[] = [];
-	const cur = new Date(`${fromStr}T00:00:00Z`);
-	const end = new Date(`${toStr}T00:00:00Z`);
-	while (cur.getTime() <= end.getTime()) {
-		slots.push(cur.toISOString().slice(0, 10));
-		cur.setUTCDate(cur.getUTCDate() + 1);
-	}
-	return slots;
-}
-
 const orgGroupBySchema = z.enum(["model", "project", "apiKey", "user"]);
 
 const orgActivityBreakdownSchema = z.object({
@@ -1305,4 +1299,42 @@ analytics.openapi(getOrgActivity, async (c) => {
 	});
 
 	return c.json({ activity, groupBy });
+});
+
+const getOrgRoutingSavings = createRoute({
+	method: "get",
+	path: "/routing-savings",
+	request: {
+		query: z.object(dateRangeQuery),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: routingSavingsSchema,
+				},
+			},
+			description:
+				"Organization-wide spend of auto, smart and dynamic route requests vs. the priciest model the router could have picked",
+		},
+	},
+});
+
+analytics.openapi(getOrgRoutingSavings, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId, from, to, timezone } = c.req.valid("query");
+	await requireEnterpriseAdmin(authUser.id, organizationId);
+
+	const timeZone = timezone ?? "UTC";
+	return c.json(
+		await getRoutingSavings({
+			projectIds: await getOrgProjectIds(organizationId),
+			timeZone,
+			...resolveDateRange(from, to, timeZone),
+		}),
+	);
 });

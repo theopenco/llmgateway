@@ -162,6 +162,8 @@ A route only serves requests when it is **enabled** and has a **published versio
 
 Each request served through a dynamic route records the route name, published version, and the node path the evaluation took in its routing metadata, alongside the usual provider scoring details — visible in the activity log detail view.
 
+The project's **Analytics** page compares each route's spend with sending every request to the priciest model in the route; see&nbsp;[routing savings](/features/routing#routing-savings).
+
 ## Reliability
 
 Published routes are cached in the gateway and carry a stale fallback: when the database is temporarily unreachable, recently used routes keep resolving from cache, the same way API keys and project settings do.

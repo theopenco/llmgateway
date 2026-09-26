@@ -190,6 +190,7 @@ describe("smart routing", () => {
 			usedMode: "credits",
 			promptTokens: "441",
 			hasError: false,
+			routingBaselineCost: null,
 		});
 		// 441 input tokens at the catalogue rate; output is priced at zero.
 		expect(Number(classifierLog?.cost)).toBeCloseTo(441 * 0.042e-6, 12);
@@ -262,6 +263,11 @@ describe("smart routing", () => {
 			classifierFailed: false,
 		});
 		expect(logs[0]?.routingMetadata?.smartRouting?.difficulty).toBeUndefined();
+		// Priced against the priciest configured model it could have picked.
+		expect(logs[0]?.routingBaselineModel).toBe(`openai/${EXPENSIVE_MODEL}`);
+		expect(Number(logs[0]?.routingBaselineCost)).toBeGreaterThan(
+			Number(logs[0]?.cost),
+		);
 	});
 
 	test("a project override beats the organization default", async () => {
@@ -298,6 +304,7 @@ describe("smart routing", () => {
 
 		const logs = await waitForLogs(1);
 		expect(logs[0]?.routingMetadata?.smartRouting).toBeUndefined();
+		expect(logs[0]?.routingBaselineModel).toBe("anthropic/claude-opus-4-6");
 	});
 
 	test("a pay-as-you-go organization can use smart routing", async () => {
