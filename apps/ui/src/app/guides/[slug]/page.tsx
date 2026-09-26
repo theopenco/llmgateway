@@ -19,9 +19,10 @@ interface GuidePageProps {
 }
 
 export default async function GuidePage({ params }: GuidePageProps) {
-	const { allGuides } = await import("content-collections");
-
-	const { slug } = await params;
+	const [{ allGuides }, { slug }] = await Promise.all([
+		import("content-collections"),
+		params,
+	]);
 
 	const guide = allGuides.find((guide: Guide) => guide.slug === slug);
 
@@ -172,9 +173,10 @@ export async function generateStaticParams() {
 export async function generateMetadata({
 	params,
 }: GuidePageProps): Promise<Metadata> {
-	const { allGuides } = await import("content-collections");
-
-	const { slug } = await params;
+	const [{ allGuides }, { slug }] = await Promise.all([
+		import("content-collections"),
+		params,
+	]);
 
 	const guide = allGuides.find((guide: Guide) => guide.slug === slug);
 

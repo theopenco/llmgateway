@@ -31,6 +31,15 @@ import {
 	withEnterpriseSeatsForActivation,
 	withEnterpriseSeatsForPromotion,
 } from "@/lib/enterprise-seats.js";
+import { buildLogErrorFilter } from "@/lib/log-error-filter.js";
+import {
+	mappingErrorShapesSchema,
+	mappingErrorWindowSchema,
+	notRetriedClause,
+	incidentErrorsClause,
+	queryMappingErrorShapes,
+	resolveMappingErrorWindow,
+} from "@/lib/mapping-error-shapes.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
@@ -68,6 +77,11 @@ import {
 	refundsCountedTopupFilter,
 } from "@/utils/devpass-filter.js";
 import {
+	blockedEmailDomainSchema,
+	getBlockedSignupEmailDomains,
+	setBlockedSignupEmailDomains,
+} from "@/utils/email-domain-blocking.js";
+import {
 	HOURLY_BUCKET_THRESHOLD_MINUTES,
 	floorToHourStart,
 	isHourlyRange,
@@ -84,6 +98,7 @@ import {
 	asc,
 	avgEffectiveTtftSql,
 	cdb,
+	computeAirsideAdjustment,
 	db,
 	desc,
 	effectiveTtftTotals,
@@ -91,6 +106,7 @@ import {
 	excludeRegionalMappingRows,
 	gte,
 	inArray,
+	invalidateOrganizationsCache,
 	isNotNull,
 	isNull,
 	lt,
@@ -109,7 +125,11 @@ import {
 	globalSourceStats,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { models, providers } from "@llmgateway/models";
+import {
+	expandAllProviderRegions,
+	models,
+	providers,
+} from "@llmgateway/models";
 import {
 	CHAT_PLAN_PRICES,
 	DEV_PLAN_PRICES,
@@ -118,11 +138,13 @@ import {
 	getIncludedResetPassesRemaining,
 	MAX_BULK_BLOCK_ORGANIZATIONS,
 	MIN_BULK_BLOCK_SEARCH_LENGTH,
+	CONTENT_FILTER_CLASSIFIERS,
 	contentFilterSettingsSchema,
 	getOrgContentFilterTier,
 	getOrgSpendTier,
 	getPlanClass,
 	isValidSystemBannerLink,
+	LOG_ERROR_TYPES,
 	parseUsedModel,
 	resolveTrustTierOverride,
 	SYSTEM_BANNER_SEVERITIES,
@@ -402,6 +424,10 @@ const adminMetricsSchema = z.object({
 	// fees; refunds not netted out), split by product.
 	grossRevenue: z.number(),
 	grossCreditsRevenue: z.number(),
+	// LLM SDK end-user wallet top-ups. Already included in
+	// `grossCreditsRevenue` — reported separately so SDK monetization is
+	// visible, never added to `grossRevenue` again.
+	grossSdkPaymentsRevenue: z.number(),
 	grossDevpassRevenue: z.number(),
 	// PAYG overflow top-ups purchased by DevPass orgs. Same `credit_topup`
 	// transaction type as the Credits split, attributed separately so DevPass
@@ -1382,6 +1408,11 @@ admin.openapi(getMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
 					"value",
 				),
+			// LLM SDK end-user wallet top-ups, a subset of `value`.
+			sdkValue:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.type} = 'end_user_topup'), 0)`.as(
+					"sdk_value",
+				),
 		})
 		.from(tables.transaction)
 		.innerJoin(
@@ -1407,6 +1438,7 @@ admin.openapi(getMetrics, async (c) => {
 		);
 
 	const grossCreditsRevenue = Number(grossCreditsRow?.value ?? 0);
+	const grossSdkPaymentsRevenue = Number(grossCreditsRow?.sdkValue ?? 0);
 
 	// DevPass PAYG overflow top-ups: `credit_topup` purchases on devpass orgs.
 	const [grossDevpassTopupsRow] = await db
@@ -1689,6 +1721,7 @@ admin.openapi(getMetrics, async (c) => {
 		totalRefundedCredits,
 		grossRevenue,
 		grossCreditsRevenue,
+		grossSdkPaymentsRevenue,
 		grossDevpassRevenue,
 		grossDevpassTopupsRevenue,
 		grossResetPassRevenue,
@@ -4254,8 +4287,12 @@ const logEntrySchema = z.object({
 	traceId: z.string().nullable(),
 	sessionId: z.string().nullable(),
 	projectId: z.string(),
+	projectName: z.string().nullable(),
 	organizationId: z.string(),
 	apiKeyId: z.string(),
+	apiKeyName: z.string().nullable(),
+	apiKeyUserId: z.string().nullable(),
+	apiKeyUserEmail: z.string().nullable(),
 	promptTokens: z.string().nullable(),
 	completionTokens: z.string().nullable(),
 	totalTokens: z.string().nullable(),
@@ -4325,65 +4362,48 @@ const projectLogsSchema = z.object({
 	}),
 });
 
-const getProjectLogs = createRoute({
-	method: "get",
-	path: "/organizations/{orgId}/projects/{projectId}/logs",
-	request: {
-		params: z.object({
-			orgId: z.string(),
-			projectId: z.string(),
-		}),
-		query: z.object({
-			limit: z.coerce.number().min(1).max(100).default(50).optional(),
-			cursor: z.string().optional(),
-			provider: z.string().optional(),
-			model: z.string().optional(),
-			source: z.string().optional(),
-			unifiedFinishReason: z.string().optional(),
-			hasError: z.string().optional(),
-		}),
-	},
-	responses: {
-		200: {
-			content: {
-				"application/json": {
-					schema: projectLogsSchema.openapi({}),
-				},
-			},
-			description: "Project logs.",
-		},
-		404: {
-			description: "Project not found.",
-		},
-	},
+interface AdminLogQuery {
+	limit?: number;
+	cursor?: string;
+	provider?: string;
+	model?: string;
+	source?: string;
+	unifiedFinishReason?: string;
+	hasError?: string;
+	errorType?: (typeof LOG_ERROR_TYPES)[number];
+	userEmail?: string;
+	projectId?: string;
+}
+
+const adminLogQuerySchema = z.object({
+	limit: z.coerce.number().min(1).max(100).default(50).optional(),
+	cursor: z.string().optional(),
+	provider: z.string().optional(),
+	model: z.string().optional(),
+	source: z.string().optional(),
+	unifiedFinishReason: z.string().optional(),
+	hasError: z.string().optional(),
+	errorType: z.enum(LOG_ERROR_TYPES).optional(),
+	// Seat filter: matches logs whose API key was created by the user with this
+	// email (case-insensitive). Scanning `log` is acceptable here because the
+	// query is always narrowed to one organization or project.
+	userEmail: z.string().optional(),
 });
 
-admin.openapi(getProjectLogs, async (c) => {
-	const { orgId, projectId } = c.req.valid("param");
-	const query = c.req.valid("query");
+/**
+ * Shared reader for the admin log views. `scope` narrows to one project or one
+ * organization; every filter below applies identically to both.
+ */
+async function fetchAdminLogs(scope: SQLWrapper, query: AdminLogQuery) {
 	const limit = query.limit ?? 50;
-	const { cursor, provider, model, source, unifiedFinishReason, hasError } =
-		query;
+	const whereConditions: SQLWrapper[] = [scope];
 
-	// Verify project belongs to the organization
-	const project = await db.query.project.findFirst({
-		where: {
-			id: { eq: projectId },
-			organizationId: { eq: orgId },
-		},
-	});
-
-	if (!project) {
-		throw new HTTPException(404, {
-			message: "Project not found",
-		});
+	if (query.projectId) {
+		whereConditions.push(eq(tables.log.projectId, query.projectId));
 	}
 
-	const whereConditions = [eq(tables.log.projectId, projectId)];
-
-	// Add filter conditions
-	if (provider) {
-		const providerValues = provider.split(",").filter(Boolean);
+	if (query.provider) {
+		const providerValues = query.provider.split(",").filter(Boolean);
 		if (providerValues.length === 1) {
 			whereConditions.push(eq(tables.log.usedProvider, providerValues[0]));
 		} else if (providerValues.length > 1) {
@@ -4391,34 +4411,52 @@ admin.openapi(getProjectLogs, async (c) => {
 		}
 	}
 
-	if (model) {
+	if (query.model) {
 		whereConditions.push(
 			sql`CASE WHEN ${tables.log.usedModel} LIKE '%/%'
 				THEN SPLIT_PART(${tables.log.usedModel}, '/', 2)
 				ELSE ${tables.log.usedModel}
-			END = ${model}`,
+			END = ${query.model}`,
 		);
 	}
 
-	if (source) {
-		whereConditions.push(eq(tables.log.source, source));
+	if (query.source) {
+		whereConditions.push(eq(tables.log.source, query.source));
 	}
 
-	if (unifiedFinishReason) {
+	if (query.unifiedFinishReason) {
 		whereConditions.push(
-			eq(tables.log.unifiedFinishReason, unifiedFinishReason),
+			eq(tables.log.unifiedFinishReason, query.unifiedFinishReason),
 		);
 	}
 
-	if (hasError === "true") {
-		whereConditions.push(eq(tables.log.hasError, true));
+	const userEmail = query.userEmail?.trim();
+	if (userEmail) {
+		whereConditions.push(
+			inArray(
+				tables.log.apiKeyId,
+				db
+					.select({ id: tables.apiKey.id })
+					.from(tables.apiKey)
+					.innerJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
+					.where(sql`lower(${tables.user.email}) = ${userEmail.toLowerCase()}`),
+			),
+		);
 	}
 
-	if (cursor) {
+	// `hasError=true` is the legacy shape of `errorType=any`
+	const errorFilter = buildLogErrorFilter(
+		query.errorType ?? (query.hasError === "true" ? "any" : undefined),
+	);
+	if (errorFilter) {
+		whereConditions.push(errorFilter);
+	}
+
+	if (query.cursor) {
 		const cursorLog = await db
 			.select({ createdAt: tables.log.createdAt })
 			.from(tables.log)
-			.where(eq(tables.log.id, cursor))
+			.where(eq(tables.log.id, query.cursor))
 			.limit(1);
 
 		if (cursorLog.length === 0) {
@@ -4433,7 +4471,7 @@ admin.openapi(getProjectLogs, async (c) => {
 				lt(tables.log.createdAt, cursorCreatedAt),
 				and(
 					eq(tables.log.createdAt, cursorCreatedAt),
-					lt(tables.log.id, cursor),
+					lt(tables.log.id, query.cursor),
 				),
 			)!,
 		);
@@ -4452,8 +4490,12 @@ admin.openapi(getProjectLogs, async (c) => {
 			traceId: tables.log.traceId,
 			sessionId: tables.log.sessionId,
 			projectId: tables.log.projectId,
+			projectName: tables.project.name,
 			organizationId: tables.log.organizationId,
 			apiKeyId: tables.log.apiKeyId,
+			apiKeyName: tables.apiKey.description,
+			apiKeyUserId: tables.user.id,
+			apiKeyUserEmail: tables.user.email,
 			promptTokens: tables.log.promptTokens,
 			completionTokens: tables.log.completionTokens,
 			totalTokens: tables.log.totalTokens,
@@ -4514,6 +4556,9 @@ admin.openapi(getProjectLogs, async (c) => {
 			routingMetadata: tables.log.routingMetadata,
 		})
 		.from(tables.log)
+		.leftJoin(tables.project, eq(tables.project.id, tables.log.projectId))
+		.leftJoin(tables.apiKey, eq(tables.apiKey.id, tables.log.apiKeyId))
+		.leftJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
 		.where(and(...whereConditions))
 		.orderBy(desc(tables.log.createdAt), desc(tables.log.id))
 		.limit(limit + 1);
@@ -4525,7 +4570,7 @@ admin.openapi(getProjectLogs, async (c) => {
 			? paginatedLogs[paginatedLogs.length - 1].id
 			: null;
 
-	return c.json({
+	return {
 		logs: paginatedLogs.map((l) => ({
 			...l,
 			content:
@@ -4550,7 +4595,100 @@ admin.openapi(getProjectLogs, async (c) => {
 			hasMore,
 			limit,
 		},
+	};
+}
+
+const getProjectLogs = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/projects/{projectId}/logs",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			projectId: z.string(),
+		}),
+		query: adminLogQuerySchema,
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: projectLogsSchema.openapi({}),
+				},
+			},
+			description: "Project logs.",
+		},
+		404: {
+			description: "Project not found.",
+		},
+	},
+});
+
+admin.openapi(getProjectLogs, async (c) => {
+	const { orgId, projectId } = c.req.valid("param");
+	const query = c.req.valid("query");
+
+	// Verify project belongs to the organization
+	const project = await db.query.project.findFirst({
+		where: {
+			id: { eq: projectId },
+			organizationId: { eq: orgId },
+		},
 	});
+
+	if (!project) {
+		throw new HTTPException(404, {
+			message: "Project not found",
+		});
+	}
+
+	return c.json(
+		await fetchAdminLogs(eq(tables.log.projectId, projectId), query),
+	);
+});
+
+const getOrganizationLogs = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/logs",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		query: adminLogQuerySchema.extend({
+			projectId: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: projectLogsSchema.openapi({}),
+				},
+			},
+			description: "Organization logs.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(getOrganizationLogs, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const query = c.req.valid("query");
+
+	const organization = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!organization) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	return c.json(
+		await fetchAdminLogs(eq(tables.log.organizationId, orgId), query),
+	);
 });
 
 // ==================== Discount Management ====================
@@ -4892,6 +5030,7 @@ const getAvailableProvidersAndModels = createRoute({
 								z.object({
 									id: z.string(),
 									name: z.string(),
+									source: z.enum(["catalogue", "airside"]),
 								}),
 							),
 							mappings: z.array(
@@ -4901,6 +5040,7 @@ const getAvailableProvidersAndModels = createRoute({
 									modelId: z.string(),
 									modelName: z.string(),
 									family: z.string(),
+									source: z.enum(["catalogue", "airside"]),
 								}),
 							),
 						})
@@ -4956,18 +5096,201 @@ function formatRoutingScoreMultiplier(multiplier: {
 	};
 }
 
-// Helper to validate provider/model
-function validateProviderAndModel(
+type CatalogueSource = "catalogue" | "airside";
+
+interface ProviderModelOption {
+	providerId: string;
+	providerName: string;
+	modelId: string;
+	modelName: string;
+	family: string;
+	source: CatalogueSource;
+}
+
+/** Active Airside-owned mappings, which exist only in the DB. */
+async function listAirsideMappings() {
+	return await db
+		.select({
+			providerId: tables.modelProviderMapping.providerId,
+			providerName: tables.provider.name,
+			modelId: tables.model.id,
+			modelName: tables.model.name,
+			family: tables.model.family,
+		})
+		.from(tables.modelProviderMapping)
+		.innerJoin(
+			tables.model,
+			eq(tables.model.id, tables.modelProviderMapping.modelId),
+		)
+		.leftJoin(
+			tables.provider,
+			eq(tables.provider.id, tables.modelProviderMapping.providerId),
+		)
+		.where(
+			and(
+				eq(tables.modelProviderMapping.source, "airside"),
+				eq(tables.modelProviderMapping.status, "active"),
+				isNull(tables.modelProviderMapping.region),
+			),
+		);
+}
+
+/** Approved custom carriers: providers that exist only as an Airside claim. */
+async function listAirsideCustomProviders() {
+	return await db
+		.select({
+			id: tables.providerClaim.providerId,
+			name: tables.providerClaim.customName,
+		})
+		.from(tables.providerClaim)
+		.where(
+			and(
+				eq(tables.providerClaim.kind, "custom"),
+				eq(tables.providerClaim.status, "active"),
+			),
+		);
+}
+
+/**
+ * Providers and provider/model pairs an admin can target with a discount or a
+ * rate limit: the static catalogue plus Airside listings. Custom carriers are
+ * listed even without an approved model so a provider-wide cap is still
+ * settable, and an Airside listing that supersedes a catalogue mapping is
+ * reported once, under its Airside source.
+ */
+async function getProviderModelOptions(): Promise<{
+	providers: { id: string; name: string; source: CatalogueSource }[];
+	mappings: ProviderModelOption[];
+}> {
+	// modelId is the canonical model id — the provider-specific upstream
+	// externalId is never exposed here or stored as a discount/rate-limit
+	// target. modelName is the canonical model's human-readable display name.
+	const mappings = new Map<string, ProviderModelOption>();
+
+	for (const model of models) {
+		for (const mapping of model.providers) {
+			const provider = providers.find((p) => p.id === mapping.providerId);
+			if (provider) {
+				mappings.set(`${mapping.providerId}:${model.id}`, {
+					providerId: mapping.providerId,
+					providerName: provider.name,
+					modelId: model.id,
+					modelName: (model as { name?: string }).name ?? model.id,
+					family: model.family,
+					source: "catalogue",
+				});
+			}
+		}
+	}
+
+	const [airsideMappings, customProviders] = await Promise.all([
+		listAirsideMappings(),
+		listAirsideCustomProviders(),
+	]);
+
+	const providerOptions = new Map<
+		string,
+		{ id: string; name: string; source: CatalogueSource }
+	>(
+		providers.map((p) => [
+			p.id,
+			{ id: p.id, name: p.name, source: "catalogue" as const },
+		]),
+	);
+
+	for (const carrier of customProviders) {
+		if (!providerOptions.has(carrier.id)) {
+			providerOptions.set(carrier.id, {
+				id: carrier.id,
+				name: carrier.name ?? carrier.id,
+				source: "airside",
+			});
+		}
+	}
+
+	for (const row of airsideMappings) {
+		const providerOption = providerOptions.get(row.providerId);
+		if (!providerOption) {
+			providerOptions.set(row.providerId, {
+				id: row.providerId,
+				name: row.providerName ?? row.providerId,
+				source: "airside",
+			});
+		}
+		mappings.set(`${row.providerId}:${row.modelId}`, {
+			providerId: row.providerId,
+			providerName: providerOption?.name ?? row.providerName ?? row.providerId,
+			modelId: row.modelId,
+			modelName: row.modelName,
+			family: row.family,
+			source: "airside",
+		});
+	}
+
+	return {
+		providers: Array.from(providerOptions.values()),
+		mappings: Array.from(mappings.values()),
+	};
+}
+
+/** Whether a non-catalogue provider id belongs to an Airside carrier. */
+async function isAirsideProviderId(providerId: string): Promise<boolean> {
+	const [claim] = await db
+		.select({ id: tables.providerClaim.id })
+		.from(tables.providerClaim)
+		.where(
+			and(
+				eq(tables.providerClaim.providerId, providerId),
+				eq(tables.providerClaim.kind, "custom"),
+				eq(tables.providerClaim.status, "active"),
+			),
+		)
+		.limit(1);
+	if (claim) {
+		return true;
+	}
+	return await hasAirsideMapping(providerId, null);
+}
+
+/** Whether an active Airside listing exists for the model (on the provider). */
+async function hasAirsideMapping(
+	providerId: string | null,
+	modelId: string | null,
+): Promise<boolean> {
+	const [row] = await db
+		.select({ id: tables.modelProviderMapping.id })
+		.from(tables.modelProviderMapping)
+		.where(
+			and(
+				eq(tables.modelProviderMapping.source, "airside"),
+				eq(tables.modelProviderMapping.status, "active"),
+				...(providerId
+					? [eq(tables.modelProviderMapping.providerId, providerId)]
+					: []),
+				...(modelId ? [eq(tables.modelProviderMapping.modelId, modelId)] : []),
+			),
+		)
+		.limit(1);
+	return Boolean(row);
+}
+
+// Helper to validate provider/model. Targets may come from the static
+// catalogue or from an Airside listing, which lives only in the DB.
+async function validateProviderAndModel(
 	provider: string | null | undefined,
 	model: string | null | undefined,
-): { error?: string } {
+): Promise<{ error?: string }> {
 	// Must have at least one of provider or model
 	if (!provider && !model) {
 		return { error: "At least one of provider or model must be specified" };
 	}
 
 	// Validate provider if specified
-	if (provider && !validProviderIds.has(provider)) {
+	if (
+		provider &&
+		!validProviderIds.has(provider) &&
+		!(await isAirsideProviderId(provider))
+	) {
 		return { error: `Invalid provider: ${provider}` };
 	}
 
@@ -4976,14 +5299,20 @@ function validateProviderAndModel(
 		// If provider is specified, check that the model is valid for that provider
 		if (provider) {
 			const providerModels = providerModelMappings.get(provider);
-			if (!providerModels || !providerModels.has(model)) {
+			if (
+				(!providerModels || !providerModels.has(model)) &&
+				!(await hasAirsideMapping(provider, model))
+			) {
 				return {
 					error: `Invalid model "${model}" for provider "${provider}"`,
 				};
 			}
 		} else {
 			// No provider specified, just check model is valid globally
-			if (!validModelIds.has(model)) {
+			if (
+				!validModelIds.has(model) &&
+				!(await hasAirsideMapping(null, model))
+			) {
 				return { error: `Invalid model: ${model}` };
 			}
 		}
@@ -5013,7 +5342,7 @@ admin.openapi(createGlobalDiscount, async (c) => {
 	const model = body.model ?? null;
 
 	// Validate provider/model
-	const validation = validateProviderAndModel(provider, model);
+	const validation = await validateProviderAndModel(provider, model);
 	if (validation.error) {
 		throw new HTTPException(400, { message: validation.error });
 	}
@@ -5095,7 +5424,7 @@ admin.openapi(createRoutingScoreMultiplier, async (c) => {
 	const body = c.req.valid("json");
 	const provider = body.provider ?? null;
 	const model = body.model ?? null;
-	const validation = validateProviderAndModel(provider, model);
+	const validation = await validateProviderAndModel(provider, model);
 	if (validation.error) {
 		throw new HTTPException(400, { message: validation.error });
 	}
@@ -5224,7 +5553,7 @@ admin.openapi(createOrganizationDiscount, async (c) => {
 	}
 
 	// Validate provider/model
-	const validation = validateProviderAndModel(provider, model);
+	const validation = await validateProviderAndModel(provider, model);
 	if (validation.error) {
 		throw new HTTPException(400, { message: validation.error });
 	}
@@ -5293,36 +5622,7 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 // --- Available Options Handler ---
 
 admin.openapi(getAvailableProvidersAndModels, async (c) => {
-	// modelId is the canonical model id — the provider-specific upstream
-	// externalId is never exposed here or stored as a discount target. modelName
-	// in this response is the canonical model's human-readable display name.
-	const mappings: Array<{
-		providerId: string;
-		providerName: string;
-		modelId: string;
-		modelName: string;
-		family: string;
-	}> = [];
-
-	for (const model of models) {
-		for (const mapping of model.providers) {
-			const provider = providers.find((p) => p.id === mapping.providerId);
-			if (provider) {
-				mappings.push({
-					providerId: mapping.providerId,
-					providerName: provider.name,
-					modelId: model.id,
-					modelName: (model as { name?: string }).name ?? model.id,
-					family: model.family,
-				});
-			}
-		}
-	}
-
-	return c.json({
-		providers: providers.map((p) => ({ id: p.id, name: p.name })),
-		mappings,
-	});
+	return c.json(await getProviderModelOptions());
 });
 
 // ==================== Rate Limit Management ====================
@@ -5352,16 +5652,21 @@ const createRateLimitBodySchema = z.object({
 	maxRequests: z.coerce
 		.number()
 		.int("Limit must be a whole number")
-		.min(1, "Limit must be at least 1"),
+		.min(0, "Limit must be at least 0"),
 	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
 	reason: z.string().nullable().optional(),
 });
 
 // Org-specific limits are always enforced per-org, so they don't expose the
 // enforcement choice.
-const createOrganizationRateLimitBodySchema = createRateLimitBodySchema.omit({
-	enforcement: true,
-});
+const createOrganizationRateLimitBodySchema = createRateLimitBodySchema
+	.omit({ enforcement: true })
+	.extend({
+		maxRequests: z.coerce
+			.number()
+			.int("Limit must be a whole number")
+			.min(1, "Limit must be at least 1"),
+	});
 
 // --- Global Rate Limits ---
 
@@ -5573,7 +5878,7 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 	const model = body.model ?? null;
 
 	// Validate provider/model
-	const validation = validateProviderAndModel(provider, model);
+	const validation = await validateProviderAndModel(provider, model);
 	if (validation.error) {
 		throw new HTTPException(400, { message: validation.error });
 	}
@@ -5707,6 +6012,8 @@ const contentFilterSettingsResponseSchema = z
 		sampleRatePercent: z.number(),
 		enforce: z.boolean(),
 		enforceEnterprise: z.boolean(),
+		classifier: z.enum(CONTENT_FILTER_CLASSIFIERS),
+		shadowClassifier: z.enum([...CONTENT_FILTER_CLASSIFIERS, "none"]),
 		providers: z.array(
 			z.object({
 				id: z.string(),
@@ -5762,6 +6069,8 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 		sampleRatePercent: settings.sampleRatePercent,
 		enforce: settings.enforce,
 		enforceEnterprise: settings.enforceEnterprise,
+		classifier: settings.classifier,
+		shadowClassifier: settings.shadowClassifier,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -5773,6 +6082,8 @@ admin.openapi(updateContentFilterSettingsRoute, async (c) => {
 		sampleRatePercent: settings.sampleRatePercent,
 		enforce: settings.enforce,
 		enforceEnterprise: settings.enforceEnterprise,
+		classifier: settings.classifier,
+		shadowClassifier: settings.shadowClassifier,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -5844,6 +6155,62 @@ admin.openapi(updateBlockedSignupCountries, async (c) => {
 	}
 
 	return c.json({ countries: await setBlockedSignupCountries(countries) });
+});
+
+// --- Signup Email Domain Blocking ---
+
+const blockedSignupEmailDomainsSchema = z
+	.object({ domains: z.array(z.string()) })
+	.openapi({});
+
+const getBlockedSignupEmailDomainsRoute = createRoute({
+	method: "get",
+	path: "/settings/blocked-signup-email-domains",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: blockedSignupEmailDomainsSchema },
+			},
+			description:
+				"Email domains whose sign-ups are blocked, including subdomains.",
+		},
+	},
+});
+
+const updateBlockedSignupEmailDomainsRoute = createRoute({
+	method: "put",
+	path: "/settings/blocked-signup-email-domains",
+	request: {
+		body: {
+			required: true,
+			content: {
+				"application/json": {
+					schema: z.object({
+						domains: z.array(blockedEmailDomainSchema).max(10000),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: blockedSignupEmailDomainsSchema },
+			},
+			description: "Updated blocked sign-up email domains.",
+		},
+	},
+});
+
+admin.openapi(getBlockedSignupEmailDomainsRoute, async (c) => {
+	return c.json({ domains: await getBlockedSignupEmailDomains() });
+});
+
+admin.openapi(updateBlockedSignupEmailDomainsRoute, async (c) => {
+	return c.json({
+		domains: await setBlockedSignupEmailDomains(c.req.valid("json").domains),
+	});
 });
 
 // --- Forced 3D Secure ---
@@ -6339,7 +6706,7 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 	}
 
 	// Validate provider/model
-	const validation = validateProviderAndModel(provider, model);
+	const validation = await validateProviderAndModel(provider, model);
 	if (validation.error) {
 		throw new HTTPException(400, { message: validation.error });
 	}
@@ -6403,6 +6770,7 @@ const getAvailableRateLimitOptions = createRoute({
 								z.object({
 									id: z.string(),
 									name: z.string(),
+									source: z.enum(["catalogue", "airside"]),
 								}),
 							),
 							mappings: z.array(
@@ -6412,6 +6780,7 @@ const getAvailableRateLimitOptions = createRoute({
 									modelId: z.string(),
 									modelName: z.string(),
 									family: z.string(),
+									source: z.enum(["catalogue", "airside"]),
 								}),
 							),
 						})
@@ -6425,37 +6794,7 @@ const getAvailableRateLimitOptions = createRoute({
 });
 
 admin.openapi(getAvailableRateLimitOptions, async (c) => {
-	// modelId is the canonical model id — the provider-specific upstream
-	// externalId is never exposed here or stored as a rate-limit target.
-	// modelName in this response is the canonical model's human-readable display
-	// name.
-	const mappings: Array<{
-		providerId: string;
-		providerName: string;
-		modelId: string;
-		modelName: string;
-		family: string;
-	}> = [];
-
-	for (const model of models) {
-		for (const mapping of model.providers) {
-			const provider = providers.find((p) => p.id === mapping.providerId);
-			if (provider) {
-				mappings.push({
-					providerId: mapping.providerId,
-					providerName: provider.name,
-					modelId: model.id,
-					modelName: (model as { name?: string }).name ?? model.id,
-					family: model.family,
-				});
-			}
-		}
-	}
-
-	return c.json({
-		providers: providers.map((p) => ({ id: p.id, name: p.name })),
-		mappings,
-	});
+	return c.json(await getProviderModelOptions());
 });
 
 // ==================== Provider & Model Stats ====================
@@ -6515,6 +6854,8 @@ const providerStatsSchema = z.object({
 	logsCount: z.number(),
 	errorsCount: z.number(),
 	clientErrorsCount: z.number(),
+	gatewayErrorsCount: z.number(),
+	upstreamErrorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
 	modelCount: z.number(),
@@ -6606,6 +6947,14 @@ admin.openapi(getProviderStats, async (c) => {
 					sql<number>`COALESCE(SUM(${mph.clientErrorsCount}), 0)`.as(
 						"clientErrorsCount",
 					),
+				gatewayErrorsCount:
+					sql<number>`COALESCE(SUM(${mph.gatewayErrorsCount}), 0)`.as(
+						"gatewayErrorsCount",
+					),
+				upstreamErrorsCount:
+					sql<number>`COALESCE(SUM(${mph.upstreamErrorsCount}), 0)`.as(
+						"upstreamErrorsCount",
+					),
 				cachedCount: sql<number>`COALESCE(SUM(${mph.cachedCount}), 0)`.as(
 					"cachedCount",
 				),
@@ -6641,7 +6990,7 @@ admin.openapi(getProviderStats, async (c) => {
 			name: tables.provider.name,
 			status: tables.provider.status,
 			logsCount: sql`COALESCE(${providerStatsSub.logsCount}, 0)`,
-			errorsCount: sql`GREATEST(COALESCE(${providerStatsSub.errorsCount}, 0) - COALESCE(${providerStatsSub.clientErrorsCount}, 0), 0)`,
+			errorsCount: sql`COALESCE(${providerStatsSub.gatewayErrorsCount}, 0) + COALESCE(${providerStatsSub.upstreamErrorsCount}, 0)`,
 			clientErrorsCount: sql`COALESCE(${providerStatsSub.clientErrorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${providerStatsSub.cachedCount}, 0)`,
 			totalCost: sql`COALESCE(${providerStatsSub.totalCost}, 0)`,
@@ -6690,6 +7039,14 @@ admin.openapi(getProviderStats, async (c) => {
 						sql<number>`COALESCE(${providerStatsSub.clientErrorsCount}, 0)`.as(
 							"clientErrorsCount",
 						),
+					gatewayErrorsCount:
+						sql<number>`COALESCE(${providerStatsSub.gatewayErrorsCount}, 0)`.as(
+							"gatewayErrorsCount",
+						),
+					upstreamErrorsCount:
+						sql<number>`COALESCE(${providerStatsSub.upstreamErrorsCount}, 0)`.as(
+							"upstreamErrorsCount",
+						),
 					cachedCount:
 						sql<number>`COALESCE(${providerStatsSub.cachedCount}, 0)`.as(
 							"cachedCount",
@@ -6736,6 +7093,8 @@ admin.openapi(getProviderStats, async (c) => {
 				logsCount: Number(r.logsCount ?? 0),
 				errorsCount: Number(r.errorsCount ?? 0),
 				clientErrorsCount: Number(r.clientErrorsCount ?? 0),
+				gatewayErrorsCount: Number(r.gatewayErrorsCount ?? 0),
+				upstreamErrorsCount: Number(r.upstreamErrorsCount ?? 0),
 				cachedCount: Number(r.cachedCount ?? 0),
 				avgTimeToFirstToken: r.avgTimeToFirstToken,
 				modelCount: Number(r.modelCount ?? 0),
@@ -6757,7 +7116,7 @@ admin.openapi(getProviderStats, async (c) => {
 		name: tables.provider.name,
 		status: tables.provider.status,
 		logsCount: tables.provider.logsCount,
-		errorsCount: sql`GREATEST(${tables.provider.errorsCount} - ${tables.provider.clientErrorsCount}, 0)`,
+		errorsCount: sql`${tables.provider.gatewayErrorsCount} + ${tables.provider.upstreamErrorsCount}`,
 		clientErrorsCount: tables.provider.clientErrorsCount,
 		cachedCount: tables.provider.cachedCount,
 		totalCost: sql`0`,
@@ -6777,6 +7136,8 @@ admin.openapi(getProviderStats, async (c) => {
 			logsCount: tables.provider.logsCount,
 			errorsCount: tables.provider.errorsCount,
 			clientErrorsCount: tables.provider.clientErrorsCount,
+			gatewayErrorsCount: tables.provider.gatewayErrorsCount,
+			upstreamErrorsCount: tables.provider.upstreamErrorsCount,
 			cachedCount: tables.provider.cachedCount,
 			avgTimeToFirstToken: sql<
 				number | null
@@ -6801,6 +7162,8 @@ admin.openapi(getProviderStats, async (c) => {
 			logsCount: r.logsCount,
 			errorsCount: r.errorsCount,
 			clientErrorsCount: r.clientErrorsCount,
+			gatewayErrorsCount: r.gatewayErrorsCount,
+			upstreamErrorsCount: r.upstreamErrorsCount,
 			cachedCount: r.cachedCount,
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
 			modelCount: Number(r.modelCount),
@@ -8753,6 +9116,7 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 			.update(tables.organization)
 			.set({
 				status,
+				...(status === "active" ? { blockReason: null } : {}),
 				...(status === "deleted" ? getCancelledOrganizationPlanState() : {}),
 			})
 			.where(eq(tables.organization.id, orgId));
@@ -8802,6 +9166,13 @@ const blockOrganizationRoute = createRoute({
 	method: "post",
 	path: "/organizations/{orgId}/block",
 	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ reason: z.string().trim().max(1000).optional() }),
+				},
+			},
+		},
 		params: z.object({
 			orgId: z.string(),
 		}),
@@ -8857,7 +9228,9 @@ interface BlockOrganizationOutcome {
 async function blockOrganizationById(
 	orgId: string,
 	adminUserId: string,
+	reason?: string,
 ): Promise<BlockOrganizationOutcome> {
+	const blockReason = reason?.trim() || null;
 	const org = await db.query.organization.findFirst({
 		where: { id: { eq: orgId } },
 	});
@@ -8885,6 +9258,7 @@ async function blockOrganizationById(
 			.update(tables.organization)
 			.set({
 				status: "deleted",
+				blockReason,
 				...getCancelledOrganizationPlanState(),
 			})
 			.where(eq(tables.organization.id, orgId));
@@ -8892,7 +9266,7 @@ async function blockOrganizationById(
 		if (memberUserIds.length > 0) {
 			await tx
 				.update(tables.user)
-				.set({ status: "deactivated" })
+				.set({ status: "deactivated", blockReason })
 				.where(inArray(tables.user.id, memberUserIds));
 
 			await tx
@@ -8900,6 +9274,8 @@ async function blockOrganizationById(
 				.where(inArray(tables.session.userId, memberUserIds));
 		}
 	});
+
+	await invalidateOrganizationsCache([orgId]);
 
 	if (memberUserIds.length > 0) {
 		const members = await db.query.user.findMany({
@@ -8921,6 +9297,7 @@ async function blockOrganizationById(
 		metadata: {
 			resourceName: org.name,
 			previousStatus: org.status ?? "active",
+			blockReason,
 			cancelledSubscriptionIds,
 			memberCount: memberUserIds.length,
 			deactivatedUserCount: memberUserIds.length,
@@ -8938,10 +9315,12 @@ async function blockOrganizationById(
 admin.openapi(blockOrganizationRoute, async (c) => {
 	const user = c.get("user");
 	const { orgId } = c.req.valid("param");
+	const { reason } = c.req.valid("json");
 
 	const { cancelledSubscriptionIds } = await blockOrganizationById(
 		orgId,
 		user!.id,
+		reason,
 	);
 
 	return c.json({
@@ -9848,6 +10227,19 @@ const providerDetailSchema = z.object({
 		...tokenBreakdownShape,
 		updatedAt: z.string(),
 	}),
+	// Present only when the provider is an Airside carrier, i.e. a provider
+	// company holds an active claim on it.
+	airside: z
+		.object({
+			company: z.object({ id: z.string(), name: z.string() }),
+			claimKind: z.enum(["catalogue", "custom"]),
+			discountPercent: z.number(),
+			marginPercent: z.number(),
+			// Signed routing-price adjustment (negative = boosted).
+			routingAdjustment: z.number(),
+			settingsUpdatedAt: z.string(),
+		})
+		.nullable(),
 	models: z.array(providerModelStatsSchema),
 });
 
@@ -9889,7 +10281,7 @@ admin.openapi(getProviderDetail, async (c) => {
 	const { table: mph, bucket: mphTs } = pickMappingHistoryTable(
 		isHourlyWindow(window),
 	);
-	const [mappings, statsRows] = await Promise.all([
+	const [mappings, statsRows, airsideRows] = await Promise.all([
 		db
 			.select({
 				id: tables.modelProviderMapping.id,
@@ -9963,9 +10355,47 @@ admin.openapi(getProviderDetail, async (c) => {
 				),
 			)
 			.groupBy(mph.modelId),
+		db
+			.select({
+				claimKind: tables.providerClaim.kind,
+				claimUpdatedAt: tables.providerClaim.updatedAt,
+				companyId: tables.providerCompany.id,
+				companyName: tables.providerCompany.name,
+				discountPercent: tables.providerRoutingSettings.discountPercent,
+				marginPercent: tables.providerRoutingSettings.marginPercent,
+				settingsUpdatedAt: tables.providerRoutingSettings.updatedAt,
+			})
+			.from(tables.providerClaim)
+			.innerJoin(
+				tables.providerCompany,
+				eq(tables.providerClaim.providerCompanyId, tables.providerCompany.id),
+			)
+			.leftJoin(
+				tables.providerRoutingSettings,
+				and(
+					eq(
+						tables.providerRoutingSettings.providerId,
+						tables.providerClaim.providerId,
+					),
+					isNull(tables.providerRoutingSettings.modelId),
+				),
+			)
+			.where(
+				and(
+					eq(tables.providerClaim.providerId, providerId),
+					eq(tables.providerClaim.status, "active"),
+				),
+			)
+			.limit(1),
 	]);
 
 	const statsByModel = new Map(statsRows.map((r) => [r.modelId, r]));
+
+	const carrier = airsideRows[0];
+	// Approving a claim always creates the default routing row, but fall back
+	// to the column defaults so a carrier still renders if it is missing.
+	const carrierDiscount = Number(carrier?.discountPercent ?? 0);
+	const carrierMargin = Number(carrier?.marginPercent ?? 0.2);
 
 	const modelsOut = mappings.map((m) => {
 		const s = statsByModel.get(m.modelId);
@@ -10071,6 +10501,21 @@ admin.openapi(getProviderDetail, async (c) => {
 			...agg.breakdown,
 			updatedAt: providerRow.updatedAt.toISOString(),
 		},
+		airside: carrier
+			? {
+					company: { id: carrier.companyId, name: carrier.companyName },
+					claimKind: carrier.claimKind,
+					discountPercent: carrierDiscount,
+					marginPercent: carrierMargin,
+					routingAdjustment: computeAirsideAdjustment(
+						carrierDiscount,
+						carrierMargin,
+					),
+					settingsUpdatedAt: (
+						carrier.settingsUpdatedAt ?? carrier.claimUpdatedAt
+					).toISOString(),
+				}
+			: null,
 		models: modelsOut,
 	});
 });
@@ -10722,9 +11167,11 @@ const costByModelTimeseriesPointSchema = z.object({
 	entries: z.array(costByModelTimeseriesBucketSchema),
 });
 
+const costTimeseriesBucketSchema = z.enum(["hour", "day"]);
+
 const costByModelTimeseriesResponseSchema = z.object({
 	window: tokenWindowSchema,
-	bucket: z.enum(["hour", "day"]),
+	bucket: costTimeseriesBucketSchema,
 	modelView: costByModelViewSchema,
 	groupBy: z.enum(["model", "source", "project", "api-key", "user"]),
 	models: z.array(z.string()),
@@ -10773,6 +11220,7 @@ const getOrgCostByModelTimeseries = createRoute({
 			groupBy: organizationCostTimeseriesGroupBySchema
 				.default("model")
 				.optional(),
+			bucket: costTimeseriesBucketSchema.optional(),
 		}),
 	},
 	responses: {
@@ -10798,7 +11246,7 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 	const modelView = query.modelView ?? "mapping";
 	const groupBy = query.groupBy ?? "model";
 	const startDate = getTokenWindowStartDate(window);
-	const bucketUnit = getBucketUnitForWindow(window);
+	const bucketUnit = query.bucket ?? getBucketUnitForWindow(window);
 
 	const org = await db.query.organization.findFirst({
 		where: { id: { eq: orgId } },
@@ -10869,6 +11317,7 @@ const getProjectCostByModelTimeseries = createRoute({
 			window: tokenWindowSchema.default("7d").optional(),
 			modelView: costByModelViewSchema.default("mapping").optional(),
 			groupBy: costTimeseriesGroupBySchema.default("model").optional(),
+			bucket: costTimeseriesBucketSchema.optional(),
 		}),
 	},
 	responses: {
@@ -10893,7 +11342,7 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 	const modelView = query.modelView ?? "mapping";
 	const groupBy = query.groupBy ?? "model";
 	const startDate = getTokenWindowStartDate(window);
-	const bucketUnit = getBucketUnitForWindow(window);
+	const bucketUnit = query.bucket ?? getBucketUnitForWindow(window);
 
 	const project = await db.query.project.findFirst({
 		where: {
@@ -11393,6 +11842,8 @@ const projectModelProviderStatsEntrySchema = z.object({
 	logsCount: z.number(),
 	errorsCount: z.number(),
 	clientErrorsCount: z.number(),
+	gatewayErrorsCount: z.number(),
+	upstreamErrorsCount: z.number(),
 	cachedCount: z.number(),
 	cost: z.number(),
 	totalTokens: z.number(),
@@ -11490,6 +11941,14 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 	const errorsCountExpr = errorsCountSql.as("errors_count");
 	const clientErrorsCountSql = sql<number>`COALESCE(SUM(${projectHourlyModelStats.clientErrorCount}), 0)`;
 	const clientErrorsCountExpr = clientErrorsCountSql.as("client_errors_count");
+	const gatewayErrorsCountSql = sql<number>`COALESCE(SUM(${projectHourlyModelStats.gatewayErrorCount}), 0)`;
+	const gatewayErrorsCountExpr = gatewayErrorsCountSql.as(
+		"gateway_errors_count",
+	);
+	const upstreamErrorsCountSql = sql<number>`COALESCE(SUM(${projectHourlyModelStats.upstreamErrorCount}), 0)`;
+	const upstreamErrorsCountExpr = upstreamErrorsCountSql.as(
+		"upstream_errors_count",
+	);
 	const cachedCountExpr =
 		sql<number>`COALESCE(SUM(${projectHourlyModelStats.cacheCount}), 0)`.as(
 			"cached_count",
@@ -11508,7 +11967,7 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			case "logsCount":
 				return logsCountExpr;
 			case "errorsCount":
-				return sql`GREATEST(${errorsCountSql} - ${clientErrorsCountSql}, 0)`;
+				return sql`${gatewayErrorsCountSql} + ${upstreamErrorsCountSql}`;
 			case "cost":
 				return costExpr;
 			case "modelId":
@@ -11527,6 +11986,8 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			logsCount: logsCountExpr,
 			errorsCount: errorsCountExpr,
 			clientErrorsCount: clientErrorsCountExpr,
+			gatewayErrorsCount: gatewayErrorsCountExpr,
+			upstreamErrorsCount: upstreamErrorsCountExpr,
 			cachedCount: cachedCountExpr,
 			cost: costExpr,
 			totalTokens: totalTokensExpr,
@@ -11591,6 +12052,8 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			logsCount: Number(r.logsCount),
 			errorsCount: Number(r.errorsCount),
 			clientErrorsCount: Number(r.clientErrorsCount),
+			gatewayErrorsCount: Number(r.gatewayErrorsCount),
+			upstreamErrorsCount: Number(r.upstreamErrorsCount),
 			cachedCount: Number(r.cachedCount),
 			cost: Number(r.cost),
 			totalTokens: Number(r.totalTokens),
@@ -12004,44 +12467,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 const UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT = 100;
 const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 
-// Supported time windows for the rankings, mapping each selectable value to its
-// SQL interval bound and an hours count surfaced to the UI for the description.
-const UNSTABLE_MAPPINGS_WINDOWS = {
-	"1h": { interval: sql`now() - interval '1 hour'`, hours: 1 },
-	"2h": { interval: sql`now() - interval '2 hours'`, hours: 2 },
-	"4h": { interval: sql`now() - interval '4 hours'`, hours: 4 },
-	"8h": { interval: sql`now() - interval '8 hours'`, hours: 8 },
-	"12h": { interval: sql`now() - interval '12 hours'`, hours: 12 },
-	"16h": { interval: sql`now() - interval '16 hours'`, hours: 16 },
-	"24h": { interval: sql`now() - interval '24 hours'`, hours: 24 },
-	"3d": { interval: sql`now() - interval '3 days'`, hours: 72 },
-	"7d": { interval: sql`now() - interval '7 days'`, hours: 168 },
-} as const;
-
-const unstableMappingsWindowSchema = z.enum([
-	"1h",
-	"2h",
-	"4h",
-	"8h",
-	"12h",
-	"16h",
-	"24h",
-	"3d",
-	"7d",
-]);
-
-type UnstableMappingsWindow = keyof typeof UNSTABLE_MAPPINGS_WINDOWS;
-
-function resolveUnstableMappingsWindow(
-	window: UnstableMappingsWindow | undefined,
-) {
-	return UNSTABLE_MAPPINGS_WINDOWS[window ?? "4h"];
-}
-
-// `retried` is nullable; legacy rows predate the column and are NULL. Treat
-// those as non-retried so they are not silently dropped from the rankings.
-const unstableMappingsNotRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
-
 // Customer-owned keys are useful when debugging a customer report, but they
 // should not affect the platform credential health ranking by default.
 const unstableMappingsPlatformOnlyClause = sql`AND ${tables.log.usedMode} <> 'api-keys'`;
@@ -12122,6 +12547,10 @@ const unstableMappingsListSchema = z.object({
 	includeByok: z.boolean(),
 	// Number of ignore matchers applied to this ranking (0 when disabled).
 	ignoredMatcherCount: z.number(),
+	// The exact `used_model` the ranking is narrowed to, if any.
+	mapping: z.string().nullable(),
+	// The canonical model id the ranking is narrowed to (all its mappings).
+	modelId: z.string().nullable(),
 });
 
 const getUnstableMappings = createRoute({
@@ -12136,10 +12565,15 @@ const getUnstableMappings = createRoute({
 				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
 				.optional(),
 			includeRetried: z.enum(["true", "false"]).optional(),
-			window: unstableMappingsWindowSchema.optional(),
+			window: mappingErrorWindowSchema.optional(),
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			splitByKey: z.enum(["true", "false"]).optional(),
 			includeByok: z.enum(["true", "false"]).optional(),
+			/** Exact `used_model` (`provider/model[:region]`); requires `provider`. */
+			model: z.string().optional(),
+			provider: z.string().optional(),
+			/** Canonical model id; matches every provider/region mapping of it. */
+			modelId: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -12160,15 +12594,24 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const limit = query.limit ?? 50;
 	const includeRetried = query.includeRetried === "true";
 	const logLimit = query.logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
-	const retriedClause = includeRetried
-		? sql``
-		: unstableMappingsNotRetriedClause;
+	const retriedClause = includeRetried ? sql`` : notRetriedClause;
 	const ignoreExpected = query.ignoreExpected !== "false";
 	const splitByKey = query.splitByKey === "true";
 	const includeByok = query.includeByok === "true";
 	const byokClause = includeByok ? sql`` : unstableMappingsPlatformOnlyClause;
 	const { interval: windowInterval, hours: windowHours } =
-		resolveUnstableMappingsWindow(query.window);
+		resolveMappingErrorWindow(query.window);
+	const mapping = query.model && query.provider ? query.model : null;
+	const mappingClause =
+		mapping !== null
+			? sql`AND ${tables.log.usedModel} = ${mapping} AND ${tables.log.usedProvider} = ${query.provider}`
+			: sql``;
+	const canonicalModelId = query.modelId || null;
+	// `used_model` is `provider/model[:region]`; strip both to the catalog id.
+	const modelIdClause =
+		canonicalModelId !== null
+			? sql`AND split_part(split_part(${tables.log.usedModel}, '/', 2), ':', 1) = ${canonicalModelId}`
+			: sql``;
 
 	// With the split off every row carries a constant NULL key, so the extra
 	// GROUP BY column is a no-op and both modes share one query shape.
@@ -12206,6 +12649,8 @@ admin.openapi(getUnstableMappings, async (c) => {
 				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
 				${retriedClause}
 				${byokClause}
+				${mappingClause}
+				${modelIdClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${logLimit}
 		)
@@ -12293,30 +12738,9 @@ admin.openapi(getUnstableMappings, async (c) => {
 		splitByKey,
 		includeByok,
 		ignoredMatcherCount: ignoredMatchers.length,
+		mapping,
+		modelId: canonicalModelId,
 	});
-});
-
-const unstableMappingErrorDetailSchema = z.object({
-	statusCode: z.number().nullable(),
-	statusText: z.string().nullable(),
-	responseText: z.string().nullable(),
-	cause: z.string().nullable(),
-	// The gateway's internal classification stored on the log
-	// (`unified_finish_reason`, e.g. `client_error`, `gateway_error`,
-	// `upstream_error`, `content_filter`). Surfaced because the HTTP status
-	// alone is misleading: some 4xx responses are classified as gateway or
-	// upstream errors.
-	classification: z.string().nullable(),
-	// Whether the failed request was a streaming request. Streaming and
-	// non-streaming failures often have different causes, so the drilldown
-	// groups errors by this flag.
-	streamed: z.boolean(),
-	count: z.number(),
-});
-
-const unstableMappingErrorsSchema = z.object({
-	errors: z.array(unstableMappingErrorDetailSchema),
-	sampledErrors: z.number(),
 });
 
 const getUnstableMappingErrors = createRoute({
@@ -12327,7 +12751,7 @@ const getUnstableMappingErrors = createRoute({
 			model: z.string(),
 			provider: z.string(),
 			includeRetried: z.enum(["true", "false"]).optional(),
-			window: unstableMappingsWindowSchema.optional(),
+			window: mappingErrorWindowSchema.optional(),
 			logLimit: z.coerce
 				.number()
 				.min(1)
@@ -12342,13 +12766,15 @@ const getUnstableMappingErrors = createRoute({
 			 * one).
 			 */
 			providerKeyId: z.string().optional(),
+			/** Only upstream and gateway errors, matching the Incidents counts. */
+			incidentsOnly: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: unstableMappingErrorsSchema.openapi({}),
+					schema: mappingErrorShapesSchema.openapi({}),
 				},
 			},
 			description:
@@ -12367,13 +12793,13 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		ignoreExpected,
 		includeByok,
 		providerKeyId,
+		incidentsOnly,
 	} = c.req.valid("query");
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
-	const retriedClause =
-		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
+	const retriedClause = includeRetried === "true" ? sql`` : notRetriedClause;
 	const byokClause =
 		includeByok === "true" ? sql`` : unstableMappingsPlatformOnlyClause;
-	const { interval: windowInterval } = resolveUnstableMappingsWindow(window);
+	const { interval: windowInterval } = resolveMappingErrorWindow(window);
 	const providerKeyClause =
 		providerKeyId === undefined
 			? sql``
@@ -12390,62 +12816,101 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			? sql`AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false)`
 			: sql``;
 
-	const rows = await db.execute<{
-		status_code: string | null;
-		status_text: string | null;
-		response_text: string | null;
-		cause: string | null;
-		classification: string | null;
-		streamed: boolean;
-		count: string;
-		sampled_errors: string;
-	}>(sql`
-		WITH recent_errors AS (
-			SELECT ${tables.log.errorDetails} AS error_details,
-				${tables.log.unifiedFinishReason} AS classification,
-				COALESCE(${tables.log.streamed}, false) AS streamed
-			FROM ${tables.log}
-			WHERE ${tables.log.hasError} = true
-				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
-				AND ${tables.log.usedModel} = ${model}
-				AND ${tables.log.usedProvider} = ${provider}
-				AND ${tables.log.createdAt} >= ${windowInterval}
-				${providerKeyClause}
-				${retriedClause}
-				${byokClause}
-				${ignoredClause}
-			ORDER BY ${tables.log.createdAt} DESC
-			LIMIT ${sampleLimit}
-		)
-		SELECT error_details->>'statusCode' AS status_code,
-			error_details->>'statusText' AS status_text,
-			LEFT(error_details->>'responseText', 2000) AS response_text,
-			error_details->>'cause' AS cause,
-			classification,
-			streamed,
-			COUNT(*) AS count,
-			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors
-		FROM recent_errors
-		GROUP BY status_code, status_text, response_text, cause, classification, streamed
-		ORDER BY count DESC
-		LIMIT 10
-	`);
+	return c.json(
+		await queryMappingErrorShapes({
+			usedModel: model,
+			provider,
+			windowInterval,
+			sampleLimit,
+			extraClauses: [
+				providerKeyClause,
+				retriedClause,
+				byokClause,
+				ignoredClause,
+				incidentsOnly === "true" ? incidentErrorsClause : sql``,
+			],
+		}),
+	);
+});
 
-	const sampledErrors =
-		rows.rows.length > 0 ? Number(rows.rows[0].sampled_errors) : 0;
+const unstableScopeOptionSchema = z.object({
+	id: z.string(),
+	source: z.enum(["catalogue", "airside"]),
+});
 
-	return c.json({
-		errors: rows.rows.map((r) => ({
-			statusCode: r.status_code !== null ? Number(r.status_code) : null,
-			statusText: r.status_text,
-			responseText: r.response_text,
-			cause: r.cause,
-			classification: r.classification,
-			streamed: r.streamed,
-			count: Number(r.count),
-		})),
-		sampledErrors,
-	});
+const unstableScopeOptionsSchema = z.object({
+	/** Canonical model ids, matching every provider/region mapping of one. */
+	modelIds: z.array(unstableScopeOptionSchema),
+	/** Exact `used_model` values (`provider/model[:region]`). */
+	mappings: z.array(unstableScopeOptionSchema),
+});
+
+/**
+ * Scope suggestions for the ranking filter: the static catalogue plus the
+ * DB-only Airside listings, both in the `provider/model[:region]` shape the
+ * filter matches `used_model` against. An Airside listing that supersedes a
+ * catalogue mapping is reported once, under its Airside source.
+ */
+async function listUnstableScopeOptions() {
+	const modelIds = new Map<string, CatalogueSource>();
+	const mappings = new Map<string, CatalogueSource>();
+
+	for (const model of models) {
+		modelIds.set(model.id, "catalogue");
+		for (const mapping of expandAllProviderRegions(model.providers)) {
+			const region = mapping.region ? `:${mapping.region}` : "";
+			mappings.set(`${mapping.providerId}/${model.id}${region}`, "catalogue");
+		}
+	}
+
+	const airsideRows = await db
+		.select({
+			providerId: tables.modelProviderMapping.providerId,
+			modelId: tables.modelProviderMapping.modelId,
+			region: tables.modelProviderMapping.region,
+		})
+		.from(tables.modelProviderMapping)
+		.where(
+			and(
+				eq(tables.modelProviderMapping.source, "airside"),
+				eq(tables.modelProviderMapping.status, "active"),
+			),
+		);
+
+	for (const row of airsideRows) {
+		if (!modelIds.has(row.modelId)) {
+			modelIds.set(row.modelId, "airside");
+		}
+		const region = row.region ? `:${row.region}` : "";
+		mappings.set(`${row.providerId}/${row.modelId}${region}`, "airside");
+	}
+
+	const serialize = (entries: Map<string, CatalogueSource>) =>
+		Array.from(entries, ([id, source]) => ({ id, source })).sort((a, b) =>
+			a.id.localeCompare(b.id),
+		);
+
+	return { modelIds: serialize(modelIds), mappings: serialize(mappings) };
+}
+
+const getUnstableScopeOptions = createRoute({
+	method: "get",
+	path: "/unstable-mappings/scope-options",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: unstableScopeOptionsSchema.openapi({}),
+				},
+			},
+			description:
+				"Canonical model ids and mappings the unstable ranking can be scoped to.",
+		},
+	},
+});
+
+admin.openapi(getUnstableScopeOptions, async (c) => {
+	return c.json(await listUnstableScopeOptions());
 });
 
 // ── Ignored Error Matchers ──────────────────────────────────────────────────
@@ -15235,8 +15700,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			cycleStart: tables.organization.devPlanBillingCycleStart,
 			expiresAt: tables.organization.devPlanExpiresAt,
 			cancelled: tables.organization.devPlanCancelled,
+			paymentStatus: tables.organization.subscriptionPaymentStatus,
 			createdAt: tables.organization.createdAt,
-			paymentFailureCount: tables.organization.paymentFailureCount,
 			utilizationPct: utilizationExpr,
 			mrr: tierPriceExpr,
 			realCost: realCostExpr,
@@ -15349,7 +15814,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		const lastPaymentFailureAt = row.lastPaymentFailureAt
 			? new Date(row.lastPaymentFailureAt).toISOString()
 			: null;
-		const hasPaymentIssue = (row.paymentFailureCount ?? 0) > 0;
+		const hasPaymentIssue = row.paymentStatus === "past_due";
 
 		const mrrNum = Number(row.mrr ?? 0);
 		const marginNum = Number(row.margin ?? 0);
@@ -16322,9 +16787,9 @@ admin.openapi(getDevpassPaygStats, async (c) => {
 	const [grossRow] = await db
 		.select({
 			allTime: sql<string>`COALESCE(SUM(${amountExpr}), 0)`,
-			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart.toISOString()}), 0)`,
 			range: hasRange
-				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart} AND ${tables.transaction.createdAt} <= ${rangeEnd}), 0)`
+				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart?.toISOString()} AND ${tables.transaction.createdAt} <= ${rangeEnd?.toISOString()}), 0)`
 				: sql<string>`0`,
 		})
 		.from(tables.transaction)
@@ -16348,9 +16813,9 @@ admin.openapi(getDevpassPaygStats, async (c) => {
 	const [refundRow] = await db
 		.select({
 			allTime: sql<string>`COALESCE(SUM(${amountExpr}), 0)`,
-			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart.toISOString()}), 0)`,
 			range: hasRange
-				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart} AND ${tables.transaction.createdAt} <= ${rangeEnd}), 0)`
+				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart?.toISOString()} AND ${tables.transaction.createdAt} <= ${rangeEnd?.toISOString()}), 0)`
 				: sql<string>`0`,
 		})
 		.from(tables.transaction)
@@ -16789,7 +17254,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		.from(tables.paymentFailure)
 		.where(eq(tables.paymentFailure.organizationId, orgId));
 
-	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
+	const hasPaymentIssue = org.subscriptionPaymentStatus === "past_due";
 
 	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
 
@@ -17736,8 +18201,8 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			cycleStart: tables.organization.chatPlanBillingCycleStart,
 			expiresAt: tables.organization.chatPlanExpiresAt,
 			cancelled: tables.organization.chatPlanCancelled,
+			paymentStatus: tables.organization.subscriptionPaymentStatus,
 			createdAt: tables.organization.createdAt,
-			paymentFailureCount: tables.organization.paymentFailureCount,
 			utilizationPct: utilizationExpr,
 			mrr: tierPriceExpr,
 			realCost: realCostExpr,
@@ -18003,7 +18468,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		const lastPaymentFailureAt = row.lastPaymentFailureAt
 			? new Date(row.lastPaymentFailureAt).toISOString()
 			: null;
-		const hasPaymentIssue = (row.paymentFailureCount ?? 0) > 0;
+		const hasPaymentIssue = row.paymentStatus === "past_due";
 
 		const mrrNum = Number(row.mrr ?? 0);
 		const marginNum = Number(row.margin ?? 0);
@@ -18610,7 +19075,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 		.from(tables.paymentFailure)
 		.where(eq(tables.paymentFailure.organizationId, orgId));
 
-	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
+	const hasPaymentIssue = org.subscriptionPaymentStatus === "past_due";
 
 	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
 

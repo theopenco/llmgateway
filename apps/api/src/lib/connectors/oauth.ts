@@ -32,6 +32,7 @@ export const credentialsSchema = z.object({
 	expiresAt: z.number().optional(),
 	shop: z.string().optional(),
 	returnTo: z.string().optional(),
+	platform: z.literal("ios").optional(),
 });
 export type ConnectorCredentials = z.infer<typeof credentialsSchema>;
 

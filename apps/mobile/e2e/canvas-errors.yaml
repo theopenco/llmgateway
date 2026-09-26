@@ -1,0 +1,33 @@
+appId: io.llmgateway.lounge
+---
+- launchApp
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Canvas"
+- tapOn: "Templates"
+- tapOn: "Form"
+- assertVisible: "Contact Us"
+- tapOn: "Prompt"
+- tapOn:
+    id: "field-describe-your-canvas"
+- inputText: ${"NATIVE_CANVAS_INVALID " + Date.now()}
+- tapOn: "Done typing"
+- tapOn: "Generate canvas"
+- extendedWaitUntil:
+    visible: "Canvas must contain a root and an elements map with component types and props."
+    timeout: 30000
+- assertVisible: "Contact Us"
+- tapOn:
+    id: "field-describe-your-canvas"
+- eraseText: 100
+- inputText: ${"NATIVE_CANVAS_RECOVER " + Date.now()}
+- tapOn: "Done typing"
+- tapOn: "Generate canvas"
+- extendedWaitUntil:
+    visible: "Native canvas fixture"
+    timeout: 30000
+- assertNotVisible: "Canvas must contain a root and an elements map with component types and props."
+- tapOn: "Confirm canvas"
+- assertVisible: "Canvas confirmed"

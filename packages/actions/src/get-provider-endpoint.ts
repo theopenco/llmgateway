@@ -230,7 +230,9 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	ranoai: "https://api.ranoai.com",
 	baidu: "https://api.baiduqianfan.ai",
 	consensusprotocol: "https://api.consensusprotocol.org",
+	atria: "https://api.atria-asi.ai",
 	tencent: "https://tokenhub-intl.tencentcloudmaas.com",
+	typesafe: "https://api.typesafe.ai",
 };
 
 export function getProviderDefaultBaseUrl(
@@ -832,7 +834,9 @@ export function getProviderEndpoint(
 			return `${url}/v1/projects/${vaProjectId}/locations/${vaRegion}/publishers/anthropic/models/${vaModel}:${vaEndpoint}`;
 		}
 		case "perplexity":
-			return `${url}/chat/completions`;
+			return providerMapping?.usesPerplexityAgentApi
+				? `${url}/v1/agent`
+				: `${url}/chat/completions`;
 		case "novita":
 			return `${url}/chat/completions`;
 		case "runpod":
@@ -1058,6 +1062,7 @@ export function getProviderEndpoint(
 		case "ranoai":
 		case "consensusprotocol":
 		case "tencent":
+		case "atria":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

@@ -226,16 +226,19 @@ export const SoulForgeIcon: React.FC<React.SVGProps<SVGSVGElement>> = ({
 	/>
 );
 
-// Empryo Icon — raster mark hosted at /integrations/empryo.png in each app's
-// public dir, wrapped in an <svg> shell so every rule that sizes and aligns
-// the sibling icons (they are all svg elements) applies to this one too.
 export const EmpryoIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {...props}>
 		<image
-			href="/integrations/empryo.png"
+			className="dark:hidden"
+			href="/integrations/empryo-light.svg"
 			width="24"
 			height="24"
-			preserveAspectRatio="xMidYMid meet"
+		/>
+		<image
+			className="hidden dark:block"
+			href="/integrations/empryo-dark.svg"
+			width="24"
+			height="24"
 		/>
 	</svg>
 );

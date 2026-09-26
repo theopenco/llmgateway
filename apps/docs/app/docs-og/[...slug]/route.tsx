@@ -1,7 +1,43 @@
-import { generateOGImage } from "fumadocs-ui/og";
-import { notFound } from "next/navigation";
+import { readFile } from "node:fs/promises";
+import { extname, join } from "node:path";
 
+import { notFound } from "next/navigation";
+import { ImageResponse } from "next/og";
+
+import { Logo } from "@/components/logo";
+import { productForPath, sectionForPath } from "@/lib/products";
 import { source } from "@/lib/source";
+
+const imagePatterns = [
+	/(?:basePath|screenshot)="([^"]+)"/,
+	/!\[[^\]]*\]\((\/[^)\s]+\.(?:png|jpe?g|webp))\)/,
+	/^image:\s*(\S+\.(?:png|jpe?g|webp))\s*$/m,
+];
+
+async function loadScreenshot(raw: string): Promise<string | null> {
+	for (const pattern of imagePatterns) {
+		const match = pattern.exec(raw)?.[1];
+		if (!match) {
+			continue;
+		}
+		const file = extname(match) ? match : `${match}-dark.png`;
+		try {
+			const data = await readFile(
+				join(process.cwd(), "public", file.replace(/^\//, "")),
+			);
+			const type =
+				extname(file) === ".png"
+					? "png"
+					: extname(file) === ".webp"
+						? "webp"
+						: "jpeg";
+			return `data:image/${type};base64,${data.toString("base64")}`;
+		} catch {
+			return null;
+		}
+	}
+	return null;
+}
 
 export async function GET(
 	_req: Request,
@@ -13,29 +49,219 @@ export async function GET(
 		notFound();
 	}
 
-	return generateOGImage({
-		title: page.data.title,
-		description: page.data.description,
-		site: "LLM Gateway",
-		icon: (
-			<svg
-				fill="none"
-				xmlns="http://www.w3.org/2000/svg"
-				viewBox="0 0 218 232"
-				width={56}
-				height={56}
+	const product = productForPath(page.path);
+	const section = sectionForPath(page.path);
+	const screenshot = await loadScreenshot(await page.data.getText("raw"));
+	const path = page.url === "/" ? "" : page.url;
+	const title = page.data.title;
+	const titleSize = title.length > 48 ? 54 : title.length > 28 ? 64 : 76;
+
+	return new ImageResponse(
+		<div
+			style={{
+				display: "flex",
+				position: "relative",
+				width: "100%",
+				height: "100%",
+				backgroundColor: "#09090b",
+				color: "#fafafa",
+				overflow: "hidden",
+			}}
+		>
+			<div
+				style={{
+					display: "flex",
+					position: "absolute",
+					inset: 0,
+					backgroundImage:
+						"linear-gradient(#ffffff0a 1px, transparent 1px), linear-gradient(90deg, #ffffff0a 1px, transparent 1px)",
+					backgroundSize: "48px 48px",
+				}}
+			/>
+			<div
+				style={{
+					display: "flex",
+					position: "absolute",
+					top: -360,
+					right: -340,
+					width: 900,
+					height: 900,
+					borderRadius: 9999,
+					backgroundColor: `${product.accent}08`,
+					border: `1px solid ${product.accent}1a`,
+				}}
+			/>
+			<div
+				style={{
+					display: "flex",
+					position: "absolute",
+					top: -210,
+					right: -190,
+					width: 600,
+					height: 600,
+					borderRadius: 9999,
+					backgroundColor: `${product.accent}0c`,
+					border: `1px solid ${product.accent}26`,
+				}}
+			/>
+			<div
+				style={{
+					display: "flex",
+					position: "absolute",
+					top: -70,
+					right: -50,
+					width: 320,
+					height: 320,
+					borderRadius: 9999,
+					backgroundColor: `${product.accent}14`,
+					border: `1px solid ${product.accent}33`,
+				}}
+			/>
+			<div
+				style={{
+					display: "flex",
+					position: "absolute",
+					left: 0,
+					top: 0,
+					bottom: 0,
+					width: 8,
+					backgroundColor: product.accent,
+				}}
+			/>
+			{screenshot ? (
+				<div
+					style={{
+						display: "flex",
+						position: "absolute",
+						right: -90,
+						top: 170,
+						width: 560,
+						height: 350,
+						borderRadius: 18,
+						border: "1px solid #ffffff26",
+						boxShadow: `0 30px 80px #000000cc, 0 0 0 8px ${product.accent}22`,
+						overflow: "hidden",
+						backgroundColor: "#18181b",
+					}}
+				>
+					<img
+						src={screenshot}
+						width={560}
+						height={350}
+						style={{ objectFit: "cover", objectPosition: "top left" }}
+					/>
+				</div>
+			) : null}
+			<div
+				style={{
+					display: "flex",
+					flexDirection: "column",
+					justifyContent: "space-between",
+					width: "100%",
+					height: "100%",
+					padding: "56px 64px 52px 72px",
+				}}
 			>
-				<path
-					d="M218 59.4686c0-4.1697-2.351-7.9813-6.071-9.8441L119.973 3.58361s2.926 3.32316 2.926 7.01529V218.833c0 4.081-2.926 7.016-2.926 7.016l15.24-7.468c2.964-2.232 7.187-7.443 7.438-16.006.293-9.976.61-84.847.732-121.0353.487-3.6678 4.096-11.0032 14.63-11.0032 10.535 0 29.262 5.1348 37.309 7.7022 2.439.7336 7.608 4.1812 8.779 12.1036 1.17 7.9223.975 59.0507.731 83.6247 0 2.445.137 7.069 6.653 7.069 6.515 0 6.515-7.069 6.515-7.069V59.4686Z"
-					fill="currentColor"
-				/>
-				<path
-					d="M149.235 86.323c0-5.5921 5.132-9.7668 10.589-8.6132l31.457 6.6495c4.061.8585 6.967 4.4207 6.967 8.5824v81.9253c0 5.868 5.121 9.169 5.121 9.169l-51.9-12.658c-1.311-.32-2.234-1.498-2.234-2.852V86.323ZM99.7535 1.15076c7.2925-3.60996 15.8305 1.71119 15.8305 9.86634V220.983c0 8.155-8.538 13.476-15.8305 9.866L6.11596 184.496C2.37105 182.642 0 178.818 0 174.63v-17.868l49.7128 19.865c4.0474 1.617 8.4447-1.372 8.4449-5.741 0-2.66-1.6975-5.022-4.2142-5.863L0 146.992v-14.305l40.2756 7.708c3.9656.759 7.6405-2.289 7.6405-6.337 0-3.286-2.4628-6.048-5.7195-6.413L0 122.917V108.48l78.5181-3.014c4.1532-.16 7.4381-3.582 7.4383-7.7498 0-4.6256-4.0122-8.2229-8.5964-7.7073L0 98.7098V82.4399l53.447-17.8738c2.3764-.7948 3.9791-3.0254 3.9792-5.5374 0-4.0961-4.0978-6.9185-7.9106-5.4486L0 72.6695V57.3696c.0000304-4.1878 2.37107-8.0125 6.11596-9.8664L99.7535 1.15076Z"
-					fill="currentColor"
-				/>
-			</svg>
-		),
-	});
+				<div style={{ display: "flex", alignItems: "center" }}>
+					<Logo width={40} height={42} style={{ color: "#fafafa" }} />
+					<div
+						style={{
+							display: "flex",
+							marginLeft: 16,
+							fontSize: 26,
+							letterSpacing: "-0.01em",
+						}}
+					>
+						LLM Gateway
+						<span style={{ color: "#71717a", marginLeft: 10 }}>Docs</span>
+					</div>
+					{product.id === "gateway" ? null : (
+						<div
+							style={{
+								display: "flex",
+								alignItems: "center",
+								marginLeft: 22,
+								padding: "7px 16px",
+								borderRadius: 9999,
+								border: `1px solid ${product.accent}88`,
+								backgroundColor: `${product.accent}1f`,
+								color: product.accent,
+								fontSize: 20,
+							}}
+						>
+							{product.name}
+						</div>
+					)}
+				</div>
+				<div
+					style={{
+						display: "flex",
+						flexDirection: "column",
+						maxWidth: screenshot ? 600 : 960,
+					}}
+				>
+					<div
+						style={{
+							display: "flex",
+							fontSize: 20,
+							letterSpacing: "0.14em",
+							textTransform: "uppercase",
+							color: product.accent,
+							marginBottom: 18,
+						}}
+					>
+						{section}
+					</div>
+					<div
+						style={{
+							display: "flex",
+							fontSize: titleSize,
+							lineHeight: 1.04,
+							letterSpacing: "-0.035em",
+							textWrap: "balance",
+						}}
+					>
+						{title}
+					</div>
+					{page.data.description ? (
+						<div
+							style={{
+								display: "block",
+								marginTop: 22,
+								fontSize: 25,
+								lineHeight: 1.4,
+								color: "#a1a1aa",
+								lineClamp: 3,
+							}}
+						>
+							{page.data.description}
+						</div>
+					) : null}
+				</div>
+				<div
+					style={{
+						display: "flex",
+						alignItems: "center",
+						fontSize: 20,
+						color: "#71717a",
+					}}
+				>
+					<div
+						style={{
+							display: "flex",
+							width: 10,
+							height: 10,
+							borderRadius: 9999,
+							backgroundColor: product.accent,
+							marginRight: 12,
+						}}
+					/>
+					{`docs.llmgateway.io${path}`}
+				</div>
+			</div>
+		</div>,
+		{ width: 1200, height: 630 },
+	);
 }
 
 export function generateStaticParams() {

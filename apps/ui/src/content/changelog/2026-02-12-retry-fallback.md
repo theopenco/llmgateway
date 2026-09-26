@@ -4,6 +4,7 @@ slug: "retry-fallback"
 date: "2026-02-12"
 title: "Automatic Retry & Fallback with Full Routing Transparency"
 summary: "When a provider fails, LLMGateway now automatically retries your request on another provider. Every attempt is logged with full routing visibility, so you always know what happened."
+tags: ["llmgateway"]
 image:
   src: "/changelog/retry-fallback.jpg"
   alt: "Automatic retry and fallback routing"

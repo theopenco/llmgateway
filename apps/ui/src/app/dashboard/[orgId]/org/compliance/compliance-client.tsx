@@ -51,6 +51,7 @@ import {
 	type SelectableProviderOption,
 } from "@llmgateway/shared/components";
 
+import { ComplianceAlertsCard } from "./compliance-alerts-card";
 import { ContactSalesCard } from "./contact-sales-card";
 
 import type { ReactElement } from "react";
@@ -397,6 +398,9 @@ export function ComplianceClient() {
 		zdrEnableBlocked &&
 		policy.enabled === true &&
 		policy.zeroDataRetention === true;
+	// Alerts are evaluated against the saved policy, not unsaved edits.
+	const savedPolicy = selectedOrganization?.providerCompliancePolicy as
+		ProviderCompliancePolicy | null | undefined;
 	const savedLegacyPromptLoggingEnabled =
 		selectedOrganization?.providerCompliancePolicy?.blockPromptLogging === true;
 	const showLegacyPromptLoggingReset =
@@ -955,6 +959,14 @@ export function ComplianceClient() {
 						</CardContent>
 					)}
 				</Card>
+
+				{savedPolicy?.enabled ? (
+					<ComplianceAlertsCard
+						organizationId={organizationId}
+						savedPolicy={savedPolicy}
+						preferencesUrl={buildOrgUrl("org/preferences")}
+					/>
+				) : null}
 			</div>
 		</div>
 	);

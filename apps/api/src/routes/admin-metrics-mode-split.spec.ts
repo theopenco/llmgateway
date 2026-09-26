@@ -444,6 +444,58 @@ describe("admin — credits vs BYOK mode split", () => {
 		},
 	);
 
+	test("organization cost timeseries honors the bucket override", async () => {
+		const defaultRes = await app.request(
+			`/admin/organizations/${ORG_ID}/cost-by-model-timeseries?window=7d`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(defaultRes.status).toBe(200);
+		const defaultBody = (await defaultRes.json()) as {
+			bucket: string;
+			data: { timestamp: string; entries: { cost: number }[] }[];
+		};
+		expect(defaultBody.bucket).toBe("day");
+		expect(
+			defaultBody.data.every((point) => point.timestamp.endsWith("T00:00:00Z")),
+		).toBe(true);
+
+		const hourlyRes = await app.request(
+			`/admin/organizations/${ORG_ID}/cost-by-model-timeseries?window=7d&bucket=hour`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(hourlyRes.status).toBe(200);
+		const hourlyBody = (await hourlyRes.json()) as {
+			bucket: string;
+			data: { timestamp: string; entries: { cost: number }[] }[];
+		};
+		expect(hourlyBody.bucket).toBe("hour");
+		expect(hourlyBody.data.length).toBeGreaterThan(defaultBody.data.length);
+		expect(
+			hourlyBody.data
+				.flatMap((point) => point.entries)
+				.reduce((sum, entry) => sum + entry.cost, 0),
+		).toBeCloseTo(
+			defaultBody.data
+				.flatMap((point) => point.entries)
+				.reduce((sum, entry) => sum + entry.cost, 0),
+			3,
+		);
+	});
+
+	test("project cost timeseries honors the bucket override", async () => {
+		const res = await app.request(
+			`/admin/organizations/${ORG_ID}/projects/${PROJECT_ID}/cost-by-model-timeseries?window=7d&bucket=hour`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			bucket: string;
+			data: { timestamp: string }[];
+		};
+		expect(body.bucket).toBe("hour");
+		expect(body.data.length).toBeGreaterThan(7);
+	});
+
 	test("DevPass real provider cost excludes BYOK usage", async () => {
 		const res = await app.request(`/admin/devpass/${DEVPASS_ORG_ID}`, {
 			headers: { Cookie: cookie },

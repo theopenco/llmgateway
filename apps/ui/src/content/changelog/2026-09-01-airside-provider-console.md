@@ -4,6 +4,7 @@ slug: "airside-provider-console"
 date: "2026-09-01"
 title: "Airside: Self-Serve Provider Listings"
 summary: "Airside is the new carrier console where LLM providers list themselves on the gateway: claim your provider by verifying your company domain, register models, file prices for review, and tune the margin and discounts that win routed traffic. Listing costs a one-time $2,500 fee per provider company and goes live once we approve your claim."
+tags: ["airside"]
 image:
   src: "/changelog/airside-provider-console.png"
   alt: "Airside carrier console: a glowing control tower on a circuit board directing routes of light toward provider gates"

@@ -14,6 +14,7 @@ const { setexMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@llmgateway/cache", () => ({
+	setSwrSchemaVersion: vi.fn(),
 	redisClient: {
 		setex: setexMock,
 	},
@@ -550,6 +551,53 @@ describe("transformResponseToOpenai", () => {
 		expect(response.choices[1].message.content).toBe("variant 2");
 	});
 
+	test("emits null content when the upstream omits the key", () => {
+		const json = {
+			id: "chatcmpl-truncated",
+			object: "chat.completion",
+			created: 1,
+			model: "zai-org/GLM-5.3-Flash",
+			choices: [
+				{
+					index: 0,
+					// Together drops `content` entirely when the whole max_tokens
+					// budget is spent on reasoning.
+					message: { role: "assistant", reasoning_content: "thinking..." },
+					finish_reason: "length",
+				},
+			],
+			usage: { prompt_tokens: 10, completion_tokens: 100, total_tokens: 110 },
+		};
+
+		const response = transformResponseToOpenai(
+			"together-ai",
+			"zai-org/GLM-5.3-Flash",
+			json,
+			null,
+			"thinking...",
+			"length",
+			10,
+			100,
+			110,
+			null,
+			null,
+			null,
+			[],
+			"glm-5.3-flash",
+			"together-ai",
+			"glm-5.3-flash",
+			null,
+			false,
+			null,
+			null,
+			"req_together_truncated",
+		);
+
+		expect(response.choices[0].message).toHaveProperty("content", null);
+		expect(response.choices[0].message.reasoning).toBe("thinking...");
+		expect(response.choices[0].finish_reason).toBe("length");
+	});
+
 	test("writes normalized xAI token counts to the response", () => {
 		const response = transformResponseToOpenai(
 			"xai",
@@ -1052,6 +1100,90 @@ describe("transformResponseToOpenai", () => {
 					succeeded: false,
 				},
 			],
+		});
+	});
+});
+
+describe("perplexity agent api", () => {
+	const searchResults = [
+		{
+			url: "https://www.nasa.gov/artemis",
+			title: "Artemis News",
+			date: "2026-09-16",
+			last_updated: "2026-09-17",
+		},
+	];
+
+	test("returns sources top-level, where Sonar callers already read them", () => {
+		const response = transformResponseToOpenai(
+			"perplexity",
+			"sonar",
+			{
+				id: "resp_1",
+				object: "response",
+				created_at: 1789819970,
+				status: "completed",
+				model: "perplexity/sonar",
+				output: [
+					{ type: "search_results", results: searchResults },
+					{
+						type: "message",
+						role: "assistant",
+						content: [{ type: "output_text", text: "Artemis II flew." }],
+					},
+				],
+				usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+			},
+			"Artemis II flew.",
+			null,
+			"stop",
+			10,
+			5,
+			15,
+			null,
+			null,
+			null,
+			[],
+			"perplexity/sonar",
+			"perplexity",
+			"sonar",
+			null,
+			false,
+			[
+				{
+					type: "url_citation",
+					url_citation: {
+						url: "https://www.nasa.gov/artemis",
+						title: "Artemis News",
+						date: "2026-09-16",
+						last_updated: "2026-09-17",
+					},
+				},
+			],
+			null,
+			"req_1",
+			undefined,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			undefined,
+			undefined,
+			"perplexity",
+			searchResults,
+		);
+
+		expect(response.choices[0].message.content).toBe("Artemis II flew.");
+		expect(response.choices[0].finish_reason).toBe("stop");
+		expect(response.search_results).toEqual(searchResults);
+		expect(response.citations).toEqual(["https://www.nasa.gov/artemis"]);
+		expect(response.choices[0].message.annotations[0].url_citation).toEqual({
+			url: "https://www.nasa.gov/artemis",
+			title: "Artemis News",
+			date: "2026-09-16",
+			last_updated: "2026-09-17",
 		});
 	});
 });

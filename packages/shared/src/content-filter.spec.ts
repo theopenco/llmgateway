@@ -14,6 +14,8 @@ describe("parseContentFilterSettings", () => {
 			sampleRatePercent: 100,
 			enforce: false,
 			enforceEnterprise: false,
+			classifier: "openai",
+			shadowClassifier: "none",
 		});
 		expect(parseContentFilterSettings(null)).toEqual(
 			DEFAULT_CONTENT_FILTER_SETTINGS,
@@ -34,6 +36,8 @@ describe("parseContentFilterSettings", () => {
 			sampleRatePercent: 10,
 			enforce: false,
 			enforceEnterprise: false,
+			classifier: "openai",
+			shadowClassifier: "none",
 		});
 	});
 
@@ -69,6 +73,18 @@ describe("isContentFilterErrorText", () => {
 				"Blocked by Microsoft's content management policy",
 			),
 		).toBe(true);
+	});
+
+	test("detects Azure prompt filtering regardless of policy owner or casing", () => {
+		expect(
+			isContentFilterErrorText(
+				"The response was filtered due to the prompt triggering Azure OpenAI\u2019s content management policy.",
+			),
+		).toBe(true);
+		expect(
+			isContentFilterErrorText('"innererror": { "code": "ContentFiltered" }'),
+		).toBe(true);
+		expect(isContentFilterErrorText("responsibleaipolicyviolation")).toBe(true);
 	});
 
 	test("detects Alibaba DashScope Wan green-net moderation", () => {

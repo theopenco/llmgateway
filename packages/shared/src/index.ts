@@ -43,6 +43,13 @@ export {
 } from "./fees.js";
 
 export {
+	formatStatementDescriptor,
+	normalizeStatementDescriptorSuffix,
+	STATEMENT_DESCRIPTOR_PREFIX,
+	STATEMENT_DESCRIPTOR_SUFFIX_MAX_LENGTH,
+} from "./statement-descriptor.js";
+
+export {
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
@@ -230,6 +237,7 @@ export {
 
 export {
 	deriveStabilityMetrics,
+	type StabilityCounts,
 	type StabilityMetrics,
 } from "./stability-metrics.js";
 
@@ -242,16 +250,29 @@ export {
 } from "./onboarding.js";
 
 export {
+	CONTENT_FILTER_CLASSIFIERS,
 	CONTENT_FILTER_SETTING_ID,
 	contentFilterSettingsSchema,
 	DEFAULT_CONTENT_FILTER_SETTINGS,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
 	isContentFilterErrorText,
 	parseContentFilterSettings,
+	type ContentFilterClassifier,
 	type ContentFilterSettings,
 } from "./content-filter.js";
 
 export { FAILURE_LABELS, failureLabel } from "./compliance-failure-labels.js";
+export {
+	ERROR_CLASSIFICATIONS,
+	INCIDENT_BREAKDOWN_DESCRIPTION,
+	isLogErrorType,
+	LOG_ERROR_TYPE_LABELS,
+	LOG_ERROR_TYPES,
+} from "./error-classification.js";
+export type {
+	ErrorClassification,
+	LogErrorType,
+} from "./error-classification.js";
 
 export {
 	MAX_BULK_BLOCK_ORGANIZATIONS,
@@ -312,19 +333,24 @@ export {
 } from "./routing-config.js";
 
 export {
+	COMPLIANCE_EXCLUSION_REASONS,
+	complianceExclusionReason,
 	isRoutingCredentialSource,
+	isRoutingExclusionDetailReason,
 	isRoutingExclusionReason,
 	isRoutingSelectionReason,
 	ROUTING_CREDENTIAL_SOURCE_DESCRIPTIONS,
 	ROUTING_CREDENTIAL_SOURCE_LABELS,
 	ROUTING_EXCLUSION_REASON_LABELS,
 	ROUTING_EXCLUSION_REASON_MESSAGES,
+	ROUTING_EXCLUSION_REASON_PARENTS,
 	ROUTING_EXCLUSION_REASONS,
 	ROUTING_SELECTION_KIND_LABELS,
 	ROUTING_SELECTION_KINDS,
 	ROUTING_SELECTION_REASON_LABELS,
 	ROUTING_SELECTION_REASONS,
 	routingExclusionReasonMessage,
+	routingExclusionReasonParent,
 	routingSelectionKind,
 	type RoutingCredentialSource,
 	type RoutingExclusionReason,
@@ -445,3 +471,5 @@ export {
 	type SystemBanner,
 	type SystemBannerSeverity,
 } from "./system-banner.js";
+
+export { buildVideoUsage, type VideoUsage } from "./video-usage.js";

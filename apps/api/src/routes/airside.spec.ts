@@ -17,6 +17,7 @@ import {
 	models as catalogueModels,
 	type ModelDefinition,
 	type ProviderApiFormat,
+	type ToolChoiceMode,
 } from "@llmgateway/models";
 
 // Website verification resolves a real TXT record; the zone under test is
@@ -178,6 +179,9 @@ async function createModel(
 			vision: body.vision === true,
 			audio: body.audio === true,
 			tools: body.tools === true,
+			supportedToolChoices: Array.isArray(body.supportedToolChoices)
+				? (body.supportedToolChoices as ToolChoiceMode[])
+				: null,
 			jsonOutput: body.jsonOutput === true,
 			jsonOutputSchema: body.jsonOutputSchema === true,
 			reasoning: body.reasoning === true,
@@ -586,11 +590,14 @@ describe("airside provider portal", () => {
 		expect(consumed?.submittedAt).toBeInstanceOf(Date);
 	});
 
-	it("matches managed credentials against upstream model IDs", async () => {
+	it("never spends a platform credential on a carrier's verification", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
 		await activateClaim();
+		// A managed key that could serve this model exists — and still must not
+		// run a carrier's preflight, because that traffic is neither logged nor
+		// billed and would land on our provider bill.
 		const providerKeyId = `verification-key-${crypto.randomUUID()}`;
 		await db.insert(tables.providerKey).values({
 			id: providerKeyId,
@@ -614,12 +621,275 @@ describe("airside provider portal", () => {
 			}),
 		);
 
-		expect(queued.status).toBe(202);
-		const queuedBody = await queued.json();
-		const stored = await db.query.providerModelVerification.findFirst({
-			where: { id: { eq: queuedBody.verification.id } },
+		expect(queued.status).toBe(400);
+		expect((await queued.json()).message).toContain("provider API key");
+	});
+
+	it("saves the carrier's key on the claim and reuses it", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		await activateClaim();
+
+		const first = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "mistral-saves-key",
+				apiKey: "carrier-saved-key",
+			}),
+		);
+		expect(first.status).toBe(202);
+		expect((await first.json()).verification).toBeDefined();
+
+		const savedClaim = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
 		});
-		expect(stored?.credentialSource).toBe("managed");
+		expect(savedClaim?.verificationKeyCiphertext).toMatch(/^llmgw:v2:/);
+		expect(savedClaim?.verificationKeyCiphertext).not.toContain(
+			"carrier-saved-key",
+		);
+		expect(savedClaim?.verificationKeyMasked).toContain("•");
+		expect(savedClaim?.verificationKeyMasked).not.toBe("carrier-saved-key");
+		expect(savedClaim?.verificationKeyUpdatedAt).toBeInstanceOf(Date);
+
+		// A later run needs no key: the claim holds one.
+		const second = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "mistral-reuses-key",
+			}),
+		);
+		expect(second.status).toBe(202);
+		const reused = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: (await second.json()).verification.id } },
+		});
+		expect(reused?.credentialSource).toBe("carrier");
+		expect(reused?.credentialCiphertext).toMatch(/^llmgw:v2:/);
+
+		// The carrier sees it masked, never the plaintext or the ciphertext.
+		const companies = await app.request("/airside/companies", {
+			headers: { Cookie: cookie },
+		});
+		const listed = await companies.json();
+		expect(JSON.stringify(listed)).not.toContain("carrier-saved-key");
+		expect(listed.companies[0].claims[0].verificationKeyMasked).toBe(
+			savedClaim?.verificationKeyMasked,
+		);
+		expect(listed.companies[0].claims[0].verificationKeySetAt).toBeTruthy();
+	});
+
+	it("manages the saved verification key from settings", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		await activateClaim();
+
+		const saved = await app.request(
+			`/airside/claims/${claim.id}/verification-key`,
+			json(cookie, { apiKey: "settings-saved-key" }, "PUT"),
+		);
+		expect(saved.status).toBe(200);
+		const savedBody = await saved.json();
+		expect(savedBody.verificationKeyMasked).not.toBe("settings-saved-key");
+		expect(savedBody.verificationKeySetAt).toBeTruthy();
+
+		// A non-member gets the same 404 every company-scoped route returns, so
+		// the claim's existence stays hidden.
+		const outsider = await createSecondUser("stranger@example.com");
+		const forbidden = await app.request(
+			`/airside/claims/${claim.id}/verification-key`,
+			json(outsider, { apiKey: "not-yours" }, "PUT"),
+		);
+		expect(forbidden.status).toBe(404);
+
+		const removed = await app.request(
+			`/airside/claims/${claim.id}/verification-key`,
+			json(cookie, undefined, "DELETE"),
+		);
+		expect(removed.status).toBe(200);
+		const cleared = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
+		});
+		expect(cleared?.verificationKeyCiphertext).toBeNull();
+		expect(cleared?.verificationKeyMasked).toBeNull();
+		expect(cleared?.verificationKeyUpdatedAt).toBeNull();
+
+		// With the key gone, preflight asks for one again.
+		const queued = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "mistral-needs-key-again",
+			}),
+		);
+		expect(queued.status).toBe(400);
+	});
+
+	it("carries a carrier's tool_choice narrowing and preflights an edit", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			supportedToolChoices: ["auto", "none"],
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(model.supportedToolChoices).toEqual(["auto", "none"]);
+
+		// A draft applies metadata in place, so the narrowing is editable.
+		const patched = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { supportedToolChoices: null }, "PATCH"),
+		);
+		expect(patched.status).toBe(200);
+		expect((await patched.json()).model.supportedToolChoices).toBeNull();
+
+		// A preflight of unsaved capabilities verifies the proposal, not the row.
+		const queued = await app.request(
+			`/airside/models/${model.id}/verifications`,
+			json(cookie, {
+				apiKey: "carrier-preflight-key",
+				proposed: { supportedToolChoices: ["auto"], vision: true },
+			}),
+		);
+		expect(queued.status).toBe(202);
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: (await queued.json()).verification.id } },
+		});
+		expect(stored?.target).toMatchObject({
+			supportedToolChoices: ["auto"],
+			vision: true,
+			// Untouched fields still come from the saved listing.
+			tools: true,
+			modelName: "mistral-large-3",
+		});
+	});
+
+	it("lists a listing's preflight history without naming our reviewers", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id);
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+
+		const carrierRun = await app.request(
+			`/airside/models/${model.id}/verifications`,
+			json(cookie, { apiKey: "carrier-history-key" }),
+		);
+		expect(carrierRun.status).toBe(202);
+		const carrierRunId = (await carrierRun.json()).verification.id;
+		// Only one run may be in flight per listing, so settle this one first.
+		await db
+			.update(tables.providerModelVerification)
+			.set({ status: "failed", summary: "tools failed" })
+			.where(eq(tables.providerModelVerification.id, carrierRunId));
+
+		const carrierRow = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: carrierRunId } },
+		});
+		const adminRunId = `admin-run-${crypto.randomUUID()}`;
+		await db.insert(tables.providerModelVerification).values({
+			id: adminRunId,
+			providerCompanyId: company.id,
+			draftModelId: model.id,
+			initiatedBy: "admin",
+			requestedBy: "test-user-id",
+			target: carrierRow!.target,
+			checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+			status: "passed",
+			summary: "spot check ok",
+		});
+
+		const res = await app.request(`/airside/models/${model.id}/verifications`, {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const { verifications } = await res.json();
+		// Newest first, down to the run that registered the listing.
+		expect(
+			verifications.slice(0, 2).map((entry: { id: string }) => entry.id),
+		).toEqual([adminRunId, carrierRunId]);
+		expect(verifications).toHaveLength(3);
+		// Our side is named only as the initiator; the reviewer stays anonymous.
+		expect(verifications[0]).toMatchObject({
+			initiatedBy: "admin",
+			actorName: null,
+			actorEmail: null,
+			status: "passed",
+		});
+		expect(verifications[1]).toMatchObject({
+			initiatedBy: "carrier",
+			actorName: "Test User",
+			actorEmail: null,
+			status: "failed",
+			summary: "tools failed",
+		});
+
+		// A non-member gets the company-scoped 404.
+		const outsider = await createSecondUser("nosy@example.com");
+		const denied = await app.request(
+			`/airside/models/${model.id}/verifications`,
+			{ headers: { Cookie: outsider } },
+		);
+		expect(denied.status).toBe(404);
+	});
+
+	it("verifies the capabilities a live listing has awaiting review", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			modelName: "mistral-large-3-review",
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		const live = await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		expect(live.status).toBe(200);
+
+		// A live listing keeps a capability edit in a filing until it is
+		// approved, so the row still says reasoning is off.
+		const filed = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { reasoning: true, reasoningEfforts: ["low"] }, "PATCH"),
+		);
+		expect(filed.status).toBe(200);
+		expect((await filed.json()).model).toMatchObject({
+			reasoning: false,
+			pendingFiling: {
+				kind: "metadata",
+				metadata: { reasoning: true, reasoningEfforts: ["low"] },
+			},
+		});
+
+		const queued = await app.request(
+			`/airside/models/${model.id}/verifications`,
+			json(cookie, { apiKey: "carrier-preflight-key" }),
+		);
+		expect(queued.status).toBe(202);
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: (await queued.json()).verification.id } },
+		});
+		// Without the filing this run would skip reasoning entirely and report
+		// a pass for a capability it never touched.
+		expect(stored?.target).toMatchObject({
+			reasoning: true,
+			reasoningEfforts: ["low"],
+			tools: true,
+		});
+		expect(stored?.checks.map((check) => check.id)).toContain("reasoning");
 	});
 
 	it("drafts a model with an initial price filing and blocks price edits", async () => {
@@ -812,7 +1082,9 @@ describe("airside provider portal", () => {
 				usedModel: "mistral-large-3",
 				usedProvider: "mistral",
 				requestCount: 10,
-				errorCount: 1,
+				errorCount: 3,
+				clientErrorCount: 2,
+				upstreamErrorCount: 1,
 				inputTokens: "1000",
 				outputTokens: "500",
 				totalTokens: "1500",
@@ -851,6 +1123,187 @@ describe("airside provider portal", () => {
 			}),
 		]);
 		expect(body.daily).toHaveLength(1);
+	});
+
+	it("returns per-mapping incidents scoped to claimed providers", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+
+		const hour = new Date();
+		hour.setMinutes(0, 0, 0);
+		await db.insert(tables.projectHourlyModelStats).values([
+			{
+				projectId: "test-project-id",
+				hourTimestamp: hour,
+				usedModel: "mistral/mistral-large-3",
+				usedProvider: "mistral",
+				requestCount: 10,
+				errorCount: 5,
+				clientErrorCount: 1,
+				upstreamErrorCount: 2,
+				gatewayErrorCount: 1,
+				canceledCount: 1,
+			},
+			{
+				projectId: "test-project-id",
+				hourTimestamp: hour,
+				usedModel: "mistral/mistral-small-4",
+				usedProvider: "mistral",
+				requestCount: 5,
+			},
+			{
+				projectId: "test-project-id",
+				hourTimestamp: hour,
+				usedModel: "openai/gpt-6",
+				usedProvider: "openai",
+				requestCount: 99,
+				errorCount: 50,
+				upstreamErrorCount: 50,
+			},
+		]);
+
+		const logs: {
+			statusCode: number;
+			retried: boolean;
+			streamed: boolean;
+			classification?: "client_error" | "canceled";
+		}[] = [
+			{ statusCode: 503, retried: false, streamed: true },
+			{ statusCode: 503, retried: false, streamed: true },
+			{ statusCode: 500, retried: true, streamed: false },
+			{
+				statusCode: 400,
+				retried: false,
+				streamed: false,
+				classification: "client_error",
+			},
+			{
+				statusCode: 502,
+				retried: false,
+				streamed: true,
+				classification: "canceled",
+			},
+		];
+		await db.insert(tables.log).values(
+			logs.map((entry, i) => ({
+				id: `incident-log-${i}`,
+				requestId: `incident-request-${i}`,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				hasError: true,
+				retried: entry.retried,
+				streamed: entry.streamed,
+				unifiedFinishReason: entry.classification ?? "upstream_error",
+				errorDetails: {
+					statusCode: entry.statusCode,
+					statusText: "err",
+					responseText: `failed ${entry.statusCode}`,
+				},
+				duration: 100,
+				usedMode: "credits" as const,
+				requestedModel: "mistral-large-3",
+				requestedProvider: "mistral",
+				usedModel: "mistral/mistral-large-3",
+				usedProvider: "mistral",
+				responseSize: 10,
+				mode: "credits" as const,
+			})),
+		);
+
+		const base = `/airside/incidents?providerCompanyId=${company.id}`;
+		const res = await app.request(base, { headers: { Cookie: cookie } });
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.providerIds).toEqual(["mistral"]);
+		expect(body.windowHours).toBe(24);
+		expect(body.mappings).toEqual([
+			{
+				providerId: "mistral",
+				providerName: "Mistral AI",
+				usedModel: "mistral/mistral-large-3",
+				modelId: "mistral-large-3",
+				region: null,
+				requestCount: 10,
+				errorCount: 3,
+				upstreamErrorCount: 2,
+				gatewayErrorCount: 1,
+				errorRate: 0.3,
+			},
+		]);
+
+		// A filtered mapping without errors still returns its row.
+		const filtered = await app.request(
+			`${base}&mapping=mistral/mistral-small-4`,
+			{ headers: { Cookie: cookie } },
+		);
+		const filteredBody = await filtered.json();
+		expect(filteredBody.mapping).toBe("mistral/mistral-small-4");
+		expect(filteredBody.mappings).toEqual([
+			expect.objectContaining({
+				usedModel: "mistral/mistral-small-4",
+				errorCount: 0,
+				errorRate: 0,
+			}),
+		]);
+
+		const tooWide = await app.request(`${base}&window=7d`, {
+			headers: { Cookie: cookie },
+		});
+		expect(tooWide.status).toBe(400);
+
+		const foreign = await app.request(`${base}&providerId=openai`, {
+			headers: { Cookie: cookie },
+		});
+		expect(foreign.status).toBe(404);
+
+		const errorsBase = `/airside/incidents/errors?providerCompanyId=${company.id}&providerId=mistral&mapping=mistral/mistral-large-3`;
+		const errors = await app.request(errorsBase, {
+			headers: { Cookie: cookie },
+		});
+		expect(errors.status).toBe(200);
+		const errorsBody = await errors.json();
+		expect(errorsBody.sampledErrors).toBe(3);
+		expect(errorsBody.errors).toEqual([
+			expect.objectContaining({ statusCode: 503, streamed: true, count: 2 }),
+			expect.objectContaining({ statusCode: 500, streamed: false, count: 1 }),
+		]);
+
+		const notRetried = await app.request(`${errorsBase}&includeRetried=false`, {
+			headers: { Cookie: cookie },
+		});
+		const notRetriedBody = await notRetried.json();
+		expect(notRetriedBody.sampledErrors).toBe(2);
+
+		const foreignErrors = await app.request(
+			`/airside/incidents/errors?providerCompanyId=${company.id}&providerId=openai&mapping=openai/gpt-6`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(foreignErrors.status).toBe(404);
+
+		// Admins see the same per-mapping view for any provider.
+		const adminDenied = await app.request(
+			"/admin/airside/incidents?providerId=mistral",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(adminDenied.status).toBe(403);
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		const adminView = await app.request(
+			"/admin/airside/incidents?providerId=mistral",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(adminView.status).toBe(200);
+		expect((await adminView.json()).mappings).toEqual(body.mappings);
+
+		const outsider = await createSecondUser("outsider@example.com");
+		for (const path of [base, errorsBase]) {
+			const denied = await app.request(path, {
+				headers: { Cookie: outsider },
+			});
+			expect(denied.status).toBe(404);
+		}
 	});
 
 	it("gates claims on the listing fee when configured", async () => {
@@ -1173,6 +1626,72 @@ describe("airside provider portal", () => {
 				where: { id: { eq: "mistral-large-3" } },
 			}),
 		).toBeFalsy();
+	});
+
+	it("pauses and resumes a live listing without review", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const { model } = await (await createModel(cookie, company.id)).json();
+
+		const draftPause = await app.request(
+			`/airside/models/${model.id}/pause`,
+			json(cookie),
+		);
+		expect(draftPause.status).toBe(409);
+
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		const mappingStatus = async () =>
+			(
+				await db.query.modelProviderMapping.findMany({
+					where: { modelId: { eq: "mistral-large-3" } },
+				})
+			).map((row) => row.status);
+
+		const paused = await app.request(
+			`/airside/models/${model.id}/pause`,
+			json(cookie),
+		);
+		expect(paused.status).toBe(200);
+		const pausedModel = (await paused.json()).model;
+		expect(pausedModel.status).toBe("active");
+		expect(pausedModel.pausedAt).toEqual(expect.any(String));
+		expect(pausedModel.currentPricing).not.toBeNull();
+		expect(await mappingStatus()).toEqual(["inactive"]);
+		const pausedAgain = await app.request(
+			`/airside/models/${model.id}/pause`,
+			json(cookie),
+		);
+		expect(pausedAgain.status).toBe(409);
+
+		// An approval landing while paused reprices without resuming.
+		const update = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, { inputPrice: "4e-6", outputPrice: "9e-6" }),
+		);
+		await app.request(
+			`/admin/airside/filings/${(await update.json()).filing.id}/approve`,
+			json(cookie),
+		);
+		expect(await mappingStatus()).toEqual(["inactive"]);
+
+		const resumed = await app.request(
+			`/airside/models/${model.id}/resume`,
+			json(cookie),
+		);
+		expect(resumed.status).toBe(200);
+		expect((await resumed.json()).model.pausedAt).toBeNull();
+		expect(await mappingStatus()).toEqual(["active"]);
+		const resumedAgain = await app.request(
+			`/airside/models/${model.id}/resume`,
+			json(cookie),
+		);
+		expect(resumedAgain.status).toBe(409);
 	});
 
 	it("replaces or withdraws a pending change and waits behind a fare filing", async () => {

@@ -1,0 +1,72 @@
+appId: io.llmgateway.lounge
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- runFlow: helpers/browser-sign-in.yaml
+- runFlow:
+    when:
+      visible: "Sign in"
+    commands:
+      - tapOn: "Sign in"
+      - extendedWaitUntil:
+          visible: "Email"
+          timeout: 30000
+      - tapOn: "Email"
+      - eraseText
+      - inputText: "admin@example.com"
+      - tapOn: "Next"
+      - eraseText
+      - inputText: "admin@example.com"
+      # iOS 26 exposes the keyboard toolbar's Done checkmark as "selected".
+      - tapOn: "selected"
+      - tapOn:
+          text: "Sign in"
+          below: "Password"
+      - runFlow:
+          when:
+            visible: "Not Now"
+          commands:
+            - tapOn: "Not Now"
+- extendedWaitUntil:
+    visible: "The code above matches the code on my device."
+    timeout: 30000
+- assertVisible: ${output.userCode}
+- tapOn: "The code above matches the code on my device."
+- tapOn: "Authorize device"
+- extendedWaitUntil:
+    visible: "New conversation"
+    timeout: 30000
+- stopApp
+- launchApp
+- assertVisible: "New conversation"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
+- scrollUntilVisible:
+    element: "Sign out"
+    direction: DOWN
+- tapOn: "Sign out"
+- runFlow: helpers/browser-sign-in.yaml
+- assertVisible: "The code above matches the code on my device."
+- tapOn: "Deny"
+- extendedWaitUntil:
+    visible: "You declined this sign-in request."
+    timeout: 30000
+- tapOn: "Get a new code"
+- extendedWaitUntil:
+    visible: "Continue in browser"
+    timeout: 20000
+- tapOn: "Cancel sign-in"
+- assertVisible: "Enter the Lounge"
+- runFlow: helpers/browser-sign-in.yaml
+- tapOn: "Cancel"
+- extendedWaitUntil:
+    visible: "Sign-in cancelled."
+    timeout: 20000
+- tapOn: "Cancel sign-in"
+- stopApp
+- launchApp
+- assertVisible: "Enter the Lounge"
+- takeScreenshot: browser-sign-in-cancelled

@@ -558,7 +558,9 @@ chatProjects.openapi(uploadFile, async (c) => {
 		.returning();
 
 	try {
-		const token = await resolvePlaygroundToken(c, user);
+		const token =
+			c.req.header("x-llmgateway-key") ??
+			(await resolvePlaygroundToken(c, user));
 		const embeddings = await embedTexts(token, chunks);
 
 		await db.insert(tables.chatProjectFileChunk).values(

@@ -1,0 +1,13 @@
+appId: io.llmgateway.lounge
+---
+- runFlow:
+    file: navigate.yaml
+    env:
+      DESTINATION: "Live transcription"
+- runFlow: close-chat-options.yaml
+- tapOn: "Model: Choose"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-4o-transcribe"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-4o Transcribe"

@@ -7,6 +7,7 @@ import {
 	projectHourlyStats,
 	projectHourlyModelStats,
 	projectHourlySourceStats,
+	projectHourlyRoutingStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
 	apiKeyHourlySourceStats,
@@ -444,6 +445,76 @@ async function recalculateProjectHourlySourceStats(
 	}
 }
 
+function getRoutingAggregationFields() {
+	return {
+		requestCount: sql<number>`count(*)::int`.as("requestCount"),
+		inputTokens:
+			sql<string>`coalesce(sum(cast(${log.promptTokens} as numeric)), 0)`.as(
+				"inputTokens",
+			),
+		outputTokens:
+			sql<string>`coalesce(sum(cast(${log.completionTokens} as numeric)), 0)`.as(
+				"outputTokens",
+			),
+		cachedTokens:
+			sql<string>`coalesce(sum(cast(${log.cachedTokens} as numeric)), 0)`.as(
+				"cachedTokens",
+			),
+		cost: sumLogMoney(log.cost, "cost"),
+		baselineCost: sumLogMoney(log.routingBaselineCost, "baselineCost"),
+	};
+}
+
+/**
+ * Calculate hourly routing savings for a batch of projects: routed requests
+ * (those carrying a routing baseline) grouped by the requested route.
+ */
+export async function recalculateProjectHourlyRoutingStats(
+	projectIds: string[],
+	hourTimestamp: string,
+	window: LogWindow = {},
+) {
+	const rows = await db
+		.select({
+			projectId: log.projectId,
+			routeKey: log.requestedModel,
+			...getRoutingAggregationFields(),
+		})
+		.from(log)
+		.where(
+			and(
+				inArray(log.projectId, projectIds),
+				hourLogWindow(hourTimestamp, window),
+				isNotNull(log.routingBaselineCost),
+			),
+		)
+		.groupBy(log.projectId, log.requestedModel);
+
+	for (let offset = 0; offset < rows.length; offset += STATS_WRITE_BATCH_SIZE) {
+		await db
+			.insert(projectHourlyRoutingStats)
+			.values(
+				rows.slice(offset, offset + STATS_WRITE_BATCH_SIZE).map((stat) => ({
+					...stat,
+					hourTimestamp: sql`${hourTimestamp}::timestamp`,
+				})),
+			)
+			.onConflictDoUpdate({
+				target: [
+					projectHourlyRoutingStats.projectId,
+					projectHourlyRoutingStats.hourTimestamp,
+					projectHourlyRoutingStats.routeKey,
+				],
+				...statsUpdate(
+					getTableColumns(projectHourlyRoutingStats),
+					getRoutingAggregationFields(),
+					true,
+					window.accumulate,
+				),
+			});
+	}
+}
+
 /**
  * Calculate hourly API key statistics for a batch of projects.
  */
@@ -626,6 +697,14 @@ function getProviderKeySpendAggregationFields() {
 			sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
 				"errorCount",
 			),
+		clientErrorCount:
+			sql<number>`sum(case when ${log.unifiedFinishReason} = 'client_error' then 1 else 0 end)::int`.as(
+				"clientErrorCount",
+			),
+		gatewayErrorCount:
+			sql<number>`sum(case when ${log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
+				"gatewayErrorCount",
+			),
 		upstreamErrorCount:
 			sql<number>`sum(case when ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
 				"upstreamErrorCount",
@@ -720,6 +799,7 @@ async function recalculateBucket(
 	await recalculateProjectHourlyStats(projectIds, hourTimestamp, window);
 	await recalculateProjectHourlyModelStats(projectIds, hourTimestamp, window);
 	await recalculateProjectHourlySourceStats(projectIds, hourTimestamp, window);
+	await recalculateProjectHourlyRoutingStats(projectIds, hourTimestamp, window);
 	await recalculateApiKeyHourlyStats(projectIds, hourTimestamp, window);
 	await recalculateApiKeyHourlyModelStats(projectIds, hourTimestamp, window);
 	await recalculateApiKeyHourlySourceStatsForProjects(

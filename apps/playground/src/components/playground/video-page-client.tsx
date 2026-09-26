@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import {
 	useSaveVideoHistory,
+	useUpdateVideoHistory,
 	useVideoHistory,
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
@@ -34,13 +35,24 @@ import {
 } from "@/lib/model-preferences";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 import {
+	estimateVideoSelectionCostUsd,
+	findVideoSize,
 	getNormalizedVideoRequestSelection,
+	getSupportedVideoDurationsForSelection,
 	getSupportedVideoRequestOptions,
+	getSupportedVideoSizesForSelection,
+	getVideoOrientation,
+	getVideoResolution,
+	isPendingVideoModel,
+	POLL_TIMEOUT_ERROR_CODE,
 	pollVideoJob,
+	supportsVideoEndFrameInput,
 	supportsVideoFrameInput,
 	supportsVideoReferenceInput,
 	supportsVideoReferenceVideoInput,
 	supportsVideoReferenceAudioInput,
+	videoContentUrl,
+	VideoPollError,
 } from "@/lib/video-gen";
 
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
@@ -55,6 +67,42 @@ import type {
 	VideoJob,
 	VideoSize,
 } from "@/lib/video-gen";
+
+interface SavedVideoModelResult {
+	modelId: string;
+	modelName: string;
+	jobId: string | null;
+	videoUrl: string | null;
+	expiresAt?: number | null;
+	error?: string;
+}
+
+// The saved outcome of a terminal job. Null while it is still running, and
+// also when only this page's poll gave up: the job itself may still finish,
+// so the saved row stays pending and the next page load resumes it.
+function savedResultForJob(
+	job: VideoJob,
+): Partial<
+	Pick<SavedVideoModelResult, "videoUrl" | "expiresAt" | "error">
+> | null {
+	if (job.status === "completed") {
+		return {
+			videoUrl: videoContentUrl(job.id),
+			expiresAt: job.expires_at ?? null,
+		};
+	}
+	if (job.status === "failed" && job.error?.code === POLL_TIMEOUT_ERROR_CODE) {
+		return null;
+	}
+	if (
+		job.status === "failed" ||
+		job.status === "canceled" ||
+		job.status === "expired"
+	) {
+		return { error: job.error?.message ?? "Video generation failed" };
+	}
+	return null;
+}
 
 interface VideoPageClientProps {
 	models: ApiModel[];
@@ -157,9 +205,16 @@ export default function VideoPageClient({
 		isAuthenticated,
 		selectedOrganization?.id,
 	);
-	const { mutate: saveVideoHistory } = useSaveVideoHistory();
-	const savedItemIdsRef = useRef<Set<string>>(new Set());
-	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
+	const { mutateAsync: saveVideoHistory } = useSaveVideoHistory();
+	const { mutateAsync: updateVideoHistory } = useUpdateVideoHistory();
+	// In-flight items are saved at submission; this maps each local id to its
+	// saved row so the row's copy stays hidden until the local one is done.
+	const [dbIdByLocalId, setDbIdByLocalId] = useState<Map<string, string>>(
+		() => new Map(),
+	);
+	// Saved rows whose still-running jobs this page already resumed polling.
+	const resumedItemIdsRef = useRef<Set<string>>(new Set());
+	const resumeControllersRef = useRef<Map<string, AbortController>>(new Map());
 
 	// The history list carries no base64 input images, only presence flags.
 	// Previews are lazily loaded binary endpoints, indexed in the same
@@ -200,13 +255,17 @@ export default function VideoPageClient({
 						videoUrl: m.videoUrl,
 						expiresAt: m.expiresAt ?? null,
 						error: m.error,
-						isLoading: false,
+						isLoading: isPendingVideoModel(m),
 					})),
 				};
 			},
 		);
-		return [...activeItems, ...historical];
-	}, [activeItems, historyData, config.apiUrl]);
+		const hiddenIds = new Set(dbIdByLocalId.values());
+		return [
+			...activeItems,
+			...historical.filter((item) => !hiddenIds.has(item.id)),
+		];
+	}, [activeItems, dbIdByLocalId, historyData, config.apiUrl]);
 
 	const displayItems = useMemo<VideoGalleryItem[]>(() => {
 		if (activeItems.length > 0) {
@@ -219,75 +278,16 @@ export default function VideoPageClient({
 		return [];
 	}, [activeItems, selectedItemId, galleryItems]);
 
-	// Auto-save completed active items to DB then remove from local state
-	useEffect(() => {
-		const done = activeItems.filter(
-			(item) =>
-				item.models.length > 0 &&
-				item.models.every((m) => !m.isLoading) &&
-				!savedItemIdsRef.current.has(item.id),
-		);
-		if (done.length === 0) {
-			return;
-		}
-		for (const item of done) {
-			savedItemIdsRef.current.add(item.id);
-			if (item.models.some((m) => m.videoUrl !== null)) {
-				saveVideoHistory(
-					{
-						body: {
-							prompt: item.prompt,
-							organizationId: item.organizationId,
-							frameInputs: item.frameInputs,
-							referenceImages: item.referenceImages,
-							models: item.models.map((m) => ({
-								modelId: m.modelId,
-								modelName: m.modelName,
-								jobId: m.job?.id ?? null,
-								videoUrl: m.videoUrl,
-								expiresAt: m.expiresAt ?? null,
-								error: m.error,
-							})),
-						},
-					},
-					{
-						onSuccess: (data) => {
-							const newId = data.item.id;
-							setSelectedItemId(newId);
-							const params = new URLSearchParams(window.location.search);
-							params.set("id", newId);
-							router.replace(`${pathname}?${params.toString()}`, {
-								scroll: false,
-							});
-							pendingSaveRef.current = { localId: item.id, dbId: newId };
-						},
-						onError: () => {
-							savedItemIdsRef.current.delete(item.id);
-						},
-					},
-				);
-			} else {
-				setActiveItems((prev) => prev.filter((i) => i.id !== item.id));
-			}
-		}
-	}, [activeItems, saveVideoHistory, router, pathname]);
-
-	useEffect(() => {
-		const pending = pendingSaveRef.current;
-		if (!pending) {
-			return;
-		}
-		const found = historyData?.items.some((i) => i.id === pending.dbId);
-		if (found) {
-			setActiveItems((prev) => prev.filter((i) => i.id !== pending.localId));
-			pendingSaveRef.current = null;
-		}
-	}, [historyData]);
-
 	const canUseFrameInputs = useMemo(
 		() =>
 			selectedModels.length > 0 &&
 			selectedModels.every((modelId) => supportsVideoFrameInput(modelId)),
+		[selectedModels],
+	);
+	const canUseEndFrameInputs = useMemo(
+		() =>
+			selectedModels.length > 0 &&
+			selectedModels.every((modelId) => supportsVideoEndFrameInput(modelId)),
 		[selectedModels],
 	);
 	const canUseReferenceInputs = useMemo(
@@ -378,6 +378,9 @@ export default function VideoPageClient({
 
 	const pendingRef = useRef(0);
 	const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
+	// One token per generation run; "New chat" marks them canceled so a run
+	// whose requests settle later leaves the new page state alone.
+	const runsRef = useRef<Set<{ canceled: boolean }>>(new Set());
 	const ensuredProjectRef = useRef<string | null>(null);
 
 	useEffect(() => {
@@ -409,15 +412,127 @@ export default function VideoPageClient({
 		void ensureKey();
 	}, [isAuthenticated, selectedOrganization, selectedProject]);
 
-	// Cleanup abort controllers on unmount
+	// Cleanup abort controllers on unmount. Runs are canceled first so a save
+	// that completes after leaving the page cannot update state or the URL.
 	useEffect(() => {
 		const abortControllers = abortControllersRef.current;
+		const resumeControllers = resumeControllersRef.current;
+		const runs = runsRef.current;
 		return () => {
-			Array.from(abortControllers.values()).forEach((controller) => {
-				controller.abort();
+			runs.forEach((run) => {
+				run.canceled = true;
 			});
+			runs.clear();
+			Array.from(abortControllers.values())
+				.concat(Array.from(resumeControllers.values()))
+				.forEach((controller) => {
+					controller.abort();
+				});
 		};
 	}, []);
+
+	// Drop a local item once its saved row carries every final result, so the
+	// gallery switches to the persisted copy without a flash of pending state.
+	useEffect(() => {
+		if (!historyData || dbIdByLocalId.size === 0) {
+			return;
+		}
+		const finalRowIds = new Set(
+			historyData.items
+				.filter((item) => !item.models.some((m) => isPendingVideoModel(m)))
+				.map((item) => item.id),
+		);
+		const doneIds = new Set(
+			activeItems
+				.filter((item) => {
+					const dbId = dbIdByLocalId.get(item.id);
+					return (
+						dbId !== undefined &&
+						finalRowIds.has(dbId) &&
+						item.models.every((m) => !m.isLoading)
+					);
+				})
+				.map((item) => item.id),
+		);
+		if (doneIds.size === 0) {
+			return;
+		}
+		setActiveItems((prev) => prev.filter((item) => !doneIds.has(item.id)));
+		setDbIdByLocalId((prev) => {
+			const next = new Map(prev);
+			doneIds.forEach((id) => next.delete(id));
+			return next;
+		});
+	}, [activeItems, dbIdByLocalId, historyData]);
+
+	// Resume polling for saved rows whose jobs were still running when the page
+	// was last left, and record the results the same way a live run does.
+	useEffect(() => {
+		if (!historyData) {
+			return;
+		}
+		const localRowIds = new Set(dbIdByLocalId.values());
+		for (const item of historyData.items) {
+			if (localRowIds.has(item.id) || resumedItemIdsRef.current.has(item.id)) {
+				continue;
+			}
+			const pending = item.models.flatMap((m) =>
+				m.jobId && isPendingVideoModel(m) ? [{ ...m, jobId: m.jobId }] : [],
+			);
+			if (pending.length === 0) {
+				continue;
+			}
+			resumedItemIdsRef.current.add(item.id);
+			const results = new Map<string, SavedVideoModelResult>(
+				item.models.map((m) => [m.modelId, { ...m }]),
+			);
+			const persist = async () => {
+				try {
+					await updateVideoHistory({
+						params: { path: { id: item.id } },
+						body: { models: Array.from(results.values()) },
+					});
+				} catch {
+					toast.error("Couldn't update this video in your history");
+				}
+			};
+			for (const model of pending) {
+				const controllerKey = `${item.id}-${model.modelId}`;
+				const controller = new AbortController();
+				resumeControllersRef.current.set(controllerKey, controller);
+				void (async () => {
+					try {
+						for await (const job of pollVideoJob(
+							model.jobId,
+							fetchClient,
+							controller.signal,
+						)) {
+							const outcome = savedResultForJob(job);
+							if (outcome) {
+								results.set(model.modelId, { ...model, ...outcome });
+								await persist();
+							}
+						}
+					} catch (error) {
+						if (error instanceof DOMException && error.name === "AbortError") {
+							return;
+						}
+						// Only a missing job is final; any other poll failure leaves the
+						// row pending so the next page load retries it.
+						if (error instanceof VideoPollError && error.status === 404) {
+							results.set(model.modelId, {
+								...model,
+								error: "Video is no longer available",
+							});
+							await persist();
+						}
+					} finally {
+						resumeControllersRef.current.delete(controllerKey);
+					}
+				})();
+			}
+		}
+	}, [dbIdByLocalId, fetchClient, historyData, updateVideoHistory]);
 
 	// Sync URL → state for back/forward navigation
 	useEffect(() => {
@@ -455,6 +570,8 @@ export default function VideoPageClient({
 				start: null,
 				end: null,
 			});
+		} else if (!canUseEndFrameInputs) {
+			setFrameInputs((prev) => (prev.end ? { ...prev, end: null } : prev));
 		}
 		if (!canUseReferenceInputs) {
 			setReferenceImages([]);
@@ -467,6 +584,7 @@ export default function VideoPageClient({
 		}
 	}, [
 		canUseFrameInputs,
+		canUseEndFrameInputs,
 		canUseReferenceInputs,
 		canUseReferenceVideoInputs,
 		canUseReferenceAudioInputs,
@@ -502,6 +620,84 @@ export default function VideoPageClient({
 				videoInputMode,
 			),
 		[selectedModels, videoGenModels, videoInputMode],
+	);
+
+	// Changing one picker keeps that choice and moves the other to the nearest
+	// value the selection supports alongside it, instead of snapping the
+	// user's choice back.
+	const handleSizeChange = useCallback(
+		(size: VideoSize) => {
+			setVideoSize(size);
+			const durations = getSupportedVideoDurationsForSelection(
+				videoGenModels,
+				selectedModels,
+				videoInputMode,
+				size,
+			);
+			if (durations.length > 0 && !durations.includes(videoDuration)) {
+				setVideoDuration(
+					durations.reduce((closest, candidate) =>
+						Math.abs(candidate - videoDuration) <
+						Math.abs(closest - videoDuration)
+							? candidate
+							: closest,
+					),
+				);
+			}
+		},
+		[selectedModels, videoDuration, videoGenModels, videoInputMode],
+	);
+	const handleDurationChange = useCallback(
+		(duration: VideoDuration) => {
+			setVideoDuration(duration);
+			const sizes = getSupportedVideoSizesForSelection(
+				videoGenModels,
+				selectedModels,
+				videoInputMode,
+				duration,
+			);
+			if (sizes.length > 0 && !sizes.includes(videoSize)) {
+				const resolution = getVideoResolution(videoSize);
+				const orientation = getVideoOrientation(videoSize);
+				setVideoSize(
+					findVideoSize(sizes, resolution, orientation) ??
+						findVideoSize(
+							sizes,
+							resolution,
+							orientation === "landscape" ? "portrait" : "landscape",
+						) ??
+						sizes[0],
+				);
+			}
+		},
+		[selectedModels, videoGenModels, videoInputMode, videoSize],
+	);
+
+	const inputImageCount =
+		videoInputMode === "frames"
+			? (frameInputs.start ? 1 : 0) + (frameInputs.end ? 1 : 0)
+			: videoInputMode === "reference"
+				? referenceImages.length
+				: 0;
+	const estimatedCostUsd = useMemo(
+		() =>
+			estimateVideoSelectionCostUsd(
+				videoGenModels,
+				comparisonMode ? selectedModels : selectedModels.slice(0, 1),
+				videoInputMode,
+				videoSize,
+				videoDuration,
+				inputImageCount,
+			),
+		[
+			comparisonMode,
+			inputImageCount,
+			selectedModels,
+			videoDuration,
+			videoGenModels,
+			videoInputMode,
+			videoSize,
+		],
 	);
 
 	useEffect(() => {
@@ -634,8 +830,14 @@ export default function VideoPageClient({
 				);
 				return;
 			}
+			if (frameInputs.end && !frameInputs.start) {
+				toast.error("A last frame needs a first frame. Please add one.");
+				return;
+			}
 
 			const currentPrompt = effectivePrompt.trim();
+			const run = { canceled: false };
+			runsRef.current.add(run);
 			setIsGenerating(true);
 			posthog.capture("playground_video_generated", {
 				models: selectedModels,
@@ -699,104 +901,204 @@ export default function VideoPageClient({
 
 			pendingRef.current = modelsToGenerate.length;
 
-			for (const modelId of modelsToGenerate) {
-				const noFallback = shouldDisableFallback(modelId);
-				const controllerKey = `${itemId}-${modelId}`;
-				const controller = new AbortController();
-				abortControllersRef.current.set(controllerKey, controller);
-
-				void (async () => {
-					try {
-						const response = await fetch("/api/video", {
-							method: "POST",
-							headers: {
-								"Content-Type": "application/json",
-								...(noFallback ? { "x-no-fallback": "true" } : {}),
-							},
-							body: JSON.stringify({
-								model: modelId,
-								prompt: currentPrompt,
-								size: videoSize,
-								seconds: videoDuration,
-								audio: getAudioForModel(modelId),
-								...(referenceImages.length === 0 &&
-								referenceVideos.length === 0 &&
-								referenceAudios.length === 0 &&
-								frameInputs.start
-									? {
-											image: {
-												image_url: frameInputs.start.dataUrl,
-											},
-										}
-									: {}),
-								...(referenceImages.length === 0 &&
-								referenceVideos.length === 0 &&
-								referenceAudios.length === 0 &&
-								frameInputs.end
-									? {
-											last_frame: {
-												image_url: frameInputs.end.dataUrl,
-											},
-										}
-									: {}),
-								...(referenceImages.length > 0
-									? {
-											reference_images: referenceImages.map((image) => ({
-												image_url: image.dataUrl,
-											})),
-										}
-									: {}),
-								...(referenceVideos.length > 0
-									? {
-											reference_videos: referenceVideos,
-										}
-									: {}),
-								...(referenceAudios.length > 0
-									? {
-											reference_audios: referenceAudios,
-										}
-									: {}),
-							}),
-							signal: controller.signal,
-						});
-
-						if (!response.ok) {
-							const errorData = await response.json().catch(() => null);
-							const rawMessage =
-								errorData?.error ??
-								`HTTP ${response.status}: ${response.statusText}`;
-							throw new Error(
-								isChatPlanContext &&
-									isInsufficientCreditsError(response.status, rawMessage)
-									? chatPlanCreditErrorMessage(chatPlanSubscribed, "videos")
-									: organizationCreditErrorMessage(
-											rawMessage,
-											selectedOrganization?.role,
-											response.status,
-										),
-							);
+			const inputFields = {
+				...(referenceImages.length === 0 &&
+				referenceVideos.length === 0 &&
+				referenceAudios.length === 0 &&
+				frameInputs.start
+					? { image: { image_url: frameInputs.start.dataUrl } }
+					: {}),
+				...(referenceImages.length === 0 &&
+				referenceVideos.length === 0 &&
+				referenceAudios.length === 0 &&
+				frameInputs.end
+					? { last_frame: { image_url: frameInputs.end.dataUrl } }
+					: {}),
+				...(referenceImages.length > 0
+					? {
+							reference_images: referenceImages.map((image) => ({
+								image_url: image.dataUrl,
+							})),
 						}
+					: {}),
+				...(referenceVideos.length > 0
+					? { reference_videos: referenceVideos }
+					: {}),
+				...(referenceAudios.length > 0
+					? { reference_audios: referenceAudios }
+					: {}),
+			};
 
-						const job: VideoJob = await response.json();
+			const results = new Map<string, SavedVideoModelResult>(
+				modelsToGenerate.map((modelId) => [
+					modelId,
+					{
+						modelId,
+						modelName: getModelName(modelId),
+						jobId: null,
+						videoUrl: null,
+						expiresAt: null,
+					},
+				]),
+			);
+			const setResult = (
+				modelId: string,
+				patch: Partial<SavedVideoModelResult>,
+			) => {
+				const current = results.get(modelId);
+				if (current) {
+					results.set(modelId, { ...current, ...patch });
+				}
+			};
 
-						updateGalleryModel(itemId, modelId, {
-							job,
-							isLoading: true,
+			// The history row is created by the first accepted job and updated as
+			// the others are accepted, finish or fail. Writes are chained so they
+			// reach the API in order and each carries the latest snapshot; nothing
+			// waits on a sibling submission that may be stalled.
+			let savedId: string | null = null;
+			let saveFailed = false;
+			let historyChain: Promise<void> = Promise.resolve();
+			const persist = () => {
+				historyChain = historyChain.then(async () => {
+					const snapshot = Array.from(results.values());
+					if (saveFailed || (!savedId && !snapshot.some((m) => m.jobId))) {
+						return;
+					}
+					try {
+						if (savedId) {
+							await updateVideoHistory({
+								params: { path: { id: savedId } },
+								body: { models: snapshot },
+							});
+							return;
+						}
+						const saved = await saveVideoHistory({
+							body: {
+								prompt: currentPrompt,
+								organizationId: selectedOrganization?.id,
+								frameInputs: placeholderItem.frameInputs,
+								referenceImages: placeholderItem.referenceImages,
+								models: snapshot,
+							},
 						});
+						savedId = saved.item.id;
+						// A run reset by "New chat" keeps its saved row (the jobs exist
+						// and the resume effect adopts them) but must not touch the page
+						// state that now belongs to the next run.
+						if (run.canceled) {
+							return;
+						}
+						setDbIdByLocalId((prev) =>
+							new Map(prev).set(itemId, saved.item.id),
+						);
+						setSelectedItemId(saved.item.id);
+						const params = new URLSearchParams(window.location.search);
+						params.set("id", saved.item.id);
+						router.replace(`${pathname}?${params.toString()}`, {
+							scroll: false,
+						});
+					} catch {
+						if (!savedId) {
+							saveFailed = true;
+						}
+						toast.error(
+							savedId
+								? "Couldn't update this generation in your history"
+								: "Couldn't save this generation to your history",
+						);
+					}
+				});
+				return historyChain;
+			};
 
+			const createJob = async (
+				modelId: string,
+				signal: AbortSignal,
+			): Promise<VideoJob | null> => {
+				try {
+					const noFallback = shouldDisableFallback(modelId);
+					const response = await fetch("/api/video", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							...(noFallback ? { "x-no-fallback": "true" } : {}),
+						},
+						body: JSON.stringify({
+							model: modelId,
+							prompt: currentPrompt,
+							size: videoSize,
+							seconds: videoDuration,
+							audio: getAudioForModel(modelId),
+							...inputFields,
+						}),
+						signal,
+					});
+
+					if (!response.ok) {
+						const errorData = await response.json().catch(() => null);
+						const rawMessage =
+							errorData?.error ??
+							`HTTP ${response.status}: ${response.statusText}`;
+						throw new Error(
+							isChatPlanContext &&
+								isInsufficientCreditsError(response.status, rawMessage)
+								? chatPlanCreditErrorMessage(chatPlanSubscribed, "videos")
+								: organizationCreditErrorMessage(
+										rawMessage,
+										selectedOrganization?.role,
+										response.status,
+									),
+						);
+					}
+
+					const job: VideoJob = await response.json();
+					updateGalleryModel(itemId, modelId, { job, isLoading: true });
+					setResult(modelId, { jobId: job.id });
+					void persist();
+					return job;
+				} catch (error) {
+					if (error instanceof DOMException && error.name === "AbortError") {
+						setResult(modelId, { error: "Canceled" });
+						void persist();
+						return null;
+					}
+					const errorMessage =
+						error instanceof Error ? error.message : "Video generation failed";
+					toast.error(errorMessage);
+					updateGalleryModel(itemId, modelId, {
+						isLoading: false,
+						error: errorMessage,
+					});
+					setResult(modelId, { error: errorMessage });
+					void persist();
+					return null;
+				}
+			};
+
+			void Promise.all(
+				modelsToGenerate.map(async (modelId) => {
+					const controller = new AbortController();
+					abortControllersRef.current.set(`${itemId}-${modelId}`, controller);
+					try {
+						const job = await createJob(modelId, controller.signal);
+						if (!job) {
+							return;
+						}
 						for await (const updatedJob of pollVideoJob(
 							job.id,
 							fetchClient,
 							controller.signal,
 						)) {
-							if (updatedJob.status === "completed") {
-								const videoUrl = `/api/video/${updatedJob.id}/content`;
+							const outcome = savedResultForJob(updatedJob);
+							if (updatedJob.status === "completed" && outcome) {
 								updateGalleryModel(itemId, modelId, {
 									job: updatedJob,
-									videoUrl,
-									expiresAt: updatedJob.expires_at ?? null,
+									videoUrl: outcome.videoUrl ?? null,
+									expiresAt: outcome.expiresAt ?? null,
 									isLoading: false,
 								});
+								setResult(modelId, outcome);
+								await persist();
 							} else if (
 								updatedJob.status === "failed" ||
 								updatedJob.status === "canceled" ||
@@ -807,10 +1109,12 @@ export default function VideoPageClient({
 									error: updatedJob.error?.message ?? "Video generation failed",
 									isLoading: false,
 								});
+								if (outcome) {
+									setResult(modelId, outcome);
+									await persist();
+								}
 							} else {
-								updateGalleryModel(itemId, modelId, {
-									job: updatedJob,
-								});
+								updateGalleryModel(itemId, modelId, { job: updatedJob });
 							}
 						}
 					} catch (error) {
@@ -822,19 +1126,25 @@ export default function VideoPageClient({
 								? error.message
 								: "Video generation failed";
 						toast.error(errorMessage);
+						// A failed poll says nothing about the job: the saved row stays
+						// pending and the next page load resumes it.
 						updateGalleryModel(itemId, modelId, {
 							isLoading: false,
 							error: errorMessage,
 						});
 					} finally {
-						abortControllersRef.current.delete(controllerKey);
-						pendingRef.current--;
-						if (pendingRef.current === 0) {
-							setIsGenerating(false);
+						abortControllersRef.current.delete(`${itemId}-${modelId}`);
+						// A reset run already released the generating state.
+						if (!run.canceled) {
+							pendingRef.current--;
+							if (pendingRef.current === 0) {
+								setIsGenerating(false);
+								runsRef.current.delete(run);
+							}
 						}
 					}
-				})();
-			}
+				}),
+			);
 		},
 		[
 			comparisonMode,
@@ -858,6 +1168,10 @@ export default function VideoPageClient({
 			selectedOrganization?.role,
 			isChatPlanContext,
 			chatPlanSubscribed,
+			pathname,
+			router,
+			saveVideoHistory,
+			updateVideoHistory,
 		],
 	);
 
@@ -905,11 +1219,18 @@ export default function VideoPageClient({
 	);
 
 	const handleNewChat = useCallback(() => {
+		runsRef.current.forEach((run) => {
+			run.canceled = true;
+		});
+		runsRef.current.clear();
 		Array.from(abortControllersRef.current.values()).forEach((controller) => {
 			controller.abort();
 		});
 		abortControllersRef.current.clear();
 		setActiveItems([]);
+		// Saved rows of the aborted runs are no longer local, so the resume
+		// effect picks their still-running jobs back up.
+		setDbIdByLocalId(new Map());
 		setSelectedItemId(null);
 		setPrompt("");
 		setFrameInputs({ start: null, end: null });
@@ -1026,14 +1347,15 @@ export default function VideoPageClient({
 						setPrompt={setPrompt}
 						selectedModels={selectedModels}
 						videoSize={videoSize}
-						setVideoSize={setVideoSize}
+						setVideoSize={handleSizeChange}
 						videoDuration={videoDuration}
-						setVideoDuration={setVideoDuration}
+						setVideoDuration={handleDurationChange}
 						audioEnabled={effectiveAudioEnabled}
 						setAudioEnabled={setAudioEnabled}
 						audioToggleDisabled={isGenerating || audioToggleLocked}
 						audioToggleDisabledReason={audioToggleLockedReason}
 						canUseFrameInputs={canUseFrameInputs}
+						canUseEndFrameInputs={canUseEndFrameInputs}
 						canUseReferenceInputs={canUseReferenceInputs}
 						canUseReferenceVideoInputs={canUseReferenceVideoInputs}
 						canUseReferenceAudioInputs={canUseReferenceAudioInputs}
@@ -1047,6 +1369,7 @@ export default function VideoPageClient({
 						setReferenceAudios={setReferenceAudios}
 						supportedVideoSizes={supportedVideoRequestOptions.sizes}
 						supportedVideoDurations={supportedVideoRequestOptions.durations}
+						estimatedCostUsd={estimatedCostUsd}
 						isGenerating={isGenerating}
 						onGenerate={generateVideos}
 						imageInputRequired={someModelsRequireImage}

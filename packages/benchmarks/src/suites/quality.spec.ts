@@ -40,6 +40,7 @@ function response(content: string): BenchmarkResponse {
 		},
 		streamChunks: [],
 		error: null,
+		agent: null,
 	};
 }
 

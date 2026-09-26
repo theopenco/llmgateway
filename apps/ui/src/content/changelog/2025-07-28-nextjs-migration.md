@@ -4,6 +4,7 @@ slug: "nextjs-migration"
 date: "2025-07-28"
 title: "Next.js migration"
 summary: "We’ve moved from TanStack Start to Next.js. Here’s why it matters"
+tags: ["llmgateway"]
 image:
   src: "/changelog/nextjs-migration.png"
   alt: "Next.js migration"

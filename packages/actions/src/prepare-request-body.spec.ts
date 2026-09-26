@@ -1780,7 +1780,7 @@ describe("prepareRequestBody - OpenAI explicit prompt caching", () => {
 		{ role: "user", content: "dynamic input" },
 	];
 
-	test.each(["gpt-5.6-sol", "gpt-6-astra"])(
+	test.each(["gpt-5.6-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"])(
 		"forwards prompt_cache_options and breakpoints for %s",
 		async (model) => {
 			const requestBody = (await prepareOpenAITextRequest({
@@ -1933,10 +1933,39 @@ describe("prepareRequestBody - OpenAI service tiers", () => {
 		expect(requestBody.service_tier).toBeUndefined();
 	});
 
-	test("should not forward service_tier to Azure", async () => {
+	test("should forward service_tier to Azure chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			serviceTier: "priority",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("should forward service_tier to the Azure Responses API", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			useResponsesApi: true,
+			serviceTier: "priority",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("should not forward flex to Azure, which only sells priority", async () => {
 		const requestBody = (await prepareOpenAITextRequest({
 			provider: "azure",
 			serviceTier: "flex",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("should not forward service_tier to unsupported Azure models", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			model: "gpt-4o",
+			serviceTier: "priority",
 		})) as { service_tier?: string };
 
 		expect(requestBody.service_tier).toBeUndefined();
@@ -2035,8 +2064,29 @@ describe("prepareRequestBody - reasoning summaries", () => {
 	});
 
 	test.each([
+		{ region: "global", prefix: "global." },
+		{ region: "us-east-1", prefix: "" },
+		{ region: "us-east-2", prefix: "" },
+	])(
+		"routes GPT-5.6 through the $region deployment",
+		async ({ region, prefix }) => {
+			const requestBody = (await prepareOpenAITextRequest({
+				provider: "aws-mantle",
+				model: "gpt-5.6-sol",
+				region,
+				useResponsesApi: true,
+			})) as OpenAIResponsesRequestBody;
+
+			expect(requestBody.model).toBe(`${prefix}openai.gpt-5.6-sol`);
+			expect(requestBody.store).toBe(false);
+		},
+	);
+
+	test.each([
 		{ provider: "aws-mantle", model: "gpt-6-astra", summary: "auto" },
-		{ provider: "aws-mantle", model: "gpt-5.6-sol", summary: "detailed" },
+		// AWS rejects `detailed` for GPT-5.6 on both the Mantle and the
+		// cross-region Runtime route.
+		{ provider: "aws-mantle", model: "gpt-5.6-sol", summary: "auto" },
 		{ provider: "openai", model: "gpt-6-astra", summary: "detailed" },
 	] as const)(
 		"uses the summary mode for $provider/$model",
@@ -6345,6 +6395,54 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				"Kept — a caller-supplied field we pass through.",
 			);
 		});
+
+		test("strips reasoning and reasoning_content on mistral", async () => {
+			const requestBody = (await prepareRequestBody(
+				"mistral",
+				"zai-glm-5-3",
+				null,
+				"glm-5.3",
+				[
+					{ role: "user", content: "My name is Ada." },
+					{
+						role: "assistant",
+						content: "Got it, Ada!",
+						reasoning: "Dropped — Mistral rejects this field.",
+						reasoning_content: "Dropped — Mistral rejects this one too.",
+					},
+					{ role: "user", content: "What is my name?" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				requestBody.messages.every(
+					(m: any) =>
+						m.reasoning === undefined && m.reasoning_content === undefined,
+				),
+			).toBe(true);
+			expect(requestBody.messages[1].content).toBe("Got it, Ada!");
+		});
 	});
 
 	describe("azure-ai-foundry", () => {
@@ -7288,12 +7386,12 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 	});
 
 	describe("perplexity", () => {
-		test("forwards caller-supplied max_tokens verbatim", async () => {
+		test("forwards caller-supplied max_tokens verbatim on the legacy Sonar path", async () => {
 			const requestBody = (await prepareRequestBody(
 				"perplexity",
-				"sonar",
+				"sonar-pro",
 				null,
-				"sonar",
+				"sonar-pro",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7310,14 +7408,17 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			)) as any;
 
 			expect(requestBody.max_tokens).toBe(32000);
+			expect(requestBody.messages).toEqual([
+				{ role: "user", content: "Hello!" },
+			]);
 		});
 
 		test("leaves max_tokens unset when caller omits", async () => {
 			const requestBody = (await prepareRequestBody(
 				"perplexity",
-				"sonar",
+				"sonar-pro",
 				null,
-				"sonar",
+				"sonar-pro",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7334,6 +7435,181 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			)) as any;
 
 			expect(requestBody.max_tokens).toBeUndefined();
+		});
+
+		test("builds an Agent API body for sonar", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				null,
+				"perplexity/sonar",
+				[
+					{ role: "system", content: "Be brief." },
+					{ role: "user", content: "Hello!" },
+				],
+				true,
+				0.3,
+				32000,
+				0.9,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.model).toBe("perplexity/sonar");
+			expect(requestBody.messages).toBeUndefined();
+			expect(requestBody.input).toEqual([
+				{
+					role: "system",
+					content: [{ type: "input_text", text: "Be brief." }],
+				},
+				{
+					role: "user",
+					content: [{ type: "input_text", text: "Hello!" }],
+				},
+			]);
+			// Sonar always searched; the Agent API only does when forced.
+			expect(requestBody.tools).toEqual([{ type: "web_search" }]);
+			expect(requestBody.tool_choice).toBe("required");
+			expect(requestBody.stream).toBe(true);
+			expect(requestBody.temperature).toBe(0.3);
+			expect(requestBody.top_p).toBe(0.9);
+			expect(requestBody.max_output_tokens).toBe(32000);
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+
+		test("maps web search options onto the Agent web_search tool", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				null,
+				"perplexity/sonar",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{
+					type: "web_search",
+					max_uses: 7,
+					search_context_size: "high",
+					allowed_domains: ["nasa.gov"],
+					blocked_domains: ["example.com"],
+				},
+			)) as any;
+
+			expect(requestBody.tools).toEqual([
+				{
+					type: "web_search",
+					max_results: 7,
+					search_context_size: "high",
+					filters: {
+						search_domain_filter: ["nasa.gov", "-example.com"],
+					},
+				},
+			]);
+		});
+
+		test("drops empty text parts and the messages left empty", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				null,
+				"perplexity/sonar",
+				[
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "describe this" },
+							{ type: "text", text: "" },
+						],
+					},
+					{ role: "assistant", content: "   " },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			// Perplexity 400s on an empty text part where chat/completions did not.
+			expect(requestBody.input).toEqual([
+				{
+					role: "user",
+					content: [{ type: "input_text", text: "describe this" }],
+				},
+			]);
+		});
+
+		test("maps json_schema response_format to text.format", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				null,
+				"perplexity/sonar",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{
+					type: "json_schema",
+					json_schema: {
+						name: "answer",
+						strict: true,
+						schema: {
+							type: "object",
+							properties: { answer: { type: "string" } },
+						},
+					},
+				},
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.response_format).toBeUndefined();
+			expect(requestBody.text).toEqual({
+				format: {
+					type: "json_schema",
+					name: "answer",
+					schema: {
+						type: "object",
+						properties: { answer: { type: "string" } },
+					},
+				},
+			});
 		});
 	});
 
@@ -8311,5 +8587,97 @@ describe("prepareRequestBody - tool_choice with thinking disabled", () => {
 		);
 
 		expect(requestBody).toMatchObject({ tool_choice: "auto" });
+	});
+});
+
+describe("prepareRequestBody - alibaba forced tool use", () => {
+	const tools = [
+		{
+			type: "function" as const,
+			function: {
+				name: "get_weather",
+				parameters: {
+					type: "object",
+					properties: { city: { type: "string" } },
+				},
+			},
+		},
+	];
+
+	const prepare = (model: string, region: string | null) =>
+		prepareRequestBody(
+			"alibaba",
+			model,
+			region,
+			model,
+			[{ role: "user", content: "What is the weather in Paris?" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			tools,
+			"required",
+			undefined, // reasoning_effort
+			true, // supportsReasoning
+		) as Promise<any>;
+
+	test.each([null, "singapore", "cn-beijing", "eu-frankfurt"])(
+		"keeps thinking on for glm-5.3 in region %s",
+		async (region) => {
+			// glm-5.3 rejects enable_thinking: false outright, so the always-thinking
+			// mapping must be resolved through region expansion too.
+			const requestBody = await prepare("glm-5.3", region);
+
+			expect(requestBody.enable_thinking).toBeUndefined();
+			expect(requestBody.tool_choice).toBe("required");
+		},
+	);
+
+	test.each([null, "singapore", "cn-beijing"])(
+		"still disables thinking for a non-reasoning mapping in region %s",
+		async (region) => {
+			const requestBody = await prepare("qwen-max", region);
+
+			expect(requestBody.enable_thinking).toBe(false);
+		},
+	);
+});
+
+describe("prepareRequestBody - bytedance prompt caching", () => {
+	async function prepare(provider: "bytedance" | "deepinfra", model: string) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "Hello!" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+		)) as any;
+	}
+
+	test("opts in on a bytedance mapping that prices cached input", async () => {
+		const requestBody = await prepare("bytedance", "seed-2-0-lite-260428");
+		expect(requestBody.caching).toEqual({ type: "enabled" });
+	});
+
+	test("leaves other providers untouched", async () => {
+		const requestBody = await prepare("deepinfra", "granite-4.2-8b");
+		expect(requestBody.caching).toBeUndefined();
 	});
 });

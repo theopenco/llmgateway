@@ -10,6 +10,7 @@ const { warn, error, setexMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@llmgateway/cache", () => ({
+	setSwrSchemaVersion: vi.fn(),
 	redisClient: {
 		get: vi.fn(),
 		// The caller chains .catch() on this, so it must be thenable.
@@ -179,6 +180,58 @@ describe("transformStreamingToOpenai", () => {
 		expect(new Set(ids).size).toBe(3);
 		for (const id of ids) {
 			expect(id.startsWith("read_file_")).toBe(true);
+		}
+	});
+
+	it("keeps Google tool indices distinct across chunks and candidates", () => {
+		const googleToolCallIndices = new Map<number, number>();
+		const transform = (indices: number[]) =>
+			transformStreamingToOpenai(
+				"google-ai-studio",
+				"gemini-3.8-flash",
+				{
+					candidates: indices.map((index) => ({
+						index,
+						content: {
+							parts: [
+								{ text: "Looking up files." },
+								{
+									functionCall: { name: "read_file", args: { path: "a.txt" } },
+									thoughtSignature: `signature-${index}`,
+								},
+								{
+									functionCall: { name: "read_file", args: { path: "b.txt" } },
+								},
+							],
+						},
+					})),
+				},
+				[],
+				undefined,
+				true,
+				undefined,
+				undefined,
+				{ googleToolCallIndices },
+			);
+
+		const first = transform([0, 1]);
+		const second = transform([1, 0]);
+		for (const choice of first.choices) {
+			expect(choice.delta.tool_calls).toMatchObject([
+				{
+					index: 0,
+					extra_content: {
+						google: { thought_signature: `signature-${choice.index}` },
+					},
+				},
+				{ index: 1 },
+			]);
+		}
+		for (const choice of second.choices) {
+			expect(choice.delta.tool_calls).toMatchObject([
+				{ index: 2 },
+				{ index: 3 },
+			]);
 		}
 	});
 
@@ -958,6 +1011,107 @@ describe("transformStreamingToOpenai", () => {
 				index: 0,
 				google_part: { text_offset: 5 },
 			},
+		]);
+	});
+});
+
+describe("perplexity agent api streaming", () => {
+	it("emits sources with dates on the search_results item", () => {
+		const result = transformStreamingToOpenai(
+			"perplexity",
+			"perplexity/sonar",
+			{
+				type: "response.output_item.done",
+				output_index: 0,
+				response: { id: "resp_1", created_at: 1789819970 },
+				item: {
+					type: "search_results",
+					queries: ["artemis"],
+					results: [
+						{
+							id: 1,
+							url: "https://www.nasa.gov/artemis",
+							title: "Artemis News",
+							snippet: "Artemis II flew.",
+							date: "2026-09-16",
+							last_updated: "2026-09-17",
+							source: "web",
+						},
+					],
+				},
+			},
+			[],
+		);
+
+		expect(result.search_results).toEqual([
+			{
+				url: "https://www.nasa.gov/artemis",
+				title: "Artemis News",
+				snippet: "Artemis II flew.",
+				date: "2026-09-16",
+				last_updated: "2026-09-17",
+				source: "web",
+			},
+		]);
+		expect(result.citations).toEqual(["https://www.nasa.gov/artemis"]);
+		expect(result.choices[0].delta.annotations).toEqual([
+			{
+				type: "url_citation",
+				url_citation: {
+					url: "https://www.nasa.gov/artemis",
+					title: "Artemis News",
+					date: "2026-09-16",
+					last_updated: "2026-09-17",
+				},
+			},
+		]);
+	});
+
+	it("maps output_text deltas to content", () => {
+		const result = transformStreamingToOpenai(
+			"perplexity",
+			"perplexity/sonar",
+			{
+				type: "response.output_text.delta",
+				delta: "Artemis",
+				response: { id: "resp_1", created_at: 1789819970 },
+			},
+			[],
+		);
+
+		expect(result.choices[0].delta.content).toBe("Artemis");
+	});
+
+	it("drops Perplexity's search progress events", () => {
+		expect(
+			transformStreamingToOpenai(
+				"perplexity",
+				"perplexity/sonar",
+				{ type: "response.reasoning.search_queries", queries: ["artemis"] },
+				[],
+			),
+		).toBeNull();
+	});
+
+	it("still handles Sonar chat/completions chunks", () => {
+		const result = transformStreamingToOpenai(
+			"perplexity",
+			"perplexity/sonar-pro",
+			{
+				id: "chunk-1",
+				object: "chat.completion.chunk",
+				created: 1234567890,
+				model: "sonar-pro",
+				choices: [{ index: 0, delta: { content: "hi" }, finish_reason: null }],
+				search_results: [{ url: "https://example.com", date: "2026-09-01" }],
+			},
+			[],
+		);
+
+		expect(result.choices[0].delta.content).toBe("hi");
+		// Top-level passthrough is how Sonar callers already receive sources.
+		expect(result.search_results).toEqual([
+			{ url: "https://example.com", date: "2026-09-01" },
 		]);
 	});
 });

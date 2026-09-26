@@ -2,6 +2,7 @@ import { OpenAPIHono, z } from "@hono/zod-openapi";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
+import { openAIErrorSchema } from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 
@@ -110,6 +111,47 @@ const clientSecretRequestSchema = z
 		session: clientSecretSessionSchema,
 	})
 	.strict();
+
+// Register the existing handler without changing its validation/error contract.
+realtimeClientSecretsRoute.openAPIRegistry.registerPath({
+	method: "post",
+	path: "/client_secrets",
+	operationId: "v1_realtime_client_secrets",
+	tags: ["Realtime"],
+	summary: "Create a realtime client secret",
+	security: [{ bearerAuth: [] }],
+	request: {
+		body: {
+			required: true,
+			content: { "application/json": { schema: clientSecretRequestSchema } },
+		},
+	},
+	responses: {
+		200: {
+			description: "Short-lived secret for a realtime WebSocket session.",
+			content: {
+				"application/json": {
+					schema: z.object({
+						value: z.string(),
+						expires_at: z.number(),
+						session: z.discriminatedUnion("type", [
+							z.object({ type: z.literal("realtime"), model: z.string() }),
+							transcriptionSessionSchema,
+						]),
+					}),
+				},
+			},
+		},
+		default: {
+			description: "Authentication, validation, or availability error.",
+			content: {
+				"application/json": {
+					schema: openAIErrorSchema,
+				},
+			},
+		},
+	},
+});
 
 function errorResponse(
 	c: Context<ServerTypes>,

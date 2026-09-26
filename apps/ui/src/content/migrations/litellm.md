@@ -4,6 +4,7 @@ slug: litellm
 title: Migrate from LiteLLM
 description: Switch from self-hosted LiteLLM to managed LLM Gateway. Same API format, zero infrastructure to maintain.
 date: 2026-01-20
+updatedAt: 2026-09-20
 fromProvider: LiteLLM
 ---
 
@@ -32,7 +33,9 @@ Both services use OpenAI-compatible endpoints, so migration is a two-line change
 | Response caching         | Manual setup          | Built-in, automatic  |
 | Cost tracking            | Via callbacks         | Native, real-time    |
 | Provider key management  | Config file           | Web UI with rotation |
-| Uptime & scaling         | You handle it         | 99.9% SLA (Pro/Ent)  |
+| Uptime & scaling         | You handle it         | 99.9% SLA (managed)  |
+
+Self-hosting also means you own the patch cycle. On March 24, 2026 two malicious `litellm` releases (1.82.7 and 1.82.8) reached PyPI and were pulled after about 40 minutes; they harvested credentials from unpinned pip installs, while pinned Docker deployments were unaffected. Pin versions wherever you self-host — LLM Gateway included — or use the managed gateway and skip the upkeep.
 
 Still want to self-host? LLM Gateway is [open source under AGPLv3](/blog/how-to-self-host-llm-gateway)—same features, your infrastructure.
 
@@ -51,27 +54,27 @@ LLM Gateway supports two model ID formats:
 **Canonical Model IDs** (without provider prefix) - Uses smart routing to automatically select the best provider based on uptime, throughput, price, and latency:
 
 ```
-gpt-5.2
-claude-opus-4-5-20251101
-gemini-3-flash-preview
+gpt-6-astra
+claude-sonnet-5
+gemini-3.1-pro-preview
 ```
 
 **Provider-Prefixed Model IDs** - Routes to a specific provider with automatic failover if uptime drops below 90%:
 
 ```
-openai/gpt-5.2
-anthropic/claude-opus-4-5-20251101
-google-ai-studio/gemini-3-flash-preview
+openai/gpt-6-astra
+anthropic/claude-sonnet-5
+google-ai-studio/gemini-3.1-pro-preview
 ```
 
 This means many LiteLLM model names work directly with LLM Gateway:
 
-| LiteLLM Model                    | LLM Gateway Model                                                 |
-| -------------------------------- | ----------------------------------------------------------------- |
-| gpt-5.2                          | gpt-5.2 or openai/gpt-5.2                                         |
-| claude-opus-4-5-20251101         | claude-opus-4-5-20251101 or anthropic/claude-opus-4-5-20251101    |
-| gemini/gemini-3-flash-preview    | gemini-3-flash-preview or google-ai-studio/gemini-3-flash-preview |
-| bedrock/claude-opus-4-5-20251101 | claude-opus-4-5-20251101 or aws-bedrock/claude-opus-4-5-20251101  |
+| LiteLLM Model                     | LLM Gateway Model                                                 |
+| --------------------------------- | ----------------------------------------------------------------- |
+| gpt-6-astra                       | gpt-6-astra or openai/gpt-6-astra                                 |
+| anthropic/claude-sonnet-5         | claude-sonnet-5 or anthropic/claude-sonnet-5                      |
+| gemini/gemini-3.1-pro-preview     | gemini-3.1-pro-preview or google-ai-studio/gemini-3.1-pro-preview |
+| bedrock/anthropic.claude-sonnet-5 | claude-sonnet-5 or aws-bedrock/claude-sonnet-5                    |
 
 For more details on routing behavior, see the [routing documentation](https://docs.llmgateway.io/features/routing).
 
@@ -89,7 +92,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="gpt-4",
+    model="gpt-6-astra",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 
@@ -100,7 +103,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="gpt-4",  # or "openai/gpt-4" to target a specific provider
+    model="gpt-6-astra",  # or "openai/gpt-6-astra" to target a specific provider
     messages=[{"role": "user", "content": "Hello!"}]
 )
 ```
@@ -114,13 +117,13 @@ import litellm
 
 # Before (direct LiteLLM)
 response = litellm.completion(
-    model="gpt-4",
+    model="gpt-6-astra",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 
 # After (via LLM Gateway) - same model name works
 response = litellm.completion(
-    model="gpt-4",  # or "openai/gpt-4" to target a specific provider
+    model="gpt-6-astra",  # or "openai/gpt-6-astra" to target a specific provider
     messages=[{"role": "user", "content": "Hello!"}],
     api_base="https://api.llmgateway.io/v1",
     api_key=os.environ["LLM_GATEWAY_API_KEY"]
@@ -145,7 +148,7 @@ const client = new OpenAI({
 });
 
 const completion = await client.chat.completions.create({
-  model: "gpt-4", // or "openai/gpt-4" to target a specific provider
+  model: "gpt-6-astra", // or "openai/gpt-6-astra" to target a specific provider
   messages: [{ role: "user", content: "Hello!" }],
 });
 ```
@@ -158,7 +161,7 @@ curl http://localhost:4000/v1/chat/completions \
   -H "Authorization: Bearer $LITELLM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4",
+    "model": "gpt-6-astra",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 
@@ -167,10 +170,10 @@ curl https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4",
+    "model": "gpt-6-astra",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
-# Use "openai/gpt-4" to target a specific provider
+# Use "openai/gpt-6-astra" to target a specific provider
 ```
 
 ### 4. Migrate Configuration
@@ -180,13 +183,13 @@ curl https://api.llmgateway.io/v1/chat/completions \
 ```yaml
 # litellm_config.yaml
 model_list:
-  - model_name: gpt-4
+  - model_name: gpt-6-astra
     litellm_params:
-      model: gpt-4
+      model: openai/gpt-6-astra
       api_key: sk-...
-  - model_name: claude-3
+  - model_name: claude-sonnet-5
     litellm_params:
-      model: claude-3-sonnet-20240229
+      model: anthropic/claude-sonnet-5
       api_key: sk-ant-...
 ```
 
@@ -209,7 +212,7 @@ client = OpenAI(
 )
 
 stream = client.chat.completions.create(
-    model="openai/gpt-4",
+    model="openai/gpt-6-astra",
     messages=[{"role": "user", "content": "Write a story"}],
     stream=True
 )
@@ -247,7 +250,7 @@ tools = [{
 }]
 
 response = client.chat.completions.create(
-    model="openai/gpt-4",
+    model="openai/gpt-6-astra",
     messages=[{"role": "user", "content": "What's the weather in Tokyo?"}],
     tools=tools
 )
@@ -275,10 +278,10 @@ After verifying LLM Gateway works for your use case, you can decommission your L
 If you prefer self-hosting like LiteLLM, LLM Gateway is available under AGPLv3:
 
 ```bash
-git clone https://github.com/llmgateway/llmgateway
+git clone https://github.com/theopenco/llmgateway
 cd llmgateway
 pnpm install
-pnpm setup
+pnpm run setup
 pnpm dev
 ```
 

@@ -6,6 +6,13 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
 import { MultiProviderSelector } from "@llmgateway/shared/components";
@@ -19,12 +26,22 @@ interface ContentFilterProvider {
 	enabled: boolean;
 }
 
+type Classifier = ContentFilterSettingsInput["classifier"];
+type ShadowClassifier = ContentFilterSettingsInput["shadowClassifier"];
+
+const CLASSIFIER_LABELS: Record<Classifier, string> = {
+	openai: "OpenAI moderation",
+	jev: "Jev (TypeSafe)",
+};
+
 interface ContentFilterSettingsFormProps {
 	settings: {
 		enabled: boolean;
 		sampleRatePercent: number;
 		enforce: boolean;
 		enforceEnterprise: boolean;
+		classifier: Classifier;
+		shadowClassifier: ShadowClassifier;
 		providers: ContentFilterProvider[];
 	};
 	onSave: (
@@ -46,9 +63,16 @@ export function ContentFilterSettingsForm({
 	const [enforceEnterprise, setEnforceEnterprise] = useState(
 		settings.enforceEnterprise,
 	);
+	const [classifier, setClassifier] = useState<Classifier>(settings.classifier);
+	const [shadowClassifier, setShadowClassifier] = useState<ShadowClassifier>(
+		settings.shadowClassifier,
+	);
 	const [providerIds, setProviderIds] = useState<string[]>(() =>
 		settings.providers.filter((p) => p.enabled).map((p) => p.id),
 	);
+	const allSelected =
+		settings.providers.length > 0 &&
+		providerIds.length >= settings.providers.length;
 	const [error, setError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
 
@@ -68,6 +92,8 @@ export function ContentFilterSettingsForm({
 				sampleRatePercent: rate,
 				enforce,
 				enforceEnterprise: savedEnforceEnterprise,
+				classifier,
+				shadowClassifier,
 				providerIds,
 			});
 			if (!result.ok) {
@@ -169,9 +195,91 @@ export function ContentFilterSettingsForm({
 			</div>
 
 			<div className="space-y-2">
-				<p className="text-sm font-medium">Providers</p>
+				<Label htmlFor="content-filter-classifier">Classifier</Label>
+				<Select
+					value={classifier}
+					disabled={pending}
+					onValueChange={(value) => {
+						setSaved(false);
+						setClassifier(value as Classifier);
+						// A classifier never shadows itself.
+						if (shadowClassifier === value) {
+							setShadowClassifier("none");
+						}
+					}}
+				>
+					<SelectTrigger id="content-filter-classifier" className="w-64">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						{(Object.keys(CLASSIFIER_LABELS) as Classifier[]).map((option) => (
+							<SelectItem key={option} value={option}>
+								{CLASSIFIER_LABELS[option]}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
 				<p className="text-xs text-muted-foreground">
-					Only requests routed to an enabled provider are moderated.
+					Model that scores sampled requests and decides the outcome. Jev is
+					text-only: image parts are still moderated by OpenAI. Thresholds are
+					per classifier, so re-measure before switching an enforcing filter.
+				</p>
+			</div>
+
+			<div className="space-y-2">
+				<Label htmlFor="content-filter-shadow-classifier">
+					Shadow classifier
+				</Label>
+				<Select
+					value={shadowClassifier}
+					disabled={pending}
+					onValueChange={(value) => {
+						setSaved(false);
+						setShadowClassifier(value as ShadowClassifier);
+					}}
+				>
+					<SelectTrigger id="content-filter-shadow-classifier" className="w-64">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="none">None</SelectItem>
+						{(Object.keys(CLASSIFIER_LABELS) as Classifier[])
+							.filter((option) => option !== classifier)
+							.map((option) => (
+								<SelectItem key={option} value={option}>
+									{CLASSIFIER_LABELS[option]}
+								</SelectItem>
+							))}
+					</SelectContent>
+				</Select>
+				<p className="text-xs text-muted-foreground">
+					Runs on the same sampled requests for comparison and is recorded on
+					the request log, including whether it disagreed. It never blocks, and
+					it doubles the moderation cost of a sampled request.
+				</p>
+			</div>
+
+			<div className="space-y-2">
+				<div className="flex items-center justify-between gap-3">
+					<p className="text-sm font-medium">Providers</p>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						disabled={pending || settings.providers.length === 0}
+						onClick={() => {
+							setSaved(false);
+							setProviderIds(
+								allSelected ? [] : settings.providers.map((p) => p.id),
+							);
+						}}
+					>
+						{allSelected ? "Unselect all" : "Select all"}
+					</Button>
+				</div>
+				<p className="text-xs text-muted-foreground">
+					Only requests routed to an enabled provider are moderated.{" "}
+					{providerIds.length} of {settings.providers.length} selected.
 				</p>
 				<MultiProviderSelector
 					providers={settings.providers}

@@ -57,6 +57,7 @@ import {
 } from "@llmgateway/shared/log-retention";
 
 import { posthog } from "./posthog.js";
+import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
 import {
 	runFollowUpEmailsLoop,
 	sendLowBalanceEmail,
@@ -71,6 +72,7 @@ import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
 	refreshProjectHourlyStats,
 } from "./services/project-stats-aggregator.js";
+import { runRoutingBaselineBackfillStep } from "./services/routing-baseline-backfill.js";
 import {
 	backfillHistoryIfNeeded,
 	backfillHourlyHistoryIfNeeded,
@@ -123,6 +125,7 @@ const LIMIT_HIT_FLUSH_LOCK_KEY = "limit_hit_flush";
 const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
+const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
 const LOCK_DURATION_MINUTES = 5;
 // LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
@@ -160,6 +163,8 @@ const MODEL_VERIFICATION_POLL_INTERVAL_SECONDS =
 	configuredModelVerificationPollIntervalSeconds > 0
 		? configuredModelVerificationPollIntervalSeconds
 		: 2;
+const BENCHMARK_RUN_POLL_INTERVAL_SECONDS =
+	Number(process.env.BENCHMARK_RUN_POLL_INTERVAL_SECONDS) || 10;
 
 interface ApiKeyUsageEvent {
 	cost: Decimal;
@@ -377,6 +382,31 @@ async function resolveDevPassStripePaymentMethodId(org: {
 		}
 	}
 	return null;
+}
+
+/**
+ * Whether auto top-up will actually refill this org. Enabled alone is not
+ * enough: risk-flagged and DevPass-without-PAYG orgs are skipped by
+ * `processAutoTopUp`, and an org in payment-failure backoff may never get
+ * charged before it runs dry.
+ */
+export function isAutoTopUpEffective(org: {
+	autoTopUpEnabled: boolean;
+	riskFlagged?: boolean | null;
+	kind?: string | null;
+	devPlanPaygEnabled?: boolean | null;
+	paymentFailureStartedAt?: Date | null;
+}): boolean {
+	if (!org.autoTopUpEnabled) {
+		return false;
+	}
+	if (org.riskFlagged) {
+		return false;
+	}
+	if (org.kind === "devpass" && !org.devPlanPaygEnabled) {
+		return false;
+	}
+	return !org.paymentFailureStartedAt;
 }
 
 export async function processAutoTopUp(): Promise<void> {
@@ -1871,7 +1901,7 @@ export async function batchProcessLogs(): Promise<number> {
 	return processedCount;
 }
 
-async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
+export async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
 	try {
 		const orgs = await db
 			.select()
@@ -1880,6 +1910,12 @@ async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
 
 		for (const org of orgs) {
 			try {
+				// The whole point of these emails is "top up / enable auto-reload";
+				// an org whose auto top-up will refill it does not need either.
+				if (isAutoTopUpEffective(org)) {
+					continue;
+				}
+
 				const lastTopUp = Number(org.lastTopUpAmount ?? 0);
 				if (lastTopUp <= 0) {
 					continue;
@@ -2375,6 +2411,33 @@ async function runModelVerificationLoop() {
 	}
 }
 
+async function runBenchmarkRunLoop() {
+	activeLoops++;
+	const interval = BENCHMARK_RUN_POLL_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting benchmark run loop (interval: ${BENCHMARK_RUN_POLL_INTERVAL_SECONDS} seconds)...`,
+	);
+	try {
+		while (!isStopRequested()) {
+			try {
+				const processed = await processNextBenchmarkRun();
+				if (!processed) {
+					await interruptibleSleep(interval);
+				}
+			} catch (error) {
+				logger.error(
+					"Error in benchmark run loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Benchmark run loop stopped");
+	}
+}
+
 async function runVideoWebhookLoop() {
 	activeLoops++;
 	const interval = VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS * 1000;
@@ -2478,6 +2541,37 @@ async function runProjectStatsLoop() {
 	} finally {
 		activeLoops--;
 		logger.info("Project stats loop stopped");
+	}
+}
+
+async function runRoutingBaselineBackfillLoop() {
+	activeLoops++;
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (!(await acquireLock(ROUTING_BASELINE_BACKFILL_LOCK_KEY))) {
+					await interruptibleSleep(60_000);
+					continue;
+				}
+				let pending: boolean;
+				try {
+					pending = await runRoutingBaselineBackfillStep();
+				} finally {
+					await releaseLock(ROUTING_BASELINE_BACKFILL_LOCK_KEY);
+				}
+				if (!pending) {
+					break;
+				}
+			} catch (error) {
+				logger.error(
+					"Error in routing baseline backfill loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
 	}
 }
 
@@ -3223,6 +3317,9 @@ export async function startWorker() {
 		`- Model verification: runs every ${MODEL_VERIFICATION_POLL_INTERVAL_SECONDS} seconds`,
 	);
 	logger.info(
+		`- Benchmark runs: runs every ${BENCHMARK_RUN_POLL_INTERVAL_SECONDS} seconds for admin-queued benchmarks`,
+	);
+	logger.info(
 		"- Aggregated stats: runs every 1 minute at the start of each minute",
 	);
 	logger.info(
@@ -3230,6 +3327,9 @@ export async function startWorker() {
 	);
 	logger.info(
 		`- Global stats: runs every ${GLOBAL_STATS_INTERVAL_SECONDS} seconds, processes closed buckets incrementally`,
+	);
+	logger.info(
+		"- Routing baseline backfill: prices routed requests of the last 30 days once, then stops",
 	);
 	logger.info(
 		"- Follow-up emails: runs every hour to check for lifecycle emails",
@@ -3243,9 +3343,11 @@ export async function startWorker() {
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
 	void runModelVerificationLoop();
+	void runBenchmarkRunLoop();
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
 	void runGlobalStatsLoop();
+	void runRoutingBaselineBackfillLoop();
 	for (let i = 0; i < LOG_QUEUE_CONCURRENCY; i++) {
 		void runLogQueueLoop(i);
 	}

@@ -5,7 +5,16 @@ import {
 	HoverCardContent,
 	HoverCardTrigger,
 } from "@/components/ui/hover-card";
+import {
+	formatProviderCacheRate,
+	providerCacheRate,
+} from "@/lib/provider-cache-rate";
 import { cn } from "@/lib/utils";
+
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 /**
  * Token counts split by billed token type, plus the cost each type accounts
@@ -58,19 +67,7 @@ const SEGMENTS: {
 ];
 
 export function formatCompactTokens(value: number): string {
-	if (!Number.isFinite(value)) {
-		return "0";
-	}
-	if (value >= 1_000_000_000) {
-		return `${(value / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (value >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		return `${(value / 1_000).toFixed(1)}k`;
-	}
-	return Math.round(value).toLocaleString("en-US");
+	return formatCompactNumber(Number.isFinite(value) ? Math.round(value) : 0);
 }
 
 function formatCost(value: number): string {
@@ -84,7 +81,7 @@ function formatCost(value: number): string {
 }
 
 function formatExactTokens(value: number): string {
-	return Math.round(value).toLocaleString("en-US");
+	return formatNumber(Math.round(value));
 }
 
 // Effective blended rate for the segment, which is the number that actually
@@ -143,6 +140,17 @@ function SegmentHoverCard({
 	);
 }
 
+function ProviderCacheRate({ breakdown }: { breakdown: TokenBreakdownData }) {
+	return (
+		<span title="Provider-cached input tokens divided by total input tokens; excludes gateway cache hits.">
+			Provider cache rate:{" "}
+			<strong className="font-medium tabular-nums text-foreground">
+				{formatProviderCacheRate(providerCacheRate(breakdown))}
+			</strong>
+		</span>
+	);
+}
+
 /**
  * Inline `In 15.1M · Cached 3.0M · Out 2.2M` breakdown where hovering any
  * segment reveals the cost that segment accounts for.
@@ -197,6 +205,8 @@ export function TokenBreakdown({
 					</span>
 				);
 			})}
+			<span aria-hidden="true">·</span>
+			<ProviderCacheRate breakdown={breakdown} />
 		</span>
 	);
 }
@@ -310,6 +320,16 @@ export function TokenBreakdownCards({
 						<p className="mt-1 text-xs text-muted-foreground tabular-nums">
 							{formatCost(breakdown[segment.costKey])}
 						</p>
+						{segment.kind === "cached" && (
+							<p
+								className={cn(
+									"mt-1 text-xs text-muted-foreground",
+									loading && "opacity-50",
+								)}
+							>
+								<ProviderCacheRate breakdown={breakdown} />
+							</p>
+						)}
 					</button>
 				</SegmentHoverCard>
 			))}

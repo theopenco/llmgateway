@@ -26,6 +26,8 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { paths } from "@/lib/api/v1";
 import type { Log } from "@llmgateway/db";
 
@@ -227,7 +229,7 @@ function SessionCard({
 						</div>
 						<div className="flex items-center gap-1" title="Total tokens">
 							<Cpu className="h-3.5 w-3.5" />
-							{session.totalTokens.toLocaleString()}
+							{formatNumber(session.totalTokens)}
 						</div>
 						<div className="flex items-center gap-1" title="Duration">
 							<Clock className="h-3.5 w-3.5" />

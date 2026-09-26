@@ -78,6 +78,7 @@ import {
 	shortid,
 	tables,
 } from "@llmgateway/db";
+import { accountBlockMessage } from "@llmgateway/shared/account-block";
 import {
 	getApiKeyFingerprint,
 	getApiKeyFingerprints,
@@ -127,7 +128,12 @@ v1Master.use("*", async (c, next) => {
 	}
 
 	if (row.organization?.status === "deleted") {
-		throw new HTTPException(403, { message: "Organization is not active" });
+		throw new HTTPException(403, {
+			message: accountBlockMessage(
+				row.organization.blockReason,
+				"Organization is not active",
+			),
+		});
 	}
 
 	if (

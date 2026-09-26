@@ -4,7 +4,10 @@ import { Decimal } from "decimal.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { assertMemberProjectAccess } from "@/lib/api-key-usage-limits.js";
-import { findApiKeyByToken } from "@/lib/cached-queries.js";
+import {
+	findApiKeyByToken,
+	findOrganizationById,
+} from "@/lib/cached-queries.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 
@@ -351,6 +354,31 @@ describe("RealtimeProxySession turn handling", () => {
 });
 
 describe("RealtimeProxySession authorization", () => {
+	it("closes a blocked organization's session with its reason", async () => {
+		const { client, upstream, session, clientSends } =
+			await openSession(createSession());
+		vi.mocked(findOrganizationById).mockResolvedValueOnce({
+			...buildPreflight().organization,
+			status: "deleted",
+			blockReason: "Key sharing violates our terms.",
+		});
+		clientSends({ type: "response.create" });
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(
+			client.sent.some((message) =>
+				message.includes("Key sharing violates our terms."),
+			),
+		).toBe(true);
+		expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+			"rts_1",
+			"closed",
+			"organization_unavailable",
+			expect.anything(),
+		);
+		session.shutdown(1000, "test_done");
+	});
+
 	it("rejects a transcription model the key's IAM rules do not allow", async () => {
 		const { client, upstream, session, clientSends } = await openSession(
 			createSession({

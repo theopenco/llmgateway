@@ -4,6 +4,7 @@ import { ArrowRight, Check, ShieldCheck, Zap } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 
+import { DevPassPlanChangeNotice } from "@/components/DevPassPlanChangeNotice";
 import { CodeCTATracker, CodePlanTracker } from "@/components/LandingTracker";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { Button } from "@/components/ui/button";
@@ -77,6 +78,9 @@ interface PricingPlansProps {
 export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 	return (
 		<div>
+			<div className="mb-6">
+				<DevPassPlanChangeNotice />
+			</div>
 			<div className="grid items-stretch gap-6 md:grid-cols-3">
 				{plans.map((plan, idx) => {
 					const monthlyPrice = DEV_PLAN_PRICES[plan.tier];

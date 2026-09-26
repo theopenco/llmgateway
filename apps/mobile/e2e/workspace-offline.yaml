@@ -1,0 +1,10 @@
+appId: io.llmgateway.lounge
+---
+# Run after workspace-persistence.yaml, with the isolated API stopped.
+- launchApp
+- extendedWaitUntil:
+    visible: "Try again"
+    timeout: 20000
+- assertNotVisible: "New conversation"
+- assertNotVisible: ".*Current workspace: Personal Lounge"
+- assertVisible: "Choose workspace"

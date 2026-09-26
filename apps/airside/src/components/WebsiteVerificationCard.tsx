@@ -5,6 +5,7 @@ import { BadgeCheck, Copy, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { RelativeDate } from "@/components/RelativeDate";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/lib/fetch-client";
 
@@ -68,8 +69,14 @@ export function WebsiteVerificationCard({ companyId }: { companyId: string }) {
 				data-testid="website-verified"
 			>
 				<BadgeCheck className="size-3.5" />
-				<span className="font-mono">{data.verifiedDomain}</span> verified over
-				DNS — carriers on this domain are claimable.
+				<span className="font-mono">{data.verifiedDomain}</span> verified
+				{data.verifiedAt ? (
+					<>
+						{" "}
+						<RelativeDate date={data.verifiedAt} />
+					</>
+				) : null}{" "}
+				over DNS — carriers on this domain are claimable.
 			</p>
 		);
 	}

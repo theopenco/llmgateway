@@ -24,6 +24,12 @@ import { Textarea } from "@/lib/components/textarea";
 import { useToast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
+import {
+	formatStatementDescriptor,
+	normalizeStatementDescriptorSuffix,
+	STATEMENT_DESCRIPTOR_SUFFIX_MAX_LENGTH,
+} from "@llmgateway/shared";
+
 import type { Project } from "@/lib/types";
 
 interface SdkSettingsProps {
@@ -107,6 +113,15 @@ export function SdkSettings({
 	const [allowedOriginsText, setAllowedOriginsText] = useState(
 		(initialProject.allowedOrigins ?? []).join("\n"),
 	);
+	const [brandName, setBrandName] = useState(
+		initialProject.endUserBrandName ?? "",
+	);
+	const [supportEmail, setSupportEmail] = useState(
+		initialProject.endUserSupportEmail ?? "",
+	);
+	const [descriptorSuffix, setDescriptorSuffix] = useState(
+		initialProject.endUserStatementDescriptorSuffix ?? "",
+	);
 	const [createdToken, setCreatedToken] = useState("");
 
 	const platformKeysQuery = api.useQuery(
@@ -131,6 +146,11 @@ export function SdkSettings({
 
 	const projectQueryKey = api.queryOptions("get", "/orgs/{id}/projects", {
 		params: { path: { id: orgId } },
+	}).queryKey;
+	// The page server-renders from GET /projects/{id}, so invalidating only the
+	// org list would leave stale values on screen until a full navigation.
+	const singleProjectQueryKey = api.queryOptions("get", "/projects/{id}", {
+		params: { path: { id: projectId } },
 	}).queryKey;
 	const platformKeysQueryKey = api.queryOptions("get", "/keys/platform", {
 		params: { query: { projectId } },
@@ -170,12 +190,21 @@ export function SdkSettings({
 					endUserMarkupPercent: markupPercent,
 					endUserTopUpBonusPercent: bonusPercent,
 					allowedOrigins,
+					endUserBrandName: brandName.trim() || null,
+					endUserSupportEmail: supportEmail.trim() || null,
+					endUserStatementDescriptorSuffix: descriptorSuffix.trim() || null,
 				},
 			});
 			setAllowedOriginsText(allowedOrigins.join("\n"));
-			await queryClient.invalidateQueries({
-				queryKey: projectQueryKey,
-			});
+			// Show what the server actually stored: the suffix is normalized on
+			// write, so what the user typed is not necessarily what is saved.
+			setDescriptorSuffix(
+				normalizeStatementDescriptorSuffix(descriptorSuffix) ?? "",
+			);
+			await Promise.all([
+				queryClient.invalidateQueries({ queryKey: projectQueryKey }),
+				queryClient.invalidateQueries({ queryKey: singleProjectQueryKey }),
+			]);
 			toast({
 				title: "Settings saved",
 				description: "SDK project settings have been updated.",
@@ -344,6 +373,66 @@ export function SdkSettings({
 						/>
 						<p className="text-muted-foreground text-sm">
 							One browser origin per line.
+						</p>
+					</div>
+					<Separator />
+					<div>
+						<h4 className="font-medium">Receipts &amp; branding</h4>
+						<p className="text-muted-foreground text-sm">
+							LLM Gateway is the merchant of record and stays on every receipt.
+							These fields tell your end-users which product the charge came
+							from.
+						</p>
+					</div>
+					<div className="grid gap-2 sm:max-w-md">
+						<Label htmlFor="brandName">Brand name</Label>
+						<Input
+							id="brandName"
+							value={brandName}
+							onChange={(event) => setBrandName(event.target.value)}
+							placeholder={initialProject.name}
+							maxLength={64}
+							disabled={isPreview}
+						/>
+						<p className="text-muted-foreground text-sm">
+							Shown on the end-user's receipt. Defaults to the project name.
+						</p>
+					</div>
+					<div className="grid gap-2 sm:max-w-md">
+						<Label htmlFor="supportEmail">Support email</Label>
+						<Input
+							id="supportEmail"
+							type="email"
+							value={supportEmail}
+							onChange={(event) => setSupportEmail(event.target.value)}
+							placeholder="support@example.com"
+							disabled={isPreview}
+						/>
+						<p className="text-muted-foreground text-sm">
+							Where end-users should write about a purchase. Leave empty to show
+							only ours.
+						</p>
+					</div>
+					<div className="grid gap-2 sm:max-w-md">
+						<Label htmlFor="descriptorSuffix">Statement descriptor</Label>
+						<Input
+							id="descriptorSuffix"
+							value={descriptorSuffix}
+							onChange={(event) => setDescriptorSuffix(event.target.value)}
+							placeholder="ACME AI"
+							maxLength={STATEMENT_DESCRIPTOR_SUFFIX_MAX_LENGTH}
+							disabled={isPreview}
+							className="font-mono"
+						/>
+						<p className="text-muted-foreground text-sm">
+							Appears on your end-user's card statement as{" "}
+							<span className="font-mono">
+								{formatStatementDescriptor(
+									normalizeStatementDescriptorSuffix(descriptorSuffix),
+								)}
+							</span>
+							. Letters, digits, spaces, dashes and dots only; up to{" "}
+							{STATEMENT_DESCRIPTOR_SUFFIX_MAX_LENGTH} characters.
 						</p>
 					</div>
 					<div className="flex justify-end">

@@ -1,4 +1,4 @@
-content/(api)/
+content/(gateway)/(api)/
 .content-collections
 .next
 .source

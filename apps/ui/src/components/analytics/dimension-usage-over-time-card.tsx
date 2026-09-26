@@ -33,6 +33,10 @@ import {
 	formatBucketLabelWithZone,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import {
 	buildDimensionTimeseries,
@@ -169,9 +173,7 @@ export function DimensionUsageOverTimeCard({
 										if (activeMetric === "cost") {
 											return `$${value >= 1 ? value.toFixed(2) : value.toFixed(4)}`;
 										}
-										return value >= 1000
-											? `${(value / 1000).toFixed(1)}k`
-											: String(value);
+										return formatCompactNumber(value);
 									}}
 								/>
 								<ChartTooltip
@@ -199,7 +201,7 @@ export function DimensionUsageOverTimeCard({
 													const formatted =
 														activeMetric === "cost"
 															? currencyFormatter.format(Number(value))
-															: Number(value).toLocaleString();
+															: formatNumber(Number(value));
 													return (
 														<span>
 															{label}: <strong>{formatted}</strong>

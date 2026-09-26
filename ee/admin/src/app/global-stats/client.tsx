@@ -75,6 +75,7 @@ import { usageModeDescription, usageModeLabel } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import { detectCsvFormat } from "@llmgateway/shared";
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
 import type { ChartConfig } from "@/components/ui/chart";
 import type { ReactNode } from "react";
@@ -139,12 +140,6 @@ const compactCurrencyFormatter = new Intl.NumberFormat("en-US", {
 
 const numberFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 0,
-});
-
-const compactNumberFormatter = new Intl.NumberFormat("en-US", {
-	notation: "compact",
-	compactDisplay: "short",
-	maximumFractionDigits: 1,
 });
 
 const timeseriesChartConfig = {
@@ -296,7 +291,7 @@ function compactMetricFormatter(metric: TimeseriesMetric) {
 		case "totalTokens":
 		case "requestCount":
 		default:
-			return (v: number) => compactNumberFormatter.format(v);
+			return (v: number) => formatCompactNumber(v);
 	}
 }
 
@@ -837,7 +832,7 @@ export function GlobalStatsClient() {
 					value={totals ? numberFormatter.format(totals.totalTokens) : "—"}
 					subtitle={
 						totals
-							? `In: ${compactNumberFormatter.format(totals.inputTokens)} · Cached: ${compactNumberFormatter.format(totals.cachedTokens)} · Out: ${compactNumberFormatter.format(totals.outputTokens)}`
+							? `In: ${formatCompactNumber(totals.inputTokens)} · Cached: ${formatCompactNumber(totals.cachedTokens)} · Out: ${formatCompactNumber(totals.outputTokens)}`
 							: undefined
 					}
 					icon={<Layers className="h-4 w-4" />}
@@ -1318,11 +1313,11 @@ export function GlobalStatsClient() {
 													}
 												>
 													{chartMetric === "totalTokens"
-														? compactNumberFormatter.format(b.totalTokens)
+														? formatCompactNumber(b.totalTokens)
 														: metricFormatter(chartMetric)(b[chartMetric])}
 													{chartMetric === "totalTokens" ? (
 														<span className="block whitespace-nowrap text-xs font-normal text-muted-foreground">
-															{`(in ${compactNumberFormatter.format(b.inputTokens)} · cached ${compactNumberFormatter.format(b.cachedTokens)} · out ${compactNumberFormatter.format(b.outputTokens)})`}
+															{`(in ${formatCompactNumber(b.inputTokens)} · cached ${formatCompactNumber(b.cachedTokens)} · out ${formatCompactNumber(b.outputTokens)})`}
 														</span>
 													) : null}
 												</td>

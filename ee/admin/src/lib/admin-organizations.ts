@@ -3,7 +3,7 @@
 import { apiErrorMessage } from "./api-error";
 import { createServerApiClient } from "./server-api";
 
-import type { TokenWindow } from "./types";
+import type { ProjectLogFilters, TokenWindow } from "./types";
 
 export async function loadMetricsAction(orgId: string, window: TokenWindow) {
 	const $api = await createServerApiClient();
@@ -37,13 +37,7 @@ export async function loadProjectLogsAction(
 	orgId: string,
 	projectId: string,
 	cursor?: string,
-	filters?: {
-		provider?: string;
-		model?: string;
-		source?: string;
-		unifiedFinishReason?: string;
-		hasError?: string;
-	},
+	filters?: ProjectLogFilters,
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
@@ -55,6 +49,21 @@ export async function loadProjectLogsAction(
 			},
 		},
 	);
+	return data ?? null;
+}
+
+export async function loadOrganizationLogsAction(
+	orgId: string,
+	cursor?: string,
+	filters?: ProjectLogFilters,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/organizations/{orgId}/logs", {
+		params: {
+			path: { orgId },
+			query: { limit: 50, cursor, ...filters },
+		},
+	});
 	return data ?? null;
 }
 
@@ -286,7 +295,10 @@ export async function releaseDevPlanCardFingerprint(
 	return { success: true };
 }
 
-export async function blockOrganization(orgId: string): Promise<{
+export async function blockOrganization(
+	orgId: string,
+	reason?: string,
+): Promise<{
 	success: boolean;
 	error?: string;
 	cancelledSubscriptionIds?: string[];
@@ -296,6 +308,7 @@ export async function blockOrganization(orgId: string): Promise<{
 		"/admin/organizations/{orgId}/block",
 		{
 			params: { path: { orgId } },
+			body: { reason },
 		},
 	);
 

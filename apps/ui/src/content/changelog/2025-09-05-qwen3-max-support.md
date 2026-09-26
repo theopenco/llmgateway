@@ -4,6 +4,7 @@ slug: "qwen3-max-support"
 date: "2025-09-05"
 title: "Qwen3 Max Model Now Available"
 summary: "Access Alibaba's powerful Qwen3 Max model with 256K context window, advanced reasoning capabilities, vision support, and function calling - all at competitive pricing."
+tags: ["llmgateway"]
 image:
   src: "/changelog/qwen3-max-support.png"
   alt: "Qwen3 Max model now available on LLM Gateway"

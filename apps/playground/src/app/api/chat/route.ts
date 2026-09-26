@@ -1,5 +1,3 @@
-import { createHmac } from "node:crypto";
-
 import {
 	streamText,
 	generateImage,
@@ -17,6 +15,7 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
+import { describeGatewayError } from "@/lib/gateway-error";
 import { getUser } from "@/lib/getUser";
 import {
 	describeImageGenerationError,
@@ -31,13 +30,19 @@ import {
 import { createServerApiClient, fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
-import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import {
 	loungeConnectorIds,
 	type LoungeConnectorId,
 } from "@llmgateway/shared/lounge-connectors";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
+import {
+	extractUrlCitations,
+	inspectGatewayStream,
+	withSseKeepalive,
+	type GatewaySourceCitation,
+} from "@llmgateway/shared/lounge-stream";
+import { getLoungeToolApprovalSecret } from "@llmgateway/shared/lounge-tool-approval";
 
 export const maxDuration = 300; // 5 minutes
 
@@ -136,100 +141,19 @@ function mergeGatewayResponseMetadata(
 	};
 }
 
-interface GatewaySourceCitation {
-	url: string;
-	title?: string;
-}
-
-// The gateway surfaces web search results as OpenAI-style `url_citation`
-// annotations, which the AI SDK provider does not forward as source parts
-// when streaming — so they are captured here from the raw SSE side-channel.
-function extractUrlCitations(value: unknown): GatewaySourceCitation[] {
-	if (!isRecord(value) || !Array.isArray(value.choices)) {
-		return [];
-	}
-
-	const citations: GatewaySourceCitation[] = [];
-	for (const choice of value.choices) {
-		if (!isRecord(choice)) {
-			continue;
-		}
-		for (const container of [choice.delta, choice.message]) {
-			if (!isRecord(container) || !Array.isArray(container.annotations)) {
-				continue;
-			}
-			for (const annotation of container.annotations) {
-				if (
-					!isRecord(annotation) ||
-					annotation.type !== "url_citation" ||
-					!isRecord(annotation.url_citation)
-				) {
-					continue;
-				}
-				const url = readString(annotation.url_citation.url);
-				if (url) {
-					citations.push({
-						url,
-						title: readString(annotation.url_citation.title),
-					});
-				}
-			}
-		}
-	}
-
-	return citations;
-}
-
 function createGatewayMetadataCaptureStream(
 	onMetadata: (metadata: GatewayResponseMetadata) => void,
 	onCitations?: (citations: GatewaySourceCitation[]) => void,
 ): TransformStream<Uint8Array, Uint8Array> {
-	const decoder = new TextDecoder();
-	let buffer = "";
-
-	const parseEvents = (events: string[]) => {
-		for (const event of events) {
-			const data = event
-				.split("\n")
-				.filter((line) => line.startsWith("data:"))
-				.map((line) => line.slice(5).trimStart())
-				.join("\n");
-			if (!data || data === "[DONE]") {
-				continue;
-			}
-
-			try {
-				const parsed: unknown = JSON.parse(data);
-				const metadata = extractGatewayResponseMetadata(parsed);
-				if (metadata) {
-					onMetadata(metadata);
-				}
-				if (onCitations) {
-					const citations = extractUrlCitations(parsed);
-					if (citations.length > 0) {
-						onCitations(citations);
-					}
-				}
-			} catch {
-				// Ignore non-JSON stream events.
-			}
+	return inspectGatewayStream((parsed) => {
+		const metadata = extractGatewayResponseMetadata(parsed);
+		if (metadata) {
+			onMetadata(metadata);
 		}
-	};
-
-	return new TransformStream<Uint8Array, Uint8Array>({
-		transform(chunk, controller) {
-			buffer += decoder.decode(chunk, { stream: true });
-			const events = buffer.split("\n\n");
-			buffer = events.pop() ?? "";
-			parseEvents(events);
-			controller.enqueue(chunk);
-		},
-		flush() {
-			buffer += decoder.decode();
-			if (buffer) {
-				parseEvents([buffer]);
-			}
-		},
+		const citations = extractUrlCitations(parsed);
+		if (citations.length) {
+			onCitations?.(citations);
+		}
 	});
 }
 
@@ -361,58 +285,6 @@ interface ProjectRetrievalResponse {
 		fileName: string;
 	}[];
 	memories: string[];
-}
-
-/**
- * Wrap an SSE body with periodic `: ping` comment lines so proxies and load
- * balancers don't cut the connection during long silent stretches (tool
- * calls, reasoning, image generation). Uses a push-based ReadableStream with
- * setInterval so pings flush independently of consumer backpressure.
- */
-function withSseKeepalive(
-	body: ReadableStream<Uint8Array | string>,
-	intervalMs: number,
-): ReadableStream<Uint8Array> {
-	const encoder = new TextEncoder();
-	const reader = body.getReader();
-	let keepaliveTimer: ReturnType<typeof setInterval> | undefined;
-
-	return new ReadableStream<Uint8Array>({
-		start(controller) {
-			keepaliveTimer = setInterval(() => {
-				try {
-					controller.enqueue(encoder.encode(": ping\n\n"));
-				} catch {
-					// Stream already closed, clean up.
-					clearInterval(keepaliveTimer);
-				}
-			}, intervalMs);
-
-			// Read upstream chunks in a loop and forward them.
-			void (async () => {
-				try {
-					while (true) {
-						const { done, value } = await reader.read();
-						if (done) {
-							clearInterval(keepaliveTimer);
-							controller.close();
-							return;
-						}
-						controller.enqueue(
-							typeof value === "string" ? encoder.encode(value) : value,
-						);
-					}
-				} catch (err) {
-					clearInterval(keepaliveTimer);
-					controller.error(err);
-				}
-			})();
-		},
-		cancel() {
-			clearInterval(keepaliveTimer);
-			void reader.cancel();
-		},
-	});
 }
 
 const KEEPALIVE_INTERVAL_MS = 15_000;
@@ -711,6 +583,20 @@ export async function POST(req: Request) {
 		}
 	}
 
+	if ("mcp_servers" in body) {
+		return Response.json(
+			{ error: "Custom MCP servers are no longer supported. Use Connectors." },
+			{ status: 400 },
+		);
+	}
+	const selectedConnectors = z
+		.array(z.enum(loungeConnectorIds))
+		.max(loungeConnectorIds.length)
+		.safeParse(connector_ids ?? []);
+	if (!selectedConnectors.success) {
+		return Response.json({ error: "Invalid connectors" }, { status: 400 });
+	}
+
 	// Project (knowledge base) context: retrieve the chunks most relevant to
 	// the latest user message plus the project's instructions and memories, and
 	// prepend them to the system prompt. Retrieval failures degrade to a normal
@@ -720,21 +606,48 @@ export async function POST(req: Request) {
 	let projectQueryText = "";
 	if (project_id) {
 		projectQueryText = getLastUserText(messages).slice(0, 10_000);
-		const retrieval = await fetchServerData<ProjectRetrievalResponse>(
-			"POST",
-			"/chat-projects/{id}/retrieve",
-			{
-				params: { path: { id: project_id } },
-				body: {
-					query: projectQueryText.trim() || "Project knowledge base overview",
-				},
-				// Bill the query embedding to the same gateway key as the chat.
-				headers: { "x-llmgateway-key": finalApiKey },
-				// Don't let a slow retrieval stall the chat; on timeout the
-				// request proceeds without project context.
-				signal: AbortSignal.timeout(15_000),
-			},
+	}
+	try {
+		// Validate the message shape before firing the retrieval, which bills a
+		// query embedding to the user's key.
+		const modelMessages = await convertToModelMessages(
+			messages.filter((m) => m.role !== "system"),
 		);
+		// Retrieval and connector tool loading are independent, so start both
+		// before awaiting either — serialized they would stack both latencies
+		// onto the stream's time to first token. fetchServerData resolves to null
+		// on failure, so only the connector promise can reject.
+		const retrievalPromise = project_id
+			? fetchServerData<ProjectRetrievalResponse>(
+					"POST",
+					"/chat-projects/{id}/retrieve",
+					{
+						params: { path: { id: project_id } },
+						body: {
+							query:
+								projectQueryText.trim() || "Project knowledge base overview",
+						},
+						// Bill the query embedding to the same gateway key as the chat.
+						headers: { "x-llmgateway-key": finalApiKey },
+						// Don't let a slow retrieval stall the chat; on timeout the
+						// request proceeds without project context.
+						signal: AbortSignal.timeout(15_000),
+					},
+				)
+			: null;
+		const connectorToolsPromise = selectedConnectors.data.length
+			? createServerApiClient().then(async (client) => ({
+					client,
+					response: await client.POST("/connectors/tools", {
+						body: { connectors: selectedConnectors.data },
+						signal: req.signal,
+					}),
+				}))
+			: null;
+		const [retrieval, connectorTools] = await Promise.all([
+			retrievalPromise,
+			connectorToolsPromise,
+		]);
 		if (retrieval) {
 			const sections: string[] = [];
 			if (retrieval.project.instructions.trim()) {
@@ -760,29 +673,10 @@ export async function POST(req: Request) {
 				projectContext = `You are answering inside the project "${retrieval.project.name}".\n\n${sections.join("\n\n")}`;
 			}
 		}
-	}
 
-	if ("mcp_servers" in body) {
-		return Response.json(
-			{ error: "Custom MCP servers are no longer supported. Use Connectors." },
-			{ status: 400 },
-		);
-	}
-	const selectedConnectors = z
-		.array(z.enum(loungeConnectorIds))
-		.max(loungeConnectorIds.length)
-		.safeParse(connector_ids ?? []);
-	if (!selectedConnectors.success) {
-		return Response.json({ error: "Invalid connectors" }, { status: 400 });
-	}
-	try {
 		const allTools: ToolSet = {};
-		if (selectedConnectors.data.length) {
-			const client = await createServerApiClient();
-			const response = await client.POST("/connectors/tools", {
-				body: { connectors: selectedConnectors.data },
-				signal: req.signal,
-			});
+		if (connectorTools) {
+			const { client, response } = connectorTools;
 			if (!response.data) {
 				return Response.json(
 					{
@@ -846,21 +740,16 @@ export async function POST(req: Request) {
 				.join("\n\n") || undefined;
 		const result = streamText({
 			model: llmgateway.chat(selectedModel, { usage: { include: true } }),
-			messages: await convertToModelMessages(
-				messages.filter((m) => m.role !== "system"),
-			),
+			messages: modelMessages,
 			...(resolvedSystem ? { instructions: resolvedSystem } : {}),
 			...(hasTools
 				? {
 						tools: allTools,
 						stopWhen: isStepCount(10),
 						toolApproval: () => "user-approval" as const,
-						experimental_toolApprovalSecret: createHmac(
-							"sha256",
-							getApiKeyHashSecret(),
-						)
-							.update(`lounge-tools:${user.id}`)
-							.digest("hex"),
+						experimental_toolApprovalSecret: getLoungeToolApprovalSecret(
+							user.id,
+						),
 					}
 				: {}),
 			onEnd: async ({ text }) => {
@@ -893,6 +782,11 @@ export async function POST(req: Request) {
 			originalMessages: messages,
 			sendReasoning: true,
 			sendSources: true,
+			// Without this the AI SDK masks every mid-stream failure as
+			// "An error occurred.", hiding the gateway's actual message
+			// (rate limits, credit exhaustion, provider errors).
+			onError: (error) =>
+				describeGatewayError(error, "LLM Gateway request failed").message,
 			messageMetadata: ({ part }) => {
 				if (part.type === "finish") {
 					return mergeGatewayResponseMetadata(
@@ -956,15 +850,10 @@ export async function POST(req: Request) {
 			},
 		});
 	} catch (error: unknown) {
-		const message =
-			error instanceof Error ? error.message : "LLM Gateway request failed";
-		const status =
-			typeof error === "object" &&
-			error !== null &&
-			"status" in error &&
-			typeof (error as { status: unknown }).status === "number"
-				? (error as { status: number }).status
-				: 500;
+		const { message, status } = describeGatewayError(
+			error,
+			"LLM Gateway request failed",
+		);
 		return new Response(JSON.stringify({ error: message }), {
 			status,
 		});

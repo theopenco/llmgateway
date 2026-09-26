@@ -61,6 +61,55 @@ describe("checkProviderRateLimit", () => {
 		expect(redis.zremrangebyscore).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		"global_provider",
+		"global_model",
+		"global_provider_model",
+	] as const)(
+		"blocks explicit zero caps from %s in both windows and enforcement modes",
+		async (source) => {
+			for (const shared of [false, true]) {
+				for (const window of ["rpm", "rpd"] as const) {
+					vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue(
+						{
+							...noLimits,
+							[`${window}Source`]: source,
+							[`${window}Shared`]: shared,
+						},
+					);
+					for (const check of [checkProviderRateLimit, peekProviderRateLimit]) {
+						const result = await check("org-1", "openai", "gpt-4o");
+						expect(result.allowed).toBe(false);
+						expect(result.blockedBy).toEqual([window]);
+						expect(result.limits[window]).toMatchObject({
+							limit: 0,
+							remaining: 0,
+							rateLimited: true,
+						});
+					}
+				}
+			}
+			expect(redis.zcard).not.toHaveBeenCalled();
+			expect(redis.zadd).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each([
+		"org_provider",
+		"org_model",
+		"org_provider_model",
+		"carrier_provider_model",
+	] as const)("preserves zero semantics for %s caps", async (source) => {
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
+			...noLimits,
+			rpmSource: source,
+			rpdSource: source,
+		});
+		expect(
+			(await checkProviderRateLimit("org-1", "openai", "gpt-4o")).allowed,
+		).toBe(true);
+	});
+
 	it("consumes both RPM and RPD windows when under the limits", async () => {
 		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
 			maxRpm: 100,

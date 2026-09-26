@@ -1,0 +1,94 @@
+---
+title: MiMo Code Integration
+icon: MimoCode
+description: Configure MiMo Code with LLM Gateway, select a compatible model, and verify a coding task.
+---
+
+[MiMo Code](https://mimo.xiaomi.com/mimocode) is a terminal coding agent. Its custom provider configuration can route Anthropic-compatible requests through LLM Gateway.
+
+## Video walkthrough
+
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/4iR6c01IhYk"
+		title="MiMo Code setup and coding demo with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
+
+## Install
+
+Use the official installer, then check the version:
+
+```bash
+curl -fsSL https://mimo.xiaomi.com/install | bash
+mimo --version
+```
+
+## Connect your workspace
+
+Create a key in your LLM Gateway or DevPass dashboard and export it in the terminal that will launch MiMo Code:
+
+```bash
+export LLMGATEWAY_API_KEY="your_api_key"
+```
+
+Merge this configuration into `~/.config/mimocode/mimocode.json` on macOS or Linux:
+
+```json
+{
+	"model": "anthropic/MODEL_ID",
+	"small_model": "anthropic/MODEL_ID",
+	"provider": {
+		"anthropic": {
+			"options": {
+				"apiKey": "{env:LLMGATEWAY_API_KEY}",
+				"baseURL": "https://api.llmgateway.io/v1"
+			},
+			"models": {
+				"MODEL_ID": {
+					"name": "Gateway coding model",
+					"id": "MODEL_ID",
+					"limit": {
+						"context": 200000,
+						"output": 8192
+					}
+				}
+			}
+		}
+	}
+}
+```
+
+Replace every `MODEL_ID` with the exact gateway model ID. Choose a model with tool support from the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools). Adjust the example context and output limits to values supported by that model.
+
+Here `anthropic/` in the top-level selection identifies MiMo Code's local provider. The nested `id` is the model ID sent to LLM Gateway. The provider name selects the Anthropic API format; the base URL sends those requests to the gateway.
+
+> **Using DevPass?** Keep the nested `id` canonical and choose a model included in your plan. Adding an upstream provider prefix to that ID pins routing and is not supported on coding plans.
+
+## Verify a task
+
+```bash
+cd your-project
+mimo
+```
+
+Review the workspace trust prompt. Ask the agent to inspect a function, fix a failing test case, and run the existing tests without changing them. Approve file and command permissions as needed, then review the diff and test output.
+
+Check usage in the workspace that issued your key.
+
+## Troubleshooting
+
+**The request exceeds the model's output limit:** MiMo Code 0.1.15 forces a large output allowance for some model names, overriding `limit.output`. If your request is rejected, select a compatible model or update MiMo Code; changing the configured limit alone may not fix it.
+
+**A tool schema is rejected:** MiMo Code's tool definitions may exceed what the selected model or upstream provider accepts. Try another tool-capable model and inspect the returned error.
+
+**Authentication fails:** export the key before starting MiMo Code and confirm that the key is active.
+
+**A model is unavailable:** check the nested model `id`, account access, and plan restrictions.
+
+See the&nbsp;[MiMo Code provider reference](https://github.com/XiaomiMiMo/MiMo-Code/blob/main/packages/opencode/src/skill/builtin/.bundle/mimocode-docs/reference/providers.md) for other configuration options.

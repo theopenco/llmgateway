@@ -5,6 +5,7 @@ import {
 	CheckCircle2,
 	ChevronDown,
 	ClipboardPaste,
+	Clock3,
 	Loader2,
 	MinusCircle,
 	Pencil,
@@ -17,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ProviderCredentialsSpendOverview } from "@/components/provider-credentials-spend-overview";
+import { ProviderKeyErrorRateCell } from "@/components/provider-key-error-rate-cell";
 import { ProviderKeySpendCell } from "@/components/provider-key-spend-cell";
 import { ProviderKeySpendDialog } from "@/components/provider-key-spend-dialog";
 import { ProviderKeyStatusBadge } from "@/components/provider-key-status-badge";
@@ -58,7 +60,8 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { thrownErrorMessage } from "@/lib/api-error";
+import { apiErrorMessage, thrownErrorMessage } from "@/lib/api-error";
+import { useFetchClient } from "@/lib/fetch-client";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
@@ -128,6 +131,7 @@ const NO_MODELS_BY_KIND: Record<ProviderModelKind, string[]> = {
 	ocr: [],
 	embedding: [],
 	video: [],
+	decision: [],
 };
 
 const MODEL_KIND_LABELS: Record<ProviderModelKind, string> = {
@@ -136,6 +140,7 @@ const MODEL_KIND_LABELS: Record<ProviderModelKind, string> = {
 	ocr: "OCR models",
 	embedding: "Embedding models",
 	video: "Video models",
+	decision: "Decision models",
 };
 
 function totalOf(counts: VariantCounts): number {
@@ -189,14 +194,6 @@ interface ProviderCredentialsManagerProps {
 		provider: string,
 		credentialIds: string[],
 	) => Promise<MutationResult>;
-	onSelfTest: (
-		body: CredentialTestInput,
-	) => Promise<MutationResult & { result?: ProviderCredentialSelfTestResult }>;
-	onVerifyModels: (
-		body: CredentialTestInput & { models: string[] },
-	) => Promise<
-		MutationResult & { result?: ProviderCredentialModelVerification }
-	>;
 }
 
 function ProviderIcon({ provider }: { provider: string }) {
@@ -281,6 +278,14 @@ function EnvCredentialRow({
 				<span
 					className="text-sm text-muted-foreground"
 					title="Spend tracking and limits apply to managed credentials only; env keys are not attributed individually."
+				>
+					—
+				</span>
+			</TableCell>
+			<TableCell>
+				<span
+					className="text-xs text-muted-foreground"
+					title="Requests are only attributed per credential for managed credentials, so env keys have no error rate."
 				>
 					—
 				</span>
@@ -378,8 +383,6 @@ export function ProviderCredentialsManager({
 	onUpdate,
 	onDelete,
 	onReorder,
-	onSelfTest,
-	onVerifyModels,
 }: ProviderCredentialsManagerProps) {
 	const router = useRouter();
 	const pathname = usePathname();
@@ -711,7 +714,16 @@ export function ProviderCredentialsManager({
 								<TableHead>Region</TableHead>
 								<TableHead>Models</TableHead>
 								<TableHead>Settings</TableHead>
-								<TableHead>Spend</TableHead>
+								<TableHead>
+									<span title="Lifetime attributed spend against the configured cap. The bars below it are daily spend over the last 7 UTC days; hover one for its total.">
+										Spend
+									</span>
+								</TableHead>
+								<TableHead className="whitespace-nowrap">
+									<span title="Share of requests attributed to this credential that failed in the last 24 hours. Hover a rate for the per-model split, or the line below it for the daily rate over the last 7 UTC days.">
+										Errors
+									</span>
+								</TableHead>
 								<TableHead>Status</TableHead>
 								<TableHead className="text-right">Actions</TableHead>
 							</TableRow>
@@ -726,7 +738,7 @@ export function ProviderCredentialsManager({
 							<TableBody>
 								<TableRow>
 									<TableCell
-										colSpan={11}
+										colSpan={12}
 										className="py-10 text-center text-muted-foreground"
 									>
 										{envSource === "gateway" ? (
@@ -751,7 +763,7 @@ export function ProviderCredentialsManager({
 							<TableBody>
 								<TableRow>
 									<TableCell
-										colSpan={11}
+										colSpan={12}
 										className="py-10 text-center text-muted-foreground"
 									>
 										No credentials for this provider.{" "}
@@ -895,7 +907,17 @@ export function ProviderCredentialsManager({
 																)}
 															</TableCell>
 															<TableCell className="text-sm">
-																<ProviderKeySpendCell keyRow={credential} />
+																<ProviderKeySpendCell
+																	keyRow={credential}
+																	daily={credential.last7dDaily}
+																/>
+															</TableCell>
+															<TableCell>
+																<ProviderKeyErrorRateCell
+																	providerKeyId={credential.id}
+																	stats={credential.last24h}
+																	daily={credential.last7dDaily}
+																/>
 															</TableCell>
 															<TableCell>
 																<ProviderKeyStatusBadge keyRow={credential} />
@@ -966,8 +988,6 @@ export function ProviderCredentialsManager({
 					credentialCounts={credentialCounts}
 					regionsInUse={regionsInUse}
 					onClose={() => setCreating(false)}
-					onSelfTest={onSelfTest}
-					onVerifyModels={onVerifyModels}
 					onSubmit={async (values) => {
 						const result = await onCreate({
 							provider: values.provider,
@@ -998,8 +1018,6 @@ export function ProviderCredentialsManager({
 					credentialCounts={credentialCounts}
 					regionsInUse={regionsInUse}
 					onClose={() => setEditing(null)}
-					onSelfTest={onSelfTest}
-					onVerifyModels={onVerifyModels}
 					onSubmit={async (values) => {
 						const result = await onUpdate(editing.id, {
 							...(values.token ? { token: values.token } : {}),
@@ -1082,6 +1100,20 @@ const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
 
 type ModelVerificationEntry =
 	ProviderCredentialModelVerification["results"][number];
+
+/** One row of the live verify-models report, from queued to probed. */
+interface ModelProbeRow {
+	model: string;
+	status: "pending" | "running" | "done";
+	entry?: ModelVerificationEntry;
+}
+
+/**
+ * Probes in flight at once. Enough that a long list keeps moving, low enough
+ * that the probe traffic does not trip the upstream's rate limits and read
+ * back as model failures.
+ */
+const MODEL_PROBE_CONCURRENCY = 3;
 
 interface SelfTestOutcome {
 	result?: ProviderCredentialSelfTestResult;
@@ -1243,8 +1275,6 @@ function CredentialDialog({
 	regionsInUse,
 	onClose,
 	onSubmit,
-	onSelfTest,
-	onVerifyModels,
 }: {
 	catalog: ProviderCredentialCatalogEntry[];
 	credential?: ProviderCredential;
@@ -1255,8 +1285,6 @@ function CredentialDialog({
 	regionsInUse: { provider: string; region: string | null }[];
 	onClose: () => void;
 	onSubmit: (values: CredentialFormValues) => Promise<MutationResult>;
-	onSelfTest: ProviderCredentialsManagerProps["onSelfTest"];
-	onVerifyModels: ProviderCredentialsManagerProps["onVerifyModels"];
 }) {
 	const isEdit = credential !== undefined;
 	const [provider, setProvider] = useState(
@@ -1278,28 +1306,37 @@ function CredentialDialog({
 	const [allowedModels, setAllowedModels] = useState<string[]>(
 		credential?.allowedModels ?? [],
 	);
-	const [skipValidation, setSkipValidation] = useState(false);
+	// An edit defaults to skipping the live check: the credential already passed
+	// one when it was stored, so re-probing on every metadata tweak spends an
+	// upstream request to re-learn what we know. Unchecking forces the check —
+	// worth it when the token, config or region changes.
+	const [skipValidation, setSkipValidation] = useState(isEdit);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
 	// Self-test / verify-models probes run against the CURRENT form values (not
 	// what is stored), so an admin can check edits before saving. Results are
 	// cleared whenever an input that changes what the probe would send changes.
+	// Both go straight to the API from the browser rather than through a server
+	// action: a probe can take minutes, and the admin app's own request budget
+	// is far shorter than the API's, so the round trip through it would be cut
+	// short with an opaque "upstream request timeout".
+	const $fetch = useFetchClient();
 	const [selfTestLoading, setSelfTestLoading] = useState(false);
 	const [selfTestOutcome, setSelfTestOutcome] = useState<
 		SelfTestOutcome | undefined
 	>();
 	const [verifyLoading, setVerifyLoading] = useState(false);
-	const [verifyOutcome, setVerifyOutcome] = useState<
-		{ result?: ProviderCredentialModelVerification; error?: string } | undefined
-	>();
+	const [verifyRows, setVerifyRows] = useState<ModelProbeRow[] | undefined>();
+	const [verifyError, setVerifyError] = useState<string | undefined>();
 	const selfTestRequestId = useRef(0);
 	const verifyRequestId = useRef(0);
 
 	const clearVerifyResults = useCallback(() => {
 		verifyRequestId.current += 1;
 		setVerifyLoading(false);
-		setVerifyOutcome(undefined);
+		setVerifyRows(undefined);
+		setVerifyError(undefined);
 	}, []);
 
 	const clearProbeResults = useCallback(() => {
@@ -1330,14 +1367,23 @@ function CredentialDialog({
 		setSelfTestLoading(true);
 		setSelfTestOutcome(undefined);
 		try {
-			const outcome = await onSelfTest(credentialUnderTest());
+			const { data, error, response } = await $fetch.POST(
+				"/admin/provider-credentials/self-test",
+				{ body: credentialUnderTest() },
+			);
 			if (selfTestRequestId.current !== requestId) {
 				return;
 			}
 			setSelfTestOutcome(
-				outcome.success
-					? { result: outcome.result }
-					: { error: outcome.error ?? "Failed to test credential" },
+				data
+					? { result: data }
+					: {
+							error: apiErrorMessage(
+								error,
+								"Failed to test credential",
+								response,
+							),
+						},
 			);
 		} catch (cause) {
 			if (selfTestRequestId.current !== requestId) {
@@ -1353,33 +1399,90 @@ function CredentialDialog({
 		}
 	}
 
+	/** Probes exactly one model; never throws, so a worker can keep going. */
+	const probeModel = useCallback(
+		async (
+			body: CredentialTestInput,
+			model: string,
+		): Promise<ModelVerificationEntry> => {
+			try {
+				const { data, error, response } = await $fetch.POST(
+					"/admin/provider-credentials/verify-models",
+					{ body: { ...body, models: [model] } },
+				);
+				const entry = data?.results[0];
+				if (entry) {
+					return entry;
+				}
+				return {
+					model,
+					inCatalog: true,
+					valid: false,
+					statusCode: response.status,
+					error: apiErrorMessage(error, "Failed to verify model", response),
+				};
+			} catch (cause) {
+				return {
+					model,
+					inCatalog: true,
+					valid: false,
+					error: thrownErrorMessage(cause, "Failed to verify model"),
+				};
+			}
+		},
+		[$fetch],
+	);
+
+	/**
+	 * One request per model, a few in flight at a time, each row updated as it
+	 * lands. A model that times out or errors therefore costs only its own row
+	 * instead of taking down the whole report.
+	 */
 	async function handleVerifyModels() {
 		const requestId = verifyRequestId.current + 1;
 		verifyRequestId.current = requestId;
+		const models = [...allowedModels];
 		setVerifyLoading(true);
-		setVerifyOutcome(undefined);
-		try {
-			const outcome = await onVerifyModels({
-				...credentialUnderTest(),
-				models: allowedModels,
-			});
-			if (verifyRequestId.current !== requestId) {
-				return;
+		setVerifyError(undefined);
+		setVerifyRows(models.map((model) => ({ model, status: "pending" })));
+
+		const body = credentialUnderTest();
+		const isCurrent = () => verifyRequestId.current === requestId;
+		const patchRow = (index: number, row: ModelProbeRow) =>
+			setVerifyRows((rows) =>
+				rows?.map((existing, at) => (at === index ? row : existing)),
+			);
+
+		let nextIndex = 0;
+		const worker = async () => {
+			while (isCurrent()) {
+				const index = nextIndex++;
+				if (index >= models.length) {
+					return;
+				}
+				const model = models[index];
+				patchRow(index, { model, status: "running" });
+				const entry = await probeModel(body, model);
+				if (!isCurrent()) {
+					return;
+				}
+				patchRow(index, { model, status: "done", entry });
 			}
-			setVerifyOutcome(
-				outcome.success
-					? { result: outcome.result }
-					: { error: outcome.error ?? "Failed to verify models" },
+		};
+
+		try {
+			await Promise.all(
+				Array.from(
+					{ length: Math.min(MODEL_PROBE_CONCURRENCY, models.length) },
+					worker,
+				),
 			);
 		} catch (cause) {
-			if (verifyRequestId.current !== requestId) {
-				return;
+			if (isCurrent()) {
+				setVerifyError(thrownErrorMessage(cause, "Failed to verify models"));
 			}
-			setVerifyOutcome({
-				error: thrownErrorMessage(cause, "Failed to verify models"),
-			});
 		} finally {
-			if (verifyRequestId.current === requestId) {
+			if (isCurrent()) {
 				setVerifyLoading(false);
 			}
 		}
@@ -1933,14 +2036,13 @@ function CredentialDialog({
 									</p>
 								)
 							) : null}
-							{verifyOutcome?.error ? (
-								<p className="text-sm text-destructive">
-									{verifyOutcome.error}
-								</p>
+							{verifyError ? (
+								<p className="text-sm text-destructive">{verifyError}</p>
 							) : null}
-							{verifyOutcome?.result ? (
+							{verifyRows ? (
 								<ModelVerificationReport
-									verification={verifyOutcome.result}
+									rows={verifyRows}
+									running={verifyLoading}
 									onUseSuccessfulModels={(models) => {
 										setAllowedModels(models);
 										clearVerifyResults();
@@ -2016,6 +2118,9 @@ function CredentialDialog({
 								restriction is set, the provider&apos;s default validation model
 								otherwise. Skip it for providers with no chat model to test
 								against, or when the upstream is temporarily down.
+								{isEdit
+									? " Skipped by default on edits, since this credential already passed a check; uncheck it after changing the token, config or region."
+									: ""}
 							</p>
 						</div>
 					</div>
@@ -2045,17 +2150,28 @@ function CredentialDialog({
 }
 
 /**
- * Status icon for one row of the verify-models report: green = probed and
- * served, red = probed and rejected, gray = listed but not probeable (unknown,
- * models whose request surface is not enabled for verification).
+ * Status icon for one row of the verify-models report: spinner = in flight,
+ * clock = queued, green = probed and served, red = probed and rejected, gray =
+ * listed but not probeable (unknown models, models whose request surface is
+ * not enabled for verification).
  */
-function ModelVerificationIcon({ entry }: { entry: ModelVerificationEntry }) {
-	if (entry.valid === true) {
+function ModelVerificationIcon({ row }: { row: ModelProbeRow }) {
+	if (row.status === "running") {
+		return (
+			<Loader2 className="mt-px h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+		);
+	}
+	if (row.status === "pending") {
+		return (
+			<Clock3 className="mt-px h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+		);
+	}
+	if (row.entry?.valid === true) {
 		return (
 			<CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0 text-green-600" />
 		);
 	}
-	if (entry.valid === false) {
+	if (row.entry?.valid === false) {
 		return <XCircle className="mt-px h-3.5 w-3.5 shrink-0 text-destructive" />;
 	}
 	return (
@@ -2064,20 +2180,21 @@ function ModelVerificationIcon({ entry }: { entry: ModelVerificationEntry }) {
 }
 
 function ModelVerificationReport({
-	verification,
+	rows,
+	running,
 	onUseSuccessfulModels,
 }: {
-	verification: ProviderCredentialModelVerification;
+	rows: ModelProbeRow[];
+	running: boolean;
 	onUseSuccessfulModels: (models: string[]) => void;
 }) {
-	const successfulModels = verification.results
-		.filter((entry) => entry.valid === true)
-		.map((entry) => entry.model);
-	const failedCount = verification.results.filter(
-		(entry) => entry.valid === false,
-	).length;
-	const untestedCount =
-		verification.results.length - successfulModels.length - failedCount;
+	const probed = rows.filter((row) => row.status === "done");
+	const successfulModels = probed
+		.filter((row) => row.entry?.valid === true)
+		.map((row) => row.model);
+	const failedCount = probed.filter((row) => row.entry?.valid === false).length;
+	const untestedCount = probed.length - successfulModels.length - failedCount;
+	const remainingCount = rows.length - probed.length;
 	const hasModelsToRemove = failedCount > 0 || untestedCount > 0;
 
 	return (
@@ -2086,17 +2203,20 @@ function ModelVerificationReport({
 				<p
 					className={cn(
 						"text-xs font-medium",
-						failedCount > 0
-							? "text-destructive"
-							: untestedCount > 0
-								? "text-muted-foreground"
-								: "text-green-600",
+						remainingCount > 0
+							? "text-muted-foreground"
+							: failedCount > 0
+								? "text-destructive"
+								: untestedCount > 0
+									? "text-muted-foreground"
+									: "text-green-600",
 					)}
 				>
 					{successfulModels.length} succeeded · {failedCount} failed ·{" "}
 					{untestedCount} not testable
+					{remainingCount > 0 ? ` · ${remainingCount} pending` : ""}
 				</p>
-				{hasModelsToRemove && successfulModels.length > 0 ? (
+				{!running && hasModelsToRemove && successfulModels.length > 0 ? (
 					<Button
 						type="button"
 						variant="outline"
@@ -2110,12 +2230,12 @@ function ModelVerificationReport({
 				) : null}
 			</div>
 			<ul className="flex max-h-64 flex-col gap-1 overflow-y-auto pr-1">
-				{verification.results.map((entry) => (
-					<li key={entry.model} className="flex items-start gap-1.5 text-xs">
-						<ModelVerificationIcon entry={entry} />
-						<span className="font-mono">{entry.model}</span>
-						{entry.error ? (
-							<span className="text-muted-foreground">— {entry.error}</span>
+				{rows.map((row) => (
+					<li key={row.model} className="flex items-start gap-1.5 text-xs">
+						<ModelVerificationIcon row={row} />
+						<span className="font-mono">{row.model}</span>
+						{row.entry?.error ? (
+							<span className="text-muted-foreground">— {row.entry.error}</span>
 						) : null}
 					</li>
 				))}

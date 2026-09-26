@@ -31,7 +31,7 @@
 		"stripe:listen": "stripe listen --api-key \"$(grep -E '^STRIPE_SECRET_KEY=' .env | head -1 | cut -d= -f2-)\" --forward-to localhost:4002/stripe/webhook",
 		"test:browser": "playwright test",
 		"test:e2e": "pnpm build:core && E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism",
-		"test:unit": "pnpm build:core && vitest run --no-file-parallelism",
+		"test:unit": "pnpm build:core && vitest run",
 		"wait-for-services": "./scripts/wait-for-services.sh"
 	},
 	"commitlint": {
@@ -49,6 +49,7 @@
 		"@steebchen/prettier-config": "^1.5.0",
 		"@types/canvas-confetti": "1.9.0",
 		"@types/node": "26.2.0",
+		"@types/pg": "^8.15.6",
 		"commitlint": "21.2.2",
 		"concurrently": "^10.0.4",
 		"dotenv": "17.4.2",
@@ -60,6 +61,7 @@
 		"husky": "^9.1.7",
 		"lint-staged": "16.4.0",
 		"nodemon": "3.1.14",
+		"pg": "^8.16.3",
 		"prettier": "^3.9.6",
 		"resolve-tspaths": "0.8.23",
 		"semantic-release": "^24.2.5",
@@ -72,7 +74,8 @@
 		"typescript": "5.9.2",
 		"vite": "^7.3.5",
 		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^4.1.11"
+		"vitest": "^4.1.11",
+		"webreel": "0.1.4"
 	},
 	"disabledLinters": [
 		"eslint-plugin-tailwindcss"
@@ -142,7 +145,9 @@
 		},
 		"patchedDependencies": {
 			"gray-matter@4.0.3": "patches/gray-matter@4.0.3.patch",
-			"brace-expansion@5.0.9": "patches/brace-expansion@5.0.9.patch"
+			"brace-expansion@5.0.9": "patches/brace-expansion@5.0.9.patch",
+			"react-native-enriched-markdown@1.0.2": "patches/react-native-enriched-markdown@1.0.2.patch",
+			"react-native-audio-api@0.13.3": "patches/react-native-audio-api@0.13.3.patch"
 		}
 	},
 	"dependencies": {

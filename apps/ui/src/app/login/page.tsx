@@ -22,7 +22,11 @@ import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAuthErrorToast } from "@/lib/auth-errors";
-import { getAuthRedirect, isCliAuthRedirect } from "@/lib/auth-redirect";
+import {
+	getAuthPagePath,
+	getAuthRedirect,
+	isCliAuthRedirect,
+} from "@/lib/auth-redirect";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -297,8 +301,8 @@ export default function Login() {
 											Forgot password?
 										</Link>
 									</div>
-									<FormControl>
-										<div className="relative">
+									<div className="relative">
+										<FormControl>
 											<Input
 												placeholder="••••••••"
 												type={showPassword ? "text" : "password"}
@@ -306,25 +310,25 @@ export default function Login() {
 												className="pr-10"
 												{...field}
 											/>
-											<Button
-												type="button"
-												variant="ghost"
-												size="sm"
-												className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-												onClick={() => setShowPassword(!showPassword)}
-												tabIndex={-1}
-											>
-												{showPassword ? (
-													<EyeOff className="h-4 w-4 text-muted-foreground" />
-												) : (
-													<Eye className="h-4 w-4 text-muted-foreground" />
-												)}
-												<span className="sr-only">
-													{showPassword ? "Hide password" : "Show password"}
-												</span>
-											</Button>
-										</div>
-									</FormControl>
+										</FormControl>
+										<Button
+											type="button"
+											variant="ghost"
+											size="sm"
+											className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+											onClick={() => setShowPassword(!showPassword)}
+											tabIndex={-1}
+										>
+											{showPassword ? (
+												<EyeOff className="h-4 w-4 text-muted-foreground" />
+											) : (
+												<Eye className="h-4 w-4 text-muted-foreground" />
+											)}
+											<span className="sr-only">
+												{showPassword ? "Hide password" : "Show password"}
+											</span>
+										</Button>
+									</div>
 									<FormMessage />
 								</FormItem>
 							)}
@@ -397,7 +401,7 @@ export default function Login() {
 
 			<p className="mt-6 text-center text-sm text-muted-foreground">
 				<Link
-					href="/signup"
+					href={getAuthPagePath("/signup", redirectTarget) as Route}
 					className="hover:text-foreground underline underline-offset-4 transition-colors"
 				>
 					Don&apos;t have an account? Sign up

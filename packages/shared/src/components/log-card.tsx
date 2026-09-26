@@ -47,6 +47,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { isRoutingMetadataExpired } from "@/log-retention.js";
+import { formatNumber } from "@/number-format";
 import { regionFromUsedModel } from "@/used-model.js";
 
 import {
@@ -182,6 +183,8 @@ export interface LogCardData {
 	organizationName?: string | null;
 	apiKeyId?: string | null;
 	apiKeyName?: string | null;
+	/** Email of the user who created the API key that served the request. */
+	apiKeyUserEmail?: string | null;
 	source?: string | null;
 	apiOrigin?: string | null;
 	mode?: string | null;
@@ -254,6 +257,7 @@ export const API_ORIGIN_LABELS: Record<string, string> = {
 	speech: "Speech",
 	transcriptions: "Transcriptions",
 	rerank: "Rerank",
+	systemone: "System One",
 };
 
 function formatDuration(ms: number) {
@@ -1281,6 +1285,14 @@ export function LogCard({
 									copyLabel="Copy API key ID"
 									showCopyButton={showCopyButtons}
 								/>
+								{log.apiKeyUserEmail && (
+									<>
+										<div className="text-muted-foreground">Key Owner</div>
+										<div className="font-mono text-xs break-all">
+											{log.apiKeyUserEmail}
+										</div>
+									</>
+								)}
 								<div className="text-muted-foreground">API Origin</div>
 								<div>
 									{log.apiOrigin
@@ -1407,7 +1419,7 @@ export function LogCard({
 											</p>
 										</TooltipContent>
 									</Tooltip>
-									<span>{log.reasoningMaxTokens.toLocaleString()}</span>
+									<span>{formatNumber(log.reasoningMaxTokens)}</span>
 								</div>
 							)}
 							{log.effort && (

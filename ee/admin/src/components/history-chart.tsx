@@ -30,9 +30,17 @@ import {
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/components/ui/chart";
+import {
+	formatProviderCacheRate,
+	providerCacheRate,
+} from "@/lib/provider-cache-rate";
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { ChartConfig } from "@/components/ui/chart";
 
@@ -80,12 +88,13 @@ const TOKEN_COST_KEY: Record<string, keyof HistoryDataPoint> = {
 	outputTokens: "outputCost",
 };
 
-type ActiveMetric = "requests" | "errors" | "latency" | "tokens" | "cost";
+type ActiveMetric =
+	"requests" | "errors" | "latency" | "tokens" | "cost" | "providerCacheRate";
 
 const chartConfigs: Record<ActiveMetric, ChartConfig> = {
 	requests: {
 		logsCount: { label: "Requests", color: "hsl(221 83% 53%)" },
-		cachedCount: { label: "Cached", color: "hsl(142 71% 45%)" },
+		cachedCount: { label: "Gateway cached", color: "hsl(142 71% 45%)" },
 	},
 	errors: {
 		clientErrorsCount: { label: "Client", color: "hsl(38 92% 50%)" },
@@ -100,6 +109,12 @@ const chartConfigs: Record<ActiveMetric, ChartConfig> = {
 		inputTokens: { label: "Input", color: "hsl(221 83% 53%)" },
 		cachedTokens: { label: "Cached", color: "hsl(142 71% 45%)" },
 		outputTokens: { label: "Output", color: "hsl(32 95% 44%)" },
+	},
+	providerCacheRate: {
+		providerCacheRate: {
+			label: "Provider cache rate",
+			color: "hsl(142 71% 45%)",
+		},
 	},
 	cost: {
 		totalCost: { label: "Cost ($)", color: "hsl(142 71% 45%)" },
@@ -128,6 +143,7 @@ const metricTabs: { key: ActiveMetric; label: string }[] = [
 	{ key: "errors", label: "Errors" },
 	{ key: "latency", label: "Latency" },
 	{ key: "tokens", label: "Tokens" },
+	{ key: "providerCacheRate", label: "Provider cache rate" },
 	{ key: "cost", label: "Cost" },
 ];
 
@@ -201,6 +217,10 @@ export function HistoryChart({
 
 	const config = chartConfigs[activeMetric];
 	const dataKeys = Object.keys(config);
+	const chartData = data.map((point) => ({
+		...point,
+		providerCacheRate: providerCacheRate(point),
+	}));
 
 	const ttftPoints = data.filter((d) => d.avgTtft !== null);
 	const durationPoints = data.filter((d) => d.avgDuration !== null);
@@ -220,28 +240,30 @@ export function HistoryChart({
 		0,
 	);
 	const totalRequests = data.reduce((sum, d) => sum + d.logsCount, 0);
-	const rawErrors = data.reduce((sum, d) => sum + d.errorsCount, 0);
 	const totalClientErrors = data.reduce(
 		(sum, d) => sum + (d.clientErrorsCount ?? 0),
 		0,
 	);
-	const stability = deriveStabilityMetrics(
-		totalRequests,
-		rawErrors,
-		totalClientErrors,
+	const totalGatewayErrors = data.reduce(
+		(sum, d) => sum + (d.gatewayErrorsCount ?? 0),
+		0,
 	);
+	const totalUpstreamErrors = data.reduce(
+		(sum, d) => sum + (d.upstreamErrorsCount ?? 0),
+		0,
+	);
+	const stability = deriveStabilityMetrics({
+		logsCount: totalRequests,
+		clientErrorsCount: totalClientErrors,
+		gatewayErrorsCount: totalGatewayErrors,
+		upstreamErrorsCount: totalUpstreamErrors,
+	});
 	const summaryStats = {
 		totalRequests,
 		totalErrors: stability.errorsCount,
 		totalClientErrors,
-		totalGatewayErrors: data.reduce(
-			(sum, d) => sum + (d.gatewayErrorsCount ?? 0),
-			0,
-		),
-		totalUpstreamErrors: data.reduce(
-			(sum, d) => sum + (d.upstreamErrorsCount ?? 0),
-			0,
-		),
+		totalGatewayErrors,
+		totalUpstreamErrors,
 		totalTokens: data.reduce((sum, d) => sum + d.totalTokens, 0),
 		totalCost: data.reduce((sum, d) => sum + d.totalCost, 0),
 		breakdown: {
@@ -275,19 +297,6 @@ export function HistoryChart({
 				: null,
 		errorRate: (stability.errorRate ?? 0).toFixed(1),
 	};
-
-	function formatCompact(n: number): string {
-		if (n >= 1_000_000_000) {
-			return `${(n / 1_000_000_000).toFixed(1)}B`;
-		}
-		if (n >= 1_000_000) {
-			return `${(n / 1_000_000).toFixed(1)}M`;
-		}
-		if (n >= 1_000) {
-			return `${(n / 1_000).toFixed(1)}k`;
-		}
-		return n.toLocaleString();
-	}
 
 	return (
 		<Card>
@@ -329,31 +338,31 @@ export function HistoryChart({
 					<span>
 						Reqs:{" "}
 						<strong className="text-foreground">
-							{summaryStats.totalRequests.toLocaleString()}
+							{formatNumber(summaryStats.totalRequests)}
 						</strong>
 					</span>
 					<span>
 						Errors:{" "}
 						<strong className="text-foreground">
-							{summaryStats.totalErrors.toLocaleString()}
+							{formatNumber(summaryStats.totalErrors)}
 						</strong>{" "}
 						({summaryStats.errorRate}%) — client:{" "}
 						<strong className="text-foreground">
-							{summaryStats.totalClientErrors.toLocaleString()}
+							{formatNumber(summaryStats.totalClientErrors)}
 						</strong>
 						, gateway:{" "}
 						<strong className="text-foreground">
-							{summaryStats.totalGatewayErrors.toLocaleString()}
+							{formatNumber(summaryStats.totalGatewayErrors)}
 						</strong>
 						, upstream:{" "}
 						<strong className="text-foreground">
-							{summaryStats.totalUpstreamErrors.toLocaleString()}
+							{formatNumber(summaryStats.totalUpstreamErrors)}
 						</strong>
 					</span>
 					<span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
 						Tokens:{" "}
 						<strong className="text-foreground">
-							{formatCompact(summaryStats.totalTokens)}
+							{formatCompactNumber(summaryStats.totalTokens)}
 						</strong>
 						<TokenBreakdown breakdown={summaryStats.breakdown} short />
 					</span>
@@ -383,7 +392,7 @@ export function HistoryChart({
 						<span>
 							t/s:{" "}
 							<strong className="text-foreground">
-								{summaryStats.tokensPerSecond.toLocaleString()}
+								{formatNumber(summaryStats.tokensPerSecond)}
 							</strong>
 						</span>
 					)}
@@ -444,7 +453,7 @@ export function HistoryChart({
 						className="aspect-auto h-[200px] w-full"
 					>
 						<ChartRoot
-							data={data}
+							data={chartData}
 							accessibilityLayer
 							margin={{ left: 0, right: 8, top: 4, bottom: 0 }}
 						>
@@ -463,14 +472,18 @@ export function HistoryChart({
 								tickLine={false}
 								axisLine={false}
 								tickMargin={4}
-								width={50}
+								width={60}
+								domain={
+									activeMetric === "providerCacheRate" ? [0, 100] : undefined
+								}
 								tickFormatter={(value: number) => {
+									if (activeMetric === "providerCacheRate") {
+										return `${value}%`;
+									}
 									if (activeMetric === "cost") {
 										return `$${value >= 0.01 ? value.toFixed(2) : value.toFixed(4)}`;
 									}
-									return value >= 1000
-										? `${(value / 1000).toFixed(1)}k`
-										: String(value);
+									return formatCompactNumber(value);
 								}}
 							/>
 							<ChartTooltip
@@ -484,10 +497,12 @@ export function HistoryChart({
 											let formatted: string;
 											if (activeMetric === "latency") {
 												formatted = `${Math.round(Number(value))}ms`;
+											} else if (activeMetric === "providerCacheRate") {
+												formatted = formatProviderCacheRate(Number(value));
 											} else if (activeMetric === "cost") {
 												formatted = `$${Number(value).toFixed(4)}`;
 											} else {
-												formatted = Number(value).toLocaleString();
+												formatted = formatNumber(Number(value));
 											}
 											// Token series carry the spend they account for, so the
 											// tooltip answers "what did these tokens cost?" directly.

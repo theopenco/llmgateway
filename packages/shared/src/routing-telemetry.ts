@@ -1,3 +1,5 @@
+import type { ComplianceFailureReason } from "@llmgateway/models";
+
 /**
  * Stable vocabularies for routing telemetry.
  *
@@ -21,6 +23,7 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	no_reasoning_variant: "no_reasoning requested but provider has reasoning",
 	reasoning_effort: "reasoning_effort not supported",
 	reasoning_max_tokens: "reasoning_max_tokens not supported",
+	reasoning_mode: "reasoning.mode not supported",
 	tools: "tools not supported",
 	tool_choice: "requested tool_choice not supported",
 	web_search: "web_search not supported",
@@ -53,6 +56,28 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	rate_limited: "provider is rate limited",
 	content_filter: "excluded by content-filter routing",
 	compliance: "excluded by the organization's compliance policy",
+	// Which compliance rule fired. These are details of `compliance`, not
+	// siblings of it: a compliance drop records the parent code plus every
+	// detail that applied, so the parent stays the once-per-drop count while the
+	// details break it down. A mapping can fail several rules at once, so the
+	// details of one drop sum to more than the parent.
+	compliance_soc2: "compliance: no SOC 2 report",
+	compliance_soc2_type2: "compliance: no SOC 2 Type 2 report",
+	compliance_iso27001: "compliance: no ISO 27001 certification",
+	compliance_soc2_or_iso27001: "compliance: neither SOC 2 Type 2 nor ISO 27001",
+	compliance_gdpr: "compliance: not GDPR compliant",
+	compliance_api_training: "compliance: may train on API prompts",
+	compliance_prompt_logging: "compliance: may log prompts",
+	compliance_zero_retention: "compliance: does not support zero data retention",
+	compliance_stealth_provider: "compliance: stealth provider",
+	compliance_country: "compliance: headquarters not in an allowed country",
+	compliance_blocked_provider: "compliance: on the blocked-providers list",
+	compliance_provider_allowlist:
+		"compliance: not on the allowed-providers list",
+	compliance_blocked_model: "compliance: on the blocked-models list",
+	compliance_model_allowlist: "compliance: not on the allowed-models list",
+	compliance_unknown_provider: "compliance: provider not in the catalogue",
+	compliance_no_attestation: "compliance: no attestation on file",
 	// Catch-all for values written by an older gateway build.
 	other: "other",
 } as const;
@@ -72,6 +97,7 @@ export const ROUTING_EXCLUSION_REASON_LABELS: Record<
 	no_reasoning_variant: "No-reasoning requested",
 	reasoning_effort: "Reasoning effort",
 	reasoning_max_tokens: "Reasoning max tokens",
+	reasoning_mode: "Reasoning mode",
 	tools: "Tools",
 	tool_choice: "Tool choice",
 	web_search: "Web search",
@@ -97,8 +123,77 @@ export const ROUTING_EXCLUSION_REASON_LABELS: Record<
 	rate_limited: "Rate limited",
 	content_filter: "Content filter",
 	compliance: "Compliance",
+	compliance_soc2: "SOC 2",
+	compliance_soc2_type2: "SOC 2 Type 2",
+	compliance_iso27001: "ISO 27001",
+	compliance_soc2_or_iso27001: "SOC 2 Type 2 or ISO 27001",
+	compliance_gdpr: "GDPR",
+	compliance_api_training: "Trains on prompts",
+	compliance_prompt_logging: "Logs prompts",
+	compliance_zero_retention: "Zero data retention",
+	compliance_stealth_provider: "Stealth provider",
+	compliance_country: "Headquarters country",
+	compliance_blocked_provider: "Blocked provider",
+	compliance_provider_allowlist: "Provider allowlist",
+	compliance_blocked_model: "Blocked model",
+	compliance_model_allowlist: "Model allowlist",
+	compliance_unknown_provider: "Unknown provider",
+	compliance_no_attestation: "No attestation",
 	other: "Other",
 };
+
+/**
+ * The compliance rule behind each fine-grained compliance exclusion code, so
+ * the gateway can translate a policy failure into a telemetry code and the
+ * dashboards can label it from the same source the compliance screens use.
+ */
+export const COMPLIANCE_EXCLUSION_REASONS = {
+	requireSoc2: "compliance_soc2",
+	requireSoc2Type2: "compliance_soc2_type2",
+	requireIso27001: "compliance_iso27001",
+	requireSoc2OrIso27001: "compliance_soc2_or_iso27001",
+	requireGdpr: "compliance_gdpr",
+	blockApiTraining: "compliance_api_training",
+	blockPromptLogging: "compliance_prompt_logging",
+	zeroDataRetention: "compliance_zero_retention",
+	blockStealthProviders: "compliance_stealth_provider",
+	allowedCountries: "compliance_country",
+	blockedProviders: "compliance_blocked_provider",
+	allowedProviders: "compliance_provider_allowlist",
+	blockedModels: "compliance_blocked_model",
+	allowedModels: "compliance_model_allowlist",
+	unknownProvider: "compliance_unknown_provider",
+	noAttestation: "compliance_no_attestation",
+} as const satisfies Record<ComplianceFailureReason, RoutingExclusionReason>;
+
+export function complianceExclusionReason(
+	failure: ComplianceFailureReason,
+): RoutingExclusionReason {
+	return COMPLIANCE_EXCLUSION_REASONS[failure];
+}
+
+/**
+ * Detail reasons that break down a coarser one, keyed child -> parent. A
+ * consumer that sums exclusion counts must count parents only: every detail is
+ * recorded alongside its parent, so including both double-counts the drop.
+ */
+export const ROUTING_EXCLUSION_REASON_PARENTS = Object.fromEntries(
+	Object.values(COMPLIANCE_EXCLUSION_REASONS).map((code) => [
+		code,
+		"compliance" as const,
+	]),
+) as Partial<Record<RoutingExclusionReason, RoutingExclusionReason>>;
+
+/** The reason this one details, or `undefined` when it is a top-level reason. */
+export function routingExclusionReasonParent(
+	reason: string,
+): RoutingExclusionReason | undefined {
+	return ROUTING_EXCLUSION_REASON_PARENTS[reason as RoutingExclusionReason];
+}
+
+export function isRoutingExclusionDetailReason(reason: string): boolean {
+	return routingExclusionReasonParent(reason) !== undefined;
+}
 
 export function isRoutingExclusionReason(
 	value: string,

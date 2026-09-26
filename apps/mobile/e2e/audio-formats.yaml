@@ -1,0 +1,51 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Audio Studio"
+- tapOn: "Audio model 1: Choose"
+- tapOn:
+    id: "field-search-models"
+- inputText: "tts-1"
+- tapOn: "Done typing"
+- tapOn: "Choose TTS-1"
+- evalScript: ${output.audioFormatIndex = 0; output.audioFormats = ["mp3", "wav", "aac", "flac", "opus"]}
+- repeat:
+    times: 5
+    commands:
+      - scrollUntilVisible:
+          element: "Audio format: .*"
+          direction: UP
+      - tapOn: "Audio format: .*"
+      - tapOn: ${output.audioFormats[output.audioFormatIndex]}
+      - scrollUntilVisible:
+          element:
+            id: "field-words-to-speak"
+          direction: DOWN
+          centerElement: true
+      - tapOn:
+          id: "field-words-to-speak"
+      - eraseText
+      - inputText: ${"Native format " + output.audioFormats[output.audioFormatIndex] + " " + Date.now()}
+      - tapOn: "Done typing"
+      - scrollUntilVisible:
+          element: "Generate speech"
+          direction: DOWN
+      - tapOn: "Generate speech"
+      - scrollUntilVisible:
+          element:
+            text: "Play"
+            enabled: true
+          direction: DOWN
+          centerElement: true
+          timeout: 30000
+      - tapOn:
+          text: "Play"
+          waitToSettleTimeoutMs: 200
+      - extendedWaitUntil:
+          visible: "Replay"
+          timeout: 15000
+      - evalScript: ${output.audioFormatIndex = output.audioFormatIndex + 1}

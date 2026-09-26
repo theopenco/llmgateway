@@ -156,6 +156,7 @@ function errorResponse(
 		timing: createTiming(started, timing, usage, streamChunks),
 		streamChunks,
 		error,
+		agent: null,
 	};
 }
 
@@ -373,5 +374,6 @@ export async function executeStreamingRequest({
 		),
 		streamChunks,
 		error: streamError,
+		agent: null,
 	};
 }

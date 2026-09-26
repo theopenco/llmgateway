@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
-	echo "usage: $0 <background.png> <output.png> [logo.svg]" >&2
+if [ "$#" -ne 2 ]; then
+	echo "usage: $0 <background.png> <output.png>" >&2
 	exit 2
 fi
 
@@ -18,7 +18,7 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/../../../.." && pwd)
 background=$1
 output=$2
-logo=${3:-"$repo_root/apps/ui/public/brand/logo-with-name-white.svg"}
+logo="$repo_root/apps/ui/public/brand/logo-with-name-white.svg"
 
 if [ ! -f "$background" ]; then
 	echo "background not found: $background" >&2
@@ -39,7 +39,7 @@ if [ "$background_dimensions" != "1536x1024" ]; then
 	exit 1
 fi
 
-rsvg-convert -h 84 "$logo" -o "$temp_dir/logo.png"
+rsvg-convert -w 360 "$logo" -o "$temp_dir/logo.png"
 ffmpeg -loglevel error -y -i "$background" -i "$temp_dir/logo.png" \
 	-filter_complex "[0:v][1:v]overlay=72:72:format=auto" -frames:v 1 "$output"
 

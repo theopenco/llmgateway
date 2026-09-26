@@ -1,0 +1,54 @@
+---
+title: Lounge Memberships
+description: Monthly membership plans for Lounge, the LLM Gateway chat app
+icon: Sparkles
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
+
+Lounge memberships (formerly Chat Plans) are optional monthly subscriptions for [Lounge](https://lounge.llmgateway.io), the LLM Gateway chat app. Instead of paying per request from your pay-as-you-go balance, a membership gives you a pool of monthly credits worth more than you pay — so heavy chat usage costs less.
+
+<ThemedImage
+	alt="Lounge membership pricing with Starter, Plus, and Pro tiers"
+	basePath="/learn/chat-plans"
+	width={1440}
+	height={1467}
+/>
+
+## Plans
+
+There are three tiers, billed monthly:
+
+| Plan        | Price  | Monthly value   | Models                                         |
+| ----------- | ------ | --------------- | ---------------------------------------------- |
+| **Starter** | $9/mo  | ~2× the value   | Everyday chat models                           |
+| **Plus**    | $19/mo | ~2.5× the value | Everything in Starter **plus** frontier models |
+| **Pro**     | $49/mo | ~3× the value   | All models, highest monthly allowance          |
+
+The credit multiplier is tapered: the larger the plan, the more usage value each dollar buys at provider rates.
+
+<Callout type="info">
+	**Frontier models** are included on **Plus** and **Pro**. Starter covers
+	everyday chat models. Browse the current [model
+	catalogue](https://llmgateway.io/models) and the Lounge model picker for
+	availability.
+</Callout>
+
+## How credits work
+
+- **Monthly reset** — Your plan credits refresh at the start of each billing cycle. Unused credits do **not** roll over to the next month.
+- **Separate balances** — The **Chat plan** context uses your membership allowance. Your regular organizations keep their own pay-as-you-go credits.
+- **Use existing credits** — When you view membership pricing, organizations with a positive available balance appear above the plans. Choose **Use these credits** to switch to that organization. You can also switch from the sidebar. This uses that organization’s billing context; it does not transfer credits into your membership.
+
+## Managing your plan
+
+- Open the **Pricing** page from the Lounge sidebar to compare tiers and subscribe.
+- Your active membership appears in the Lounge sidebar with a badge, alongside how many credits remain for the cycle.
+- **Upgrading** takes effect immediately: you're charged the new tier's full price, your billing cycle restarts, and your credits reset to the new tier's full monthly allowance. Unspent credits from the old cycle don't carry over.
+- **Downgrading** also takes effect immediately: you move to the lower tier's allowance right away, and the unused portion of what you already paid for the higher tier is credited against your next invoice.
+- **Cancelling** takes effect at the end of the period you've already paid for — you keep access until then.
+
+## Refunds
+
+A membership payment can be refunded from the billing history on the [Lounge pricing page](https://lounge.llmgateway.io/pricing) within 14 days, while less than 20% of its credits are used. Refunding ends the membership right away. See [Self-Service Refunds](/learn/refunds) for every condition.

@@ -3,6 +3,7 @@
 import { createServerApiClient } from "./server-api";
 
 import type {
+	CostTimeseriesBucket,
 	GlobalStatsModelView,
 	ModelView,
 	OrganizationCostGroupBy,
@@ -190,12 +191,16 @@ export async function getOrgCostByModelTimeseries(
 	window: TokenWindow,
 	modelView: ModelView = "mapping",
 	groupBy: OrganizationCostGroupBy = "model",
+	bucket?: CostTimeseriesBucket,
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
 		"/admin/organizations/{orgId}/cost-by-model-timeseries",
 		{
-			params: { path: { orgId }, query: { window, modelView, groupBy } },
+			params: {
+				path: { orgId },
+				query: { window, modelView, groupBy, bucket },
+			},
 		},
 	);
 	return data ?? null;
@@ -207,6 +212,7 @@ export async function getProjectCostByModelTimeseries(
 	window: TokenWindow,
 	modelView: ModelView = "mapping",
 	groupBy: ProjectCostTimeseriesGroupBy = "model",
+	bucket?: CostTimeseriesBucket,
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
@@ -214,7 +220,7 @@ export async function getProjectCostByModelTimeseries(
 		{
 			params: {
 				path: { orgId, projectId },
-				query: { window, modelView, groupBy },
+				query: { window, modelView, groupBy, bucket },
 			},
 		},
 	);
