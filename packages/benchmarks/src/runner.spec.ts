@@ -33,6 +33,43 @@ function streamResponse(answer: string): Response {
 }
 
 describe("runBenchmark", () => {
+	it("omits generated tool arguments and failure details from private agent trials", async () => {
+		let turn = 0;
+		const result = await runBenchmark({
+			client: { url: "https://example.com/v1/chat/completions" },
+			targets: [{ id: "t", model: "m" }],
+			runs: 1,
+			warmupRuns: 0,
+			includeResponses: false,
+			cases: [
+				{
+					id: "agent",
+					name: "agent",
+					kind: "agentic",
+					request: { messages: [{ role: "user", content: "start" }] },
+					agent: {
+						maxTurns: 2,
+						createSession: () => ({
+							tools: [],
+							callTool: () => ({ content: "private-error", isError: true }),
+							evaluate: () => ({ passed: true }),
+						}),
+					},
+				},
+			],
+			fetch: async () =>
+				++turn === 1
+					? new Response(
+							`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call", function: { name: "echo", arguments: '{"value":"private-argument"}' } }] }, finish_reason: "tool_calls" }], usage: { prompt_tokens: 1, completion_tokens: 1 } })}\n\ndata: [DONE]\n\n`,
+						)
+					: streamResponse("private-final"),
+		});
+		const serialized = JSON.stringify(result.trials);
+		expect(serialized).not.toContain("private-argument");
+		expect(serialized).not.toContain("private-error");
+		expect(serialized).not.toContain("private-final");
+		expect(result.trials[0].response.agent?.toolCallCount).toBe(1);
+	});
 	it("returns serializable trials, summaries, and answer agreement", async () => {
 		const targets: BenchmarkTarget[] = [
 			{ id: "reference/model", model: "reference/model" },
