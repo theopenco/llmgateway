@@ -488,6 +488,22 @@ describe("chat request building", () => {
 describe.each([2, 3, 4] as const)(
 	"finish reasons for spec v%i",
 	(specVersion) => {
+		test("preserves a meaningful finish reason across an empty trailing chunk", () => {
+			const state = createStreamingPartsState({ specVersion });
+			processChatChunk(state, {
+				choices: [{ finish_reason: "tool_calls" }],
+			});
+			processChatChunk(state, { choices: [{ finish_reason: "" }] });
+
+			expect(finalizeStream(state).at(-1)).toMatchObject({
+				type: "finish",
+				finishReason:
+					specVersion === 2
+						? "tool-calls"
+						: { unified: "tool-calls", raw: "tool_calls" },
+			});
+		});
+
 		test.each([
 			["stop", "stop"],
 			["length", "length"],
