@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
 
@@ -43,6 +43,14 @@ async function insertManaged(
 		...encryptProviderKeyForStorage(`token-${values.id}`, values.id, null),
 	});
 }
+
+// Rows are deleted per case, but the managed-credential lookup stays cached in
+// this worker's Redis and would leak into later spec files.
+afterAll(async () => {
+	await waitForSwrMirrorWrites();
+	await db.delete(providerKey);
+	await redisClient.flushdb();
+});
 
 describe("findManagedProviderKey", () => {
 	beforeEach(async () => {
