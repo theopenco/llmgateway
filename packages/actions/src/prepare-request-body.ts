@@ -1365,6 +1365,7 @@ export async function prepareRequestBody(
 	 */
 	resolvedProviderMapping?: ProviderModelMapping,
 	reasoning_mode?: ReasoningMode,
+	parallel_tool_calls?: boolean,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 	// Anthropic's server-side tool search (`defer_loading` plus the tool search
@@ -2531,6 +2532,13 @@ export async function prepareRequestBody(
 				if (resolvedToolChoice) {
 					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);
 				}
+				if (
+					(usedProvider === "openai" || usedProvider === "azure") &&
+					parallel_tool_calls !== undefined &&
+					responsesBody.tools?.length
+				) {
+					responsesBody.parallel_tool_calls = parallel_tool_calls;
+				}
 
 				// Add optional parameters if they are provided
 				if (temperature !== undefined) {
@@ -2575,6 +2583,10 @@ export async function prepareRequestBody(
 			} else {
 				// Use regular chat completions format
 				if (usedProvider === "openai" || usedProvider === "azure") {
+					// OpenAI rejects parallel_tool_calls on a request without tools.
+					if (parallel_tool_calls !== undefined && requestBody.tools) {
+						requestBody.parallel_tool_calls = parallel_tool_calls;
+					}
 					if (safety_identifier !== undefined) {
 						if (usedProvider === "openai") {
 							requestBody.safety_identifier = safety_identifier;
@@ -3374,6 +3386,18 @@ export async function prepareRequestBody(
 				} else if (resolvedToolChoice === "none") {
 					requestBody.tool_choice = { type: "none" };
 				}
+			}
+			// Anthropic has no parallel_tool_calls; the same switch lives on
+			// tool_choice, which rejects it alongside type "none".
+			if (
+				parallel_tool_calls === false &&
+				requestBody.tools?.length &&
+				requestBody.tool_choice?.type !== "none"
+			) {
+				requestBody.tool_choice = {
+					...(requestBody.tool_choice ?? { type: "auto" }),
+					disable_parallel_tool_use: true,
+				};
 			}
 
 			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort or reasoning_max_tokens is specified

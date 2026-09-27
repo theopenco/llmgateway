@@ -146,3 +146,28 @@ describe("Gemini replay metadata", () => {
 		expect(result.messages[0]).toEqual(message);
 	});
 });
+
+describe("completionsRequestSchema parallel_tool_calls", () => {
+	const base = {
+		model: "gpt-5",
+		messages: [{ role: "user", content: "hi" }],
+	};
+
+	it("keeps parallel_tool_calls", () => {
+		const result = completionsRequestSchema.safeParse({
+			...base,
+			parallel_tool_calls: false,
+		});
+		expect(result.success).toBe(true);
+		expect(result.data?.parallel_tool_calls).toBe(false);
+	});
+
+	it("normalizes null parallel_tool_calls to undefined", () => {
+		const result = completionsRequestSchema.safeParse({
+			...base,
+			parallel_tool_calls: null,
+		});
+		expect(result.success).toBe(true);
+		expect(result.data?.parallel_tool_calls).toBeUndefined();
+	});
+});

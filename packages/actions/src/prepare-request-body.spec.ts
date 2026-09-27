@@ -8681,3 +8681,131 @@ describe("prepareRequestBody - bytedance prompt caching", () => {
 		expect(requestBody.caching).toBeUndefined();
 	});
 });
+
+describe("prepareRequestBody - parallel_tool_calls", () => {
+	const weatherTool = {
+		type: "function" as const,
+		function: {
+			name: "get_weather",
+			description: "Get the weather",
+			parameters: {
+				type: "object",
+				properties: { city: { type: "string" } },
+				required: ["city"],
+			},
+		},
+	};
+
+	async function prepare(
+		provider: Parameters<typeof prepareRequestBody>[0],
+		model: string,
+		opts: {
+			parallel_tool_calls?: boolean;
+			tools?: (typeof weatherTool)[];
+			tool_choice?: Parameters<typeof prepareRequestBody>[13];
+			useResponsesApi?: boolean;
+		},
+	) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "Weather in Paris and Rome?" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			opts.tools ?? [weatherTool],
+			opts.tool_choice,
+			undefined, // reasoning_effort
+			false, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			false, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			opts.useResponsesApi ?? false,
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			undefined, // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			undefined, // resolvedProviderMapping
+			undefined, // reasoning_mode
+			opts.parallel_tool_calls,
+		)) as any;
+	}
+
+	test("forwards parallel_tool_calls to OpenAI chat completions", async () => {
+		const body = await prepare("openai", "gpt-4o-mini", {
+			parallel_tool_calls: false,
+		});
+		expect(body.parallel_tool_calls).toBe(false);
+	});
+
+	test("forwards parallel_tool_calls to the OpenAI Responses API", async () => {
+		const body = await prepare("openai", "gpt-5", {
+			parallel_tool_calls: false,
+			useResponsesApi: true,
+		});
+		expect(body.parallel_tool_calls).toBe(false);
+	});
+
+	test("omits parallel_tool_calls when no tools are sent", async () => {
+		const body = await prepare("openai", "gpt-4o-mini", {
+			parallel_tool_calls: false,
+			tools: [],
+		});
+		expect(body).not.toHaveProperty("parallel_tool_calls");
+	});
+
+	test("maps false to disable_parallel_tool_use on Anthropic", async () => {
+		const body = await prepare("anthropic", "claude-3-5-sonnet-20241022", {
+			parallel_tool_calls: false,
+		});
+		expect(body.tool_choice).toEqual({
+			type: "auto",
+			disable_parallel_tool_use: true,
+		});
+		expect(body).not.toHaveProperty("parallel_tool_calls");
+	});
+
+	test("keeps a forced Anthropic tool choice when disabling parallel use", async () => {
+		const body = await prepare("anthropic", "claude-3-5-sonnet-20241022", {
+			parallel_tool_calls: false,
+			tool_choice: "required",
+		});
+		expect(body.tool_choice).toEqual({
+			type: "any",
+			disable_parallel_tool_use: true,
+		});
+	});
+
+	test("leaves Anthropic tool_choice alone for tool_choice none", async () => {
+		const body = await prepare("anthropic", "claude-3-5-sonnet-20241022", {
+			parallel_tool_calls: false,
+			tool_choice: "none",
+		});
+		expect(body.tool_choice).toEqual({ type: "none" });
+	});
+
+	test("does not send parallel_tool_calls to Google", async () => {
+		const body = await prepare("google-ai-studio", "gemini-2.5-flash", {
+			parallel_tool_calls: false,
+		});
+		expect(body).not.toHaveProperty("parallel_tool_calls");
+	});
+});
