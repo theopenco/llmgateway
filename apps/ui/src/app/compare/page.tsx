@@ -56,7 +56,7 @@ export const metadata: Metadata = {
 	openGraph: {
 		title: "Compare LLM Gateway — AI Gateway Comparisons",
 		description:
-			"Side-by-side comparisons against AI gateways, cloud model platform, and coding assistant.",
+			"Side-by-side comparisons against AI gateways, cloud model platforms, and coding assistants.",
 		type: "website",
 		url: `${BASE_URL}/compare`,
 	},
@@ -64,7 +64,7 @@ export const metadata: Metadata = {
 		card: "summary_large_image",
 		title: "Compare LLM Gateway — AI Gateway Comparisons",
 		description:
-			"Side-by-side comparisons against AI gateways, cloud model platform, and coding assistant.",
+			"Side-by-side comparisons against AI gateways, cloud model platforms, and coding assistants.",
 	},
 };
 

@@ -113,7 +113,7 @@ const comparisonData = [
 				title: "Content guardrails",
 				description: "Content checks; coverage and pricing vary by product",
 				llmgateway: "Enterprise",
-				vercel: "Provider/model filters and retention policies",
+				vercel: "Not documented as a gateway feature",
 			},
 			{
 				title: "AI SDK integration",

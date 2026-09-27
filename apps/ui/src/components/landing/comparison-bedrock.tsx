@@ -169,8 +169,9 @@ export function ComparisonBedrock() {
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>Cross-cloud failover</strong> — if a Bedrock region
-								degrades, requests retry on another provider automatically
+								<strong>Cross-cloud failover</strong> — retryable failures can
+								fall back to an eligible alternative provider when routing
+								settings allow it
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
