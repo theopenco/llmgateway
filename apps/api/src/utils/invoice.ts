@@ -1,4 +1,4 @@
-import { jsPDF } from "jspdf";
+import { renderInvoicePdf } from "@/pdf/invoice-document.js";
 
 import { logger } from "@llmgateway/logger";
 import { renderFooterNoticeHtml } from "@llmgateway/shared/email-unsubscribe";
@@ -183,20 +183,8 @@ export function buildInvoiceDataForTransaction(
 	};
 }
 
-export function generateInvoicePDF(data: InvoiceData): Buffer {
+export async function generateInvoicePDF(data: InvoiceData): Promise<Buffer> {
 	const isCreditNote = data.documentType === "credit_note";
-	const documentTitle =
-		data.documentType === "credit_note"
-			? "CREDIT NOTE"
-			: data.documentType === "receipt"
-				? "RECEIPT"
-				: "INVOICE";
-	const documentNumberLabel =
-		data.documentType === "credit_note"
-			? "Credit Note"
-			: data.documentType === "receipt"
-				? "Receipt"
-				: "Invoice";
 
 	// Validate required fields
 	if (!data.lineItems || data.lineItems.length === 0) {
@@ -208,184 +196,15 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 		throw new Error("Line item amounts must be non-negative");
 	}
 
-	// Use empty strings for optional fields if not provided
-	const invoiceNumber = data.invoiceNumber || "";
-	const organizationName = data.organizationName || "";
-	const billingEmail = data.billingEmail || "";
-
-	// eslint-disable-next-line new-cap
-	const doc = new jsPDF();
-	const pageWidth = doc.internal.pageSize.getWidth();
-	let yPos = 20;
-
-	doc.setFontSize(24);
-	doc.setFont("helvetica", "bold");
-	doc.text(documentTitle, pageWidth / 2, yPos, {
-		align: "center",
+	return await renderInvoicePdf({
+		data: {
+			...data,
+			invoiceNumber: data.invoiceNumber || "",
+			organizationName: data.organizationName || "",
+			billingEmail: data.billingEmail || "",
+		},
+		from: invoiceFrom.replace(/\\n/g, "\n").split("\n"),
 	});
-
-	yPos += 15;
-	doc.setFontSize(10);
-	doc.setFont("helvetica", "normal");
-	doc.text(`${documentNumberLabel} Number: ${invoiceNumber}`, 20, yPos);
-	yPos += 6;
-	doc.text(
-		`Date: ${data.invoiceDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`,
-		20,
-		yPos,
-	);
-
-	// Credit-note context: the original purchase amount and the refunded portion.
-	if (isCreditNote && data.originalAmount !== undefined) {
-		yPos += 6;
-		doc.text(
-			`Original amount: ${data.currency} ${data.originalAmount.toFixed(2)}`,
-			20,
-			yPos,
-		);
-		if (data.refundPercentage !== undefined) {
-			yPos += 6;
-			doc.text(
-				`Refunded: ${data.refundPercentage.toFixed(1)}% of original purchase`,
-				20,
-				yPos,
-			);
-		}
-	}
-
-	yPos += 15;
-	const fromYPos = yPos;
-
-	// Render FROM column (left side)
-	doc.setFontSize(12);
-	doc.setFont("helvetica", "bold");
-	doc.text("FROM:", 20, yPos);
-	yPos += 7;
-	doc.setFontSize(10);
-	doc.setFont("helvetica", "normal");
-
-	const fromLines = invoiceFrom.replace(/\\n/g, "\n").split("\n");
-	for (const line of fromLines) {
-		doc.text(line, 20, yPos);
-		yPos += 6;
-	}
-	// Payments SDK receipts name the developer the end-user actually bought from.
-	// We stay the seller above; this only tells the payer who the product was.
-	if (data.merchantBrandName) {
-		doc.text(`On behalf of: ${data.merchantBrandName}`, 20, yPos);
-		yPos += 6;
-	}
-	if (data.merchantSupportEmail) {
-		doc.text(`Support: ${data.merchantSupportEmail}`, 20, yPos);
-		yPos += 6;
-	}
-	const fromEndY = yPos;
-
-	// Render BILL TO column (right side)
-	yPos = fromYPos;
-	doc.setFontSize(12);
-	doc.setFont("helvetica", "bold");
-	// eslint-disable-next-line no-mixed-operators
-	doc.text("BILL TO:", pageWidth / 2 + 10, yPos);
-	yPos += 7;
-	doc.setFontSize(10);
-	doc.setFont("helvetica", "normal");
-
-	// eslint-disable-next-line no-mixed-operators
-	const billToX = pageWidth / 2 + 10;
-
-	if (data.billingCompany) {
-		doc.text(data.billingCompany, billToX, yPos);
-		yPos += 6;
-	}
-
-	doc.text(organizationName, billToX, yPos);
-	yPos += 6;
-	doc.text(billingEmail, billToX, yPos);
-	yPos += 6;
-
-	if (data.billingAddress) {
-		const addressLines = data.billingAddress.split("\n");
-		for (const line of addressLines) {
-			doc.text(line, billToX, yPos);
-			yPos += 6;
-		}
-	}
-
-	if (data.billingTaxId) {
-		doc.text(`Tax ID: ${data.billingTaxId}`, billToX, yPos);
-		yPos += 6;
-	}
-	const billToEndY = yPos;
-
-	// Set yPos to the bottom of the taller column
-	yPos = Math.max(fromEndY, billToEndY);
-
-	yPos += 10;
-	doc.setFontSize(12);
-	doc.setFont("helvetica", "bold");
-	doc.text("DESCRIPTION", 20, yPos);
-	doc.text("AMOUNT", pageWidth - 20, yPos, { align: "right" });
-	yPos += 2;
-
-	doc.setLineWidth(0.5);
-	doc.line(20, yPos, pageWidth - 20, yPos);
-	yPos += 8;
-
-	doc.setFontSize(10);
-	doc.setFont("helvetica", "normal");
-
-	let total = 0;
-	for (const item of data.lineItems) {
-		doc.text(item.description, 20, yPos);
-		doc.text(
-			`${data.currency} ${item.amount.toFixed(2)}`,
-			pageWidth - 20,
-			yPos,
-			{ align: "right" },
-		);
-		total += item.amount;
-		yPos += 7;
-	}
-
-	yPos += 5;
-	doc.setLineWidth(0.5);
-	doc.line(20, yPos, pageWidth - 20, yPos);
-	yPos += 8;
-
-	doc.setFontSize(12);
-	doc.setFont("helvetica", "bold");
-	// total is negative for a credit note (net refund), e.g. "USD -50.00".
-	doc.text("TOTAL", 20, yPos);
-	doc.text(`${data.currency} ${total.toFixed(2)}`, pageWidth - 20, yPos, {
-		align: "right",
-	});
-
-	yPos += 15;
-	doc.setFontSize(9);
-	doc.setFont("helvetica", "italic");
-	doc.text(
-		"If applicable, customer should account for the respective VAT reverse charge.",
-		20,
-		yPos,
-	);
-
-	if (data.billingNotes) {
-		yPos += 20;
-		doc.setFontSize(10);
-		doc.setFont("helvetica", "normal");
-		doc.text("Notes:", 20, yPos);
-		yPos += 6;
-
-		const notesLines = data.billingNotes.split("\n");
-		for (const line of notesLines) {
-			doc.text(line, 20, yPos);
-			yPos += 6;
-		}
-	}
-
-	const pdfBuffer = Buffer.from(doc.output("arraybuffer"));
-	return pdfBuffer;
 }
 
 export async function generateAndEmailInvoice(
@@ -401,7 +220,7 @@ export async function generateAndEmailInvoice(
 			return;
 		}
 
-		const pdfBuffer = generateInvoicePDF(data);
+		const pdfBuffer = await generateInvoicePDF(data);
 
 		const escapedInvoiceNumber = escapeHtml(data.invoiceNumber);
 		const escapedCurrency = escapeHtml(data.currency);
