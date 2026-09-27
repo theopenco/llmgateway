@@ -11,13 +11,20 @@ export function ProviderLogo({
 	if ("src" in logo && typeof logo.src === "string") {
 		return <img src={logo.src} alt="" loading="lazy" className={className} />;
 	}
+	const [x, y, width, height] = logo.viewBox.split(" ").map(Number);
 	return (
 		<svg
 			viewBox={logo.viewBox}
 			className={`${className} text-black dark:text-white`}
 			aria-hidden="true"
 		>
-			<use href={`/provider-logos.svg#${provider}`} />
+			<use
+				href={`/provider-logos.svg#${provider}`}
+				x={x}
+				y={y}
+				width={width}
+				height={height}
+			/>
 		</svg>
 	);
 }

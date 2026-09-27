@@ -114,8 +114,10 @@ export function Faq() {
 									open={index === 0}
 									className="group border-b border-border/50 py-5"
 								>
-									<summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-md py-2 text-left font-display text-lg font-medium leading-7 text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-xl [&::-webkit-details-marker]:hidden">
-										{item.question}
+									<summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-md py-2 text-left text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+										<h3 className="font-display text-lg font-medium leading-7 md:text-xl">
+											{item.question}
+										</h3>
 										<PlusIcon
 											size={18}
 											className="pointer-events-none shrink-0 opacity-60 transition-transform duration-200 group-open:rotate-45"
