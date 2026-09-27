@@ -295,6 +295,64 @@ describe("admin unstable mappings", () => {
 		expect(unattributed.errors[0].statusCode).toBe(503);
 	});
 
+	test("drilldown groups error shapes per provider key", async () => {
+		await seedMixedTraffic();
+		await seedLog({
+			providerKeyId: "um-key-a",
+			hasError: true,
+			statusCode: 502,
+		});
+		await seedLog({
+			providerKeyId: "um-key-a",
+			hasError: true,
+			statusCode: 500,
+		});
+
+		async function getErrors(extra: string) {
+			const res = await app.request(
+				`/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai&includeByok=true${extra}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			return (await res.json()) as ErrorsBody & {
+				groupByKey: boolean;
+				keys: {
+					providerKeyId: string | null;
+					providerKeyLabel: string | null;
+					errorsCount: number;
+				}[];
+			};
+		}
+
+		const grouped = await getErrors("&groupByKey=true");
+		expect(grouped.groupByKey).toBe(true);
+		expect(grouped.sampledErrors).toBe(5);
+		expect(grouped.keys).toEqual([
+			expect.objectContaining({
+				providerKeyId: "um-key-a",
+				providerKeyLabel: "Primary account",
+				errorsCount: 3,
+			}),
+			expect.objectContaining({
+				providerKeyId: "um-key-b",
+				providerKeyLabel: "Customer production",
+				errorsCount: 1,
+			}),
+			expect.objectContaining({ providerKeyId: null, errorsCount: 1 }),
+		]);
+		expect(grouped.errors).toHaveLength(4);
+		expect(grouped.errors[0]).toMatchObject({
+			providerKeyId: "um-key-a",
+			statusCode: 500,
+			count: 2,
+		});
+
+		// A drilldown already narrowed to one key has nothing to group.
+		const narrowed = await getErrors("&groupByKey=true&providerKeyId=um-key-a");
+		expect(narrowed.groupByKey).toBe(false);
+		expect(narrowed.keys).toEqual([]);
+	});
+
 	test("filters the ranking to one mapping", async () => {
 		await seedLog({ hasError: true });
 		await seedLog({});
