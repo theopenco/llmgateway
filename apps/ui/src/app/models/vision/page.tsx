@@ -33,7 +33,7 @@ export default async function VisionModelsPage() {
 				description="Models with image understanding capabilities — analyze, describe, and extract information from images"
 				categoryFilter="vision"
 			>
-				<HeroRSC navbarOnly sticky={false} />
+				<HeroRSC sticky={false} />
 			</AllModels>
 		</Suspense>
 	);

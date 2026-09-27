@@ -49,7 +49,7 @@ export default async function NanoBananaSimulatorPage({ params }: PageProps) {
 
 	return (
 		<>
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<SimulatorHero discount={discount} />
 			<CostCalculator discount={discount} />
 			<PricingBreakdown discount={discount} />

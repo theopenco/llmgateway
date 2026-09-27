@@ -93,7 +93,7 @@ export default async function ProviderCountryPage({
 		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
 			<JsonLd data={[collectionSchema, breadcrumbSchema]} />
 			<main>
-				<HeroRSC navbarOnly />
+				<HeroRSC />
 				<ProvidersGrid
 					countryCode={country.code}
 					heading={`${country.flag} AI Providers in ${country.name}`}

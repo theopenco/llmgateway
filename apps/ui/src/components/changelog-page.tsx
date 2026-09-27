@@ -10,7 +10,7 @@ export function ChangelogPageContent(
 ) {
 	return (
 		<>
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<Changelog key={changelogPath(props.tag, props.page)} {...props} />
 			<Footer />
 		</>

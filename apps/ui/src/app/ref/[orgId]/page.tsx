@@ -87,7 +87,7 @@ export default async function ReferralLandingPage({
 	return (
 		<div className="min-h-screen bg-background text-foreground">
 			<RefCookieSetter orgId={info.id} />
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 
 			<section className="relative overflow-hidden border-b bg-linear-to-b from-primary/5 via-background to-background">
 				<div className="absolute inset-0 bg-grid-slate-100 mask-[linear-gradient(0deg,transparent,black)] dark:bg-grid-slate-800" />
