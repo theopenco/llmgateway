@@ -1878,6 +1878,7 @@ chat.openapi(completions, async (c) => {
 		plugins,
 		n,
 		user,
+		parallel_tool_calls,
 	} = validationResult.data;
 
 	// Mutable: dev-plan (DevPass) orgs can configure a default service tier in
@@ -7421,6 +7422,7 @@ chat.openapi(completions, async (c) => {
 			response_format,
 			tools: tools?.length ? tools : undefined,
 			tool_choice,
+			parallel_tool_calls,
 			webSearchTool,
 			reasoning_effort,
 			reasoning_max_tokens,
@@ -8276,6 +8278,7 @@ chat.openapi(completions, async (c) => {
 			getUsedProviderMapping(),
 			reasoning_mode,
 			providerCacheAutoTtl,
+			parallel_tool_calls,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -8491,6 +8494,7 @@ chat.openapi(completions, async (c) => {
 				service_tier,
 				clientRequestedServiceTier: clientRequestedServiceTier(),
 				verbosity,
+				parallel_tool_calls,
 			},
 		);
 	}
