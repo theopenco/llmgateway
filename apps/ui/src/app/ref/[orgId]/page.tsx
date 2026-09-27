@@ -52,7 +52,7 @@ export async function generateMetadata({
 			title,
 			description,
 			type: "website",
-			images: ["/opengraph.png?v=2"],
+			images: ["/opengraph.png?v=3"],
 		},
 		twitter: { card: "summary_large_image", title, description },
 	};

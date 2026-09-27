@@ -69,7 +69,6 @@ export const metadata: Metadata = {
 	openGraph: {
 		title: "LLM Gateway - Unified API for Multiple LLM Providers",
 		description: `Route, manage, and analyze LLM requests across ${MARKETING_STATS.providers} providers, including OpenAI, Anthropic and Google, through one OpenAI-compatible API. Open-source core.`,
-		images: ["/opengraph.png?v=2"],
 		type: "website",
 		url: "https://llmgateway.io",
 		siteName: "LLM Gateway",
