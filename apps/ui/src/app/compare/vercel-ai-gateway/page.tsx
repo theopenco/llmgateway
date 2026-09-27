@@ -1,36 +1,41 @@
 import { CompareFaq } from "@/components/compare/compare-faq";
+import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonVercel } from "@/components/landing/comparison-vercel";
 import Footer from "@/components/landing/footer";
-
-import { MARKETING_STATS } from "@llmgateway/shared";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
 const vercelFaqs: CompareFaqItem[] = [
 	{
-		question: "Is LLM Gateway a good Vercel AI Gateway alternative?",
+		question: "Do I need to host my application on Vercel?",
 		answer:
-			"Yes. Both pass provider token rates through with zero markup and offer automatic failover and caching. The difference is portability: LLM Gateway is fully open source (AGPLv3) and self-hostable, and it isn't tied to a Vercel team account or deploy target.",
+			"No. Vercel AI Gateway works from other hosts using an API key and supports the AI SDK plus OpenAI- and Anthropic-compatible interfaces. LLM Gateway also works across hosts. The deployment difference is that LLM Gateway has a self-hostable core, while Vercel operates its gateway as a managed service.",
 	},
 	{
-		question: "Can I self-host LLM Gateway? Vercel AI Gateway is managed-only.",
+		question: "How does pricing compare?",
 		answer:
-			"Yes. The entire platform — gateway, dashboard, and worker — is AGPLv3 and runs on your own infrastructure with a single Docker image. Vercel AI Gateway is a managed cloud service with no self-host option.",
+			"Vercel offers $5 monthly free credit for eligible models. Buying credits moves you to its paid gateway tier, enables BYOK and ends the monthly free allowance. Inference and BYOK have zero gateway markup. LLM Gateway charges 5% on credit purchases and no BYOK platform fee, with optional storage billed separately.",
 	},
 	{
-		question: "Does it work with the Vercel AI SDK?",
+		question: "Which Vercel features have extra charges?",
 		answer:
-			"Yes. LLM Gateway ships a first-class AI SDK provider (`@llmgateway/ai-sdk-provider`), so you keep using `generateText` and `streamText`. It also implements the AI SDK gateway protocol, so code that passes bare model strings can keep every line and just repoint the default gateway provider at LLM Gateway.",
+			"Custom reporting, team-wide provider allowlists and team-wide zero data retention have separate meters. Trace Drains charge for both trace events and data egress. Plan eligibility also varies. Per-request provider filtering is free; per-request ZDR has no surcharge on eligible Vercel plans.",
 	},
 	{
-		question: "How does pricing compare to Vercel AI Gateway?",
-		answer: `Both charge no markup on tokens. On Vercel, bringing your own keys needs the paid tier, purchased credits expire after a year, and several controls bill on their own meters: custom reporting, a team-wide provider allowlist, team-wide zero data retention, and trace drains. On the managed tier LLM Gateway adds a flat 5% platform fee on credits, or 0% when you bring your own provider keys at any tier; optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}. Self-hosting the AGPLv3 build is free, and there are no governance add-ons gated behind a higher plan.`,
+		question: "Does Vercel support media generation and budgets?",
+		answer:
+			"Yes. It supports image generation and beta video and audio capabilities. Budgets can cap team, project, API-key and user spend, but Vercel documents BYOK spend separately from budget enforcement. These capabilities should not be presented as exclusive to LLM Gateway.",
 	},
 	{
-		question: "What can LLM Gateway do that Vercel AI Gateway doesn't?",
+		question: "What can I self-host with LLM Gateway?",
 		answer:
-			"Run on your own infrastructure under an open-source license, generate images and video through the same API, and use built-in guardrails (PII, prompt injection, jailbreak, secrets). Vercel's governance controls cover allowlists and data retention, not content scanning.",
+			"The core gateway, dashboard and worker are available under AGPLv3. Enterprise controls use a separate commercial license. Built-in content guardrails are an Enterprise feature; provider filtering and retention policies are different controls.",
+	},
+	{
+		question: "Can I keep the AI SDK?",
+		answer:
+			"Yes. Use the LLM Gateway AI SDK provider or its gateway-compatible endpoint. Review Vercel-specific provider options, routing rules and observability settings during migration.",
 	},
 ];
 
@@ -42,12 +47,12 @@ export default function CompareVercelPage() {
 					content={{
 						heading: "The Open Vercel AI Gateway Alternative",
 						description:
-							"Compare LLM Gateway's open-source, self-hostable platform — with zero token markup, image and video generation, and built-in guardrails — against Vercel AI Gateway's managed, AI SDK-native service.",
+							"Compare LLM Gateway's open-source, self-hostable platform — with zero token markup, image and video generation, and Enterprise guardrails — against Vercel AI Gateway's managed, AI SDK-native service.",
 						badges: [
-							"Fully Open Source",
+							"Open-Source Core",
 							"Self-Hostable",
 							"Zero Token Markup",
-							"No Lock-In",
+							"Self-Hosting Option",
 						],
 						cta: {
 							primary: {
@@ -63,6 +68,7 @@ export default function CompareVercelPage() {
 					}}
 				/>
 				<ComparisonVercel />
+				<ComparisonSources slug="vercel-ai-gateway" />
 				<CompareFaq
 					heading="LLM Gateway vs Vercel AI Gateway"
 					description="Common questions about choosing LLM Gateway over Vercel AI Gateway."
@@ -78,7 +84,7 @@ export async function generateMetadata() {
 	return {
 		title: "LLM Gateway vs Vercel AI Gateway — The Open Alternative",
 		description:
-			"Compare open-source, self-hostable routing with zero token markup and guardrails vs Vercel AI Gateway's managed AI SDK service.",
+			"Compare open-source, self-hostable routing with zero token markup and Enterprise guardrails vs Vercel AI Gateway's managed AI SDK service.",
 		alternates: {
 			canonical: "/compare/vercel-ai-gateway",
 		},

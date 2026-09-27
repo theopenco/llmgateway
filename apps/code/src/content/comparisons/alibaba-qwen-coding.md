@@ -1,76 +1,66 @@
 ---
-id: devpass-vs-alibaba-qwen
-slug: alibaba-qwen-coding
-date: 2026-06-02
-title: DevPass vs Alibaba Qwen Coding Plan
-metaTitle: "DevPass vs Alibaba Qwen Coding Plan Compared (2026)"
-description: "DevPass vs Alibaba Cloud's Qwen coding plan compared. Alibaba's plan centers on Qwen3-Coder with high request limits; DevPass is a flat plan for 200+ models — Claude, GPT-5.5, Gemini and Qwen — under one key."
-competitor: Alibaba Qwen Coding Plan
-competitorLogo: qwen
-competitorTagline: High-volume access to Qwen3-Coder and partner models
-tagline: "Alibaba's coding plan is built around Qwen3-Coder with huge request limits. DevPass is built around choice — Qwen plus 200+ other models, including the Western flagships."
+id: "devpass-vs-alibaba-qwen-coding"
+slug: "alibaba-qwen-coding"
+date: "2026-09-27"
+title: "DevPass vs Alibaba Cloud Coding Plan"
+metaTitle: "DevPass vs Alibaba Cloud Coding Plan: Pricing and Limits (2026)"
+description: "Compare Alibaba Cloud’s international $50 Pro Coding Plan, request quotas, eligibility, and billing boundaries with DevPass’s monthly coding plans."
+competitor: "Alibaba Cloud Coding Plan"
+competitorLogo: "qwen"
+competitorTagline: "Request-based coding subscription"
+tagline: "Alibaba’s international Pro plan counts requests across several windows. DevPass meters model usage in dollars."
 devpassPrice: "$29–$179/mo"
-competitorPrice: Lite / Pro tiers
-verdict: "Alibaba Cloud's Qwen coding plan offers very high request volumes centered on Qwen3-Coder, with a few partner models added in — strong value if Qwen is your main model. DevPass is broader: Qwen is one of 200+ models on every plan, alongside Claude, GPT-5.5 and Gemini, under one key with per-request cost analytics. Pick Alibaba for Qwen-first volume; pick DevPass for full model coverage."
+competitorPrice: "$50/mo international Pro"
+verdict: "Alibaba Cloud’s international Pro plan suits supported interactive coding workloads that fit its request quotas and live catalog. DevPass suits developers who prefer a dollar allowance across its coding catalog. A request quota is not a prompt count or a token allowance, and agent tasks may make several requests."
 features:
-  - label: Pricing model
-    devpass: Flat rate + usage allowance
-    competitor: Tiered request quota
-  - label: Models included
-    devpass: "200+"
-    competitor: Qwen-centric + a few partners
-    highlight: true
-  - label: "Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro"
-    devpass: true
-    competitor: false
-    highlight: true
-  - label: "Qwen3-Coder, Qwen3-Max"
-    devpass: true
-    competitor: true
-  - label: Other open-weight coders (GLM, Kimi, DeepSeek)
-    devpass: true
-    competitor: Limited partner set
-  - label: Single API key for all models
-    devpass: true
-    competitor: Qwen-first
-  - label: Per-request cost & latency dashboard
-    devpass: true
-    competitor: Request quota
-  - label: OpenAI + Anthropic-compatible API
-    devpass: true
-    competitor: true
-  - label: "Works with Claude Code, Cursor, Cline, Qwen Code"
-    devpass: true
-    competitor: true
+  - label: "International monthly plan"
+    devpass: "$29–$179"
+    competitor: "$50 Pro"
+  - label: "Entry tier"
+    devpass: "Lite available"
+    competitor: "Lite no longer sold"
+  - label: "Usage measurement"
+    devpass: "Model usage in dollars"
+    competitor: "API requests"
+  - label: "Plan limits"
+    devpass: "Monthly allowance + premium weekly limits"
+    competitor: "6,000 / 5 hours; 45,000 / week; 90,000 / month"
+  - label: "Catalog"
+    devpass: "Live DevPass coding catalog"
+    competitor: "Qwen and selected partner models"
+  - label: "Access credentials"
+    devpass: "DevPass endpoint and key"
+    competitor: "Dedicated Coding Plan endpoint and key"
+  - label: "Use scope"
+    devpass: "One developer; coding plan terms apply"
+    competitor: "One user; interactive coding, not backend automation"
 faqs:
-  - question: What is Alibaba Cloud's Qwen coding plan?
-    answer: "It's a coding subscription from Alibaba Cloud built around the Qwen3-Coder models, with Lite and Pro tiers that grant very high monthly request volumes (the Lite tier is marketed as roughly 3× the usage of a standard Claude Code plan). It includes a handful of partner models and works with tools like Qwen Code, Claude Code, Cline and Cursor via an API key from Model Studio."
-  - question: Does Alibaba's plan include Claude or GPT?
-    answer: "No. The plan is Qwen-centric, with a small set of partner models such as Kimi and GLM. It does not include Claude, GPT-5.5 or Gemini. DevPass includes all of them on every plan, alongside Qwen, under a single API key."
-  - question: Can I use Qwen models with DevPass?
-    answer: "Yes. Qwen3-Coder and Qwen3-Max are part of the DevPass catalog, so you keep Qwen access and gain the frontier models plus the other open-weight coders — all metered in one place with a real per-request cost breakdown."
-  - question: Which is better for high-volume agent runs?
-    answer: "Alibaba's plan is designed for sheer Qwen request volume, which suits Qwen-first, high-throughput workflows. DevPass Max ($179/mo, ~$537 of usage) is built for all-day agent runs across any model. The right choice depends on whether you need one model at high volume or many models with headroom."
+  - question: "Is Alibaba Coding Plan still available on Lite?"
+    answer: "The international documentation says Lite stopped accepting new subscriptions on March 20, 2026, with renewals and upgrades stopped on April 13. Existing plans last until their expiry. The currently offered Pro plan costs $50/month."
+  - question: "How many prompts does the Pro plan include?"
+    answer: "Its quota counts API requests, not user prompts. Pro permits 6,000 requests per five hours, 45,000 per week, and 90,000 per month. All limits apply, and one agent task can generate several requests."
+  - question: "Can I use a normal Alibaba API key?"
+    answer: "The subscription requires its dedicated Coding Plan key and endpoint. Standard Model Studio API access is separately billed pay as you go."
+  - question: "Can the plan run production backend jobs?"
+    answer: "The Coding Plan documentation restricts it to supported interactive coding tools for one user. It excludes automated backend use and sharing. Check the standard API product for those workloads."
 ---
 
-## What is the Alibaba Qwen coding plan?
+## International Pro pricing
 
-Alibaba Cloud's AI coding offering is a subscription built around **Qwen3-Coder**. Its **Lite** and **Pro** tiers grant large monthly request quotas — the Lite tier is marketed as roughly **3× the usage of a standard Claude Code plan**, with the Pro tier scaling several times beyond that. The catalog is **Qwen-centric**, with a few partner models (Kimi, GLM, MiniMax) added in, and you connect via an API key from Alibaba's Model Studio to tools like Qwen Code, Claude Code, Cline and Cursor.
+Alibaba Cloud’s international [Coding Plan documentation](https://www.alibabacloud.com/help/en/model-studio/coding-plan) lists **Pro at $50/month**. Lite is no longer sold or renewed. Subscription slots are limited and restock daily; availability is not guaranteed.
 
-For a Qwen-first developer who wants maximum volume, it's a serious option.
+Pro includes **6,000 requests per five hours, 45,000 per week, and 90,000 per month**. All three windows apply. An agent may make multiple model calls for one user task, so the monthly figure is not a count of completed prompts or coding jobs.
 
-## What is DevPass?
+## Scope and billing boundaries
 
-DevPass by LLM Gateway is a flat-rate plan covering **200+ models behind one key** — Qwen3-Coder and Qwen3-Max included, plus Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro and the other open-weight coders. You get a monthly usage allowance (about $3 of model usage per $1 paid), a per-request cost and latency dashboard, and the freedom to switch between any model mid-session.
+The plan includes Qwen and selected partner models; consult its live catalog instead of assuming it is Qwen-only. Use the dedicated Coding Plan endpoint and key. Requests sent through standard API billing are not covered by the subscription.
 
-## Qwen-first volume vs full coverage
+The plan is for one user’s interactive coding in supported tools, excluding backend automation and key sharing. Mainland China offers and prices differ from the international plan compared here. **Choose Alibaba’s plan** when its catalog, quotas, and availability fit; **choose DevPass** for a dollar-metered coding allowance across its live catalog.
 
-Alibaba's plan optimizes for one thing extremely well: **a lot of Qwen**. If your workflow runs on Qwen3-Coder and you want the highest request ceiling for the price, that focus is a strength.
+## DevPass pricing and limits
 
-DevPass optimizes for **range**. Qwen is included, so you don't give up the open-weight option — you add the frontier models next to it. When a task outgrows Qwen, Claude, GPT-5.5 and Gemini are already in the same account, one key away, with every request's cost itemized.
+DevPass costs **$29/month for Lite, $79 for Pro, or $179 for Max**, for one developer. As of September 27, these plans include $87, $237, and $537 of monthly model usage respectively, with separate premium weekly fair-use limits. Optional pay-as-you-go overflow costs extra.
 
-## Who should choose which
+**Plan changes start October 15, 2026:** new subscriptions begin at 2× the plan price in monthly usage; existing subscriptions move to 2× at their first renewal on or after that date. Daily caps, tighter premium weekly caps, and revised Reset Pass benefits take effect October 15, including within existing billing cycles. Read the [plan-change terms](/legal/terms#october-2026-plan-changes) before subscribing.
 
-**Choose the Alibaba Qwen plan if** Qwen3-Coder is your primary model and you want the largest request volume at the lowest price.
-
-**Choose DevPass if** you want Qwen _and_ the frontier models under one key, a per-request cost breakdown, and monthly billing.
+Compare the live [coding catalog](/coding-models) and [plan details](/pricing). Client support depends on the API and custom-endpoint features of the coding tool; a DevPass key does not unlock every feature of a third-party editor.

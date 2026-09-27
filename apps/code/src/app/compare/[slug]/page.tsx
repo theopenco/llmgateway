@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 
 import { BrandTile } from "@/components/brand-logos";
 import { ComparisonTable } from "@/components/ComparisonTable";
+import { DevPassPlanChangeNotice } from "@/components/DevPassPlanChangeNotice";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { CodeCTATracker } from "@/components/LandingTracker";
@@ -207,7 +208,7 @@ export default async function ComparePage({ params }: ComparePageProps) {
 							<Pole
 								brand="devpass"
 								name="DevPass"
-								caption="One key, 200+ models at provider rates"
+								caption="One key for the live coding catalog"
 								price={entry.devpassPrice}
 								recommended
 							/>
@@ -238,6 +239,10 @@ export default async function ComparePage({ params }: ComparePageProps) {
 							</Button>
 						</div>
 					</div>
+				</section>
+
+				<section className="container mx-auto max-w-4xl px-4 pt-8">
+					<DevPassPlanChangeNotice />
 				</section>
 
 				{/* Verdict */}
@@ -317,12 +322,11 @@ export default async function ComparePage({ params }: ComparePageProps) {
 							<BrandTile brand="devpass" size={44} radius={12} />
 						</div>
 						<h2 className="mb-3 text-3xl font-bold tracking-tight">
-							One key. Every model.
+							One key. Your choice of coding models.
 						</h2>
 						<p className="mb-8 text-muted-foreground">
-							Start on Pro — most developers ship from there. An instant upgrade
-							brings the new allowance right away and rolls your unused credits
-							on top.
+							Choose a plan that fits your monthly usage and review its premium
+							limits before subscribing.
 						</p>
 						<div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
 							<CodeCTATracker cta="get_started" location="compare_bottom_cta">

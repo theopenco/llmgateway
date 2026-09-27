@@ -13,19 +13,20 @@ const comparisonData = [
 		features: [
 			{
 				title: "Cloud-neutral",
-				description: "Use any provider on any cloud — or none at all",
+				description: "Choose from supported providers across clouds",
 				llmgateway: true,
 				foundry: "Azure only",
 			},
 			{
 				title: "Open source & self-hostable",
-				description: "Run the entire platform on your own infrastructure",
+				description:
+					"Run the core on your infrastructure; Enterprise has separate terms",
 				llmgateway: "AGPLv3",
 				foundry: false,
 			},
 			{
 				title: "OpenAI-compatible API",
-				description: "One request format across every model",
+				description: "Common request formats; features depend on the model",
 				llmgateway: true,
 				foundry: "Varies by model",
 			},
@@ -43,25 +44,25 @@ const comparisonData = [
 			{
 				title: "Providers behind one API",
 				description: "Clouds, labs, and fast independent hosts",
-				llmgateway: "40+ providers",
-				foundry: "Azure-hosted catalog (10,000+ models)",
+				llmgateway: "See live provider catalog",
+				foundry: "See Foundry model catalog",
 			},
 			{
 				title: "Frontier model coverage",
-				description: "OpenAI, Anthropic, Google, xAI, and more",
-				llmgateway: "All major labs",
-				foundry: "OpenAI, Claude — no Gemini",
+				description: "Check live catalogs for the models you need",
+				llmgateway: "Cross-provider catalog",
+				foundry: "See Foundry model catalog",
 			},
 			{
 				title: "Fast inference hosts",
-				description: "Groq, Cerebras, and other speed-focused providers",
+				description: "Choose independent inference hosts",
 				llmgateway: true,
 				foundry: false,
 			},
 			{
-				title: "No deployment management",
-				description: "Call any model without provisioning it first",
-				llmgateway: true,
+				title: "Deployment requirements",
+				description: "Setup depends on the billing and provider route",
+				llmgateway: "Managed routes; BYOK keeps provider requirements",
 				foundry: "Deployments + TPM quotas",
 			},
 		],
@@ -73,14 +74,13 @@ const comparisonData = [
 				title: "Automatic provider routing",
 				description: "Routes on live uptime, throughput, price, and latency",
 				llmgateway: true,
-				foundry: "Model router (OpenAI, Claude, OSS)",
+				foundry: "Model router with automatic fallback",
 			},
 			{
 				title: "Failover across providers",
-				description:
-					"Transparent retry on a healthy provider — even another cloud",
+				description: "Retry within the configured model and provider pool",
 				llmgateway: true,
-				foundry: false,
+				foundry: "Fallback within Foundry's supported pool",
 			},
 			{
 				title: "Response caching",
@@ -109,7 +109,7 @@ const comparisonData = [
 				title: "Transparent platform fee",
 				description: "Predictable, easy-to-reason-about pricing",
 				llmgateway: "5% or 0% (BYOK)",
-				foundry: "Provider rates + PTU reservations",
+				foundry: "Usage-based or provisioned; service charges vary",
 			},
 			{
 				title: "Real-time cost analytics",
@@ -118,9 +118,9 @@ const comparisonData = [
 				foundry: "Azure Monitor / Cost Management",
 			},
 			{
-				title: "Guardrails",
-				description: "Prompt injection, PII, jailbreak, and secret detection",
-				llmgateway: true,
+				title: "Content guardrails",
+				description: "Content checks; coverage and pricing vary by product",
+				llmgateway: "Enterprise",
 				foundry: true,
 			},
 		],
@@ -147,7 +147,7 @@ export function ComparisonAzureFoundry() {
 						Compare platforms
 					</Badge>
 					<h2 className="text-3xl font-bold tracking-tight mb-2 text-foreground">
-						Every model on Foundry — without the Azure ceremony
+						Compare cross-provider routing and Azure-native tooling
 					</h2>
 					<p className="text-muted-foreground">
 						Compare LLM Gateway and Microsoft Foundry (formerly Azure AI
@@ -163,22 +163,22 @@ export function ComparisonAzureFoundry() {
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>No cloud lock-in</strong> — Azure is one of 40+
-								providers behind a single OpenAI-compatible API
+								<strong>No cloud lock-in</strong> — Azure is one of the
+								supported providers behind a single OpenAI-compatible API
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>No deployments or quotas</strong> — call any model
-								instantly, no provisioning or TPM planning
+								<strong>Managed model access</strong> — use credits for
+								supported routes; Azure BYOK still follows deployment quotas
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>Fully open source</strong> — self-host the entire
-								platform under AGPLv3
+								<strong>Open-source core</strong> — self-host under AGPLv3;
+								enterprise features have separate terms
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
@@ -204,7 +204,7 @@ export function ComparisonAzureFoundry() {
 								</p>
 								<p className="text-2xl font-bold text-primary">From $0</p>
 								<p className="text-xs text-muted-foreground mt-1">
-									Self-host free forever
+									Free core; hosting costs separate
 								</p>
 							</div>
 						</div>
@@ -267,10 +267,10 @@ export function ComparisonAzureFoundry() {
 					<p className="text-sm text-muted-foreground">
 						Azure OpenAI and Microsoft Foundry are built-in LLM Gateway
 						providers. Bring your Azure credentials and your traffic keeps
-						flowing with 0% markup — while every request gains automatic
-						failover to other providers, response caching, guardrails, and
-						per-request cost analytics. When you need a model Foundry
-						doesn&apos;t host, it&apos;s already behind the same API.
+						flowing with 0% markup — with configurable provider fallback,
+						response caching, and cost analytics. Content guardrails require
+						Enterprise. Check our live catalog for supported routes outside
+						Foundry.
 					</p>
 				</div>
 
@@ -289,7 +289,7 @@ export function ComparisonAzureFoundry() {
 					</div>
 					<p className="text-sm text-muted-foreground mt-3">
 						No credit card required • Self-host option available • Enterprise
-						support included
+						support available
 					</p>
 				</div>
 			</div>
