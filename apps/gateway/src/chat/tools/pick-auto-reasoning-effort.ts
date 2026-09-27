@@ -21,3 +21,28 @@ export function pickAutoReasoningEffort(
 	}
 	return preferred.find((effort) => supportedEfforts.includes(effort));
 }
+
+export interface AutoReasoningEffortPick {
+	modelId: string;
+	preferMediumEffort: boolean;
+}
+
+/**
+ * Effort for a fallback candidate. An effort auto-routing picked for the first
+ * mapping is re-picked against the candidate's, since mappings of one model can
+ * accept different efforts; an effort the caller sent is kept.
+ */
+export function pickFallbackReasoningEffort(
+	reasoningEffort: ReasoningEffort | undefined,
+	autoPick: AutoReasoningEffortPick | undefined,
+	candidateEfforts: ReasoningEffort[] | undefined,
+): ReasoningEffort | undefined {
+	if (!autoPick) {
+		return reasoningEffort;
+	}
+	return pickAutoReasoningEffort(
+		autoPick.modelId,
+		candidateEfforts,
+		autoPick.preferMediumEffort,
+	);
+}
