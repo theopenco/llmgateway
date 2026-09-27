@@ -71,6 +71,11 @@ export const mappingErrorShapeSchema = z.object({
 	// drilldown groups errors by this flag.
 	streamed: z.boolean(),
 	count: z.number(),
+	// Only set when grouped by provider key: the credential that served the
+	// failing requests (null = env-var key or never resolved), and that key's
+	// total errors in the sample.
+	providerKeyId: z.string().nullable().optional(),
+	keyErrors: z.number().optional(),
 });
 
 export const mappingErrorShapesSchema = z.object({
@@ -81,7 +86,8 @@ export const mappingErrorShapesSchema = z.object({
 /**
  * Top 10 error shapes over the latest non-client error logs of one mapping,
  * identified by the exact `log.used_model` value. Served by the partial
- * `log_error_used_provider_used_model_created_at_idx` index.
+ * `log_error_used_provider_used_model_created_at_idx` index. With
+ * `groupByKey`, returns the top 5 shapes of each provider key instead.
  */
 export async function queryMappingErrorShapes({
 	usedModel,
@@ -89,13 +95,21 @@ export async function queryMappingErrorShapes({
 	windowInterval,
 	sampleLimit,
 	extraClauses,
+	groupByKey = false,
 }: {
 	usedModel: string;
 	provider: string;
 	windowInterval: SQL;
 	sampleLimit: number;
 	extraClauses: SQL[];
+	groupByKey?: boolean;
 }): Promise<z.infer<typeof mappingErrorShapesSchema>> {
+	// Ungrouped, every row shares a constant NULL key, so the partition is one
+	// bucket and both modes share one query shape.
+	const providerKeyExpr = groupByKey
+		? sql`${tables.log.providerKeyId}`
+		: sql`NULL::text`;
+	const perKeyLimit = groupByKey ? 5 : 10;
 	const rows = await db.execute<{
 		status_code: string | null;
 		status_text: string | null;
@@ -103,11 +117,14 @@ export async function queryMappingErrorShapes({
 		cause: string | null;
 		classification: string | null;
 		streamed: boolean;
+		provider_key_id: string | null;
 		count: string;
+		key_errors: string;
 		sampled_errors: string;
 	}>(sql`
 		WITH recent_errors AS (
 			SELECT ${tables.log.errorDetails} AS error_details,
+				${providerKeyExpr} AS provider_key_id,
 				${tables.log.unifiedFinishReason} AS classification,
 				COALESCE(${tables.log.streamed}, false) AS streamed
 			FROM ${tables.log}
@@ -119,19 +136,39 @@ export async function queryMappingErrorShapes({
 				${sql.join(extraClauses, sql` `)}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${sampleLimit}
+		),
+		shapes AS (
+			SELECT error_details->>'statusCode' AS status_code,
+				error_details->>'statusText' AS status_text,
+				LEFT(error_details->>'responseText', 2000) AS response_text,
+				error_details->>'cause' AS cause,
+				classification,
+				streamed,
+				provider_key_id,
+				COUNT(*) AS count
+			FROM recent_errors
+			GROUP BY status_code, status_text, response_text, cause, classification, streamed, provider_key_id
+		),
+		ranked AS (
+			SELECT *,
+				ROW_NUMBER() OVER (PARTITION BY provider_key_id ORDER BY count DESC) AS key_rank,
+				SUM(count) OVER (PARTITION BY provider_key_id) AS key_errors
+			FROM shapes
 		)
-		SELECT error_details->>'statusCode' AS status_code,
-			error_details->>'statusText' AS status_text,
-			LEFT(error_details->>'responseText', 2000) AS response_text,
-			error_details->>'cause' AS cause,
+		SELECT status_code,
+			status_text,
+			response_text,
+			cause,
 			classification,
 			streamed,
-			COUNT(*) AS count,
+			provider_key_id,
+			count,
+			key_errors,
 			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors
-		FROM recent_errors
-		GROUP BY status_code, status_text, response_text, cause, classification, streamed
-		ORDER BY count DESC
-		LIMIT 10
+		FROM ranked
+		WHERE key_rank <= ${perKeyLimit}
+		ORDER BY key_errors DESC, provider_key_id NULLS LAST, count DESC
+		LIMIT 100
 	`);
 
 	const sampledErrors =
@@ -146,6 +183,12 @@ export async function queryMappingErrorShapes({
 			classification: r.classification,
 			streamed: r.streamed,
 			count: Number(r.count),
+			...(groupByKey
+				? {
+						providerKeyId: r.provider_key_id,
+						keyErrors: Number(r.key_errors),
+					}
+				: {}),
 		})),
 		sampledErrors,
 	};

@@ -93,6 +93,118 @@ export function errorRateClass(rate: number): string {
 	return "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400";
 }
 
+interface ErrorShape {
+	statusCode: number | null;
+	statusText: string | null;
+	responseText: string | null;
+	cause: string | null;
+	classification: string | null;
+	streamed: boolean;
+	count: number;
+	providerKeyId?: string | null;
+}
+
+const STREAM_MODES = [
+	{
+		streamed: true,
+		label: "Streaming",
+		badgeClass: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400",
+	},
+	{
+		streamed: false,
+		label: "Non-streaming",
+		badgeClass: "bg-muted text-muted-foreground",
+	},
+];
+
+function ProviderKeyLabel({
+	providerKeyId,
+	label,
+	maskedToken,
+	managed,
+}: {
+	providerKeyId: string | null;
+	label: string | null;
+	maskedToken: string | null;
+	managed: boolean | null;
+}) {
+	if (!providerKeyId) {
+		return (
+			<span
+				className="text-xs text-muted-foreground"
+				title="Served by an env-var key, or the request failed before a credential was resolved."
+			>
+				env / unattributed
+			</span>
+		);
+	}
+	return (
+		<div className="flex items-center gap-2">
+			<span
+				className="max-w-[220px] truncate font-mono text-xs"
+				title={maskedToken ?? label ?? providerKeyId}
+			>
+				{label ?? providerKeyId}
+			</span>
+			{managed !== null && (
+				<Badge
+					variant="secondary"
+					className="text-[11px] text-muted-foreground"
+				>
+					{managed ? "managed" : "byok"}
+				</Badge>
+			)}
+		</div>
+	);
+}
+
+function ErrorShapeItem({
+	error,
+	showStreamMode,
+}: {
+	error: ErrorShape;
+	showStreamMode: boolean;
+}) {
+	const streamMode = STREAM_MODES.find(
+		(mode) => mode.streamed === error.streamed,
+	);
+	return (
+		<li className="rounded-md border border-border/60 bg-background/60 p-3">
+			<div className="flex items-center justify-between gap-3">
+				<div className="flex flex-wrap items-center gap-2">
+					{showStreamMode && streamMode && (
+						<Badge className={cn("font-medium", streamMode.badgeClass)}>
+							{streamMode.label}
+						</Badge>
+					)}
+					{error.statusCode !== null && (
+						<Badge variant="outline" className="font-mono">
+							{error.statusCode}
+						</Badge>
+					)}
+					{error.statusText && (
+						<span className="text-sm font-medium">{error.statusText}</span>
+					)}
+					<ClassificationBadge classification={error.classification} />
+				</div>
+				<span className="shrink-0 text-sm font-semibold tabular-nums">
+					{formatNumber(error.count)}×
+				</span>
+			</div>
+			{error.responseText && (
+				<pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 text-xs text-muted-foreground">
+					{error.responseText}
+				</pre>
+			)}
+			{error.cause && (
+				<p className="mt-1 text-xs text-muted-foreground">
+					Cause: {error.cause}
+				</p>
+			)}
+		</li>
+	);
+}
+
 export function ErrorDetails({
 	usedModel,
 	provider,
@@ -115,6 +227,9 @@ export function ErrorDetails({
 	/** Only upstream and gateway errors, matching the Incidents counts. */
 	incidentsOnly?: boolean;
 }) {
+	// A drilldown already scoped to one key has nothing to group by.
+	const canGroupByKey = providerKeyId === undefined;
+	const [groupByKey, setGroupByKey] = useState(false);
 	const $api = useApi();
 	const { data, isLoading, isError, isFetching, refetch } = $api.useQuery(
 		"get",
@@ -131,30 +246,24 @@ export function ErrorDetails({
 					ignoreExpected: ignoreExpected ? "true" : "false",
 					includeByok: includeByok ? "true" : "false",
 					incidentsOnly: incidentsOnly ? "true" : "false",
+					groupByKey: canGroupByKey && groupByKey ? "true" : "false",
 				},
 			},
 		},
 	);
 
-	if (isLoading) {
-		return (
-			<div className="space-y-2 p-4" aria-busy>
-				<p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-					<Loader2 className="h-3.5 w-3.5 animate-spin" />
-					Scanning logs for error details…
-				</p>
-				{[0, 1, 2].map((i) => (
-					<div key={i} className="h-8 animate-pulse rounded bg-muted/40" />
-				))}
-			</div>
-		);
-	}
+	const errors = data?.errors ?? [];
 
-	if (isError) {
-		return (
+	let body;
+	if (isLoading) {
+		body = [0, 1, 2].map((i) => (
+			<div key={i} className="h-8 animate-pulse rounded bg-muted/40" />
+		));
+	} else if (isError) {
+		body = (
 			<div
 				role="alert"
-				className="m-4 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm"
+				className="flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm"
 			>
 				<span>Failed to load error details.</span>
 				<Button
@@ -168,40 +277,49 @@ export function ErrorDetails({
 				</Button>
 			</div>
 		);
-	}
-
-	const errors = data?.errors ?? [];
-
-	if (errors.length === 0) {
-		return (
-			<p className="p-4 text-sm text-muted-foreground">
+	} else if (errors.length === 0) {
+		body = (
+			<p className="text-sm text-muted-foreground">
 				No error details available in the sampled window.
 			</p>
 		);
-	}
-
-	// Streaming and non-streaming requests often fail differently, so split
-	// the drilldown into one section per mode to make debugging easier.
-	const groups = [
-		{
-			label: "Streaming",
-			badgeClass: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400",
-			errors: errors.filter((error) => error.streamed),
-		},
-		{
-			label: "Non-streaming",
-			badgeClass: "bg-muted text-muted-foreground",
-			errors: errors.filter((error) => !error.streamed),
-		},
-	].filter((group) => group.errors.length > 0);
-
-	return (
-		<div className="space-y-4 p-4">
-			<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-				Top {errors.length} error{errors.length === 1 ? "" : "s"} ·{" "}
-				{data ? formatNumber(data.sampledErrors) : null} sampled
-			</p>
-			{groups.map((group) => (
+	} else if (data?.groupByKey) {
+		body = data.keys.map((key) => {
+			const keyErrors = errors.filter(
+				(error) => (error.providerKeyId ?? null) === key.providerKeyId,
+			);
+			return (
+				<div key={key.providerKeyId ?? "none"} className="space-y-2">
+					<div className="flex flex-wrap items-center gap-2">
+						<ProviderKeyLabel
+							providerKeyId={key.providerKeyId}
+							label={key.providerKeyLabel}
+							maskedToken={key.providerKeyMaskedToken}
+							managed={key.providerKeyManaged}
+						/>
+						<span className="text-xs text-muted-foreground">
+							{formatNumber(key.errorsCount)}× total
+							{keyErrors.length > 0 &&
+								` · top ${keyErrors.length} error${keyErrors.length === 1 ? "" : "s"}`}
+						</span>
+					</div>
+					<ul className="space-y-2">
+						{keyErrors.map((error, i) => (
+							<ErrorShapeItem key={i} error={error} showStreamMode />
+						))}
+					</ul>
+				</div>
+			);
+		});
+	} else {
+		// Streaming and non-streaming requests often fail differently, so split
+		// the drilldown into one section per mode to make debugging easier.
+		body = STREAM_MODES.map((mode) => ({
+			...mode,
+			errors: errors.filter((error) => error.streamed === mode.streamed),
+		}))
+			.filter((group) => group.errors.length > 0)
+			.map((group) => (
 				<div key={group.label} className="space-y-2">
 					<div className="flex items-center gap-2">
 						<Badge className={cn("font-medium", group.badgeClass)}>
@@ -218,45 +336,57 @@ export function ErrorDetails({
 					</div>
 					<ul className="space-y-2">
 						{group.errors.map((error, i) => (
-							<li
-								key={i}
-								className="rounded-md border border-border/60 bg-background/60 p-3"
-							>
-								<div className="flex items-center justify-between gap-3">
-									<div className="flex flex-wrap items-center gap-2">
-										{error.statusCode !== null && (
-											<Badge variant="outline" className="font-mono">
-												{error.statusCode}
-											</Badge>
-										)}
-										{error.statusText && (
-											<span className="text-sm font-medium">
-												{error.statusText}
-											</span>
-										)}
-										<ClassificationBadge
-											classification={error.classification}
-										/>
-									</div>
-									<span className="shrink-0 text-sm font-semibold tabular-nums">
-										{formatNumber(error.count)}×
-									</span>
-								</div>
-								{error.responseText && (
-									<pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 text-xs text-muted-foreground">
-										{error.responseText}
-									</pre>
-								)}
-								{error.cause && (
-									<p className="mt-1 text-xs text-muted-foreground">
-										Cause: {error.cause}
-									</p>
-								)}
-							</li>
+							<ErrorShapeItem key={i} error={error} showStreamMode={false} />
 						))}
 					</ul>
 				</div>
-			))}
+			));
+	}
+
+	return (
+		<div className="space-y-4 p-4" aria-busy={isLoading}>
+			<div className="flex flex-wrap items-center justify-between gap-2">
+				<p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					{isLoading ? (
+						<>
+							<Loader2 className="h-3.5 w-3.5 animate-spin" />
+							Scanning logs for error details…
+						</>
+					) : data && errors.length > 0 ? (
+						<>
+							{data.groupByKey
+								? `Top errors of ${data.keys.length} key${data.keys.length === 1 ? "" : "s"}`
+								: `Top ${errors.length} error${errors.length === 1 ? "" : "s"}`}{" "}
+							· {formatNumber(data.sampledErrors)} sampled
+						</>
+					) : null}
+				</p>
+				{canGroupByKey && (
+					<div
+						className="flex items-center gap-1"
+						role="group"
+						aria-label="Group errors by"
+					>
+						<span className="mr-1 text-xs text-muted-foreground">Group</span>
+						{[
+							{ value: false, label: "By stream mode" },
+							{ value: true, label: "By key" },
+						].map((option) => (
+							<Button
+								key={option.label}
+								size="sm"
+								variant={groupByKey === option.value ? "default" : "outline"}
+								className="h-7 px-2 text-xs"
+								aria-pressed={groupByKey === option.value}
+								onClick={() => setGroupByKey(option.value)}
+							>
+								{option.label}
+							</Button>
+						))}
+					</div>
+				)}
+			</div>
+			{body}
 		</div>
 	);
 }
@@ -390,33 +520,12 @@ export function UnstableMappingsTable({
 								</TableCell>
 								{splitByKey && (
 									<TableCell>
-										{mapping.providerKeyId ? (
-											<div className="flex items-center gap-2">
-												<span
-													className="max-w-[220px] truncate font-mono text-xs"
-													title={
-														mapping.providerKeyMaskedToken ??
-														mapping.providerKeyLabel ??
-														mapping.providerKeyId
-													}
-												>
-													{mapping.providerKeyLabel ?? mapping.providerKeyId}
-												</span>
-												<Badge
-													variant="secondary"
-													className="text-[11px] text-muted-foreground"
-												>
-													{mapping.providerKeyManaged ? "managed" : "byok"}
-												</Badge>
-											</div>
-										) : (
-											<span
-												className="text-xs text-muted-foreground"
-												title="Served by an env-var key, or the request failed before a credential was resolved."
-											>
-												env / unattributed
-											</span>
-										)}
+										<ProviderKeyLabel
+											providerKeyId={mapping.providerKeyId}
+											label={mapping.providerKeyLabel}
+											maskedToken={mapping.providerKeyMaskedToken}
+											managed={mapping.providerKeyManaged}
+										/>
 									</TableCell>
 								)}
 								<TableCell className="text-right">
