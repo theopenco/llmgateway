@@ -200,7 +200,7 @@ export default async function ModelsPage() {
 						</>
 					}
 				>
-					<HeroRSC navbarOnly sticky={false} />
+					<HeroRSC sticky={false} />
 				</AllModels>
 			</Suspense>
 		</>

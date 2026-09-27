@@ -177,7 +177,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{ __html: JSON.stringify(productSchema) }}
 			/>
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<main className="relative min-h-screen bg-background">
 				<section className="relative overflow-hidden border-b border-border">
 					<div

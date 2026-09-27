@@ -33,7 +33,7 @@ export default async function TextModelsPage() {
 				description="Models designed for text generation, chat, code, and content creation"
 				categoryFilter="text"
 			>
-				<HeroRSC navbarOnly sticky={false} />
+				<HeroRSC sticky={false} />
 			</AllModels>
 		</Suspense>
 	);

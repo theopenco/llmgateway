@@ -74,7 +74,7 @@ const legalResources: LegalResource[] = [
 export default function LegalPage() {
 	return (
 		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<main className="container mx-auto px-4 pb-24 pt-44 md:pt-52">
 				<div className="mx-auto max-w-6xl">
 					<header className="max-w-3xl">
