@@ -5,6 +5,8 @@ import { getConfig } from "@/lib/config-server";
 import { fetchSystemBanner } from "@/lib/system-banner";
 import { getTimeZonePreference } from "@/lib/timezone-server";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 import "./globals.css";
 
 import type { Metadata } from "next";
@@ -40,8 +42,7 @@ export const metadata: Metadata = {
 		default: "LLM Gateway - Unified API for Multiple LLM Providers",
 		template: "%s | LLM Gateway",
 	},
-	description:
-		"Route, manage, and analyze LLM requests across OpenAI, Anthropic, Google, and 40+ providers through one unified, OpenAI-compatible API. Free and open source.",
+	description: `Route, manage, and analyze LLM requests across ${MARKETING_STATS.providers} providers, including OpenAI, Anthropic and Google, through one OpenAI-compatible API. Open-source core.`,
 	authors: [{ name: "LLM Gateway" }],
 	creator: "LLM Gateway",
 	publisher: "LLM Gateway",
@@ -67,8 +68,7 @@ export const metadata: Metadata = {
 	},
 	openGraph: {
 		title: "LLM Gateway - Unified API for Multiple LLM Providers",
-		description:
-			"Route, manage, and analyze LLM requests across OpenAI, Anthropic, Google, and 40+ providers through one unified, OpenAI-compatible API. Free and open source.",
+		description: `Route, manage, and analyze LLM requests across ${MARKETING_STATS.providers} providers, including OpenAI, Anthropic and Google, through one OpenAI-compatible API. Open-source core.`,
 		images: ["/opengraph.png?v=2"],
 		type: "website",
 		url: "https://llmgateway.io",
@@ -78,8 +78,7 @@ export const metadata: Metadata = {
 	twitter: {
 		card: "summary_large_image",
 		title: "LLM Gateway - Unified API for Multiple LLM Providers",
-		description:
-			"Route, manage, and analyze LLM requests across 40+ providers through one unified API.",
+		description: `Route, manage, and analyze LLM requests across ${MARKETING_STATS.providers} providers through one unified API.`,
 		creator: "@llmgateway",
 	},
 	robots: {
@@ -143,7 +142,7 @@ const websiteSchema = {
 		"@type": "SearchAction",
 		target: {
 			"@type": "EntryPoint",
-			urlTemplate: "https://llmgateway.io/models?search={search_term_string}",
+			urlTemplate: "https://llmgateway.io/models?q={search_term_string}",
 		},
 		"query-input": "required name=search_term_string",
 	},
