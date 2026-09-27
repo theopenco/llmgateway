@@ -1,5 +1,27 @@
 import dimensions from "@/lib/provider-logo-dimensions.json";
 
+import {
+	AzureIcon,
+	GoogleStudioAIIcon,
+	MinimaxIcon,
+	NanoGPTIcon,
+} from "@llmgateway/shared/components";
+
+import type { ComponentType, SVGProps } from "react";
+
+const GRADIENT_LOGOS: Partial<
+	Record<keyof typeof dimensions, ComponentType<SVGProps<SVGSVGElement>>>
+> = {
+	"google-ai-studio": GoogleStudioAIIcon,
+	glacier: GoogleStudioAIIcon,
+	iceberg: GoogleStudioAIIcon,
+	minimax: MinimaxIcon,
+	azure: AzureIcon,
+	"azure-ai-foundry": AzureIcon,
+	"azure-anthropic": AzureIcon,
+	nanogpt: NanoGPTIcon,
+};
+
 export function ProviderLogo({
 	provider,
 	className = "mx-auto h-16 w-fit object-contain",
@@ -7,6 +29,15 @@ export function ProviderLogo({
 	provider: keyof typeof dimensions;
 	className?: string;
 }) {
+	const Inline = GRADIENT_LOGOS[provider];
+	if (Inline) {
+		return (
+			<Inline
+				className={`${className} text-black dark:text-white`}
+				aria-hidden="true"
+			/>
+		);
+	}
 	const logo = dimensions[provider];
 	if ("src" in logo && typeof logo.src === "string") {
 		return <img src={logo.src} alt="" loading="lazy" className={className} />;
