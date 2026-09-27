@@ -18,7 +18,6 @@ export function ProductSlider({
 	slides,
 	width,
 	height,
-	sizes,
 	activeTone,
 	frameClassName,
 }: {
@@ -26,7 +25,6 @@ export function ProductSlider({
 	slides: Slide[];
 	width: number;
 	height: number;
-	sizes: string;
 	activeTone: string;
 	frameClassName?: string;
 }) {
@@ -131,7 +129,7 @@ export function ProductSlider({
 								alt={slide.alt}
 								width={width}
 								height={height}
-								sizes={sizes}
+								unoptimized
 								className="block h-auto w-full dark:hidden"
 							/>
 							<Image
@@ -139,7 +137,7 @@ export function ProductSlider({
 								alt={slide.alt}
 								width={width}
 								height={height}
-								sizes={sizes}
+								unoptimized
 								className="hidden h-auto w-full dark:block"
 							/>
 						</div>

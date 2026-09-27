@@ -86,10 +86,11 @@ export function DashboardDemo() {
 	const [collapsed, setCollapsed] = useState(false);
 	const [mobileNavOpen, setMobileNavOpen] = useState(false);
 	const [unlocked, setUnlocked] = useState(false);
+	const [hydrated, setHydrated] = useState(false);
 	const [nativeFullscreen, setNativeFullscreen] = useState(false);
 	const [windowFullscreen, setWindowFullscreen] = useState(false);
 	const frameRef = useRef<HTMLDivElement>(null);
-	const mainRef = useRef<HTMLElement>(null);
+	const mainRef = useRef<HTMLDivElement>(null);
 	const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
 		undefined,
 	);
@@ -97,6 +98,7 @@ export function DashboardDemo() {
 	useEffect(() => {
 		const now = new Date();
 		setClock({ anchorDay: format(now, "yyyy-MM-dd"), openedAt: now.getTime() });
+		setHydrated(true);
 		return () => clearTimeout(noticeTimer.current);
 	}, []);
 
@@ -280,45 +282,49 @@ export function DashboardDemo() {
 								fullscreen ? "h-full" : "h-[560px] md:h-[680px]",
 							)}
 						>
-							<aside
-								data-state={collapsed ? "collapsed" : "expanded"}
-								data-collapsible={collapsed ? "icon" : ""}
-								data-variant="inset"
-								className={cn(
-									"group hidden shrink-0 text-sidebar-foreground transition-[width] duration-200 ease-linear @3xl/demo:block",
-									collapsed ? "w-[calc(3rem+1rem+2px)]" : "w-64",
-								)}
-							>
-								<div className="flex h-full w-full flex-col p-2">
-									<div
-										data-sidebar="sidebar"
-										className="flex h-full w-full flex-col overflow-hidden bg-sidebar"
+							{hydrated && (
+								<>
+									<aside
+										data-state={collapsed ? "collapsed" : "expanded"}
+										data-collapsible={collapsed ? "icon" : ""}
+										data-variant="inset"
+										className={cn(
+											"group hidden shrink-0 text-sidebar-foreground transition-[width] duration-200 ease-linear @3xl/demo:block",
+											collapsed ? "w-[calc(3rem+1rem+2px)]" : "w-64",
+										)}
 									>
-										<DemoSidebarBody collapsed={collapsed} />
-									</div>
-								</div>
-							</aside>
+										<div className="flex h-full w-full flex-col p-2">
+											<div
+												data-sidebar="sidebar"
+												className="flex h-full w-full flex-col overflow-hidden bg-sidebar"
+											>
+												<DemoSidebarBody collapsed={collapsed} />
+											</div>
+										</div>
+									</aside>
 
-							<div className="flex min-w-0 flex-1 flex-col">
-								<DemoMobileHeader
-									onOpenSidebar={() => setMobileNavOpen(true)}
-								/>
-								<DemoTopBar
-									onToggleSidebar={() => {
-										setCollapsed(!collapsed);
-										track("sidebar", collapsed ? "expand" : "collapse");
-									}}
-								/>
-								{enterpriseNote && (
-									<EnterpriseBanner view={view} message={enterpriseNote} />
-								)}
-								<main
-									ref={mainRef}
-									className="relative w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-background"
-								>
-									<ViewContent key={`${view}-${project.id}`} view={view} />
-								</main>
-							</div>
+									<div className="flex min-w-0 flex-1 flex-col">
+										<DemoMobileHeader
+											onOpenSidebar={() => setMobileNavOpen(true)}
+										/>
+										<DemoTopBar
+											onToggleSidebar={() => {
+												setCollapsed(!collapsed);
+												track("sidebar", collapsed ? "expand" : "collapse");
+											}}
+										/>
+										{enterpriseNote && (
+											<EnterpriseBanner view={view} message={enterpriseNote} />
+										)}
+										<div
+											ref={mainRef}
+											className="relative w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-background"
+										>
+											<ViewContent key={`${view}-${project.id}`} view={view} />
+										</div>
+									</div>
+								</>
+							)}
 
 							{mobileNavOpen && (
 								<>

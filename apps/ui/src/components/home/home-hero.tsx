@@ -135,6 +135,7 @@ export function HomeHero() {
 						</TrackedLink>
 
 						<h1 className="mt-7 text-balance font-display text-[40px] font-bold leading-[1.08] tracking-[-0.04em] sm:text-6xl xl:text-[76px]">
+							<span className="sr-only">LLM Gateway: </span>
 							<span className="whitespace-nowrap">Company-wide</span> AI,
 							<span
 								className={cn(

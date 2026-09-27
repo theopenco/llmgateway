@@ -262,9 +262,6 @@ const PRODUCTS: Product[] = [
 
 function Screenshot({ product }: { product: Product }) {
 	const { featured } = product;
-	const sizes = featured
-		? "(min-width: 1280px) 680px, (min-width: 1024px) 53vw, calc(100vw - 72px)"
-		: "(min-width: 1280px) 544px, (min-width: 768px) 40vw, calc(100vw - 72px)";
 
 	return (
 		<div
@@ -286,7 +283,6 @@ function Screenshot({ product }: { product: Product }) {
 				slides={product.slides}
 				width={SLIDE_WIDTH}
 				height={SLIDE_HEIGHT}
-				sizes={sizes}
 				activeTone={product.activeTone}
 				frameClassName={
 					featured ? "lg:rounded-tr-none lg:border-r-0" : undefined

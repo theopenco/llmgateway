@@ -302,7 +302,7 @@ export function OverviewView() {
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
 				<div className="flex flex-col items-center justify-between space-y-2 md:flex-row">
 					<div>
-						<h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+						<h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
 						<p className="mt-1 text-sm text-muted-foreground">
 							Project: {project.name}
 							<span className="ml-2">• Organization: {DEMO_ORG.name}</span>
