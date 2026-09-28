@@ -1,6 +1,6 @@
 ---
 name: knowledge-base
-description: Write a new LLM Gateway docs Knowledge base page under apps/docs/content/(<product>)/learn with light and dark dashboard screenshots. Use when the user asks for a knowledge base page, KB page, learn page, or documentation for a dashboard or playground page with screenshots.
+description: Write a new LLM Gateway docs Knowledge base page under apps/docs/content/(product)/learn with light and dark dashboard screenshots. Use when the user asks for a knowledge base page, KB page, learn page, or documentation for a dashboard or playground page with screenshots.
 ---
 
 # Knowledge Base Page
