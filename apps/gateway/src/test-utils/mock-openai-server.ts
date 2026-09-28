@@ -1464,6 +1464,13 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 		c.status(500);
 		return c.json(sampleErrorResponse);
 	}
+	if (stateText.includes("TRIGGER_FAIL_ONCE")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(500);
+			return c.json(sampleErrorResponse);
+		}
+	}
 
 	// Answers are keyword-driven so tests can assert a specific verdict: a
 	// harmful-looking state scores high on every noul question, and the auto
