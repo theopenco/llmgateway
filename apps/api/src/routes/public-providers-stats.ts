@@ -10,9 +10,11 @@ import {
 	and,
 	cdb,
 	effectiveTtftTotals,
+	eq,
 	excludeRegionalMappingRows,
 	gte,
 	sql,
+	tables,
 } from "@llmgateway/db";
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 
@@ -122,6 +124,7 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 			updatedAt: sql<Date | null>`MAX(${mphTs})`,
 		})
 		.from(mph)
+		.innerJoin(tables.provider, eq(mph.providerId, tables.provider.id))
 		// Grouped per provider, so the regional rows have to be dropped: the
 		// region-less root row of a mapping already includes their traffic.
 		.where(and(gte(mphTs, startDate), excludeRegionalMappingRows(mph)))
@@ -135,7 +138,7 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		.$withCache({
 			// The version prefix is bumped whenever the selected columns change so
 			// a rolling deploy doesn't serve rows cached in the previous shape.
-			tag: `publicProviderStats:v7:${window}`,
+			tag: `publicProviderStats:v8:${window}`,
 			autoInvalidate: false,
 			config: { ex: STATS_CACHE_TTL_SECONDS },
 		});

@@ -832,7 +832,6 @@ export async function resolveProviderContext(
 		upstreamModelName,
 		usedProvider === "google-ai-studio" ||
 			usedProvider === "glacier" ||
-			usedProvider === "iceberg" ||
 			usedProvider === "google-vertex" ||
 			usedProvider === "quartz" ||
 			usedProvider === "vertex-anthropic" ||
