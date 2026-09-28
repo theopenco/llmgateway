@@ -3,7 +3,7 @@
 import { apiErrorMessage } from "./api-error";
 import { createServerApiClient } from "./server-api";
 
-import type { ProjectLogFilters, TokenWindow } from "./types";
+import type { TokenWindow } from "./types";
 
 export async function loadMetricsAction(orgId: string, window: TokenWindow) {
 	const $api = await createServerApiClient();
@@ -30,40 +30,6 @@ export async function loadProjectMetricsAction(
 			apiErrorMessage(error, "Failed to load project metrics", response),
 		);
 	}
-	return data ?? null;
-}
-
-export async function loadProjectLogsAction(
-	orgId: string,
-	projectId: string,
-	cursor?: string,
-	filters?: ProjectLogFilters,
-) {
-	const $api = await createServerApiClient();
-	const { data } = await $api.GET(
-		"/admin/organizations/{orgId}/projects/{projectId}/logs",
-		{
-			params: {
-				path: { orgId, projectId },
-				query: { limit: 50, cursor, ...filters },
-			},
-		},
-	);
-	return data ?? null;
-}
-
-export async function loadOrganizationLogsAction(
-	orgId: string,
-	cursor?: string,
-	filters?: ProjectLogFilters,
-) {
-	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/organizations/{orgId}/logs", {
-		params: {
-			path: { orgId },
-			query: { limit: 50, cursor, ...filters },
-		},
-	});
 	return data ?? null;
 }
 
