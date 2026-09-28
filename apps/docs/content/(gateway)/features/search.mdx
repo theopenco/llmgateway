@@ -69,21 +69,21 @@ page on the [models page](https://llmgateway.io/models).
 
 Every field except `model` is forwarded to Perplexity unchanged.
 
-| Field                                                      | Type                 | Description                                                                            |
-| ---------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------- |
-| `model`                                                    | `string`             | Search model. Optional, see [Models](#models).                                         |
-| `query`                                                    | `string \| string[]` | A query, or up to 5 related queries searched independently.                            |
-| `search_type`                                              | `string`             | `web` or `fast`.                                                                       |
-| `max_results`                                              | `number`             | Maximum results to return. Defaults to 10.                                             |
-| `max_tokens`                                               | `number`             | Token budget for extracted content across all results.                                 |
-| `max_tokens_per_page`                                      | `number`             | Token budget for extracted content per result.                                         |
-| `search_context_size`                                      | `string`             | `low`, `medium` or `high` extraction depth.                                            |
-| `country`                                                  | `string`             | ISO 3166-1 alpha-2 country code for regional results.                                  |
-| `search_language_filter`                                   | `string[]`           | ISO 639-1 language codes.                                                              |
-| `search_domain_filter`                                     | `string[]`           | Domains to include, or to exclude with a `-` prefix. Allowlist and denylist can't mix. |
-| `search_recency_filter`                                    | `string`             | `hour`, `day`, `week`, `month` or `year`.                                              |
-| `search_after_date_filter` / `search_before_date_filter`   | `string`             | Publication date bounds, `MM/DD/YYYY`.                                                 |
-| `last_updated_after_filter` / `last_updated_before_filter` | `string`             | Last-updated date bounds, `MM/DD/YYYY`.                                                |
+| Field                                                      | Type                 | Description                                                 |
+| ---------------------------------------------------------- | -------------------- | ----------------------------------------------------------- |
+| `model`                                                    | `string`             | Search model. Optional, see [Models](#models).              |
+| `query`                                                    | `string \| string[]` | A query, or up to 5 related queries searched independently. |
+| `search_type`                                              | `string`             | `web` or `fast`.                                            |
+| `max_results`                                              | `number`             | Maximum results to return. Defaults to 10.                  |
+| `max_tokens`                                               | `number`             | Token budget for extracted content across all results.      |
+| `max_tokens_per_page`                                      | `number`             | Token budget for extracted content per result.              |
+| `search_context_size`                                      | `string`             | `low`, `medium` or `high` extraction depth.                 |
+| `country`                                                  | `string`             | ISO 3166-1 alpha-2 country code for regional results.       |
+| `search_language_filter`                                   | `string[]`           | ISO 639-1 language codes.                                   |
+| `search_domain_filter`                                     | `string[]`           | Domains to include, or to exclude with a `-` prefix.        |
+| `search_recency_filter`                                    | `string`             | `hour`, `day`, `week`, `month` or `year`.                   |
+| `search_after_date_filter` / `search_before_date_filter`   | `string`             | Publication date bounds, `MM/DD/YYYY`.                      |
+| `last_updated_after_filter` / `last_updated_before_filter` | `string`             | Last-updated date bounds, `MM/DD/YYYY`.                     |
 
 <Callout type="info">
 	Search is billed per successful request. There are no token charges, and a

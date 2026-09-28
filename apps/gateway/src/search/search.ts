@@ -145,7 +145,7 @@ const searchRequestSchema = z.object({
 		.optional()
 		.openapi({
 			description:
-				'Domains to restrict results to, or to exclude with a "-" prefix. Allowlist and denylist cannot be mixed.',
+				'Domains to restrict results to, or to exclude with a "-" prefix.',
 			example: ["arxiv.org", "nature.com"],
 		}),
 	search_recency_filter: z
@@ -333,16 +333,12 @@ search.openapi(createSearch, async (c): Promise<any> => {
 
 	const validationResult = searchRequestSchema.safeParse(rawBody);
 	if (!validationResult.success) {
-		const issue = validationResult.error.issues[0];
-		const param = issue?.path.join(".") || null;
 		return c.json(
 			{
 				error: {
-					message: issue
-						? `Invalid request parameters: ${param ? `${param}: ` : ""}${issue.message}`
-						: "Invalid request parameters",
+					message: "Invalid request parameters",
 					type: "invalid_request_error",
-					param,
+					param: null,
 					code: "invalid_parameters",
 				},
 			},
