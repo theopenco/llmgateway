@@ -126,20 +126,6 @@ function formatDate(dateString: string) {
 	});
 }
 
-function formatPrice(price: string | null) {
-	if (!price) {
-		return "\u2014";
-	}
-	const num = parseFloat(price);
-	if (num === 0) {
-		return "Free";
-	}
-	if (num < 0.001) {
-		return `$${(num * 1_000_000).toFixed(2)}/M`;
-	}
-	return `$${num.toFixed(4)}`;
-}
-
 function ModelRow({
 	model,
 	externalWindow,
@@ -164,8 +150,6 @@ function ModelRow({
 		},
 		[model.id, usageMode],
 	);
-
-	const hasTokenPricing = model.inputPrice && parseFloat(model.inputPrice) > 0;
 
 	return (
 		<>
@@ -211,19 +195,6 @@ function ModelRow({
 				</TableCell>
 				<TableCell>
 					<TokenBreakdownCell breakdown={model} />
-				</TableCell>
-				<TableCell className="tabular-nums text-xs">
-					{hasTokenPricing ? (
-						<>
-							{formatPrice(model.inputPrice)} / {formatPrice(model.outputPrice)}
-						</>
-					) : model.requestPrice && parseFloat(model.requestPrice) > 0 ? (
-						<span className="text-amber-500">
-							{formatPrice(model.requestPrice)}/req
-						</span>
-					) : (
-						<span className="text-muted-foreground">{"\u2014"}</span>
-					)}
 				</TableCell>
 				<TableCell>
 					<ErrorBreakdownCell
@@ -283,7 +254,7 @@ function ModelRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={16} className="p-4">
+					<TableCell colSpan={15} className="p-4">
 						<HistoryChart
 							title={`${model.name !== model.id ? model.name : model.id} — History`}
 							description="Request volume, errors, latency, and tokens over time"
@@ -342,7 +313,6 @@ export function ModelsTable({
 					{sh("Requests", "logsCount")}
 					{sh("Cost", "totalCost")}
 					<TableHead>Tokens</TableHead>
-					<TableHead>Pricing</TableHead>
 					{sh("Errors", "errorsCount")}
 					{sh("Client", "clientErrorsCount")}
 					<TableHead>Error Rate</TableHead>
@@ -357,7 +327,7 @@ export function ModelsTable({
 				{models.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={16}
+							colSpan={15}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No models found

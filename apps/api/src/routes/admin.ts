@@ -7340,9 +7340,6 @@ const modelStatsSchema = z.object({
 	totalTokens: z.number(),
 	totalCost: z.number(),
 	...tokenBreakdownShape,
-	inputPrice: z.string().nullable(),
-	outputPrice: z.string().nullable(),
-	requestPrice: z.string().nullable(),
 	updatedAt: z.string(),
 });
 
@@ -7488,27 +7485,6 @@ admin.openapi(getModelStats, async (c) => {
 			.groupBy(tables.modelProviderMapping.modelId)
 			.as("provider_count_sub");
 
-		const pricingSub = db
-			.select({
-				modelId: tables.modelProviderMapping.modelId,
-				inputPrice:
-					sql<string>`MIN(${tables.modelProviderMapping.inputPrice})`.as(
-						"input_price",
-					),
-				outputPrice:
-					sql<string>`MIN(${tables.modelProviderMapping.outputPrice})`.as(
-						"output_price",
-					),
-				requestPrice:
-					sql<string>`MIN(${tables.modelProviderMapping.requestPrice})`.as(
-						"request_price",
-					),
-			})
-			.from(tables.modelProviderMapping)
-			.where(eq(tables.modelProviderMapping.status, "active"))
-			.groupBy(tables.modelProviderMapping.modelId)
-			.as("pricing_sub");
-
 		const sortColumnMap = {
 			name: tables.model.name,
 			family: tables.model.family,
@@ -7616,9 +7592,6 @@ admin.openapi(getModelStats, async (c) => {
 					"totalCost",
 				),
 				...tokenBreakdownFromSub(modelAggSub),
-				inputPrice: pricingSub.inputPrice,
-				outputPrice: pricingSub.outputPrice,
-				requestPrice: pricingSub.requestPrice,
 				updatedAt: tables.model.updatedAt,
 			})
 			.from(tables.model);
@@ -7636,7 +7609,6 @@ admin.openapi(getModelStats, async (c) => {
 					providerCountSub,
 					eq(tables.model.id, providerCountSub.modelId),
 				)
-				.leftJoin(pricingSub, eq(tables.model.id, pricingSub.modelId))
 				.where(rowsWhereClause)
 				.orderBy(orderNullsLast(sortColumn, sortOrderVal), asc(tables.model.id))
 				.limit(limit)
@@ -7667,9 +7639,6 @@ admin.openapi(getModelStats, async (c) => {
 				totalTokens: Number(r.totalTokens ?? 0),
 				totalCost: Number(r.totalCost ?? 0),
 				...toTokenBreakdown(r),
-				inputPrice: r.inputPrice ?? null,
-				outputPrice: r.outputPrice ?? null,
-				requestPrice: r.requestPrice ?? null,
 				updatedAt: r.updatedAt.toISOString(),
 			})),
 			total,
@@ -7689,27 +7658,6 @@ admin.openapi(getModelStats, async (c) => {
 		.from(tables.modelProviderMapping)
 		.groupBy(tables.modelProviderMapping.modelId)
 		.as("provider_count_sub");
-
-	const pricingSub = db
-		.select({
-			modelId: tables.modelProviderMapping.modelId,
-			inputPrice:
-				sql<string>`MIN(${tables.modelProviderMapping.inputPrice})`.as(
-					"input_price",
-				),
-			outputPrice:
-				sql<string>`MIN(${tables.modelProviderMapping.outputPrice})`.as(
-					"output_price",
-				),
-			requestPrice:
-				sql<string>`MIN(${tables.modelProviderMapping.requestPrice})`.as(
-					"request_price",
-				),
-		})
-		.from(tables.modelProviderMapping)
-		.where(eq(tables.modelProviderMapping.status, "active"))
-		.groupBy(tables.modelProviderMapping.modelId)
-		.as("pricing_sub");
 
 	const rowsWhereClause = and(
 		whereClause,
@@ -7777,14 +7725,10 @@ admin.openapi(getModelStats, async (c) => {
 			providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 				"providerCount",
 			),
-			inputPrice: pricingSub.inputPrice,
-			outputPrice: pricingSub.outputPrice,
-			requestPrice: pricingSub.requestPrice,
 			updatedAt: tables.model.updatedAt,
 		})
 		.from(tables.model)
 		.leftJoin(providerCountSub, eq(tables.model.id, providerCountSub.modelId))
-		.leftJoin(pricingSub, eq(tables.model.id, pricingSub.modelId))
 		.where(rowsWhereClause)
 		.orderBy(orderFn(sortColumn), asc(tables.model.id))
 		.limit(limit)
@@ -7810,9 +7754,6 @@ admin.openapi(getModelStats, async (c) => {
 			totalTokens: 0,
 			totalCost: 0,
 			...EMPTY_TOKEN_BREAKDOWN,
-			inputPrice: r.inputPrice ?? null,
-			outputPrice: r.outputPrice ?? null,
-			requestPrice: r.requestPrice ?? null,
 			updatedAt: r.updatedAt.toISOString(),
 		})),
 		total,
