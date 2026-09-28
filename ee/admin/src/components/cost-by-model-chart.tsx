@@ -393,12 +393,11 @@ export function CostByModelChart({
 							<ChartTooltip
 								content={
 									<ChartTooltipContent
-										formatter={(value) => {
-											if (activeView === "cost") {
-												return currencyFormatter.format(Number(value));
-											}
-											return formatNumber(Number(value));
-										}}
+										valueFormatter={(value) =>
+											activeView === "cost"
+												? currencyFormatter.format(value)
+												: formatNumber(value)
+										}
 									/>
 								}
 							/>

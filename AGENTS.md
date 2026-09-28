@@ -321,6 +321,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Never suppress errors with a silent `.catch(() => [])`, `.catch(() => ({}))`, or another empty/default fallback. Handle a deliberate recovery in the owning helper with explicit logging and last-known-good data when available; otherwise let the error propagate.
 - In frontend apps, always prefer Next.js `<Link>` (`next/link`) over raw `<a>` tags for internal navigation, and `next/navigation`'s router for programmatic navigation.
 - Keep inline links in prose attached to nearby context with a non-breaking space or a short `whitespace-nowrap` wrapper so they never wrap onto an orphaned line.
+- In chart tooltips, format values with `ChartTooltipContent`'s `valueFormatter`, never `formatter`: `formatter` replaces the whole row, so a value-only `formatter` drops the series labels.
 - Use the shared `DialogSafePopover` for portaled popovers opened inside a `Dialog`. A regular Radix popover is outside the dialog's scroll lock, which blocks wheel scrolling in long dropdowns.
 - Always use top-level `import`, never use `require`. Dynamic imports are allowed only for the optional Jelly scene in `packages/shared/src/components/jelly/jelly-logo.tsx` and the DevPass card form in `apps/code/src/app/dashboard/components/DevPassPaymentMethod.tsx`.
 - Use conventional commit message format and limit the commit message title to max 50 characters
