@@ -416,7 +416,9 @@ async function extractImagesFromChatResponse(
 				),
 			}),
 		});
-		throw new HTTPException(500, {
+		// The upstream answered without an image (e.g. text-only reply), which is
+		// an upstream outcome rather than a gateway bug.
+		throw new HTTPException(502, {
 			message:
 				"The model did not generate any images. Try a different model with image generation capabilities (e.g., gemini-3.1-flash-image, gemini-3-pro-image).",
 		});
