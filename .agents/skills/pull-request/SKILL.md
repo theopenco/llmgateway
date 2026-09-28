@@ -84,6 +84,16 @@ After a rebase, force-push with `--force-with-lease` (never plain `--force`) to 
 
 Migration conflicts are the one case with a fixed recipe, and it is merge-shaped — see the `migrations` skill: reset `packages/db/migrations/` to `origin/main` **before** merging, then regenerate with `pnpm migrations` after.
 
+## When to include screenshots
+
+Screenshots are only for changes to the four dashboard UIs: `apps/ui`,
+`apps/code`, `ee/admin`, and `apps/airside`. For those, always embed the
+affected screens: a before/after pair for changes to an existing screen, and
+both themes for anything with light and dark styling.
+
+Skip screenshots for `apps/docs` and other content-only changes (marketing copy,
+changelog entries, MDX prose); link the changed file instead.
+
 ## Embedding a screenshot in the PR body
 
 Keep screenshot binaries out of the feature diff. Push the image as an orphan

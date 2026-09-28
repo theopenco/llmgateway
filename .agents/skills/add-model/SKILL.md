@@ -35,6 +35,19 @@ git diff origin/main...HEAD -- packages/models/src/models/
 | e2e                                         | `apps/gateway/src/*.e2e.ts`, split by chat behavior and endpoint capability                                                          |
 | Playground options                          | `apps/playground/src/lib/image-gen.ts`, `apps/playground/src/lib/video-gen.ts`                                                       |
 
+## Catalogue rules
+
+Apply these to every change in `packages/models`:
+
+- Write each model and provider mapping in full as a plain object literal in the `models` array. Duplicated fields are preferred here; small shared `const` values are fine, but no helper (e.g. `makeModel(...)`) builds definition objects.
+- A mapping on `origin/main` is never removed: historical usage and analytics reference it. Retire it with `deactivatedAt: new Date("YYYY-MM-DD")`. Mappings added only on the current branch may be removed. Exception: Iceberg and Granite may be removed with a one-time database cleanup after the source removal deploys, keeping shared models, logs, usage aggregates, and history.
+- Set `deactivatedAt` at least 7 days out for a mapping that still serves live requests, or on the provider's announced retirement date. A same-day or retroactive date requires the mapping to be unable to serve any live request today. A rejected parameter, a missing capability, or flaky quality is a metadata fix (`jsonOutput`, `vision`, `reasoningEfforts`, `supportedToolChoices`, `stability: "unstable"`, `test: "skip"`) or a gateway fix; leave the mapping active and say so in the PR.
+- Write per-token prices (`inputPrice`, `outputPrice`, `cachedInputPrice`, …) in `e-6` notation so the coefficient reads as USD per million tokens (`"1.4e-6"`). `requestPrice` (flat USD per request) and `perSecondPrice` are exempt.
+- One model definition has at most one mapping per `providerId`; regional variants go in that mapping's `regions` array. Lookups key on `(providerId, region)`, so a second same-provider mapping silently resolves to the first and bills at its prices. A distinct upstream deployment (e.g. a priority router with its own `externalId` and pricing) gets its own model entry and `id`.
+- A mapping with both `peakPricing` and `regions` gives every region with its own rates its own full `peakPricing` block; flat overrides alone inherit the base peak tiers.
+- Identify models by `model.id`, scoped by `providerId` and optional `:region`. `externalId` is only the upstream API identifier: keep it out of URLs, selectors, billing and analytics keys, and lookups, including fallbacks.
+- Let metadata fields speak for themselves. Comment only behavior the metadata cannot express that a maintainer needs, such as the operational cause of `stability: "unstable"` or `test: "skip"`. Sources, verification, and pricing choices go in the PR body.
+
 ## 3. Pricing
 
 Billing is tokens: `calculateCosts` multiplies token counts by the mapping's
@@ -49,11 +62,11 @@ derive or round them when the provider publishes exact values.
 
 **Token semantics** — establish each from a live `usage` block:
 
-- Reasoning inside `completion_tokens`? `costs.ts` keys this on the
-  `completionIncludesReasoning` provider allowlist; a new provider that folds it
-  in must be added there or output double-bills. Verify both streaming and
-  non-streaming extraction. xAI is already special-cased to read
-  `completion_tokens_details.reasoning_tokens`.
+- Reasoning inside `completion_tokens`? `normalizeCompletionTokens` in
+  `extract-token-usage.ts` adds reasoning only when the reported total equals
+  prompt + completion + reasoning; otherwise completion is billed as reported.
+  Verify both streaming and non-streaming extraction against the provider's
+  `usage`.
 - Cached tokens inside `prompt_tokens`? `costs.ts` assumes yes and subtracts
   them.
 - Cache writes priced (`cacheWriteInputPrice`, `cacheWriteInputPrice1h`)? A
@@ -109,12 +122,10 @@ Probe the deployment. The same model differs between providers, and an
 - `releasedAt`, plus an `output` entry per capability flag — both enforced by
   `model-metadata.spec.ts`.
 
-Follow the catalogue comment rule in `AGENTS.md`: do not annotate pricing
-choices, probe results, or restrictions already expressed by metadata. Put that
-evidence in the PR body.
+Follow the comment rule in [Catalogue rules](#catalogue-rules).
 
 A new provider also needs a `providers.ts` entry, endpoint wiring in
-`get-provider-endpoint.ts`, and possibly a `completionIncludesReasoning` entry.
+`get-provider-endpoint.ts`.
 
 ## 5. Reasoning efforts
 
@@ -232,7 +243,7 @@ sizes/qualities/durations match exactly what the deployment accepted in §6.
 | Reasoning-effort case 400s                    | trim the tier from `reasoningEfforts`                                                                      |
 | Forced tool_choice 400s                       | narrow `supportedToolChoices`                                                                              |
 | Vision case 400s                              | `vision: false` on that mapping                                                                            |
-| Cost ~2x the provider's on reasoning requests | reasoning double-counted — add the provider to `completionIncludesReasoning`                               |
+| Cost ~2x the provider's on reasoning requests | reasoning double-counted — check `normalizeCompletionTokens` against the provider's `usage` totals          |
 | Cost far below on reasoning requests          | reasoning tokens never extracted (nested `completion_tokens_details`)                                      |
 | Cost mismatch only on long prompts            | wrong or missing `pricingTiers` band                                                                       |
 | Manual curl hits the wrong provider           | missing `x-no-fallback: true`                                                                              |
@@ -243,7 +254,7 @@ also fails on `main`.
 
 A failing case is a metadata or gateway fix, never a reason to retire a mapping
 that still serves live requests. Before writing `deactivatedAt`, apply the
-7-day notice rule in `AGENTS.md`.
+7-day notice rule in [Catalogue rules](#catalogue-rules).
 
 ## 9. Finish
 
@@ -267,6 +278,6 @@ The PR body carries the evidence:
 - Anything corrected from the handed-in values, with both numbers.
 - Anything not verified, and why.
 
-Follow `AGENTS.md` for PR screenshots. Catalogue and Playground-only changes do
+Follow the `pull-request` skill for screenshots. Catalogue and Playground-only changes do
 not create a dashboard screenshot requirement; scoped e2e and the accepted
 image/video grid are the evidence.
