@@ -22,6 +22,7 @@ import { parseDataUrl, processImageUrl } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import { models } from "@llmgateway/models";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
@@ -442,6 +443,7 @@ function forwardHeaders(c: Context): Record<string, string> {
 		...(noFallbackHeader !== null ? { "x-no-fallback": noFallbackHeader } : {}),
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("images"),
+		...forwardedIpHeaders(c.req.raw.headers),
 	};
 }
 

@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	buildInternalModerationPrompt,
 	checkInternalContentFilter,
-	chunkInternalModerationText,
 	toInternalModerationResult,
+	truncateMiddle,
 } from "./internal-content-filter.js";
 import { evaluateTieredContentFilter } from "./tiered-content-filter.js";
 
@@ -21,18 +22,46 @@ function verdict(body: Record<string, unknown>, status = 200) {
 	});
 }
 
-describe("chunkInternalModerationText", () => {
-	it("keeps a prompt under the limit whole", () => {
-		expect(chunkInternalModerationText("hello", 10)).toEqual(["hello"]);
-		expect(chunkInternalModerationText("", 10)).toEqual([]);
+describe("truncateMiddle", () => {
+	it("keeps text under the limit whole", () => {
+		expect(truncateMiddle("hello", 10)).toBe("hello");
 	});
 
-	it("never splits a multi-byte character", () => {
-		// "é" is two bytes, so a 3-byte limit fits one per chunk.
-		const chunks = chunkInternalModerationText("éééé", 3);
+	it("keeps the start and the end without splitting a character", () => {
+		const text = `start ${"é".repeat(100)} end`;
+		const truncated = truncateMiddle(text, 40);
 
-		expect(chunks).toEqual(["é", "é", "é", "é"]);
-		expect(chunks.join("")).toBe("éééé");
+		expect(new TextEncoder().encode(truncated).length).toBeLessThanOrEqual(40);
+		expect(truncated.startsWith("start")).toBe(true);
+		expect(truncated.endsWith(" end")).toBe(true);
+		expect(truncated).not.toContain("\uFFFD");
+	});
+});
+
+describe("buildInternalModerationPrompt", () => {
+	it("sends the system prompt and only the turn after the last assistant message", () => {
+		const prompt = buildInternalModerationPrompt([
+			{ role: "system", content: "be helpful" },
+			{ role: "user", content: "old question" },
+			{ role: "assistant", content: "old answer" },
+			{ role: "user", content: "new question" },
+		]);
+
+		expect(prompt).toBe("system: be helpful\n\nuser: new question");
+	});
+
+	it("fits one request and gives the latest turn the budget first", () => {
+		const prompt = buildInternalModerationPrompt(
+			[
+				{ role: "system", content: "s".repeat(500) },
+				{ role: "user", content: `ask ${"x".repeat(500)} this` },
+			],
+			200,
+		);
+
+		expect(new TextEncoder().encode(prompt).length).toBeLessThanOrEqual(200);
+		expect(prompt.startsWith("user: ask")).toBe(true);
+		expect(prompt.endsWith("this")).toBe(true);
 	});
 });
 
@@ -110,7 +139,6 @@ describe("checkInternalContentFilter", () => {
 			reasons: ["rule"],
 			score: 0.9,
 		});
-		expect(result.partialModerationFailed).toBeUndefined();
 	});
 
 	it("fails open on a service error", async () => {
@@ -140,36 +168,32 @@ describe("checkInternalContentFilter", () => {
 		expect(result.results).toEqual([]);
 	});
 
-	it("classifies an oversized prompt in chunks", async () => {
+	it("classifies a long conversation in a single request", async () => {
 		const fetchMock = vi
 			.spyOn(globalThis, "fetch")
-			.mockResolvedValueOnce(verdict({ tags: [], block: false, score: 0 }))
-			.mockResolvedValueOnce(
+			.mockResolvedValue(
 				verdict({ tags: ["violence"], block: true, score: 0.9 }),
 			);
 
 		const result = await checkInternalContentFilter(
-			[{ role: "user", content: "a".repeat(70_000) }],
+			[
+				{ role: "user", content: "a".repeat(200_000) },
+				{ role: "assistant", content: "ok" },
+				{ role: "user", content: "b".repeat(200_000) },
+			],
 			CONTEXT,
 		);
 
-		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		const body = JSON.parse(
+			(fetchMock.mock.calls[0]![1] as RequestInit).body as string,
+		) as { prompt: string };
+		expect(new TextEncoder().encode(body.prompt).length).toBeLessThanOrEqual(
+			65_536,
+		);
+		expect(body.prompt).not.toContain("a");
 		expect(result.flagged).toBe(true);
-		expect(result.results).toHaveLength(2);
-	});
-
-	it("marks a partial failure when only some chunks classify", async () => {
-		vi.spyOn(globalThis, "fetch")
-			.mockResolvedValueOnce(verdict({ tags: [], block: false, score: 0 }))
-			.mockRejectedValueOnce(new Error("connection reset"));
-
-		const result = await checkInternalContentFilter(
-			[{ role: "user", content: "a".repeat(70_000) }],
-			CONTEXT,
-		);
-
 		expect(result.results).toHaveLength(1);
-		expect(result.partialModerationFailed).toBe(true);
 	});
 
 	it("skips the call when no URL is configured", async () => {

@@ -4406,7 +4406,12 @@ async function fetchAdminLogs(scope: SQLWrapper, query: AdminLogQuery) {
 	const whereConditions: SQLWrapper[] = [scope];
 
 	if (query.projectId) {
-		whereConditions.push(eq(tables.log.projectId, query.projectId));
+		const projectIds = query.projectId.split(",").filter(Boolean);
+		if (projectIds.length === 1) {
+			whereConditions.push(eq(tables.log.projectId, projectIds[0]));
+		} else if (projectIds.length > 1) {
+			whereConditions.push(inArray(tables.log.projectId, projectIds));
+		}
 	}
 
 	if (query.provider) {
@@ -4661,6 +4666,7 @@ const getOrganizationLogs = createRoute({
 			orgId: z.string(),
 		}),
 		query: adminLogQuerySchema.extend({
+			// Comma-separated project ids.
 			projectId: z.string().optional(),
 		}),
 	},

@@ -1,10 +1,12 @@
 import { afterAll, expect, test, vi } from "vitest";
 
-vi.stubEnv("TEST_ALL_VARIATIONS", "1");
-vi.stubEnv("TEST_MODELS", "google-ai-studio/gemini-2.5-flash");
-vi.stubEnv("TEST_PROVIDERS", "");
+import { serviceTierModels, testModels } from "./chat-helpers.e2e.js";
 
-const { serviceTierModels, testModels } = await import("./chat-helpers.e2e.js");
+vi.hoisted(() => {
+	vi.stubEnv("TEST_ALL_VARIATIONS", "1");
+	vi.stubEnv("TEST_MODELS", "google-ai-studio/gemini-2.5-flash");
+	vi.stubEnv("TEST_PROVIDERS", "");
+});
 
 afterAll(() => vi.unstubAllEnvs());
 

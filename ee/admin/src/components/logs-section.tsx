@@ -110,7 +110,11 @@ export function LogsSection({
 	const source = searchParams.get("source") ?? "all";
 	const unifiedFinishReason = searchParams.get("unifiedFinishReason") ?? "all";
 	const userEmail = searchParams.get("userEmail") ?? "all";
-	const logProject = searchParams.get("logProject") ?? "all";
+	const logProjectParam = searchParams.get("logProject") ?? "";
+	const selectedProjectIds = useMemo(
+		() => logProjectParam.split(",").filter(Boolean),
+		[logProjectParam],
+	);
 	const errorTypeParam = searchParams.get("errorType") ?? "all";
 	const errorType: LogErrorType = isLogErrorType(errorTypeParam)
 		? errorTypeParam
@@ -139,6 +143,10 @@ export function LogsSection({
 	const [modelSearch, setModelSearch] = useState("");
 	const deferredModelSearch = useDeferredValue(modelSearch);
 
+	const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+	const [projectSearch, setProjectSearch] = useState("");
+	const deferredProjectSearch = useDeferredValue(projectSearch);
+
 	// Seat (user email) picker state
 	const [seatPickerOpen, setSeatPickerOpen] = useState(false);
 	const [seatSearch, setSeatSearch] = useState("");
@@ -164,8 +172,8 @@ export function LogsSection({
 		if (userEmail !== "all") {
 			filters.userEmail = userEmail;
 		}
-		if (!projectId && logProject !== "all") {
-			filters.projectId = logProject;
+		if (!projectId && selectedProjectIds.length > 0) {
+			filters.projectId = selectedProjectIds.join(",");
 		}
 		return Object.keys(filters).length > 0 ? filters : undefined;
 	}, [
@@ -175,7 +183,7 @@ export function LogsSection({
 		unifiedFinishReason,
 		errorType,
 		userEmail,
-		logProject,
+		selectedProjectIds,
 		projectId,
 	]);
 
@@ -249,6 +257,36 @@ export function LogsSection({
 		});
 	}, [deferredModelSearch, modelOptions, provider]);
 
+	const filteredProjectOptions = useMemo(() => {
+		const normalizedSearch = deferredProjectSearch.trim().toLowerCase();
+		if (!normalizedSearch) {
+			return projectOptions ?? [];
+		}
+		return (projectOptions ?? []).filter((option) =>
+			[option.name, option.id].some((field) =>
+				field.toLowerCase().includes(normalizedSearch),
+			),
+		);
+	}, [deferredProjectSearch, projectOptions]);
+
+	const toggleProject = useCallback(
+		(id: string) => {
+			const next = selectedProjectIds.includes(id)
+				? selectedProjectIds.filter((p) => p !== id)
+				: [...selectedProjectIds, id];
+			updateFilters({ logProject: next.length > 0 ? next.join(",") : "all" });
+		},
+		[selectedProjectIds, updateFilters],
+	);
+
+	const projectPickerLabel =
+		selectedProjectIds.length === 0
+			? "All projects"
+			: selectedProjectIds.length === 1
+				? (projectOptions?.find((p) => p.id === selectedProjectIds[0])?.name ??
+					selectedProjectIds[0])
+				: `${selectedProjectIds.length} projects`;
+
 	const seatSearchTerm = deferredSeatSearch.trim();
 
 	const filteredSeatOptions = useMemo(() => {
@@ -304,22 +342,67 @@ export function LogsSection({
 
 			<div className="flex flex-wrap gap-2">
 				{!projectId && projectOptions && projectOptions.length > 0 && (
-					<Select
-						value={logProject}
-						onValueChange={(value) => updateFilters({ logProject: value })}
-					>
-						<SelectTrigger className="w-[200px]">
-							<SelectValue placeholder="Filter by project" />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="all">All projects</SelectItem>
-							{projectOptions.map((p) => (
-								<SelectItem key={p.id} value={p.id}>
-									{p.name}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+					<Popover open={projectPickerOpen} onOpenChange={setProjectPickerOpen}>
+						<PopoverTrigger asChild>
+							<Button
+								variant="outline"
+								role="combobox"
+								aria-expanded={projectPickerOpen}
+								className="w-[220px] justify-between"
+							>
+								<span className="truncate">{projectPickerLabel}</span>
+								<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+							</Button>
+						</PopoverTrigger>
+						<PopoverContent className="w-[300px] p-0" align="start">
+							<Command shouldFilter={false}>
+								<CommandInput
+									placeholder="Search projects..."
+									value={projectSearch}
+									onValueChange={setProjectSearch}
+								/>
+								<CommandList>
+									<CommandEmpty>No projects found.</CommandEmpty>
+									<CommandItem
+										value="all"
+										onSelect={() => updateFilters({ logProject: "all" })}
+									>
+										<Check
+											className={cn(
+												"h-4 w-4",
+												selectedProjectIds.length === 0
+													? "opacity-100"
+													: "opacity-0",
+											)}
+										/>
+										All projects
+									</CommandItem>
+									{filteredProjectOptions.map((option) => (
+										<CommandItem
+											key={option.id}
+											value={option.id}
+											onSelect={() => toggleProject(option.id)}
+										>
+											<Check
+												className={cn(
+													"h-4 w-4",
+													selectedProjectIds.includes(option.id)
+														? "opacity-100"
+														: "opacity-0",
+												)}
+											/>
+											<div className="flex min-w-0 flex-col">
+												<span className="truncate">{option.name}</span>
+												<span className="truncate text-xs text-muted-foreground">
+													{option.id}
+												</span>
+											</div>
+										</CommandItem>
+									))}
+								</CommandList>
+							</Command>
+						</PopoverContent>
+					</Popover>
 				)}
 
 				<Popover open={seatPickerOpen} onOpenChange={setSeatPickerOpen}>

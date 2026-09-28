@@ -11,10 +11,10 @@ another worktree.
 
 ## Isolate the workspace
 
-1. Read **Running an isolated stack per worktree** in `AGENTS.md`.
+1. Follow the `local-stack` skill.
 2. Reuse the worktree's exported `STACK_SUFFIX`, database URLs, Redis ports, app
    ports, and service URLs only if they are complete. Otherwise choose an unused
-   slot and export the full block from `AGENTS.md`.
+   slot and export the full block from the `local-stack` skill.
 3. Confirm the selected ports are free. Never start or reset the default shared
    Docker stack from a Conductor worktree.
 
@@ -82,8 +82,7 @@ the selected ports rather than the defaults.
 
 ## Drive and capture
 
-- Use seeded accounts and identifiers from `packages/db/src/seed.ts`; passwords
-  equal their seeded email addresses.
+- Use seeded accounts and tokens from the `testing` skill.
 - Verify the changed behavior through the same surface a user exercises. Pin a
   gateway provider and set `x-no-fallback: true` when provider-specific behavior
   matters.

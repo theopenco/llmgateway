@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
+import { resetFailOnceCounter } from "@/test-utils/mock-openai-server.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
@@ -188,6 +189,59 @@ describe("systemone", () => {
 		const log = logs.find((l) => l.usedModel === "typesafe/jev-1.13.0");
 		expect(log?.hasError).toBe(true);
 		expect(Number(log?.cost)).toBe(0);
+	});
+
+	test("/v1/systemone retries with another BYOK key after upstream 500", async () => {
+		resetFailOnceCounter();
+		await seedKeys("systemone-retry");
+		await seedProviderKey("systemone-retry-a");
+		await seedProviderKey("systemone-retry-b");
+
+		const res = await app.request("/v1/systemone", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-systemone-retry",
+			},
+			body: JSON.stringify({
+				model: "jev-1.13.0",
+				state: "TRIGGER_FAIL_ONCE first call should fail",
+				questions: { urgency: QUESTIONS.urgency },
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(2);
+		const systemOneLogs = logs.filter(
+			(l) => l.usedModel === "typesafe/jev-1.13.0",
+		);
+		expect(systemOneLogs).toHaveLength(2);
+
+		const failedLog = systemOneLogs.find((l) => l.hasError);
+		const successLog = systemOneLogs.find((l) => !l.hasError);
+		expect(failedLog?.finishReason).toBe("upstream_error");
+		expect(failedLog?.retried).toBe(true);
+		expect(failedLog?.retriedByLogId).toBe(successLog?.id);
+		expect(Number(failedLog?.cost)).toBe(0);
+		expect(successLog?.finishReason).toBe("stop");
+		expect(successLog?.retried).toBe(false);
+		expect(failedLog?.providerKeyId).not.toBe(successLog?.providerKeyId);
+
+		const routing = successLog?.routingMetadata?.routing;
+		expect(routing).toHaveLength(2);
+		expect(routing?.[0]).toMatchObject({
+			provider: "typesafe",
+			succeeded: false,
+			credentialSource: "byok",
+			logId: failedLog?.id,
+		});
+		expect(routing?.[1]).toMatchObject({
+			provider: "typesafe",
+			succeeded: true,
+			credentialSource: "byok",
+			logId: successLog?.id,
+		});
 	});
 
 	test("/v1/systemone does not persist payloads when retention is disabled", async () => {

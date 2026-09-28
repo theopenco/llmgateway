@@ -1,4 +1,4 @@
-import { Fraunces, Inter, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 
 import { Providers } from "@/components/providers";
 import { BRAND } from "@/lib/brand";
@@ -11,22 +11,25 @@ import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
-const inter = Inter({
+const inter = localFont({
 	variable: "--font-inter",
-	subsets: ["latin"],
+	src: "../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2",
+	weight: "100 900",
 	display: "swap",
 });
 
-const fraunces = Fraunces({
+const fraunces = localFont({
 	variable: "--font-fraunces",
-	subsets: ["latin"],
+	src: "../../node_modules/@fontsource-variable/fraunces/files/fraunces-latin-opsz-normal.woff2",
+	weight: "100 900",
+	adjustFontFallback: "Times New Roman",
 	display: "swap",
-	axes: ["opsz"],
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
 	variable: "--font-mono",
-	subsets: ["latin"],
+	src: "../../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2",
+	weight: "100 900",
 	display: "swap",
 });
 
