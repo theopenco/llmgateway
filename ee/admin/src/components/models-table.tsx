@@ -60,6 +60,7 @@ type ModelSortBy =
 	| "upstreamErrorsCount"
 	| "cachedCount"
 	| "avgTimeToFirstToken"
+	| "throughput"
 	| "providerCount"
 	| "updatedAt";
 
@@ -236,6 +237,11 @@ function ModelRow({
 						? `${Math.round(model.avgTimeToFirstToken)}ms`
 						: "\u2014"}
 				</TableCell>
+				<TableCell className="tabular-nums">
+					{model.throughput !== null
+						? `${model.throughput.toFixed(1)} tok/s`
+						: "\u2014"}
+				</TableCell>
 				<TableCell className="text-muted-foreground">
 					{formatDate(model.updatedAt)}
 				</TableCell>
@@ -270,7 +276,7 @@ function ModelRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={16} className="p-4">
+					<TableCell colSpan={17} className="p-4">
 						<HistoryChart
 							title={`${model.name !== model.id ? model.name : model.id} — History`}
 							description="Request volume, errors, latency, and tokens over time"
@@ -333,6 +339,7 @@ export function ModelsTable({
 					<TableHead>Error Rate</TableHead>
 					{sh("Cached", "cachedCount")}
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
+					{sh("Throughput", "throughput")}
 					{sh("Last Updated", "updatedAt")}
 					<TableHead></TableHead>
 				</TableRow>

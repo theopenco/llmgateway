@@ -30,6 +30,7 @@ type MappingSortBy =
 	| "upstreamErrorsCount"
 	| "cost"
 	| "avgTimeToFirstToken"
+	| "throughput"
 	| "updatedAt";
 
 type SortOrder = "asc" | "desc";
