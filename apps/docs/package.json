@@ -22,6 +22,8 @@
 	},
 	"dependencies": {
 		"@ai-sdk/react": "4.0.99",
+		"@fontsource-variable/geist-mono": "5.3.0",
+		"@fontsource-variable/inter": "5.3.0",
 		"@llmgateway/ai-sdk-provider": "4.0.0",
 		"@llmgateway/shared": "workspace:*",
 		"@radix-ui/react-presence": "1.1.5",
