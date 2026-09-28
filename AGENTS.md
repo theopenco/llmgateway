@@ -57,6 +57,8 @@ When you are done writing code features or bug fixes, ALWAYS commit your changes
 
 Keep everything you write short and concise — code comments, docs, skills, commit messages, PR descriptions. Say a thing once, at the level of detail a reader needs to act on it. Do not elaborate beyond that, do not restate a rule that already lives elsewhere, and do not add filler like "apply the usual rules" that carries no information.
 
+Persist durable learnings about this repository in `AGENTS.md` (repo-wide rules) or the matching skill (area rules), not in local agent memory. Keep local memory for facts specific to a machine, user, or credential that do not belong in a public repository.
+
 Keep scratch files (PR bodies, logs) under the worktree's `.context/`; `/tmp` is shared with other agents. Set work aside with a WIP commit rather than `git stash`; lint-staged adds its own stash entries.
 
 ### Documentation
