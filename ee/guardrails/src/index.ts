@@ -21,6 +21,7 @@ export type {
 } from "./types.js";
 
 export { systemRules } from "./rules/index.js";
+export { compileGuardrailRegex } from "./rules/custom/compile-regex.js";
 
 // Re-export db types for convenience
 export type {

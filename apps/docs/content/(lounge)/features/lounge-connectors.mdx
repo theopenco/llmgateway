@@ -12,6 +12,8 @@ In an iOS conversation, review each proposed tool and its arguments, then choose
 
 In an iOS model comparison, connected apps are available to **Model 1**. Approve or decline its pending requests before sending another message to all models. Other models keep separate conversations and can be retried without running connector actions. Pending requests and results survive restarts.
 
+Saved approvals are claimed on the server before execution. Two devices answering the same saved request cannot run it twice, and a stale conversation save cannot reopen an answered request.
+
 If a tool's result cannot be confirmed, check the connected app before asking to run it again. **Continue response** lets the model respond to that uncertainty without repeating the tool call.
 
 A connector stays **Not configured** until the deployment has both its OAuth client ID and secret. Missing credentials also disable existing connections: you cannot enable, reconnect, or use their tools until configuration is restored. You can still disconnect an account.
@@ -24,6 +26,6 @@ Authorization must finish in the same session that started it and expires after 
 
 Authenticated clients can stream chat and signed tool proposals from `POST /lounge/chat`, using `x-llmgateway-key` to select the billing key. The endpoint accepts AI SDK UI messages and connector IDs. It does not execute tools or save conversations.
 
-After the user approves a proposal, execute it through `POST /connectors/{connectorId}/tools/{toolName}` and record its result before continuing. Send completed, failed, or denied tool parts with the next chat request. Pending approvals must be resolved first; never automatically retry a tool whose outcome is unknown.
+After the user answers a saved proposal, call `POST /connectors/{connectorId}/tools/{toolName}` with `x-tool-message-id`, `x-tool-call-id`, and `x-tool-approved` (`true` or `false`). Send the saved input unchanged. The server verifies ownership and the saved proposal, claims it, and returns the updated `tools` JSON; a decline never executes the connector. An already answered request returns `409`. For temporary conversations, omit these headers and record the execution result locally before continuing. Send completed, failed, or denied tool parts with the next chat request. Pending approvals must be resolved first; never automatically retry a tool whose outcome is unknown.
 
 For deployment variables and callback setup, see the [connector setup guide](https://github.com/theopenco/llmgateway/blob/main/docs/lounge-connectors.md).

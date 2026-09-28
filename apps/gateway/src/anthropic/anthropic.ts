@@ -804,15 +804,54 @@ anthropic.openapi(messages, async (c) => {
 
 			// Convert each unique tool_use_id to a single tool message
 			for (const [toolUseId, blocks] of toolResults) {
-				// Combine content from all blocks with the same tool_use_id
-				const combinedContent = blocks
-					.map((block) =>
-						typeof block.content === "string"
-							? block.content
-							: JSON.stringify(block.content),
-					)
-					.join("\n");
-
+				const combinedContent = blocks.flatMap(
+					(block): Record<string, unknown>[] => {
+						if (typeof block.content === "string") {
+							return [{ type: "text", text: block.content }];
+						}
+						if (!Array.isArray(block.content)) {
+							return [];
+						}
+						return block.content.flatMap(
+							(entry: unknown): Record<string, unknown>[] => {
+								if (!entry || typeof entry !== "object") {
+									return [];
+								}
+								const part = entry as Record<string, unknown>;
+								if (part.type === "text" && typeof part.text === "string") {
+									return [part];
+								}
+								if (
+									part.type === "image" &&
+									part.source &&
+									typeof part.source === "object"
+								) {
+									const source = part.source as Record<string, unknown>;
+									if (
+										source.type === "base64" &&
+										typeof source.media_type === "string" &&
+										typeof source.data === "string"
+									) {
+										return [
+											{
+												type: "image_url",
+												image_url: {
+													url: `data:${source.media_type};base64,${source.data}`,
+												},
+											},
+										];
+									}
+									if (source.type === "url" && typeof source.url === "string") {
+										return [
+											{ type: "image_url", image_url: { url: source.url } },
+										];
+									}
+								}
+								return [];
+							},
+						);
+					},
+				);
 				// A client-side tool search answers with `tool_reference` blocks in
 				// the tool_result content array. Stringifying them would leave
 				// Anthropic nothing to expand, so keep the originals alongside the
@@ -839,7 +878,9 @@ anthropic.openapi(messages, async (c) => {
 
 				openaiMessages.push({
 					role: "tool",
-					content: combinedContent,
+					content: combinedContent.some((part) => part.type === "image_url")
+						? combinedContent
+						: combinedContent.map((part) => part.text).join("\n"),
 					tool_call_id: toolUseId,
 					...(referenceBlocks.length > 0 && {
 						anthropic_native_blocks: referenceBlocks,
@@ -1249,6 +1290,10 @@ anthropic.openapi(messages, async (c) => {
 				let currentTextBlockIndex: number | null = null;
 				let currentThinkingBlockIndex: number | null = null;
 				const toolCallBlockIndex = new Map<number, number>();
+				const pendingToolCalls = new Map<
+					number,
+					{ id: string; name: string; input: string }
+				>();
 				let currentEventType: string | null = null;
 				let stopReason: string | null = null;
 				let contentBlockStopsSent = false;
@@ -1692,49 +1737,59 @@ anthropic.openapi(messages, async (c) => {
 										}
 
 										let blockIndex = toolCallBlockIndex.get(toolCall.index);
+										let argumentsDelta = toolCall.function?.arguments ?? "";
 										if (blockIndex === undefined) {
+											const pending = pendingToolCalls.get(toolCall.index) ?? {
+												id: `tool_${toolCall.index}`,
+												name: "",
+												input: "",
+											};
+											pending.id = toolCall.id ?? pending.id;
+											pending.name += toolCall.function?.name ?? "";
+											pending.input += argumentsDelta;
+											pendingToolCalls.set(toolCall.index, pending);
+											if (!pending.name) {
+												continue;
+											}
 											blockIndex = contentBlocks.length;
 											toolCallBlockIndex.set(toolCall.index, blockIndex);
-											const id = toolCall.id ?? `tool_${toolCall.index}`;
-											const name = toolCall.function?.name ?? "";
 											contentBlocks.push({
 												type: "tool_use",
-												id,
-												name,
+												id: pending.id,
+												name: pending.name,
 												input: "",
 											});
-
 											await stream.writeSSE({
 												data: JSON.stringify({
 													type: "content_block_start",
 													index: blockIndex,
 													content_block: {
 														type: "tool_use",
-														id,
-														name,
+														id: pending.id,
+														name: pending.name,
 														input: {},
 													},
 												}),
 												event: "content_block_start",
 											});
+											argumentsDelta = pending.input;
+											pendingToolCalls.delete(toolCall.index);
 										}
-
-										if (toolCall.function?.arguments) {
+										if (argumentsDelta) {
 											const toolBlock = contentBlocks[blockIndex] as {
 												type: "tool_use";
 												id: string;
 												name: string;
 												input: string;
 											};
-											toolBlock.input += toolCall.function.arguments;
-
+											toolBlock.input += argumentsDelta;
 											await stream.writeSSE({
 												data: JSON.stringify({
 													type: "content_block_delta",
 													index: blockIndex,
 													delta: {
 														type: "input_json_delta",
-														partial_json: toolCall.function.arguments,
+														partial_json: argumentsDelta,
 													},
 												}),
 												event: "content_block_delta",

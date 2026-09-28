@@ -473,3 +473,5 @@ export {
 } from "./system-banner.js";
 
 export { buildVideoUsage, type VideoUsage } from "./video-usage.js";
+
+export { parseCommaSeparatedEnv } from "./parse-env-list.js";

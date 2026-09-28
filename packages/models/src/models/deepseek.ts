@@ -29,7 +29,7 @@ export const deepseekModels = [
 	{
 		id: "deepseek-r1-0528",
 		name: "DeepSeek R1 (0528)",
-		description: "May 2028 version of DeepSeek R1 reasoning model.",
+		description: "May 2025 version of DeepSeek R1 reasoning model.",
 		family: "deepseek",
 		releasedAt: new Date("2025-05-28"),
 		providers: [

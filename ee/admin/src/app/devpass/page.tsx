@@ -204,7 +204,7 @@ export default async function DevpassPage({
 		"",
 	) as UtilFilter;
 	const marginNegative = params?.marginNegative === "true";
-	const showChurned = params?.showChurned === "true";
+	const showChurned = status === "churned" || params?.showChurned === "true";
 	const limit = 25;
 	const offset = (page - 1) * limit;
 

@@ -2,10 +2,10 @@ import { shortid } from "@llmgateway/db";
 
 import {
 	annotationsToSources,
+	buildFinishReason,
 	buildProviderMetadata,
 	buildWebSearchToolCall,
 	buildWebSearchToolResult,
-	mapFinishReason,
 	usageFromChat,
 	type ChatUsage,
 } from "./shared.js";
@@ -105,7 +105,7 @@ export function convertChatToGenerateResult({
 
 	return {
 		content,
-		finishReason: mapFinishReason(choice?.finish_reason),
+		finishReason: buildFinishReason(specVersion, choice?.finish_reason),
 		usage: usageFromChat(specVersion, response.usage),
 		...(providerMetadata && { providerMetadata }),
 		warnings,

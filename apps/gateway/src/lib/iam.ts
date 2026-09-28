@@ -314,7 +314,9 @@ export async function validateRequestModelAccess(params: {
 		if (
 			sessionValidation.allowed &&
 			requestedProvider &&
-			!sessionValidation.allowedProviders?.includes(requestedProvider)
+			!sessionValidation.allowedProviders?.some(
+				(providerId) => providerId === requestedProvider,
+			)
 		) {
 			return {
 				allowed: false,

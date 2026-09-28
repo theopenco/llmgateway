@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { applyCategoryFilter } from "./model-category-filters";
+import { applyCategoryFilter, isTextOutput } from "./model-category-filters";
 import {
 	applyUseCaseFilter,
 	getExcludedCapabilityKeys,
@@ -536,4 +536,9 @@ describe("category → capability implication tables", () => {
 			expect(getImpliedCapabilityKeys(null, "text")).toEqual([]);
 		});
 	});
+});
+
+test("text output excludes audio-only models while preserving text and audio", () => {
+	expect(isTextOutput(["audio"])).toBe(false);
+	expect(isTextOutput(["text", "audio"])).toBe(true);
 });

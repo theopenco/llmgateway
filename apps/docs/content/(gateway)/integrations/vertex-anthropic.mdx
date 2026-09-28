@@ -150,6 +150,9 @@ LLM Gateway handles the OAuth2 token lifecycle automatically:
 4. An in-memory cache avoids Redis round-trips on subsequent requests
 5. When the cached token expires, a new one is generated transparently
 
+The service account's `token_uri` must be `https://oauth2.googleapis.com/token`.
+Token exchanges do not follow redirects.
+
 This means:
 
 - No manual `gcloud auth print-access-token` commands

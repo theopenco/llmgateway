@@ -6,6 +6,7 @@ import {
 	getRegionEnvVarSuffix,
 	providers,
 } from "@llmgateway/models";
+import { parseCommaSeparatedEnv } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
@@ -85,25 +86,6 @@ const INVENTORY_TTL_SECONDS = 900;
 
 const REFRESH_INTERVAL_MS = 300_000;
 
-/**
- * A service-account JSON value contains commas and is read whole by the
- * gateway rather than comma-split; masking must treat it the same way or the
- * "list" would be JSON fragments.
- */
-function splitEnvApiKeys(value: string): string[] {
-	const trimmed = value.trim();
-	if (!trimmed) {
-		return [];
-	}
-	if (trimmed.startsWith("{")) {
-		return [trimmed];
-	}
-	return trimmed
-		.split(",")
-		.map((entry) => entry.trim())
-		.filter((entry) => entry.length > 0);
-}
-
 function providerRegionIds(providerId: string): string[] {
 	const definition = providers.find((entry) => entry.id === providerId) as
 		ProviderDefinition | undefined;
@@ -149,7 +131,7 @@ export function collectProviderEnvCredentials(
 		if (!value) {
 			continue;
 		}
-		splitEnvApiKeys(value).forEach((key, index) => {
+		parseCommaSeparatedEnv(value).forEach((key, index) => {
 			entries.push({
 				envVar: slot.envVar,
 				variant: slot.variant,

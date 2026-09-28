@@ -158,7 +158,7 @@ export default async function ModelsPage({
 			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div className="flex flex-wrap items-center gap-6 text-sm">
 					<div>
-						<span className="text-muted-foreground">Total Requests</span>
+						<span className="text-muted-foreground">Requests on this page</span>
 						<p className="text-xl font-semibold tabular-nums">
 							{formatCompactNumber(
 								data.models.reduce((s, m) => s + m.logsCount, 0),

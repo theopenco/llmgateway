@@ -34,7 +34,6 @@
 
 import { and, db, eq, isNotNull, or, tables } from "@llmgateway/db";
 import {
-	CHAT_PLAN_PRICES,
 	getChatPlanCreditsLimit,
 	type ChatPlanTier,
 } from "@llmgateway/shared";
@@ -49,14 +48,6 @@ function hasFlag(name: string): boolean {
 	return process.argv.includes(`--${name}`);
 }
 
-function tierFromAmount(amount: string | null): ChatPlanTier | null {
-	if (amount === null) {
-		return null;
-	}
-	const value = Number(amount);
-	const tiers = Object.keys(CHAT_PLAN_PRICES) as ChatPlanTier[];
-	return tiers.find((tier) => CHAT_PLAN_PRICES[tier] === value) ?? null;
-}
 
 /**
  * Host and database name of the connection, credentials stripped. An unset
@@ -115,17 +106,11 @@ async function main(): Promise<void> {
 	let skipped = 0;
 
 	for (const { transaction, organization } of rows) {
-		// The charged amount identifies the tier outright; a discounted charge
-		// (promo code) falls back to the tier the org is on today.
-		const tier =
-			tierFromAmount(transaction.amount) ??
-			(organization.chatPlan !== "none"
-				? (organization.chatPlan as ChatPlanTier)
-				: null);
-
+		const tierMatch = transaction.description?.match(/\bLounge (starter|plus|pro) membership/i);
+		const tier = tierMatch?.[1]?.toLowerCase() as ChatPlanTier | undefined;
 		if (!tier) {
 			console.log(
-				`  SKIP ${transaction.id} (org ${organization.id}): cannot resolve tier from amount ${transaction.amount} and org has no chat plan`,
+				`  SKIP ${transaction.id} (org ${organization.id}): historical membership tier is unavailable`,
 			);
 			skipped += 1;
 			continue;

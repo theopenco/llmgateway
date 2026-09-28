@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { endOfMonth, format, startOfMonth, subMonths } from "date-fns";
 
-const apiUrl = process.env.PW_API_URL ?? "http://localhost:4002";
+const apiUrl =
+	process.env.PW_API_URL ?? process.env.API_URL ?? "http://localhost:4002";
 
 for (const viewport of [
 	{ width: 1440, height: 900 },

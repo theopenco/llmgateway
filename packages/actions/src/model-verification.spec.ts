@@ -364,6 +364,27 @@ describe("model verification", () => {
 	const toolChoiceOf = (call: Parameters<typeof fetch>[1] | undefined) =>
 		JSON.parse(String(call?.body)).tool_choice;
 
+	it.each([429, 500, 503])(
+		"does not narrow tool choices after HTTP %i",
+		async (status) => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockResolvedValueOnce(okResponse())
+				.mockResolvedValueOnce(
+					new Response("Temporarily unavailable", { status }),
+				)
+				.mockResolvedValue(toolCallResponse());
+			const result = await runProviderModelVerification({
+				target: toolOnly,
+				token: "provider-key",
+				baseUrl: "https://carrier.example",
+				fetchImplementation,
+			});
+			expect(result.passed).toBe(false);
+			expect(result.unsupportedToolChoices).toBeUndefined();
+			expect(fetchImplementation).toHaveBeenCalledTimes(2);
+		},
+	);
 	it("walks down the tool_choice ladder and reports what failed", async () => {
 		const fetchImplementation = vi
 			.fn<typeof fetch>()

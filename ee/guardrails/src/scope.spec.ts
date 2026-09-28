@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { db, eq, tables } from "@llmgateway/db";
 
-import { checkGuardrails } from "./engine.js";
+import { applyRedactions, checkGuardrails } from "./engine.js";
 
 const createdOrgIds: string[] = [];
 
@@ -83,6 +83,33 @@ async function seedScope(options: ScopeOptions) {
 }
 
 describe("guardrail scope resolution", () => {
+	it("redacts only the case-sensitive exact term selected by the rule", async () => {
+		const { organizationId, projectId } = await seedScope({
+			orgTerm: "SECRET",
+		});
+		await db
+			.update(tables.guardrailRule)
+			.set({
+				action: "redact",
+				config: {
+					type: "blocked_terms",
+					terms: ["SECRET"],
+					matchType: "exact",
+					caseSensitive: true,
+				},
+			})
+			.where(eq(tables.guardrailRule.organizationId, organizationId));
+		const messages = [{ role: "user", content: "SECRET secret SECRETS" }];
+		const result = await checkGuardrails({
+			organizationId,
+			projectId,
+			messages,
+		});
+		expect(applyRedactions(messages, result.redactions)[0].content).toBe(
+			"****** secret SECRETS",
+		);
+	});
+
 	afterEach(async () => {
 		for (const organizationId of createdOrgIds.splice(0)) {
 			await db

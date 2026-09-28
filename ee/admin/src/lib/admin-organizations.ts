@@ -192,7 +192,7 @@ export async function manageOrganization(
 		seats: number | null;
 		apiKeyLimit: number | null;
 		projectLimit: number | null;
-		trustTierOverride: number | null;
+		trustTierOverride?: number | null;
 		// Omitted = unchanged.
 		contentFilterTierOverride?: number | null;
 		contentFilterLogOnly?: boolean;

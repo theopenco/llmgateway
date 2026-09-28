@@ -1047,13 +1047,6 @@ export async function resolveProviderContext(
 	});
 	headers["Content-Type"] = "application/json";
 
-	if (transportProvider === "anthropic" && options.effort !== undefined) {
-		const currentBeta = headers["anthropic-beta"];
-		headers["anthropic-beta"] = currentBeta
-			? `${currentBeta},effort-2025-11-24`
-			: "effort-2025-11-24";
-	}
-
 	if (
 		transportProvider === "anthropic" &&
 		options.response_format?.type === "json_schema"

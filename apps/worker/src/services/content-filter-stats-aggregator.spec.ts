@@ -169,6 +169,33 @@ describe("content filter stats aggregator", () => {
 		vi.useRealTimers();
 	});
 
+	it("keeps partial violations inside the sampled cohort", async () => {
+		await db.insert(log).values([
+			logRow({ gatewayContentFilterEvaluation: evaluation() }),
+			...[1, 2].map(() =>
+				logRow({
+					gatewayContentFilterEvaluation: evaluation({
+						violation: true,
+						moderationFailed: true,
+						action: "blocked",
+						matchedCategories: ["violence"],
+					}),
+				}),
+			),
+		]);
+		await calculateContentFilterStatsForHour(HOUR);
+		for (const rows of [await statsRows(), await modelStatsRows()]) {
+			expect(rows.find((row) => row.category === "all")).toMatchObject({
+				sampledCount: 3,
+				violationCount: 2,
+				blockedCount: 2,
+			});
+			expect(
+				rows.find((row) => row.category === "violence")?.violationCount,
+			).toBe(2);
+		}
+	});
+
 	it("rolls sampled evaluations up into totals and per-category rows", async () => {
 		await db.insert(log).values([
 			logRow({ gatewayContentFilterEvaluation: evaluation() }),

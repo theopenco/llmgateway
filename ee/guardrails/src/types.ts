@@ -44,6 +44,8 @@ export interface RedactionInfo {
 	matches: string[];
 	// Matched patterns, for reference/logging
 	pattern: string;
+	caseSensitive?: boolean;
+	wholeWord?: boolean;
 }
 
 export interface GuardrailResult {
@@ -62,6 +64,8 @@ export interface Message {
 export interface MessageContent {
 	type: string;
 	text?: string;
+	file?: { file_data?: string; file_id?: string; filename?: string };
+	input_audio?: { data: string; format: string };
 	image_url?: {
 		url: string;
 	};
@@ -90,6 +94,7 @@ export interface SystemRule {
 	check: (
 		content: string,
 		config: SystemRuleConfig,
+		allowedTypes?: string[],
 	) => {
 		passed: boolean;
 		matches: string[];

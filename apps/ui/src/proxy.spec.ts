@@ -50,3 +50,17 @@ describe("MCP gateway configuration", () => {
 		expect(response.headers.get("x-middleware-next")).toBe("1");
 	});
 });
+
+describe("markdown content negotiation", () => {
+	test.each([
+		"text/markdown",
+		"TEXT/MARKDOWN",
+		"Text/Markdown;q=1,text/html;q=0.5",
+	])("redirects a markdown preference: %s", (accept) => {
+		const response = proxy(
+			new NextRequest("https://app.example/", { headers: { accept } }),
+		);
+		expect(response.status).toBe(307);
+		expect(response.headers.get("location")).toBe("https://app.example/md");
+	});
+});

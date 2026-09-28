@@ -158,7 +158,20 @@ test("requires approval, saves the outcome first, and prevents repeated taps fro
 			await new Promise<void>((resolve) => {
 				finish = resolve;
 			});
-			return { data: { result: '{"found":1}' }, response: new Response() };
+			return {
+				data: {
+					result: '{"found":1}',
+					tools: JSON.stringify([
+						{
+							...proposal,
+							state: "output-available",
+							output: { found: 1 },
+							approval: { ...proposal.approval, approved: true },
+						},
+					]),
+				},
+				response: new Response(),
+			};
 		}
 		const body = options?.body;
 		if (body && "tools" in body && typeof body.tools === "string") {
@@ -178,18 +191,13 @@ test("requires approval, saves the outcome first, and prevents repeated taps fro
 		await fireEvent.press(approve);
 		await fireEvent.press(approve);
 	});
-	await waitFor(() => expect(events).toEqual(["output-error", "execute"]));
+	await waitFor(() => expect(events).toEqual(["execute"]));
 	expect(generate).not.toHaveBeenCalled();
 	await act(async () => finish?.());
 	await waitFor(() =>
 		expect(screen.getByText("Mailbox checked")).toBeOnTheScreen(),
 	);
-	expect(events).toEqual([
-		"output-error",
-		"execute",
-		"output-available",
-		"output-available",
-	]);
+	expect(events).toEqual(["execute", "output-available"]);
 	expect(generate).toHaveBeenCalledTimes(1);
 	expect(generate).toHaveBeenCalledWith(
 		expect.objectContaining({
@@ -214,6 +222,19 @@ test("requires approval, saves the outcome first, and prevents repeated taps fro
 
 test("declining saves the decision and continues without calling the connected app", async () => {
 	const generate = withProposal();
+	post.mockResolvedValue({
+		data: {
+			result: "null",
+			tools: JSON.stringify([
+				{
+					...proposal,
+					state: "output-denied",
+					approval: { ...proposal.approval, approved: false },
+				},
+			]),
+		},
+		response: new Response(),
+	});
 	await showChat("chat");
 	await userEvent
 		.setup()
@@ -221,9 +242,11 @@ test("declining saves the decision and continues without calling the connected a
 			screen.getByRole("button", { name: "Decline Gmail: search messages" }),
 		);
 	await waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
-	expect(client.POST).not.toHaveBeenCalledWith(
+	expect(client.POST).toHaveBeenCalledWith(
 		"/connectors/{connectorId}/tools/{toolName}",
-		expect.anything(),
+		expect.objectContaining({
+			headers: expect.objectContaining({ "x-tool-approved": "false" }),
+		}),
 	);
 	expect(generate).toHaveBeenCalledWith(
 		expect.objectContaining({
@@ -234,7 +257,7 @@ test("declining saves the decision and continues without calling the connected a
 	);
 });
 
-test("leaves an approval available when its prerequisite save fails", async () => {
+test("consumes an uncertain approval when its server claim response is lost", async () => {
 	const generate = withProposal();
 	jest.mocked(client.POST).mockRejectedValue(new Error("History unavailable"));
 	await showChat("chat");
@@ -243,12 +266,14 @@ test("leaves an approval available when its prerequisite save fails", async () =
 		.press(
 			screen.getByRole("button", { name: "Approve Gmail: search messages" }),
 		);
-	expect(await screen.findByText("History unavailable")).toBeOnTheScreen();
+	expect(
+		(await screen.findAllByText(uncertainToolOutcome)).length,
+	).toBeGreaterThan(0);
 	expect(generate).not.toHaveBeenCalled();
 	expect(client.POST).toHaveBeenCalledTimes(1);
 	expect(
-		screen.getByRole("button", { name: "Approve Gmail: search messages" }),
-	).toBeEnabled();
+		screen.queryByRole("button", { name: "Approve Gmail: search messages" }),
+	).toBeNull();
 });
 
 test("a lost tool result stays consumed locally and can continue without replaying it", async () => {

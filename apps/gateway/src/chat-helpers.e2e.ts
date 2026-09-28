@@ -1237,7 +1237,7 @@ export const streamingToolCallModels = toolCallModels.filter((m) =>
 );
 
 export const imageModels = testModels.filter((m) => {
-	const model = models.find((mo) => m.originalModel === mo.id);
+	const model = models.find((mo) => (m.originalModel ?? m.model) === mo.id);
 	return (model as ModelDefinition).output?.includes("image");
 });
 

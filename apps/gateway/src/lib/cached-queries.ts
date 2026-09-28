@@ -197,6 +197,7 @@ export type GatewayApiKey = ApiKey & {
 		walletStatus: Wallet["status"];
 		endCustomerStatus: string;
 		projectStatus: Project["status"];
+		endUserEnabled: boolean;
 	};
 };
 
@@ -232,7 +233,7 @@ export async function findApiKeyByToken(
 	}
 
 	return await swrWrap(
-		`endUserSession:token:${getApiKeyFingerprint(token)}`,
+		`endUserSession:v2:token:${getApiKeyFingerprint(token)}`,
 		[
 			endUserSessionTableName,
 			apiKeyTableName,
@@ -298,6 +299,7 @@ export async function findApiKeyByToken(
 					walletStatus: row.wallet.status,
 					endCustomerStatus: row.endCustomer.status,
 					projectStatus: row.project.status,
+					endUserEnabled: row.project.endUserEnabled,
 				},
 			};
 		},

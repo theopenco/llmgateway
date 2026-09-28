@@ -1,3 +1,4 @@
+import { posix } from "node:path";
 import { runInNewContext } from "node:vm";
 
 import type {
@@ -13,7 +14,11 @@ import type {
 interface RepositoryTest {
 	name: string;
 	/** Returns an empty string when the assertion holds, otherwise the failure. */
-	check: (module: Record<string, unknown>) => string;
+	check: (
+		module: Record<string, unknown>,
+		files: Record<string, string>,
+		loadModule: (path: string) => Record<string, unknown>,
+	) => string;
 }
 
 interface RepositoryFixture {
@@ -133,25 +138,49 @@ function runTests(
 	files: Record<string, string>,
 	fixture: RepositoryFixture,
 ): TestRun {
-	const source = files[fixture.entryPath] ?? "";
-	const moduleValue: { exports: Record<string, unknown> } = { exports: {} };
-	try {
+	const modules = new Map<string, { exports: Record<string, unknown> }>();
+	const loadModule = (path: string): Record<string, unknown> => {
+		const existing = modules.get(path);
+		if (existing) {
+			return existing.exports;
+		}
+		const source = files[path];
+		if (source === undefined) {
+			throw new Error(`Unknown module: ${path}`);
+		}
+		const moduleValue = { exports: {} as Record<string, unknown> };
+		modules.set(path, moduleValue);
 		runInNewContext(
 			source,
-			{ module: moduleValue, exports: moduleValue.exports },
+			{
+				module: moduleValue,
+				exports: moduleValue.exports,
+				require: (specifier: string) => {
+					if (!specifier.startsWith("./") && !specifier.startsWith("../")) {
+						throw new Error("Only repository modules are available");
+					}
+					return loadModule(
+						posix.normalize(posix.join(posix.dirname(path), specifier)),
+					);
+				},
+			},
 			{ timeout: 1000 },
 		);
+		return moduleValue.exports;
+	};
+	let exports: Record<string, unknown>;
+	try {
+		exports = loadModule(fixture.entryPath);
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
 		return {
 			passed: false,
-			report: `FAIL: ${fixture.entryPath} could not be loaded: ${message}`,
+			report: `FAIL: ${fixture.entryPath} could not be loaded: ${error instanceof Error ? error.message : String(error)}`,
 		};
 	}
 	const lines = fixture.tests.map((test) => {
 		let failure: string;
 		try {
-			failure = test.check(moduleValue.exports);
+			failure = test.check(exports, files, loadModule);
 		} catch (error) {
 			failure = error instanceof Error ? error.message : String(error);
 		}
@@ -411,6 +440,21 @@ const REFACTOR_FIXTURE: RepositoryFixture = {
 			"assert.strictEqual(formatCents(1234), '$12.34');\n",
 	},
 	tests: [
+		{
+			name: "cart re-exports subtractCents",
+			check: (module, _files, loadModule) =>
+				loadModule("src/cart.js").subtractCents === module.subtractCents &&
+				typeof module.subtractCents === "function"
+					? ""
+					: "cart must re-export subtractCents",
+		},
+		{
+			name: "README documents subtractCents",
+			check: (_module, files) =>
+				/\bsubtractCents\b/.test(files["README.md"] ?? "")
+					? ""
+					: "README must document subtractCents",
+		},
 		{
 			name: "subtractCents is exported",
 			check: (module) =>
