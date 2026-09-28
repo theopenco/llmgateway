@@ -306,6 +306,28 @@ describe("transformStreamingToOpenai", () => {
 		});
 	});
 
+	it("tolerates an Anthropic web search error result", () => {
+		const result = transformStreamingToOpenai(
+			"anthropic",
+			"claude-sonnet-5",
+			{
+				type: "content_block_start",
+				index: 6,
+				content_block: {
+					type: "web_search_tool_result",
+					tool_use_id: "srvtoolu_1",
+					content: {
+						type: "web_search_tool_result_error",
+						error_code: "max_uses_exceeded",
+					},
+				},
+			},
+			[],
+		);
+
+		expect(result.choices[0].delta).toEqual({ role: "assistant" });
+	});
+
 	it("maps Anthropic message_start usage with cache creation details", () => {
 		warn.mockClear();
 
