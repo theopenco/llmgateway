@@ -4102,9 +4102,15 @@ export const routingExclusionHourly = pgTable(
 // Sentinel category for the per-(org, project, hour) totals row.
 export const CONTENT_FILTER_STATS_ALL_CATEGORY = "all";
 
+// Whose verdict a content filter stats row counts: the classifier that decided
+// the action, or the shadow classifier run alongside it for comparison. Shadow
+// rows never block, so their blockedCount is always 0.
+export const contentFilterStatsRoles = ["deciding", "shadow"] as const;
+
 // Hourly rollup of log.gatewayContentFilterEvaluation, so abuse rates can be
 // read per organization without scanning `log`. The "all" category row carries
-// the sampled/violation/blocked totals; category rows carry violationCount only.
+// the sampled/violation/blocked totals and classifier durations; category rows
+// carry violationCount only. Dashboards read role = 'deciding' rows only.
 export const contentFilterHourlyStats = pgTable(
 	"content_filter_hourly_stats",
 	{
@@ -4118,16 +4124,25 @@ export const contentFilterHourlyStats = pgTable(
 		organizationId: text().notNull(),
 		projectId: text().notNull(),
 		category: text().notNull(),
+		// Rows written before classifiers were selectable all ran on OpenAI.
+		classifier: text().notNull().default("openai"),
+		role: text({ enum: contentFilterStatsRoles }).notNull().default("deciding"),
 		sampledCount: integer().notNull().default(0),
 		violationCount: integer().notNull().default(0),
 		blockedCount: integer().notNull().default(0),
+		// Over evaluations that recorded a duration; durationCount is the divisor.
+		durationSumMs: bigint({ mode: "number" }).notNull().default(0),
+		durationCount: integer().notNull().default(0),
+		durationMaxMs: integer(),
 	},
 	(table) => [
-		unique().on(
+		unique("content_filter_hourly_stats_bucket_unique").on(
 			table.hourTimestamp,
 			table.organizationId,
 			table.projectId,
 			table.category,
+			table.classifier,
+			table.role,
 		),
 		index("content_filter_hourly_stats_org_ts_idx").on(
 			table.organizationId,
@@ -4159,18 +4174,27 @@ export const contentFilterHourlyModelStats = pgTable(
 		usedModel: text().notNull(),
 		usedProvider: text().notNull(),
 		category: text().notNull(),
+		// Rows written before classifiers were selectable all ran on OpenAI.
+		classifier: text().notNull().default("openai"),
+		role: text({ enum: contentFilterStatsRoles }).notNull().default("deciding"),
 		sampledCount: integer().notNull().default(0),
 		violationCount: integer().notNull().default(0),
 		blockedCount: integer().notNull().default(0),
+		// Over evaluations that recorded a duration; durationCount is the divisor.
+		durationSumMs: bigint({ mode: "number" }).notNull().default(0),
+		durationCount: integer().notNull().default(0),
+		durationMaxMs: integer(),
 	},
 	(table) => [
-		unique().on(
+		unique("content_filter_hourly_model_stats_bucket_unique").on(
 			table.hourTimestamp,
 			table.organizationId,
 			table.projectId,
 			table.usedModel,
 			table.usedProvider,
 			table.category,
+			table.classifier,
+			table.role,
 		),
 		index("content_filter_hourly_model_stats_org_ts_idx").on(
 			table.organizationId,

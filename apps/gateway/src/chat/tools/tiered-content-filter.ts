@@ -216,10 +216,12 @@ export function buildGatewayContentFilterEvaluation(
 	plan: TieredContentFilterPlan,
 	evaluation: TieredContentFilterEvaluation,
 	moderationFailed: boolean,
+	durationMs: number,
 	shadow?: {
 		classifier: ContentFilterClassifier;
 		evaluation: TieredContentFilterEvaluation;
 		moderationFailed: boolean;
+		durationMs: number;
 	},
 ): GatewayContentFilterEvaluation {
 	const blocked = plan.enforce && evaluation.violation;
@@ -235,6 +237,7 @@ export function buildGatewayContentFilterEvaluation(
 						matchedCategories: shadow.evaluation.matchedCategories,
 						categoryScores: shadow.evaluation.categoryScores,
 						moderationFailed: shadow.moderationFailed,
+						durationMs: shadow.durationMs,
 						disagreed: shadow.evaluation.violation !== evaluation.violation,
 					},
 				}
@@ -251,5 +254,6 @@ export function buildGatewayContentFilterEvaluation(
 		matchedCategories: evaluation.matchedCategories,
 		categoryScores: evaluation.categoryScores,
 		moderationFailed,
+		durationMs,
 	};
 }

@@ -386,6 +386,61 @@ describe("admin content filter violations", () => {
 		expect(body.organizations[0].organizationId).toBe("cf-org-b");
 	});
 
+	test("reads only deciding rows, summed across classifiers", async () => {
+		const urls = [
+			"/admin/content-filter/violations?window=24h",
+			"/admin/content-filter/violations/organizations?window=24h&usedProvider=openai",
+			"/admin/organizations/cf-org-a/content-filter?window=7d",
+		];
+		const read = async () =>
+			await Promise.all(
+				urls.map(async (url) => {
+					const res = await app.request(url, { headers: { Cookie: cookie } });
+					expect(res.status).toBe(200);
+					return await res.json();
+				}),
+			);
+		const before = await read();
+
+		// A shadow classifier's verdict on the same requests: never counted.
+		const shadow = {
+			hourTimestamp: hoursAgo(1),
+			organizationId: "cf-org-a",
+			projectId: "proj-a",
+			classifier: "internal",
+			role: "shadow" as const,
+			sampledCount: 10,
+			violationCount: 9,
+			blockedCount: 0,
+		};
+		await db.insert(tables.contentFilterHourlyStats).values([
+			{ ...shadow, category: "all" },
+			{ ...shadow, category: "violence", sampledCount: 0 },
+		]);
+		await db.insert(tables.contentFilterHourlyModelStats).values({
+			...shadow,
+			usedModel: "openai/gpt-5.6-sol",
+			usedProvider: "openai",
+			category: "all",
+		});
+		expect(await read()).toEqual(before);
+
+		// Requests decided by another classifier in the same hour add up.
+		await db.insert(tables.contentFilterHourlyStats).values({
+			...shadow,
+			role: "deciding",
+			category: "all",
+			sampledCount: 5,
+			violationCount: 1,
+		});
+		const [violations] = await read();
+		expect(violations.totals).toEqual({
+			sampledCount: 35,
+			violationCount: 6,
+			blockedCount: 1,
+		});
+	});
+
 	test("requires authentication", async () => {
 		const res = await app.request("/admin/content-filter/violations");
 		expect(res.status).toBe(401);

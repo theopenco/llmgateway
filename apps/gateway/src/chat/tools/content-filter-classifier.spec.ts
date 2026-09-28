@@ -64,6 +64,11 @@ function result(
 	};
 }
 
+const sleep = (ms: number) =>
+	new Promise<void>((resolve) => {
+		setTimeout(resolve, ms);
+	});
+
 const PLAN: TieredContentFilterPlan = {
 	provider: "openai",
 	tier: 1,
@@ -119,6 +124,27 @@ describe("runContentFilterClassifier", () => {
 		expect(checked.flagged).toBe(true);
 		expect(checked.results).toHaveLength(2);
 		expect(checked.model).toBe("jev-1.13.0");
+	});
+
+	it("times the text check and the image delegation together", async () => {
+		checkJev.mockImplementation(async () => {
+			await sleep(40);
+			return result(false, { violence: 0.1 }, "jev-1.13.0");
+		});
+		checkOpenAI.mockImplementation(async () => {
+			await sleep(40);
+			return result(false, { violence: 0.1 }, "omni-moderation-latest");
+		});
+
+		const checked = await runContentFilterClassifier(
+			"jev",
+			IMAGE_MESSAGES,
+			CONTEXT,
+			undefined,
+			{ imagesAllowed: true },
+		);
+
+		expect(checked.durationMs).toBeGreaterThanOrEqual(75);
 	});
 
 	it("marks a failed image delegation without changing the text verdict", async () => {
@@ -255,6 +281,7 @@ describe("evaluateContentFilterWithClassifiers", () => {
 		const existing = {
 			...result(false, { violence: 0.1 }, "jev-1.13.0"),
 			classifier: "jev" as const,
+			durationMs: 87,
 		};
 
 		const evaluated = await evaluateContentFilterWithClassifiers({
@@ -269,6 +296,33 @@ describe("evaluateContentFilterWithClassifiers", () => {
 		expect(checkJev).not.toHaveBeenCalled();
 		expect(evaluated?.evaluation.classifier).toBe("jev");
 		expect(evaluated?.evaluation.action).toBe("passed");
+		// The reused check's own timing, not the near-zero cost of reusing it.
+		expect(evaluated?.evaluation.durationMs).toBe(87);
+	});
+
+	it("records the deciding and shadow classifiers' durations", async () => {
+		checkJev.mockImplementation(async () => {
+			await sleep(40);
+			return result(false, { violence: 0.1 }, "jev-1.13.0");
+		});
+		checkOpenAI.mockImplementation(async () => {
+			await sleep(120);
+			return result(false, { violence: 0.1 }, "omni-moderation-latest");
+		});
+
+		const evaluated = await evaluateContentFilterWithClassifiers({
+			plan: { ...PLAN, shadowClassifier: "openai" },
+			messages: TEXT_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: () => true,
+		});
+
+		expect(evaluated?.evaluation.durationMs).toBeGreaterThanOrEqual(35);
+		expect(evaluated?.evaluation.durationMs).toBeLessThan(115);
+		expect(evaluated?.evaluation.shadow?.durationMs).toBeGreaterThanOrEqual(
+			115,
+		);
 	});
 
 	it("records the shadow classifier's disagreement without blocking on it", async () => {

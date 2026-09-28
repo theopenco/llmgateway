@@ -62,6 +62,11 @@ const violationRate = sql<number>`coalesce(sum(${contentFilterHourlyStats.violat
 const modelSampled = sql<number>`coalesce(sum(${contentFilterHourlyModelStats.sampledCount}), 0)::int`;
 const modelViolations = sql<number>`coalesce(sum(${contentFilterHourlyModelStats.violationCount}), 0)::int`;
 const modelBlocked = sql<number>`coalesce(sum(${contentFilterHourlyModelStats.blockedCount}), 0)::int`;
+// Shadow rows record a second classifier's verdict on the same requests for
+// offline comparison; every dashboard figure is the deciding classifier's.
+const isDeciding = eq(contentFilterHourlyStats.role, "deciding");
+const isDecidingModel = eq(contentFilterHourlyModelStats.role, "deciding");
+
 const modelViolationRate = sql<number>`coalesce(sum(${contentFilterHourlyModelStats.violationCount})::float / nullif(sum(${contentFilterHourlyModelStats.sampledCount}), 0), 0)`;
 
 const modelBreakdownSchema = z.object({
@@ -220,6 +225,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		.where(
 			and(
 				gte(contentFilterHourlyStats.hourTimestamp, windowStart),
+				isDeciding,
 				eq(
 					contentFilterHourlyStats.category,
 					CONTENT_FILTER_STATS_ALL_CATEGORY,
@@ -253,6 +259,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 					.where(
 						and(
 							gte(contentFilterHourlyStats.hourTimestamp, windowStart),
+							isDeciding,
 							ne(
 								contentFilterHourlyStats.category,
 								CONTENT_FILTER_STATS_ALL_CATEGORY,
@@ -294,6 +301,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 					.where(
 						and(
 							gte(contentFilterHourlyModelStats.hourTimestamp, windowStart),
+							isDecidingModel,
 							eq(
 								contentFilterHourlyModelStats.category,
 								CONTENT_FILTER_STATS_ALL_CATEGORY,
@@ -332,6 +340,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		.where(
 			and(
 				gte(contentFilterHourlyModelStats.hourTimestamp, windowStart),
+				isDecidingModel,
 				eq(
 					contentFilterHourlyModelStats.category,
 					CONTENT_FILTER_STATS_ALL_CATEGORY,
@@ -364,6 +373,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		.where(
 			and(
 				gte(contentFilterHourlyModelStats.hourTimestamp, windowStart),
+				isDecidingModel,
 				eq(
 					contentFilterHourlyModelStats.category,
 					CONTENT_FILTER_STATS_ALL_CATEGORY,
@@ -389,6 +399,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		.where(
 			and(
 				gte(contentFilterHourlyStats.hourTimestamp, windowStart),
+				isDeciding,
 				eq(
 					contentFilterHourlyStats.category,
 					CONTENT_FILTER_STATS_ALL_CATEGORY,
@@ -502,6 +513,7 @@ adminContentFilter.openapi(getFocusOrganizations, async (c) => {
 	const windowStart = windowStartFor(window);
 	const slice = and(
 		gte(contentFilterHourlyModelStats.hourTimestamp, windowStart),
+		isDecidingModel,
 		eq(
 			contentFilterHourlyModelStats.category,
 			CONTENT_FILTER_STATS_ALL_CATEGORY,
@@ -658,11 +670,13 @@ adminContentFilter.openapi(getOrganizationActivity, async (c) => {
 	const orgWindow = and(
 		eq(contentFilterHourlyStats.organizationId, orgId),
 		gte(contentFilterHourlyStats.hourTimestamp, startDate),
+		isDeciding,
 	);
 
 	const modelWindow = and(
 		eq(contentFilterHourlyModelStats.organizationId, orgId),
 		gte(contentFilterHourlyModelStats.hourTimestamp, startDate),
+		isDecidingModel,
 	);
 
 	const [series, categories, models] = await Promise.all([
