@@ -80,7 +80,7 @@ export async function sendReceiptEmail(
 
 		const isCreditNote = documentType === "credit_note";
 
-		const pdfBuffer = generateInvoicePDF({
+		const pdfBuffer = await generateInvoicePDF({
 			invoiceNumber: receiptNumber,
 			invoiceDate: date,
 			// The payer, not an organization — this lands in the PDF's BILL TO block.
