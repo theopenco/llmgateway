@@ -373,7 +373,7 @@ describe("generateInvoicePDF", () => {
 		expect(pdfBuffer.length).toBeGreaterThan(0);
 	});
 
-	it("paginates line items that overflow a single page", async () => {
+	it("paginates overflowing line items, repeating the table header", async () => {
 		const pdfBuffer = await generateInvoicePDF({
 			...baseInvoiceData,
 			lineItems: Array.from({ length: 80 }, (_, i) => ({
@@ -383,8 +383,12 @@ describe("generateInvoicePDF", () => {
 		});
 		const doc = await getDocumentProxy(new Uint8Array(pdfBuffer));
 
+		const pdfContent = await pdfText(pdfBuffer);
+
 		expect(doc.numPages).toBeGreaterThan(1);
-		expect(await pdfText(pdfBuffer)).toContain("Item 80 USD 1.00");
+		expect(pdfContent).toContain("Item 80 USD 1.00");
+		expect(pdfContent.match(/DESCRIPTION AMOUNT/g)).toHaveLength(doc.numPages);
+		expect(pdfContent).toContain(`Page ${doc.numPages} of ${doc.numPages}`);
 	});
 
 	it("renders accented billing details", async () => {
