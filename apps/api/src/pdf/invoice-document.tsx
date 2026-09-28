@@ -1,20 +1,17 @@
 import { renderDocument } from "@formepdf/core";
-import { Document, Page } from "@formepdf/react";
-
-import { KeyValue } from "./components/key-value.js";
-import { Section } from "./components/section.js";
 import {
+	Cell,
+	Document,
+	Fixed,
+	Page,
+	Row,
 	Table,
-	TableBody,
-	TableCell,
-	TableHeader,
-	TableRow,
-} from "./components/table/table.js";
-import { Text } from "./components/text.js";
-import { StyleSheet, View } from "./primitives.js";
-import { PdfcnThemeProvider, usePdfcnTheme } from "./theme-provider.js";
+	Text,
+	View,
+} from "@formepdf/react";
 
 import type { InvoiceData } from "@/utils/invoice.js";
+import type { Style } from "@formepdf/react";
 
 interface InvoiceDocumentProps {
 	data: InvoiceData;
@@ -26,6 +23,63 @@ const DOCUMENT_LABELS = {
 	credit_note: { title: "Credit Note", number: "Credit Note Number" },
 	receipt: { title: "Receipt", number: "Receipt Number" },
 } as const;
+
+const colors = {
+	foreground: "#18181b",
+	muted: "#71717a",
+	border: "#e4e4e7",
+	surface: "#f4f4f5",
+};
+
+const styles = {
+	page: { fontFamily: "Helvetica", fontSize: 10, color: colors.foreground },
+	title: { fontSize: 28, fontWeight: "bold", textTransform: "uppercase" },
+	label: {
+		color: colors.muted,
+		fontSize: 8,
+		fontWeight: "bold",
+		letterSpacing: 0.8,
+		marginBottom: 6,
+		textTransform: "uppercase",
+	},
+	row: { flexDirection: "row", marginBottom: 28 },
+	column: { flex: 1, paddingRight: 20 },
+	line: { lineHeight: 1.6 },
+	detail: { flexDirection: "row", paddingVertical: 3 },
+	detailKey: { flex: 1, color: colors.muted },
+	right: { textAlign: "right" },
+	headerCell: {
+		fontSize: 9,
+		fontWeight: "bold",
+		letterSpacing: 0.5,
+		textTransform: "uppercase",
+		paddingVertical: 4,
+		paddingHorizontal: 8,
+	},
+	cell: {
+		paddingVertical: 4,
+		paddingHorizontal: 8,
+		borderBottomWidth: 0.5,
+		borderColor: colors.border,
+	},
+	total: {
+		flexDirection: "row",
+		width: 240,
+		marginTop: 16,
+		marginLeft: "auto",
+		fontSize: 12,
+		fontWeight: "bold",
+	},
+	vat: { color: colors.muted, fontSize: 9, fontStyle: "italic", marginTop: 28 },
+	notes: {
+		marginTop: 16,
+		padding: 16,
+		backgroundColor: colors.surface,
+		borderLeftWidth: 4,
+		borderColor: colors.foreground,
+	},
+	footer: { color: colors.muted, fontSize: 8, textAlign: "right" },
+} satisfies Record<string, Style>;
 
 function formatDate(date: Date): string {
 	return date.toLocaleDateString("en-US", {
@@ -39,41 +93,33 @@ function lines(value: string | null | undefined): string[] {
 	return value ? value.split("\n") : [];
 }
 
-const InvoiceContent = ({ data, from }: InvoiceDocumentProps) => {
-	const theme = usePdfcnTheme();
+function renderLines(values: string[]) {
+	return values.map((value, index) => (
+		<Text key={index} style={styles.line}>
+			{value}
+		</Text>
+	));
+}
+
+function InvoiceDocument({ data, from }: InvoiceDocumentProps) {
 	const labels = DOCUMENT_LABELS[data.documentType ?? "invoice"];
 	const money = (amount: number) => `${data.currency} ${amount.toFixed(2)}`;
 	const total = data.lineItems.reduce((sum, item) => sum + item.amount, 0);
 
-	const styles = StyleSheet.create({
-		label: {
-			color: theme.colors.mutedForeground,
-			fontSize: 8,
-			fontWeight: "bold",
-			letterSpacing: 0.8,
-			marginBottom: 6,
-			textTransform: "uppercase",
-		},
-		column: { flex: 1, paddingRight: 20 },
-	});
-
 	const details = [
-		{ key: labels.number, value: data.invoiceNumber },
-		{ key: "Date", value: formatDate(data.invoiceDate) },
+		[labels.number, data.invoiceNumber],
+		["Date", formatDate(data.invoiceDate)],
 	];
 	if (
 		data.documentType === "credit_note" &&
 		data.originalAmount !== undefined
 	) {
-		details.push({
-			key: "Original amount",
-			value: money(data.originalAmount),
-		});
+		details.push(["Original amount", money(data.originalAmount)]);
 		if (data.refundPercentage !== undefined) {
-			details.push({
-				key: "Refunded",
-				value: `${data.refundPercentage.toFixed(1)}% of original purchase`,
-			});
+			details.push([
+				"Refunded",
+				`${data.refundPercentage.toFixed(1)}% of original purchase`,
+			]);
 		}
 	}
 
@@ -97,126 +143,76 @@ const InvoiceContent = ({ data, from }: InvoiceDocumentProps) => {
 
 	return (
 		<Document title={`${labels.title} ${data.invoiceNumber}`} lang="en-US">
-			<Page size="A4" margin={56}>
-				<Section
-					noWrap
-					spacing="none"
-					style={{
-						alignItems: "flex-start",
-						flexDirection: "row",
-						marginBottom: theme.spacing.sectionGap,
-					}}
-				>
-					<View style={{ flex: 1 }}>
-						<Text variant="2xl" weight="bold" transform="uppercase" noMargin>
-							{labels.title}
-						</Text>
-					</View>
+			<Page size="A4" margin={56} style={styles.page}>
+				<Fixed position="footer">
+					<Text style={styles.footer}>
+						{"Page {{pageNumber}} of {{totalPages}}"}
+					</Text>
+				</Fixed>
+				<View style={styles.row} wrap={false}>
+					<Text style={{ ...styles.column, ...styles.title }}>
+						{labels.title}
+					</Text>
 					<View style={{ width: 240 }}>
-						<KeyValue size="sm" items={details} />
-					</View>
-				</Section>
-				<Section
-					noWrap
-					spacing="none"
-					style={{
-						flexDirection: "row",
-						marginBottom: theme.spacing.sectionGap,
-					}}
-				>
-					<View style={styles.column}>
-						<Text style={styles.label} noMargin>
-							From
-						</Text>
-						{fromLines.map((line, index) => (
-							<Text key={index} variant="xs" noMargin>
-								{line}
-							</Text>
+						{details.map(([key, value]) => (
+							<View key={key} style={styles.detail}>
+								<Text style={styles.detailKey}>{key}</Text>
+								<Text style={styles.right}>{value}</Text>
+							</View>
 						))}
+					</View>
+				</View>
+				<View style={styles.row} wrap={false}>
+					<View style={styles.column}>
+						<Text style={styles.label}>From</Text>
+						{renderLines(fromLines)}
 					</View>
 					<View style={styles.column}>
-						<Text style={styles.label} noMargin>
-							Bill To
-						</Text>
-						{billToLines.map((line, index) => (
-							<Text key={index} variant="xs" noMargin>
-								{line}
-							</Text>
-						))}
+						<Text style={styles.label}>Bill To</Text>
+						{renderLines(billToLines)}
 					</View>
-				</Section>
-				<Table variant="compact">
-					<TableHeader>
-						<TableRow header>
-							<TableCell>Description</TableCell>
-							<TableCell align="right" width={120}>
-								Amount
-							</TableCell>
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{data.lineItems.map((item, index) => (
-							<TableRow key={index}>
-								<TableCell>{item.description}</TableCell>
-								<TableCell align="right" width={120}>
-									{money(item.amount)}
-								</TableCell>
-							</TableRow>
-						))}
-					</TableBody>
+				</View>
+				<Table>
+					<Row header style={{ backgroundColor: colors.surface }}>
+						<Cell style={{ ...styles.headerCell, flex: 1 }}>
+							<Text>Description</Text>
+						</Cell>
+						<Cell style={{ ...styles.headerCell, width: 120 }}>
+							<Text style={styles.right}>Amount</Text>
+						</Cell>
+					</Row>
+					{data.lineItems.map((item, index) => (
+						<Row key={index}>
+							<Cell style={{ ...styles.cell, flex: 1 }}>
+								<Text>{item.description}</Text>
+							</Cell>
+							<Cell style={{ ...styles.cell, width: 120 }}>
+								<Text style={styles.right}>{money(item.amount)}</Text>
+							</Cell>
+						</Row>
+					))}
 				</Table>
-				<Section noWrap spacing="none" style={{ flexDirection: "row" }}>
-					<View style={{ flex: 1 }} />
-					<View style={{ width: 240, marginTop: 12 }}>
-						<KeyValue
-							size="md"
-							items={[
-								{
-									key: "Total",
-									keyStyle: {
-										color: theme.colors.foreground,
-										fontWeight: "bold",
-									},
-									value: money(total),
-									valueStyle: { fontWeight: "bold" },
-								},
-							]}
-						/>
-					</View>
-				</Section>
-				<Text
-					variant="xs"
-					color="mutedForeground"
-					italic
-					style={{ marginTop: theme.spacing.sectionGap }}
-				>
+				<View style={styles.total} wrap={false}>
+					<Text style={{ flex: 1 }}>Total</Text>
+					<Text>{money(total)}</Text>
+				</View>
+				<Text style={styles.vat}>
 					If applicable, customer should account for the respective VAT reverse
 					charge.
 				</Text>
 				{data.billingNotes ? (
-					<Section spacing="sm" variant="highlight">
-						<Text style={styles.label} noMargin>
-							Notes
-						</Text>
-						{lines(data.billingNotes).map((line, index) => (
-							<Text key={index} variant="xs" noMargin>
-								{line}
-							</Text>
-						))}
-					</Section>
+					<View style={styles.notes} wrap={false}>
+						<Text style={styles.label}>Notes</Text>
+						{renderLines(lines(data.billingNotes))}
+					</View>
 				) : null}
 			</Page>
 		</Document>
 	);
-};
+}
 
 export async function renderInvoicePdf(
 	props: InvoiceDocumentProps,
 ): Promise<Buffer> {
-	const pdf = await renderDocument(
-		<PdfcnThemeProvider>
-			<InvoiceContent {...props} />
-		</PdfcnThemeProvider>,
-	);
-	return Buffer.from(pdf);
+	return Buffer.from(await renderDocument(<InvoiceDocument {...props} />));
 }
