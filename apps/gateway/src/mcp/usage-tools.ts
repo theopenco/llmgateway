@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { assertMcpHttpsUrl } from "@/mcp/request-url.js";
+import { getMcpApiUrl } from "@/mcp/request-url.js";
 
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -23,12 +23,7 @@ async function requestUsage<T extends Record<string, unknown>>(
 	input?: unknown,
 ): Promise<CallToolResult> {
 	try {
-		const baseUrl =
-			process.env.API_URL ??
-			(process.env.NODE_ENV === "production"
-				? "https://internal.llmgateway.io"
-				: "http://localhost:4002");
-		assertMcpHttpsUrl(baseUrl);
+		const baseUrl = getMcpApiUrl();
 		const response = await fetch(new URL(`/mcp/${path}`, baseUrl), {
 			method: input === undefined ? "GET" : "POST",
 			redirect: "error",

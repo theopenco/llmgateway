@@ -25,7 +25,7 @@ import {
 } from "@/lib/cached-queries.js";
 import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
-import { assertMcpHttpsUrl } from "@/mcp/request-url.js";
+import { getMcpGatewayUrl } from "@/mcp/request-url.js";
 import { registerUsageTools } from "@/mcp/usage-tools.js";
 import { isAllowedOrigin, parseAllowedOrigins } from "@/middleware/cors.js";
 
@@ -37,7 +37,6 @@ import {
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
-import { getGatewayBackendBaseUrl } from "@llmgateway/shared/gateway-url";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ServerTypes } from "@/vars.js";
@@ -195,9 +194,7 @@ function createMcpServer(
 			try {
 				await assertGenerationAllowed();
 				// Call the internal chat completions endpoint
-				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ?? getGatewayBackendBaseUrl();
-				assertMcpHttpsUrl(gatewayUrl);
+				const gatewayUrl = getMcpGatewayUrl();
 
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
 					method: "POST",
@@ -458,9 +455,7 @@ function createMcpServer(
 		async (input: GenerateImageInput) => {
 			try {
 				await assertGenerationAllowed();
-				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ?? getGatewayBackendBaseUrl();
-				assertMcpHttpsUrl(gatewayUrl);
+				const gatewayUrl = getMcpGatewayUrl();
 
 				// Call the chat completions endpoint with image generation model
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
@@ -595,9 +590,7 @@ function createMcpServer(
 		async (input: GenerateNanoBananaInput) => {
 			try {
 				await assertGenerationAllowed();
-				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ?? getGatewayBackendBaseUrl();
-				assertMcpHttpsUrl(gatewayUrl);
+				const gatewayUrl = getMcpGatewayUrl();
 
 				const body: Record<string, unknown> = {
 					model: "gemini-3-pro-image",
