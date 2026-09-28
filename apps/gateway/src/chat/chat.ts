@@ -247,7 +247,7 @@ import { chunkMayCompleteSseEvent } from "./tools/chunk-may-complete-sse-event.j
 import { clampTemperature } from "./tools/clamp-temperature.js";
 import { collapseImageGenSse } from "./tools/collapse-image-gen-sse.js";
 import {
-	CONTENT_FILTER_CLASSIFIER_PROVIDERS,
+	isContentFilterClassifierCompliant,
 	evaluateContentFilterWithClassifiers,
 	runContentFilterClassifier,
 	type ContentFilterCheckResult,
@@ -4712,13 +4712,8 @@ chat.openapi(completions, async (c) => {
 	// data never reaches a non-compliant one (fail closed on the data guarantee).
 	const contentFilterClassifierAllowed = (
 		classifier: ContentFilterClassifier,
-	) =>
-		!compliancePolicy ||
-		isProviderIdCompliant(
-			CONTENT_FILTER_CLASSIFIER_PROVIDERS[classifier],
-			compliancePolicy,
-		);
-	// Jev is text-only and delegates image parts to OpenAI moderation, which is
+	) => isContentFilterClassifierCompliant(classifier, compliancePolicy);
+	// Text-only classifiers delegate image parts to OpenAI moderation, which is
 	// only permitted when OpenAI itself is compliant for this organization.
 	const openAiContentFilterAllowed = contentFilterClassifierAllowed("openai");
 	const contentFilterContext = {

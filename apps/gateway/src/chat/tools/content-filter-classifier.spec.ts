@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	evaluateContentFilterWithClassifiers,
+	isContentFilterClassifierCompliant,
 	runContentFilterClassifier,
 } from "./content-filter-classifier.js";
 
@@ -11,12 +12,18 @@ import type { BaseMessage } from "@llmgateway/models";
 
 const checkJev = vi.hoisted(() => vi.fn());
 const hasJevCredential = vi.hoisted(() => vi.fn());
+const checkInternal = vi.hoisted(() => vi.fn());
 const checkOpenAI = vi.hoisted(() => vi.fn());
 const hasOpenAICredential = vi.hoisted(() => vi.fn());
 
 vi.mock("./jev-content-filter.js", () => ({
 	checkJevContentFilter: checkJev,
 	hasJevContentFilterCredential: hasJevCredential,
+}));
+
+vi.mock("./internal-content-filter.js", () => ({
+	checkInternalContentFilter: checkInternal,
+	hasInternalContentFilterCredential: () => true,
 }));
 
 vi.mock("./openai-content-filter.js", async (importOriginal) => ({
@@ -176,6 +183,64 @@ describe("runContentFilterClassifier", () => {
 
 		expect(checkOpenAI).not.toHaveBeenCalled();
 		expect(checked.flagged).toBe(false);
+	});
+});
+
+describe("internal classifier", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		hasOpenAICredential.mockResolvedValue(true);
+	});
+
+	it("scores text with the internal classifier and delegates images", async () => {
+		checkInternal.mockResolvedValue(
+			result(true, { child_exploitation: 1 }, "internal-classifier"),
+		);
+		checkOpenAI.mockResolvedValue(
+			result(false, { violence: 0.1 }, "omni-moderation-latest"),
+		);
+
+		const checked = await runContentFilterClassifier(
+			"internal",
+			IMAGE_MESSAGES,
+			CONTEXT,
+			undefined,
+			{ imagesAllowed: true },
+		);
+
+		expect(checkJev).not.toHaveBeenCalled();
+		expect(checked.classifier).toBe("internal");
+		expect(checked.flagged).toBe(true);
+		expect(checked.model).toBe("internal-classifier");
+		expect(checked.results).toHaveLength(2);
+	});
+
+	it("carries a partially failed text check through image delegation", async () => {
+		checkInternal.mockResolvedValue({
+			...result(false, {}, "internal-classifier"),
+			partialModerationFailed: true,
+		});
+		checkOpenAI.mockResolvedValue(
+			result(false, { violence: 0.1 }, "omni-moderation-latest"),
+		);
+
+		const checked = await runContentFilterClassifier(
+			"internal",
+			IMAGE_MESSAGES,
+			CONTEXT,
+			undefined,
+			{ imagesAllowed: true },
+		);
+
+		expect(checked.partialModerationFailed).toBe(true);
+	});
+
+	it("is never excluded by a compliance policy", () => {
+		// TypeSafe publishes no SOC 2 attestation, so this policy excludes Jev.
+		const policy = { enabled: true, requireSoc2Type2: true };
+
+		expect(isContentFilterClassifierCompliant("jev", policy)).toBe(false);
+		expect(isContentFilterClassifierCompliant("internal", policy)).toBe(true);
 	});
 });
 

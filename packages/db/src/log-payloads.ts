@@ -22,7 +22,11 @@ export const gatewayContentFilterResponseSchema = z.array(
 );
 
 /** Moderation model family that produced a content-filter evaluation. */
-export const contentFilterClassifierSchema = z.enum(["openai", "jev"]);
+export const contentFilterClassifierSchema = z.enum([
+	"openai",
+	"jev",
+	"internal",
+]);
 
 export const gatewayContentFilterEvaluationSchema = z.object({
 	sampled: z.literal(true),
