@@ -75,6 +75,7 @@ describe("gateway rejection logs", () => {
 			expect(log).toMatchObject({
 				errorCategory: "account_review",
 				apiOrigin,
+				requestedModel: requestBody.model,
 				errorDetails: { statusCode: 403 },
 			});
 			expect(response.headers.get("x-request-id")).toBe(log.requestId);
@@ -129,6 +130,26 @@ describe("gateway rejection logs", () => {
 			apiOrigin: "messages",
 			errorCategory: "validation",
 		});
+	});
+
+	test("logs an inactive key with the requested model", async () => {
+		await db
+			.update(tables.apiKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.apiKey.id, "token-id"));
+		const response = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers,
+			body: JSON.stringify(body),
+		});
+		expect(response.status).toBe(401);
+		const log = await readLog();
+		expect(log).toMatchObject({
+			requestedModel: body.model,
+			usedModel: body.model,
+			errorDetails: { statusCode: 401 },
+		});
+		expect(log.messages).toEqual(body.messages);
 	});
 
 	test("does not log an unrecognized key", async () => {
