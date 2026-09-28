@@ -41,7 +41,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabsContent, TabsList } from "@/components/ui/tabs";
 import { refundDevpassPayment } from "@/lib/admin-devpass";
 import {
 	addEnterpriseDealToOrganization,
@@ -74,7 +74,7 @@ import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
 import { OrgSettingsTab } from "./org-settings-tab";
-import { OrganizationTabs } from "./organization-tabs";
+import { OrganizationTabs, OrganizationTabTrigger } from "./organization-tabs";
 import { ProviderKeysTable } from "./provider-keys-table";
 import { ReferralBonusDialog } from "./referral-bonus-dialog";
 import { SsoTab } from "./sso-tab";
@@ -691,45 +691,48 @@ export default async function OrganizationPage({
 
 			<OrganizationTabs defaultValue={activeTab}>
 				<TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
-					<TabsTrigger value="transactions">
+					<OrganizationTabTrigger value="transactions">
 						<Receipt className="mr-1.5 h-4 w-4" />
 						Transactions ({txTotal})
-					</TabsTrigger>
-					<TabsTrigger value="api-keys" title="Active / total API keys">
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger
+						value="api-keys"
+						title="Active / total API keys"
+					>
 						<Key className="mr-1.5 h-4 w-4" />
 						API Keys ({akCounts.active}/{akCounts.all})
-					</TabsTrigger>
-					<TabsTrigger
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger
 						value="provider-keys"
 						title="Active / total provider keys"
 					>
 						<KeyRound className="mr-1.5 h-4 w-4" />
 						Provider Keys ({pkCounts.active}/{pkCounts.all})
-					</TabsTrigger>
-					<TabsTrigger value="members">
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="members">
 						<Users className="mr-1.5 h-4 w-4" />
 						Members ({membersTotal})
-					</TabsTrigger>
-					<TabsTrigger value="logs">
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="logs">
 						<List className="mr-1.5 h-4 w-4" />
 						Request Logs
-					</TabsTrigger>
-					<TabsTrigger value="audit-logs">
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="audit-logs">
 						<ScrollText className="mr-1.5 h-4 w-4" />
 						Audit Logs ({auditLogsData?.total ?? 0})
-					</TabsTrigger>
-					<TabsTrigger value="settings">
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="settings">
 						<Settings className="mr-1.5 h-4 w-4" />
 						Settings
-					</TabsTrigger>
-					<TabsTrigger value="guardrails">
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="guardrails">
 						<Shield className="mr-1.5 h-4 w-4" />
 						Guardrails
-					</TabsTrigger>
-					<TabsTrigger value="sso">
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="sso">
 						<Lock className="mr-1.5 h-4 w-4" />
 						SSO
-					</TabsTrigger>
+					</OrganizationTabTrigger>
 				</TabsList>
 
 				<TabsContent value="transactions">
