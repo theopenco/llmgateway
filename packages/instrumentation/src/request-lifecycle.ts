@@ -1,6 +1,10 @@
 import { trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { createMiddleware } from "hono/factory";
 
+import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
+
+import { clientIpMissingTotal } from "./metrics.js";
+
 import type { Attributes } from "@opentelemetry/api";
 
 export interface RequestLifecycleMiddlewareOptions {
@@ -16,6 +20,11 @@ export function createRequestLifecycleMiddleware(
 		const path = c.req.path;
 		const url = c.req.url;
 		const startTime = Date.now();
+
+		// Health probes arrive in-cluster without the header and are not a signal.
+		if (path !== "/" && !getClientIpFromContext(c)) {
+			clientIpMissingTotal.inc({ service: options.serviceName });
+		}
 
 		const attributes: Attributes = {
 			"lifecycle.service": options.serviceName,
