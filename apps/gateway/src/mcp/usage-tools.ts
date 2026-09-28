@@ -10,12 +10,14 @@ import {
 	mcpUsageSchema,
 	mcpUsageBreakdownSchema,
 } from "@llmgateway/shared";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 async function requestUsage<T extends Record<string, unknown>>(
 	apiKey: string,
+	clientHeaders: Record<string, string>,
 	path: string,
 	schema: z.ZodType<T>,
 	input?: unknown,
@@ -31,6 +33,7 @@ async function requestUsage<T extends Record<string, unknown>>(
 			method: input === undefined ? "GET" : "POST",
 			redirect: "error",
 			headers: {
+				...forwardedIpHeaders(new Headers(clientHeaders)),
 				Authorization: `Bearer ${apiKey}`,
 				"Content-Type": "application/json",
 			},
@@ -71,7 +74,11 @@ async function requestUsage<T extends Record<string, unknown>>(
 	}
 }
 
-export function registerUsageTools(server: McpServer, apiKey: string) {
+export function registerUsageTools(
+	server: McpServer,
+	apiKey: string,
+	clientHeaders: Record<string, string>,
+) {
 	const annotations = {
 		readOnlyHint: true,
 		destructiveHint: false,
@@ -87,7 +94,8 @@ export function registerUsageTools(server: McpServer, apiKey: string) {
 			outputSchema: mcpAccountSchema,
 			annotations,
 		},
-		async () => await requestUsage(apiKey, "account", mcpAccountSchema),
+		async () =>
+			await requestUsage(apiKey, clientHeaders, "account", mcpAccountSchema),
 	);
 	server.registerTool(
 		"get-usage",
@@ -98,7 +106,8 @@ export function registerUsageTools(server: McpServer, apiKey: string) {
 			outputSchema: mcpUsageSchema,
 			annotations,
 		},
-		async (input) => await requestUsage(apiKey, "usage", mcpUsageSchema, input),
+		async (input) =>
+			await requestUsage(apiKey, clientHeaders, "usage", mcpUsageSchema, input),
 	);
 	server.registerTool(
 		"get-usage-breakdown",
@@ -112,6 +121,7 @@ export function registerUsageTools(server: McpServer, apiKey: string) {
 		async (input) =>
 			await requestUsage(
 				apiKey,
+				clientHeaders,
 				"usage/breakdown",
 				mcpUsageBreakdownSchema,
 				input,

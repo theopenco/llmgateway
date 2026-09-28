@@ -117,6 +117,7 @@ export {
 export {
 	buildGatewayVideoLogContentUrl,
 	getGatewayApiBaseUrl,
+	getGatewayBackendBaseUrl,
 	getGatewayPublicBaseUrl,
 } from "./gateway-url.js";
 

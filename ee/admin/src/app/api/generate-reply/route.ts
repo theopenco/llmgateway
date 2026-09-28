@@ -140,6 +140,7 @@ export async function POST(req: Request) {
 	const llmgateway = createLLMGateway({
 		apiKey: keyResult.token,
 		baseURL: getGatewayApiBaseUrl(),
+		headers: forwardedIpHeaders(req.headers),
 	});
 
 	try {

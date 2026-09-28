@@ -9,8 +9,15 @@ export function getGatewayPublicBaseUrl(): string {
 		: "http://localhost:4001";
 }
 
+/** Server-to-server origin; keep public URLs for browsers and signed links. */
+export function getGatewayBackendBaseUrl(): string {
+	return (
+		process.env.GATEWAY_BACKEND_URL?.trim() || getGatewayPublicBaseUrl()
+	).replace(/\/+$/, "");
+}
+
 export function getGatewayApiBaseUrl(): string {
-	return `${getGatewayPublicBaseUrl()}/v1`;
+	return `${getGatewayBackendBaseUrl()}/v1`;
 }
 
 export function buildGatewayVideoLogContentUrl(logId: string): string {

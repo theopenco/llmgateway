@@ -36,6 +36,8 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
+import { getGatewayBackendBaseUrl } from "@llmgateway/shared/gateway-url";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ServerTypes } from "@/vars.js";
@@ -166,7 +168,7 @@ function createMcpServer(
 		name: "llmgateway",
 		version: "1.0.0",
 	});
-	registerUsageTools(server, apiKey);
+	registerUsageTools(server, apiKey, clientHeaders);
 	const generationHeaders = {
 		...clientHeaders,
 		"Content-Type": "application/json",
@@ -194,11 +196,7 @@ function createMcpServer(
 				await assertGenerationAllowed();
 				// Call the internal chat completions endpoint
 				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ??
-					process.env.GATEWAY_URL ??
-					(process.env.NODE_ENV === "production"
-						? "https://api.llmgateway.io"
-						: "http://localhost:4001");
+					process.env.MCP_GATEWAY_URL ?? getGatewayBackendBaseUrl();
 				assertMcpHttpsUrl(gatewayUrl);
 
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
@@ -461,11 +459,7 @@ function createMcpServer(
 			try {
 				await assertGenerationAllowed();
 				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ??
-					process.env.GATEWAY_URL ??
-					(process.env.NODE_ENV === "production"
-						? "https://api.llmgateway.io"
-						: "http://localhost:4001");
+					process.env.MCP_GATEWAY_URL ?? getGatewayBackendBaseUrl();
 				assertMcpHttpsUrl(gatewayUrl);
 
 				// Call the chat completions endpoint with image generation model
@@ -602,11 +596,7 @@ function createMcpServer(
 			try {
 				await assertGenerationAllowed();
 				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ??
-					process.env.GATEWAY_URL ??
-					(process.env.NODE_ENV === "production"
-						? "https://api.llmgateway.io"
-						: "http://localhost:4001");
+					process.env.MCP_GATEWAY_URL ?? getGatewayBackendBaseUrl();
 				assertMcpHttpsUrl(gatewayUrl);
 
 				const body: Record<string, unknown> = {
@@ -1321,7 +1311,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				405,
 			);
 		}
-		const clientHeaders: Record<string, string> = {};
+		const clientHeaders = forwardedIpHeaders(c.req.raw.headers);
 		for (const header of [
 			"x-source",
 			"user-agent",
@@ -1450,7 +1440,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	if (method === "POST") {
-		const clientHeaders: Record<string, string> = {};
+		const clientHeaders = forwardedIpHeaders(c.req.raw.headers);
 		for (const header of [
 			"x-source",
 			"user-agent",

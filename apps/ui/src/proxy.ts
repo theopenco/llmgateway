@@ -77,10 +77,11 @@ export function proxy(request: NextRequest) {
 			(request.method !== "GET" && request.method !== "HEAD") ||
 			!accept.includes("text/html");
 		if (isProtocolRequest) {
-			const gatewayUrl = process.env.GATEWAY_URL;
+			const gatewayUrl =
+				process.env.GATEWAY_BACKEND_URL?.trim() || process.env.GATEWAY_URL;
 			if (!gatewayUrl && process.env.NODE_ENV === "production") {
 				throw new Error(
-					"GATEWAY_URL is required for MCP forwarding in production",
+					"GATEWAY_BACKEND_URL or GATEWAY_URL is required for MCP forwarding in production",
 				);
 			}
 			return NextResponse.rewrite(
