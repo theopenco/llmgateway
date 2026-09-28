@@ -63,10 +63,14 @@ export const rejectionLogMiddleware: MiddlewareHandler<ServerTypes> = async (
 			) {
 				return;
 			}
-			// Early rate limits must not read an unconsumed request body.
+			// Early rate limits must not read an unconsumed request body. Hono
+			// caches a read body under `text`, not `json`, so check any key.
 			let rawBody: unknown;
 			try {
-				rawBody = await c.req.bodyCache.json;
+				rawBody =
+					Object.keys(c.req.bodyCache).length > 0
+						? await c.req.json()
+						: undefined;
 			} catch {
 				logger.debug("Rejected request body could not be parsed");
 				rawBody = undefined;
