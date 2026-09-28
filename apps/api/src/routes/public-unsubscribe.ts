@@ -1,7 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 
 import { redisClient } from "@/auth/config.js";
-import { getClientIpFromContext } from "@/lib/client-ip.js";
 
 import {
 	and,
@@ -12,6 +11,7 @@ import {
 	tables,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 import {
 	emailCategories,
 	getEmailCategoryLabel,

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
+
 import type { NextRequest } from "next/server";
 
 interface MeResponse {
@@ -55,6 +57,9 @@ export async function proxy(req: NextRequest) {
 		const res = await fetch(`${apiUrl}/user/me`, {
 			method: "GET",
 			headers: {
+				// Forward the visitor's address so the API's per-IP limits bucket
+				// them individually rather than behind this server's own address.
+				...forwardedIpHeaders(req.headers),
 				Cookie: cookieHeader,
 			},
 			cache: "no-store",

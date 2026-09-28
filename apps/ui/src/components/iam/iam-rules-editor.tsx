@@ -401,8 +401,8 @@ export function IamRulesEditor({
 									/>
 									<p className="text-xs text-muted-foreground">
 										Comma or whitespace separated. IPv4 and IPv6 supported. The
-										gateway reads the client IP from the first entry in{" "}
-										<code>X-Forwarded-For</code> (set by the GCP load balancer).
+										gateway uses the client IP recorded by the load balancer in
+										front of it; IP headers sent by the client are ignored.
 									</p>
 								</div>
 							)}

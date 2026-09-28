@@ -28,7 +28,6 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
-import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	assertProviderCompliant,
 	getEffectiveRetentionLevel,
@@ -59,6 +58,7 @@ import {
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { models } from "@llmgateway/models";
+import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
 import type { ServerTypes } from "@/vars.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";

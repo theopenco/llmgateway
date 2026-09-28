@@ -33,7 +33,6 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
-import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	assertProviderCompliant,
 	getEffectiveRetentionLevel,
@@ -66,6 +65,7 @@ import {
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { models as modelDefinitions } from "@llmgateway/models";
+import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { openAIErrorSchema } from "@/lib/error-schemas.js";

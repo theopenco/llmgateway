@@ -1,11 +1,11 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { getClientIpFromContext } from "@/lib/client-ip.js";
 import { posthog } from "@/posthog.js";
 import { getCountryFromHeaders } from "@/utils/request-country.js";
 
 import { logger } from "@llmgateway/logger";
+import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 
 import type { ServerTypes } from "@/vars.js";
 
