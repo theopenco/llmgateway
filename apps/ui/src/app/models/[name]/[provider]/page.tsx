@@ -11,6 +11,7 @@ import {
 	Globe,
 	ListOrdered,
 	ImagePlus,
+	Search,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
@@ -375,6 +376,17 @@ export default async function ModelProviderPage({ params }: PageProps) {
 										icon: ImagePlus,
 										label: "Image Generation",
 										color: "text-pink-500",
+									});
+								}
+								if (
+									Array.isArray(modelDef.output) &&
+									modelDef.output.includes("search")
+								) {
+									items.push({
+										key: "search",
+										icon: Search,
+										label: "Search API",
+										color: "text-sky-500",
 									});
 								}
 								if (providerMapping.rerank) {

@@ -23,6 +23,7 @@ const REQUIRED_OUTPUT_BY_FLAG: {
 	{ flag: "transcriptions", output: "transcription" },
 	{ flag: "rerank", output: "rerank" },
 	{ flag: "decisions", output: "decision" },
+	{ flag: "search", output: "search" },
 ];
 
 describe("model metadata", () => {

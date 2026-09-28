@@ -29,7 +29,7 @@ export function createEmptyProviderModelsByKind(): ProviderModelsByKind {
 /**
  * The one operational surface a provider mapping uses. Model output metadata
  * catches multimodal image models while mapping flags catch dedicated APIs.
- * Audio, transcription, rerank, and realtime mappings intentionally remain
+ * Audio, transcription, rerank, search, and realtime mappings intentionally remain
  * unclassified until the admin verifier knows how to probe them.
  */
 export function getProviderModelKind(
@@ -56,9 +56,12 @@ export function getProviderModelKind(
 		mapping.speechGenerations ||
 		mapping.transcriptions ||
 		mapping.rerank ||
+		mapping.search ||
 		mapping.realtime ||
 		mapping.realtimeTranscription ||
-		output.some((kind) => ["audio", "transcription", "rerank"].includes(kind))
+		output.some((kind) =>
+			["audio", "transcription", "rerank", "search"].includes(kind),
+		)
 	) {
 		return null;
 	}
