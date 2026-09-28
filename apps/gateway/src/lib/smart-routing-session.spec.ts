@@ -4,10 +4,20 @@ import { createSmartRoutingSessionStore } from "./smart-routing-session.js";
 
 import type { SmartRoutingSessionEntry } from "./smart-routing-session.js";
 
+const pipeline = {
+	expire: vi.fn(),
+	hset: vi.fn(),
+	hincrby: vi.fn(),
+	exec: vi.fn(),
+};
+
 vi.mock("@llmgateway/cache", () => ({
 	redisClient: {
 		get: vi.fn(),
 		set: vi.fn(),
+		eval: vi.fn(),
+		hgetall: vi.fn(),
+		pipeline: vi.fn(() => pipeline),
 	},
 }));
 
@@ -38,6 +48,10 @@ const ENTRY: SmartRoutingSessionEntry = {
 describe("createSmartRoutingSessionStore", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		for (const method of ["expire", "hset", "hincrby"] as const) {
+			pipeline[method].mockReturnValue(pipeline);
+		}
+		pipeline.exec.mockResolvedValue([]);
 	});
 
 	it("reads the pinned verdict from the per-project session key", async () => {
@@ -67,7 +81,8 @@ describe("createSmartRoutingSessionStore", () => {
 		expect(await store.get()).toBeNull();
 	});
 
-	it("refreshes with the sticky-session TTL", async () => {
+	it("replaces the entry with a bumped version when the version matches", async () => {
+		vi.mocked(redis.eval).mockResolvedValue(null);
 		const store = createSmartRoutingSessionStore(
 			"org1",
 			"proj1",
@@ -75,14 +90,101 @@ describe("createSmartRoutingSessionStore", () => {
 			900,
 		);
 
-		await store.refresh(ENTRY);
+		const stored = await store.replace(3, ENTRY);
 
-		expect(redis.set).toHaveBeenCalledWith(
+		expect(stored).toEqual({ ...ENTRY, version: 4 });
+		expect(redis.eval).toHaveBeenCalledWith(
+			expect.any(String),
+			1,
 			"session_auto_routing:org1:proj1:session-abc",
-			JSON.stringify(ENTRY),
-			"EX",
+			JSON.stringify({ ...ENTRY, version: 4 }),
+			3,
 			900,
 		);
+	});
+
+	it("returns the newer entry when another request replaced it first", async () => {
+		const newer = { ...ENTRY, version: 7, selectedModel: "claude-haiku-4-5" };
+		vi.mocked(redis.eval).mockResolvedValue(JSON.stringify(newer));
+		const store = createSmartRoutingSessionStore("org1", "proj1", "s", 900);
+
+		expect(await store.replace(3, ENTRY)).toEqual(newer);
+	});
+
+	it("keeps an active session alive without rewriting it", async () => {
+		const store = createSmartRoutingSessionStore("org1", "proj1", "s", 900);
+
+		await store.touch();
+
+		expect(pipeline.expire).toHaveBeenCalledWith(
+			"session_auto_routing:org1:proj1:s",
+			900,
+		);
+		expect(pipeline.expire).toHaveBeenCalledWith(
+			"session_auto_routing_activity:org1:proj1:s",
+			900,
+		);
+		expect(redis.set).not.toHaveBeenCalled();
+	});
+
+	it("records activity as counters on the session's activity hash", async () => {
+		const store = createSmartRoutingSessionStore("org1", "proj1", "s", 900);
+
+		await store.recordActivity({
+			finishReason: "completed",
+			provider: "anthropic",
+			promptTokens: 1000,
+			cachedTokens: 800,
+			outputTokens: 50,
+			extendedCacheWrite: true,
+		});
+
+		const key = "session_auto_routing_activity:org1:proj1:s";
+		expect(pipeline.hset).toHaveBeenCalledWith(
+			key,
+			expect.objectContaining({
+				lastFinishReason: "completed",
+				lastProvider: "anthropic",
+				lastPromptTokens: 1000,
+			}),
+		);
+		expect(pipeline.hincrby).toHaveBeenCalledWith(key, "requests", 1);
+		expect(pipeline.hincrby).toHaveBeenCalledWith(key, "cachedTokens", 800);
+		expect(pipeline.hset).toHaveBeenCalledWith(key, "usedExtendedCache", "1");
+		expect(pipeline.expire).toHaveBeenCalledWith(key, 900);
+	});
+
+	it("reads activity back with numeric fields", async () => {
+		vi.mocked(redis.hgetall).mockResolvedValue({
+			lastActivityAt: "1700000000000",
+			lastFinishReason: "tool_calls",
+			lastProvider: "anthropic",
+			lastPromptTokens: "1000",
+			requests: "3",
+			promptTokens: "3000",
+			cachedTokens: "2000",
+			outputTokens: "90",
+		});
+		const store = createSmartRoutingSessionStore("org1", "proj1", "s", 900);
+
+		expect(await store.getActivity()).toEqual({
+			lastActivityAt: 1_700_000_000_000,
+			lastFinishReason: "tool_calls",
+			lastProvider: "anthropic",
+			lastPromptTokens: 1000,
+			usedExtendedCache: false,
+			requests: 3,
+			promptTokens: 3000,
+			cachedTokens: 2000,
+			outputTokens: 90,
+		});
+	});
+
+	it("returns no activity for a session that has none", async () => {
+		vi.mocked(redis.hgetall).mockResolvedValue({});
+		const store = createSmartRoutingSessionStore("org1", "proj1", "s", 900);
+
+		expect(await store.getActivity()).toBeNull();
 	});
 
 	it("claims the session atomically and keeps its own entry when it wins", async () => {
@@ -134,10 +236,10 @@ describe("createSmartRoutingSessionStore", () => {
 		expect(await store.get()).toBeNull();
 	});
 
-	it("swallows redis errors on refresh", async () => {
-		vi.mocked(redis.set).mockRejectedValue(new Error("boom"));
+	it("serves its own decision when the replace errors", async () => {
+		vi.mocked(redis.eval).mockRejectedValue(new Error("boom"));
 		const store = createSmartRoutingSessionStore("org1", "proj1", "s", 60);
 
-		await expect(store.refresh(ENTRY)).resolves.toBeUndefined();
+		expect(await store.replace(1, ENTRY)).toEqual({ ...ENTRY, version: 2 });
 	});
 });

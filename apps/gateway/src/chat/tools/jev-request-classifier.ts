@@ -3,12 +3,16 @@ import { isCancellationError, isTimeoutError } from "@/lib/timeout-config.js";
 import { getProviderHeaders } from "@llmgateway/actions";
 import { logger } from "@llmgateway/logger";
 import {
+	SMART_ROUTING_EFFORTS,
 	SMART_ROUTING_OUTPUT_TYPES,
 	SMART_ROUTING_TASK_TYPES,
+	SMART_ROUTING_WORK_CHANGES,
 	type RequestClassification,
 	type SmartRoutingDifficulty,
+	type SmartRoutingEffort,
 	type SmartRoutingOutputType,
 	type SmartRoutingTaskType,
+	type SmartRoutingWorkChange,
 } from "@llmgateway/shared/smart-routing";
 
 import { resolveContentFilterCredential } from "./content-filter-credential.js";
@@ -25,7 +29,7 @@ import type { BaseMessage } from "@llmgateway/models";
  */
 const JEV_CLASSIFIER_MODEL = "jev-1.13.0";
 /** Bump when the rubric below changes, so stored decisions stay comparable. */
-export const JEV_CLASSIFIER_RUBRIC_VERSION = 1;
+export const JEV_CLASSIFIER_RUBRIC_VERSION = 2;
 const JEV_SYSTEMONE_PATH = "/v1/systemone";
 /**
  * Far shorter than the moderation filter's budget: this call sits on the
@@ -69,6 +73,21 @@ const TASK_CRITERIA: Record<SmartRoutingTaskType, string> = {
 	other: "None of the other categories fit.",
 };
 
+const EFFORT_CRITERIA: Record<SmartRoutingEffort, string> = {
+	low: "Little deliberation: a direct answer or a mechanical edit.",
+	medium: "Some planning: several steps or a moderate code change.",
+	high: "Careful reasoning: subtle debugging, design decisions, or long multi-step work.",
+};
+
+const WORK_CHANGE_CRITERIA: Record<SmartRoutingWorkChange, string> = {
+	same: "The work is the same kind and difficulty as assessed.",
+	easier: "The remaining work is clearly simpler than assessed.",
+	harder: "The remaining work is clearly more demanding than assessed.",
+	different:
+		"The work changed kind but not clearly in difficulty, so a different model may fit better.",
+	unclear: "There is not enough signal to tell.",
+};
+
 const OUTPUT_TYPE_CRITERIA: Record<SmartRoutingOutputType, string> = {
 	short_answer: "A few sentences or less.",
 	long_form: "Several paragraphs or more of prose.",
@@ -110,12 +129,23 @@ interface JevSystemOneResponse {
 	usage?: { input_tokens?: number; output_tokens?: number };
 }
 
+/**
+ * Re-evaluating a sticky session's choice: the verdict it was made for and
+ * what currently serves it.
+ */
+export interface RequestClassifierRecheck {
+	previous: RequestClassification;
+	currentModel: string;
+	currentEffort?: SmartRoutingEffort;
+}
+
 export interface RequestClassifierInput {
 	messages: BaseMessage[];
 	toolNames: string[];
 	hasImages: boolean;
 	estimatedInputTokens: number;
 	candidates: RequestClassifierCandidate[];
+	recheck?: RequestClassifierRecheck;
 }
 
 /** Keep the end of a block: the most recent content is what is being asked. */
@@ -155,7 +185,10 @@ function messageText(message: BaseMessage): string {
  * middle — every agent session then scored the same, on boilerplate. The
  * request lives in the last turns, so that is what has to survive truncation.
  */
-export function buildClassifierState(messages: BaseMessage[]): {
+export function buildClassifierState(
+	messages: BaseMessage[],
+	options: { instructionsAndAnswersOnly?: boolean } = {},
+): {
 	system: string;
 	conversation: string;
 } {
@@ -175,6 +208,14 @@ export function buildClassifierState(messages: BaseMessage[]): {
 		if (message.role === "system") {
 			continue;
 		}
+		// A recheck compares what the user asked for with what the agent
+		// answered; tool output would crowd both out of the budget.
+		if (
+			options.instructionsAndAnswersOnly &&
+			(message.role === "tool" || (message.tool_calls?.length ?? 0) > 0)
+		) {
+			continue;
+		}
 		const text = messageText(message).trim();
 		if (!text) {
 			continue;
@@ -187,8 +228,19 @@ export function buildClassifierState(messages: BaseMessage[]): {
 	return { system, conversation: turns.join("\n\n") };
 }
 
+function describeAssessment(previous: RequestClassification): string {
+	return [
+		`${previous.difficulty} difficulty`,
+		previous.task ? `a ${previous.task} task` : undefined,
+		previous.effort ? `${previous.effort} reasoning effort` : undefined,
+	]
+		.filter(Boolean)
+		.join(", ");
+}
+
 export function buildClassifierQuestions(
 	candidates: RequestClassifierCandidate[],
+	recheck?: RequestClassifierRecheck,
 ): Record<string, unknown> {
 	return {
 		difficulty: {
@@ -220,6 +272,20 @@ export function buildClassifierQuestions(
 								`${candidate.name}${candidate.description ? ` — ${candidate.description}` : ""} — ${candidate.band} price band.`,
 							]),
 						),
+					},
+					effort: {
+						type: "choice",
+						instructions: `How much reasoning should the model spend on the latest request? ${UNTRUSTED_CLAUSE}`,
+						criteria: EFFORT_CRITERIA,
+					},
+				}
+			: {}),
+		...(recheck
+			? {
+					work_change: {
+						type: "choice",
+						instructions: `This session is being served for work assessed as ${describeAssessment(recheck.previous)}. Compare the latest user instructions and the recent final answers with that assessment: how has the work changed? A short answer alone does not mean the work became easier. ${UNTRUSTED_CLAUSE}`,
+						criteria: WORK_CHANGE_CRITERIA,
 					},
 				}
 			: {}),
@@ -276,7 +342,9 @@ export async function classifyRequest(
 ): Promise<RequestClassification | null> {
 	const startTime = Date.now();
 
-	const { system, conversation } = buildClassifierState(input.messages);
+	const { system, conversation } = buildClassifierState(input.messages, {
+		instructionsAndAnswersOnly: input.recheck !== undefined,
+	});
 	if (conversation.length === 0) {
 		return null;
 	}
@@ -313,8 +381,14 @@ export async function classifyRequest(
 					tool_names: input.toolNames,
 					has_images: input.hasImages,
 					estimated_input_tokens: input.estimatedInputTokens,
+					...(input.recheck
+						? {
+								current_model: input.recheck.currentModel,
+								current_effort: input.recheck.currentEffort,
+							}
+						: {}),
 				},
-				questions: buildClassifierQuestions(input.candidates),
+				questions: buildClassifierQuestions(input.candidates, input.recheck),
 			}),
 			signal,
 		});
@@ -379,6 +453,8 @@ export async function classifyRequest(
 		const task = answers?.task?.choice;
 		const outputType = answers?.output_type?.choice;
 		const bestModel = answers?.best_model?.choice;
+		const effort = answers?.effort?.choice;
+		const workChange = answers?.work_change?.choice;
 		const classification: RequestClassification = {
 			difficulty: DIFFICULTY_LEVELS[levelIndex],
 			difficultyScore: rawScore,
@@ -396,6 +472,20 @@ export async function classifyRequest(
 				? bestModel
 				: undefined,
 			bestModelConfidence: answers?.best_model?.confidence,
+			effort: (SMART_ROUTING_EFFORTS as readonly string[]).includes(
+				effort ?? "",
+			)
+				? (effort as SmartRoutingEffort)
+				: undefined,
+			...(input.recheck &&
+			(SMART_ROUTING_WORK_CHANGES as readonly string[]).includes(
+				workChange ?? "",
+			)
+				? {
+						workChange: workChange as SmartRoutingWorkChange,
+						workChangeConfidence: answers?.work_change?.confidence,
+					}
+				: {}),
 			latencyMs: Date.now() - startTime,
 			cost: classifierCost,
 		};
@@ -418,6 +508,9 @@ export async function classifyRequest(
 			outputType: classification.outputType,
 			bestModel: classification.bestModel,
 			bestModelConfidence: classification.bestModelConfidence,
+			effort: classification.effort,
+			workChange: classification.workChange,
+			workChangeConfidence: classification.workChangeConfidence,
 		});
 
 		return classification;

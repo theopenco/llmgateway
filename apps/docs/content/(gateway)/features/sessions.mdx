@@ -49,6 +49,8 @@ A session pin cannot bypass a [zero global provider limit](/features/routing#glo
 
 That first selection uses expected cache-hit rates and output/input proportions even for a short opening prompt: observed project/model usage when sufficiently sampled, otherwise workload defaults. Recognized coding clients receive coding defaults on regular API projects as well as DevPass. See [Routing → Smart Routing Algorithm](/features/routing#smart-routing-algorithm) for the sample requirements and pricing defaults, and [Sticky Session Routing](/features/routing#sticky-session-routing) for pinning and fallback behavior.
 
+With `"model": "smart"` and the Jev classifier, a session also keeps the model and reasoning effort it resolved to, and rechecks them only between turns. See&nbsp;[Smart Routing → Sessions](/features/routing#sessions).
+
 Session stickiness is **on by default**. Enterprise projects can turn it off per project under **Settings → Routing → Session Stickiness**; when disabled, every request is scored independently regardless of session id (the id is still recorded for observability).
 
 <Callout type="info">
