@@ -2,7 +2,7 @@
 import "./global.css";
 
 import { RootProvider } from "fumadocs-ui/provider/next";
-import { Geist_Mono, Inter } from "next/font/google";
+import localFont from "next/font/local";
 
 import { TabAnchorHandler } from "@/components/tab-anchor-handler";
 import { docsBaseUrl } from "@/lib/base-url";
@@ -15,13 +15,15 @@ import { SystemBannerBar } from "@llmgateway/shared/system-banner";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
-const inter = Inter({
-	subsets: ["latin"],
+const inter = localFont({
+	src: "../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2",
+	weight: "100 900",
 });
 
-const mono = Geist_Mono({
-	subsets: ["latin"],
+const mono = localFont({
 	variable: "--font-mono",
+	src: "../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2",
+	weight: "100 900",
 });
 
 export const dynamic = "force-dynamic";
