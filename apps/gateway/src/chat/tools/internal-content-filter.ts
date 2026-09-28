@@ -20,7 +20,6 @@ const INTERNAL_CLASSIFY_PATH = "/v1/classify";
 const INTERNAL_MODERATION_TIMEOUT_MS = 5_000;
 /** The service refuses prompts above this many UTF-8 bytes (HTTP 413). */
 export const INTERNAL_MODERATION_MAX_PROMPT_BYTES = 65_536;
-const INTERNAL_MODERATION_CONCURRENCY = 8;
 /** Category recorded when the service blocks without naming a topic. */
 const INTERNAL_BLOCK_CATEGORY = "blocked";
 
@@ -30,11 +29,6 @@ interface InternalClassifyResponse {
 	score?: number;
 	reasons?: string[];
 	truncated?: boolean;
-}
-
-export interface InternalContentFilterCheckResult extends OpenAIContentFilterCheckResult {
-	/** Some chunks were classified, others failed. */
-	partialModerationFailed?: boolean;
 }
 
 export function getInternalContentFilterUrl(): string | null {
@@ -47,33 +41,68 @@ export function hasInternalContentFilterCredential(): boolean {
 	return getInternalContentFilterUrl() !== null;
 }
 
+function utf8Slice(bytes: Uint8Array, start: number, end: number): string {
+	// Move both edges off UTF-8 continuation bytes (0b10xxxxxx) so no
+	// character is cut in half.
+	while (start < end && (bytes[start]! & 0xc0) === 0x80) {
+		start++;
+	}
+	while (end < bytes.length && end > start && (bytes[end]! & 0xc0) === 0x80) {
+		end--;
+	}
+	return new TextDecoder().decode(bytes.subarray(start, end));
+}
+
 /**
- * Split text into pieces the service accepts. It refuses an oversized prompt
- * rather than scanning a prefix, so a long conversation is classified chunk by
- * chunk. Splits never cut through a multi-byte character.
+ * Fit text into `maxBytes`, keeping its start and its end: an instruction can
+ * sit on either side of a pasted document or tool output.
  */
-export function chunkInternalModerationText(
-	text: string,
-	maxBytes: number = INTERNAL_MODERATION_MAX_PROMPT_BYTES,
-): string[] {
+export function truncateMiddle(text: string, maxBytes: number): string {
 	const bytes = new TextEncoder().encode(text);
 	if (bytes.length <= maxBytes) {
-		return text.length > 0 ? [text] : [];
+		return text;
 	}
+	if (maxBytes <= 0) {
+		return "";
+	}
+	const head = Math.floor(maxBytes / 4);
+	const tail = maxBytes - head - 1;
+	return `${utf8Slice(bytes, 0, head)}\n${utf8Slice(bytes, bytes.length - tail, bytes.length)}`;
+}
 
-	const decoder = new TextDecoder();
-	const chunks: string[] = [];
-	let start = 0;
-	while (start < bytes.length) {
-		let end = Math.min(start + maxBytes, bytes.length);
-		// Back off UTF-8 continuation bytes (0b10xxxxxx) to a character start.
-		while (end < bytes.length && end > start && (bytes[end]! & 0xc0) === 0x80) {
-			end--;
+/**
+ * The text sent for classification: the system prompt plus the latest turn
+ * (everything after the last assistant message), in one request the service
+ * accepts. Earlier turns were already screened when they were the latest one,
+ * and re-sending a long agent history on every request is what made the
+ * classifier slow — it also dilutes the verdict, since benign padding can
+ * suppress a block. The latest turn gets the byte budget first.
+ */
+export function buildInternalModerationPrompt(
+	messages: BaseMessage[],
+	maxBytes: number = INTERNAL_MODERATION_MAX_PROMPT_BYTES,
+): string {
+	let lastAssistant = -1;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i]!.role === "assistant") {
+			lastAssistant = i;
+			break;
 		}
-		chunks.push(decoder.decode(bytes.subarray(start, end)));
-		start = end;
 	}
-	return chunks;
+	const latest = buildOpenAIContentFilterTextInput(
+		messages.slice(lastAssistant + 1).filter((m) => m.role !== "system"),
+	);
+	const system = buildOpenAIContentFilterTextInput(
+		messages.filter((m) => m.role === "system"),
+	);
+	const separator = "\n\n";
+	const latestText = truncateMiddle(latest, maxBytes);
+	const remaining =
+		maxBytes -
+		new TextEncoder().encode(latestText).length -
+		new TextEncoder().encode(separator).length;
+	const systemText = truncateMiddle(system, remaining);
+	return [systemText, latestText].filter(Boolean).join(separator);
 }
 
 /**
@@ -132,7 +161,7 @@ function logInternalError(
 	logger.error("gateway_content_filter_error", logPayload);
 }
 
-async function classifyChunk(
+async function classifyPrompt(
 	url: string,
 	prompt: string,
 	context: GatewayContentFilterContext,
@@ -198,7 +227,7 @@ async function classifyChunk(
 	}
 }
 
-function emptyResult(): InternalContentFilterCheckResult {
+function emptyResult(): OpenAIContentFilterCheckResult {
 	return {
 		flagged: false,
 		model: INTERNAL_MODERATION_MODEL,
@@ -219,17 +248,14 @@ export async function checkInternalContentFilter(
 	messages: BaseMessage[],
 	context: GatewayContentFilterContext,
 	requestSignal?: AbortSignal,
-): Promise<InternalContentFilterCheckResult> {
+): Promise<OpenAIContentFilterCheckResult> {
 	const startTime = Date.now();
 	const baseUrl = getInternalContentFilterUrl();
-	const chunks = chunkInternalModerationText(
-		buildOpenAIContentFilterTextInput(messages),
-	);
-	if (!baseUrl || chunks.length === 0) {
+	const prompt = buildInternalModerationPrompt(messages);
+	if (!baseUrl || prompt.length === 0) {
 		return emptyResult();
 	}
 
-	const url = `${baseUrl}${INTERNAL_CLASSIFY_PATH}`;
 	const signal = requestSignal
 		? AbortSignal.any([
 				AbortSignal.timeout(INTERNAL_MODERATION_TIMEOUT_MS),
@@ -237,37 +263,25 @@ export async function checkInternalContentFilter(
 			])
 		: AbortSignal.timeout(INTERNAL_MODERATION_TIMEOUT_MS);
 
-	const verdicts: Array<InternalClassifyResponse | null> = [];
-	for (let i = 0; i < chunks.length; i += INTERNAL_MODERATION_CONCURRENCY) {
-		verdicts.push(
-			...(await Promise.all(
-				chunks
-					.slice(i, i + INTERNAL_MODERATION_CONCURRENCY)
-					.map((chunk) =>
-						classifyChunk(url, chunk, context, signal, requestSignal),
-					),
-			)),
-		);
-	}
-
-	const succeeded = verdicts.filter(
-		(verdict): verdict is InternalClassifyResponse => verdict !== null,
+	const verdict = await classifyPrompt(
+		`${baseUrl}${INTERNAL_CLASSIFY_PATH}`,
+		prompt,
+		context,
+		signal,
+		requestSignal,
 	);
-	if (succeeded.length === 0) {
+	if (!verdict) {
 		return emptyResult();
 	}
 
-	const results = succeeded.map(toInternalModerationResult);
-	const flagged = results.some((result) => result.flagged === true);
+	const result = toInternalModerationResult(verdict);
+	const flagged = result.flagged === true;
 	// The raw verdicts (tags, score, reasons) ride along on the stored
 	// response so reviewers see what fired, not just the block decision.
 	const responses: ModerationApiPayload[] = [
 		{
 			model: INTERNAL_MODERATION_MODEL,
-			results: results.map((result, index) => ({
-				...result,
-				...succeeded[index],
-			})),
+			results: [{ ...result, ...verdict }],
 		},
 	];
 
@@ -281,19 +295,15 @@ export async function checkInternalContentFilter(
 		durationMs: Date.now() - startTime,
 		flagged,
 		model: INTERNAL_MODERATION_MODEL,
-		requestCount: chunks.length,
-		failedCount: chunks.length - succeeded.length,
-		tags: [...new Set(succeeded.flatMap((verdict) => verdict.tags ?? []))],
+		promptBytes: new TextEncoder().encode(prompt).length,
+		tags: verdict.tags ?? [],
 	});
 
 	return {
 		flagged,
 		model: INTERNAL_MODERATION_MODEL,
 		upstreamRequestId: null,
-		results,
+		results: [result],
 		responses,
-		...(succeeded.length < chunks.length
-			? { partialModerationFailed: true }
-			: {}),
 	};
 }
