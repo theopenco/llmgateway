@@ -32,6 +32,7 @@ type ShadowClassifier = ContentFilterSettingsInput["shadowClassifier"];
 const CLASSIFIER_LABELS: Record<Classifier, string> = {
 	openai: "OpenAI moderation",
 	jev: "Jev (TypeSafe)",
+	internal: "Internal classifier",
 };
 
 interface ContentFilterSettingsFormProps {
@@ -220,9 +221,12 @@ export function ContentFilterSettingsForm({
 					</SelectContent>
 				</Select>
 				<p className="text-xs text-muted-foreground">
-					Model that scores sampled requests and decides the outcome. Jev is
-					text-only: image parts are still moderated by OpenAI. Thresholds are
-					per classifier, so re-measure before switching an enforcing filter.
+					Model that scores sampled requests and decides the outcome. Jev and
+					the internal classifier are text-only: image parts are still moderated
+					by OpenAI. The internal classifier runs in our own infrastructure and
+					blocks only on its own verdict; its topic tags are recorded, never
+					enforced. Thresholds are per classifier, so re-measure before
+					switching an enforcing filter.
 				</p>
 			</div>
 

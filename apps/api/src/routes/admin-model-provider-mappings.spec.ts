@@ -18,6 +18,13 @@ const MAPPING_IDS = [
 	`${MANTLE_MODEL}-region`,
 ];
 
+interface CatalogRows {
+	mappings?: { modelId: string }[];
+	models?: { id: string }[];
+	providers?: { id: string }[];
+	total: number;
+}
+
 interface CatalogTotals {
 	totalRequests?: number;
 	totalTokens: number;
@@ -132,6 +139,7 @@ describe("admin model-provider mapping totals", () => {
 			totalCachedInputCost: 0.5,
 			totalOutputCost: 1.5,
 			totalCost: 5,
+			upstreamErrorsCount: 5,
 		};
 		await db.insert(tables.modelProviderMappingHistoryHourly).values([
 			{
@@ -233,5 +241,51 @@ describe("admin model-provider mapping totals", () => {
 			totalTokens: 200,
 			totalCost: 5,
 		});
+	});
+
+	test("filters rows by status and usage thresholds", async () => {
+		const window = `from=${fromDate}&to=${toDate}`;
+		const modelIds = async (filter: string) => {
+			const res = await getJson<CatalogRows>(
+				cookie,
+				`/admin/models?search=${MODEL_PREFIX}&limit=100&${window}&${filter}`,
+			);
+			return res.models!.map((m) => m.id).sort();
+		};
+
+		expect(await modelIds("minRequests=15")).toEqual([MANTLE_MODEL]);
+		expect(await modelIds("minTokens=150")).toEqual([MANTLE_MODEL]);
+		expect(await modelIds("minCachedTokens=15")).toEqual([MANTLE_MODEL]);
+		expect(await modelIds("minCost=3")).toEqual([MANTLE_MODEL]);
+		expect(await modelIds("minErrorRate=10")).toEqual([MANTLE_MODEL]);
+		expect(await modelIds("maxErrorRate=10")).toEqual([BEDROCK_MODEL]);
+
+		await db
+			.update(tables.model)
+			.set({ status: "inactive" })
+			.where(inArray(tables.model.id, [BEDROCK_MODEL]));
+		expect(await modelIds("status=active")).toEqual([MANTLE_MODEL]);
+		expect(await modelIds("status=inactive")).toEqual([BEDROCK_MODEL]);
+		expect(await modelIds("status=all")).toEqual(
+			[BEDROCK_MODEL, MANTLE_MODEL].sort(),
+		);
+
+		const mappings = await getJson<CatalogRows>(
+			cookie,
+			`/admin/model-provider-mappings?search=${MODEL_PREFIX}&${window}&minCost=3`,
+		);
+		expect(mappings.total).toBe(mappings.mappings!.length);
+		expect(mappings.mappings!.length).toBeGreaterThan(0);
+		expect(mappings.mappings!.every((m) => m.modelId === MANTLE_MODEL)).toBe(
+			true,
+		);
+
+		const providers = await getJson<CatalogRows>(
+			cookie,
+			`/admin/providers?${window}&minTokens=150`,
+		);
+		const providerIds = providers.providers!.map((p) => p.id);
+		expect(providerIds).toContain("aws-mantle");
+		expect(providerIds).not.toContain("aws-bedrock");
 	});
 });

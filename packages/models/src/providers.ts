@@ -247,6 +247,18 @@ export interface ProviderDefinition {
 	 * the provider only offers the standard on-demand tier.
 	 */
 	serviceTiers?: ServiceTier[];
+	/**
+	 * Longest a cached prompt prefix survives without a request, in seconds.
+	 * Unset when the provider documents no bound; expiry is then never assumed.
+	 */
+	promptCacheMaxIdleSeconds?: number;
+	/** The same bound for prefixes written with the extended (1h) lifetime. */
+	promptCacheExtendedMaxIdleSeconds?: number;
+	/**
+	 * Whether a request that only changes reasoning effort still reads the
+	 * cached prefix. Unset is treated as a cache break.
+	 */
+	reasoningEffortChangePreservesCache?: boolean;
 	termsUrl?: string | null;
 	privacyPolicyUrl?: string | null;
 	usagePolicyUrl?: string | null;
@@ -356,6 +368,9 @@ export const providers: ProviderDefinition[] = [
 				baseUrl: "LLM_ANTHROPIC_BASE_URL",
 			},
 		},
+		promptCacheMaxIdleSeconds: 300,
+		promptCacheExtendedMaxIdleSeconds: 3600,
+		reasoningEffortChangePreservesCache: false,
 		streaming: true,
 		cancellation: true,
 		// the Messages API rejects temperature above 1 ("temperature: range: 0..1")
@@ -454,56 +469,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: null,
 		dataPolicy: null,
 		priority: 1.2,
-	},
-	{
-		id: "iceberg",
-		name: "Iceberg",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Iceberg is a stealth provider with Google AI Studio-compatible Gemini endpoints.",
-		env: {
-			required: {
-				apiKey: "LLM_ICEBERG_API_KEY",
-				baseUrl: "LLM_ICEBERG_BASE_URL",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#4285f4",
-		website: null,
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: null,
-		privacyPolicyUrl: null,
-		legalEntity: null,
-		headquarters: null,
-		dataPolicy: null,
-		priority: 1.2,
-	},
-	{
-		id: "granite",
-		name: "Granite",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Granite is a stealth provider with OpenAI-compatible chat completions endpoints.",
-		env: {
-			required: {
-				apiKey: "LLM_GRANITE_API_KEY",
-				baseUrl: "LLM_GRANITE_BASE_URL",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#4285f4",
-		website: null,
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: null,
-		privacyPolicyUrl: null,
-		legalEntity: null,
-		headquarters: null,
-		dataPolicy: null,
-		priority: 1.5,
 	},
 	{
 		id: "google-vertex",
@@ -626,6 +591,9 @@ export const providers: ProviderDefinition[] = [
 				region: "LLM_VERTEX_ANTHROPIC_REGION",
 			},
 		},
+		promptCacheMaxIdleSeconds: 300,
+		promptCacheExtendedMaxIdleSeconds: 3600,
+		reasoningEffortChangePreservesCache: false,
 		streaming: true,
 		cancellation: true,
 		// same Messages API ceiling as anthropic
@@ -1258,6 +1226,9 @@ export const providers: ProviderDefinition[] = [
 				resource: "LLM_AZURE_ANTHROPIC_RESOURCE",
 			},
 		},
+		promptCacheMaxIdleSeconds: 300,
+		promptCacheExtendedMaxIdleSeconds: 3600,
+		reasoningEffortChangePreservesCache: false,
 		streaming: true,
 		cancellation: true,
 		color: "#0078D4",

@@ -34,6 +34,14 @@ In production, run PostgreSQL and Redis as managed services from your cloud prov
 
 For self-hosted DevPass and Airside, set `UI_URL` and `PLAYGROUND_URL` to your Gateway dashboard and Lounge origins. When unset, these apps use `https://llmgateway.io` and `https://lounge.llmgateway.io`; with `NODE_ENV=development`, they use `http://localhost:3002` and `http://localhost:3003`.
 
+## Gateway load
+
+The admin dashboard's **Gateway Load** page reports peak throughput from completed
+intervals: minutes for short model/provider views, and hours for longer ranges or
+tenant-filtered views. Daily charts retain hourly peaks, so switching from 7 to
+30 days does not smooth away a spike. Peak timestamps identify the start of the
+interval; the current incomplete interval is excluded.
+
 ## Sign-up email restrictions
 
 With `HOSTED=true`, administrators can manage the custom email-domain blocklist in

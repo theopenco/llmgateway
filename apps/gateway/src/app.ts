@@ -48,6 +48,7 @@ import { ocrRoute } from "./ocr/route.js";
 import { realtimeClientSecretsRoute } from "./realtime/client-secrets-route.js";
 import { rerankRoute } from "./rerank/route.js";
 import { responses } from "./responses/responses.js";
+import { searchRoute } from "./search/route.js";
 import { speechRoute } from "./speech/route.js";
 import { systemoneRoute } from "./systemone/route.js";
 import { transcriptionsRoute } from "./transcriptions/route.js";
@@ -68,7 +69,7 @@ export const config = {
 	info: {
 		version: "1.0.0",
 		title: "LLM Gateway API",
-		description: `OpenAI-compatible LLM gateway: chat completions, embeddings, images, audio, video, moderation, OCR, rerank and typed decisions across providers with one API key.
+		description: `OpenAI-compatible LLM gateway: chat completions, embeddings, images, audio, video, moderation, OCR, rerank, web search and typed decisions across providers with one API key.
 
 **Authentication**: create an API key at https://llmgateway.io/dashboard and send it as \`Authorization: Bearer <key>\` (or \`x-api-key\`).
 
@@ -383,6 +384,7 @@ v1.route("/models", models);
 v1.route("/moderations", moderationsRoute);
 v1.route("/ocr", ocrRoute);
 v1.route("/rerank", rerankRoute);
+v1.route("/search", searchRoute);
 v1.route("/systemone", systemoneRoute);
 v1.route("/messages", anthropic);
 v1.route("/responses", responses);

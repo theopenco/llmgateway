@@ -50,18 +50,39 @@ describe("pickAutoReasoningEffort", () => {
 		).toBe("low");
 	});
 
-	it("prefers medium for classifier-hard requests when supported", () => {
+	it("uses medium for the medium tier when supported", () => {
 		expect(
-			pickAutoReasoningEffort("gpt-5-mini", ["minimal", "low", "medium"], true),
+			pickAutoReasoningEffort(
+				"gpt-5-mini",
+				["minimal", "low", "medium"],
+				"medium",
+			),
 		).toBe("medium");
-		expect(pickAutoReasoningEffort("claude-opus-4.5", undefined, true)).toBe(
-			"medium",
-		);
+		expect(
+			pickAutoReasoningEffort("claude-opus-4.5", undefined, "medium"),
+		).toBe("medium");
 	});
 
-	it("sets nothing for a hard request when medium is unsupported", () => {
+	it("uses high for the high tier, clamping to medium", () => {
 		expect(
-			pickAutoReasoningEffort("gpt-5-pro", ["high", "xhigh"], true),
+			pickAutoReasoningEffort(
+				"claude-opus-4.5",
+				["low", "medium", "high"],
+				"high",
+			),
+		).toBe("high");
+		expect(
+			pickAutoReasoningEffort(
+				"gpt-5-mini",
+				["minimal", "low", "medium"],
+				"high",
+			),
+		).toBe("medium");
+	});
+
+	it("sets nothing for the medium tier when medium is unsupported", () => {
+		expect(
+			pickAutoReasoningEffort("gpt-5-pro", ["high", "xhigh"], "medium"),
 		).toBeUndefined();
 	});
 

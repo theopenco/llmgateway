@@ -16,6 +16,7 @@ const origins: Record<string, ApiOrigin> = {
 	embeddings: "embeddings",
 	moderations: "moderations",
 	rerank: "rerank",
+	search: "search",
 	ocr: "ocr",
 	images: "images",
 	audio_speech: "speech",

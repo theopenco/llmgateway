@@ -268,23 +268,24 @@ describe("buildGatewayContentFilterEvaluation", () => {
 	};
 
 	test("marks enforced violations as blocked", () => {
-		expect(buildGatewayContentFilterEvaluation(plan, violation, false)).toEqual(
-			{
-				sampled: true,
-				classifier: "openai",
-				provider: "openai",
-				tier: 1,
-				overridden: false,
-				level: "strict",
-				violation: true,
-				action: "blocked",
-				enforced: true,
-				flagged: true,
-				matchedCategories: ["violence"],
-				categoryScores: { violence: 0.9 },
-				moderationFailed: false,
-			},
-		);
+		expect(
+			buildGatewayContentFilterEvaluation(plan, violation, false, 42),
+		).toEqual({
+			sampled: true,
+			classifier: "openai",
+			provider: "openai",
+			tier: 1,
+			overridden: false,
+			level: "strict",
+			violation: true,
+			action: "blocked",
+			enforced: true,
+			flagged: true,
+			matchedCategories: ["violence"],
+			categoryScores: { violence: 0.9 },
+			moderationFailed: false,
+			durationMs: 42,
+		});
 	});
 
 	test("marks log-only violations as logged and clean requests as passed", () => {
@@ -293,6 +294,7 @@ describe("buildGatewayContentFilterEvaluation", () => {
 				{ ...plan, enforce: false, exemptReason: "global_log_only" },
 				violation,
 				false,
+				10,
 			),
 		).toMatchObject({ action: "logged", exemptReason: "global_log_only" });
 		expect(
@@ -300,6 +302,7 @@ describe("buildGatewayContentFilterEvaluation", () => {
 				plan,
 				{ ...violation, violation: false, matchedCategories: [] },
 				true,
+				10,
 			),
 		).toMatchObject({ action: "passed", moderationFailed: true });
 	});
@@ -309,14 +312,17 @@ describe("buildGatewayContentFilterEvaluation", () => {
 			{ ...plan, shadowClassifier: "jev" },
 			{ ...violation, violation: false, matchedCategories: [] },
 			false,
+			120,
 			{
 				classifier: "jev",
 				evaluation: violation,
 				moderationFailed: false,
+				durationMs: 340,
 			},
 		);
 
 		expect(evaluation.action).toBe("passed");
+		expect(evaluation.durationMs).toBe(120);
 		expect(evaluation.shadow).toEqual({
 			classifier: "jev",
 			violation: true,
@@ -324,6 +330,7 @@ describe("buildGatewayContentFilterEvaluation", () => {
 			matchedCategories: ["violence"],
 			categoryScores: { violence: 0.9 },
 			moderationFailed: false,
+			durationMs: 340,
 			disagreed: true,
 		});
 	});

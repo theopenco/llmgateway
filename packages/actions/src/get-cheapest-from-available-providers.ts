@@ -31,6 +31,8 @@ import type {
 import type {
 	SmartRoutingClassifier,
 	SmartRoutingDifficulty,
+	SmartRoutingEffort,
+	SmartRoutingWorkChange,
 } from "@llmgateway/shared/smart-routing";
 
 interface ProviderScore<T extends AvailableModelProvider> {
@@ -225,7 +227,33 @@ export interface RoutingMetadata {
 		// True when the verdict served came from another turn of the same sticky
 		// session rather than from this request.
 		classifierReused?: boolean;
+		// Why a sticky session's choice was (re)considered on this request.
+		trigger?: SmartRoutingTrigger;
+		// Effort tier applied when the caller set none; the concrete value is
+		// clamped to the served mapping.
+		effort?: SmartRoutingEffort;
+		effortSource?: "classifier" | "caller";
+		// The recheck's view of how the work moved since the current choice.
+		workChange?: SmartRoutingWorkChange;
+		// Why a recheck kept the current choice.
+		keptReason?: string;
+		// Present on the request where the model or effort changed.
+		switch?: SmartRoutingSwitch;
 	};
+}
+
+export type SmartRoutingTrigger =
+	"initial" | "reused" | "mid-turn" | "cache-expired" | "scan";
+
+export interface SmartRoutingSwitch {
+	fromModel: string;
+	toModel: string;
+	fromEffort?: SmartRoutingEffort;
+	toEffort?: SmartRoutingEffort;
+	direction?: "upgrade" | "downgrade" | "lateral";
+	reason: string;
+	estimatedStayUsd?: number;
+	estimatedSwitchUsd?: number;
 }
 
 export interface ProviderSelectionResult<T extends AvailableModelProvider> {

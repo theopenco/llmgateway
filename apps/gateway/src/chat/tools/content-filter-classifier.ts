@@ -1,7 +1,12 @@
+import { isProviderIdCompliant } from "@/lib/compliance.js";
 import { isCancellationError } from "@/lib/timeout-config.js";
 
 import { logger } from "@llmgateway/logger";
 
+import {
+	checkInternalContentFilter,
+	hasInternalContentFilterCredential,
+} from "./internal-content-filter.js";
 import {
 	checkJevContentFilter,
 	hasJevContentFilterCredential,
@@ -20,17 +25,39 @@ import {
 } from "./tiered-content-filter.js";
 
 import type { GatewayContentFilterEvaluation } from "@llmgateway/db";
-import type { BaseMessage, ProviderId } from "@llmgateway/models";
+import type {
+	BaseMessage,
+	ProviderCompliancePolicy,
+	ProviderId,
+} from "@llmgateway/models";
 import type { ContentFilterClassifier } from "@llmgateway/shared";
 
-/** The catalogue provider each classifier calls, for compliance gating. */
-export const CONTENT_FILTER_CLASSIFIER_PROVIDERS: Record<
+/**
+ * The catalogue provider each classifier calls, for compliance gating. Null
+ * for the internal classifier: it runs in our own infrastructure, so prompts
+ * never reach a third party.
+ */
+const CONTENT_FILTER_CLASSIFIER_PROVIDERS: Record<
 	ContentFilterClassifier,
-	ProviderId
+	ProviderId | null
 > = {
 	openai: "openai",
 	jev: "typesafe",
+	internal: null,
 };
+
+/** Whether the organization's compliance policy lets this classifier run. */
+export function isContentFilterClassifierCompliant(
+	classifier: ContentFilterClassifier,
+	compliancePolicy: ProviderCompliancePolicy | undefined,
+): boolean {
+	const provider = CONTENT_FILTER_CLASSIFIER_PROVIDERS[classifier];
+	return (
+		!compliancePolicy ||
+		provider === null ||
+		isProviderIdCompliant(provider, compliancePolicy)
+	);
+}
 
 export interface ContentFilterCheckResult extends OpenAIContentFilterCheckResult {
 	classifier: ContentFilterClassifier;
@@ -42,6 +69,8 @@ export interface ContentFilterCheckResult extends OpenAIContentFilterCheckResult
 	 * uncovered and the other half's results hide it.
 	 */
 	partialModerationFailed?: boolean;
+	/** Wall-clock time of the whole check, including image delegation. */
+	durationMs: number;
 }
 
 /** Whether a check covered everything it set out to cover. */
@@ -52,19 +81,24 @@ function moderationFailed(result: ContentFilterCheckResult): boolean {
 export async function hasClassifierCredential(
 	classifier: ContentFilterClassifier,
 ): Promise<boolean> {
-	return classifier === "jev"
-		? await hasJevContentFilterCredential()
-		: await hasOpenAIContentFilterCredential();
+	switch (classifier) {
+		case "jev":
+			return await hasJevContentFilterCredential();
+		case "internal":
+			return hasInternalContentFilterCredential();
+		case "openai":
+			return await hasOpenAIContentFilterCredential();
+	}
 }
 
 /**
  * Run one classifier over a request's content.
  *
- * Jev is text-only, so image parts are moderated through OpenAI and merged in —
- * but only when `imagesAllowed` says the organization's compliance policy
- * permits OpenAI and a credential exists. Without that, a Jev-classified
- * request carries no image coverage at all rather than silently sending image
- * data to a provider the policy excluded.
+ * Jev and the internal classifier are text-only, so image parts are moderated
+ * through OpenAI and merged in — but only when `imagesAllowed` says the
+ * organization's compliance policy permits OpenAI and a credential exists.
+ * Without that, such a request carries no image coverage at all rather than
+ * silently sending image data to a provider the policy excluded.
  */
 export async function runContentFilterClassifier(
 	classifier: ContentFilterClassifier,
@@ -73,6 +107,27 @@ export async function runContentFilterClassifier(
 	requestSignal: AbortSignal | undefined,
 	options: { imagesAllowed: boolean },
 ): Promise<ContentFilterCheckResult> {
+	const startTime = performance.now();
+	const result = await runClassifierChecks(
+		classifier,
+		messages,
+		context,
+		requestSignal,
+		options,
+	);
+	return {
+		...result,
+		durationMs: Math.round(performance.now() - startTime),
+	};
+}
+
+async function runClassifierChecks(
+	classifier: ContentFilterClassifier,
+	messages: BaseMessage[],
+	context: GatewayContentFilterContext,
+	requestSignal: AbortSignal | undefined,
+	options: { imagesAllowed: boolean },
+): Promise<Omit<ContentFilterCheckResult, "durationMs">> {
 	if (classifier === "openai") {
 		const result = await checkOpenAIContentFilter(
 			messages,
@@ -82,11 +137,12 @@ export async function runContentFilterClassifier(
 		return { ...result, classifier };
 	}
 
-	const textResult = await checkJevContentFilter(
-		messages,
-		context,
-		requestSignal,
-	);
+	const textResult: OpenAIContentFilterCheckResult & {
+		partialModerationFailed?: boolean;
+	} =
+		classifier === "internal"
+			? await checkInternalContentFilter(messages, context, requestSignal)
+			: await checkJevContentFilter(messages, context, requestSignal);
 
 	// Text-only requests are the common case: skip the OpenAI credential lookup
 	// and the no-op moderation call entirely when there is no image to cover.
@@ -108,7 +164,9 @@ export async function runContentFilterClassifier(
 	// Both filters fail open by returning no results, and the delegation only
 	// runs when the request actually carries images — so an empty result on
 	// either side is a failed check, not an absent one.
-	const textFailed = textResult.results.length === 0;
+	const textFailed =
+		textResult.results.length === 0 ||
+		textResult.partialModerationFailed === true;
 	if (imageResult.results.length === 0) {
 		return { ...textResult, classifier, partialModerationFailed: true };
 	}
@@ -226,6 +284,7 @@ export async function evaluateContentFilterWithClassifiers(options: {
 				classifier: ContentFilterClassifier;
 				evaluation: ReturnType<typeof evaluateTieredContentFilter>;
 				moderationFailed: boolean;
+				durationMs: number;
 		  }
 		| undefined;
 	const shadowResult =
@@ -235,6 +294,7 @@ export async function evaluateContentFilterWithClassifiers(options: {
 			classifier: plan.shadowClassifier,
 			evaluation: evaluateTieredContentFilter(shadowResult.results, plan.level),
 			moderationFailed: moderationFailed(shadowResult),
+			durationMs: shadowResult.durationMs,
 		};
 		results.push(shadowResult);
 	}
@@ -244,6 +304,7 @@ export async function evaluateContentFilterWithClassifiers(options: {
 			plan,
 			evaluation,
 			moderationFailed(deciding),
+			deciding.durationMs,
 			shadow,
 		),
 		results,

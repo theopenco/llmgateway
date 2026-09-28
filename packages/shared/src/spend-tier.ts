@@ -83,6 +83,13 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		chatDefaultRpm: 60,
 	},
 	{
+		key: "search",
+		prefix: "/v1/search",
+		defaultRpm: 600,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 120,
+	},
+	{
 		key: "models",
 		prefix: "/v1/models",
 		defaultRpm: 1200,
@@ -645,6 +652,7 @@ export const INFLIGHT_LIMITED_KEYS: ReadonlySet<string> = new Set([
 	"moderations",
 	"rerank",
 	"systemone",
+	"search",
 	"ocr",
 	"images",
 	"audio_speech",

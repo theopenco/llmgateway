@@ -434,6 +434,65 @@ describe("smart routing", () => {
 		expect(reused[0]?.classifierLatencyMs).toBeUndefined();
 	});
 
+	test("a work scan upgrades a session between turns when the work gets harder", async () => {
+		const token = await seedBase("sticky-scan", {
+			orgConfig: { classifier: "jev", models: THREE_MODELS },
+		});
+		const sessionId = "session-auto-routing-scan";
+		const turn = async (content: string) => {
+			const res = await chatCompletion(
+				token,
+				{ model: "smart", messages: [{ role: "user", content }] },
+				{ "x-session-id": sessionId },
+			);
+			expect(res.status).toBe(200);
+			return res;
+		};
+
+		const opening = await turn("EASY_TASK rename a variable");
+		expect((await opening.json()).model).toBe(`openai/${CHEAP_MODEL}`);
+		expect(opening.headers.get("x-llmgateway-smart-model")).toBe(CHEAP_MODEL);
+		expect(opening.headers.get("x-llmgateway-smart-change")).toBeNull();
+
+		// Follow-ups before the scan is due keep the choice without a check,
+		// however hard they look.
+		for (let index = 0; index < 3; index++) {
+			const followUp = await turn("HARD_TASK CHOOSE:harder follow-up");
+			expect((await followUp.json()).model).toBe(`openai/${CHEAP_MODEL}`);
+		}
+
+		const scanned = await turn("HARD_TASK CHOOSE:harder design a scheduler");
+		expect((await scanned.json()).model).toBe(`openai/${EXPENSIVE_MODEL}`);
+		expect(scanned.headers.get("x-llmgateway-smart-change")).toContain(
+			"the work became harder",
+		);
+
+		// Five requests plus two billed classifier calls: the opening turn and
+		// the scan.
+		const decisions = requestLogs(await waitForLogs(7)).map(
+			(log) => log.routingMetadata?.smartRouting,
+		);
+		expect(decisions.map((decision) => decision?.trigger).sort()).toEqual([
+			"initial",
+			"reused",
+			"reused",
+			"reused",
+			"scan",
+		]);
+		expect(
+			decisions.find((decision) => decision?.trigger === "scan"),
+		).toMatchObject({
+			workChange: "harder",
+			selectedModel: EXPENSIVE_MODEL,
+			switch: {
+				fromModel: CHEAP_MODEL,
+				toModel: EXPENSIVE_MODEL,
+				direction: "upgrade",
+				reason: "harder-work",
+			},
+		});
+	});
+
 	test("a different session classifies independently", async () => {
 		const token = await seedBase("sticky-separate", {
 			orgConfig: { classifier: "jev", models: THREE_MODELS },

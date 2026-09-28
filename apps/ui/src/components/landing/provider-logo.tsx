@@ -14,7 +14,6 @@ const GRADIENT_LOGOS: Partial<
 > = {
 	"google-ai-studio": GoogleStudioAIIcon,
 	glacier: GoogleStudioAIIcon,
-	iceberg: GoogleStudioAIIcon,
 	minimax: MinimaxIcon,
 	azure: AzureIcon,
 	"azure-ai-foundry": AzureIcon,

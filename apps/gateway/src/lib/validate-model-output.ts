@@ -16,7 +16,8 @@ export type ModelOutput =
 	| "ocr"
 	| "transcription"
 	| "rerank"
-	| "decision";
+	| "decision"
+	| "search";
 
 const OUTPUT_ENDPOINT: Record<
 	ModelOutput,
@@ -34,6 +35,7 @@ const OUTPUT_ENDPOINT: Record<
 	},
 	rerank: { label: "a rerank", endpoint: "/v1/rerank" },
 	decision: { label: "a typed-decision", endpoint: "/v1/systemone" },
+	search: { label: "a web search", endpoint: "/v1/search" },
 };
 
 /**

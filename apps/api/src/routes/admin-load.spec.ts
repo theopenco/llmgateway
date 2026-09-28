@@ -98,6 +98,9 @@ async function fetchLoad(
 // this suite owns that cleanup, scoped to its own fixture ids.
 const clearCatalogFixtures = async () => {
 	await db
+		.delete(tables.modelProviderMappingHistoryHourly)
+		.where(eq(tables.modelProviderMappingHistoryHourly.modelId, MODEL_ID));
+	await db
 		.delete(tables.modelProviderMappingHistory)
 		.where(eq(tables.modelProviderMappingHistory.modelId, MODEL_ID));
 	await db
@@ -391,6 +394,115 @@ describe("admin — gateway load", () => {
 		expect(body.summary.clientErrorRate).toBeCloseTo(2 / 210, 6);
 		expect(body.summary.errorCount).toBe(10);
 		expect(body.summary.clientErrorCount).toBe(2);
+	});
+
+	test.each(["model", "provider"])(
+		"preserves hourly peaks on daily %s charts",
+		async (groupBy) => {
+			const spikeAgeMs = 48 * HOUR_MS;
+			const spikeHour = new Date(closedHour.getTime() - spikeAgeMs);
+			const nextHour = new Date(spikeHour.getTime() + HOUR_MS);
+			await db.insert(tables.modelProviderMappingHistoryHourly).values([
+				{
+					modelId: MODEL_ID,
+					providerId: PROVIDER_ID,
+					modelProviderMappingId: ROOT_MAPPING_ID,
+					usedMode: "credits",
+					hourTimestamp: spikeHour,
+					logsCount: 7200,
+					totalDuration: 7200 * 800,
+				},
+				{
+					modelId: MODEL_ID,
+					providerId: PROVIDER_ID,
+					modelProviderMappingId: ROOT_MAPPING_ID,
+					usedMode: "api-keys",
+					hourTimestamp: spikeHour,
+					logsCount: 3600,
+				},
+				{
+					modelId: MODEL_ID,
+					providerId: PROVIDER_ID,
+					modelProviderMappingId: ROOT_MAPPING_ID,
+					usedMode: "credits",
+					hourTimestamp: nextHour,
+					logsCount: 3600,
+				},
+				{
+					modelId: MODEL_ID,
+					providerId: PROVIDER_ID,
+					modelProviderMappingId: REGIONAL_MAPPING_ID,
+					usedMode: "credits",
+					hourTimestamp: spikeHour,
+					logsCount: 7200,
+				},
+				{
+					modelId: MODEL_ID,
+					providerId: PROVIDER_ID,
+					modelProviderMappingId: ROOT_MAPPING_ID,
+					usedMode: "credits",
+					hourTimestamp: currentHour,
+					logsCount: 36000,
+				},
+			]);
+
+			const weekly = await fetchLoad(cookie, { window: "7d", groupBy });
+			const monthly = await fetchLoad(cookie, { window: "30d", groupBy });
+			expect(weekly.bucket).toBe("hour");
+			expect(monthly.bucket).toBe("day");
+			for (const body of [weekly, monthly]) {
+				expect(body.summary.peakRps).toBe(3);
+				expect(body.summary.peakAt).toBe(
+					spikeHour.toISOString().replace(".000", ""),
+				);
+				expect(body.breakdown[0].peakRps).toBe(3);
+				expect(body.summary.totalRequests).toBe(50400);
+				expect(body.summary.avgDurationMs).toBeCloseTo((7200 * 800) / 50400);
+				expect(
+					body.data.reduce((sum, point) => sum + point.requestCount, 0),
+				).toBe(50400);
+			}
+			expect(
+				monthly.data
+					.filter((point) => !point.partial)
+					.every((point) => point.rps < 3),
+			).toBe(true);
+
+			const credits = await fetchLoad(cookie, {
+				window: "30d",
+				groupBy,
+				mode: "credits",
+			});
+			expect(credits.summary.peakRps).toBe(2);
+			expect(credits.breakdown[0].peakRps).toBe(2);
+		},
+	);
+
+	test.each([
+		{ groupBy: "organization" },
+		{ groupBy: "project", projectId: PROJECT_A },
+		{ groupBy: "api-key", apiKeyId: API_KEY_A },
+		{ groupBy: "model", organizationId: ORG_A },
+		{ groupBy: "model", projectId: PROJECT_A },
+		{ groupBy: "model", apiKeyId: API_KEY_A },
+	])("preserves tenant hourly peaks on daily charts: %j", async (filter) => {
+		const query = Object.fromEntries(
+			Object.entries(filter).filter(
+				(entry): entry is [string, string] => typeof entry[1] === "string",
+			),
+		);
+		const weekly = await fetchLoad(cookie, { window: "7d", ...query });
+		const monthly = await fetchLoad(cookie, { window: "30d", ...query });
+		expect(monthly.bucket).toBe("day");
+		expect(monthly.summary.peakRps).toBe(weekly.summary.peakRps);
+		expect(monthly.summary.peakRps).toBeGreaterThan(0);
+		expect(monthly.summary.peakAt).toBe(
+			closedHour.toISOString().replace(".000", ""),
+		);
+		expect(monthly.breakdown.map((row) => row.peakRps)).toEqual(
+			weekly.breakdown.map((row) => row.peakRps),
+		);
+		expect(monthly.summary.totalRequests).toBe(weekly.summary.totalRequests);
 	});
 
 	test("counts the bucket the window opens in", async () => {

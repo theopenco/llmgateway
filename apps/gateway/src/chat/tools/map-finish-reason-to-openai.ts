@@ -48,7 +48,6 @@ export function mapFinishReasonToOpenai(
 	switch (usedProvider) {
 		case "google-ai-studio":
 		case "glacier":
-		case "iceberg":
 		case "google-vertex":
 		case "quartz":
 			if (!finishReason) {

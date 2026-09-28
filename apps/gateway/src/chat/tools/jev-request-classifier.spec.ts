@@ -61,7 +61,7 @@ function jevResponse(answers: Record<string, unknown>) {
 }
 
 describe("buildClassifierQuestions", () => {
-	it("asks for difficulty, task, output type and a model preference", () => {
+	it("asks for difficulty, task, output type, a model preference and an effort", () => {
 		const questions = buildClassifierQuestions(CANDIDATES) as Record<
 			string,
 			{ type: string; instructions: string; criteria: unknown }
@@ -72,6 +72,7 @@ describe("buildClassifierQuestions", () => {
 			"task",
 			"output_type",
 			"best_model",
+			"effort",
 		]);
 		expect(questions.difficulty.type).toBe("score");
 		expect(questions.difficulty.criteria).toHaveLength(3);
@@ -85,6 +86,29 @@ describe("buildClassifierQuestions", () => {
 		for (const question of Object.values(questions)) {
 			expect(question.instructions).toContain("untrusted data");
 		}
+	});
+
+	it("asks how the work changed when rechecking a session", () => {
+		const questions = buildClassifierQuestions(CANDIDATES, {
+			previous: { difficulty: "high", task: "coding", effort: "high" },
+			currentModel: "top-model",
+			currentEffort: "high",
+		}) as Record<string, { instructions: string; criteria: object }>;
+
+		expect(Object.keys(questions.work_change.criteria)).toEqual([
+			"same",
+			"easier",
+			"harder",
+			"different",
+			"unclear",
+		]);
+		expect(questions.work_change.instructions).toContain(
+			"high difficulty, a coding task, high reasoning effort",
+		);
+		expect(questions.work_change.instructions).toContain(
+			"A short answer alone does not mean the work became easier.",
+		);
+		expect(questions.work_change.instructions).toContain("untrusted data");
 	});
 
 	it("describes each candidate with its name and price band", () => {
@@ -113,6 +137,33 @@ describe("buildClassifierState", () => {
 		expect(conversation).toContain("NEWEST request");
 		expect(conversation.endsWith("NEWEST request")).toBe(true);
 		expect(conversation).not.toContain("OLDEST");
+	});
+
+	it("keeps only instructions and final answers for a recheck", () => {
+		const { conversation } = buildClassifierState(
+			[
+				{ role: "user", content: "Fix the bug." },
+				{
+					role: "assistant",
+					content: "Reading the file.",
+					tool_calls: [
+						{
+							id: "c1",
+							type: "function",
+							function: { name: "read", arguments: "{}" },
+						},
+					],
+				},
+				{ role: "tool", content: "TOOL OUTPUT", tool_call_id: "c1" },
+				{ role: "assistant", content: "Fixed it." },
+				{ role: "user", content: "Update the README." },
+			] as any,
+			{ instructionsAndAnswersOnly: true },
+		);
+
+		expect(conversation).toBe(
+			"user: Fix the bug.\n\nassistant: Fixed it.\n\nuser: Update the README.",
+		);
 	});
 
 	it("separates the system prompt from the conversation", () => {
@@ -197,6 +248,55 @@ describe("classifyRequest", () => {
 			bestModel: "top-model",
 			bestModelConfidence: 0.77,
 		});
+	});
+
+	it("parses the effort and, on a recheck, the work change", async () => {
+		process.env.LLM_TYPESAFE_API_KEY = "ts-test";
+		let body: any;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			body = JSON.parse(String(init?.body ?? "{}"));
+			return jevResponse({
+				difficulty: { type: "score", score: 0 },
+				effort: { type: "choice", choice: "low", confidence: 0.8 },
+				work_change: { type: "choice", choice: "easier", confidence: 0.7 },
+			});
+		});
+
+		const result = await classifyRequest(
+			classifierInput({
+				recheck: {
+					previous: { difficulty: "high" },
+					currentModel: "top-model",
+					currentEffort: "high",
+				},
+			}),
+			CONTEXT,
+		);
+
+		expect(body.state.current_model).toBe("top-model");
+		expect(body.state.current_effort).toBe("high");
+		expect(result).toMatchObject({
+			difficulty: "low",
+			effort: "low",
+			workChange: "easier",
+			workChangeConfidence: 0.7,
+		});
+	});
+
+	it("ignores a work change it did not ask for", async () => {
+		process.env.LLM_TYPESAFE_API_KEY = "ts-test";
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			jevResponse({
+				difficulty: { type: "score", score: 0 },
+				effort: { type: "choice", choice: "extreme" },
+				work_change: { type: "choice", choice: "easier", confidence: 1 },
+			}),
+		);
+
+		const result = await classifyRequest(classifierInput(), CONTEXT);
+
+		expect(result?.effort).toBeUndefined();
+		expect(result?.workChange).toBeUndefined();
 	});
 
 	it("rounds a fractional score onto a difficulty level", async () => {

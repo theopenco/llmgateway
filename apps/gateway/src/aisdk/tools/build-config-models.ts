@@ -35,7 +35,7 @@ export interface ConfigModelEntry {
 
 /**
  * Null for models `@ai-sdk/gateway` has no type for at all (typed-decision
- * models), so they are left out of the config rather than advertised as
+ * and web search models), so they are left out of the config rather than advertised as
  * something the AI SDK would try to call as a language model.
  */
 function resolveModelType(model: ModelDefinition): KnownModelType | null {
@@ -53,7 +53,7 @@ function resolveModelType(model: ModelDefinition): KnownModelType | null {
 	if (outputs.includes("rerank")) {
 		return "reranking";
 	}
-	if (outputs.includes("decision")) {
+	if (outputs.includes("decision") || outputs.includes("search")) {
 		return null;
 	}
 	if (outputs.includes("transcription")) {

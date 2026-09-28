@@ -691,9 +691,9 @@ The configured list is exhaustive. If no model on it can serve a request — for
 - **None** — pick the cheapest model on the list that can serve the request. This is the default behaviour, restricted to your models.
 - **Jev (TypeSafe)** — rate the request before routing it.
 
-With the Jev classifier, the gateway sorts your models by blended average price and splits them into Low, Medium and High price bands. The dashboard previews that split from catalogue list prices; the gateway ranks only the providers your project can actually use, at your own rates, so the live split can differ. Each request is then classified for task type, output type and difficulty, and served from the matching band; the classifier's own model preference breaks ties inside the band when it is confident enough. A request rated High also gets a larger default reasoning effort when the selected model supports reasoning and the request left room for it — thinking is drawn from the same `max_tokens` allowance as the answer, so the cheaper default stands on a tight budget rather than risking a response that spends its whole allowance thinking.
+With the Jev classifier, the gateway sorts your models by blended average price and splits them into Low, Medium and High price bands. The dashboard previews that split from catalogue list prices; the gateway ranks only the providers your project can actually use, at your own rates, so the live split can differ. Each request is then classified for task type, output type and difficulty, and served from the matching band; the classifier's own model preference breaks ties inside the band when it is confident enough. The classifier also picks a reasoning effort (low, medium or high), applied when the selected model supports reasoning and clamped to the efforts its provider accepts. An effort you set with `reasoning_effort` or `reasoning.effort` always wins. Higher efforts need room: thinking is drawn from the same `max_tokens` allowance as the answer, so a tight budget steps the effort down (below 16,384 tokens high becomes medium, below 8,192 medium becomes low) rather than risking a response that spends its whole allowance thinking.
 
-The classifier adds one short round trip before the upstream call. It fails open: if it times out or errors, the request is served by the cheapest eligible model on your list and the log records the fallback.
+The classifier adds one short round trip before the upstream call. It fails open: if it times out or errors, the request is served by the configured **fallback model** — or the cheapest eligible model on your list when none is set — and the log records the fallback.
 
 #### What it costs
 
@@ -701,11 +701,32 @@ Smart routing itself carries no platform fee — you pay for the models it selec
 
 The call runs on our credential, so it is billed as credits even for a project using its own provider keys. Nothing is charged for the `None` classifier, for a verdict reused from a sticky session, or for a classifier call that fails.
 
-**Sticky sessions classify once.** When a request carries a session id (see [sticky session routing](#sticky-session-routing)) and the project has it enabled, the first turn is classified and the rest of the session reuses that verdict and the model it resolved to — so a conversation is not re-rated on every turn and does not migrate between models mid-thread, which would cost it the upstream prompt cache. The pin expires with the session TTL. If the pinned model stops being available, the stored verdict is re-applied to the remaining candidates rather than triggering a fresh classification.
+#### Sessions
+
+When a request carries a session id (see [sticky session routing](#sticky-session-routing)) and the project has it enabled, the Jev classifier chooses a model and effort on the session's first turn, and the rest of the session reuses them without another classifier call. Each session keeps its own choice, and the choice expires with the session TTL.
+
+The choice is only reconsidered **between turns**. A turn starts with a user message after a final answer. Tool results, and user messages sent while the agent is still calling tools, continue the current turn and never change the model. A new turn triggers a recheck in two cases:
+
+- **The provider's prompt cache expired.** This needs a documented cache lifetime, such as five minutes (or one hour for extended caching) on Claude providers. When a provider's lifetime is unknown, idle time alone never counts as expiry.
+- **A periodic work scan is due**, every fourth turn.
+
+A recheck compares recent instructions and final answers with the work the current choice was made for, and moves only on a confident signal:
+
+- **Harder work** moves to a stronger model or a higher effort right away.
+- **Easier or different work** moves only when the expected savings for the rest of the session beat the cost of staying by a margin. The estimate counts the check itself, cached versus uncached input prices, the cache rebuild the move causes, and output and reasoning at the new effort. A different model or provider always starts a new cache. An effort-only change is treated as breaking the cache unless the provider documents otherwise. Cost-driven moves are skipped when a price is unknown, and wait a few turns after the previous move.
+- **Unchanged or unclear work**, or a failed check, keeps the current choice. A failed or unsure check is not retried until the next trigger.
+
+If the chosen model stops being available, the stored verdict is re-applied to the remaining candidates rather than triggering a fresh classification. Rechecks are billed like any other classification; reused turns are free.
+
+Responses to `"model": "smart"` name the resolved model in `model`. They also carry:
+
+- `x-llmgateway-smart-model`: the resolved model.
+- `x-llmgateway-smart-effort`: the applied effort.
+- `x-llmgateway-smart-change`: a short reason, on the turn where the model or effort changed.
 
 #### Routing metadata
 
-Every smart-routed request made against a configured list records a `smartRouting` block on its log entry, visible in the request detail view: the classifier used, the eligible and surviving candidate models, the difficulty, task and output type, the classifier's preferred model and confidence, the band that was served, the selected model, the classifier latency and cost, whether the classifier failed open, and whether the verdict was reused from earlier in the session.
+Every smart-routed request made against a configured list records a `smartRouting` block on its log entry, visible in the request detail view: the classifier used, the eligible and surviving candidate models, the difficulty, task and output type, the classifier's preferred model and confidence, the band that was served, the selected model and effort, the classifier latency and cost, whether the classifier failed open, and whether the verdict was reused from earlier in the session. For a session it also records what triggered the check (`initial`, `reused`, `mid-turn`, `cache-expired` or `scan`), the recheck's view of how the work changed, why a recheck kept the current choice, and any switch with its reason and cost estimates.
 
 ## Routing Savings
 

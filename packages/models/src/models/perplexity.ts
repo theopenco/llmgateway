@@ -90,4 +90,50 @@ export const perplexityModels = [
 			},
 		],
 	},
+	{
+		id: "perplexity-search",
+		name: "Perplexity Search",
+		description:
+			"Perplexity's standalone Search API. Returns ranked web results with extracted page snippets instead of generated text. Served via the /v1/search endpoint.",
+		family: "perplexity",
+		output: ["search"],
+		releasedAt: new Date("2025-09-25"),
+		providers: [
+			{
+				providerId: "perplexity",
+				externalId: "web",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0.005",
+				contextSize: 0,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				search: true,
+			},
+		],
+	},
+	{
+		id: "perplexity-search-fast",
+		name: "Perplexity Search Fast",
+		description:
+			"Lower-latency, lower-cost variant of Perplexity's Search API. Returns ranked web results with extracted page snippets instead of generated text. Served via the /v1/search endpoint.",
+		family: "perplexity",
+		output: ["search"],
+		releasedAt: new Date("2026-09-24"),
+		providers: [
+			{
+				providerId: "perplexity",
+				externalId: "fast",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0.001",
+				contextSize: 0,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				search: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

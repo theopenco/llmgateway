@@ -1467,11 +1467,16 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 
 	// Answers are keyword-driven so tests can assert a specific verdict: a
 	// harmful-looking state scores high on every noul question, and the auto
-	// routing classifier is steered by EASY_TASK / HARD_TASK / PREFER_MODEL:<id>.
+	// routing classifier is steered by EASY_TASK / HARD_TASK / PREFER_MODEL:<id>
+	// and CHOOSE:<option> (any choice question offering that option).
 	const harmful = /harm|kill|attack|threat/i.test(stateText);
 	const easyTask = stateText.includes("EASY_TASK");
 	const hardTask = stateText.includes("HARD_TASK");
 	const preferredModel = /PREFER_MODEL:([^\s"\\]+)/.exec(stateText)?.[1];
+	const chosenOptions = Array.from(
+		String(stateText).matchAll(/CHOOSE:([^\s"\\]+)/g),
+		(match) => match[1],
+	);
 	const answers: Record<string, unknown> = {};
 	for (const [id, question] of Object.entries(
 		(body.questions ?? {}) as Record<string, { type: string; criteria?: any }>,
@@ -1482,10 +1487,20 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 		}
 		if (question.type === "choice") {
 			const options = Object.keys(question.criteria ?? {});
+			const chosen = chosenOptions.find((option) => options.includes(option));
+			const effortForTask =
+				id === "effort"
+					? hardTask
+						? "high"
+						: easyTask
+							? "low"
+							: undefined
+					: undefined;
 			const choice =
-				preferredModel && options.includes(preferredModel)
+				chosen ??
+				(preferredModel && options.includes(preferredModel)
 					? preferredModel
-					: options[0];
+					: (effortForTask ?? options[0]));
 			answers[id] = {
 				type: "choice",
 				choice,
@@ -1519,6 +1534,40 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 		model: body.model === "jev-latest" ? "jev-1.13.0" : body.model,
 		answers,
 		usage: { input_tokens: 441, output_tokens: 69 },
+	});
+});
+
+// Perplexity Search: POST /search returns ranked results. Echoes the
+// received body as `mock_request` so specs can assert what was forwarded.
+mockOpenAIServer.post("/search", async (c) => {
+	const body = await c.req.json();
+	const queries: string[] = Array.isArray(body.query)
+		? body.query
+		: [String(body.query ?? "")];
+
+	const statusTrigger = extractStatusCodeTrigger(queries.join(" "));
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	if (queries.some((query) => query.includes("MALFORMED_SEARCH"))) {
+		return c.json({ id: "mock-search-id" });
+	}
+
+	const maxResults =
+		typeof body.max_results === "number" ? body.max_results : 2;
+	return c.json({
+		id: "mock-search-id",
+		results: Array.from({ length: maxResults }, (_, index) => ({
+			title: `Result ${index + 1} for ${queries[0]}`,
+			url: `https://example.com/${index + 1}`,
+			snippet: `Snippet ${index + 1}`,
+			date: null,
+			last_updated: "2026-09-01",
+		})),
+		server_time: null,
+		mock_request: body,
 	});
 });
 

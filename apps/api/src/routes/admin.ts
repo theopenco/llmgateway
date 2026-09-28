@@ -116,6 +116,7 @@ import {
 	notInArray,
 	or,
 	sql,
+	type SQL,
 	type SQLWrapper,
 	tables,
 	projectHourlyStats,
@@ -6814,10 +6815,89 @@ const providerSortBySchema = z.enum([
 	"cachedCount",
 	"totalCost",
 	"avgTimeToFirstToken",
+	"throughput",
 	"modelCount",
 	"updatedAt",
 ]);
 const catalogUsageModeSchema = z.enum(["total", "credits", "api-keys"]);
+
+// Row filters shared by the provider, model and mapping lists. They narrow the
+// rows (and `total`) only; the page-level usage totals stay window-wide.
+const catalogFilterQueryShape = {
+	status: z.enum(["active", "inactive", "all"]).default("all").optional(),
+	minRequests: z.coerce.number().min(0).optional(),
+	minTokens: z.coerce.number().min(0).optional(),
+	minInputTokens: z.coerce.number().min(0).optional(),
+	minCachedTokens: z.coerce.number().min(0).optional(),
+	minOutputTokens: z.coerce.number().min(0).optional(),
+	minCost: z.coerce.number().min(0).optional(),
+	minErrorRate: z.coerce.number().min(0).max(100).optional(),
+	maxErrorRate: z.coerce.number().min(0).max(100).optional(),
+};
+
+type CatalogFilterQuery = Partial<{
+	[K in keyof typeof catalogFilterQueryShape]: z.infer<
+		(typeof catalogFilterQueryShape)[K]
+	>;
+}>;
+
+function catalogFilterClause(
+	query: CatalogFilterQuery,
+	columns: {
+		status: AnyColumn;
+		logsCount: SQLWrapper;
+		clientErrorsCount: SQLWrapper;
+		gatewayErrorsCount: SQLWrapper;
+		upstreamErrorsCount: SQLWrapper;
+		cost: SQLWrapper;
+		inputTokens: SQLWrapper;
+		cachedTokens: SQLWrapper;
+		outputTokens: SQLWrapper;
+	},
+) {
+	const value = (column: SQLWrapper) => sql`COALESCE(${column}, 0)`;
+	const input = value(columns.inputTokens);
+	const cached = value(columns.cachedTokens);
+	const output = value(columns.outputTokens);
+	// Same definition as deriveStabilityMetrics: client errors are excluded
+	// from both sides, and a row without countable requests reads as 0%.
+	const requestCount = sql`GREATEST(${value(columns.logsCount)} - ${value(columns.clientErrorsCount)}, 0)`;
+	const errorRate = sql`CASE WHEN ${requestCount} > 0 THEN LEAST(${value(columns.gatewayErrorsCount)} + ${value(columns.upstreamErrorsCount)}, ${requestCount})::float * 100 / ${requestCount} ELSE 0 END`;
+
+	const atLeast = (expr: SQL, min: number | undefined) =>
+		min === undefined ? undefined : sql`${expr} >= ${min}`;
+
+	return and(
+		query.status && query.status !== "all"
+			? eq(columns.status, query.status)
+			: undefined,
+		atLeast(value(columns.logsCount), query.minRequests),
+		atLeast(sql`${input} + ${cached} + ${output}`, query.minTokens),
+		atLeast(input, query.minInputTokens),
+		atLeast(cached, query.minCachedTokens),
+		atLeast(output, query.minOutputTokens),
+		atLeast(value(columns.cost), query.minCost),
+		atLeast(errorRate, query.minErrorRate),
+		query.maxErrorRate === undefined
+			? undefined
+			: sql`${errorRate} <= ${query.maxErrorRate}`,
+	);
+}
+
+// Output tokens per second of request time. Prompt tokens are excluded: they
+// would inflate the rate by the prompt/output ratio.
+function avgThroughputSql(table: {
+	totalOutputTokens: AnyColumn;
+	totalDuration: AnyColumn;
+}) {
+	return sql<
+		number | null
+	>`CASE WHEN SUM(${table.totalDuration}) > 0 THEN SUM(${table.totalOutputTokens})::float * 1000 / SUM(${table.totalDuration}) ELSE NULL END`;
+}
+
+function orderNullsLast(column: SQLWrapper, order: "asc" | "desc") {
+	return sql`${column} ${sql.raw(order)} nulls last`;
+}
 
 function requireCatalogUsageDateRange(
 	query: {
@@ -6864,6 +6944,7 @@ const providerStatsSchema = z.object({
 	upstreamErrorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
+	throughput: z.number().nullable(),
 	modelCount: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
@@ -6890,6 +6971,7 @@ const getProviderStats = createRoute({
 				mode: catalogUsageModeSchema.default("total").optional(),
 				from: z.string().optional(),
 				to: z.string().optional(),
+				...catalogFilterQueryShape,
 			})
 			.superRefine(requireCatalogUsageDateRange),
 	},
@@ -6977,6 +7059,7 @@ admin.openapi(getProviderStats, async (c) => {
 				// Reasoning-token samples take precedence so thinking mappings
 				// aren't measured on their (much later) first content token.
 				avgTimeToFirstToken: avgEffectiveTtftSql(mph).as("avgTimeToFirstToken"),
+				throughput: avgThroughputSql(mph).as("throughput"),
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
@@ -6991,7 +7074,6 @@ admin.openapi(getProviderStats, async (c) => {
 			.groupBy(mph.providerId)
 			.as("provider_stats_sub");
 
-		const orderFn = sortOrder === "asc" ? asc : desc;
 		const sortColumnMap = {
 			name: tables.provider.name,
 			status: tables.provider.status,
@@ -7004,6 +7086,7 @@ admin.openapi(getProviderStats, async (c) => {
 				mode === "total"
 					? sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`
 					: providerStatsSub.avgTimeToFirstToken,
+			throughput: providerStatsSub.throughput,
 			modelCount: sql`COALESCE(${modelCountSub.count}, 0)`,
 			updatedAt: tables.provider.updatedAt,
 		} as const;
@@ -7062,6 +7145,9 @@ admin.openapi(getProviderStats, async (c) => {
 							? sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`
 							: providerStatsSub.avgTimeToFirstToken
 					}`.as("avgTimeToFirstToken"),
+					throughput: sql<number | null>`${providerStatsSub.throughput}`.as(
+						"throughput",
+					),
 					modelCount: sql<number>`COALESCE(${modelCountSub.count}, 0)`.as(
 						"modelCount",
 					),
@@ -7084,7 +7170,23 @@ admin.openapi(getProviderStats, async (c) => {
 					modelCountSub,
 					eq(tables.provider.id, modelCountSub.providerId),
 				)
-				.orderBy(orderFn(sortColumn), asc(tables.provider.id)),
+				.where(
+					catalogFilterClause(query, {
+						status: tables.provider.status,
+						logsCount: providerStatsSub.logsCount,
+						clientErrorsCount: providerStatsSub.clientErrorsCount,
+						gatewayErrorsCount: providerStatsSub.gatewayErrorsCount,
+						upstreamErrorsCount: providerStatsSub.upstreamErrorsCount,
+						cost: providerStatsSub.totalCost,
+						inputTokens: providerStatsSub.inputTokens,
+						cachedTokens: providerStatsSub.cachedTokens,
+						outputTokens: providerStatsSub.outputTokens,
+					}),
+				)
+				.orderBy(
+					orderNullsLast(sortColumn, sortOrder),
+					asc(tables.provider.id),
+				),
 		]);
 
 		const totalTokensAgg = Number(totalsResult?.totalTokens ?? 0);
@@ -7103,6 +7205,7 @@ admin.openapi(getProviderStats, async (c) => {
 				upstreamErrorsCount: Number(r.upstreamErrorsCount ?? 0),
 				cachedCount: Number(r.cachedCount ?? 0),
 				avgTimeToFirstToken: r.avgTimeToFirstToken,
+				throughput: r.throughput,
 				modelCount: Number(r.modelCount ?? 0),
 				totalTokens: Number(r.totalTokens ?? 0),
 				totalCost: Number(r.totalCost ?? 0),
@@ -7127,6 +7230,7 @@ admin.openapi(getProviderStats, async (c) => {
 		cachedCount: tables.provider.cachedCount,
 		totalCost: sql`0`,
 		avgTimeToFirstToken: sql`COALESCE(${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`,
+		throughput: sql`0`,
 		modelCount: sql`COALESCE(${modelCountSub.count}, 0)`,
 		updatedAt: tables.provider.updatedAt,
 	} as const;
@@ -7157,6 +7261,19 @@ admin.openapi(getProviderStats, async (c) => {
 		})
 		.from(tables.provider)
 		.leftJoin(modelCountSub, eq(tables.provider.id, modelCountSub.providerId))
+		.where(
+			catalogFilterClause(query, {
+				status: tables.provider.status,
+				logsCount: tables.provider.logsCount,
+				clientErrorsCount: tables.provider.clientErrorsCount,
+				gatewayErrorsCount: tables.provider.gatewayErrorsCount,
+				upstreamErrorsCount: tables.provider.upstreamErrorsCount,
+				cost: sql`0`,
+				inputTokens: sql`0`,
+				cachedTokens: sql`0`,
+				outputTokens: sql`0`,
+			}),
+		)
 		.orderBy(orderFn(sortColumn), asc(tables.provider.id));
 
 	return c.json({
@@ -7172,6 +7289,7 @@ admin.openapi(getProviderStats, async (c) => {
 			upstreamErrorsCount: r.upstreamErrorsCount,
 			cachedCount: r.cachedCount,
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
+			throughput: null,
 			modelCount: Number(r.modelCount),
 			totalTokens: 0,
 			totalCost: 0,
@@ -7198,6 +7316,7 @@ const modelSortBySchema = z.enum([
 	"upstreamErrorsCount",
 	"cachedCount",
 	"avgTimeToFirstToken",
+	"throughput",
 	"providerCount",
 	"updatedAt",
 ]);
@@ -7216,13 +7335,11 @@ const modelStatsSchema = z.object({
 	upstreamErrorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
+	throughput: z.number().nullable(),
 	providerCount: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
 	...tokenBreakdownShape,
-	inputPrice: z.string().nullable(),
-	outputPrice: z.string().nullable(),
-	requestPrice: z.string().nullable(),
 	updatedAt: z.string(),
 });
 
@@ -7251,6 +7368,7 @@ const getModelStats = createRoute({
 				offset: z.coerce.number().min(0).default(0).optional(),
 				from: z.string().optional(),
 				to: z.string().optional(),
+				...catalogFilterQueryShape,
 			})
 			.superRefine(requireCatalogUsageDateRange),
 	},
@@ -7336,6 +7454,7 @@ admin.openapi(getModelStats, async (c) => {
 					"cachedCount",
 				),
 				avgTimeToFirstToken: avgEffectiveTtftSql(mh).as("avgTimeToFirstToken"),
+				throughput: avgThroughputSql(mh).as("throughput"),
 				totalTokens:
 					sql<number>`COALESCE(SUM(CAST(${mh.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
@@ -7366,28 +7485,6 @@ admin.openapi(getModelStats, async (c) => {
 			.groupBy(tables.modelProviderMapping.modelId)
 			.as("provider_count_sub");
 
-		const pricingSub = db
-			.select({
-				modelId: tables.modelProviderMapping.modelId,
-				inputPrice:
-					sql<string>`MIN(${tables.modelProviderMapping.inputPrice})`.as(
-						"input_price",
-					),
-				outputPrice:
-					sql<string>`MIN(${tables.modelProviderMapping.outputPrice})`.as(
-						"output_price",
-					),
-				requestPrice:
-					sql<string>`MIN(${tables.modelProviderMapping.requestPrice})`.as(
-						"request_price",
-					),
-			})
-			.from(tables.modelProviderMapping)
-			.where(eq(tables.modelProviderMapping.status, "active"))
-			.groupBy(tables.modelProviderMapping.modelId)
-			.as("pricing_sub");
-
-		const orderFn = sortOrderVal === "asc" ? asc : desc;
 		const sortColumnMap = {
 			name: tables.model.name,
 			family: tables.model.family,
@@ -7404,16 +7501,33 @@ admin.openapi(getModelStats, async (c) => {
 				mode === "total"
 					? sql`COALESCE(${modelAggSub.avgTimeToFirstToken}, ${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`
 					: modelAggSub.avgTimeToFirstToken,
+			throughput: modelAggSub.throughput,
 			providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
 			updatedAt: tables.model.updatedAt,
 		} as const;
 
 		const sortColumn = sortColumnMap[sortBy];
 
+		const rowsWhereClause = and(
+			whereClause,
+			catalogFilterClause(query, {
+				status: tables.model.status,
+				logsCount: modelAggSub.logsCount,
+				clientErrorsCount: modelAggSub.clientErrorsCount,
+				gatewayErrorsCount: modelAggSub.gatewayErrorsCount,
+				upstreamErrorsCount: modelAggSub.upstreamErrorsCount,
+				cost: modelAggSub.totalCost,
+				inputTokens: modelAggSub.inputTokens,
+				cachedTokens: modelAggSub.cachedTokens,
+				outputTokens: modelAggSub.outputTokens,
+			}),
+		);
+
 		const countQuery = db
 			.select({ count: sql<number>`COUNT(*)`.as("count") })
 			.from(tables.model)
-			.where(whereClause);
+			.leftJoin(modelAggSub, eq(tables.model.id, modelAggSub.modelId))
+			.where(rowsWhereClause);
 
 		const totalsQuery = db
 			.select({
@@ -7465,6 +7579,9 @@ admin.openapi(getModelStats, async (c) => {
 						? sql`COALESCE(${modelAggSub.avgTimeToFirstToken}, ${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`
 						: modelAggSub.avgTimeToFirstToken
 				}`.as("avgTimeToFirstToken"),
+				throughput: sql<number | null>`${modelAggSub.throughput}`.as(
+					"throughput",
+				),
 				providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 					"providerCount",
 				),
@@ -7475,9 +7592,6 @@ admin.openapi(getModelStats, async (c) => {
 					"totalCost",
 				),
 				...tokenBreakdownFromSub(modelAggSub),
-				inputPrice: pricingSub.inputPrice,
-				outputPrice: pricingSub.outputPrice,
-				requestPrice: pricingSub.requestPrice,
 				updatedAt: tables.model.updatedAt,
 			})
 			.from(tables.model);
@@ -7495,9 +7609,8 @@ admin.openapi(getModelStats, async (c) => {
 					providerCountSub,
 					eq(tables.model.id, providerCountSub.modelId),
 				)
-				.leftJoin(pricingSub, eq(tables.model.id, pricingSub.modelId))
-				.where(whereClause)
-				.orderBy(orderFn(sortColumn), asc(tables.model.id))
+				.where(rowsWhereClause)
+				.orderBy(orderNullsLast(sortColumn, sortOrderVal), asc(tables.model.id))
 				.limit(limit)
 				.offset(offset),
 		]);
@@ -7521,13 +7634,11 @@ admin.openapi(getModelStats, async (c) => {
 				upstreamErrorsCount: Number(r.upstreamErrorsCount ?? 0),
 				cachedCount: Number(r.cachedCount ?? 0),
 				avgTimeToFirstToken: r.avgTimeToFirstToken,
+				throughput: r.throughput,
 				providerCount: Number(r.providerCount ?? 0),
 				totalTokens: Number(r.totalTokens ?? 0),
 				totalCost: Number(r.totalCost ?? 0),
 				...toTokenBreakdown(r),
-				inputPrice: r.inputPrice ?? null,
-				outputPrice: r.outputPrice ?? null,
-				requestPrice: r.requestPrice ?? null,
 				updatedAt: r.updatedAt.toISOString(),
 			})),
 			total,
@@ -7548,31 +7659,25 @@ admin.openapi(getModelStats, async (c) => {
 		.groupBy(tables.modelProviderMapping.modelId)
 		.as("provider_count_sub");
 
-	const pricingSub = db
-		.select({
-			modelId: tables.modelProviderMapping.modelId,
-			inputPrice:
-				sql<string>`MIN(${tables.modelProviderMapping.inputPrice})`.as(
-					"input_price",
-				),
-			outputPrice:
-				sql<string>`MIN(${tables.modelProviderMapping.outputPrice})`.as(
-					"output_price",
-				),
-			requestPrice:
-				sql<string>`MIN(${tables.modelProviderMapping.requestPrice})`.as(
-					"request_price",
-				),
-		})
-		.from(tables.modelProviderMapping)
-		.where(eq(tables.modelProviderMapping.status, "active"))
-		.groupBy(tables.modelProviderMapping.modelId)
-		.as("pricing_sub");
+	const rowsWhereClause = and(
+		whereClause,
+		catalogFilterClause(query, {
+			status: tables.model.status,
+			logsCount: tables.model.logsCount,
+			clientErrorsCount: tables.model.clientErrorsCount,
+			gatewayErrorsCount: tables.model.gatewayErrorsCount,
+			upstreamErrorsCount: tables.model.upstreamErrorsCount,
+			cost: sql`0`,
+			inputTokens: sql`0`,
+			cachedTokens: sql`0`,
+			outputTokens: sql`0`,
+		}),
+	);
 
 	const [countResult] = await db
 		.select({ count: sql<number>`COUNT(*)`.as("count") })
 		.from(tables.model)
-		.where(whereClause);
+		.where(rowsWhereClause);
 
 	const total = Number(countResult?.count ?? 0);
 
@@ -7591,6 +7696,7 @@ admin.openapi(getModelStats, async (c) => {
 		upstreamErrorsCount: tables.model.upstreamErrorsCount,
 		cachedCount: tables.model.cachedCount,
 		avgTimeToFirstToken: sql`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`,
+		throughput: sql`0`,
 		providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
 		updatedAt: tables.model.updatedAt,
 	} as const;
@@ -7619,15 +7725,11 @@ admin.openapi(getModelStats, async (c) => {
 			providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 				"providerCount",
 			),
-			inputPrice: pricingSub.inputPrice,
-			outputPrice: pricingSub.outputPrice,
-			requestPrice: pricingSub.requestPrice,
 			updatedAt: tables.model.updatedAt,
 		})
 		.from(tables.model)
 		.leftJoin(providerCountSub, eq(tables.model.id, providerCountSub.modelId))
-		.leftJoin(pricingSub, eq(tables.model.id, pricingSub.modelId))
-		.where(whereClause)
+		.where(rowsWhereClause)
 		.orderBy(orderFn(sortColumn), asc(tables.model.id))
 		.limit(limit)
 		.offset(offset);
@@ -7647,13 +7749,11 @@ admin.openapi(getModelStats, async (c) => {
 			upstreamErrorsCount: r.upstreamErrorsCount,
 			cachedCount: r.cachedCount,
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
+			throughput: null,
 			providerCount: Number(r.providerCount),
 			totalTokens: 0,
 			totalCost: 0,
 			...EMPTY_TOKEN_BREAKDOWN,
-			inputPrice: r.inputPrice ?? null,
-			outputPrice: r.outputPrice ?? null,
-			requestPrice: r.requestPrice ?? null,
 			updatedAt: r.updatedAt.toISOString(),
 		})),
 		total,
@@ -12095,10 +12195,8 @@ const modelProviderMappingEntrySchema = z.object({
 	cachedCount: z.number(),
 	cost: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
+	throughput: z.number().nullable(),
 	...tokenBreakdownShape,
-	inputPrice: z.string().nullable(),
-	outputPrice: z.string().nullable(),
-	contextSize: z.number().nullable(),
 	updatedAt: z.string(),
 });
 
@@ -12136,6 +12234,7 @@ const getModelProviderMappings = createRoute({
 						"upstreamErrorsCount",
 						"cost",
 						"avgTimeToFirstToken",
+						"throughput",
 						"updatedAt",
 					])
 					.optional(),
@@ -12145,6 +12244,7 @@ const getModelProviderMappings = createRoute({
 				mode: catalogUsageModeSchema.default("total").optional(),
 				from: z.string().optional(),
 				to: z.string().optional(),
+				...catalogFilterQueryShape,
 			})
 			.superRefine(requireCatalogUsageDateRange),
 	},
@@ -12260,6 +12360,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					avgTimeToFirstToken: avgEffectiveTtftSql(mappingHistory.table).as(
 						"avgTimeToFirstToken",
 					),
+					throughput: avgThroughputSql(mappingHistory.table).as("throughput"),
 					cost: sql<number>`COALESCE(SUM(cast(${mappingHistory.table.totalCost} as double precision)), 0)`.as(
 						"cost",
 					),
@@ -12291,6 +12392,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
 						"avgTimeToFirstToken",
 					),
+					throughput: sql<number | null>`NULL::float`.as("throughput"),
 					// Cost and the token breakdown are only tracked in the history
 					// table, so they are only available when a date range is provided
 					// (mirrors the models list).
@@ -12353,7 +12455,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				},
 			]);
 
-	const orderFn = sortOrder === "asc" ? asc : desc;
 	const sortColumnMap = {
 		modelId: tables.modelProviderMapping.modelId,
 		providerId: tables.modelProviderMapping.providerId,
@@ -12364,16 +12465,36 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		upstreamErrorsCount: sql`COALESCE(${statsJoin.upstreamErrorsCount}, 0)`,
 		cost: sql`COALESCE(${statsJoin.cost}, 0)`,
 		avgTimeToFirstToken: statsJoin.avgTimeToFirstToken,
+		throughput: statsJoin.throughput,
 		updatedAt: tables.modelProviderMapping.updatedAt,
 	} as const;
 
 	const sortColumn = sortColumnMap[sortBy];
 
+	const rowsWhereClause = and(
+		whereClause,
+		catalogFilterClause(query, {
+			status: tables.modelProviderMapping.status,
+			logsCount: statsJoin.logsCount,
+			clientErrorsCount: statsJoin.clientErrorsCount,
+			gatewayErrorsCount: statsJoin.gatewayErrorsCount,
+			upstreamErrorsCount: statsJoin.upstreamErrorsCount,
+			cost: statsJoin.cost,
+			inputTokens: statsJoin.inputTokens,
+			cachedTokens: statsJoin.cachedTokens,
+			outputTokens: statsJoin.outputTokens,
+		}),
+	);
+
 	const [[countResult], [totalsResult], rows] = await Promise.all([
 		db
 			.select({ count: sql<number>`COUNT(*)`.as("count") })
 			.from(tables.modelProviderMapping)
-			.where(whereClause),
+			.leftJoin(
+				statsJoin,
+				eq(tables.modelProviderMapping.id, statsJoin.mappingId),
+			)
+			.where(rowsWhereClause),
 		totalsPromise,
 		db
 			.select({
@@ -12409,10 +12530,10 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				avgTimeToFirstToken: sql<
 					number | null
 				>`${statsJoin.avgTimeToFirstToken}`.as("avgTimeToFirstToken"),
+				throughput: sql<number | null>`${statsJoin.throughput}`.as(
+					"throughput",
+				),
 				...tokenBreakdownFromSub(statsJoin),
-				inputPrice: tables.modelProviderMapping.inputPrice,
-				outputPrice: tables.modelProviderMapping.outputPrice,
-				contextSize: tables.modelProviderMapping.contextSize,
 				updatedAt: tables.modelProviderMapping.updatedAt,
 			})
 			.from(tables.modelProviderMapping)
@@ -12424,8 +12545,11 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				statsJoin,
 				eq(tables.modelProviderMapping.id, statsJoin.mappingId),
 			)
-			.where(whereClause)
-			.orderBy(orderFn(sortColumn), asc(tables.modelProviderMapping.id))
+			.where(rowsWhereClause)
+			.orderBy(
+				orderNullsLast(sortColumn, sortOrder),
+				asc(tables.modelProviderMapping.id),
+			)
 			.limit(limit)
 			.offset(offset),
 	]);
@@ -12447,10 +12571,8 @@ admin.openapi(getModelProviderMappings, async (c) => {
 			cachedCount: Number(r.cachedCount ?? 0),
 			cost: Number(r.cost ?? 0),
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
+			throughput: r.throughput,
 			...toTokenBreakdown(r),
-			inputPrice: r.inputPrice,
-			outputPrice: r.outputPrice,
-			contextSize: r.contextSize,
 			updatedAt: r.updatedAt.toISOString(),
 		})),
 		total: Number(countResult?.count ?? 0),

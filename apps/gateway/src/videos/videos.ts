@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import {
-	CONTENT_FILTER_CLASSIFIER_PROVIDERS,
+	isContentFilterClassifierCompliant,
 	evaluateContentFilterWithClassifiers,
 } from "@/chat/tools/content-filter-classifier.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
@@ -4378,11 +4378,7 @@ async function evaluateVideoContentFilter(options: {
 	// Prompts must never reach a classifier's provider when the org's compliance
 	// policy excludes it.
 	const classifierAllowed = (classifier: ContentFilterClassifier) =>
-		!options.compliancePolicy ||
-		isProviderIdCompliant(
-			CONTENT_FILTER_CLASSIFIER_PROVIDERS[classifier],
-			options.compliancePolicy,
-		);
+		isContentFilterClassifierCompliant(classifier, options.compliancePolicy);
 	const plan = await resolveTieredContentFilterPlan(
 		options.organization,
 		options.providerId,
