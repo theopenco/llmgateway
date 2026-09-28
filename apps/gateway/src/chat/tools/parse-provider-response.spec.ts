@@ -1131,6 +1131,44 @@ describe("parseProviderResponse", () => {
 
 			expect(result.finishReason).toBe("refusal");
 		});
+
+		it("does not count errored anthropic web searches", () => {
+			const json = {
+				content: [
+					{
+						type: "web_search_tool_result",
+						tool_use_id: "srvtoolu_1",
+						content: [
+							{
+								type: "web_search_result",
+								url: "https://example.com",
+								title: "Example",
+							},
+						],
+					},
+					{
+						type: "web_search_tool_result",
+						tool_use_id: "srvtoolu_2",
+						content: {
+							type: "web_search_tool_result_error",
+							error_code: "max_uses_exceeded",
+						},
+					},
+					{ type: "text", text: "ok" },
+				],
+				stop_reason: "end_turn",
+				usage: { input_tokens: 100, output_tokens: 5 },
+			};
+
+			const result = parseProviderResponse(
+				"anthropic",
+				"claude-sonnet-5",
+				json,
+			);
+
+			expect(result.webSearchCount).toBe(1);
+			expect(result.annotations).toHaveLength(1);
+		});
 	});
 
 	describe("azure-anthropic", () => {

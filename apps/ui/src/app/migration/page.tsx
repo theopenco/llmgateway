@@ -82,7 +82,7 @@ const providerIcons: Record<string, React.ReactNode> = {
 export default async function MigrationPage() {
 	return (
 		<div>
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<section className="py-20 sm:py-28">
 				<div className="container mx-auto px-4 sm:px-6 lg:px-8">
 					<div className="mx-auto max-w-2xl text-center mb-16">

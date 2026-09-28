@@ -30,6 +30,10 @@ import type {
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
+import type {
+	EmailCategory,
+	NotificationCategory,
+} from "@llmgateway/shared/email-unsubscribe";
 import type { AlertAudience } from "@llmgateway/shared/organization-roles";
 import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
@@ -922,6 +926,64 @@ export const modelSurveyResponse = pgTable(
 			"model_survey_response_speed_score_check",
 			sql`${table.speedScore} >= 1 AND ${table.speedScore} <= 5`,
 		),
+	],
+);
+
+// Mirrors `notificationCategories` / `emailCategories` in
+// @llmgateway/shared/email-unsubscribe. They cannot be imported: drizzle-kit
+// loads this file directly and fails on any runtime import from a workspace
+// package. The assertions below fail the build if the lists ever drift.
+export const notificationTypes = [
+	"budget",
+	"model_retirement",
+	"provider_issue",
+	"model_available",
+	"compliance_downgrade",
+] as const;
+
+const emailCategories = [
+	...notificationTypes,
+	"marketing",
+	"credit_alerts",
+] as const;
+
+type SameKeys<A extends string, B extends string> = [A] extends [B]
+	? [B] extends [A]
+		? true
+		: never
+	: never;
+const assertSameNotificationTypes: SameKeys<
+	NotificationCategory,
+	(typeof notificationTypes)[number]
+> = true;
+void assertSameNotificationTypes;
+const assertSameEmailCategories: SameKeys<
+	EmailCategory,
+	(typeof emailCategories)[number]
+> = true;
+void assertSameEmailCategories;
+
+/**
+ * Address-level suppression list for the optional email categories. Keyed on
+ * the lowercased address rather than a user id because a recipient resolved by
+ * `resolveVerifiedOrgRecipient` can be `organization.billingEmail`, which need
+ * not belong to a user row. Rows deliberately outlive account deletion — a
+ * suppression list that forgets is not a suppression list.
+ */
+export const emailUnsubscribe = pgTable(
+	"email_unsubscribe",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		email: text().notNull(),
+		category: text({ enum: emailCategories }).notNull(),
+		source: text({ enum: ["one_click", "dashboard", "admin"] })
+			.notNull()
+			.default("one_click"),
+	},
+	(table) => [
+		unique().on(table.email, table.category),
+		index("email_unsubscribe_email_idx").on(table.email),
 	],
 );
 
@@ -2113,6 +2175,22 @@ export const API_ORIGINS = [
 
 export type ApiOrigin = (typeof API_ORIGINS)[number];
 
+export const LOG_ERROR_CATEGORIES = [
+	"account_review",
+	"account_disabled",
+	"authentication",
+	"permission",
+	"billing",
+	"rate_limit",
+	"concurrency_limit",
+	"validation",
+	"guardrail",
+	"upstream",
+	"gateway",
+] as const;
+
+export type LogErrorCategory = (typeof LOG_ERROR_CATEGORIES)[number];
+
 export const log = pgTable(
 	"log",
 	{
@@ -2176,6 +2254,7 @@ export const log = pgTable(
 		effort: text(),
 		responseFormat: json(),
 		hasError: boolean().default(false),
+		errorCategory: text().$type<LogErrorCategory>(),
 		errorDetails: json().$type<z.infer<typeof errorDetails>>(),
 		// Raw upstream error for stealth providers, whose public-facing
 		// errorDetails are redacted to hide the underlying platform. Internal
@@ -5368,6 +5447,26 @@ export const projectHourlyStats = pgTable(
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
 		cacheWriteTokens: decimal().notNull().default("0"),
+		// Latency. Sums plus their own sample counts, never a stored average: the
+		// live refresh accumulates slices with `col + excluded.col`. Summed over a
+		// whole project-hour these exceed int32, so the sums are bigint.
+		//
+		// `durationCount` is not the same thing as `requestCount`: a bucket
+		// aggregated before these columns existed carries a zero count, which is
+		// what lets the read side say "unknown" rather than "0 ms".
+		totalDuration: bigint({ mode: "number" }).notNull().default(0),
+		durationCount: integer().notNull().default(0),
+		// The TTFT column names match model_provider_mapping_history so
+		// avgEffectiveTtft() works on these rows unchanged — without the reasoning
+		// pair the tenant axis would report a different metric than the model axis
+		// for every reasoning model. Only streamed, non-cached, successful requests
+		// record either sample, hence the separate counts.
+		totalTimeToFirstToken: bigint({ mode: "number" }).notNull().default(0),
+		timeToFirstTokenCount: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -5436,6 +5535,15 @@ export const projectHourlyModelStats = pgTable(
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
 		cacheWriteTokens: decimal().notNull().default("0"),
+		// See project_hourly_stats: latency sums and their sample counts.
+		totalDuration: bigint({ mode: "number" }).notNull().default(0),
+		durationCount: integer().notNull().default(0),
+		totalTimeToFirstToken: bigint({ mode: "number" }).notNull().default(0),
+		timeToFirstTokenCount: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -5533,6 +5641,15 @@ export const projectHourlySourceStats = pgTable(
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
 		cacheWriteTokens: decimal().notNull().default("0"),
+		// See project_hourly_stats: latency sums and their sample counts.
+		totalDuration: bigint({ mode: "number" }).notNull().default(0),
+		durationCount: integer().notNull().default(0),
+		totalTimeToFirstToken: bigint({ mode: "number" }).notNull().default(0),
+		timeToFirstTokenCount: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -5642,6 +5759,15 @@ export const apiKeyHourlyStats = pgTable(
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
 		cacheWriteTokens: decimal().notNull().default("0"),
+		// See project_hourly_stats: latency sums and their sample counts.
+		totalDuration: bigint({ mode: "number" }).notNull().default(0),
+		durationCount: integer().notNull().default(0),
+		totalTimeToFirstToken: bigint({ mode: "number" }).notNull().default(0),
+		timeToFirstTokenCount: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -5794,6 +5920,15 @@ export const apiKeyHourlyModelStats = pgTable(
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
 		cacheWriteTokens: decimal().notNull().default("0"),
+		// See project_hourly_stats: latency sums and their sample counts.
+		totalDuration: bigint({ mode: "number" }).notNull().default(0),
+		durationCount: integer().notNull().default(0),
+		totalTimeToFirstToken: bigint({ mode: "number" }).notNull().default(0),
+		timeToFirstTokenCount: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -5879,6 +6014,15 @@ export const apiKeyHourlySourceStats = pgTable(
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
 		cacheWriteTokens: decimal().notNull().default("0"),
+		// See project_hourly_stats: latency sums and their sample counts.
+		totalDuration: bigint({ mode: "number" }).notNull().default(0),
+		durationCount: integer().notNull().default(0),
+		totalTimeToFirstToken: bigint({ mode: "number" }).notNull().default(0),
+		timeToFirstTokenCount: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -6532,14 +6676,6 @@ export const playgroundRealtimeHistory = pgTable(
 		index("playground_realtime_history_user_id_idx").on(table.userId),
 	],
 );
-
-export const notificationTypes = [
-	"budget",
-	"model_retirement",
-	"provider_issue",
-	"model_available",
-	"compliance_downgrade",
-] as const;
 
 export const organizationNotificationChannelKinds = ["slack"] as const;
 export type OrganizationNotificationChannelKind =

@@ -1054,6 +1054,22 @@ const requestCrewInvite = createRoute({
 	},
 });
 
+function describeListingFee(company: {
+	paymentStatus: "unpaid" | "paid";
+	paidAt: Date | null;
+	listingInviteCode: string | null;
+}): string {
+	if (company.paymentStatus === "unpaid") {
+		return airsideListingFeeRequired() ? "❌ Not paid" : "Not required";
+	}
+	if (company.listingInviteCode) {
+		return "✅ Waived (invite code)";
+	}
+	return company.paidAt
+		? `✅ Paid on ${company.paidAt.toISOString().slice(0, 10)}`
+		: "✅ Paid";
+}
+
 /**
  * Carriers get a shared channel with our team. There is no self-serve invite
  * API on our side yet, so the request lands in the same Discord channel as
@@ -1077,6 +1093,7 @@ airside.openapi(requestCrewInvite, async (c) => {
 		carriers: company.claims
 			.filter((claim) => claim.status !== "revoked")
 			.map((claim) => `${claim.providerId} (${claim.kind}, ${claim.status})`),
+		listingFee: describeListingFee(company),
 	});
 	return c.json({ email: user.email });
 });

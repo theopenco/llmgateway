@@ -33,7 +33,7 @@ export default function UseCasesIndexPage() {
 
 	return (
 		<>
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<div className="min-h-screen bg-background text-foreground pt-30">
 				<main className="container mx-auto px-4 py-8">
 					<div className="mx-auto max-w-5xl">

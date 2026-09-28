@@ -64,6 +64,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     steps:
       - name: Prepare
         run: |
@@ -90,6 +91,14 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}-${{ matrix.app }}
 
+      - name: Set up Turborepo Remote Cache
+        # Fork PRs get no OIDC token; they fall back to building cold.
+        if: vars.TURBO_TEAM != ''
+        continue-on-error: true
+        uses: vercel/setup-turborepo-remote-cache-action@v1.1.0
+        with:
+          team: ${{ vars.TURBO_TEAM }}
+
       - name: Build and conditionally push by digest
         id: build
         uses: docker/build-push-action@v7.4.0
@@ -103,6 +112,9 @@ jobs:
           outputs: ${{ github.event_name == 'pull_request' && 'type=image,push=false,load=true' || 'type=image,push-by-digest=true,name-canonical=true,push=true' }}
           cache-from: type=gha,scope=${{ matrix.app }}-${{ env.PLATFORM_PAIR }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}-${{ env.PLATFORM_PAIR }}
+          secret-envs: |
+            TURBO_TOKEN=TURBO_TOKEN
+            TURBO_TEAM=TURBO_TEAM
           build-args: |
             APP_VERSION=${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }}
 
@@ -184,6 +196,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     steps:
       - name: Prepare
         run: |
@@ -210,6 +223,14 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}-unified
 
+      - name: Set up Turborepo Remote Cache
+        # Fork PRs get no OIDC token; they fall back to building cold.
+        if: vars.TURBO_TEAM != ''
+        continue-on-error: true
+        uses: vercel/setup-turborepo-remote-cache-action@v1.1.0
+        with:
+          team: ${{ vars.TURBO_TEAM }}
+
       - name: Build and conditionally push by digest
         id: build
         uses: docker/build-push-action@v7.4.0
@@ -222,6 +243,9 @@ jobs:
           outputs: ${{ github.event_name == 'pull_request' && 'type=image,push=false,load=true' || 'type=image,push-by-digest=true,name-canonical=true,push=true' }}
           cache-from: type=gha,scope=unified-${{ env.PLATFORM_PAIR }}
           cache-to: type=gha,mode=max,scope=unified-${{ env.PLATFORM_PAIR }}
+          secret-envs: |
+            TURBO_TOKEN=TURBO_TOKEN
+            TURBO_TEAM=TURBO_TEAM
           build-args: |
             APP_VERSION=${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }}
 

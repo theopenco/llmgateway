@@ -58,6 +58,7 @@ import { fetchProvider } from "@/lib/fetch-provider.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
+import { markRequestLogged } from "@/lib/request-log-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import { assertSpendLimit, recordSpend } from "@/lib/spend-limit.js";
@@ -4624,6 +4625,7 @@ async function insertVideoClientErrorLog(options: {
 		upstreamResponse: null,
 		dataStorageCost: "0",
 	});
+	markRequestLogged();
 }
 
 videos.openapi(createVideo, async (c): Promise<any> => {

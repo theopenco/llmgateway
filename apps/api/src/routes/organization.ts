@@ -1727,7 +1727,7 @@ organization.openapi(downloadTransactionInvoice, async (c) => {
 				})
 			: null;
 
-	const pdf = generateInvoicePDF(
+	const pdf = await generateInvoicePDF(
 		buildInvoiceDataForTransaction(transaction, org, originalTransaction),
 	);
 

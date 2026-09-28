@@ -61,6 +61,7 @@ const SUGGESTED_QUESTIONS = [
 	"How do I get started with LLM Gateway?",
 	"Which models and providers are supported?",
 	"How does pricing and billing work?",
+	"How do refunds and invoices work?",
 ];
 
 // Phrases that signal the visitor wants a human rather than the AI assistant.
@@ -661,7 +662,7 @@ export function ChatSupport() {
 														controls={false}
 														plugins={{ code }}
 														linkSafety={linkSafety}
-														className="overflow-x-auto [&_pre]:overflow-x-auto [&_code]:break-all [&_ul]:pl-5 [&_ol]:pl-5"
+														className="overflow-x-auto [&_pre]:overflow-x-auto [&_code]:break-all [&_ul]:pl-5 [&_ol]:pl-5 dark:[&_pre]:[background-color:var(--shiki-dark-bg,transparent)]! dark:[&_pre_span]:[color:var(--shiki-dark,inherit)]!"
 													>
 														{content}
 													</Streamdown>

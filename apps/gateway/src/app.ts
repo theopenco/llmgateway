@@ -32,9 +32,11 @@ import { imagesRoute } from "./images/route.js";
 import { keyRoute } from "./key/route.js";
 import { backpressureMiddleware } from "./lib/backpressure.js";
 import { renderGatewayError } from "./lib/error-response.js";
+import { ExpectedHTTPException } from "./lib/expected-http-exception.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { orgRateLimitMiddleware } from "./middleware/org-rate-limit.js";
+import { rejectionLogMiddleware } from "./middleware/rejection-log.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { moderationsRoute } from "./moderations/route.js";
@@ -112,6 +114,7 @@ app.use("*", corsMiddleware);
 // Access-Control-* headers browser clients need to surface the 529, and
 // before the org limiter so pod protection costs no Redis/DB lookups.
 app.use("*", backpressureMiddleware);
+app.use("*", rejectionLogMiddleware);
 
 // Per-organization, per-path rate limiting plus the per-org in-flight
 // concurrency cap. Registered before the other request gates (content-type
@@ -188,6 +191,11 @@ app.onError((error, c) => {
 		// them at warn level instead of error to avoid alerting noise.
 		if (status === 502 || status === 503 || status === 504) {
 			logger.warn("Upstream gateway error", {
+				status,
+				message: error.message,
+			});
+		} else if (error instanceof ExpectedHTTPException) {
+			logger.warn("Expected server error", {
 				status,
 				message: error.message,
 			});

@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { BrandTile } from "@/components/brand-logos";
 import { ComparisonTable } from "@/components/ComparisonTable";
+import { DevPassPlanChangeNotice } from "@/components/DevPassPlanChangeNotice";
 import { Footer } from "@/components/Footer";
 import { GetDevPassButton } from "@/components/GetDevPassButton";
 import { Header } from "@/components/Header";
@@ -21,8 +22,8 @@ import type { Metadata } from "next";
 const BASE_URL = "https://devpass.llmgateway.io";
 const PAGE_PATH = "/claude-code-alternative";
 
-const TITLE = "Claude Code Alternative (2026): Keep the CLI, Skip the Caps";
-const DESCRIPTION = `DevPass keeps the Claude Code CLI and replaces the Max subscription: one key, 200+ models (Claude included) at provider rates, from $${DEV_PLAN_PRICES.lite}/mo. No weekly caps.`;
+const TITLE = "Claude Code Alternative (2026): Plans, Pricing, and Limits";
+const DESCRIPTION = `DevPass keeps the Claude Code CLI and replaces the Max subscription: one key for the live coding catalog at provider rates, from $${DEV_PLAN_PRICES.lite}/mo. Monthly and premium weekly limits apply.`;
 
 export const metadata: Metadata = {
 	title: { absolute: `${TITLE} | DevPass` },
@@ -41,100 +42,86 @@ export const metadata: Metadata = {
 	},
 };
 
-const FACTS_DATE = "July 13, 2026";
+const FACTS_DATE = "September 27, 2026";
 
 const painPoints = [
 	{
 		icon: Gauge,
-		title: "Weekly caps you can't see",
-		body: "Max plans stack a 5-hour rolling limit with two weekly ceilings — one across all models, another for the top models — and Anthropic doesn't publish the actual quotas. Hit one mid-sprint and you wait it out.",
+		title: "Different usage limits",
+		body: "Claude plans have five-hour and weekly limits, visible in Settings > Usage. Paid usage credits can keep work going after included limits. DevPass has its own monthly and premium weekly limits.",
 	},
 	{
 		icon: DollarSign,
-		title: "$100–$200/mo for one vendor",
-		body: "Max 5× is $100/mo and Max 20× is $200/mo, and every dollar of it is locked to Anthropic models. The moment you want a second model family, you're buying a second subscription.",
+		title: "Different subscription prices",
+		body: "Claude Pro includes Claude Code for $20/month. Max offers higher usage at $100 or $200/month. DevPass starts at $29/month; whether it saves money depends on the models and tokens you use.",
 	},
 	{
 		icon: Layers,
-		title: "One model family",
-		body: "No GPT-5.5 when you want a different reasoning style, no Gemini for long context, no GLM, Kimi or Qwen when cheap throughput would do. The subscription decides your stack for you.",
+		title: "Different model choices",
+		body: "Claude subscriptions bundle the Claude experience. DevPass provides a shared allowance across its live coding catalog, for tools that support its compatible APIs and endpoints.",
 	},
 ];
 
 const comparisonFeatures = [
 	{
-		label: "Starting price",
-		devpass: `$${DEV_PLAN_PRICES.lite}/mo (Lite)`,
-		competitor: "$100/mo (Max 5×)",
-		highlight: true,
+		label: "Monthly price",
+		devpass: "From $29 (Lite)",
+		competitor: "$20 Pro; $100 / $200 Max",
 	},
 	{
-		label: "Models available",
-		devpass: `${MARKETING_STATS.models} — Claude included`,
-		competitor: "Claude family only",
-		highlight: true,
+		label: "Model access",
+		devpass: "Live DevPass coding catalog",
+		competitor: "Claude subscription catalog",
 	},
 	{
-		label: "Usage you can see",
-		devpass: "Metered in real dollars, per request",
-		competitor: "Opaque 5×/20× multipliers",
-		highlight: true,
+		label: "Usage visibility",
+		devpass: "Per-request dollar costs",
+		competitor: "Settings > Usage and usage-credit costs",
 	},
 	{
-		label: "Weekly usage caps",
-		devpass: "None — dollar allowance (~3× plan price)",
-		competitor: "Two weekly caps + 5-hour window",
-		highlight: true,
+		label: "Included limits",
+		devpass: "Monthly allowance + premium weekly limits",
+		competitor: "Five-hour and weekly limits",
 	},
 	{
-		label: "Works with the Claude Code CLI",
-		devpass: true,
-		competitor: true,
+		label: "Paid overflow",
+		devpass: "Optional PAYG credits",
+		competitor: "Optional usage credits at API rates",
 	},
+	{ label: "Claude Code CLI", devpass: true, competitor: true },
 	{
-		label: "Works with DevPass Code, OpenCode, Cursor, Zed, Cline",
-		devpass: true,
-		competitor: false,
+		label: "Other coding tools",
+		devpass: "Compatible custom-endpoint clients",
+		competitor: "Supported Claude subscription integrations",
 	},
-	{
-		label: "Mix models mid-project",
-		devpass: true,
-		competitor: false,
-	},
-	{
-		label: "API compatibility",
-		devpass: "OpenAI + Anthropic compatible",
-		competitor: "Anthropic only",
-	},
+	{ label: "Claude web and mobile apps", devpass: false, competitor: true },
 ];
 
 const faqs = [
 	{
-		question: "What is the best Claude Code alternative?",
-		answer: `It depends on what you're trying to escape. If it's the Claude Max price, the weekly caps or the Anthropic-only catalog — but you like the Claude Code workflow — DevPass is built for exactly that: keep the CLI, point it at one key, and get 200+ models (Claude included) metered at provider rates from $${DEV_PLAN_PRICES.lite}/mo. If what you want is a different editor experience entirely, look at tools like Cursor instead.`,
-	},
-	{
-		question: "Can I keep using the Claude Code CLI with DevPass?",
+		question: "Can I keep Claude Code with DevPass?",
 		answer:
-			"Yes. Claude Code accepts a custom endpoint, so switching is two environment variables: set ANTHROPIC_BASE_URL to the DevPass endpoint and ANTHROPIC_AUTH_TOKEN to your DevPass key, then run claude as usual. No reinstall, no SDK changes. The /model picker lists the Claude models, and ANTHROPIC_MODEL points the same CLI at any of the other 200+.",
+			"Yes. Configure the documented DevPass endpoint and authentication variables in Claude Code, select a supported model, and test your workflow. Compatibility depends on the model and features used.",
 	},
 	{
-		question: "How much cheaper is DevPass than Claude Max?",
-		answer: `Claude Max costs $100/mo (5×) or $200/mo (20×) of an unpublished usage quota, Anthropic models only. DevPass plans are $${DEV_PLAN_PRICES.lite} (Lite), $${DEV_PLAN_PRICES.pro} (Pro) and $${DEV_PLAN_PRICES.max} (Max), and each includes roughly 3× its price in metered model usage at the providers' published rates — about $${getDevPlanCreditsLimit("lite")}, $${getDevPlanCreditsLimit("pro")} and $${getDevPlanCreditsLimit("max")} respectively — across 200+ models. Whether that's cheaper for you depends on your usage, but you can read your burn in real dollars instead of guessing at a multiplier.`,
-	},
-	{
-		question: "Does DevPass include Claude models?",
+		question: "Is DevPass cheaper than Claude?",
 		answer:
-			"Yes. Claude Opus, Sonnet and Haiku are all available through DevPass at Anthropic's published per-token rates, next to GPT-5.5, Gemini 3.1 Pro and 200+ other frontier and open-weight models — all under the same key.",
+			"Claude Pro starts at $20/month and includes Claude Code. Max is $100 or $200/month. DevPass starts at $29, with model usage metered in dollars. No fixed savings claim applies to every workload.",
 	},
 	{
-		question: "Does DevPass have weekly usage limits like Claude Max?",
+		question: "Does DevPass have weekly limits?",
 		answer:
-			"No. There are no 5-hour windows and no weekly caps. Each plan includes a monthly dollar allowance (about 3× the plan price) metered per request at provider rates. If you run through it, you can top up or move up a tier — you're never waiting for a timer to reset.",
+			"Yes. DevPass has a monthly allowance and separate premium weekly fair-use limits. Optional PAYG overflow costs extra. Daily caps and tighter premium weekly limits start October 15, 2026; new subscriptions also begin at a lower monthly allowance from that date.",
 	},
 	{
-		question: "What about Claude Pro at $20/mo?",
-		answer: `Claude Pro includes Claude Code access, but with a small usage quota that serious daily coding work outgrows quickly — that's what the Max tiers are for. DevPass Lite at $${DEV_PLAN_PRICES.lite}/mo includes about $${getDevPlanCreditsLimit("lite")} of metered usage across every model, so it's the closer comparison for daily driving.`,
+		question: "Can Claude users continue after a limit?",
+		answer:
+			"Paid Claude plans can enable usage credits, billed separately at standard API rates, with configurable spend limits. Included session and weekly limits still apply to the subscription allowance.",
+	},
+	{
+		question: "When should I keep Claude Pro or Max?",
+		answer:
+			"Keep it if the included Claude usage fits your work and you value the bundled web, mobile, and coding experience. DevPass is useful when you want a coding allowance across a different catalog; it does not replace Claude’s consumer apps.",
 	},
 ];
 
@@ -212,8 +199,9 @@ export default function ClaudeCodeAlternativePage() {
 							You don&apos;t have to give up the CLI to give up the $100–$200/mo
 							Max subscription. DevPass is one key that runs{" "}
 							{MARKETING_STATS.models} models — Claude included — through Claude
-							Code or any agent you like, metered at provider rates from $
-							{DEV_PLAN_PRICES.lite}/mo. No weekly caps.
+							Code or another compatible agent, metered at provider rates from $
+							{DEV_PLAN_PRICES.lite}/mo. Monthly and premium weekly limits
+							apply.
 						</p>
 
 						<div className="mt-9 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
@@ -238,8 +226,8 @@ export default function ClaudeCodeAlternativePage() {
 							Why developers go looking for an alternative
 						</h2>
 						<p className="mx-auto mb-10 max-w-2xl text-center text-sm text-muted-foreground">
-							Claude Code the CLI is excellent. The complaints are almost always
-							about the subscription underneath it.
+							Compare the subscription, model access, and included limits
+							alongside the coding workflow you already use.
 						</p>
 						<div className="grid gap-4 sm:grid-cols-3">
 							{painPoints.map((point) => (
@@ -268,13 +256,11 @@ export default function ClaudeCodeAlternativePage() {
 								The short version
 							</p>
 							<p className="text-lg leading-relaxed text-foreground">
-								Most people searching for a Claude Code alternative don&apos;t
-								want to lose Claude Code — they want to lose the bill and the
-								caps. DevPass does exactly that: point the CLI you already use
-								at one key that meters {MARKETING_STATS.models} models, Claude
-								included, at the providers&apos; own published rates. Swap the
-								agent too if you want — <strong>DevPass Code</strong>, OpenCode,
-								Cursor, Zed and Cline all take the same key.
+								Keep Claude Pro or Max if its usage and bundled apps fit your
+								work. Choose DevPass for a monthly allowance across its live
+								coding catalog in compatible tools. Both have usage limits and
+								optional paid overflow; compare a representative workload before
+								switching.
 							</p>
 						</div>
 					</div>
@@ -284,18 +270,22 @@ export default function ClaudeCodeAlternativePage() {
 				<section className="px-4 pb-4">
 					<div className="container mx-auto max-w-4xl">
 						<h2 className="mb-2 text-2xl font-bold tracking-tight sm:text-3xl">
-							DevPass vs Claude Max at a glance
+							DevPass vs Claude subscriptions at a glance
 						</h2>
 						<p className="mb-6 text-sm text-muted-foreground">
 							Pricing and limits as of {FACTS_DATE} — always confirm current
-							details on anthropic.com.
+							details in the official sources below.
 						</p>
 						<ComparisonTable
-							competitor="Claude Max"
+							competitor="Claude Pro / Max"
 							competitorLogo="claude"
 							features={comparisonFeatures}
 						/>
 					</div>
+				</section>
+
+				<section className="container mx-auto max-w-4xl px-4 py-8">
+					<DevPassPlanChangeNotice />
 				</section>
 
 				{/* The math */}
@@ -305,12 +295,11 @@ export default function ClaudeCodeAlternativePage() {
 							What your money actually buys
 						</h2>
 						<p className="mb-8 max-w-3xl text-muted-foreground">
-							Claude Max sells multipliers of a quota Anthropic doesn&apos;t
-							publish. DevPass sells a number you can read: every plan includes
-							roughly 3× its price in model usage, metered per request at each
-							provider&apos;s published per-token rate. When Claude Opus is the
-							right tool you pay Anthropic&apos;s rate for it; when GLM or Qwen
-							will do, the same allowance stretches several times further.
+							As of {FACTS_DATE}, DevPass includes the monthly allowances below,
+							with separate premium weekly limits. Requests consume the
+							allowance at the selected model and provider rate. Claude Max
+							offers 5× or 20× the Pro usage allowance; that is not directly
+							convertible into a fixed number of tokens or DevPass dollars.
 						</p>
 						<div className="grid gap-4 sm:grid-cols-3">
 							{planMath.map((plan) => (
@@ -364,10 +353,10 @@ export default function ClaudeCodeAlternativePage() {
 						<div className="space-y-4 text-muted-foreground">
 							<p>
 								<strong className="text-foreground">
-									You only ever use Claude models and rarely hit the caps.
+									Your work fits the Claude catalog and allowance.
 								</strong>{" "}
-								If Opus and Sonnet are your whole stack and your usage fits the
-								quota, Max&apos;s flat, no-meter feel is genuinely pleasant.
+								If the Claude catalog covers your work and usage fits the
+								allowance, the bundled subscription can offer good value.
 							</p>
 							<p>
 								<strong className="text-foreground">
@@ -405,6 +394,41 @@ export default function ClaudeCodeAlternativePage() {
 					</div>
 				</section>
 
+				<section className="container mx-auto max-w-3xl px-4 py-8 text-sm text-muted-foreground">
+					<h2 className="font-semibold text-foreground">Official sources</h2>
+					<ul className="mt-3 space-y-2">
+						<li>
+							<Link
+								className="underline underline-offset-4"
+								href="https://claude.com/pricing"
+							>
+								Claude plan pricing
+							</Link>
+						</li>
+						<li>
+							<Link
+								className="underline underline-offset-4"
+								href="https://support.claude.com/en/articles/11647753-how-do-usage-and-length-limits-work"
+							>
+								Claude usage limits
+							</Link>
+						</li>
+						<li>
+							<Link
+								className="underline underline-offset-4"
+								href="https://support.claude.com/en/articles/12429409-manage-usage-credits-for-paid-claude-plans"
+							>
+								Paid usage credits and spend controls
+							</Link>
+						</li>
+						<li>
+							<Link className="underline underline-offset-4" href="/pricing">
+								DevPass pricing and limits
+							</Link>
+						</li>
+					</ul>
+				</section>
+
 				{/* FAQ */}
 				<section className="px-4 py-16">
 					<div className="container mx-auto max-w-3xl">
@@ -439,9 +463,8 @@ export default function ClaudeCodeAlternativePage() {
 							Keep the CLI. Swap the subscription.
 						</h2>
 						<p className="mb-8 text-muted-foreground">
-							Start on Pro — most developers ship from there. An instant upgrade
-							brings the new allowance right away and rolls your unused credits
-							on top.
+							Choose a plan that fits your monthly usage and review its premium
+							limits before subscribing.
 						</p>
 						<div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
 							<GetDevPassButton

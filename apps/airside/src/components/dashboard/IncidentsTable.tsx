@@ -186,7 +186,8 @@ function ErrorDetails({
 		<div className="space-y-4 p-4">
 			<p className="text-muted-foreground font-mono text-[0.65rem] tracking-[0.2em] uppercase">
 				Top {errors.length} error shape{errors.length === 1 ? "" : "s"} ·{" "}
-				{formatCompact(data?.sampledErrors ?? 0)} errors sampled
+				{formatCompact(data?.sampledErrors ?? 0)} error
+				{data?.sampledErrors === 1 ? "" : "s"} sampled
 			</p>
 			{groups.map((group) => (
 				<div key={group.label} className="space-y-2">

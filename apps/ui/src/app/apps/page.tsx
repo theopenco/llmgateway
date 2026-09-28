@@ -90,7 +90,7 @@ export default async function AppsPage() {
 	return (
 		<div className="min-h-screen bg-background text-foreground">
 			<main>
-				<HeroRSC navbarOnly />
+				<HeroRSC />
 
 				<section className="relative overflow-hidden pt-36 md:pt-44 pb-12">
 					<div

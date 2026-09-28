@@ -563,8 +563,9 @@ export async function notifyAirsideCrewInvite(args: {
 	email: string;
 	website?: string | null;
 	carriers: string[];
+	listingFee: string;
 }): Promise<void> {
-	const { companyName, email, website, carriers } = args;
+	const { companyName, email, website, carriers, listingFee } = args;
 
 	await sendDiscordNotification(
 		{
@@ -579,6 +580,7 @@ export async function notifyAirsideCrewInvite(args: {
 						...(website
 							? [{ name: "Website", value: website, inline: false }]
 							: []),
+						{ name: "Listing fee", value: listingFee, inline: true },
 						{
 							name: "Carriers",
 							value: carriers.length > 0 ? carriers.join("\n") : "None yet",

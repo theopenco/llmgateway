@@ -952,6 +952,11 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 		const isHighVolume = org?.plan === "enterprise";
 		const isMedVolume = org?.plan === "pro";
 		const numHours = isHighVolume ? 720 : isMedVolume ? 360 : 72;
+		// A project's latency is a property of what it runs, so it gets one
+		// baseline and hourly wobble around it. Redrawing it per hour would make
+		// every series on the load chart the same white noise.
+		const baseDurationMs = randomInt(900, 7000);
+		const baseTtftMs = randomInt(180, 900);
 		for (let h = 0; h < numHours; h++) {
 			const hourTs = hoursAgo(h);
 			hourTs.setMinutes(0, 0, 0);
@@ -969,6 +974,10 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 			const totalCost = baseRequests * costPerReq;
 			const creditsReqCount = Math.floor(baseRequests * 0.6);
 			const apiKeysReqCount = baseRequests - creditsReqCount;
+			const avgDurationMs = Math.round(
+				baseDurationMs * randomFloat(0.75, 1.35),
+			);
+			const avgTtftMs = Math.round(baseTtftMs * randomFloat(0.8, 1.3));
 
 			stats.push({
 				id: `phs-${statIdx}`,
@@ -993,6 +1002,12 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 				totalTokens: String(inputTokens + outputTokens),
 				reasoningTokens: String(randomInt(0, Math.floor(outputTokens * 0.3))),
 				cachedTokens: String(randomInt(0, Math.floor(inputTokens * 0.2))),
+				totalDuration: baseRequests * avgDurationMs,
+				durationCount: baseRequests,
+				// Only streamed requests record a first-token time, which is what
+				// makes the seeded TTFT denominator differ from requestCount.
+				totalTimeToFirstToken: streamedCount * avgTtftMs,
+				timeToFirstTokenCount: streamedCount,
 				cost: Number(totalCost.toFixed(4)),
 				inputCost: Number((totalCost * 0.4).toFixed(4)),
 				outputCost: Number((totalCost * 0.5).toFixed(4)),
@@ -1013,6 +1028,13 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 		}
 	}
 	return stats;
+}
+
+// Bigger models are slower. Derived from the model's own price so the seeded
+// latency ranking matches the seeded cost ranking instead of contradicting it.
+function modelBaseDurationMs(modelDef: { outputPrice: number }): number {
+	const priceComponent = modelDef.outputPrice * 80_000;
+	return 900 + priceComponent;
 }
 
 function generateProjectHourlyModelStats(projects: ProjectDef[]) {
@@ -1040,6 +1062,11 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 				const errCount = secureRandom() < 0.1 ? randomInt(1, 3) : 0;
 				const inputTok = reqCount * randomInt(100, 1500);
 				const outputTok = reqCount * randomInt(50, 1000);
+				const streamedReqs = Math.floor(reqCount * 0.6);
+				const avgDurationMs = Math.round(
+					modelBaseDurationMs(modelDef) * randomFloat(0.75, 1.35),
+				);
+				const avgTtftMs = randomInt(180, 900);
 				/* eslint-disable no-mixed-operators */
 				const costVal =
 					(inputTok / 1000) * modelDef.inputPrice +
@@ -1071,6 +1098,10 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 					totalTokens: String(inputTok + outputTok),
 					reasoningTokens: "0",
 					cachedTokens: "0",
+					totalDuration: reqCount * avgDurationMs,
+					durationCount: reqCount,
+					totalTimeToFirstToken: streamedReqs * avgTtftMs,
+					timeToFirstTokenCount: streamedReqs,
 					cost: Number(costVal.toFixed(6)),
 					inputCost: Number(
 						((inputTok / 1000) * modelDef.inputPrice).toFixed(6),

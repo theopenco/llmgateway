@@ -164,7 +164,7 @@ export const Navbar = ({
 		{
 			title: "AI Gateway",
 			href: "/products/ai-gateway",
-			description: `Route requests to ${MARKETING_STATS.models} LLMs through a single, unified API endpoint.`,
+			description: `Route requests to ${MARKETING_STATS.models} models through one API.`,
 			icon: Network,
 			gradient:
 				"hover:from-violet-500/20 hover:to-purple-600/30 hover:shadow-violet-500/10 group-hover/product:text-violet-500 dark:group-hover/product:text-violet-400",
@@ -173,7 +173,7 @@ export const Navbar = ({
 			title: "DevPass",
 			href: "/products/devpass",
 			description:
-				"Fixed-price monthly plans for Claude Code, Cursor, and every coding tool.",
+				"Fixed-price monthly plans for Claude Code, Cursor chat and other tools that accept a custom OpenAI or Anthropic URL.",
 			icon: Code,
 			gradient:
 				"hover:from-indigo-500/20 hover:to-blue-600/30 hover:shadow-indigo-500/10 group-hover/product:text-indigo-500 dark:group-hover/product:text-indigo-400",
@@ -182,7 +182,7 @@ export const Navbar = ({
 			title: "Lounge",
 			href: "/products/lounge",
 			description:
-				"Every frontier model in one chat — plus image, video and audio studios.",
+				"Frontier models from OpenAI, Anthropic, Google and xAI in one chat (full lineup on Plus and Pro), plus image, video and audio studios.",
 			icon: MessagesSquare,
 			gradient:
 				"hover:from-blue-500/20 hover:to-cyan-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",
@@ -210,7 +210,7 @@ export const Navbar = ({
 			title: "Enterprise",
 			href: "/enterprise",
 			description:
-				"Custom billing, extended retention, and priority support for teams.",
+				"Custom billing, SSO, guardrails and priority support for teams.",
 			icon: Building2,
 			gradient:
 				"hover:from-blue-500/20 hover:to-blue-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",
@@ -244,7 +244,7 @@ export const Navbar = ({
 			title: "Reliability",
 			href: "/reliability",
 			description:
-				"Automatic failover and 99.9999% effective uptime across providers.",
+				"Automatic failover to another provider, for models with more than one, when one errors or times out.",
 			icon: ShieldCheck,
 			gradient:
 				"hover:from-emerald-500/20 hover:to-teal-600/30 hover:shadow-emerald-500/10 group-hover/product:text-emerald-500 dark:group-hover/product:text-emerald-400",
@@ -253,7 +253,7 @@ export const Navbar = ({
 			title: "Guardrails",
 			href: "/features/guardrails",
 			description:
-				"Protect your AI with content moderation and safety filters.",
+				"Enterprise: flag PII, secrets and common prompt-injection phrases before a provider sees them.",
 			icon: Shield,
 			gradient:
 				"hover:from-rose-500/20 hover:to-red-600/30 hover:shadow-rose-500/10 group-hover/product:text-rose-500 dark:group-hover/product:text-rose-400",
@@ -269,7 +269,7 @@ export const Navbar = ({
 		{
 			title: "Partners",
 			href: "/partners",
-			description: "The inference partners powering the gateway.",
+			description: "Our inference partner program, starting with SCX.ai.",
 			icon: Handshake,
 			gradient:
 				"hover:from-teal-500/20 hover:to-emerald-600/30 hover:shadow-teal-500/10 group-hover/product:text-teal-500 dark:group-hover/product:text-teal-400",
@@ -318,7 +318,7 @@ export const Navbar = ({
 		{
 			title: "Token Cost Calculator",
 			href: "/token-cost-calculator",
-			description: "Calculate your LLM token costs and savings instantly.",
+			description: "Estimate LLM token costs across providers.",
 			icon: Calculator,
 			gradient:
 				"hover:from-green-500/20 hover:to-emerald-600/30 hover:shadow-green-500/10 group-hover/product:text-green-500 dark:group-hover/product:text-green-400",
@@ -326,7 +326,7 @@ export const Navbar = ({
 		{
 			title: "Referral Program",
 			href: "/referrals",
-			description: "Earn 1% of LLM spending.",
+			description: "Earn 1% of what your referrals spend, as credits.",
 			icon: Gift,
 			gradient:
 				"hover:from-yellow-500/20 hover:to-amber-600/30 hover:shadow-yellow-500/10 group-hover/product:text-yellow-500 dark:group-hover/product:text-yellow-400",
@@ -344,7 +344,7 @@ export const Navbar = ({
 		{
 			title: "MCP Server",
 			href: "/mcp",
-			description: `Connect AI assistants to ${MARKETING_STATS.models} LLMs via MCP protocol.`,
+			description: "Connect AI assistants to LLM Gateway models over MCP.",
 			icon: Server,
 			gradient:
 				"hover:from-cyan-500/20 hover:to-blue-600/30 hover:shadow-cyan-500/10 group-hover/product:text-cyan-500 dark:group-hover/product:text-cyan-400",
@@ -352,7 +352,7 @@ export const Navbar = ({
 		{
 			title: "Agents",
 			href: "/agents",
-			description: "Pre-built AI agents with tool calling capabilities.",
+			description: "Open-source example agents, some with tool calling.",
 			icon: Bot,
 			gradient:
 				"hover:from-violet-500/20 hover:to-purple-600/30 hover:shadow-violet-500/10 group-hover/product:text-violet-500 dark:group-hover/product:text-violet-400",
@@ -369,7 +369,8 @@ export const Navbar = ({
 		{
 			title: "Agent Skills",
 			href: "https://github.com/theopenco/agent-skills",
-			description: "Skills for Claude Code and other AI agents.",
+			description:
+				"An image generation skill for Claude Code and other AI agents.",
 			icon: Sparkles,
 			gradient:
 				"hover:from-pink-500/20 hover:to-rose-600/30 hover:shadow-pink-500/10 group-hover/product:text-pink-500 dark:group-hover/product:text-pink-400",
@@ -386,7 +387,7 @@ export const Navbar = ({
 		{
 			title: "Guides",
 			href: "/guides",
-			description: "Integration and usage guides for every framework.",
+			description: "Setup guides for Claude Code, Cursor, Cline and more.",
 			icon: BookOpen,
 			gradient:
 				"hover:from-blue-500/20 hover:to-indigo-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",

@@ -255,24 +255,25 @@ export function parseProviderResponse(
 
 			// Extract web search citations from Anthropic response
 			// Anthropic returns web_search_tool_result blocks with content that includes source info
+			// Errored searches carry an object instead of an array and are not billed
 			const webSearchBlocks = contentBlocks.filter(
-				(block: any) => block.type === "web_search_tool_result",
+				(block: any) =>
+					block.type === "web_search_tool_result" &&
+					Array.isArray(block.content),
 			);
 			if (webSearchBlocks.length > 0) {
 				webSearchCount = webSearchBlocks.length;
 				// Extract citations from each web search result
 				for (const block of webSearchBlocks) {
-					if (block.content && Array.isArray(block.content)) {
-						for (const item of block.content) {
-							if (item.type === "web_search_result") {
-								annotations.push({
-									type: "url_citation",
-									url_citation: {
-										url: item.url ?? "",
-										title: item.title,
-									},
-								});
-							}
+					for (const item of block.content) {
+						if (item.type === "web_search_result") {
+							annotations.push({
+								type: "url_citation",
+								url_citation: {
+									url: item.url ?? "",
+									title: item.title,
+								},
+							});
 						}
 					}
 				}

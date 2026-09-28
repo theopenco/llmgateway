@@ -3,9 +3,10 @@
 	"compilerOptions": {
 		"baseUrl": ".",
 		"outDir": "./dist/",
+		"jsx": "react-jsx",
 		"paths": {
 			"@/*": ["./src/*"]
 		}
 	},
-	"include": ["./src/**/*.ts"]
+	"include": ["./src/**/*.ts", "./src/**/*.tsx"]
 }

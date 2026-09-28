@@ -33,7 +33,7 @@ export default async function EmbeddingModelsPage() {
 				description="Models that generate vector embeddings from text"
 				categoryFilter="embedding"
 			>
-				<HeroRSC navbarOnly sticky={false} />
+				<HeroRSC sticky={false} />
 			</AllModels>
 		</Suspense>
 	);
