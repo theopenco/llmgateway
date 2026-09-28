@@ -563,6 +563,25 @@ describe("Custom Provider", () => {
 	});
 
 	describe("Error cases - missing provider key", () => {
+		test("should return 400 in hybrid mode for custom/<model>", async () => {
+			await setupTestData({ mode: "hybrid", credits: "100.00" });
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${TEST_TOKEN}`,
+				},
+				body: JSON.stringify({
+					model: "custom/gpt-4o-mini",
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			expect((await res.json()).error.message).toContain("configured name");
+		});
+
 		test("should return 400 in api-keys mode when custom provider key not found", async () => {
 			await setupTestData({ mode: "api-keys" });
 
