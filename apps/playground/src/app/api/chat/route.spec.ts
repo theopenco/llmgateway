@@ -1,12 +1,13 @@
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { POST } from "./route";
 
 const fixture = vi.hoisted(() => ({
 	api: vi.fn(),
+	provider: vi.fn(),
 	model: undefined as MockLanguageModelV4 | undefined,
 }));
 vi.mock("next/headers", () => ({
@@ -20,7 +21,10 @@ vi.mock("@/lib/server-api", () => ({
 	fetchServerData: vi.fn(),
 }));
 vi.mock("@llmgateway/ai-sdk-provider", () => ({
-	createLLMGateway: () => ({ chat: () => fixture.model }),
+	createLLMGateway: (options: unknown) => {
+		fixture.provider(options);
+		return { chat: () => fixture.model };
+	},
 }));
 
 const usage = {
@@ -35,6 +39,7 @@ const usage = {
 
 beforeEach(() => {
 	fixture.api.mockReset();
+	fixture.provider.mockReset();
 	fixture.api.mockResolvedValue({
 		data: {
 			tools: [
@@ -94,7 +99,31 @@ function request(extra: Record<string, unknown> = {}) {
 	});
 }
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("Lounge connector chat", () => {
+	it.each(["192.0.2.1", undefined])(
+		"forwards the trusted IP to the SDK: %s",
+		async (ip) => {
+			vi.stubEnv("CLIENT_IP_HEADER", "X-Client-Ip");
+			vi.stubEnv("GATEWAY_BACKEND_URL", "http://localhost:4301");
+			const req = request();
+			req.headers.set("x-forwarded-for", "198.51.100.1");
+			if (ip) {
+				req.headers.set("x-client-ip", ip);
+			}
+			await (await POST(req)).text();
+			expect(fixture.provider).toHaveBeenCalledWith(
+				expect.objectContaining({
+					baseURL: "http://localhost:4301/v1",
+					headers: {
+						"x-source": "lounge.llmgateway.io",
+						...(ip ? { "x-client-ip": ip } : {}),
+					},
+				}),
+			);
+		},
+	);
 	it("streams an approval request without executing the tool", async () => {
 		const response = await POST(request());
 		expect(response.status).toBe(200);

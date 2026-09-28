@@ -2,6 +2,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { getGatewayUrl } from "@/utils/playground-key.js";
 
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -95,6 +96,7 @@ interface EmbeddingResponse {
 export async function embedTexts(
 	token: string,
 	texts: string[],
+	headers?: Headers,
 ): Promise<number[][]> {
 	const embeddings: number[][] = [];
 
@@ -105,6 +107,7 @@ export async function embedTexts(
 			headers: {
 				authorization: `Bearer ${token}`,
 				"content-type": "application/json",
+				...forwardedIpHeaders(headers),
 				"x-source": LOUNGE_SOURCE,
 			},
 			body: JSON.stringify({ model: EMBEDDING_MODEL, input: batch }),

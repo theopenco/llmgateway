@@ -9,6 +9,10 @@ import { getConfig } from "@/lib/config-server";
 import { getUser } from "@/lib/getUser";
 
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
+import {
+	getGatewayBackendBaseUrl,
+	getGatewayPublicBaseUrl,
+} from "@llmgateway/shared/gateway-url";
 
 export const dynamic = "force-dynamic";
 
@@ -87,8 +91,19 @@ export async function GET(
 	// No timeout here: this streams the (potentially large) video body, and a
 	// fixed timeout would abort slow but healthy downloads mid-stream.
 	const rangeHeader = req.headers.get("Range");
-	const response = await fetch(sourceUrl, {
+	const contentUrl = new URL(sourceUrl);
+	const isGatewayContent =
+		contentUrl.origin === new URL(getGatewayPublicBaseUrl()).origin;
+	const upstreamUrl = isGatewayContent
+		? new URL(
+				`${contentUrl.pathname}${contentUrl.search}`,
+				`${getGatewayBackendBaseUrl()}/`,
+			).toString()
+		: sourceUrl;
+	const response = await fetch(upstreamUrl, {
+		redirect: "error",
 		headers: {
+			...(isGatewayContent ? forwardedIpHeaders(req.headers) : {}),
 			...(rangeHeader ? { Range: rangeHeader } : {}),
 		},
 		cache: "no-store",

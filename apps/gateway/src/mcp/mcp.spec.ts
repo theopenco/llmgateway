@@ -179,6 +179,7 @@ describe("MCP endpoint", () => {
 		vi.stubEnv("API_URL", "https://internal.example.com");
 		vi.stubEnv("GATEWAY_URL", "https://gateway.example.com");
 		vi.stubEnv("MCP_GATEWAY_URL", undefined);
+		vi.stubEnv("GATEWAY_BACKEND_URL", undefined);
 		await reset();
 	});
 	afterEach(async () => {
@@ -222,7 +223,7 @@ describe("MCP endpoint", () => {
 		{ name: "generate-nano-banana", arguments: { prompt: "a blue circle" } },
 	];
 
-	test.each(["MCP_GATEWAY_URL", "GATEWAY_URL"])(
+	test.each(["MCP_GATEWAY_URL", "GATEWAY_URL", "GATEWAY_BACKEND_URL"])(
 		"rejects non-HTTPS or invalid %s before generation requests",
 		async (variable) => {
 			await seedActiveKey();
@@ -412,6 +413,61 @@ describe("MCP endpoint", () => {
 			.where(eq(tables.apiKey.id, "token-id"));
 		expect((await rpc("tools/list")).status).toBe(401);
 	});
+
+	describe.each([undefined, "application/json, text/event-stream"])(
+		"MCP IP forwarding with Accept %s",
+		(accept) => {
+			test.each(["192.0.2.1", undefined])(
+				"preserves only the trusted IP: %s",
+				async (ip) => {
+					await seedActiveKey();
+					vi.stubEnv("CLIENT_IP_HEADER", "X-Client-Ip");
+					vi.stubEnv("GATEWAY_BACKEND_URL", "https://backend.example.com");
+					const upstream = vi
+						.spyOn(globalThis, "fetch")
+						.mockImplementation(
+							async () => new Response(null, { status: 503 }),
+						);
+					for (const params of [
+						...generationCalls,
+						{ name: "get-account", arguments: {} },
+						{ name: "get-usage", arguments: {} },
+						{ name: "get-usage-breakdown", arguments: { group_by: "model" } },
+					]) {
+						upstream.mockClear();
+						await app.request("/mcp", {
+							method: "POST",
+							headers: {
+								Authorization: "Bearer real-token",
+								"Content-Type": "application/json",
+								"x-forwarded-for": "198.51.100.1",
+								"x-real-ip": "198.51.100.2",
+								...(ip ? { "x-client-ip": ip } : {}),
+								...(accept ? { Accept: accept } : {}),
+							},
+							body: JSON.stringify({
+								jsonrpc: "2.0",
+								id: 1,
+								method: "tools/call",
+								params,
+							}),
+						});
+						expect(upstream, params.name).toHaveBeenCalledOnce();
+						const [url, init] = upstream.mock.calls[0];
+						const forwarded = new Headers(init?.headers);
+						expect(forwarded.get("x-client-ip")).toBe(ip ?? null);
+						expect(forwarded.get("x-forwarded-for")).toBeNull();
+						expect(forwarded.get("x-real-ip")).toBeNull();
+						if (!params.name.startsWith("get-")) {
+							expect(url).toBe(
+								"https://backend.example.com/v1/chat/completions",
+							);
+						}
+					}
+				},
+			);
+		},
+	);
 
 	test("preserves client attribution on generation calls", async () => {
 		await seedActiveKey();

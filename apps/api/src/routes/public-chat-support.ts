@@ -26,6 +26,7 @@ import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { and, db, desc, eq, isNull, tables } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 import { replyToEmail } from "@llmgateway/shared/email";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
@@ -555,6 +556,7 @@ publicChatSupport.post("/", async (c) => {
 		apiKey: supportApiKey,
 		baseURL: getGatewayApiBaseUrl(),
 		headers: {
+			...forwardedIpHeaders(c.req.raw.headers),
 			"x-source": "support-chat",
 		},
 	});
