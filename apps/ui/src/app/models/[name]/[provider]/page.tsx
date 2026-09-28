@@ -69,6 +69,12 @@ export default async function ModelProviderPage({ params }: PageProps) {
 			params: { query: { modelId: decodedName } },
 		}),
 	]);
+	// The provider fallback only depends on the route param, so start it before
+	// awaiting the model catalogue instead of chaining the two round-trips.
+	const staticProviderInfo = providerDefinitions.find(
+		(p) => p.id === decodedProvider,
+	);
+	const providersPromise = staticProviderInfo ? null : fetchProviders();
 	const modelDef = await findPublicModelDefinition(decodedName);
 
 	if (!modelDef) {
@@ -90,8 +96,8 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	const staticProviderMapping = getDefaultProviderMapping(providerMappings);
 
 	const providerInfo =
-		providerDefinitions.find((p) => p.id === decodedProvider) ??
-		((await fetchProviders()).find(
+		staticProviderInfo ??
+		((await providersPromise)?.find(
 			(provider) => provider.id === decodedProvider,
 		) as unknown as (typeof providerDefinitions)[number] | undefined);
 	const [discountData, ratingsData] = await modelDataPromise;
@@ -493,6 +499,12 @@ export async function generateMetadata({
 	const decodedName = decodeURIComponent(name);
 	const decodedProvider = decodeURIComponent(provider);
 
+	// Same as the page: start the fallback provider fetch before awaiting the
+	// model catalogue so the two round-trips run in parallel.
+	const staticProviderInfo = providerDefinitions.find(
+		(p) => p.id === decodedProvider,
+	);
+	const providersPromise = staticProviderInfo ? null : fetchProviders();
 	const model = await findPublicModelDefinition(decodedName);
 
 	if (!model) {
@@ -500,8 +512,8 @@ export async function generateMetadata({
 	}
 
 	const providerInfo =
-		providerDefinitions.find((p) => p.id === decodedProvider) ??
-		((await fetchProviders()).find(
+		staticProviderInfo ??
+		((await providersPromise)?.find(
 			(candidate) => candidate.id === decodedProvider,
 		) as unknown as (typeof providerDefinitions)[number] | undefined);
 	const providerName = providerInfo?.name ?? decodedProvider;

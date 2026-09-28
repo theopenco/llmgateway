@@ -1112,16 +1112,19 @@ export function LogDetailClient({
 											value={log.cost ? `$${log.cost.toFixed(8)}` : "$0"}
 											muted
 										/>
-										{log.discount && log.discount !== 1 && (
-											<Field
-												label="Discount"
-												value={
-													<span className="text-emerald-500">
-														{(log.discount * 100).toFixed(0)}% off
-													</span>
-												}
-											/>
-										)}
+										{log.discount !== null &&
+											log.discount !== undefined &&
+											log.discount > 0 &&
+											log.discount !== 1 && (
+												<Field
+													label="Discount"
+													value={
+														<span className="text-emerald-500">
+															{(log.discount * 100).toFixed(0)}% off
+														</span>
+													}
+												/>
+											)}
 										{log.routingBaselineCost !== null &&
 											log.routingBaselineCost !== undefined && (
 												<Field
