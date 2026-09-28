@@ -3,11 +3,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
+import { CatalogFiltersBar } from "@/components/catalog-filters";
 import { ModelsTable } from "@/components/models-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import { UsageModeSelector } from "@/components/usage-mode-selector";
+import { catalogFilterQuery, parseCatalogFilters } from "@/lib/catalog-filters";
 import {
 	CATALOG_PAGE_WINDOW_DEFAULT,
 	pageWindowOptionsWithMinutes,
@@ -56,14 +58,7 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 export default async function ModelsPage({
 	searchParams,
 }: {
-	searchParams?: Promise<{
-		page?: string;
-		search?: string;
-		sortBy?: string;
-		sortOrder?: string;
-		window?: string;
-		mode?: string;
-	}>;
+	searchParams?: Promise<Partial<Record<string, string>>>;
 }) {
 	await requireSession();
 
@@ -78,6 +73,8 @@ export default async function ModelsPage({
 	);
 	const usageMode = parseUsageMode(params?.mode);
 	const { from, to } = windowToFromTo(pageWindow);
+	const filters = parseCatalogFilters(params);
+	const filterQuery = catalogFilterQuery(filters);
 	const limit = 50;
 	const offset = (page - 1) * limit;
 
@@ -93,6 +90,7 @@ export default async function ModelsPage({
 				from,
 				to,
 				mode: usageMode,
+				...filters,
 			},
 		},
 	});
@@ -117,7 +115,7 @@ export default async function ModelsPage({
 		const windowParam = windowValue ? `&window=${windowValue}` : "";
 		const modeParam = modeValue === "total" ? "" : `&mode=${modeValue}`;
 		redirect(
-			`/models?page=1${searchParam}${sortParam}${windowParam}${modeParam}`,
+			`/models?page=1${searchParam}${sortParam}${windowParam}${modeParam}${filterQuery}`,
 		);
 	}
 	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
@@ -192,6 +190,10 @@ export default async function ModelsPage({
 				</Suspense>
 			</div>
 
+			<Suspense>
+				<CatalogFiltersBar filters={filters} />
+			</Suspense>
+
 			<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
 				<ModelsTable
 					models={data.models}
@@ -200,6 +202,7 @@ export default async function ModelsPage({
 					search={search}
 					pageWindow={pageWindow}
 					usageMode={usageMode}
+					filterQuery={filterQuery}
 				/>
 			</div>
 
@@ -212,7 +215,7 @@ export default async function ModelsPage({
 					<div className="flex items-center gap-2">
 						<Button variant="outline" size="sm" asChild disabled={page <= 1}>
 							<Link
-								href={`/models?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${modeParam}`}
+								href={`/models?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${modeParam}${filterQuery}`}
 								className={page <= 1 ? "pointer-events-none opacity-50" : ""}
 							>
 								<ChevronLeft className="h-4 w-4" />
@@ -229,7 +232,7 @@ export default async function ModelsPage({
 							disabled={page >= totalPages}
 						>
 							<Link
-								href={`/models?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${modeParam}`}
+								href={`/models?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${modeParam}${filterQuery}`}
 								className={
 									page >= totalPages ? "pointer-events-none opacity-50" : ""
 								}

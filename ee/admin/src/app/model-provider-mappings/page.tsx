@@ -3,11 +3,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
+import { CatalogFiltersBar } from "@/components/catalog-filters";
 import { MappingsTable } from "@/components/mappings-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import { UsageModeSelector } from "@/components/usage-mode-selector";
+import { catalogFilterQuery, parseCatalogFilters } from "@/lib/catalog-filters";
 import {
 	CATALOG_PAGE_WINDOW_DEFAULT,
 	pageWindowOptionsWithMinutes,
@@ -44,13 +46,7 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 export default async function ModelProviderMappingsPage({
 	searchParams,
 }: {
-	searchParams?: Promise<{
-		search?: string;
-		sortBy?: string;
-		sortOrder?: string;
-		window?: string;
-		mode?: string;
-	}>;
+	searchParams?: Promise<Partial<Record<string, string>>>;
 }) {
 	await requireSession();
 
@@ -64,6 +60,8 @@ export default async function ModelProviderMappingsPage({
 	);
 	const usageMode = parseUsageMode(params?.mode);
 	const { from, to } = windowToFromTo(pageWindow);
+	const filters = parseCatalogFilters(params);
+	const filterQuery = catalogFilterQuery(filters);
 
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/model-provider-mappings", {
@@ -77,6 +75,7 @@ export default async function ModelProviderMappingsPage({
 				from,
 				to,
 				mode: usageMode,
+				...filters,
 			},
 		},
 	});
@@ -114,7 +113,7 @@ export default async function ModelProviderMappingsPage({
 		const windowParam = windowValue ? `&window=${windowValue}` : "";
 		const modeParam = modeValue === "total" ? "" : `&mode=${modeValue}`;
 		redirect(
-			`/model-provider-mappings?sortBy=${sortBy}&sortOrder=${sortOrder}${searchParam}${windowParam}${modeParam}`,
+			`/model-provider-mappings?sortBy=${sortBy}&sortOrder=${sortOrder}${searchParam}${windowParam}${modeParam}${filterQuery}`,
 		);
 	}
 
@@ -186,6 +185,10 @@ export default async function ModelProviderMappingsPage({
 				</Suspense>
 			</div>
 
+			<Suspense>
+				<CatalogFiltersBar filters={filters} />
+			</Suspense>
+
 			<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
 				<MappingsTable
 					mappings={data.mappings}
@@ -194,6 +197,7 @@ export default async function ModelProviderMappingsPage({
 					search={search}
 					pageWindow={pageWindow}
 					usageMode={usageMode}
+					filterQuery={filterQuery}
 				/>
 			</div>
 		</div>

@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 
+import { ErrorBreakdownCell } from "@/components/error-breakdown";
 import { HistoryChart } from "@/components/history-chart";
 import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
@@ -74,6 +75,7 @@ function SortableHeader({
 	search,
 	pageWindow,
 	usageMode,
+	filterQuery,
 }: {
 	label: string;
 	sortKey: ModelSortBy;
@@ -82,6 +84,7 @@ function SortableHeader({
 	search: string;
 	pageWindow?: PageWindow;
 	usageMode: UsageMode;
+	filterQuery: string;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
@@ -89,7 +92,7 @@ function SortableHeader({
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
 	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
-	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}`;
+	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}${filterQuery}`;
 
 	return (
 		<Link
@@ -183,14 +186,14 @@ function ModelRow({
 							<p className="text-xs text-muted-foreground">{model.id}</p>
 						)}
 					</Link>
+					{model.status !== "active" && (
+						<Badge variant="outline" className="ml-2">
+							{model.status}
+						</Badge>
+					)}
 				</TableCell>
 				<TableCell>
 					<Badge variant="outline">{model.family}</Badge>
-				</TableCell>
-				<TableCell>
-					<Badge variant={model.status === "active" ? "secondary" : "outline"}>
-						{model.status}
-					</Badge>
 				</TableCell>
 				<TableCell>
 					{model.free ? (
@@ -222,8 +225,12 @@ function ModelRow({
 						<span className="text-muted-foreground">{"\u2014"}</span>
 					)}
 				</TableCell>
-				<TableCell className="tabular-nums">
-					{formatNumber(stability.errorsCount)}
+				<TableCell>
+					<ErrorBreakdownCell
+						errorsCount={stability.errorsCount}
+						upstreamErrorsCount={model.upstreamErrorsCount}
+						gatewayErrorsCount={model.gatewayErrorsCount}
+					/>
 				</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(model.clientErrorsCount)}
@@ -276,7 +283,7 @@ function ModelRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={17} className="p-4">
+					<TableCell colSpan={16} className="p-4">
 						<HistoryChart
 							title={`${model.name !== model.id ? model.name : model.id} — History`}
 							description="Request volume, errors, latency, and tokens over time"
@@ -297,6 +304,7 @@ export function ModelsTable({
 	search = "",
 	pageWindow,
 	usageMode = "total",
+	filterQuery = "",
 }: {
 	models: ModelStats[];
 	sortBy?: ModelSortBy;
@@ -304,6 +312,7 @@ export function ModelsTable({
 	search?: string;
 	pageWindow?: PageWindow;
 	usageMode?: UsageMode;
+	filterQuery?: string;
 }) {
 	const externalWindow = pageWindow ? toHistoryWindow(pageWindow) : undefined;
 
@@ -317,6 +326,7 @@ export function ModelsTable({
 				search={search}
 				pageWindow={pageWindow}
 				usageMode={usageMode}
+				filterQuery={filterQuery}
 			/>
 		</TableHead>
 	);
@@ -327,7 +337,6 @@ export function ModelsTable({
 				<TableRow>
 					{sh("Model", "name")}
 					{sh("Family", "family")}
-					{sh("Status", "status")}
 					{sh("Free", "free")}
 					{sh("Providers", "providerCount")}
 					{sh("Requests", "logsCount")}
@@ -348,7 +357,7 @@ export function ModelsTable({
 				{models.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={17}
+							colSpan={16}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No models found
