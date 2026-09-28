@@ -17,7 +17,6 @@
 	},
 	"dependencies": {
 		"@better-auth/passkey": "1.6.26",
-		"@fontsource-variable/plus-jakarta-sans": "5.3.0",
 		"@hookform/resolvers": "5.2.2",
 		"@llmgateway/ai-sdk-provider": "4.0.0",
 		"@llmgateway/models": "workspace:*",

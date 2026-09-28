@@ -22,7 +22,6 @@
 		"@better-auth/sso": "1.6.26",
 		"@content-collections/core": "0.15.0",
 		"@content-collections/next": "0.2.11",
-		"@fontsource-variable/plus-jakarta-sans": "5.3.0",
 		"@hookform/resolvers": "5.2.2",
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/models": "workspace:*",

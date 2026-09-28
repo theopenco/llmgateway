@@ -1,5 +1,4 @@
-import { Inter, Geist_Mono } from "next/font/google";
-import localFont from "next/font/local";
+import { Inter, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
@@ -28,12 +27,10 @@ const geistMono = Geist_Mono({
 	display: "swap",
 });
 
-// Self-hosted: Google intermittently serves this font's CSS in a shape that
-// fails the Turbopack build.
-const plusJakarta = localFont({
+const plusJakarta = Plus_Jakarta_Sans({
 	variable: "--font-display",
-	src: "../../node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2",
-	weight: "200 800",
+	subsets: ["latin"],
+	weight: ["500", "600", "700", "800"],
 	display: "swap",
 });
 
