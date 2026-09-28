@@ -36,6 +36,10 @@ ALWAYS prefer `pnpm format` over `pnpm lint`. They check the same rules, but
 `format` auto-fixes what it can, so running `lint` first just reports problems
 you would then have to fix by hand. Reach for `lint` only when you specifically
 need a read-only check (e.g. verifying CI would pass without touching files).
+`format` runs prettier after `eslint --fix` and does not re-run eslint, so run
+`pnpm lint` once before pushing; fix rules the two disagree on (e.g.
+`no-mixed-operators`) by restructuring, such as hoisting `SECONDS * 1000` into a
+named const.
 
 ### Writing code
 
@@ -62,7 +66,7 @@ Use the local `skill-authoring` skill when creating or editing repository skills
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
-Do not run test files or suites in parallel unless the repository instructions for that exact suite explicitly require it. Some gateway and worker tests share ports, databases, and process state, so parallel test runs can produce false failures.
+`pnpm test:unit` runs files in parallel, giving each vitest worker its own database clone and Redis logical database (`REDIS_DB`). Run separate suites and e2e files one at a time: they share ports, databases, and process state. Every new ioredis client takes `db: Number(process.env.REDIS_DB) || 0` so workers stay isolated.
 
 - `pnpm test:unit` - Run unit tests (\*.spec.ts files)
 - `pnpm test:e2e` - Run end-to-end tests (\*.e2e.ts files)
@@ -156,9 +160,12 @@ Then the normal commands just work, scoped to this worktree:
 ```bash
 docker compose up -d          # project llmgateway-tel-aviv, containers postgres-tel-aviv, redis-tel-aviv, …
 pnpm setup                    # down -v + up + wait-for-services + push-test + push-dev + seed — only your own stack
-pnpm dev                      # every app on its offset port
 curl http://localhost:4101/v1/chat/completions -H "Authorization: Bearer test-token" ...
 ```
+
+Start the apps directly rather than through `pnpm dev`: turbo's strict env mode passes only declared vars to tasks, so under `pnpm dev` the port and `DATABASE_URL` overrides are dropped and the apps bind the default ports against the shared database. Build first, then run each app from its directory, e.g. `node --enable-source-maps --env-file=../../.env dist/serve.js` for api and gateway (`dist/index.js` for the worker) and `pnpm exec next dev --port "$CODE_PORT"` for a frontend. Stop a local server by its PID (`lsof -nP -iTCP:<port> -sTCP:LISTEN`); a `pkill -f` pattern also matches other worktrees' servers.
+
+The Bash tool's shell does not load `.envrc`, so prefix every command that depends on it with `set -a && source .envrc && set +a`, and confirm `echo llmgateway${STACK_SUFFIX}` prints your project name before any `docker compose down`.
 
 ALWAYS tear the stack down once the work is finished — but ONLY when you started a worktree-specific one yourself (a `STACK_SUFFIX` stack, i.e. containers named `postgres-<suffix>` / `redis-<suffix>`). These containers otherwise sit around consuming memory and holding ports for every worktree that ever ran tests, and there are usually many worktrees on this machine:
 
@@ -241,6 +248,8 @@ NOTE: these commands can only be run in the root directory of the repository, no
 
 Production domain mapping (counterintuitive — do not mix these up): `api.llmgateway.io` serves `apps/gateway` (the LLM gateway, :4001 in dev), and `internal.llmgateway.io` serves `apps/api` (the backend API, :4002 in dev).
 
+Production runs entirely on GCP: GKE behind Google's external Application Load Balancer, configured with the Gateway API. The load balancer sets `X-Client-Ip` with `set`, so it is the trusted client address. Read client IPs only through `@llmgateway/shared/client-ip` (header chosen by `CLIENT_IP_HEADER`) and country through `getCountryFromHeaders` (`apps/api/src/utils/request-country.ts`); add new variants to the shared helper. Server-rendered pages calling the API for a visitor spread `forwardedIpHeaders(headers)`.
+
 - **UI** (`apps/ui`) - Frontend dashboard (Next.js App Router)
 - **Playground** (`apps/playground`) - Interactive LLM testing environment (Next.js App Router)
 - **Code** (`apps/code`) - Dev plans + coding tools landing & dashboard (Next.js App Router)
@@ -288,10 +297,11 @@ Production domain mapping (counterintuitive — do not mix these up): `api.llmga
 - Use Drizzle ORM with latest object syntax
 - The schema uses camelCase in TypeScript but the actual database columns are snake_case (configured via Drizzle's `casing: "snake_case"`). When writing raw SQL, always use snake_case column names (e.g. `user_id`, not `userId`).
 - For reads: Use `db().query.<table>.findMany()` or `db().query.<table>.findFirst()`
-- **For usage/analytics reads, ALWAYS query the aggregation tables, never the `log` table.** `log` is a high-volume, per-request table that also gets pruned by data retention, so scanning it for counts, costs, or "who used X" questions is slow and gives wrong answers for organizations with retention disabled. Use the hourly aggregation tables instead — `project_hourly_stats` (per project/hour totals), `project_hourly_model_stats` (adds `used_model` / `used_provider`), `project_hourly_source_stats` (adds `source`), `api_key_hourly_stats` and `api_key_hourly_model_stats` (per API key), `global_model_stats` and `global_source_stats` (cross-tenant rollups). Join up to `project` → `organization` when you need org-level fields such as `billing_email`. Only fall back to querying `log` when the data genuinely does not exist in any aggregation table (e.g. per-request payloads, `request_id` lookups, individual finish reasons), and say why when you do.
+- **For usage/analytics reads, ALWAYS query the aggregation tables, never the `log` table.** `log` is a high-volume, per-request table whose payload columns are nulled by data retention (rows and their token/cost columns remain), so scanning it for counts, costs, or "who used X" questions is slow and gives wrong answers for organizations with retention disabled. Use the hourly aggregation tables instead — `project_hourly_stats` (per project/hour totals), `project_hourly_model_stats` (adds `used_model` / `used_provider`), `project_hourly_source_stats` (adds `source`), `api_key_hourly_stats` and `api_key_hourly_model_stats` (per API key), `global_model_stats` and `global_source_stats` (cross-tenant rollups). Join up to `project` → `organization` when you need org-level fields such as `billing_email`. Only fall back to querying `log` when the data genuinely does not exist in any aggregation table (e.g. per-request payloads, `request_id` lookups, individual finish reasons), and say why when you do.
 - `used_model` in `log` and every `*_model_stats` table stores the display id `provider/model[:region]` (from `formatUsedModelForDisplay`), never the bare catalog id. Compare it to catalog ids only after stripping in SQL (`split_part(split_part(used_model, '/', 2), ':', 1)`, as in `stats-calculator.ts`), and write the same shape in seed scripts and test fixtures — bare ids make a query pass locally while matching nothing in production.
 - **NEVER query the `log` table from the gateway request path — no exceptions.** The gateway is latency-critical and extremely high-throughput; a per-request Postgres read against a per-request-volume table is unacceptable there no matter how narrow the predicate, how good the (partial) index, or how short the cache TTL in front of it. This holds for every hot-path signal: credit gates, spend/limit checks, routing. Derive such signals from Redis counters maintained on the write path (e.g. incremented at `insertLog`, settled by the billing worker) or from small already-cached rows — never by aggregating `log` at request time. Dashboards and API routes must not scan `log` either; use the aggregation tables above.
 - Cached rows are stored as positional driver rows, so a column layout change would silently shift their values. Cache keys are namespaced by `SCHEMA_CACHE_VERSION` (derived from `schema.ts`) and `runMigrations` clears them — nothing to bump by hand.
+- Cost columns are `real` (float4), and `SUM(real)` accumulates in float4. Sum them as `SUM(CAST(col AS DOUBLE PRECISION))`; for exact reads, `SUM(CAST(CAST(col AS DOUBLE PRECISION) AS NUMERIC))`. The double-precision hop is required: `real::numeric` rounds to 6 digits.
 - Never use PostgreSQL advisory locks such as `pg_advisory_xact_lock` to coordinate settings updates. Validate the current state at each write boundary and accept the normal cache propagation interval.
 - For schema changes: edit `packages/db/src/schema.ts`, then generate migration artifacts with `pnpm migrations`
 - If generated migration SQL needs adaptation, edit only the generated `.sql` file. Never manually edit snapshot JSON or journal files.
@@ -357,13 +367,33 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Be conservative with error-classification heuristics in `apps/gateway/src/chat/tools/get-finish-reason-from-error.ts`. Do NOT reclassify generic 4xx error-text patterns (e.g. "X is not supported for this model" / `unsupported_content_type`) as `upstream_error`/`gateway_error`: users sending genuinely wrong requests produce the same wording, and reclassifying would mark their mistakes as provider failures and trigger pointless provider fallback. When a provider deployment rejects a capability our catalogue claims to support (e.g. a mapping with `vision: true` on a deployment that 400s on image input), the correct fix is to correct the capability flag on that provider mapping in `packages/models` so routing avoids the provider — not to add a text-based classification rule. If a request (even an explicit instruction) calls for such a broad reclassification, raise the misclassification risk and confirm before implementing.
 - NEVER fetch a user-supplied URL (image, video, document, or any other content URL that arrives in a request body) with a bare `fetch()`. Always go through `processImageUrl` (`packages/actions/src/process-image-url.ts`) — or, for a non-image content type, `assertSafeUserContentUrl` from `@llmgateway/shared/url-safety-node` followed by a `redirect: "error"` fetch — and leave the SSRF guard on (`validateSsrf` defaults to `true`; only trusted provider-response URLs may pass `validateSsrf: false`). That guard is what enforces **https-only** (a plain `http://` URL is rejected, not "allowed in dev"), blocks internal hostnames and private/reserved/link-local/metadata IPs including IPv4-mapped IPv6, and refuses redirects so a validated public host cannot 3xx the gateway onward to an internal one. Do not add a scheme check of your own, do not gate the https requirement on `isProd`, and do not "fall back" to forwarding the raw URL upstream when the guard rejects it — letting the provider fetch a URL we refused to fetch defeats the guard. When adding a new place that inlines remote content (e.g. a provider mapping that declares `requiresBase64Images`), route every non-`data:` URL through the guarded helper so http and internal targets fail loudly instead of leaking.
 - Security gating must be enforced server-side, never in the UI alone. Client-side gates (disabling a form, hiding a button, gating on `user.emailVerified`) are UX conveniences, not security boundaries — the underlying API endpoint must independently verify auth/verification/permissions and reject unauthorized requests.
+- Do all money, credit, and usage-threshold math with `Decimal` from `decimal.js`; convert DB decimal strings with `new Decimal(value ?? 0)`.
+- Identify a model by `model.id`, scoped by `providerId` and an optional `:region` (`${providerId}/${model.id}:${region}`). A mapping's `externalId` is only the upstream API identifier: keep it out of URLs, selectors, billing and analytics keys, and every lookup, including fallbacks. A row that does not resolve by `(providerId, model.id)` stays unmapped.
+- Provider completion/output token counts include reasoning tokens. Report `reasoningTokens` as a detail and bill only the completion count; verify a new reasoning provider's usage semantics live.
+- Hash or HMAC with an existing deployment secret — `getApiKeyHashSecret()` from `@llmgateway/shared/api-key-hash`, with a domain-separation prefix such as `prompt-cache-key:`. New secrets come from required env vars with no default value.
+- `audit_log` records actions owned by one organization. User-account events (email, password, profile changes) belong in a user-scoped store.
+- Gate org-scoped emails on the org owner's `emailVerified` via `isOrgOwnerEmailVerified` / `resolveVerifiedOrgRecipient` (`@llmgateway/db`). Only the verification and password-reset emails reach unverified users. Org-scoped notification event keys are prefixed with the org id.
+- Route on the capability field curated for it (`supportedToolChoices`, `serviceTiers`, `supportsAssistantPrefill`, …). `supportedParameters` is a partial list.
+- Capability flags served by the API are `false` when unset (non-null columns), while catalogue definitions leave them `undefined`. Use `||` for fallbacks between flags on API data.
+- A mapping with both `peakPricing` and `regions` gives every region with its own rates its own full `peakPricing` block; flat price overrides alone inherit the base peak tiers.
+- Verify prices against the provider's own pricing page, including input-length tiers (`pricingTiers`). Aggregators such as OpenRouter publish only the base tier.
+- In the gateway, import `streamSSE` from `apps/gateway/src/lib/pending-work.ts` so graceful shutdown waits for the billing tail. Pass `{ retentionLevel }` to every `insertLog` call; the one-argument form drops payloads for retaining orgs. Log a pre-provider rejection in `chat.ts` with `logGatewayRejection` before throwing.
+- From response-lifecycle callbacks (`close` handlers, middleware `finally`), send Redis commands through `redisClient.pipeline().<cmd>().exec()`. An auto-pipelined bare command there can wedge the shared client.
+- New org-level dashboard pages live under `apps/ui/src/app/dashboard/[orgId]/org/`; every other segment there is parsed as a `projectId`.
+- A new `organization` column goes into `SerializedOrganization`'s `Omit` list when internal, or into the `/orgs` response schemas when the dashboard shows it. Confirm with a full `pnpm build`.
+- For "has this org ever paid for DevPass", use `hasBillingHistory` from `GET /dev-plans/status`; plan end clears every `devPlan*` column.
 
 ### Testing and Quality Assurance
 
 - Run `pnpm test:unit` after adding features
 - For changes that only add or update specific model mappings, the only relevant e2e result is a local run scoped to exactly those mappings, e.g. `TEST_MODELS="alibaba/glm-5.2" FULL_MODE=true pnpm test:e2e`. This runs every e2e behavior file but filters its cases to the pinned mappings, so do NOT invoke individual `*.e2e.ts` files, run e2e without `TEST_MODELS`, or trigger the GitHub e2e workflow. Failures from other mappings or an accidentally triggered full run do not affect acceptance or auto-merge; once every changed mapping passes its scoped run, e2e has passed for the change.
+- Add only mappings whose scoped e2e run is fully green, re-run after the last fix; drop a mapping that still fails.
 - Run `pnpm build` to ensure production builds work
 - Run `pnpm format` after code changes
+- Gateway unit tests load the root `.env`, which holds real provider keys. A test that needs a provider to have no credential saves and deletes `LLM_<PROVIDER>_API_KEY` (and `_BASE_URL`) and restores them in `finally`.
+- Build credential-shaped fixtures at runtime (`["sk", "live", "..."].join("_")`) so push protection accepts the branch. Assert on a boolean, never on equality with a credential: CI test artifacts are public and unmasked.
+- In test cleanup, delete cascade-linked tables sequentially, children before parents. `deleteAll()` leaves the catalogue tables in place, so a spec that seeds `model`/`model_provider_mapping` rows removes them itself, using ids distinct from the real catalogue.
+- Keep scratch files (PR bodies, logs) under the worktree's `.context/`; `/tmp` is shared with other agents. Set work aside with a WIP commit; lint-staged adds its own stash entries.
 - The CI e2e workflow (`.github/workflows/e2e.yml`) does NOT run automatically on pull requests because it tests all models and spends real money on provider API calls. Trigger it only for complex gateway or backend changes that can affect routing, stability, uptime, or provider integration. Start it by commenting `/e2e` on the pull request (only for maintainers/collaborators, and only for branches in this repository, not forks), or via `workflow_dispatch`.
 
 ### Service URLs (Development)
