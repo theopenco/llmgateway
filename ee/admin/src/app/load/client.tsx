@@ -599,7 +599,7 @@ export function LoadClient() {
 											labelFormatter={(value) =>
 												bucketTickFormat(data?.bucket ?? "hour", String(value))
 											}
-											formatter={(value) => formatMetric(Number(value))}
+											valueFormatter={formatMetric}
 										/>
 									}
 								/>
@@ -658,7 +658,7 @@ export function LoadClient() {
 											labelFormatter={(value) =>
 												bucketTickFormat(data?.bucket ?? "hour", String(value))
 											}
-											formatter={(value) => formatMetric(Number(value))}
+											valueFormatter={formatMetric}
 										/>
 									}
 								/>
@@ -739,9 +739,7 @@ export function LoadClient() {
 								/>
 								<ChartTooltip
 									content={
-										<ChartTooltipContent
-											formatter={(value) => formatMetric(Number(value))}
-										/>
+										<ChartTooltipContent valueFormatter={formatMetric} />
 									}
 								/>
 								<Bar dataKey={rankKey} radius={[0, 3, 3, 0]} />
