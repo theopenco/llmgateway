@@ -171,6 +171,21 @@ describe("admin organization and project logs", () => {
 		expect(body.logs.map((l) => l.id)).toEqual(["seat-logs-3"]);
 	});
 
+	it("filters organization logs by several projects", async () => {
+		const single = await getLogs(`/logs?projectId=${PROJECT_A}`, cookie);
+		expect(
+			((await single.json()) as LogsBody).logs.map((l) => l.id).sort(),
+		).toEqual(["seat-logs-1", "seat-logs-2"]);
+
+		const multi = await getLogs(
+			`/logs?projectId=${encodeURIComponent(`${PROJECT_A},${PROJECT_B}`)}`,
+			cookie,
+		);
+		expect(
+			((await multi.json()) as LogsBody).logs.map((l) => l.id).sort(),
+		).toEqual(["seat-logs-1", "seat-logs-2", "seat-logs-3"]);
+	});
+
 	it("returns nothing for an email with no keys in the organization", async () => {
 		const res = await getLogs(
 			"/logs?userEmail=nobody@seat-logs.example",
