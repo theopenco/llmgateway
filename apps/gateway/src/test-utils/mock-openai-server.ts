@@ -1536,6 +1536,10 @@ mockOpenAIServer.post("/search", async (c) => {
 		return c.json(statusTrigger.errorResponse);
 	}
 
+	if (queries.some((query) => query.includes("MALFORMED_SEARCH"))) {
+		return c.json({ id: "mock-search-id" });
+	}
+
 	const maxResults =
 		typeof body.max_results === "number" ? body.max_results : 2;
 	return c.json({

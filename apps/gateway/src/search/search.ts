@@ -822,24 +822,27 @@ search.openapi(createSearch, async (c): Promise<any> => {
 				const isTimeout = isTimeoutError(fetchError);
 
 				const duration = Date.now() - startedAt;
-				if (attempt.envVarName !== undefined) {
-					reportKeyError(
-						attempt.envVarName,
-						attempt.configIndex,
-						0,
-						undefined,
-						upstreamModel,
-					);
-				}
-				const failedTrackedKeyId =
-					attempt.providerKey?.id ?? attempt.managedKey?.id;
-				if (failedTrackedKeyId) {
-					reportTrackedKeyError(
-						failedTrackedKeyId,
-						0,
-						undefined,
-						upstreamModel,
-					);
+				// A client disconnect says nothing about the credential's health.
+				if (!c.req.raw.signal.aborted) {
+					if (attempt.envVarName !== undefined) {
+						reportKeyError(
+							attempt.envVarName,
+							attempt.configIndex,
+							0,
+							undefined,
+							upstreamModel,
+						);
+					}
+					const failedTrackedKeyId =
+						attempt.providerKey?.id ?? attempt.managedKey?.id;
+					if (failedTrackedKeyId) {
+						reportTrackedKeyError(
+							failedTrackedKeyId,
+							0,
+							undefined,
+							upstreamModel,
+						);
+					}
 				}
 
 				const networkErrorType = isTimeout
@@ -979,6 +982,23 @@ search.openapi(createSearch, async (c): Promise<any> => {
 				}
 			}
 
+			// A 2xx without a results array is not a usable search, so it takes the
+			// unbilled failure path instead of being charged as a success.
+			if (
+				upstreamResponse.ok &&
+				!(
+					upstreamJson &&
+					typeof upstreamJson === "object" &&
+					Array.isArray((upstreamJson as { results?: unknown }).results)
+				)
+			) {
+				upstreamResponse = new Response(null, {
+					status: 502,
+					statusText: "Invalid upstream search response",
+				});
+				upstreamJson = null;
+			}
+
 			if (!upstreamResponse.ok) {
 				const status = upstreamResponse.status;
 				if (attempt.envVarName !== undefined) {
@@ -1111,7 +1131,7 @@ search.openapi(createSearch, async (c): Promise<any> => {
 						message:
 							typeof upstreamJson === "string"
 								? upstreamJson
-								: (upstreamResponse.statusText ?? "Upstream error"),
+								: upstreamResponse.statusText || `Upstream error (${status})`,
 						type: "upstream_error",
 						param: null,
 						code: "upstream_error",

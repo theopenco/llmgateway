@@ -144,6 +144,25 @@ describe("search", () => {
 		expect(log?.cost).toBe(0);
 	});
 
+	test("does not bill a 2xx without results", async () => {
+		await seedKeys("real-token-search-malformed", "token-id-search-malformed");
+
+		const res = await searchRequest("real-token-search-malformed", {
+			query: "MALFORMED_SEARCH",
+		});
+		expect(res.status).toBe(502);
+		expect((await res.json()).error.message).toBe(
+			"Invalid upstream search response",
+		);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find(
+			(l) => l.usedModel === "perplexity/perplexity-search",
+		);
+		expect(log?.hasError).toBe(true);
+		expect(log?.cost).toBe(0);
+	});
+
 	test("does not persist payload when retention is disabled", async () => {
 		await db
 			.update(tables.organization)
