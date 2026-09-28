@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
 	BUCKET_SECONDS,
 	bucketSecondsFor,
+	formatLoadBucket,
 	generateLoadBuckets,
 	getLoadBucketForWindow,
 	isPartialBucket,
@@ -741,10 +742,17 @@ const getLoadOverview = createRoute({
 
 adminLoad.openapi(getLoadOverview, async (c) => {
 	const scope = resolveLoadScope(c.req.valid("query"));
+	// Keep hourly spikes before rolling long-range charts up to days.
+	const peakBucket = scope.bucket === "day" ? "hour" : scope.bucket;
+	const sourceScope = {
+		...scope,
+		bucket: peakBucket,
+		startDate: loadRangeStart(scope),
+	};
 	const source =
 		scope.source === "mapping-history"
-			? mappingHistorySource(scope)
-			: projectStatsSource(scope);
+			? mappingHistorySource(sourceScope)
+			: projectStatsSource(sourceScope);
 
 	const [bucketTotals, keyTotals] = await Promise.all([
 		source.bucketTotals(),
@@ -805,10 +813,21 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 			bucketSecondsFor(bucket, scope.bucket, scope.now),
 		]),
 	);
-	const totalsByBucket = new Map(bucketTotals.map((row) => [row.bucket, row]));
+	const chartBucket = (timestamp: string) =>
+		formatLoadBucket(truncateToLoadBucket(new Date(timestamp), scope.bucket));
+	const totalsByBucket = new Map<string, LoadTotals>();
+	for (const row of bucketTotals) {
+		const bucket = chartBucket(row.bucket);
+		let totals = totalsByBucket.get(bucket);
+		if (!totals) {
+			totals = emptyTotals();
+			totalsByBucket.set(bucket, totals);
+		}
+		addTotals(totals, row);
+	}
 	const totalsByKeyBucket = new Map<string, LoadTotals>();
 	for (const row of keyBuckets) {
-		const cell = `${row.key}\u0000${row.bucket}`;
+		const cell = `${row.key}\u0000${chartBucket(row.bucket)}`;
 		let totals = totalsByKeyBucket.get(cell);
 		if (!totals) {
 			totals = emptyTotals();
@@ -877,10 +896,13 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 	// A partial bucket can be a single second wide, which makes its rate far too
 	// jumpy to report as a peak or as the headline "current" figure.
 	const settledPoints = data.filter((point) => !point.partial);
-	const peakPoint = settledPoints.reduce<(typeof data)[number] | null>(
-		(best, point) => (best === null || point.rps > best.rps ? point : best),
-		null,
-	);
+	const peakPoint = bucketTotals
+		.filter((row) => !isPartialBucket(row.bucket, peakBucket, scope.now))
+		.reduce<BucketTotalRow | null>(
+			(best, row) =>
+				best === null || row.requestCount > best.requestCount ? row : best,
+			null,
+		);
 	const currentBuckets = settledPoints.slice(
 		-CURRENT_RATE_BUCKETS[scope.bucket],
 	);
@@ -898,11 +920,13 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 	);
 
 	const peakByKey = new Map<string, number>();
-	for (const point of settledPoints) {
-		for (const entry of point.entries) {
-			if (entry.rps > (peakByKey.get(entry.key) ?? 0)) {
-				peakByKey.set(entry.key, entry.rps);
-			}
+	for (const row of keyBuckets) {
+		if (isPartialBucket(row.bucket, peakBucket, scope.now)) {
+			continue;
+		}
+		const rps = toRps(row.requestCount, BUCKET_SECONDS[peakBucket]);
+		if (rps > (peakByKey.get(row.key) ?? 0)) {
+			peakByKey.set(row.key, rps);
 		}
 	}
 
@@ -925,9 +949,8 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 			currentRps: toRps(currentRequests, currentSeconds),
 			currentSeconds,
 			avgRps: toRps(totalRequests, elapsedSeconds),
-			peakRps: peakPoint?.rps ?? 0,
-			peakAt:
-				peakPoint && peakPoint.requestCount > 0 ? peakPoint.timestamp : null,
+			peakRps: toRps(peakPoint?.requestCount ?? 0, BUCKET_SECONDS[peakBucket]),
+			peakAt: peakPoint && peakPoint.requestCount > 0 ? peakPoint.bucket : null,
 			totalRequests,
 			...qualityFor(total),
 			...errorCountsFor(total),
