@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { pickAutoReasoningEffort } from "./pick-auto-reasoning-effort.js";
+import {
+	pickAutoReasoningEffort,
+	pickFallbackReasoningEffort,
+} from "./pick-auto-reasoning-effort.js";
 
 describe("pickAutoReasoningEffort", () => {
 	it("keeps minimal for gpt-5 mappings that support it", () => {
@@ -68,5 +71,33 @@ describe("pickAutoReasoningEffort", () => {
 	it("keeps the previous default when the mapping declares no efforts", () => {
 		expect(pickAutoReasoningEffort("gpt-5-mini", undefined)).toBe("minimal");
 		expect(pickAutoReasoningEffort("claude-opus-4.5", undefined)).toBe("low");
+	});
+});
+
+describe("pickFallbackReasoningEffort", () => {
+	it("re-picks an auto effort against the fallback mapping", () => {
+		expect(
+			pickFallbackReasoningEffort(
+				"low",
+				{ modelId: "glm-5.3", preferMediumEffort: false },
+				["xhigh", "max"],
+			),
+		).toBeUndefined();
+		expect(
+			pickFallbackReasoningEffort(
+				"minimal",
+				{ modelId: "gpt-5.4-mini", preferMediumEffort: false },
+				["none", "low", "medium"],
+			),
+		).toBe("none");
+	});
+
+	it("keeps an explicit caller effort unchanged", () => {
+		expect(
+			pickFallbackReasoningEffort("low", undefined, ["xhigh", "max"]),
+		).toBe("low");
+		expect(
+			pickFallbackReasoningEffort(undefined, undefined, ["low"]),
+		).toBeUndefined();
 	});
 });
