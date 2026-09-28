@@ -22,9 +22,12 @@ frontend images; new code may rely on new columns and backfills at startup.
 
 ## Client IP and country
 
-The load balancer writes `X-Client-Ip` from the connecting address with `set`,
-overwriting caller input, so it is the trusted client address.
+The GCP load balancer is the only edge, so request-origin data comes only from
+headers it sets. It writes `X-Client-Ip` from the connecting address with `set`,
+overwriting caller input; it appends to `X-Forwarded-For`, so that header's
+first hop is caller-supplied on the hosted deployment.
 
-- Read client IPs only through `@llmgateway/shared/client-ip` (`packages/shared/src/client-ip.ts`). It reads the single header named by `CLIENT_IP_HEADER` (hosted: `X-Client-Ip`; default `x-forwarded-for` for self-hosting). Add new variants there.
-- Read country through `getCountryFromHeaders` (`apps/api/src/utils/request-country.ts`), which uses the load balancer's region headers.
-- A server-rendered page or proxy route calling the API for a visitor spreads `forwardedIpHeaders(headers)`, so rate limits stay per visitor.
+- Read client IPs only through `@llmgateway/shared/client-ip` (`getClientIp`, `getClientIpFromHeaders`, `getClientIpFromContext`, `getClientIpFromRequest`, `getClientIpFromNodeHeaders`, `getClientIpFromForwardedFor`, `isPublicIp`, `ipMatchesCidr`, `anyCidrMatches`, `forwardedIpHeaders`). Add new variants there.
+- The helper trusts exactly one header, named by `CLIENT_IP_HEADER`, with no fallback chain, so a caller cannot pick its identity by sending a different header. It defaults to `X-Forwarded-For` for self-hosting behind an overwriting proxy. Hosted sets it to `X-Client-Ip`; with `HOSTED=true`, `assertClientIpHeaderConfigured()` (api and gateway `serve.ts`, each Next.js app's `instrumentation.ts`) refuses to start without it.
+- Read country through `getCountryFromHeaders` (`apps/api/src/utils/request-country.ts`), which uses the load balancer's `X-Client-Region` / `X-Client-Geo-Location`.
+- Frontends reach the API over the in-cluster Service (`API_BACKEND_URL`). A server-rendered page or proxy route calling the API for a visitor spreads `forwardedIpHeaders(headers)`, so rate limits stay per visitor.
