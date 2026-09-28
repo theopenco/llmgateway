@@ -171,6 +171,7 @@ describe("tiered gateway content filter", () => {
 			matchedCategories: ["violence"],
 			categoryScores: { violence: 0.95, hate: 0.1 },
 			moderationFailed: false,
+			durationMs: expect.any(Number),
 		});
 		expect(log.gatewayContentFilterResponse).toEqual([
 			{

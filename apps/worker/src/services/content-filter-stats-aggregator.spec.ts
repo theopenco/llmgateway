@@ -97,6 +97,38 @@ async function statsRows() {
 		.sort((a, b) => a.category.localeCompare(b.category));
 }
 
+async function verdictRows(table: "org" | "model") {
+	const rows =
+		table === "org"
+			? (await db.select().from(contentFilterHourlyStats)).map((row) => ({
+					...row,
+					usedModel: null,
+				}))
+			: await db.select().from(contentFilterHourlyModelStats);
+	return rows
+		.map((row) => ({
+			usedModel: row.usedModel,
+			category: row.category,
+			classifier: row.classifier,
+			role: row.role,
+			sampledCount: row.sampledCount,
+			violationCount: row.violationCount,
+			blockedCount: row.blockedCount,
+			durationSumMs: row.durationSumMs,
+			durationCount: row.durationCount,
+			durationMaxMs: row.durationMaxMs,
+		}))
+		.sort(
+			(a, b) =>
+				(a.usedModel ?? "").localeCompare(b.usedModel ?? "") ||
+				a.role.localeCompare(b.role) ||
+				a.classifier.localeCompare(b.classifier) ||
+				a.category.localeCompare(b.category),
+		);
+}
+
+const NO_DURATION = { durationSumMs: 0, durationCount: 0, durationMaxMs: null };
+
 describe("content filter stats aggregator", () => {
 	beforeEach(async () => {
 		vi.setSystemTime(new Date("2026-08-08T00:00:00Z"));
@@ -294,6 +326,263 @@ describe("content filter stats aggregator", () => {
 				sampledCount: 0,
 				violationCount: 1,
 				blockedCount: 0,
+			},
+		]);
+	});
+
+	it("keys rows by classifier, treating evaluations without one as openai", async () => {
+		await db.insert(log).values([
+			// Predates the classifier selector and duration capture.
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({
+					violation: true,
+					action: "logged",
+					matchedCategories: ["hate"],
+				}),
+			}),
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({
+					classifier: "internal",
+					durationMs: 40,
+				}),
+			}),
+		]);
+
+		await calculateContentFilterStatsForHour(HOUR);
+		expect(await verdictRows("org")).toEqual([
+			{
+				usedModel: null,
+				category: "all",
+				classifier: "internal",
+				role: "deciding",
+				sampledCount: 1,
+				violationCount: 0,
+				blockedCount: 0,
+				durationSumMs: 40,
+				durationCount: 1,
+				durationMaxMs: 40,
+			},
+			{
+				usedModel: null,
+				category: "all",
+				classifier: "openai",
+				role: "deciding",
+				sampledCount: 1,
+				violationCount: 1,
+				blockedCount: 0,
+				...NO_DURATION,
+			},
+			{
+				usedModel: null,
+				category: "hate",
+				classifier: "openai",
+				role: "deciding",
+				sampledCount: 0,
+				violationCount: 1,
+				blockedCount: 0,
+				...NO_DURATION,
+			},
+		]);
+	});
+
+	it("rolls the shadow verdict up without ever counting it as blocked", async () => {
+		const shadow = {
+			classifier: "internal" as const,
+			violation: true,
+			flagged: true,
+			matchedCategories: ["violence"],
+			categoryScores: { violence: 0.9 },
+			moderationFailed: false,
+			disagreed: false,
+			durationMs: 30,
+		};
+		await db.insert(log).values([
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({
+					classifier: "openai",
+					violation: true,
+					action: "blocked",
+					enforced: true,
+					exemptReason: undefined,
+					matchedCategories: ["violence"],
+					durationMs: 200,
+					shadow,
+				}),
+			}),
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({
+					classifier: "openai",
+					durationMs: 100,
+					shadow: {
+						...shadow,
+						violation: false,
+						flagged: false,
+						matchedCategories: [],
+						disagreed: false,
+						durationMs: 10,
+					},
+				}),
+			}),
+			// The shadow check failed: not sampled, but its latency still counts.
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({
+					classifier: "openai",
+					durationMs: 150,
+					shadow: {
+						...shadow,
+						violation: false,
+						flagged: false,
+						matchedCategories: [],
+						categoryScores: {},
+						moderationFailed: true,
+						disagreed: false,
+						durationMs: 5000,
+					},
+				}),
+			}),
+		]);
+
+		await calculateContentFilterStatsForHour(HOUR);
+		const deciding = {
+			usedModel: null,
+			category: "all",
+			classifier: "openai",
+			role: "deciding",
+			sampledCount: 3,
+			violationCount: 1,
+			blockedCount: 1,
+			durationSumMs: 450,
+			durationCount: 3,
+			durationMaxMs: 200,
+		};
+		const shadowAll = {
+			usedModel: null,
+			category: "all",
+			classifier: "internal",
+			role: "shadow",
+			sampledCount: 2,
+			violationCount: 1,
+			blockedCount: 0,
+			durationSumMs: 5040,
+			durationCount: 3,
+			durationMaxMs: 5000,
+		};
+		expect(await verdictRows("org")).toEqual([
+			deciding,
+			{
+				...deciding,
+				category: "violence",
+				sampledCount: 0,
+				blockedCount: 0,
+				...NO_DURATION,
+			},
+			shadowAll,
+			{
+				...shadowAll,
+				category: "violence",
+				sampledCount: 0,
+				...NO_DURATION,
+			},
+		]);
+		expect(
+			(await verdictRows("model")).filter((row) => row.category === "all"),
+		).toEqual([
+			{ ...deciding, usedModel: "openai/gpt-5.6-sol" },
+			{ ...shadowAll, usedModel: "openai/gpt-5.6-sol" },
+		]);
+	});
+
+	it("sums each request's duration once, and once per model it touched", async () => {
+		const retried = evaluation({ classifier: "internal", durationMs: 300 });
+		await db.insert(log).values([
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({
+					classifier: "internal",
+					durationMs: 100,
+				}),
+			}),
+			logRow({
+				requestId: "cf-req-retried",
+				hasError: true,
+				gatewayContentFilterEvaluation: retried,
+			}),
+			logRow({
+				requestId: "cf-req-retried",
+				hasError: true,
+				gatewayContentFilterEvaluation: retried,
+			}),
+			logRow({
+				requestId: "cf-req-retried",
+				usedModel: "anthropic/claude-sonnet-5",
+				usedProvider: "anthropic",
+				gatewayContentFilterEvaluation: retried,
+			}),
+		]);
+
+		await calculateContentFilterStatsForHour(HOUR);
+		const durations = (rows: Awaited<ReturnType<typeof verdictRows>>) =>
+			rows.map((row) => ({
+				usedModel: row.usedModel,
+				sampledCount: row.sampledCount,
+				durationSumMs: row.durationSumMs,
+				durationCount: row.durationCount,
+				durationMaxMs: row.durationMaxMs,
+			}));
+		expect(durations(await verdictRows("org"))).toEqual([
+			{
+				usedModel: null,
+				sampledCount: 2,
+				durationSumMs: 400,
+				durationCount: 2,
+				durationMaxMs: 300,
+			},
+		]);
+		expect(durations(await verdictRows("model"))).toEqual([
+			{
+				usedModel: "anthropic/claude-sonnet-5",
+				sampledCount: 1,
+				durationSumMs: 300,
+				durationCount: 1,
+				durationMaxMs: 300,
+			},
+			{
+				usedModel: "openai/gpt-5.6-sol",
+				sampledCount: 2,
+				durationSumMs: 400,
+				durationCount: 2,
+				durationMaxMs: 300,
+			},
+		]);
+	});
+
+	it("replaces a row the pre-classifier rollup left for the hour", async () => {
+		// Written before the classifier column existed, so it took the default.
+		await db.insert(contentFilterHourlyStats).values({
+			hourTimestamp: HOUR,
+			organizationId: "cf-org",
+			projectId: "cf-proj",
+			category: "all",
+			sampledCount: 1,
+			violationCount: 0,
+			blockedCount: 0,
+		});
+		await db.insert(log).values(
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({ classifier: "internal" }),
+			}),
+		);
+
+		await calculateContentFilterStatsForHour(HOUR);
+		expect(await verdictRows("org")).toEqual([
+			{
+				usedModel: null,
+				category: "all",
+				classifier: "internal",
+				role: "deciding",
+				sampledCount: 1,
+				violationCount: 0,
+				blockedCount: 0,
+				...NO_DURATION,
 			},
 		]);
 	});

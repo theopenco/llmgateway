@@ -69,6 +69,8 @@ export interface ContentFilterCheckResult extends OpenAIContentFilterCheckResult
 	 * uncovered and the other half's results hide it.
 	 */
 	partialModerationFailed?: boolean;
+	/** Wall-clock time of the whole check, including image delegation. */
+	durationMs: number;
 }
 
 /** Whether a check covered everything it set out to cover. */
@@ -105,6 +107,27 @@ export async function runContentFilterClassifier(
 	requestSignal: AbortSignal | undefined,
 	options: { imagesAllowed: boolean },
 ): Promise<ContentFilterCheckResult> {
+	const startTime = performance.now();
+	const result = await runClassifierChecks(
+		classifier,
+		messages,
+		context,
+		requestSignal,
+		options,
+	);
+	return {
+		...result,
+		durationMs: Math.round(performance.now() - startTime),
+	};
+}
+
+async function runClassifierChecks(
+	classifier: ContentFilterClassifier,
+	messages: BaseMessage[],
+	context: GatewayContentFilterContext,
+	requestSignal: AbortSignal | undefined,
+	options: { imagesAllowed: boolean },
+): Promise<Omit<ContentFilterCheckResult, "durationMs">> {
 	if (classifier === "openai") {
 		const result = await checkOpenAIContentFilter(
 			messages,
@@ -261,6 +284,7 @@ export async function evaluateContentFilterWithClassifiers(options: {
 				classifier: ContentFilterClassifier;
 				evaluation: ReturnType<typeof evaluateTieredContentFilter>;
 				moderationFailed: boolean;
+				durationMs: number;
 		  }
 		| undefined;
 	const shadowResult =
@@ -270,6 +294,7 @@ export async function evaluateContentFilterWithClassifiers(options: {
 			classifier: plan.shadowClassifier,
 			evaluation: evaluateTieredContentFilter(shadowResult.results, plan.level),
 			moderationFailed: moderationFailed(shadowResult),
+			durationMs: shadowResult.durationMs,
 		};
 		results.push(shadowResult);
 	}
@@ -279,6 +304,7 @@ export async function evaluateContentFilterWithClassifiers(options: {
 			plan,
 			evaluation,
 			moderationFailed(deciding),
+			deciding.durationMs,
 			shadow,
 		),
 		results,

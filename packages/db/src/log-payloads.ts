@@ -48,6 +48,8 @@ export const gatewayContentFilterEvaluationSchema = z.object({
 	// Absent on evaluations written before the classifier became selectable;
 	// those all ran on OpenAI moderation.
 	classifier: contentFilterClassifierSchema.optional(),
+	// Wall-clock milliseconds of the classifier run; absent on older evaluations.
+	durationMs: z.number().nonnegative().optional(),
 	// Second classifier run alongside the deciding one for comparison. Recorded
 	// verbatim and never allowed to change `action`.
 	shadow: z
@@ -58,6 +60,7 @@ export const gatewayContentFilterEvaluationSchema = z.object({
 			matchedCategories: z.array(z.string()),
 			categoryScores: z.record(z.number()),
 			moderationFailed: z.boolean(),
+			durationMs: z.number().nonnegative().optional(),
 			/** True when the shadow classifier disagreed with the deciding one. */
 			disagreed: z.boolean(),
 		})
