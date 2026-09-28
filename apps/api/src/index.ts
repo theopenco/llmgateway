@@ -15,6 +15,10 @@ import {
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 import { HealthChecker } from "@llmgateway/shared";
+import {
+	getClientIpFromContext,
+	getClientIpHeaderName,
+} from "@llmgateway/shared/client-ip";
 
 import { redisClient } from "./auth/config.js";
 import { authHandler } from "./auth/handler.js";
@@ -249,6 +253,8 @@ const root = createRoute({
 						.object({
 							message: z.string(),
 							version: z.string(),
+							clientIp: z.string().nullable(),
+							clientIpHeader: z.string(),
 							health: z.object({
 								status: z.string(),
 								database: z.object({
@@ -273,6 +279,8 @@ const root = createRoute({
 						.object({
 							message: z.string(),
 							version: z.string(),
+							clientIp: z.string().nullable(),
+							clientIpHeader: z.string(),
 							health: z.object({
 								status: z.string(),
 								database: z.object({
@@ -308,7 +316,16 @@ app.openapi(root, async (c) => {
 
 	const { response, statusCode } = healthChecker.createHealthResponse(health);
 
-	return c.json(response, statusCode as 200 | 503);
+	// Echo the address this service resolves for the caller so a deployment can
+	// be checked against a known client IP before any per-IP limit is relied on.
+	return c.json(
+		{
+			...response,
+			clientIp: getClientIpFromContext(c),
+			clientIpHeader: getClientIpHeaderName(),
+		},
+		statusCode as 200 | 503,
+	);
 });
 
 app.route("/stripe", stripeRoutes);
