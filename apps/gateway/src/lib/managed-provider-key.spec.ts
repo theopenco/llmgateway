@@ -505,6 +505,18 @@ describe("allowedModels restriction", () => {
 		).toContain("openai");
 	});
 
+	it("rejects the custom provider with a 400 instead of reading env vars", async () => {
+		await expect(
+			resolvePlatformCredential("custom", {
+				selectionScope: "gpt-4o-mini",
+				model: "gpt-4o-mini",
+				variant: undefined,
+				region: undefined,
+				requiresServiceTier: false,
+			}),
+		).rejects.toMatchObject({ status: 400 });
+	});
+
 	it("selection skips a credential whose allowedModels exclude the model", async () => {
 		await insertManaged({
 			id: "restricted-key",

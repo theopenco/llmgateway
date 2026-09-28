@@ -90,6 +90,14 @@ export async function resolvePlatformCredential(
 	provider: Provider,
 	options: ResolvePlatformCredentialOptions,
 ): Promise<PlatformCredential> {
+	// Custom providers are only ever served with the organization's own key.
+	if (provider === "custom") {
+		throw new HTTPException(400, {
+			message:
+				"Custom providers require a provider key configured in your organization settings.",
+		});
+	}
+
 	const restrictedToModel = options.model;
 	const managedKey = await findManagedProviderKey(provider, {
 		variant: options.variant,

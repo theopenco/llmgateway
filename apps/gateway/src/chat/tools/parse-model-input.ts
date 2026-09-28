@@ -72,6 +72,13 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 		const split = modelInput.split("/");
 		const providerCandidate = split[0];
 
+		// Custom provider keys are always addressed by their configured name.
+		if (providerCandidate === "custom" || providerCandidate === "") {
+			throw new HTTPException(400, {
+				message: `Invalid model "${modelInput}". Address a custom provider by its configured name, e.g. "my-provider/model-name".`,
+			});
+		}
+
 		// Check if the provider exists
 		const knownProvider = providers.find((p) => p.id === providerCandidate);
 		if (!knownProvider) {
