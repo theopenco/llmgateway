@@ -57,6 +57,7 @@ type MappingSortBy =
 	| "upstreamErrorsCount"
 	| "cost"
 	| "avgTimeToFirstToken"
+	| "throughput"
 	| "updatedAt";
 
 type SortOrder = "asc" | "desc";
@@ -240,6 +241,11 @@ function MappingRow({
 						? `${Math.round(mapping.avgTimeToFirstToken)}ms`
 						: "\u2014"}
 				</TableCell>
+				<TableCell className="tabular-nums">
+					{mapping.throughput !== null
+						? `${mapping.throughput.toFixed(1)} tok/s`
+						: "\u2014"}
+				</TableCell>
 				<TableCell className="tabular-nums text-xs">
 					{formatPrice(mapping.inputPrice)}
 				</TableCell>
@@ -270,7 +276,7 @@ function MappingRow({
 			{expanded && (
 				<TableRow>
 					<TableCell
-						colSpan={17}
+						colSpan={18}
 						className="p-4"
 						id={`mapping-history-${mapping.providerId}-${mapping.modelId}`}
 					>
@@ -335,6 +341,7 @@ export function MappingsTable({
 					{sh("Upstream", "upstreamErrorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
+					{sh("Throughput", "throughput")}
 					<TableHead>Input Price</TableHead>
 					<TableHead>Output Price</TableHead>
 					<TableHead>Context</TableHead>
@@ -345,7 +352,7 @@ export function MappingsTable({
 				{mappings.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={17}
+							colSpan={18}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No mappings found

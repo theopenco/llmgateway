@@ -21,6 +21,7 @@ interface CatalogResponse {
 	tokens: number;
 	cost: number;
 	avgTimeToFirstToken: number | null;
+	throughput: number | null;
 }
 
 async function clearFixtures() {
@@ -72,6 +73,7 @@ describe("admin catalog usage mode", () => {
 				tokens: 30,
 				cost: 0.3,
 				totalTimeToFirstToken: 300,
+				outputTokens: 30,
 			},
 			{
 				usedMode: "api-keys" as const,
@@ -79,6 +81,7 @@ describe("admin catalog usage mode", () => {
 				tokens: 20,
 				cost: 0.2,
 				totalTimeToFirstToken: 400,
+				outputTokens: 40,
 			},
 			{
 				usedMode: "unknown" as const,
@@ -86,6 +89,7 @@ describe("admin catalog usage mode", () => {
 				tokens: 10,
 				cost: 0.1,
 				totalTimeToFirstToken: 300,
+				outputTokens: 10,
 			},
 		];
 		await db.insert(tables.modelHistory).values(
@@ -100,6 +104,8 @@ describe("admin catalog usage mode", () => {
 				totalInputCost: bucket.cost,
 				totalTimeToFirstToken: bucket.totalTimeToFirstToken,
 				timeToFirstTokenCount: bucket.requests,
+				totalOutputTokens: bucket.outputTokens,
+				totalDuration: 1000,
 			})),
 		);
 		await db.insert(tables.modelProviderMappingHistory).values(
@@ -116,6 +122,8 @@ describe("admin catalog usage mode", () => {
 				totalInputCost: bucket.cost,
 				totalTimeToFirstToken: bucket.totalTimeToFirstToken,
 				timeToFirstTokenCount: bucket.requests,
+				totalOutputTokens: bucket.outputTokens,
+				totalDuration: 1000,
 			})),
 		);
 	});
@@ -140,18 +148,21 @@ describe("admin catalog usage mode", () => {
 				totalTokens: number;
 				totalCost: number;
 				avgTimeToFirstToken: number | null;
+				throughput: number | null;
 			}[];
 			providers?: {
 				logsCount: number;
 				totalTokens: number;
 				totalCost: number;
 				avgTimeToFirstToken: number | null;
+				throughput: number | null;
 			}[];
 			mappings?: {
 				logsCount: number;
 				inputTokens: number;
 				cost: number;
 				avgTimeToFirstToken: number | null;
+				throughput: number | null;
 			}[];
 		};
 		const row =
@@ -164,6 +175,7 @@ describe("admin catalog usage mode", () => {
 			tokens: "totalTokens" in row! ? row!.totalTokens : row!.inputTokens,
 			cost: "cost" in row! ? row!.cost : row!.totalCost,
 			avgTimeToFirstToken: row!.avgTimeToFirstToken,
+			throughput: row!.throughput,
 		};
 	}
 
@@ -178,21 +190,47 @@ describe("admin catalog usage mode", () => {
 				tokens: 30,
 				cost: expect.closeTo(0.3),
 				avgTimeToFirstToken: 100,
+				throughput: 30,
 			});
 			await expect(fetchCatalog(path, "api-keys")).resolves.toEqual({
 				requests: 2,
 				tokens: 20,
 				cost: expect.closeTo(0.2),
 				avgTimeToFirstToken: 200,
+				throughput: 40,
 			});
 			await expect(fetchCatalog(path)).resolves.toEqual({
 				requests: 6,
 				tokens: 60,
 				cost: expect.closeTo(0.6),
 				avgTimeToFirstToken: expect.closeTo(1000 / 6),
+				throughput: expect.closeTo(80 / 3),
 			});
 		});
 	}
+
+	it("sorts by throughput with empty rows last", async () => {
+		for (const path of [
+			"models",
+			"providers",
+			"model-provider-mappings",
+		] as const) {
+			for (const sortOrder of ["asc", "desc"]) {
+				const response = await app.request(
+					`/admin/${path}?${RANGE}&sortBy=throughput&sortOrder=${sortOrder}`,
+					{ headers: { Cookie: cookie } },
+				);
+				expect(response.status).toBe(200);
+				const body = (await response.json()) as Record<
+					string,
+					{ throughput: number | null }[]
+				>;
+				const rows =
+					body[path === "model-provider-mappings" ? "mappings" : path];
+				expect(rows[0]?.throughput).toEqual(expect.closeTo(80 / 3));
+			}
+		}
+	});
 
 	it("keeps filtered latency null without a mode sample", async () => {
 		await Promise.all([

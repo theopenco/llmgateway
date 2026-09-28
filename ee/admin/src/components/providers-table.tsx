@@ -56,6 +56,7 @@ type ProviderSortBy =
 	| "cachedCount"
 	| "totalCost"
 	| "avgTimeToFirstToken"
+	| "throughput"
 	| "modelCount"
 	| "updatedAt";
 
@@ -201,6 +202,11 @@ function ProviderRow({
 						? `${Math.round(provider.avgTimeToFirstToken)}ms`
 						: "\u2014"}
 				</TableCell>
+				<TableCell className="tabular-nums">
+					{provider.throughput !== null
+						? `${provider.throughput.toFixed(1)} tok/s`
+						: "\u2014"}
+				</TableCell>
 				<TableCell className="text-muted-foreground">
 					{formatDate(provider.updatedAt)}
 				</TableCell>
@@ -220,7 +226,7 @@ function ProviderRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={12} className="p-4">
+					<TableCell colSpan={14} className="p-4">
 						<HistoryChart
 							title={`${provider.name} — History`}
 							description="Request volume, errors, latency, and tokens over time"
@@ -277,6 +283,7 @@ export function ProvidersTable({
 					{sh("Cost", "totalCost")}
 					<TableHead>Tokens</TableHead>
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
+					{sh("Throughput", "throughput")}
 					{sh("Last Updated", "updatedAt")}
 					<TableHead></TableHead>
 				</TableRow>
@@ -285,7 +292,7 @@ export function ProvidersTable({
 				{providers.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={13}
+							colSpan={14}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No providers found
