@@ -20,7 +20,7 @@
 	"dependencies": {
 		"@ai-sdk/openai": "4.0.64",
 		"@ai-sdk/react": "4.0.99",
-		"@better-auth/passkey": "1.6.26",
+		"@better-auth/passkey": "1.7.5",
 		"@hookform/resolvers": "5.2.2",
 		"@json-render/core": "0.11.0",
 		"@json-render/react": "0.11.0",
@@ -60,7 +60,7 @@
 		"ai": "7.0.96",
 		"api": "workspace:*",
 		"babel-plugin-react-compiler": "1.0.0",
-		"better-auth": "1.6.26",
+		"better-auth": "1.7.5",
 		"class-variance-authority": "0.7.1",
 		"clsx": "^2.1.1",
 		"cmdk": "^1.1.1",
