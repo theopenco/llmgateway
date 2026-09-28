@@ -16,6 +16,11 @@ const DRIFT_MODEL_ID = "claude-3-5-sonnet";
 const DRIFT_PROVIDER_ID = "anthropic";
 const AIRSIDE_MODEL_ID = "gpt-4o";
 const AIRSIDE_PROVIDER_ID = "openai";
+const REMOVED_PROVIDER_ID = "removed-provider-test";
+const CARRIER_ID = "custom-carrier-test";
+const PENDING_CARRIER_ID = "pending-carrier-test";
+const CARRIER_COMPANY_ID = "sync-test-company";
+const RETAINED_MODEL_ID = "removed-mapping-test";
 
 /**
  * A catalogue pass writes every provider, model and mapping row by row, which
@@ -24,9 +29,68 @@ const AIRSIDE_PROVIDER_ID = "openai";
 const SYNC_TIMEOUT_MS = 180_000;
 
 async function resetCatalogue() {
+	// cdb: getCatalogueProviderIds caches the active carrier set.
+	await cdb
+		.delete(tables.providerClaim)
+		.where(eq(tables.providerClaim.providerCompanyId, CARRIER_COMPANY_ID));
+	await db
+		.delete(tables.providerCompany)
+		.where(eq(tables.providerCompany.id, CARRIER_COMPANY_ID));
 	await db.delete(modelProviderMapping);
 	await db.delete(model);
 	await db.delete(provider);
+}
+
+/** Rows outside the static catalogue: a removed provider and two carriers. */
+async function seedRetainedRows() {
+	await db.insert(provider).values([
+		{
+			id: REMOVED_PROVIDER_ID,
+			name: REMOVED_PROVIDER_ID,
+			description: "Historical provider",
+			logsCount: 42,
+		},
+		// Deactivated by a sync that raced the claim approval.
+		{
+			id: CARRIER_ID,
+			name: CARRIER_ID,
+			description: "Carrier",
+			status: "inactive",
+		},
+		{
+			id: PENDING_CARRIER_ID,
+			name: PENDING_CARRIER_ID,
+			description: "Carrier",
+		},
+	]);
+	await db.insert(model).values({ id: RETAINED_MODEL_ID, family: "test" });
+	await db.insert(modelProviderMapping).values(
+		[REMOVED_PROVIDER_ID, CARRIER_ID, PENDING_CARRIER_ID].map((providerId) => ({
+			id: providerId,
+			providerId,
+			modelId: RETAINED_MODEL_ID,
+			externalId: "old-upstream-model",
+			inputPrice: "1.4e-6",
+			logsCount: 42,
+			source:
+				providerId === REMOVED_PROVIDER_ID
+					? ("catalogue" as const)
+					: ("airside" as const),
+		})),
+	);
+	await db
+		.insert(tables.providerCompany)
+		.values({ id: CARRIER_COMPANY_ID, name: "Test carrier company" });
+	await cdb.insert(tables.providerClaim).values(
+		[CARRIER_ID, PENDING_CARRIER_ID].map((providerId) => ({
+			providerCompanyId: CARRIER_COMPANY_ID,
+			providerId,
+			kind: "custom" as const,
+			status:
+				providerId === CARRIER_ID ? ("active" as const) : ("pending" as const),
+			matchedDomain: "example.com",
+		})),
+	);
 }
 
 /**
@@ -38,6 +102,7 @@ async function resetCatalogue() {
 describe("sync-models", () => {
 	beforeAll(async () => {
 		await resetCatalogue();
+		await seedRetainedRows();
 		await syncProvidersAndModels();
 	}, SYNC_TIMEOUT_MS);
 
@@ -59,107 +124,6 @@ describe("sync-models", () => {
 		expect(openaiProvider?.name).toBe("OpenAI");
 		expect(openaiProvider?.streaming).toBe(true);
 		expect(openaiProvider?.status).toBe("active");
-	});
-
-	it("retains removed provider rows and leaves Airside carrier rows to the carrier", async () => {
-		const removed = "removed-provider-test";
-		const carrier = "custom-carrier-test";
-		const pendingCarrier = "pending-carrier-test";
-		await db.insert(provider).values([
-			{
-				id: removed,
-				name: removed,
-				description: "Historical provider",
-				logsCount: 42,
-			},
-			// Deactivated by a sync that raced the claim approval.
-			{
-				id: carrier,
-				name: carrier,
-				description: "Carrier",
-				status: "inactive",
-			},
-			{ id: pendingCarrier, name: pendingCarrier, description: "Carrier" },
-		]);
-		await db
-			.insert(model)
-			.values({ id: "removed-mapping-test", family: "test" });
-		await db.insert(modelProviderMapping).values(
-			[removed, carrier, pendingCarrier].map((providerId) => ({
-				id: providerId,
-				providerId,
-				modelId: "removed-mapping-test",
-				externalId: "old-upstream-model",
-				inputPrice: "1.4e-6",
-				logsCount: 42,
-				source:
-					providerId === removed
-						? ("catalogue" as const)
-						: ("airside" as const),
-			})),
-		);
-		await db
-			.insert(tables.providerCompany)
-			.values({ id: "sync-test-company", name: "Test carrier company" });
-		// cdb: getCatalogueProviderIds caches the active carrier set.
-		await cdb.insert(tables.providerClaim).values(
-			[carrier, pendingCarrier].map((providerId) => ({
-				providerCompanyId: "sync-test-company",
-				providerId,
-				kind: "custom" as const,
-				status:
-					providerId === carrier ? ("active" as const) : ("pending" as const),
-				matchedDomain: "example.com",
-			})),
-		);
-		const statusOf = async (id: string) => ({
-			provider: (
-				await db.query.provider.findFirst({ where: { id: { eq: id } } })
-			)?.status,
-			mapping: (
-				await db.query.modelProviderMapping.findFirst({
-					where: { id: { eq: id } },
-				})
-			)?.status,
-		});
-		try {
-			await syncProvidersAndModels();
-			await syncProvidersAndModels();
-			const oldProvider = await db.query.provider.findFirst({
-				where: { id: { eq: removed } },
-			});
-			const oldMapping = await db.query.modelProviderMapping.findFirst({
-				where: { id: { eq: removed } },
-			});
-			expect(oldProvider).toMatchObject({
-				name: removed,
-				status: "inactive",
-				logsCount: 42,
-			});
-			expect(oldMapping).toMatchObject({
-				id: removed,
-				externalId: "old-upstream-model",
-				status: "inactive",
-				logsCount: 42,
-			});
-			expect(Number(oldMapping?.inputPrice)).toBe(1.4e-6);
-			expect(await statusOf(carrier)).toEqual({
-				provider: "active",
-				mapping: "active",
-			});
-			// Airside mappings are only ever (de)materialized by the carrier flow.
-			expect(await statusOf(pendingCarrier)).toEqual({
-				provider: "inactive",
-				mapping: "active",
-			});
-		} finally {
-			await cdb
-				.delete(tables.providerClaim)
-				.where(eq(tables.providerClaim.providerCompanyId, "sync-test-company"));
-			await db
-				.delete(tables.providerCompany)
-				.where(eq(tables.providerCompany.id, "sync-test-company"));
-		}
 	});
 
 	it("should sync models from @llmgateway/models package", async () => {
@@ -303,6 +267,46 @@ describe("sync-models", () => {
 				audio: true,
 			});
 			expect(Number(preserved!.inputPrice)).toBeCloseTo(9e-6);
+		});
+
+		it("retains removed provider rows and leaves Airside carrier rows to the carrier", async () => {
+			const statusOf = async (id: string) => ({
+				provider: (
+					await db.query.provider.findFirst({ where: { id: { eq: id } } })
+				)?.status,
+				mapping: (
+					await db.query.modelProviderMapping.findFirst({
+						where: { id: { eq: id } },
+					})
+				)?.status,
+			});
+			const oldProvider = await db.query.provider.findFirst({
+				where: { id: { eq: REMOVED_PROVIDER_ID } },
+			});
+			const oldMapping = await db.query.modelProviderMapping.findFirst({
+				where: { id: { eq: REMOVED_PROVIDER_ID } },
+			});
+			expect(oldProvider).toMatchObject({
+				name: REMOVED_PROVIDER_ID,
+				status: "inactive",
+				logsCount: 42,
+			});
+			expect(oldMapping).toMatchObject({
+				id: REMOVED_PROVIDER_ID,
+				externalId: "old-upstream-model",
+				status: "inactive",
+				logsCount: 42,
+			});
+			expect(Number(oldMapping?.inputPrice)).toBe(1.4e-6);
+			expect(await statusOf(CARRIER_ID)).toEqual({
+				provider: "active",
+				mapping: "active",
+			});
+			// Airside mappings are only ever (de)materialized by the carrier flow.
+			expect(await statusOf(PENDING_CARRIER_ID)).toEqual({
+				provider: "inactive",
+				mapping: "active",
+			});
 		});
 
 		it("never drops existing mappings", async () => {
