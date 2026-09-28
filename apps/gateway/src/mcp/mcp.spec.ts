@@ -180,6 +180,7 @@ describe("MCP endpoint", () => {
 		vi.stubEnv("GATEWAY_URL", "https://gateway.example.com");
 		vi.stubEnv("MCP_GATEWAY_URL", undefined);
 		vi.stubEnv("GATEWAY_BACKEND_URL", undefined);
+		vi.stubEnv("API_BACKEND_URL", undefined);
 		await reset();
 	});
 	afterEach(async () => {
@@ -223,7 +224,7 @@ describe("MCP endpoint", () => {
 		{ name: "generate-nano-banana", arguments: { prompt: "a blue circle" } },
 	];
 
-	test.each(["MCP_GATEWAY_URL", "GATEWAY_URL", "GATEWAY_BACKEND_URL"])(
+	test.each(["MCP_GATEWAY_URL", "GATEWAY_URL"])(
 		"rejects non-HTTPS or invalid %s before generation requests",
 		async (variable) => {
 			await seedActiveKey();
@@ -414,15 +415,27 @@ describe("MCP endpoint", () => {
 		expect((await rpc("tools/list")).status).toBe(401);
 	});
 
-	describe.each([undefined, "application/json, text/event-stream"])(
-		"MCP IP forwarding with Accept %s",
-		(accept) => {
+	describe.each([
+		{ accept: undefined, backend: "https://backend.example.com" },
+		{
+			accept: "application/json, text/event-stream",
+			backend: "https://backend.example.com",
+		},
+		{ accept: undefined, backend: "http://localhost:4301" },
+		{
+			accept: "application/json, text/event-stream",
+			backend: "http://localhost:4301",
+		},
+	])(
+		"MCP IP forwarding through $backend with Accept $accept",
+		({ accept, backend }) => {
 			test.each(["192.0.2.1", undefined])(
 				"preserves only the trusted IP: %s",
 				async (ip) => {
 					await seedActiveKey();
 					vi.stubEnv("CLIENT_IP_HEADER", "X-Client-Ip");
-					vi.stubEnv("GATEWAY_BACKEND_URL", "https://backend.example.com");
+					vi.stubEnv("GATEWAY_BACKEND_URL", backend);
+					vi.stubEnv("API_BACKEND_URL", backend);
 					const upstream = vi
 						.spyOn(globalThis, "fetch")
 						.mockImplementation(
@@ -454,14 +467,16 @@ describe("MCP endpoint", () => {
 						});
 						expect(upstream, params.name).toHaveBeenCalledOnce();
 						const [url, init] = upstream.mock.calls[0];
+						expect(init?.redirect).toBe("error");
+						if (params.name.startsWith("get-")) {
+							expect(new URL(String(url)).origin).toBe(backend);
+						}
 						const forwarded = new Headers(init?.headers);
 						expect(forwarded.get("x-client-ip")).toBe(ip ?? null);
 						expect(forwarded.get("x-forwarded-for")).toBeNull();
 						expect(forwarded.get("x-real-ip")).toBeNull();
 						if (!params.name.startsWith("get-")) {
-							expect(url).toBe(
-								"https://backend.example.com/v1/chat/completions",
-							);
+							expect(url).toBe(`${backend}/v1/chat/completions`);
 						}
 					}
 				},
