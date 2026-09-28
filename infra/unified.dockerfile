@@ -66,6 +66,11 @@ ENV ASDF_DIR=/root/.asdf
 ENV ASDF_DATA_DIR=${ASDF_DIR}
 ENV PATH="${ASDF_DIR}:${ASDF_DATA_DIR}/shims:$PATH"
 
+# Keeps remote turbo artifacts (e.g. native sharp binaries in Next.js
+# standalone output) from being shared across architectures or with CI.
+ARG TARGETPLATFORM
+ENV CACHE_PLATFORM=docker-${TARGETPLATFORM}
+
 WORKDIR /app
 
 COPY .tool-versions ./
@@ -93,7 +98,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 COPY . .
 
 # Install all dependencies, build, then prune to production only
-RUN --mount=type=cache,target=/app/.turbo pnpm build
+RUN --mount=type=cache,target=/app/.turbo --mount=type=secret,id=TURBO_TOKEN,env=TURBO_TOKEN --mount=type=secret,id=TURBO_TEAM,env=TURBO_TEAM pnpm build
 
 # Copy database init scripts
 COPY packages/db/init/ /docker-entrypoint-initdb.d/
