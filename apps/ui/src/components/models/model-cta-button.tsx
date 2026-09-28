@@ -27,12 +27,13 @@ export function ModelCtaButton({
 	const { user, isLoading } = useUser({ enabled: isAuthenticated });
 	const isLoggedIn = !!user && !isLoading;
 
-	// Rerank and decision models have no playground studio — logged-in users see
+	// Rerank, decision and search models have no playground studio — logged-in users see
 	// the "Get Started" CTA too (no chat playground to link to).
 	if (
 		isLoggedIn &&
 		!output?.includes("rerank") &&
-		!output?.includes("decision")
+		!output?.includes("decision") &&
+		!output?.includes("search")
 	) {
 		const studioPath = getLoungeStudioPath(output);
 		return (

@@ -826,6 +826,12 @@ export interface ProviderModelMapping {
 	 */
 	decisions?: boolean;
 	/**
+	 * Whether this model uses a dedicated web search API that returns ranked
+	 * results instead of generated text. When true, requests are routed to the
+	 * gateway's /v1/search endpoint and billed per request via requestPrice.
+	 */
+	search?: boolean;
+	/**
 	 * Prebuilt voices supported for speech generation models. The first entry is
 	 * used as the default when the caller does not specify a `voice`.
 	 */
@@ -929,6 +935,7 @@ export interface ModelDefinition {
 		| "transcription"
 		| "rerank"
 		| "decision"
+		| "search"
 	)[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).

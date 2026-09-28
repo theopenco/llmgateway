@@ -1522,6 +1522,36 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 	});
 });
 
+// Perplexity Search: POST /search returns ranked results. Echoes the
+// received body as `mock_request` so specs can assert what was forwarded.
+mockOpenAIServer.post("/search", async (c) => {
+	const body = await c.req.json();
+	const queries: string[] = Array.isArray(body.query)
+		? body.query
+		: [String(body.query ?? "")];
+
+	const statusTrigger = extractStatusCodeTrigger(queries.join(" "));
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	const maxResults =
+		typeof body.max_results === "number" ? body.max_results : 2;
+	return c.json({
+		id: "mock-search-id",
+		results: Array.from({ length: maxResults }, (_, index) => ({
+			title: `Result ${index + 1} for ${queries[0]}`,
+			url: `https://example.com/${index + 1}`,
+			snippet: `Snippet ${index + 1}`,
+			date: null,
+			last_updated: "2026-09-01",
+		})),
+		server_time: null,
+		mock_request: body,
+	});
+});
+
 mockOpenAIServer.post("/v1/ocr", async (c) => {
 	const body = await c.req.json();
 	const document = body.document ?? {};

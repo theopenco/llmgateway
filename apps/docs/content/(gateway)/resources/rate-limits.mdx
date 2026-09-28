@@ -27,6 +27,7 @@ The default limits (requests per minute, per organization) are:
 | Moderations                                        | `/v1/moderations`          | 1200           |
 | Rerank                                             | `/v1/rerank`               | 1200           |
 | System One                                         | `/v1/systemone`            | 600            |
+| Search                                             | `/v1/search`               | 600            |
 | Models                                             | `/v1/models`               | 1200           |
 | OCR                                                | `/v1/ocr`                  | 300            |
 | Images                                             | `/v1/images`               | 300            |
@@ -86,7 +87,7 @@ The limit covers dashboard top-ups (card and hosted checkout), auto top-up, and 
 
 Organizations on a **Dev plan** (also called devpass) or a **Chat plan** have their own, tighter per-endpoint limits and do not receive the spend-based multiplier.
 
-Dev plans cover text inference only: **chat completions (including the AI SDK protocol), messages, responses, the models list, and moderations**, plus the key and credits endpoints, each at a flat 120 requests-per-minute floor. The other endpoints (embeddings, rerank, System One, OCR, images, speech, transcriptions, videos, realtime) return a `403` on Dev plans and are marked **—** below; realtime is unavailable on Chat plans too.
+Dev plans cover text inference only: **chat completions (including the AI SDK protocol), messages, responses, the models list, and moderations**, plus the key and credits endpoints, each at a flat 120 requests-per-minute floor. The other endpoints (embeddings, rerank, System One, search, OCR, images, speech, transcriptions, videos, realtime) return a `403` on Dev plans and are marked **—** below; realtime is unavailable on Chat plans too.
 
 | Endpoint             | Dev plan / min | Chat plan / min |
 | -------------------- | -------------- | --------------- |
@@ -98,6 +99,7 @@ Dev plans cover text inference only: **chat completions (including the AI SDK pr
 | Embeddings           | —              | 120             |
 | Rerank               | —              | 120             |
 | System One           | —              | 60              |
+| Search               | —              | 120             |
 | OCR                  | —              | 30              |
 | Images               | —              | 30              |
 | Speech               | —              | 30              |
@@ -119,7 +121,7 @@ Organizations on the **[Enterprise plan](https://llmgateway.io/enterprise) have 
 
 ## Concurrent Request Limits
 
-Separately from the per-minute request limits above, each organization has one fleet-wide budget of **concurrent in-flight requests** across all inference endpoints (chat completions, messages, responses, embeddings, moderations, rerank, System One, OCR, images, speech, transcriptions, videos, and the AI SDK surface). A slot is held for a request's full lifetime — including the entire duration of a streamed response — and freed when the response finishes or the connection closes.
+Separately from the per-minute request limits above, each organization has one fleet-wide budget of **concurrent in-flight requests** across all inference endpoints (chat completions, messages, responses, embeddings, moderations, rerank, System One, search, OCR, images, speech, transcriptions, videos, and the AI SDK surface). A slot is held for a request's full lifetime — including the entire duration of a streamed response — and freed when the response finishes or the connection closes.
 
 This bounds what a per-minute limit cannot: long-running requests. Six hundred requests per minute that each stream for two minutes hold 1,200 connections open; the concurrency budget is what keeps that pile-up from exhausting shared gateway capacity.
 

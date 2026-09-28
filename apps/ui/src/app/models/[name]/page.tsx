@@ -16,6 +16,7 @@ import {
 	Mic,
 	ListOrdered,
 	Globe,
+	Search,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -537,6 +538,9 @@ export default async function ModelPage({ params }: PageProps) {
 								const hasRerank = Array.isArray(modelDef.output)
 									? modelDef.output.includes("rerank")
 									: false;
+								const hasSearch = Array.isArray(modelDef.output)
+									? modelDef.output.includes("search")
+									: false;
 								const hasAudio = Array.isArray(modelDef.output)
 									? modelDef.output.includes("audio")
 									: false;
@@ -646,6 +650,14 @@ export default async function ModelPage({ params }: PageProps) {
 										icon: ListOrdered,
 										label: "Rerank",
 										color: "text-amber-500",
+									});
+								}
+								if (hasSearch) {
+									items.push({
+										key: "search",
+										icon: Search,
+										label: "Search API",
+										color: "text-sky-500",
 									});
 								}
 								if (hasWebSearch) {
