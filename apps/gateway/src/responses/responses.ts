@@ -28,6 +28,7 @@ import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import {
 	compactRequestSchema,
@@ -447,6 +448,7 @@ responses.post("/", async (c) => {
 		}),
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("responses"),
+		...forwardedIpHeaders(c.req.raw.headers),
 	};
 
 	// Pass Responses API context via in-memory Map (not headers) so the chat
@@ -894,6 +896,7 @@ responses.post("/compact", async (c) => {
 		}),
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("responses"),
+		...forwardedIpHeaders(c.req.raw.headers),
 	};
 
 	const contextKey = compactionId;

@@ -152,6 +152,6 @@ export interface ProjectLogFilters {
 	unifiedFinishReason?: string;
 	errorType?: LogErrorType;
 	userEmail?: string;
-	/** Only used by the organization-scoped reader. */
+	/** Comma-separated; only used by the organization-scoped reader. */
 	projectId?: string;
 }
