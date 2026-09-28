@@ -151,7 +151,7 @@ export default function OperationsPage() {
 					value={stats ? formatCompact(stats.totals.requestCount) : "—"}
 					hint={
 						stats
-							? `${formatCompact(stats.totals.errorCount)} errors`
+							? `${formatCompact(stats.totals.errorCount)} error${stats.totals.errorCount === 1 ? "" : "s"}`
 							: undefined
 					}
 				/>

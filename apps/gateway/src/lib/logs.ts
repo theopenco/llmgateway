@@ -8,6 +8,8 @@ import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
 import { getAirsideRoutingSnapshot } from "./airside-routing-snapshot.js";
+import { getLogErrorCategory } from "./log-error-category.js";
+import { markRequestLogged } from "./request-log-context.js";
 import { recordSpend } from "./spend-limit.js";
 import {
 	redactErrorDetails,
@@ -337,6 +339,8 @@ export async function insertLog(
 	logData: LogInsertData,
 	options?: { retentionLevel?: "retain" | "none" | null },
 ): Promise<unknown> {
+	logData.errorCategory ??= getLogErrorCategory(logData);
+
 	// Fail closed on retention: unless the organization is explicitly known to
 	// retain data, strip the request/response payload fields here — before the
 	// row is ever published to the log queue — so large prompts, completions, and
@@ -436,5 +440,6 @@ export async function insertLog(
 	await recordSpend(logData.organizationId, organizationBilledCost(logData));
 
 	await publishToQueue(LOG_QUEUE, logData);
+	markRequestLogged();
 	return 1; // Return 1 to match test expectations
 }

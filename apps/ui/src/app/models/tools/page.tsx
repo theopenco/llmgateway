@@ -33,7 +33,7 @@ export default async function ToolsModelsPage() {
 				description="Models with function and tool calling support for building agentic applications"
 				categoryFilter="tools"
 			>
-				<HeroRSC navbarOnly sticky={false} />
+				<HeroRSC sticky={false} />
 			</AllModels>
 		</Suspense>
 	);

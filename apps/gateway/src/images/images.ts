@@ -13,6 +13,7 @@ import {
 import { getEffectiveRetentionLevel } from "@/lib/compliance.js";
 import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
+import { ExpectedHTTPException } from "@/lib/expected-http-exception.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
@@ -416,7 +417,7 @@ async function extractImagesFromChatResponse(
 				),
 			}),
 		});
-		throw new HTTPException(500, {
+		throw new ExpectedHTTPException(500, {
 			message:
 				"The model did not generate any images. Try a different model with image generation capabilities (e.g., gemini-3.1-flash-image, gemini-3-pro-image).",
 		});

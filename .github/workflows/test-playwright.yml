@@ -7,9 +7,13 @@ permissions:
   contents: read
 
 jobs:
-  run:
+  shard:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     env:
       STACK_SUFFIX: -playwright
       API_URL: http://localhost:4002
@@ -40,22 +44,59 @@ jobs:
       - name: Seed the database
         run: pnpm run setup
 
-      - name: Run browser tests
+      - name: Run browser test shard ${{ matrix.shard }}
         run: |
           export ONBOARDING_SPONSOR_SECRET="$(openssl rand -hex 32)"
-          pnpm test:browser
+          pnpm test:browser --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
-      - name: Upload Playwright results
+      - name: Upload shard results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-results
-          path: |
-            playwright-report/
-            test-results/
-          retention-days: 7
+          name: playwright-blob-${{ matrix.shard }}
+          path: blob-report/
+          retention-days: 1
           if-no-files-found: ignore
 
       - name: Stop services
         if: always()
         run: docker compose down -v
+
+  # Named `run` so the aggregated check stays `playwright / run`.
+  run:
+    runs-on: ubuntu-latest
+    needs: shard
+    if: ${{ !cancelled() }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      - name: Download all shard results
+        uses: actions/download-artifact@v8
+        with:
+          path: ./blob-reports
+          pattern: playwright-blob-*
+          merge-multiple: true
+
+      - name: Merge reports
+        run: pnpm exec playwright merge-reports --reporter html ./blob-reports
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # merge-reports exits 0 even when tests failed, so the shard result is
+      # the pass/fail signal.
+      - name: Fail if any shard did not succeed
+        if: always() && needs.shard.result != 'success'
+        run: |
+          echo "shard result was '${{ needs.shard.result }}', expected 'success'."
+          exit 1

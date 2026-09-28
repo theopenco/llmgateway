@@ -1,9 +1,15 @@
-import { getClientIpFromHeaders } from "@llmgateway/shared/client-ip";
+import { headers } from "next/headers";
 
-export async function GET(req: Request) {
+import {
+	getClientIpFromHeaders,
+	getClientIpHeaderName,
+} from "@llmgateway/shared/client-ip";
+
+export async function GET() {
 	return Response.json({
 		status: "ok",
 		sha: process.env.APP_VERSION ?? "v0.0.0-unknown",
-		clientIp: getClientIpFromHeaders(req.headers),
+		clientIp: getClientIpFromHeaders(await headers()),
+		clientIpHeader: getClientIpHeaderName(),
 	});
 }

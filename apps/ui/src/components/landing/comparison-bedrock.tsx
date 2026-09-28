@@ -13,27 +13,28 @@ const comparisonData = [
 		features: [
 			{
 				title: "Cloud-neutral",
-				description: "Use any provider on any cloud — or none at all",
+				description: "Choose from supported providers across clouds",
 				llmgateway: true,
 				bedrock: "AWS only",
 			},
 			{
 				title: "Open source & self-hostable",
-				description: "Run the entire platform on your own infrastructure",
+				description:
+					"Run the core on your infrastructure; Enterprise has separate terms",
 				llmgateway: "AGPLv3",
 				bedrock: false,
 			},
 			{
 				title: "OpenAI-compatible API",
-				description: "One request format across every model",
+				description: "Common request formats; features depend on the model",
 				llmgateway: true,
-				bedrock: "Partial (varies by model)",
+				bedrock: "Chat Completions / Responses; model-dependent",
 			},
 			{
 				title: "Setup required",
 				description: "What you need before your first request",
 				llmgateway: "Sign up, copy a key",
-				bedrock: "AWS account, IAM, model access",
+				bedrock: "AWS account, permissions, eligible model",
 			},
 		],
 	},
@@ -43,18 +44,18 @@ const comparisonData = [
 			{
 				title: "Providers behind one API",
 				description: "Clouds, labs, and fast independent hosts",
-				llmgateway: "40+ providers",
+				llmgateway: "See live provider catalog",
 				bedrock: "AWS-hosted catalog",
 			},
 			{
 				title: "Frontier model coverage",
-				description: "OpenAI, Anthropic, Google, xAI, and more",
-				llmgateway: "All major labs",
-				bedrock: "OpenAI, Claude, Gemma — no Gemini",
+				description: "Check live catalogs for the models you need",
+				llmgateway: "Cross-provider catalog",
+				bedrock: "See Bedrock model catalog",
 			},
 			{
 				title: "Fast inference hosts",
-				description: "Groq, Cerebras, and other speed-focused providers",
+				description: "Choose independent inference hosts",
 				llmgateway: true,
 				bedrock: false,
 			},
@@ -62,7 +63,7 @@ const comparisonData = [
 				title: "Image & video generation",
 				description: "Generative media through the same API",
 				llmgateway: "Across providers",
-				bedrock: "Amazon Nova & partners",
+				bedrock: "Supported media models",
 			},
 		],
 	},
@@ -73,12 +74,11 @@ const comparisonData = [
 				title: "Automatic provider routing",
 				description: "Routes on live uptime, throughput, price, and latency",
 				llmgateway: true,
-				bedrock: "Cross-region only",
+				bedrock: "Cross-region and intelligent prompt routing",
 			},
 			{
 				title: "Failover across providers",
-				description:
-					"Transparent retry on a healthy provider — even another cloud",
+				description: "Retry within the configured model and provider pool",
 				llmgateway: true,
 				bedrock: false,
 			},
@@ -109,7 +109,7 @@ const comparisonData = [
 				title: "Transparent platform fee",
 				description: "Predictable, easy-to-reason-about pricing",
 				llmgateway: "5% or 0% (BYOK)",
-				bedrock: "Provider rates via AWS",
+				bedrock: "AWS model, region and service-tier rates",
 			},
 			{
 				title: "Real-time cost analytics",
@@ -118,9 +118,9 @@ const comparisonData = [
 				bedrock: "CloudWatch / Cost Explorer",
 			},
 			{
-				title: "Guardrails",
-				description: "Prompt injection, PII, jailbreak, and secret detection",
-				llmgateway: true,
+				title: "Content guardrails",
+				description: "Content checks; coverage and pricing vary by product",
+				llmgateway: "Enterprise",
 				bedrock: true,
 			},
 		],
@@ -147,7 +147,7 @@ export function ComparisonBedrock() {
 						Compare platforms
 					</Badge>
 					<h2 className="text-3xl font-bold tracking-tight mb-2 text-foreground">
-						Every model on Bedrock — plus every model that isn&apos;t
+						Keep Bedrock and add cross-provider routing
 					</h2>
 					<p className="text-muted-foreground">
 						Compare LLM Gateway and Amazon Bedrock features side by side
@@ -162,22 +162,23 @@ export function ComparisonBedrock() {
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>No cloud lock-in</strong> — Bedrock is one of 40+
-								providers behind a single OpenAI-compatible API
+								<strong>No cloud lock-in</strong> — Bedrock is one of the
+								supported providers behind a single OpenAI-compatible API
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>Cross-cloud failover</strong> — if a Bedrock region
-								degrades, requests retry on another provider automatically
+								<strong>Cross-cloud failover</strong> — retryable failures can
+								fall back to an eligible alternative provider when routing
+								settings allow it
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>Fully open source</strong> — self-host the entire
-								platform under AGPLv3
+								<strong>Open-source core</strong> — self-host under AGPLv3;
+								enterprise features have separate terms
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
@@ -203,7 +204,7 @@ export function ComparisonBedrock() {
 								</p>
 								<p className="text-2xl font-bold text-primary">From $0</p>
 								<p className="text-xs text-muted-foreground mt-1">
-									Self-host free forever
+									Free core; hosting costs separate
 								</p>
 							</div>
 						</div>
@@ -266,10 +267,9 @@ export function ComparisonBedrock() {
 					<p className="text-sm text-muted-foreground">
 						AWS Bedrock is a built-in LLM Gateway provider. Bring your AWS
 						credentials and your Bedrock traffic keeps flowing with 0% markup —
-						while every request gains automatic failover to other providers,
-						response caching, guardrails, and per-request cost analytics. When
-						you need a model Bedrock doesn&apos;t host, it&apos;s already behind
-						the same API.
+						with configurable provider fallback, response caching, and cost
+						analytics. Content guardrails require Enterprise. Check our live
+						catalog for supported routes outside Bedrock.
 					</p>
 				</div>
 
@@ -288,7 +288,7 @@ export function ComparisonBedrock() {
 					</div>
 					<p className="text-sm text-muted-foreground mt-3">
 						No credit card required • Self-host option available • Enterprise
-						support included
+						support available
 					</p>
 				</div>
 			</div>

@@ -41,7 +41,7 @@ export default function BlogCategoryIndexPage() {
 
 	return (
 		<>
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<div className="container mx-auto max-w-3xl px-4 py-16 pt-28 md:pt-36">
 				<h1 className="mb-4 text-3xl font-bold tracking-tight md:text-4xl">
 					Blog Categories

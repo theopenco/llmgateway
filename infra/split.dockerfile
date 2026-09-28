@@ -29,6 +29,11 @@ RUN ARCH=$(uname -m) && \
     tar -xzf /tmp/asdf.tar.gz -C $ASDF_DIR && \
     rm /tmp/asdf.tar.gz
 
+# Keeps remote turbo artifacts (e.g. native sharp binaries in Next.js
+# standalone output) from being shared across architectures or with CI.
+ARG TARGETPLATFORM
+ENV CACHE_PLATFORM=docker-${TARGETPLATFORM}
+
 # Create app directory
 WORKDIR /app
 
@@ -60,7 +65,7 @@ COPY --parents ee/**/package.json .
 COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=api... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=api
+RUN --mount=type=cache,target=/app/.turbo --mount=type=secret,id=TURBO_TOKEN,env=TURBO_TOKEN --mount=type=secret,id=TURBO_TEAM,env=TURBO_TEAM pnpm run build --filter=api
 
 # Builder for Gateway
 FROM base-builder AS gateway-builder
@@ -71,7 +76,7 @@ COPY --parents ee/**/package.json .
 COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=gateway... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=gateway
+RUN --mount=type=cache,target=/app/.turbo --mount=type=secret,id=TURBO_TOKEN,env=TURBO_TOKEN --mount=type=secret,id=TURBO_TEAM,env=TURBO_TEAM pnpm run build --filter=gateway
 
 # Builder for UI
 FROM base-builder AS ui-builder
@@ -82,7 +87,7 @@ COPY --parents ee/**/package.json .
 COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=ui... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=ui
+RUN --mount=type=cache,target=/app/.turbo --mount=type=secret,id=TURBO_TOKEN,env=TURBO_TOKEN --mount=type=secret,id=TURBO_TEAM,env=TURBO_TEAM pnpm run build --filter=ui
 
 # Builder for Playground
 FROM base-builder AS playground-builder
@@ -93,7 +98,7 @@ COPY --parents ee/**/package.json .
 COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=playground... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=playground
+RUN --mount=type=cache,target=/app/.turbo --mount=type=secret,id=TURBO_TOKEN,env=TURBO_TOKEN --mount=type=secret,id=TURBO_TEAM,env=TURBO_TEAM pnpm run build --filter=playground
 
 # Builder for Worker
 FROM base-builder AS worker-builder
@@ -104,7 +109,7 @@ COPY --parents ee/**/package.json .
 COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=worker... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=worker
+RUN --mount=type=cache,target=/app/.turbo --mount=type=secret,id=TURBO_TOKEN,env=TURBO_TOKEN --mount=type=secret,id=TURBO_TEAM,env=TURBO_TEAM pnpm run build --filter=worker
 
 # Builder for Docs
 FROM base-builder AS docs-builder
@@ -115,7 +120,7 @@ COPY --parents ee/**/package.json .
 COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=docs... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=docs
+RUN --mount=type=cache,target=/app/.turbo --mount=type=secret,id=TURBO_TOKEN,env=TURBO_TOKEN --mount=type=secret,id=TURBO_TEAM,env=TURBO_TEAM pnpm run build --filter=docs
 
 # Builder for Admin
 FROM base-builder AS admin-builder
@@ -126,7 +131,7 @@ COPY --parents ee/**/package.json .
 COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=admin... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=admin
+RUN --mount=type=cache,target=/app/.turbo --mount=type=secret,id=TURBO_TOKEN,env=TURBO_TOKEN --mount=type=secret,id=TURBO_TEAM,env=TURBO_TEAM pnpm run build --filter=admin
 
 # Builder for Code
 FROM base-builder AS code-builder
@@ -137,7 +142,7 @@ COPY --parents ee/**/package.json .
 COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=code... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=code
+RUN --mount=type=cache,target=/app/.turbo --mount=type=secret,id=TURBO_TOKEN,env=TURBO_TOKEN --mount=type=secret,id=TURBO_TEAM,env=TURBO_TEAM pnpm run build --filter=code
 
 # Builder for Airside
 FROM base-builder AS airside-builder
@@ -148,7 +153,7 @@ COPY --parents ee/**/package.json .
 COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=airside... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=airside
+RUN --mount=type=cache,target=/app/.turbo --mount=type=secret,id=TURBO_TOKEN,env=TURBO_TOKEN --mount=type=secret,id=TURBO_TEAM,env=TURBO_TEAM pnpm run build --filter=airside
 
 FROM debian:12-slim AS runtime
 

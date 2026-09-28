@@ -148,7 +148,7 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 					}}
 				/>
 			) : null}
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white pt-30">
 				<main className="container mx-auto px-4 py-8">
 					<div className="max-w-4xl mx-auto">

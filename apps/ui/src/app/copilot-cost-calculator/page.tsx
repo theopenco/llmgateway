@@ -112,7 +112,7 @@ export default function CopilotCostCalculatorPage() {
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
 			/>
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<CopilotCostCalculatorClient />
 			<CopilotCostCalculatorContent />
 			<Footer />

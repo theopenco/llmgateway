@@ -639,9 +639,12 @@ export function isClientJsonError(message: string, args: unknown[]): boolean {
  * is emitted every time someone uses social sign-in on a login page with an
  * email that has no account yet — expected, because both social providers run
  * with `disableImplicitSignUp: true` — and the UI turns it into a "sign up
- * instead?" prompt. Logging it at error severity only trips production alerting.
+ * instead?" prompt. `account_not_linked` is emitted when an OAuth or SSO email
+ * matches an existing user that cannot be implicitly linked; the UI shows a
+ * "sign in with your original method" message. Logging either at error
+ * severity only trips production alerting.
  */
-const clientAuthErrorCodes = new Set(["signup_disabled"]);
+const clientAuthErrorCodes = new Set(["signup_disabled", "account_not_linked"]);
 
 export function isClientAuthError(message: string): boolean {
 	return clientAuthErrorCodes.has(message.trim());

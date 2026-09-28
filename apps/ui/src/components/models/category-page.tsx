@@ -118,7 +118,7 @@ export async function ModelCategoryPage({ slug }: { slug: ModelCategorySlug }) {
 						<CategorySeoContent intro={content.intro} faqs={content.faqs} />
 					}
 				>
-					<HeroRSC navbarOnly sticky={false} />
+					<HeroRSC sticky={false} />
 				</AllModels>
 			</Suspense>
 		</>

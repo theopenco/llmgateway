@@ -1,0 +1,55 @@
+---
+title: Email Preferences
+description: Which emails LLM Gateway sends, and how to stop the optional ones.
+icon: Mail
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+Every email we send is either account email, which you cannot turn off, or one
+of seven optional categories, all of which you can.
+
+## Account email
+
+Invoices and receipts, payment failures, subscription changes, password resets,
+email verification, and team or SSO invitations. These are part of running your
+account, so they carry no unsubscribe link. The only way to stop them is to
+close your account from the [dashboard](https://llmgateway.io/dashboard).
+
+## Optional email
+
+Everything else carries an unsubscribe link and a one-click unsubscribe header,
+so your mail client can opt you out without opening the message:
+
+- **API key budgets** — a key is approaching its total or recurring limit.
+- **Model retirements** — a model you use is due to be deprecated or deactivated.
+- **Provider issues** — elevated errors from a provider you recently used.
+- **Compliance: models available** — a watched model became usable under your
+  organization's policy.
+- **Compliance: downgrades** — a provider or watched model stopped meeting your
+  organization's policy.
+- **Product tips and offers** — onboarding nudges, feature announcements and
+  occasional campaigns.
+- **Credit balance reminders** — your balance dropped below 20% or 5% of your
+  last top-up, or your credits have not been topped up in a while.
+
+The first five are also delivered in the dashboard's notification feed, which
+you can leave on after turning their email off.
+
+## Managing them
+
+**Notifications** in the dashboard lists all seven categories with an in-app and
+an email switch each. The settings are yours rather than your organization's, so
+they follow you across every organization you belong to.
+
+<Callout type="info">
+	Unsubscribing applies to the email address the message was sent to. If your
+	organization's billing address differs from your account address, use the
+	unsubscribe link in the email itself to stop mail sent to that address.
+</Callout>
+
+## Newsletter
+
+The newsletter is a separate opt-in list you join from the website. Its
+unsubscribe link is managed by our email provider and is independent of
+everything above.

@@ -15,7 +15,10 @@ import {
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 import { HealthChecker } from "@llmgateway/shared";
-import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
+import {
+	getClientIpFromContext,
+	getClientIpHeaderName,
+} from "@llmgateway/shared/client-ip";
 
 import { redisClient } from "./auth/config.js";
 import { authHandler } from "./auth/handler.js";
@@ -49,6 +52,7 @@ import { publicModelSurvey } from "./routes/public-model-survey.js";
 import { publicNewsletter } from "./routes/public-newsletter.js";
 import { publicProfile } from "./routes/public-profile.js";
 import { publicProvidersStats } from "./routes/public-providers-stats.js";
+import { publicUnsubscribe } from "./routes/public-unsubscribe.js";
 import { referral } from "./routes/referral.js";
 import { scim } from "./routes/scim.js";
 import { v1Master } from "./routes/v1-master.js";
@@ -250,6 +254,7 @@ const root = createRoute({
 							message: z.string(),
 							version: z.string(),
 							clientIp: z.string().nullable(),
+							clientIpHeader: z.string(),
 							health: z.object({
 								status: z.string(),
 								database: z.object({
@@ -275,6 +280,7 @@ const root = createRoute({
 							message: z.string(),
 							version: z.string(),
 							clientIp: z.string().nullable(),
+							clientIpHeader: z.string(),
 							health: z.object({
 								status: z.string(),
 								database: z.object({
@@ -313,7 +319,11 @@ app.openapi(root, async (c) => {
 	// Echo the address this service resolves for the caller so a deployment can
 	// be checked against a known client IP before any per-IP limit is relied on.
 	return c.json(
-		{ ...response, clientIp: getClientIpFromContext(c) },
+		{
+			...response,
+			clientIp: getClientIpFromContext(c),
+			clientIpHeader: getClientIpHeaderName(),
+		},
 		statusCode as 200 | 503,
 	);
 });
@@ -330,6 +340,7 @@ app.route("/public/banner", publicBanner);
 app.route("/public/discounts", publicDiscounts);
 app.route("/public/contact", publicContact);
 app.route("/public/newsletter", publicNewsletter);
+app.route("/public/unsubscribe", publicUnsubscribe);
 app.route("/public/chat-support", publicChatSupport);
 app.route("/public/chats/share", publicChatShares);
 app.route("/public/apps", publicApps);

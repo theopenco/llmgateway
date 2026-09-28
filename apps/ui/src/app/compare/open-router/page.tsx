@@ -1,9 +1,8 @@
 import { CompareFaq } from "@/components/compare/compare-faq";
+import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { Comparison } from "@/components/landing/comparison";
 import Footer from "@/components/landing/footer";
-
-import { MARKETING_STATS } from "@llmgateway/shared";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
@@ -11,35 +10,32 @@ const openRouterFaqs: CompareFaqItem[] = [
 	{
 		question: "How is LLM Gateway different from OpenRouter?",
 		answer:
-			"LLM Gateway adds full self-hosting under an AGPLv3 license, real-time cost and latency analytics for every request, free Bring Your Own Keys at any volume, and flexible enterprise add-ons — and it is independently owned. OpenRouter is a hosted, closed-source marketplace that cannot run on your own infrastructure, and it is being acquired by Stripe.",
+			"Both offer routing, fallback, usage analytics and provider keys. LLM Gateway adds an AGPLv3 core you can self-host and no BYOK platform fee. OpenRouter is a hosted marketplace with workspaces, spend controls and plan-dependent regional routing.",
 	},
 	{
-		question: "Is LLM Gateway open source and self-hostable?",
+		question: "How does OpenRouter pricing work?",
 		answer:
-			"Yes. The gateway is AGPLv3 licensed and can run entirely on your own infrastructure, free forever — or you can use the managed hosted version.",
+			"OpenRouter lists a 5.5% platform fee on Standard and 8% on Business, with negotiated Enterprise terms. Standard and Business include a monthly BYOK allowance covering $25,000 of list-price inference; Enterprise includes $200,000. Above that allowance, the BYOK fee is 5% of equivalent OpenRouter inference cost.",
 	},
 	{
-		question: "How does pricing compare to OpenRouter?",
-		answer: `Use pay-as-you-go credits with a flat 5% platform fee, or bring your own provider keys and pay providers directly for free. Token pricing matches provider rates with no markup, and optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}.`,
-	},
-	{
-		question: "Does OpenRouter charge a token markup?",
+		question: "How does LLM Gateway pricing compare?",
 		answer:
-			"No. Like LLM Gateway, OpenRouter passes provider list prices through. Its fee is 5.5% on card credit purchases ($0.80 minimum) or 5% on crypto, and bringing your own keys is free up to $25,000 of list-price inference per month ($200,000 on enterprise) before a 5% fee applies. LLM Gateway charges a flat 5% on credits and 0% with your own keys at any volume.",
+			"LLM Gateway charges a 5% fee on credit purchases and no platform fee on your own provider keys. Model usage and optional request storage are separate. Compare the current pricing pages for payment fees, enterprise terms and storage charges.",
 	},
 	{
-		question: "Which models and providers are supported?",
-		answer: `${MARKETING_STATS.models} models across ${MARKETING_STATS.providers} providers — including GPT, Claude, Gemini, Llama, and Mistral — with new releases typically added within 48 hours of launch. OpenRouter lists 400+ models from 80+ providers, so if you depend on a niche model, check both catalogs before switching.`,
-	},
-	{
-		question: "Can I switch from OpenRouter easily?",
+		question: "What has OpenRouter added recently?",
 		answer:
-			"Yes. LLM Gateway is OpenAI-compatible, so you migrate by swapping the base URL and API key — no code rewrite required.",
+			"Its Business plan includes US and EU in-region routing and workload identity federation. It also offers a Batch API, media generation and configurable data policies. Check the linked documentation for model eligibility and regional restrictions.",
 	},
 	{
-		question: "Does Stripe's acquisition of OpenRouter change this comparison?",
+		question: "Can I migrate without rewriting my application?",
 		answer:
-			"Not the facts on this page. Stripe and OpenRouter announced on August 19, 2026 that Stripe will acquire OpenRouter (reported at more than $7 billion), subject to customary closing conditions. OpenRouter says nothing changes for customers — same name, product, pricing, and roadmap — and the API, the 5.5% credit fee, and the catalog are unchanged as of September 2026. What changes is who sets them next. Regulated teams should verify with the vendor which legal entity is the counterparty after close, and whether the sub-processor list, retention terms, or transfer mechanism change, before updating a DPA or vendor record. We keep a running write-up, including a portability checklist that applies to any gateway, at /blog/stripe-openrouter-acquisition.",
+			"OpenAI-compatible chat calls usually need a new base URL, API key and model ID. Translate OpenRouter-specific provider preferences, presets, plugins and routing parameters, then test streaming and tool calls before switching production traffic.",
+	},
+	{
+		question: "What is the status of the Stripe acquisition?",
+		answer:
+			"OpenRouter announced on August 19, 2026 that it had agreed to join Stripe. Treat the announcement separately from a confirmed closing; check the vendor announcement and current contract terms when assessing ownership.",
 	},
 ];
 
@@ -49,6 +45,7 @@ export default function CompareOpenRouterPage() {
 			<main>
 				<HeroCompare />
 				<Comparison />
+				<ComparisonSources slug="open-router" />
 				<CompareFaq
 					heading="LLM Gateway vs OpenRouter"
 					description="Common questions about switching from OpenRouter to LLM Gateway."

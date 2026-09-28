@@ -63,6 +63,10 @@ describe("isClientAuthError", () => {
 		expect(isClientAuthError(" signup_disabled ")).toBe(true);
 	});
 
+	test("matches the bare account_not_linked code Better Auth logs", () => {
+		expect(isClientAuthError("account_not_linked")).toBe(true);
+	});
+
 	test("does not match genuine server errors", () => {
 		expect(isClientAuthError("Database connection failed")).toBe(false);
 		expect(isClientAuthError("unable_to_create_user")).toBe(false);

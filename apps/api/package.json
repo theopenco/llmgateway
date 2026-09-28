@@ -20,6 +20,8 @@
 		"@better-auth/core": "1.6.26",
 		"@better-auth/passkey": "1.6.26",
 		"@better-auth/sso": "1.6.26",
+		"@formepdf/core": "0.25.0",
+		"@formepdf/react": "0.25.0",
 		"@hono/node-server": "^2.0.10",
 		"@hono/swagger-ui": "^0.5.2",
 		"@hono/zod-openapi": "^0.19.6",
@@ -52,9 +54,9 @@
 		"hono-openapi": "^1.1.1",
 		"ioredis": "5.7.0",
 		"ipaddr.js": "2.2.0",
-		"jspdf": "4.2.1",
 		"openai": "^5.19.1",
 		"posthog-node": "5.10.4",
+		"react": "19.3.0",
 		"resend": "6.8.0",
 		"sharp": "0.35.4",
 		"stripe": "18.1.1",
@@ -63,5 +65,8 @@
 		"yaml": "2.8.3",
 		"zod": "3.25.76",
 		"zod-openapi": "^5.4.3"
+	},
+	"devDependencies": {
+		"@types/react": "19.3.0"
 	}
 }

@@ -11226,10 +11226,12 @@ chat.openapi(completions, async (c) => {
 								// Track web search calls for cost calculation
 								// Check for web search results based on provider-specific data
 								if (isAnthropicMessagesProvider(transportProvider)) {
-									// For Anthropic, count web_search_tool_result blocks
+									// For Anthropic, count successful web_search_tool_result
+									// blocks; errored searches carry an object and are not billed
 									if (
 										data.type === "content_block_start" &&
-										data.content_block?.type === "web_search_tool_result"
+										data.content_block?.type === "web_search_tool_result" &&
+										Array.isArray(data.content_block.content)
 									) {
 										webSearchCount++;
 									}

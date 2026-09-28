@@ -33,7 +33,7 @@ export default async function ImageToImageModelsPage() {
 				description="Models that accept images as input and generate new images — for editing, style transfer, and visual transformation"
 				categoryFilter="image-to-image"
 			>
-				<HeroRSC navbarOnly sticky={false} />
+				<HeroRSC sticky={false} />
 			</AllModels>
 		</Suspense>
 	);

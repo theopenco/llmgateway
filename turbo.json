@@ -1,10 +1,7 @@
 {
 	"$schema": "https://turbo.build/schema.json",
-	"remoteCache": {
-		"teamSlug": "ducktors",
-		"apiUrl": "https://trrc.ducktors.dev"
-	},
 	"dangerouslyDisablePackageManagerCheck": true,
+	"globalEnv": ["CACHE_PLATFORM"],
 	"globalDependencies": [
 		".tool-versions",
 		".npmrc",
@@ -21,6 +18,7 @@
 			"outputs": [
 				"dist/**",
 				".next/**",
+				"!.next/cache/**",
 				".next-dev/**",
 				".vercel/**",
 				".output/**",

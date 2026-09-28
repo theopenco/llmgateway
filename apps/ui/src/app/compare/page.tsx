@@ -25,16 +25,16 @@ const faqs = [
 	{
 		question: "What is the best OpenRouter or Portkey alternative?",
 		answer:
-			"LLM Gateway is an open-source AI gateway that routes requests to 40+ providers and 200+ models through one OpenAI-compatible endpoint. Unlike hosted-only alternatives, the whole platform is AGPLv3 licensed, so you can run it on your own infrastructure or use the managed service.",
+			"LLM Gateway is an open-source AI gateway that routes requests to multiple providers and 200+ models through one OpenAI-compatible endpoint. Unlike hosted-only alternatives, the core is AGPLv3 licensed, with separate commercial Enterprise features, so you can run it on your own infrastructure or use the managed service.",
 	},
 	{
 		question: "How does LLM Gateway price against other AI gateways?",
-		answer: `You pay providers their per-token rates plus a ${MARKETING_STATS.platformFee} platform fee on credits, or you bring your own provider keys and pay 0% markup. There are no per-seat licences and no request-volume tiers. Optional full request retention is billed at ${MARKETING_STATS.dataStoragePrice}.`,
+		answer: `You pay providers their per-token rates plus a ${MARKETING_STATS.platformFee} platform fee on credits, or you bring your own provider keys and pay 0% markup. There are no per-seat licences and no request-volume tiers for standard inference. Optional full request retention is billed at ${MARKETING_STATS.dataStoragePrice}.`,
 	},
 	{
 		question: "Do I have to rewrite my code to switch?",
 		answer:
-			"No. LLM Gateway exposes an OpenAI-compatible API, so switching is a base URL and API key change in whichever SDK you already use. Step-by-step migration guides cover OpenRouter, Portkey, LiteLLM, Vercel AI Gateway, and GitHub Copilot.",
+			"Standard OpenAI-compatible calls usually need endpoint, key and model changes. Translate platform-specific routing, headers, tool integrations and policies, then test the workflow. Our migration guides cover the supported paths.",
 	},
 	{
 		question: "Can LLM Gateway sit in front of AWS Bedrock or Azure?",
@@ -56,7 +56,7 @@ export const metadata: Metadata = {
 	openGraph: {
 		title: "Compare LLM Gateway — AI Gateway Comparisons",
 		description:
-			"Side-by-side comparisons against every major AI gateway, cloud model platform, and coding assistant.",
+			"Side-by-side comparisons against AI gateways, cloud model platforms, and coding assistants.",
 		type: "website",
 		url: `${BASE_URL}/compare`,
 	},
@@ -64,7 +64,7 @@ export const metadata: Metadata = {
 		card: "summary_large_image",
 		title: "Compare LLM Gateway — AI Gateway Comparisons",
 		description:
-			"Side-by-side comparisons against every major AI gateway, cloud model platform, and coding assistant.",
+			"Side-by-side comparisons against AI gateways, cloud model platforms, and coding assistants.",
 	},
 };
 
@@ -237,7 +237,7 @@ export default function ComparePage() {
 											AI gateways &amp; routers
 										</td>
 										<td className="px-4 py-3 text-muted-foreground">
-											Full platform (AGPLv3)
+											Core AGPLv3; Enterprise commercial
 										</td>
 										<td className="px-4 py-3 text-muted-foreground">Yes</td>
 										<td className="px-4 py-3 text-muted-foreground">—</td>

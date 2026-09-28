@@ -1,6 +1,8 @@
 import { redisClient } from "@/auth/config.js";
 
+import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { isStealthProvider } from "@llmgateway/models";
 
 // Domains whose sitemaps are crawled to build the support assistant's
 // knowledge of every public page across the product suite. The agent links to
@@ -22,6 +24,27 @@ export const KNOWLEDGE_LLMS_TXT = [
 	"https://airside.llmgateway.io/llms.txt",
 ];
 
+const DOCS_BASE_URL = "https://docs.llmgateway.io";
+
+// Billing, refund, and invoice docs inlined into the system prompt. These are
+// the most common support questions and their rules (windows, thresholds, who
+// can act) must be quoted exactly, so they are not left to an optional fetch.
+export const KNOWLEDGE_REFERENCE_DOCS = [
+	"/learn/billing",
+	"/learn/transactions",
+	"/learn/invoices",
+	"/learn/refunds",
+	"/learn/reset-passes",
+	"/learn/payg-overflow",
+	"/learn/chat-plans",
+].map((path) => `${DOCS_BASE_URL}${path}`);
+
+// Docs pages are also served as raw markdown under /llms.mdx/<path>.
+export function toDocsMarkdownUrl(url: string): string {
+	const { pathname } = new URL(url);
+	return `${DOCS_BASE_URL}/llms.mdx${pathname}`;
+}
+
 // Only pages on these hosts may be fetched by the agent's grounding tool.
 // chat.llmgateway.io stays on the list after the move to lounge.llmgateway.io
 // because links to the old host are still in the wild; it 301s to the new one.
@@ -34,14 +57,18 @@ const ALLOWED_HOSTS = [
 	"airside.llmgateway.io",
 ];
 
-const URLS_CACHE_KEY = "chat_support_knowledge_urls_v2";
+const URLS_CACHE_KEY = "chat_support_knowledge_urls_v3";
 const OVERVIEWS_CACHE_KEY = "chat_support_knowledge_overviews_v2";
+const REFERENCE_DOCS_CACHE_KEY = "chat_support_knowledge_reference_docs_v1";
+const CATALOGUE_CACHE_KEY = "chat_support_catalogue_summary_v1";
+const CATALOGUE_CACHE_TTL_SECONDS = 60 * 10; // 10 minutes
 const URLS_CACHE_TTL_SECONDS = 60 * 60 * 6; // 6 hours
 const PAGE_CACHE_TTL_SECONDS = 60 * 60 * 24; // 24 hours
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_URLS = 600;
 const MAX_PAGE_CHARS = 6000;
 const MAX_OVERVIEW_CHARS = 6000;
+const MAX_REFERENCE_DOC_CHARS = 8000;
 
 function extractLocs(xml: string): string[] {
 	const matches = xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi);
@@ -193,7 +220,10 @@ export async function getKnowledgeUrls(): Promise<string[]> {
 	const results = await Promise.all(
 		KNOWLEDGE_SITEMAPS.map((sitemap) => collectSitemapUrls(sitemap)),
 	);
-	const urls = selectKnowledgeUrls(KNOWLEDGE_LLMS_TXT, results);
+	const urls = selectKnowledgeUrls(
+		[...KNOWLEDGE_LLMS_TXT, ...KNOWLEDGE_REFERENCE_DOCS],
+		results,
+	);
 
 	if (urls.length > 0) {
 		try {
@@ -256,6 +286,183 @@ export async function getKnowledgeOverviews(): Promise<KnowledgeOverview[]> {
 	return overviews;
 }
 
+// Fetches the billing, refund, and invoice docs as markdown for the system
+// prompt. Keyed by the canonical docs URL so the agent links to the HTML page.
+export async function getKnowledgeReferenceDocs(): Promise<
+	KnowledgeOverview[]
+> {
+	try {
+		const cached = await redisClient.get(REFERENCE_DOCS_CACHE_KEY);
+		if (cached) {
+			return JSON.parse(cached) as KnowledgeOverview[];
+		}
+	} catch (error) {
+		logger.warn("Chat support reference docs cache read failed", { error });
+	}
+
+	const fetched = await Promise.all(
+		KNOWLEDGE_REFERENCE_DOCS.map(async (url) => {
+			const text = await fetchText(toDocsMarkdownUrl(url));
+			return text
+				? { url, content: text.trim().slice(0, MAX_REFERENCE_DOC_CHARS) }
+				: null;
+		}),
+	);
+	const docs = fetched.filter((doc): doc is KnowledgeOverview => doc !== null);
+
+	// Only cache a complete set so a doc that failed to load is retried on the
+	// next request instead of staying missing for the whole cache window.
+	if (docs.length === KNOWLEDGE_REFERENCE_DOCS.length) {
+		try {
+			await redisClient.set(
+				REFERENCE_DOCS_CACHE_KEY,
+				JSON.stringify(docs),
+				"EX",
+				URLS_CACHE_TTL_SECONDS,
+			);
+		} catch (error) {
+			logger.warn("Chat support reference docs cache write failed", {
+				error,
+			});
+		}
+	}
+
+	return docs;
+}
+
+export interface CatalogueSummary {
+	modelCount: number;
+	providerCount: number;
+	freeModelCount: number;
+	outputCounts: Record<string, number>;
+	providers: string[];
+	generatedAt: string;
+}
+
+interface CatalogueRows {
+	models: { id: string; free: boolean; output: string[] }[];
+	mappings: {
+		modelId: string;
+		providerId: string;
+		deactivatedAt: Date | null;
+	}[];
+	providers: { id: string; name: string }[];
+}
+
+// The gateway's own router models (auto, smart, custom) and stealth providers
+// are routable but not public directory entries, so they must not inflate the
+// totals or leak into the provider list. Mirrors the public providers page.
+const NON_PUBLIC_PROVIDER_IDS = new Set(["llmgateway", "custom"]);
+
+export function isPublicCatalogueProvider(providerId: string): boolean {
+	return (
+		!NON_PUBLIC_PROVIDER_IDS.has(providerId) && !isStealthProvider(providerId)
+	);
+}
+
+// Counts what the public models directory lists as routable right now: active
+// models with at least one live mapping on an active public provider. Deriving
+// the numbers from the database keeps the assistant from quoting stale totals.
+export function summarizeCatalogue(
+	rows: CatalogueRows,
+	now: Date = new Date(),
+): CatalogueSummary {
+	const providerNames = new Map(
+		rows.providers
+			.filter((provider) => isPublicCatalogueProvider(provider.id))
+			.map((provider) => [provider.id, provider.name]),
+	);
+	const liveProvidersByModel = new Map<string, Set<string>>();
+	for (const mapping of rows.mappings) {
+		if (!providerNames.has(mapping.providerId)) {
+			continue;
+		}
+		if (mapping.deactivatedAt && mapping.deactivatedAt <= now) {
+			continue;
+		}
+		const providerIds =
+			liveProvidersByModel.get(mapping.modelId) ?? new Set<string>();
+		providerIds.add(mapping.providerId);
+		liveProvidersByModel.set(mapping.modelId, providerIds);
+	}
+
+	const liveModels = rows.models.filter((model) =>
+		liveProvidersByModel.has(model.id),
+	);
+	const liveProviderIds = new Set<string>();
+	const outputCounts: Record<string, number> = {};
+	for (const model of liveModels) {
+		for (const providerId of liveProvidersByModel.get(model.id) ?? []) {
+			liveProviderIds.add(providerId);
+		}
+		for (const output of new Set(model.output)) {
+			outputCounts[output] = (outputCounts[output] ?? 0) + 1;
+		}
+	}
+
+	return {
+		modelCount: liveModels.length,
+		providerCount: liveProviderIds.size,
+		freeModelCount: liveModels.filter((model) => model.free).length,
+		outputCounts,
+		providers: Array.from(
+			liveProviderIds,
+			(id) => providerNames.get(id) ?? id,
+		).sort((a, b) => a.localeCompare(b)),
+		generatedAt: now.toISOString(),
+	};
+}
+
+export async function getCatalogueSummary(): Promise<CatalogueSummary | null> {
+	try {
+		const cached = await redisClient.get(CATALOGUE_CACHE_KEY);
+		if (cached) {
+			return JSON.parse(cached) as CatalogueSummary;
+		}
+	} catch (error) {
+		logger.warn("Chat support catalogue cache read failed", { error });
+	}
+
+	let summary: CatalogueSummary;
+	try {
+		const [models, mappings, providers] = await Promise.all([
+			db.query.model.findMany({
+				where: { status: { eq: "active" } },
+				columns: { id: true, free: true, output: true },
+			}),
+			db.query.modelProviderMapping.findMany({
+				where: { status: { eq: "active" } },
+				columns: { modelId: true, providerId: true, deactivatedAt: true },
+			}),
+			db.query.provider.findMany({
+				where: { status: { eq: "active" } },
+				columns: { id: true, name: true },
+			}),
+		]);
+		summary = summarizeCatalogue({ models, mappings, providers });
+	} catch (error) {
+		logger.warn("Chat support catalogue summary failed", {
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return null;
+	}
+
+	if (summary.modelCount > 0) {
+		try {
+			await redisClient.set(
+				CATALOGUE_CACHE_KEY,
+				JSON.stringify(summary),
+				"EX",
+				CATALOGUE_CACHE_TTL_SECONDS,
+			);
+		} catch (error) {
+			logger.warn("Chat support catalogue cache write failed", { error });
+		}
+	}
+
+	return summary;
+}
+
 export function isAllowedKnowledgeUrl(url: string): boolean {
 	try {
 		const { hostname, pathname, protocol } = new URL(url);
@@ -316,7 +523,7 @@ export async function fetchKnowledgePage(url: string): Promise<string> {
 		return "This page is outside the LLM Gateway documentation and cannot be read.";
 	}
 
-	const cacheKey = `chat_support_page:${url}`;
+	const cacheKey = `chat_support_page_v2:${url}`;
 	try {
 		const cached = await redisClient.get(cacheKey);
 		if (cached) {
@@ -326,19 +533,23 @@ export async function fetchKnowledgePage(url: string): Promise<string> {
 		logger.warn("Chat support page cache read failed", { url, error });
 	}
 
-	const body = await fetchText(url);
+	// Plain-text sources (llms.txt, pricing.md, …) are already readable; the
+	// HTML-stripping pass would only mangle their markdown. Docs pages have a
+	// markdown mirror without the navigation chrome, so prefer it.
+	const { hostname, pathname } = new URL(url);
+	const isPlainText = pathname.endsWith(".txt") || pathname.endsWith(".md");
+	const docsMarkdown =
+		!isPlainText && hostname === new URL(DOCS_BASE_URL).hostname
+			? await fetchText(toDocsMarkdownUrl(url))
+			: null;
+	const body = docsMarkdown ?? (await fetchText(url));
 	if (!body) {
 		return "Could not load this page right now.";
 	}
 
-	// Plain-text sources (llms.txt, pricing.md, …) are already readable; the
-	// HTML-stripping pass would only mangle their markdown.
-	const { pathname } = new URL(url);
-	const isPlainText = pathname.endsWith(".txt") || pathname.endsWith(".md");
-	const text = (isPlainText ? body.trim() : htmlToText(body)).slice(
-		0,
-		MAX_PAGE_CHARS,
-	);
+	const text = (
+		isPlainText || docsMarkdown ? body.trim() : htmlToText(body)
+	).slice(0, MAX_PAGE_CHARS);
 
 	try {
 		await redisClient.set(cacheKey, text, "EX", PAGE_CACHE_TTL_SECONDS);

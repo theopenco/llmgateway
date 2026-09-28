@@ -18,7 +18,7 @@ const comparisonData = [
 			{
 				title: "Self-hosting option",
 				description: "Deploy on your own infrastructure (See license)",
-				llmgateway: "Free for non-commercial use",
+				llmgateway: "Free core (AGPLv3)",
 				litellm: "Open source (MIT)",
 			},
 			{
@@ -28,15 +28,15 @@ const comparisonData = [
 				litellm: "Manual setup required",
 			},
 			{
-				title: "99.9% uptime SLA",
-				description: "Guaranteed uptime for managed instances",
-				llmgateway: true,
-				litellm: false,
+				title: "Support and SLA",
+				description: "Contractual coverage depends on the plan",
+				llmgateway: "Enterprise",
+				litellm: "Enterprise support SLAs",
 			},
 			{
 				title: "Patching & supply-chain upkeep",
 				description: "Who tracks releases, pins versions, and applies fixes",
-				llmgateway: "Managed, or one pinned Docker image",
+				llmgateway: "Managed hosting; self-hosters own updates",
 				litellm: "You own it",
 			},
 		],
@@ -54,7 +54,7 @@ const comparisonData = [
 				title: "Latency analytics",
 				description: "Real-time performance monitoring with visualizations",
 				llmgateway: true,
-				litellm: "Basic",
+				litellm: "Admin UI and metrics integrations",
 			},
 			{
 				title: "Request-level insights",
@@ -69,10 +69,10 @@ const comparisonData = [
 				litellm: true,
 			},
 			{
-				title: "Cost optimization insights",
-				description: "AI-powered recommendations to reduce costs",
+				title: "Budgets and spend tracking",
+				description: "Track usage and configure spending controls",
 				llmgateway: true,
-				litellm: false,
+				litellm: true,
 			},
 		],
 	},
@@ -100,7 +100,7 @@ const comparisonData = [
 			{
 				title: "Priority support",
 				description: "Dedicated support for paid plans",
-				llmgateway: "Pro+",
+				llmgateway: "Enterprise",
 				litellm: "Enterprise",
 			},
 			{
@@ -121,10 +121,10 @@ const comparisonData = [
 				litellm: true,
 			},
 			{
-				title: "Interactive chat app (Lounge)",
+				title: "Browser model playground",
 				description: "Test models directly in the browser",
-				llmgateway: true,
-				litellm: false,
+				llmgateway: "Lounge",
+				litellm: "Admin UI playground",
 			},
 			{
 				title: "API key management",
@@ -183,7 +183,8 @@ export function ComparisonLiteLLM() {
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>Managed infrastructure</strong> with 99.9% uptime SLA
+								<strong>Managed infrastructure</strong> with an Enterprise SLA
+								option
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
@@ -222,7 +223,7 @@ export function ComparisonLiteLLM() {
 								</p>
 								<p className="text-2xl font-bold text-primary">From $0</p>
 								<p className="text-xs text-muted-foreground mt-1">
-									Self-host free forever
+									Free core; hosting costs separate
 								</p>
 							</div>
 						</div>
@@ -284,7 +285,7 @@ export function ComparisonLiteLLM() {
 					</div>
 					<p className="text-sm text-muted-foreground mt-3">
 						No credit card required • Self-host option available • Enterprise
-						support included
+						support available
 					</p>
 					<p className="text-sm text-muted-foreground mt-3">
 						Weighing more options? See the{" "}
