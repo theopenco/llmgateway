@@ -849,9 +849,6 @@ importers:
       ioredis:
         specifier: 5.7.0
         version: 5.7.0
-      ipaddr.js:
-        specifier: 2.2.0
-        version: 2.2.0
       posthog-node:
         specifier: 5.10.4
         version: 5.10.4

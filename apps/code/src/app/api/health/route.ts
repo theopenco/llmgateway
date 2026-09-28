@@ -3,7 +3,6 @@ import { headers } from "next/headers";
 import { createServerApiClient } from "@/lib/server-api";
 
 import {
-	forwardedIpHeaders,
 	getClientIpFromHeaders,
 	getClientIpHeaderName,
 } from "@llmgateway/shared/client-ip";
@@ -22,9 +21,7 @@ export async function GET(req: Request) {
 	// the whole chain (edge header, this server's forwarding, in-cluster hop).
 	if (new URL(req.url).searchParams.get("verify") === "client-ip") {
 		const client = await createServerApiClient();
-		const { data } = await client.GET("/", {
-			headers: forwardedIpHeaders(requestHeaders),
-		});
+		const { data } = await client.GET("/");
 		body.apiClientIp = data?.clientIp ?? null;
 	}
 
