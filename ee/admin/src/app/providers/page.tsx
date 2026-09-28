@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { CatalogFiltersBar } from "@/components/catalog-filters";
 import { ProvidersTable } from "@/components/providers-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import { UsageModeSelector } from "@/components/usage-mode-selector";
+import { catalogFilterQuery, parseCatalogFilters } from "@/lib/catalog-filters";
 import {
 	CATALOG_PAGE_WINDOW_DEFAULT,
 	pageWindowOptionsWithMinutes,
@@ -53,12 +55,7 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 export default async function ProvidersPage({
 	searchParams,
 }: {
-	searchParams?: Promise<{
-		sortBy?: string;
-		sortOrder?: string;
-		window?: string;
-		mode?: string;
-	}>;
+	searchParams?: Promise<Partial<Record<string, string>>>;
 }) {
 	const params = await searchParams;
 	const sortBy = (params?.sortBy as ProviderSortBy) ?? "logsCount";
@@ -69,10 +66,13 @@ export default async function ProvidersPage({
 	);
 	const usageMode = parseUsageMode(params?.mode);
 	const { from, to } = windowToFromTo(pageWindow);
+	const filters = parseCatalogFilters(params);
 
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/providers", {
-		params: { query: { sortBy, sortOrder, from, to, mode: usageMode } },
+		params: {
+			query: { sortBy, sortOrder, from, to, mode: usageMode, ...filters },
+		},
 	});
 
 	if (!data) {
@@ -125,6 +125,10 @@ export default async function ProvidersPage({
 				</Suspense>
 			</div>
 
+			<Suspense>
+				<CatalogFiltersBar filters={filters} />
+			</Suspense>
+
 			<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
 				<ProvidersTable
 					providers={data.providers}
@@ -132,6 +136,7 @@ export default async function ProvidersPage({
 					sortOrder={sortOrder}
 					pageWindow={pageWindow}
 					usageMode={usageMode}
+					filterQuery={catalogFilterQuery(filters)}
 				/>
 			</div>
 		</div>

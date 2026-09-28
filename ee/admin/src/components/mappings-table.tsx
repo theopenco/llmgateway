@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 
+import { ErrorBreakdownCell } from "@/components/error-breakdown";
 import { HistoryChart } from "@/components/history-chart";
 import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
@@ -70,6 +71,7 @@ function SortableHeader({
 	search,
 	pageWindow,
 	usageMode,
+	filterQuery,
 }: {
 	label: string;
 	sortKey: MappingSortBy;
@@ -78,13 +80,14 @@ function SortableHeader({
 	search: string;
 	pageWindow?: PageWindow;
 	usageMode: UsageMode;
+	filterQuery: string;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
 	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
-	const href = `/model-provider-mappings?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}`;
+	const href = `/model-provider-mappings?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}${filterQuery}`;
 
 	return (
 		<Link
@@ -110,20 +113,6 @@ function SortableHeader({
 
 function formatCost(n: number) {
 	return `$${n.toFixed(4)}`;
-}
-
-function formatPrice(price: string | null) {
-	if (!price) {
-		return "\u2014";
-	}
-	const num = parseFloat(price);
-	if (num === 0) {
-		return "Free";
-	}
-	if (num < 0.001) {
-		return `$${(num * 1_000_000).toFixed(2)}/M`;
-	}
-	return `$${num.toFixed(4)}`;
 }
 
 function MappingRow({
@@ -191,6 +180,11 @@ function MappingRow({
 						>
 							{mapping.providerId}/{mapping.modelId}
 						</Link>
+						{mapping.status !== "active" && (
+							<Badge variant="outline" className="ml-2">
+								{mapping.status}
+							</Badge>
+						)}
 						{mapping.externalId !== mapping.modelId && (
 							<p className="text-xs text-muted-foreground">
 								{mapping.externalId}
@@ -207,13 +201,6 @@ function MappingRow({
 						<span className="text-xs text-muted-foreground">—</span>
 					)}
 				</TableCell>
-				<TableCell>
-					<Badge
-						variant={mapping.status === "active" ? "secondary" : "outline"}
-					>
-						{mapping.status}
-					</Badge>
-				</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(mapping.logsCount)}
 				</TableCell>
@@ -223,17 +210,15 @@ function MappingRow({
 				<TableCell>
 					<TokenBreakdownCell breakdown={mapping} />
 				</TableCell>
-				<TableCell className="tabular-nums">
-					{formatNumber(stability.errorsCount)}
+				<TableCell>
+					<ErrorBreakdownCell
+						errorsCount={stability.errorsCount}
+						upstreamErrorsCount={mapping.upstreamErrorsCount}
+						gatewayErrorsCount={mapping.gatewayErrorsCount}
+					/>
 				</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(mapping.clientErrorsCount)}
-				</TableCell>
-				<TableCell className="tabular-nums">
-					{formatNumber(mapping.gatewayErrorsCount)}
-				</TableCell>
-				<TableCell className="tabular-nums">
-					{formatNumber(mapping.upstreamErrorsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">{errorRate}%</TableCell>
 				<TableCell className="tabular-nums">
@@ -244,17 +229,6 @@ function MappingRow({
 				<TableCell className="tabular-nums">
 					{mapping.throughput !== null
 						? `${mapping.throughput.toFixed(1)} tok/s`
-						: "\u2014"}
-				</TableCell>
-				<TableCell className="tabular-nums text-xs">
-					{formatPrice(mapping.inputPrice)}
-				</TableCell>
-				<TableCell className="tabular-nums text-xs">
-					{formatPrice(mapping.outputPrice)}
-				</TableCell>
-				<TableCell className="tabular-nums text-xs">
-					{mapping.contextSize
-						? `${(mapping.contextSize / 1000).toFixed(0)}K`
 						: "\u2014"}
 				</TableCell>
 				<TableCell>
@@ -276,7 +250,7 @@ function MappingRow({
 			{expanded && (
 				<TableRow>
 					<TableCell
-						colSpan={18}
+						colSpan={12}
 						className="p-4"
 						id={`mapping-history-${mapping.providerId}-${mapping.modelId}`}
 					>
@@ -300,6 +274,7 @@ export function MappingsTable({
 	search = "",
 	pageWindow,
 	usageMode = "total",
+	filterQuery = "",
 }: {
 	mappings: ModelProviderMappingEntry[];
 	sortBy?: MappingSortBy;
@@ -307,6 +282,7 @@ export function MappingsTable({
 	search?: string;
 	pageWindow?: PageWindow;
 	usageMode?: UsageMode;
+	filterQuery?: string;
 }) {
 	const externalWindow = pageWindow ? toHistoryWindow(pageWindow) : undefined;
 
@@ -320,6 +296,7 @@ export function MappingsTable({
 				search={search}
 				pageWindow={pageWindow}
 				usageMode={usageMode}
+				filterQuery={filterQuery}
 			/>
 		</TableHead>
 	);
@@ -331,20 +308,14 @@ export function MappingsTable({
 					{sh("Provider", "providerId")}
 					{sh("Model", "modelId")}
 					<TableHead>Region</TableHead>
-					<TableHead>Status</TableHead>
 					{sh("Requests", "logsCount")}
 					{sh("Cost", "cost")}
 					<TableHead>Tokens</TableHead>
 					{sh("Errors", "errorsCount")}
 					{sh("Client", "clientErrorsCount")}
-					{sh("Gateway", "gatewayErrorsCount")}
-					{sh("Upstream", "upstreamErrorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
 					{sh("Throughput", "throughput")}
-					<TableHead>Input Price</TableHead>
-					<TableHead>Output Price</TableHead>
-					<TableHead>Context</TableHead>
 					<TableHead></TableHead>
 				</TableRow>
 			</TableHeader>
@@ -352,7 +323,7 @@ export function MappingsTable({
 				{mappings.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={18}
+							colSpan={12}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No mappings found
