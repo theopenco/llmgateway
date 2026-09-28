@@ -9,8 +9,14 @@ export const CONTENT_FILTER_SETTING_ID = "content_filter";
  *   bit honoured in strict mode).
  * - `jev`: TypeSafe's Jev decision model, asked one calibrated yes/no question
  *   per policy category. Text only — image parts still go to OpenAI.
+ * - `internal`: self-hosted classifier running in our own infrastructure. Its
+ *   binary block verdict decides; topical tags are recorded only. Text only.
  */
-export const CONTENT_FILTER_CLASSIFIERS = ["openai", "jev"] as const;
+export const CONTENT_FILTER_CLASSIFIERS = [
+	"openai",
+	"jev",
+	"internal",
+] as const;
 
 export type ContentFilterClassifier =
 	(typeof CONTENT_FILTER_CLASSIFIERS)[number];
