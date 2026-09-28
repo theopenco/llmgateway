@@ -192,6 +192,115 @@ describe("activity endpoint", () => {
 		await deleteAll();
 	});
 
+	test("provider deletion preserves logs and usage after log retention", async () => {
+		const providerId = "deleted-usage-provider";
+		const modelId = "shared-usage-model";
+		const mappingId = "deleted-usage-mapping";
+		try {
+			await db.insert(tables.provider).values({
+				id: providerId,
+				name: "Retired provider",
+				description: "Test provider",
+			});
+			await db.insert(tables.model).values({ id: modelId, family: "test" });
+			await db
+				.insert(tables.modelProviderMapping)
+				.values({ id: mappingId, providerId, modelId, externalId: modelId });
+			await db
+				.update(tables.providerKey)
+				.set({ provider: providerId })
+				.where(eq(tables.providerKey.id, "test-provider-key-id"));
+			await db
+				.update(tables.log)
+				.set({
+					usedModel: `${providerId}/${modelId}`,
+					usedProvider: providerId,
+					usedModelMapping: mappingId,
+					cost: 0.25,
+				})
+				.where(eq(tables.log.id, "log-1"));
+			await aggregateLogsForTesting();
+			const logBefore = await db.query.log.findFirst({
+				where: { id: { eq: "log-1" } },
+			});
+			const headers = { Cookie: token };
+			const paths = [
+				"/activity?projectId=test-project-id&days=7",
+				"/activity?apiKeyId=test-api-key-id&days=7",
+			];
+			const before = [];
+			for (const path of paths) {
+				const response = await app.request(path, { headers });
+				expect(response.status).toBe(200);
+				before.push(await response.json());
+			}
+
+			await db
+				.delete(tables.provider)
+				.where(eq(tables.provider.id, providerId));
+
+			expect(
+				await db.query.modelProviderMapping.findFirst({
+					where: { id: { eq: mappingId } },
+				}),
+			).toBeUndefined();
+			expect(
+				await db.query.model.findFirst({ where: { id: { eq: modelId } } }),
+			).toBeDefined();
+			expect(
+				await db.query.providerKey.findFirst({
+					where: { id: { eq: "test-provider-key-id" } },
+				}),
+			).toMatchObject({ provider: providerId });
+			expect(
+				await db.query.log.findFirst({ where: { id: { eq: "log-1" } } }),
+			).toEqual(logBefore);
+			const logs = await app.request(
+				`/logs?projectId=test-project-id&provider=${providerId}`,
+				{ headers },
+			);
+			expect(logs.status).toBe(200);
+			expect((await logs.json()).logs).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						id: "log-1",
+						usedProvider: providerId,
+						cost: 0.25,
+					}),
+				]),
+			);
+
+			// Retention can prune the request without removing aggregated usage.
+			await db.delete(tables.log).where(eq(tables.log.id, "log-1"));
+			for (const [index, path] of paths.entries()) {
+				const response = await app.request(path, { headers });
+				expect(response.status).toBe(200);
+				const after = await response.json();
+				expect(after).toEqual(before[index]);
+				expect(after.activity).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							modelBreakdown: expect.arrayContaining([
+								expect.objectContaining({
+									id: `${providerId}/${modelId}`,
+									provider: providerId,
+									requestCount: 1,
+									totalTokens: 30,
+									cost: 0.25,
+								}),
+							]),
+						}),
+					]),
+				);
+			}
+		} finally {
+			await db
+				.delete(tables.provider)
+				.where(eq(tables.provider.id, providerId));
+			await db.delete(tables.model).where(eq(tables.model.id, modelId));
+		}
+	});
+
 	test("GET /activity should return activity data grouped by day", async () => {
 		// Mock authentication
 		const res = await app.request("/activity?days=7", {

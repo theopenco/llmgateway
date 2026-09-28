@@ -13,7 +13,6 @@ import {
 	eq,
 	excludeRegionalMappingRows,
 	gte,
-	getCatalogueProviderIds,
 	modelProviderMappingHistory,
 	sql,
 	tables,
@@ -197,33 +196,28 @@ const getModelsRoute = createRoute({
 internalModels.openapi(getModelsRoute, async (c) => {
 	const now = new Date();
 
-	const [catalogueProviderIds, models, activeMappings, getPublicDiscount] =
-		await Promise.all([
-			getCatalogueProviderIds(),
-			db.query.model.findMany({
-				where: {
-					status: { eq: "active" },
-				},
-				orderBy: {
-					createdAt: "desc",
-				},
-			}),
-			db.query.modelProviderMapping.findMany({
-				where: {
-					status: { eq: "active" },
-				},
-				orderBy: {
-					createdAt: "desc",
-				},
-			}),
-			loadPublicDiscounts(),
-		]);
+	const [models, activeMappings, getPublicDiscount] = await Promise.all([
+		db.query.model.findMany({
+			where: {
+				status: { eq: "active" },
+			},
+			orderBy: {
+				createdAt: "desc",
+			},
+		}),
+		db.query.modelProviderMapping.findMany({
+			where: {
+				status: { eq: "active" },
+			},
+			orderBy: {
+				createdAt: "desc",
+			},
+		}),
+		loadPublicDiscounts(),
+	]);
 
 	const mappingsByModelId = new Map<string, typeof activeMappings>();
 	for (const mapping of activeMappings) {
-		if (!catalogueProviderIds.has(mapping.providerId)) {
-			continue;
-		}
 		const existing = mappingsByModelId.get(mapping.modelId);
 		if (existing) {
 			existing.push(mapping);
@@ -681,7 +675,6 @@ const getProvidersRoute = createRoute({
 });
 
 internalModels.openapi(getProvidersRoute, async (c) => {
-	const catalogueProviderIds = await getCatalogueProviderIds();
 	const providers = await db.query.provider.findMany({
 		where: {
 			status: { eq: "active" },
@@ -705,17 +698,15 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 
 	// modelCardBadge only exists in the catalogue, not the provider table
 	return c.json({
-		providers: providers
-			.filter((provider) => catalogueProviderIds.has(provider.id))
-			.map((provider) => ({
-				...provider,
-				name: brandingByProvider.get(provider.id)?.customName ?? provider.name,
-				modelCardBadge:
-					providerDefinitions.find((p) => p.id === provider.id)
-						?.modelCardBadge ?? null,
-				airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
-				airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
-			})),
+		providers: providers.map((provider) => ({
+			...provider,
+			name: brandingByProvider.get(provider.id)?.customName ?? provider.name,
+			modelCardBadge:
+				providerDefinitions.find((p) => p.id === provider.id)?.modelCardBadge ??
+				null,
+			airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
+			airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
+		})),
 	});
 });
 
@@ -775,7 +766,6 @@ const modelBenchmarksRoute = createRoute({
 });
 
 internalModels.openapi(modelBenchmarksRoute, async (c) => {
-	const catalogueProviderIds = await getCatalogueProviderIds();
 	const { modelId } = c.req.valid("param");
 
 	const WINDOW_HOURS = 24;
@@ -897,13 +887,7 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 		fetchedAt: arenaBenchmarks.fetchedAt,
 	};
 
-	return c.json({
-		modelId,
-		providers: providers.filter((provider) =>
-			catalogueProviderIds.has(provider.providerId),
-		),
-		arena,
-	});
+	return c.json({ modelId, providers, arena });
 });
 
 // --- Public per-provider uptime/history (last 4h) ---
@@ -970,7 +954,6 @@ const modelUptimeRoute = createRoute({
 });
 
 internalModels.openapi(modelUptimeRoute, async (c) => {
-	const catalogueProviderIds = await getCatalogueProviderIds();
 	const { modelId } = c.req.valid("param");
 
 	const WINDOW_MINUTES = 240; // 4h
@@ -1095,9 +1078,6 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 
 	// Seed with active providers so idle ones still render
 	for (const p of activeProviders) {
-		if (!catalogueProviderIds.has(p.providerId)) {
-			continue;
-		}
 		if (!byProvider.has(p.providerId)) {
 			byProvider.set(p.providerId, {
 				providerId: p.providerId,
@@ -1108,9 +1088,6 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 	}
 
 	for (const r of rows) {
-		if (!catalogueProviderIds.has(r.providerId)) {
-			continue;
-		}
 		const key = r.providerId;
 		const entry = byProvider.get(key) ?? {
 			providerId: r.providerId,
