@@ -108,7 +108,7 @@ export function SkillsSidebar({
 	const isHistoryHidden = sidebarState === "collapsed" && !isMobile;
 
 	if (isUserLoading) {
-		return <ChatSidebarSkeleton organization={null} isOrgLoading={false} />;
+		return <ChatSidebarSkeleton organization={null} />;
 	}
 
 	if (!user) {

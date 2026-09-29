@@ -335,7 +335,7 @@ export function OrgSidebar({
 	const isHistoryHidden = sidebarState === "collapsed" && !isMobile;
 
 	if (isUserLoading) {
-		return <ChatSidebarSkeleton organization={null} isOrgLoading={true} />;
+		return <ChatSidebarSkeleton organization={null} />;
 	}
 
 	if (!user) {
@@ -366,12 +366,7 @@ export function OrgSidebar({
 	}
 
 	if (isSharesLoading || isOrgLoading) {
-		return (
-			<ChatSidebarSkeleton
-				organization={selectedOrganization}
-				isOrgLoading={isOrgLoading}
-			/>
-		);
+		return <ChatSidebarSkeleton organization={selectedOrganization} />;
 	}
 
 	return (

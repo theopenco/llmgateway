@@ -21,14 +21,12 @@ interface ChatSidebarSkeletonProps {
 	className?: string;
 	onNewChat?: () => void;
 	organization: Organization | null;
-	isOrgLoading: boolean;
 }
 
 export const ChatSidebarSkeleton = ({
 	className,
 	onNewChat,
 	organization,
-	isOrgLoading,
 }: ChatSidebarSkeletonProps) => {
 	return (
 		<Sidebar collapsible="icon" className={className}>
@@ -59,10 +57,9 @@ export const ChatSidebarSkeleton = ({
 			</SidebarContent>
 			<SidebarFooter className="border-t">
 				<div className="group-data-[collapsible=icon]:hidden">
-					<CreditsDisplay
-						organization={organization}
-						isLoading={isOrgLoading}
-					/>
+					{/* Never interactive: the real sidebar replaces this skeleton, which
+					    would unmount a top-up dialog opened from here. */}
+					<CreditsDisplay organization={organization} isLoading />
 				</div>
 			</SidebarFooter>
 		</Sidebar>
