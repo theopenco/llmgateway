@@ -777,9 +777,13 @@ function AgentDetail({
 	const filteredModel = modelFilter
 		? stats.models.find((m) => m.model === modelFilter)
 		: undefined;
-	const expectedRequests = filteredModel
-		? filteredModel.requestCount
-		: stats.requestCount;
+	// Header totals follow the model filter when one is active.
+	const headerTotals = filteredModel ?? {
+		requestCount: stats.requestCount,
+		cost: stats.totalCost,
+		totalTokens: stats.totalTokens,
+	};
+	const expectedRequests = headerTotals.requestCount;
 
 	const {
 		data,
@@ -928,9 +932,9 @@ function AgentDetail({
 								{expectedRequests !== 1 ? "s" : ""}
 							</span>
 							<span className="text-border">&middot;</span>
-							<span>${stats.totalCost.toFixed(2)}</span>
+							<span>${headerTotals.cost.toFixed(2)}</span>
 							<span className="text-border">&middot;</span>
-							<span>{formatTokens(stats.totalTokens)} tokens</span>
+							<span>{formatTokens(headerTotals.totalTokens)} tokens</span>
 						</div>
 					</div>
 				</div>

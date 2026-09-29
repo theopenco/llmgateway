@@ -1256,7 +1256,9 @@ activity.openapi(getSourceActivity, async (c) => {
 		});
 	}
 
-	const rootModel = sql<string>`COALESCE(NULLIF(split_part(split_part(${projectHourlySourceModelStats.usedModel}, '/', 2), ':', 1), ''), ${projectHourlySourceModelStats.usedModel})`;
+	// Strip only the provider prefix so nested model paths survive; must match
+	// the /logs `model` filter, which the agent detail view uses.
+	const rootModel = sql<string>`split_part(regexp_replace(${projectHourlySourceModelStats.usedModel}, '^[^/]*/', ''), ':', 1)`;
 
 	const [rows, modelRows] = await Promise.all([
 		db

@@ -10,9 +10,13 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
 const PROJECT_BATCH_SIZE = 100;
 const STATE_ID = "source-model-stats-backfill";
 
-export const SOURCE_MODEL_STATS_BACKFILL_DAYS = Number(
-	process.env.SOURCE_MODEL_STATS_BACKFILL_DAYS ?? 365,
+const configuredBackfillDays = Number(
+	process.env.SOURCE_MODEL_STATS_BACKFILL_DAYS,
 );
+export const SOURCE_MODEL_STATS_BACKFILL_DAYS =
+	Number.isFinite(configuredBackfillDays) && configuredBackfillDays > 0
+		? configuredBackfillDays
+		: 365;
 
 function floorToHour(date: Date): Date {
 	return new Date(Math.floor(date.getTime() / ONE_HOUR_MS) * ONE_HOUR_MS);
