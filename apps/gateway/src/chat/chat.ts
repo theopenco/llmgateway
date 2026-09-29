@@ -7101,7 +7101,7 @@ chat.openapi(completions, async (c) => {
 					reasoningTokens ?? null,
 					0, // outputImageCount
 					undefined, // imageSize
-					inputImageCount,
+					0, // inputImageCount: cached prompt tokens already include images
 					null, // webSearchCount
 					project.organizationId,
 					undefined,
@@ -7316,7 +7316,7 @@ chat.openapi(completions, async (c) => {
 					cachedResponse.usage?.reasoning_tokens ?? null,
 					0, // outputImageCount
 					undefined, // imageSize
-					inputImageCount,
+					0, // inputImageCount: cached prompt tokens already include images
 					null, // webSearchCount
 					project.organizationId,
 					undefined,
@@ -10056,6 +10056,7 @@ chat.openapi(completions, async (c) => {
 				let cacheCreation1hTokens: number | null = null;
 				let audioInputTokens: number | null = null;
 				let cachedAudioInputTokens: number | null = null;
+				let imageInputTokens: number | null = null;
 				let streamingToolCalls = null;
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
@@ -10537,7 +10538,7 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
-										null,
+										imageInputTokens,
 										null,
 										{
 											cacheWriteTokens: cacheCreationTokens,
@@ -11525,6 +11526,9 @@ chat.openapi(completions, async (c) => {
 								if (usage.cachedAudioInputTokens !== null) {
 									cachedAudioInputTokens = usage.cachedAudioInputTokens;
 								}
+								if (usage.imageInputTokens !== null) {
+									imageInputTokens = usage.imageInputTokens;
+								}
 								if (
 									usage.totalTokens === null &&
 									promptTokens !== null &&
@@ -12112,7 +12116,7 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
-										null,
+										imageInputTokens,
 										null,
 										{
 											cacheWriteTokens: cacheCreationTokens,
@@ -12169,19 +12173,14 @@ chat.openapi(completions, async (c) => {
 									},
 								],
 								usage: (() => {
-									// Only add image input tokens for providers that
-									// exclude them from upstream usage (Google)
-									const providerExcludesImageInput =
-										isGoogleCompatibleProvider(transportProvider);
-									const imageInputAdj = providerExcludesImageInput
-										? inputImageCount * 560
-										: 0;
+									// costs.promptTokens adds estimated image input tokens
+									// only when upstream usage did not report them.
 									const adjPrompt = Math.max(
 										1,
 										Math.round(
-											promptTokens && promptTokens > 0
-												? promptTokens + imageInputAdj
-												: (calculatedPromptTokens ?? 1) + imageInputAdj,
+											streamingCostsEarly.promptTokens ??
+												calculatedPromptTokens ??
+												1,
 										),
 									);
 									const adjCompletion = Math.round(
@@ -12464,7 +12463,7 @@ chat.openapi(completions, async (c) => {
 									webSearchCount,
 									project.organizationId,
 									image_config?.image_quality,
-									null,
+									imageInputTokens,
 									null,
 									{
 										cacheWriteTokens: cacheCreationTokens,
