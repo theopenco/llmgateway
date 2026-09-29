@@ -13,12 +13,21 @@ export interface GlobalStatsCsvMetrics {
 	cacheCount: number;
 	inputTokens: number;
 	cachedTokens: number;
+	cacheWriteTokens: number;
 	outputTokens: number;
+	reasoningTokens: number;
 	totalTokens: number;
 	cost: number;
 	inputCost: number;
 	cachedInputCost: number;
+	cacheWriteInputCost: number;
 	outputCost: number;
+	requestCost: number;
+	imageInputCost: number;
+	imageOutputCost: number;
+	audioInputCost: number;
+	audioOutputCost: number;
+	videoOutputCost: number;
 }
 
 export interface GlobalStatsCsvTimeseriesPoint extends GlobalStatsCsvMetrics {
@@ -57,6 +66,7 @@ export interface GlobalStatsCsvScope {
 	modelView: string | null;
 	/** Selected provider credentials; their traffic is summed. */
 	providerKeys: { id: string; label: string }[];
+	provider: string | null;
 	metric: GlobalStatsChartMetric;
 }
 
@@ -66,12 +76,21 @@ export const GLOBAL_STATS_METRIC_COLUMNS = [
 	"cacheCount",
 	"inputTokens",
 	"cachedTokens",
+	"cacheWriteTokens",
 	"outputTokens",
+	"reasoningTokens",
 	"totalTokens",
 	"cost",
 	"inputCost",
 	"cachedInputCost",
+	"cacheWriteInputCost",
 	"outputCost",
+	"requestCost",
+	"imageInputCost",
+	"imageOutputCost",
+	"audioInputCost",
+	"audioOutputCost",
+	"videoOutputCost",
 ] as const satisfies readonly (keyof GlobalStatsCsvMetrics)[];
 
 export const GLOBAL_STATS_METRIC_LABELS: Record<
@@ -237,6 +256,7 @@ export function buildGlobalStatsReportCsv(
 					["traffic", scope.traffic],
 					["organization", scope.organization],
 					["breakDownBy", scope.groupBy],
+					...(scope.provider ? [["provider", scope.provider]] : []),
 					...(scope.modelView ? [["modelView", scope.modelView]] : []),
 					...scope.providerKeys.flatMap((key) => [
 						["providerKeyId", key.id],
@@ -308,10 +328,11 @@ export function globalStatsExportFilename(
 	section: string,
 	scope: Pick<
 		GlobalStatsCsvScope,
-		"start" | "end" | "allTime" | "providerKeys"
+		"start" | "end" | "allTime" | "providerKeys" | "provider"
 	>,
 ): string {
 	const range = scope.allTime ? "all-time" : `${scope.start}_${scope.end}`;
+	const provider = scope.provider ? `-provider-${scope.provider}` : "";
 	const [firstKey] = scope.providerKeys;
 	const key =
 		scope.providerKeys.length > 1
@@ -319,5 +340,5 @@ export function globalStatsExportFilename(
 			: firstKey
 				? `-key-${firstKey.id}`
 				: "";
-	return `global-stats-${section}-${range}${key}.csv`;
+	return `global-stats-${section}-${range}${provider}${key}.csv`;
 }
