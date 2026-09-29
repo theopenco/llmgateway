@@ -12,6 +12,7 @@ import {
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
+import { ContactSalesLink } from "@/components/contact-sales";
 import { ProjectMultiSelect } from "@/components/projects/project-multi-select";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { getApiErrorMessage } from "@/lib/api-error";
@@ -599,13 +600,8 @@ export function SsoClient() {
 						</CardTitle>
 						<CardDescription>
 							SAML SSO and SCIM directory provisioning are available on the
-							Enterprise plan. Contact us at{" "}
-							<a
-								href="mailto:contact@llmgateway.io"
-								className="text-primary underline underline-offset-4"
-							>
-								contact@llmgateway.io
-							</a>{" "}
+							Enterprise plan.{" "}
+							<ContactSalesLink className="text-primary underline underline-offset-4" />{" "}
 							to enable them.
 						</CardDescription>
 					</CardHeader>

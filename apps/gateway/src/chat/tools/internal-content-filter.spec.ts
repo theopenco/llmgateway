@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	buildInternalModerationPrompt,
 	checkInternalContentFilter,
+	chunkInternalModerationText,
 	toInternalModerationResult,
 	truncateMiddle,
 } from "./internal-content-filter.js";
@@ -21,6 +22,20 @@ function verdict(body: Record<string, unknown>, status = 200) {
 		headers: { "Content-Type": "application/json" },
 	});
 }
+
+describe("chunkInternalModerationText", () => {
+	it("keeps a prompt under the limit whole", () => {
+		expect(chunkInternalModerationText("hello", 10)).toEqual(["hello"]);
+		expect(chunkInternalModerationText("", 10)).toEqual([]);
+	});
+
+	it("never splits a multi-byte character", () => {
+		// "é" is two bytes, so a 3-byte limit fits one per chunk.
+		const chunks = chunkInternalModerationText("éééé", 3);
+
+		expect(chunks).toEqual(["é", "é", "é", "é"]);
+	});
+});
 
 describe("truncateMiddle", () => {
 	it("keeps text under the limit whole", () => {
@@ -168,7 +183,41 @@ describe("checkInternalContentFilter", () => {
 		expect(result.results).toEqual([]);
 	});
 
-	it("classifies a long conversation in a single request", async () => {
+	const LONG_CONVERSATION = [
+		{ role: "user" as const, content: "a".repeat(200_000) },
+		{ role: "assistant" as const, content: "ok" },
+		{ role: "user" as const, content: "b".repeat(200_000) },
+	];
+
+	it("classifies the whole conversation in chunks by default", async () => {
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async () =>
+				verdict({ tags: [], block: false, score: 0 }),
+			);
+
+		const result = await checkInternalContentFilter(LONG_CONVERSATION, CONTEXT);
+
+		// ~400 KB of text at 64 KB per request.
+		expect(fetchMock).toHaveBeenCalledTimes(7);
+		expect(result.results).toHaveLength(7);
+		expect(result.partialModerationFailed).toBeUndefined();
+	});
+
+	it("marks a partial failure when only some chunks classify", async () => {
+		vi.spyOn(globalThis, "fetch")
+			.mockRejectedValueOnce(new Error("connection reset"))
+			.mockImplementation(async () =>
+				verdict({ tags: [], block: false, score: 0 }),
+			);
+
+		const result = await checkInternalContentFilter(LONG_CONVERSATION, CONTEXT);
+
+		expect(result.results).toHaveLength(6);
+		expect(result.partialModerationFailed).toBe(true);
+	});
+
+	it("classifies only the latest turn in a single request when scoped", async () => {
 		const fetchMock = vi
 			.spyOn(globalThis, "fetch")
 			.mockResolvedValue(
@@ -176,12 +225,10 @@ describe("checkInternalContentFilter", () => {
 			);
 
 		const result = await checkInternalContentFilter(
-			[
-				{ role: "user", content: "a".repeat(200_000) },
-				{ role: "assistant", content: "ok" },
-				{ role: "user", content: "b".repeat(200_000) },
-			],
+			LONG_CONVERSATION,
 			CONTEXT,
+			undefined,
+			"latest_turn",
 		);
 
 		expect(fetchMock).toHaveBeenCalledTimes(1);

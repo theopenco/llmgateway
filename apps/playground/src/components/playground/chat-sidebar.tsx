@@ -737,7 +737,7 @@ export const ChatSidebar = function ChatSidebar({
 
 	// Loading auth state → show lightweight skeleton to avoid hydration issues
 	if (isUserLoading) {
-		return <ChatSidebarSkeleton organization={null} isOrgLoading={true} />;
+		return <ChatSidebarSkeleton organization={null} />;
 	}
 
 	// Unauthenticated → show CTA instead of org/project/chats UI
@@ -769,12 +769,7 @@ export const ChatSidebar = function ChatSidebar({
 	}
 
 	if (isChatsLoading || isOrgLoading) {
-		return (
-			<ChatSidebarSkeleton
-				organization={selectedOrganization}
-				isOrgLoading={isOrgLoading}
-			/>
-		);
+		return <ChatSidebarSkeleton organization={selectedOrganization} />;
 	}
 
 	return (

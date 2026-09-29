@@ -86,6 +86,7 @@ export interface ContentFilterSettingsInput {
 	enforce: boolean;
 	enforceEnterprise: boolean;
 	classifier: "openai" | "jev" | "internal";
+	internalScope: "full" | "latest_turn";
 }
 
 export async function getContentFilterSettings() {

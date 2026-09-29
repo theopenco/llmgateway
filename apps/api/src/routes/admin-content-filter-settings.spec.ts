@@ -78,6 +78,7 @@ describe("admin content filter settings", () => {
 			enforce: true,
 			enforceEnterprise: false,
 			classifier: "openai",
+			internalScope: "full",
 		});
 	});
 

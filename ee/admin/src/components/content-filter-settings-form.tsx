@@ -34,6 +34,13 @@ const CLASSIFIER_LABELS: Record<Classifier, string> = {
 	internal: "Internal classifier",
 };
 
+type InternalScope = ContentFilterSettingsInput["internalScope"];
+
+const INTERNAL_SCOPE_LABELS: Record<InternalScope, string> = {
+	full: "Whole conversation",
+	latest_turn: "Latest turn only",
+};
+
 interface ContentFilterSettingsFormProps {
 	settings: {
 		enabled: boolean;
@@ -41,6 +48,7 @@ interface ContentFilterSettingsFormProps {
 		enforce: boolean;
 		enforceEnterprise: boolean;
 		classifier: Classifier;
+		internalScope: InternalScope;
 		providers: ContentFilterProvider[];
 	};
 	onSave: (
@@ -63,6 +71,9 @@ export function ContentFilterSettingsForm({
 		settings.enforceEnterprise,
 	);
 	const [classifier, setClassifier] = useState<Classifier>(settings.classifier);
+	const [internalScope, setInternalScope] = useState<InternalScope>(
+		settings.internalScope,
+	);
 	const [providerIds, setProviderIds] = useState<string[]>(() =>
 		settings.providers.filter((p) => p.enabled).map((p) => p.id),
 	);
@@ -89,6 +100,7 @@ export function ContentFilterSettingsForm({
 				enforce,
 				enforceEnterprise: savedEnforceEnterprise,
 				classifier,
+				internalScope,
 				providerIds,
 			});
 			if (!result.ok) {
@@ -221,6 +233,42 @@ export function ContentFilterSettingsForm({
 					switching an enforcing filter.
 				</p>
 			</div>
+
+			{classifier === "internal" && (
+				<div className="space-y-2">
+					<Label htmlFor="content-filter-internal-scope">
+						Internal classifier input
+					</Label>
+					<Select
+						value={internalScope}
+						disabled={pending}
+						onValueChange={(value) => {
+							setSaved(false);
+							setInternalScope(value as InternalScope);
+						}}
+					>
+						<SelectTrigger id="content-filter-internal-scope" className="w-64">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{(Object.keys(INTERNAL_SCOPE_LABELS) as InternalScope[]).map(
+								(option) => (
+									<SelectItem key={option} value={option}>
+										{INTERNAL_SCOPE_LABELS[option]}
+									</SelectItem>
+								),
+							)}
+						</SelectContent>
+					</Select>
+					<p className="text-xs text-muted-foreground">
+						Whole conversation classifies every message, in as many requests as
+						its size needs; long agent histories can take seconds, which only
+						delays requests when blocking is on. Latest turn only sends the
+						system prompt plus the messages after the last assistant reply, in
+						one request.
+					</p>
+				</div>
+			)}
 
 			<div className="space-y-2">
 				<div className="flex items-center justify-between gap-3">
