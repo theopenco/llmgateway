@@ -2681,6 +2681,96 @@ describe("activity endpoint", () => {
 			expect(typeof cursor.lastUsedAt).toBe("string");
 		});
 
+		test("should break sources down by root model", async () => {
+			const now = new Date();
+			const twoDaysMs = 48 * 60 * 60 * 1000;
+			await db.insert(tables.projectHourlySourceModelStats).values([
+				{
+					projectId: "test-project-id",
+					hourTimestamp: now,
+					source: "opencode",
+					usedModel: "anthropic/claude-sonnet-4-5",
+					usedProvider: "anthropic",
+					requestCount: 2,
+					totalTokens: "20",
+					cost: 1,
+					creditsRequestCount: 2,
+					creditsCost: 1,
+				},
+				{
+					projectId: "test-project-id",
+					hourTimestamp: now,
+					source: "opencode",
+					usedModel: "aws-bedrock/claude-sonnet-4-5:us-east-1",
+					usedProvider: "aws-bedrock",
+					requestCount: 3,
+					totalTokens: "30",
+					cost: 2,
+					apiKeysRequestCount: 3,
+					apiKeysCost: 2,
+				},
+				{
+					projectId: "test-project-id",
+					hourTimestamp: now,
+					source: "opencode",
+					usedModel: "openai/gpt-4o",
+					usedProvider: "openai",
+					requestCount: 1,
+					totalTokens: "5",
+					cost: 0.5,
+				},
+				{
+					projectId: "test-project-id",
+					hourTimestamp: new Date(now.getTime() - twoDaysMs),
+					source: "opencode",
+					usedModel: "openai/gpt-4o",
+					usedProvider: "openai",
+					requestCount: 100,
+					cost: 100,
+				},
+			]);
+
+			const res = await app.request(
+				"/activity/sources?projectId=test-project-id&timeRange=24h",
+				{
+					headers: {
+						Cookie: token,
+					},
+				},
+			);
+
+			expect(res.status).toBe(200);
+			const data = await res.json();
+			expect(data.sourceModels).toEqual([
+				{
+					source: "opencode",
+					model: "claude-sonnet-4-5",
+					requestCount: 5,
+					inputTokens: 0,
+					outputTokens: 0,
+					totalTokens: 50,
+					cost: 3,
+					creditsRequestCount: 2,
+					apiKeysRequestCount: 3,
+					creditsCost: 1,
+					apiKeysCost: 2,
+				},
+				{
+					source: "opencode",
+					model: "gpt-4o",
+					requestCount: 1,
+					inputTokens: 0,
+					outputTokens: 0,
+					totalTokens: 5,
+					cost: 0.5,
+					creditsRequestCount: 0,
+					apiKeysRequestCount: 0,
+					creditsCost: 0,
+					apiKeysCost: 0,
+				},
+			]);
+		});
+
 		test("should reject an invalid timeRange", async () => {
 			const res = await app.request(
 				"/activity/sources?projectId=test-project-id&timeRange=365d",

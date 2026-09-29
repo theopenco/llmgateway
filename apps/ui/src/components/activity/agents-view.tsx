@@ -9,6 +9,7 @@ import {
 	Cpu,
 	Download,
 	Terminal,
+	X,
 	Zap,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -32,6 +33,7 @@ import {
 import { useToast } from "@/lib/components/use-toast";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 import { applyUsageMode } from "@/lib/usage-mode";
+import { cn } from "@/lib/utils";
 
 import { buildAgentLogsCsv, CODING_AGENTS } from "@llmgateway/shared";
 import {
@@ -55,9 +57,13 @@ import {
 } from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
-import type { SourceActivityData, SourceUsage } from "@/types/activity";
+import type {
+	SourceActivityData,
+	SourceModelUsage,
+	SourceUsage,
+} from "@/types/activity";
 import type { Log } from "@llmgateway/db";
-import type { ComponentType, SVGProps } from "react";
+import type { ComponentType, ReactNode, SVGProps } from "react";
 
 type ApiLog =
 	paths["/logs"]["get"]["responses"][200]["content"]["application/json"]["logs"][number];
@@ -95,6 +101,16 @@ const AGENTS: AgentDefinition[] = CODING_AGENTS.map((agent) => ({
 	sources: agent.xSourceValues,
 }));
 
+interface UsageShare {
+	requestCount: number;
+	cost: number;
+	totalTokens: number;
+}
+
+interface AgentModelUsage extends UsageShare {
+	model: string;
+}
+
 interface AgentStats {
 	agent: AgentDefinition;
 	requestCount: number;
@@ -103,6 +119,25 @@ interface AgentStats {
 	totalPromptTokens: number;
 	totalCompletionTokens: number;
 	lastActive: Date | null;
+	models: AgentModelUsage[];
+}
+
+interface ModelAgentUsage extends UsageShare {
+	agent: AgentDefinition;
+}
+
+interface ModelStats {
+	model: string;
+	requestCount: number;
+	totalCost: number;
+	totalTokens: number;
+	agents: ModelAgentUsage[];
+}
+
+type AgentsViewMode = "agents" | "models";
+
+function parseViewMode(value: string | null): AgentsViewMode {
+	return value === "models" ? "models" : "agents";
 }
 
 interface Session {
@@ -226,7 +261,84 @@ function formatLastActive(date: Date | null): string {
 	return date.toLocaleDateString();
 }
 
-function computeAgentStats(sources: SourceUsage[]): AgentStats[] {
+function findAgent(source: string): AgentDefinition | undefined {
+	return AGENTS.find((agent) => agent.sources.includes(source));
+}
+
+function byCostThenRequests(a: UsageShare, b: UsageShare): number {
+	return b.cost - a.cost || b.requestCount - a.requestCount;
+}
+
+function addUsage(target: UsageShare, row: SourceModelUsage) {
+	target.requestCount += row.requestCount;
+	target.cost += row.cost;
+	target.totalTokens += row.totalTokens;
+}
+
+function computeAgentModels(
+	agent: AgentDefinition,
+	sourceModels: SourceModelUsage[],
+): AgentModelUsage[] {
+	const byModel = new Map<string, AgentModelUsage>();
+	for (const row of sourceModels) {
+		if (!agent.sources.includes(row.source)) {
+			continue;
+		}
+		let entry = byModel.get(row.model);
+		if (!entry) {
+			entry = { model: row.model, requestCount: 0, cost: 0, totalTokens: 0 };
+			byModel.set(row.model, entry);
+		}
+		addUsage(entry, row);
+	}
+	return Array.from(byModel.values())
+		.filter((entry) => entry.requestCount > 0)
+		.sort(byCostThenRequests);
+}
+
+function computeModelStats(sourceModels: SourceModelUsage[]): ModelStats[] {
+	const byModel = new Map<
+		string,
+		{ total: UsageShare; agents: Map<string, ModelAgentUsage> }
+	>();
+	for (const row of sourceModels) {
+		const agent = findAgent(row.source);
+		if (!agent || row.requestCount === 0) {
+			continue;
+		}
+		let entry = byModel.get(row.model);
+		if (!entry) {
+			entry = {
+				total: { requestCount: 0, cost: 0, totalTokens: 0 },
+				agents: new Map(),
+			};
+			byModel.set(row.model, entry);
+		}
+		addUsage(entry.total, row);
+		let agentEntry = entry.agents.get(agent.id);
+		if (!agentEntry) {
+			agentEntry = { agent, requestCount: 0, cost: 0, totalTokens: 0 };
+			entry.agents.set(agent.id, agentEntry);
+		}
+		addUsage(agentEntry, row);
+	}
+	return Array.from(byModel.entries())
+		.map(([model, { total, agents }]) => ({
+			model,
+			requestCount: total.requestCount,
+			totalCost: total.cost,
+			totalTokens: total.totalTokens,
+			agents: Array.from(agents.values()).sort(byCostThenRequests),
+		}))
+		.sort(
+			(a, b) => b.totalCost - a.totalCost || b.requestCount - a.requestCount,
+		);
+}
+
+function computeAgentStats(
+	sources: SourceUsage[],
+	sourceModels: SourceModelUsage[],
+): AgentStats[] {
 	const stats: AgentStats[] = [];
 
 	for (const agent of AGENTS) {
@@ -255,26 +367,170 @@ function computeAgentStats(sources: SourceUsage[]): AgentStats[] {
 				0,
 			),
 			lastActive: lastActiveMs > 0 ? new Date(lastActiveMs) : null,
+			models: computeAgentModels(agent, sourceModels),
 		});
 	}
 
 	return stats.sort((a, b) => b.totalCost - a.totalCost);
 }
 
-function AgentCard({
-	stats,
+/**
+ * Share of a breakdown row within its parent: by cost, or by requests when
+ * the parent has no spend (e.g. free models).
+ */
+function shareOf(row: UsageShare, rows: UsageShare[]): number {
+	const totalCost = rows.reduce((sum, r) => sum + r.cost, 0);
+	if (totalCost > 0) {
+		return row.cost / totalCost;
+	}
+	const totalRequests = rows.reduce((sum, r) => sum + r.requestCount, 0);
+	return totalRequests > 0 ? row.requestCount / totalRequests : 0;
+}
+
+function formatShare(share: number): string {
+	const percent = share * 100;
+	if (percent > 0 && percent < 1) {
+		return "<1%";
+	}
+	return `${Math.round(percent)}%`;
+}
+
+function ShareBar({ share }: { share: number }) {
+	return (
+		<div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+			<div
+				className="h-full rounded-full bg-foreground/60"
+				style={{ width: `${Math.max(share * 100, share > 0 ? 2 : 0)}%` }}
+			/>
+		</div>
+	);
+}
+
+/** One labelled row of a cost-share breakdown. */
+function BreakdownRow({
+	label,
+	row,
+	share,
 	onClick,
+	active,
 }: {
-	stats: AgentStats;
-	onClick: () => void;
+	label: ReactNode;
+	row: UsageShare;
+	share: number;
+	onClick?: () => void;
+	active?: boolean;
 }) {
-	const Icon = stats.agent.icon;
+	const content = (
+		<>
+			<div className="flex items-center justify-between gap-3 text-xs">
+				<div className="flex min-w-0 items-center gap-1.5">{label}</div>
+				<div className="flex shrink-0 items-center gap-2 tabular-nums text-muted-foreground">
+					<span>${row.cost.toFixed(2)}</span>
+					<span className="w-8 text-right">{formatShare(share)}</span>
+				</div>
+			</div>
+			<ShareBar share={share} />
+		</>
+	);
+
+	if (!onClick) {
+		return <div className="space-y-1">{content}</div>;
+	}
 
 	return (
 		<button
 			type="button"
-			className="group relative w-full overflow-hidden rounded-xl border border-border/60 bg-card p-5 text-left transition-all duration-200 hover:border-foreground/15 hover:shadow-lg"
+			onClick={(event) => {
+				event.stopPropagation();
+				onClick();
+			}}
+			className={cn(
+				"-mx-1.5 block w-[calc(100%+0.75rem)] space-y-1 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-muted/60",
+				active && "bg-muted",
+			)}
+		>
+			{content}
+		</button>
+	);
+}
+
+function ModelLabel({ model }: { model: string }) {
+	return (
+		<span className="truncate font-mono text-[11px]" title={model}>
+			{model}
+		</span>
+	);
+}
+
+const CARD_BREAKDOWN_ROWS = 3;
+
+function ViewModeToggle({
+	value,
+	onChange,
+}: {
+	value: AgentsViewMode;
+	onChange: (value: AgentsViewMode) => void;
+}) {
+	const options: { value: AgentsViewMode; label: string }[] = [
+		{ value: "agents", label: "Agents" },
+		{ value: "models", label: "Models" },
+	];
+
+	return (
+		<div
+			className="inline-flex items-center rounded-lg border border-border/60 bg-muted/40 p-0.5"
+			role="group"
+			aria-label="Group usage by"
+		>
+			{options.map((option) => (
+				<button
+					key={option.value}
+					type="button"
+					onClick={() => onChange(option.value)}
+					aria-pressed={value === option.value}
+					className={cn(
+						"rounded-md px-3 py-1 text-xs font-medium transition-colors",
+						value === option.value
+							? "bg-background text-foreground shadow-sm"
+							: "text-muted-foreground hover:text-foreground",
+					)}
+				>
+					{option.label}
+				</button>
+			))}
+		</div>
+	);
+}
+
+function AgentCard({
+	stats,
+	onClick,
+	onModelClick,
+}: {
+	stats: AgentStats;
+	onClick: () => void;
+	onModelClick: (model: string) => void;
+}) {
+	const topModels = stats.models.slice(0, CARD_BREAKDOWN_ROWS);
+	const hiddenModels = stats.models.length - topModels.length;
+
+	const Icon = stats.agent.icon;
+
+	return (
+		<div
+			role="button"
+			tabIndex={0}
+			className="group relative w-full cursor-pointer overflow-hidden rounded-xl border border-border/60 bg-card p-5 text-left transition-all duration-200 hover:border-foreground/15 hover:shadow-lg"
 			onClick={onClick}
+			onKeyDown={(event) => {
+				if (
+					event.target === event.currentTarget &&
+					(event.key === "Enter" || event.key === " ")
+				) {
+					event.preventDefault();
+					onClick();
+				}
+			}}
 		>
 			<div className="flex items-start gap-4">
 				<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted transition-colors group-hover:bg-muted/80">
@@ -318,7 +574,99 @@ function AgentCard({
 					</p>
 				</div>
 			</div>
-		</button>
+			{topModels.length > 0 && (
+				<div className="mt-3 space-y-1 border-t border-border/40 pt-3">
+					<p className="text-[11px] uppercase tracking-wider text-muted-foreground/60">
+						Models
+					</p>
+					{topModels.map((model) => (
+						<BreakdownRow
+							key={model.model}
+							label={<ModelLabel model={model.model} />}
+							row={model}
+							share={shareOf(model, stats.models)}
+							onClick={() => onModelClick(model.model)}
+						/>
+					))}
+					{hiddenModels > 0 && (
+						<p className="pt-0.5 text-[11px] text-muted-foreground">
+							+{hiddenModels} more model{hiddenModels !== 1 ? "s" : ""}
+						</p>
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
+function ModelCard({
+	stats,
+	onAgentClick,
+}: {
+	stats: ModelStats;
+	onAgentClick: (agentId: string) => void;
+}) {
+	return (
+		<div className="rounded-xl border border-border/60 bg-card p-5">
+			<div className="flex items-start justify-between gap-3">
+				<div className="min-w-0">
+					<h3
+						className="truncate font-mono text-sm font-semibold tracking-tight"
+						title={stats.model}
+					>
+						{stats.model}
+					</h3>
+					<p className="mt-1 text-2xl font-bold tracking-tight tabular-nums">
+						${stats.totalCost.toFixed(2)}
+					</p>
+				</div>
+				<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+					<Cpu className="h-5 w-5" />
+				</div>
+			</div>
+			<div className="mt-4 grid grid-cols-3 gap-3 border-t border-border/40 pt-3">
+				<div>
+					<p className="text-[11px] uppercase tracking-wider text-muted-foreground/60">
+						Requests
+					</p>
+					<p className="text-sm font-medium tabular-nums">
+						{formatNumber(stats.requestCount)}
+					</p>
+				</div>
+				<div>
+					<p className="text-[11px] uppercase tracking-wider text-muted-foreground/60">
+						Tokens
+					</p>
+					<p className="text-sm font-medium tabular-nums">
+						{formatTokens(stats.totalTokens)}
+					</p>
+				</div>
+				<div>
+					<p className="text-[11px] uppercase tracking-wider text-muted-foreground/60">
+						Agents
+					</p>
+					<p className="text-sm font-medium tabular-nums">
+						{formatNumber(stats.agents.length)}
+					</p>
+				</div>
+			</div>
+			<div className="mt-3 space-y-1 border-t border-border/40 pt-3">
+				{stats.agents.map((usage) => (
+					<BreakdownRow
+						key={usage.agent.id}
+						label={
+							<>
+								<usage.agent.icon className="h-3.5 w-3.5 shrink-0" />
+								<span className="truncate">{usage.agent.label}</span>
+							</>
+						}
+						row={usage}
+						share={shareOf(usage, stats.agents)}
+						onClick={() => onAgentClick(usage.agent.id)}
+					/>
+				))}
+			</div>
+		</div>
 	);
 }
 
@@ -393,12 +741,16 @@ function AgentDetail({
 	orgId,
 	projectId,
 	timeRange,
+	modelFilter,
+	onModelFilterChange,
 	onBack,
 }: {
 	stats: AgentStats;
 	orgId: string;
 	projectId: string;
 	timeRange: TimeRangeValue;
+	modelFilter: string | null;
+	onModelFilterChange: (model: string | null) => void;
 	onBack: () => void;
 }) {
 	const Icon = stats.agent.icon;
@@ -417,9 +769,17 @@ function AgentDetail({
 			source: stats.agent.sources.join(","),
 			startDate: range.from,
 			endDate: range.to,
+			...(modelFilter ? { model: modelFilter } : {}),
 		}),
-		[projectId, stats.agent.sources, range.from, range.to],
+		[projectId, stats.agent.sources, range.from, range.to, modelFilter],
 	);
+
+	const filteredModel = modelFilter
+		? stats.models.find((m) => m.model === modelFilter)
+		: undefined;
+	const expectedRequests = filteredModel
+		? filteredModel.requestCount
+		: stats.requestCount;
 
 	const {
 		data,
@@ -516,7 +876,7 @@ function AgentDetail({
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement("a");
 			a.href = url;
-			a.download = `${stats.agent.id}-requests-${timeRange}.csv`;
+			a.download = `${stats.agent.id}${modelFilter ? `-${modelFilter}` : ""}-requests-${timeRange}.csv`;
 			document.body.appendChild(a);
 			a.click();
 			document.body.removeChild(a);
@@ -531,7 +891,15 @@ function AgentDetail({
 		} finally {
 			setIsExporting(false);
 		}
-	}, [data, fetchClient, logsQuery, stats.agent.id, timeRange, toast]);
+	}, [
+		data,
+		fetchClient,
+		logsQuery,
+		stats.agent.id,
+		modelFilter,
+		timeRange,
+		toast,
+	]);
 
 	return (
 		<div className="space-y-4">
@@ -555,9 +923,9 @@ function AgentDetail({
 						</h3>
 						<div className="flex items-center gap-3 text-sm text-muted-foreground">
 							<span>
-								{formatNumber(logs.length)} of{" "}
-								{formatNumber(stats.requestCount)} request
-								{stats.requestCount !== 1 ? "s" : ""}
+								{formatNumber(logs.length)} of {formatNumber(expectedRequests)}{" "}
+								request
+								{expectedRequests !== 1 ? "s" : ""}
 							</span>
 							<span className="text-border">&middot;</span>
 							<span>${stats.totalCost.toFixed(2)}</span>
@@ -578,6 +946,55 @@ function AgentDetail({
 				</button>
 			</div>
 
+			{stats.models.length > 0 && (
+				<div className="rounded-lg border bg-card p-4">
+					<div className="mb-2 flex items-center justify-between">
+						<h4 className="text-sm font-medium">Models</h4>
+						<p className="text-xs text-muted-foreground">
+							Select a model to filter sessions
+						</p>
+					</div>
+					<div className="grid gap-x-6 gap-y-1 md:grid-cols-2">
+						{stats.models.map((model) => (
+							<BreakdownRow
+								key={model.model}
+								label={
+									<>
+										<ModelLabel model={model.model} />
+										<span className="shrink-0 text-muted-foreground tabular-nums">
+											{formatNumber(model.requestCount)} req
+										</span>
+									</>
+								}
+								row={model}
+								share={shareOf(model, stats.models)}
+								active={modelFilter === model.model}
+								onClick={() =>
+									onModelFilterChange(
+										modelFilter === model.model ? null : model.model,
+									)
+								}
+							/>
+						))}
+					</div>
+				</div>
+			)}
+
+			{modelFilter && (
+				<div className="flex items-center gap-2 text-sm">
+					<span className="text-muted-foreground">Showing sessions for</span>
+					<button
+						type="button"
+						onClick={() => onModelFilterChange(null)}
+						className="inline-flex items-center gap-1 rounded-md border bg-muted/50 px-2 py-0.5 font-mono text-xs transition-colors hover:bg-muted"
+						title="Clear model filter"
+					>
+						{modelFilter}
+						<X className="h-3 w-3" />
+					</button>
+				</div>
+			)}
+
 			<div className="space-y-3">
 				{isLoading ? (
 					<div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
@@ -590,7 +1007,7 @@ function AgentDetail({
 					</div>
 				) : sessions.length === 0 ? (
 					<div className="py-8 text-center text-sm text-muted-foreground">
-						No sessions found for this agent.
+						No sessions found for this {modelFilter ? "model" : "agent"}.
 					</div>
 				) : (
 					sessions.map((session) => (
@@ -665,6 +1082,7 @@ export function AgentsView({
 	initialData?: SourceActivityData;
 }) {
 	const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+	const [modelFilter, setModelFilter] = useState<string | null>(null);
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const { buildUrl } = useDashboardNavigation();
@@ -672,11 +1090,34 @@ export function AgentsView({
 	const usageMode = useUsageMode();
 
 	const timeRange = parseAgentTimeRange(searchParams.get("timeRange"));
+	const viewMode = parseViewMode(searchParams.get("view"));
 
 	const updateTimeRange = (newTimeRange: TimeRangeValue) => {
 		const params = new URLSearchParams(searchParams);
 		params.set("timeRange", newTimeRange);
 		router.push(`${buildUrl("agents")}?${params.toString()}`);
+	};
+
+	const updateViewMode = (next: AgentsViewMode) => {
+		const params = new URLSearchParams(searchParams);
+		if (next === "agents") {
+			params.delete("view");
+		} else {
+			params.set("view", next);
+		}
+		const query = params.toString();
+		router.replace(
+			query ? `${buildUrl("agents")}?${query}` : buildUrl("agents"),
+			{ scroll: false },
+		);
+	};
+
+	const openAgent = (agentId: string, model: string | null = null) => {
+		setSelectedAgentId(agentId);
+		setModelFilter(model);
+		if (viewMode !== "agents") {
+			updateViewMode("agents");
+		}
 	};
 
 	const { data, isLoading, error } = api.useQuery(
@@ -698,17 +1139,30 @@ export function AgentsView({
 		},
 	);
 
+	const sourceModels = useMemo(
+		() =>
+			(data?.sourceModels ?? []).map((row) => applyUsageMode(row, usageMode)),
+		[data, usageMode],
+	);
+
 	const agentStats = useMemo(
 		() =>
 			computeAgentStats(
 				(data?.sources ?? []).map((row) => applyUsageMode(row, usageMode)),
+				sourceModels,
 			),
-		[data, usageMode],
+		[data, usageMode, sourceModels],
 	);
 
-	const selectedStats = selectedAgentId
-		? agentStats.find((s) => s.agent.id === selectedAgentId)
-		: null;
+	const modelStats = useMemo(
+		() => computeModelStats(sourceModels),
+		[sourceModels],
+	);
+
+	const selectedStats =
+		viewMode === "agents" && selectedAgentId
+			? agentStats.find((s) => s.agent.id === selectedAgentId)
+			: null;
 
 	const totalCost = agentStats.reduce((sum, s) => sum + s.totalCost, 0);
 	const totalRequests = agentStats.reduce((sum, s) => sum + s.requestCount, 0);
@@ -723,13 +1177,21 @@ export function AgentsView({
 						allowedValues={AGENT_TIME_RANGES}
 					/>
 					<UsageModeSelector />
+					<ViewModeToggle value={viewMode} onChange={updateViewMode} />
 				</div>
 				{!selectedStats && agentStats.length > 0 && (
 					<div className="flex items-center gap-3 text-sm text-muted-foreground">
-						<span>
-							{agentStats.length} agent
-							{agentStats.length !== 1 ? "s" : ""}
-						</span>
+						{viewMode === "models" ? (
+							<span>
+								{modelStats.length} model
+								{modelStats.length !== 1 ? "s" : ""}
+							</span>
+						) : (
+							<span>
+								{agentStats.length} agent
+								{agentStats.length !== 1 ? "s" : ""}
+							</span>
+						)}
 						<span className="text-border">&middot;</span>
 						<span>{formatNumber(totalRequests)} requests</span>
 						<span className="text-border">&middot;</span>
@@ -757,17 +1219,39 @@ export function AgentsView({
 					orgId={orgId}
 					projectId={projectId}
 					timeRange={timeRange}
-					onBack={() => setSelectedAgentId(null)}
+					modelFilter={modelFilter}
+					onModelFilterChange={setModelFilter}
+					onBack={() => {
+						setSelectedAgentId(null);
+						setModelFilter(null);
+					}}
 				/>
 			) : agentStats.length === 0 ? (
 				<EmptyState />
+			) : viewMode === "models" ? (
+				modelStats.length === 0 ? (
+					<div className="py-8 text-center text-sm text-muted-foreground">
+						No per-model agent usage in this period yet.
+					</div>
+				) : (
+					<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+						{modelStats.map((stats) => (
+							<ModelCard
+								key={stats.model}
+								stats={stats}
+								onAgentClick={(agentId) => openAgent(agentId, stats.model)}
+							/>
+						))}
+					</div>
+				)
 			) : (
 				<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 					{agentStats.map((stats) => (
 						<AgentCard
 							key={stats.agent.id}
 							stats={stats}
-							onClick={() => setSelectedAgentId(stats.agent.id)}
+							onClick={() => openAgent(stats.agent.id)}
+							onModelClick={(model) => openAgent(stats.agent.id, model)}
 						/>
 					))}
 				</div>

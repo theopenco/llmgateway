@@ -3115,6 +3115,66 @@ async function seed() {
 	}
 	await bulkInsert(tables.projectHourlySourceStats, testProjectSourceStats);
 
+	// Split each Test Project agent bucket across models so the agents
+	// dashboard's per-model breakdown adds up to the source totals.
+	const agentModels = [
+		["anthropic", "claude-sonnet-4-5"],
+		["openai", "gpt-5"],
+		["google-ai-studio", "gemini-2.5-pro"],
+		["anthropic", "claude-haiku-4-5"],
+	] as const;
+	const testProjectSourceModelStats: Array<
+		typeof tables.projectHourlySourceModelStats.$inferInsert
+	> = [];
+	for (const row of testProjectSourceStats) {
+		let remainingRequests = row.requestCount as number;
+		// Rotate per agent so each one favours a different model.
+		const offset = (row.source as string).length % agentModels.length;
+		const models = [
+			...agentModels.slice(offset),
+			...agentModels.slice(0, offset),
+		].slice(0, Math.min(randomInt(1, agentModels.length), remainingRequests));
+		let remainingShare = 1;
+		models.forEach(([provider, model], i) => {
+			const modelsAfter = models.length - 1 - i;
+			const share = modelsAfter === 0 ? remainingShare : remainingShare * 0.6;
+			// Leave at least one request for every model after this one.
+			const requests =
+				modelsAfter === 0
+					? remainingRequests
+					: Math.max(
+							1,
+							Math.min(
+								remainingRequests - modelsAfter,
+								Math.round(remainingRequests * 0.6),
+							),
+						);
+			remainingShare -= share;
+			remainingRequests -= requests;
+			testProjectSourceModelStats.push({
+				id: `${row.id}-${model}`,
+				projectId: row.projectId,
+				hourTimestamp: row.hourTimestamp,
+				source: row.source,
+				usedModel: `${provider}/${model}`,
+				usedProvider: provider,
+				requestCount: requests,
+				inputTokens: String(Math.round(Number(row.inputTokens) * share)),
+				outputTokens: String(Math.round(Number(row.outputTokens) * share)),
+				totalTokens: String(Math.round(Number(row.totalTokens) * share)),
+				cost: Number((row.cost * share).toFixed(6)),
+				creditsRequestCount: Math.floor(requests * 0.6),
+				apiKeysRequestCount: requests - Math.floor(requests * 0.6),
+				creditsCost: Number((row.cost * share * 0.6).toFixed(6)),
+				apiKeysCost: Number((row.cost * share * 0.4).toFixed(6)),
+			});
+		});
+	}
+	await bulkInsert(
+		tables.projectHourlySourceModelStats,
+		testProjectSourceModelStats,
+	);
+
 	// Routed traffic for the Test Project, so the routing savings card renders.
 	const testProjectRoutingStats: Array<
 		typeof tables.projectHourlyRoutingStats.$inferInsert
