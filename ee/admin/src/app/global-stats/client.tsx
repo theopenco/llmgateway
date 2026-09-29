@@ -41,7 +41,7 @@ import {
 	ProviderKeySelector,
 	providerKeyLabel,
 	useGlobalStatsProviderKeys,
-	useProviderKeyId,
+	useProviderKeyIds,
 } from "@/components/provider-key-selector";
 import { Button } from "@/components/ui/button";
 import {
@@ -303,11 +303,12 @@ export function GlobalStatsClient() {
 	const { allTime, from, to } = resolveGlobalStatsRange(searchParams);
 	const usageMode = useUsageMode();
 	const orgKind = useOrgKind();
-	const providerKeyId = useProviderKeyId();
+	const providerKeyIds = useProviderKeyIds();
+	const byKey = providerKeyIds.length > 0;
 	// The per-credential rollup has no x-source dimension (see the API).
 	const requestedGroupBy = parseGroupBy(searchParams.get("groupBy"));
 	const groupBy =
-		providerKeyId && requestedGroupBy === "source" ? "model" : requestedGroupBy;
+		byKey && requestedGroupBy === "source" ? "model" : requestedGroupBy;
 	const chartMetric = parseMetric(searchParams.get("metric"));
 	const modelView = parseModelView(searchParams.get("modelView"));
 	const showTimeseriesBreakdown = parseBreakdown(searchParams.get("breakdown"));
@@ -328,7 +329,7 @@ export function GlobalStatsClient() {
 	// The range picker and the mode/kind selectors write to the URL directly, so
 	// reset pagination during render when any of them changes (each also
 	// re-sorts the breakdown).
-	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}|${providerKeyId ?? ""}`;
+	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}|${providerKeyIds.join(",")}`;
 	const [lastViewKey, setLastViewKey] = useState(viewKey);
 	if (viewKey !== lastViewKey) {
 		setLastViewKey(viewKey);
@@ -377,18 +378,23 @@ export function GlobalStatsClient() {
 					modelView,
 					mode: usageMode,
 					kind: orgKind,
-					...(providerKeyId ? { providerKeyId } : {}),
+					...(byKey ? { providerKeyId: providerKeyIds.join(",") } : {}),
 				},
 			},
 		},
 	);
 	const { data: providerKeysData } = useGlobalStatsProviderKeys();
-	const selectedProviderKey = providerKeyId
-		? providerKeysData?.providerKeys.find((key) => key.id === providerKeyId)
-		: undefined;
-	const providerKeyName = selectedProviderKey
-		? providerKeyLabel(selectedProviderKey)
-		: providerKeyId;
+	const selectedProviderKeys = useMemo(
+		() =>
+			providerKeyIds.map((id) => {
+				const key = providerKeysData?.providerKeys.find((k) => k.id === id);
+				return { id, label: key ? providerKeyLabel(key) : id };
+			}),
+		[providerKeyIds, providerKeysData?.providerKeys],
+	);
+	const providerKeyNames = selectedProviderKeys
+		.map((key) => key.label)
+		.join(", ");
 
 	const rangeLabel = useMemo(() => {
 		const start = from ?? data?.start;
@@ -553,14 +559,18 @@ export function GlobalStatsClient() {
 	const scopeNotes = [
 		usageModeDescription(usageMode),
 		orgKindDescription(orgKind),
-		providerKeyId
-			? `Only requests served by provider key ${providerKeyName}; traffic served by env-var credentials is never attributed to a key.`
+		byKey
+			? `Only requests served by provider ${providerKeyIds.length > 1 ? "keys" : "key"} ${providerKeyNames}${providerKeyIds.length > 1 ? ", summed" : ""}; traffic served by env-var credentials is never attributed to a key.`
 			: null,
 	].filter(Boolean);
 	const scopeParts = [
 		orgKind === "all" ? null : orgKindLabel(orgKind),
 		usageMode === "total" ? null : usageModeLabel(usageMode),
-		providerKeyId ? `Key ${providerKeyName}` : null,
+		providerKeyIds.length > 1
+			? `${providerKeyIds.length} keys`
+			: byKey
+				? `Key ${providerKeyNames}`
+				: null,
 	].filter((part): part is string => part !== null);
 	const scopeSuffix = scopeParts.map((label) => ` · ${label}`).join("");
 	// Stat-card headings are uppercase and narrow; name the key in the
@@ -568,7 +578,7 @@ export function GlobalStatsClient() {
 	const statScopeParts = [
 		orgKind === "all" ? null : orgKindLabel(orgKind),
 		usageMode === "total" ? null : usageModeLabel(usageMode),
-		providerKeyId ? "Key" : null,
+		byKey ? "Key" : null,
 	].filter((part): part is string => part !== null);
 	const scopeLabel =
 		statScopeParts.length > 0 ? statScopeParts.join(" · ") : "Total";
@@ -606,8 +616,7 @@ export function GlobalStatsClient() {
 					? (MODEL_VIEW_OPTIONS.find((opt) => opt.value === modelView)?.label ??
 						modelView)
 					: null,
-			providerKeyId,
-			providerKeyLabel: providerKeyName,
+			providerKeys: selectedProviderKeys,
 			metric: chartMetric,
 		}),
 		[
@@ -620,8 +629,7 @@ export function GlobalStatsClient() {
 			orgKind,
 			groupBy,
 			modelView,
-			providerKeyId,
-			providerKeyName,
+			selectedProviderKeys,
 			chartMetric,
 		],
 	);
@@ -762,8 +770,7 @@ export function GlobalStatsClient() {
 							>
 								{GROUP_OPTIONS.map((opt) => {
 									const Icon = opt.icon;
-									const unavailable =
-										opt.value === "source" && providerKeyId !== null;
+									const unavailable = opt.value === "source" && byKey;
 									return (
 										<Button
 											key={opt.value}
