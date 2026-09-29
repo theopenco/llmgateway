@@ -1215,6 +1215,65 @@ describe("managed credential reorder cache invalidation", () => {
 			expect(body.organizations[0].cost).toBeCloseTo(0.1, 6);
 		});
 
+		test("splits spend by model from the daily model rollup", async () => {
+			await db.insert(tables.providerKey).values({
+				id: "model-split-cred",
+				...encryptProviderKeyForStorage(
+					"sk-model-split",
+					"model-split-cred",
+					null,
+				),
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+			});
+			const day = new Date();
+			day.setUTCHours(0, 0, 0, 0);
+			await db.insert(tables.globalProviderKeyModelStats).values(
+				[
+					{ usedModel: "openai/gpt-4o-mini", cost: 0.2, requestCount: 10 },
+					{ usedModel: "openai/gpt-4o", cost: 0.5, requestCount: 2 },
+					// Different mode, same model: summed into one row.
+					{
+						usedModel: "openai/gpt-4o",
+						cost: 0.25,
+						requestCount: 1,
+						usedMode: "api-keys" as const,
+					},
+				].map((row) => ({
+					dayTimestamp: day,
+					providerKeyId: "model-split-cred",
+					usedModel: row.usedModel,
+					usedProvider: "openai",
+					usedMode: row.usedMode ?? ("credits" as const),
+					orgKind: "default" as const,
+					requestCount: row.requestCount,
+					cost: row.cost,
+					totalTokens: "100",
+				})),
+			);
+
+			const res = await getSpend("model-split-cred");
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				modelsSince: string;
+				models: {
+					usedModel: string;
+					cost: number;
+					requestCount: number;
+					totalTokens: string;
+				}[];
+			};
+			expect(new Date(body.modelsSince).getUTCHours()).toBe(0);
+			expect(body.models.map((model) => model.usedModel)).toEqual([
+				"openai/gpt-4o",
+				"openai/gpt-4o-mini",
+			]);
+			expect(body.models[0].cost).toBeCloseTo(0.75, 6);
+			expect(body.models[0].requestCount).toBe(3);
+			expect(body.models[0].totalTokens).toBe("200");
+		});
+
 		test("reports zeroes for a key with no attributed traffic", async () => {
 			await db.insert(tables.providerKey).values({
 				id: "quiet-cred",
@@ -1231,10 +1290,12 @@ describe("managed credential reorder cache invalidation", () => {
 				buckets: string[];
 				data: unknown[];
 				organizations: unknown[];
+				models: unknown[];
 			};
 			expect(body.totalCost).toBe(0);
 			expect(body.data).toEqual([]);
 			expect(body.organizations).toEqual([]);
+			expect(body.models).toEqual([]);
 			// The chart still spans the whole window: the grid is returned even when
 			// nothing was spent, so the axis does not collapse to nothing.
 			expect(body.buckets).toHaveLength(25);
