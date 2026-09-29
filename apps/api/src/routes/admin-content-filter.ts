@@ -62,8 +62,8 @@ const violationRate = sql<number>`coalesce(sum(${contentFilterHourlyStats.violat
 const modelSampled = sql<number>`coalesce(sum(${contentFilterHourlyModelStats.sampledCount}), 0)::int`;
 const modelViolations = sql<number>`coalesce(sum(${contentFilterHourlyModelStats.violationCount}), 0)::int`;
 const modelBlocked = sql<number>`coalesce(sum(${contentFilterHourlyModelStats.blockedCount}), 0)::int`;
-// Shadow rows record a second classifier's verdict on the same requests for
-// offline comparison; every dashboard figure is the deciding classifier's.
+// Legacy shadow rows hold the removed shadow classifier's verdicts; every
+// dashboard figure is the deciding classifier's.
 const isDeciding = eq(contentFilterHourlyStats.role, "deciding");
 const isDecidingModel = eq(contentFilterHourlyModelStats.role, "deciding");
 

@@ -385,110 +385,40 @@ describe("content filter stats aggregator", () => {
 		]);
 	});
 
-	it("rolls the shadow verdict up without ever counting it as blocked", async () => {
-		const shadow = {
-			classifier: "internal" as const,
-			violation: true,
-			flagged: true,
-			matchedCategories: ["violence"],
-			categoryScores: { violence: 0.9 },
-			moderationFailed: false,
-			disagreed: false,
-			durationMs: 30,
-		};
-		await db.insert(log).values([
-			logRow({
-				gatewayContentFilterEvaluation: evaluation({
-					classifier: "openai",
-					violation: true,
-					action: "blocked",
-					enforced: true,
-					exemptReason: undefined,
-					matchedCategories: ["violence"],
-					durationMs: 200,
-					shadow,
-				}),
-			}),
+	it("ignores a legacy shadow verdict on older logs", async () => {
+		await db.insert(log).values(
 			logRow({
 				gatewayContentFilterEvaluation: evaluation({
 					classifier: "openai",
 					durationMs: 100,
 					shadow: {
-						...shadow,
-						violation: false,
-						flagged: false,
-						matchedCategories: [],
-						disagreed: false,
-						durationMs: 10,
+						classifier: "internal",
+						violation: true,
+						flagged: true,
+						matchedCategories: ["violence"],
+						categoryScores: { violence: 0.9 },
+						moderationFailed: false,
+						disagreed: true,
+						durationMs: 30,
 					},
 				}),
 			}),
-			// The shadow check failed: not sampled, but its latency still counts.
-			logRow({
-				gatewayContentFilterEvaluation: evaluation({
-					classifier: "openai",
-					durationMs: 150,
-					shadow: {
-						...shadow,
-						violation: false,
-						flagged: false,
-						matchedCategories: [],
-						categoryScores: {},
-						moderationFailed: true,
-						disagreed: false,
-						durationMs: 5000,
-					},
-				}),
-			}),
-		]);
+		);
 
 		await calculateContentFilterStatsForHour(HOUR);
-		const deciding = {
-			usedModel: null,
-			category: "all",
-			classifier: "openai",
-			role: "deciding",
-			sampledCount: 3,
-			violationCount: 1,
-			blockedCount: 1,
-			durationSumMs: 450,
-			durationCount: 3,
-			durationMaxMs: 200,
-		};
-		const shadowAll = {
-			usedModel: null,
-			category: "all",
-			classifier: "internal",
-			role: "shadow",
-			sampledCount: 2,
-			violationCount: 1,
-			blockedCount: 0,
-			durationSumMs: 5040,
-			durationCount: 3,
-			durationMaxMs: 5000,
-		};
 		expect(await verdictRows("org")).toEqual([
-			deciding,
 			{
-				...deciding,
-				category: "violence",
-				sampledCount: 0,
+				usedModel: null,
+				category: "all",
+				classifier: "openai",
+				role: "deciding",
+				sampledCount: 1,
+				violationCount: 0,
 				blockedCount: 0,
-				...NO_DURATION,
+				durationSumMs: 100,
+				durationCount: 1,
+				durationMaxMs: 100,
 			},
-			shadowAll,
-			{
-				...shadowAll,
-				category: "violence",
-				sampledCount: 0,
-				...NO_DURATION,
-			},
-		]);
-		expect(
-			(await verdictRows("model")).filter((row) => row.category === "all"),
-		).toEqual([
-			{ ...deciding, usedModel: "openai/gpt-5.6-sol" },
-			{ ...shadowAll, usedModel: "openai/gpt-5.6-sol" },
 		]);
 	});
 

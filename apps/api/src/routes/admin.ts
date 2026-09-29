@@ -6026,7 +6026,6 @@ const contentFilterSettingsResponseSchema = z
 		enforce: z.boolean(),
 		enforceEnterprise: z.boolean(),
 		classifier: z.enum(CONTENT_FILTER_CLASSIFIERS),
-		shadowClassifier: z.enum([...CONTENT_FILTER_CLASSIFIERS, "none"]),
 		providers: z.array(
 			z.object({
 				id: z.string(),
@@ -6083,7 +6082,6 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 		enforce: settings.enforce,
 		enforceEnterprise: settings.enforceEnterprise,
 		classifier: settings.classifier,
-		shadowClassifier: settings.shadowClassifier,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -6096,7 +6094,6 @@ admin.openapi(updateContentFilterSettingsRoute, async (c) => {
 		enforce: settings.enforce,
 		enforceEnterprise: settings.enforceEnterprise,
 		classifier: settings.classifier,
-		shadowClassifier: settings.shadowClassifier,
 		providers: listContentFilterProviders(settings),
 	});
 });

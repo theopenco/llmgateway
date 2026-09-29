@@ -31,7 +31,8 @@ describe("tiered gateway content filter", () => {
 	let previousContentFilterMode: string | undefined;
 	let fetchSpy: ReturnType<typeof vi.spyOn> | null = null;
 	let moderationCalls = 0;
-	let moderationResponse: () => Response = () => new Response("{}");
+	let moderationResponse: () => Response | Promise<Response> = () =>
+		new Response("{}");
 
 	beforeAll(() => {
 		mockServerUrl = harness.mockServerUrl;
@@ -75,7 +76,7 @@ describe("tiered gateway content filter", () => {
 							: input.url;
 				if (url === MODERATION_URL) {
 					moderationCalls += 1;
-					return moderationResponse();
+					return await moderationResponse();
 				}
 				return await originalFetch(input as RequestInfo | URL, init);
 			});
@@ -151,9 +152,9 @@ describe("tiered gateway content filter", () => {
 		const res = await chat("tier-log-only");
 		expect(res.status).toBe(200);
 		expect((await res.json()).choices[0].finish_reason).toBe("stop");
-		expect(moderationCalls).toBe(1);
 
 		const log = await waitForLogByRequestId("tier-log-only");
+		expect(moderationCalls).toBe(1);
 		expect(log.finishReason).not.toBe("llmgateway_content_filter");
 		expect(log.internalContentFilter).toBe(true);
 		expect(log.gatewayContentFilterEvaluation).toEqual({
@@ -180,6 +181,39 @@ describe("tiered gateway content filter", () => {
 				results: violent,
 			},
 		]);
+	});
+
+	test("never holds a log-only request for the classifier", async () => {
+		let release: () => void = () => {};
+		const released = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		moderation(violent);
+		const respond = moderationResponse;
+		moderationResponse = async () => {
+			await released;
+			return await respond();
+		};
+		await harness.setContentFilterSettings({ providerIds: ["llmgateway"] });
+
+		try {
+			// Answered while the moderation call is still pending.
+			const res = await chat("tier-background");
+			expect((await res.json()).choices[0].finish_reason).toBe("stop");
+			await vi.waitFor(() => expect(moderationCalls).toBe(1));
+		} finally {
+			release();
+		}
+
+		// The log row is published once the classifier settles.
+		const log = await waitForLogByRequestId("tier-background");
+		expect(log.internalContentFilter).toBe(true);
+		expect(log.gatewayContentFilterEvaluation).toMatchObject({
+			violation: true,
+			action: "logged",
+			exemptReason: "global_log_only",
+		});
+		expect(log.gatewayContentFilterResponse).toHaveLength(1);
 	});
 
 	test("blocks a strict-tier violation when enforcement is on", async () => {
