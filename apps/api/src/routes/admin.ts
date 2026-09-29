@@ -12635,6 +12635,41 @@ function buildIgnoredErrorMatchExpr(matchers: IgnoredErrorMatcherTarget[]) {
 	);
 }
 
+/**
+ * Every `used_model` (`provider/model[:region]`) a canonical model id logs
+ * under: catalogue mappings plus DB-only (Airside, deactivated) rows.
+ * Custom-provider logs are prefixed with the key's own name and not matched.
+ */
+async function listUsedModelsForModelId(modelId: string) {
+	const usedModels = new Set<string>();
+	const add = (providerId: string, region: string | null | undefined) => {
+		usedModels.add(`${providerId}/${modelId}`);
+		if (region) {
+			usedModels.add(`${providerId}/${modelId}:${region}`);
+		}
+	};
+
+	const catalogueModel = models.find((model) => model.id === modelId);
+	for (const mapping of expandAllProviderRegions(
+		catalogueModel?.providers ?? [],
+	)) {
+		add(mapping.providerId, mapping.region);
+	}
+
+	const rows = await db
+		.select({
+			providerId: tables.modelProviderMapping.providerId,
+			region: tables.modelProviderMapping.region,
+		})
+		.from(tables.modelProviderMapping)
+		.where(eq(tables.modelProviderMapping.modelId, modelId));
+	for (const row of rows) {
+		add(row.providerId, row.region);
+	}
+
+	return [...usedModels];
+}
+
 async function listIgnoredErrorMatchers() {
 	return await db.query.ignoredErrorMatcher.findMany({
 		orderBy: {
@@ -12786,10 +12821,11 @@ admin.openapi(getUnstableMappings, async (c) => {
 			? sql`AND ${tables.log.usedModel} = ${mapping} AND ${tables.log.usedProvider} = ${query.provider}`
 			: sql``;
 	const canonicalModelId = query.modelId || null;
-	// `used_model` is `provider/model[:region]`; strip both to the catalog id.
+	// An exact `used_model` list keeps the filter an index condition; a
+	// `split_part` expression would fetch every log in the window.
 	const modelIdClause =
 		canonicalModelId !== null
-			? sql`AND split_part(split_part(${tables.log.usedModel}, '/', 2), ':', 1) = ${canonicalModelId}`
+			? sql`AND ${inArray(tables.log.usedModel, await listUsedModelsForModelId(canonicalModelId))}`
 			: sql``;
 
 	// With the split off every row carries a constant NULL key, so the extra

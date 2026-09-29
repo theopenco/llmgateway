@@ -378,22 +378,28 @@ describe("admin unstable mappings", () => {
 	});
 
 	test("filters the ranking to every mapping of a canonical model", async () => {
-		await seedLog({ usedModel: "openai/gpt-4o", hasError: true });
+		await seedLog({ usedModel: "openai/gpt-5.6-sol", hasError: true });
 		await seedLog({
-			usedModel: "azure/gpt-4o:eastus",
-			usedProvider: "azure",
+			usedModel: "aws-mantle/gpt-5.6-sol:global",
+			usedProvider: "aws-mantle",
 			hasError: true,
 		});
-		await seedLog({ usedModel: "azure/gpt-4o:eastus", usedProvider: "azure" });
+		await seedLog({
+			usedModel: "aws-mantle/gpt-5.6-sol:global",
+			usedProvider: "aws-mantle",
+		});
 		await seedLog({ usedModel: "openai/gpt-4o-mini", hasError: true });
 
-		const body = await getMappings("?modelId=gpt-4o");
-		expect(body.modelId).toBe("gpt-4o");
+		const body = await getMappings("?modelId=gpt-5.6-sol");
+		expect(body.modelId).toBe("gpt-5.6-sol");
 		expect(body.sampledLogs).toBe(3);
 		expect(body.mappings.map((m) => m.usedModel).sort()).toEqual([
-			"azure/gpt-4o:eastus",
-			"openai/gpt-4o",
+			"aws-mantle/gpt-5.6-sol:global",
+			"openai/gpt-5.6-sol",
 		]);
+
+		const unknown = await getMappings("?modelId=um-unknown-model");
+		expect(unknown.sampledLogs).toBe(0);
 	});
 
 	test("scope options cover airside listings and the catalogue", async () => {
