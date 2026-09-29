@@ -398,6 +398,35 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("google image input usage", () => {
+		it("extracts IMAGE modality prompt tokens", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3.1-flash-image",
+				{
+					candidates: [
+						{
+							content: { role: "model", parts: [{ text: "Red" }] },
+							finishReason: "STOP",
+						},
+					],
+					usageMetadata: {
+						promptTokenCount: 268,
+						candidatesTokenCount: 1,
+						totalTokenCount: 269,
+						promptTokensDetails: [
+							{ modality: "TEXT", tokenCount: 10 },
+							{ modality: "IMAGE", tokenCount: 258 },
+						],
+					},
+				},
+			);
+
+			expect(result.promptTokens).toBe(268);
+			expect(result.imageInputTokens).toBe(258);
+		});
+	});
+
 	describe("google blocked responses", () => {
 		it("retains the original block reason when candidates are missing", () => {
 			const result = parseProviderResponse(
