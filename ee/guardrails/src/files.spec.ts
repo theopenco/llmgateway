@@ -88,4 +88,69 @@ describe("file guardrails", () => {
 				.passed,
 		).toBe(false);
 	});
+
+	describe("default attachment policy", () => {
+		async function checkWithDefaults(
+			content: MessageContent,
+			guardrailsEnabled = true,
+		) {
+			const id = `file-guardrail-${crypto.randomUUID()}`;
+			organizations.push(id);
+			await db.insert(tables.organization).values({
+				id,
+				name: "Attachment test",
+				billingEmail: "attachment@example.com",
+			});
+			await db.insert(tables.guardrailConfig).values({
+				organizationId: id,
+				enabled: guardrailsEnabled,
+			});
+			return await checkGuardrails({
+				organizationId: id,
+				messages: [{ role: "user", content: [content] }],
+			});
+		}
+
+		const png = (bytes: number) =>
+			`data:image/png;base64,${Buffer.alloc(bytes).toString("base64")}`;
+
+		it("allows an image within the size limit", async () => {
+			const result = await checkWithDefaults({
+				type: "image_url",
+				image_url: { url: png(1024) },
+			});
+			expect(result.blocked).toBe(false);
+		});
+
+		it.each([
+			{
+				type: "file",
+				file: { file_data: "data:application/pdf;base64,YQ==" },
+			},
+			{ type: "input_audio", input_audio: { data: "YQ==", format: "mp3" } },
+			{ type: "image_url", image_url: { url: "data:image/heic;base64,YQ==" } },
+		])("blocks $type outside the default image types", async (content) => {
+			const result = await checkWithDefaults(content as MessageContent);
+			expect(result.blocked).toBe(true);
+		});
+
+		it("blocks an image above the default 10 MB limit", async () => {
+			const result = await checkWithDefaults({
+				type: "image_url",
+				image_url: { url: png(11 * 1024 * 1024) },
+			});
+			expect(result.blocked).toBe(true);
+		});
+
+		it("leaves attachments alone when guardrails are disabled", async () => {
+			const result = await checkWithDefaults(
+				{
+					type: "file",
+					file: { file_data: "data:application/pdf;base64,YQ==" },
+				},
+				false,
+			);
+			expect(result.blocked).toBe(false);
+		});
+	});
 });
