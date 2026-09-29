@@ -2406,7 +2406,7 @@ const globalStatsResponseSchema = z.object({
 	modelView: globalStatsModelViewSchema,
 	mode: globalStatsModeSchema,
 	kind: globalStatsKindSchema,
-	providerKeyId: z.string().nullable(),
+	providerKeyIds: z.array(z.string()),
 	totals: globalStatsMetricsSchema,
 	composition: z.object({
 		byMode: z.array(globalStatsCompositionItemSchema),
@@ -2446,9 +2446,10 @@ const getGlobalStats = createRoute({
 			modelView: globalStatsModelViewSchema.default("mapping").optional(),
 			mode: globalStatsModeSchema.default("total").optional(),
 			kind: globalStatsKindSchema.default("all").optional(),
-			// Narrows every metric to requests served by one provider credential.
-			// Reads the per-credential table, which has no x-source dimension, so
-			// `groupBy=source` falls back to `model`.
+			// Comma-separated provider credential ids; narrows every metric to
+			// the requests they served, summed. Reads the per-credential table,
+			// which has no x-source dimension, so `groupBy=source` falls back to
+			// `model`.
 			providerKeyId: z.string().optional(),
 		}),
 	},
@@ -2466,11 +2467,17 @@ const getGlobalStats = createRoute({
 
 admin.openapi(getGlobalStats, async (c) => {
 	const query = c.req.valid("query");
-	const providerKeyId = query.providerKeyId || null;
+	const providerKeyIds = [
+		...new Set(
+			(query.providerKeyId ?? "")
+				.split(",")
+				.map((id) => id.trim())
+				.filter(Boolean),
+		),
+	];
+	const byKey = providerKeyIds.length > 0;
 	const groupBy =
-		providerKeyId && query.groupBy === "source"
-			? "model"
-			: (query.groupBy ?? "model");
+		byKey && query.groupBy === "source" ? "model" : (query.groupBy ?? "model");
 	const modelView = query.modelView ?? "mapping";
 	const mode = query.mode ?? "total";
 	const kind = query.kind ?? "all";
@@ -2482,10 +2489,8 @@ admin.openapi(getGlobalStats, async (c) => {
 	// read the (much smaller) source table, which covers the same requests.
 	// A credential filter reads the per-credential model table for every
 	// grouping, since it carries model, mode and kind alike.
-	const modelTable = providerKeyId
-		? globalProviderKeyModelStats
-		: globalModelStats;
-	const sourceTable = providerKeyId
+	const modelTable = byKey ? globalProviderKeyModelStats : globalModelStats;
+	const sourceTable = byKey
 		? globalProviderKeyModelStats
 		: groupBy === "model"
 			? globalModelStats
@@ -2495,8 +2500,8 @@ admin.openapi(getGlobalStats, async (c) => {
 	// per-part costs — reflects exactly the selected slice.
 	const modeFilter = mode === "total" ? [] : [eq(sourceTable.usedMode, mode)];
 	const kindFilter = kind === "all" ? [] : [eq(sourceTable.orgKind, kind)];
-	const keyFilter = providerKeyId
-		? [eq(globalProviderKeyModelStats.providerKeyId, providerKeyId)]
+	const keyFilter = byKey
+		? [inArray(globalProviderKeyModelStats.providerKeyId, providerKeyIds)]
 		: [];
 	const dimensionFilter = [...modeFilter, ...kindFilter, ...keyFilter];
 
@@ -2854,7 +2859,7 @@ admin.openapi(getGlobalStats, async (c) => {
 		modelView,
 		mode,
 		kind,
-		providerKeyId,
+		providerKeyIds,
 		totals,
 		composition: {
 			byMode: byModeRows.map((row) => toCompositionItem("mode", row)),
