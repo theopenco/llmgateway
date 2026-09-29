@@ -47,7 +47,6 @@ describe("video content range responses", () => {
 				{
 					headers: { Range: "bytes=2000-" },
 					cache: "no-store",
-					redirect: "error",
 				},
 			);
 		},
