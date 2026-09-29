@@ -12751,6 +12751,7 @@ chat.openapi(completions, async (c) => {
 										cachedTokens,
 										cacheCreationTokens,
 										reasoningTokens: calculatedReasoningTokens,
+										imageInputTokens: streamingCostsEarly.imageInputTokens,
 										audioInputTokens,
 									});
 									return earlyUsage;
