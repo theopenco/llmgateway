@@ -578,7 +578,7 @@ export function GlobalStatsClient() {
 	const statScopeParts = [
 		orgKind === "all" ? null : orgKindLabel(orgKind),
 		usageMode === "total" ? null : usageModeLabel(usageMode),
-		providerKeyIds.length > 1 ? "Keys" : byKey ? "Key" : null,
+		byKey ? "Key" : null,
 	].filter((part): part is string => part !== null);
 	const scopeLabel =
 		statScopeParts.length > 0 ? statScopeParts.join(" · ") : "Total";
