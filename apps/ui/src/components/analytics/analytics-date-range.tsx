@@ -1,9 +1,9 @@
 "use client";
 
-import { ChevronDownIcon, Lock, Mail } from "lucide-react";
+import { ChevronDownIcon, Lock } from "lucide-react";
 
+import { ContactSalesButton } from "@/components/contact-sales";
 import { DateRangePicker } from "@/components/date-range-picker";
-import { Button } from "@/lib/components/button";
 import {
 	Popover,
 	PopoverContent,
@@ -85,12 +85,7 @@ export function AnalyticsDateRange({
 							usage down across any week, month, or quarter.
 						</p>
 					</div>
-					<Button asChild size="sm" className="w-full">
-						<a href="mailto:contact@llmgateway.io">
-							<Mail className="mr-2 h-4 w-4" />
-							Contact sales
-						</a>
-					</Button>
+					<ContactSalesButton size="sm" className="w-full" />
 				</div>
 			</PopoverContent>
 		</Popover>
