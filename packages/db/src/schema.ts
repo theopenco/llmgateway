@@ -2418,10 +2418,15 @@ export const log = pgTable(
 				candidateModels: string[];
 				difficulty?: "low" | "medium" | "high";
 				difficultyScore?: number;
+				difficultyProbabilities?: Partial<
+					Record<"low" | "medium" | "high", number>
+				>;
 				task?: string;
 				outputType?: string;
 				bestModel?: string;
 				bestModelConfidence?: number;
+				// The classifier's top candidates by probability, highest first.
+				bestModelProbabilities?: Record<string, number>;
 				band?: "low" | "medium" | "high";
 				selectedModel: string;
 				classifierLatencyMs?: number;
@@ -2429,6 +2434,10 @@ export const log = pgTable(
 				// log row. Absent when it made none.
 				classifierCost?: number;
 				classifierFailed: boolean;
+				// Why a configured classifier was not consulted at all.
+				classifierSkipped?: "single-candidate" | "compliance" | "no-credential";
+				// True when the configured fallback model served a verdict-less request.
+				usedFallback?: boolean;
 				// True when the verdict served came from another turn of the same
 				// sticky session rather than from this request.
 				classifierReused?: boolean;

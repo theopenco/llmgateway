@@ -30,6 +30,7 @@ import type {
 } from "@llmgateway/shared/routing-telemetry";
 import type {
 	SmartRoutingClassifier,
+	SmartRoutingClassifierSkipReason,
 	SmartRoutingDifficulty,
 	SmartRoutingEffort,
 	SmartRoutingWorkChange,
@@ -206,10 +207,13 @@ export interface RoutingMetadata {
 		candidateModels: string[];
 		difficulty?: SmartRoutingDifficulty;
 		difficultyScore?: number;
+		difficultyProbabilities?: Partial<Record<SmartRoutingDifficulty, number>>;
 		task?: string;
 		outputType?: string;
 		bestModel?: string;
 		bestModelConfidence?: number;
+		// The classifier's top candidates by probability, highest first.
+		bestModelProbabilities?: Record<string, number>;
 		band?: SmartRoutingDifficulty;
 		selectedModel: string;
 		// Latency of the classifier call this request made; absent when it made
@@ -224,6 +228,10 @@ export interface RoutingMetadata {
 		// never consulted at all — no credential, a blocking compliance policy, a
 		// single candidate — leaves this false.
 		classifierFailed: boolean;
+		// Why a configured classifier was not consulted at all.
+		classifierSkipped?: SmartRoutingClassifierSkipReason;
+		// True when the configured fallback model served a verdict-less request.
+		usedFallback?: boolean;
 		// True when the verdict served came from another turn of the same sticky
 		// session rather than from this request.
 		classifierReused?: boolean;

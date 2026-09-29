@@ -4,6 +4,7 @@ import { getProviderHeaders } from "@llmgateway/actions";
 import { logger } from "@llmgateway/logger";
 import {
 	SMART_ROUTING_EFFORTS,
+	SMART_ROUTING_MAX_MODEL_PROBABILITIES,
 	SMART_ROUTING_OUTPUT_TYPES,
 	SMART_ROUTING_TASK_TYPES,
 	SMART_ROUTING_WORK_CHANGES,
@@ -115,12 +116,16 @@ interface JevChoiceAnswer {
 	type?: string;
 	choice?: string;
 	confidence?: number;
+	/** Keyed by criterion key. */
+	probabilities?: Record<string, unknown>;
 }
 
 interface JevScoreAnswer {
 	type?: string;
 	score?: number;
 	confidence?: number;
+	/** Keyed by level index ("0", "1", …). */
+	probabilities?: Record<string, unknown>;
 }
 
 interface JevSystemOneResponse {
@@ -292,6 +297,45 @@ export function buildClassifierQuestions(
 	};
 }
 
+/** The difficulty score's per-level probabilities, keyed by level name. */
+export function parseDifficultyProbabilities(
+	probabilities: Record<string, unknown> | undefined,
+): Partial<Record<SmartRoutingDifficulty, number>> | undefined {
+	if (!probabilities || typeof probabilities !== "object") {
+		return undefined;
+	}
+	const parsed: Partial<Record<SmartRoutingDifficulty, number>> = {};
+	DIFFICULTY_LEVELS.forEach((level, index) => {
+		const value = probabilities[String(index)];
+		if (typeof value === "number" && Number.isFinite(value)) {
+			parsed[level] = value;
+		}
+	});
+	return Object.keys(parsed).length > 0 ? parsed : undefined;
+}
+
+/**
+ * The most probable candidates, highest first, capped so a 30-model list does
+ * not bloat every log row.
+ */
+export function parseModelProbabilities(
+	probabilities: Record<string, unknown> | undefined,
+	candidates: RequestClassifierCandidate[],
+): Record<string, number> | undefined {
+	if (!probabilities || typeof probabilities !== "object") {
+		return undefined;
+	}
+	const entries = candidates
+		.map((candidate) => [candidate.id, probabilities[candidate.id]] as const)
+		.filter(
+			(entry): entry is readonly [string, number] =>
+				typeof entry[1] === "number" && Number.isFinite(entry[1]),
+		)
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, SMART_ROUTING_MAX_MODEL_PROBABILITIES);
+	return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 function logClassifierError(
 	context: ClassifierRequestContext,
 	payload: Record<string, unknown>,
@@ -458,6 +502,9 @@ export async function classifyRequest(
 		const classification: RequestClassification = {
 			difficulty: DIFFICULTY_LEVELS[levelIndex],
 			difficultyScore: rawScore,
+			difficultyProbabilities: parseDifficultyProbabilities(
+				answers?.difficulty?.probabilities,
+			),
 			task: (SMART_ROUTING_TASK_TYPES as readonly string[]).includes(task ?? "")
 				? (task as SmartRoutingTaskType)
 				: undefined,
@@ -472,6 +519,10 @@ export async function classifyRequest(
 				? bestModel
 				: undefined,
 			bestModelConfidence: answers?.best_model?.confidence,
+			bestModelProbabilities: parseModelProbabilities(
+				answers?.best_model?.probabilities,
+				input.candidates,
+			),
 			effort: (SMART_ROUTING_EFFORTS as readonly string[]).includes(
 				effort ?? "",
 			)
