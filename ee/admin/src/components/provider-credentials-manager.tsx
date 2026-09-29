@@ -6,6 +6,7 @@ import {
 	ChevronDown,
 	ClipboardPaste,
 	Clock3,
+	Layers,
 	Loader2,
 	MinusCircle,
 	Pencil,
@@ -13,6 +14,7 @@ import {
 	Trash2,
 	XCircle,
 } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -928,6 +930,19 @@ export function ProviderCredentialsManager({
 																		providerKeyId={credential.id}
 																		label={`${credential.provider} ${credential.maskedToken}`}
 																	/>
+																	<Button
+																		asChild
+																		variant="ghost"
+																		size="sm"
+																		title="Model breakdown in Global Stats"
+																	>
+																		<Link
+																			href={`/global-stats?providerKeyId=${encodeURIComponent(credential.id)}`}
+																			aria-label={`View model breakdown for ${credential.provider} credential ${credential.maskedToken}`}
+																		>
+																			<Layers className="h-4 w-4" />
+																		</Link>
+																	</Button>
 																	<Button
 																		variant="ghost"
 																		size="sm"

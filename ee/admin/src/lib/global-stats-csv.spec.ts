@@ -14,12 +14,21 @@ const metrics = {
 	cacheCount: 2,
 	inputTokens: 100,
 	cachedTokens: 20,
+	cacheWriteTokens: 0,
 	outputTokens: 50,
+	reasoningTokens: 5,
 	totalTokens: 150,
 	cost: 0.0000005,
 	inputCost: 0.0000003,
 	cachedInputCost: 0,
+	cacheWriteInputCost: 0,
 	outputCost: 0.0000002,
+	requestCost: 0,
+	imageInputCost: 0,
+	imageOutputCost: 0,
+	audioInputCost: 0,
+	audioOutputCost: 0,
+	videoOutputCost: 0,
 };
 
 describe("buildGlobalStatsTimeseriesCsv", () => {
@@ -28,8 +37,8 @@ describe("buildGlobalStatsTimeseriesCsv", () => {
 			{ date: "2026-09-01", ...metrics },
 		]);
 		expect(csv.split("\n")).toEqual([
-			"date,requestCount,errorCount,cacheCount,inputTokens,cachedTokens,outputTokens,totalTokens,cost,inputCost,cachedInputCost,outputCost",
-			"2026-09-01,10,1,2,100,20,50,150,0.0000005,0.0000003,0,0.0000002",
+			"date,requestCount,errorCount,cacheCount,inputTokens,cachedTokens,cacheWriteTokens,outputTokens,reasoningTokens,totalTokens,cost,inputCost,cachedInputCost,cacheWriteInputCost,outputCost,requestCost,imageInputCost,imageOutputCost,audioInputCost,audioOutputCost,videoOutputCost",
+			"2026-09-01,10,1,2,100,20,0,50,5,150,0.0000005,0.0000003,0,0,0.0000002,0,0,0,0,0,0",
 		]);
 	});
 
@@ -39,7 +48,7 @@ describe("buildGlobalStatsTimeseriesCsv", () => {
 			{ delimiter: ";", decimalSeparator: "," },
 		);
 		expect(csv.split("\n")[1]).toBe(
-			"2026-09-01;10;1;2;100;20;50;150;0,0000005;0,0000003;0;0,0000002",
+			"2026-09-01;10;1;2;100;20;0;50;5;150;0,0000005;0,0000003;0;0;0,0000002;0;0;0;0;0;0",
 		);
 	});
 });
@@ -105,7 +114,7 @@ describe("buildGlobalStatsBreakdownCsv", () => {
 		});
 		const lines = csv.split("\n");
 		expect(lines[0]).toBe(
-			"model,label,requestCount,errorCount,cacheCount,inputTokens,cachedTokens,outputTokens,totalTokens,cost,inputCost,cachedInputCost,outputCost,requestCountSharePercent",
+			"model,label,requestCount,errorCount,cacheCount,inputTokens,cachedTokens,cacheWriteTokens,outputTokens,reasoningTokens,totalTokens,cost,inputCost,cachedInputCost,cacheWriteInputCost,outputCost,requestCost,imageInputCost,imageOutputCost,audioInputCost,audioOutputCost,videoOutputCost,requestCountSharePercent",
 		);
 		expect(lines[1].endsWith(",75")).toBe(true);
 		expect(lines[2].endsWith(",25")).toBe(true);
@@ -134,6 +143,7 @@ describe("buildGlobalStatsReportCsv", () => {
 				modelView: "Providers",
 				providerKeyId: "pk_1",
 				providerKeyLabel: "openai · prod",
+				provider: "openai",
 				metric: "cost",
 			},
 			generatedAt: new Date("2026-09-07T00:00:00Z"),
@@ -174,6 +184,7 @@ describe("buildGlobalStatsReportCsv", () => {
 		]);
 		expect(sections[0]).toContain("modelView,Providers");
 		expect(sections[0]).toContain("traffic,Credits");
+		expect(sections[0]).toContain("provider,openai");
 		expect(sections[0]).toContain("providerKeyId,pk_1");
 		expect(sections[0]).toContain("providerKey,openai · prod");
 		expect(sections[0]).toContain("generated,2026-09-07T00:00:00.000Z");
@@ -194,6 +205,7 @@ describe("globalStatsExportFilename", () => {
 				end: "2026-09-07",
 				allTime: false,
 				providerKeyId: null,
+				provider: null,
 			}),
 		).toBe("global-stats-timeseries-2026-09-01_2026-09-07.csv");
 		expect(
@@ -202,7 +214,8 @@ describe("globalStatsExportFilename", () => {
 				end: "2026-09-07",
 				allTime: true,
 				providerKeyId: "pk_1",
+				provider: "openai",
 			}),
-		).toBe("global-stats-report-all-time-key-pk_1.csv");
+		).toBe("global-stats-report-all-time-provider-openai-key-pk_1.csv");
 	});
 });

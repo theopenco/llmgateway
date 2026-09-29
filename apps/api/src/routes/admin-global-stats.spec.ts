@@ -12,6 +12,9 @@ const MODEL = "openai/global-stats-model";
 const BULK_MODEL = "openai/global-stats-bulk-model";
 const SOURCE = "global-stats-source";
 const PROVIDER_KEY_ID = "global-stats-provider-key";
+// A second provider so the provider filter has something to exclude.
+const OTHER_PROVIDER = "global-stats-provider";
+const OTHER_MODEL = `${OTHER_PROVIDER}/global-stats-model`;
 
 const DAY = new Date();
 DAY.setUTCHours(0, 0, 0, 0);
@@ -74,6 +77,8 @@ interface GlobalStatsResponse {
 		totalTokens: number;
 		inputTokens: number;
 		errorCount: number;
+		reasoningTokens: number;
+		imageOutputCost: number;
 	};
 	composition: {
 		byMode: {
@@ -93,6 +98,7 @@ interface GlobalStatsResponse {
 	timeseries: { date: string; requestCount: number; cost: number }[];
 	groupBy: string;
 	providerKeyId: string | null;
+	provider: string | null;
 }
 
 async function fetchStats(
@@ -118,6 +124,9 @@ const clearFixtures = async () => {
 	await db
 		.delete(tables.globalModelStats)
 		.where(eq(tables.globalModelStats.usedModel, BULK_MODEL));
+	await db
+		.delete(tables.globalModelStats)
+		.where(eq(tables.globalModelStats.usedModel, OTHER_MODEL));
 	await db
 		.delete(tables.globalSourceStats)
 		.where(eq(tables.globalSourceStats.source, SOURCE));
@@ -232,6 +241,19 @@ describe("admin — global stats mode/kind dimensions", () => {
 			expect(body.breakdown[0]?.key).toBe(MODEL);
 		});
 
+		test("composes with the provider filter", async () => {
+			const match = await fetchStats(cookie, {
+				providerKeyId: PROVIDER_KEY_ID,
+				provider: "openai",
+			});
+			expect(match.totals.requestCount).toBe(4);
+			const miss = await fetchStats(cookie, {
+				providerKeyId: PROVIDER_KEY_ID,
+				provider: OTHER_PROVIDER,
+			});
+			expect(miss.totals.requestCount).toBe(0);
+		});
+
 		test("composes with mode and kind filters", async () => {
 			const body = await fetchStats(cookie, {
 				providerKeyId: PROVIDER_KEY_ID,
@@ -280,6 +302,91 @@ describe("admin — global stats mode/kind dimensions", () => {
 				((await filtered.json()) as { providerKeys: { id: string }[] })
 					.providerKeys,
 			).toEqual([]);
+
+			const otherProvider = await app.request(
+				`/admin/global-stats/provider-keys?from=${DATE}&to=${DATE}&provider=${OTHER_PROVIDER}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(
+				((await otherProvider.json()) as { providerKeys: { id: string }[] })
+					.providerKeys,
+			).toEqual([]);
+		});
+	});
+
+	describe("provider filter", () => {
+		beforeEach(async () => {
+			await db.insert(tables.globalModelStats).values({
+				dayTimestamp: DAY,
+				usedModel: OTHER_MODEL,
+				usedProvider: OTHER_PROVIDER,
+				usedMode: "api-keys",
+				orgKind: "default",
+				requestCount: 3,
+				cost: 0.3,
+				imageOutputCost: 0.2,
+				reasoningTokens: "7",
+				totalTokens: "30",
+			});
+		});
+
+		test("narrows every section to the provider", async () => {
+			const body = await fetchStats(cookie, { provider: OTHER_PROVIDER });
+			expect(body.provider).toBe(OTHER_PROVIDER);
+			expect(body.totals).toMatchObject({
+				requestCount: 3,
+				totalTokens: 30,
+				reasoningTokens: 7,
+			});
+			expect(body.totals.imageOutputCost).toBeCloseTo(0.2, 6);
+			expect(body.breakdown).toEqual([
+				expect.objectContaining({ key: OTHER_MODEL, requestCount: 3 }),
+			]);
+			expect(body.composition.byMode).toEqual([
+				expect.objectContaining({ key: "api-keys", requestCount: 3 }),
+			]);
+
+			const openai = await fetchStats(cookie, { provider: "openai" });
+			expect(openai.totals.requestCount).toBe(18);
+		});
+
+		test("falls back to the model grouping for x-source", async () => {
+			const body = await fetchStats(cookie, {
+				provider: OTHER_PROVIDER,
+				groupBy: "source",
+			});
+			expect(body.groupBy).toBe("model");
+			expect(body.breakdown[0]?.key).toBe(OTHER_MODEL);
+		});
+
+		test("supports the mode grouping", async () => {
+			const body = await fetchStats(cookie, {
+				provider: "openai",
+				groupBy: "mode",
+			});
+			expect(
+				body.breakdown.map((item) => `${item.key}:${item.requestCount}`).sort(),
+			).toEqual(["api-keys:5", "credits:12", "unknown:1"]);
+		});
+
+		test("lists providers with traffic in the range", async () => {
+			const res = await app.request(
+				`/admin/global-stats/providers?from=${DATE}&to=${DATE}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				providers: { provider: string; requestCount: number }[];
+			};
+			expect(body.providers).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ provider: "openai", requestCount: 18 }),
+					expect.objectContaining({
+						provider: OTHER_PROVIDER,
+						requestCount: 3,
+					}),
+				]),
+			);
 		});
 	});
 

@@ -2351,13 +2351,34 @@ const globalStatsMetricsSchema = z.object({
 	cacheCount: z.number(),
 	inputTokens: z.number(),
 	cachedTokens: z.number(),
+	cacheWriteTokens: z.number(),
 	outputTokens: z.number(),
+	reasoningTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
 	inputCost: z.number(),
 	cachedInputCost: z.number(),
+	cacheWriteInputCost: z.number(),
 	outputCost: z.number(),
+	requestCost: z.number(),
+	imageInputCost: z.number(),
+	imageOutputCost: z.number(),
+	audioInputCost: z.number(),
+	audioOutputCost: z.number(),
+	videoOutputCost: z.number(),
 });
+
+type GlobalStatsRowMetrics = z.infer<typeof globalStatsMetricsSchema>;
+
+const GLOBAL_STATS_METRIC_KEYS = Object.keys(
+	globalStatsMetricsSchema.shape,
+) as (keyof GlobalStatsRowMetrics)[];
+
+function emptyGlobalStatsMetrics(): GlobalStatsRowMetrics {
+	return Object.fromEntries(
+		GLOBAL_STATS_METRIC_KEYS.map((key) => [key, 0]),
+	) as GlobalStatsRowMetrics;
+}
 
 // How the selected range splits across the *other* dimension, so the blended
 // view can show its composition without a second request. `byMode` honours the
@@ -2407,6 +2428,7 @@ const globalStatsResponseSchema = z.object({
 	mode: globalStatsModeSchema,
 	kind: globalStatsKindSchema,
 	providerKeyId: z.string().nullable(),
+	provider: z.string().nullable(),
 	totals: globalStatsMetricsSchema,
 	composition: z.object({
 		byMode: z.array(globalStatsCompositionItemSchema),
@@ -2450,6 +2472,10 @@ const getGlobalStats = createRoute({
 			// Reads the per-credential table, which has no x-source dimension, so
 			// `groupBy=source` falls back to `model`.
 			providerKeyId: z.string().optional(),
+			// Narrows every metric to requests served by one provider (the
+			// mapping's `usedProvider`). Reads the per-model table, which has no
+			// x-source dimension either.
+			provider: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -2467,8 +2493,9 @@ const getGlobalStats = createRoute({
 admin.openapi(getGlobalStats, async (c) => {
 	const query = c.req.valid("query");
 	const providerKeyId = query.providerKeyId || null;
+	const provider = query.provider || null;
 	const groupBy =
-		providerKeyId && query.groupBy === "source"
+		(providerKeyId || provider) && query.groupBy === "source"
 			? "model"
 			: (query.groupBy ?? "model");
 	const modelView = query.modelView ?? "mapping";
@@ -2480,14 +2507,14 @@ admin.openapi(getGlobalStats, async (c) => {
 
 	// Only the model grouping needs the per-model table; source/mode/kind all
 	// read the (much smaller) source table, which covers the same requests.
-	// A credential filter reads the per-credential model table for every
-	// grouping, since it carries model, mode and kind alike.
+	// A credential or provider filter reads a per-model table for every
+	// grouping, since both carry provider, model, mode and kind alike.
 	const modelTable = providerKeyId
 		? globalProviderKeyModelStats
 		: globalModelStats;
 	const sourceTable = providerKeyId
 		? globalProviderKeyModelStats
-		: groupBy === "model"
+		: groupBy === "model" || provider
 			? globalModelStats
 			: globalSourceStats;
 
@@ -2495,9 +2522,12 @@ admin.openapi(getGlobalStats, async (c) => {
 	// per-part costs — reflects exactly the selected slice.
 	const modeFilter = mode === "total" ? [] : [eq(sourceTable.usedMode, mode)];
 	const kindFilter = kind === "all" ? [] : [eq(sourceTable.orgKind, kind)];
-	const keyFilter = providerKeyId
-		? [eq(globalProviderKeyModelStats.providerKeyId, providerKeyId)]
-		: [];
+	const keyFilter = [
+		...(providerKeyId
+			? [eq(globalProviderKeyModelStats.providerKeyId, providerKeyId)]
+			: []),
+		...(provider ? [eq(modelTable.usedProvider, provider)] : []),
+	];
 	const dimensionFilter = [...modeFilter, ...kindFilter, ...keyFilter];
 
 	// `all` means "all time": derive the span from the first/last recorded day
@@ -2582,9 +2612,17 @@ admin.openapi(getGlobalStats, async (c) => {
 			sql<number>`COALESCE(SUM(CAST(${sourceTable.cachedTokens} AS NUMERIC)), 0)::float8`.as(
 				"cachedTokens",
 			),
+		cacheWriteTokens:
+			sql<number>`COALESCE(SUM(CAST(${sourceTable.cacheWriteTokens} AS NUMERIC)), 0)::float8`.as(
+				"cacheWriteTokens",
+			),
 		outputTokens:
 			sql<number>`COALESCE(SUM(CAST(${sourceTable.outputTokens} AS NUMERIC)), 0)::float8`.as(
 				"outputTokens",
+			),
+		reasoningTokens:
+			sql<number>`COALESCE(SUM(CAST(${sourceTable.reasoningTokens} AS NUMERIC)), 0)::float8`.as(
+				"reasoningTokens",
 			),
 		totalTokens:
 			sql<number>`COALESCE(SUM(CAST(${sourceTable.totalTokens} AS NUMERIC)), 0)::float8`.as(
@@ -2593,7 +2631,17 @@ admin.openapi(getGlobalStats, async (c) => {
 		cost: sumMoney(sourceTable.cost, "cost"),
 		inputCost: sumMoney(sourceTable.inputCost, "inputCost"),
 		cachedInputCost: sumMoney(sourceTable.cachedInputCost, "cachedInputCost"),
+		cacheWriteInputCost: sumMoney(
+			sourceTable.cacheWriteInputCost,
+			"cacheWriteInputCost",
+		),
 		outputCost: sumMoney(sourceTable.outputCost, "outputCost"),
+		requestCost: sumMoney(sourceTable.requestCost, "requestCost"),
+		imageInputCost: sumMoney(sourceTable.imageInputCost, "imageInputCost"),
+		imageOutputCost: sumMoney(sourceTable.imageOutputCost, "imageOutputCost"),
+		audioInputCost: sumMoney(sourceTable.audioInputCost, "audioInputCost"),
+		audioOutputCost: sumMoney(sourceTable.audioOutputCost, "audioOutputCost"),
+		videoOutputCost: sumMoney(sourceTable.videoOutputCost, "videoOutputCost"),
 	};
 
 	const dateExpr =
@@ -2622,33 +2670,11 @@ admin.openapi(getGlobalStats, async (c) => {
 	for (const row of timeseriesRows) {
 		timeseriesMap.set(row.date, {
 			date: row.date,
-			requestCount: Number(row.requestCount),
-			errorCount: Number(row.errorCount),
-			cacheCount: Number(row.cacheCount),
-			inputTokens: Number(row.inputTokens),
-			cachedTokens: Number(row.cachedTokens),
-			outputTokens: Number(row.outputTokens),
-			totalTokens: Number(row.totalTokens),
-			cost: Number(row.cost),
-			inputCost: Number(row.inputCost),
-			cachedInputCost: Number(row.cachedInputCost),
-			outputCost: Number(row.outputCost),
+			...toBreakdownMetrics(row),
 		});
 	}
 
-	const totals: z.infer<typeof globalStatsMetricsSchema> = {
-		requestCount: 0,
-		errorCount: 0,
-		cacheCount: 0,
-		inputTokens: 0,
-		cachedTokens: 0,
-		outputTokens: 0,
-		totalTokens: 0,
-		cost: 0,
-		inputCost: 0,
-		cachedInputCost: 0,
-		outputCost: 0,
-	};
+	const totals = emptyGlobalStatsMetrics();
 
 	const timeseries: z.infer<typeof globalStatsTimeseriesPointSchema>[] = [];
 	for (let i = 0; i < days; i++) {
@@ -2656,30 +2682,12 @@ admin.openapi(getGlobalStats, async (c) => {
 		const dateStr = cur.toISOString().split("T")[0];
 		const point = timeseriesMap.get(dateStr) ?? {
 			date: dateStr,
-			requestCount: 0,
-			errorCount: 0,
-			cacheCount: 0,
-			inputTokens: 0,
-			cachedTokens: 0,
-			outputTokens: 0,
-			totalTokens: 0,
-			cost: 0,
-			inputCost: 0,
-			cachedInputCost: 0,
-			outputCost: 0,
+			...emptyGlobalStatsMetrics(),
 		};
 		timeseries.push(point);
-		totals.requestCount += point.requestCount;
-		totals.errorCount += point.errorCount;
-		totals.cacheCount += point.cacheCount;
-		totals.inputTokens += point.inputTokens;
-		totals.cachedTokens += point.cachedTokens;
-		totals.outputTokens += point.outputTokens;
-		totals.totalTokens += point.totalTokens;
-		totals.cost += point.cost;
-		totals.inputCost += point.inputCost;
-		totals.cachedInputCost += point.cachedInputCost;
-		totals.outputCost += point.outputCost;
+		for (const key of GLOBAL_STATS_METRIC_KEYS) {
+			totals[key] += point[key];
+		}
 	}
 
 	// The dimension the breakdown groups on. `model` needs the per-model table
@@ -2855,6 +2863,7 @@ admin.openapi(getGlobalStats, async (c) => {
 		mode,
 		kind,
 		providerKeyId,
+		provider,
 		totals,
 		composition: {
 			byMode: byModeRows.map((row) => toCompositionItem("mode", row)),
@@ -2885,38 +2894,20 @@ const globalStatsProviderKeySchema = z
 	})
 	.openapi({});
 
-const getGlobalStatsProviderKeys = createRoute({
-	method: "get",
-	path: "/global-stats/provider-keys",
-	request: {
-		query: z.object({
-			range: globalStatsRangeSchema.default("30d").optional(),
-			from: globalStatsDateSchema.optional(),
-			to: globalStatsDateSchema.optional(),
-			mode: globalStatsModeSchema.default("total").optional(),
-			kind: globalStatsKindSchema.default("all").optional(),
-		}),
-	},
-	responses: {
-		200: {
-			content: {
-				"application/json": {
-					schema: z.object({
-						providerKeys: z.array(globalStatsProviderKeySchema),
-					}),
-				},
-			},
-			description:
-				"Provider credentials that served attributed traffic in the range, highest spend first.",
-		},
-	},
+const globalStatsListQuerySchema = z.object({
+	range: globalStatsRangeSchema.default("30d").optional(),
+	from: globalStatsDateSchema.optional(),
+	to: globalStatsDateSchema.optional(),
+	mode: globalStatsModeSchema.default("total").optional(),
+	kind: globalStatsKindSchema.default("all").optional(),
 });
 
-admin.openapi(getGlobalStatsProviderKeys, async (c) => {
-	const query = c.req.valid("query");
-	const stats = globalProviderKeyModelStats;
+// Range, mode and kind filters shared by the Global Stats filter pickers.
+function globalStatsListFilters(
+	stats: typeof globalModelStats | typeof globalProviderKeyModelStats,
+	query: z.infer<typeof globalStatsListQuerySchema>,
+) {
 	const dayMs = 24 * 60 * 60 * 1000;
-
 	const filters = [];
 	if (query.from && query.to) {
 		const [start, end] = [query.from, query.to].sort();
@@ -2943,6 +2934,97 @@ admin.openapi(getGlobalStatsProviderKeys, async (c) => {
 	}
 	if (query.kind && query.kind !== "all") {
 		filters.push(eq(stats.orgKind, query.kind));
+	}
+	return filters;
+}
+
+const getGlobalStatsProviders = createRoute({
+	method: "get",
+	path: "/global-stats/providers",
+	request: {
+		query: globalStatsListQuerySchema,
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						providers: z.array(
+							z
+								.object({
+									provider: z.string(),
+									requestCount: z.number(),
+									cost: z.number(),
+								})
+								.openapi({}),
+						),
+					}),
+				},
+			},
+			description:
+				"Providers that served traffic in the range, highest spend first.",
+		},
+	},
+});
+
+admin.openapi(getGlobalStatsProviders, async (c) => {
+	const query = c.req.valid("query");
+	const stats = globalModelStats;
+	const filters = globalStatsListFilters(stats, query);
+	const cost = sumMoney(stats.cost, "cost");
+	const rows = await db
+		.select({
+			provider: stats.usedProvider,
+			requestCount:
+				sql<number>`COALESCE(SUM(${stats.requestCount}), 0)::float8`.as(
+					"requestCount",
+				),
+			cost,
+		})
+		.from(stats)
+		.where(filters.length ? and(...filters) : undefined)
+		.groupBy(stats.usedProvider)
+		.orderBy(desc(cost));
+
+	return c.json({
+		providers: rows.map((row) => ({
+			provider: row.provider,
+			requestCount: Number(row.requestCount),
+			cost: Number(row.cost),
+		})),
+	});
+});
+
+const getGlobalStatsProviderKeys = createRoute({
+	method: "get",
+	path: "/global-stats/provider-keys",
+	request: {
+		query: globalStatsListQuerySchema.extend({
+			// Only credentials that served traffic for this provider.
+			provider: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						providerKeys: z.array(globalStatsProviderKeySchema),
+					}),
+				},
+			},
+			description:
+				"Provider credentials that served attributed traffic in the range, highest spend first.",
+		},
+	},
+});
+
+admin.openapi(getGlobalStatsProviderKeys, async (c) => {
+	const query = c.req.valid("query");
+	const stats = globalProviderKeyModelStats;
+	const filters = globalStatsListFilters(stats, query);
+	if (query.provider) {
+		filters.push(eq(stats.usedProvider, query.provider));
 	}
 
 	const cost = sumMoney(stats.cost, "cost");
@@ -3024,24 +3106,12 @@ function globalStatsDimensionLabel(dimension: string, key: string): string {
 	return key;
 }
 
-type GlobalStatsRowMetrics = z.infer<typeof globalStatsMetricsSchema>;
-
 function toBreakdownMetrics(
 	row: Record<keyof GlobalStatsRowMetrics, number | string>,
 ): GlobalStatsRowMetrics {
-	return {
-		requestCount: Number(row.requestCount),
-		errorCount: Number(row.errorCount),
-		cacheCount: Number(row.cacheCount),
-		inputTokens: Number(row.inputTokens),
-		cachedTokens: Number(row.cachedTokens),
-		outputTokens: Number(row.outputTokens),
-		totalTokens: Number(row.totalTokens),
-		cost: Number(row.cost),
-		inputCost: Number(row.inputCost),
-		cachedInputCost: Number(row.cachedInputCost),
-		outputCost: Number(row.outputCost),
-	};
+	return Object.fromEntries(
+		GLOBAL_STATS_METRIC_KEYS.map((key) => [key, Number(row[key])]),
+	) as GlobalStatsRowMetrics;
 }
 
 // Collapses per-mapping rows onto a coarser key (canonical model id, provider)
@@ -3062,9 +3132,7 @@ function aggregateBreakdownRows<T extends GlobalStatsRowMetrics>(
 			aggregated.set(key, { ...metrics, key, label: key });
 			continue;
 		}
-		for (const metric of Object.keys(
-			metrics,
-		) as (keyof GlobalStatsRowMetrics)[]) {
+		for (const metric of GLOBAL_STATS_METRIC_KEYS) {
 			existing[metric] += metrics[metric];
 		}
 	}

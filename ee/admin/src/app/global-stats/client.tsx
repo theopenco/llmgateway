@@ -32,6 +32,7 @@ import {
 	ChartTypeToggle,
 	type ChartType,
 } from "@/components/chart-type-toggle";
+import { GlobalStatsBreakdownDetails } from "@/components/global-stats-breakdown-details";
 import {
 	GlobalStatsRangePicker,
 	resolveGlobalStatsRange,
@@ -43,6 +44,10 @@ import {
 	useGlobalStatsProviderKeys,
 	useProviderKeyId,
 } from "@/components/provider-key-selector";
+import {
+	ProviderSelector,
+	useProviderFilter,
+} from "@/components/provider-selector";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -304,10 +309,14 @@ export function GlobalStatsClient() {
 	const usageMode = useUsageMode();
 	const orgKind = useOrgKind();
 	const providerKeyId = useProviderKeyId();
-	// The per-credential rollup has no x-source dimension (see the API).
+	const provider = useProviderFilter();
+	// The per-model rollups have no x-source dimension (see the API).
+	const sourceUnavailable = providerKeyId !== null || provider !== null;
 	const requestedGroupBy = parseGroupBy(searchParams.get("groupBy"));
 	const groupBy =
-		providerKeyId && requestedGroupBy === "source" ? "model" : requestedGroupBy;
+		sourceUnavailable && requestedGroupBy === "source"
+			? "model"
+			: requestedGroupBy;
 	const chartMetric = parseMetric(searchParams.get("metric"));
 	const modelView = parseModelView(searchParams.get("modelView"));
 	const showTimeseriesBreakdown = parseBreakdown(searchParams.get("breakdown"));
@@ -328,7 +337,7 @@ export function GlobalStatsClient() {
 	// The range picker and the mode/kind selectors write to the URL directly, so
 	// reset pagination during render when any of them changes (each also
 	// re-sorts the breakdown).
-	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}|${providerKeyId ?? ""}`;
+	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}|${providerKeyId ?? ""}|${provider ?? ""}`;
 	const [lastViewKey, setLastViewKey] = useState(viewKey);
 	if (viewKey !== lastViewKey) {
 		setLastViewKey(viewKey);
@@ -378,6 +387,7 @@ export function GlobalStatsClient() {
 					mode: usageMode,
 					kind: orgKind,
 					...(providerKeyId ? { providerKeyId } : {}),
+					...(provider ? { provider } : {}),
 				},
 			},
 		},
@@ -553,6 +563,7 @@ export function GlobalStatsClient() {
 	const scopeNotes = [
 		usageModeDescription(usageMode),
 		orgKindDescription(orgKind),
+		provider ? `Only requests served by provider ${provider}.` : null,
 		providerKeyId
 			? `Only requests served by provider key ${providerKeyName}; traffic served by env-var credentials is never attributed to a key.`
 			: null,
@@ -560,6 +571,7 @@ export function GlobalStatsClient() {
 	const scopeParts = [
 		orgKind === "all" ? null : orgKindLabel(orgKind),
 		usageMode === "total" ? null : usageModeLabel(usageMode),
+		provider,
 		providerKeyId ? `Key ${providerKeyName}` : null,
 	].filter((part): part is string => part !== null);
 	const scopeSuffix = scopeParts.map((label) => ` · ${label}`).join("");
@@ -568,6 +580,7 @@ export function GlobalStatsClient() {
 	const statScopeParts = [
 		orgKind === "all" ? null : orgKindLabel(orgKind),
 		usageMode === "total" ? null : usageModeLabel(usageMode),
+		provider,
 		providerKeyId ? "Key" : null,
 	].filter((part): part is string => part !== null);
 	const scopeLabel =
@@ -608,6 +621,7 @@ export function GlobalStatsClient() {
 					: null,
 			providerKeyId,
 			providerKeyLabel: providerKeyName,
+			provider,
 			metric: chartMetric,
 		}),
 		[
@@ -622,6 +636,7 @@ export function GlobalStatsClient() {
 			modelView,
 			providerKeyId,
 			providerKeyName,
+			provider,
 			chartMetric,
 		],
 	);
@@ -751,6 +766,9 @@ export function GlobalStatsClient() {
 						<ToolbarGroup label="Organization">
 							<OrgKindSelector compact className="w-fit max-w-full flex-wrap" />
 						</ToolbarGroup>
+						<ToolbarGroup label="Provider">
+							<ProviderSelector />
+						</ToolbarGroup>
 						<ToolbarGroup label="Provider key">
 							<ProviderKeySelector />
 						</ToolbarGroup>
@@ -763,7 +781,7 @@ export function GlobalStatsClient() {
 								{GROUP_OPTIONS.map((opt) => {
 									const Icon = opt.icon;
 									const unavailable =
-										opt.value === "source" && providerKeyId !== null;
+										opt.value === "source" && sourceUnavailable;
 									return (
 										<Button
 											key={opt.value}
@@ -774,7 +792,7 @@ export function GlobalStatsClient() {
 											disabled={unavailable}
 											title={
 												unavailable
-													? "x-source is not tracked per provider key"
+													? "x-source is not tracked per provider or provider key"
 													: undefined
 											}
 											onClick={() => setGroupBy(opt.value)}
@@ -1365,6 +1383,27 @@ export function GlobalStatsClient() {
 							</div>
 						) : null}
 					</div>
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>
+						Token and cost details — {breakdownNoun}
+						{scopeSuffix}
+					</CardTitle>
+					<CardDescription>
+						{`Every rolled-up token and cost column per ${breakdownNounSingular.toLowerCase()} across ${rangeLabel}, ranked by ${(timeseriesChartConfig[chartMetric].label as string).toLowerCase()}. Columns that are zero for every row are hidden.`}
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<GlobalStatsBreakdownDetails
+						key={`${viewKey}|${groupBy}|${modelView}|${chartMetric}`}
+						rows={sortedBreakdown}
+						totals={totals}
+						dimensionLabel={breakdownNounSingular}
+						isLoading={isLoading}
+					/>
 				</CardContent>
 			</Card>
 		</div>

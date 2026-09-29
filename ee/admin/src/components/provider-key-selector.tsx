@@ -6,6 +6,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { resolveGlobalStatsRange } from "@/components/global-stats-range-picker";
 import { useOrgKind } from "@/components/org-kind-selector";
+import { useProviderFilter } from "@/components/provider-selector";
 import { Button } from "@/components/ui/button";
 import {
 	Command,
@@ -72,13 +73,14 @@ const compactCurrency = new Intl.NumberFormat("en-US", {
 });
 
 /**
- * Lists every credential with attributed traffic in the current range, mode
- * and kind. Only the daily per-credential rollup feeds this, so requests
+ * Lists every credential with attributed traffic in the current range, mode,
+ * kind and provider. Only the daily per-credential rollup feeds this, so requests
  * served by env-var credentials never show up here.
  */
 export function useGlobalStatsProviderKeys() {
 	const searchParams = useSearchParams();
 	const { allTime, from, to } = resolveGlobalStatsRange(searchParams);
+	const provider = useProviderFilter();
 	const $api = useApi();
 	return $api.useQuery("get", "/admin/global-stats/provider-keys", {
 		params: {
@@ -86,6 +88,7 @@ export function useGlobalStatsProviderKeys() {
 				...(allTime ? { range: "all" as const } : { from, to }),
 				mode: useUsageMode(),
 				kind: useOrgKind(),
+				...(provider ? { provider } : {}),
 			},
 		},
 	});
