@@ -5732,6 +5732,51 @@ export const projectHourlySourceStats = pgTable(
 	],
 );
 
+// Per-project source × model rollup: powers the per-agent model breakdown on
+// the agents dashboard. Carries only volume, token and cost measures; the
+// full metric set lives on projectHourlySourceStats / projectHourlyModelStats.
+// NULL log.source is stored as 'unknown', like projectHourlySourceStats.
+export const projectHourlySourceModelStats = pgTable(
+	"project_hourly_source_model_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text().notNull(),
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		source: text().notNull(),
+		usedModel: text().notNull(),
+		usedProvider: text().notNull(),
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
+		cost: real().notNull().default(0),
+		creditsRequestCount: integer().notNull().default(0),
+		apiKeysRequestCount: integer().notNull().default(0),
+		creditsCost: real().notNull().default(0),
+		apiKeysCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Also serves dashboard reads (project + time range).
+		unique("project_hourly_source_model_stats_bucket_unique").on(
+			table.projectId,
+			table.hourTimestamp,
+			table.source,
+			table.usedModel,
+			table.usedProvider,
+		),
+	],
+);
+
 // Routed-request spend vs. the priciest-candidate baseline, per project, hour
 // and route (`log.requestedModel`: auto, smart or dynamic/<name>).
 export const projectHourlyRoutingStats = pgTable(

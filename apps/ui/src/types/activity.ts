@@ -100,3 +100,5 @@ export type SourceActivityData =
 	paths["/activity/sources"]["get"]["responses"][200]["content"]["application/json"];
 
 export type SourceUsage = SourceActivityData["sources"][number];
+
+export type SourceModelUsage = SourceActivityData["sourceModels"][number];

@@ -141,8 +141,7 @@ describe("buildGlobalStatsReportCsv", () => {
 				organization: "All orgs",
 				groupBy: "By model",
 				modelView: "Providers",
-				providerKeyId: "pk_1",
-				providerKeyLabel: "openai · prod",
+				providerKeys: [{ id: "pk_1", label: "openai · prod" }],
 				provider: "openai",
 				metric: "cost",
 			},
@@ -204,7 +203,7 @@ describe("globalStatsExportFilename", () => {
 				start: "2026-09-01",
 				end: "2026-09-07",
 				allTime: false,
-				providerKeyId: null,
+				providerKeys: [],
 				provider: null,
 			}),
 		).toBe("global-stats-timeseries-2026-09-01_2026-09-07.csv");
@@ -213,9 +212,21 @@ describe("globalStatsExportFilename", () => {
 				start: "2026-01-01",
 				end: "2026-09-07",
 				allTime: true,
-				providerKeyId: "pk_1",
+				providerKeys: [{ id: "pk_1", label: "openai" }],
 				provider: "openai",
 			}),
 		).toBe("global-stats-report-all-time-provider-openai-key-pk_1.csv");
+		expect(
+			globalStatsExportFilename("report", {
+				start: "2026-01-01",
+				end: "2026-09-07",
+				allTime: true,
+				providerKeys: [
+					{ id: "pk_1", label: "openai" },
+					{ id: "pk_2", label: "anthropic" },
+				],
+				provider: null,
+			}),
+		).toBe("global-stats-report-all-time-keys-2.csv");
 	});
 });

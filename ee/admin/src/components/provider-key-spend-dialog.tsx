@@ -97,6 +97,7 @@ export function ProviderKeySpendDialog({
 
 	const points = data?.data ?? [];
 	const organizations = data?.organizations ?? [];
+	const models = data?.models ?? [];
 	const bucketIsHour = data?.bucket === "hour";
 	const windowTokens = points.reduce(
 		(sum, point) => sum + Number(point.totalTokens),
@@ -126,7 +127,7 @@ export function ProviderKeySpendDialog({
 					<BarChart3 className="h-4 w-4" />
 				</Button>
 			</DialogTrigger>
-			<DialogContent className="max-w-3xl">
+			<DialogContent className="sm:max-w-5xl">
 				<DialogHeader>
 					<DialogTitle>Spend — {label}</DialogTitle>
 					<DialogDescription>
@@ -241,42 +242,95 @@ export function ProviderKeySpendDialog({
 							</ChartContainer>
 						)}
 
-						{organizations.length > 0 ? (
-							<div>
-								<div className="mb-2 flex items-center gap-2">
-									<h4 className="text-sm font-medium">By organization</h4>
-									{data?.key.managed ? (
-										<Badge variant="outline">shared credential</Badge>
-									) : null}
-								</div>
-								<div className="max-h-56 overflow-y-auto rounded-md border border-border/60">
-									<Table>
-										<TableHeader>
-											<TableRow>
-												<TableHead>Organization</TableHead>
-												<TableHead className="text-right">Requests</TableHead>
-												<TableHead className="text-right">Cost</TableHead>
-											</TableRow>
-										</TableHeader>
-										<TableBody>
-											{organizations.map((org) => (
-												<TableRow key={org.organizationId}>
-													<TableCell className="text-sm">
-														{org.organizationName ?? org.organizationId}
-													</TableCell>
-													<TableCell className="text-right tabular-nums">
-														{formatNumber(org.requestCount)}
-													</TableCell>
-													<TableCell className="text-right tabular-nums">
-														{currencyFormatter.format(org.cost)}
-													</TableCell>
+						<div className="grid gap-4 lg:grid-cols-2">
+							{organizations.length > 0 ? (
+								<div className="min-w-0">
+									<div className="mb-2 flex items-center gap-2">
+										<h4 className="text-sm font-medium">By organization</h4>
+										{data?.key.managed ? (
+											<Badge variant="outline">shared credential</Badge>
+										) : null}
+									</div>
+									<div className="max-h-56 overflow-y-auto rounded-md border border-border/60">
+										<Table>
+											<TableHeader>
+												<TableRow>
+													<TableHead>Organization</TableHead>
+													<TableHead className="text-right">Requests</TableHead>
+													<TableHead className="text-right">Cost</TableHead>
 												</TableRow>
-											))}
-										</TableBody>
-									</Table>
+											</TableHeader>
+											<TableBody>
+												{organizations.map((org) => (
+													<TableRow key={org.organizationId}>
+														<TableCell className="text-sm">
+															{org.organizationName ?? org.organizationId}
+														</TableCell>
+														<TableCell className="text-right tabular-nums">
+															{formatNumber(org.requestCount)}
+														</TableCell>
+														<TableCell className="text-right tabular-nums">
+															{currencyFormatter.format(org.cost)}
+														</TableCell>
+													</TableRow>
+												))}
+											</TableBody>
+										</Table>
+									</div>
 								</div>
-							</div>
-						) : null}
+							) : null}
+
+							{models.length > 0 ? (
+								<div className="min-w-0">
+									<div className="mb-2 flex items-baseline gap-2">
+										<h4 className="text-sm font-medium">By model</h4>
+										{data ? (
+											<span
+												className="text-xs text-muted-foreground"
+												title="Read from the daily per-model rollup, so it covers whole UTC days and can lag the totals above."
+											>
+												since {format(new Date(data.modelsSince), "MMM d")} UTC
+											</span>
+										) : null}
+									</div>
+									<div className="max-h-56 overflow-y-auto rounded-md border border-border/60">
+										<Table>
+											<TableHeader>
+												<TableRow>
+													<TableHead>Model</TableHead>
+													<TableHead className="text-right">Requests</TableHead>
+													<TableHead className="text-right">Tokens</TableHead>
+													<TableHead className="text-right">Cost</TableHead>
+												</TableRow>
+											</TableHeader>
+											<TableBody>
+												{models.map((model) => (
+													<TableRow
+														key={`${model.usedProvider}:${model.usedModel}`}
+													>
+														<TableCell
+															className="max-w-[220px] truncate text-sm"
+															title={model.usedModel}
+														>
+															{model.usedModel}
+														</TableCell>
+														<TableCell className="text-right tabular-nums">
+															{formatNumber(model.requestCount)}
+														</TableCell>
+														<TableCell className="text-right tabular-nums">
+															{formatNumber(Number(model.totalTokens))}
+														</TableCell>
+														<TableCell className="text-right tabular-nums">
+															{currencyFormatter.format(model.cost)}
+														</TableCell>
+													</TableRow>
+												))}
+											</TableBody>
+										</Table>
+									</div>
+								</div>
+							) : null}
+						</div>
 					</>
 				)}
 			</DialogContent>
@@ -288,7 +342,9 @@ function Stat({ label, value }: { label: string; value: string }) {
 	return (
 		<div className="rounded-lg border border-border/60 p-3">
 			<div className="text-xs text-muted-foreground">{label}</div>
-			<div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
+			<div className="mt-1 text-lg font-semibold break-words tabular-nums">
+				{value}
+			</div>
 		</div>
 	);
 }

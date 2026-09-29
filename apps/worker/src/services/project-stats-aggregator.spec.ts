@@ -18,6 +18,7 @@ const statsTables = [
 	tables.apiKeyHourlyModelStats,
 	tables.apiKeyHourlySourceStats,
 	tables.providerKeyHourlyStats,
+	tables.projectHourlySourceModelStats,
 ];
 
 const hour = new Date("2026-09-12T10:00:00Z");
@@ -212,6 +213,44 @@ describe("batched project stats refresh", () => {
 			where: { projectId: projectIds[0] },
 		});
 		expect(models[0].providerMarginAmount).toBeCloseTo(0.1);
+	});
+
+	test("rolls requests up per source and model", async () => {
+		await db
+			.insert(tables.log)
+			.values([
+				logValues(),
+				logValues({ usedMode: "api-keys" }),
+				logValues({ usedModel: "other-model" }),
+				logValues({ source: null }),
+			]);
+		await refreshCurrentHourStats();
+
+		const rows = await db.query.projectHourlySourceModelStats.findMany({
+			where: { projectId: projectIds[0] },
+		});
+		expect(rows).toHaveLength(3);
+		expect(
+			rows.find(
+				(row) => row.source === "test-source" && row.usedModel === "test-model",
+			),
+		).toMatchObject({
+			requestCount: 2,
+			totalTokens: "60",
+			cost: 0.5,
+			creditsRequestCount: 1,
+			apiKeysRequestCount: 1,
+			creditsCost: 0.25,
+			apiKeysCost: 0.25,
+		});
+		expect(rows.find((row) => row.usedModel === "other-model")).toMatchObject({
+			source: "test-source",
+			requestCount: 1,
+		});
+		expect(rows.find((row) => row.source === "unknown")).toMatchObject({
+			usedModel: "test-model",
+			requestCount: 1,
+		});
 	});
 
 	test("rolls routed requests up per route", async () => {
@@ -424,8 +463,16 @@ describe("batched project stats refresh", () => {
 		]);
 		vi.setSystemTime(new Date("2026-09-12T10:30:30Z"));
 		await refreshProjectHourlyStats();
-		const [project, model, source, key, keyModel, keySource, credential] =
-			await readAllStats();
+		const [
+			project,
+			model,
+			source,
+			key,
+			keyModel,
+			keySource,
+			credential,
+			sourceModel,
+		] = await readAllStats();
 		for (const rows of [project, key]) {
 			expect(rows).toHaveLength(1);
 			expect(rows[0]).toMatchObject({
@@ -439,7 +486,14 @@ describe("batched project stats refresh", () => {
 				timeToFirstTokenCount: 3,
 			});
 		}
-		for (const rows of [model, source, keyModel, keySource, credential]) {
+		for (const rows of [
+			model,
+			source,
+			keyModel,
+			keySource,
+			credential,
+			sourceModel,
+		]) {
 			expect(rows).toHaveLength(2);
 			expect(rows.map((row) => row.requestCount).sort()).toEqual([1, 2]);
 		}

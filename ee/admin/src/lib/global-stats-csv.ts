@@ -64,8 +64,8 @@ export interface GlobalStatsCsvScope {
 	organization: string;
 	groupBy: string;
 	modelView: string | null;
-	providerKeyId: string | null;
-	providerKeyLabel: string | null;
+	/** Selected provider credentials; their traffic is summed. */
+	providerKeys: { id: string; label: string }[];
 	provider: string | null;
 	metric: GlobalStatsChartMetric;
 }
@@ -258,12 +258,10 @@ export function buildGlobalStatsReportCsv(
 					["breakDownBy", scope.groupBy],
 					...(scope.provider ? [["provider", scope.provider]] : []),
 					...(scope.modelView ? [["modelView", scope.modelView]] : []),
-					...(scope.providerKeyId
-						? [
-								["providerKeyId", scope.providerKeyId],
-								["providerKey", scope.providerKeyLabel ?? scope.providerKeyId],
-							]
-						: []),
+					...scope.providerKeys.flatMap((key) => [
+						["providerKeyId", key.id],
+						["providerKey", key.label],
+					]),
 					["measure", GLOBAL_STATS_METRIC_LABELS[scope.metric]],
 				],
 				format,
@@ -330,11 +328,17 @@ export function globalStatsExportFilename(
 	section: string,
 	scope: Pick<
 		GlobalStatsCsvScope,
-		"start" | "end" | "allTime" | "providerKeyId" | "provider"
+		"start" | "end" | "allTime" | "providerKeys" | "provider"
 	>,
 ): string {
 	const range = scope.allTime ? "all-time" : `${scope.start}_${scope.end}`;
 	const provider = scope.provider ? `-provider-${scope.provider}` : "";
-	const key = scope.providerKeyId ? `-key-${scope.providerKeyId}` : "";
+	const [firstKey] = scope.providerKeys;
+	const key =
+		scope.providerKeys.length > 1
+			? `-keys-${scope.providerKeys.length}`
+			: firstKey
+				? `-key-${firstKey.id}`
+				: "";
 	return `global-stats-${section}-${range}${provider}${key}.csv`;
 }
