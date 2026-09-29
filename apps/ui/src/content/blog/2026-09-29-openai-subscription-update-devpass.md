@@ -118,9 +118,10 @@ usage. Premium requests count against both caps. **Pro loses its included
 Reset Pass; Max keeps two.** A Reset Pass restores only the premium weekly
 allowance. It does not replenish the daily or monthly allowance.
 
-At a cap, requests pause unless you have opted into pay-as-you-go overflow
-and have credits available. Overflow costs extra; it is not included in the
-subscription. The PR adds an overflow choice at signup, off by default.
+At a cap, requests are rejected with `402`, not paused or queued, unless
+pay-as-you-go overflow is enabled and credits are available. Otherwise, callers
+must retry after the applicable reset. Overflow costs extra; it is not included
+in the subscription. The PR adds an overflow choice at signup, off by default.
 
 ## Compare the workflow, not just the multiplier
 
