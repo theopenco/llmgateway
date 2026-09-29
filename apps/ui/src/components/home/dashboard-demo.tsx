@@ -2,25 +2,15 @@
 
 import { format } from "date-fns";
 import { Lock, Maximize2, Minimize2, MousePointerClick, X } from "lucide-react";
+import dynamic from "next/dynamic";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { TooltipProvider } from "@/lib/components/tooltip";
 import { cn } from "@/lib/utils";
 
-import { ActivityView } from "./dashboard-demo/activity-view";
-import { AuditLogsView } from "./dashboard-demo/audit-logs-view";
 import { DemoProvider, type DemoContextValue } from "./dashboard-demo/context";
-import { EnterpriseBanner } from "./dashboard-demo/controls";
-import { GuardrailsView } from "./dashboard-demo/guardrails-view";
-import { ModelUsageView } from "./dashboard-demo/model-usage-view";
 import { findNavLink, isLiveView, type LiveView } from "./dashboard-demo/nav";
-import { OverviewView } from "./dashboard-demo/overview-view";
-import { SecurityEventsView } from "./dashboard-demo/security-events-view";
-import { DemoSidebarBody } from "./dashboard-demo/sidebar";
-import { SsoView } from "./dashboard-demo/sso-view";
-import { TeamView } from "./dashboard-demo/team-view";
-import { DemoMobileHeader, DemoTopBar } from "./dashboard-demo/top-bar";
 import {
 	DEMO_ANCHOR_DAY,
 	DEMO_OPENED_AT,
@@ -31,43 +21,13 @@ import {
 } from "./dashboard-demo-data";
 import { TrackedLink } from "./tracked-link";
 
-const ENTERPRISE_NOTES: Partial<Record<LiveView, string>> = {
-	"org/team":
-		"Member usage, limits and teams are Enterprise features, shown with sample data.",
-	"org/guardrails": "Enterprise feature, shown with sample data.",
-	"org/security-events": "Enterprise feature, shown with sample data.",
-	"org/sso": "Enterprise feature, shown with sample data.",
-	"org/audit-logs": "Enterprise feature, shown with sample data.",
-};
-
-function ViewContent({ view }: { view: LiveView }) {
-	switch (view) {
-		case "activity":
-			return <ActivityView />;
-		case "model-usage":
-			return <ModelUsageView />;
-		case "org/team":
-			return <TeamView />;
-		case "org/guardrails":
-			return <GuardrailsView />;
-		case "org/security-events":
-			return (
-				<div className="p-4 pt-6 md:p-8">
-					<SecurityEventsView />
-				</div>
-			);
-		case "org/sso":
-			return <SsoView />;
-		case "org/audit-logs":
-			return (
-				<div className="p-4 pt-6 md:p-8">
-					<AuditLogsView />
-				</div>
-			);
-		default:
-			return <OverviewView />;
-	}
-}
+// The demo body only ever renders after hydration, so its views, sidebar and
+// recharts dependency load as their own chunk instead of shipping in the
+// homepage's initial bundle.
+const DemoBody = dynamic(
+	() => import("./dashboard-demo/body").then((m) => m.DemoBody),
+	{ ssr: false },
+);
 
 interface Notice {
 	id: number;
@@ -212,7 +172,6 @@ export function DashboardDemo() {
 		history,
 	};
 
-	const enterpriseNote = ENTERPRISE_NOTES[view];
 	const path = view.startsWith("org/")
 		? `${DEMO_ORG.id}/${view}`
 		: `${DEMO_ORG.id}/${project.id}${view ? `/${view}` : ""}`;
@@ -283,61 +242,17 @@ export function DashboardDemo() {
 							)}
 						>
 							{hydrated && (
-								<>
-									<aside
-										data-state={collapsed ? "collapsed" : "expanded"}
-										data-collapsible={collapsed ? "icon" : ""}
-										data-variant="inset"
-										className={cn(
-											"group hidden shrink-0 text-sidebar-foreground transition-[width] duration-200 ease-linear @3xl/demo:block",
-											collapsed ? "w-[calc(3rem+1rem+2px)]" : "w-64",
-										)}
-									>
-										<div className="flex h-full w-full flex-col p-2">
-											<div
-												data-sidebar="sidebar"
-												className="flex h-full w-full flex-col overflow-hidden bg-sidebar"
-											>
-												<DemoSidebarBody collapsed={collapsed} />
-											</div>
-										</div>
-									</aside>
-
-									<div className="flex min-w-0 flex-1 flex-col">
-										<DemoMobileHeader
-											onOpenSidebar={() => setMobileNavOpen(true)}
-										/>
-										<DemoTopBar
-											onToggleSidebar={() => {
-												setCollapsed(!collapsed);
-												track("sidebar", collapsed ? "expand" : "collapse");
-											}}
-										/>
-										{enterpriseNote && (
-											<EnterpriseBanner view={view} message={enterpriseNote} />
-										)}
-										<div
-											ref={mainRef}
-											className="relative w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-background"
-										>
-											<ViewContent key={`${view}-${project.id}`} view={view} />
-										</div>
-									</div>
-								</>
-							)}
-
-							{mobileNavOpen && (
-								<>
-									<button
-										type="button"
-										aria-label="Close menu"
-										onClick={() => setMobileNavOpen(false)}
-										className="absolute inset-0 z-40 bg-black/50 @3xl/demo:hidden"
-									/>
-									<div className="group absolute inset-y-0 left-0 z-50 flex w-72 max-w-[85%] flex-col bg-sidebar text-sidebar-foreground shadow-lg @3xl/demo:hidden">
-										<DemoSidebarBody />
-									</div>
-								</>
+								<DemoBody
+									collapsed={collapsed}
+									onToggleSidebar={() => {
+										setCollapsed(!collapsed);
+										track("sidebar", collapsed ? "expand" : "collapse");
+									}}
+									mobileNavOpen={mobileNavOpen}
+									onOpenMobileNav={() => setMobileNavOpen(true)}
+									onCloseMobileNav={() => setMobileNavOpen(false)}
+									mainRef={mainRef}
+								/>
 							)}
 
 							{notice && (

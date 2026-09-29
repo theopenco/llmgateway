@@ -54,6 +54,15 @@ interface PageProps {
 	params: Promise<{ name: string; provider: string }>;
 }
 
+/** Start before awaiting the model lookup so both round-trips run in parallel. */
+async function findProviderInfo(providerId: string) {
+	return (
+		providerDefinitions.find((p) => p.id === providerId) ??
+		((await fetchProviders()).find((p) => p.id === providerId) as unknown as
+			(typeof providerDefinitions)[number] | undefined)
+	);
+}
+
 export default async function ModelProviderPage({ params }: PageProps) {
 	const { name, provider } = await params;
 	const decodedName = decodeURIComponent(name);
@@ -70,6 +79,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 			params: { query: { modelId: decodedName } },
 		}),
 	]);
+	const providerInfoPromise = findProviderInfo(decodedProvider);
 	const modelDef = await findPublicModelDefinition(decodedName);
 
 	if (!modelDef) {
@@ -90,11 +100,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 
 	const staticProviderMapping = getDefaultProviderMapping(providerMappings);
 
-	const providerInfo =
-		providerDefinitions.find((p) => p.id === decodedProvider) ??
-		((await fetchProviders()).find(
-			(provider) => provider.id === decodedProvider,
-		) as unknown as (typeof providerDefinitions)[number] | undefined);
+	const providerInfo = await providerInfoPromise;
 	const [discountData, ratingsData] = await modelDataPromise;
 	const discounts = discountData?.discounts ?? [];
 	// A provider whose mappings are all deactivated still renders this page, but
@@ -505,17 +511,14 @@ export async function generateMetadata({
 	const decodedName = decodeURIComponent(name);
 	const decodedProvider = decodeURIComponent(provider);
 
+	const providerInfoPromise = findProviderInfo(decodedProvider);
 	const model = await findPublicModelDefinition(decodedName);
 
 	if (!model) {
 		return {};
 	}
 
-	const providerInfo =
-		providerDefinitions.find((p) => p.id === decodedProvider) ??
-		((await fetchProviders()).find(
-			(candidate) => candidate.id === decodedProvider,
-		) as unknown as (typeof providerDefinitions)[number] | undefined);
+	const providerInfo = await providerInfoPromise;
 	const providerName = providerInfo?.name ?? decodedProvider;
 
 	const title = `${model.name ?? model.id} on ${providerName}`;

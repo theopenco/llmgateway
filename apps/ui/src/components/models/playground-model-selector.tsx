@@ -139,6 +139,7 @@ export function ModelSelector({
 			provider?: ProviderDefinition;
 		}[] = [];
 		const now = new Date();
+		const providerById = new Map(providers.map((p) => [p.id, p]));
 		for (const m of models) {
 			if (m.id === "custom") {
 				continue;
@@ -155,14 +156,20 @@ export function ModelSelector({
 				);
 				const candidates =
 					stableProviders.length > 0 ? stableProviders : activeProviders;
-				const cheapest = candidates.sort(
-					(a, b) => Number(a.inputPrice ?? "0") - Number(b.inputPrice ?? "0"),
-				)[0];
+				let cheapest: ProviderModelMapping | undefined = candidates[0];
+				let cheapestPrice = Number(cheapest?.inputPrice ?? "0");
+				for (let i = 1; i < candidates.length; i++) {
+					const price = Number(candidates[i].inputPrice ?? "0");
+					if (price < cheapestPrice) {
+						cheapest = candidates[i];
+						cheapestPrice = price;
+					}
+				}
 				if (cheapest) {
 					out.push({
 						model: m,
 						mapping: cheapest,
-						provider: providers.find((p) => p.id === cheapest.providerId),
+						provider: providerById.get(cheapest.providerId),
 					});
 				}
 			} else {
@@ -173,7 +180,7 @@ export function ModelSelector({
 						out.push({
 							model: m,
 							mapping: mp,
-							provider: providers.find((p) => p.id === mp.providerId),
+							provider: providerById.get(mp.providerId),
 						});
 					}
 				}
