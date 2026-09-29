@@ -54,6 +54,7 @@ export function useProviderKeyIds(): string[] {
 		() =>
 			raw
 				.split(",")
+				.map((id) => id.trim())
 				.filter((id, index, ids) => id && ids.indexOf(id) === index),
 		[raw],
 	);
