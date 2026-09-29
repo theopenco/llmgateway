@@ -15,6 +15,7 @@ describe("parseContentFilterSettings", () => {
 			enforce: false,
 			enforceEnterprise: false,
 			classifier: "openai",
+			internalScope: "full",
 		});
 		expect(parseContentFilterSettings(null)).toEqual(
 			DEFAULT_CONTENT_FILTER_SETTINGS,
@@ -36,7 +37,19 @@ describe("parseContentFilterSettings", () => {
 			enforce: false,
 			enforceEnterprise: false,
 			classifier: "openai",
+			internalScope: "full",
 		});
+	});
+
+	test("reads the internal classifier scope", () => {
+		expect(
+			parseContentFilterSettings(
+				JSON.stringify({
+					classifier: "internal",
+					internalScope: "latest_turn",
+				}),
+			),
+		).toMatchObject({ classifier: "internal", internalScope: "latest_turn" });
 	});
 
 	test("ignores the removed shadowClassifier field on stored settings", () => {

@@ -76,6 +76,7 @@ const PLAN: TieredContentFilterPlan = {
 	level: "strict",
 	enforce: true,
 	classifier: "jev",
+	internalScope: "full",
 };
 
 describe("runContentFilterClassifier", () => {

@@ -11,6 +11,7 @@ import type {
 } from "@llmgateway/db";
 import type {
 	ContentFilterClassifier,
+	ContentFilterInternalScope,
 	ContentFilterLevel,
 	ContentFilterSettings,
 } from "@llmgateway/shared";
@@ -36,6 +37,8 @@ export interface TieredContentFilterPlan {
 	exemptReason?: GatewayContentFilterEvaluation["exemptReason"];
 	/** Classifier whose scores decide the outcome. */
 	classifier: ContentFilterClassifier;
+	/** What the internal classifier reads; ignored by the others. */
+	internalScope: ContentFilterInternalScope;
 }
 
 export interface TieredContentFilterEvaluation {
@@ -154,6 +157,7 @@ export async function resolveTieredContentFilterPlan(
 		enforce: exemptReason === undefined,
 		...(exemptReason ? { exemptReason } : {}),
 		classifier: settings.classifier,
+		internalScope: settings.internalScope,
 	};
 }
 
@@ -223,5 +227,8 @@ export function buildGatewayContentFilterEvaluation(
 		categoryScores: evaluation.categoryScores,
 		moderationFailed,
 		durationMs,
+		...(plan.classifier === "internal"
+			? { internalScope: plan.internalScope }
+			: {}),
 	};
 }

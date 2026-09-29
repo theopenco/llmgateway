@@ -141,6 +141,7 @@ import {
 	MAX_BULK_BLOCK_ORGANIZATIONS,
 	MIN_BULK_BLOCK_SEARCH_LENGTH,
 	CONTENT_FILTER_CLASSIFIERS,
+	CONTENT_FILTER_INTERNAL_SCOPES,
 	contentFilterSettingsSchema,
 	getOrgContentFilterTier,
 	getOrgSpendTier,
@@ -6026,6 +6027,7 @@ const contentFilterSettingsResponseSchema = z
 		enforce: z.boolean(),
 		enforceEnterprise: z.boolean(),
 		classifier: z.enum(CONTENT_FILTER_CLASSIFIERS),
+		internalScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES),
 		providers: z.array(
 			z.object({
 				id: z.string(),
@@ -6082,6 +6084,7 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 		enforce: settings.enforce,
 		enforceEnterprise: settings.enforceEnterprise,
 		classifier: settings.classifier,
+		internalScope: settings.internalScope,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -6094,6 +6097,7 @@ admin.openapi(updateContentFilterSettingsRoute, async (c) => {
 		enforce: settings.enforce,
 		enforceEnterprise: settings.enforceEnterprise,
 		classifier: settings.classifier,
+		internalScope: settings.internalScope,
 		providers: listContentFilterProviders(settings),
 	});
 });

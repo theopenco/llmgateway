@@ -29,7 +29,10 @@ import type {
 	ProviderCompliancePolicy,
 	ProviderId,
 } from "@llmgateway/models";
-import type { ContentFilterClassifier } from "@llmgateway/shared";
+import type {
+	ContentFilterClassifier,
+	ContentFilterInternalScope,
+} from "@llmgateway/shared";
 
 /**
  * The catalogue provider each classifier calls, for compliance gating. Null
@@ -90,6 +93,13 @@ export async function hasClassifierCredential(
 	}
 }
 
+interface ContentFilterRunOptions {
+	/** Whether the organization's policy permits OpenAI (image delegation). */
+	imagesAllowed: boolean;
+	/** What the internal classifier reads. Defaults to the whole conversation. */
+	internalScope?: ContentFilterInternalScope;
+}
+
 /**
  * Run one classifier over a request's content.
  *
@@ -104,7 +114,7 @@ export async function runContentFilterClassifier(
 	messages: BaseMessage[],
 	context: GatewayContentFilterContext,
 	requestSignal: AbortSignal | undefined,
-	options: { imagesAllowed: boolean },
+	options: ContentFilterRunOptions,
 ): Promise<ContentFilterCheckResult> {
 	const startTime = performance.now();
 	const result = await runClassifierChecks(
@@ -125,7 +135,7 @@ async function runClassifierChecks(
 	messages: BaseMessage[],
 	context: GatewayContentFilterContext,
 	requestSignal: AbortSignal | undefined,
-	options: { imagesAllowed: boolean },
+	options: ContentFilterRunOptions,
 ): Promise<Omit<ContentFilterCheckResult, "durationMs">> {
 	if (classifier === "openai") {
 		const result = await checkOpenAIContentFilter(
@@ -140,7 +150,12 @@ async function runClassifierChecks(
 		partialModerationFailed?: boolean;
 	} =
 		classifier === "internal"
-			? await checkInternalContentFilter(messages, context, requestSignal)
+			? await checkInternalContentFilter(
+					messages,
+					context,
+					requestSignal,
+					options.internalScope,
+				)
 			: await checkJevContentFilter(messages, context, requestSignal);
 
 	// Text-only requests are the common case: skip the OpenAI credential lookup
@@ -231,7 +246,10 @@ export async function evaluateContentFilterWithClassifiers(options: {
 			messages,
 			context,
 			signal,
-			{ imagesAllowed: options.imagesAllowed },
+			{
+				imagesAllowed: options.imagesAllowed,
+				internalScope: plan.internalScope,
+			},
 		);
 	}
 
