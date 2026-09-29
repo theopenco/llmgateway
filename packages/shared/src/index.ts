@@ -252,6 +252,7 @@ export {
 
 export {
 	CONTENT_FILTER_CLASSIFIERS,
+	CONTENT_FILTER_INTERNAL_SCOPES,
 	CONTENT_FILTER_SETTING_ID,
 	contentFilterSettingsSchema,
 	DEFAULT_CONTENT_FILTER_SETTINGS,
@@ -259,6 +260,7 @@ export {
 	isContentFilterErrorText,
 	parseContentFilterSettings,
 	type ContentFilterClassifier,
+	type ContentFilterInternalScope,
 	type ContentFilterSettings,
 } from "./content-filter.js";
 

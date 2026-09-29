@@ -89,6 +89,7 @@ describe("resolveTieredContentFilterPlan", () => {
 			enforce: false,
 			exemptReason: "global_log_only",
 			classifier: "openai",
+			internalScope: "full",
 		});
 	});
 
@@ -246,6 +247,7 @@ describe("buildGatewayContentFilterEvaluation", () => {
 		level: "strict" as const,
 		enforce: true,
 		classifier: "openai" as const,
+		internalScope: "full" as const,
 	};
 	const violation = {
 		violation: true,
@@ -253,6 +255,21 @@ describe("buildGatewayContentFilterEvaluation", () => {
 		matchedCategories: ["violence"],
 		categoryScores: { violence: 0.9 },
 	};
+
+	test("records the internal classifier's input scope", () => {
+		expect(
+			buildGatewayContentFilterEvaluation(
+				{
+					...plan,
+					classifier: "internal",
+					internalScope: "latest_turn",
+				},
+				violation,
+				false,
+				5,
+			),
+		).toMatchObject({ classifier: "internal", internalScope: "latest_turn" });
+	});
 
 	test("marks enforced violations as blocked", () => {
 		expect(

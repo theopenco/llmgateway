@@ -50,6 +50,9 @@ export const gatewayContentFilterEvaluationSchema = z.object({
 	classifier: contentFilterClassifierSchema.optional(),
 	// Wall-clock milliseconds of the classifier run; absent on older evaluations.
 	durationMs: z.number().nonnegative().optional(),
+	// Input the internal classifier read; set only when it decided. Absent on
+	// older evaluations, which all read the whole conversation.
+	internalScope: z.enum(["full", "latest_turn"]).optional(),
 	// Legacy: verdict of the removed shadow classifier, present only on older
 	// evaluations. It never changed `action`.
 	shadow: z
