@@ -5,6 +5,7 @@ import { ArrowRight, ArrowUpRight } from "lucide-react";
 import {
 	AnthropicIcon,
 	AnvilIcon,
+	CodexIcon,
 	EmpryoIcon,
 	KiloCodeIcon,
 	OpenCodeIcon,
@@ -37,10 +38,10 @@ const integrations: Integration[] = [
 		icon: AnthropicIcon,
 	},
 	{
-		name: "Anvil",
-		description: "Repo-aware desktop workspace",
-		path: "/guides/anvil",
-		icon: AnvilIcon,
+		name: "Codex",
+		description: "OpenAI coding agent",
+		path: "/guides/codex-cli",
+		icon: CodexIcon,
 	},
 	{
 		name: "Empryo",
@@ -48,6 +49,12 @@ const integrations: Integration[] = [
 		path: "",
 		external: "https://empryo.com/",
 		icon: EmpryoIcon,
+	},
+	{
+		name: "Anvil",
+		description: "Repo-aware desktop workspace",
+		path: "/guides/anvil",
+		icon: AnvilIcon,
 	},
 	{
 		name: "SoulForge",
