@@ -6,6 +6,7 @@ import {
 	AnthropicIcon,
 	AnvilIcon,
 	CodexIcon,
+	DevPassCodeIcon,
 	EmpryoIcon,
 	KiloCodeIcon,
 	OpenCodeIcon,
@@ -68,6 +69,12 @@ const integrations: Integration[] = [
 		description: "VS Code autonomous agent",
 		path: "/guides/kilo-code",
 		icon: KiloCodeIcon,
+	},
+	{
+		name: "DevPass Code",
+		description: "Our terminal coding agent",
+		path: "/guides/devpass-code",
+		icon: DevPassCodeIcon,
 	},
 ];
 
