@@ -177,6 +177,9 @@ function ChartTooltip({
 			: breakdownField === "tokens"
 				? data.totalTokens
 				: data.requestCount;
+	const sortedPayload = payload
+		.filter((entry) => entry.value > 0)
+		.sort((a, b) => b.value - a.value);
 	return (
 		<div className="rounded-lg border bg-popover p-2 text-popover-foreground shadow-sm">
 			<p className="font-medium">
@@ -206,7 +209,7 @@ function ChartTooltip({
 					<p className="text-sm font-medium">
 						{DIMENSION_LABELS[groupBy].entity} Breakdown:
 					</p>
-					{payload.map((entry, index) => (
+					{sortedPayload.map((entry, index) => (
 						<p key={`${entry.dataKey}-${index}`} className="text-xs">
 							<span
 								className="mr-1 inline-block h-3 w-3"

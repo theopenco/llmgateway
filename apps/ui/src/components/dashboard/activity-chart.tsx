@@ -192,6 +192,9 @@ const CustomTooltip = ({
 	if (active && payload && payload.length) {
 		const data = payload[0].payload;
 		const items = pickBreakdown(data, groupBy);
+		const sortedPayload = payload
+			.filter((entry) => entry.dataKey !== "requestCount" && entry.value > 0)
+			.sort((a, b) => b.value - a.value);
 		return (
 			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
 				<p className="font-medium">
@@ -225,12 +228,7 @@ const CustomTooltip = ({
 						<p className="text-sm font-medium">
 							{DIMENSION_LABELS[groupBy].entity} Breakdown:
 						</p>
-						{payload.map((entry, index) => {
-							// Skip the entry if it's not a model (e.g., it's the total requestCount)
-							if (entry.dataKey === "requestCount") {
-								return null;
-							}
-
+						{sortedPayload.map((entry, index) => {
 							// Calculate percentage based on the selected breakdown field
 							let total = data.requestCount;
 							if (breakdownField === "cost") {
