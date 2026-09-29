@@ -195,6 +195,23 @@ describe("selectSmartRoutingModel", () => {
 			expect(classifyRequest).not.toHaveBeenCalled();
 		});
 
+		it.each([
+			["no-credential", {}],
+			["compliance", { classifierAllowed: false }],
+			["single-candidate", { candidates: CANDIDATES.slice(0, 1) }],
+		])(
+			"records why the classifier was skipped: %s",
+			async (reason, overrides) => {
+				vi.mocked(hasContentFilterCredential).mockResolvedValue(false);
+
+				const result = await selectSmartRoutingModel(params(overrides));
+
+				expect(result?.decision?.classifierSkipped).toBe(reason);
+				expect(result?.decision?.classifierFailed).toBe(false);
+				expect(classifyRequest).not.toHaveBeenCalled();
+			},
+		);
+
 		it("records a failure when an attempted call produces no verdict", async () => {
 			vi.mocked(classifyRequest).mockResolvedValue(null);
 
@@ -213,6 +230,7 @@ describe("selectSmartRoutingModel", () => {
 			);
 
 			expect(result?.candidate.modelId).toBe("mid");
+			expect(result?.decision?.usedFallback).toBe(true);
 			// Nothing is pinned, so the next turn classifies again.
 			expect(store.claim).not.toHaveBeenCalled();
 		});
