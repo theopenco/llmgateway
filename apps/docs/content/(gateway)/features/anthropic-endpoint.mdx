@@ -219,7 +219,7 @@ Anthropic's server-side [tool search](https://platform.claude.com/docs/en/agents
 }
 ```
 
-Deferred tools stay out of the rendered tools section, so adding one does not invalidate an existing prompt cache. The response carries the `server_tool_use` and `tool_search_tool_result` blocks; replay them verbatim on the next request and Anthropic keeps expanding the `tool_reference` entries they carry, so Claude reuses a discovered tool instead of searching again. `tool_reference` blocks returned from your own client-side search inside a `tool_result` are forwarded unchanged too.
+Deferred tools stay out of the rendered tools section, so adding one does not invalidate an existing prompt cache. The response carries the `server_tool_use` and `tool_search_tool_result` blocks; replay them verbatim on the next request and Anthropic keeps expanding the `tool_reference` entries they carry, so Claude reuses a discovered tool instead of searching again. `tool_reference` blocks returned from your own client-side search inside a `tool_result` are forwarded unchanged too, and so is an `image` block a tool returned inside one: a screenshot reaches Anthropic as an image rather than as bundled text.
 
 Send every tool definition on every request, including the deferred ones — Anthropic needs them server-side to run the search. At least one tool must stay non-deferred (normally the tool search tool itself), and a tool cannot carry both `defer_loading: true` and `cache_control`.
 

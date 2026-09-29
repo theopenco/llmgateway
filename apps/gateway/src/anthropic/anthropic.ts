@@ -395,6 +395,12 @@ const anthropicRequestSchema = z.object({
 		}),
 });
 
+// Tool_result content blocks that only survive as blocks. Stringifying them
+// leaves Anthropic nothing to expand (`tool_reference`) or turns the payload
+// into text (`image`), so a content array carrying one of these is replayed
+// verbatim on Anthropic upstreams instead of as the lowered string.
+const TOOL_RESULT_NATIVE_BLOCK_TYPES = new Set(["tool_reference", "image"]);
+
 const anthropicContentBlockSchema = z.object({
 	type: z.enum([
 		"text",
@@ -817,16 +823,24 @@ anthropic.openapi(messages, async (c) => {
 				// A client-side tool search answers with `tool_reference` blocks in
 				// the tool_result content array. Stringifying them would leave
 				// Anthropic nothing to expand, so keep the originals alongside the
-				// lowered string and replay them on Anthropic upstreams.
-				const referenceBlocks = blocks.flatMap((block) =>
-					Array.isArray(block.content)
-						? block.content.filter(
-								(entry: unknown): entry is AnthropicNativeBlock =>
-									!!entry &&
-									typeof entry === "object" &&
-									(entry as { type?: unknown }).type === "tool_reference",
-							)
-						: [],
+				// lowered string and replay them on Anthropic upstreams. An image
+				// block from a screenshot-returning tool sits in the same place:
+				// JSON text is not an image. When the array carries one of these,
+				// the whole array is kept so the text around it is not dropped
+				// either; other arrays keep the lowered string as before.
+				const toolResultNativeBlocks: AnthropicNativeBlock[] = blocks.flatMap(
+					(block) =>
+						Array.isArray(block.content) &&
+						block.content.some(
+							(entry: unknown) =>
+								!!entry &&
+								typeof entry === "object" &&
+								TOOL_RESULT_NATIVE_BLOCK_TYPES.has(
+									String((entry as { type?: unknown }).type),
+								),
+						)
+							? (block.content as AnthropicNativeBlock[])
+							: [],
 				);
 
 				// A breakpoint on the tool_result block has no home in the OpenAI
@@ -842,8 +856,8 @@ anthropic.openapi(messages, async (c) => {
 					role: "tool",
 					content: combinedContent,
 					tool_call_id: toolUseId,
-					...(referenceBlocks.length > 0 && {
-						anthropic_native_blocks: referenceBlocks,
+					...(toolResultNativeBlocks.length > 0 && {
+						anthropic_native_blocks: toolResultNativeBlocks,
 					}),
 					...(toolResultCacheControl && {
 						tool_result_cache_control: toolResultCacheControl,
