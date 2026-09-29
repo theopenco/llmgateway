@@ -314,8 +314,14 @@ export function ContactFormEnterprise() {
 															</SelectTrigger>
 														</FormControl>
 														<SelectContent>
-															<SelectItem value="1-50">
-																1-50 employees
+															<SelectItem value="1-10">
+																1-10 employees
+															</SelectItem>
+															<SelectItem value="11-25">
+																11-25 employees
+															</SelectItem>
+															<SelectItem value="26-50">
+																26-50 employees
 															</SelectItem>
 															<SelectItem value="51-200">
 																51-200 employees
