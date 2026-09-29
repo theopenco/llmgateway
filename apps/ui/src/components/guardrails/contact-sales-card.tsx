@@ -1,8 +1,8 @@
 "use client";
 
-import { CheckCircle, Mail } from "lucide-react";
+import { CheckCircle } from "lucide-react";
 
-import { Button } from "@/lib/components/button";
+import { ContactSalesButton } from "@/components/contact-sales";
 import {
 	Card,
 	CardContent,
@@ -57,12 +57,7 @@ export function ContactSalesCard() {
 					</ul>
 				</div>
 
-				<Button asChild className="gap-2">
-					<a href="mailto:contact@llmgateway.io?subject=Enterprise%20Plan%20Inquiry%20-%20Guardrails">
-						<Mail className="h-4 w-4" />
-						Contact Sales
-					</a>
-				</Button>
+				<ContactSalesButton />
 			</CardContent>
 		</Card>
 	);
