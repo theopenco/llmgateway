@@ -12,7 +12,7 @@ import { currencyFormatter } from "@/components/analytics/chart-helpers";
 import { DimensionUsageCard } from "@/components/analytics/dimension-usage-card";
 import { DimensionUsageOverTimeCard } from "@/components/analytics/dimension-usage-over-time-card";
 import { RoutingSavingsCard } from "@/components/analytics/routing-savings-card";
-import { ContactSalesButton } from "@/components/contact-sales";
+import { EnterpriseFeatureCard } from "@/components/contact-sales";
 import {
 	UsageModeSelector,
 	useUsageMode,
@@ -87,22 +87,11 @@ const COPY: Record<GroupBy, { noun: string; overTime: string; top: string }> = {
 
 function EnterpriseUpgradeCard() {
 	return (
-		<Card className="max-w-2xl">
-			<CardHeader>
-				<CardTitle>Enterprise Feature</CardTitle>
-				<CardDescription>
-					Organization-wide analytics are available on the Enterprise plan
-				</CardDescription>
-			</CardHeader>
-			<CardContent className="space-y-6">
-				<p className="text-muted-foreground">
-					Roll cost, tokens, and requests up across every project in your
-					organization, and break the spend down by model, project, or API key
-					over any time period.
-				</p>
-				<ContactSalesButton />
-			</CardContent>
-		</Card>
+		<EnterpriseFeatureCard description="Organization-wide analytics are available on the Enterprise plan">
+			Roll cost, tokens, and requests up across every project in your
+			organization, and break the spend down by model, project, or API key over
+			any time period.
+		</EnterpriseFeatureCard>
 	);
 }
 

@@ -8,7 +8,7 @@ import { useEffect } from "react";
 import { currencyFormatter } from "@/components/analytics/chart-helpers";
 import { CostByModelCard } from "@/components/analytics/cost-by-model-card";
 import { CostByModelOverTimeCard } from "@/components/analytics/cost-by-model-over-time-card";
-import { ContactSalesButton } from "@/components/contact-sales";
+import { EnterpriseFeatureCard } from "@/components/contact-sales";
 import { DateRangePicker } from "@/components/date-range-picker";
 import {
 	UsageModeSelector,
@@ -321,22 +321,11 @@ export function MemberDetailClient() {
 				)}
 
 				{!isEnterprise ? (
-					<Card className="max-w-2xl">
-						<CardHeader>
-							<CardTitle>Enterprise Feature</CardTitle>
-							<CardDescription>
-								Per-member usage analytics are available on the Enterprise plan
-							</CardDescription>
-						</CardHeader>
-						<CardContent className="space-y-4">
-							<p className="text-muted-foreground text-sm">
-								Upgrade to Enterprise to see this member's cost, tokens,
-								requests, and the models, providers, and apps they use most —
-								over any time period.
-							</p>
-							<ContactSalesButton />
-						</CardContent>
-					</Card>
+					<EnterpriseFeatureCard description="Per-member usage analytics are available on the Enterprise plan">
+						Upgrade to Enterprise to see this member's cost, tokens, requests,
+						and the models, providers, and apps they use most — over any time
+						period.
+					</EnterpriseFeatureCard>
 				) : !isAdmin ? (
 					<Card className="max-w-2xl">
 						<CardHeader>
