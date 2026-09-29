@@ -20,9 +20,14 @@ interface Column {
 
 const COLUMNS: Column[] = [
 	{ metric: "requestCount", label: "Requests", kind: "count" },
-	{ metric: "errorCount", label: "Errors", kind: "count" },
+	{ metric: "errorCount", label: "Errors", kind: "count", optional: true },
 	{ metric: "inputTokens", label: "Input tok", kind: "tokens" },
-	{ metric: "cachedTokens", label: "Cached tok", kind: "tokens" },
+	{
+		metric: "cachedTokens",
+		label: "Cached tok",
+		kind: "tokens",
+		optional: true,
+	},
 	{
 		metric: "cacheWriteTokens",
 		label: "Cache write tok",
@@ -39,7 +44,12 @@ const COLUMNS: Column[] = [
 	{ metric: "totalTokens", label: "Total tok", kind: "tokens" },
 	{ metric: "cost", label: "Cost", kind: "cost" },
 	{ metric: "inputCost", label: "Input $", kind: "cost" },
-	{ metric: "cachedInputCost", label: "Cached input $", kind: "cost" },
+	{
+		metric: "cachedInputCost",
+		label: "Cached input $",
+		kind: "cost",
+		optional: true,
+	},
 	{
 		metric: "cacheWriteInputCost",
 		label: "Cache write $",
@@ -86,6 +96,8 @@ const numberFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 0,
 });
 
+const MIN_VISIBLE_COST = 0.0001;
+
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
@@ -95,7 +107,10 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 function formatCell(column: Column, value: number): string {
 	switch (column.kind) {
 		case "cost":
-			return currencyFormatter.format(value);
+			// Keep tiny non-zero costs distinguishable from zero.
+			return value > 0 && value < MIN_VISIBLE_COST
+				? `<${currencyFormatter.format(MIN_VISIBLE_COST)}`
+				: currencyFormatter.format(value);
 		case "tokens":
 			return formatCompactNumber(value);
 		case "count":
