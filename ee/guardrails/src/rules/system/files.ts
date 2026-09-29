@@ -29,8 +29,9 @@ export const fileTypesRule: SystemRule = {
 
 		const matches: string[] = [];
 
-		// Check for base64 data URIs with potentially dangerous types
-		const dataUriPattern = /data:([^;,\s]*)(?:;[^,\s]*)?,/gi;
+		// Data URIs with a type/subtype; the lookbehind skips prose like "metadata:a,b".
+		const dataUriPattern =
+			/(?<![\w-])data:([\w!#$&^.+-]+\/[\w!#$&^.+-]+)(?:;[^,\s]*)?,/gi;
 		let match;
 		while ((match = dataUriPattern.exec(content)) !== null) {
 			const mimeType = match[1];

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { db, defaultSystemRulesConfig, eq, tables } from "@llmgateway/db";
 
 import { checkGuardrails } from "./engine.js";
+import { fileTypesRule } from "./rules/system/files.js";
 
 import type { MessageContent } from "./types.js";
 
@@ -73,5 +74,18 @@ describe("file guardrails", () => {
 			messages: [{ role: "user", content: "data:application/pdf;base64,YQ==" }],
 		});
 		expect(result.blocked).toBe(false);
+	});
+
+	it("ignores prose that only resembles a data URI", () => {
+		const config = { enabled: true, action: "block" as const };
+		for (const text of ["metadata:foo,bar", "userdata:abc,def", "data:, ok"]) {
+			expect(fileTypesRule.check(text, config, ["image/png"]).passed).toBe(
+				true,
+			);
+		}
+		expect(
+			fileTypesRule.check("x data:text/html;base64,YQ==", config, ["image/png"])
+				.passed,
+		).toBe(false);
 	});
 });
