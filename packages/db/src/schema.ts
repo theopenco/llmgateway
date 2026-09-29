@@ -4119,9 +4119,8 @@ export const routingExclusionHourly = pgTable(
 // Sentinel category for the per-(org, project, hour) totals row.
 export const CONTENT_FILTER_STATS_ALL_CATEGORY = "all";
 
-// Whose verdict a content filter stats row counts: the classifier that decided
-// the action, or the shadow classifier run alongside it for comparison. Shadow
-// rows never block, so their blockedCount is always 0.
+// Whose verdict a content filter stats row counts. Only "deciding" is written;
+// "shadow" rows come from the removed shadow classifier and never blocked.
 export const contentFilterStatsRoles = ["deciding", "shadow"] as const;
 
 // Hourly rollup of log.gatewayContentFilterEvaluation, so abuse rates can be

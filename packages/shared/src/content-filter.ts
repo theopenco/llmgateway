@@ -33,13 +33,6 @@ export const contentFilterSettingsSchema = z.object({
 	enforceEnterprise: z.boolean().default(false),
 	// Classifier whose scores decide the outcome.
 	classifier: z.enum(CONTENT_FILTER_CLASSIFIERS).default("openai"),
-	// Optional second classifier, run on the same request for comparison. Its
-	// verdict is recorded on the log's evaluation and never blocks. "none"
-	// disables the comparison run; the deciding classifier is never shadowed by
-	// itself.
-	shadowClassifier: z
-		.enum([...CONTENT_FILTER_CLASSIFIERS, "none"])
-		.default("none"),
 });
 
 export type ContentFilterSettings = z.infer<typeof contentFilterSettingsSchema>;

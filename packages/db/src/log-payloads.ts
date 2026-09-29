@@ -50,8 +50,8 @@ export const gatewayContentFilterEvaluationSchema = z.object({
 	classifier: contentFilterClassifierSchema.optional(),
 	// Wall-clock milliseconds of the classifier run; absent on older evaluations.
 	durationMs: z.number().nonnegative().optional(),
-	// Second classifier run alongside the deciding one for comparison. Recorded
-	// verbatim and never allowed to change `action`.
+	// Legacy: verdict of the removed shadow classifier, present only on older
+	// evaluations. It never changed `action`.
 	shadow: z
 		.object({
 			classifier: contentFilterClassifierSchema,

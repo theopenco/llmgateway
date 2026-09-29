@@ -36,8 +36,7 @@ const DEFAULT_JEV_MODERATION_SCORE_THRESHOLD = 0.75;
 /**
  * One yes/no question per OpenAI moderation category. The category names are
  * kept identical on purpose: matched categories, stored `categoryScores` and
- * the tiered filter's thresholds all stay comparable across classifiers, so a
- * shadow run can be diffed category by category.
+ * the tiered filter's thresholds all stay comparable across classifiers.
  */
 const JEV_MODERATION_CATEGORIES: Record<string, string> = {
 	harassment:
