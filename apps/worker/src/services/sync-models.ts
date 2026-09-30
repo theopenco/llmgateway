@@ -1,8 +1,12 @@
 import {
+	catalogueMetadataColumns,
+	catalogueMetadataFromMapping,
+	cdb,
 	db,
 	provider,
 	model,
 	modelProviderMapping,
+	providerDraftModel,
 	log,
 	eq,
 	and,
@@ -54,6 +58,17 @@ export async function syncProvidersAndModels() {
 
 		logger.info(`Synced ${providers.length} providers`);
 
+		const listedPairs = new Set(
+			(
+				await database
+					.select({
+						providerId: providerDraftModel.providerId,
+						modelName: providerDraftModel.modelName,
+					})
+					.from(providerDraftModel)
+			).map((row) => `${row.providerId}/${row.modelName}`),
+		);
+
 		for (const modelDef of models) {
 			await database
 				.insert(model)
@@ -96,6 +111,35 @@ export async function syncProvidersAndModels() {
 						updatedAt: new Date(),
 					},
 				});
+
+			// Keep every listing of a catalogue pair carrying the static entry's
+			// catalogue-only fields, so the listing serves the same way once the
+			// static entry is removed. cdb: the gateway caches listing lookups.
+			for (const mapping of modelDef.providers ?? []) {
+				if (!listedPairs.has(`${mapping.providerId}/${modelDef.id}`)) {
+					continue;
+				}
+				const catalogueMetadata = catalogueMetadataFromMapping(mapping);
+				await cdb
+					.update(providerDraftModel)
+					.set({ catalogueMetadata })
+					.where(
+						and(
+							eq(providerDraftModel.providerId, mapping.providerId),
+							eq(providerDraftModel.modelName, modelDef.id),
+						),
+					);
+				await cdb
+					.update(modelProviderMapping)
+					.set(catalogueMetadataColumns(catalogueMetadata))
+					.where(
+						and(
+							eq(modelProviderMapping.modelId, modelDef.id),
+							eq(modelProviderMapping.providerId, mapping.providerId),
+							eq(modelProviderMapping.source, "airside"),
+						),
+					);
+			}
 
 			if (modelDef.providers && modelDef.providers.length > 0) {
 				const expandedProviders = expandAllProviderRegions(modelDef.providers);
@@ -164,16 +208,6 @@ export async function syncProvidersAndModels() {
 									mapping.cachedInputPrice !== undefined
 										? mapping.cachedInputPrice.toString()
 										: null,
-								cacheWriteInputPrice:
-									"cacheWriteInputPrice" in mapping &&
-									mapping.cacheWriteInputPrice !== undefined
-										? mapping.cacheWriteInputPrice.toString()
-										: null,
-								cacheWriteInputPrice1h:
-									"cacheWriteInputPrice1h" in mapping &&
-									mapping.cacheWriteInputPrice1h !== undefined
-										? mapping.cacheWriteInputPrice1h.toString()
-										: null,
 								imageInputPrice:
 									"imageInputPrice" in mapping &&
 									mapping.imageInputPrice !== undefined
@@ -195,10 +229,6 @@ export async function syncProvidersAndModels() {
 									"reasoningMaxTokens" in mapping
 										? (mapping.reasoningMaxTokens ?? false)
 										: false,
-								reasoningOutput:
-									"reasoningOutput" in mapping
-										? (mapping.reasoningOutput as string | null)
-										: null,
 								tools: "tools" in mapping ? mapping.tools : null,
 								// NotNull boolean fields - use explicit defaults when not defined
 								jsonOutput:
@@ -208,18 +238,9 @@ export async function syncProvidersAndModels() {
 										? mapping.jsonOutputSchema
 										: false,
 								webSearch: "webSearch" in mapping ? mapping.webSearch : false,
-								webSearchPrice:
-									"webSearchPrice" in mapping &&
-									mapping.webSearchPrice !== undefined
-										? mapping.webSearchPrice.toString()
-										: null,
-								// NotNull enum field - use explicit default
-								stability:
-									"stability" in mapping ? mapping.stability : "stable",
-								supportedParameters:
-									"supportedParameters" in mapping
-										? (mapping.supportedParameters as string[] | null)
-										: null,
+								...catalogueMetadataColumns(
+									catalogueMetadataFromMapping(mapping),
+								),
 								test:
 									"test" in mapping
 										? (mapping.test as "skip" | "only" | null)
@@ -256,16 +277,6 @@ export async function syncProvidersAndModels() {
 								mapping.cachedInputPrice !== undefined
 									? mapping.cachedInputPrice.toString()
 									: undefined,
-							cacheWriteInputPrice:
-								"cacheWriteInputPrice" in mapping &&
-								mapping.cacheWriteInputPrice !== undefined
-									? mapping.cacheWriteInputPrice.toString()
-									: undefined,
-							cacheWriteInputPrice1h:
-								"cacheWriteInputPrice1h" in mapping &&
-								mapping.cacheWriteInputPrice1h !== undefined
-									? mapping.cacheWriteInputPrice1h.toString()
-									: undefined,
 							imageInputPrice:
 								"imageInputPrice" in mapping &&
 								mapping.imageInputPrice !== undefined
@@ -286,10 +297,6 @@ export async function syncProvidersAndModels() {
 								"reasoningMaxTokens" in mapping
 									? (mapping.reasoningMaxTokens ?? false)
 									: false,
-							reasoningOutput:
-								"reasoningOutput" in mapping
-									? (mapping.reasoningOutput as string | undefined)
-									: undefined,
 							tools: "tools" in mapping ? mapping.tools : undefined,
 							jsonOutput:
 								"jsonOutput" in mapping ? mapping.jsonOutput : undefined,
@@ -298,16 +305,6 @@ export async function syncProvidersAndModels() {
 									? mapping.jsonOutputSchema
 									: undefined,
 							webSearch: "webSearch" in mapping ? mapping.webSearch : undefined,
-							webSearchPrice:
-								"webSearchPrice" in mapping &&
-								mapping.webSearchPrice !== undefined
-									? mapping.webSearchPrice.toString()
-									: undefined,
-							stability: "stability" in mapping ? mapping.stability : undefined,
-							supportedParameters:
-								"supportedParameters" in mapping
-									? (mapping.supportedParameters as string[] | undefined)
-									: undefined,
 							deprecatedAt:
 								"deprecatedAt" in mapping ? mapping.deprecatedAt : undefined,
 							deactivatedAt:
@@ -316,6 +313,9 @@ export async function syncProvidersAndModels() {
 								"test" in mapping
 									? (mapping.test as "skip" | "only" | undefined)
 									: undefined,
+							...catalogueMetadataColumns(
+								catalogueMetadataFromMapping(mapping),
+							),
 							status: "active",
 						});
 					}

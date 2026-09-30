@@ -66,6 +66,7 @@ import {
 	AIRSIDE_MARGIN_MAX,
 	AIRSIDE_MARGIN_MIN,
 	and,
+	catalogueMetadataFromMapping,
 	cdb,
 	computeAirsideAdjustment,
 	db,
@@ -2866,6 +2867,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 					reasoningMaxTokens: mapping.reasoningMaxTokens ?? false,
 					reasoningEfforts: mapping.reasoningEfforts ?? null,
 					webSearch: mapping.webSearch ?? false,
+					catalogueMetadata: catalogueMetadataFromMapping(mapping),
 					status: "active",
 					createdBy: user.id,
 				})

@@ -3587,11 +3587,16 @@ export const modelProviderMapping = pgTable(
 		cachedInputPrice: decimal(),
 		cacheWriteInputPrice: decimal(),
 		cacheWriteInputPrice1h: decimal(),
+		cacheReadInputPrice: decimal(),
 		imageInputPrice: decimal(),
 		requestPrice: decimal(),
 		quantization: text().$type<Quantization>(),
 		contextSize: integer(),
 		maxOutput: integer(),
+		minCacheableTokens: integer(),
+		maxTemperature: real(),
+		supportsDeveloperRole: boolean(),
+		supportsAssistantPrefill: boolean(),
 		streaming: boolean().notNull().default(false),
 		vision: boolean(),
 		audio: boolean(),
@@ -3610,6 +3615,7 @@ export const modelProviderMapping = pgTable(
 		jsonOutputSchema: boolean().default(false).notNull(),
 		webSearch: boolean().default(false).notNull(),
 		webSearchPrice: decimal(),
+		webSearchForcedOnly: boolean(),
 		stability: text({
 			enum: ["stable", "beta", "unstable", "experimental"],
 		})
@@ -5182,6 +5188,10 @@ export const providerDraftModel = pgTable(
 			.default("draft"),
 		createdBy: text().references(() => user.id, { onDelete: "set null" }),
 		delistedAt: timestamp(),
+		// Mapping fields a catalogue import carries over from the static entry
+		// that the listing form does not manage. Materialized with the listing
+		// so it keeps serving the same way once the static entry is removed.
+		catalogueMetadata: jsonb().$type<AirsideCatalogueMetadata>(),
 		// Set while the carrier has taken an active listing out of service; its
 		// catalogue mappings are inactive until resumed. No review involved.
 		pausedAt: timestamp(),
@@ -5327,6 +5337,21 @@ export const providerModelVerification = pgTable(
 			),
 	],
 );
+
+export interface AirsideCatalogueMetadata {
+	supportsDeveloperRole?: boolean;
+	supportsAssistantPrefill?: boolean;
+	maxTemperature?: number;
+	minCacheableTokens?: number;
+	supportedParameters?: string[];
+	reasoningOutput?: "omit";
+	stability?: "stable" | "beta" | "unstable" | "experimental";
+	webSearchPrice?: string;
+	webSearchForcedOnly?: boolean;
+	cacheWriteInputPrice?: string;
+	cacheWriteInputPrice1h?: string;
+	cacheReadInputPrice?: string;
+}
 
 // Per-region price override carried by a price filing. Missing optional
 // fields inherit the filing's flat (default-region) values.
