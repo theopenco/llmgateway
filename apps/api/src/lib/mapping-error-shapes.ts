@@ -14,18 +14,55 @@ import {
 import { providers } from "@llmgateway/models";
 import { parseUsedModel } from "@llmgateway/shared";
 
-// Selectable time windows, mapping each value to its SQL interval bound and an
-// hours count surfaced to the UI.
+// Selectable time windows, mapping each value to its SQL interval bound, an
+// hours count surfaced to the UI, and the error timeline bucket size (roughly
+// 50-100 buckets per window).
 export const MAPPING_ERROR_WINDOWS = {
-	"1h": { interval: sql`now() - interval '1 hour'`, hours: 1 },
-	"2h": { interval: sql`now() - interval '2 hours'`, hours: 2 },
-	"4h": { interval: sql`now() - interval '4 hours'`, hours: 4 },
-	"8h": { interval: sql`now() - interval '8 hours'`, hours: 8 },
-	"12h": { interval: sql`now() - interval '12 hours'`, hours: 12 },
-	"16h": { interval: sql`now() - interval '16 hours'`, hours: 16 },
-	"24h": { interval: sql`now() - interval '24 hours'`, hours: 24 },
-	"3d": { interval: sql`now() - interval '3 days'`, hours: 72 },
-	"7d": { interval: sql`now() - interval '7 days'`, hours: 168 },
+	"1h": {
+		interval: sql`now() - interval '1 hour'`,
+		hours: 1,
+		bucketSeconds: 60,
+	},
+	"2h": {
+		interval: sql`now() - interval '2 hours'`,
+		hours: 2,
+		bucketSeconds: 120,
+	},
+	"4h": {
+		interval: sql`now() - interval '4 hours'`,
+		hours: 4,
+		bucketSeconds: 300,
+	},
+	"8h": {
+		interval: sql`now() - interval '8 hours'`,
+		hours: 8,
+		bucketSeconds: 600,
+	},
+	"12h": {
+		interval: sql`now() - interval '12 hours'`,
+		hours: 12,
+		bucketSeconds: 900,
+	},
+	"16h": {
+		interval: sql`now() - interval '16 hours'`,
+		hours: 16,
+		bucketSeconds: 900,
+	},
+	"24h": {
+		interval: sql`now() - interval '24 hours'`,
+		hours: 24,
+		bucketSeconds: 1800,
+	},
+	"3d": {
+		interval: sql`now() - interval '3 days'`,
+		hours: 72,
+		bucketSeconds: 3600,
+	},
+	"7d": {
+		interval: sql`now() - interval '7 days'`,
+		hours: 168,
+		bucketSeconds: 10800,
+	},
 } as const;
 
 export const mappingErrorWindowSchema = z.enum([
@@ -76,6 +113,11 @@ export const mappingErrorShapeSchema = z.object({
 	// total errors in the sample.
 	providerKeyId: z.string().nullable().optional(),
 	keyErrors: z.number().optional(),
+	// Only set when bucketed: this shape's occurrences per time bucket, sparse
+	// (empty buckets omitted), keyed by bucket start in epoch milliseconds.
+	buckets: z
+		.array(z.object({ start: z.number(), count: z.number() }))
+		.optional(),
 });
 
 export const mappingErrorShapesSchema = z.object({
@@ -88,6 +130,7 @@ export const mappingErrorShapesSchema = z.object({
  * identified by the exact `log.used_model` value. Served by the partial
  * `log_error_used_provider_used_model_created_at_idx` index. With
  * `groupByKey`, returns the top 5 shapes of each provider key instead.
+ * With `bucketSeconds`, each shape also carries its per-bucket counts.
  */
 export async function queryMappingErrorShapes({
 	usedModel,
@@ -96,6 +139,7 @@ export async function queryMappingErrorShapes({
 	sampleLimit,
 	extraClauses,
 	groupByKey = false,
+	bucketSeconds,
 }: {
 	usedModel: string;
 	provider: string;
@@ -103,6 +147,7 @@ export async function queryMappingErrorShapes({
 	sampleLimit: number;
 	extraClauses: SQL[];
 	groupByKey?: boolean;
+	bucketSeconds?: number;
 }): Promise<z.infer<typeof mappingErrorShapesSchema>> {
 	// Ungrouped, every row shares a constant NULL key, so the partition is one
 	// bucket and both modes share one query shape.
@@ -110,6 +155,11 @@ export async function queryMappingErrorShapes({
 		? sql`${tables.log.providerKeyId}`
 		: sql`NULL::text`;
 	const perKeyLimit = groupByKey ? 5 : 10;
+	// Unbucketed, every row falls into one constant bucket.
+	const bucketExpr =
+		bucketSeconds !== undefined
+			? sql`FLOOR(EXTRACT(EPOCH FROM ${tables.log.createdAt}) / ${bucketSeconds}::int)::bigint * ${bucketSeconds * 1000}::bigint`
+			: sql`0::bigint`;
 	const rows = await db.execute<{
 		status_code: string | null;
 		status_text: string | null;
@@ -121,12 +171,14 @@ export async function queryMappingErrorShapes({
 		count: string;
 		key_errors: string;
 		sampled_errors: string;
+		buckets: [number, number][];
 	}>(sql`
 		WITH recent_errors AS (
 			SELECT ${tables.log.errorDetails} AS error_details,
 				${providerKeyExpr} AS provider_key_id,
 				${tables.log.unifiedFinishReason} AS classification,
-				COALESCE(${tables.log.streamed}, false) AS streamed
+				COALESCE(${tables.log.streamed}, false) AS streamed,
+				${bucketExpr} AS bucket
 			FROM ${tables.log}
 			WHERE ${tables.log.hasError} = true
 				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
@@ -137,7 +189,7 @@ export async function queryMappingErrorShapes({
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${sampleLimit}
 		),
-		shapes AS (
+		shape_buckets AS (
 			SELECT error_details->>'statusCode' AS status_code,
 				error_details->>'statusText' AS status_text,
 				LEFT(error_details->>'responseText', 2000) AS response_text,
@@ -145,8 +197,22 @@ export async function queryMappingErrorShapes({
 				classification,
 				streamed,
 				provider_key_id,
+				bucket,
 				COUNT(*) AS count
 			FROM recent_errors
+			GROUP BY 1, 2, 3, 4, classification, streamed, provider_key_id, bucket
+		),
+		shapes AS (
+			SELECT status_code,
+				status_text,
+				response_text,
+				cause,
+				classification,
+				streamed,
+				provider_key_id,
+				SUM(count) AS count,
+				json_agg(json_build_array(bucket, count) ORDER BY bucket) AS buckets
+			FROM shape_buckets
 			GROUP BY status_code, status_text, response_text, cause, classification, streamed, provider_key_id
 		),
 		ranked AS (
@@ -164,6 +230,7 @@ export async function queryMappingErrorShapes({
 			provider_key_id,
 			count,
 			key_errors,
+			buckets,
 			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors
 		FROM ranked
 		WHERE key_rank <= ${perKeyLimit}
@@ -187,6 +254,14 @@ export async function queryMappingErrorShapes({
 				? {
 						providerKeyId: r.provider_key_id,
 						keyErrors: Number(r.key_errors),
+					}
+				: {}),
+			...(bucketSeconds !== undefined
+				? {
+						buckets: r.buckets.map(([start, count]) => ({
+							start: Number(start),
+							count: Number(count),
+						})),
 					}
 				: {}),
 		})),

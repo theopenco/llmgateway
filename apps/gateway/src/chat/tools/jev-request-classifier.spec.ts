@@ -261,6 +261,60 @@ describe("classifyRequest", () => {
 		});
 	});
 
+	it("keeps difficulty probabilities and the top model probabilities", async () => {
+		process.env.LLM_TYPESAFE_API_KEY = "ts-test";
+		const candidates: RequestClassifierCandidate[] = Array.from(
+			{ length: 7 },
+			(_, index) => ({
+				id: `model-${index}`,
+				name: `Model ${index}`,
+				band: "low",
+			}),
+		);
+		vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+			jevResponse({
+				difficulty: {
+					type: "score",
+					score: 1.43,
+					probabilities: { "0": 0, "1": 0.57, "2": 0.43 },
+				},
+				best_model: {
+					type: "choice",
+					choice: "model-6",
+					confidence: 0.6,
+					probabilities: {
+						"model-0": 0.01,
+						"model-1": 0.02,
+						"model-2": 0.05,
+						"model-3": 0.07,
+						"model-4": 0.1,
+						"model-5": 0.15,
+						"model-6": 0.6,
+						"not-a-candidate": 0.9,
+					},
+				},
+			}),
+		);
+
+		const result = await classifyRequest(
+			classifierInput({ candidates }),
+			CONTEXT,
+		);
+
+		expect(result?.difficultyProbabilities).toEqual({
+			low: 0,
+			medium: 0.57,
+			high: 0.43,
+		});
+		expect(Object.entries(result?.bestModelProbabilities ?? {})).toEqual([
+			["model-6", 0.6],
+			["model-5", 0.15],
+			["model-4", 0.1],
+			["model-3", 0.07],
+			["model-2", 0.05],
+		]);
+	});
+
 	it("parses the effort and, on a recheck, the work change", async () => {
 		process.env.LLM_TYPESAFE_API_KEY = "ts-test";
 		let body: any;

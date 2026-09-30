@@ -57,18 +57,12 @@ Azure provides enterprise-grade access to OpenAI models with enhanced security, 
 3. In Azure Studio, select **Deployments** from the left sidebar
 4. Click **Create new deployment**
 5. Configure your deployment:
-   - **Model**: Select a model (e.g., gpt-4o, gpt-4o-mini, gpt-4-turbo)
+   - **Model**: Select a model listed for Azure on the [models page](https://llmgateway.io/models?provider=azure)
    - **Deployment name**: Enter a name (this must match the model identifier you'll use – use the pre-filled name)
    - **Model version**: Select the latest version
    - **Deployment type**: Global Standard
 6. Click **Create**
 7. Repeat for additional models you want to use
-
-**Note**: The deployment name must match the expected model name:
-
-- For `gpt-4o-mini` → deployment name should be `gpt-4o-mini`
-- For `gpt-35-turbo` → deployment name should be `gpt-35-turbo`
-  etc.
 
 </Step>
 
@@ -141,15 +135,7 @@ Replace `YOUR_LLMGATEWAY_API_KEY` with your LLM Gateway API key.
 
 ## Available Models
 
-Once configured, you can access your Azure deployments through LLM Gateway:
-
-- **GPT-4o**: `azure/gpt-4o`
-- **GPT-4o Mini**: `azure/gpt-4o-mini`
-- **GPT-3.5 Turbo**: `azure/gpt-3.5-turbo` (note: use gpt-3.5-turbo as llmgateway model name instead of gpt-35-turbo)
-
-**Note**: Only models you have deployed in Azure Studio will be available. Ensure your deployment names match the expected model identifiers.
-
-Browse all available models at [llmgateway.io/models](https://llmgateway.io/models?provider=azure)
+Browse the [Azure models page](https://llmgateway.io/models?provider=azure) for currently available mappings. Only models deployed in your Azure resource can serve requests. Ensure each deployment name matches the model identifier you send to LLM Gateway.
 
 ## Priority processing
 

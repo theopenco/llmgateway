@@ -28,7 +28,7 @@ import {
 } from "@llmgateway/shared/email-unsubscribe";
 
 import {
-	isComplianceAlertRecipient,
+	isOrgAlertRecipient,
 	processComplianceAlerts,
 } from "./compliance-alerts.js";
 
@@ -324,7 +324,11 @@ export async function deliverNotificationEmails(
 				!recipient ||
 				optedOut ||
 				suppressed ||
-				!(await isComplianceAlertRecipient(item.userId, item.organizationId))
+				!(await isOrgAlertRecipient(
+					item.userId,
+					item.organizationId,
+					item.type,
+				))
 			) {
 				await db
 					.update(notification)

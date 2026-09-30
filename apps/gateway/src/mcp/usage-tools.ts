@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { assertMcpHttpsUrl } from "@/mcp/request-url.js";
+import { getMcpApiUrl } from "@/mcp/request-url.js";
 
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -10,27 +10,25 @@ import {
 	mcpUsageSchema,
 	mcpUsageBreakdownSchema,
 } from "@llmgateway/shared";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 async function requestUsage<T extends Record<string, unknown>>(
 	apiKey: string,
+	clientHeaders: Record<string, string>,
 	path: string,
 	schema: z.ZodType<T>,
 	input?: unknown,
 ): Promise<CallToolResult> {
 	try {
-		const baseUrl =
-			process.env.API_URL ??
-			(process.env.NODE_ENV === "production"
-				? "https://internal.llmgateway.io"
-				: "http://localhost:4002");
-		assertMcpHttpsUrl(baseUrl);
+		const baseUrl = getMcpApiUrl();
 		const response = await fetch(new URL(`/mcp/${path}`, baseUrl), {
 			method: input === undefined ? "GET" : "POST",
 			redirect: "error",
 			headers: {
+				...forwardedIpHeaders(new Headers(clientHeaders)),
 				Authorization: `Bearer ${apiKey}`,
 				"Content-Type": "application/json",
 			},
@@ -71,7 +69,11 @@ async function requestUsage<T extends Record<string, unknown>>(
 	}
 }
 
-export function registerUsageTools(server: McpServer, apiKey: string) {
+export function registerUsageTools(
+	server: McpServer,
+	apiKey: string,
+	clientHeaders: Record<string, string>,
+) {
 	const annotations = {
 		readOnlyHint: true,
 		destructiveHint: false,
@@ -87,7 +89,8 @@ export function registerUsageTools(server: McpServer, apiKey: string) {
 			outputSchema: mcpAccountSchema,
 			annotations,
 		},
-		async () => await requestUsage(apiKey, "account", mcpAccountSchema),
+		async () =>
+			await requestUsage(apiKey, clientHeaders, "account", mcpAccountSchema),
 	);
 	server.registerTool(
 		"get-usage",
@@ -98,7 +101,8 @@ export function registerUsageTools(server: McpServer, apiKey: string) {
 			outputSchema: mcpUsageSchema,
 			annotations,
 		},
-		async (input) => await requestUsage(apiKey, "usage", mcpUsageSchema, input),
+		async (input) =>
+			await requestUsage(apiKey, clientHeaders, "usage", mcpUsageSchema, input),
 	);
 	server.registerTool(
 		"get-usage-breakdown",
@@ -112,6 +116,7 @@ export function registerUsageTools(server: McpServer, apiKey: string) {
 		async (input) =>
 			await requestUsage(
 				apiKey,
+				clientHeaders,
 				"usage/breakdown",
 				mcpUsageBreakdownSchema,
 				input,

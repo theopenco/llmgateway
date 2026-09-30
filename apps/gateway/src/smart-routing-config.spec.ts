@@ -153,7 +153,9 @@ describe("smart routing", () => {
 			band: "high",
 			selectedModel: EXPENSIVE_MODEL,
 			classifierFailed: false,
+			difficultyProbabilities: { low: 0, medium: 0, high: 1 },
 		});
+		expect(smartRouting?.bestModelProbabilities).toBeDefined();
 		expect(smartRouting?.eligibleModels).toEqual(THREE_MODELS);
 		// Candidates are recorded cheapest first, which is the band order.
 		expect(smartRouting?.candidateModels).toEqual([
@@ -649,6 +651,7 @@ describe("smart routing", () => {
 		expect(logs[0]?.routingMetadata?.smartRouting).toMatchObject({
 			classifier: "jev",
 			classifierFailed: false,
+			classifierSkipped: "compliance",
 			selectedModel: CHEAP_MODEL,
 		});
 	});
@@ -673,6 +676,7 @@ describe("smart routing", () => {
 		expect(logs[0]?.routingMetadata?.smartRouting).toMatchObject({
 			classifier: "jev",
 			classifierFailed: false,
+			classifierSkipped: "no-credential",
 			selectedModel: CHEAP_MODEL,
 		});
 	});

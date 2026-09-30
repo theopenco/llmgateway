@@ -1,5 +1,4 @@
 import { isProviderIdCompliant } from "@/lib/compliance.js";
-import { isCancellationError } from "@/lib/timeout-config.js";
 
 import { logger } from "@llmgateway/logger";
 
@@ -30,7 +29,10 @@ import type {
 	ProviderCompliancePolicy,
 	ProviderId,
 } from "@llmgateway/models";
-import type { ContentFilterClassifier } from "@llmgateway/shared";
+import type {
+	ContentFilterClassifier,
+	ContentFilterInternalScope,
+} from "@llmgateway/shared";
 
 /**
  * The catalogue provider each classifier calls, for compliance gating. Null
@@ -91,6 +93,13 @@ export async function hasClassifierCredential(
 	}
 }
 
+interface ContentFilterRunOptions {
+	/** Whether the organization's policy permits OpenAI (image delegation). */
+	imagesAllowed: boolean;
+	/** What the internal classifier reads. Defaults to the whole conversation. */
+	internalScope?: ContentFilterInternalScope;
+}
+
 /**
  * Run one classifier over a request's content.
  *
@@ -105,7 +114,7 @@ export async function runContentFilterClassifier(
 	messages: BaseMessage[],
 	context: GatewayContentFilterContext,
 	requestSignal: AbortSignal | undefined,
-	options: { imagesAllowed: boolean },
+	options: ContentFilterRunOptions,
 ): Promise<ContentFilterCheckResult> {
 	const startTime = performance.now();
 	const result = await runClassifierChecks(
@@ -126,7 +135,7 @@ async function runClassifierChecks(
 	messages: BaseMessage[],
 	context: GatewayContentFilterContext,
 	requestSignal: AbortSignal | undefined,
-	options: { imagesAllowed: boolean },
+	options: ContentFilterRunOptions,
 ): Promise<Omit<ContentFilterCheckResult, "durationMs">> {
 	if (classifier === "openai") {
 		const result = await checkOpenAIContentFilter(
@@ -141,7 +150,12 @@ async function runClassifierChecks(
 		partialModerationFailed?: boolean;
 	} =
 		classifier === "internal"
-			? await checkInternalContentFilter(messages, context, requestSignal)
+			? await checkInternalContentFilter(
+					messages,
+					context,
+					requestSignal,
+					options.internalScope,
+				)
 			: await checkJevContentFilter(messages, context, requestSignal);
 
 	if (buildOpenAIContentFilterImageInputs(messages).length === 0) {
@@ -190,14 +204,13 @@ async function runClassifierChecks(
 }
 
 /**
- * Score a request with the tier's deciding classifier, optionally alongside the
- * configured shadow classifier, and build the evaluation stored on the log.
+ * Score a request with the tier's classifier and build the evaluation stored on
+ * the log.
  *
- * Null when the deciding classifier cannot run for this organization (excluded
- * by its compliance policy, or no credential configured) — the same skip as a
+ * Null when the classifier cannot run for this organization (excluded by its
+ * compliance policy, or no credential configured) — the same skip as a
  * deployment with no moderation credential at all, so the filter never fails a
- * customer request over its own unavailability. A shadow classifier that cannot
- * run is simply left out; it never blocks the deciding verdict.
+ * customer request over its own unavailability.
  */
 export async function evaluateContentFilterWithClassifiers(options: {
 	plan: TieredContentFilterPlan;
@@ -215,95 +228,35 @@ export async function evaluateContentFilterWithClassifiers(options: {
 } | null> {
 	const { plan, messages, context, signal, existing } = options;
 
-	/** Whether this classifier may run at all, before any provider call. */
-	const eligible = async (classifier: ContentFilterClassifier) =>
-		existing?.classifier === classifier ||
-		(options.classifierAllowed(classifier) &&
-			(await hasClassifierCredential(classifier)));
-
-	const run = async (
-		classifier: ContentFilterClassifier,
-	): Promise<ContentFilterCheckResult> =>
-		existing?.classifier === classifier
-			? existing
-			: await runContentFilterClassifier(
-					classifier,
-					messages,
-					context,
-					signal,
-					{ imagesAllowed: options.imagesAllowed },
-				);
-
-	const [decidingEligible, shadowEligible] = await Promise.all([
-		eligible(plan.classifier),
-		plan.shadowClassifier ? eligible(plan.shadowClassifier) : false,
-	]);
-
-	// Nothing to decide with, so the shadow run is never paid for either.
-	if (!decidingEligible) {
-		return null;
-	}
-
-	// Both classifiers run in parallel: the caller is holding the client's
-	// request open across this, and each provider call has its own multi-minute
-	// timeout, so awaiting them in sequence would put the shadow run's full
-	// latency in front of the user for a verdict it is not allowed to change.
-	const [decidingSettled, shadowSettled] = await Promise.allSettled([
-		run(plan.classifier),
-		plan.shadowClassifier && shadowEligible
-			? run(plan.shadowClassifier)
-			: Promise.resolve(null),
-	]);
-
-	if (decidingSettled.status === "rejected") {
-		throw decidingSettled.reason;
-	}
-
-	// The shadow run shares the request's signal, so its rejection can be the
-	// only report that the client hung up (the deciding run may have already
-	// finished, or reused an earlier result). Swallowing it would let the
-	// caller carry on serving a request nobody is waiting for. Anything else
-	// the shadow throws stays swallowed: it must never fail a request it is
-	// not allowed to decide.
-	if (
-		shadowSettled.status === "rejected" &&
-		(signal?.aborted || isCancellationError(shadowSettled.reason))
-	) {
-		throw shadowSettled.reason;
-	}
-
-	const deciding = decidingSettled.value;
-	const evaluation = evaluateTieredContentFilter(deciding.results, plan.level);
-	const results = [deciding];
-
-	let shadow:
-		| {
-				classifier: ContentFilterClassifier;
-				evaluation: ReturnType<typeof evaluateTieredContentFilter>;
-				moderationFailed: boolean;
-				durationMs: number;
-		  }
-		| undefined;
-	const shadowResult =
-		shadowSettled.status === "fulfilled" ? shadowSettled.value : null;
-	if (plan.shadowClassifier && shadowResult) {
-		shadow = {
-			classifier: plan.shadowClassifier,
-			evaluation: evaluateTieredContentFilter(shadowResult.results, plan.level),
-			moderationFailed: moderationFailed(shadowResult),
-			durationMs: shadowResult.durationMs,
-		};
-		results.push(shadowResult);
+	let result: ContentFilterCheckResult;
+	if (existing?.classifier === plan.classifier) {
+		result = existing;
+	} else {
+		if (
+			!options.classifierAllowed(plan.classifier) ||
+			!(await hasClassifierCredential(plan.classifier))
+		) {
+			return null;
+		}
+		result = await runContentFilterClassifier(
+			plan.classifier,
+			messages,
+			context,
+			signal,
+			{
+				imagesAllowed: options.imagesAllowed,
+				internalScope: plan.internalScope,
+			},
+		);
 	}
 
 	return {
 		evaluation: buildGatewayContentFilterEvaluation(
 			plan,
-			evaluation,
-			moderationFailed(deciding),
-			deciding.durationMs,
-			shadow,
+			evaluateTieredContentFilter(result.results, plan.level),
+			moderationFailed(result),
+			result.durationMs,
 		),
-		results,
+		results: [result],
 	};
 }

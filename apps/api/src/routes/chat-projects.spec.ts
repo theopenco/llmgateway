@@ -56,6 +56,7 @@ describe("chat-projects", () => {
 
 	afterEach(async () => {
 		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
 		await deleteAll();
 	});
 
@@ -108,6 +109,7 @@ describe("chat-projects", () => {
 	test.each([true, false])(
 		"file indexing respects an explicit billing key and keeps the personal fallback: %s",
 		async (explicitKey) => {
+			vi.stubEnv("CLIENT_IP_HEADER", "X-Client-Ip");
 			const project = await createProject(token);
 			const resolveKey = vi
 				.spyOn(playgroundKey, "resolvePlaygroundToken")
@@ -125,6 +127,7 @@ describe("chat-projects", () => {
 				headers: {
 					"Content-Type": "application/json",
 					Cookie: token,
+					"x-client-ip": "192.0.2.1",
 					...(explicitKey ? { "x-llmgateway-key": "test-token" } : {}),
 				},
 				body: JSON.stringify({
@@ -143,6 +146,7 @@ describe("chat-projects", () => {
 				expect.objectContaining({
 					headers: expect.objectContaining({
 						authorization: "Bearer test-token",
+						"x-client-ip": "192.0.2.1",
 					}),
 				}),
 			);

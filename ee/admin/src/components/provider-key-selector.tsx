@@ -6,6 +6,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { resolveGlobalStatsRange } from "@/components/global-stats-range-picker";
 import { useOrgKind } from "@/components/org-kind-selector";
+import { useProviderFilter } from "@/components/provider-selector";
 import { Button } from "@/components/ui/button";
 import {
 	Command,
@@ -43,10 +44,21 @@ export interface GlobalStatsProviderKey {
 
 const PARAM = "providerKeyId";
 
-/** Reads the selected provider credential from the `providerKeyId` URL param. */
-export function useProviderKeyId(): string | null {
+/**
+ * Reads the selected provider credentials from the comma-separated
+ * `providerKeyId` URL param. Empty means every key.
+ */
+export function useProviderKeyIds(): string[] {
 	const searchParams = useSearchParams();
-	return searchParams.get(PARAM) || null;
+	const raw = searchParams.get(PARAM) ?? "";
+	return useMemo(
+		() =>
+			raw
+				.split(",")
+				.map((id) => id.trim())
+				.filter((id, index, ids) => id && ids.indexOf(id) === index),
+		[raw],
+	);
 }
 
 /** "openai · prod (sk-...abcd)" — the same label everywhere a key is named. */
@@ -72,13 +84,14 @@ const compactCurrency = new Intl.NumberFormat("en-US", {
 });
 
 /**
- * Lists every credential with attributed traffic in the current range, mode
- * and kind. Only the daily per-credential rollup feeds this, so requests
+ * Lists every credential with attributed traffic in the current range, mode,
+ * kind and provider. Only the daily per-credential rollup feeds this, so requests
  * served by env-var credentials never show up here.
  */
 export function useGlobalStatsProviderKeys() {
 	const searchParams = useSearchParams();
 	const { allTime, from, to } = resolveGlobalStatsRange(searchParams);
+	const provider = useProviderFilter();
 	const $api = useApi();
 	return $api.useQuery("get", "/admin/global-stats/provider-keys", {
 		params: {
@@ -86,6 +99,7 @@ export function useGlobalStatsProviderKeys() {
 				...(allTime ? { range: "all" as const } : { from, to }),
 				mode: useUsageMode(),
 				kind: useOrgKind(),
+				...(provider ? { provider } : {}),
 			},
 		},
 	});
@@ -95,17 +109,18 @@ export function ProviderKeySelector({ className }: { className?: string }) {
 	const searchParams = useSearchParams();
 	const router = useRouter();
 	const pathname = usePathname();
-	const providerKeyId = useProviderKeyId();
+	const providerKeyIds = useProviderKeyIds();
 	const [open, setOpen] = useState(false);
 	const { data, isLoading } = useGlobalStatsProviderKeys();
 	const keys = useMemo(() => data?.providerKeys ?? [], [data?.providerKeys]);
-	const selected = keys.find((key) => key.id === providerKeyId);
+	const selectedId = providerKeyIds.length === 1 ? providerKeyIds[0] : null;
+	const selected = keys.find((key) => key.id === selectedId);
 
-	const setProviderKeyId = useCallback(
-		(next: string | null) => {
+	const setProviderKeyIds = useCallback(
+		(next: string[]) => {
 			const params = new URLSearchParams(searchParams.toString());
-			if (next) {
-				params.set(PARAM, next);
+			if (next.length > 0) {
+				params.set(PARAM, next.join(","));
 			} else {
 				params.delete(PARAM);
 			}
@@ -113,9 +128,18 @@ export function ProviderKeySelector({ className }: { className?: string }) {
 			router.replace(query ? `${pathname}?${query}` : pathname, {
 				scroll: false,
 			});
-			setOpen(false);
 		},
 		[searchParams, router, pathname],
+	);
+	const toggleProviderKeyId = useCallback(
+		(id: string) => {
+			setProviderKeyIds(
+				providerKeyIds.includes(id)
+					? providerKeyIds.filter((existing) => existing !== id)
+					: [...providerKeyIds, id],
+			);
+		},
+		[providerKeyIds, setProviderKeyIds],
 	);
 
 	return (
@@ -134,11 +158,11 @@ export function ProviderKeySelector({ className }: { className?: string }) {
 				>
 					<KeyRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
 					<span className="truncate">
-						{selected
-							? providerKeyLabel(selected)
-							: providerKeyId
-								? providerKeyId
-								: "All provider keys"}
+						{providerKeyIds.length > 1
+							? `${providerKeyIds.length} provider keys`
+							: selected
+								? providerKeyLabel(selected)
+								: (selectedId ?? "All provider keys")}
 					</span>
 					<ChevronsUpDown
 						className="h-3.5 w-3.5 shrink-0 opacity-50"
@@ -156,12 +180,15 @@ export function ProviderKeySelector({ className }: { className?: string }) {
 						<CommandGroup>
 							<CommandItem
 								value="__all__"
-								onSelect={() => setProviderKeyId(null)}
+								onSelect={() => {
+									setProviderKeyIds([]);
+									setOpen(false);
+								}}
 							>
 								<Check
 									className={cn(
 										"mr-2 h-4 w-4",
-										providerKeyId ? "opacity-0" : "opacity-100",
+										providerKeyIds.length > 0 ? "opacity-0" : "opacity-100",
 									)}
 								/>
 								All provider keys
@@ -170,12 +197,14 @@ export function ProviderKeySelector({ className }: { className?: string }) {
 								<CommandItem
 									key={key.id}
 									value={`${providerKeyLabel(key)} ${key.id} ${key.organizationName ?? ""}`}
-									onSelect={() => setProviderKeyId(key.id)}
+									onSelect={() => toggleProviderKeyId(key.id)}
 								>
 									<Check
 										className={cn(
 											"mr-2 h-4 w-4 shrink-0",
-											providerKeyId === key.id ? "opacity-100" : "opacity-0",
+											providerKeyIds.includes(key.id)
+												? "opacity-100"
+												: "opacity-0",
 										)}
 									/>
 									<span className="flex min-w-0 flex-1 flex-col">

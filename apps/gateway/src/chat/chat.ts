@@ -175,7 +175,6 @@ import {
 	type InferSelectModel,
 	isCachingEnabled,
 	metricsKey,
-	type GatewayContentFilterEvaluation,
 	type LogInsertData,
 	providerKeyAllowsModel,
 	shortid,
@@ -6549,89 +6548,134 @@ chat.openapi(completions, async (c) => {
 
 	// Tiered gateway content filter, keyed on the provider the request was routed
 	// to. Reuses the env filter's moderation result when it ran on the same
-	// classifier so a request never triggers a duplicate moderation call.
-	let gatewayContentFilterEvaluation: GatewayContentFilterEvaluation | null =
+	// classifier so a request never triggers a duplicate moderation call. Only a
+	// verdict that can block is awaited; otherwise the classifier runs in the
+	// background and its evaluation is attached to the log once it settles.
+	type TieredContentFilterOutcome = Awaited<
+		ReturnType<typeof evaluateContentFilterWithClassifiers>
+	>;
+	let tieredContentFilter: TieredContentFilterOutcome = null;
+	let pendingTieredContentFilter: Promise<TieredContentFilterOutcome> | null =
 		null;
-	let tierContentFilterBlocked = false;
-	const contentFilterResults: ContentFilterCheckResult[] = [];
-	if (envContentFilterResult) {
-		contentFilterResults.push(envContentFilterResult);
-	}
 	const tieredContentFilterPlan = await resolveTieredContentFilterPlan(
 		organization,
 		usedProvider,
 		await getContentFilterSettings(),
 	);
-	const tieredContentFilter = tieredContentFilterPlan
-		? await evaluateContentFilterWithClassifiers({
-				plan: tieredContentFilterPlan,
+	if (tieredContentFilterPlan) {
+		const plan = tieredContentFilterPlan;
+		const runTieredContentFilter = async (signal: AbortSignal | undefined) => {
+			const outcome = await evaluateContentFilterWithClassifiers({
+				plan,
 				messages: messages as BaseMessage[],
 				context: contentFilterContext,
-				signal: c.req.raw.signal,
+				signal,
 				imagesAllowed: openAiContentFilterAllowed,
 				classifierAllowed: contentFilterClassifierAllowed,
 				existing: envContentFilterResult,
-			})
-		: null;
-	if (tieredContentFilterPlan && tieredContentFilter) {
-		gatewayContentFilterEvaluation = tieredContentFilter.evaluation;
-		tierContentFilterBlocked =
-			gatewayContentFilterEvaluation.action === "blocked";
-		for (const result of tieredContentFilter.results) {
-			if (!contentFilterResults.includes(result)) {
-				contentFilterResults.push(result);
-			}
-		}
-		if (gatewayContentFilterEvaluation.violation) {
-			logger.debug("gateway_content_filter_tier", {
-				requestId,
-				organizationId: project.organizationId,
-				provider: usedProvider,
-				tier: tieredContentFilterPlan.tier,
-				level: tieredContentFilterPlan.level,
-				classifier: tieredContentFilterPlan.classifier,
-				action: gatewayContentFilterEvaluation.action,
-				matchedCategories: gatewayContentFilterEvaluation.matchedCategories,
 			});
+			if (outcome?.evaluation.violation) {
+				logger.debug("gateway_content_filter_tier", {
+					requestId,
+					organizationId: project.organizationId,
+					provider: usedProvider,
+					tier: plan.tier,
+					level: plan.level,
+					classifier: plan.classifier,
+					action: outcome.evaluation.action,
+					matchedCategories: outcome.evaluation.matchedCategories,
+				});
+			}
+			return outcome;
+		};
+		if (plan.enforce) {
+			tieredContentFilter = await runTieredContentFilter(c.req.raw.signal);
+		} else {
+			// Detached from the client's signal so a hang-up does not cancel the
+			// observation; each classifier's own timeout bounds it.
+			pendingTieredContentFilter = trackPendingWork(
+				runTieredContentFilter(undefined).catch((error: unknown) => {
+					logger.warn("Background gateway content filter failed", {
+						requestId,
+						error: toError(error),
+					});
+					return null;
+				}),
+			);
 		}
 	}
+	const tierContentFilterBlocked =
+		tieredContentFilter?.evaluation.action === "blocked";
 
-	// Preserve monitor tagging, and also tag successful reroutes triggered by a
-	// gateway content-filter match so the decision remains visible in logs.
-	const shouldTagContentFilter =
-		(contentFilterMode === "monitor" && contentFilterMatched) ||
-		contentFilterRoutingApplied ||
-		gatewayContentFilterEvaluation?.violation === true;
-	// Stored for every moderated request; the 30-day data retention cleanup
-	// nulls it again, so the extra jsonb per sampled row is bounded.
-	const gatewayContentFilterResponse = contentFilterResults.some(
-		(result) => result.responses.length > 0,
-	)
-		? contentFilterResults.flatMap((result) => result.responses)
-		: null;
-	const insertLog = (
+	const contentFilterLogFields = (tiered: TieredContentFilterOutcome) => {
+		const evaluation = tiered?.evaluation ?? null;
+		const results = envContentFilterResult ? [envContentFilterResult] : [];
+		for (const result of tiered?.results ?? []) {
+			if (!results.includes(result)) {
+				results.push(result);
+			}
+		}
+		return {
+			// Preserve monitor tagging, and also tag successful reroutes triggered
+			// by a gateway content-filter match so the decision remains visible.
+			tagged:
+				(contentFilterMode === "monitor" && contentFilterMatched) ||
+				contentFilterRoutingApplied ||
+				evaluation?.violation === true,
+			// Stored for every moderated request; the 30-day data retention cleanup
+			// nulls it again, so the extra jsonb per sampled row is bounded.
+			response: results.some((result) => result.responses.length > 0)
+				? results.flatMap((result) => result.responses)
+				: null,
+			evaluation,
+		};
+	};
+	const publishLog = (
+		tiered: TieredContentFilterOutcome,
 		logData: Parameters<typeof _insertLog>[0],
 		options?: Parameters<typeof _insertLog>[1],
-	) =>
-		_insertLog(
+	) => {
+		const contentFilter = contentFilterLogFields(tiered);
+		return _insertLog(
 			{
 				...logData,
 				sessionId: logData.sessionId ?? sessionId ?? null,
 				apiOrigin: logData.apiOrigin ?? apiOrigin,
-				internalContentFilter: shouldTagContentFilter
+				internalContentFilter: contentFilter.tagged
 					? true
 					: logData.internalContentFilter,
 				gatewayContentFilterResponse:
-					logData.gatewayContentFilterResponse ?? gatewayContentFilterResponse,
+					logData.gatewayContentFilterResponse ?? contentFilter.response,
 				gatewayContentFilterEvaluation:
-					logData.gatewayContentFilterEvaluation ??
-					gatewayContentFilterEvaluation,
+					logData.gatewayContentFilterEvaluation ?? contentFilter.evaluation,
 			},
 			// Default the retention level from the resolved organization so payload
 			// fields are stripped before publishing to the log queue for
 			// non-retaining orgs. A caller-supplied value still wins.
 			{ retentionLevel, ...options },
 		);
+	};
+	const insertLog = async (
+		logData: Parameters<typeof _insertLog>[0],
+		options?: Parameters<typeof _insertLog>[1],
+	): Promise<void> => {
+		if (!pendingTieredContentFilter) {
+			await publishLog(tieredContentFilter, logData, options);
+			return;
+		}
+		// Never hold the response for a background evaluation: publish the row
+		// once it settles.
+		void trackPendingWork(
+			pendingTieredContentFilter
+				.then((tiered) => publishLog(tiered, logData, options))
+				.catch((error: unknown) => {
+					logger.error("Failed to insert log after content filter", {
+						requestId,
+						error: toError(error),
+					});
+				}),
+		);
+	};
 
 	if (contentFilterBlocked || tierContentFilterBlocked) {
 		const contentFilterResponseId = `chatcmpl-${Date.now()}`;

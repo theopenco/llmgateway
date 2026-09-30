@@ -21,6 +21,17 @@ export const alertAudiences = ["owner", "admin", "member"] as const;
 
 export type AlertAudience = (typeof alertAudiences)[number];
 
+/**
+ * Audience of an org-scoped alert: limit alerts always go to owners and
+ * admins; compliance alerts follow the organization's configured audience.
+ */
+export function orgAlertAudience(
+	type: string,
+	complianceAudience: AlertAudience | null | undefined,
+): AlertAudience | null {
+	return type === "org_limit" ? "admin" : (complianceAudience ?? null);
+}
+
 export function isInAlertAudience(
 	role: string | undefined,
 	audience: AlertAudience,

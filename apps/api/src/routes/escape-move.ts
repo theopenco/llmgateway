@@ -13,6 +13,7 @@ import {
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getEscapeReasoningEffort } from "@llmgateway/shared/escape-reasoning";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
@@ -168,6 +169,7 @@ escapeMove.openapi(
 			apiKey: key.token,
 			baseURL: getGatewayApiBaseUrl(),
 			headers: {
+				...forwardedIpHeaders(c.req.raw.headers),
 				"x-source": LOUNGE_SOURCE,
 				...(body.model.includes("/") && { "x-no-fallback": "true" }),
 			},

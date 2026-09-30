@@ -680,13 +680,25 @@ describe("admin routing analytics endpoint", () => {
 	it("scores the routing score multiplier", async () => {
 		const before = await get(`?modelId=${testModel.id}&window=24h`, cookie);
 		const baseline = await before.json();
+		const [cheapest, other] = (
+			baseline.mappings as {
+				providerId: string;
+				price: number;
+				routable: boolean;
+			}[]
+		)
+			.filter((mapping) => mapping.routable && mapping.price > 0)
+			.sort((a, b) => a.price - b.price);
+		if (!cheapest || !other) {
+			throw new Error("Expected two paid, routable mappings");
+		}
 		const baselineSummaryB = baseline.summary.find(
-			(s: { providerId: string }) => s.providerId === providerB,
+			(s: { providerId: string }) => s.providerId === other.providerId,
 		);
 
 		await cdb.insert(tables.routingScoreMultiplier).values({
 			id: "routing-analytics-multiplier",
-			provider: providerA,
+			provider: cheapest.providerId,
 			model: testModel.id,
 			scoreMultiplier: "-0.5",
 		});
@@ -694,16 +706,16 @@ describe("admin routing analytics endpoint", () => {
 		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
 		const body = await res.json();
 		const mappingA = body.mappings.find(
-			(m: { providerId: string }) => m.providerId === providerA,
+			(m: { providerId: string }) => m.providerId === cheapest.providerId,
 		);
 		const summaryB = body.summary.find(
-			(s: { providerId: string }) => s.providerId === providerB,
+			(s: { providerId: string }) => s.providerId === other.providerId,
 		);
 
 		// The multiplier only steers routing; the price shown is still billed.
 		expect(mappingA.routingAdjustment).toBe(-0.5);
 		expect(mappingA.discount).toBe(0);
-		// Boosting A makes every other mapping relatively more expensive.
+		// Boosting the cheapest mapping makes the others relatively more expensive.
 		expect(summaryB.breakdown.priceContribution).toBeGreaterThan(
 			baselineSummaryB.breakdown.priceContribution,
 		);

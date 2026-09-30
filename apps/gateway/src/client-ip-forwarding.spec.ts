@@ -9,6 +9,21 @@ import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harne
 
 const endpoints = [
 	{
+		path: "/mcp",
+		body: {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: {
+				name: "chat",
+				arguments: {
+					model: "gpt-4o-mini",
+					messages: [{ role: "user", content: "Hello" }],
+				},
+			},
+		},
+	},
+	{
 		path: "/v1/messages",
 		body: {
 			model: "gpt-4o-mini",
@@ -40,6 +55,7 @@ describe("client IP across internal gateway requests", () => {
 	createGatewayApiTestHarness();
 	afterEach(() => {
 		vi.unstubAllEnvs();
+		vi.restoreAllMocks();
 	});
 
 	async function missingIpCount() {
@@ -96,14 +112,34 @@ describe("client IP across internal gateway requests", () => {
 					headers.set(header ?? "x-forwarded-for", value);
 				}
 				const before = await missingIpCount();
+				const mcpProxy = path === "/mcp";
+				let gatewayResponseBody: string | undefined;
+				if (mcpProxy) {
+					vi.stubEnv("MCP_GATEWAY_URL", "https://gateway.example.com");
+					vi.spyOn(globalThis, "fetch").mockImplementation(
+						async (input, init) => {
+							expect(input).toBe(
+								"https://gateway.example.com/v1/chat/completions",
+							);
+							const response = await app.request(new Request(input, init));
+							gatewayResponseBody = await response.clone().text();
+							return response;
+						},
+					);
+				}
 				const response = await app.request(path, {
 					method: "POST",
 					headers,
 					body: JSON.stringify(body),
 				});
 
-				expect(response.status).toBe(403);
-				expect(await response.text()).toContain(
+				expect(response.status).toBe(mcpProxy ? 200 : 403);
+				const responseBody = await response.text();
+				if (mcpProxy) {
+					expect(JSON.parse(responseBody).result.isError).toBe(true);
+					expect(gatewayResponseBody).toBeDefined();
+				}
+				expect(gatewayResponseBody ?? responseBody).toContain(
 					value
 						? "Client IP 192.0.2.1 is in the denied CIDR ranges"
 						: "Client IP could not be determined",

@@ -214,27 +214,29 @@ export function computeAgentStats(logs: ApiLog[]): AgentStats[] {
 		if (agentLogs.length === 0) {
 			continue;
 		}
-		const sorted = [...agentLogs].sort(
-			(a, b) =>
-				new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-		);
+		let totalCost = 0;
+		let totalTokens = 0;
+		let totalPromptTokens = 0;
+		let totalCompletionTokens = 0;
+		let lastActiveMs = -Infinity;
+		for (const log of agentLogs) {
+			totalCost += log.cost ?? 0;
+			totalTokens += Number(log.totalTokens ?? 0);
+			totalPromptTokens += Number(log.promptTokens ?? 0);
+			totalCompletionTokens += Number(log.completionTokens ?? 0);
+			const createdMs = new Date(log.createdAt).getTime();
+			if (createdMs > lastActiveMs) {
+				lastActiveMs = createdMs;
+			}
+		}
 		stats.push({
 			agent,
 			requestCount: agentLogs.length,
-			totalCost: agentLogs.reduce((sum, log) => sum + (log.cost ?? 0), 0),
-			totalTokens: agentLogs.reduce(
-				(sum, log) => sum + Number(log.totalTokens ?? 0),
-				0,
-			),
-			totalPromptTokens: agentLogs.reduce(
-				(sum, log) => sum + Number(log.promptTokens ?? 0),
-				0,
-			),
-			totalCompletionTokens: agentLogs.reduce(
-				(sum, log) => sum + Number(log.completionTokens ?? 0),
-				0,
-			),
-			lastActive: new Date(sorted[0].createdAt),
+			totalCost,
+			totalTokens,
+			totalPromptTokens,
+			totalCompletionTokens,
+			lastActive: new Date(lastActiveMs),
 			logs: agentLogs,
 			modelBreakdown: computeModelBreakdown(agentLogs),
 		});

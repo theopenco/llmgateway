@@ -53,6 +53,11 @@ import {
 } from "@llmgateway/shared/components";
 import { isRoutingMetadataExpired } from "@llmgateway/shared/log-retention";
 import { formatNumber } from "@llmgateway/shared/number-format";
+import {
+	describeSmartRoutingDecision,
+	formatSmartRoutingProbabilities,
+	SMART_ROUTING_DIFFICULTIES,
+} from "@llmgateway/shared/smart-routing";
 
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
@@ -737,6 +742,18 @@ export function LogDetailClient({
 									)}
 									{log.routingMetadata.smartRouting && (
 										<>
+											<div className="py-1.5 border-b border-border/50">
+												<span className="text-sm text-muted-foreground">
+													Why this model
+												</span>
+												<ol className="mt-1 list-decimal space-y-0.5 pl-5 text-xs">
+													{describeSmartRoutingDecision(
+														log.routingMetadata.smartRouting,
+													).map((step) => (
+														<li key={step}>{step}</li>
+													))}
+												</ol>
+											</div>
 											<Field
 												label="Smart routing"
 												value={`${log.routingMetadata.smartRouting.selectedModel} (${log.routingMetadata.smartRouting.classifier} classifier${
@@ -803,6 +820,18 @@ export function LogDetailClient({
 													mono
 												/>
 											)}
+											{log.routingMetadata.smartRouting
+												.difficultyProbabilities && (
+												<Field
+													label="Difficulty probabilities"
+													value={formatSmartRoutingProbabilities(
+														log.routingMetadata.smartRouting
+															.difficultyProbabilities,
+														SMART_ROUTING_DIFFICULTIES,
+													)}
+													mono
+												/>
+											)}
 											{log.routingMetadata.smartRouting.task && (
 												<Field
 													label="Task"
@@ -819,6 +848,17 @@ export function LogDetailClient({
 															? ` (${Math.round(log.routingMetadata.smartRouting.bestModelConfidence * 100)}% confident)`
 															: ""
 													}`}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting
+												.bestModelProbabilities && (
+												<Field
+													label="Model probabilities"
+													value={formatSmartRoutingProbabilities(
+														log.routingMetadata.smartRouting
+															.bestModelProbabilities,
+													)}
 													mono
 												/>
 											)}
@@ -1160,16 +1200,19 @@ export function LogDetailClient({
 											value={log.cost ? `$${log.cost.toFixed(8)}` : "$0"}
 											muted
 										/>
-										{log.discount && log.discount !== 1 && (
-											<Field
-												label="Discount"
-												value={
-													<span className="text-emerald-500">
-														{(log.discount * 100).toFixed(0)}% off
-													</span>
-												}
-											/>
-										)}
+										{log.discount !== null &&
+											log.discount !== undefined &&
+											log.discount > 0 &&
+											log.discount !== 1 && (
+												<Field
+													label="Discount"
+													value={
+														<span className="text-emerald-500">
+															{(log.discount * 100).toFixed(0)}% off
+														</span>
+													}
+												/>
+											)}
 										{log.routingBaselineCost !== null &&
 											log.routingBaselineCost !== undefined && (
 												<Field

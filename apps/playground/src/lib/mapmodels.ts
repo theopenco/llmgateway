@@ -6,10 +6,11 @@ export function mapModels(
 	providers: readonly ApiProvider[],
 ): ComboboxModel[] {
 	const entries: ComboboxModel[] = [];
+	const providerById = new Map(providers.map((pr) => [pr.id, pr]));
 	for (const m of models) {
 		// Add canonical model entry
 		const canonicalProviders = m.mappings.map((p) => ({
-			providerInfo: providers.find((pr) => pr.id === p.providerId),
+			providerInfo: providerById.get(p.providerId),
 			...p,
 		}));
 
@@ -41,7 +42,7 @@ export function mapModels(
 		});
 
 		for (const p of m.mappings) {
-			const providerInfo = providers.find((pr) => pr.id === p.providerId);
+			const providerInfo = providerById.get(p.providerId);
 			// Combobox id uses the canonical gateway model id, never the
 			// provider-specific upstream id.
 

@@ -271,7 +271,7 @@
 		"sonner": "^2.0.7",
 		"tailwind-merge": "3.4.0",
 		"three": "0.185.1",
-		"undici": "8.9.0",
+		"undici": "8.11.2",
 		"zod": "3.25.76"
 	},
 	"devDependencies": {

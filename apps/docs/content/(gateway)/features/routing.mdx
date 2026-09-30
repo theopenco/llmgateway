@@ -709,6 +709,8 @@ The call runs on our credential, so it is billed as credits even for a project u
 
 When a request carries a session id (see [sticky session routing](#sticky-session-routing)) and the project has it enabled, the Jev classifier chooses a model and effort on the session's first turn, and the rest of the session reuses them without another classifier call. Each session keeps its own choice, and the choice expires with the session TTL.
 
+A constant `user` or `prompt_cache_key` also counts as a session id, so a client that sends the same value on every request gets the first request's model for all of them. When testing how different prompts are routed, send each one without a session id or with its own `x-session-id`.
+
 The choice is only reconsidered **between turns**. A turn starts with a user message after a final answer. Tool results, and user messages sent while the agent is still calling tools, continue the current turn and never change the model. A new turn triggers a recheck in two cases:
 
 - **The provider's prompt cache expired.** This needs a documented cache lifetime, such as five minutes (or one hour for extended caching) on Claude providers. When a provider's lifetime is unknown, idle time alone never counts as expiry.
@@ -730,7 +732,7 @@ Responses to `"model": "smart"` name the resolved model in `model`. They also ca
 
 #### Routing metadata
 
-Every smart-routed request made against a configured list records a `smartRouting` block on its log entry, visible in the request detail view: the classifier used, the eligible and surviving candidate models, the difficulty, task and output type, the classifier's preferred model and confidence, the band that was served, the selected model and effort, the classifier latency and cost, whether the classifier failed open, and whether the verdict was reused from earlier in the session. For a session it also records what triggered the check (`initial`, `reused`, `mid-turn`, `cache-expired` or `scan`), the recheck's view of how the work changed, why a recheck kept the current choice, and any switch with its reason and cost estimates.
+Every smart-routed request made against a configured list records a `smartRouting` block on its log entry, visible in the request detail view: the classifier used, the eligible and surviving candidate models, the difficulty, task and output type, the classifier's preferred model and confidence, the band that was served, the selected model and effort, the classifier latency and cost, whether the classifier failed open, why it was not consulted (`classifierSkipped`: `single-candidate`, `compliance` or `no-credential`), whether the configured fallback model served the request, and whether the verdict was reused from earlier in the session. With Jev it also records the probability of each difficulty level (`difficultyProbabilities`) and of the five most likely candidate models (`bestModelProbabilities`). Jev returns these typed answers and probabilities rather than a written rationale; the request detail view combines them into a step-by-step **Why this model** explanation. For a session it also records what triggered the check (`initial`, `reused`, `mid-turn`, `cache-expired` or `scan`), the recheck's view of how the work changed, why a recheck kept the current choice, and any switch with its reason and cost estimates.
 
 ## Routing Savings
 

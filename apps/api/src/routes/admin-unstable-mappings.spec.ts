@@ -99,6 +99,7 @@ describe("admin unstable mappings", () => {
 		classification,
 		usedModel = "openai/gpt-4o-mini",
 		usedProvider = "openai",
+		createdAt,
 	}: {
 		providerKeyId?: string | null;
 		hasError?: boolean;
@@ -106,6 +107,7 @@ describe("admin unstable mappings", () => {
 		usedModel?: string;
 		usedProvider?: string;
 		classification?: "client_error" | "gateway_error" | "upstream_error";
+		createdAt?: Date;
 	}) {
 		logIndex++;
 		await db.insert(tables.log).values({
@@ -132,6 +134,7 @@ describe("admin unstable mappings", () => {
 			usedProvider,
 			responseSize: 10,
 			mode: "credits",
+			...(createdAt ? { createdAt } : {}),
 		});
 	}
 
@@ -353,6 +356,35 @@ describe("admin unstable mappings", () => {
 		expect(narrowed.keys).toEqual([]);
 	});
 
+	test("drilldown buckets each error shape across the window", async () => {
+		const bucketMs = 60_000;
+		const tenBucketsMs = 10 * bucketMs;
+		const now = Date.now();
+		const currentBucket = Math.floor(now / bucketMs) * bucketMs;
+		const olderBucket = currentBucket - tenBucketsMs;
+		await seedLog({ hasError: true, createdAt: new Date(now) });
+		await seedLog({ hasError: true, createdAt: new Date(olderBucket + 1000) });
+		await seedLog({ hasError: true, createdAt: new Date(olderBucket + 2000) });
+
+		const res = await app.request(
+			"/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai&window=1h",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as ErrorsBody & {
+			timeline: { bucketSeconds: number; start: number; end: number };
+			errors: { buckets: { start: number; count: number }[] }[];
+		};
+		expect(body.timeline.bucketSeconds).toBe(60);
+		const windowMs = 60 * bucketMs;
+		expect(body.timeline.end - body.timeline.start).toBe(windowMs);
+		expect(body.errors).toHaveLength(1);
+		expect(body.errors[0].buckets).toEqual([
+			{ start: olderBucket, count: 2 },
+			{ start: currentBucket, count: 1 },
+		]);
+	});
+
 	test("filters the ranking to one mapping", async () => {
 		await seedLog({ hasError: true });
 		await seedLog({});
@@ -378,22 +410,28 @@ describe("admin unstable mappings", () => {
 	});
 
 	test("filters the ranking to every mapping of a canonical model", async () => {
-		await seedLog({ usedModel: "openai/gpt-4o", hasError: true });
+		await seedLog({ usedModel: "openai/gpt-5.6-sol", hasError: true });
 		await seedLog({
-			usedModel: "azure/gpt-4o:eastus",
-			usedProvider: "azure",
+			usedModel: "aws-mantle/gpt-5.6-sol:global",
+			usedProvider: "aws-mantle",
 			hasError: true,
 		});
-		await seedLog({ usedModel: "azure/gpt-4o:eastus", usedProvider: "azure" });
+		await seedLog({
+			usedModel: "aws-mantle/gpt-5.6-sol:global",
+			usedProvider: "aws-mantle",
+		});
 		await seedLog({ usedModel: "openai/gpt-4o-mini", hasError: true });
 
-		const body = await getMappings("?modelId=gpt-4o");
-		expect(body.modelId).toBe("gpt-4o");
+		const body = await getMappings("?modelId=gpt-5.6-sol");
+		expect(body.modelId).toBe("gpt-5.6-sol");
 		expect(body.sampledLogs).toBe(3);
 		expect(body.mappings.map((m) => m.usedModel).sort()).toEqual([
-			"azure/gpt-4o:eastus",
-			"openai/gpt-4o",
+			"aws-mantle/gpt-5.6-sol:global",
+			"openai/gpt-5.6-sol",
 		]);
+
+		const unknown = await getMappings("?modelId=um-unknown-model");
+		expect(unknown.sampledLogs).toBe(0);
 	});
 
 	test("scope options cover airside listings and the catalogue", async () => {

@@ -31,6 +31,7 @@ import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-l
 import {
 	isInAlertAudience,
 	isOrganizationAdmin,
+	orgAlertAudience,
 } from "@llmgateway/shared/organization-roles";
 
 import type { ComplianceAlertSettings, organization } from "@llmgateway/db";
@@ -67,19 +68,22 @@ async function modelName(modelId: string): Promise<string> {
 }
 
 /**
- * Whether a user should still receive an org alert: an active member whose
- * role is inside the organization's configured alert audience.
+ * Whether a user should still receive an org alert of `type`: an active member
+ * whose role is inside that alert's audience.
  */
-export async function isComplianceAlertRecipient(
+export async function isOrgAlertRecipient(
 	userId: string,
 	organizationId: string,
+	type: string,
 ): Promise<boolean> {
 	const membership = await db.query.userOrganization.findFirst({
 		where: { userId, organizationId },
 		with: { user: true, organization: true },
 	});
-	const audience =
-		membership?.organization?.complianceAlertSettings?.recipientAudience;
+	const audience = orgAlertAudience(
+		type,
+		membership?.organization?.complianceAlertSettings?.recipientAudience,
+	);
 	return (
 		membership?.user?.status === "active" &&
 		!!audience &&

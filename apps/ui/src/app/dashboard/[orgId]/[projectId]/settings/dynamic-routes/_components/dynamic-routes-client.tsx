@@ -1,10 +1,11 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { CheckCircle, Mail, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useState } from "react";
 
+import { EnterpriseFeatureCard } from "@/components/contact-sales";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
@@ -86,53 +87,23 @@ const STARTER_GRAPH = {
 
 function ContactSalesCard() {
 	return (
-		<Card className="max-w-2xl">
-			<CardHeader>
-				<CardTitle>Enterprise Feature</CardTitle>
-				<CardDescription>
-					Dynamic routes are available on the Enterprise plan
-				</CardDescription>
-			</CardHeader>
-			<CardContent className="space-y-6">
-				<p className="text-muted-foreground">
-					Define named routing flows and invoke them by putting
-					<code className="mx-1 rounded bg-muted px-1.5 py-0.5 text-xs">
-						dynamic/&lt;name&gt;
-					</code>
-					in the model field. Branch on headers, body fields, or request
-					metadata, run percentage-based A/B splits, and publish versioned
-					graphs with instant rollback.
-				</p>
-				<div className="space-y-3">
-					<h4 className="font-medium">What&apos;s included:</h4>
-					<ul className="space-y-2">
-						<li className="flex items-center gap-2 text-sm text-muted-foreground">
-							<CheckCircle className="h-4 w-4 text-primary" />
-							Conditional routing on headers, body fields, and request metadata
-						</li>
-						<li className="flex items-center gap-2 text-sm text-muted-foreground">
-							<CheckCircle className="h-4 w-4 text-primary" />
-							Session-sticky percentage splits for A/B tests and gradual
-							rollouts
-						</li>
-						<li className="flex items-center gap-2 text-sm text-muted-foreground">
-							<CheckCircle className="h-4 w-4 text-primary" />
-							Versioned publishing with instant rollback
-						</li>
-						<li className="flex items-center gap-2 text-sm text-muted-foreground">
-							<CheckCircle className="h-4 w-4 text-primary" />
-							Automatic provider fallback and smart routing per target model
-						</li>
-					</ul>
-				</div>
-				<Button asChild className="gap-2">
-					<a href="mailto:contact@llmgateway.io?subject=Enterprise%20Plan%20Inquiry%20-%20Dynamic%20Routes">
-						<Mail className="h-4 w-4" />
-						Contact Sales
-					</a>
-				</Button>
-			</CardContent>
-		</Card>
+		<EnterpriseFeatureCard
+			description="Dynamic routes are available on the Enterprise plan"
+			features={[
+				"Conditional routing on headers, body fields, and request metadata",
+				"Session-sticky percentage splits for A/B tests and gradual rollouts",
+				"Versioned publishing with instant rollback",
+				"Automatic provider fallback and smart routing per target model",
+			]}
+		>
+			Define named routing flows and invoke them by putting
+			<code className="mx-1 rounded bg-muted px-1.5 py-0.5 text-xs">
+				dynamic/&lt;name&gt;
+			</code>
+			in the model field. Branch on headers, body fields, or request metadata,
+			run percentage-based A/B splits, and publish versioned graphs with instant
+			rollback.
+		</EnterpriseFeatureCard>
 	);
 }
 

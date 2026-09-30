@@ -12,6 +12,7 @@ import {
 
 import type { ModerationApiPayload } from "@llmgateway/db";
 import type { BaseMessage } from "@llmgateway/models";
+import type { ContentFilterInternalScope } from "@llmgateway/shared";
 
 export const INTERNAL_MODERATION_MODEL = "internal-classifier";
 const INTERNAL_CLASSIFY_PATH = "/v1/classify";
@@ -20,8 +21,14 @@ const INTERNAL_CLASSIFY_PATH = "/v1/classify";
 const INTERNAL_MODERATION_TIMEOUT_MS = 5_000;
 /** The service refuses prompts above this many UTF-8 bytes (HTTP 413). */
 export const INTERNAL_MODERATION_MAX_PROMPT_BYTES = 65_536;
+const INTERNAL_MODERATION_CONCURRENCY = 8;
 /** Category recorded when the service blocks without naming a topic. */
 const INTERNAL_BLOCK_CATEGORY = "blocked";
+
+export interface InternalContentFilterCheckResult extends OpenAIContentFilterCheckResult {
+	/** Some chunks were classified, others failed. */
+	partialModerationFailed?: boolean;
+}
 
 interface InternalClassifyResponse {
 	tags?: string[];
@@ -39,6 +46,34 @@ export function getInternalContentFilterUrl(): string | null {
 /** Whether the internal classifier is deployed (its URL is configured). */
 export function hasInternalContentFilterCredential(): boolean {
 	return getInternalContentFilterUrl() !== null;
+}
+
+/**
+ * Split text into pieces the service accepts. It refuses an oversized prompt
+ * rather than scanning a prefix, so a long conversation is classified chunk by
+ * chunk. Splits never cut through a multi-byte character.
+ */
+export function chunkInternalModerationText(
+	text: string,
+	maxBytes: number = INTERNAL_MODERATION_MAX_PROMPT_BYTES,
+): string[] {
+	const bytes = new TextEncoder().encode(text);
+	if (bytes.length <= maxBytes) {
+		return text.length > 0 ? [text] : [];
+	}
+
+	const chunks: string[] = [];
+	let start = 0;
+	while (start < bytes.length) {
+		const end = Math.min(start + maxBytes, bytes.length);
+		const chunk = utf8Slice(bytes, start, end);
+		if (chunk.length === 0) {
+			break;
+		}
+		chunks.push(chunk);
+		start += new TextEncoder().encode(chunk).length;
+	}
+	return chunks;
 }
 
 function utf8Slice(bytes: Uint8Array, start: number, end: number): string {
@@ -227,7 +262,7 @@ async function classifyPrompt(
 	}
 }
 
-function emptyResult(): OpenAIContentFilterCheckResult {
+function emptyResult(): InternalContentFilterCheckResult {
 	return {
 		flagged: false,
 		model: INTERNAL_MODERATION_MODEL,
@@ -248,14 +283,21 @@ export async function checkInternalContentFilter(
 	messages: BaseMessage[],
 	context: GatewayContentFilterContext,
 	requestSignal?: AbortSignal,
-): Promise<OpenAIContentFilterCheckResult> {
+	scope: ContentFilterInternalScope = "full",
+): Promise<InternalContentFilterCheckResult> {
 	const startTime = Date.now();
 	const baseUrl = getInternalContentFilterUrl();
-	const prompt = buildInternalModerationPrompt(messages);
-	if (!baseUrl || prompt.length === 0) {
+	const prompts =
+		scope === "latest_turn"
+			? [buildInternalModerationPrompt(messages)].filter(Boolean)
+			: chunkInternalModerationText(
+					buildOpenAIContentFilterTextInput(messages),
+				);
+	if (!baseUrl || prompts.length === 0) {
 		return emptyResult();
 	}
 
+	const url = `${baseUrl}${INTERNAL_CLASSIFY_PATH}`;
 	const signal = requestSignal
 		? AbortSignal.any([
 				AbortSignal.timeout(INTERNAL_MODERATION_TIMEOUT_MS),
@@ -263,25 +305,37 @@ export async function checkInternalContentFilter(
 			])
 		: AbortSignal.timeout(INTERNAL_MODERATION_TIMEOUT_MS);
 
-	const verdict = await classifyPrompt(
-		`${baseUrl}${INTERNAL_CLASSIFY_PATH}`,
-		prompt,
-		context,
-		signal,
-		requestSignal,
+	const verdicts: Array<InternalClassifyResponse | null> = [];
+	for (let i = 0; i < prompts.length; i += INTERNAL_MODERATION_CONCURRENCY) {
+		verdicts.push(
+			...(await Promise.all(
+				prompts
+					.slice(i, i + INTERNAL_MODERATION_CONCURRENCY)
+					.map((prompt) =>
+						classifyPrompt(url, prompt, context, signal, requestSignal),
+					),
+			)),
+		);
+	}
+
+	const succeeded = verdicts.filter(
+		(verdict): verdict is InternalClassifyResponse => verdict !== null,
 	);
-	if (!verdict) {
+	if (succeeded.length === 0) {
 		return emptyResult();
 	}
 
-	const result = toInternalModerationResult(verdict);
-	const flagged = result.flagged === true;
+	const results = succeeded.map(toInternalModerationResult);
+	const flagged = results.some((result) => result.flagged === true);
 	// The raw verdicts (tags, score, reasons) ride along on the stored
 	// response so reviewers see what fired, not just the block decision.
 	const responses: ModerationApiPayload[] = [
 		{
 			model: INTERNAL_MODERATION_MODEL,
-			results: [{ ...result, ...verdict }],
+			results: results.map((result, index) => ({
+				...result,
+				...succeeded[index],
+			})),
 		},
 	];
 
@@ -295,15 +349,20 @@ export async function checkInternalContentFilter(
 		durationMs: Date.now() - startTime,
 		flagged,
 		model: INTERNAL_MODERATION_MODEL,
-		promptBytes: new TextEncoder().encode(prompt).length,
-		tags: verdict.tags ?? [],
+		scope,
+		requestCount: prompts.length,
+		failedCount: prompts.length - succeeded.length,
+		tags: [...new Set(succeeded.flatMap((verdict) => verdict.tags ?? []))],
 	});
 
 	return {
 		flagged,
 		model: INTERNAL_MODERATION_MODEL,
 		upstreamRequestId: null,
-		results: [result],
+		results,
 		responses,
+		...(succeeded.length < prompts.length
+			? { partialModerationFailed: true }
+			: {}),
 	};
 }

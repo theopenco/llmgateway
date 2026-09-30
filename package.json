@@ -101,20 +101,20 @@
 			"lodash-es@<4.18.0": "^4.18.1",
 			"picomatch@<2.3.2": "^2.3.2",
 			"picomatch@>=4 <4.0.4": "^4.0.4",
-			"fast-uri@<3.1.6": "^3.1.6",
+			"fast-uri@<3.1.8": "^3.1.8",
 			"browserslist@<4.28.7": "^4.28.7",
 			"fast-xml-builder@<1.1.7": "^1.1.7",
 			"uuid@<11.1.1": "^11.1.1",
 			"dompurify@<3.4.13": "^3.4.13",
 			"fast-xml-parser@<5.10.1": "^5.10.1",
 			"postcss@<8.5.18": "^8.5.18",
-			"ip-address@<10.3.1": "^10.3.1",
+			"ip-address@<10.7.2": "^10.7.2",
 			"qs@<6.16.0": "^6.16.0",
 			"yaml@<2.8.3": "^2.8.3",
 			"valibot@<1.4.2": "^1.4.2",
 			"body-parser@<1.20.6": "^1.20.6",
 			"body-parser@>=2 <2.3.0": "^2.3.0",
-			"brace-expansion@<5.0.9": "5.0.9",
+			"brace-expansion@<5.0.12": "5.0.12",
 			"mermaid@>=11 <11.16.1": "^11.16.1",
 			"js-yaml@<4.3.2": "^4.3.2",
 			"mdast-util-to-hast@>=13 <13.2.1": "^13.2.1",
@@ -126,6 +126,7 @@
 			"form-data@<2.5.6": "^2.5.6",
 			"form-data@>=4.0.0 <4.0.6": "^4.0.6",
 			"undici@<6.27.0": "^6.27.0",
+			"undici@>=8 <8.10.2": "^8.10.2",
 			"@opentelemetry/core@<2.8.0": "^2.8.0",
 			"@opentelemetry/propagator-jaeger@<2.9.0": "^2.9.0",
 			"sharp@<0.35.4": "^0.35.4",
@@ -145,9 +146,9 @@
 		},
 		"patchedDependencies": {
 			"gray-matter@4.0.3": "patches/gray-matter@4.0.3.patch",
-			"brace-expansion@5.0.9": "patches/brace-expansion@5.0.9.patch",
 			"react-native-enriched-markdown@1.0.2": "patches/react-native-enriched-markdown@1.0.2.patch",
-			"react-native-audio-api@0.13.3": "patches/react-native-audio-api@0.13.3.patch"
+			"react-native-audio-api@0.13.3": "patches/react-native-audio-api@0.13.3.patch",
+			"brace-expansion@5.0.12": "patches/brace-expansion@5.0.12.patch"
 		}
 	},
 	"dependencies": {

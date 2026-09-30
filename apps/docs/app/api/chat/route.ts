@@ -11,7 +11,10 @@ import { z } from "zod";
 import { source } from "@/lib/source";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
-import { getClientIpFromHeaders } from "@llmgateway/shared/client-ip";
+import {
+	forwardedIpHeaders,
+	getClientIpFromHeaders,
+} from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
 export const runtime = "nodejs";
@@ -208,6 +211,7 @@ export async function POST(req: Request) {
 		apiKey,
 		baseURL: getGatewayApiBaseUrl(),
 		headers: {
+			...forwardedIpHeaders(req.headers),
 			"x-source": "docs-ask-ai",
 		},
 	});

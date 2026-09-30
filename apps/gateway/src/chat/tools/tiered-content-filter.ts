@@ -11,6 +11,7 @@ import type {
 } from "@llmgateway/db";
 import type {
 	ContentFilterClassifier,
+	ContentFilterInternalScope,
 	ContentFilterLevel,
 	ContentFilterSettings,
 } from "@llmgateway/shared";
@@ -36,11 +37,8 @@ export interface TieredContentFilterPlan {
 	exemptReason?: GatewayContentFilterEvaluation["exemptReason"];
 	/** Classifier whose scores decide the outcome. */
 	classifier: ContentFilterClassifier;
-	/**
-	 * Second classifier to run for comparison, or null when none is configured.
-	 * Its verdict is recorded on the log and never changes the action.
-	 */
-	shadowClassifier: ContentFilterClassifier | null;
+	/** What the internal classifier reads; ignored by the others. */
+	internalScope: ContentFilterInternalScope;
 }
 
 export interface TieredContentFilterEvaluation {
@@ -159,13 +157,7 @@ export async function resolveTieredContentFilterPlan(
 		enforce: exemptReason === undefined,
 		...(exemptReason ? { exemptReason } : {}),
 		classifier: settings.classifier,
-		// Shadowing a classifier with itself would just double the cost for an
-		// identical verdict.
-		shadowClassifier:
-			settings.shadowClassifier === "none" ||
-			settings.shadowClassifier === settings.classifier
-				? null
-				: settings.shadowClassifier,
+		internalScope: settings.internalScope,
 	};
 }
 
@@ -217,31 +209,11 @@ export function buildGatewayContentFilterEvaluation(
 	evaluation: TieredContentFilterEvaluation,
 	moderationFailed: boolean,
 	durationMs: number,
-	shadow?: {
-		classifier: ContentFilterClassifier;
-		evaluation: TieredContentFilterEvaluation;
-		moderationFailed: boolean;
-		durationMs: number;
-	},
 ): GatewayContentFilterEvaluation {
 	const blocked = plan.enforce && evaluation.violation;
 	return {
 		sampled: true,
 		classifier: plan.classifier,
-		...(shadow
-			? {
-					shadow: {
-						classifier: shadow.classifier,
-						violation: shadow.evaluation.violation,
-						flagged: shadow.evaluation.flagged,
-						matchedCategories: shadow.evaluation.matchedCategories,
-						categoryScores: shadow.evaluation.categoryScores,
-						moderationFailed: shadow.moderationFailed,
-						durationMs: shadow.durationMs,
-						disagreed: shadow.evaluation.violation !== evaluation.violation,
-					},
-				}
-			: {}),
 		provider: plan.provider,
 		tier: plan.tier,
 		overridden: plan.overridden,
@@ -255,5 +227,8 @@ export function buildGatewayContentFilterEvaluation(
 		categoryScores: evaluation.categoryScores,
 		moderationFailed,
 		durationMs,
+		...(plan.classifier === "internal"
+			? { internalScope: plan.internalScope }
+			: {}),
 	};
 }

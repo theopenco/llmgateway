@@ -693,6 +693,11 @@ const listCredentials = createRoute({
 	request: {
 		query: z.object({
 			provider: z.string().optional(),
+			/**
+			 * Also list soft-deleted credentials. Deleting only flips the status,
+			 * so their lifetime usage and rollup history are still there.
+			 */
+			includeDeleted: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -710,12 +715,12 @@ const listCredentials = createRoute({
 });
 
 adminProviderCredentials.openapi(listCredentials, async (c) => {
-	const { provider } = c.req.valid("query");
+	const { provider, includeDeleted } = c.req.valid("query");
 
 	const rows = await db.query.providerKey.findMany({
 		where: {
 			managed: { eq: true },
-			status: { ne: "deleted" },
+			...(includeDeleted === "true" ? {} : { status: { ne: "deleted" } }),
 			...(provider ? { provider: { eq: provider } } : {}),
 		},
 		orderBy: {
@@ -950,6 +955,18 @@ const spendByOrganizationSchema = z.object({
 	requestCount: z.number(),
 });
 
+const spendByModelSchema = z.object({
+	/** Display id as stored in the rollup: `provider/model[:region]`. */
+	usedModel: z.string(),
+	usedProvider: z.string(),
+	cost: z.number(),
+	requestCount: z.number(),
+	totalTokens: z.string(),
+});
+
+/** Rows returned in the per-model split; the long tail is dropped. */
+const SPEND_MODEL_ROW_LIMIT = 50;
+
 const providerKeySpendSchema = z.object({
 	window: tokenWindowSchema,
 	bucket: z.enum(["hour", "day"]),
@@ -980,6 +997,14 @@ const providerKeySpendSchema = z.object({
 	 * across tenants.
 	 */
 	organizations: z.array(spendByOrganizationSchema),
+	/**
+	 * Spend split by model, highest first. Read from the day-grained
+	 * `global_provider_key_model_stats` (the only per-credential rollup with a
+	 * model dimension), so it covers whole UTC days from `modelsSince` and lags
+	 * the hourly totals above.
+	 */
+	modelsSince: z.string(),
+	models: z.array(spendByModelSchema),
 });
 
 const getProviderKeySpend = createRoute({
@@ -1037,7 +1062,12 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 		gte(tables.providerKeyHourlyStats.hourTimestamp, startDate),
 	);
 
-	const [points, organizations] = await Promise.all([
+	const modelsSince = new Date(startDate);
+	modelsSince.setUTCHours(0, 0, 0, 0);
+	const modelStats = tables.globalProviderKeyModelStats;
+	const modelCost = sql<number>`COALESCE(SUM(cast(${modelStats.cost} as double precision)), 0)`;
+
+	const [points, organizations, models] = await Promise.all([
 		db
 			.select({
 				timestamp: bucketLabelExpr.as("bucket"),
@@ -1097,6 +1127,31 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 				),
 			)
 			.limit(20),
+		db
+			.select({
+				usedModel: modelStats.usedModel,
+				usedProvider: modelStats.usedProvider,
+				cost: modelCost.as("cost"),
+				requestCount:
+					sql<number>`COALESCE(SUM(${modelStats.requestCount}), 0)`.as(
+						"request_count",
+					),
+				totalTokens:
+					sql<string>`COALESCE(SUM(CAST(${modelStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"total_tokens",
+					),
+			})
+			.from(modelStats)
+			.where(
+				and(
+					eq(modelStats.providerKeyId, providerKeyId),
+					gte(modelStats.dayTimestamp, modelsSince),
+				),
+			)
+			.groupBy(modelStats.usedModel, modelStats.usedProvider)
+			.having(sql`SUM(${modelStats.requestCount}) > 0`)
+			.orderBy(desc(modelCost), desc(sql`SUM(${modelStats.requestCount})`))
+			.limit(SPEND_MODEL_ROW_LIMIT),
 	]);
 
 	const data = points.map((point) => ({
@@ -1131,6 +1186,14 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 			organizationName: row.organizationName,
 			cost: Number(row.cost),
 			requestCount: Number(row.requestCount),
+		})),
+		modelsSince: modelsSince.toISOString(),
+		models: models.map((row) => ({
+			usedModel: row.usedModel,
+			usedProvider: row.usedProvider,
+			cost: Number(row.cost),
+			requestCount: Number(row.requestCount),
+			totalTokens: String(row.totalTokens),
 		})),
 	});
 });

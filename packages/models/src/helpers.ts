@@ -191,6 +191,7 @@ const OPENAI_EXPLICIT_PROMPT_CACHE_MODELS = new Set<string>([
 	"gpt-5.6-luna",
 	"gpt-6-astra",
 	"gpt-6-sol",
+	"gpt-6.1-sol",
 	"gpt-6-luna",
 ]);
 

@@ -27,12 +27,18 @@ interface ContentFilterProvider {
 }
 
 type Classifier = ContentFilterSettingsInput["classifier"];
-type ShadowClassifier = ContentFilterSettingsInput["shadowClassifier"];
 
 const CLASSIFIER_LABELS: Record<Classifier, string> = {
 	openai: "OpenAI moderation",
 	jev: "Jev (TypeSafe)",
 	internal: "Internal classifier",
+};
+
+type InternalScope = ContentFilterSettingsInput["internalScope"];
+
+const INTERNAL_SCOPE_LABELS: Record<InternalScope, string> = {
+	full: "Whole conversation",
+	latest_turn: "Latest turn only",
 };
 
 interface ContentFilterSettingsFormProps {
@@ -42,7 +48,7 @@ interface ContentFilterSettingsFormProps {
 		enforce: boolean;
 		enforceEnterprise: boolean;
 		classifier: Classifier;
-		shadowClassifier: ShadowClassifier;
+		internalScope: InternalScope;
 		providers: ContentFilterProvider[];
 	};
 	onSave: (
@@ -65,8 +71,8 @@ export function ContentFilterSettingsForm({
 		settings.enforceEnterprise,
 	);
 	const [classifier, setClassifier] = useState<Classifier>(settings.classifier);
-	const [shadowClassifier, setShadowClassifier] = useState<ShadowClassifier>(
-		settings.shadowClassifier,
+	const [internalScope, setInternalScope] = useState<InternalScope>(
+		settings.internalScope,
 	);
 	const [providerIds, setProviderIds] = useState<string[]>(() =>
 		settings.providers.filter((p) => p.enabled).map((p) => p.id),
@@ -94,7 +100,7 @@ export function ContentFilterSettingsForm({
 				enforce,
 				enforceEnterprise: savedEnforceEnterprise,
 				classifier,
-				shadowClassifier,
+				internalScope,
 				providerIds,
 			});
 			if (!result.ok) {
@@ -170,6 +176,8 @@ export function ContentFilterSettingsForm({
 						Off records violations as metadata only. On returns the gateway
 						content filter response for requests over their tier&apos;s
 						thresholds. Organizations marked log-only are never blocked.
+						Requests that cannot be blocked are classified in the background and
+						add no latency; only blocking checks run before the provider call.
 					</p>
 				</div>
 			</div>
@@ -203,10 +211,6 @@ export function ContentFilterSettingsForm({
 					onValueChange={(value) => {
 						setSaved(false);
 						setClassifier(value as Classifier);
-						// A classifier never shadows itself.
-						if (shadowClassifier === value) {
-							setShadowClassifier("none");
-						}
 					}}
 				>
 					<SelectTrigger id="content-filter-classifier" className="w-64">
@@ -230,38 +234,41 @@ export function ContentFilterSettingsForm({
 				</p>
 			</div>
 
-			<div className="space-y-2">
-				<Label htmlFor="content-filter-shadow-classifier">
-					Shadow classifier
-				</Label>
-				<Select
-					value={shadowClassifier}
-					disabled={pending}
-					onValueChange={(value) => {
-						setSaved(false);
-						setShadowClassifier(value as ShadowClassifier);
-					}}
-				>
-					<SelectTrigger id="content-filter-shadow-classifier" className="w-64">
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="none">None</SelectItem>
-						{(Object.keys(CLASSIFIER_LABELS) as Classifier[])
-							.filter((option) => option !== classifier)
-							.map((option) => (
-								<SelectItem key={option} value={option}>
-									{CLASSIFIER_LABELS[option]}
-								</SelectItem>
-							))}
-					</SelectContent>
-				</Select>
-				<p className="text-xs text-muted-foreground">
-					Runs on the same sampled requests for comparison and is recorded on
-					the request log, including whether it disagreed. It never blocks, and
-					it doubles the moderation cost of a sampled request.
-				</p>
-			</div>
+			{classifier === "internal" && (
+				<div className="space-y-2">
+					<Label htmlFor="content-filter-internal-scope">
+						Internal classifier input
+					</Label>
+					<Select
+						value={internalScope}
+						disabled={pending}
+						onValueChange={(value) => {
+							setSaved(false);
+							setInternalScope(value as InternalScope);
+						}}
+					>
+						<SelectTrigger id="content-filter-internal-scope" className="w-64">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{(Object.keys(INTERNAL_SCOPE_LABELS) as InternalScope[]).map(
+								(option) => (
+									<SelectItem key={option} value={option}>
+										{INTERNAL_SCOPE_LABELS[option]}
+									</SelectItem>
+								),
+							)}
+						</SelectContent>
+					</Select>
+					<p className="text-xs text-muted-foreground">
+						Whole conversation classifies every message, in as many requests as
+						its size needs; long agent histories can take seconds, which only
+						delays requests when blocking is on. Latest turn only sends the
+						system prompt plus the messages after the last assistant reply, in
+						one request.
+					</p>
+				</div>
+			)}
 
 			<div className="space-y-2">
 				<div className="flex items-center justify-between gap-3">

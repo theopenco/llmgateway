@@ -21,6 +21,18 @@ export const CONTENT_FILTER_CLASSIFIERS = [
 export type ContentFilterClassifier =
 	(typeof CONTENT_FILTER_CLASSIFIERS)[number];
 
+/**
+ * What the internal classifier reads.
+ * - `full`: the whole conversation, split into as many requests as its size
+ *   limit needs. Slow on long agent histories.
+ * - `latest_turn`: the system prompt plus the turn after the last assistant
+ *   message, in one request.
+ */
+export const CONTENT_FILTER_INTERNAL_SCOPES = ["full", "latest_turn"] as const;
+
+export type ContentFilterInternalScope =
+	(typeof CONTENT_FILTER_INTERNAL_SCOPES)[number];
+
 export const contentFilterSettingsSchema = z.object({
 	// Master switch for sampling requests through the moderation API.
 	enabled: z.boolean().default(true),
@@ -33,13 +45,7 @@ export const contentFilterSettingsSchema = z.object({
 	enforceEnterprise: z.boolean().default(false),
 	// Classifier whose scores decide the outcome.
 	classifier: z.enum(CONTENT_FILTER_CLASSIFIERS).default("openai"),
-	// Optional second classifier, run on the same request for comparison. Its
-	// verdict is recorded on the log's evaluation and never blocks. "none"
-	// disables the comparison run; the deciding classifier is never shadowed by
-	// itself.
-	shadowClassifier: z
-		.enum([...CONTENT_FILTER_CLASSIFIERS, "none"])
-		.default("none"),
+	internalScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES).default("full"),
 });
 
 export type ContentFilterSettings = z.infer<typeof contentFilterSettingsSchema>;

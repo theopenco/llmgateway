@@ -7,6 +7,7 @@ import {
 	projectHourlyStats,
 	projectHourlyModelStats,
 	projectHourlySourceStats,
+	projectHourlySourceModelStats,
 	projectHourlyRoutingStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
@@ -504,6 +505,86 @@ async function recalculateProjectHourlySourceStats(
 	}
 }
 
+function getSourceModelAggregationFields() {
+	const base = getBaseAggregationFields();
+	const common = getCommonAggregationFields();
+	return {
+		requestCount: base.requestCount,
+		errorCount: base.errorCount,
+		cacheCount: base.cacheCount,
+		inputTokens: base.inputTokens,
+		outputTokens: base.outputTokens,
+		totalTokens: base.totalTokens,
+		reasoningTokens: base.reasoningTokens,
+		cachedTokens: base.cachedTokens,
+		cacheWriteTokens: base.cacheWriteTokens,
+		cost: base.cost,
+		creditsRequestCount: common.creditsRequestCount,
+		apiKeysRequestCount: common.apiKeysRequestCount,
+		creditsCost: common.creditsCost,
+		apiKeysCost: common.apiKeysCost,
+	};
+}
+
+/**
+ * Calculate hourly source × model statistics for a batch of projects.
+ * NULL log.source is bucketed under the literal 'unknown'.
+ */
+export async function recalculateProjectHourlySourceModelStats(
+	projectIds: string[],
+	hourTimestamp: string,
+	window: LogWindow = {},
+	database: StatsDatabase = db,
+) {
+	const rows = await database
+		.select({
+			projectId: log.projectId,
+			source: sql<string>`coalesce(${log.source}, 'unknown')`.as("source"),
+			usedModel: log.usedModel,
+			usedProvider: log.usedProvider,
+			...getSourceModelAggregationFields(),
+		})
+		.from(log)
+		.where(
+			and(
+				inArray(log.projectId, projectIds),
+				hourLogWindow(hourTimestamp, window),
+			),
+		)
+		.groupBy(
+			log.projectId,
+			sql`coalesce(${log.source}, 'unknown')`,
+			log.usedModel,
+			log.usedProvider,
+		);
+
+	for (let offset = 0; offset < rows.length; offset += STATS_WRITE_BATCH_SIZE) {
+		await database
+			.insert(projectHourlySourceModelStats)
+			.values(
+				rows.slice(offset, offset + STATS_WRITE_BATCH_SIZE).map((stat) => ({
+					...stat,
+					hourTimestamp: sql`${hourTimestamp}::timestamp`,
+				})),
+			)
+			.onConflictDoUpdate({
+				target: [
+					projectHourlySourceModelStats.projectId,
+					projectHourlySourceModelStats.hourTimestamp,
+					projectHourlySourceModelStats.source,
+					projectHourlySourceModelStats.usedModel,
+					projectHourlySourceModelStats.usedProvider,
+				],
+				...statsUpdate(
+					getTableColumns(projectHourlySourceModelStats),
+					getSourceModelAggregationFields(),
+					true,
+					window.accumulate,
+				),
+			});
+	}
+}
+
 function getRoutingAggregationFields() {
 	return {
 		requestCount: sql<number>`count(*)::int`.as("requestCount"),
@@ -861,6 +942,12 @@ async function recalculateBucket(
 			tx,
 		);
 		await recalculateProjectHourlySourceStats(
+			projectIds,
+			hourTimestamp,
+			window,
+			tx,
+		);
+		await recalculateProjectHourlySourceModelStats(
 			projectIds,
 			hourTimestamp,
 			window,

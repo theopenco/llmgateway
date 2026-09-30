@@ -1,10 +1,10 @@
 ---
 title: Notifications
-description: Receive budget, model retirement, provider health, and compliance alerts
+description: Receive budget, model retirement, provider health, compliance, and organization limit alerts
 icon: Bell
 ---
 
-Open the **Notifications** bell in the dashboard header, then select **Notification settings**. Choose **In-app**, **Email**, both, or neither for each alert type. Most alerts start disabled; the two compliance alerts start enabled for everyone in the organization's alert audience. Email delivery always requires a verified email address. Your preferences apply across projects you can access.
+Open the **Notifications** bell in the dashboard header, then select **Notification settings**. Choose **In-app**, **Email**, both, or neither for each alert type. Most alerts start disabled; the compliance alerts start enabled for everyone in the organization's alert audience, and organization limit alerts start enabled for owners and admins. Email delivery always requires a verified email address. Your preferences apply across projects you can access.
 
 | Alert                        | When it appears                                                                                                                                                                   |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -13,8 +13,9 @@ Open the **Notifications** bell in the dashboard header, then select **Notificat
 | Provider issues              | A provider you used in the last 30 days has elevated upstream errors in its recent traffic.                                                                                       |
 | Compliance: models available | A model your organization watches becomes routable under its [compliance policy](/features/compliance#compliance-alerts).                                                         |
 | Compliance: downgrades       | A provider, or a watched model, stops meeting your organization's compliance policy.                                                                                              |
+| Organization limits          | A seat or API key limit blocks directory sync (SCIM), an SSO sign-in, an invite, or a new API key. Sent to owners and admins.                                                     |
 
-Budget alerts repeat for each new recurring period, or when you change the limit or alert threshold. Unlimited keys do not trigger budget warnings. Each scheduled model retirement is announced once; ongoing provider issues produce at most one alert per day per project, or per accessible key for developers.
+Organization limit alerts are sent at most once per day for each kind of limit; rejected directory sync pushes are also listed in the [audit log](/features/audit-logs). Budget alerts repeat for each new recurring period, or when you change the limit or alert threshold. Unlimited keys do not trigger budget warnings. Each scheduled model retirement is announced once; ongoing provider issues produce at most one alert per day per project, or per accessible key for developers.
 
 Provider alerts require at least 20 non-cached, non-client-error requests and an upstream error rate of at least 20% in the latest hourly statistics window. Stale statistics do not trigger alerts. Checks run about once a minute; these warnings are not a guarantee that every outage or budget crossing will be caught before a request fails.
 

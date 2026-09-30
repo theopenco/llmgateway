@@ -939,6 +939,7 @@ export const notificationTypes = [
 	"provider_issue",
 	"model_available",
 	"compliance_downgrade",
+	"org_limit",
 ] as const;
 
 const emailCategories = [
@@ -2418,10 +2419,15 @@ export const log = pgTable(
 				candidateModels: string[];
 				difficulty?: "low" | "medium" | "high";
 				difficultyScore?: number;
+				difficultyProbabilities?: Partial<
+					Record<"low" | "medium" | "high", number>
+				>;
 				task?: string;
 				outputType?: string;
 				bestModel?: string;
 				bestModelConfidence?: number;
+				// The classifier's top candidates by probability, highest first.
+				bestModelProbabilities?: Record<string, number>;
 				band?: "low" | "medium" | "high";
 				selectedModel: string;
 				classifierLatencyMs?: number;
@@ -2429,6 +2435,10 @@ export const log = pgTable(
 				// log row. Absent when it made none.
 				classifierCost?: number;
 				classifierFailed: boolean;
+				// Why a configured classifier was not consulted at all.
+				classifierSkipped?: "single-candidate" | "compliance" | "no-credential";
+				// True when the configured fallback model served a verdict-less request.
+				usedFallback?: boolean;
 				// True when the verdict served came from another turn of the same
 				// sticky session rather than from this request.
 				classifierReused?: boolean;
@@ -4119,9 +4129,8 @@ export const routingExclusionHourly = pgTable(
 // Sentinel category for the per-(org, project, hour) totals row.
 export const CONTENT_FILTER_STATS_ALL_CATEGORY = "all";
 
-// Whose verdict a content filter stats row counts: the classifier that decided
-// the action, or the shadow classifier run alongside it for comparison. Shadow
-// rows never block, so their blockedCount is always 0.
+// Whose verdict a content filter stats row counts. Only "deciding" is written;
+// "shadow" rows come from the removed shadow classifier and never blocked.
 export const contentFilterStatsRoles = ["deciding", "shadow"] as const;
 
 // Hourly rollup of log.gatewayContentFilterEvaluation, so abuse rates can be
@@ -4354,6 +4363,7 @@ export const auditLogActions = [
 	"scim_token.revoke",
 	// SCIM directory sync (IdP-initiated)
 	"scim.user.provision",
+	"scim.user.provision_failed",
 	"scim.user.update",
 	"scim.user.activate",
 	"scim.user.deactivate",
@@ -5729,6 +5739,51 @@ export const projectHourlySourceStats = pgTable(
 		index("project_hourly_source_stats_source_hour_timestamp_idx").on(
 			table.source,
 			table.hourTimestamp,
+		),
+	],
+);
+
+// Per-project source × model rollup: powers the per-agent model breakdown on
+// the agents dashboard. Carries only volume, token and cost measures; the
+// full metric set lives on projectHourlySourceStats / projectHourlyModelStats.
+// NULL log.source is stored as 'unknown', like projectHourlySourceStats.
+export const projectHourlySourceModelStats = pgTable(
+	"project_hourly_source_model_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text().notNull(),
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		source: text().notNull(),
+		usedModel: text().notNull(),
+		usedProvider: text().notNull(),
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
+		cost: real().notNull().default(0),
+		creditsRequestCount: integer().notNull().default(0),
+		apiKeysRequestCount: integer().notNull().default(0),
+		creditsCost: real().notNull().default(0),
+		apiKeysCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Also serves dashboard reads (project + time range).
+		unique("project_hourly_source_model_stats_bucket_unique").on(
+			table.projectId,
+			table.hourTimestamp,
+			table.source,
+			table.usedModel,
+			table.usedProvider,
 		),
 	],
 );

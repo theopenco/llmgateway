@@ -16,6 +16,7 @@ import { resolvePlaygroundToken } from "@/utils/playground-key.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { logger } from "@llmgateway/logger";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { loungeConnectorIds } from "@llmgateway/shared/lounge-connectors";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
@@ -146,6 +147,7 @@ loungeChat.openapi(
 			apiKey: token,
 			baseURL: getGatewayApiBaseUrl(),
 			headers: {
+				...forwardedIpHeaders(c.req.raw.headers),
 				"x-source": LOUNGE_SOURCE,
 				...(body.model.includes("/") && { "x-no-fallback": "true" }),
 			},

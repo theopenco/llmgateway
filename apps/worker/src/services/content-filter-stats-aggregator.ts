@@ -57,10 +57,9 @@ function hourWindow(targetHour: Date) {
  * evaluations without a violation are excluded from sampledCount; partial
  * checks with a proven violation remain in both counts.
  *
- * Every row is keyed by classifier and role: the deciding classifier's verdict,
- * plus the shadow classifier's verdict on the same requests (never blocked).
- * The "all" rows also carry classifier durations, failed checks included, as
- * their latency still held the request.
+ * Every row is keyed by classifier and role; role is always "deciding" since
+ * the shadow classifier was removed, and a legacy shadow verdict is ignored.
+ * The "all" rows also carry classifier durations, failed checks included.
  */
 export async function calculateContentFilterStatsForHour(targetHour: Date) {
 	const { start, startUtc } = hourWindow(targetHour);
@@ -86,8 +85,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 				evaluation.action,
 				evaluation."matchedCategories" as matched_categories,
 				coalesce(evaluation."moderationFailed", false) as moderation_failed,
-				evaluation."durationMs" as duration_ms,
-				evaluation.shadow
+				evaluation."durationMs" as duration_ms
 			from ${log}
 			cross join lateral jsonb_to_record(${log.gatewayContentFilterEvaluation}) as evaluation(
 				classifier text,
@@ -95,8 +93,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 				action text,
 				"matchedCategories" jsonb,
 				"moderationFailed" boolean,
-				"durationMs" double precision,
-				shadow jsonb
+				"durationMs" double precision
 			)
 			where ${log.createdAt} >= ${startUtc}::timestamp
 				and ${log.createdAt} < ${startUtc}::timestamp + interval '1 hour'
@@ -129,16 +126,6 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 					matched_categories,
 					moderation_failed,
 					round(duration_ms)::bigint as duration_ms
-				union all
-				select
-					shadow->>'classifier',
-					'shadow',
-					coalesce((shadow->>'violation')::boolean, false),
-					false,
-					shadow->'matchedCategories',
-					coalesce((shadow->>'moderationFailed')::boolean, false),
-					round((shadow->>'durationMs')::double precision)::bigint
-				where shadow is not null and shadow->>'classifier' is not null
 			) as verdict
 		)
 		select

@@ -190,6 +190,8 @@ export const xiaomiModels = [
 			{
 				providerId: "tencent",
 				externalId: "mimo-v2.5-pro",
+				// TokenHub retires this model at 2026-10-20 23:59:59 Beijing time.
+				deactivatedAt: new Date("2026-10-20T16:00:00Z"),
 				inputPrice: "0.435e-6",
 				cachedInputPrice: "0.0036e-6",
 				outputPrice: "0.87e-6",

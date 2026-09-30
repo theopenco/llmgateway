@@ -4,6 +4,7 @@ import {
 	selectSmartRoutingCandidate,
 	type RequestClassification,
 	type SmartRoutingClassifier,
+	type SmartRoutingClassifierSkipReason,
 	type SmartRoutingDifficulty,
 	type SmartRoutingEffort,
 	type SmartRoutingWorkChange,
@@ -248,14 +249,21 @@ export async function selectSmartRoutingModel<
 	let classifierLatencyMs: number | undefined;
 	let classifierCost: number | undefined;
 	let classifierAttempted = false;
+	// Why a configured classifier was not consulted, so the log tells a skipped
+	// call apart from a verdict-less cheapest pick.
+	let classifierSkipped: SmartRoutingClassifierSkipReason | undefined;
 	let freshVerdict: RequestClassification | null = null;
 	const runClassifier = async (recheck?: RequestClassifierRecheck) => {
+		if (classifier !== "jev") {
+			return null;
+		}
 		// A single candidate has nothing to choose between, so skip the call.
-		if (
-			classifier !== "jev" ||
-			sorted.length < 2 ||
-			!params.classifierAllowed
-		) {
+		if (sorted.length < 2) {
+			classifierSkipped = "single-candidate";
+			return null;
+		}
+		if (!params.classifierAllowed) {
+			classifierSkipped = "compliance";
 			return null;
 		}
 		// The lookup reads the managed-credential table, which throws when both
@@ -267,6 +275,7 @@ export async function selectSmartRoutingModel<
 			classifierAttempted = false;
 		}
 		if (!classifierAttempted) {
+			classifierSkipped = "no-credential";
 			return null;
 		}
 		freshVerdict = await classifyRequest(
@@ -304,6 +313,7 @@ export async function selectSmartRoutingModel<
 	let workChange: SmartRoutingWorkChange | undefined;
 	let keptReason: string | undefined;
 	let change: SmartRoutingSwitch | undefined;
+	let usedFallback = false;
 
 	const adopt = (entry: SmartRoutingSessionEntry) => {
 		const index = sorted.findIndex(
@@ -329,6 +339,7 @@ export async function selectSmartRoutingModel<
 		if (fallbackIndex >= 0) {
 			candidate = sorted[fallbackIndex];
 			band = bands[fallbackIndex];
+			usedFallback = true;
 		} else {
 			const selection = selectSmartRoutingCandidate(sorted, classification);
 			if (!selection) {
@@ -527,15 +538,23 @@ export async function selectSmartRoutingModel<
 			candidateModels: sorted.map((entry) => entry.modelId),
 			difficulty: classification?.difficulty,
 			difficultyScore: classification?.difficultyScore,
+			...(classification?.difficultyProbabilities
+				? { difficultyProbabilities: classification.difficultyProbabilities }
+				: {}),
 			task: classification?.task,
 			outputType: classification?.outputType,
 			bestModel: classification?.bestModel,
 			bestModelConfidence: classification?.bestModelConfidence,
+			...(classification?.bestModelProbabilities
+				? { bestModelProbabilities: classification.bestModelProbabilities }
+				: {}),
 			band,
 			selectedModel: candidate.modelId,
 			classifierLatencyMs,
 			classifierCost,
 			classifierFailed: classifierAttempted && freshVerdict === null,
+			...(classifierSkipped ? { classifierSkipped } : {}),
+			...(usedFallback ? { usedFallback: true } : {}),
 			...(verdictReused ? { classifierReused: true } : {}),
 			...(trigger ? { trigger } : {}),
 			...(effort
