@@ -6,6 +6,8 @@ import {
 } from "@llmgateway/models";
 import { isMappingDeactivated } from "@llmgateway/shared/components";
 
+import type { ApiModel } from "@llmgateway/shared/components";
+
 function getActiveModelCountsByProvider(): Record<string, number> {
 	const counts: Record<string, number> = {};
 	for (const model of modelDefinitions as readonly ModelDefinition[]) {
@@ -35,8 +37,31 @@ export const publicProviderDefinitions = providerDefinitions.filter(
 );
 
 export const listedProviders = publicProviderDefinitions.filter(
-	(provider) => (activeModelCounts[provider.id] ?? 0) > 0,
+	(provider) =>
+		(activeModelCounts[provider.id] ?? 0) > 0 ||
+		("managedInAirside" in provider && provider.managedInAirside === true),
 );
+
+/** Active models per provider in the API catalogue, Airside listings included. */
+export function countApiModelsByProvider(
+	apiModels: ApiModel[],
+): Record<string, number> {
+	const counts: Record<string, number> = {};
+	for (const model of apiModels) {
+		const providerIds = new Set(
+			model.mappings
+				.filter(
+					(mapping) =>
+						mapping.status === "active" && !isMappingDeactivated(mapping),
+				)
+				.map((mapping) => mapping.providerId),
+		);
+		for (const providerId of Array.from(providerIds)) {
+			counts[providerId] = (counts[providerId] ?? 0) + 1;
+		}
+	}
+	return counts;
+}
 
 /** Distinct models routable through at least one of the given providers. */
 export function countModelsForProviders(providerIds: Set<string>) {

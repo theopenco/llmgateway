@@ -207,6 +207,11 @@ export interface ProviderDefinition {
 	 * to this provider. Informational only; request preparation does not use it.
 	 */
 	forwardsSafetyIdentifier: boolean;
+	/**
+	 * The provider's models are Airside listings only: the static catalogue
+	 * carries no mappings for it, and model counts come from the API.
+	 */
+	managedInAirside?: boolean;
 	// Environment variable configuration
 	env: ProviderEnvConfig;
 	// Whether the provider supports streaming
@@ -1528,6 +1533,7 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "scx-ai",
+		managedInAirside: true,
 		name: "SCX.ai (Turbo)",
 		forwardsSafetyIdentifier: false,
 		description:
@@ -1559,6 +1565,7 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "scx-ai-gp",
+		managedInAirside: true,
 		name: "SCX.ai",
 		forwardsSafetyIdentifier: false,
 		description:
@@ -1970,6 +1977,7 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "runware",
+		managedInAirside: true,
 		name: "Runware",
 		forwardsSafetyIdentifier: false,
 		description:
@@ -2001,6 +2009,7 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "gonka24",
+		managedInAirside: true,
 		name: "Gonka24",
 		forwardsSafetyIdentifier: false,
 		description:
@@ -2097,6 +2106,7 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "consensusprotocol",
+		managedInAirside: true,
 		name: "Consensus Protocol",
 		forwardsSafetyIdentifier: false,
 		description:

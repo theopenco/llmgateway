@@ -1752,15 +1752,17 @@ describe("getCheapestFromAvailableProviders", () => {
 				).toBe(true);
 			});
 
-			it("reports cache support for a runware mapping with a cached price", () => {
-				const runwareMapping = models
-					.find((model) => model.id === "deepseek-v4-flash")
-					?.providers.find(
-						(provider) => provider.providerId === "runware",
-					) as ProviderModelMapping;
+			it("reports cache support for an Airside listing with a cached price", () => {
+				const listingMapping: ProviderModelMapping = {
+					providerId: "runware",
+					externalId: "deepseek-v4-flash",
+					inputPrice: "0.14e-6",
+					outputPrice: "0.28e-6",
+					cachedInputPrice: "0.028e-6",
+					streaming: true,
+				};
 
-				expect(runwareMapping.cachedInputPrice).toBeDefined();
-				expect(providerSupportsCaching(runwareMapping)).toBe(true);
+				expect(providerSupportsCaching(listingMapping)).toBe(true);
 			});
 		});
 	});
