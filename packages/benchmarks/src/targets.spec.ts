@@ -6,10 +6,10 @@ describe("resolveBenchmarkTargets", () => {
 	it("resolves selected provider mappings to pinned model ids", () => {
 		const targets = resolveBenchmarkTargets({
 			modelIds: ["deepseek-v4-flash"],
-			mappings: ["runware", "canopywave"],
+			mappings: ["deepinfra", "canopywave"],
 		});
 		expect(targets.map((target) => target.id)).toEqual([
-			"runware/deepseek-v4-flash",
+			"deepinfra/deepseek-v4-flash",
 			"canopywave/deepseek-v4-flash",
 		]);
 	});

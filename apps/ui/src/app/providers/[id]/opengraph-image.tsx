@@ -89,10 +89,12 @@ export default async function ProviderOgImage({ params }: ImageProps) {
 		mark: <Icon {...ogIconSize(Icon, 68)} />,
 		chips,
 		stats: [
-			{
-				label: modelCount === 1 ? "Model" : "Models",
-				value: String(modelCount),
-			},
+			"managedInAirside" in provider && provider.managedInAirside
+				? { label: "Models", value: "Airside" }
+				: {
+						label: modelCount === 1 ? "Model" : "Models",
+						value: String(modelCount),
+					},
 			{ label: "Headquarters", value: headquarters },
 			trainingStat,
 		],
