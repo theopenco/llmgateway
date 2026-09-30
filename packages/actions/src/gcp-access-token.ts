@@ -86,7 +86,7 @@ function signJwt(sa: ServiceAccountKey): string {
 	const claim = {
 		iss: sa.client_email,
 		scope: "https://www.googleapis.com/auth/cloud-platform",
-		aud: GOOGLE_OAUTH_TOKEN_URI,
+		aud: TOKEN_URI,
 		iat,
 		exp: iat + 3600,
 	};
@@ -147,9 +147,6 @@ export async function getGcpServiceAccountAccessToken(
 		throw new Error(
 			"Invalid GCP service account key — must be valid service account JSON",
 		);
-	}
-	if (sa.token_uri !== TOKEN_URI) {
-		throw new Error("Invalid GCP service account token_uri");
 	}
 
 	const key = cacheKey(sa);
