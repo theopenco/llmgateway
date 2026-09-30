@@ -4362,6 +4362,7 @@ export const auditLogActions = [
 	"scim_token.revoke",
 	// SCIM directory sync (IdP-initiated)
 	"scim.user.provision",
+	"scim.user.provision_failed",
 	"scim.user.update",
 	"scim.user.activate",
 	"scim.user.deactivate",
