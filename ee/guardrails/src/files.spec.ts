@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { db, defaultSystemRulesConfig, eq, tables } from "@llmgateway/db";
 
 import { checkGuardrails } from "./engine.js";
-import { fileTypesRule } from "./rules/system/files.js";
+import { checkFileType, fileTypesRule } from "./rules/system/files.js";
 
 import type { MessageContent } from "./types.js";
 
@@ -151,6 +151,38 @@ describe("file guardrails", () => {
 				false,
 			);
 			expect(result.blocked).toBe(false);
+		});
+	});
+
+	describe("allow-list entries", () => {
+		// The dashboard's default list stores extensions, not MIME types.
+		const dashboardDefault = ["pdf", "txt", "md", "csv", "json", "xml"];
+
+		it.each([
+			"application/pdf",
+			"text/plain",
+			"text/markdown",
+			"text/csv",
+			"application/json",
+			"application/xml",
+			"text/xml",
+			"Application/PDF; charset=binary",
+		])("matches %s against dashboard extensions", (mimeType) => {
+			expect(checkFileType(mimeType, dashboardDefault)).toBe(true);
+		});
+
+		it.each(["image/png", "audio/mpeg", "application/zip", "unknown"])(
+			"does not match %s against dashboard extensions",
+			(mimeType) => {
+				expect(checkFileType(mimeType, dashboardDefault)).toBe(false);
+			},
+		);
+
+		it("accepts MIME types, dotted extensions, and wildcards", () => {
+			expect(checkFileType("image/png", ["image/png"])).toBe(true);
+			expect(checkFileType("image/jpeg", [".JPG"])).toBe(true);
+			expect(checkFileType("image/webp", ["image/*"])).toBe(true);
+			expect(checkFileType("audio/wav", ["image/*"])).toBe(false);
 		});
 	});
 });

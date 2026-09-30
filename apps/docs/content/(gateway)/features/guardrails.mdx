@@ -104,7 +104,7 @@ Control which file types can be uploaded:
 
 The configured MIME allow-list applies to inline data URLs, image and file attachments, and audio input. Remote images are downloaded once with the configured size limit before validation, then that verified payload is sent upstream. This adds a download before the model request. Provider file IDs cannot be inspected and are rejected while file restrictions are enabled; send the file as a data URL instead. File attachments cannot be redacted, so a file rule set to redact blocks them.
 
-- Configure allowed MIME types
+- Configure allowed types as MIME types (`application/pdf`), wildcards (`image/*`), or extensions (`pdf`)
 - Set maximum file size limits
 - Block potentially dangerous file types
 
