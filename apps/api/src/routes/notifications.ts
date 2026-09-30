@@ -11,6 +11,7 @@ import {
 	getSuppressedCategories,
 	inArray,
 	isNull,
+	ne,
 	notification,
 	notificationPreference,
 	notificationTypes,
@@ -23,7 +24,10 @@ import {
 	emailCategories,
 	isNotificationCategory,
 } from "@llmgateway/shared/email-unsubscribe";
-import { isInAlertAudience } from "@llmgateway/shared/organization-roles";
+import {
+	isInAlertAudience,
+	orgAlertAudience,
+} from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -53,13 +57,17 @@ const notificationSchema = z.object({
 const orgAlertTypes = new Set<string>([
 	"model_available",
 	"compliance_downgrade",
+	"org_limit",
 ]);
 
 /**
- * Orgs whose compliance alerts the user may still read: a member whose role is
- * inside the organization's configured alert audience.
+ * Orgs whose alerts of `type` the user may still read: a member whose role is
+ * inside that alert type's audience.
  */
-async function alertOrganizationIds(userId: string): Promise<string[]> {
+async function alertOrganizationIds(
+	userId: string,
+	type: string,
+): Promise<string[]> {
 	const memberships = await db.query.userOrganization.findMany({
 		columns: { organizationId: true, role: true },
 		where: { userId },
@@ -67,17 +75,21 @@ async function alertOrganizationIds(userId: string): Promise<string[]> {
 	});
 	return memberships
 		.filter((m) => {
-			const audience =
-				m.organization?.complianceAlertSettings?.recipientAudience;
+			const audience = orgAlertAudience(
+				type,
+				m.organization?.complianceAlertSettings?.recipientAudience,
+			);
 			return !!audience && isInAlertAudience(m.role, audience);
 		})
 		.map((m) => m.organizationId);
 }
 
 async function visibility(userId: string) {
-	const [scope, organizationIds] = await Promise.all([
+	// Compliance alert types share one audience; limit alerts have their own.
+	const [scope, complianceOrgIds, limitOrgIds] = await Promise.all([
 		getUserProjectIds(userId).then((ids) => getApiKeyScope(userId, ids)),
-		alertOrganizationIds(userId),
+		alertOrganizationIds(userId, "compliance_downgrade"),
+		alertOrganizationIds(userId, "org_limit"),
 	]);
 	return and(
 		eq(notification.userId, userId),
@@ -88,7 +100,14 @@ async function visibility(userId: string) {
 				inArray(notification.projectId, scope.restrictedProjectIds),
 				inArray(notification.apiKeyId, scope.ownApiKeyIds),
 			),
-			inArray(notification.organizationId, organizationIds),
+			and(
+				inArray(notification.organizationId, complianceOrgIds),
+				ne(notification.type, "org_limit"),
+			),
+			and(
+				inArray(notification.organizationId, limitOrgIds),
+				eq(notification.type, "org_limit"),
+			),
 		),
 	);
 }

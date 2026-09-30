@@ -2,6 +2,7 @@ import {
 	EnterpriseSeatLimitError,
 	withEnterpriseSeatForOrganization,
 } from "@/lib/enterprise-seats.js";
+import { licenseSeatDetail, notifyOrgLimit } from "@/lib/org-limit-alerts.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
 import { recomputeUserTeam } from "@/lib/sso-teams.js";
 
@@ -193,6 +194,11 @@ export async function autoJoinByEmailDomain(
 				maxSeats: error.maxSeats,
 				seatsUsed: error.seatsUsed,
 			});
+			await notifyOrgLimit(organization.id, {
+				limit: "seats",
+				source: "sso",
+				detail: licenseSeatDetail(error),
+			});
 			return null;
 		}
 		throw error;
@@ -256,6 +262,11 @@ export async function autoJoinSsoProviderOrganization({
 				organizationId: organization.id,
 				maxSeats: error.maxSeats,
 				seatsUsed: error.seatsUsed,
+			});
+			await notifyOrgLimit(organization.id, {
+				limit: "seats",
+				source: "sso",
+				detail: licenseSeatDetail(error),
 			});
 			return null;
 		}

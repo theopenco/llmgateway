@@ -38,12 +38,12 @@ describe("notifications API", () => {
 		expect(response.status).toBe(200);
 		const { email, preferences } = await response.json();
 		expect(email).toBe("admin@example.com");
-		expect(preferences).toHaveLength(7);
+		expect(preferences).toHaveLength(8);
 		expect(
 			preferences
 				.filter((p: { inApp: boolean | null }) => p.inApp)
 				.map((p: { category: string }) => p.category),
-		).toEqual(["model_available", "compliance_downgrade"]);
+		).toEqual(["model_available", "compliance_downgrade", "org_limit"]);
 		// The two email-only categories are on by default; the notification ones
 		// stay opt-in apart from the org alerts.
 		expect(
@@ -53,6 +53,7 @@ describe("notifications API", () => {
 		).toEqual([
 			"model_available",
 			"compliance_downgrade",
+			"org_limit",
 			"marketing",
 			"credit_alerts",
 		]);
@@ -243,6 +244,28 @@ describe("notifications API", () => {
 		await db.delete(tables.userOrganization);
 		const removed = await app.request("/notifications", { headers: headers() });
 		expect((await removed.json()).notifications).toHaveLength(0);
+	});
+	it("shows organization limit alerts to admins without compliance settings", async () => {
+		await db.insert(tables.notification).values({
+			userId: "test-user-id",
+			organizationId: "notification-org",
+			eventKey: "notification-org:org_limit:seats:scim:2026-09-30",
+			type: "org_limit",
+			title: "Seat limit reached",
+			message: "Contact us to add seats",
+			href: "/dashboard/notification-org/org/audit-logs",
+			inApp: true,
+			email: false,
+		});
+		const visible = await app.request("/notifications", { headers: headers() });
+		expect((await visible.json()).notifications).toHaveLength(1);
+
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "developer" })
+			.where(eq(tables.userOrganization.userId, "test-user-id"));
+		const hidden = await app.request("/notifications", { headers: headers() });
+		expect((await hidden.json()).notifications).toHaveLength(0);
 	});
 	it("marks older alerts read without changing another recipient's inbox", async () => {
 		await db

@@ -66,7 +66,8 @@ To run through a proxy, export the provider's base-URL var (`LLM_OPENAI_BASE_URL
 key. An `http://` base URL also needs `ALLOW_INSECURE_PROVIDER_URLS=true`.
 
 CI e2e (`.github/workflows/e2e.yml`) spends real money and runs on demand only:
-comment `/e2e` on a same-repo PR (maintainers) or use `workflow_dispatch`. Use it
+comment `/e2e` on a same-repo PR (maintainers) or use `workflow_dispatch`. Push
+first: `/e2e` refuses a head pushed after the comment. Use it
 for complex gateway or backend changes affecting routing, stability, uptime, or
 provider integration.
 

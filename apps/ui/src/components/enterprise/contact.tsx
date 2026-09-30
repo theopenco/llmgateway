@@ -1,13 +1,14 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
+import { ArrowRight, CheckCircle2, Info, Loader2 } from "lucide-react";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
+import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -33,6 +34,9 @@ import { CalendlyInline } from "./calendly-inline";
 
 const CALENDLY_ENTERPRISE_URL =
 	"https://calendly.com/llmgateway/llmgateway-enterprise";
+
+// Teams this small don't need enterprise; the form points them to the free plan.
+const NON_ENTERPRISE_SIZE = "1-5";
 
 const contactFormSchema = z.object({
 	name: z.string().min(2, "Name must be at least 2 characters"),
@@ -76,12 +80,17 @@ export function ContactFormEnterprise() {
 		},
 	});
 
+	const isNonEnterpriseSize = form.watch("size") === NON_ENTERPRISE_SIZE;
+
 	// Update timestamp when form loads
 	useEffect(() => {
 		form.setValue("timestamp", formLoadTime);
 	}, [form, formLoadTime]);
 
 	const onSubmit = async (data: ContactFormData) => {
+		if (data.size === NON_ENTERPRISE_SIZE) {
+			return;
+		}
 		posthog.capture("enterprise_contact_submitted", {
 			country: data.country,
 			companySize: data.size,
@@ -135,7 +144,7 @@ export function ContactFormEnterprise() {
 					</div>
 
 					<div className="rounded-2xl border border-border bg-card/50 backdrop-blur-sm p-8 sm:p-10 shadow-lg">
-						{!isSuccess && (
+						{!isSuccess && !isNonEnterpriseSize && (
 							<div className="mb-8 flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-muted/30 p-4 text-center sm:flex-row sm:justify-between sm:text-left">
 								<p className="text-sm text-muted-foreground">
 									{directBooking
@@ -314,8 +323,11 @@ export function ContactFormEnterprise() {
 															</SelectTrigger>
 														</FormControl>
 														<SelectContent>
-															<SelectItem value="1-10">
-																1-10 employees
+															<SelectItem value={NON_ENTERPRISE_SIZE}>
+																1-5 seats
+															</SelectItem>
+															<SelectItem value="6-10">
+																6-10 employees
 															</SelectItem>
 															<SelectItem value="11-25">
 																11-25 employees
@@ -342,6 +354,29 @@ export function ContactFormEnterprise() {
 											)}
 										/>
 									</div>
+
+									{isNonEnterpriseSize && (
+										<div className="flex gap-3 rounded-xl border border-border bg-muted/40 p-4">
+											<Info className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+											<div className="space-y-2 text-sm">
+												<p className="font-medium">
+													Teams of 1-5 don't need Enterprise
+												</p>
+												<p className="text-muted-foreground">
+													You can use LLM Gateway for free — no need to go
+													through Enterprise. Enterprise is usually priced from
+													$3,000 a year for small teams, and from $10,000 a year
+													for bigger teams.
+												</p>
+												<Button asChild size="sm">
+													<AuthLink href="/signup">
+														Get started for free
+														<ArrowRight className="ml-2 h-4 w-4" />
+													</AuthLink>
+												</Button>
+											</div>
+										</div>
+									)}
 
 									<FormField
 										control={form.control}
@@ -407,7 +442,7 @@ export function ContactFormEnterprise() {
 										<Button
 											type="submit"
 											size="lg"
-											disabled={isSubmitting}
+											disabled={isSubmitting || isNonEnterpriseSize}
 											className="w-full sm:w-auto min-w-[180px]"
 										>
 											{isSubmitting ? (

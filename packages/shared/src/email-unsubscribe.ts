@@ -12,6 +12,7 @@ export const notificationCategories = [
 	"provider_issue",
 	"model_available",
 	"compliance_downgrade",
+	"org_limit",
 ] as const;
 export type NotificationCategory = (typeof notificationCategories)[number];
 
@@ -39,6 +40,7 @@ const CATEGORY_LABELS: Record<EmailCategory, string> = {
 	provider_issue: "provider incident alerts",
 	model_available: "compliance model availability alerts",
 	compliance_downgrade: "compliance downgrade alerts",
+	org_limit: "organization limit alerts",
 	marketing: "product tips and offers",
 	credit_alerts: "credit balance reminders",
 };
