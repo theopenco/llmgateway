@@ -816,3 +816,34 @@ export async function notifyUserAccountDeleted(
 		],
 	});
 }
+
+export async function notifyOrgLimitReached(args: {
+	organizationId: string;
+	organizationName: string;
+	title: string;
+	detail: string;
+}): Promise<void> {
+	const { organizationId, organizationName, title, detail } = args;
+
+	await sendDiscordNotification(
+		{
+			embeds: [
+				{
+					title,
+					color: 0xf59e0b, // Amber
+					fields: [
+						{
+							name: "Organization",
+							value: `${organizationName} (${organizationId})`,
+							inline: false,
+						},
+						{ name: "Detail", value: detail, inline: false },
+					],
+					timestamp: new Date().toISOString(),
+				},
+			],
+		},
+		undefined,
+		DISCORD_ALERT_TIMEOUT_MS,
+	);
+}

@@ -5,6 +5,7 @@ import {
 	EnterpriseSeatLimitError,
 	withEnterpriseSeatForOrganization,
 } from "@/lib/enterprise-seats.js";
+import { licenseSeatDetail, notifyOrgLimit } from "@/lib/org-limit-alerts.js";
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
 import { recomputeUserRole as applyUserRole } from "@/lib/sso-roles.js";
@@ -133,6 +134,13 @@ async function rejectProvisioning(
 		reason,
 		...(error ? { maxSeats: error.maxSeats, seatsUsed: error.seatsUsed } : {}),
 	});
+	if (error) {
+		await notifyOrgLimit(c.get("scimOrgId"), {
+			limit: "seats",
+			source: "scim",
+			detail: licenseSeatDetail(error),
+		});
+	}
 	await logScimAudit(c, {
 		action: "scim.user.provision_failed",
 		resourceType: "scim_user",

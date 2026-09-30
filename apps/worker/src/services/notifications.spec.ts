@@ -274,6 +274,30 @@ describe("usage notifications", () => {
 		await deliverNotificationEmails(now);
 		expect(send).not.toHaveBeenCalled();
 	});
+	it("emails organization limit alerts to admins without compliance settings", async () => {
+		await db.insert(tables.notification).values(
+			["alert-owner", "alert-developer"].map((userId) => ({
+				userId,
+				organizationId: "alert-org",
+				type: "org_limit" as const,
+				eventKey: "alert-org:org_limit:api_keys:2026-09-30",
+				title: "API key limit reached",
+				message: "Revoke unused keys or contact us.",
+				href: "/dashboard/alert-org/alert-project/api-keys",
+				inApp: true,
+				email: true,
+			})),
+		);
+		await deliverNotificationEmails(now);
+		expect(send).toHaveBeenCalledTimes(1);
+		expect(send.mock.calls[0][0].to).toBe("owner@example.com");
+		// A developer outside the audience is skipped for good.
+		expect(
+			await db.query.notification.findFirst({
+				where: { userId: "alert-developer" },
+			}),
+		).toMatchObject({ email: false, emailSentAt: null });
+	});
 	it("does not treat client errors or tiny samples as provider incidents", () => {
 		const healthy = {
 			logsCount: 100,

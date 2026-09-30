@@ -44,6 +44,11 @@ const DESCRIPTIONS: Record<
 		description:
 			"When you are a compliance alert recipient, hear when a provider or watched model stops meeting your organization's policy.",
 	},
+	org_limit: {
+		title: "Organization limits",
+		description:
+			"As an owner or admin, hear when a seat or API key limit blocks directory sync, SSO sign-in, an invite, or a new key.",
+	},
 	marketing: {
 		title: "Product tips and offers",
 		description:

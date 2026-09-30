@@ -939,6 +939,7 @@ export const notificationTypes = [
 	"provider_issue",
 	"model_available",
 	"compliance_downgrade",
+	"org_limit",
 ] as const;
 
 const emailCategories = [

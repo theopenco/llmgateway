@@ -391,6 +391,13 @@ describe("scim audit logging", () => {
 		// Deployment-wide seat counts must not leak into an org's audit log.
 		expect(logs[0]?.metadata).not.toHaveProperty("maxSeats");
 		expect(logs[0]?.metadata).not.toHaveProperty("seatsUsed");
+
+		// Owners and admins get an org limit alert.
+		const alerts = await db.query.notification.findMany({
+			where: { userId: { eq: "test-user-id" }, type: { eq: "org_limit" } },
+		});
+		expect(alerts).toHaveLength(1);
+		expect(alerts[0]?.organizationId).toBe(ORG_ID);
 	});
 
 	test("POST /Users for an existing member logs scim.user.provision_failed", async () => {
