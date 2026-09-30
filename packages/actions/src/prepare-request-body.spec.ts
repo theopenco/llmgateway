@@ -8133,7 +8133,7 @@ describe("prepareRequestBody - Xiaomi", () => {
 		expect(requestBody.messages[0].content).toBe("part one \npart two");
 	});
 
-	test("handles tool message with only images, no text (empty string)", async () => {
+	test("moves tool-message images to a user turn, leaving a placeholder", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
 			"mimo-v2.5",
@@ -8165,7 +8165,16 @@ describe("prepareRequestBody - Xiaomi", () => {
 			false,
 		)) as any;
 
-		expect(requestBody.messages[0].content).toBe("");
+		expect(requestBody.messages[0].content).toBe(
+			"The tool returned 1 image, attached in the next message.",
+		);
+		expect(requestBody.messages[1]).toMatchObject({
+			role: "user",
+			content: [
+				{ type: "text", text: "Images from tool result call_1:" },
+				{ type: "image_url", image_url: { url: "data:image/png;base64,abc" } },
+			],
+		});
 	});
 
 	test("applies standard default params (stream_options, temperature, etc.)", async () => {
