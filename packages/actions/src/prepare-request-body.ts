@@ -161,14 +161,14 @@ function stripSchemaDefaults(
 }
 
 function getProviderMapping(
-	modelDef: ModelDefinition | undefined,
+	mappings: ProviderModelMapping[] | undefined,
 	usedProvider: ProviderId,
 	usedRegion: string | null,
 ): ProviderModelMapping | undefined {
-	if (!modelDef) {
+	if (!mappings) {
 		return undefined;
 	}
-	const providerMappings = expandAllProviderRegions(modelDef.providers);
+	const providerMappings = expandAllProviderRegions(mappings);
 	return (
 		providerMappings.find(
 			(p) =>
@@ -1360,8 +1360,8 @@ export async function prepareRequestBody(
 	safety_identifier?: string,
 	/**
 	 * The mapping routing actually selected. Only Airside-listed pairs differ
-	 * from the static catalogue lookup below — their capabilities live in the
-	 * carrier's row — and only the `tool_choice` resolution reads it so far.
+	 * from the static catalogue lookup — their fields live in the carrier's
+	 * row, and the static entry may be gone — so request shaping reads it.
 	 */
 	resolvedProviderMapping?: ProviderModelMapping,
 	reasoning_mode?: ReasoningMode,
@@ -1383,8 +1383,12 @@ export async function prepareRequestBody(
 		messages = stripAnthropicNativeBlocks(messages);
 	}
 	const modelDef = models.find((m) => m.id === usedInternalModel);
+	// Org custom models keep the static lookup: their DB mapping was never
+	// used for request shaping.
 	const providerMappingForOptions = getProviderMapping(
-		modelDef,
+		resolvedProviderMapping && usedProvider !== "custom"
+			? [resolvedProviderMapping]
+			: modelDef?.providers,
 		usedProvider,
 		usedRegion,
 	);
@@ -1802,12 +1806,7 @@ export async function prepareRequestBody(
 	// not one of ['system', 'assistant', 'user', 'tool', 'function']"). Mappings
 	// default to accepting `developer`, so this only rewrites where explicitly
 	// opted out.
-	const developerRoleMapping = getProviderMapping(
-		modelDef,
-		usedProvider,
-		usedRegion,
-	);
-	if (developerRoleMapping?.supportsDeveloperRole === false) {
+	if (providerMappingForOptions?.supportsDeveloperRole === false) {
 		processedMessages = transformDeveloperRole(processedMessages);
 	}
 
@@ -2191,13 +2190,7 @@ export async function prepareRequestBody(
 
 	let resolvedToolChoice = isWebSearchToolChoice ? undefined : tool_choice;
 	if (tool_choice && !isWebSearchToolChoice) {
-		const mapping =
-			resolvedProviderMapping ??
-			(modelDef?.providers.find(
-				(p) =>
-					p.providerId === usedProvider &&
-					((p as ProviderModelMapping).region ?? null) === usedRegion,
-			) as ProviderModelMapping | undefined);
+		const mapping = providerMappingForOptions;
 
 		// `reasoning_effort` is already normalized above, so "none" here means the
 		// mapping really turns thinking off upstream — which some mappings require
@@ -2258,12 +2251,8 @@ export async function prepareRequestBody(
 			if (useResponsesApi !== undefined) {
 				shouldUseResponsesApi = useResponsesApi;
 			} else {
-				const providerMapping = modelDef?.providers.find(
-					(p) => p.providerId === usedProvider,
-				);
 				shouldUseResponsesApi =
-					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
-					true;
+					providerMappingForOptions?.supportsResponsesApi === true;
 			}
 
 			if (shouldUseResponsesApi) {
@@ -3073,10 +3062,7 @@ export async function prepareRequestBody(
 			// maxOutput (e.g. 128000 for Opus 4.7) rather than Anthropic's
 			// historical 1024 default — that default silently truncates large
 			// responses and mid-emission tool calls, breaking agent loops.
-			const anthropicProviderMapping = modelDef?.providers.find(
-				(p) => p.providerId === usedProvider,
-			) as ProviderModelMapping | undefined;
-			const modelMaxOutput = anthropicProviderMapping?.maxOutput;
+			const modelMaxOutput = providerMappingForOptions?.maxOutput;
 			const fallbackMaxTokens = Math.max(
 				modelMaxOutput ?? 4096,
 				thinkingBudget + 1000,
@@ -3174,10 +3160,8 @@ export async function prepareRequestBody(
 			let systemCacheControlCount = toolMarkersKeptSoFar;
 
 			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
-			const providerMapping = modelDef?.providers.find(
-				(p) => p.providerId === usedProvider,
-			) as ProviderModelMapping | undefined;
-			const minCacheableTokens = providerMapping?.minCacheableTokens ?? 1024;
+			const minCacheableTokens =
+				providerMappingForOptions?.minCacheableTokens ?? 1024;
 			// Approximate 4 characters per token
 			const minCacheableChars = minCacheableTokens * 4;
 
@@ -3377,7 +3361,7 @@ export async function prepareRequestBody(
 
 			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort or reasoning_max_tokens is specified
 			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
-				if (providerMapping?.reasoningMode === "adaptive") {
+				if (providerMappingForOptions?.reasoningMode === "adaptive") {
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
 					// The model decides whether to engage thinking based on prompt complexity.

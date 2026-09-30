@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { and, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -432,6 +432,45 @@ describe("airside-listed models", () => {
 		expect(Number(log!.inputCost)).toBeCloseTo(0.002, 6);
 		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
 		expect(Number(log!.cost)).toBeCloseTo(0.007, 6);
+	});
+
+	test("shapes requests from the listing's own catalogue metadata", async () => {
+		// No static entry exists for this listing, so these fields can only
+		// come from its DB row.
+		await setup("airside-metadata-token", { modelName: "carrier-metadata" });
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ supportsDeveloperRole: false, maxTemperature: 0.7 })
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, "carrier-metadata"),
+					eq(tables.modelProviderMapping.providerId, "mistral"),
+				),
+			);
+		await clearCache();
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-metadata-token",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "mistral/carrier-metadata",
+				temperature: 1.5,
+				messages: [
+					{ role: "developer", content: "Be brief." },
+					{ role: "user", content: "Say hi" },
+				],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(captured).toHaveLength(1);
+		const messages = captured[0].body.messages as { role: string }[];
+		expect(messages.map((message) => message.role)).toEqual(["system", "user"]);
+		expect(captured[0].body.temperature).toBe(0.7);
 	});
 
 	test("routes a region-pinned listing and bills its regional fare", async () => {

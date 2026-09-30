@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
-import { db, provider, model, modelProviderMapping, eq } from "@llmgateway/db";
+import {
+	db,
+	provider,
+	model,
+	modelProviderMapping,
+	providerCompany,
+	providerDraftModel,
+	eq,
+} from "@llmgateway/db";
 
 import { syncProvidersAndModels } from "./sync-models.js";
 
@@ -8,6 +16,10 @@ const DRIFT_MODEL_ID = "claude-3-5-sonnet";
 const DRIFT_PROVIDER_ID = "anthropic";
 const AIRSIDE_MODEL_ID = "gpt-4o";
 const AIRSIDE_PROVIDER_ID = "openai";
+// A static mapping with catalogue-only fields a listing does not manage.
+const LISTED_MODEL_ID = "glm-5.3";
+const LISTED_PROVIDER_ID = "together-ai";
+const LISTED_COMPANY_ID = "sync-models-listed-company";
 
 /**
  * A catalogue pass writes every provider, model and mapping row by row, which
@@ -16,6 +28,9 @@ const AIRSIDE_PROVIDER_ID = "openai";
 const SYNC_TIMEOUT_MS = 180_000;
 
 async function resetCatalogue() {
+	await db
+		.delete(providerCompany)
+		.where(eq(providerCompany.id, LISTED_COMPANY_ID));
 	await db.delete(modelProviderMapping);
 	await db.delete(model);
 	await db.delete(provider);
@@ -98,6 +113,8 @@ describe("sync-models", () => {
 		let catalogueExternalId: string | null;
 		let airsideMappingId: string;
 		let mappingCountBeforeResync: number;
+		let listedMappingId: string;
+		let listingId: string;
 
 		beforeAll(async () => {
 			await db
@@ -143,6 +160,42 @@ describe("sync-models", () => {
 					audio: true,
 				})
 				.where(eq(modelProviderMapping.id, airsideMappingId));
+
+			const listedMapping = await db.query.modelProviderMapping.findFirst({
+				where: {
+					modelId: { eq: LISTED_MODEL_ID },
+					providerId: { eq: LISTED_PROVIDER_ID },
+					region: { isNull: true },
+				},
+			});
+			expect(listedMapping).toBeTruthy();
+			listedMappingId = listedMapping!.id;
+			// An imported listing materialized before it carried catalogue
+			// metadata.
+			await db
+				.update(modelProviderMapping)
+				.set({
+					source: "airside",
+					inputPrice: "7e-6",
+					maxTemperature: null,
+					supportsDeveloperRole: null,
+				})
+				.where(eq(modelProviderMapping.id, listedMappingId));
+			await db
+				.insert(providerCompany)
+				.values({ id: LISTED_COMPANY_ID, name: "Listed Carrier" });
+			const [listing] = await db
+				.insert(providerDraftModel)
+				.values({
+					providerCompanyId: LISTED_COMPANY_ID,
+					providerId: LISTED_PROVIDER_ID,
+					modelName: LISTED_MODEL_ID,
+					externalId: "carrier-glm-5.3",
+					family: "glm",
+					status: "active",
+				})
+				.returning();
+			listingId = listing.id;
 
 			mappingCountBeforeResync = (await db.select().from(modelProviderMapping))
 				.length;
@@ -194,6 +247,28 @@ describe("sync-models", () => {
 				audio: true,
 			});
 			expect(Number(preserved!.inputPrice)).toBeCloseTo(9e-6);
+		});
+
+		it("copies catalogue-only fields onto listings of a static pair", async () => {
+			const listing = await db.query.providerDraftModel.findFirst({
+				where: { id: { eq: listingId } },
+			});
+			expect(listing!.catalogueMetadata).toMatchObject({
+				maxTemperature: 1,
+				supportsDeveloperRole: false,
+			});
+
+			const [listedMapping] = await db
+				.select()
+				.from(modelProviderMapping)
+				.where(eq(modelProviderMapping.id, listedMappingId));
+			expect(listedMapping).toMatchObject({
+				source: "airside",
+				maxTemperature: 1,
+				supportsDeveloperRole: false,
+			});
+			// The filed price stays the listing's own.
+			expect(Number(listedMapping!.inputPrice)).toBeCloseTo(7e-6);
 		});
 
 		it("never drops existing mappings", async () => {
