@@ -57,6 +57,7 @@ import {
 } from "@llmgateway/shared/log-retention";
 
 import { posthog } from "./posthog.js";
+import { backfillPauseMs } from "./services/backfill-pacing.js";
 import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
 import {
 	runFollowUpEmailsLoop,
@@ -2559,7 +2560,7 @@ async function runProjectStatsLoop() {
 
 /**
  * Drives a one-off, resumable backfill: runs `step` under `lockKey` until it
- * reports no hours remain.
+ * reports no hours remain, pausing between steps (see backfill-pacing.ts).
  */
 async function runBackfillLoop(
 	name: string,
@@ -2575,6 +2576,7 @@ async function runBackfillLoop(
 					continue;
 				}
 				let pending: boolean;
+				const startedAt = Date.now();
 				try {
 					pending = await step();
 				} finally {
@@ -2583,6 +2585,7 @@ async function runBackfillLoop(
 				if (!pending) {
 					break;
 				}
+				await interruptibleSleep(backfillPauseMs(Date.now() - startedAt));
 			} catch (error) {
 				logger.error(
 					`Error in ${name} backfill loop`,
