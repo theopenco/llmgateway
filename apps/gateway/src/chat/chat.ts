@@ -209,6 +209,7 @@ import {
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
+	usesEncryptedReasoning,
 } from "@llmgateway/models";
 import {
 	complianceExclusionReason,
@@ -4993,13 +4994,17 @@ chat.openapi(completions, async (c) => {
 
 	// Check uptime for specifically requested providers (not llmgateway or custom)
 	// If uptime is below 80%, route to an alternative provider instead
-	// Skip this fallback if X-No-Fallback header is set
+	// Skip this fallback if X-No-Fallback header is set, and for encrypted-reasoning
+	// mappings: another provider rejects the conversation's reasoning payloads.
 	if (
 		!noFallback &&
 		usedProvider &&
 		requestedProvider &&
 		requestedProvider !== "llmgateway" &&
-		requestedProvider !== "custom"
+		requestedProvider !== "custom" &&
+		!(modelInfo as ModelDefinition).providers.some(
+			(p) => p.providerId === usedProvider && usesEncryptedReasoning(p),
+		)
 	) {
 		// Find the base model ID for metrics lookup
 		// Since custom providers are excluded above, modelInfo always has 'id'

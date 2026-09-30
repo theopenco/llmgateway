@@ -641,6 +641,7 @@ export interface ModelWithPricing {
 		externalId: string;
 		region?: string;
 		stability?: string;
+		reasoning?: boolean;
 	}>;
 }
 

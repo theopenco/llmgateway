@@ -138,6 +138,8 @@ To solve the "cold start problem" where new or unused providers never get traffi
 
 The exploration rate is configurable per project through the routing configuration (`thresholds.explorationRate`), and self-hosted deployments can override it globally with the `EXPLORATION_RATE` environment variable (a number between `0` and `1`).
 
+Models with provider-bound reasoning never explore. OpenAI encrypted reasoning and Gemini thought signatures can only be verified by the provider that issued them, so a turn randomly sent elsewhere would fail with an error such as `invalid_encrypted_content`.
+
 **Stable Provider Preference**:
 
 To avoid unnecessary churn between providers that score similarly, LLMGateway remembers the best provider chosen for each model and sticks with it across requests — even if another provider edges ahead slightly on the next score calculation.
@@ -275,14 +277,14 @@ Request compatibility takes precedence over the saved pin. The gateway first fil
 
 An established pin yields only when its provider can no longer serve the session well. A session is re-scored and re-pinned to the current weighted-best provider when its provider:
 
-- Drops below the session uptime threshold (default 85%), except for Gemini sessions whose signatures require provider affinity, or
+- Drops below the session uptime threshold (default 85%), except for sessions on models with provider-bound reasoning, or
 - Is filtered out of the candidate set (health or compatibility filtering).
 
 Sticky requests never enter the cross-provider [automatic retry & fallback](#automatic-retry--fallback) loop — a transient failure is retried against the pinned provider only, on another configured key when several exist, or on the same platform key when only one is configured. The failure still degrades that provider's uptime metrics, which is what triggers re-pinning on a subsequent request once the uptime threshold is crossed.
 
 Re-pinning runs the same weighted algorithm again, so the replacement is the best currently available provider — not an arbitrary one.
 
-Gemini sessions keep their eligible provider through uptime dips because thought signatures cannot be replayed across Google API providers. If a pin expires or the provider becomes ineligible, moving a conversation with its old signatures can produce `Corrupted thought signature` or `Invalid thought signature`. On the pay-as-you-go API, keep a Gemini conversation on one provider with a provider-prefixed model and `X-No-Fallback: true` from its first request. For an affected conversation, resume with the provider that issued its signatures or start a new conversation. See&nbsp;[reasoning replay](/features/reasoning#gemini-thought-signatures).
+Sessions on models with provider-bound reasoning keep their eligible provider through uptime dips, because OpenAI encrypted reasoning and Gemini thought signatures cannot be replayed on another provider. If a pin expires or the provider becomes ineligible, moving a conversation with its old signatures can produce `Corrupted thought signature` or `Invalid thought signature`. On the pay-as-you-go API, keep a Gemini conversation on one provider with a provider-prefixed model and `X-No-Fallback: true` from its first request. For an affected conversation, resume with the provider that issued its signatures or start a new conversation. See&nbsp;[reasoning replay](/features/reasoning#gemini-thought-signatures).
 
 The selection reason in routing metadata shows `session-sticky` when a request was pinned via a session id.
 
@@ -379,7 +381,7 @@ to route through your own endpoint instead.
 
 #### Low-Uptime Protection
 
-When you specify a provider explicitly, LLMGateway checks the provider's recent uptime (from the time-decayed metrics window described above). If the uptime falls below 90%, the system automatically routes your request to the best available alternative provider to ensure reliability. This protects your application from providers experiencing temporary issues. The fallback threshold (default `90%`) is configurable.
+When you specify a provider explicitly, LLMGateway checks the provider's recent uptime (from the time-decayed metrics window described above). If the uptime falls below 90%, the system automatically routes your request to the best available alternative provider to ensure reliability. This protects your application from providers experiencing temporary issues. The fallback threshold (default `90%`) is configurable. Models with [provider-bound reasoning](#smart-routing-algorithm) skip this reroute, since the alternative provider would reject the conversation's reasoning payloads.
 
 <Callout type="info">
 	If the requested provider has low uptime but no alternative providers are
