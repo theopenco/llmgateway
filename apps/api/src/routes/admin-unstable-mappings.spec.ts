@@ -99,6 +99,7 @@ describe("admin unstable mappings", () => {
 		classification,
 		usedModel = "openai/gpt-4o-mini",
 		usedProvider = "openai",
+		createdAt,
 	}: {
 		providerKeyId?: string | null;
 		hasError?: boolean;
@@ -106,6 +107,7 @@ describe("admin unstable mappings", () => {
 		usedModel?: string;
 		usedProvider?: string;
 		classification?: "client_error" | "gateway_error" | "upstream_error";
+		createdAt?: Date;
 	}) {
 		logIndex++;
 		await db.insert(tables.log).values({
@@ -132,6 +134,7 @@ describe("admin unstable mappings", () => {
 			usedProvider,
 			responseSize: 10,
 			mode: "credits",
+			...(createdAt ? { createdAt } : {}),
 		});
 	}
 
@@ -351,6 +354,35 @@ describe("admin unstable mappings", () => {
 		const narrowed = await getErrors("&groupByKey=true&providerKeyId=um-key-a");
 		expect(narrowed.groupByKey).toBe(false);
 		expect(narrowed.keys).toEqual([]);
+	});
+
+	test("drilldown buckets each error shape across the window", async () => {
+		const bucketMs = 60_000;
+		const tenBucketsMs = 10 * bucketMs;
+		const now = Date.now();
+		const currentBucket = Math.floor(now / bucketMs) * bucketMs;
+		const olderBucket = currentBucket - tenBucketsMs;
+		await seedLog({ hasError: true, createdAt: new Date(now) });
+		await seedLog({ hasError: true, createdAt: new Date(olderBucket + 1000) });
+		await seedLog({ hasError: true, createdAt: new Date(olderBucket + 2000) });
+
+		const res = await app.request(
+			"/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai&window=1h",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as ErrorsBody & {
+			timeline: { bucketSeconds: number; start: number; end: number };
+			errors: { buckets: { start: number; count: number }[] }[];
+		};
+		expect(body.timeline.bucketSeconds).toBe(60);
+		const windowMs = 60 * bucketMs;
+		expect(body.timeline.end - body.timeline.start).toBe(windowMs);
+		expect(body.errors).toHaveLength(1);
+		expect(body.errors[0].buckets).toEqual([
+			{ start: olderBucket, count: 2 },
+			{ start: currentBucket, count: 1 },
+		]);
 	});
 
 	test("filters the ranking to one mapping", async () => {
