@@ -45,6 +45,7 @@ describe("video content range responses", () => {
 			expect(fetchMock).toHaveBeenLastCalledWith(
 				"https://content.example.test/video",
 				{
+					redirect: "error",
 					headers: { Range: "bytes=2000-" },
 					cache: "no-store",
 				},
