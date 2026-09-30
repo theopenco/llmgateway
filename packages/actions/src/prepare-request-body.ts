@@ -2359,9 +2359,8 @@ export async function prepareRequestBody(
 				// Run stateless upstream and ask for encrypted reasoning payloads so
 				// reasoning can be replayed on later turns (the gateway never uses
 				// upstream response storage — conversations are always resent in
-				// full). Only OpenAI and Azure document store/include on their
-				// Responses API surface.
-				if (usedProvider === "openai" || usedProvider === "azure") {
+				// full).
+				if (getProviderDefinition(usedProvider)?.encryptedReasoning) {
 					responsesBody.store = false;
 					responsesBody.include = ["reasoning.encrypted_content"];
 				}

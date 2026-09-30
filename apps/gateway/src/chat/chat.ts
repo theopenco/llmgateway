@@ -2792,14 +2792,16 @@ chat.openapi(completions, async (c) => {
 				)
 			: undefined;
 
-	// Cross-provider retry is off for a sticky session and for a mapping whose
-	// encrypted reasoning another provider cannot verify; the failed provider is
-	// retried on another key or the same key instead.
-	const isProviderPinned = () =>
-		sessionStickyEnabled ||
+	// Another provider cannot verify the used mapping's encrypted reasoning, so
+	// requests on it never move providers (low-uptime reroute, retry).
+	const usedProviderEncryptsReasoning = () =>
 		modelInfo.providers.some(
 			(p) => p.providerId === usedProvider && usesEncryptedReasoning(p),
 		);
+	// Cross-provider retry is off for pinned requests; the failed provider is
+	// retried on another key or the same key instead.
+	const isProviderPinned = () =>
+		sessionStickyEnabled || usedProviderEncryptsReasoning();
 
 	const retryProjectContext = {
 		mode: project.mode,
@@ -5011,9 +5013,7 @@ chat.openapi(completions, async (c) => {
 		requestedProvider &&
 		requestedProvider !== "llmgateway" &&
 		requestedProvider !== "custom" &&
-		!(modelInfo as ModelDefinition).providers.some(
-			(p) => p.providerId === usedProvider && usesEncryptedReasoning(p),
-		)
+		!usedProviderEncryptsReasoning()
 	) {
 		// Find the base model ID for metrics lookup
 		// Since custom providers are excluded above, modelInfo always has 'id'

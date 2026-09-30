@@ -724,14 +724,12 @@ async function applySessionSticky<T extends AvailableModelProvider>(
 			const uptime = metricsMap?.get(
 				metricsKey(modelWithPricing.id, candidate.providerId, candidate.region),
 			)?.uptime;
-			const mapping = findProviderMapping(
-				modelWithPricing.providers,
-				candidate,
-			);
 			// An uptime dip must not move a live conversation to a provider that
 			// rejects its encrypted reasoning.
 			if (
-				(mapping !== undefined && usesEncryptedReasoning(mapping)) ||
+				usesEncryptedReasoning(
+					findProviderMapping(modelWithPricing.providers, candidate),
+				) ||
 				uptime === undefined ||
 				uptime >= cfg.session.uptimeThreshold
 			) {
@@ -855,10 +853,11 @@ export async function getCheapestFromAvailableProviders<
 	// to keep behavior deterministic, for sticky sessions where we want the
 	// scored best provider to be the one we pin, and for encrypted-reasoning
 	// models, whose conversations fail when a turn lands on another provider.
-	const encryptedReasoning = stableProviders.some((provider) => {
-		const mapping = findProviderMapping(modelWithPricing.providers, provider);
-		return mapping !== undefined && usesEncryptedReasoning(mapping);
-	});
+	const encryptedReasoning = stableProviders.some((provider) =>
+		usesEncryptedReasoning(
+			findProviderMapping(modelWithPricing.providers, provider),
+		),
+	);
 	if (
 		!sessionSticky &&
 		!encryptedReasoning &&

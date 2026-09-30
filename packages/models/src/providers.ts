@@ -2255,12 +2255,11 @@ export function getProviderDefinition(
  * Whether a mapping returns reasoning that only its own provider can verify on
  * replay, so moving a conversation to another provider fails upstream.
  */
-export function usesEncryptedReasoning(mapping: {
-	providerId: string;
-	reasoning?: boolean;
-}): boolean {
+export function usesEncryptedReasoning(
+	mapping: { providerId: string; reasoning?: boolean } | undefined,
+): boolean {
 	return (
-		mapping.reasoning === true &&
+		mapping?.reasoning === true &&
 		getProviderDefinition(mapping.providerId)?.encryptedReasoning === true
 	);
 }
