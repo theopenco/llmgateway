@@ -15,12 +15,22 @@ updates:
       interval: "monthly"
 
   - package-ecosystem: "npm"
-    directory: "/"
+    # List every workspace so security updates for a dependency used in several
+    # package.json files land in one PR instead of one per directory.
+    directories:
+      - "/"
+      - "/apps/*"
+      - "/packages/*"
+      - "/ee/*"
     schedule:
       interval: "weekly"
     cooldown:
       default-days: 5
     groups:
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
       all:
         group-by: dependency-name
         patterns:
