@@ -1,4 +1,4 @@
-import { compileGuardrailRegex } from "./compile-regex.js";
+import { matchGuardrailRegex } from "./compile-regex.js";
 
 import type { CustomRegexRuleConfig, GuardrailAction } from "@llmgateway/db";
 
@@ -14,10 +14,7 @@ export function checkCustomRegex(
 	action: GuardrailAction,
 ): RegexResult {
 	try {
-		const matches =
-			compileGuardrailRegex(config.pattern)
-				.match(content)
-				?.filter((match): match is string => typeof match === "string") ?? [];
+		const matches = matchGuardrailRegex(config.pattern, content);
 		return { passed: matches.length === 0, matches, action };
 	} catch {
 		return {

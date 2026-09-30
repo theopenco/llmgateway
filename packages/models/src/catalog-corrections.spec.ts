@@ -28,6 +28,7 @@ describe("documented catalogue corrections", () => {
 				inputPrice: "0.5e-6",
 				outputPrice: "1.5e-6",
 				tools: true,
+				maxTemperature: 1.5,
 			});
 		},
 	);
@@ -48,10 +49,11 @@ describe("documented catalogue corrections", () => {
 		["muse-spark-1.3", "meta"],
 		["muse-spark-1.3-contributor", "meta-contributor"],
 	])(
-		"exposes max reasoning and the full temperature range for %s",
+		"exposes max reasoning and clamps temperature to 1 for %s",
 		(model, provider) => {
 			expect(mapping(model, provider).reasoningEfforts).toContain("max");
-			expect(mapping(model, provider).maxTemperature).toBe(2);
+			// The API accepts up to 2, but never answers above 1.
+			expect(mapping(model, provider).maxTemperature).toBe(1);
 		},
 	);
 });

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { db, defaultSystemRulesConfig, eq, tables } from "@llmgateway/db";
 
 import { checkGuardrails } from "./engine.js";
+import { checkFileType, fileTypesRule } from "./rules/system/files.js";
 
 import type { MessageContent } from "./types.js";
 
@@ -73,5 +74,115 @@ describe("file guardrails", () => {
 			messages: [{ role: "user", content: "data:application/pdf;base64,YQ==" }],
 		});
 		expect(result.blocked).toBe(false);
+	});
+
+	it("ignores prose that only resembles a data URI", () => {
+		const config = { enabled: true, action: "block" as const };
+		for (const text of ["metadata:foo,bar", "userdata:abc,def", "data:, ok"]) {
+			expect(fileTypesRule.check(text, config, ["image/png"]).passed).toBe(
+				true,
+			);
+		}
+		expect(
+			fileTypesRule.check("x data:text/html;base64,YQ==", config, ["image/png"])
+				.passed,
+		).toBe(false);
+	});
+
+	describe("default attachment policy", () => {
+		async function checkWithDefaults(
+			content: MessageContent,
+			guardrailsEnabled = true,
+		) {
+			const id = `file-guardrail-${crypto.randomUUID()}`;
+			organizations.push(id);
+			await db.insert(tables.organization).values({
+				id,
+				name: "Attachment test",
+				billingEmail: "attachment@example.com",
+			});
+			await db.insert(tables.guardrailConfig).values({
+				organizationId: id,
+				enabled: guardrailsEnabled,
+			});
+			return await checkGuardrails({
+				organizationId: id,
+				messages: [{ role: "user", content: [content] }],
+			});
+		}
+
+		const png = (bytes: number) =>
+			`data:image/png;base64,${Buffer.alloc(bytes).toString("base64")}`;
+
+		it("allows an image within the size limit", async () => {
+			const result = await checkWithDefaults({
+				type: "image_url",
+				image_url: { url: png(1024) },
+			});
+			expect(result.blocked).toBe(false);
+		});
+
+		it.each([
+			{
+				type: "file",
+				file: { file_data: "data:application/pdf;base64,YQ==" },
+			},
+			{ type: "input_audio", input_audio: { data: "YQ==", format: "mp3" } },
+			{ type: "image_url", image_url: { url: "data:image/heic;base64,YQ==" } },
+		])("blocks $type outside the default image types", async (content) => {
+			const result = await checkWithDefaults(content as MessageContent);
+			expect(result.blocked).toBe(true);
+		});
+
+		it("blocks an image above the default 10 MB limit", async () => {
+			const result = await checkWithDefaults({
+				type: "image_url",
+				image_url: { url: png(11 * 1024 * 1024) },
+			});
+			expect(result.blocked).toBe(true);
+		});
+
+		it("leaves attachments alone when guardrails are disabled", async () => {
+			const result = await checkWithDefaults(
+				{
+					type: "file",
+					file: { file_data: "data:application/pdf;base64,YQ==" },
+				},
+				false,
+			);
+			expect(result.blocked).toBe(false);
+		});
+	});
+
+	describe("allow-list entries", () => {
+		// The dashboard's default list stores extensions, not MIME types.
+		const dashboardDefault = ["pdf", "txt", "md", "csv", "json", "xml"];
+
+		it.each([
+			"application/pdf",
+			"text/plain",
+			"text/markdown",
+			"text/csv",
+			"application/json",
+			"application/xml",
+			"text/xml",
+			"Application/PDF; charset=binary",
+		])("matches %s against dashboard extensions", (mimeType) => {
+			expect(checkFileType(mimeType, dashboardDefault)).toBe(true);
+		});
+
+		it.each(["image/png", "audio/mpeg", "application/zip", "unknown"])(
+			"does not match %s against dashboard extensions",
+			(mimeType) => {
+				expect(checkFileType(mimeType, dashboardDefault)).toBe(false);
+			},
+		);
+
+		it("accepts MIME types, dotted extensions, and wildcards", () => {
+			expect(checkFileType("image/png", ["image/png"])).toBe(true);
+			expect(checkFileType("image/jpeg", [".JPG"])).toBe(true);
+			expect(checkFileType("image/webp", ["image/*"])).toBe(true);
+			expect(checkFileType("audio/wav", ["image/*"])).toBe(false);
+		});
 	});
 });

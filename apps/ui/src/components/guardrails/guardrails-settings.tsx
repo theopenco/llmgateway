@@ -113,7 +113,18 @@ const DEFAULT_DRAFT: DraftConfig = {
 	enabled: false,
 	systemRules: DEFAULT_SYSTEM_RULES,
 	maxFileSizeMb: 10,
-	allowedFileTypes: ["pdf", "txt", "md", "csv", "json", "xml"],
+	allowedFileTypes: [
+		"image/jpeg",
+		"image/png",
+		"image/gif",
+		"image/webp",
+		"pdf",
+		"txt",
+		"md",
+		"csv",
+		"json",
+		"xml",
+	],
 	piiAction: "redact",
 };
 

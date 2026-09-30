@@ -1,4 +1,4 @@
-import { compileGuardrailRegex } from "./compile-regex.js";
+import { matchGuardrailRegex } from "./compile-regex.js";
 import { createLiteralRegex } from "./literal-regex.js";
 
 import type { BlockedTermsRuleConfig, GuardrailAction } from "@llmgateway/db";
@@ -43,16 +43,9 @@ export function checkBlockedTerms(
 			}
 			case "regex": {
 				try {
-					const found = compileGuardrailRegex(term, config.caseSensitive).match(
-						content,
+					matches.push(
+						...matchGuardrailRegex(term, content, config.caseSensitive),
 					);
-					if (found) {
-						matches.push(
-							...found.filter(
-								(match): match is string => typeof match === "string",
-							),
-						);
-					}
 				} catch {
 					return {
 						passed: false,
