@@ -250,6 +250,10 @@ async function classifyPrompt(
 		if (requestSignal?.aborted || isCancellationError(error)) {
 			throw error;
 		}
+		// The budget is shared across chunks; the caller logs it once.
+		if (isTimeoutError(error)) {
+			return null;
+		}
 		logInternalError(
 			context,
 			{
@@ -287,26 +291,30 @@ export async function checkInternalContentFilter(
 ): Promise<InternalContentFilterCheckResult> {
 	const startTime = Date.now();
 	const baseUrl = getInternalContentFilterUrl();
+	// Newest chunk first: when the time budget runs out, what goes unscreened
+	// is the oldest history rather than the turn being sent now.
 	const prompts =
 		scope === "latest_turn"
 			? [buildInternalModerationPrompt(messages)].filter(Boolean)
 			: chunkInternalModerationText(
 					buildOpenAIContentFilterTextInput(messages),
-				);
+				).reverse();
 	if (!baseUrl || prompts.length === 0) {
 		return emptyResult();
 	}
 
 	const url = `${baseUrl}${INTERNAL_CLASSIFY_PATH}`;
+	const timeoutSignal = AbortSignal.timeout(INTERNAL_MODERATION_TIMEOUT_MS);
 	const signal = requestSignal
-		? AbortSignal.any([
-				AbortSignal.timeout(INTERNAL_MODERATION_TIMEOUT_MS),
-				requestSignal,
-			])
-		: AbortSignal.timeout(INTERNAL_MODERATION_TIMEOUT_MS);
+		? AbortSignal.any([timeoutSignal, requestSignal])
+		: timeoutSignal;
 
 	const verdicts: Array<InternalClassifyResponse | null> = [];
 	for (let i = 0; i < prompts.length; i += INTERNAL_MODERATION_CONCURRENCY) {
+		requestSignal?.throwIfAborted();
+		if (timeoutSignal.aborted) {
+			break;
+		}
 		verdicts.push(
 			...(await Promise.all(
 				prompts
@@ -321,6 +329,16 @@ export async function checkInternalContentFilter(
 	const succeeded = verdicts.filter(
 		(verdict): verdict is InternalClassifyResponse => verdict !== null,
 	);
+	if (timeoutSignal.aborted && succeeded.length < prompts.length) {
+		logInternalError(context, {
+			durationMs: Date.now() - startTime,
+			timeout: true,
+			scope,
+			requestCount: prompts.length,
+			failedCount: prompts.length - succeeded.length,
+			skippedCount: prompts.length - verdicts.length,
+		});
+	}
 	if (succeeded.length === 0) {
 		return emptyResult();
 	}
