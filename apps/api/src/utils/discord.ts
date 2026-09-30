@@ -843,7 +843,8 @@ export async function notifyOrgLimitReached(args: {
 				},
 			],
 		},
-		undefined,
+		process.env.DISCORD_ORG_LIMIT_NOTIFICATION_URL ??
+			process.env.DISCORD_NOTIFICATION_URL,
 		DISCORD_ALERT_TIMEOUT_MS,
 	);
 }
