@@ -453,6 +453,7 @@ Automatic retry to a different provider is disabled when:
 - The `X-No-Fallback: true` header is set
 - A specific provider is requested (e.g., `openai/gpt-4o`)
 - The request carries a session id and [sticky session routing](#sticky-session-routing) is enabled — the session stays pinned to its provider
+- The model has [provider-bound reasoning](#smart-routing-algorithm) — another provider would reject the conversation's reasoning payloads
 - No alternative providers are available for the requested model
 - The maximum retry count (default 2) has been exhausted
 

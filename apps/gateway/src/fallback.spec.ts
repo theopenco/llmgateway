@@ -1343,53 +1343,77 @@ describe("fallback and error status code handling", () => {
 		});
 	});
 
-	test("does not reroute an encrypted-reasoning model away from a low-uptime provider", async () => {
-		await ensureBaseFixtures();
-		await ensureProviders(["google-ai-studio", "google-vertex"]);
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			...hashApiKeyForStorage("real-token"),
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-		await db.insert(tables.providerKey).values(
-			["google-ai-studio", "google-vertex"].map((provider) => ({
-				id: `provider-key-${provider}`,
-				...encryptProviderKeyForStorage(
-					`${provider}-key`,
-					`provider-key-${provider}`,
-					"org-id",
-				),
-				provider,
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			})),
-		);
-		await setRoutingMetrics("gemini-2.5-flash", "google-ai-studio", 0);
-		await setRoutingMetrics("gemini-2.5-flash", "google-vertex", 100);
-
-		const res = await app.request("/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "google-ai-studio/gemini-2.5-flash",
-				messages: [{ role: "user", content: "Hello!" }],
-			}),
+	describe("encrypted-reasoning models stay on their provider", () => {
+		beforeEach(async () => {
+			await ensureBaseFixtures();
+			await ensureProviders(["google-ai-studio", "google-vertex"]);
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				...hashApiKeyForStorage("real-token"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values(
+				["google-ai-studio", "google-vertex"].map((provider) => ({
+					id: `provider-key-${provider}`,
+					...encryptProviderKeyForStorage(
+						`${provider}-key`,
+						`provider-key-${provider}`,
+						"org-id",
+					),
+					provider,
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				})),
+			);
 		});
 
-		expect(res.status).toBe(200);
-		const json = await res.json();
-		expect(json.metadata.used_provider).toBe("google-ai-studio");
+		test("does not reroute away from a low-uptime provider", async () => {
+			await setRoutingMetrics("gemini-2.5-flash", "google-ai-studio", 0);
+			await setRoutingMetrics("gemini-2.5-flash", "google-vertex", 100);
 
-		const logs = await waitForLogs(1);
-		expect(logs).toHaveLength(1);
-		expect(logs[0].routingMetadata?.selectionReason).not.toBe(
-			"low-uptime-fallback",
-		);
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "google-ai-studio/gemini-2.5-flash",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.metadata.used_provider).toBe("google-ai-studio");
+
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].routingMetadata?.selectionReason).not.toBe(
+				"low-uptime-fallback",
+			);
+		});
+
+		test("does not retry a failed request on another provider", async () => {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "gemini-2.5-flash",
+					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
+				}),
+			});
+
+			expect(res.status).toBe(500);
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].retried).toBe(false);
+		});
 	});
 
 	describe("low-uptime fallback respects IAM provider rules", () => {

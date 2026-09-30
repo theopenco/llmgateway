@@ -2792,6 +2792,15 @@ chat.openapi(completions, async (c) => {
 				)
 			: undefined;
 
+	// Cross-provider retry is off for a sticky session and for a mapping whose
+	// encrypted reasoning another provider cannot verify; the failed provider is
+	// retried on another key or the same key instead.
+	const isProviderPinned = () =>
+		sessionStickyEnabled ||
+		modelInfo.providers.some(
+			(p) => p.providerId === usedProvider && usesEncryptedReasoning(p),
+		);
+
 	const retryProjectContext = {
 		mode: project.mode,
 		organizationId: project.organizationId,
@@ -8769,7 +8778,7 @@ chat.openapi(completions, async (c) => {
 							const willRetryTimeout = shouldRetryRequest({
 								requestedProvider,
 								noFallback,
-								sessionSticky: sessionStickyEnabled,
+								providerPinned: isProviderPinned(),
 								errorType: "upstream_timeout",
 								retryCount: retryAttempt,
 								remainingProviders:
@@ -8785,7 +8794,7 @@ chat.openapi(completions, async (c) => {
 								!willRetryTimeout &&
 								shouldRetrySameKey({
 									usedProvider,
-									sessionSticky: sessionStickyEnabled,
+									providerPinned: isProviderPinned(),
 									errorType: "upstream_timeout",
 									statusCode: 0,
 									envVarName,
@@ -9014,7 +9023,7 @@ chat.openapi(completions, async (c) => {
 							const willRetryFetch = shouldRetryRequest({
 								requestedProvider,
 								noFallback,
-								sessionSticky: sessionStickyEnabled,
+								providerPinned: isProviderPinned(),
 								errorType: "network_error",
 								retryCount: retryAttempt,
 								remainingProviders:
@@ -9030,7 +9039,7 @@ chat.openapi(completions, async (c) => {
 								!willRetryFetch &&
 								shouldRetrySameKey({
 									usedProvider,
-									sessionSticky: sessionStickyEnabled,
+									providerPinned: isProviderPinned(),
 									errorType: "network_error",
 									statusCode: 0,
 									envVarName,
@@ -9338,7 +9347,7 @@ chat.openapi(completions, async (c) => {
 						const willRetryHttpError = shouldRetryRequest({
 							requestedProvider,
 							noFallback,
-							sessionSticky: sessionStickyEnabled,
+							providerPinned: isProviderPinned(),
 							errorType: finishReason,
 							retryCount: retryAttempt,
 							remainingProviders:
@@ -9354,7 +9363,7 @@ chat.openapi(completions, async (c) => {
 							!willRetryHttpError &&
 							shouldRetrySameKey({
 								usedProvider,
-								sessionSticky: sessionStickyEnabled,
+								providerPinned: isProviderPinned(),
 								errorType: finishReason,
 								statusCode: res.status,
 								envVarName,
@@ -9723,7 +9732,7 @@ chat.openapi(completions, async (c) => {
 						const willRetryStreamingError = shouldRetryRequest({
 							requestedProvider,
 							noFallback,
-							sessionSticky: sessionStickyEnabled,
+							providerPinned: isProviderPinned(),
 							errorType,
 							retryCount: retryAttempt,
 							remainingProviders:
@@ -9739,7 +9748,7 @@ chat.openapi(completions, async (c) => {
 							!willRetryStreamingError &&
 							shouldRetrySameKey({
 								usedProvider,
-								sessionSticky: sessionStickyEnabled,
+								providerPinned: isProviderPinned(),
 								errorType,
 								statusCode: inferredStatusCode,
 								envVarName,
@@ -13271,7 +13280,7 @@ chat.openapi(completions, async (c) => {
 			const willRetryFetchNonStreaming = shouldRetryRequest({
 				requestedProvider,
 				noFallback,
-				sessionSticky: sessionStickyEnabled,
+				providerPinned: isProviderPinned(),
 				errorType: "network_error",
 				retryCount: retryAttempt,
 				remainingProviders:
@@ -13287,7 +13296,7 @@ chat.openapi(completions, async (c) => {
 				!willRetryFetchNonStreaming &&
 				shouldRetrySameKey({
 					usedProvider,
-					sessionSticky: sessionStickyEnabled,
+					providerPinned: isProviderPinned(),
 					errorType: "network_error",
 					statusCode: 0,
 					envVarName,
@@ -13722,7 +13731,7 @@ chat.openapi(completions, async (c) => {
 			const willRetryHttpNonStreaming = shouldRetryRequest({
 				requestedProvider,
 				noFallback,
-				sessionSticky: sessionStickyEnabled,
+				providerPinned: isProviderPinned(),
 				errorType: finishReason,
 				retryCount: retryAttempt,
 				remainingProviders:
@@ -13738,7 +13747,7 @@ chat.openapi(completions, async (c) => {
 				!willRetryHttpNonStreaming &&
 				shouldRetrySameKey({
 					usedProvider,
-					sessionSticky: sessionStickyEnabled,
+					providerPinned: isProviderPinned(),
 					errorType: finishReason,
 					statusCode: res.status,
 					envVarName,

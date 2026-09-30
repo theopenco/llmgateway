@@ -262,9 +262,9 @@ export interface ProviderDefinition {
 	/**
 	 * Whether this provider's reasoning mappings return opaque reasoning
 	 * payloads (encrypted reasoning items, thought signatures) that only this
-	 * provider can verify when a conversation replays them. Routing keeps such
-	 * models off random exploration and low-uptime fallback. See
-	 * `usesEncryptedReasoning`.
+	 * provider can verify when a conversation replays them. Routing never moves
+	 * such models to another provider through random exploration, low-uptime
+	 * fallback, or error retry. See `usesEncryptedReasoning`.
 	 */
 	encryptedReasoning?: boolean;
 	termsUrl?: string | null;
