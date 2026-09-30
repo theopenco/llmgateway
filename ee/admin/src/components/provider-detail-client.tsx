@@ -73,12 +73,14 @@ function AirsideCarrierCard({
 						{formatPercent(carrier.discountPercent)}
 					</dd>
 				</div>
-				<div>
-					<dt className="text-xs text-muted-foreground">Margin</dt>
-					<dd className="text-sm tabular-nums">
-						{formatPercent(carrier.marginPercent)}
-					</dd>
-				</div>
+				{carrier.marginPercent !== undefined && (
+					<div>
+						<dt className="text-xs text-muted-foreground">Margin</dt>
+						<dd className="text-sm tabular-nums">
+							{formatPercent(carrier.marginPercent)}
+						</dd>
+					</div>
+				)}
 				<div>
 					<dt className="text-xs text-muted-foreground">Routing adjustment</dt>
 					<dd className="text-sm">

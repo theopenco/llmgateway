@@ -19,6 +19,8 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 import { useApi } from "@/lib/fetch-client";
 
 function formatPercent(fraction: number): string {
@@ -33,15 +35,18 @@ export function AirsideCarriersClient() {
 	const $api = useApi();
 	const query = $api.useQuery("get", "/admin/airside/routing-settings");
 	const providers = query.data?.providers ?? [];
+	// Margin fields are stripped from staff responses.
+	const showMargin = canWrite(useAdminRole());
 
 	return (
 		<div className="space-y-6 p-6">
 			<div>
 				<h1 className="text-2xl font-bold">Airside carriers</h1>
 				<p className="text-muted-foreground text-sm">
-					Every carrier's routing settings and the gateway margin accrued on
-					their traffic. Open a carrier to review its mappings and verify them
-					against the upstream.
+					Every carrier's routing settings
+					{showMargin ? " and the gateway margin accrued on their traffic" : ""}
+					. Open a carrier to review its mappings and verify them against the
+					upstream.
 				</p>
 			</div>
 
@@ -49,9 +54,9 @@ export function AirsideCarriersClient() {
 				<CardHeader>
 					<CardTitle>Routing settings</CardTitle>
 					<CardDescription>
-						Discount and margin are the carrier's own console settings; a
-						negative adjustment means their traffic is boosted in routing.
-						Margin figures come from the daily global rollups.
+						{showMargin
+							? "Discount and margin are the carrier's own console settings; a negative adjustment means their traffic is boosted in routing. Margin figures come from the daily global rollups."
+							: "Discount is the carrier's own console setting; a negative adjustment means their traffic is boosted in routing."}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -70,12 +75,20 @@ export function AirsideCarriersClient() {
 									<TableHead>Company</TableHead>
 									<TableHead>Provider</TableHead>
 									<TableHead className="text-right">Discount</TableHead>
-									<TableHead className="text-right">Margin</TableHead>
+									{showMargin && (
+										<TableHead className="text-right">Margin</TableHead>
+									)}
 									<TableHead className="text-right">
 										Routing adjustment
 									</TableHead>
-									<TableHead className="text-right">Margin (30d)</TableHead>
-									<TableHead className="text-right">Margin (total)</TableHead>
+									{showMargin && (
+										<>
+											<TableHead className="text-right">Margin (30d)</TableHead>
+											<TableHead className="text-right">
+												Margin (total)
+											</TableHead>
+										</>
+									)}
 									<TableHead className="text-right">Updated</TableHead>
 								</TableRow>
 							</TableHeader>
@@ -104,9 +117,11 @@ export function AirsideCarriersClient() {
 										<TableCell className="text-right">
 											{formatPercent(provider.discountPercent)}
 										</TableCell>
-										<TableCell className="text-right">
-											{formatPercent(provider.marginPercent)}
-										</TableCell>
+										{showMargin && (
+											<TableCell className="text-right">
+												{formatPercent(provider.marginPercent)}
+											</TableCell>
+										)}
 										<TableCell className="text-right">
 											<Badge
 												variant={
@@ -121,12 +136,16 @@ export function AirsideCarriersClient() {
 												{formatPercent(provider.routingAdjustment)}
 											</Badge>
 										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{formatUsd(provider.marginAmount30d)}
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{formatUsd(provider.marginAmountTotal)}
-										</TableCell>
+										{showMargin && (
+											<>
+												<TableCell className="text-right tabular-nums">
+													{formatUsd(provider.marginAmount30d)}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{formatUsd(provider.marginAmountTotal)}
+												</TableCell>
+											</>
+										)}
 										<TableCell className="text-muted-foreground text-right text-xs">
 											{new Date(provider.updatedAt).toLocaleDateString()}
 										</TableCell>

@@ -5,11 +5,14 @@ import { getSessionCookieHeader } from "@/lib/session-cookie";
 
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
+import type { AdminRole } from "@/lib/admin-role";
+
 export interface SessionUser {
 	id: string;
 	email: string;
 	name: string | null;
 	isAdmin: boolean;
+	adminRole: AdminRole | null;
 }
 
 export async function getUser(): Promise<SessionUser | null> {

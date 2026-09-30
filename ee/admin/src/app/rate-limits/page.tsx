@@ -5,6 +5,7 @@ import {
 	DeleteRateLimitButton,
 	RateLimitForm,
 } from "@/components/rate-limit-form";
+import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -131,12 +132,14 @@ export default async function GlobalRateLimitsPage() {
 					</div>
 				</div>
 				{options && (
-					<RateLimitForm
-						providers={options.providers}
-						mappings={options.mappings}
-						showEnforcement
-						onSubmit={handleCreateRateLimit}
-					/>
+					<AdminOnly>
+						<RateLimitForm
+							providers={options.providers}
+							mappings={options.mappings}
+							showEnforcement
+							onSubmit={handleCreateRateLimit}
+						/>
+					</AdminOnly>
 				)}
 			</header>
 
@@ -207,10 +210,12 @@ export default async function GlobalRateLimitsPage() {
 										{formatDate(rateLimit.createdAt)}
 									</TableCell>
 									<TableCell>
-										<DeleteRateLimitButton
-											rateLimitId={rateLimit.id}
-											onDelete={handleDeleteRateLimit}
-										/>
+										<AdminOnly>
+											<DeleteRateLimitButton
+												rateLimitId={rateLimit.id}
+												onDelete={handleDeleteRateLimit}
+											/>
+										</AdminOnly>
 									</TableCell>
 								</TableRow>
 							))

@@ -8,6 +8,7 @@ import {
 	ModelVerificationDialog,
 	VerificationStatusBadge,
 } from "@/components/model-verification-dialog";
+import { AdminOnly } from "@/components/role-gate";
 import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -262,7 +263,7 @@ export function ProviderModelsTable({
 											data-testid={`verify-mapping-${m.mappingId}`}
 										>
 											<ShieldCheck className="mr-1 h-3.5 w-3.5" />
-											Verify
+											<AdminOnly fallback="Results">Verify</AdminOnly>
 										</Button>
 									</ModelVerificationDialog>
 								</div>

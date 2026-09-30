@@ -12,10 +12,12 @@ import {
 import { DevpassTimeseriesChart } from "@/components/devpass-timeseries-chart";
 import { DevpassUsage } from "@/components/devpass-usage";
 import { Button } from "@/components/ui/button";
+import { canWrite } from "@/lib/admin-role";
 import {
 	DEVPASS_USAGE_DEFAULT_RANGE,
 	resolveDateRange,
 } from "@/lib/date-range";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { requireSession } from "@/lib/require-session";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +43,9 @@ const SORT_BY_VALUES = [
 	"allTimeMargin",
 ] as const;
 type SortBy = (typeof SORT_BY_VALUES)[number];
+
+// Margin fields are stripped from staff responses, so sorting by them is moot.
+const MARGIN_SORT_KEYS: readonly SortBy[] = ["margin", "allTimeMargin"];
 
 const SORT_ORDER_VALUES = ["asc", "desc"] as const;
 type SortOrder = (typeof SORT_ORDER_VALUES)[number];
@@ -166,6 +171,7 @@ export default async function DevpassPage({
 	}>;
 }) {
 	await requireSession();
+	const isAdmin = canWrite(await getSessionAdminRole());
 
 	const params = await searchParams;
 	const range = typeof params?.range === "string" ? params?.range : undefined;
@@ -190,9 +196,13 @@ export default async function DevpassPage({
 	const rawPage = parseInt(params?.page ?? "1", 10);
 	const page = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
 	const search = params?.search ?? "";
-	const sortBy =
+	const pickedSortBy =
 		(pickEnum(SORT_BY_VALUES, params?.sortBy, "subscribedSince") as SortBy) ||
 		"subscribedSince";
+	const sortBy =
+		!isAdmin && MARGIN_SORT_KEYS.includes(pickedSortBy)
+			? "subscribedSince"
+			: pickedSortBy;
 	const sortOrder =
 		(pickEnum(SORT_ORDER_VALUES, params?.sortOrder, "desc") as SortOrder) ||
 		"desc";
@@ -203,7 +213,7 @@ export default async function DevpassPage({
 		params?.utilization,
 		"",
 	) as UtilFilter;
-	const marginNegative = params?.marginNegative === "true";
+	const marginNegative = isAdmin && params?.marginNegative === "true";
 	const showChurned = params?.showChurned === "true";
 	const limit = 25;
 	const offset = (page - 1) * limit;
@@ -326,20 +336,29 @@ export default async function DevpassPage({
 				<div className="space-y-2">
 					<h1 className="text-3xl font-semibold tracking-tight">DevPass</h1>
 					<p className="text-sm text-muted-foreground">
-						Subscribers across Lite, Pro and Max — current cycle utilization,
-						real provider cost, and margin.
+						Subscribers across Lite, Pro and Max — current cycle utilization
+						{isAdmin
+							? ", real provider cost, and margin"
+							: " and real provider cost"}
+						.
 					</p>
 				</div>
-				<Suspense>
-					<DateRangePicker />
-				</Suspense>
+				{isAdmin && (
+					<Suspense>
+						<DateRangePicker />
+					</Suspense>
+				)}
 			</header>
 
-			<DevpassKpis from={from} to={to} />
+			{isAdmin && (
+				<>
+					<DevpassKpis from={from} to={to} />
 
-			<DevpassTimeseriesChart from={from} to={to} />
+					<DevpassTimeseriesChart from={from} to={to} />
 
-			<DevpassUsage from={usageFrom} to={usageTo} />
+					<DevpassUsage from={usageFrom} to={usageTo} />
+				</>
+			)}
 
 			<form
 				action={handleSearch}
@@ -485,12 +504,14 @@ export default async function DevpassPage({
 					<span className="text-xs uppercase tracking-wide text-muted-foreground">
 						Other
 					</span>
-					<ToggleLink
-						label="Negative margin only"
-						value={marginNegative}
-						queryString={queryString}
-						paramName="marginNegative"
-					/>
+					{isAdmin && (
+						<ToggleLink
+							label="Negative margin only"
+							value={marginNegative}
+							queryString={queryString}
+							paramName="marginNegative"
+						/>
+					)}
 					<ToggleLink
 						label="Show churned"
 						value={showChurned}

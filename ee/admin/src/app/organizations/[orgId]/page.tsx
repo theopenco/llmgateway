@@ -54,6 +54,8 @@ import {
 	updateEnterpriseDeal,
 	updateReferralBonus,
 } from "@/lib/admin-organizations";
+import { canRefund, canWrite } from "@/lib/admin-role";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { KEY_STATUS_DEFAULT, parseKeyStatus } from "@/lib/key-status";
 import {
 	buildLogModelOptions,
@@ -231,6 +233,10 @@ export default async function OrganizationPage({
 	const alLimit = 25;
 	const alOffset = (alPage - 1) * alLimit;
 
+	const role = await getSessionAdminRole();
+	const isAdmin = canWrite(role);
+	const mayRefund = canRefund(role);
+
 	const $api = await createServerApiClient();
 	const paymentMethodsRequest =
 		activeTab === "settings"
@@ -381,32 +387,34 @@ export default async function OrganizationPage({
 							</div>
 						</div>
 						<div className="flex shrink-0 items-center gap-2">
-							<ManageOrgDialog
-								orgName={org.name}
-								plan={org.plan}
-								seats={org.seats ?? null}
-								apiKeyLimit={org.apiKeyLimit ?? null}
-								projectLimit={org.projectLimit ?? null}
-								trustTierOverride={
-									trustTier?.overridden ? trustTier.tier : null
-								}
-								contentFilterTierOverride={
-									settingsData?.organization.contentFilterTierOverride
-								}
-								contentFilterLogOnly={
-									settingsData?.organization.contentFilterLogOnly
-								}
-								planExpiresAt={org.planExpiresAt ?? null}
-								planStartedAt={org.planStartedAt ?? null}
-								isTrialActive={org.isTrialActive ?? false}
-								trialStartDate={org.trialStartDate ?? null}
-								trialEndDate={org.trialEndDate ?? null}
-								primaryTrigger
-								onSave={async (data) => {
-									"use server";
-									return await manageOrganization(orgId, data);
-								}}
-							/>
+							{isAdmin ? (
+								<ManageOrgDialog
+									orgName={org.name}
+									plan={org.plan}
+									seats={org.seats ?? null}
+									apiKeyLimit={org.apiKeyLimit ?? null}
+									projectLimit={org.projectLimit ?? null}
+									trustTierOverride={
+										trustTier?.overridden ? trustTier.tier : null
+									}
+									contentFilterTierOverride={
+										settingsData?.organization.contentFilterTierOverride
+									}
+									contentFilterLogOnly={
+										settingsData?.organization.contentFilterLogOnly
+									}
+									planExpiresAt={org.planExpiresAt ?? null}
+									planStartedAt={org.planStartedAt ?? null}
+									isTrialActive={org.isTrialActive ?? false}
+									trialStartDate={org.trialStartDate ?? null}
+									trialEndDate={org.trialEndDate ?? null}
+									primaryTrigger
+									onSave={async (data) => {
+										"use server";
+										return await manageOrganization(orgId, data);
+									}}
+								/>
+							) : null}
 							<CollapsibleTrigger
 								aria-controls={actionsContentId}
 								className={buttonVariants({
@@ -547,51 +555,61 @@ export default async function OrganizationPage({
 
 					<CollapsibleContent id={actionsContentId}>
 						<div className="mt-4 grid gap-3 rounded-xl border border-border/60 bg-background p-4 md:grid-cols-2 xl:grid-cols-4">
-							<div>
-								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-									Credits
-								</p>
-								<div className="flex flex-wrap gap-2">
-									<GiftCreditsDialog
-										orgId={orgId}
-										orgName={org.name}
-										onGift={async (data) => {
-											"use server";
-											return await giftCreditsToOrganization(orgId, data);
-										}}
-									/>
-									<ManualCreditsDialog
-										orgName={org.name}
-										onCredit={async (data) => {
-											"use server";
-											return await addManualCreditsToOrganization(orgId, data);
-										}}
-									/>
+							{isAdmin ? (
+								<div>
+									<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+										Credits
+									</p>
+									<div className="flex flex-wrap gap-2">
+										<GiftCreditsDialog
+											orgId={orgId}
+											orgName={org.name}
+											onGift={async (data) => {
+												"use server";
+												return await giftCreditsToOrganization(orgId, data);
+											}}
+										/>
+										<ManualCreditsDialog
+											orgName={org.name}
+											onCredit={async (data) => {
+												"use server";
+												return await addManualCreditsToOrganization(
+													orgId,
+													data,
+												);
+											}}
+										/>
+									</div>
 								</div>
-							</div>
-							<div>
-								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-									Commercial
-								</p>
-								<div className="flex flex-wrap gap-2">
-									<EnterpriseDealDialog
-										orgName={org.name}
-										onSave={async (data) => {
-											"use server";
-											return await addEnterpriseDealToOrganization(orgId, data);
-										}}
-									/>
-									<ReferralBonusDialog
-										orgName={org.name}
-										enabled={org.referralBonusEnabled ?? false}
-										percent={org.referralBonusPercent ?? 50}
-										onSave={async (data) => {
-											"use server";
-											return await updateReferralBonus(orgId, data);
-										}}
-									/>
+							) : null}
+							{isAdmin ? (
+								<div>
+									<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+										Commercial
+									</p>
+									<div className="flex flex-wrap gap-2">
+										<EnterpriseDealDialog
+											orgName={org.name}
+											onSave={async (data) => {
+												"use server";
+												return await addEnterpriseDealToOrganization(
+													orgId,
+													data,
+												);
+											}}
+										/>
+										<ReferralBonusDialog
+											orgName={org.name}
+											enabled={org.referralBonusEnabled ?? false}
+											percent={org.referralBonusPercent ?? 50}
+											onSave={async (data) => {
+												"use server";
+												return await updateReferralBonus(orgId, data);
+											}}
+										/>
+									</div>
 								</div>
-							</div>
+							) : null}
 							<div>
 								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
 									Controls
@@ -614,24 +632,26 @@ export default async function OrganizationPage({
 									) : null}
 								</div>
 							</div>
-							<div>
-								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-destructive">
-									Account safety
-								</p>
-								<BlockOrgButton
-									orgId={orgId}
-									orgName={org.name}
-									variant="full"
-									disabled={getOrgDeletionBlockedReason(org.credits) !== null}
-									disabledReason={
-										getOrgDeletionBlockedReason(org.credits) ?? undefined
-									}
-									onBlock={async (id, reason) => {
-										"use server";
-										return await blockOrganization(id, reason);
-									}}
-								/>
-							</div>
+							{isAdmin ? (
+								<div>
+									<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-destructive">
+										Account safety
+									</p>
+									<BlockOrgButton
+										orgId={orgId}
+										orgName={org.name}
+										variant="full"
+										disabled={getOrgDeletionBlockedReason(org.credits) !== null}
+										disabledReason={
+											getOrgDeletionBlockedReason(org.credits) ?? undefined
+										}
+										onBlock={async (id, reason) => {
+											"use server";
+											return await blockOrganization(id, reason);
+										}}
+									/>
+								</div>
+							) : null}
 						</div>
 					</CollapsibleContent>
 				</Collapsible>
@@ -843,35 +863,38 @@ export default async function OrganizationPage({
 																		)}
 																	</Badge>
 																)}
-																<RefundPaymentDialog
-																	transactionId={transaction.id}
-																	transactionLabel={formatTransactionType(
-																		transaction.type,
-																	)}
-																	amount={transaction.amount ?? "0"}
-																	refundedAmount={
-																		transaction.refundability.refundedAmount
-																	}
-																	refundableAmount={
-																		transaction.refundability.refundableAmount
-																	}
-																	refundable={
-																		transaction.refundability.refundable
-																	}
-																	refundIneligibleReason={
-																		transaction.refundability.reason
-																	}
-																	onRefund={async (refundData) => {
-																		"use server";
-																		return await refundDevpassPayment(
-																			orgId,
-																			refundData,
-																		);
-																	}}
-																/>
+																{mayRefund ? (
+																	<RefundPaymentDialog
+																		transactionId={transaction.id}
+																		transactionLabel={formatTransactionType(
+																			transaction.type,
+																		)}
+																		amount={transaction.amount ?? "0"}
+																		refundedAmount={
+																			transaction.refundability.refundedAmount
+																		}
+																		refundableAmount={
+																			transaction.refundability.refundableAmount
+																		}
+																		refundable={
+																			transaction.refundability.refundable
+																		}
+																		refundIneligibleReason={
+																			transaction.refundability.reason
+																		}
+																		onRefund={async (refundData) => {
+																			"use server";
+																			return await refundDevpassPayment(
+																				orgId,
+																				refundData,
+																			);
+																		}}
+																	/>
+																) : null}
 															</div>
 														)}
-														{transaction.type === "enterprise_license_fee" ? (
+														{isAdmin &&
+														transaction.type === "enterprise_license_fee" ? (
 															<EnterpriseDealDialog
 																orgName={org.name}
 																deal={transaction}

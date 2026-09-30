@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,8 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 
 import { MultiProviderSelector } from "@llmgateway/shared/components";
 
@@ -61,6 +64,7 @@ export function ContentFilterSettingsForm({
 	onSave,
 }: ContentFilterSettingsFormProps) {
 	const router = useRouter();
+	const readOnly = !canWrite(useAdminRole());
 	const [pending, startTransition] = useTransition();
 	const [enabled, setEnabled] = useState(settings.enabled);
 	const [sampleRate, setSampleRate] = useState(
@@ -119,7 +123,7 @@ export function ContentFilterSettingsForm({
 				<Switch
 					id="content-filter-enabled"
 					checked={enabled}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onCheckedChange={(checked) => {
 						setSaved(false);
 						setEnabled(checked);
@@ -146,7 +150,7 @@ export function ContentFilterSettingsForm({
 					step={1}
 					className="w-32"
 					value={sampleRate}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onChange={(event) => {
 						setSaved(false);
 						setSampleRate(event.target.value);
@@ -162,7 +166,7 @@ export function ContentFilterSettingsForm({
 				<Switch
 					id="content-filter-enforce"
 					checked={enforce}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onCheckedChange={(checked) => {
 						setSaved(false);
 						setEnforce(checked);
@@ -186,7 +190,7 @@ export function ContentFilterSettingsForm({
 				<Switch
 					id="content-filter-enforce-enterprise"
 					checked={enforce && enforceEnterprise}
-					disabled={pending || !enforce}
+					disabled={pending || readOnly || !enforce}
 					onCheckedChange={(checked) => {
 						setSaved(false);
 						setEnforceEnterprise(checked);
@@ -207,7 +211,7 @@ export function ContentFilterSettingsForm({
 				<Label htmlFor="content-filter-classifier">Classifier</Label>
 				<Select
 					value={classifier}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onValueChange={(value) => {
 						setSaved(false);
 						setClassifier(value as Classifier);
@@ -241,7 +245,7 @@ export function ContentFilterSettingsForm({
 					</Label>
 					<Select
 						value={internalScope}
-						disabled={pending}
+						disabled={pending || readOnly}
 						onValueChange={(value) => {
 							setSaved(false);
 							setInternalScope(value as InternalScope);
@@ -273,40 +277,56 @@ export function ContentFilterSettingsForm({
 			<div className="space-y-2">
 				<div className="flex items-center justify-between gap-3">
 					<p className="text-sm font-medium">Providers</p>
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						disabled={pending || settings.providers.length === 0}
-						onClick={() => {
-							setSaved(false);
-							setProviderIds(
-								allSelected ? [] : settings.providers.map((p) => p.id),
-							);
-						}}
-					>
-						{allSelected ? "Unselect all" : "Select all"}
-					</Button>
+					{!readOnly && (
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							disabled={pending || settings.providers.length === 0}
+							onClick={() => {
+								setSaved(false);
+								setProviderIds(
+									allSelected ? [] : settings.providers.map((p) => p.id),
+								);
+							}}
+						>
+							{allSelected ? "Unselect all" : "Select all"}
+						</Button>
+					)}
 				</div>
 				<p className="text-xs text-muted-foreground">
 					Only requests routed to an enabled provider are moderated.{" "}
 					{providerIds.length} of {settings.providers.length} selected.
 				</p>
-				<MultiProviderSelector
-					providers={settings.providers}
-					selectedProviders={providerIds}
-					onProvidersChange={(next) => {
-						setSaved(false);
-						setProviderIds(next);
-					}}
-					placeholder="Search and select providers..."
-				/>
+				{readOnly ? (
+					<div className="flex flex-wrap gap-2">
+						{settings.providers
+							.filter((p) => p.enabled)
+							.map((p) => (
+								<Badge key={p.id} variant="secondary">
+									{p.name}
+								</Badge>
+							))}
+					</div>
+				) : (
+					<MultiProviderSelector
+						providers={settings.providers}
+						selectedProviders={providerIds}
+						onProvidersChange={(next) => {
+							setSaved(false);
+							setProviderIds(next);
+						}}
+						placeholder="Search and select providers..."
+					/>
+				)}
 			</div>
 
 			<div className="flex items-center gap-3">
-				<Button type="submit" disabled={pending}>
-					{pending ? "Saving…" : "Save"}
-				</Button>
+				{!readOnly && (
+					<Button type="submit" disabled={pending}>
+						{pending ? "Saving…" : "Save"}
+					</Button>
+				)}
 				{error && <p className="text-sm text-destructive">{error}</p>}
 				{saved && !error && (
 					<p className="text-sm text-muted-foreground">Saved.</p>

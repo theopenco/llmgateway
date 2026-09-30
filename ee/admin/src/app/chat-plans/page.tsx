@@ -36,7 +36,9 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { canWrite } from "@/lib/admin-role";
 import { resolveDateRange } from "@/lib/date-range";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { formatSubscriberStatus } from "@/lib/renewal-state";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
@@ -60,6 +62,9 @@ const SORT_BY_VALUES = [
 	"allTimeMargin",
 ] as const;
 type SortBy = (typeof SORT_BY_VALUES)[number];
+
+// Margin fields are stripped from staff responses, so sorting by them is moot.
+const MARGIN_SORT_KEYS: readonly SortBy[] = ["margin", "allTimeMargin"];
 
 const SORT_ORDER_VALUES = ["asc", "desc"] as const;
 type SortOrder = (typeof SORT_ORDER_VALUES)[number];
@@ -325,6 +330,7 @@ export default async function ChatPlansPage({
 	}>;
 }) {
 	await requireSession();
+	const isAdmin = canWrite(await getSessionAdminRole());
 
 	const params = await searchParams;
 	const range = typeof params?.range === "string" ? params?.range : undefined;
@@ -336,9 +342,13 @@ export default async function ChatPlansPage({
 	const rawPage = parseInt(params?.page ?? "1", 10);
 	const page = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
 	const search = params?.search ?? "";
-	const sortBy =
+	const pickedSortBy =
 		(pickEnum(SORT_BY_VALUES, params?.sortBy, "subscribedSince") as SortBy) ||
 		"subscribedSince";
+	const sortBy =
+		!isAdmin && MARGIN_SORT_KEYS.includes(pickedSortBy)
+			? "subscribedSince"
+			: pickedSortBy;
 	const sortOrder =
 		(pickEnum(SORT_ORDER_VALUES, params?.sortOrder, "desc") as SortOrder) ||
 		"desc";
@@ -349,7 +359,7 @@ export default async function ChatPlansPage({
 		params?.utilization,
 		"",
 	) as UtilFilter;
-	const marginNegative = params?.marginNegative === "true";
+	const marginNegative = isAdmin && params?.marginNegative === "true";
 	const showChurned = params?.showChurned === "true";
 	const limit = 25;
 	const offset = (page - 1) * limit;
@@ -471,15 +481,26 @@ export default async function ChatPlansPage({
 					</h1>
 					<p className="text-sm text-muted-foreground">
 						Chat Plan subscribers across Starter, Plus and Pro — current cycle
-						utilization, real provider cost, and margin.
+						utilization
+						{isAdmin
+							? ", real provider cost, and margin"
+							: " and real provider cost"}
+						.
 					</p>
 				</div>
-				<Suspense>
-					<DateRangePicker />
-				</Suspense>
+				{isAdmin && (
+					<Suspense>
+						<DateRangePicker />
+					</Suspense>
+				)}
 			</header>
 
-			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+			<section
+				className={cn(
+					"grid grid-cols-1 gap-3 sm:grid-cols-2",
+					isAdmin ? "lg:grid-cols-5" : "lg:grid-cols-4",
+				)}
+			>
 				<div className="rounded-lg border border-border/60 bg-card p-4">
 					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
 						<Users className="h-3.5 w-3.5" />
@@ -604,48 +625,56 @@ export default async function ChatPlansPage({
 						Weighted across active subs
 					</div>
 				</div>
-				<div className="rounded-lg border border-border/60 bg-card p-4">
-					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-						{kpis.totalMargin >= 0 ? (
-							<TrendingUp className="h-3.5 w-3.5" />
-						) : (
-							<TrendingDown className="h-3.5 w-3.5" />
-						)}
-						Cycle margin
-					</div>
-					<div className="mt-2 flex items-baseline gap-2">
-						<span
-							className={cn(
-								"text-2xl font-semibold tabular-nums",
-								kpis.totalMargin < 0 ? "text-rose-600 dark:text-rose-400" : "",
+				{isAdmin && (
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+							{kpis.totalMargin >= 0 ? (
+								<TrendingUp className="h-3.5 w-3.5" />
+							) : (
+								<TrendingDown className="h-3.5 w-3.5" />
 							)}
-						>
-							{currencyFormatter.format(kpis.totalMargin)}
-						</span>
-						{kpis.marginPct !== null && kpis.marginPct !== undefined ? (
+							Cycle margin
+						</div>
+						<div className="mt-2 flex items-baseline gap-2">
 							<span
 								className={cn(
-									"rounded-md border px-1.5 py-0.5 text-xs font-semibold tabular-nums",
-									kpis.marginPct < 0
-										? "border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400"
-										: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+									"text-2xl font-semibold tabular-nums",
+									kpis.totalMargin < 0
+										? "text-rose-600 dark:text-rose-400"
+										: "",
 								)}
-								title="Profit margin: cycle margin / gross MRR"
 							>
-								{kpis.marginPct.toFixed(1)}% profit
+								{currencyFormatter.format(kpis.totalMargin)}
 							</span>
-						) : null}
+							{kpis.marginPct !== null && kpis.marginPct !== undefined ? (
+								<span
+									className={cn(
+										"rounded-md border px-1.5 py-0.5 text-xs font-semibold tabular-nums",
+										kpis.marginPct < 0
+											? "border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400"
+											: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+									)}
+									title="Profit margin: cycle margin / gross MRR"
+								>
+									{kpis.marginPct.toFixed(1)}% profit
+								</span>
+							) : null}
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							{currencyFormatter.format(kpis.totalRealCostCycle)} provider cost
+							this cycle
+						</div>
 					</div>
-					<div className="mt-1 text-xs text-muted-foreground">
-						{currencyFormatter.format(kpis.totalRealCostCycle)} provider cost
-						this cycle
-					</div>
-				</div>
+				)}
 			</section>
 
-			<ChatPlansTimeseriesChart from={from} to={to} />
+			{isAdmin && (
+				<>
+					<ChatPlansTimeseriesChart from={from} to={to} />
 
-			<ChatPlansUsage from={from} to={to} />
+					<ChatPlansUsage from={from} to={to} />
+				</>
+			)}
 
 			<form
 				action={handleSearch}
@@ -780,12 +809,14 @@ export default async function ChatPlansPage({
 					<span className="text-xs uppercase tracking-wide text-muted-foreground">
 						Other
 					</span>
-					<ToggleLink
-						label="Negative margin only"
-						value={marginNegative}
-						queryString={queryString}
-						paramName="marginNegative"
-					/>
+					{isAdmin && (
+						<ToggleLink
+							label="Negative margin only"
+							value={marginNegative}
+							queryString={queryString}
+							paramName="marginNegative"
+						/>
+					)}
 					<ToggleLink
 						label="Show churned"
 						value={showChurned}
@@ -867,15 +898,17 @@ export default async function ChatPlansPage({
 									queryString={queryString}
 								/>
 							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Margin"
-									sortKey="margin"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									queryString={queryString}
-								/>
-							</TableHead>
+							{isAdmin && (
+								<TableHead>
+									<SortableHeader
+										label="Margin"
+										sortKey="margin"
+										currentSortBy={sortBy}
+										currentSortOrder={sortOrder}
+										queryString={queryString}
+									/>
+								</TableHead>
+							)}
 							<TableHead>
 								<SortableHeader
 									label="Cost (all-time)"
@@ -885,15 +918,17 @@ export default async function ChatPlansPage({
 									queryString={queryString}
 								/>
 							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Margin (all-time)"
-									sortKey="allTimeMargin"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									queryString={queryString}
-								/>
-							</TableHead>
+							{isAdmin && (
+								<TableHead>
+									<SortableHeader
+										label="Margin (all-time)"
+										sortKey="allTimeMargin"
+										currentSortBy={sortBy}
+										currentSortOrder={sortOrder}
+										queryString={queryString}
+									/>
+								</TableHead>
+							)}
 							<TableHead>
 								<SortableHeader
 									label="Since"
@@ -911,7 +946,7 @@ export default async function ChatPlansPage({
 						{data.subscribers.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={14}
+									colSpan={isAdmin ? 14 : 12}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No subscribers match
@@ -972,32 +1007,36 @@ export default async function ChatPlansPage({
 									<TableCell className="tabular-nums text-muted-foreground">
 										{currencyFormatterPrecise.format(sub.realCost)}
 									</TableCell>
-									<TableCell
-										className={cn(
-											"tabular-nums",
-											sub.margin < 0
-												? "text-rose-600 dark:text-rose-400"
-												: "text-emerald-600 dark:text-emerald-400",
-										)}
-									>
-										{currencyFormatter.format(sub.margin)}
-									</TableCell>
+									{isAdmin && (
+										<TableCell
+											className={cn(
+												"tabular-nums",
+												sub.margin < 0
+													? "text-rose-600 dark:text-rose-400"
+													: "text-emerald-600 dark:text-emerald-400",
+											)}
+										>
+											{currencyFormatter.format(sub.margin)}
+										</TableCell>
+									)}
 									<TableCell className="tabular-nums text-muted-foreground">
 										{currencyFormatterPrecise.format(sub.allTimeCost)}
 									</TableCell>
-									<TableCell
-										className={cn(
-											"tabular-nums",
-											sub.allTimeMargin < 0
-												? "text-rose-600 dark:text-rose-400"
-												: "text-emerald-600 dark:text-emerald-400",
-										)}
-										title={`Revenue ${currencyFormatter.format(
-											sub.allTimeRevenue,
-										)} − cost ${currencyFormatterPrecise.format(sub.allTimeCost)}`}
-									>
-										{currencyFormatter.format(sub.allTimeMargin)}
-									</TableCell>
+									{isAdmin && (
+										<TableCell
+											className={cn(
+												"tabular-nums",
+												sub.allTimeMargin < 0
+													? "text-rose-600 dark:text-rose-400"
+													: "text-emerald-600 dark:text-emerald-400",
+											)}
+											title={`Revenue ${currencyFormatter.format(
+												sub.allTimeRevenue,
+											)} − cost ${currencyFormatterPrecise.format(sub.allTimeCost)}`}
+										>
+											{currencyFormatter.format(sub.allTimeMargin)}
+										</TableCell>
+									)}
 									<TableCell className="text-muted-foreground text-xs">
 										{formatDate(sub.subscribedSince)}
 									</TableCell>

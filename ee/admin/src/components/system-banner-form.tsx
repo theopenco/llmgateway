@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 
 import {
 	SYSTEM_BANNER_DEFAULT_LINK_LABEL,
@@ -41,6 +43,7 @@ interface SystemBannerFormProps {
 
 export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 	const router = useRouter();
+	const readOnly = !canWrite(useAdminRole());
 	const [pending, startTransition] = useTransition();
 	const [enabled, setEnabled] = useState(banner.enabled);
 	const [message, setMessage] = useState(banner.message);
@@ -88,7 +91,7 @@ export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 				<Switch
 					id="system-banner-enabled"
 					checked={enabled}
-					disabled={pending || (!enabled && !trimmedMessage)}
+					disabled={pending || readOnly || (!enabled && !trimmedMessage)}
 					onCheckedChange={(checked) => {
 						setEnabled(checked);
 						save(checked);
@@ -107,7 +110,7 @@ export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 					maxLength={SYSTEM_BANNER_MESSAGE_MAX_LENGTH}
 					placeholder="e.g. Some providers are returning errors. We're on it."
 					value={message}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onChange={(event) => {
 						setMessage(event.target.value);
 						setSaved(false);
@@ -122,7 +125,7 @@ export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 				<Label htmlFor="system-banner-severity">Severity</Label>
 				<Select
 					value={severity}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onValueChange={(value) => {
 						setSeverity(value as SystemBannerSeverity);
 						setSaved(false);
@@ -150,7 +153,7 @@ export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 						inputMode="url"
 						placeholder="https://status.llmgateway.io"
 						value={linkUrl}
-						disabled={pending}
+						disabled={pending || readOnly}
 						onChange={(event) => {
 							setLinkUrl(event.target.value);
 							setSaved(false);
@@ -164,7 +167,7 @@ export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 						maxLength={SYSTEM_BANNER_LINK_LABEL_MAX_LENGTH}
 						placeholder={SYSTEM_BANNER_DEFAULT_LINK_LABEL}
 						value={linkLabel}
-						disabled={pending || !trimmedLink}
+						disabled={pending || readOnly || !trimmedLink}
 						onChange={(event) => {
 							setLinkLabel(event.target.value);
 							setSaved(false);
@@ -195,9 +198,11 @@ export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 			</div>
 
 			<div className="flex items-center gap-3">
-				<Button type="submit" disabled={pending}>
-					{pending ? "Saving…" : "Save"}
-				</Button>
+				{!readOnly && (
+					<Button type="submit" disabled={pending}>
+						{pending ? "Saving…" : "Save"}
+					</Button>
+				)}
 				{error && <p className="text-sm text-destructive">{error}</p>}
 				{saved && !error && (
 					<p className="text-sm text-muted-foreground">Saved.</p>

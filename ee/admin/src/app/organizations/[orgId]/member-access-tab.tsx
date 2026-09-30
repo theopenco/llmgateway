@@ -1,5 +1,6 @@
 import { FolderOpen, Layers3, Shield, Users } from "lucide-react";
 
+import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import {
 	Table,
@@ -244,12 +245,14 @@ export function MemberAccessTab({
 											{formatDate(member.createdAt)}
 										</TableCell>
 										<TableCell>
-											<SendEmailDialog
-												userName={member.user.name ?? ""}
-												userEmail={member.user.email}
-												orgName={organizationName}
-												plan={plan}
-											/>
+											<AdminOnly>
+												<SendEmailDialog
+													userName={member.user.name ?? ""}
+													userEmail={member.user.email}
+													orgName={organizationName}
+													plan={plan}
+												/>
+											</AdminOnly>
 										</TableCell>
 									</TableRow>
 								))
