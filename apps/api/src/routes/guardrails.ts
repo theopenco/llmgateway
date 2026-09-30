@@ -18,7 +18,10 @@ import {
 	defaultSystemRulesConfig,
 	defaultAllowedFileTypes,
 } from "@llmgateway/db";
-import { checkGuardrails, compileGuardrailRegex } from "@llmgateway/guardrails";
+import {
+	checkGuardrails,
+	validateGuardrailRegex,
+} from "@llmgateway/guardrails";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import {
 	canManageProject,
@@ -712,12 +715,12 @@ function validateRegexConfig(config: CustomRuleConfig) {
 				: [];
 	try {
 		for (const pattern of patterns) {
-			compileGuardrailRegex(pattern);
+			validateGuardrailRegex(pattern);
 		}
 	} catch {
 		throw new HTTPException(400, {
 			message:
-				"Use valid RE2 regex patterns of at most 1000 characters. Lookarounds and backreferences are not supported.",
+				"Use valid RE2 regex patterns of at most 1000 characters that do not match empty text. Lookarounds and backreferences are not supported.",
 		});
 	}
 }
