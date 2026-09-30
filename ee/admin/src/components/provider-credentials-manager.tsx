@@ -16,7 +16,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	Fragment,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 
 import { ProviderCredentialsSpendOverview } from "@/components/provider-credentials-spend-overview";
@@ -52,6 +59,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
 	Table,
 	TableBody,
@@ -376,6 +384,206 @@ function EnvSourceNote({
 	);
 }
 
+type CredentialSort = "order" | "usage" | "spend7d" | "requests24h";
+
+const SORT_OPTIONS: { value: CredentialSort; label: string }[] = [
+	{ value: "order", label: "Rotation order" },
+	{ value: "usage", label: "Lifetime spend" },
+	{ value: "spend7d", label: "Spend (7d)" },
+	{ value: "requests24h", label: "Requests (24h)" },
+];
+
+function parseSort(value: string | null): CredentialSort {
+	return SORT_OPTIONS.some((option) => option.value === value)
+		? (value as CredentialSort)
+		: "order";
+}
+
+/** The number a usage sort ranks a credential by, highest first. */
+function usageMetric(
+	credential: ProviderCredential,
+	sort: Exclude<CredentialSort, "order">,
+): number {
+	switch (sort) {
+		case "usage":
+			return Number(credential.usage);
+		case "spend7d":
+			return credential.last7dDaily.reduce((total, day) => total + day.cost, 0);
+		case "requests24h":
+			return credential.last24h.requestCount;
+	}
+}
+
+function isDeletedCredential(credential: ProviderCredential): boolean {
+	return credential.status === "deleted";
+}
+
+/** Rotation position, or a dash for a credential the gateway skips. */
+function RotationPosition({
+	credential,
+	position,
+}: {
+	credential: ProviderCredential;
+	position: number | null;
+}) {
+	if (position !== null) {
+		return (
+			<span
+				className="text-xs tabular-nums text-muted-foreground"
+				title={`Position ${position} in this provider's rotation. The gateway tries credentials in this order and falls through to the next when one is unhealthy.`}
+			>
+				{position}
+			</span>
+		);
+	}
+	return (
+		<span
+			className="text-xs text-muted-foreground"
+			title={
+				isDeletedCredential(credential)
+					? "Deleted: kept for its spend and request history only."
+					: "Not in rotation: the gateway only selects active credentials, so this one is skipped entirely."
+			}
+		>
+			—
+		</span>
+	);
+}
+
+/** Every cell of a managed credential row after the leading position cell. */
+function ManagedCredentialCells({
+	credential,
+	onEdit,
+	onDelete,
+}: {
+	credential: ProviderCredential;
+	onEdit: (credential: ProviderCredential) => void;
+	onDelete: (credential: ProviderCredential) => void;
+}) {
+	const isDeleted = isDeletedCredential(credential);
+	const configEntries = Object.entries(credential.config ?? {});
+	return (
+		<>
+			<TableCell>
+				<ProviderCell provider={credential.provider} />
+			</TableCell>
+			<TableCell className="font-mono text-xs">
+				<div>{credential.maskedToken}</div>
+				{credential.tokenHash ? (
+					<div
+						className="text-[11px] text-muted-foreground"
+						title={`Matches usedApiKeyHash on logs served by this credential: ${credential.tokenHash}`}
+					>
+						{credential.tokenHash.slice(0, 12)}
+					</div>
+				) : null}
+			</TableCell>
+			<TableCell className="max-w-[260px] text-sm text-muted-foreground">
+				{credential.comment || "—"}
+			</TableCell>
+			<TableCell className="text-sm">
+				{VARIANT_LABELS[credential.variant as Variant] ?? credential.variant}
+			</TableCell>
+			<TableCell className="text-sm">{credential.region || "Any"}</TableCell>
+			<TableCell>
+				{credential.allowedModels && credential.allowedModels.length > 0 ? (
+					<Badge
+						variant="secondary"
+						className="text-[11px]"
+						title={`Only serves: ${credential.allowedModels.join(", ")}`}
+					>
+						{credential.allowedModels.length} model
+						{credential.allowedModels.length === 1 ? "" : "s"}
+					</Badge>
+				) : (
+					<span
+						className="text-sm text-muted-foreground"
+						title="Serves every model of the provider."
+					>
+						All
+					</span>
+				)}
+			</TableCell>
+			<TableCell>
+				{configEntries.length === 0 ? (
+					<span className="text-sm text-muted-foreground">—</span>
+				) : (
+					<div className="flex flex-wrap gap-1">
+						{configEntries.map(([key, value]) => (
+							<Badge
+								key={key}
+								variant="secondary"
+								className="font-mono text-[11px]"
+								title={`${key}: ${value}`}
+							>
+								{key}
+							</Badge>
+						))}
+					</div>
+				)}
+			</TableCell>
+			<TableCell className="text-sm">
+				<ProviderKeySpendCell
+					keyRow={credential}
+					daily={credential.last7dDaily}
+				/>
+			</TableCell>
+			<TableCell>
+				<ProviderKeyErrorRateCell
+					providerKeyId={credential.id}
+					stats={credential.last24h}
+					daily={credential.last7dDaily}
+				/>
+			</TableCell>
+			<TableCell>
+				<ProviderKeyStatusBadge keyRow={credential} />
+			</TableCell>
+			<TableCell className="text-right">
+				<div className="flex justify-end gap-1">
+					<ProviderKeySpendDialog
+						providerKeyId={credential.id}
+						label={`${credential.provider} ${credential.maskedToken}`}
+					/>
+					<Button
+						asChild
+						variant="ghost"
+						size="sm"
+						title="Model breakdown in Global Stats"
+					>
+						<Link
+							href={`/global-stats?providerKeyId=${encodeURIComponent(credential.id)}`}
+							aria-label={`View model breakdown for ${credential.provider} credential ${credential.maskedToken}`}
+						>
+							<Layers className="h-4 w-4" />
+						</Link>
+					</Button>
+					{/* Update and delete both reject a deleted credential. */}
+					{isDeleted ? null : (
+						<>
+							<Button
+								variant="ghost"
+								size="sm"
+								aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
+								onClick={() => onEdit(credential)}
+							>
+								<Pencil className="h-4 w-4" />
+							</Button>
+							<Button
+								variant="ghost"
+								size="sm"
+								aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
+								onClick={() => onDelete(credential)}
+							>
+								<Trash2 className="h-4 w-4" />
+							</Button>
+						</>
+					)}
+				</div>
+			</TableCell>
+		</>
+	);
+}
+
 export function ProviderCredentialsManager({
 	credentials,
 	catalog,
@@ -391,17 +599,20 @@ export function ProviderCredentialsManager({
 	const searchParams = useSearchParams();
 	const providerFilter = searchParams.get("provider") ?? ALL_PROVIDERS;
 	const view = searchParams.get("view") === "spend" ? "spend" : "credentials";
+	// The page reads `deleted` server-side to decide whether the API returns
+	// soft-deleted credentials at all.
+	const showDeleted = searchParams.get("deleted") === "1";
+	const sort = parseSort(searchParams.get("sort"));
 
-	// Kept in the URL like the provider filter, so a shared link opens on the
-	// same tab. The credentials table is the default: with dozens of providers
-	// the chart grid would otherwise push it off screen.
-	const setView = useCallback(
-		(next: string) => {
+	// View state lives in the URL so a filtered or sorted view can be reloaded,
+	// shared and navigated back to, matching the other admin tables.
+	const setParam = useCallback(
+		(key: string, value: string | null) => {
 			const params = new URLSearchParams(searchParams.toString());
-			if (next === "spend") {
-				params.set("view", "spend");
+			if (value === null) {
+				params.delete(key);
 			} else {
-				params.delete("view");
+				params.set(key, value);
 			}
 			const query = params.toString();
 			router.replace(query ? `${pathname}?${query}` : pathname, {
@@ -411,22 +622,17 @@ export function ProviderCredentialsManager({
 		[searchParams, router, pathname],
 	);
 
-	// Kept in the URL so a filtered view can be reloaded, shared and navigated
-	// back to, matching how the other admin tables persist their filters.
+	// The credentials table is the default tab: with dozens of providers the
+	// chart grid would otherwise push it off screen.
+	const setView = useCallback(
+		(next: string) => setParam("view", next === "spend" ? "spend" : null),
+		[setParam],
+	);
+
 	const setProviderFilter = useCallback(
-		(next: string) => {
-			const params = new URLSearchParams(searchParams.toString());
-			if (next === ALL_PROVIDERS) {
-				params.delete("provider");
-			} else {
-				params.set("provider", next);
-			}
-			const query = params.toString();
-			router.replace(query ? `${pathname}?${query}` : pathname, {
-				scroll: false,
-			});
-		},
-		[searchParams, router, pathname],
+		(next: string) =>
+			setParam("provider", next === ALL_PROVIDERS ? null : next),
+		[setParam],
 	);
 
 	const [editing, setEditing] = useState<ProviderCredential | null>(null);
@@ -434,6 +640,38 @@ export function ProviderCredentialsManager({
 	const [deleting, setDeleting] = useState<ProviderCredential | null>(null);
 	const [deleteLoading, setDeleteLoading] = useState(false);
 	const [deleteError, setDeleteError] = useState<string | null>(null);
+
+	// Deleted credentials are listed for their history only: they take no part
+	// in rotation, reordering, env supersession or the create dialog's counts.
+	const liveCredentials = useMemo(
+		() => credentials.filter((credential) => !isDeletedCredential(credential)),
+		[credentials],
+	);
+
+	const deletedByProvider = useMemo(() => {
+		const groups = new Map<string, ProviderCredential[]>();
+		for (const credential of credentials) {
+			if (isDeletedCredential(credential)) {
+				groups.set(credential.provider, [
+					...(groups.get(credential.provider) ?? []),
+					credential,
+				]);
+			}
+		}
+		return groups;
+	}, [credentials]);
+
+	// Every provider with a listed credential, in the API's provider order.
+	const providerCounts = useMemo(() => {
+		const counts = new Map<string, number>();
+		for (const credential of credentials) {
+			counts.set(
+				credential.provider,
+				(counts.get(credential.provider) ?? 0) + 1,
+			);
+		}
+		return counts;
+	}, [credentials]);
 
 	const catalogById = useMemo(
 		() => new Map(catalog.map((entry) => [entry.id, entry])),
@@ -450,7 +688,7 @@ export function ProviderCredentialsManager({
 	// broken down by audience to pair with each one's env-var count.
 	const credentialCounts = useMemo(() => {
 		const counts = new Map<string, VariantCounts>();
-		for (const credential of credentials) {
+		for (const credential of liveCredentials) {
 			const current = counts.get(credential.provider) ?? {
 				default: 0,
 				enterprise: 0,
@@ -463,29 +701,29 @@ export function ProviderCredentialsManager({
 			});
 		}
 		return counts;
-	}, [credentials]);
+	}, [liveCredentials]);
 
 	const regionsInUse = useMemo(
 		() =>
-			credentials.map((credential) => ({
+			liveCredentials.map((credential) => ({
 				provider: credential.provider,
 				region: credential.region,
 			})),
-		[credentials],
+		[liveCredentials],
 	);
 
 	// Rows arrive grouped by provider (the API orders by provider, then position),
 	// so each run becomes its own reorderable tbody.
 	const serverOrder = useMemo(() => {
 		const groups = new Map<string, string[]>();
-		for (const credential of credentials) {
+		for (const credential of liveCredentials) {
 			groups.set(credential.provider, [
 				...(groups.get(credential.provider) ?? []),
 				credential.id,
 			]);
 		}
 		return groups;
-	}, [credentials]);
+	}, [liveCredentials]);
 
 	const credentialById = useMemo(
 		() => new Map(credentials.map((credential) => [credential.id, credential])),
@@ -509,15 +747,15 @@ export function ProviderCredentialsManager({
 	// Only providers that actually have credentials — filtering to an empty
 	// provider is a dead end, and the create dialog is where you go to add one.
 	const filterOptions = useMemo(() => {
-		const options = Array.from(serverOrder.entries()).map(
-			([provider, ids]) => ({
+		const options = Array.from(providerCounts.entries()).map(
+			([provider, count]) => ({
 				value: provider,
 				label: catalogById.get(provider)?.name ?? provider,
 				keywords: provider,
 				icon: <ProviderIcon provider={provider} />,
 				annotation: (
 					<Badge variant="secondary" className="text-[11px]">
-						{ids.length}
+						{count}
 					</Badge>
 				),
 			}),
@@ -534,19 +772,37 @@ export function ProviderCredentialsManager({
 			},
 			...options,
 		];
-	}, [serverOrder, catalogById, credentials.length]);
+	}, [providerCounts, catalogById, credentials.length]);
+
+	const matchesProviderFilter = useCallback(
+		(provider: string) =>
+			providerFilter === ALL_PROVIDERS || provider === providerFilter,
+		[providerFilter],
+	);
 
 	// Display-only: `order` keeps every provider so the counts in the create
 	// dialog and the reorder payloads stay whole. Filtering by provider also
 	// leaves each shown group complete, which the reorder endpoint requires.
-	const visibleGroups = useMemo(
-		() =>
-			Array.from(order.entries()).filter(
-				([provider]) =>
-					providerFilter === ALL_PROVIDERS || provider === providerFilter,
-			),
-		[order, providerFilter],
+	const visibleProviders = useMemo(
+		() => Array.from(providerCounts.keys()).filter(matchesProviderFilter),
+		[providerCounts, matchesProviderFilter],
 	);
+
+	// A usage sort ranks across providers, so it is a flat list with no drag
+	// handles; rotation order is only editable in the grouped view.
+	const sortedCredentials = useMemo(() => {
+		if (sort === "order") {
+			return [];
+		}
+		return credentials
+			.filter((credential) => matchesProviderFilter(credential.provider))
+			.map((credential) => ({
+				credential,
+				metric: usageMetric(credential, sort),
+			}))
+			.sort((a, b) => b.metric - a.metric)
+			.map(({ credential }) => credential);
+	}, [credentials, sort, matchesProviderFilter]);
 
 	/**
 	 * Rotation position per credential id, counting only the credentials the
@@ -589,13 +845,13 @@ export function ProviderCredentialsManager({
 	// audience or region — so every env key of such a provider is unused.
 	const managedProviders = useMemo(() => {
 		const set = new Set<string>();
-		for (const credential of credentials) {
+		for (const credential of liveCredentials) {
 			if (credential.status === "active") {
 				set.add(credential.provider);
 			}
 		}
 		return set;
-	}, [credentials]);
+	}, [liveCredentials]);
 
 	const isEnvSuperseded = useCallback(
 		(provider: string) => managedProviders.has(provider),
@@ -607,14 +863,57 @@ export function ProviderCredentialsManager({
 	const envOnlyProviders = useMemo(
 		() =>
 			Array.from(envByProvider.keys())
-				.filter((provider) => !serverOrder.has(provider))
-				.filter(
-					(provider) =>
-						providerFilter === ALL_PROVIDERS || provider === providerFilter,
-				)
+				.filter((provider) => !providerCounts.has(provider))
+				.filter(matchesProviderFilter)
 				.sort(),
-		[envByProvider, serverOrder, providerFilter],
+		[envByProvider, providerCounts, matchesProviderFilter],
 	);
+
+	const editCredential = useCallback(
+		(credential: ProviderCredential) => setEditing(credential),
+		[],
+	);
+	const requestDelete = useCallback((credential: ProviderCredential) => {
+		setDeleteError(null);
+		setDeleting(credential);
+	}, []);
+
+	function renderEnvRows(provider: string) {
+		return (envByProvider.get(provider) ?? []).map((entry) => (
+			<EnvCredentialRow
+				key={`${entry.envVar}:${entry.index}`}
+				provider={provider}
+				entry={entry}
+				superseded={isEnvSuperseded(provider)}
+			/>
+		));
+	}
+
+	/** A row outside the drag lists: deleted, or in a usage-sorted view. */
+	function renderStaticRow(credential: ProviderCredential) {
+		return (
+			<TableRow
+				key={credential.id}
+				className={cn(
+					"border-b bg-card transition-colors hover:bg-muted/50",
+					!rotationPositions.has(credential.id) && "bg-muted/30",
+					isDeletedCredential(credential) && "opacity-60",
+				)}
+			>
+				<TableCell className="w-10">
+					<RotationPosition
+						credential={credential}
+						position={rotationPositions.get(credential.id) ?? null}
+					/>
+				</TableCell>
+				<ManagedCredentialCells
+					credential={credential}
+					onEdit={editCredential}
+					onDelete={requestDelete}
+				/>
+			</TableRow>
+		);
+	}
 
 	function applyReorder(provider: string, ids: string[]) {
 		if (!preDragOrder.current) {
@@ -697,11 +996,44 @@ export function ProviderCredentialsManager({
 			</TabsContent>
 
 			<TabsContent value="credentials" className="flex flex-col gap-2">
-				<EnvSourceNote
-					source={envSource}
-					publishedAt={envPublishedAt}
-					envKeyCount={envKeyCount}
-				/>
+				<div className="flex flex-wrap items-center justify-between gap-3">
+					<EnvSourceNote
+						source={envSource}
+						publishedAt={envPublishedAt}
+						envKeyCount={envKeyCount}
+					/>
+					<div className="flex flex-wrap items-center gap-4">
+						<div className="flex items-center gap-2">
+							<Switch
+								id="show-deleted-credentials"
+								checked={showDeleted}
+								onCheckedChange={(checked) =>
+									setParam("deleted", checked ? "1" : null)
+								}
+							/>
+							<Label htmlFor="show-deleted-credentials" className="text-sm">
+								Show deleted
+							</Label>
+						</div>
+						<Select
+							value={sort}
+							onValueChange={(next) =>
+								setParam("sort", next === "order" ? null : next)
+							}
+						>
+							<SelectTrigger className="w-44" aria-label="Sort credentials">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{SORT_OPTIONS.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+				</div>
 				<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
 					<Table>
 						<TableHeader>
@@ -759,7 +1091,8 @@ export function ProviderCredentialsManager({
 									</TableCell>
 								</TableRow>
 							</TableBody>
-						) : visibleGroups.length === 0 && envOnlyProviders.length === 0 ? (
+						) : visibleProviders.length === 0 &&
+						  envOnlyProviders.length === 0 ? (
 							// Reachable by hand-editing the query string, or by following a
 							// link to a provider whose last credential has since been removed.
 							<TableBody>
@@ -784,211 +1117,90 @@ export function ProviderCredentialsManager({
 							// stack seamlessly, and it makes dragging a row into another
 							// provider's group structurally impossible.
 							<>
-								{visibleGroups.map(([provider, ids]) => (
-									<ReorderableList
-										key={provider}
-										as="tbody"
-										ids={ids}
-										disabled={savingProvider === provider}
-										onReorder={(next) => applyReorder(provider, next)}
-										onCommit={(next) => void commitReorder(provider, next)}
-									>
-										{ids.map((id: string) => {
-											const credential = credentialById.get(id);
-											if (!credential) {
-												return null;
-											}
-											// Position the gateway would actually try this credential
-											// at. Selection skips anything not active, so numbering
-											// every row by its list index would show a shut-off key
-											// as "#1" while the gateway silently serves from the one
-											// below it.
-											const rotationPosition =
-												rotationPositions.get(id) ?? null;
-											const configEntries = Object.entries(
-												credential.config ?? {},
-											);
-											return (
-												<ReorderableItem
-													key={credential.id}
-													id={credential.id}
-													as="tr"
-													itemLabel={`${credential.provider} credential ${credential.maskedToken}`}
-													className={cn(
-														"border-b bg-card transition-colors hover:bg-muted/50",
-														rotationPosition === null && "bg-muted/30",
-													)}
-												>
-													{(handle) => (
-														<>
-															<TableCell className="w-10">
-																<div className="flex items-center gap-1">
-																	{handle}
-																	{rotationPosition === null ? (
-																		<span
-																			className="text-xs text-muted-foreground"
-																			title="Not in rotation: the gateway only selects active credentials, so this one is skipped entirely."
-																		>
-																			—
-																		</span>
-																	) : (
-																		<span
-																			className="text-xs tabular-nums text-muted-foreground"
-																			title={`Position ${rotationPosition} in this provider's rotation. The gateway tries credentials in this order and falls through to the next when one is unhealthy.`}
-																		>
-																			{rotationPosition}
-																		</span>
+								{sort === "order" ? (
+									visibleProviders.map((provider) => {
+										const ids = order.get(provider) ?? [];
+										const deleted = deletedByProvider.get(provider) ?? [];
+										return (
+											<Fragment key={provider}>
+												{ids.length > 0 ? (
+													<ReorderableList
+														as="tbody"
+														ids={ids}
+														disabled={savingProvider === provider}
+														onReorder={(next) => applyReorder(provider, next)}
+														onCommit={(next) =>
+															void commitReorder(provider, next)
+														}
+													>
+														{ids.map((id: string) => {
+															const credential = credentialById.get(id);
+															if (!credential) {
+																return null;
+															}
+															// Position the gateway would actually try this
+															// credential at. Selection skips anything not active,
+															// so numbering every row by its list index would show
+															// a shut-off key as "#1" while the gateway silently
+															// serves from the one below it.
+															const rotationPosition =
+																rotationPositions.get(id) ?? null;
+															return (
+																<ReorderableItem
+																	key={credential.id}
+																	id={credential.id}
+																	as="tr"
+																	itemLabel={`${credential.provider} credential ${credential.maskedToken}`}
+																	className={cn(
+																		"border-b bg-card transition-colors hover:bg-muted/50",
+																		rotationPosition === null && "bg-muted/30",
 																	)}
-																</div>
-															</TableCell>
-															<TableCell>
-																<ProviderCell provider={credential.provider} />
-															</TableCell>
-															<TableCell className="font-mono text-xs">
-																<div>{credential.maskedToken}</div>
-																{credential.tokenHash ? (
-																	<div
-																		className="text-[11px] text-muted-foreground"
-																		title={`Matches usedApiKeyHash on logs served by this credential: ${credential.tokenHash}`}
-																	>
-																		{credential.tokenHash.slice(0, 12)}
-																	</div>
-																) : null}
-															</TableCell>
-															<TableCell className="max-w-[260px] text-sm text-muted-foreground">
-																{credential.comment || "—"}
-															</TableCell>
-															<TableCell className="text-sm">
-																{VARIANT_LABELS[
-																	credential.variant as Variant
-																] ?? credential.variant}
-															</TableCell>
-															<TableCell className="text-sm">
-																{credential.region || "Any"}
-															</TableCell>
-															<TableCell>
-																{credential.allowedModels &&
-																credential.allowedModels.length > 0 ? (
-																	<Badge
-																		variant="secondary"
-																		className="text-[11px]"
-																		title={`Only serves: ${credential.allowedModels.join(", ")}`}
-																	>
-																		{credential.allowedModels.length} model
-																		{credential.allowedModels.length === 1
-																			? ""
-																			: "s"}
-																	</Badge>
-																) : (
-																	<span
-																		className="text-sm text-muted-foreground"
-																		title="Serves every model of the provider."
-																	>
-																		All
-																	</span>
-																)}
-															</TableCell>
-															<TableCell>
-																{configEntries.length === 0 ? (
-																	<span className="text-sm text-muted-foreground">
-																		—
-																	</span>
-																) : (
-																	<div className="flex flex-wrap gap-1">
-																		{configEntries.map(([key, value]) => (
-																			<Badge
-																				key={key}
-																				variant="secondary"
-																				className="font-mono text-[11px]"
-																				title={`${key}: ${value}`}
-																			>
-																				{key}
-																			</Badge>
-																		))}
-																	</div>
-																)}
-															</TableCell>
-															<TableCell className="text-sm">
-																<ProviderKeySpendCell
-																	keyRow={credential}
-																	daily={credential.last7dDaily}
-																/>
-															</TableCell>
-															<TableCell>
-																<ProviderKeyErrorRateCell
-																	providerKeyId={credential.id}
-																	stats={credential.last24h}
-																	daily={credential.last7dDaily}
-																/>
-															</TableCell>
-															<TableCell>
-																<ProviderKeyStatusBadge keyRow={credential} />
-															</TableCell>
-															<TableCell className="text-right">
-																<div className="flex justify-end gap-1">
-																	<ProviderKeySpendDialog
-																		providerKeyId={credential.id}
-																		label={`${credential.provider} ${credential.maskedToken}`}
-																	/>
-																	<Button
-																		asChild
-																		variant="ghost"
-																		size="sm"
-																		title="Model breakdown in Global Stats"
-																	>
-																		<Link
-																			href={`/global-stats?providerKeyId=${encodeURIComponent(credential.id)}`}
-																			aria-label={`View model breakdown for ${credential.provider} credential ${credential.maskedToken}`}
-																		>
-																			<Layers className="h-4 w-4" />
-																		</Link>
-																	</Button>
-																	<Button
-																		variant="ghost"
-																		size="sm"
-																		aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
-																		onClick={() => setEditing(credential)}
-																	>
-																		<Pencil className="h-4 w-4" />
-																	</Button>
-																	<Button
-																		variant="ghost"
-																		size="sm"
-																		aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
-																		onClick={() => {
-																			setDeleteError(null);
-																			setDeleting(credential);
-																		}}
-																	>
-																		<Trash2 className="h-4 w-4" />
-																	</Button>
-																</div>
-															</TableCell>
-														</>
-													)}
-												</ReorderableItem>
-											);
-										})}
-										{(envByProvider.get(provider) ?? []).map((entry) => (
-											<EnvCredentialRow
-												key={`${entry.envVar}:${entry.index}`}
-												provider={provider}
-												entry={entry}
-												superseded={isEnvSuperseded(provider)}
-											/>
-										))}
-									</ReorderableList>
-								))}
-								{envOnlyProviders.map((provider) => (
+																>
+																	{(handle) => (
+																		<>
+																			<TableCell className="w-10">
+																				<div className="flex items-center gap-1">
+																					{handle}
+																					<RotationPosition
+																						credential={credential}
+																						position={rotationPosition}
+																					/>
+																				</div>
+																			</TableCell>
+																			<ManagedCredentialCells
+																				credential={credential}
+																				onEdit={editCredential}
+																				onDelete={requestDelete}
+																			/>
+																		</>
+																	)}
+																</ReorderableItem>
+															);
+														})}
+													</ReorderableList>
+												) : null}
+												<TableBody>
+													{deleted.map(renderStaticRow)}
+													{renderEnvRows(provider)}
+												</TableBody>
+											</Fragment>
+										);
+									})
+								) : (
+									<TableBody>
+										{sortedCredentials.map(renderStaticRow)}
+									</TableBody>
+								)}
+								{/* Env keys carry no attributed usage, so a usage sort
+								    lists them last, grouped by provider. */}
+								{(sort === "order"
+									? envOnlyProviders
+									: Array.from(envByProvider.keys())
+											.filter(matchesProviderFilter)
+											.sort()
+								).map((provider) => (
 									<TableBody key={`env-${provider}`}>
-										{(envByProvider.get(provider) ?? []).map((entry) => (
-											<EnvCredentialRow
-												key={`${entry.envVar}:${entry.index}`}
-												provider={provider}
-												entry={entry}
-												superseded={isEnvSuperseded(provider)}
-											/>
-										))}
+										{renderEnvRows(provider)}
 									</TableBody>
 								))}
 							</>

@@ -31,9 +31,14 @@ function SignInPrompt() {
 	);
 }
 
-export default async function ProviderCredentialsPage() {
+export default async function ProviderCredentialsPage({
+	searchParams,
+}: {
+	searchParams: Promise<{ deleted?: string }>;
+}) {
+	const { deleted } = await searchParams;
 	const [credentialsData, catalogData] = await Promise.all([
-		getProviderCredentials(),
+		getProviderCredentials(deleted === "1"),
 		getProviderCredentialCatalog(),
 	]);
 

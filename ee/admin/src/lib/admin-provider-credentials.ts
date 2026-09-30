@@ -87,9 +87,13 @@ async function request<T>(
 	return { success: true, result: data };
 }
 
-export async function getProviderCredentials() {
+export async function getProviderCredentials(includeDeleted = false) {
 	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/provider-credentials");
+	const { data } = await $api.GET("/admin/provider-credentials", {
+		params: {
+			query: includeDeleted ? { includeDeleted: "true" } : {},
+		},
+	});
 	return data ?? null;
 }
 
