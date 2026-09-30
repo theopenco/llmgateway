@@ -488,6 +488,7 @@ export interface OpenAIResponsesRequestBody {
 		  }
 	>;
 	tool_choice?: ResponsesToolChoice;
+	parallel_tool_calls?: boolean;
 	stream?: boolean;
 	temperature?: number;
 	max_output_tokens?: number;

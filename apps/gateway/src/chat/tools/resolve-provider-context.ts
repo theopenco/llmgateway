@@ -196,6 +196,7 @@ export interface ProviderContextOptions {
 	 */
 	clientRequestedServiceTier?: "flex" | "priority" | null;
 	verbosity?: "low" | "medium" | "high";
+	parallel_tool_calls?: boolean;
 }
 
 interface ProjectInfo {
@@ -1000,6 +1001,9 @@ export async function resolveProviderContext(
 		options.session_id,
 		undefined,
 		organization.safetyIdentifier,
+		undefined,
+		undefined,
+		options.parallel_tool_calls,
 	);
 
 	// Post-validation of max_tokens in request body
