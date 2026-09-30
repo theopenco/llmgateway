@@ -3285,6 +3285,12 @@ admin.openapi(getOrganizations, async (c) => {
 
 	const sortColumn = sortColumnMap[sortBy];
 
+	// A search for a user or domain usually matches several orgs; the
+	// enterprise one is almost always the one being looked for.
+	const searchOrderBy = whereClause
+		? [desc(sql`${tables.organization.plan} = 'enterprise'`)]
+		: [];
+
 	const organizations = await db
 		.select({
 			id: tables.organization.id,
@@ -3342,7 +3348,7 @@ admin.openapi(getOrganizations, async (c) => {
 		// Ties (every org with no usage shares 0 requests/tokens) would otherwise
 		// come back in an arbitrary order that differs per LIMIT/OFFSET plan, so
 		// paging repeats some rows and skips others.
-		.orderBy(orderFn(sortColumn), asc(tables.organization.id))
+		.orderBy(...searchOrderBy, orderFn(sortColumn), asc(tables.organization.id))
 		.limit(limit)
 		.offset(offset);
 
