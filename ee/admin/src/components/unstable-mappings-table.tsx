@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	BarChart3,
 	Boxes,
 	ChevronDown,
 	ChevronRight,
@@ -10,6 +11,7 @@ import {
 import Link from "next/link";
 import { Fragment, useState } from "react";
 
+import { ErrorShapeTimeline } from "@/components/error-shape-timeline";
 import { useFilterNavigation } from "@/components/filter-navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { ERROR_CLASSIFICATIONS, getProviderIcon } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
+import type { ErrorTimeline } from "@/components/error-shape-timeline";
 import type { UnstableWindow } from "@/lib/unstable-mappings-params";
 
 interface UnstableMapping {
@@ -102,6 +105,7 @@ interface ErrorShape {
 	streamed: boolean;
 	count: number;
 	providerKeyId?: string | null;
+	buckets?: { start: number; count: number }[];
 }
 
 const STREAM_MODES = [
@@ -161,10 +165,13 @@ function ProviderKeyLabel({
 function ErrorShapeItem({
 	error,
 	showStreamMode,
+	timeline,
 }: {
 	error: ErrorShape;
 	showStreamMode: boolean;
+	timeline: ErrorTimeline;
 }) {
+	const [showGraph, setShowGraph] = useState(false);
 	const streamMode = STREAM_MODES.find(
 		(mode) => mode.streamed === error.streamed,
 	);
@@ -187,10 +194,30 @@ function ErrorShapeItem({
 					)}
 					<ClassificationBadge classification={error.classification} />
 				</div>
-				<span className="shrink-0 text-sm font-semibold tabular-nums">
-					{formatNumber(error.count)}×
-				</span>
+				<div className="flex shrink-0 items-center gap-2">
+					{error.buckets && (
+						<Button
+							size="sm"
+							variant={showGraph ? "default" : "outline"}
+							className="h-7 px-2 text-xs"
+							aria-pressed={showGraph}
+							title="Show occurrences over the selected window"
+							onClick={() => setShowGraph(!showGraph)}
+						>
+							<BarChart3 className="h-3.5 w-3.5" />
+							Graph
+						</Button>
+					)}
+					<span className="text-sm font-semibold tabular-nums">
+						{formatNumber(error.count)}×
+					</span>
+				</div>
 			</div>
+			{showGraph && error.buckets && (
+				<div className="mt-2">
+					<ErrorShapeTimeline timeline={timeline} buckets={error.buckets} />
+				</div>
+			)}
 			{error.responseText && (
 				<pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 text-xs text-muted-foreground">
 					{error.responseText}
@@ -305,13 +332,18 @@ export function ErrorDetails({
 					</div>
 					<ul className="space-y-2">
 						{keyErrors.map((error, i) => (
-							<ErrorShapeItem key={i} error={error} showStreamMode />
+							<ErrorShapeItem
+								key={i}
+								error={error}
+								showStreamMode
+								timeline={data.timeline}
+							/>
 						))}
 					</ul>
 				</div>
 			);
 		});
-	} else {
+	} else if (data) {
 		// Streaming and non-streaming requests often fail differently, so split
 		// the drilldown into one section per mode to make debugging easier.
 		body = STREAM_MODES.map((mode) => ({
@@ -336,7 +368,12 @@ export function ErrorDetails({
 					</div>
 					<ul className="space-y-2">
 						{group.errors.map((error, i) => (
-							<ErrorShapeItem key={i} error={error} showStreamMode={false} />
+							<ErrorShapeItem
+								key={i}
+								error={error}
+								showStreamMode={false}
+								timeline={data.timeline}
+							/>
 						))}
 					</ul>
 				</div>
@@ -358,6 +395,8 @@ export function ErrorDetails({
 								? `Top errors of ${data.keys.length} key${data.keys.length === 1 ? "" : "s"}`
 								: `Top ${errors.length} error${errors.length === 1 ? "" : "s"}`}{" "}
 							· {formatNumber(data.sampledErrors)} sampled
+							{data.sampledErrors >= logLimit &&
+								" (max logs reached — older errors in the window are not graphed)"}
 						</>
 					) : null}
 				</p>
