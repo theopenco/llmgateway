@@ -97,8 +97,8 @@ describe("admin provider credentials", () => {
 		});
 	}
 
-	async function list(): Promise<Credential[]> {
-		const res = await app.request("/admin/provider-credentials", {
+	async function list(query = ""): Promise<Credential[]> {
+		const res = await app.request(`/admin/provider-credentials${query}`, {
 			headers: { Cookie: cookie },
 		});
 		expect(res.status).toBe(200);
@@ -420,6 +420,25 @@ describe("admin provider credentials", () => {
 			where: { id: { eq: credential.id } },
 		});
 		expect(row?.status).toBe("deleted");
+	});
+
+	test("lists soft-deleted credentials only when asked", async () => {
+		await create({ provider: "openai", token: "sk-deleted-one" });
+		await create({ provider: "openai", token: "sk-kept-one" });
+		const [deleted, kept] = await list();
+
+		const res = await app.request(`/admin/provider-credentials/${deleted.id}`, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+
+		expect((await list()).map((c) => c.id)).toEqual([kept.id]);
+		const withDeleted = await list("?includeDeleted=true");
+		expect(withDeleted.map((c) => [c.id, c.status])).toEqual([
+			[deleted.id, "deleted"],
+			[kept.id, "active"],
+		]);
 	});
 
 	test("does not manage organization-owned provider keys", async () => {
