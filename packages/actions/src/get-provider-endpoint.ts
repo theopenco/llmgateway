@@ -34,6 +34,14 @@ function appendPath(url: string, path: string): string {
 	return `${url.slice(0, urlEnd)}/${path.slice(pathStart)}`;
 }
 
+function isChatCompletionsUrl(url: string): boolean {
+	const { pathname } = new URL(url);
+	return (
+		pathname.endsWith("/chat/completions") ||
+		pathname.endsWith("/chat/completions/")
+	);
+}
+
 function getBedrockMantleBaseUrl(url: string, region?: string): string {
 	if (url.includes("/openai/v1")) {
 		return url;
@@ -626,6 +634,15 @@ export function getProviderEndpoint(
 			getBedrockMantleBaseUrl(url, region),
 			"/chat/completions",
 		);
+	}
+
+	if (
+		provider === "custom" &&
+		apiFormat !== "openai-responses" &&
+		apiFormat !== "google-vertex" &&
+		isChatCompletionsUrl(url)
+	) {
+		return url;
 	}
 
 	if (apiFormat === "openai-chat-completions") {
