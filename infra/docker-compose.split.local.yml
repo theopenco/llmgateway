@@ -267,6 +267,7 @@ services:
     networks:
       - llmgateway-network
     environment:
+      - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
       - CLIENT_IP_HEADER=${CLIENT_IP_HEADER:-X-Forwarded-For}
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
       - ADMIN_URL=${ADMIN_URL:-http://localhost:3006}
