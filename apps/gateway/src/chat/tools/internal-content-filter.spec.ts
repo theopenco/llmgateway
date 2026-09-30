@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { logger } from "@llmgateway/logger";
+
 import {
 	buildInternalModerationPrompt,
 	checkInternalContentFilter,
@@ -215,6 +217,86 @@ describe("checkInternalContentFilter", () => {
 
 		expect(result.results).toHaveLength(6);
 		expect(result.partialModerationFailed).toBe(true);
+	});
+
+	// ~600 KB of benign history ahead of a short latest turn: 10 chunks, so
+	// two batches of up to 8.
+	const HISTORY_THEN_LATEST = [
+		{ role: "user" as const, content: "a".repeat(300_000) },
+		{ role: "assistant" as const, content: "b".repeat(300_000) },
+		{ role: "user" as const, content: "latest turn" },
+	];
+
+	function recordPrompts(
+		respond: (prompt: string, index: number) => Promise<Response>,
+	) {
+		const prompts: string[] = [];
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (_url, init) => {
+				init!.signal?.throwIfAborted();
+				const { prompt } = JSON.parse(init!.body as string) as {
+					prompt: string;
+				};
+				prompts.push(prompt);
+				return await respond(prompt, prompts.length - 1);
+			});
+		return { prompts, fetchMock };
+	}
+
+	it("sends the newest text first without losing any of it", async () => {
+		const { prompts } = recordPrompts(async () =>
+			verdict({ tags: [], block: false, score: 0 }),
+		);
+
+		await checkInternalContentFilter(HISTORY_THEN_LATEST, CONTEXT);
+
+		expect(prompts).toHaveLength(10);
+		expect(prompts[0]).toMatch(/user: latest turn$/);
+		expect(prompts[prompts.length - 1]).toMatch(/^user: a+$/);
+		expect([...prompts].reverse().join("")).toBe(
+			"user: " +
+				"a".repeat(300_000) +
+				"\n\nassistant: " +
+				"b".repeat(300_000) +
+				"\n\nuser: latest turn",
+		);
+	});
+
+	it("still flags the latest turn when the budget runs out on history", async () => {
+		const budget = new AbortController();
+		vi.spyOn(AbortSignal, "timeout").mockReturnValue(budget.signal);
+		const errorSpy = vi.spyOn(logger, "error");
+		const { fetchMock } = recordPrompts(async (prompt, index) => {
+			if (index === 7) {
+				budget.abort(new DOMException("timed out", "TimeoutError"));
+				throw budget.signal.reason;
+			}
+			return prompt.includes("latest turn")
+				? verdict({ tags: ["violence"], block: true, score: 1 })
+				: verdict({ tags: [], block: false, score: 0 });
+		});
+
+		const result = await checkInternalContentFilter(
+			HISTORY_THEN_LATEST,
+			CONTEXT,
+		);
+
+		expect(result.flagged).toBe(true);
+		// The second batch never starts once the budget is spent.
+		expect(fetchMock).toHaveBeenCalledTimes(8);
+		expect(result.results).toHaveLength(7);
+		expect(result.partialModerationFailed).toBe(true);
+		expect(errorSpy).toHaveBeenCalledTimes(1);
+		expect(errorSpy).toHaveBeenCalledWith(
+			"gateway_content_filter_error",
+			expect.objectContaining({
+				timeout: true,
+				requestCount: 10,
+				failedCount: 3,
+				skippedCount: 2,
+			}),
+		);
 	});
 
 	it("classifies only the latest turn in a single request when scoped", async () => {
