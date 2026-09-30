@@ -13,6 +13,18 @@ import {
  * yet, during which the key is still serving traffic.
  */
 export function ProviderKeyStatusBadge({ keyRow }: { keyRow: SpendLimited }) {
+	if (keyRow.status === "deleted") {
+		return (
+			<Badge
+				variant="outline"
+				className="text-muted-foreground"
+				title="Deleted: the gateway no longer selects this key. Its spend and request history are kept."
+			>
+				deleted
+			</Badge>
+		);
+	}
+
 	const state = getSpendLimitState(keyRow);
 	const cap = formatUsd(keyRow.usageLimit ?? "0");
 

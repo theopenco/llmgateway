@@ -693,6 +693,11 @@ const listCredentials = createRoute({
 	request: {
 		query: z.object({
 			provider: z.string().optional(),
+			/**
+			 * Also list soft-deleted credentials. Deleting only flips the status,
+			 * so their lifetime usage and rollup history are still there.
+			 */
+			includeDeleted: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -710,12 +715,12 @@ const listCredentials = createRoute({
 });
 
 adminProviderCredentials.openapi(listCredentials, async (c) => {
-	const { provider } = c.req.valid("query");
+	const { provider, includeDeleted } = c.req.valid("query");
 
 	const rows = await db.query.providerKey.findMany({
 		where: {
 			managed: { eq: true },
-			status: { ne: "deleted" },
+			...(includeDeleted === "true" ? {} : { status: { ne: "deleted" } }),
 			...(provider ? { provider: { eq: provider } } : {}),
 		},
 		orderBy: {

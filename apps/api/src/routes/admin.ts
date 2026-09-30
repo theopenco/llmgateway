@@ -13013,6 +13013,13 @@ admin.openapi(getUnstableMappings, async (c) => {
 
 const unstableMappingErrorsSchema = mappingErrorShapesSchema.extend({
 	groupByKey: z.boolean(),
+	/** Bucket grid of each error's `buckets`, covering the selected window. */
+	timeline: z.object({
+		bucketSeconds: z.number(),
+		/** First and last bucket start, epoch milliseconds. */
+		start: z.number(),
+		end: z.number(),
+	}),
 	/** Keys in the sample, most errors first; empty unless grouped by key. */
 	keys: z.array(
 		z.object({
@@ -13088,7 +13095,14 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 	const retriedClause = includeRetried === "true" ? sql`` : notRetriedClause;
 	const byokClause =
 		includeByok === "true" ? sql`` : unstableMappingsPlatformOnlyClause;
-	const { interval: windowInterval } = resolveMappingErrorWindow(window);
+	const {
+		interval: windowInterval,
+		hours: windowHours,
+		bucketSeconds,
+	} = resolveMappingErrorWindow(window);
+	const bucketMs = bucketSeconds * 1000;
+	const now = Date.now();
+	const windowMs = windowHours * 3_600_000;
 	const providerKeyClause =
 		providerKeyId === undefined
 			? sql``
@@ -13111,6 +13125,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		windowInterval,
 		sampleLimit,
 		groupByKey,
+		bucketSeconds,
 		extraClauses: [
 			providerKeyClause,
 			retriedClause,
@@ -13131,6 +13146,11 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 	return c.json({
 		...shapes,
 		groupByKey,
+		timeline: {
+			bucketSeconds,
+			start: Math.floor((now - windowMs) / bucketMs) * bucketMs,
+			end: Math.floor(now / bucketMs) * bucketMs,
+		},
 		keys: [...keyErrors].map(([id, errorsCount]) => ({
 			providerKeyId: id,
 			...describeProviderKey(providerKeyLabels, id),
