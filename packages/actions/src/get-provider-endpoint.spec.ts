@@ -168,6 +168,21 @@ describe("getProviderEndpoint", () => {
 		);
 	}
 
+	it("keeps a custom base URL that already ends in /chat/completions", () => {
+		const fullEndpoint =
+			"https://carrier.example/v2/ai/openai/chat/completions";
+
+		expect(getProviderEndpoint("custom", fullEndpoint, "custom")).toBe(
+			fullEndpoint,
+		);
+		expect(getProviderEndpoint("custom", `${fullEndpoint}/`, "custom")).toBe(
+			`${fullEndpoint}/`,
+		);
+		expect(
+			getProviderEndpoint("custom", `${fullEndpoint}?region=eu`, "custom"),
+		).toBe(`${fullEndpoint}?region=eu`);
+	});
+
 	it("honors an explicit OpenAI Chat Completions format", () => {
 		expect(getCustomEndpoint("openai-chat-completions")).toBe(
 			"https://carrier.example/api/v1/chat/completions",

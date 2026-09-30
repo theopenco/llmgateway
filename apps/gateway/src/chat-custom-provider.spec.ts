@@ -32,94 +32,100 @@ const TEST_TOKEN = "custom-provider-token";
 const ROUTING_METRIC_MAPPING_ID = "custom-routing-openai-metric";
 
 const mockRequests: Array<{
+	path: string;
 	authorization: string | undefined;
 	model: string | undefined;
 	stream: boolean;
 }> = [];
 
-mockServer.post("/v1/chat/completions", async (c) => {
-	const body = await c.req.json<{ model?: string; stream?: boolean }>();
-	mockRequests.push({
-		authorization: c.req.header("authorization"),
-		model: body.model,
-		stream: body.stream === true,
-	});
-
-	if (body.stream === true) {
-		return streamSSE(c, async (stream) => {
-			const responseBase = {
-				id: "chatcmpl-mock-custom",
-				object: "chat.completion.chunk",
-				created: Math.floor(Date.now() / 1000),
-				model: body.model ?? "mock-model",
-			};
-			await stream.writeSSE({
-				data: JSON.stringify({
-					...responseBase,
-					choices: [
-						{
-							index: 0,
-							delta: { role: "assistant" },
-							finish_reason: null,
-						},
-					],
-				}),
-			});
-			await stream.writeSSE({
-				data: JSON.stringify({
-					...responseBase,
-					choices: [
-						{
-							index: 0,
-							delta: { content: "Hello from custom provider!" },
-							finish_reason: null,
-						},
-					],
-				}),
-			});
-			await stream.writeSSE({
-				data: JSON.stringify({
-					...responseBase,
-					choices: [
-						{
-							index: 0,
-							delta: {},
-							finish_reason: "stop",
-						},
-					],
-					usage: {
-						prompt_tokens: 10,
-						completion_tokens: 5,
-						total_tokens: 15,
-					},
-				}),
-			});
-			await stream.writeSSE({ data: "[DONE]" });
+mockServer.on(
+	"POST",
+	["/v1/chat/completions", "/v2/ai/openai/chat/completions"],
+	async (c) => {
+		const body = await c.req.json<{ model?: string; stream?: boolean }>();
+		mockRequests.push({
+			path: c.req.path,
+			authorization: c.req.header("authorization"),
+			model: body.model,
+			stream: body.stream === true,
 		});
-	}
 
-	return c.json({
-		id: "chatcmpl-mock-custom",
-		object: "chat.completion",
-		created: Math.floor(Date.now() / 1000),
-		model: body.model ?? "mock-model",
-		choices: [
-			{
-				index: 0,
-				message: {
-					role: "assistant",
-					content: "Hello from custom provider!",
+		if (body.stream === true) {
+			return streamSSE(c, async (stream) => {
+				const responseBase = {
+					id: "chatcmpl-mock-custom",
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: body.model ?? "mock-model",
+				};
+				await stream.writeSSE({
+					data: JSON.stringify({
+						...responseBase,
+						choices: [
+							{
+								index: 0,
+								delta: { role: "assistant" },
+								finish_reason: null,
+							},
+						],
+					}),
+				});
+				await stream.writeSSE({
+					data: JSON.stringify({
+						...responseBase,
+						choices: [
+							{
+								index: 0,
+								delta: { content: "Hello from custom provider!" },
+								finish_reason: null,
+							},
+						],
+					}),
+				});
+				await stream.writeSSE({
+					data: JSON.stringify({
+						...responseBase,
+						choices: [
+							{
+								index: 0,
+								delta: {},
+								finish_reason: "stop",
+							},
+						],
+						usage: {
+							prompt_tokens: 10,
+							completion_tokens: 5,
+							total_tokens: 15,
+						},
+					}),
+				});
+				await stream.writeSSE({ data: "[DONE]" });
+			});
+		}
+
+		return c.json({
+			id: "chatcmpl-mock-custom",
+			object: "chat.completion",
+			created: Math.floor(Date.now() / 1000),
+			model: body.model ?? "mock-model",
+			choices: [
+				{
+					index: 0,
+					message: {
+						role: "assistant",
+						content: "Hello from custom provider!",
+					},
+					finish_reason: "stop",
 				},
-				finish_reason: "stop",
+			],
+			usage: {
+				prompt_tokens: 10,
+				completion_tokens: 5,
+				total_tokens: 15,
 			},
-		],
-		usage: {
-			prompt_tokens: 10,
-			completion_tokens: 5,
-			total_tokens: 15,
-		},
-	});
-});
+		});
+	},
+);
 
 // SSRF redirect probe: a public-looking provider that 3xx-redirects the gateway
 // onward to an "internal" endpoint. The gateway must refuse to follow it, so the
@@ -429,11 +435,13 @@ describe("Custom Provider", () => {
 
 			expect(mockRequests).toEqual([
 				{
+					path: "/v1/chat/completions",
 					authorization: "Bearer sk-test-key",
 					model: "gpt-4o-mini",
 					stream: true,
 				},
 				{
+					path: "/v1/chat/completions",
 					authorization: "Bearer sk-openai-test-key",
 					model: "gpt-4o-mini",
 					stream: true,
@@ -461,6 +469,43 @@ describe("Custom Provider", () => {
 			expect(json.choices[0].message.content).toBe(
 				"Hello from custom provider!",
 			);
+		});
+
+		test("uses a base URL that already ends in /chat/completions as-is", async () => {
+			await setupTestData({ mode: "api-keys" });
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-full-endpoint",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-full-endpoint",
+					"custom-org",
+				),
+				provider: "custom",
+				name: "full-endpoint",
+				organizationId: "custom-org",
+				baseUrl: `http://localhost:${MOCK_PORT}/v2/ai/openai/chat/completions`,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${TEST_TOKEN}`,
+				},
+				body: JSON.stringify({
+					model: "full-endpoint/gpt-4o-mini",
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			});
+
+			const json = await res.json();
+			expect(res.status).toBe(200);
+			expect(json.choices[0].message.content).toBe(
+				"Hello from custom provider!",
+			);
+			expect(mockRequests.map((request) => request.path)).toEqual([
+				"/v2/ai/openai/chat/completions",
+			]);
 		});
 
 		test("should not cap max_tokens for custom providers", async () => {

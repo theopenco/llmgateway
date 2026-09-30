@@ -74,6 +74,8 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   deployments that set `ALLOW_INSECURE_PROVIDER_URLS=true`
 - LLMGateway will append `/v1/chat/completions` automatically — do not include `/v1` in the base URL (it is not stripped, so the path would be doubled)
 - **Example**: `https://api.example.com` → `https://api.example.com/v1/chat/completions`
+- If your provider serves chat completions at another path, enter the full endpoint ending in `/chat/completions` and LLMGateway uses it as-is
+- **Example**: `https://api.example.com/v2/ai/openai/chat/completions` is called unchanged
 
 ### API Token
 
