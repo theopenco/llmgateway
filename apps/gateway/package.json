@@ -45,7 +45,7 @@
 		"ioredis": "5.7.0",
 		"posthog-node": "5.10.4",
 		"redis": "5.9.0",
-		"undici": "8.10.2",
+		"undici": "8.11.2",
 		"worker": "workspace:*",
 		"ws": "8.21.0",
 		"zod": "3.25.76",
