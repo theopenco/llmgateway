@@ -144,7 +144,7 @@ export function ContactFormEnterprise() {
 					</div>
 
 					<div className="rounded-2xl border border-border bg-card/50 backdrop-blur-sm p-8 sm:p-10 shadow-lg">
-						{!isSuccess && (
+						{!isSuccess && !isNonEnterpriseSize && (
 							<div className="mb-8 flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-muted/30 p-4 text-center sm:flex-row sm:justify-between sm:text-left">
 								<p className="text-sm text-muted-foreground">
 									{directBooking
