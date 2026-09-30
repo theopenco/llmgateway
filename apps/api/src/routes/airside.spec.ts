@@ -1057,6 +1057,65 @@ describe("airside provider portal", () => {
 			headers: { Cookie: cookie },
 		});
 		expect((await delisted.json()).status).toBe("delisted");
+		const delistedList = await app.request(
+			`/airside/models?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await delistedList.json()).models[0]).toMatchObject({
+			status: "delisted",
+			delistReason: "removed",
+			delistedAt: expect.any(String),
+		});
+		expect(
+			await db.query.modelProviderMapping.findFirst({
+				where: { modelId: { eq: "mistral-large-3" } },
+			}),
+		).toBeFalsy();
+
+		// A live listing holding the name blocks the relist.
+		const [holder] = await db
+			.insert(tables.providerDraftModel)
+			.values({
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "mistral-large-3",
+				externalId: "mistral-large-3",
+				family: "mistral",
+			})
+			.returning();
+		const blocked = await app.request(
+			`/airside/models/${model.id}/relist`,
+			json(cookie),
+		);
+		expect(blocked.status).toBe(409);
+		await db
+			.delete(tables.providerDraftModel)
+			.where(eq(tables.providerDraftModel.id, holder.id));
+
+		// Relisting restores service at the last approved fare, not the
+		// rejected update.
+		const relisted = await app.request(
+			`/airside/models/${model.id}/relist`,
+			json(cookie),
+		);
+		expect(relisted.status).toBe(200);
+		expect((await relisted.json()).model).toMatchObject({
+			status: "active",
+			delistedAt: null,
+			delistReason: null,
+			currentPricing: expect.objectContaining({ inputPrice: "2e-6" }),
+		});
+		const restored = await db.query.modelProviderMapping.findFirst({
+			where: { modelId: { eq: "mistral-large-3" } },
+		});
+		expect(restored).toMatchObject({ source: "airside", status: "active" });
+		expect(Number(restored!.inputPrice)).toBeCloseTo(2e-6);
+
+		const relistAgain = await app.request(
+			`/airside/models/${model.id}/relist`,
+			json(cookie),
+		);
+		expect(relistAgain.status).toBe(409);
 	});
 
 	it("rejects admin queue access for non-admins", async () => {
@@ -2205,6 +2264,13 @@ describe("airside provider portal", () => {
 			where: { id: { eq: listedModel.id } },
 		});
 		expect(deadModel!.status).toBe("delisted");
+		expect(deadModel!.delistReason).toBe("claim_revoked");
+		// Without an active claim the listing stays history.
+		const relist = await app.request(
+			`/airside/models/${listedModel.id}/relist`,
+			json(cookie),
+		);
+		expect(relist.status).toBe(403);
 		const deadFiling = await db.query.providerPriceFiling.findFirst({
 			where: { draftModelId: { eq: listedModel.id } },
 		});

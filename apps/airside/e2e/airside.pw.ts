@@ -216,6 +216,25 @@ test("quantization edits stay pending on live models and can be withdrawn", asyn
 	await expect(active).not.toContainText("Change filed");
 });
 
+test("a delisted model shows why and can be relisted", async ({ page }) => {
+	await login(page);
+	await page.goto("/dashboard/fleet");
+	const strip = page.getByTestId("model-strip-mistral-medium-4");
+	const status = page.getByTestId("status-mistral-medium-4");
+	await expect(status).toHaveText("In service");
+
+	await page.getByTestId("delete-mistral-medium-4").click();
+	await page.getByTestId("confirm-delete-mistral-medium-4").click();
+	await expect(status).toContainText("Delisted by your crew");
+	await expect(strip).not.toContainText("Verification");
+	await expect(page.getByTestId("verify-mistral-medium-4")).toHaveCount(0);
+
+	await page.getByTestId("relist-mistral-medium-4").click();
+	await expect(status).toHaveText("In service");
+	await expect(page.getByTestId("relist-mistral-medium-4")).toHaveCount(0);
+	await expect(page.getByTestId("verify-mistral-medium-4")).toBeVisible();
+});
+
 test("registering a model requires provider preflight", async ({ page }) => {
 	let statusReads = 0;
 	await page.route("**/airside/model-verifications**", async (route) => {

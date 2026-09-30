@@ -5182,6 +5182,9 @@ export const providerDraftModel = pgTable(
 			.default("draft"),
 		createdBy: text().references(() => user.id, { onDelete: "set null" }),
 		delistedAt: timestamp(),
+		// Why the listing left service: the carrier removed it, or an admin
+		// revoked the claim it was listed under.
+		delistReason: text({ enum: ["removed", "claim_revoked"] }),
 		// Set while the carrier has taken an active listing out of service; its
 		// catalogue mappings are inactive until resumed. No review involved.
 		pausedAt: timestamp(),

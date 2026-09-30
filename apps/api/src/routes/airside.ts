@@ -367,6 +367,8 @@ const modelSchema = z.object({
 	status: z.enum(["draft", "active", "rejected", "delisted"]),
 	// Set while an active listing is paused by the carrier.
 	pausedAt: z.string().nullable(),
+	delistedAt: z.string().nullable(),
+	delistReason: z.enum(["removed", "claim_revoked"]).nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 	currentPricing: filingSchema.nullable(),
@@ -607,6 +609,8 @@ function serializeModel(
 		rateLimitScope: row.rateLimitScope,
 		status: row.status,
 		pausedAt: row.pausedAt ? row.pausedAt.toISOString() : null,
+		delistedAt: row.delistedAt ? row.delistedAt.toISOString() : null,
+		delistReason: row.delistReason,
 		createdAt: row.createdAt.toISOString(),
 		updatedAt: row.updatedAt.toISOString(),
 		currentPricing: approved ? serializeFiling(approved) : null,
@@ -3124,7 +3128,12 @@ airside.openapi(deleteModel, async (c) => {
 	await cdb.transaction(async (tx) => {
 		await tx
 			.update(tables.providerDraftModel)
-			.set({ status: "delisted", delistedAt: new Date(), pausedAt: null })
+			.set({
+				status: "delisted",
+				delistedAt: new Date(),
+				delistReason: "removed",
+				pausedAt: null,
+			})
 			.where(eq(tables.providerDraftModel.id, id));
 		// A delisted model's pending filing would otherwise linger in the admin
 		// queue and approve as a silent no-op.
@@ -3166,6 +3175,106 @@ airside.openapi(deleteModel, async (c) => {
 		await dematerializeAirsideModel(model.providerId, model.modelName, tx);
 	});
 	return c.json({ status: "delisted" as const });
+});
+
+const relistModel = createRoute({
+	method: "post",
+	path: "/models/{id}/relist",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ model: modelSchema }),
+				},
+			},
+			description:
+				"The relisted model, back in service immediately at its last approved fares. Requires an active claim on the provider.",
+		},
+	},
+});
+
+airside.openapi(relistModel, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!model) {
+		throw new HTTPException(404, { message: "Model not found" });
+	}
+	await requireCompanyMembership(user.id, model.providerCompanyId);
+	const claim = await db.query.providerClaim.findFirst({
+		where: {
+			providerCompanyId: { eq: model.providerCompanyId },
+			providerId: { eq: model.providerId },
+			status: { eq: "active" },
+		},
+	});
+	if (!claim) {
+		throw new HTTPException(403, {
+			message:
+				"The company no longer holds an active claim on this provider, so its models cannot be relisted.",
+		});
+	}
+	// cdb: the gateway caches listing resolution off these tables.
+	const row = await cdb
+		.transaction(async (tx) => {
+			const [locked] = await tx
+				.select()
+				.from(tables.providerDraftModel)
+				.where(eq(tables.providerDraftModel.id, id))
+				.for("update")
+				.$withCache(false);
+			if (!locked || locked.status !== "delisted") {
+				throw new HTTPException(409, {
+					message: "Only delisted models can be relisted.",
+				});
+			}
+			const [current] = await tx
+				.select()
+				.from(tables.providerPriceFiling)
+				.where(
+					and(
+						eq(tables.providerPriceFiling.draftModelId, id),
+						eq(tables.providerPriceFiling.status, "approved"),
+					),
+				)
+				.orderBy(desc(tables.providerPriceFiling.createdAt))
+				.limit(1)
+				.$withCache(false);
+			if (!current) {
+				throw new HTTPException(409, {
+					message: "This model has no approved fares to relist at.",
+				});
+			}
+			const [relisted] = await tx
+				.update(tables.providerDraftModel)
+				.set({
+					status: "active",
+					delistedAt: null,
+					delistReason: null,
+					pausedAt: null,
+				})
+				.where(eq(tables.providerDraftModel.id, id))
+				.returning();
+			await materializeAirsideModel(relisted, current, tx);
+			return relisted;
+		})
+		.catch((err: unknown) => {
+			// The partial unique index on live (provider, model) rows rejects a
+			// relist while another listing holds the name.
+			if (isUniqueViolation(err)) {
+				throw new HTTPException(409, {
+					message:
+						"Another model with this name is already listed for the provider.",
+				});
+			}
+			throw err;
+		});
+	return c.json({ model: await serializeModelById(row) });
 });
 
 const modelServiceRoute = (action: "pause" | "resume") =>
