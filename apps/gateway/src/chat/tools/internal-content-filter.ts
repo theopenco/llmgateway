@@ -166,6 +166,7 @@ function logInternalError(
 	context: GatewayContentFilterContext,
 	payload: Record<string, unknown>,
 	error?: unknown,
+	level: "error" | "warn" = "error",
 ) {
 	const logPayload = {
 		provider: "internal",
@@ -193,7 +194,7 @@ function logInternalError(
 		return;
 	}
 
-	logger.error("gateway_content_filter_error", logPayload);
+	logger[level]("gateway_content_filter_error", logPayload);
 }
 
 async function classifyPrompt(
@@ -310,11 +311,18 @@ export async function checkInternalContentFilter(
 		: timeoutSignal;
 
 	const verdicts: Array<InternalClassifyResponse | null> = [];
+	let lastBatchMs = 0;
 	for (let i = 0; i < prompts.length; i += INTERNAL_MODERATION_CONCURRENCY) {
 		requestSignal?.throwIfAborted();
-		if (timeoutSignal.aborted) {
+		// A batch that cannot finish inside the budget only burns classifier
+		// CPU and holds the request until the timeout fires.
+		if (
+			timeoutSignal.aborted ||
+			Date.now() - startTime + lastBatchMs > INTERNAL_MODERATION_TIMEOUT_MS
+		) {
 			break;
 		}
+		const batchStart = Date.now();
 		verdicts.push(
 			...(await Promise.all(
 				prompts
@@ -324,20 +332,32 @@ export async function checkInternalContentFilter(
 					),
 			)),
 		);
+		lastBatchMs = Date.now() - batchStart;
 	}
 
 	const succeeded = verdicts.filter(
 		(verdict): verdict is InternalClassifyResponse => verdict !== null,
 	);
-	if (timeoutSignal.aborted && succeeded.length < prompts.length) {
-		logInternalError(context, {
-			durationMs: Date.now() - startTime,
-			timeout: true,
-			scope,
-			requestCount: prompts.length,
-			failedCount: prompts.length - succeeded.length,
-			skippedCount: prompts.length - verdicts.length,
-		});
+	if (
+		(timeoutSignal.aborted || verdicts.length < prompts.length) &&
+		succeeded.length < prompts.length
+	) {
+		// Older chunks were usually screened when they were the latest turn, so losing
+		// only those is expected on long conversations; an unscreened newest
+		// chunk means the turn being sent now went through unchecked.
+		logInternalError(
+			context,
+			{
+				durationMs: Date.now() - startTime,
+				timeout: true,
+				scope,
+				requestCount: prompts.length,
+				failedCount: prompts.length - succeeded.length,
+				skippedCount: prompts.length - verdicts.length,
+			},
+			undefined,
+			verdicts[0] ? "warn" : "error",
+		);
 	}
 	if (succeeded.length === 0) {
 		return emptyResult();

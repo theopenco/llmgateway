@@ -267,6 +267,7 @@ describe("checkInternalContentFilter", () => {
 		const budget = new AbortController();
 		vi.spyOn(AbortSignal, "timeout").mockReturnValue(budget.signal);
 		const errorSpy = vi.spyOn(logger, "error");
+		const warnSpy = vi.spyOn(logger, "warn");
 		const { fetchMock } = recordPrompts(async (prompt, index) => {
 			if (index === 7) {
 				budget.abort(new DOMException("timed out", "TimeoutError"));
@@ -287,8 +288,10 @@ describe("checkInternalContentFilter", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(8);
 		expect(result.results).toHaveLength(7);
 		expect(result.partialModerationFailed).toBe(true);
-		expect(errorSpy).toHaveBeenCalledTimes(1);
-		expect(errorSpy).toHaveBeenCalledWith(
+		// Only older history went unscreened, so this is a warning.
+		expect(errorSpy).not.toHaveBeenCalled();
+		expect(warnSpy).toHaveBeenCalledTimes(1);
+		expect(warnSpy).toHaveBeenCalledWith(
 			"gateway_content_filter_error",
 			expect.objectContaining({
 				timeout: true,
@@ -296,6 +299,55 @@ describe("checkInternalContentFilter", () => {
 				failedCount: 3,
 				skippedCount: 2,
 			}),
+		);
+	});
+
+	it("skips a batch that cannot finish inside the budget", async () => {
+		let now = 0;
+		vi.spyOn(Date, "now").mockImplementation(() => now);
+		const warnSpy = vi.spyOn(logger, "warn");
+		const { fetchMock } = recordPrompts(async () => {
+			// The first batch takes 3s of the 5s budget.
+			now = 3_000;
+			return verdict({ tags: [], block: false, score: 0 });
+		});
+
+		const result = await checkInternalContentFilter(
+			HISTORY_THEN_LATEST,
+			CONTEXT,
+		);
+
+		expect(fetchMock).toHaveBeenCalledTimes(8);
+		expect(result.results).toHaveLength(8);
+		expect(result.partialModerationFailed).toBe(true);
+		expect(warnSpy).toHaveBeenCalledWith(
+			"gateway_content_filter_error",
+			expect.objectContaining({ failedCount: 2, skippedCount: 2 }),
+		);
+	});
+
+	it("logs an error when the newest chunk goes unscreened", async () => {
+		const budget = new AbortController();
+		vi.spyOn(AbortSignal, "timeout").mockReturnValue(budget.signal);
+		const errorSpy = vi.spyOn(logger, "error");
+		recordPrompts(async (_prompt, index) => {
+			if (index === 0) {
+				budget.abort(new DOMException("timed out", "TimeoutError"));
+				throw budget.signal.reason;
+			}
+			return verdict({ tags: [], block: false, score: 0 });
+		});
+
+		const result = await checkInternalContentFilter(
+			HISTORY_THEN_LATEST,
+			CONTEXT,
+		);
+
+		expect(result.results).toHaveLength(0);
+		expect(errorSpy).toHaveBeenCalledTimes(1);
+		expect(errorSpy).toHaveBeenCalledWith(
+			"gateway_content_filter_error",
+			expect.objectContaining({ failedCount: 10, skippedCount: 2 }),
 		);
 	});
 
