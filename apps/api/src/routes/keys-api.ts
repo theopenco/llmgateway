@@ -11,6 +11,7 @@ import {
 	iamRuleValueSchema,
 	validateIamRuleInput,
 } from "@/lib/iam-rules.js";
+import { notifyOrgLimit } from "@/lib/org-limit-alerts.js";
 import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import {
 	getUserProjectIds,
@@ -1119,6 +1120,11 @@ export async function createApiKeyForProject(
 	);
 
 	if (orgActiveApiKeys.length >= maxApiKeys) {
+		await notifyOrgLimit(project.organization.id, {
+			limit: "api_keys",
+			projectId: project.id,
+			maxApiKeys,
+		});
 		throw new HTTPException(400, {
 			message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization. Contact us at contact@llmgateway.io to unlock more.`,
 		});

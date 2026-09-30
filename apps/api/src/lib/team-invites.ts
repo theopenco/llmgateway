@@ -2,6 +2,7 @@ import {
 	EnterpriseSeatLimitError,
 	withEnterpriseSeatForOrganization,
 } from "@/lib/enterprise-seats.js";
+import { licenseSeatDetail, notifyOrgLimit } from "@/lib/org-limit-alerts.js";
 import { resolveSeatLimit } from "@/lib/seat-limit.js";
 import { recomputeUserTeam } from "@/lib/sso-teams.js";
 
@@ -87,6 +88,11 @@ export async function acceptPendingInvitesForUser(user: {
 							seatLimit,
 						},
 					);
+					await notifyOrgLimit(invite.organizationId, {
+						limit: "seats",
+						source: "invite",
+						detail: `Organization seats: ${currentMembers.length}/${seatLimit}`,
+					});
 					continue;
 				}
 
@@ -165,6 +171,11 @@ export async function acceptPendingInvitesForUser(user: {
 						seatsUsed: error.seatsUsed,
 					},
 				);
+				await notifyOrgLimit(invite.organizationId, {
+					limit: "seats",
+					source: "invite",
+					detail: licenseSeatDetail(error),
+				});
 				continue;
 			}
 			logger.error(

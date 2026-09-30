@@ -1,11 +1,27 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/index.js";
+import {
+	EnterpriseSeatLimitError,
+	withEnterpriseSeatForOrganization,
+} from "@/lib/enterprise-seats.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+
+import type * as EnterpriseSeats from "@/lib/enterprise-seats.js";
+
+vi.mock("@/lib/enterprise-seats.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof EnterpriseSeats>();
+	return {
+		...actual,
+		withEnterpriseSeatForOrganization: vi.fn(
+			actual.withEnterpriseSeatForOrganization,
+		),
+	};
+});
 
 const SCIM_TOKEN = "scim_test_token_abcdef0123456789";
 const ORG_ID = "scim-test-org";
@@ -331,6 +347,109 @@ describe("scim audit logging", () => {
 
 		expect(logs).toHaveLength(1);
 		expect(logs[0]?.metadata?.targetUserId).toBe(id);
+	});
+
+	async function getProvisionFailures() {
+		return await db.query.auditLog.findMany({
+			where: {
+				organizationId: { eq: ORG_ID },
+				action: { eq: "scim.user.provision_failed" },
+			},
+		});
+	}
+
+	test("POST /Users at the seat limit logs scim.user.provision_failed", async () => {
+		vi.mocked(withEnterpriseSeatForOrganization).mockRejectedValueOnce(
+			new EnterpriseSeatLimitError(2, 2),
+		);
+
+		const response = await app.request("/scim/v2/Users", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				userName: "full@example.com",
+				emails: [{ value: "full@example.com", primary: true }],
+				active: true,
+			}),
+		});
+
+		expect(response.status).toBe(409);
+		expect(((await response.json()) as { scimType: string }).scimType).toBe(
+			"tooMany",
+		);
+
+		const logs = await getProvisionFailures();
+		expect(logs).toHaveLength(1);
+		expect(logs[0]?.userId).toBe("test-user-id");
+		expect(logs[0]?.resourceType).toBe("scim_user");
+		expect(logs[0]?.metadata).toMatchObject({
+			source: "scim",
+			targetUserEmail: "full@example.com",
+			operation: "create",
+			reason: "seat_limit",
+		});
+		// Deployment-wide seat counts must not leak into an org's audit log.
+		expect(logs[0]?.metadata).not.toHaveProperty("maxSeats");
+		expect(logs[0]?.metadata).not.toHaveProperty("seatsUsed");
+
+		// Owners and admins get an org limit alert.
+		const alerts = await db.query.notification.findMany({
+			where: { userId: { eq: "test-user-id" }, type: { eq: "org_limit" } },
+		});
+		expect(alerts).toHaveLength(1);
+		expect(alerts[0]?.organizationId).toBe(ORG_ID);
+	});
+
+	test("POST /Users for an existing member logs scim.user.provision_failed", async () => {
+		const id = await provisionUser("dupe@example.com");
+
+		const response = await app.request("/scim/v2/Users", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				userName: "dupe@example.com",
+				emails: [{ value: "dupe@example.com", primary: true }],
+				active: true,
+			}),
+		});
+
+		expect(response.status).toBe(409);
+
+		const logs = await getProvisionFailures();
+		expect(logs).toHaveLength(1);
+		expect(logs[0]?.resourceId).toBe(id);
+		expect(logs[0]?.metadata).toMatchObject({
+			operation: "create",
+			reason: "already_provisioned",
+		});
+	});
+
+	test("PATCH /Users activation at the seat limit logs scim.user.provision_failed", async () => {
+		const id = await provisionUser("react@example.com");
+		const patch = async (active: boolean) =>
+			await app.request(`/scim/v2/Users/${id}`, {
+				method: "PATCH",
+				headers: scimHeaders(),
+				body: JSON.stringify({
+					schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+					Operations: [{ op: "replace", path: "active", value: active }],
+				}),
+			});
+		expect((await patch(false)).status).toBe(200);
+
+		vi.mocked(withEnterpriseSeatForOrganization).mockRejectedValueOnce(
+			new EnterpriseSeatLimitError(2, 2),
+		);
+		expect((await patch(true)).status).toBe(409);
+		expect(await getMembership(id)).toBeUndefined();
+
+		const logs = await getProvisionFailures();
+		expect(logs).toHaveLength(1);
+		expect(logs[0]?.metadata).toMatchObject({
+			targetUserId: id,
+			operation: "activate",
+			reason: "seat_limit",
+		});
 	});
 
 	test("POST /Groups logs scim.group.create", async () => {
