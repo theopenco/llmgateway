@@ -41,23 +41,34 @@ describe("getGcpServiceAccountAccessToken", () => {
 	it.each([
 		"http://127.0.0.1/token",
 		"https://oauth2.googleapis.com.evil.example/token",
-		"https://oauth2.googleapis.com/token?redirect=elsewhere",
+		"https://accounts.google.com/o/oauth2/token",
 	])(
-		"rejects an untrusted token endpoint %s before fetching",
+		"always exchanges at Google's token endpoint, ignoring token_uri %s",
 		async (tokenUri) => {
-			const credentials = JSON.parse(serviceAccount("untrusted@example.com"));
+			redisGetMock.mockResolvedValue(null);
+			redisSetMock.mockResolvedValue("OK");
+			const credentials = JSON.parse(serviceAccount(`${tokenUri}@example.com`));
 			credentials.token_uri = tokenUri;
 			const fetchMock = vi
 				.spyOn(globalThis, "fetch")
 				.mockResolvedValue(
-					Response.json({ access_token: "test-untrusted-token" }),
+					Response.json({ access_token: "test-access-token" }),
 				);
 
 			await expect(
 				getGcpServiceAccountAccessToken(JSON.stringify(credentials)),
-			).rejects.toThrow("token_uri");
-			expect(fetchMock).not.toHaveBeenCalled();
-			expect(redisGetMock).not.toHaveBeenCalled();
+			).resolves.toBe("test-access-token");
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			expect(fetchMock.mock.calls[0]?.[0]).toBe(
+				"https://oauth2.googleapis.com/token",
+			);
+			const assertion = new URLSearchParams(
+				String(fetchMock.mock.calls[0]?.[1]?.body),
+			).get("assertion");
+			const claims = JSON.parse(
+				Buffer.from(assertion?.split(".")[1] ?? "", "base64url").toString(),
+			) as { aud: string };
+			expect(claims.aud).toBe("https://oauth2.googleapis.com/token");
 		},
 	);
 

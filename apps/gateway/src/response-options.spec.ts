@@ -351,4 +351,85 @@ describe("response options and Anthropic compatibility", () => {
 			});
 		},
 	);
+
+	function captureOpenAIBody() {
+		const captured: {
+			messages?: { role: string; content: unknown; tool_call_id?: string }[];
+		} = {};
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			Object.assign(captured, JSON.parse(String(init?.body)));
+			return new Response(JSON.stringify(completion), {
+				headers: { "Content-Type": "application/json" },
+			});
+		});
+		return captured;
+	}
+
+	function toolResultRequest(model: string, content: unknown[]) {
+		return request(
+			{
+				model,
+				max_tokens: 100,
+				messages: [
+					{ role: "user", content: "Inspect this" },
+					{
+						role: "assistant",
+						content: [
+							{ type: "tool_use", id: "call-1", name: "inspect", input: {} },
+						],
+					},
+					{
+						role: "user",
+						content: [{ type: "tool_result", tool_use_id: "call-1", content }],
+					},
+				],
+			},
+			"/v1/messages",
+		);
+	}
+
+	test("keeps an image-only tool result non-empty", async () => {
+		const body = captureOpenAIBody();
+		const response = await toolResultRequest("openai/gpt-4o-mini", [
+			{
+				type: "image",
+				source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" },
+			},
+		]);
+		expect(response.status, await response.text()).toBe(200);
+		expect(
+			body.messages?.find((message) => message.role === "tool"),
+		).toMatchObject({
+			content: [
+				{
+					type: "text",
+					text: "The tool returned 1 image, attached in the next message.",
+				},
+			],
+		});
+	});
+
+	test.each([
+		{
+			type: "document",
+			source: {
+				type: "text",
+				media_type: "text/plain",
+				data: "The secret word is PAPAYA.",
+			},
+		},
+		{
+			type: "search_result",
+			source: "https://example.com/memo",
+			title: "Memo",
+			content: [{ type: "text", text: "The secret word is PAPAYA." }],
+		},
+	])("keeps $type tool-result blocks as text", async (block) => {
+		const body = captureOpenAIBody();
+		const response = await toolResultRequest("openai/gpt-4o-mini", [block]);
+		expect(response.status, await response.text()).toBe(200);
+		expect(
+			body.messages?.find((message) => message.role === "tool")?.content,
+		).toContain("PAPAYA");
+	});
 });

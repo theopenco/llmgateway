@@ -1811,11 +1811,21 @@ export async function prepareRequestBody(
 					(part) => part.type === "image_url",
 				);
 				if (images.length > 0) {
+					const rest = message.content.filter(
+						(part) => part.type !== "image_url",
+					);
+					// An empty tool result reads as "no output" and models re-call
+					// the tool instead of looking at the relocated images.
 					messagesWithImages.push({
 						...message,
-						content: message.content.filter(
-							(part) => part.type !== "image_url",
-						),
+						content: rest.length
+							? rest
+							: [
+									{
+										type: "text",
+										text: `The tool returned ${images.length} ${images.length === 1 ? "image" : "images"}, attached in the next message.`,
+									},
+								],
 					});
 					pendingImages.push({
 						role: "user",

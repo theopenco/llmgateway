@@ -848,7 +848,12 @@ anthropic.openapi(messages, async (c) => {
 										];
 									}
 								}
-								return [];
+								// tool_reference blocks are replayed natively below; any other
+								// block (document, search_result, …) is kept as text rather
+								// than dropped.
+								return part.type === "tool_reference"
+									? []
+									: [{ type: "text", text: JSON.stringify(part) }];
 							},
 						);
 					},
