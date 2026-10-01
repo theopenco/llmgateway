@@ -36,7 +36,9 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { canWrite } from "@/lib/admin-role";
 import { resolveDateRange } from "@/lib/date-range";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { formatSubscriberStatus } from "@/lib/renewal-state";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
@@ -325,6 +327,7 @@ export default async function ChatPlansPage({
 	}>;
 }) {
 	await requireSession();
+	const isAdmin = canWrite(await getSessionAdminRole());
 
 	const params = await searchParams;
 	const range = typeof params?.range === "string" ? params?.range : undefined;
@@ -459,8 +462,11 @@ export default async function ChatPlansPage({
 		redirect(`/chat-plans?${sp.toString()}`);
 	}
 
+	// The API strips the plan-wide KPIs for non-admin roles.
 	const kpis = data.kpis;
-	const grossMrrAfterRefunds = kpis.grossMrr - kpis.refundedAmountThisMonth;
+	const grossMrrAfterRefunds = isAdmin
+		? kpis.grossMrr - kpis.refundedAmountThisMonth
+		: 0;
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
@@ -474,178 +480,188 @@ export default async function ChatPlansPage({
 						utilization, real provider cost, and margin.
 					</p>
 				</div>
-				<Suspense>
-					<DateRangePicker />
-				</Suspense>
+				{isAdmin && (
+					<Suspense>
+						<DateRangePicker />
+					</Suspense>
+				)}
 			</header>
 
-			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-				<div className="rounded-lg border border-border/60 bg-card p-4">
-					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-						<Users className="h-3.5 w-3.5" />
-						Active subscribers
+			{isAdmin && (
+				<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+							<Users className="h-3.5 w-3.5" />
+							Active subscribers
+						</div>
+						<div className="mt-2 text-2xl font-semibold tabular-nums">
+							{kpis.totalActive}
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							Starter {kpis.activeByTier.starter} · Plus{" "}
+							{kpis.activeByTier.plus} · Pro {kpis.activeByTier.pro}
+							{kpis.cancelledPending > 0 ? (
+								<>
+									{" "}
+									·{" "}
+									<span className="text-amber-600 dark:text-amber-400">
+										{kpis.cancelledPending} cancelling
+									</span>
+								</>
+							) : null}
+						</div>
 					</div>
-					<div className="mt-2 text-2xl font-semibold tabular-nums">
-						{kpis.totalActive}
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+							<Wallet className="h-3.5 w-3.5" />
+							Gross MRR
+						</div>
+						<div className="mt-2 flex items-baseline gap-2">
+							<span className="text-2xl font-semibold tabular-nums">
+								{currencyFormatter.format(kpis.grossMrr)}
+							</span>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span
+										className={cn(
+											"inline-flex cursor-help items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-semibold tabular-nums",
+											kpis.committedMrr !== kpis.grossMrr
+												? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+												: "border-border/60 bg-muted/40 text-muted-foreground",
+										)}
+									>
+										<Info className="h-3 w-3" />
+										{currencyFormatter.format(kpis.committedMrr)} committed
+									</span>
+								</TooltipTrigger>
+								<TooltipContent className="max-w-xs">
+									Forward-looking MRR after pending churn. Excludes subs flagged
+									to cancel at period end (still billed by Stripe this cycle,
+									but gone next cycle).
+								</TooltipContent>
+							</Tooltip>
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							Net after refunds this month:{" "}
+							<span
+								className={cn(
+									"font-medium tabular-nums",
+									grossMrrAfterRefunds < kpis.grossMrr
+										? "text-rose-600 dark:text-rose-400"
+										: "",
+								)}
+							>
+								{currencyFormatter.format(grossMrrAfterRefunds)}
+							</span>
+							{kpis.refundedAmountThisMonth > 0 ? (
+								<>
+									{" "}
+									after {currencyFormatter.format(
+										kpis.refundedAmountThisMonth,
+									)}{" "}
+									refunded
+								</>
+							) : null}
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							Net new this month:{" "}
+							<span
+								className={cn(
+									"font-medium",
+									kpis.netNewThisMonth > 0
+										? "text-emerald-600 dark:text-emerald-400"
+										: kpis.netNewThisMonth < 0
+											? "text-rose-600 dark:text-rose-400"
+											: "",
+								)}
+							>
+								{kpis.netNewThisMonth > 0 ? "+" : ""}
+								{kpis.netNewThisMonth}
+							</span>{" "}
+							({kpis.startsThisMonth} starts / {kpis.endsThisMonth} ends)
+						</div>
 					</div>
-					<div className="mt-1 text-xs text-muted-foreground">
-						Starter {kpis.activeByTier.starter} · Plus {kpis.activeByTier.plus}{" "}
-						· Pro {kpis.activeByTier.pro}
-						{kpis.cancelledPending > 0 ? (
-							<>
-								{" "}
-								·{" "}
-								<span className="text-amber-600 dark:text-amber-400">
-									{kpis.cancelledPending} cancelling
-								</span>
-							</>
-						) : null}
-					</div>
-				</div>
-				<div className="rounded-lg border border-border/60 bg-card p-4">
-					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-						<Wallet className="h-3.5 w-3.5" />
-						Gross MRR
-					</div>
-					<div className="mt-2 flex items-baseline gap-2">
-						<span className="text-2xl font-semibold tabular-nums">
-							{currencyFormatter.format(kpis.grossMrr)}
-						</span>
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<span
-									className={cn(
-										"inline-flex cursor-help items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-semibold tabular-nums",
-										kpis.committedMrr !== kpis.grossMrr
-											? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-											: "border-border/60 bg-muted/40 text-muted-foreground",
-									)}
-								>
-									<Info className="h-3 w-3" />
-									{currencyFormatter.format(kpis.committedMrr)} committed
-								</span>
-							</TooltipTrigger>
-							<TooltipContent className="max-w-xs">
-								Forward-looking MRR after pending churn. Excludes subs flagged
-								to cancel at period end (still billed by Stripe this cycle, but
-								gone next cycle).
-							</TooltipContent>
-						</Tooltip>
-					</div>
-					<div className="mt-1 text-xs text-muted-foreground">
-						Net after refunds this month:{" "}
-						<span
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+							<RotateCcw className="h-3.5 w-3.5" />
+							Refunds this month
+						</div>
+						<div
 							className={cn(
-								"font-medium tabular-nums",
-								grossMrrAfterRefunds < kpis.grossMrr
+								"mt-2 text-2xl font-semibold tabular-nums",
+								kpis.refundedAmountThisMonth > 0
 									? "text-rose-600 dark:text-rose-400"
 									: "",
 							)}
 						>
-							{currencyFormatter.format(grossMrrAfterRefunds)}
-						</span>
-						{kpis.refundedAmountThisMonth > 0 ? (
-							<>
-								{" "}
-								after {currencyFormatter.format(
-									kpis.refundedAmountThisMonth,
-								)}{" "}
-								refunded
-							</>
-						) : null}
+							{currencyFormatter.format(kpis.refundedAmountThisMonth)}
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							{kpis.refundsThisMonth} refund
+							{kpis.refundsThisMonth === 1 ? "" : "s"} processed
+						</div>
 					</div>
-					<div className="mt-1 text-xs text-muted-foreground">
-						Net new this month:{" "}
-						<span
-							className={cn(
-								"font-medium",
-								kpis.netNewThisMonth > 0
-									? "text-emerald-600 dark:text-emerald-400"
-									: kpis.netNewThisMonth < 0
-										? "text-rose-600 dark:text-rose-400"
-										: "",
-							)}
-						>
-							{kpis.netNewThisMonth > 0 ? "+" : ""}
-							{kpis.netNewThisMonth}
-						</span>{" "}
-						({kpis.startsThisMonth} starts / {kpis.endsThisMonth} ends)
-					</div>
-				</div>
-				<div className="rounded-lg border border-border/60 bg-card p-4">
-					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-						<RotateCcw className="h-3.5 w-3.5" />
-						Refunds this month
-					</div>
-					<div
-						className={cn(
-							"mt-2 text-2xl font-semibold tabular-nums",
-							kpis.refundedAmountThisMonth > 0
-								? "text-rose-600 dark:text-rose-400"
-								: "",
-						)}
-					>
-						{currencyFormatter.format(kpis.refundedAmountThisMonth)}
-					</div>
-					<div className="mt-1 text-xs text-muted-foreground">
-						{kpis.refundsThisMonth} refund
-						{kpis.refundsThisMonth === 1 ? "" : "s"} processed
-					</div>
-				</div>
-				<div className="rounded-lg border border-border/60 bg-card p-4">
-					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-						<TrendingUp className="h-3.5 w-3.5" />
-						Avg utilization
-					</div>
-					<div className="mt-2 text-2xl font-semibold tabular-nums">
-						{kpis.weightedAvgUtilization.toFixed(1)}%
-					</div>
-					<div className="mt-1 text-xs text-muted-foreground">
-						Weighted across active subs
-					</div>
-				</div>
-				<div className="rounded-lg border border-border/60 bg-card p-4">
-					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-						{kpis.totalMargin >= 0 ? (
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
 							<TrendingUp className="h-3.5 w-3.5" />
-						) : (
-							<TrendingDown className="h-3.5 w-3.5" />
-						)}
-						Cycle margin
+							Avg utilization
+						</div>
+						<div className="mt-2 text-2xl font-semibold tabular-nums">
+							{kpis.weightedAvgUtilization.toFixed(1)}%
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							Weighted across active subs
+						</div>
 					</div>
-					<div className="mt-2 flex items-baseline gap-2">
-						<span
-							className={cn(
-								"text-2xl font-semibold tabular-nums",
-								kpis.totalMargin < 0 ? "text-rose-600 dark:text-rose-400" : "",
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+							{kpis.totalMargin >= 0 ? (
+								<TrendingUp className="h-3.5 w-3.5" />
+							) : (
+								<TrendingDown className="h-3.5 w-3.5" />
 							)}
-						>
-							{currencyFormatter.format(kpis.totalMargin)}
-						</span>
-						{kpis.marginPct !== null && kpis.marginPct !== undefined ? (
+							Cycle margin
+						</div>
+						<div className="mt-2 flex items-baseline gap-2">
 							<span
 								className={cn(
-									"rounded-md border px-1.5 py-0.5 text-xs font-semibold tabular-nums",
-									kpis.marginPct < 0
-										? "border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400"
-										: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+									"text-2xl font-semibold tabular-nums",
+									kpis.totalMargin < 0
+										? "text-rose-600 dark:text-rose-400"
+										: "",
 								)}
-								title="Profit margin: cycle margin / gross MRR"
 							>
-								{kpis.marginPct.toFixed(1)}% profit
+								{currencyFormatter.format(kpis.totalMargin)}
 							</span>
-						) : null}
+							{kpis.marginPct !== null && kpis.marginPct !== undefined ? (
+								<span
+									className={cn(
+										"rounded-md border px-1.5 py-0.5 text-xs font-semibold tabular-nums",
+										kpis.marginPct < 0
+											? "border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400"
+											: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+									)}
+									title="Profit margin: cycle margin / gross MRR"
+								>
+									{kpis.marginPct.toFixed(1)}% profit
+								</span>
+							) : null}
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							{currencyFormatter.format(kpis.totalRealCostCycle)} provider cost
+							this cycle
+						</div>
 					</div>
-					<div className="mt-1 text-xs text-muted-foreground">
-						{currencyFormatter.format(kpis.totalRealCostCycle)} provider cost
-						this cycle
-					</div>
-				</div>
-			</section>
+				</section>
+			)}
 
-			<ChatPlansTimeseriesChart from={from} to={to} />
+			{isAdmin && (
+				<>
+					<ChatPlansTimeseriesChart from={from} to={to} />
 
-			<ChatPlansUsage from={from} to={to} />
+					<ChatPlansUsage from={from} to={to} />
+				</>
+			)}
 
 			<form
 				action={handleSearch}

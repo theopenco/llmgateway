@@ -804,6 +804,7 @@ const memberSchema = z.object({
 	userId: z.string(),
 	role: z.enum(["owner", "admin", "project_admin", "developer"]),
 	createdAt: z.string(),
+	roleAssignmentSource: z.enum(["manual", "sso"]),
 	teamAssignmentSource: z.enum(["manual", "sso", "default"]),
 	team: z
 		.object({
@@ -4045,6 +4046,7 @@ admin.openapi(getOrganizationMembers, async (c) => {
 			userId: m.userId,
 			role: m.role,
 			createdAt: m.createdAt.toISOString(),
+			roleAssignmentSource: m.roleAssignmentSource,
 			teamAssignmentSource: m.teamAssignmentSource,
 			team: m.team,
 			iamRules: m.iamRules.map((rule) => ({

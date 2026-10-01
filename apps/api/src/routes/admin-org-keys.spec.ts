@@ -7,7 +7,7 @@ import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 const ORG_ID = "org-keys-test";
 const PROJECT_ID = "org-keys-project";
@@ -36,16 +36,16 @@ describe("admin organization key listings", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await seedOrg();
 	});
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		await deleteAll();
 	});

@@ -6,7 +6,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { db, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 const ORG_ID = "seat-logs-org";
 const PROJECT_A = "seat-logs-project-a";
@@ -54,7 +54,7 @@ describe("admin organization and project logs", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 
 		await db.insert(tables.user).values([
@@ -121,9 +121,9 @@ describe("admin organization and project logs", () => {
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		await deleteAll();
 	});

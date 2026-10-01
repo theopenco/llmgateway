@@ -47,7 +47,7 @@ describe("admin model verifications", () => {
 	}
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await removeSeededCatalogue();
 

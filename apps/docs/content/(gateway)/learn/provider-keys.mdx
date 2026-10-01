@@ -58,11 +58,14 @@ Each configured key shows:
 
 For each provider key:
 
-- **Edit** — Update the key name, value, or base URL
+- **Edit description** — Change the key's display label
+- **Rename** — Custom providers only: change the provider name, and with it the `<name>/<model>` prefix clients use
 - **Restrict models** — Choose which models the key may serve
 - **Set spend limit** — Cap the spend attributed to the key
 - **Deactivate** — Temporarily disable the key without deleting it
 - **Delete** — Permanently remove the key
+
+A key's secret and base URL cannot be edited — delete the key and add it again to change them. Custom provider tokens and base URLs can also be rotated through the [master API](/features/master-keys#update-a-custom-provider).
 
 ## Restricting a Key to Specific Models
 

@@ -39,7 +39,7 @@ vi.mock("node:dns/promises", () => ({
 	},
 }));
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 const originalListingPriceId = process.env.AIRSIDE_LISTING_PRICE_ID;
 
 async function setUserEmail(email: string) {
@@ -255,9 +255,9 @@ describe("airside provider portal", () => {
 	afterEach(async () => {
 		vi.restoreAllMocks();
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		if (originalListingPriceId === undefined) {
 			delete process.env.AIRSIDE_LISTING_PRICE_ID;
@@ -400,7 +400,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("runs the claim review lifecycle through the admin queue", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		const claim = await claimProvider(cookie, company.id);
@@ -843,7 +843,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("verifies the capabilities a live listing has awaiting review", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -979,7 +979,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("runs the approval lifecycle through the admin queue", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -1119,7 +1119,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("rejects admin queue access for non-admins", async () => {
-		process.env.ADMIN_EMAILS = "someone-else@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "someone-else@example.com";
 		const res = await app.request("/admin/airside/filings", {
 			headers: { Cookie: cookie },
 		});
@@ -1348,7 +1348,7 @@ describe("airside provider portal", () => {
 			{ headers: { Cookie: cookie } },
 		);
 		expect(adminDenied.status).toBe(403);
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		const adminView = await app.request(
 			"/admin/airside/incidents?providerId=mistral",
 			{ headers: { Cookie: cookie } },
@@ -1458,7 +1458,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("reviews quantization changes before publishing them", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -1533,7 +1533,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("materializes approved listings into the DB catalogue", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -1688,7 +1688,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("pauses and resumes a live listing without review", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -1754,7 +1754,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("replaces or withdraws a pending change and waits behind a fare filing", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -1825,7 +1825,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("materializes and replaces per-region fares", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -1945,7 +1945,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("keeps regions consistent under a concurrent drop and filing", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -2038,7 +2038,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("drops a region immediately without a review cycle", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -2131,7 +2131,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("publishes a new provider mapping on an existing model", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -2181,7 +2181,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("keeps carrier settings independent of admin prioritization", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -2227,7 +2227,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("revokes an active carrier and tears down its routing state", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		const claim = await claimProvider(cookie, company.id);
@@ -2298,7 +2298,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("runs fare changes through the admin approval queue", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -2478,7 +2478,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("publishes only approved Airside discounts across catalogue and detail feeds", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		const claim = await claimProvider(cookie, company.id);
@@ -2616,7 +2616,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("applies an approved fare override to one model", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -2731,7 +2731,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("lists every carrier's settings and accrued margin for admins", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -2851,7 +2851,7 @@ describe("airside provider portal", () => {
 		expect(stored?.reasoningEfforts).toEqual(["medium", "max"]);
 
 		// Materialization carries the efforts onto the catalogue mapping.
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		const filings = await app.request(
 			`/airside/filings?providerCompanyId=${company.id}`,
 			{ headers: { Cookie: cookie } },
@@ -2872,7 +2872,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("files branding edits on a live claim for review", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		const claim = await claimProvider(cookie, company.id);
@@ -2992,7 +2992,7 @@ describe("airside provider portal", () => {
 				);
 			expect((await approve()).status).toBe(403);
 			expect(await publicName()).toBe(currentName);
-			process.env.ADMIN_EMAILS = email;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = email;
 			const rejected = await app.request(
 				`/admin/airside/claims/${claim.id}/branding/reject`,
 				json(cookie),
@@ -3025,7 +3025,7 @@ describe("airside provider portal", () => {
 
 	it("includes a pending carrier rename in its initial approval", async () => {
 		await setUserEmail("ops@acme-sky.ai");
-		process.env.ADMIN_EMAILS = "ops@acme-sky.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@acme-sky.ai";
 		const company = await createCompany(cookie);
 		const registered = await registerCarrier(cookie, company.id);
 		const { claim } = await registered.json();
@@ -3156,7 +3156,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("preserves imported quantization and restores it on delist", async () => {
-		process.env.ADMIN_EMAILS = "ops@deepinfra.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@deepinfra.com";
 		await setUserEmail("ops@deepinfra.com");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id, "deepinfra");
@@ -3202,7 +3202,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("preserves catalogue upstream IDs during import", async () => {
-		process.env.ADMIN_EMAILS = "ops@groq.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@groq.com";
 		await setUserEmail("ops@groq.com");
 		const company = await createCompany(cookie, "Groq Ops");
 		await claimProvider(cookie, company.id, "groq");
@@ -3253,7 +3253,7 @@ describe("airside provider portal", () => {
 	it("materializes the registered upstream id, not the retired one", async () => {
 		// The carrier states the id its API serves; the retired catalogue
 		// deployment's upstream id must not leak into the new listing.
-		process.env.ADMIN_EMAILS = "ops@groq.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@groq.com";
 		await setUserEmail("ops@groq.com");
 		const company = await createCompany(cookie, "Groq Ops");
 		await claimProvider(cookie, company.id, "groq");
@@ -3527,7 +3527,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("runs the custom carrier lifecycle: approve, credential, revoke", async () => {
-		process.env.ADMIN_EMAILS = "ops@acme-sky.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@acme-sky.ai";
 		await setUserEmail("ops@acme-sky.ai");
 		const company = await createCompany(cookie, "Acme Sky");
 		const res = await registerCarrier(cookie, company.id);
@@ -3590,7 +3590,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("waives the listing fee with an admin-minted invite code", async () => {
-		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		process.env.AIRSIDE_LISTING_PRICE_ID = "price_test_airside";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);

@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 
+import { isStaffHiddenPage } from "@/lib/admin-role";
+
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
+import type { AdminRole } from "@/lib/admin-role";
 import type { NextRequest } from "next/server";
 
 interface MeResponse {
 	user: {
 		id: string;
 		email: string;
-		isAdmin?: boolean;
+		adminRole?: AdminRole | null;
 	};
 	enterpriseLicense: {
 		enterpriseEnabled: boolean;
@@ -73,10 +76,15 @@ export async function proxy(req: NextRequest) {
 
 		const data = (await res.json()) as MeResponse;
 
-		if (!data.user?.isAdmin) {
+		const role = data.user?.adminRole;
+		if (!role) {
 			return new NextResponse("Forbidden: admin access required", {
 				status: 403,
 			});
+		}
+
+		if (role !== "admin" && isStaffHiddenPage(pathname)) {
+			return NextResponse.redirect(new URL("/organizations", req.url));
 		}
 
 		if (!data.enterpriseLicense?.whiteLabelEnabled) {

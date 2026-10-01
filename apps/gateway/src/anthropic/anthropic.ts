@@ -4,6 +4,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { app } from "@/app.js";
+import { forwardedCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
@@ -1096,6 +1097,7 @@ anthropic.openapi(messages, async (c) => {
 			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 			...internalApiOriginHeaders("messages"),
 			...forwardedIpHeaders(c.req.raw.headers),
+			...forwardedCustomHeaders(c.req.raw.headers),
 			...(sessionId ? { "x-session-id": sessionId } : {}),
 			// Forward the fallback opt-out (presence-sensitive: the inner handler
 			// checks headers.has()) so a hard provider pin (provider/model prefix

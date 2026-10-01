@@ -4,22 +4,22 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import { getBlockedSignupEmailDomains } from "@/utils/email-domain-blocking.js";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 describe("admin email domain settings", () => {
 	let cookie: string;
 	const path = "/admin/settings/blocked-signup-email-domains";
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 	});
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		await deleteAll();
 	});
@@ -80,7 +80,7 @@ describe("admin email domain settings", () => {
 				...(method === "PUT" ? { body: JSON.stringify({ domains: [] }) } : {}),
 			};
 			expect((await app.request(path, init)).status).toBe(401);
-			process.env.ADMIN_EMAILS = "";
+			process.env.ADMIN_FULL_ACCESS_EMAILS = "";
 			expect(
 				(
 					await app.request(path, {

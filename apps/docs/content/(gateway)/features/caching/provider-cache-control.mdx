@@ -22,9 +22,9 @@ This is the behavior you see surfaced as `cached_tokens` in your usage payloads,
 
 For most users, prompt caching just works — you do not need to change your request payloads.
 
-Providers including OpenAI, Anthropic (when prompts cross the provider's minimum size), Google, DeepSeek, xAI, and Alibaba inspect incoming requests for shared prefixes and cache them automatically. LLM Gateway forwards the provider's cache metadata back to you in the response, and bills the cached portion at the model's `cached_input` rate.
+Most providers inspect incoming requests for shared prefixes and cache them automatically once prompts cross the provider's minimum size — the [models page](https://llmgateway.io/models) shows which models support prompt caching. LLM Gateway forwards the provider's cache metadata back to you in the response, and bills the cached portion at the model's `cached_input` rate.
 
-For **Anthropic** and **AWS Bedrock Claude**, prompt caching is strictly opt-in via `cache_control` / `cachePoint` markers on the request body. To get automatic cache benefits without rewriting your requests, LLM Gateway injects those markers for you on long system and user messages by default.
+For **Anthropic** and **AWS Bedrock Claude**, prompt caching is strictly opt-in via `cache_control` / `cachePoint` markers on the request body. To get automatic cache benefits without rewriting your requests, LLM Gateway injects those markers for you by default: on long system blocks, on long message text blocks, and — in conversations of three or more messages — on the message just before the latest user turn, so the whole conversation prefix can be served from cache.
 
 ### Choosing a cache-write mode
 
@@ -44,7 +44,7 @@ For **Anthropic** and **AWS Bedrock Claude**, prompt caching is strictly opt-in 
 
 The mode applies to every upstream that takes an explicit cache marker, whichever field it uses for one — the gateway translates your `cache_control` into the marker the resolved provider expects. Providers that cache automatically with no marker at all are unaffected, since there is nothing to forward or strip. On models whose explicit caching is a request-level mode rather than a per-block marker, Client-managed and Disabled also send `prompt_cache_options: {"mode": "explicit"}`, so implicit caching does not write a cache the request never asked for. The [models page](https://llmgateway.io/models) shows which models support prompt caching.
 
-Where the upstream takes per-block markers, they are forwarded on `system` blocks, message text blocks, tool definitions, and `tool_result` blocks. A `cache_control` on an image or other non-text content block is not forwarded — put the breakpoint on an adjacent text block instead.
+Where the upstream takes per-block markers, they are forwarded on `system` blocks, message text blocks, tool definitions, and `tool_result` blocks. A `cache_control` on an image or other non-text content block is not forwarded — put the breakpoint on an adjacent text block instead. An OpenAI-format `tool` message has nowhere to carry a `cache_control` block; set `tool_result_cache_control` on the tool message instead, and it becomes the breakpoint on the Anthropic `tool_result` block (applied on Anthropic-format upstreams only, stripped everywhere else).
 
 Changes saved through the dashboard or API take effect immediately — the gateway's cached project settings are invalidated on write.
 
@@ -84,13 +84,7 @@ When [Smart Routing](/features/routing) selects a provider for a large prompt (�
 
 Some providers — most notably **Anthropic** — also support _explicit_ cache control, where you mark specific content blocks as cacheable using a `cache_control` field. This gives you precise control over what gets cached and lets you opt into longer cache lifetimes than the default.
 
-Explicit caching is provider-specific. Supported providers and TTLs at the time of writing:
-
-| Provider             | Models                         | Supported TTLs       |
-| -------------------- | ------------------------------ | -------------------- |
-| Anthropic (Claude)   | All Claude models              | `5m` (default), `1h` |
-| AWS Bedrock (Claude) | All Claude models              | `5m` (default), `1h` |
-| Alibaba (Qwen)       | Qwen models with cache support | Provider-defined     |
+Explicit caching is provider- and model-specific — the [models page](https://llmgateway.io/models) shows which models support prompt caching. Claude models take `cache_control` markers with a `5m` (default) or `1h` TTL wherever they are served, including Anthropic, AWS Bedrock, and the Vertex and Azure Anthropic endpoints. On AWS Bedrock, `1h` is only forwarded for models priced for it; an unsupported `1h` hint is silently downgraded to the default `5m`. Alibaba accepts `cache_control` on its OpenAI-compatible surface with a fixed 5-minute lifetime (a `1h` TTL is normalized away before forwarding).
 
 To mark content as cacheable, send the message content as an array of blocks and add a `cache_control` field to the block you want to cache:
 
@@ -119,6 +113,16 @@ To mark content as cacheable, send the message content as an array of blocks and
 Use `ttl: "5m"` (the default if omitted) for short-lived caches that match a single user's session, and `ttl: "1h"` when the same prefix will be reused over a longer window (for example, a coding agent that keeps the same project context warm across many requests).
 
 The same `cache_control` markers work on the native [`/v1/messages` endpoint](/features/anthropic-endpoint) (Anthropic request format), where cache usage comes back in Anthropic's own fields: `usage.cache_creation_input_tokens` (written this request) and `usage.cache_read_input_tokens` (served from cache).
+
+### Explicit caching on OpenAI models
+
+OpenAI models with explicit prompt caching support (GPT-5.6 and later) use request-level fields instead of per-block `cache_control`:
+
+- `prompt_cache_options` — `{"mode": "explicit"}` caches only the prefixes you mark, instead of the default implicit breakpoint at the latest message; an optional `"ttl": "30m"` extends the cache lifetime.
+- `prompt_cache_breakpoint` — set on a message content part to end a cacheable prefix when the request runs in explicit mode.
+- `prompt_cache_retention` — `"in_memory"` or `"24h"`; `"24h"` is forwarded only for models with extended cache retention support.
+
+These fields are only forwarded for OpenAI models that support them and are stripped everywhere else. The project's cache-write mode applies here too: Client-managed forwards your `prompt_cache_options` as sent, and otherwise forces `{"mode": "explicit"}` so implicit caching only writes what your breakpoints ask for; Disabled forces `{"mode": "explicit"}` with all breakpoints stripped, which turns cache writes (and their fees) off entirely.
 
 ### Minimum cacheable prompt length
 

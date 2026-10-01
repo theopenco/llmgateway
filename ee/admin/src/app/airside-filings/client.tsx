@@ -35,6 +35,8 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useApi } from "@/lib/fetch-client";
 
@@ -72,6 +74,7 @@ const STATUS_BADGE: Record<
 export function AirsideFilingsClient() {
 	const $api = useApi();
 	const queryClient = useQueryClient();
+	const isAdmin = canWrite(useAdminRole());
 	const [status, setStatus] = useState<FilingStatus | "all">("pending");
 	const [rejecting, setRejecting] = useState<{
 		kind: "filing" | "claim" | "revoke" | "routing";
@@ -353,7 +356,9 @@ export function AirsideFilingsClient() {
 									<TableHead>Matched domain</TableHead>
 									<TableHead>Requested by</TableHead>
 									<TableHead>Filed</TableHead>
-									<TableHead className="text-right">Actions</TableHead>
+									{isAdmin && (
+										<TableHead className="text-right">Actions</TableHead>
+									)}
 								</TableRow>
 							</TableHeader>
 							<TableBody>
@@ -393,33 +398,35 @@ export function AirsideFilingsClient() {
 										<TableCell className="text-muted-foreground text-xs">
 											{new Date(claim.createdAt).toLocaleDateString()}
 										</TableCell>
-										<TableCell className="text-right">
-											<div className="flex justify-end gap-1">
-												<Button
-													size="sm"
-													disabled={approveClaimMutation.isPending}
-													data-testid={`approve-claim-${claim.providerId}`}
-													onClick={() =>
-														approveClaimMutation.mutate({
-															params: { path: { id: claim.id } },
-														})
-													}
-												>
-													<Check className="size-3.5" /> Approve
-												</Button>
-												<Button
-													size="sm"
-													variant="destructive"
-													disabled={rejectClaimMutation.isPending}
-													data-testid={`reject-claim-${claim.providerId}`}
-													onClick={() =>
-														setRejecting({ kind: "claim", id: claim.id })
-													}
-												>
-													<X className="size-3.5" /> Reject
-												</Button>
-											</div>
-										</TableCell>
+										{isAdmin && (
+											<TableCell className="text-right">
+												<div className="flex justify-end gap-1">
+													<Button
+														size="sm"
+														disabled={approveClaimMutation.isPending}
+														data-testid={`approve-claim-${claim.providerId}`}
+														onClick={() =>
+															approveClaimMutation.mutate({
+																params: { path: { id: claim.id } },
+															})
+														}
+													>
+														<Check className="size-3.5" /> Approve
+													</Button>
+													<Button
+														size="sm"
+														variant="destructive"
+														disabled={rejectClaimMutation.isPending}
+														data-testid={`reject-claim-${claim.providerId}`}
+														onClick={() =>
+															setRejecting({ kind: "claim", id: claim.id })
+														}
+													>
+														<X className="size-3.5" /> Reject
+													</Button>
+												</div>
+											</TableCell>
+										)}
 									</TableRow>
 								))}
 							</TableBody>
@@ -436,7 +443,9 @@ export function AirsideFilingsClient() {
 										<TableHead>Company</TableHead>
 										<TableHead>Provider</TableHead>
 										<TableHead>Approved</TableHead>
-										<TableHead className="text-right">Actions</TableHead>
+										{isAdmin && (
+											<TableHead className="text-right">Actions</TableHead>
+										)}
 									</TableRow>
 								</TableHeader>
 								<TableBody>
@@ -453,19 +462,21 @@ export function AirsideFilingsClient() {
 													? new Date(claim.reviewedAt).toLocaleDateString()
 													: "—"}
 											</TableCell>
-											<TableCell className="text-right">
-												<Button
-													size="sm"
-													variant="destructive"
-													disabled={revokeClaimMutation.isPending}
-													data-testid={`revoke-claim-${claim.providerId}`}
-													onClick={() =>
-														setRejecting({ kind: "revoke", id: claim.id })
-													}
-												>
-													<X className="size-3.5" /> Revoke
-												</Button>
-											</TableCell>
+											{isAdmin && (
+												<TableCell className="text-right">
+													<Button
+														size="sm"
+														variant="destructive"
+														disabled={revokeClaimMutation.isPending}
+														data-testid={`revoke-claim-${claim.providerId}`}
+														onClick={() =>
+															setRejecting({ kind: "revoke", id: claim.id })
+														}
+													>
+														<X className="size-3.5" /> Revoke
+													</Button>
+												</TableCell>
+											)}
 										</TableRow>
 									))}
 								</TableBody>
@@ -493,7 +504,9 @@ export function AirsideFilingsClient() {
 									<TableHead>Name</TableHead>
 									<TableHead>Logo</TableHead>
 									<TableHead>Icon</TableHead>
-									<TableHead className="text-right">Actions</TableHead>
+									{isAdmin && (
+										<TableHead className="text-right">Actions</TableHead>
+									)}
 								</TableRow>
 							</TableHeader>
 							<TableBody>
@@ -554,35 +567,37 @@ export function AirsideFilingsClient() {
 												)}
 											</TableCell>
 										))}
-										<TableCell className="text-right">
-											<div className="flex justify-end gap-1">
-												<Button
-													size="sm"
-													disabled={approveBrandingMutation.isPending}
-													data-testid={`approve-branding-${claim.providerId}`}
-													onClick={() =>
-														approveBrandingMutation.mutate({
-															params: { path: { id: claim.id } },
-														})
-													}
-												>
-													<Check className="size-3.5" /> Approve
-												</Button>
-												<Button
-													size="sm"
-													variant="destructive"
-													disabled={rejectBrandingMutation.isPending}
-													data-testid={`reject-branding-${claim.providerId}`}
-													onClick={() =>
-														rejectBrandingMutation.mutate({
-															params: { path: { id: claim.id } },
-														})
-													}
-												>
-													<X className="size-3.5" /> Reject
-												</Button>
-											</div>
-										</TableCell>
+										{isAdmin && (
+											<TableCell className="text-right">
+												<div className="flex justify-end gap-1">
+													<Button
+														size="sm"
+														disabled={approveBrandingMutation.isPending}
+														data-testid={`approve-branding-${claim.providerId}`}
+														onClick={() =>
+															approveBrandingMutation.mutate({
+																params: { path: { id: claim.id } },
+															})
+														}
+													>
+														<Check className="size-3.5" /> Approve
+													</Button>
+													<Button
+														size="sm"
+														variant="destructive"
+														disabled={rejectBrandingMutation.isPending}
+														data-testid={`reject-branding-${claim.providerId}`}
+														onClick={() =>
+															rejectBrandingMutation.mutate({
+																params: { path: { id: claim.id } },
+															})
+														}
+													>
+														<X className="size-3.5" /> Reject
+													</Button>
+												</div>
+											</TableCell>
+										)}
 									</TableRow>
 								))}
 							</TableBody>
@@ -782,31 +797,33 @@ export function AirsideFilingsClient() {
 										</TableCell>
 										<TableCell className="text-right">
 											{filing.status === "pending" ? (
-												<div className="flex justify-end gap-1">
-													<Button
-														size="sm"
-														disabled={approveMutation.isPending}
-														data-testid={`approve-${filing.id}`}
-														onClick={() =>
-															approveMutation.mutate({
-																params: { path: { id: filing.id } },
-															})
-														}
-													>
-														<Check className="size-3.5" /> Approve
-													</Button>
-													<Button
-														size="sm"
-														variant="destructive"
-														disabled={rejectMutation.isPending}
-														data-testid={`reject-${filing.id}`}
-														onClick={() =>
-															setRejecting({ kind: "filing", id: filing.id })
-														}
-													>
-														<X className="size-3.5" /> Reject
-													</Button>
-												</div>
+												isAdmin && (
+													<div className="flex justify-end gap-1">
+														<Button
+															size="sm"
+															disabled={approveMutation.isPending}
+															data-testid={`approve-${filing.id}`}
+															onClick={() =>
+																approveMutation.mutate({
+																	params: { path: { id: filing.id } },
+																})
+															}
+														>
+															<Check className="size-3.5" /> Approve
+														</Button>
+														<Button
+															size="sm"
+															variant="destructive"
+															disabled={rejectMutation.isPending}
+															data-testid={`reject-${filing.id}`}
+															onClick={() =>
+																setRejecting({ kind: "filing", id: filing.id })
+															}
+														>
+															<X className="size-3.5" /> Reject
+														</Button>
+													</div>
+												)
 											) : (
 												<span className="text-muted-foreground text-xs">
 													{filing.reviewedAt
@@ -827,8 +844,9 @@ export function AirsideFilingsClient() {
 				<CardHeader>
 					<CardTitle>Fare changes</CardTitle>
 					<CardDescription>
-						Carrier requests to move their routing discount or accepted gateway
-						margin. Approving writes the values into the live routing settings.
+						{isAdmin
+							? "Carrier requests to move their routing discount or accepted gateway margin. Approving writes the values into the live routing settings."
+							: "Carrier requests to move their routing discount. Approving writes the values into the live routing settings."}
 						{query.data ? ` ${query.data.routingPendingCount} pending.` : ""}
 					</CardDescription>
 				</CardHeader>
@@ -845,8 +863,8 @@ export function AirsideFilingsClient() {
 									<TableHead>Provider</TableHead>
 									<TableHead>Scope</TableHead>
 									<TableHead>Discount</TableHead>
-									<TableHead>Margin</TableHead>
-									<TableHead>Adjustment</TableHead>
+									{isAdmin && <TableHead>Margin</TableHead>}
+									{isAdmin && <TableHead>Adjustment</TableHead>}
 									<TableHead>Status</TableHead>
 									<TableHead className="text-right">Actions</TableHead>
 								</TableRow>
@@ -870,14 +888,18 @@ export function AirsideFilingsClient() {
 											{Math.round(filing.currentDiscountPercent * 100)}% →{" "}
 											{Math.round(filing.discountPercent * 100)}%
 										</TableCell>
-										<TableCell className="font-mono text-xs">
-											{Math.round(filing.currentMarginPercent * 100)}% →{" "}
-											{Math.round(filing.marginPercent * 100)}%
-										</TableCell>
-										<TableCell className="font-mono text-xs">
-											{filing.routingAdjustment > 0 ? "+" : ""}
-											{Math.round(filing.routingAdjustment * 100)}%
-										</TableCell>
+										{isAdmin && (
+											<TableCell className="font-mono text-xs">
+												{Math.round(filing.currentMarginPercent * 100)}% →{" "}
+												{Math.round(filing.marginPercent * 100)}%
+											</TableCell>
+										)}
+										{isAdmin && (
+											<TableCell className="font-mono text-xs">
+												{filing.routingAdjustment > 0 ? "+" : ""}
+												{Math.round(filing.routingAdjustment * 100)}%
+											</TableCell>
+										)}
 										<TableCell>
 											<Badge variant={STATUS_BADGE[filing.status]}>
 												{filing.status}
@@ -885,31 +907,33 @@ export function AirsideFilingsClient() {
 										</TableCell>
 										<TableCell className="text-right">
 											{filing.status === "pending" ? (
-												<div className="flex justify-end gap-1">
-													<Button
-														size="sm"
-														disabled={approveRoutingMutation.isPending}
-														data-testid={`approve-routing-${filing.id}`}
-														onClick={() =>
-															approveRoutingMutation.mutate({
-																params: { path: { id: filing.id } },
-															})
-														}
-													>
-														<Check className="size-3.5" /> Approve
-													</Button>
-													<Button
-														size="sm"
-														variant="destructive"
-														disabled={rejectRoutingMutation.isPending}
-														data-testid={`reject-routing-${filing.id}`}
-														onClick={() =>
-															setRejecting({ kind: "routing", id: filing.id })
-														}
-													>
-														<X className="size-3.5" /> Reject
-													</Button>
-												</div>
+												isAdmin && (
+													<div className="flex justify-end gap-1">
+														<Button
+															size="sm"
+															disabled={approveRoutingMutation.isPending}
+															data-testid={`approve-routing-${filing.id}`}
+															onClick={() =>
+																approveRoutingMutation.mutate({
+																	params: { path: { id: filing.id } },
+																})
+															}
+														>
+															<Check className="size-3.5" /> Approve
+														</Button>
+														<Button
+															size="sm"
+															variant="destructive"
+															disabled={rejectRoutingMutation.isPending}
+															data-testid={`reject-routing-${filing.id}`}
+															onClick={() =>
+																setRejecting({ kind: "routing", id: filing.id })
+															}
+														>
+															<X className="size-3.5" /> Reject
+														</Button>
+													</div>
+												)
 											) : (
 												<span className="text-muted-foreground text-xs">
 													{filing.reviewedAt
@@ -930,48 +954,51 @@ export function AirsideFilingsClient() {
 				<CardHeader>
 					<CardTitle>Listing invite codes</CardTitle>
 					<CardDescription>
-						Mint a code for a provider we already work with — redeeming it in
-						carrier onboarding waives the listing fee.
+						{isAdmin ? "Mint a code for" : "Codes for"} providers we already
+						work with — redeeming one in carrier onboarding waives the listing
+						fee.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-4">
-					<form
-						className="flex flex-wrap items-center gap-2"
-						onSubmit={(event) => {
-							event.preventDefault();
-							mintCodeMutation.mutate({
-								body: {
-									...(codeNote.trim() ? { note: codeNote.trim() } : {}),
-									maxUses: Math.max(1, Number(codeMaxUses) || 1),
-								},
-							});
-						}}
-					>
-						<Input
-							value={codeNote}
-							onChange={(e) => setCodeNote(e.target.value)}
-							placeholder="Who is this for? (optional)"
-							className="max-w-64"
-							data-testid="invite-code-note"
-						/>
-						<Input
-							value={codeMaxUses}
-							onChange={(e) => setCodeMaxUses(e.target.value)}
-							type="number"
-							min={1}
-							max={100}
-							className="w-24"
-							aria-label="Max uses"
-							data-testid="invite-code-max-uses"
-						/>
-						<Button
-							type="submit"
-							disabled={mintCodeMutation.isPending}
-							data-testid="mint-invite-code"
+					{isAdmin && (
+						<form
+							className="flex flex-wrap items-center gap-2"
+							onSubmit={(event) => {
+								event.preventDefault();
+								mintCodeMutation.mutate({
+									body: {
+										...(codeNote.trim() ? { note: codeNote.trim() } : {}),
+										maxUses: Math.max(1, Number(codeMaxUses) || 1),
+									},
+								});
+							}}
 						>
-							{mintCodeMutation.isPending ? "Minting…" : "Mint code"}
-						</Button>
-					</form>
+							<Input
+								value={codeNote}
+								onChange={(e) => setCodeNote(e.target.value)}
+								placeholder="Who is this for? (optional)"
+								className="max-w-64"
+								data-testid="invite-code-note"
+							/>
+							<Input
+								value={codeMaxUses}
+								onChange={(e) => setCodeMaxUses(e.target.value)}
+								type="number"
+								min={1}
+								max={100}
+								className="w-24"
+								aria-label="Max uses"
+								data-testid="invite-code-max-uses"
+							/>
+							<Button
+								type="submit"
+								disabled={mintCodeMutation.isPending}
+								data-testid="mint-invite-code"
+							>
+								{mintCodeMutation.isPending ? "Minting…" : "Mint code"}
+							</Button>
+						</form>
+					)}
 					{inviteCodes.length === 0 ? (
 						<p className="text-muted-foreground py-4 text-center text-sm">
 							No invite codes minted yet.
@@ -985,7 +1012,9 @@ export function AirsideFilingsClient() {
 									<TableHead>Uses</TableHead>
 									<TableHead>Redeemed by</TableHead>
 									<TableHead>Status</TableHead>
-									<TableHead className="text-right">Actions</TableHead>
+									{isAdmin && (
+										<TableHead className="text-right">Actions</TableHead>
+									)}
 								</TableRow>
 							</TableHeader>
 							<TableBody>
@@ -1034,23 +1063,25 @@ export function AirsideFilingsClient() {
 															: "active"}
 												</Badge>
 											</TableCell>
-											<TableCell className="text-right">
-												{!code.revokedAt && !exhausted ? (
-													<Button
-														size="sm"
-														variant="destructive"
-														disabled={revokeCodeMutation.isPending}
-														data-testid={`revoke-code-${code.code}`}
-														onClick={() =>
-															revokeCodeMutation.mutate({
-																params: { path: { id: code.id } },
-															})
-														}
-													>
-														<X className="size-3.5" /> Revoke
-													</Button>
-												) : null}
-											</TableCell>
+											{isAdmin && (
+												<TableCell className="text-right">
+													{!code.revokedAt && !exhausted ? (
+														<Button
+															size="sm"
+															variant="destructive"
+															disabled={revokeCodeMutation.isPending}
+															data-testid={`revoke-code-${code.code}`}
+															onClick={() =>
+																revokeCodeMutation.mutate({
+																	params: { path: { id: code.id } },
+																})
+															}
+														>
+															<X className="size-3.5" /> Revoke
+														</Button>
+													) : null}
+												</TableCell>
+											)}
 										</TableRow>
 									);
 								})}

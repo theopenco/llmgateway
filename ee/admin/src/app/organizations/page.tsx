@@ -30,10 +30,12 @@ import {
 	previewBulkBlockOrganizations,
 	setOrganizationStatus,
 } from "@/lib/admin-organizations";
+import { canWrite } from "@/lib/admin-role";
 import {
 	ORGANIZATIONS_DEFAULT_RANGE,
 	resolveDateRangeFromSearchParams,
 } from "@/lib/date-range";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { getOrgDeletionBlockedReason } from "@/lib/org-deletion";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
@@ -258,6 +260,7 @@ export default async function OrganizationsPage({
 	}
 
 	const totalPages = Math.ceil(data.total / limit);
+	const showActions = canWrite(await getSessionAdminRole());
 
 	async function handleSearch(formData: FormData) {
 		"use server";
@@ -348,12 +351,14 @@ export default async function OrganizationsPage({
 							</Button>
 						</form>
 					</div>
-					<BulkBlockOrgsButton
-						search={search}
-						minSearchLength={MIN_BULK_BLOCK_SEARCH_LENGTH}
-						onPreview={handlePreviewBulkBlock}
-						onBulkBlock={handleBulkBlock}
-					/>
+					{showActions ? (
+						<BulkBlockOrgsButton
+							search={search}
+							minSearchLength={MIN_BULK_BLOCK_SEARCH_LENGTH}
+							onPreview={handlePreviewBulkBlock}
+							onBulkBlock={handleBulkBlock}
+						/>
+					) : null}
 				</div>
 			</header>
 
@@ -472,14 +477,14 @@ export default async function OrganizationsPage({
 									dateRange={dateRange}
 								/>
 							</TableHead>
-							<TableHead>Actions</TableHead>
+							{showActions ? <TableHead>Actions</TableHead> : null}
 						</TableRow>
 					</TableHeader>
 					<TableBody>
 						{data.organizations.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={13}
+									colSpan={showActions ? 13 : 12}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No organizations found
@@ -581,30 +586,33 @@ export default async function OrganizationsPage({
 											)}
 										</div>
 									</TableCell>
-									<TableCell>
-										<div className="flex items-center gap-1">
-											<OrgStatusToggleButton
-												orgId={org.id}
-												orgName={org.name}
-												currentStatus={org.status}
-												disableBlockedReason={getOrgDeletionBlockedReason(
-													org.credits,
-												)}
-												onToggle={handleToggleOrgStatus}
-											/>
-											<BlockOrgButton
-												orgId={org.id}
-												orgName={org.name}
-												disabled={
-													getOrgDeletionBlockedReason(org.credits) !== null
-												}
-												disabledReason={
-													getOrgDeletionBlockedReason(org.credits) ?? undefined
-												}
-												onBlock={handleBlockOrganization}
-											/>
-										</div>
-									</TableCell>
+									{showActions ? (
+										<TableCell>
+											<div className="flex items-center gap-1">
+												<OrgStatusToggleButton
+													orgId={org.id}
+													orgName={org.name}
+													currentStatus={org.status}
+													disableBlockedReason={getOrgDeletionBlockedReason(
+														org.credits,
+													)}
+													onToggle={handleToggleOrgStatus}
+												/>
+												<BlockOrgButton
+													orgId={org.id}
+													orgName={org.name}
+													disabled={
+														getOrgDeletionBlockedReason(org.credits) !== null
+													}
+													disabledReason={
+														getOrgDeletionBlockedReason(org.credits) ??
+														undefined
+													}
+													onBlock={handleBlockOrganization}
+												/>
+											</div>
+										</TableCell>
+									) : null}
 								</TableRow>
 							))
 						)}

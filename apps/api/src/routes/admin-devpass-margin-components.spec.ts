@@ -9,7 +9,7 @@ const ORG_ID = "admin-devpass-margin-org";
 const PROJECT_ID = "admin-devpass-margin-project";
 const OTHER_ORG_ID = "admin-devpass-margin-default-org";
 const OTHER_PROJECT_ID = "admin-devpass-margin-default-project";
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -62,7 +62,7 @@ describe("admin devpass margin components", () => {
 	const beforeCycle = daysAgo(now, 10);
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 
 		await db.insert(tables.organization).values([
@@ -198,9 +198,9 @@ describe("admin devpass margin components", () => {
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		await db.delete(tables.transaction);
 		await db.delete(tables.projectHourlyStats);

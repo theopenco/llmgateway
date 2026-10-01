@@ -26,6 +26,8 @@ import {
 	getFlaggedAccounts,
 	setFlaggedAccountArchived,
 } from "@/lib/admin-flagged-accounts";
+import { canWrite } from "@/lib/admin-role";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { requireSession } from "@/lib/require-session";
 
 const STATUS_FILTERS = [
@@ -64,6 +66,7 @@ export default async function FlaggedAccountsPage({
 		? (params.view as ViewFilter)
 		: "active";
 	const search = params.search ?? "";
+	const isAdmin = canWrite(await getSessionAdminRole());
 
 	const data = await getFlaggedAccounts({
 		status,
@@ -237,16 +240,18 @@ export default async function FlaggedAccountsPage({
 							<TableHead>Detected</TableHead>
 							<TableHead>AbuseIPDB</TableHead>
 							<TableHead>Status</TableHead>
-							<TableHead className="sticky right-0 min-w-[120px] border-l bg-background text-right">
-								Action
-							</TableHead>
+							{isAdmin ? (
+								<TableHead className="sticky right-0 min-w-[120px] border-l bg-background text-right">
+									Action
+								</TableHead>
+							) : null}
 						</TableRow>
 					</TableHeader>
 					<TableBody>
 						{data.accounts.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={6}
+									colSpan={isAdmin ? 6 : 5}
 									className="py-8 text-center text-muted-foreground"
 								>
 									{emptyMessage}
@@ -344,24 +349,26 @@ export default async function FlaggedAccountsPage({
 											</div>
 										)}
 									</TableCell>
-									<TableCell className="sticky right-0 border-l bg-background align-top text-right">
-										<div className="flex flex-col items-end gap-1">
-											{account.riskStatus === "flagged" && (
-												<ActivateFlaggedAccountButton
+									{isAdmin ? (
+										<TableCell className="sticky right-0 border-l bg-background align-top text-right">
+											<div className="flex flex-col items-end gap-1">
+												{account.riskStatus === "flagged" && (
+													<ActivateFlaggedAccountButton
+														userId={account.userId}
+														email={account.email}
+														organizationCount={account.organizations.length}
+														onActivate={handleActivate}
+													/>
+												)}
+												<ArchiveFlaggedAccountButton
 													userId={account.userId}
 													email={account.email}
-													organizationCount={account.organizations.length}
-													onActivate={handleActivate}
+													archived={view === "archived"}
+													onChange={handleArchive}
 												/>
-											)}
-											<ArchiveFlaggedAccountButton
-												userId={account.userId}
-												email={account.email}
-												archived={view === "archived"}
-												onChange={handleArchive}
-											/>
-										</div>
-									</TableCell>
+											</div>
+										</TableCell>
+									) : null}
 								</TableRow>
 							))
 						)}

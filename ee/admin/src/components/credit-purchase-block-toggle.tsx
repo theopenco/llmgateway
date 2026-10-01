@@ -5,6 +5,8 @@ import { useState, useTransition } from "react";
 
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 
 interface CreditPurchaseBlockToggleProps {
 	blocked: boolean;
@@ -18,6 +20,7 @@ export function CreditPurchaseBlockToggle({
 	onToggle,
 }: CreditPurchaseBlockToggleProps) {
 	const router = useRouter();
+	const readOnly = !canWrite(useAdminRole());
 	const [pending, startTransition] = useTransition();
 	const [error, setError] = useState<string | null>(null);
 
@@ -38,7 +41,7 @@ export function CreditPurchaseBlockToggle({
 				<Switch
 					id="credit-purchase-block"
 					checked={blocked}
-					disabled={envForced || pending}
+					disabled={envForced || pending || readOnly}
 					onCheckedChange={handleChange}
 				/>
 				<Label htmlFor="credit-purchase-block">

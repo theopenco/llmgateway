@@ -18,12 +18,14 @@ import {
 	tearDownSoleMemberOrganizations,
 } from "@/lib/account-deletion.js";
 import { requestEmailChange } from "@/lib/email-change.js";
+import { getAdminRole } from "@/middleware/admin.js";
 import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
+import type { AdminRole } from "@/middleware/admin.js";
 import type { ServerTypes } from "@/vars.js";
 
 export const user = new OpenAPIHono<ServerTypes>();
@@ -37,6 +39,7 @@ const publicUserSchema = z.object({
 	onboardingCompleted: z.boolean(),
 	emailVerified: z.boolean(),
 	isAdmin: z.boolean(),
+	adminRole: z.enum(["admin", "support", "viewer"]).nullable(),
 	username: z.string().nullable(),
 	profilePublic: z.boolean(),
 	profileHidePicture: z.boolean(),
@@ -106,7 +109,7 @@ function toPublicUser(
 		hasPasskeys: boolean;
 		isSsoUser: boolean;
 	},
-	isAdmin: boolean,
+	adminRole: AdminRole | null,
 ): z.infer<typeof publicUserSchema> {
 	return {
 		id: userRecord.id,
@@ -114,7 +117,8 @@ function toPublicUser(
 		name: userRecord.name,
 		onboardingCompleted: userRecord.onboardingCompleted,
 		emailVerified: userRecord.emailVerified,
-		isAdmin,
+		isAdmin: adminRole === "admin",
+		adminRole,
 		username: userRecord.username,
 		profilePublic: userRecord.profilePublic,
 		profileHidePicture: userRecord.profileHidePicture,
@@ -125,30 +129,6 @@ function toPublicUser(
 		hasPasskeys: authInfo.hasPasskeys,
 		isSsoUser: authInfo.isSsoUser,
 	};
-}
-
-// Admin authority is keyed on the email address, so an unverified one must
-// never count — otherwise changing your email to an unregistered ADMIN_EMAILS
-// address would grant admin. Mirrors adminAuthMiddleware.
-function isAdminUser(userRecord: {
-	email: string | null | undefined;
-	emailVerified: boolean;
-}): boolean {
-	if (!userRecord.emailVerified) {
-		return false;
-	}
-
-	const adminEmailsEnv = process.env.ADMIN_EMAILS ?? "";
-	const adminEmails = adminEmailsEnv
-		.split(",")
-		.map((value) => value.trim().toLowerCase())
-		.filter(Boolean);
-
-	if (!userRecord.email || adminEmails.length === 0) {
-		return false;
-	}
-
-	return adminEmails.includes(userRecord.email.toLowerCase());
 }
 
 const get = createRoute({
@@ -191,11 +171,11 @@ user.openapi(get, async (c) => {
 	}
 
 	const authInfo = await getUserAuthInfo(authUser.id);
-	const isAdmin = isAdminUser(user);
+	const adminRole = getAdminRole(user);
 	const license = getEnterpriseLicenseStatus();
 
 	return c.json({
-		user: toPublicUser(user, authInfo, isAdmin),
+		user: toPublicUser(user, authInfo, adminRole),
 		enterpriseLicense: {
 			status: license.status,
 			enterpriseEnabled: license.enterpriseEnabled,
@@ -475,10 +455,10 @@ user.openapi(updateUser, async (c) => {
 		await updateResendContact(updatedUser.email, { name: updateData.name });
 	}
 
-	const isAdmin = isAdminUser(updatedUser);
+	const adminRole = getAdminRole(updatedUser);
 
 	return c.json({
-		user: toPublicUser(updatedUser, authInfo, isAdmin),
+		user: toPublicUser(updatedUser, authInfo, adminRole),
 		message: emailChanged
 			? "Check your new email address to confirm the change. Your current address remains active until then."
 			: "User updated successfully",
@@ -873,10 +853,10 @@ user.openapi(completeOnboarding, async (c) => {
 		});
 	}
 
-	const isAdmin = isAdminUser(updatedUser);
+	const adminRole = getAdminRole(updatedUser);
 
 	return c.json({
-		user: toPublicUser(updatedUser, authInfo, isAdmin),
+		user: toPublicUser(updatedUser, authInfo, adminRole),
 		message: "Onboarding completed successfully",
 	});
 });

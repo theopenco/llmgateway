@@ -1,7 +1,9 @@
 import localFont from "next/font/local";
 
 import { AdminShell } from "@/components/admin-shell";
+import { AdminRoleProvider } from "@/lib/admin-role-context";
 import { getConfig } from "@/lib/config-server";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { Providers } from "@/lib/providers";
 import { hasSessionCookie } from "@/lib/session-cookie";
 
@@ -56,6 +58,7 @@ export default async function RootLayout({
 }) {
 	const config = getConfig();
 	const signedIn = await hasSessionCookie();
+	const adminRole = signedIn ? await getSessionAdminRole() : null;
 
 	return (
 		<html
@@ -65,7 +68,9 @@ export default async function RootLayout({
 		>
 			<body className="antialiased">
 				<Providers config={config}>
-					<AdminShell signedIn={signedIn}>{children}</AdminShell>
+					<AdminRoleProvider role={adminRole}>
+						<AdminShell signedIn={signedIn}>{children}</AdminShell>
+					</AdminRoleProvider>
 				</Providers>
 			</body>
 		</html>
