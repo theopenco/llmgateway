@@ -66,6 +66,20 @@ describe("assertSafeUserContentUrl", () => {
 			).rejects.toThrow("resolves to a disallowed address");
 		});
 
+		it("reports an unresolvable hostname as a validation error", async () => {
+			lookupMock.mockRejectedValue(
+				Object.assign(new Error("getaddrinfo ENOTFOUND mcp.example.com"), {
+					code: "ENOTFOUND",
+				}),
+			);
+
+			await expect(
+				assertSafeResolvedUserUrl("https://mcp.example.com/rpc"),
+			).rejects.toThrow(
+				"User-provided URL host mcp.example.com could not be resolved",
+			);
+		});
+
 		it("accepts hostnames only when every resolved address is public", async () => {
 			lookupMock.mockResolvedValue([
 				{ address: "8.8.8.8", family: 4 },

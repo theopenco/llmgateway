@@ -18,7 +18,7 @@ import {
 	isProviderUrlGuardEnabled,
 } from "./url-safety.js";
 
-import type { LookupAllOptions } from "node:dns";
+import type { LookupAddress, LookupAllOptions } from "node:dns";
 import type { LookupFunction } from "node:net";
 
 const safeUserUrlLookup: LookupFunction = (hostname, options, callback) => {
@@ -74,14 +74,24 @@ function getSafeUserUrlAgent(): Agent {
 }
 
 /**
- * Resolve a hostname and throw if any returned address is private/reserved
- * (incl. IPv4-mapped IPv6). Shared by the provider and content URL guards.
+ * Resolve a hostname and throw if it does not resolve or any returned address
+ * is private/reserved (incl. IPv4-mapped IPv6). Shared by the provider and
+ * content URL guards.
  */
 async function assertResolvedHostSafe(
 	hostname: string,
 	label: string,
 ): Promise<void> {
-	const resolved = await lookup(hostname, { all: true });
+	let resolved: LookupAddress[];
+	try {
+		resolved = await lookup(hostname, { all: true });
+	} catch (error) {
+		// A typo or unpublished record is the caller's input, not our failure.
+		throw new Error(
+			`${label} host ${hostname} could not be resolved. Check that its DNS record exists.`,
+			{ cause: error },
+		);
+	}
 	for (const { address } of resolved) {
 		if (isPrivateOrReservedIp(address)) {
 			throw new Error(
