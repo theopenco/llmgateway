@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "55d5e157-5ecb-479f-9bdf-ded1d9cc72e9",
+  "id": "ea5cae88-f0f6-4340-98b2-395ba6b61a8a",
   "prevId": "42600dfa-4ef0-4dfd-b237-c21d47c4014b",
   "ddl": [
     {
@@ -24850,19 +24850,6 @@
       "table": "provider_draft_model"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "delist_reason",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_draft_model"
-    },
-    {
       "type": "jsonb",
       "typeSchema": null,
       "notNull": false,
@@ -29958,6 +29945,35 @@
       "generated": null,
       "identity": null,
       "name": "role",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_organization"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'manual'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "role_assignment_source",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_organization"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "manual_role",
       "entityType": "columns",
       "schema": "public",
       "table": "user_organization"
