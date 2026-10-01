@@ -104,10 +104,12 @@ export const mappingErrorShapeSchema = z.object({
 	// `content_filter`). Surfaced because the HTTP status alone is misleading:
 	// some 4xx responses are classified as gateway or upstream errors.
 	classification: z.string().nullable(),
-	// Streaming and non-streaming failures often have different causes, so the
-	// drilldown groups errors by this flag.
-	streamed: z.boolean(),
+	// Streaming and non-streaming failures often have different causes, so
+	// shapes split on this flag by default. Null when the modes are merged.
+	streamed: z.boolean().nullable(),
 	count: z.number(),
+	// How many of `count` were streaming requests.
+	streamedCount: z.number(),
 	// Only set when grouped by provider key: the credential that served the
 	// failing requests (null = env-var key or never resolved), and that key's
 	// total errors in the sample.
@@ -126,11 +128,14 @@ export const mappingErrorShapesSchema = z.object({
 });
 
 /**
- * Top 10 error shapes over the latest non-client error logs of one mapping,
- * identified by the exact `log.used_model` value. Served by the partial
+ * Top 10 error shapes over the latest error logs of one mapping, identified
+ * by the exact `log.used_model` value; callers pick the error classes via
+ * `extraClauses`. Served by the partial
  * `log_error_used_provider_used_model_created_at_idx` index. With
  * `groupByKey`, returns the top 5 shapes of each provider key instead.
  * With `bucketSeconds`, each shape also carries its per-bucket counts.
+ * Without `splitByStream`, streaming and non-streaming occurrences of an
+ * error merge into one shape.
  */
 export async function queryMappingErrorShapes({
 	usedModel,
@@ -140,6 +145,7 @@ export async function queryMappingErrorShapes({
 	extraClauses,
 	groupByKey = false,
 	bucketSeconds,
+	splitByStream = true,
 }: {
 	usedModel: string;
 	provider: string;
@@ -148,6 +154,7 @@ export async function queryMappingErrorShapes({
 	extraClauses: SQL[];
 	groupByKey?: boolean;
 	bucketSeconds?: number;
+	splitByStream?: boolean;
 }): Promise<z.infer<typeof mappingErrorShapesSchema>> {
 	// Ungrouped, every row shares a constant NULL key, so the partition is one
 	// bucket and both modes share one query shape.
@@ -155,6 +162,7 @@ export async function queryMappingErrorShapes({
 		? sql`${tables.log.providerKeyId}`
 		: sql`NULL::text`;
 	const perKeyLimit = groupByKey ? 5 : 10;
+	const streamGroupExpr = splitByStream ? sql`streamed` : sql`NULL::boolean`;
 	// Unbucketed, every row falls into one constant bucket.
 	const bucketExpr =
 		bucketSeconds !== undefined
@@ -166,9 +174,10 @@ export async function queryMappingErrorShapes({
 		response_text: string | null;
 		cause: string | null;
 		classification: string | null;
-		streamed: boolean;
+		streamed: boolean | null;
 		provider_key_id: string | null;
 		count: string;
+		streamed_count: string;
 		key_errors: string;
 		sampled_errors: string;
 		buckets: [number, number][];
@@ -181,7 +190,6 @@ export async function queryMappingErrorShapes({
 				${bucketExpr} AS bucket
 			FROM ${tables.log}
 			WHERE ${tables.log.hasError} = true
-				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
 				AND ${tables.log.usedModel} = ${usedModel}
 				AND ${tables.log.usedProvider} = ${provider}
 				AND ${tables.log.createdAt} >= ${windowInterval}
@@ -195,12 +203,13 @@ export async function queryMappingErrorShapes({
 				LEFT(error_details->>'responseText', 2000) AS response_text,
 				error_details->>'cause' AS cause,
 				classification,
-				streamed,
+				${streamGroupExpr} AS streamed,
 				provider_key_id,
 				bucket,
-				COUNT(*) AS count
+				COUNT(*) AS count,
+				COUNT(*) FILTER (WHERE streamed) AS streamed_count
 			FROM recent_errors
-			GROUP BY 1, 2, 3, 4, classification, streamed, provider_key_id, bucket
+			GROUP BY 1, 2, 3, 4, classification, 6, provider_key_id, bucket
 		),
 		shapes AS (
 			SELECT status_code,
@@ -211,6 +220,7 @@ export async function queryMappingErrorShapes({
 				streamed,
 				provider_key_id,
 				SUM(count) AS count,
+				SUM(streamed_count) AS streamed_count,
 				json_agg(json_build_array(bucket, count) ORDER BY bucket) AS buckets
 			FROM shape_buckets
 			GROUP BY status_code, status_text, response_text, cause, classification, streamed, provider_key_id
@@ -229,6 +239,7 @@ export async function queryMappingErrorShapes({
 			streamed,
 			provider_key_id,
 			count,
+			streamed_count,
 			key_errors,
 			buckets,
 			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors
@@ -250,6 +261,7 @@ export async function queryMappingErrorShapes({
 			classification: r.classification,
 			streamed: r.streamed,
 			count: Number(r.count),
+			streamedCount: Number(r.streamed_count),
 			...(groupByKey
 				? {
 						providerKeyId: r.provider_key_id,

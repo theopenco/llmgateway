@@ -36,6 +36,27 @@ export function parseUnstableWindow(value: string | undefined): UnstableWindow {
 		: UNSTABLE_WINDOW_DEFAULT;
 }
 
+export type UnstableErrorScope = "non_client" | "all" | "client";
+
+export const UNSTABLE_ERROR_SCOPE_DEFAULT: UnstableErrorScope = "non_client";
+
+export const UNSTABLE_ERROR_SCOPE_OPTIONS: {
+	value: UnstableErrorScope;
+	label: string;
+}[] = [
+	{ value: "non_client", label: "Upstream & gateway" },
+	{ value: "all", label: "All errors" },
+	{ value: "client", label: "Client only" },
+];
+
+export function parseUnstableErrorScope(
+	value: string | undefined,
+): UnstableErrorScope {
+	return UNSTABLE_ERROR_SCOPE_OPTIONS.some((option) => option.value === value)
+		? (value as UnstableErrorScope)
+		: UNSTABLE_ERROR_SCOPE_DEFAULT;
+}
+
 export const UNSTABLE_LOG_LIMIT_DEFAULT = 100;
 export const UNSTABLE_LOG_LIMIT_MAX = 1000000;
 

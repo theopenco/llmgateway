@@ -103,6 +103,7 @@ describe("admin unstable mappings", () => {
 		createdAt,
 		responseText,
 		internalResponseText,
+		streamed,
 	}: {
 		providerKeyId?: string | null;
 		hasError?: boolean;
@@ -113,6 +114,7 @@ describe("admin unstable mappings", () => {
 		createdAt?: Date;
 		responseText?: string;
 		internalResponseText?: string;
+		streamed?: boolean;
 	}) {
 		logIndex++;
 		await db.insert(tables.log).values({
@@ -146,6 +148,7 @@ describe("admin unstable mappings", () => {
 			usedProvider,
 			responseSize: 10,
 			mode: "credits",
+			streamed,
 			...(createdAt ? { createdAt } : {}),
 		});
 	}
@@ -213,6 +216,45 @@ describe("admin unstable mappings", () => {
 
 		const body = await getMappings();
 		expect(body.mappings).toHaveLength(0);
+	});
+
+	test("error scope selects which error classes count", async () => {
+		await seedLog({
+			hasError: true,
+			statusCode: 400,
+			classification: "client_error",
+		});
+		await seedLog({
+			hasError: true,
+			statusCode: 502,
+			classification: "upstream_error",
+		});
+		await seedLog({ hasError: false });
+
+		async function getErrors(scope: string): Promise<ErrorsBody> {
+			const res = await app.request(
+				`/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai&errorScope=${scope}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			return (await res.json()) as ErrorsBody;
+		}
+
+		for (const [scope, logsCount, statusCodes] of [
+			["non_client", 2, [502]],
+			["all", 3, [400, 502]],
+			["client", 2, [400]],
+		] as const) {
+			const body = await getMappings(`?errorScope=${scope}`);
+			expect(body.mappings[0]).toMatchObject({
+				logsCount,
+				errorsCount: statusCodes.length,
+			});
+			const errors = await getErrors(scope);
+			expect(errors.errors.map((e) => e.statusCode).sort()).toEqual(
+				statusCodes,
+			);
+		}
 	});
 
 	test("includes BYOK speech failures only when BYOK traffic is requested", async () => {
@@ -366,6 +408,57 @@ describe("admin unstable mappings", () => {
 		const narrowed = await getErrors("&groupByKey=true&providerKeyId=um-key-a");
 		expect(narrowed.groupByKey).toBe(false);
 		expect(narrowed.keys).toEqual([]);
+	});
+
+	test("drilldown merges stream modes unless grouped by stream", async () => {
+		await seedLog({ hasError: true, streamed: true });
+		await seedLog({ hasError: true, streamed: true });
+		await seedLog({ hasError: true, streamed: false });
+		await seedLog({ hasError: true, statusCode: 502 });
+
+		async function getErrors(extra = "") {
+			const res = await app.request(
+				`/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai${extra}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			return (await res.json()) as {
+				groupByStream: boolean;
+				errors: {
+					statusCode: number | null;
+					streamed: boolean | null;
+					count: number;
+					streamedCount: number;
+				}[];
+			};
+		}
+
+		const merged = await getErrors();
+		expect(merged.groupByStream).toBe(false);
+		expect(merged.errors).toEqual([
+			expect.objectContaining({
+				statusCode: 500,
+				streamed: null,
+				count: 3,
+				streamedCount: 2,
+			}),
+			expect.objectContaining({
+				statusCode: 502,
+				streamed: null,
+				count: 1,
+				streamedCount: 0,
+			}),
+		]);
+
+		const split = await getErrors("&groupByStream=true");
+		expect(split.groupByStream).toBe(true);
+		expect(split.errors).toHaveLength(3);
+		expect(split.errors[0]).toMatchObject({
+			statusCode: 500,
+			streamed: true,
+			count: 2,
+			streamedCount: 2,
+		});
 	});
 
 	test("drilldown buckets each error shape across the window", async () => {

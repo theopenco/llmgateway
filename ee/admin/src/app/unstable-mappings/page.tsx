@@ -11,8 +11,11 @@ import { UnstableScopeFilter } from "@/components/unstable-scope-filter";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import {
+	parseUnstableErrorScope,
 	parseUnstableLogLimit,
 	parseUnstableWindow,
+	UNSTABLE_ERROR_SCOPE_DEFAULT,
+	UNSTABLE_ERROR_SCOPE_OPTIONS,
 	UNSTABLE_LOG_LIMIT_DEFAULT,
 	UNSTABLE_LOG_LIMIT_OPTIONS,
 	UNSTABLE_WINDOW_DEFAULT,
@@ -32,6 +35,7 @@ export default async function UnstableMappingsPage({
 		ignoreExpected?: string;
 		splitByKey?: string;
 		includeByok?: string;
+		errorScope?: string;
 		mapping?: string;
 		modelId?: string;
 		errorMessage?: string;
@@ -44,6 +48,7 @@ export default async function UnstableMappingsPage({
 	const ignoreExpected = params?.ignoreExpected !== "false";
 	const splitByKey = params?.splitByKey === "true";
 	const includeByok = params?.includeByok === "true";
+	const errorScope = parseUnstableErrorScope(params?.errorScope);
 	const window = parseUnstableWindow(params?.window);
 	const logLimit = parseUnstableLogLimit(params?.logLimit);
 	const mapping = params?.mapping?.trim() || undefined;
@@ -66,6 +71,7 @@ export default async function UnstableMappingsPage({
 						ignoreExpected: ignoreExpected ? "true" : "false",
 						splitByKey: splitByKey ? "true" : "false",
 						includeByok: includeByok ? "true" : "false",
+						errorScope,
 						...(mapping && mappingProvider
 							? { model: mapping, provider: mappingProvider }
 							: {}),
@@ -102,6 +108,11 @@ export default async function UnstableMappingsPage({
 							{data.includeRetried
 								? "Retried requests are included."
 								: "Retried requests are excluded."}{" "}
+							{data.errorScope === "all"
+								? "Client errors are included."
+								: data.errorScope === "client"
+									? "Only client errors are counted."
+									: "Client errors are excluded."}{" "}
 							{data.ignoreExpected
 								? `${formatNumber(data.ignoredMatcherCount)} expected-error matcher${data.ignoredMatcherCount === 1 ? "" : "s"} applied.`
 								: "Expected-error matchers are disabled."}{" "}
@@ -134,6 +145,18 @@ export default async function UnstableMappingsPage({
 								]}
 							/>
 							<ByokErrorsToggle includeByok={data.includeByok} />
+						</div>
+						<div className="flex flex-wrap items-center gap-2">
+							<span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+								Errors
+							</span>
+							<SegmentedQueryToggle
+								param="errorScope"
+								label="Error classes"
+								value={errorScope}
+								defaultValue={UNSTABLE_ERROR_SCOPE_DEFAULT}
+								options={UNSTABLE_ERROR_SCOPE_OPTIONS}
+							/>
 						</div>
 						<div className="flex flex-wrap items-center gap-2">
 							<span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -218,6 +241,7 @@ export default async function UnstableMappingsPage({
 							splitByKey={data.splitByKey}
 							includeByok={data.includeByok}
 							errorMessage={data.errorMessage}
+							errorScope={data.errorScope}
 						/>
 					</div>
 				</FilterNavigationResults>
