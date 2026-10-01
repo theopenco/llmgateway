@@ -217,7 +217,7 @@ export function MemberAccessTab({
 												</Badge>
 												{member.roleAssignmentSource === "sso" ? (
 													<p className="text-xs text-muted-foreground">
-														Assigned via sso
+														Assigned via SSO
 													</p>
 												) : null}
 											</div>

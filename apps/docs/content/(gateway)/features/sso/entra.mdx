@@ -370,7 +370,7 @@ If the user appears in LLM Gateway but no group operation appears in Entra's log
 
 ## Group → role mapping (optional)
 
-The same SCIM groups can drive organization roles. On the **SSO** page, add mappings such as `Gateway Admins → admin`. Each member gets the **highest** mapped role among their groups. A role granted by a mapping returns to `developer` when the member leaves the group; a role set by hand on the **Team** page is never lowered by a sync. Owners are never auto-demoted. Because owners and admins cannot belong to teams, a privileged role mapping clears any team assignment.
+The same SCIM groups can drive organization roles. On the **SSO** page, add mappings such as `Gateway Admins → admin`. Each member gets the **highest** mapped role among their groups. A mapping only raises a member above the role set by hand on the **Team** page (`developer` by default), and the member returns to that role when they leave the group. A sync never lowers a manual role. Owners are never auto-demoted. Because owners and admins cannot belong to teams, a privileged role mapping clears any team assignment.
 
 ## Default project access (optional)
 

@@ -400,6 +400,48 @@ describe("project admin access", () => {
 		expect(member?.teamId).toBeNull();
 	});
 
+	test("only a role change makes a mapped role manual", async () => {
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "owner" })
+			.where(eq(tables.userOrganization.id, membershipId));
+		await db.insert(tables.userOrganization).values({
+			id: "peer-membership",
+			organizationId: orgId,
+			userId: "project-peer",
+			role: "project_admin",
+			roleAssignmentSource: "sso",
+		});
+		const getPeer = () =>
+			db.query.userOrganization.findFirst({
+				where: { id: { eq: "peer-membership" } },
+				columns: { role: true, roleAssignmentSource: true },
+			});
+
+		const granted = await request(
+			`/team/${orgId}/members/peer-membership`,
+			"PATCH",
+			{ role: "project_admin", projectIds: [projectId] },
+		);
+		expect(granted.status).toBe(200);
+		expect(await getUserProjectIds("project-peer")).toEqual([projectId]);
+		expect(await getPeer()).toEqual({
+			role: "project_admin",
+			roleAssignmentSource: "sso",
+		});
+
+		const promoted = await request(
+			`/team/${orgId}/members/peer-membership`,
+			"PATCH",
+			{ role: "admin" },
+		);
+		expect(promoted.status).toBe(200);
+		expect(await getPeer()).toEqual({
+			role: "admin",
+			roleAssignmentSource: "manual",
+		});
+	});
+
 	test("accepts invitations with only the invited project grants", async () => {
 		await db
 			.update(tables.userOrganization)

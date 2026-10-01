@@ -1,8 +1,9 @@
 ALTER TABLE "user_organization" ADD COLUMN "role_assignment_source" text DEFAULT 'manual' NOT NULL;--> statement-breakpoint
+ALTER TABLE "user_organization" ADD COLUMN "manual_role" text;--> statement-breakpoint
 -- Roles a group mapping granted stay revocable; every other role is manual.
 UPDATE "user_organization" AS uo
 SET "role_assignment_source" = 'sso'
-WHERE EXISTS (
+WHERE uo."role" <> 'developer' AND EXISTS (
 	SELECT 1
 	FROM "scim_group_member" gm
 	INNER JOIN "scim_group" g ON g."id" = gm."scim_group_id"

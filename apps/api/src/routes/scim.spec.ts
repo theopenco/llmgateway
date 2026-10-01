@@ -620,6 +620,68 @@ describe("scim audit logging", () => {
 		});
 	});
 
+	test("a mapped promotion falls back to the manual role", async () => {
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Admins",
+			role: "admin",
+		});
+		const userId = await provisionUser("manual-project-admin@example.com");
+		const membership = await getMembership(userId);
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "project_admin" })
+			.where(eq(tables.userOrganization.id, membership!.id));
+
+		const created = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Admins",
+				members: [{ value: userId }],
+			}),
+		});
+		expect(created.status).toBe(201);
+		const { id: groupId } = (await created.json()) as { id: string };
+		expect(await getMembership(userId)).toMatchObject({
+			role: "admin",
+			roleAssignmentSource: "sso",
+		});
+
+		const removed = await app.request(`/scim/v2/Groups/${groupId}`, {
+			method: "DELETE",
+			headers: scimHeaders(),
+		});
+		expect(removed.status).toBe(204);
+		expect(await getMembership(userId)).toMatchObject({
+			role: "project_admin",
+			roleAssignmentSource: "manual",
+		});
+	});
+
+	test("a mapping that does not raise the role is not marked sso", async () => {
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Engineers",
+			role: "developer",
+		});
+		const userId = await provisionUser("mapped-developer@example.com");
+
+		const created = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Engineers",
+				members: [{ value: userId }],
+			}),
+		});
+		expect(created.status).toBe(201);
+		expect(await getMembership(userId)).toMatchObject({
+			role: "developer",
+			roleAssignmentSource: "manual",
+		});
+	});
+
 	test("group team mapping follows membership and logs changes", async () => {
 		await createTeamMapping("Engineering", "engineering-team");
 		const userId = await provisionUser("engineer@example.com");

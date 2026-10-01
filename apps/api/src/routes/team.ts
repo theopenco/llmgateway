@@ -1210,7 +1210,11 @@ team.openapi(updateMember, async (c) => {
 			.update(tables.userOrganization)
 			.set({
 				role,
-				roleAssignmentSource: "manual",
+				// Saving other access for an unchanged role keeps a mapped role
+				// revocable.
+				...(role === targetMember.role
+					? {}
+					: { roleAssignmentSource: "manual" as const, manualRole: null }),
 				...(role === "developer"
 					? {}
 					: { teamId: null, teamAssignmentSource: "manual" as const }),
