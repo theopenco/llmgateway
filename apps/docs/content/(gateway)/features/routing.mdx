@@ -188,7 +188,7 @@ This transparency allows you to understand and debug routing decisions.
 
 ### Routing Strategy
 
-By default, model-ID routing uses the full weighted score described above (`routing: "auto"`). When you care about a single dimension, set the `routing` field — named after the factor it optimizes — to bias provider selection toward it. Each project can also set a default strategy under **Settings → Routing** (available on all plans); a per-request `routing` value overrides the project default:
+By default, model-ID routing uses the full weighted score described above (`routing: "auto"`). When you care about a single dimension, set the `routing` field — named after the factor it optimizes — to bias provider selection toward it. Each project can also set a default strategy under **Settings → Routing** (on coding/dev plans, only `auto` and `price` can be set); a per-request `routing` value overrides the project default:
 
 | Strategy           | Behavior                                                                                   |
 | ------------------ | ------------------------------------------------------------------------------------------ |

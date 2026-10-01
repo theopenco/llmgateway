@@ -1,15 +1,16 @@
 ---
 title: Request Timeouts
-description: Per-request time limits on the gateway, how they interact with streaming and agentic workloads, and how to change them.
+description: Per-attempt time limits on the gateway, how they interact with streaming and agentic workloads, and how to change them.
 icon: Timer
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-The gateway enforces hard time limits on every request. These protect the
-platform from stuck upstream connections, but they matter to you directly if
-you run long generations or agentic pipelines: a single completion that runs
-longer than the limit is terminated.
+The gateway enforces hard time limits on every upstream attempt. These
+protect the platform from stuck upstream connections, but they matter to you
+directly if you run long generations or agentic pipelines: a single generation
+that runs longer than the limit is terminated. A client request can only run
+longer in total when a retry or provider fallback starts a fresh attempt.
 
 | Limit             | Default    | Applies to                             |
 | ----------------- | ---------- | -------------------------------------- |
@@ -49,7 +50,7 @@ work happens elsewhere. To stay within the limits:
   as a loop of discrete completions (the standard tool-calling pattern) rather
   than one long-lived request that spans the whole investigation.
 - **Stream long generations.** Non-streaming requests are capped at 10
-  minutes; streaming raises the per-request budget to 20 minutes and delivers
+  minutes; streaming raises the per-attempt budget to 20 minutes and delivers
   partial output as it is produced.
 - **Split very long outputs.** If a single generation legitimately needs more
   than 20 minutes (very large outputs on slow models, extensive reasoning),
