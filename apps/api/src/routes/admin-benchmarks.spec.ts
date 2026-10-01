@@ -5,7 +5,7 @@ import { createTestUser } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 const originalGatewayKey = process.env.BENCHMARK_GATEWAY_API_KEY;
 
 const CARRIER_ID = "airside-benchmark-carrier";
@@ -55,7 +55,7 @@ describe("admin benchmarks", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		process.env.BENCHMARK_GATEWAY_API_KEY = "test-token";
 		cookie = await createTestUser();
 		await clearFixtures();
@@ -97,7 +97,7 @@ describe("admin benchmarks", () => {
 
 	afterEach(async () => {
 		await clearFixtures();
-		process.env.ADMIN_EMAILS = originalAdminEmails;
+		process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		if (originalGatewayKey === undefined) {
 			delete process.env.BENCHMARK_GATEWAY_API_KEY;
 		} else {

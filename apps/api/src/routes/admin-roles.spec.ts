@@ -8,7 +8,7 @@ describe("admin panel staff roles", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		vi.stubEnv("ADMIN_EMAILS", "");
+		vi.stubEnv("ADMIN_FULL_ACCESS_EMAILS", "");
 		cookie = await createTestUser();
 	});
 
@@ -93,7 +93,7 @@ describe("admin panel staff roles", () => {
 	});
 
 	it("keeps full access for admins", async () => {
-		vi.stubEnv("ADMIN_EMAILS", "admin@example.com");
+		vi.stubEnv("ADMIN_FULL_ACCESS_EMAILS", "admin@example.com");
 
 		const me = await request("/user/me");
 		expect((await me.json()).user).toMatchObject({

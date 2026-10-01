@@ -130,7 +130,7 @@ describe("admin — gateway load", () => {
 			new Date(floorTo(new Date(), MINUTE_MS).getTime() + 30_000),
 		);
 
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await clearCatalogFixtures();
 
@@ -338,7 +338,7 @@ describe("admin — gateway load", () => {
 	});
 
 	test("rejects a non-admin session", async () => {
-		process.env.ADMIN_EMAILS = "someone-else@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "someone-else@example.com";
 		const res = await app.request("/admin/load/overview", {
 			headers: { Cookie: cookie },
 		});

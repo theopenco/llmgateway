@@ -39,11 +39,11 @@ For self-hosted DevPass and Airside, set `UI_URL` and `PLAYGROUND_URL` to your G
 Grant admin dashboard access with comma-separated email lists on the API service.
 Only verified email addresses count.
 
-| Variable               | Role    | Access                                  |
-| ---------------------- | ------- | --------------------------------------- |
-| `ADMIN_EMAILS`         | Admin   | Full access                             |
-| `ADMIN_SUPPORT_EMAILS` | Support | Read-only, plus issuing DevPass refunds |
-| `ADMIN_VIEWER_EMAILS`  | Viewer  | Read-only                               |
+| Variable                   | Role    | Access                                  |
+| -------------------------- | ------- | --------------------------------------- |
+| `ADMIN_FULL_ACCESS_EMAILS` | Admin   | Full access                             |
+| `ADMIN_SUPPORT_EMAILS`     | Support | Read-only, plus issuing DevPass refunds |
+| `ADMIN_VIEWER_EMAILS`      | Viewer  | Read-only                               |
 
 Support and viewer accounts do not see platform-wide revenue or profit: the
 dashboard home, Global Stats, LLM SDK, DevPass and Lounge plan KPIs, and provider

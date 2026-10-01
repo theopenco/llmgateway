@@ -8,7 +8,7 @@ import type { Context } from "hono";
 
 /**
  * Admin panel roles, each keyed on an email allowlist:
- * - `admin` (`ADMIN_EMAILS`): full access.
+ * - `admin` (`ADMIN_FULL_ACCESS_EMAILS`): full access.
  * - `support` (`ADMIN_SUPPORT_EMAILS`): `viewer` plus {@link SUPPORT_WRITE_ROUTES}.
  * - `viewer` (`ADMIN_VIEWER_EMAILS`): read-only, without platform-wide
  *   financials ({@link STAFF_HIDDEN_ROUTES}) or the gateway's own margin and
@@ -25,7 +25,10 @@ function emailList(value: string | undefined): string[] {
 
 export function isAdminEmail(email: string | null | undefined): boolean {
 	return (
-		!!email && emailList(process.env.ADMIN_EMAILS).includes(email.toLowerCase())
+		!!email &&
+		emailList(process.env.ADMIN_FULL_ACCESS_EMAILS).includes(
+			email.toLowerCase(),
+		)
 	);
 }
 
@@ -42,7 +45,7 @@ export function getAdminRole(user: {
 		return null;
 	}
 	const email = user.email.toLowerCase();
-	if (emailList(process.env.ADMIN_EMAILS).includes(email)) {
+	if (emailList(process.env.ADMIN_FULL_ACCESS_EMAILS).includes(email)) {
 		return "admin";
 	}
 	if (emailList(process.env.ADMIN_SUPPORT_EMAILS).includes(email)) {

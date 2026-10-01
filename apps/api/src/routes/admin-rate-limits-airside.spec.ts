@@ -5,7 +5,7 @@ import { createTestUser } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 const CARRIER_ID = "airside-rate-limit-carrier";
 const COMPANY_ID = "airside-rate-limit-company";
 const CLAIM_ID = "airside-rate-limit-claim";
@@ -52,7 +52,7 @@ describe("admin rate limits for airside listings", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await clearFixtures();
 
@@ -91,7 +91,7 @@ describe("admin rate limits for airside listings", () => {
 
 	afterEach(async () => {
 		await clearFixtures();
-		process.env.ADMIN_EMAILS = originalAdminEmails;
+		process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 	});
 
 	test("options list airside carriers and their models", async () => {

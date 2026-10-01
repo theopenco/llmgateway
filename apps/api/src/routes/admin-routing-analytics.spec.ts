@@ -6,7 +6,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { cdb, db, tables } from "@llmgateway/db";
 import { models, type ProviderModelMapping } from "@llmgateway/models";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 // Routable *and* paid, so the price factor and the discount assertions below
 // operate on a non-zero selection price.
@@ -90,15 +90,15 @@ describe("admin routing analytics endpoint", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 	});
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		// None of these tables hang off a cascade root that deleteAll() clears, so
 		// the fixtures inserted here have to be removed explicitly or the next run
@@ -116,7 +116,7 @@ describe("admin routing analytics endpoint", () => {
 	it("rejects unauthenticated and non-admin requests", async () => {
 		expect((await get(`?modelId=${testModel.id}`)).status).toBe(401);
 
-		process.env.ADMIN_EMAILS = "someone-else@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "someone-else@example.com";
 		expect((await get(`?modelId=${testModel.id}`, cookie)).status).toBe(403);
 	});
 
