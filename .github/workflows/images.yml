@@ -70,6 +70,9 @@ jobs:
         run: |
           platform=${{ matrix.platform }}
           echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+          # Layer cache lives in GHCR: the Actions cache evicts blobs at its
+          # 10 GB cap while the index still references them (BlobNotFound).
+          echo "CACHE_REF=ghcr.io/${{ github.repository }}-${{ matrix.app }}:buildcache-${platform//\//-}" >> $GITHUB_ENV
 
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -101,6 +104,7 @@ jobs:
 
       - name: Build and conditionally push by digest
         id: build
+        continue-on-error: true
         uses: docker/build-push-action@v7.4.0
         with:
           context: .
@@ -110,8 +114,27 @@ jobs:
           tags: ghcr.io/${{ github.repository }}-${{ matrix.app }}
           target: ${{ matrix.app }}
           outputs: ${{ github.event_name == 'pull_request' && 'type=image,push=false,load=true' || 'type=image,push-by-digest=true,name-canonical=true,push=true' }}
-          cache-from: type=gha,scope=${{ matrix.app }}-${{ env.PLATFORM_PAIR }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.app }}-${{ env.PLATFORM_PAIR }}
+          cache-from: type=registry,ref=${{ env.CACHE_REF }}
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0},mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true', env.CACHE_REF) || '' }}
+          secret-envs: |
+            TURBO_TOKEN=TURBO_TOKEN
+            TURBO_TEAM=TURBO_TEAM
+          build-args: |
+            APP_VERSION=${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }}
+
+      - name: Retry build without layer cache
+        id: retry
+        if: steps.build.outcome == 'failure'
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: infra/split.dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ghcr.io/${{ github.repository }}-${{ matrix.app }}
+          target: ${{ matrix.app }}
+          outputs: ${{ github.event_name == 'pull_request' && 'type=image,push=false,load=true' || 'type=image,push-by-digest=true,name-canonical=true,push=true' }}
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0},mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true', env.CACHE_REF) || '' }}
           secret-envs: |
             TURBO_TOKEN=TURBO_TOKEN
             TURBO_TEAM=TURBO_TEAM
@@ -122,7 +145,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           mkdir -p ${{ runner.temp }}/digests
-          digest="${{ steps.build.outputs.digest }}"
+          digest="${{ steps.retry.outputs.digest || steps.build.outputs.digest }}"
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
       - name: Upload digest (main branch only)
@@ -202,6 +225,9 @@ jobs:
         run: |
           platform=${{ matrix.platform }}
           echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+          # Layer cache lives in GHCR: the Actions cache evicts blobs at its
+          # 10 GB cap while the index still references them (BlobNotFound).
+          echo "CACHE_REF=ghcr.io/${{ github.repository }}-unified:buildcache-${platform//\//-}" >> $GITHUB_ENV
 
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -233,6 +259,7 @@ jobs:
 
       - name: Build and conditionally push by digest
         id: build
+        continue-on-error: true
         uses: docker/build-push-action@v7.4.0
         with:
           context: .
@@ -241,8 +268,26 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tags: ghcr.io/${{ github.repository }}-unified
           outputs: ${{ github.event_name == 'pull_request' && 'type=image,push=false,load=true' || 'type=image,push-by-digest=true,name-canonical=true,push=true' }}
-          cache-from: type=gha,scope=unified-${{ env.PLATFORM_PAIR }}
-          cache-to: type=gha,mode=max,scope=unified-${{ env.PLATFORM_PAIR }}
+          cache-from: type=registry,ref=${{ env.CACHE_REF }}
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0},mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true', env.CACHE_REF) || '' }}
+          secret-envs: |
+            TURBO_TOKEN=TURBO_TOKEN
+            TURBO_TEAM=TURBO_TEAM
+          build-args: |
+            APP_VERSION=${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }}
+
+      - name: Retry build without layer cache
+        id: retry
+        if: steps.build.outcome == 'failure'
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: infra/unified.dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ghcr.io/${{ github.repository }}-unified
+          outputs: ${{ github.event_name == 'pull_request' && 'type=image,push=false,load=true' || 'type=image,push-by-digest=true,name-canonical=true,push=true' }}
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0},mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true', env.CACHE_REF) || '' }}
           secret-envs: |
             TURBO_TOKEN=TURBO_TOKEN
             TURBO_TEAM=TURBO_TEAM
@@ -253,7 +298,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           mkdir -p ${{ runner.temp }}/digests
-          digest="${{ steps.build.outputs.digest }}"
+          digest="${{ steps.retry.outputs.digest || steps.build.outputs.digest }}"
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
       - name: Upload digest (main branch only)
