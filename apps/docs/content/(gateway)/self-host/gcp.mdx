@@ -44,8 +44,6 @@ Create a GKE cluster (Autopilot or Standard) sized for your traffic. GKE provisi
 
 Use a private VPC and connect Cloud SQL via Private Service Access and Memorystore via its private endpoint. Restrict access so only the GKE workloads can reach the database and cache, and expose only the gateway to the internet.
 
-Configure the platform API's [trusted proxy CIDRs and header hop count](/self-host#client-ips-behind-a-proxy) for the actual ingress path. For a Cloud Application Load Balancer directly in front of the API, set `TRUSTED_PROXY_HOPS=2`; derive `TRUSTED_PROXY_CIDRS` from the proxy addresses that connect to your workload.
-
 ### 5. Secrets — Secret Manager
 
 Store `AUTH_SECRET`, `GATEWAY_API_KEY_HASH_SECRET`, and your provider API keys in Secret Manager. Sync them into the cluster with the [External Secrets Operator](https://external-secrets.io/) or the Secret Manager CSI driver.

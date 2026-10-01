@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiAuth, redisClient } from "@/auth/config.js";
 import { app } from "@/index.js";
-import { runWithClientIp } from "@/lib/client-ip.js";
 import {
 	getEmailChangeRateLimitKeys,
 	getEmailChangeProofRateLimitKeys,
@@ -37,37 +36,33 @@ function patch(
 	userId = "test-user-id",
 	headers: Record<string, string> = {},
 ) {
-	return runWithClientIp(new Headers(headers), "10.0.0.2", () => {
-		if (typeof body.email === "string") {
-			for (const key of [
-				...getEmailChangeRateLimitKeys(userId, body.email),
-				...getEmailChangeProofRateLimitKeys(userId, new Headers(headers)),
-			]) {
-				rateLimitKeys.add(key);
-			}
+	if (typeof body.email === "string") {
+		for (const key of [
+			...getEmailChangeRateLimitKeys(userId, body.email),
+			...getEmailChangeProofRateLimitKeys(userId, new Headers(headers)),
+		]) {
+			rateLimitKeys.add(key);
 		}
-		return app.request("/user/me", {
-			method: "PATCH",
-			headers: {
-				Cookie: session,
-				"Content-Type": "application/json",
-				...headers,
-			},
-			body: JSON.stringify(body),
-		});
+	}
+	return app.request("/user/me", {
+		method: "PATCH",
+		headers: {
+			Cookie: session,
+			"Content-Type": "application/json",
+			...headers,
+		},
+		body: JSON.stringify(body),
 	});
 }
 
 function confirm(token: string, headers: Record<string, string> = {}) {
-	return runWithClientIp(new Headers(headers), "10.0.0.2", () => {
-		rateLimitKeys.add(
-			getEmailChangeConfirmationRateLimitKey(new Headers(headers)),
-		);
-		return app.request("/user/email/confirm", {
-			method: "POST",
-			headers: { "Content-Type": "application/json", ...headers },
-			body: JSON.stringify({ token }),
-		});
+	rateLimitKeys.add(
+		getEmailChangeConfirmationRateLimitKey(new Headers(headers)),
+	);
+	return app.request("/user/email/confirm", {
+		method: "POST",
+		headers: { "Content-Type": "application/json", ...headers },
+		body: JSON.stringify({ token }),
 	});
 }
 
@@ -141,9 +136,6 @@ function resetPassword(token: string, newPassword = "new-test-password1A") {
 
 describe("email change confirmation", () => {
 	beforeEach(async () => {
-		vi.stubEnv("TRUSTED_PROXY_CIDRS", "10.0.0.0/8");
-		vi.stubEnv("TRUSTED_PROXY_HOPS", "1");
-		vi.stubEnv("CLIENT_IP_HEADER", "x-forwarded-for");
 		sendEmail.mockReset().mockResolvedValue();
 		checkIp.mockReset().mockResolvedValue(null);
 		cookie = await createTestUser();
@@ -170,9 +162,7 @@ describe("email change confirmation", () => {
 
 	it("limits confirmation requests before opening database transactions", async () => {
 		const headers = { "x-forwarded-for": "198.51.100.42" };
-		const key = runWithClientIp(new Headers(headers), "10.0.0.2", () =>
-			getEmailChangeConfirmationRateLimitKey(new Headers(headers)),
-		);
+		const key = getEmailChangeConfirmationRateLimitKey(new Headers(headers));
 		rateLimitKeys.add(key);
 		await redisClient.set(key, "59", "EX", 60);
 		expect((await confirm("0".repeat(64), headers)).status).toBe(400);
@@ -831,11 +821,9 @@ describe("email change confirmation", () => {
 
 	it("limits password proofs by client IP as well as user", async () => {
 		const headers = { "x-forwarded-for": "198.51.100.11" };
-		const [actorKey, ipKey] = runWithClientIp(
+		const [actorKey, ipKey] = getEmailChangeProofRateLimitKeys(
+			"test-user-id",
 			new Headers(headers),
-			"10.0.0.2",
-			() =>
-				getEmailChangeProofRateLimitKeys("test-user-id", new Headers(headers)),
 		);
 		for (let attempt = 0; attempt < 10; attempt++) {
 			await redisClient.del(actorKey);
