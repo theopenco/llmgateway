@@ -1652,20 +1652,24 @@ describe("managed credential reorder cache invalidation", () => {
 			await aggregateLogsForTesting();
 		}
 
-		async function listCredential() {
-			const res = await app.request("/admin/provider-credentials", {
+		interface ErrorCounts {
+			requestCount: number;
+			errorCount: number;
+			clientErrorCount: number;
+			gatewayErrorCount: number;
+			upstreamErrorCount: number;
+		}
+
+		async function listCredential(errorWindow?: string) {
+			const query = errorWindow ? `?errorWindow=${errorWindow}` : "";
+			const res = await app.request(`/admin/provider-credentials${query}`, {
 				headers: { Cookie: cookie },
 			});
 			const body = (await res.json()) as {
 				credentials: {
 					id: string;
-					last24h: {
-						requestCount: number;
-						errorCount: number;
-						clientErrorCount: number;
-						gatewayErrorCount: number;
-						upstreamErrorCount: number;
-					};
+					last24h: ErrorCounts;
+					errorSeries: (ErrorCounts & { date: string })[];
 				}[];
 			};
 			return body.credentials.find(
@@ -1701,6 +1705,80 @@ describe("managed credential reorder cache invalidation", () => {
 				gatewayErrorCount: 0,
 				upstreamErrorCount: 0,
 			});
+		});
+
+		test.each([
+			["4h", 4, 60 * 60 * 1000],
+			["1d", 24, 60 * 60 * 1000],
+			["7d", 7, 24 * 60 * 60 * 1000],
+		])(
+			"returns a zero-filled %s error series ending in the current bucket",
+			async (errorWindow, length, stepMs) => {
+				const before = Date.now();
+				await seedTraffic([
+					{ hasError: false, finishReason: "completed" },
+					{ hasError: true, finishReason: "upstream_error" },
+					{ hasError: true, finishReason: "client_error" },
+				]);
+
+				const series = (await listCredential(errorWindow))?.errorSeries;
+				expect(series).toHaveLength(length);
+				const starts = series!.map((point) => Date.parse(point.date));
+				expect(starts.every((start) => start % stepMs === 0)).toBe(true);
+				expect(
+					starts
+						.slice(1)
+						.every((start, index) => start - starts[index] === stepMs),
+				).toBe(true);
+				expect(starts.at(-1)).toBeLessThanOrEqual(Date.now());
+
+				// A bucket boundary can pass between seeding and listing, so the
+				// traffic sits in whichever bucket was open when it was written.
+				const total = series!.reduce(
+					(sum, point) => ({
+						requestCount: sum.requestCount + point.requestCount,
+						errorCount: sum.errorCount + point.errorCount,
+						clientErrorCount: sum.clientErrorCount + point.clientErrorCount,
+						gatewayErrorCount: sum.gatewayErrorCount + point.gatewayErrorCount,
+						upstreamErrorCount:
+							sum.upstreamErrorCount + point.upstreamErrorCount,
+					}),
+					{
+						requestCount: 0,
+						errorCount: 0,
+						clientErrorCount: 0,
+						gatewayErrorCount: 0,
+						upstreamErrorCount: 0,
+					},
+				);
+				expect(total).toEqual({
+					requestCount: 3,
+					errorCount: 2,
+					clientErrorCount: 1,
+					gatewayErrorCount: 0,
+					upstreamErrorCount: 1,
+				});
+				const busy = series!.filter((point) => point.requestCount > 0);
+				expect(
+					busy.every(
+						(point) => Date.parse(point.date) >= before - (before % stepMs),
+					),
+				).toBe(true);
+			},
+		);
+
+		test("defaults the error series to 24 hourly buckets", async () => {
+			await seedTraffic([]);
+
+			expect((await listCredential())?.errorSeries).toHaveLength(24);
+		});
+
+		test("rejects an unknown error window", async () => {
+			const res = await app.request(
+				"/admin/provider-credentials?errorWindow=2h",
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(400);
 		});
 	});
 

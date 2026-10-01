@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ExternalLink, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getMappingDetail, getMappingHistory } from "@/lib/admin-history";
 import { useApi } from "@/lib/fetch-client";
+import { publicModelUrl } from "@/lib/public-urls";
 
 import { getProviderIcon } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -145,6 +146,16 @@ export function MappingDetailClient({
 						<VerificationStatusBadge verification={latestVerification} />
 					</div>
 				</div>
+				<Button asChild variant="outline" size="sm">
+					<a
+						href={publicModelUrl(mapping.modelId, mapping.providerId)}
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						<ExternalLink className="mr-1 h-4 w-4" />
+						Model card
+					</a>
+				</Button>
 				<Button asChild variant="outline" size="sm">
 					<Link
 						href={`/unstable-mappings?mapping=${encodeURIComponent(`${mapping.providerId}/${mapping.modelId}${mapping.region ? `:${mapping.region}` : ""}`)}`}

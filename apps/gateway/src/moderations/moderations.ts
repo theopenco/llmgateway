@@ -689,19 +689,23 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 			try {
 				const fetchSignal = createCombinedSignal(controller);
-				upstreamResponse = await fetchProvider(resolveUpstreamUrl(), {
-					method: "POST",
-					// SSRF: never follow redirects on an authenticated provider request. A
-					// tenant-supplied baseUrl could 3xx to an internal host at request time,
-					// and a redirect would also leak the upstream token.
-					redirect: "error",
-					headers: {
-						"Content-Type": "application/json",
-						...getProviderHeaders("openai", usedToken, { requestId }),
+				upstreamResponse = await fetchProvider(
+					resolveUpstreamUrl(),
+					{
+						method: "POST",
+						// SSRF: never follow redirects on an authenticated provider request. A
+						// tenant-supplied baseUrl could 3xx to an internal host at request time,
+						// and a redirect would also leak the upstream token.
+						redirect: "error",
+						headers: {
+							"Content-Type": "application/json",
+							...getProviderHeaders("openai", usedToken, { requestId }),
+						},
+						body: JSON.stringify(requestBody),
+						signal: fetchSignal,
 					},
-					body: JSON.stringify(requestBody),
-					signal: fetchSignal,
-				});
+					providerKey?.baseUrl,
+				);
 
 				upstreamText = await upstreamResponse.text();
 				duration = Date.now() - startedAt;

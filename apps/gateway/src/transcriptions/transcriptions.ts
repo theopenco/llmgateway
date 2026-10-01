@@ -592,6 +592,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 		configIndex: number;
 		envVarName: string | undefined;
 		upstreamUrl: string;
+		tenantBaseUrl: string | null;
 	}
 
 	async function resolveAttempt(): Promise<TranscriptionAttempt> {
@@ -721,6 +722,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			configIndex,
 			envVarName,
 			upstreamUrl: `${resolvedBaseUrl}/v1/stt`,
+			tenantBaseUrl: providerKey?.baseUrl ?? null,
 		};
 	}
 
@@ -800,18 +802,22 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				const fetchSignal = createCombinedSignal(controller);
 				// No explicit Content-Type: fetch derives the multipart boundary
 				// from the FormData body.
-				upstreamResponse = await fetchProvider(attempt.upstreamUrl, {
-					method: "POST",
-					// SSRF: never follow redirects on an authenticated provider request. A
-					// tenant-supplied baseUrl could 3xx to an internal host at request
-					// time, and a redirect would also leak the upstream token.
-					redirect: "error",
-					headers: getProviderHeaders(providerId, attempt.usedToken, {
-						requestId,
-					}),
-					body: buildUpstreamForm(),
-					signal: fetchSignal,
-				});
+				upstreamResponse = await fetchProvider(
+					attempt.upstreamUrl,
+					{
+						method: "POST",
+						// SSRF: never follow redirects on an authenticated provider request. A
+						// tenant-supplied baseUrl could 3xx to an internal host at request
+						// time, and a redirect would also leak the upstream token.
+						redirect: "error",
+						headers: getProviderHeaders(providerId, attempt.usedToken, {
+							requestId,
+						}),
+						body: buildUpstreamForm(),
+						signal: fetchSignal,
+					},
+					attempt.tenantBaseUrl,
+				);
 			} catch (error) {
 				const isCanceled =
 					error instanceof Error && error.name === "AbortError";

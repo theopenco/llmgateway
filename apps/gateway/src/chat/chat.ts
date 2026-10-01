@@ -8834,18 +8834,22 @@ chat.openapi(completions, async (c) => {
 							routingCfg,
 						);
 
-						res = await fetchProvider(url, {
-							method: "POST",
-							// SSRF: never follow redirects on an authenticated provider
-							// request. A tenant-supplied baseUrl (validated at registration)
-							// could still 3xx to an internal host at request time, and a
-							// redirect would also leak the upstream token. Provider endpoints
-							// never legitimately redirect.
-							redirect: "error",
-							headers,
-							body: JSON.stringify(requestBody),
-							signal: fetchSignal,
-						});
+						res = await fetchProvider(
+							url,
+							{
+								method: "POST",
+								// SSRF: never follow redirects on an authenticated provider
+								// request. A tenant-supplied baseUrl (validated at registration)
+								// could still 3xx to an internal host at request time, and a
+								// redirect would also leak the upstream token. Provider endpoints
+								// never legitimately redirect.
+								redirect: "error",
+								headers,
+								body: JSON.stringify(requestBody),
+								signal: fetchSignal,
+							},
+							airsideResolution?.customBaseUrl ?? providerKey?.baseUrl,
+						);
 
 						logServiceTierRequest(usedProvider, forwardedServiceTier, res);
 						// AI Studio reports the served tier in a response header; Vertex
@@ -13317,18 +13321,22 @@ chat.openapi(completions, async (c) => {
 				forwardedServiceTier,
 			);
 
-			res = await fetchProvider(url, {
-				method: "POST",
-				// SSRF: never follow redirects on an authenticated provider request
-				// (see streaming path above).
-				redirect: "error",
-				headers,
-				body:
-					requestBody instanceof FormData
-						? requestBody
-						: JSON.stringify(requestBody),
-				signal: fetchSignal,
-			});
+			res = await fetchProvider(
+				url,
+				{
+					method: "POST",
+					// SSRF: never follow redirects on an authenticated provider request
+					// (see streaming path above).
+					redirect: "error",
+					headers,
+					body:
+						requestBody instanceof FormData
+							? requestBody
+							: JSON.stringify(requestBody),
+					signal: fetchSignal,
+				},
+				airsideResolution?.customBaseUrl ?? providerKey?.baseUrl,
+			);
 
 			logServiceTierRequest(usedProvider, forwardedServiceTier, res);
 			// AI Studio reports the served tier in a response header; Vertex reports

@@ -58,3 +58,6 @@ scripts/*.png
 .webreel/
 /pr-shots/
 /pg-*.png
+
+# Agent scratch space (PR bodies, logs, audit runs)
+/.context/

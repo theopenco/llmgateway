@@ -748,6 +748,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		configIndex: number;
 		envVarName: string | undefined;
 		upstreamUrl: string;
+		tenantBaseUrl: string | null;
 		vertexTokenType?: VertexTokenType;
 	}
 
@@ -927,6 +928,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			configIndex,
 			envVarName,
 			upstreamUrl,
+			tenantBaseUrl: providerKey?.baseUrl ?? null,
 			vertexTokenType,
 		};
 	}
@@ -1005,22 +1007,26 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			let fetchError: Error | null = null;
 			try {
 				const fetchSignal = createCombinedSignal(controller);
-				upstreamResponse = await fetchProvider(attempt.upstreamUrl, {
-					method: "POST",
-					// SSRF: never follow redirects on an authenticated provider request. A
-					// tenant-supplied baseUrl could 3xx to an internal host at request
-					// time, and a redirect would also leak the upstream token.
-					redirect: "error",
-					headers: {
-						"Content-Type": "application/json",
-						...getProviderHeaders(providerId, attempt.usedToken, {
-							requestId,
-							tokenType: attempt.vertexTokenType,
-						}),
+				upstreamResponse = await fetchProvider(
+					attempt.upstreamUrl,
+					{
+						method: "POST",
+						// SSRF: never follow redirects on an authenticated provider request. A
+						// tenant-supplied baseUrl could 3xx to an internal host at request
+						// time, and a redirect would also leak the upstream token.
+						redirect: "error",
+						headers: {
+							"Content-Type": "application/json",
+							...getProviderHeaders(providerId, attempt.usedToken, {
+								requestId,
+								tokenType: attempt.vertexTokenType,
+							}),
+						},
+						body: JSON.stringify(upstreamRequestBody),
+						signal: fetchSignal,
 					},
-					body: JSON.stringify(upstreamRequestBody),
-					signal: fetchSignal,
-				});
+					attempt.tenantBaseUrl,
+				);
 			} catch (error) {
 				const isCanceled =
 					error instanceof Error && error.name === "AbortError";
