@@ -20,8 +20,6 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { canWrite } from "@/lib/admin-role";
-import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { formatRenewalSummary } from "@/lib/renewal-state";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
@@ -148,7 +146,6 @@ export default async function ChatPlansDetailPage({
 	params: Promise<{ orgId: string }>;
 }) {
 	await requireSession();
-	const isAdmin = canWrite(await getSessionAdminRole());
 
 	const { orgId } = await params;
 
@@ -230,12 +227,7 @@ export default async function ChatPlansDetailPage({
 				</Button>
 			</header>
 
-			<section
-				className={cn(
-					"grid grid-cols-1 gap-3 sm:grid-cols-2",
-					isAdmin ? "lg:grid-cols-4" : "lg:grid-cols-3",
-				)}
-			>
+			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
 				<div className="rounded-lg border border-border/60 bg-card p-4">
 					<div className="text-xs uppercase tracking-wide text-muted-foreground">
 						Cycle utilization
@@ -283,27 +275,25 @@ export default async function ChatPlansDetailPage({
 						From hourly project stats
 					</div>
 				</div>
-				{isAdmin && (
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="text-xs uppercase tracking-wide text-muted-foreground">
-							Margin
-						</div>
-						<div
-							className={cn(
-								"mt-2 text-2xl font-semibold tabular-nums",
-								sub.margin < 0
-									? "text-rose-600 dark:text-rose-400"
-									: "text-emerald-600 dark:text-emerald-400",
-							)}
-						>
-							{currencyFormatter.format(sub.margin)}
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							{sub.tierChanges} tier change
-							{sub.tierChanges === 1 ? "" : "s"} all time
-						</div>
+				<div className="rounded-lg border border-border/60 bg-card p-4">
+					<div className="text-xs uppercase tracking-wide text-muted-foreground">
+						Margin
 					</div>
-				)}
+					<div
+						className={cn(
+							"mt-2 text-2xl font-semibold tabular-nums",
+							sub.margin < 0
+								? "text-rose-600 dark:text-rose-400"
+								: "text-emerald-600 dark:text-emerald-400",
+						)}
+					>
+						{currencyFormatter.format(sub.margin)}
+					</div>
+					<div className="mt-1 text-xs text-muted-foreground">
+						{sub.tierChanges} tier change
+						{sub.tierChanges === 1 ? "" : "s"} all time
+					</div>
+				</div>
 			</section>
 
 			<section className="space-y-3">
@@ -313,12 +303,7 @@ export default async function ChatPlansDetailPage({
 						Lifetime totals — unaffected by cycle resets or block/disable
 					</span>
 				</div>
-				<div
-					className={cn(
-						"grid grid-cols-1 gap-3 sm:grid-cols-2",
-						isAdmin && "lg:grid-cols-3",
-					)}
-				>
+				<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
 					<div className="rounded-lg border border-border/60 bg-card p-4">
 						<div className="text-xs uppercase tracking-wide text-muted-foreground">
 							Revenue (all-time)
@@ -341,26 +326,24 @@ export default async function ChatPlansDetailPage({
 							From hourly project stats
 						</div>
 					</div>
-					{isAdmin && (
-						<div className="rounded-lg border border-border/60 bg-card p-4">
-							<div className="text-xs uppercase tracking-wide text-muted-foreground">
-								Margin (all-time)
-							</div>
-							<div
-								className={cn(
-									"mt-2 text-2xl font-semibold tabular-nums",
-									sub.allTimeMargin < 0
-										? "text-rose-600 dark:text-rose-400"
-										: "text-emerald-600 dark:text-emerald-400",
-								)}
-							>
-								{currencyFormatter.format(sub.allTimeMargin)}
-							</div>
-							<div className="mt-1 text-xs text-muted-foreground">
-								Revenue − provider cost
-							</div>
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="text-xs uppercase tracking-wide text-muted-foreground">
+							Margin (all-time)
 						</div>
-					)}
+						<div
+							className={cn(
+								"mt-2 text-2xl font-semibold tabular-nums",
+								sub.allTimeMargin < 0
+									? "text-rose-600 dark:text-rose-400"
+									: "text-emerald-600 dark:text-emerald-400",
+							)}
+						>
+							{currencyFormatter.format(sub.allTimeMargin)}
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							Revenue − provider cost
+						</div>
+					</div>
 				</div>
 			</section>
 

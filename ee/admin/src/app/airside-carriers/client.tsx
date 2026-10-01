@@ -56,7 +56,7 @@ export function AirsideCarriersClient() {
 					<CardDescription>
 						{showMargin
 							? "Discount and margin are the carrier's own console settings; a negative adjustment means their traffic is boosted in routing. Margin figures come from the daily global rollups."
-							: "Discount is the carrier's own console setting; a negative adjustment means their traffic is boosted in routing."}
+							: "Discount is the carrier's own console setting."}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -78,11 +78,11 @@ export function AirsideCarriersClient() {
 									{showMargin && (
 										<TableHead className="text-right">Margin</TableHead>
 									)}
-									<TableHead className="text-right">
-										Routing adjustment
-									</TableHead>
 									{showMargin && (
 										<>
+											<TableHead className="text-right">
+												Routing adjustment
+											</TableHead>
 											<TableHead className="text-right">Margin (30d)</TableHead>
 											<TableHead className="text-right">
 												Margin (total)
@@ -122,20 +122,22 @@ export function AirsideCarriersClient() {
 												{formatPercent(provider.marginPercent)}
 											</TableCell>
 										)}
-										<TableCell className="text-right">
-											<Badge
-												variant={
-													provider.routingAdjustment < 0
-														? "secondary"
-														: provider.routingAdjustment > 0
-															? "destructive"
-															: "outline"
-												}
-											>
-												{provider.routingAdjustment > 0 ? "+" : ""}
-												{formatPercent(provider.routingAdjustment)}
-											</Badge>
-										</TableCell>
+										{showMargin && (
+											<TableCell className="text-right">
+												<Badge
+													variant={
+														provider.routingAdjustment < 0
+															? "secondary"
+															: provider.routingAdjustment > 0
+																? "destructive"
+																: "outline"
+													}
+												>
+													{provider.routingAdjustment > 0 ? "+" : ""}
+													{formatPercent(provider.routingAdjustment)}
+												</Badge>
+											</TableCell>
+										)}
 										{showMargin && (
 											<>
 												<TableCell className="text-right tabular-nums">

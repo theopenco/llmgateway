@@ -191,7 +191,7 @@ function StatPanel({
 	title: string;
 	subtitle: string;
 	actions?: React.ReactNode;
-	columns: 2 | 3 | 4;
+	columns: 3 | 4;
 	children: React.ReactNode;
 }) {
 	return (
@@ -206,11 +206,7 @@ function StatPanel({
 			<div
 				className={cn(
 					"grid grid-cols-1 divide-y divide-border/60 sm:divide-x sm:divide-y-0",
-					columns === 4
-						? "sm:grid-cols-4"
-						: columns === 3
-							? "sm:grid-cols-3"
-							: "sm:grid-cols-2",
+					columns === 4 ? "sm:grid-cols-4" : "sm:grid-cols-3",
 				)}
 			>
 				{children}
@@ -352,12 +348,7 @@ export default async function DevpassDetailPage({
 				</div>
 			</header>
 
-			<section
-				className={cn(
-					"grid grid-cols-1 gap-3 sm:grid-cols-2",
-					isAdmin ? "lg:grid-cols-4" : "lg:grid-cols-3",
-				)}
-			>
+			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
 				<div className="rounded-lg border border-border/60 bg-card p-4">
 					<div className="text-xs uppercase tracking-wide text-muted-foreground">
 						Cycle utilization
@@ -412,28 +403,26 @@ export default async function DevpassDetailPage({
 							: "From hourly project stats"}
 					</div>
 				</div>
-				{isAdmin && (
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="text-xs uppercase tracking-wide text-muted-foreground">
-							Margin
-						</div>
-						<div
-							className={cn(
-								"mt-2 text-2xl font-semibold tabular-nums",
-								sub.margin < 0
-									? "text-rose-600 dark:text-rose-400"
-									: "text-emerald-600 dark:text-emerald-400",
-							)}
-						>
-							{currencyFormatter.format(sub.margin)}
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							{sub.cycleOverflowCost > 0
-								? "Plan pool only — overflow is top-up funded"
-								: `${sub.tierChanges} tier change${sub.tierChanges === 1 ? "" : "s"} all time`}
-						</div>
+				<div className="rounded-lg border border-border/60 bg-card p-4">
+					<div className="text-xs uppercase tracking-wide text-muted-foreground">
+						Margin
 					</div>
-				)}
+					<div
+						className={cn(
+							"mt-2 text-2xl font-semibold tabular-nums",
+							sub.margin < 0
+								? "text-rose-600 dark:text-rose-400"
+								: "text-emerald-600 dark:text-emerald-400",
+						)}
+					>
+						{currencyFormatter.format(sub.margin)}
+					</div>
+					<div className="mt-1 text-xs text-muted-foreground">
+						{sub.cycleOverflowCost > 0
+							? "Plan pool only — overflow is top-up funded"
+							: `${sub.tierChanges} tier change${sub.tierChanges === 1 ? "" : "s"} all time`}
+					</div>
+				</div>
 			</section>
 
 			<StatPanel
@@ -515,7 +504,7 @@ export default async function DevpassDetailPage({
 			<StatPanel
 				title="All-time"
 				subtitle="Lifetime totals — unaffected by cycle resets or block/disable"
-				columns={isAdmin ? 3 : 2}
+				columns={3}
 			>
 				<StatCell
 					label="Revenue (all-time)"
@@ -527,18 +516,16 @@ export default async function DevpassDetailPage({
 					value={currencyFormatterPrecise.format(sub.allTimeCost)}
 					hint="From hourly project stats"
 				/>
-				{isAdmin && (
-					<StatCell
-						label="Margin (all-time)"
-						value={currencyFormatter.format(sub.allTimeMargin)}
-						valueClassName={
-							sub.allTimeMargin < 0
-								? "text-rose-600 dark:text-rose-400"
-								: "text-emerald-600 dark:text-emerald-400"
-						}
-						hint="Revenue − provider cost"
-					/>
-				)}
+				<StatCell
+					label="Margin (all-time)"
+					value={currencyFormatter.format(sub.allTimeMargin)}
+					valueClassName={
+						sub.allTimeMargin < 0
+							? "text-rose-600 dark:text-rose-400"
+							: "text-emerald-600 dark:text-emerald-400"
+					}
+					hint="Revenue − provider cost"
+				/>
 			</StatPanel>
 
 			<Tabs defaultValue="transactions">

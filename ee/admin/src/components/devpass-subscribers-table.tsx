@@ -21,8 +21,6 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { canWrite } from "@/lib/admin-role";
-import { useAdminRole } from "@/lib/admin-role-context";
 import { useApi } from "@/lib/fetch-client";
 import { formatSubscriberStatus } from "@/lib/renewal-state";
 import { cn } from "@/lib/utils";
@@ -37,7 +35,6 @@ type SortBy = NonNullable<DevpassListQuery["sortBy"]>;
 type SortOrder = NonNullable<DevpassListQuery["sortOrder"]>;
 
 const COLUMN_COUNT = 16;
-const MARGIN_COLUMN_COUNT = 2;
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -254,11 +251,6 @@ export function DevpassSubscribersTable({
 	limit: number;
 }) {
 	const { data, error } = useDevpassSubscribers(query);
-	// Margin fields are stripped from staff responses.
-	const showMargin = canWrite(useAdminRole());
-	const columnCount = showMargin
-		? COLUMN_COUNT
-		: COLUMN_COUNT - MARGIN_COLUMN_COUNT;
 
 	const sortBy = query.sortBy ?? "subscribedSince";
 	const sortOrder = query.sortOrder ?? "desc";
@@ -335,17 +327,15 @@ export function DevpassSubscribersTable({
 									queryString={queryString}
 								/>
 							</TableHead>
-							{showMargin && (
-								<TableHead>
-									<SortableHeader
-										label="Margin"
-										sortKey="margin"
-										currentSortBy={sortBy}
-										currentSortOrder={sortOrder}
-										queryString={queryString}
-									/>
-								</TableHead>
-							)}
+							<TableHead>
+								<SortableHeader
+									label="Margin"
+									sortKey="margin"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									queryString={queryString}
+								/>
+							</TableHead>
 							<TableHead>
 								<SortableHeader
 									label="PAYG"
@@ -365,17 +355,15 @@ export function DevpassSubscribersTable({
 									queryString={queryString}
 								/>
 							</TableHead>
-							{showMargin && (
-								<TableHead>
-									<SortableHeader
-										label="Margin (all-time)"
-										sortKey="allTimeMargin"
-										currentSortBy={sortBy}
-										currentSortOrder={sortOrder}
-										queryString={queryString}
-									/>
-								</TableHead>
-							)}
+							<TableHead>
+								<SortableHeader
+									label="Margin (all-time)"
+									sortKey="allTimeMargin"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									queryString={queryString}
+								/>
+							</TableHead>
 							<TableHead>
 								<SortableHeader
 									label="Since"
@@ -393,7 +381,7 @@ export function DevpassSubscribersTable({
 						{error ? (
 							<TableRow>
 								<TableCell
-									colSpan={columnCount}
+									colSpan={COLUMN_COUNT}
 									className="h-24 text-center text-muted-foreground"
 								>
 									Failed to load subscribers.{" "}
@@ -406,7 +394,7 @@ export function DevpassSubscribersTable({
 						) : !data ? (
 							Array.from({ length: 10 }, (_, i) => (
 								<TableRow key={i}>
-									<TableCell colSpan={columnCount}>
+									<TableCell colSpan={COLUMN_COUNT}>
 										<div className="h-6 animate-pulse rounded bg-muted/40" />
 									</TableCell>
 								</TableRow>
@@ -414,7 +402,7 @@ export function DevpassSubscribersTable({
 						) : data.subscribers.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={columnCount}
+									colSpan={COLUMN_COUNT}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No subscribers match
@@ -485,30 +473,26 @@ export function DevpassSubscribersTable({
 									<TableCell className="tabular-nums text-muted-foreground">
 										{currencyFormatterPrecise.format(sub.realCost)}
 									</TableCell>
-									{showMargin && (
-										<TableCell
-											className={cn(
-												"tabular-nums",
-												sub.margin < 0
-													? "text-rose-600 dark:text-rose-400"
-													: "text-emerald-600 dark:text-emerald-400",
-											)}
-										>
-											{currencyFormatter.format(sub.margin)}
-											{sub.cycleOverflowCost > 0 && (
-												<p
-													className="mt-0.5 text-xs font-normal text-muted-foreground"
-													title="Cycle cost paid from the org's own PAYG credits — excluded from plan margin"
-												>
-													+
-													{currencyFormatterPrecise.format(
-														sub.cycleOverflowCost,
-													)}{" "}
-													overflow
-												</p>
-											)}
-										</TableCell>
-									)}
+									<TableCell
+										className={cn(
+											"tabular-nums",
+											sub.margin < 0
+												? "text-rose-600 dark:text-rose-400"
+												: "text-emerald-600 dark:text-emerald-400",
+										)}
+									>
+										{currencyFormatter.format(sub.margin)}
+										{sub.cycleOverflowCost > 0 && (
+											<p
+												className="mt-0.5 text-xs font-normal text-muted-foreground"
+												title="Cycle cost paid from the org's own PAYG credits — excluded from plan margin"
+											>
+												+
+												{currencyFormatterPrecise.format(sub.cycleOverflowCost)}{" "}
+												overflow
+											</p>
+										)}
+									</TableCell>
 									<TableCell className="tabular-nums text-xs">
 										{sub.paygEnabled ? (
 											<>
@@ -561,21 +545,19 @@ export function DevpassSubscribersTable({
 									<TableCell className="tabular-nums text-muted-foreground">
 										{currencyFormatterPrecise.format(sub.allTimeCost)}
 									</TableCell>
-									{showMargin && (
-										<TableCell
-											className={cn(
-												"tabular-nums",
-												sub.allTimeMargin < 0
-													? "text-rose-600 dark:text-rose-400"
-													: "text-emerald-600 dark:text-emerald-400",
-											)}
-											title={`Revenue ${currencyFormatter.format(
-												sub.allTimeRevenue,
-											)} − cost ${currencyFormatterPrecise.format(sub.allTimeCost)}`}
-										>
-											{currencyFormatter.format(sub.allTimeMargin)}
-										</TableCell>
-									)}
+									<TableCell
+										className={cn(
+											"tabular-nums",
+											sub.allTimeMargin < 0
+												? "text-rose-600 dark:text-rose-400"
+												: "text-emerald-600 dark:text-emerald-400",
+										)}
+										title={`Revenue ${currencyFormatter.format(
+											sub.allTimeRevenue,
+										)} − cost ${currencyFormatterPrecise.format(sub.allTimeCost)}`}
+									>
+										{currencyFormatter.format(sub.allTimeMargin)}
+									</TableCell>
 									<TableCell className="text-muted-foreground text-xs">
 										{formatDate(sub.subscribedSince)}
 									</TableCell>

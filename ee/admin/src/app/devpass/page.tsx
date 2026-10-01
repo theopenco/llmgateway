@@ -44,9 +44,6 @@ const SORT_BY_VALUES = [
 ] as const;
 type SortBy = (typeof SORT_BY_VALUES)[number];
 
-// Margin fields are stripped from staff responses, so sorting by them is moot.
-const MARGIN_SORT_KEYS: readonly SortBy[] = ["margin", "allTimeMargin"];
-
 const SORT_ORDER_VALUES = ["asc", "desc"] as const;
 type SortOrder = (typeof SORT_ORDER_VALUES)[number];
 
@@ -196,13 +193,9 @@ export default async function DevpassPage({
 	const rawPage = parseInt(params?.page ?? "1", 10);
 	const page = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
 	const search = params?.search ?? "";
-	const pickedSortBy =
+	const sortBy =
 		(pickEnum(SORT_BY_VALUES, params?.sortBy, "subscribedSince") as SortBy) ||
 		"subscribedSince";
-	const sortBy =
-		!isAdmin && MARGIN_SORT_KEYS.includes(pickedSortBy)
-			? "subscribedSince"
-			: pickedSortBy;
 	const sortOrder =
 		(pickEnum(SORT_ORDER_VALUES, params?.sortOrder, "desc") as SortOrder) ||
 		"desc";
@@ -213,7 +206,7 @@ export default async function DevpassPage({
 		params?.utilization,
 		"",
 	) as UtilFilter;
-	const marginNegative = isAdmin && params?.marginNegative === "true";
+	const marginNegative = params?.marginNegative === "true";
 	const showChurned = params?.showChurned === "true";
 	const limit = 25;
 	const offset = (page - 1) * limit;
@@ -336,11 +329,8 @@ export default async function DevpassPage({
 				<div className="space-y-2">
 					<h1 className="text-3xl font-semibold tracking-tight">DevPass</h1>
 					<p className="text-sm text-muted-foreground">
-						Subscribers across Lite, Pro and Max — current cycle utilization
-						{isAdmin
-							? ", real provider cost, and margin"
-							: " and real provider cost"}
-						.
+						Subscribers across Lite, Pro and Max — current cycle utilization,
+						real provider cost, and margin.
 					</p>
 				</div>
 				{isAdmin && (
@@ -504,14 +494,12 @@ export default async function DevpassPage({
 					<span className="text-xs uppercase tracking-wide text-muted-foreground">
 						Other
 					</span>
-					{isAdmin && (
-						<ToggleLink
-							label="Negative margin only"
-							value={marginNegative}
-							queryString={queryString}
-							paramName="marginNegative"
-						/>
-					)}
+					<ToggleLink
+						label="Negative margin only"
+						value={marginNegative}
+						queryString={queryString}
+						paramName="marginNegative"
+					/>
 					<ToggleLink
 						label="Show churned"
 						value={showChurned}

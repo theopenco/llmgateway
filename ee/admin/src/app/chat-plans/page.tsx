@@ -63,9 +63,6 @@ const SORT_BY_VALUES = [
 ] as const;
 type SortBy = (typeof SORT_BY_VALUES)[number];
 
-// Margin fields are stripped from staff responses, so sorting by them is moot.
-const MARGIN_SORT_KEYS: readonly SortBy[] = ["margin", "allTimeMargin"];
-
 const SORT_ORDER_VALUES = ["asc", "desc"] as const;
 type SortOrder = (typeof SORT_ORDER_VALUES)[number];
 
@@ -342,13 +339,9 @@ export default async function ChatPlansPage({
 	const rawPage = parseInt(params?.page ?? "1", 10);
 	const page = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
 	const search = params?.search ?? "";
-	const pickedSortBy =
+	const sortBy =
 		(pickEnum(SORT_BY_VALUES, params?.sortBy, "subscribedSince") as SortBy) ||
 		"subscribedSince";
-	const sortBy =
-		!isAdmin && MARGIN_SORT_KEYS.includes(pickedSortBy)
-			? "subscribedSince"
-			: pickedSortBy;
 	const sortOrder =
 		(pickEnum(SORT_ORDER_VALUES, params?.sortOrder, "desc") as SortOrder) ||
 		"desc";
@@ -359,7 +352,7 @@ export default async function ChatPlansPage({
 		params?.utilization,
 		"",
 	) as UtilFilter;
-	const marginNegative = isAdmin && params?.marginNegative === "true";
+	const marginNegative = params?.marginNegative === "true";
 	const showChurned = params?.showChurned === "true";
 	const limit = 25;
 	const offset = (page - 1) * limit;
@@ -484,11 +477,7 @@ export default async function ChatPlansPage({
 					</h1>
 					<p className="text-sm text-muted-foreground">
 						Chat Plan subscribers across Starter, Plus and Pro — current cycle
-						utilization
-						{isAdmin
-							? ", real provider cost, and margin"
-							: " and real provider cost"}
-						.
+						utilization, real provider cost, and margin.
 					</p>
 				</div>
 				{isAdmin && (
@@ -807,14 +796,12 @@ export default async function ChatPlansPage({
 					<span className="text-xs uppercase tracking-wide text-muted-foreground">
 						Other
 					</span>
-					{isAdmin && (
-						<ToggleLink
-							label="Negative margin only"
-							value={marginNegative}
-							queryString={queryString}
-							paramName="marginNegative"
-						/>
-					)}
+					<ToggleLink
+						label="Negative margin only"
+						value={marginNegative}
+						queryString={queryString}
+						paramName="marginNegative"
+					/>
 					<ToggleLink
 						label="Show churned"
 						value={showChurned}
@@ -896,17 +883,15 @@ export default async function ChatPlansPage({
 									queryString={queryString}
 								/>
 							</TableHead>
-							{isAdmin && (
-								<TableHead>
-									<SortableHeader
-										label="Margin"
-										sortKey="margin"
-										currentSortBy={sortBy}
-										currentSortOrder={sortOrder}
-										queryString={queryString}
-									/>
-								</TableHead>
-							)}
+							<TableHead>
+								<SortableHeader
+									label="Margin"
+									sortKey="margin"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									queryString={queryString}
+								/>
+							</TableHead>
 							<TableHead>
 								<SortableHeader
 									label="Cost (all-time)"
@@ -916,17 +901,15 @@ export default async function ChatPlansPage({
 									queryString={queryString}
 								/>
 							</TableHead>
-							{isAdmin && (
-								<TableHead>
-									<SortableHeader
-										label="Margin (all-time)"
-										sortKey="allTimeMargin"
-										currentSortBy={sortBy}
-										currentSortOrder={sortOrder}
-										queryString={queryString}
-									/>
-								</TableHead>
-							)}
+							<TableHead>
+								<SortableHeader
+									label="Margin (all-time)"
+									sortKey="allTimeMargin"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									queryString={queryString}
+								/>
+							</TableHead>
 							<TableHead>
 								<SortableHeader
 									label="Since"
@@ -944,7 +927,7 @@ export default async function ChatPlansPage({
 						{data.subscribers.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={isAdmin ? 14 : 12}
+									colSpan={14}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No subscribers match
@@ -1005,36 +988,32 @@ export default async function ChatPlansPage({
 									<TableCell className="tabular-nums text-muted-foreground">
 										{currencyFormatterPrecise.format(sub.realCost)}
 									</TableCell>
-									{isAdmin && (
-										<TableCell
-											className={cn(
-												"tabular-nums",
-												sub.margin < 0
-													? "text-rose-600 dark:text-rose-400"
-													: "text-emerald-600 dark:text-emerald-400",
-											)}
-										>
-											{currencyFormatter.format(sub.margin)}
-										</TableCell>
-									)}
+									<TableCell
+										className={cn(
+											"tabular-nums",
+											sub.margin < 0
+												? "text-rose-600 dark:text-rose-400"
+												: "text-emerald-600 dark:text-emerald-400",
+										)}
+									>
+										{currencyFormatter.format(sub.margin)}
+									</TableCell>
 									<TableCell className="tabular-nums text-muted-foreground">
 										{currencyFormatterPrecise.format(sub.allTimeCost)}
 									</TableCell>
-									{isAdmin && (
-										<TableCell
-											className={cn(
-												"tabular-nums",
-												sub.allTimeMargin < 0
-													? "text-rose-600 dark:text-rose-400"
-													: "text-emerald-600 dark:text-emerald-400",
-											)}
-											title={`Revenue ${currencyFormatter.format(
-												sub.allTimeRevenue,
-											)} − cost ${currencyFormatterPrecise.format(sub.allTimeCost)}`}
-										>
-											{currencyFormatter.format(sub.allTimeMargin)}
-										</TableCell>
-									)}
+									<TableCell
+										className={cn(
+											"tabular-nums",
+											sub.allTimeMargin < 0
+												? "text-rose-600 dark:text-rose-400"
+												: "text-emerald-600 dark:text-emerald-400",
+										)}
+										title={`Revenue ${currencyFormatter.format(
+											sub.allTimeRevenue,
+										)} − cost ${currencyFormatterPrecise.format(sub.allTimeCost)}`}
+									>
+										{currencyFormatter.format(sub.allTimeMargin)}
+									</TableCell>
 									<TableCell className="text-muted-foreground text-xs">
 										{formatDate(sub.subscribedSince)}
 									</TableCell>

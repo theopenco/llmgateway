@@ -864,7 +864,7 @@ export function AirsideFilingsClient() {
 									<TableHead>Scope</TableHead>
 									<TableHead>Discount</TableHead>
 									{isAdmin && <TableHead>Margin</TableHead>}
-									<TableHead>Adjustment</TableHead>
+									{isAdmin && <TableHead>Adjustment</TableHead>}
 									<TableHead>Status</TableHead>
 									<TableHead className="text-right">Actions</TableHead>
 								</TableRow>
@@ -894,10 +894,12 @@ export function AirsideFilingsClient() {
 												{Math.round(filing.marginPercent * 100)}%
 											</TableCell>
 										)}
-										<TableCell className="font-mono text-xs">
-											{filing.routingAdjustment > 0 ? "+" : ""}
-											{Math.round(filing.routingAdjustment * 100)}%
-										</TableCell>
+										{isAdmin && (
+											<TableCell className="font-mono text-xs">
+												{filing.routingAdjustment > 0 ? "+" : ""}
+												{Math.round(filing.routingAdjustment * 100)}%
+											</TableCell>
+										)}
 										<TableCell>
 											<Badge variant={STATUS_BADGE[filing.status]}>
 												{filing.status}

@@ -81,23 +81,27 @@ function AirsideCarrierCard({
 						</dd>
 					</div>
 				)}
-				<div>
-					<dt className="text-xs text-muted-foreground">Routing adjustment</dt>
-					<dd className="text-sm">
-						<Badge
-							variant={
-								carrier.routingAdjustment < 0
-									? "secondary"
-									: carrier.routingAdjustment > 0
-										? "destructive"
-										: "outline"
-							}
-						>
-							{carrier.routingAdjustment > 0 ? "+" : ""}
-							{formatPercent(carrier.routingAdjustment)}
-						</Badge>
-					</dd>
-				</div>
+				{carrier.routingAdjustment !== undefined && (
+					<div>
+						<dt className="text-xs text-muted-foreground">
+							Routing adjustment
+						</dt>
+						<dd className="text-sm">
+							<Badge
+								variant={
+									carrier.routingAdjustment < 0
+										? "secondary"
+										: carrier.routingAdjustment > 0
+											? "destructive"
+											: "outline"
+								}
+							>
+								{carrier.routingAdjustment > 0 ? "+" : ""}
+								{formatPercent(carrier.routingAdjustment)}
+							</Badge>
+						</dd>
+					</div>
+				)}
 				<div>
 					<dt className="text-xs text-muted-foreground">Settings updated</dt>
 					<dd className="text-sm">

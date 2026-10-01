@@ -47,8 +47,11 @@ Only verified email addresses count.
 
 Support and viewer accounts do not see platform-wide revenue or profit: the
 dashboard home, Global Stats, LLM SDK, DevPass and Lounge plan KPIs, and provider
-credential spend are hidden, and margin and profit fields are removed from every
-response.
+credential spend are hidden, and the gateway's own margin and fee fields —
+including Airside carrier margins and routing adjustments — are removed from
+every response. A subscriber's plan margin stays visible, since it is the plan
+price minus usage these roles already see. Request payloads in logs are shown
+unmodified.
 
 ## Gateway load
 

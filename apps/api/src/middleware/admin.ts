@@ -11,7 +11,8 @@ import type { Context } from "hono";
  * - `admin` (`ADMIN_EMAILS`): full access.
  * - `support` (`ADMIN_SUPPORT_EMAILS`): `viewer` plus {@link SUPPORT_WRITE_ROUTES}.
  * - `viewer` (`ADMIN_VIEWER_EMAILS`): read-only, without platform-wide
- *   financials ({@link STAFF_HIDDEN_ROUTES}) or margin/profit fields.
+ *   financials ({@link STAFF_HIDDEN_ROUTES}) or the gateway's own margin and
+ *   profit fields.
  */
 export type AdminRole = "admin" | "support" | "viewer";
 
@@ -68,8 +69,32 @@ const STAFF_HIDDEN_ROUTES: RegExp[] = [
 	/^\/provider-credentials\/spend$/,
 ];
 
-// Response keys stripped for non-admin roles wherever they appear.
-const STAFF_REDACTED_KEY = /margin|profit|platformFee|^kpis$/i;
+// Response keys stripped for non-admin roles. `routingAdjustment` is derived
+// from the Airside margin, so it goes with it.
+const STAFF_REDACTED_KEY =
+	/margin|profit|platformFee|^kpis$|^routingAdjustment$/i;
+
+// A subscriber's plan margin is the plan price minus usage staff already see,
+// so hiding it would hide nothing.
+const STAFF_VISIBLE_KEYS = new Set(["margin", "marginPct", "allTimeMargin"]);
+
+// Customer-authored log payloads, returned verbatim: their keys are not ours.
+const CUSTOMER_PAYLOAD_KEYS = new Set([
+	"messages",
+	"tools",
+	"toolChoice",
+	"toolResults",
+	"responseFormat",
+	"params",
+	"customHeaders",
+	"pluginResults",
+	"errorDetails",
+	"internalErrorDetails",
+]);
+
+function isStaffRedactedKey(key: string): boolean {
+	return STAFF_REDACTED_KEY.test(key) && !STAFF_VISIBLE_KEYS.has(key);
+}
 
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -77,18 +102,9 @@ export function isAdminRequestAllowed(
 	role: AdminRole,
 	method: string,
 	path: string,
-	query: Record<string, string> = {},
 ): boolean {
 	if (role === "admin") {
 		return true;
-	}
-	// Filtering or sorting by a redacted field would leak it through row
-	// selection and order.
-	if (
-		Object.keys(query).some((key) => STAFF_REDACTED_KEY.test(key)) ||
-		STAFF_REDACTED_KEY.test(query.sortBy ?? "")
-	) {
-		return false;
 	}
 	const upperMethod = method.toUpperCase();
 	if (READ_METHODS.has(upperMethod)) {
@@ -109,8 +125,11 @@ export function redactStaffFields(value: unknown): unknown {
 	if (value && typeof value === "object") {
 		return Object.fromEntries(
 			Object.entries(value)
-				.filter(([key]) => !STAFF_REDACTED_KEY.test(key))
-				.map(([key, entry]) => [key, redactStaffFields(entry)]),
+				.filter(([key]) => !isStaffRedactedKey(key))
+				.map(([key, entry]) => [
+					key,
+					CUSTOMER_PAYLOAD_KEYS.has(key) ? entry : redactStaffFields(entry),
+				]),
 		);
 	}
 	return value;
@@ -149,12 +168,7 @@ function createAdminMiddleware(requireWhiteLabel: boolean) {
 		checkedRequests.add(c.req.raw);
 
 		if (
-			!isAdminRequestAllowed(
-				role,
-				c.req.method,
-				adminRelativePath(c.req.path),
-				c.req.query(),
-			)
+			!isAdminRequestAllowed(role, c.req.method, adminRelativePath(c.req.path))
 		) {
 			throw new HTTPException(403, {
 				message: `The ${role} role cannot access this resource`,

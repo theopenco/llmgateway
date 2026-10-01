@@ -144,25 +144,6 @@ describe("isAdminRequestAllowed", () => {
 		}
 	});
 
-	test("staff cannot filter or sort by redacted fields", () => {
-		expect(
-			isAdminRequestAllowed("viewer", "GET", "/devpass", {
-				marginNegative: "true",
-			}),
-		).toBe(false);
-		expect(
-			isAdminRequestAllowed("support", "GET", "/chat-plans", {
-				sortBy: "allTimeMargin",
-			}),
-		).toBe(false);
-		expect(
-			isAdminRequestAllowed("viewer", "GET", "/devpass", {
-				sortBy: "mrr",
-				search: "margin",
-			}),
-		).toBe(true);
-	});
-
 	test("support can additionally refund", () => {
 		expect(isAdminRequestAllowed("support", "POST", "/devpass/o1/refund")).toBe(
 			true,
@@ -179,17 +160,44 @@ describe("isAdminRequestAllowed", () => {
 });
 
 describe("redactStaffFields", () => {
-	test("strips margin and profit keys at any depth", () => {
+	test("strips gateway margin and profit keys at any depth", () => {
 		expect(
 			redactStaffFields({
-				subscribers: [{ id: "a", mrr: 10, margin: 3, marginPct: 30 }],
+				carriers: [
+					{
+						id: "a",
+						discountPercent: 0.1,
+						marginPercent: 0.2,
+						routingAdjustment: -0.1,
+						marginAmount30d: 5,
+					},
+				],
 				totals: { platformFee: 1, grossPaid: 20 },
 				kpis: { grossMrr: 100 },
 				airsideMarginProfit: 5,
 			}),
 		).toEqual({
-			subscribers: [{ id: "a", mrr: 10 }],
+			carriers: [{ id: "a", discountPercent: 0.1 }],
 			totals: { grossPaid: 20 },
+		});
+	});
+
+	test("keeps a subscriber's plan margin", () => {
+		const row = { mrr: 10, realCost: 7, margin: 3, marginPct: 30 };
+		expect(redactStaffFields({ subscribers: [row] })).toEqual({
+			subscribers: [row],
+		});
+	});
+
+	test("leaves customer log payloads untouched", () => {
+		const log = {
+			id: "l1",
+			tools: [{ function: { parameters: { properties: { margin: {} } } } }],
+			responseFormat: { json_schema: { properties: { profit_margin: {} } } },
+			messages: [{ role: "user", content: [{ platformFee: 1 }] }],
+		};
+		expect(redactStaffFields({ logs: [log], marginPercent: 0.2 })).toEqual({
+			logs: [log],
 		});
 	});
 });

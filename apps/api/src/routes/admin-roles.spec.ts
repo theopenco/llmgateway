@@ -46,9 +46,9 @@ describe("admin panel staff roles", () => {
 		const chatPlans = await request("/admin/chat-plans");
 		expect(chatPlans.status).toBe(200);
 		expect(await chatPlans.json()).not.toHaveProperty("kpis");
-		expect((await request("/admin/chat-plans?sortBy=margin")).status).toBe(403);
+		expect((await request("/admin/chat-plans?sortBy=margin")).status).toBe(200);
 		expect((await request("/admin/devpass?marginNegative=true")).status).toBe(
-			403,
+			200,
 		);
 		expect(
 			(
