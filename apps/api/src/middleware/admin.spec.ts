@@ -144,6 +144,25 @@ describe("isAdminRequestAllowed", () => {
 		}
 	});
 
+	test("staff cannot filter or sort by redacted fields", () => {
+		expect(
+			isAdminRequestAllowed("viewer", "GET", "/devpass", {
+				marginNegative: "true",
+			}),
+		).toBe(false);
+		expect(
+			isAdminRequestAllowed("support", "GET", "/chat-plans", {
+				sortBy: "allTimeMargin",
+			}),
+		).toBe(false);
+		expect(
+			isAdminRequestAllowed("viewer", "GET", "/devpass", {
+				sortBy: "mrr",
+				search: "margin",
+			}),
+		).toBe(true);
+	});
+
 	test("support can additionally refund", () => {
 		expect(isAdminRequestAllowed("support", "POST", "/devpass/o1/refund")).toBe(
 			true,
@@ -165,6 +184,7 @@ describe("redactStaffFields", () => {
 			redactStaffFields({
 				subscribers: [{ id: "a", mrr: 10, margin: 3, marginPct: 30 }],
 				totals: { platformFee: 1, grossPaid: 20 },
+				kpis: { grossMrr: 100 },
 				airsideMarginProfit: 5,
 			}),
 		).toEqual({

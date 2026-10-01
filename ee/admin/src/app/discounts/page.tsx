@@ -457,11 +457,13 @@ export default async function DiscountsPage({
 						</div>
 					</div>
 					{options && (
-						<RoutingScoreMultiplierForm
-							providers={options.providers}
-							mappings={options.mappings}
-							onSubmit={handleCreateRoutingScoreMultiplier}
-						/>
+						<AdminOnly>
+							<RoutingScoreMultiplierForm
+								providers={options.providers}
+								mappings={options.mappings}
+								onSubmit={handleCreateRoutingScoreMultiplier}
+							/>
+						</AdminOnly>
 					)}
 				</div>
 

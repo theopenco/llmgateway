@@ -42,6 +42,14 @@ describe("admin panel staff roles", () => {
 		);
 		expect((await request("/admin/metrics")).status).toBe(403);
 		expect((await request("/admin/global-stats")).status).toBe(403);
+
+		const chatPlans = await request("/admin/chat-plans");
+		expect(chatPlans.status).toBe(200);
+		expect(await chatPlans.json()).not.toHaveProperty("kpis");
+		expect((await request("/admin/chat-plans?sortBy=margin")).status).toBe(403);
+		expect((await request("/admin/devpass?marginNegative=true")).status).toBe(
+			403,
+		);
 		expect(
 			(
 				await request("/admin/discounts", "POST", {

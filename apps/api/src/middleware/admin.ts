@@ -69,7 +69,7 @@ const STAFF_HIDDEN_ROUTES: RegExp[] = [
 ];
 
 // Response keys stripped for non-admin roles wherever they appear.
-const STAFF_REDACTED_KEY = /margin|profit|platformFee/i;
+const STAFF_REDACTED_KEY = /margin|profit|platformFee|^kpis$/i;
 
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -77,9 +77,18 @@ export function isAdminRequestAllowed(
 	role: AdminRole,
 	method: string,
 	path: string,
+	query: Record<string, string> = {},
 ): boolean {
 	if (role === "admin") {
 		return true;
+	}
+	// Filtering or sorting by a redacted field would leak it through row
+	// selection and order.
+	if (
+		Object.keys(query).some((key) => STAFF_REDACTED_KEY.test(key)) ||
+		STAFF_REDACTED_KEY.test(query.sortBy ?? "")
+	) {
+		return false;
 	}
 	const upperMethod = method.toUpperCase();
 	if (READ_METHODS.has(upperMethod)) {
@@ -140,7 +149,12 @@ function createAdminMiddleware(requireWhiteLabel: boolean) {
 		checkedRequests.add(c.req.raw);
 
 		if (
-			!isAdminRequestAllowed(role, c.req.method, adminRelativePath(c.req.path))
+			!isAdminRequestAllowed(
+				role,
+				c.req.method,
+				adminRelativePath(c.req.path),
+				c.req.query(),
+			)
 		) {
 			throw new HTTPException(403, {
 				message: `The ${role} role cannot access this resource`,
@@ -160,7 +174,12 @@ async function redactResponse(c: Context<ServerTypes>) {
 	if (!original.headers.get("content-type")?.includes("application/json")) {
 		return;
 	}
-	const body: unknown = await original.clone().json();
+	const text = await original.clone().text();
+	if (!text) {
+		return;
+	}
+	// Unparseable JSON throws: it cannot be redacted, so it is not sent.
+	const body: unknown = JSON.parse(text);
 	const headers = new Headers(original.headers);
 	headers.delete("content-length");
 	// Clear first: the setter would otherwise copy the stale content-length back.
