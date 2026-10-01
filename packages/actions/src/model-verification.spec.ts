@@ -838,6 +838,43 @@ describe("model verification", () => {
 			});
 		});
 
+		it("caps the prompt for an oversized declared window", async () => {
+			const fetchImplementation = respond(1_500_000);
+			const result = await runProviderModelVerification({
+				target: { ...limitsTarget, contextSize: 100_000_000 },
+				token: "provider-key",
+				fetchImplementation,
+			});
+
+			expect(result.passed).toBe(true);
+			const context = String(fetchImplementation.mock.calls[1][1]?.body);
+			expect(context.length).toBeLessThan(6_100_000);
+		});
+
+		it("fails the context check on a failed response envelope", async () => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockImplementation(async (_url, request) =>
+					String(request?.body).length > 20_000
+						? Response.json({
+								status: "failed",
+								error: { message: "context window exceeded" },
+							})
+						: Response.json({ choices: [{ message: { content: "OK" } }] }),
+				);
+			const result = await runProviderModelVerification({
+				target: limitsTarget,
+				token: "provider-key",
+				fetchImplementation,
+			});
+
+			expect(result.checks[1]).toMatchObject({
+				id: "context_size",
+				status: "failed",
+				feedback: "context window exceeded",
+			});
+		});
+
 		it("counts cached input tokens towards the processed prompt", async () => {
 			const result = await runProviderModelVerification({
 				target: limitsTarget,

@@ -970,6 +970,7 @@ export function RegisterModelDialog({
 									setContextSize(e.target.value);
 									resetVerification();
 								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 							/>
@@ -983,6 +984,7 @@ export function RegisterModelDialog({
 									setMaxOutput(e.target.value);
 									resetVerification();
 								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 								placeholder="optional"
@@ -1712,6 +1714,7 @@ export function EditModelDialog({
 									setContextSize(e.target.value);
 									resetVerification();
 								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 							/>
@@ -1725,6 +1728,7 @@ export function EditModelDialog({
 									setMaxOutput(e.target.value);
 									resetVerification();
 								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 							/>

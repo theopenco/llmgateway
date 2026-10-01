@@ -335,8 +335,15 @@ const CONTEXT_MIN_REPORTED_RATIO = 0.5;
 const CONTEXT_FILLER_SENTENCE =
 	"The quick brown fox jumps over the lazy dog near the riverbank, while curious sparrows watched from the old oak tree branches above. ";
 
+// Bounds the prompt a declared window can make the worker allocate; a larger
+// window is verified up to this many tokens.
+const CONTEXT_MAX_PROBE_TOKENS = 2_000_000;
+
 function contextSizeTargetTokens(contextSize: number): number {
-	return Math.floor(contextSize * CONTEXT_FILL_RATIO);
+	return Math.min(
+		Math.floor(contextSize * CONTEXT_FILL_RATIO),
+		CONTEXT_MAX_PROBE_TOKENS,
+	);
 }
 
 /** A prompt filling most of the declared context window. */
@@ -505,14 +512,20 @@ function verificationDefinitions(
 			request: createWebSearchVerificationRequest(target.modelName),
 		});
 	}
-	if (target.contextSize) {
+	const { contextSize } = target;
+	if (contextSize) {
+		// Built on first use: queueing a run lists the checks without allocating
+		// the prompt.
+		let request: ModelVerificationRequest | undefined;
 		definitions.push({
 			id: "context_size",
 			label: "Context size",
-			request: createContextSizeVerificationRequest(
-				target.modelName,
-				target.contextSize,
-			),
+			get request() {
+				return (request ??= createContextSizeVerificationRequest(
+					target.modelName,
+					contextSize,
+				));
+			},
 		});
 	}
 	if (target.maxOutput) {
@@ -767,6 +780,13 @@ function validateContextSize(
 	body: unknown,
 	contextSize: number,
 ): string | null {
+	// A 200 can still carry a failed operation, e.g. a Responses envelope.
+	if (isRecord(body) && (body.error || body.status === "failed")) {
+		const message = isRecord(body.error) ? body.error.message : body.error;
+		return typeof message === "string" && message
+			? message.slice(0, 500)
+			: "The provider reported a failed response.";
+	}
 	const reported = reportedInputTokens(body);
 	const expected = Math.floor(
 		contextSizeTargetTokens(contextSize) * CONTEXT_MIN_REPORTED_RATIO,
