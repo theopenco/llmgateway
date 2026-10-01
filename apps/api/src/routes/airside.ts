@@ -3206,22 +3206,29 @@ airside.openapi(relistModel, async (c) => {
 		throw new HTTPException(404, { message: "Model not found" });
 	}
 	await requireCompanyMembership(user.id, model.providerCompanyId);
-	const claim = await db.query.providerClaim.findFirst({
-		where: {
-			providerCompanyId: { eq: model.providerCompanyId },
-			providerId: { eq: model.providerId },
-			status: { eq: "active" },
-		},
-	});
-	if (!claim) {
-		throw new HTTPException(403, {
-			message:
-				"The company no longer holds an active claim on this provider, so its models cannot be relisted.",
-		});
-	}
 	// cdb: the gateway caches listing resolution off these tables.
 	const row = await cdb
 		.transaction(async (tx) => {
+			// Lock the claim first, in the revoker's claim-then-model order, so a
+			// concurrent revocation cannot commit between this check and the relist.
+			const [claim] = await tx
+				.select({ id: tables.providerClaim.id })
+				.from(tables.providerClaim)
+				.where(
+					and(
+						eq(tables.providerClaim.providerCompanyId, model.providerCompanyId),
+						eq(tables.providerClaim.providerId, model.providerId),
+						eq(tables.providerClaim.status, "active"),
+					),
+				)
+				.for("update")
+				.$withCache(false);
+			if (!claim) {
+				throw new HTTPException(403, {
+					message:
+						"The company no longer holds an active claim on this provider, so its models cannot be relisted.",
+				});
+			}
 			const [locked] = await tx
 				.select()
 				.from(tables.providerDraftModel)
