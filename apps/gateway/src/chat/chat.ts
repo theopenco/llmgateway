@@ -196,6 +196,7 @@ import {
 	type ModelDefinition,
 	type Model,
 	models,
+	type EnvVarVariant,
 	type Provider,
 	type ProviderDefinition,
 	type ProviderModelMapping,
@@ -278,10 +279,7 @@ import { extractReasoning } from "./tools/extract-reasoning.js";
 import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
-import {
-	getEnvKeyCount,
-	hasServiceTierEligibleEnvCredential,
-} from "./tools/get-provider-env.js";
+import { getEnvKeyCount } from "./tools/get-provider-env.js";
 import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-output.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
 import {
@@ -330,7 +328,10 @@ import {
 } from "./tools/resolve-airside-model.js";
 import { resolveDynamicRouteClassification } from "./tools/resolve-dynamic-route-classification.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
-import { resolvePlatformCredential } from "./tools/resolve-platform-credential.js";
+import {
+	hasServiceTierEligiblePlatformCredential,
+	resolvePlatformCredential,
+} from "./tools/resolve-platform-credential.js";
 import {
 	assertDevPlanPremiumCapNotExceeded,
 	buildDevPlanCreditLimitError,
@@ -1109,6 +1110,36 @@ function resolveOpenAIServiceTier(
 		return normalized;
 	}
 	return null;
+}
+
+/**
+ * Providers with a credential that can carry a Flex/Priority request: one of
+ * the org's own keys, or — outside api-keys mode — a platform credential.
+ */
+async function findServiceTierEligibleProviderIds(
+	providerIds: string[],
+	orgKeys: InferSelectModel<typeof tables.providerKey>[],
+	mode: string,
+	envVariant: EnvVarVariant | undefined,
+): Promise<Set<string>> {
+	const eligible = new Set<string>();
+	for (const providerId of new Set(providerIds)) {
+		const hasCompliantDbKey = orgKeys.some(
+			(key) =>
+				key.provider === providerId && providerKeySupportsServiceTier(key),
+		);
+		if (
+			hasCompliantDbKey ||
+			(mode !== "api-keys" &&
+				(await hasServiceTierEligiblePlatformCredential(
+					providerId as Provider,
+					envVariant,
+				)))
+		) {
+			eligible.add(providerId);
+		}
+	}
+	return eligible;
 }
 
 function isRequestedServiceTier(
@@ -2651,20 +2682,7 @@ chat.openapi(completions, async (c) => {
 		const orgKeysForDefaultTier = await findActiveProviderKeys(
 			project.organizationId,
 		);
-		const providerHasEligibleTierCredential = (providerId: string): boolean => {
-			const hasCompliantDbKey = orgKeysForDefaultTier.some(
-				(key) =>
-					key.provider === providerId && providerKeySupportsServiceTier(key),
-			);
-			if (project.mode === "api-keys") {
-				return hasCompliantDbKey;
-			}
-			return (
-				hasCompliantDbKey ||
-				hasServiceTierEligibleEnvCredential(providerId as Provider)
-			);
-		};
-		const supportsDefaultFlex = modelInfo.providers.some(
+		const flexMappings = modelInfo.providers.filter(
 			(mapping) =>
 				providerMatchesRequestedProvider(mapping, requestedProvider) &&
 				mappingSupportsRequestedServiceTier(
@@ -2673,9 +2691,15 @@ chat.openapi(completions, async (c) => {
 					"flex",
 					configIndex,
 					envVariant,
-				) &&
-				providerHasEligibleTierCredential(mapping.providerId),
+				),
 		);
+		const tierEligibleProviderIds = await findServiceTierEligibleProviderIds(
+			flexMappings.map((mapping) => mapping.providerId),
+			orgKeysForDefaultTier,
+			project.mode,
+			envVariant,
+		);
+		const supportsDefaultFlex = tierEligibleProviderIds.size > 0;
 		if (supportsDefaultFlex) {
 			service_tier = "flex";
 			// Record the defaulted tier so the log and the response metadata show
@@ -3561,19 +3585,6 @@ chat.openapi(completions, async (c) => {
 	// Exclude providers without a credential in a tier-capable region.
 	let serviceTierOrgKeys:
 		InferSelectModel<typeof tables.providerKey>[] | undefined;
-	const isProviderServiceTierEligible = (providerId: string): boolean => {
-		const dbKeys = (serviceTierOrgKeys ?? []).filter(
-			(key) => key.provider === providerId,
-		);
-		const hasCompliantDbKey = dbKeys.some(providerKeySupportsServiceTier);
-		const envEligible =
-			(project.mode === "credits" || project.mode === "hybrid") &&
-			hasServiceTierEligibleEnvCredential(providerId as Provider);
-		if (project.mode === "api-keys") {
-			return hasCompliantDbKey;
-		}
-		return hasCompliantDbKey || envEligible;
-	};
 	const enforceServiceTierKeyEligibility = async () => {
 		if (!isRequestedServiceTier(service_tier)) {
 			return;
@@ -3581,8 +3592,26 @@ chat.openapi(completions, async (c) => {
 		if (serviceTierOrgKeys === undefined) {
 			serviceTierOrgKeys = await findActiveProviderKeys(project.organizationId);
 		}
+		const pinnedProvider =
+			usedProvider !== undefined &&
+			usedProvider !== "llmgateway" &&
+			usedProvider !== "custom"
+				? usedProvider
+				: undefined;
+		const tierEligibleProviderIds = await findServiceTierEligibleProviderIds(
+			[
+				...expandedIamFilteredModelProviders.map(
+					(provider) => provider.providerId,
+				),
+				...iamFilteredModelProviders.map((provider) => provider.providerId),
+				...(pinnedProvider ? [pinnedProvider] : []),
+			],
+			serviceTierOrgKeys,
+			project.mode,
+			envVariant,
+		);
 		const tierEligibleProviders = iamFilteredModelProviders.filter((provider) =>
-			isProviderServiceTierEligible(provider.providerId),
+			tierEligibleProviderIds.has(provider.providerId),
 		);
 		recordPreRoutingDrops(
 			iamFilteredModelProviders,
@@ -3593,13 +3622,11 @@ chat.openapi(completions, async (c) => {
 		iamFilteredModelProviders = tierEligibleProviders;
 		expandedIamFilteredModelProviders =
 			expandedIamFilteredModelProviders.filter((provider) =>
-				isProviderServiceTierEligible(provider.providerId),
+				tierEligibleProviderIds.has(provider.providerId),
 			);
 		const pinnedIneligible =
-			usedProvider !== undefined &&
-			usedProvider !== "llmgateway" &&
-			usedProvider !== "custom" &&
-			!isProviderServiceTierEligible(usedProvider);
+			pinnedProvider !== undefined &&
+			!tierEligibleProviderIds.has(pinnedProvider);
 		if (iamFilteredModelProviders.length === 0 || pinnedIneligible) {
 			throw new HTTPException(400, {
 				message: `No provider key is available in a region that supports service tier '${service_tier}'${pinnedIneligible ? ` for ${usedProvider}` : ""}.`,
