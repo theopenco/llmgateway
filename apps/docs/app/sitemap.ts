@@ -10,10 +10,6 @@ import type { MetadataRoute } from "next";
 export const dynamic = "force-dynamic";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-	// No lastModified: stamping a build-time date on every URL marks the whole
-	// sitemap as freshly changed on each deploy, which trains crawlers to
-	// ignore the field. Omitting it is the truthful option until real
-	// per-page modification dates are available.
 	// Guides that canonicalize cross-domain to llmgateway.io are excluded:
 	// a sitemap must only list canonical URLs, and listing an alternate here
 	// contradicts its canonical tag.
@@ -24,6 +20,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 			const path = page.url === "/" ? "" : page.url;
 			return {
 				url: `${docsBaseUrl}${path}`,
+				lastModified: page.data.lastModified,
 				changeFrequency: page.url === "/" ? "weekly" : "monthly",
 				priority: page.url === "/" ? 1 : 0.7,
 			};

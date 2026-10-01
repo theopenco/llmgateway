@@ -1,5 +1,7 @@
 # Lounge by LLM Gateway
 
+Last updated: 2026-10-01
+
 > Lounge is an AI chat app by LLM Gateway. Use models from multiple providers in one interface; the live [catalogue](https://llmgateway.io/models) lists current availability. It supports text chat, image and video generation, multi-model council debates, and projects with knowledge files with one membership.
 
 ## Memberships
