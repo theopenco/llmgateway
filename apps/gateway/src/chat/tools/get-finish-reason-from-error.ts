@@ -3,6 +3,15 @@ import { hasExhaustedProviderAccountError } from "@/lib/provider-funding-errors.
 
 import { isContentFilterErrorText } from "@llmgateway/shared";
 
+// The model must be named before the phrase, on the same line, so unrelated
+// "does not exist" / "not found" errors (files, tools) stay client errors.
+const MODEL_DOES_NOT_EXIST_PATTERNS = [
+	/\bmodel\b[^\n]{0,120}\bdoes(?: not|n't) exist\b/i,
+	/\bmodel\b[^\n]{0,120}\b(?:is |was )?not found\b/i,
+	/\bno such model\b/i,
+	/\bmodel_not_found\b/i,
+];
+
 /**
  * Determines the appropriate finish reason based on HTTP status code and error message
  * 5xx status codes indicate upstream provider errors
@@ -108,6 +117,17 @@ export function getFinishReasonFromError(
 	// failure, not a client error, so classify as upstream_error so the request
 	// can be retried with another provider instead of passing the 400 through.
 	if (errorText && /temporary routing error/i.test(errorText)) {
+		return "upstream_error";
+	}
+
+	// Upstream says the model it was sent does not exist (e.g. Runware's 400
+	// "The model `<id>` does not exist"). The gateway validated the requested
+	// model before routing, so the provider's deployment is at fault; classify as
+	// upstream_error so the request can be retried with another provider.
+	if (
+		errorText &&
+		MODEL_DOES_NOT_EXIST_PATTERNS.some((pattern) => pattern.test(errorText))
+	) {
 		return "upstream_error";
 	}
 

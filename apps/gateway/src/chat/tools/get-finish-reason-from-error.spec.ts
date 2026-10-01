@@ -26,6 +26,52 @@ describe("getFinishReasonFromError", () => {
 		).toBe("upstream_error");
 	});
 
+	it("returns upstream_error when the upstream model does not exist", () => {
+		for (const message of [
+			"The model `deepseek:v4.1@flash` does not exist",
+			"Model 'foo-bar' doesn't exist",
+			"The model foo-bar was not found",
+			"Model not found",
+			"No such model: foo-bar",
+		]) {
+			expect(
+				getFinishReasonFromError(
+					400,
+					JSON.stringify({
+						error: { message, type: "invalid_request_error" },
+					}),
+				),
+			).toBe("upstream_error");
+		}
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"bad model","code":"model_not_found"}}',
+			),
+		).toBe("upstream_error");
+	});
+
+	it("keeps unrelated does-not-exist errors as client_error", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"The file file-123 does not exist","type":"invalid_request_error"}}',
+			),
+		).toBe("client_error");
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"Tool get_weather not found","type":"invalid_request_error"}}',
+			),
+		).toBe("client_error");
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{\n    "error": {\n        "message": "The request was rejected",\n        "type": "invalid_request_error",\n        "param": null,\n        "code": "invalid_value"\n    }\n}',
+			),
+		).toBe("client_error");
+	});
+
 	it("returns gateway_error for 402 insufficient balance", () => {
 		expect(getFinishReasonFromError(402)).toBe("gateway_error");
 		expect(
