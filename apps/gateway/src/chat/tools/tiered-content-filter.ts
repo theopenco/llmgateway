@@ -39,6 +39,8 @@ export interface TieredContentFilterPlan {
 	classifier: ContentFilterClassifier;
 	/** What the internal classifier reads; ignored by the others. */
 	internalScope: ContentFilterInternalScope;
+	/** Whether a text-only classifier delegates image parts to OpenAI. */
+	moderateImages: boolean;
 }
 
 export interface TieredContentFilterEvaluation {
@@ -158,6 +160,7 @@ export async function resolveTieredContentFilterPlan(
 		...(exemptReason ? { exemptReason } : {}),
 		classifier: settings.classifier,
 		internalScope: settings.internalScope,
+		moderateImages: settings.moderateImages,
 	};
 }
 
