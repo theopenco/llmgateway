@@ -189,7 +189,7 @@ Provisioned users are created in LLM Gateway and added to the organization (defa
 
 ## Group → role mapping (optional)
 
-On the app's **Push Groups** tab, push the Okta groups whose membership should matter. Then on the LLM Gateway **SSO** page, add mappings such as `Acme Admins → admin`. When Okta pushes group membership, each member gets the **highest** mapped role among their groups (default `developer`). Owners are never auto-demoted, so you can't accidentally lock yourself out of the owner role.
+On the app's **Push Groups** tab, push the Okta groups whose membership should matter. Then on the LLM Gateway **SSO** page, add mappings such as `Acme Admins → admin`. When Okta pushes group membership, each member gets the **highest** mapped role among their groups. A mapping only raises a member above the role set by hand on the **Team** page (`developer` by default), and the member returns to that role when they leave the group. A sync never lowers a manual role. Owners are never auto-demoted, so you can't accidentally lock yourself out of the owner role.
 
 ## Group → team mapping (optional)
 

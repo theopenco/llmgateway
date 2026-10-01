@@ -115,6 +115,7 @@ describe("scim audit logging", () => {
 			columns: {
 				id: true,
 				role: true,
+				roleAssignmentSource: true,
 				teamId: true,
 				teamAssignmentSource: true,
 			},
@@ -524,6 +525,161 @@ describe("scim audit logging", () => {
 			columns: { role: true },
 		});
 		expect(membership?.role).toBe("admin");
+	});
+
+	test("manual roles survive a SCIM update without role mappings", async () => {
+		const userId = await provisionUser("manual-admin@example.com");
+		const membership = await getMembership(userId);
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "admin" })
+			.where(eq(tables.userOrganization.id, membership!.id));
+
+		const response = await app.request(`/scim/v2/Users/${userId}`, {
+			method: "PUT",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				userName: "manual-admin@example.com",
+				active: true,
+			}),
+		});
+		expect(response.status).toBe(200);
+		expect(await getMembership(userId)).toMatchObject({
+			role: "admin",
+			roleAssignmentSource: "manual",
+		});
+		expect(
+			await db.query.auditLog.findMany({
+				where: {
+					organizationId: { eq: ORG_ID },
+					action: { eq: "scim.user.role_change" },
+				},
+			}),
+		).toHaveLength(0);
+	});
+
+	test("manual roles are not lowered by a lower group mapping", async () => {
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Leads",
+			role: "project_admin",
+		});
+		const userId = await provisionUser("manual-lead@example.com");
+		const membership = await getMembership(userId);
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "admin" })
+			.where(eq(tables.userOrganization.id, membership!.id));
+
+		const response = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Leads",
+				members: [{ value: userId }],
+			}),
+		});
+		expect(response.status).toBe(201);
+		expect(await getMembership(userId)).toMatchObject({
+			role: "admin",
+			roleAssignmentSource: "manual",
+		});
+	});
+
+	test("mapped roles are revoked when the member leaves the group", async () => {
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Admins",
+			role: "admin",
+		});
+		const userId = await provisionUser("mapped-admin@example.com");
+
+		const created = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Admins",
+				members: [{ value: userId }],
+			}),
+		});
+		expect(created.status).toBe(201);
+		const { id: groupId } = (await created.json()) as { id: string };
+		expect(await getMembership(userId)).toMatchObject({
+			role: "admin",
+			roleAssignmentSource: "sso",
+		});
+
+		const removed = await app.request(`/scim/v2/Groups/${groupId}`, {
+			method: "DELETE",
+			headers: scimHeaders(),
+		});
+		expect(removed.status).toBe(204);
+		expect(await getMembership(userId)).toMatchObject({
+			role: "developer",
+			roleAssignmentSource: "manual",
+		});
+	});
+
+	test("a mapped promotion falls back to the manual role", async () => {
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Admins",
+			role: "admin",
+		});
+		const userId = await provisionUser("manual-project-admin@example.com");
+		const membership = await getMembership(userId);
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "project_admin" })
+			.where(eq(tables.userOrganization.id, membership!.id));
+
+		const created = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Admins",
+				members: [{ value: userId }],
+			}),
+		});
+		expect(created.status).toBe(201);
+		const { id: groupId } = (await created.json()) as { id: string };
+		expect(await getMembership(userId)).toMatchObject({
+			role: "admin",
+			roleAssignmentSource: "sso",
+		});
+
+		const removed = await app.request(`/scim/v2/Groups/${groupId}`, {
+			method: "DELETE",
+			headers: scimHeaders(),
+		});
+		expect(removed.status).toBe(204);
+		expect(await getMembership(userId)).toMatchObject({
+			role: "project_admin",
+			roleAssignmentSource: "manual",
+		});
+	});
+
+	test("a mapping that does not raise the role is not marked sso", async () => {
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Engineers",
+			role: "developer",
+		});
+		const userId = await provisionUser("mapped-developer@example.com");
+
+		const created = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Engineers",
+				members: [{ value: userId }],
+			}),
+		});
+		expect(created.status).toBe(201);
+		expect(await getMembership(userId)).toMatchObject({
+			role: "developer",
+			roleAssignmentSource: "manual",
+		});
 	});
 
 	test("group team mapping follows membership and logs changes", async () => {

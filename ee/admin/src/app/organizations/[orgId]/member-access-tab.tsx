@@ -211,9 +211,16 @@ export function MemberAccessTab({
 											</Badge>
 										</TableCell>
 										<TableCell>
-											<Badge variant={roleBadgeVariant(member.role)}>
-												{member.role}
-											</Badge>
+											<div className="space-y-1">
+												<Badge variant={roleBadgeVariant(member.role)}>
+													{member.role}
+												</Badge>
+												{member.roleAssignmentSource === "sso" ? (
+													<p className="text-xs text-muted-foreground">
+														Assigned via SSO
+													</p>
+												) : null}
+											</div>
 										</TableCell>
 										<TableCell>
 											{member.team ? (
