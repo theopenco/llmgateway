@@ -818,7 +818,8 @@ describe("model verification", () => {
 				{
 					id: "context_size",
 					status: "failed",
-					feedback: "maximum context length is 4096",
+					feedback:
+						'Your endpoint refused a test prompt filling about 70% of the declared 10,000-token context size. It answered: "maximum context length is 4096"',
 				},
 				{ id: "max_output", status: "passed" },
 			]);
@@ -912,7 +913,8 @@ describe("model verification", () => {
 			expect(result.checks[2]).toMatchObject({
 				id: "max_output",
 				status: "failed",
-				feedback: "max_tokens must be <= 2048",
+				feedback:
+					'Your endpoint refused a request for the declared max output of 4,096 tokens. It answered: "max_tokens must be <= 2048"',
 			});
 		});
 	});

@@ -1058,6 +1058,38 @@ async function runReasoningCheck(
 	};
 }
 
+/**
+ * An upstream refusal of a limit probe is worded for whoever sent the request
+ * ("your messages resulted in…"), which reads as nonsense to a carrier who sent
+ * nothing. Say what the probe was before quoting the answer.
+ */
+function explainLimitRefusal(
+	id: ModelVerificationCheckId,
+	target: ProviderModelVerificationTarget,
+	failure: CheckFailure | null,
+): CheckFailure | null {
+	if (!failure?.rejected) {
+		return failure;
+	}
+	const tokens = (count: number) => count.toLocaleString("en-US");
+	let probe: string;
+	if (id === "context_size" && target.contextSize) {
+		const sent = contextSizeTargetTokens(target.contextSize);
+		probe =
+			sent === CONTEXT_MAX_PROBE_TOKENS
+				? `a test prompt of about ${tokens(sent)} tokens, the most preflight sends for the declared ${tokens(target.contextSize)}-token context size`
+				: `a test prompt filling about 70% of the declared ${tokens(target.contextSize)}-token context size`;
+	} else if (id === "max_output" && target.maxOutput) {
+		probe = `a request for the declared max output of ${tokens(target.maxOutput)} tokens`;
+	} else {
+		return failure;
+	}
+	return {
+		...failure,
+		message: `Your endpoint refused ${probe}. It answered: "${failure.message}"`,
+	};
+}
+
 async function runCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
@@ -1075,7 +1107,13 @@ async function runCheck(
 		);
 	}
 	if (definition.id !== "tools") {
-		return { failure: await attemptCheck(definition, options, secrets) };
+		return {
+			failure: explainLimitRefusal(
+				definition.id,
+				options.target,
+				await attemptCheck(definition, options, secrets),
+			),
+		};
 	}
 	// Several OpenAI-compatible serving stacks mishandle the forcing modes and
 	// answer "required" with the model's raw tool markup as assistant content.

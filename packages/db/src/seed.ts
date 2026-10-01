@@ -3499,7 +3499,7 @@ async function seedAirside() {
 				label: "Context size",
 				status: "failed",
 				feedback:
-					"This model's maximum context length is 65536 tokens. However, your messages resulted in 68211 tokens.",
+					'Your endpoint refused a test prompt filling about 70% of the declared 128,000-token context size. It answered: "This model\'s maximum context length is 65536 tokens. However, your messages resulted in 68211 tokens."',
 			},
 			{ id: "max_output", label: "Max output", status: "passed" },
 		],
