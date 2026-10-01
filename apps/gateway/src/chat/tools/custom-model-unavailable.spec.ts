@@ -18,6 +18,8 @@ describe("isCustomModelUnavailableError", () => {
 		`{"error":{"message":"Model 'gpt-5.4-nano' does not support images"}}`,
 		`{"error":{"message":"temperature is not supported"}}`,
 		`{"error":{"message":"Model 'gpt-5.4' is not supported"}}`,
+		`{"error":{"message":"Model 'gpt-5.4-nano' is not supported for tool calls"}}`,
+		`{"error":{"message":"Model gpt-5.4-nano is not available with streaming"}}`,
 		"",
 	])("ignores %s", (errorText) => {
 		expect(isCustomModelUnavailableError(errorText, "gpt-5.4-nano")).toBe(

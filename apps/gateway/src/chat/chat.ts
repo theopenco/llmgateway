@@ -491,9 +491,13 @@ function dropLowUptimeCustomProviders(
 	if (healthy.length === 0 || healthy.length === providers.length) {
 		return providers;
 	}
-	recordFilteredProvider(filteredOut, "custom", [
-		exclusionReason("low_uptime"),
-	]);
+	// filteredProviders is keyed by provider id, which every custom mapping
+	// shares, so only report the exclusion when no custom mapping survived.
+	if (!healthy.some(isCustomAutoRoutingMapping)) {
+		recordFilteredProvider(filteredOut, "custom", [
+			exclusionReason("low_uptime"),
+		]);
+	}
 	return healthy;
 }
 
@@ -2841,6 +2845,14 @@ chat.openapi(completions, async (c) => {
 	// keyed per (org, model, session); creating it lazily per model id keeps the
 	// final routing decision pinned without affecting region sub-selection.
 	const sessionStickyEnabled = Boolean(sessionId) && routingCfg.session.enabled;
+	// Sticky sessions keep their own uptime policy, so a pinned custom provider
+	// is only dropped once the session threshold would break the pin anyway.
+	const customLowUptimeThreshold = sessionStickyEnabled
+		? Math.min(
+				routingCfg.retry.lowUptimeFallbackThreshold,
+				routingCfg.session.uptimeThreshold,
+			)
+		: routingCfg.retry.lowUptimeFallbackThreshold;
 	const createSessionStore = (modelId: string) =>
 		sessionStickyEnabled && sessionId
 			? createSessionProviderStore(
@@ -4270,7 +4282,7 @@ chat.openapi(completions, async (c) => {
 					dropLowUptimeCustomProviders(
 						toolChoiceSuitableProviders,
 						modelDef.id,
-						routingCfg.retry.lowUptimeFallbackThreshold,
+						customLowUptimeThreshold,
 						filteredOutForModel,
 					),
 					modelDef.id,
@@ -5409,7 +5421,7 @@ chat.openapi(completions, async (c) => {
 				dropLowUptimeCustomProviders(
 					eligibleModelProviders,
 					modelInfo.id,
-					routingCfg.retry.lowUptimeFallbackThreshold,
+					customLowUptimeThreshold,
 					filteredOutProvidersDirect,
 				),
 				modelInfo.id,
