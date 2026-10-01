@@ -7,6 +7,7 @@ import {
 	DiscountForm,
 	RoutingScoreMultiplierForm,
 } from "@/components/discount-form";
+import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -383,11 +384,13 @@ export default async function DiscountsPage({
 				<div className="flex flex-wrap items-center gap-3">
 					<ViewToggle active="global" />
 					{options && (
-						<DiscountForm
-							providers={options.providers}
-							mappings={options.mappings}
-							onSubmit={handleCreateDiscount}
-						/>
+						<AdminOnly>
+							<DiscountForm
+								providers={options.providers}
+								mappings={options.mappings}
+								onSubmit={handleCreateDiscount}
+							/>
+						</AdminOnly>
 					)}
 				</div>
 			</header>
@@ -426,10 +429,12 @@ export default async function DiscountsPage({
 								<TableRow key={discount.id}>
 									<DiscountCells discount={discount} />
 									<TableCell>
-										<DeleteDiscountButton
-											discountId={discount.id}
-											onDelete={handleDeleteDiscount}
-										/>
+										<AdminOnly>
+											<DeleteDiscountButton
+												discountId={discount.id}
+												onDelete={handleDeleteDiscount}
+											/>
+										</AdminOnly>
 									</TableCell>
 								</TableRow>
 							))
@@ -452,11 +457,13 @@ export default async function DiscountsPage({
 						</div>
 					</div>
 					{options && (
-						<RoutingScoreMultiplierForm
-							providers={options.providers}
-							mappings={options.mappings}
-							onSubmit={handleCreateRoutingScoreMultiplier}
-						/>
+						<AdminOnly>
+							<RoutingScoreMultiplierForm
+								providers={options.providers}
+								mappings={options.mappings}
+								onSubmit={handleCreateRoutingScoreMultiplier}
+							/>
+						</AdminOnly>
 					)}
 				</div>
 
@@ -511,10 +518,12 @@ export default async function DiscountsPage({
 												}
 											/>
 											<TableCell>
-												<DeleteRoutingScoreMultiplierButton
-													multiplierId={multiplier.id}
-													onDelete={handleDeleteRoutingScoreMultiplier}
-												/>
+												<AdminOnly>
+													<DeleteRoutingScoreMultiplierButton
+														multiplierId={multiplier.id}
+														onDelete={handleDeleteRoutingScoreMultiplier}
+													/>
+												</AdminOnly>
 											</TableCell>
 										</TableRow>
 									);

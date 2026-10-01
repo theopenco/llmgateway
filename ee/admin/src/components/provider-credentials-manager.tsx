@@ -70,6 +70,8 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 import { apiErrorMessage, thrownErrorMessage } from "@/lib/api-error";
 import { useFetchClient } from "@/lib/fetch-client";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
@@ -453,10 +455,12 @@ function RotationPosition({
 /** Every cell of a managed credential row after the leading position cell. */
 function ManagedCredentialCells({
 	credential,
+	isAdmin,
 	onEdit,
 	onDelete,
 }: {
 	credential: ProviderCredential;
+	isAdmin: boolean;
 	onEdit: (credential: ProviderCredential) => void;
 	onDelete: (credential: ProviderCredential) => void;
 }) {
@@ -544,21 +548,24 @@ function ManagedCredentialCells({
 						providerKeyId={credential.id}
 						label={`${credential.provider} ${credential.maskedToken}`}
 					/>
-					<Button
-						asChild
-						variant="ghost"
-						size="sm"
-						title="Model breakdown in Global Stats"
-					>
-						<Link
-							href={`/global-stats?providerKeyId=${encodeURIComponent(credential.id)}`}
-							aria-label={`View model breakdown for ${credential.provider} credential ${credential.maskedToken}`}
+					{/* Global Stats is admin-only. */}
+					{isAdmin && (
+						<Button
+							asChild
+							variant="ghost"
+							size="sm"
+							title="Model breakdown in Global Stats"
 						>
-							<Layers className="h-4 w-4" />
-						</Link>
-					</Button>
+							<Link
+								href={`/global-stats?providerKeyId=${encodeURIComponent(credential.id)}`}
+								aria-label={`View model breakdown for ${credential.provider} credential ${credential.maskedToken}`}
+							>
+								<Layers className="h-4 w-4" />
+							</Link>
+						</Button>
+					)}
 					{/* Update and delete both reject a deleted credential. */}
-					{isDeleted ? null : (
+					{isDeleted || !isAdmin ? null : (
 						<>
 							<Button
 								variant="ghost"
@@ -598,7 +605,10 @@ export function ProviderCredentialsManager({
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const providerFilter = searchParams.get("provider") ?? ALL_PROVIDERS;
-	const view = searchParams.get("view") === "spend" ? "spend" : "credentials";
+	// Staff roles cannot load the spend overview or change credentials.
+	const isAdmin = canWrite(useAdminRole());
+	const view =
+		isAdmin && searchParams.get("view") === "spend" ? "spend" : "credentials";
 	// The page reads `deleted` server-side to decide whether the API returns
 	// soft-deleted credentials at all.
 	const showDeleted = searchParams.get("deleted") === "1";
@@ -908,6 +918,7 @@ export function ProviderCredentialsManager({
 				</TableCell>
 				<ManagedCredentialCells
 					credential={credential}
+					isAdmin={isAdmin}
 					onEdit={editCredential}
 					onDelete={requestDelete}
 				/>
@@ -962,7 +973,7 @@ export function ProviderCredentialsManager({
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<TabsList>
 					<TabsTrigger value="credentials">Credentials</TabsTrigger>
-					<TabsTrigger value="spend">Spend</TabsTrigger>
+					{isAdmin && <TabsTrigger value="spend">Spend</TabsTrigger>}
 				</TabsList>
 				<div className="flex flex-1 flex-wrap items-center justify-end gap-3">
 					<div className="w-full sm:w-72">
@@ -976,24 +987,28 @@ export function ProviderCredentialsManager({
 							aria-label="Filter by provider"
 						/>
 					</div>
-					<Button onClick={() => setCreating(true)}>
-						<Plus className="mr-1 h-4 w-4" />
-						Add credential
-					</Button>
+					{isAdmin && (
+						<Button onClick={() => setCreating(true)}>
+							<Plus className="mr-1 h-4 w-4" />
+							Add credential
+						</Button>
+					)}
 				</div>
 			</div>
 
 			{/* Inactive tab content is unmounted, so the charts and their query
 			    only exist once the Spend tab is opened — with dozens of providers
 			    the table view stays free of them entirely. */}
-			<TabsContent value="spend">
-				<ProviderCredentialsSpendOverview
-					providerFilter={
-						providerFilter === ALL_PROVIDERS ? null : providerFilter
-					}
-					providerNames={providerNames}
-				/>
-			</TabsContent>
+			{isAdmin && (
+				<TabsContent value="spend">
+					<ProviderCredentialsSpendOverview
+						providerFilter={
+							providerFilter === ALL_PROVIDERS ? null : providerFilter
+						}
+						providerNames={providerNames}
+					/>
+				</TabsContent>
+			)}
 
 			<TabsContent value="credentials" className="flex flex-col gap-2">
 				<div className="flex flex-wrap items-center justify-between gap-3">
@@ -1123,7 +1138,16 @@ export function ProviderCredentialsManager({
 										const deleted = deletedByProvider.get(provider) ?? [];
 										return (
 											<Fragment key={provider}>
-												{ids.length > 0 ? (
+												{ids.length > 0 && !isAdmin ? (
+													<TableBody>
+														{ids.flatMap((id: string) => {
+															const credential = credentialById.get(id);
+															return credential
+																? [renderStaticRow(credential)]
+																: [];
+														})}
+													</TableBody>
+												) : ids.length > 0 ? (
 													<ReorderableList
 														as="tbody"
 														ids={ids}
@@ -1169,6 +1193,7 @@ export function ProviderCredentialsManager({
 																			</TableCell>
 																			<ManagedCredentialCells
 																				credential={credential}
+																				isAdmin={isAdmin}
 																				onEdit={editCredential}
 																				onDelete={requestDelete}
 																			/>

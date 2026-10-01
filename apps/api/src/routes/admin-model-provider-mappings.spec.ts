@@ -5,7 +5,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, inArray, tables } from "@llmgateway/db";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 const DAY_MS = 86_400_000;
 const MODEL_PREFIX = "admin-regional-mapping-totals";
 const BEDROCK_MODEL = `${MODEL_PREFIX}-bedrock`;
@@ -69,7 +69,7 @@ describe("admin model-provider mapping totals", () => {
 	let toDate: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await clearFixtures();
 
@@ -195,9 +195,9 @@ describe("admin model-provider mapping totals", () => {
 		await clearFixtures();
 		await deleteAll();
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 	});
 

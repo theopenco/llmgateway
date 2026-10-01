@@ -11,6 +11,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -437,12 +438,14 @@ export function PaymentMethodsList({
 										{paymentMethod.id}
 									</p>
 								</div>
-								<DeletePaymentMethodDialog
-									paymentMethod={paymentMethod}
-									paymentMethods={paymentMethods}
-									autoTopUpEnabled={autoTopUpEnabled}
-									onDelete={onDelete}
-								/>
+								<AdminOnly>
+									<DeletePaymentMethodDialog
+										paymentMethod={paymentMethod}
+										paymentMethods={paymentMethods}
+										autoTopUpEnabled={autoTopUpEnabled}
+										onDelete={onDelete}
+									/>
+								</AdminOnly>
 							</div>
 						);
 					})}
@@ -491,10 +494,12 @@ export function PaymentMethodsList({
 											: " · End the DevPass subscription before release"}
 									</p>
 								</div>
-								<ReleaseFingerprintDialog
-									fingerprint={fingerprint}
-									onRelease={onReleaseFingerprint}
-								/>
+								<AdminOnly>
+									<ReleaseFingerprintDialog
+										fingerprint={fingerprint}
+										onRelease={onReleaseFingerprint}
+									/>
+								</AdminOnly>
 							</div>
 						))}
 					</div>

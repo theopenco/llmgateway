@@ -45,6 +45,8 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
@@ -164,6 +166,7 @@ export function ChatSupportLogsClient() {
 	const searchParams = useSearchParams();
 	const router = useRouter();
 	const pathname = usePathname();
+	const canManage = canWrite(useAdminRole());
 	const selectedId = searchParams.get("chat");
 	const setSelectedId = useCallback(
 		(id: string | null) => {
@@ -337,26 +340,28 @@ export function ChatSupportLogsClient() {
 	useEffect(() => {
 		if (detail?.messages && selectedId) {
 			messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-			markRead({
-				params: { path: { id: selectedId } },
-				body: { messageCount: detail.messages.length },
-			});
+			if (canManage) {
+				markRead({
+					params: { path: { id: selectedId } },
+					body: { messageCount: detail.messages.length },
+				});
+			}
 		}
-	}, [detail?.messages, selectedId, markRead]);
+	}, [detail?.messages, selectedId, markRead, canManage]);
 
 	const handleSelectConversation = useCallback(
 		(id: string) => {
 			setSelectedId(id);
 			setReplyText("");
 			const conv = conversations.find((c) => c.id === id);
-			if (conv) {
+			if (conv && canManage) {
 				markRead({
 					params: { path: { id } },
 					body: { messageCount: conv.messageCount },
 				});
 			}
 		},
-		[conversations, markRead, setSelectedId],
+		[conversations, markRead, setSelectedId, canManage],
 	);
 
 	const handleReplySubmit = (e: React.FormEvent) => {
@@ -636,30 +641,32 @@ export function ChatSupportLogsClient() {
 										</button>
 										{/* Selection checkbox — overlays the avatar on hover or
 										    while any conversation is selected. */}
-										<button
-											type="button"
-											role="checkbox"
-											aria-checked={selectedIds.has(conv.id)}
-											aria-label={
-												selectedIds.has(conv.id)
-													? "Deselect conversation"
-													: "Select conversation"
-											}
-											onClick={() => toggleSelected(conv.id)}
-											className={cn(
-												"absolute left-3 top-3 flex h-8 w-8 items-center justify-center rounded-full border transition-opacity",
-												selectedIds.has(conv.id)
-													? "border-primary bg-primary text-primary-foreground opacity-100"
-													: cn(
-															"border-border bg-background text-transparent hover:text-muted-foreground",
-															selectionMode
-																? "opacity-100"
-																: "opacity-0 focus-visible:opacity-100 group-hover:opacity-100",
-														),
-											)}
-										>
-											<Check className="h-4 w-4" />
-										</button>
+										{canManage && (
+											<button
+												type="button"
+												role="checkbox"
+												aria-checked={selectedIds.has(conv.id)}
+												aria-label={
+													selectedIds.has(conv.id)
+														? "Deselect conversation"
+														: "Select conversation"
+												}
+												onClick={() => toggleSelected(conv.id)}
+												className={cn(
+													"absolute left-3 top-3 flex h-8 w-8 items-center justify-center rounded-full border transition-opacity",
+													selectedIds.has(conv.id)
+														? "border-primary bg-primary text-primary-foreground opacity-100"
+														: cn(
+																"border-border bg-background text-transparent hover:text-muted-foreground",
+																selectionMode
+																	? "opacity-100"
+																	: "opacity-0 focus-visible:opacity-100 group-hover:opacity-100",
+															),
+												)}
+											>
+												<Check className="h-4 w-4" />
+											</button>
+										)}
 									</div>
 								))}
 							</div>
@@ -753,43 +760,45 @@ export function ChatSupportLogsClient() {
 								{/* Actions menu — the right-side panel (with archive/delete)
 								    only renders at xl+, so expose the same actions here for
 								    mobile and tablet. */}
-								<DropdownMenu>
-									<DropdownMenuTrigger asChild>
-										<button
-											type="button"
-											aria-label="Conversation actions"
-											className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground xl:hidden"
-										>
-											<MoreVertical className="h-4 w-4" />
-											<span className="sr-only">Conversation actions</span>
-										</button>
-									</DropdownMenuTrigger>
-									<DropdownMenuContent align="end">
-										<DropdownMenuItem
-											onClick={handleToggleArchive}
-											disabled={archiveMutation.isPending}
-										>
-											{isArchived ? (
-												<>
-													<ArchiveRestore className="mr-2 h-4 w-4" />
-													Unarchive
-												</>
-											) : (
-												<>
-													<Archive className="mr-2 h-4 w-4" />
-													Archive
-												</>
-											)}
-										</DropdownMenuItem>
-										<DropdownMenuItem
-											onClick={() => setDeleteDialogOpen(true)}
-											className="text-destructive focus:text-destructive"
-										>
-											<Trash2 className="mr-2 h-4 w-4" />
-											Delete
-										</DropdownMenuItem>
-									</DropdownMenuContent>
-								</DropdownMenu>
+								{canManage && (
+									<DropdownMenu>
+										<DropdownMenuTrigger asChild>
+											<button
+												type="button"
+												aria-label="Conversation actions"
+												className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground xl:hidden"
+											>
+												<MoreVertical className="h-4 w-4" />
+												<span className="sr-only">Conversation actions</span>
+											</button>
+										</DropdownMenuTrigger>
+										<DropdownMenuContent align="end">
+											<DropdownMenuItem
+												onClick={handleToggleArchive}
+												disabled={archiveMutation.isPending}
+											>
+												{isArchived ? (
+													<>
+														<ArchiveRestore className="mr-2 h-4 w-4" />
+														Unarchive
+													</>
+												) : (
+													<>
+														<Archive className="mr-2 h-4 w-4" />
+														Archive
+													</>
+												)}
+											</DropdownMenuItem>
+											<DropdownMenuItem
+												onClick={() => setDeleteDialogOpen(true)}
+												className="text-destructive focus:text-destructive"
+											>
+												<Trash2 className="mr-2 h-4 w-4" />
+												Delete
+											</DropdownMenuItem>
+										</DropdownMenuContent>
+									</DropdownMenu>
+								)}
 							</div>
 
 							{/* Messages */}
@@ -870,39 +879,41 @@ export function ChatSupportLogsClient() {
 							</ScrollArea>
 
 							{/* Reply input */}
-							<div className="border-t border-border/60 px-4 py-3">
-								<form
-									onSubmit={handleReplySubmit}
-									className="flex items-end gap-2"
-								>
-									<textarea
-										ref={replyInputRef}
-										value={replyText}
-										onChange={(e) => setReplyText(e.target.value)}
-										onKeyDown={handleReplyKeyDown}
-										placeholder={
-											detail.email
-												? "Reply (will also be sent via email)..."
-												: "Reply..."
-										}
-										rows={1}
-										className="field-sizing-content max-h-24 min-h-[2.25rem] flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
-									/>
-									<button
-										type="submit"
-										disabled={!replyText.trim() || replyMutation.isPending}
-										className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+							{canManage && (
+								<div className="border-t border-border/60 px-4 py-3">
+									<form
+										onSubmit={handleReplySubmit}
+										className="flex items-end gap-2"
 									>
-										<Send className="h-4 w-4" />
-										<span className="sr-only">Send reply</span>
-									</button>
-								</form>
-								{replyMutation.isError && (
-									<p className="mt-1.5 text-xs text-destructive">
-										Failed to send reply. Please try again.
-									</p>
-								)}
-							</div>
+										<textarea
+											ref={replyInputRef}
+											value={replyText}
+											onChange={(e) => setReplyText(e.target.value)}
+											onKeyDown={handleReplyKeyDown}
+											placeholder={
+												detail.email
+													? "Reply (will also be sent via email)..."
+													: "Reply..."
+											}
+											rows={1}
+											className="field-sizing-content max-h-24 min-h-[2.25rem] flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
+										/>
+										<button
+											type="submit"
+											disabled={!replyText.trim() || replyMutation.isPending}
+											className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+										>
+											<Send className="h-4 w-4" />
+											<span className="sr-only">Send reply</span>
+										</button>
+									</form>
+									{replyMutation.isError && (
+										<p className="mt-1.5 text-xs text-destructive">
+											Failed to send reply. Please try again.
+										</p>
+									)}
+								</div>
+							)}
 						</>
 					) : null}
 				</div>
@@ -1115,47 +1126,49 @@ export function ChatSupportLogsClient() {
 							</ScrollArea>
 
 							{/* Delete conversation */}
-							<div className="border-t border-border/60 p-4">
-								<Button
-									variant="outline"
-									size="sm"
-									className="w-full"
-									disabled={archiveMutation.isPending}
-									onClick={() => {
-										if (selectedId) {
-											archiveMutation.mutate({
-												params: { path: { id: selectedId } },
-												body: {
-													archived: !(
-														detail?.archivedAt ?? selectedConv?.archivedAt
-													),
-												},
-											});
-										}
-									}}
-								>
-									{(detail?.archivedAt ?? selectedConv?.archivedAt) ? (
-										<>
-											<ArchiveRestore className="mr-2 h-3.5 w-3.5" />
-											Unarchive
-										</>
-									) : (
-										<>
-											<Archive className="mr-2 h-3.5 w-3.5" />
-											Archive
-										</>
-									)}
-								</Button>
-								<Button
-									variant="destructive"
-									size="sm"
-									className="w-full"
-									onClick={() => setDeleteDialogOpen(true)}
-								>
-									<Trash2 className="mr-2 h-3.5 w-3.5" />
-									Delete Conversation
-								</Button>
-							</div>
+							{canManage && (
+								<div className="border-t border-border/60 p-4">
+									<Button
+										variant="outline"
+										size="sm"
+										className="w-full"
+										disabled={archiveMutation.isPending}
+										onClick={() => {
+											if (selectedId) {
+												archiveMutation.mutate({
+													params: { path: { id: selectedId } },
+													body: {
+														archived: !(
+															detail?.archivedAt ?? selectedConv?.archivedAt
+														),
+													},
+												});
+											}
+										}}
+									>
+										{(detail?.archivedAt ?? selectedConv?.archivedAt) ? (
+											<>
+												<ArchiveRestore className="mr-2 h-3.5 w-3.5" />
+												Unarchive
+											</>
+										) : (
+											<>
+												<Archive className="mr-2 h-3.5 w-3.5" />
+												Archive
+											</>
+										)}
+									</Button>
+									<Button
+										variant="destructive"
+										size="sm"
+										className="w-full"
+										onClick={() => setDeleteDialogOpen(true)}
+									>
+										<Trash2 className="mr-2 h-3.5 w-3.5" />
+										Delete Conversation
+									</Button>
+								</div>
+							)}
 						</>
 					) : (
 						<div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-muted-foreground">

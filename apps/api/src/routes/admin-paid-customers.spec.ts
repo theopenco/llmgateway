@@ -68,7 +68,7 @@ describe("admin paid customers — transaction type matrix", () => {
 	const expectedPaidCustomers = paidTransactionTypes.length + 1;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 
 		await db.insert(tables.organization).values([
@@ -177,7 +177,7 @@ describe("admin paid customers — bounded range baseline", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 
 		await db.insert(tables.organization).values([
@@ -280,7 +280,7 @@ describe("admin timeseries — devpass revenue series", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 
 		await db.insert(tables.organization).values([

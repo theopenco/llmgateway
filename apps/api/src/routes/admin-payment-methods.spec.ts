@@ -32,7 +32,7 @@ vi.mock("@/routes/payments.js", async (importOriginal) => {
 	};
 });
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 const ORG_ID = "admin-payment-methods-org";
 const STRIPE_CUSTOMER_ID = "cus_admin_payment_methods";
 const STRIPE_PAYMENT_METHOD_ID = "pm_admin_payment_method";
@@ -66,7 +66,7 @@ describe("admin organization payment methods", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		vi.clearAllMocks();
 
@@ -125,9 +125,9 @@ describe("admin organization payment methods", () => {
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		await deleteAll();
 	});

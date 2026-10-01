@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 import { useApi } from "@/lib/fetch-client";
 
 import type { ReactNode } from "react";
@@ -258,6 +260,7 @@ export function ModelVerificationDialog({
 	children: ReactNode;
 }) {
 	const api = useApi();
+	const readOnly = !canWrite(useAdminRole());
 	const [open, setOpen] = useState(false);
 	const [apiKey, setApiKey] = useState("");
 	const [verificationId, setVerificationId] = useState(latest?.id ?? "");
@@ -347,27 +350,29 @@ export function ModelVerificationDialog({
 					</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-4">
-					<div className="space-y-2">
-						<Label htmlFor="admin-verify-api-key">
-							Provider API key{" "}
-							<span className="text-muted-foreground">(optional)</span>
-						</Label>
-						<Input
-							id="admin-verify-api-key"
-							type="password"
-							autoComplete="off"
-							value={apiKey}
-							onChange={(event) => setApiKey(event.target.value)}
-							placeholder="Uses the carrier's saved test key when blank"
-						/>
-						<p className="text-xs text-muted-foreground">
-							A pasted key is scoped to this run and erased when it finishes.
-							Left blank, a carrier-claimed provider runs on the test key that
-							carrier saved in Airside — so the run is billed to them, not us.
-							An unclaimed catalogue mapping falls back to the managed or
-							environment credential.
-						</p>
-					</div>
+					{!readOnly && (
+						<div className="space-y-2">
+							<Label htmlFor="admin-verify-api-key">
+								Provider API key{" "}
+								<span className="text-muted-foreground">(optional)</span>
+							</Label>
+							<Input
+								id="admin-verify-api-key"
+								type="password"
+								autoComplete="off"
+								value={apiKey}
+								onChange={(event) => setApiKey(event.target.value)}
+								placeholder="Uses the carrier's saved test key when blank"
+							/>
+							<p className="text-xs text-muted-foreground">
+								A pasted key is scoped to this run and erased when it finishes.
+								Left blank, a carrier-claimed provider runs on the test key that
+								carrier saved in Airside — so the run is billed to them, not us.
+								An unclaimed catalogue mapping falls back to the managed or
+								environment credential.
+							</p>
+						</div>
+					)}
 					{credentialSource ? (
 						<p className="text-xs text-muted-foreground">
 							Ran on the{" "}
@@ -392,25 +397,27 @@ export function ModelVerificationDialog({
 						onSelect={setVerificationId}
 					/>
 				</div>
-				<DialogFooter>
-					<Button
-						type="button"
-						disabled={queue.isPending || inFlight}
-						data-testid="run-model-verification"
-						onClick={() =>
-							queue.mutate({
-								body: {
-									...(mappingId ? { mappingId } : {}),
-									...(draftModelId ? { draftModelId } : {}),
-									...(apiKey ? { apiKey } : {}),
-								},
-							})
-						}
-					>
-						<ShieldCheck className="mr-1 h-4 w-4" />
-						{queue.isPending ? "Queueing…" : "Run verification"}
-					</Button>
-				</DialogFooter>
+				{!readOnly && (
+					<DialogFooter>
+						<Button
+							type="button"
+							disabled={queue.isPending || inFlight}
+							data-testid="run-model-verification"
+							onClick={() =>
+								queue.mutate({
+									body: {
+										...(mappingId ? { mappingId } : {}),
+										...(draftModelId ? { draftModelId } : {}),
+										...(apiKey ? { apiKey } : {}),
+									},
+								})
+							}
+						>
+							<ShieldCheck className="mr-1 h-4 w-4" />
+							{queue.isPending ? "Queueing…" : "Run verification"}
+						</Button>
+					</DialogFooter>
+				)}
 			</DialogContent>
 		</Dialog>
 	);

@@ -12,10 +12,12 @@ import {
 import { DevpassTimeseriesChart } from "@/components/devpass-timeseries-chart";
 import { DevpassUsage } from "@/components/devpass-usage";
 import { Button } from "@/components/ui/button";
+import { canWrite } from "@/lib/admin-role";
 import {
 	DEVPASS_USAGE_DEFAULT_RANGE,
 	resolveDateRange,
 } from "@/lib/date-range";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { requireSession } from "@/lib/require-session";
 import { cn } from "@/lib/utils";
 
@@ -166,6 +168,7 @@ export default async function DevpassPage({
 	}>;
 }) {
 	await requireSession();
+	const isAdmin = canWrite(await getSessionAdminRole());
 
 	const params = await searchParams;
 	const range = typeof params?.range === "string" ? params?.range : undefined;
@@ -330,16 +333,22 @@ export default async function DevpassPage({
 						real provider cost, and margin.
 					</p>
 				</div>
-				<Suspense>
-					<DateRangePicker />
-				</Suspense>
+				{isAdmin && (
+					<Suspense>
+						<DateRangePicker />
+					</Suspense>
+				)}
 			</header>
 
-			<DevpassKpis from={from} to={to} />
+			{isAdmin && (
+				<>
+					<DevpassKpis from={from} to={to} />
 
-			<DevpassTimeseriesChart from={from} to={to} />
+					<DevpassTimeseriesChart from={from} to={to} />
 
-			<DevpassUsage from={usageFrom} to={usageTo} />
+					<DevpassUsage from={usageFrom} to={usageTo} />
+				</>
+			)}
 
 			<form
 				action={handleSearch}

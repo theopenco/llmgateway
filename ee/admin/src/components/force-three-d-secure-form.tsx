@@ -11,6 +11,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 
 import type { ForceThreeDSecureMode } from "@/lib/admin-settings";
 
@@ -34,6 +36,7 @@ export function ForceThreeDSecureForm({
 	onSave,
 }: ForceThreeDSecureFormProps) {
 	const router = useRouter();
+	const readOnly = !canWrite(useAdminRole());
 	const [pending, startTransition] = useTransition();
 	const [error, setError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
@@ -55,7 +58,11 @@ export function ForceThreeDSecureForm({
 	return (
 		<div className="flex flex-col gap-2">
 			<Label htmlFor="force-3ds">Requested level</Label>
-			<Select value={mode} disabled={pending} onValueChange={handleChange}>
+			<Select
+				value={mode}
+				disabled={pending || readOnly}
+				onValueChange={handleChange}
+			>
 				<SelectTrigger id="force-3ds" className="w-full">
 					<SelectValue />
 				</SelectTrigger>

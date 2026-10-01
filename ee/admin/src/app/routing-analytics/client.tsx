@@ -995,7 +995,7 @@ export function RoutingAnalyticsClient() {
 																−{(mapping.discount * 100).toFixed(0)}%
 															</div>
 														) : null}
-														{mapping.routingAdjustment !== 0 ? (
+														{mapping.routingAdjustment ? (
 															<div className="text-[11px] text-muted-foreground">
 																routes at{" "}
 																{formatSelectionPrice(

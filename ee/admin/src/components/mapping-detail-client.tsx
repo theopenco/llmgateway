@@ -11,6 +11,7 @@ import {
 	ModelVerificationDialog,
 	VerificationStatusBadge,
 } from "@/components/model-verification-dialog";
+import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getMappingDetail, getMappingHistory } from "@/lib/admin-history";
@@ -160,7 +161,7 @@ export function MappingDetailClient({
 				>
 					<Button variant="outline" size="sm" data-testid="verify-mapping">
 						<ShieldCheck className="mr-1 h-4 w-4" />
-						Verify
+						<AdminOnly fallback="Verification">Verify</AdminOnly>
 					</Button>
 				</ModelVerificationDialog>
 			</header>
