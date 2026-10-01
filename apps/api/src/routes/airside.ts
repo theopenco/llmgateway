@@ -18,6 +18,7 @@ import {
 	claimableProvidersForDomains,
 	emailRegistrableDomain,
 	isFreemailDomain,
+	parseRegistrableDomain,
 	registrableDomain,
 	verifiedWebsiteDomain,
 	WEBSITE_VERIFICATION_TXT_NAME,
@@ -277,6 +278,8 @@ const companySchema = z.object({
 	// only while the proof still covers the current `website`.
 	websiteVerifiedDomain: z.string().nullable(),
 	websiteVerifiedAt: z.string().nullable(),
+	// Additional domains the company proved over DNS.
+	verifiedDomains: z.array(z.string()),
 	role: z.enum(["owner", "member"]),
 	paymentStatus: z.enum(["unpaid", "paid"]),
 	// Whether this deployment enforces the listing fee at all.
@@ -682,7 +685,7 @@ async function userClaimDomains(user: {
 }): Promise<Set<string>> {
 	const memberships = await db.query.providerCompanyMember.findMany({
 		where: { userId: { eq: user.id } },
-		with: { providerCompany: true },
+		with: { providerCompany: { with: { domains: true } } },
 	});
 	const domains = acceptedClaimDomains(user.email, null);
 	for (const membership of memberships) {
@@ -694,8 +697,17 @@ async function userClaimDomains(user: {
 		if (verified) {
 			domains.add(verified);
 		}
+		for (const domain of verifiedExtraDomains(company.domains)) {
+			domains.add(domain);
+		}
 	}
 	return domains;
+}
+
+function verifiedExtraDomains(
+	domains: { domain: string; verifiedAt: Date | null }[],
+): string[] {
+	return domains.filter((d) => d.verifiedAt).map((d) => d.domain);
 }
 
 async function getActiveClaimedProviderIds(
@@ -784,7 +796,7 @@ airside.openapi(listCompanies, async (c) => {
 	await attachPendingCrewInvites(user);
 	const memberships = await db.query.providerCompanyMember.findMany({
 		where: { userId: { eq: user.id } },
-		with: { providerCompany: { with: { claims: true } } },
+		with: { providerCompany: { with: { claims: true, domains: true } } },
 		orderBy: { createdAt: "asc" },
 	});
 	const providerNames = providerNamesById;
@@ -818,6 +830,7 @@ airside.openapi(listCompanies, async (c) => {
 					websiteVerifiedAt: verifiedDomain
 						? (company.websiteVerifiedAt?.toISOString() ?? null)
 						: null,
+					verifiedDomains: verifiedExtraDomains(company.domains),
 					role: m.role,
 					paymentStatus: company.paymentStatus,
 					paymentRequired: airsideListingFeeRequired(),
@@ -886,6 +899,7 @@ airside.openapi(createCompany, async (c) => {
 				website: company.website,
 				websiteVerifiedDomain: null,
 				websiteVerifiedAt: null,
+				verifiedDomains: [],
 				role: "owner" as const,
 				paymentStatus: company.paymentStatus,
 				paymentRequired: airsideListingFeeRequired(),
@@ -1036,6 +1050,233 @@ airside.openapi(checkWebsiteVerification, async (c) => {
 		verifiedDomain: updated.websiteVerifiedDomain,
 		verifiedAt: updated.websiteVerifiedAt?.toISOString() ?? null,
 	});
+});
+
+// ---------------------------------------------------------------------------
+// Additional company domains (DNS TXT)
+// ---------------------------------------------------------------------------
+
+const MAX_COMPANY_DOMAINS = 10;
+
+const companyDomainSchema = z.object({
+	id: z.string(),
+	domain: z.string(),
+	verifiedAt: z.string().nullable(),
+});
+
+const companyDomainsSchema = z.object({
+	recordName: z.string(),
+	recordValue: z.string(),
+	domains: z.array(companyDomainSchema),
+});
+
+function serializeCompanyDomain(row: {
+	id: string;
+	domain: string;
+	verifiedAt: Date | null;
+}) {
+	return {
+		id: row.id,
+		domain: row.domain,
+		verifiedAt: row.verifiedAt?.toISOString() ?? null,
+	};
+}
+
+async function requireCompany(id: string) {
+	const company = await db.query.providerCompany.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!company) {
+		throw new HTTPException(404, { message: "Provider company not found" });
+	}
+	return company;
+}
+
+const listCompanyDomains = createRoute({
+	method: "get",
+	path: "/companies/{id}/domains",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: { "application/json": { schema: companyDomainsSchema } },
+			description:
+				"Additional domains of the company and the TXT record that proves them.",
+		},
+	},
+});
+
+airside.openapi(listCompanyDomains, async (c) => {
+	const user = requireUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	await requireCompanyMembership(user.id, id);
+	const company = await requireCompany(id);
+	const domains = await db.query.providerCompanyDomain.findMany({
+		where: { providerCompanyId: { eq: id } },
+		orderBy: { createdAt: "asc" },
+	});
+	return c.json({
+		recordName: WEBSITE_VERIFICATION_TXT_NAME,
+		recordValue: websiteVerificationRecord(
+			await ensureVerificationToken(company),
+		),
+		domains: domains.map(serializeCompanyDomain),
+	});
+});
+
+const addCompanyDomain = createRoute({
+	method: "post",
+	path: "/companies/{id}/domains",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ domain: z.string().min(1).max(253) }),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ domain: companyDomainSchema }),
+				},
+			},
+			description: "The domain was added and awaits DNS verification.",
+		},
+	},
+});
+
+airside.openapi(addCompanyDomain, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	await requireCompanyMembership(user.id, id);
+	const company = await requireCompany(id);
+	const domain = parseRegistrableDomain(c.req.valid("json").domain);
+	if (!domain) {
+		throw new HTTPException(400, {
+			message: "Enter a valid domain, like example.com.",
+		});
+	}
+	if (isFreemailDomain(domain)) {
+		throw new HTTPException(400, {
+			message: "Personal email domains can't host a carrier API.",
+		});
+	}
+	if (domain === websiteDomainOf(company.website)) {
+		throw new HTTPException(400, {
+			message: `${domain} is your website's domain — verify it there.`,
+		});
+	}
+	const existing = await db.query.providerCompanyDomain.findMany({
+		where: { providerCompanyId: { eq: id } },
+	});
+	if (existing.some((row) => row.domain === domain)) {
+		throw new HTTPException(409, { message: `${domain} is already added.` });
+	}
+	if (existing.length >= MAX_COMPANY_DOMAINS) {
+		throw new HTTPException(400, {
+			message: `A company can add up to ${MAX_COMPANY_DOMAINS} domains.`,
+		});
+	}
+	let created: typeof tables.providerCompanyDomain.$inferSelect;
+	try {
+		[created] = await db
+			.insert(tables.providerCompanyDomain)
+			.values({ providerCompanyId: id, domain })
+			.returning();
+	} catch (err) {
+		if (isUniqueViolation(err)) {
+			throw new HTTPException(409, { message: `${domain} is already added.` });
+		}
+		throw err;
+	}
+	return c.json({ domain: serializeCompanyDomain(created) }, 201);
+});
+
+const verifyCompanyDomain = createRoute({
+	method: "post",
+	path: "/companies/{id}/domains/{domainId}/verify",
+	request: {
+		params: z.object({ id: z.string(), domainId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ domain: companyDomainSchema }),
+				},
+			},
+			description: "Re-resolves the TXT record and records the result.",
+		},
+	},
+});
+
+airside.openapi(verifyCompanyDomain, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id, domainId } = c.req.valid("param");
+	await requireCompanyMembership(user.id, id);
+	const company = await requireCompany(id);
+	const row = await db.query.providerCompanyDomain.findFirst({
+		where: { id: { eq: domainId }, providerCompanyId: { eq: id } },
+	});
+	if (!row) {
+		throw new HTTPException(404, { message: "Domain not found" });
+	}
+	const found = await domainPublishesToken(
+		WEBSITE_VERIFICATION_TXT_NAME,
+		row.domain,
+		await ensureVerificationToken(company),
+	);
+	if (!found) {
+		throw new HTTPException(400, {
+			message: `No matching TXT record on ${WEBSITE_VERIFICATION_TXT_NAME}.${row.domain} yet. DNS changes can take a few minutes to propagate.`,
+		});
+	}
+	const [updated] = await db
+		.update(tables.providerCompanyDomain)
+		.set({ verifiedAt: new Date() })
+		.where(eq(tables.providerCompanyDomain.id, row.id))
+		.returning();
+	return c.json({ domain: serializeCompanyDomain(updated) });
+});
+
+const removeCompanyDomain = createRoute({
+	method: "delete",
+	path: "/companies/{id}/domains/{domainId}",
+	request: {
+		params: z.object({ id: z.string(), domainId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ removed: z.literal(true) }),
+				},
+			},
+			description: "The domain was removed. Existing claims are unaffected.",
+		},
+	},
+});
+
+airside.openapi(removeCompanyDomain, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id, domainId } = c.req.valid("param");
+	await requireCompanyMembership(user.id, id);
+	const deleted = await db
+		.delete(tables.providerCompanyDomain)
+		.where(
+			and(
+				eq(tables.providerCompanyDomain.id, domainId),
+				eq(tables.providerCompanyDomain.providerCompanyId, id),
+			),
+		)
+		.returning();
+	if (deleted.length === 0) {
+		throw new HTTPException(404, { message: "Domain not found" });
+	}
+	return c.json({ removed: true as const });
 });
 
 // ---------------------------------------------------------------------------
@@ -1399,7 +1640,7 @@ airside.openapi(inviteCrewMember, async (c) => {
 	await requireCompanyOwnership(user.id, id);
 	const company = await db.query.providerCompany.findFirst({
 		where: { id: { eq: id } },
-		with: { claims: true },
+		with: { claims: true, domains: true },
 	});
 	if (!company) {
 		throw new HTTPException(404, { message: "Provider company not found" });
@@ -1417,6 +1658,9 @@ airside.openapi(inviteCrewMember, async (c) => {
 	const verified = verifiedWebsiteDomain(company);
 	if (verified) {
 		allowedDomains.add(verified);
+	}
+	for (const domain of verifiedExtraDomains(company.domains)) {
+		allowedDomains.add(domain);
 	}
 	for (const claim of company.claims) {
 		if (claim.status !== "revoked") {

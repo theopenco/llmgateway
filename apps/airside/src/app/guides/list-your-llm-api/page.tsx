@@ -24,10 +24,10 @@ export default function ListingGuide() {
 				<p>
 					Use a company email and verify it. Have your API base URL and public
 					website ready. The domain checks connect those addresses to the
-					provider you want to claim. If your email and API domains differ,
-					follow the website verification flow in onboarding. Existing catalogue
-					providers can be claimed; a new provider can register a custom
-					carrier.
+					provider you want to claim. If your email and API domains differ, add
+					the API domain in onboarding and verify it over DNS. Existing
+					catalogue providers can be claimed; a new provider can register a
+					custom carrier.
 				</p>
 				<p className="mt-3">
 					Onboarding shows the applicable listing fee or invite-code option

@@ -14,6 +14,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { CompanyDomainsCard } from "@/components/CompanyDomainsCard";
 import { CrewChannelCard } from "@/components/CrewChannelCard";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { Logo } from "@/components/Logo";
@@ -255,7 +256,8 @@ function RegisterCarrierDialog({
 								<>
 									Must be on{" "}
 									<span className="font-mono">{claimDomains.join(" or ")}</span>{" "}
-									— we only list an endpoint on a domain you proved.
+									— we only list an endpoint on a domain you proved. Hosted
+									elsewhere? Add and verify that domain in step 1.
 								</>
 							) : domainState === "endpoint-path" ? (
 								<>
@@ -446,13 +448,14 @@ function OnboardingContent() {
 	const paymentDue =
 		!!company && company.paymentRequired && company.paymentStatus === "unpaid";
 	const emailDomain = user?.email.split("@")[1] ?? "";
-	// Every domain this account may claim on: the verified email's, plus a
-	// company domain proved over DNS.
+	// Every domain this account may claim on: the verified email's, plus the
+	// company domains proved over DNS.
 	const claimDomains = Array.from(
 		new Set(
 			[
 				isFreemail ? null : emailDomain,
 				company?.websiteVerifiedDomain ?? null,
+				...(company?.verifiedDomains ?? []),
 			].filter((d): d is string => !!d),
 		),
 	);
@@ -519,6 +522,7 @@ function OnboardingContent() {
 									</Badge>
 								</div>
 								<WebsiteVerificationCard companyId={company.id} />
+								<CompanyDomainsCard companyId={company.id} />
 							</>
 						) : (
 							<form

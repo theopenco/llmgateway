@@ -3545,6 +3545,99 @@ describe("airside provider portal", () => {
 		expect(listed.websiteVerifiedDomain).toBeNull();
 	});
 
+	it("verifies an additional domain and accepts carriers hosted on it", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		const offDomain = { baseUrl: "https://flash.acme-sky.cloud" };
+		expect((await registerCarrier(cookie, company.id, offDomain)).status).toBe(
+			403,
+		);
+
+		// A URL or subdomain collapses to the registrable domain.
+		const added = await app.request(
+			`/airside/companies/${company.id}/domains`,
+			json(cookie, { domain: "https://Flash.acme-sky.cloud/v1" }),
+		);
+		expect(added.status).toBe(201);
+		const { domain } = await added.json();
+		expect(domain.domain).toBe("acme-sky.cloud");
+		expect(domain.verifiedAt).toBeNull();
+
+		const dupe = await app.request(
+			`/airside/companies/${company.id}/domains`,
+			json(cookie, { domain: "acme-sky.cloud" }),
+		);
+		expect(dupe.status).toBe(409);
+
+		// Added but unproven: still not claimable.
+		txtRecords.clear();
+		const tooEarly = await app.request(
+			`/airside/companies/${company.id}/domains/${domain.id}/verify`,
+			json(cookie),
+		);
+		expect(tooEarly.status).toBe(400);
+		expect((await registerCarrier(cookie, company.id, offDomain)).status).toBe(
+			403,
+		);
+
+		const listed = await (
+			await app.request(`/airside/companies/${company.id}/domains`, {
+				headers: { Cookie: cookie },
+			})
+		).json();
+		expect(listed.domains).toHaveLength(1);
+		txtRecords.set("_llmgateway-airside.acme-sky.cloud", [
+			[listed.recordValue as string],
+		]);
+		const verified = await app.request(
+			`/airside/companies/${company.id}/domains/${domain.id}/verify`,
+			json(cookie),
+		);
+		expect(verified.status).toBe(200);
+		expect((await verified.json()).domain.verifiedAt).not.toBeNull();
+
+		const companies = await (
+			await app.request("/airside/companies", { headers: { Cookie: cookie } })
+		).json();
+		expect(companies.companies[0].verifiedDomains).toEqual(["acme-sky.cloud"]);
+
+		const allowed = await registerCarrier(cookie, company.id, offDomain);
+		expect(allowed.status).toBe(201);
+		expect((await allowed.json()).claim.matchedDomain).toBe("acme-sky.cloud");
+
+		// Removing the domain withdraws it from future registrations.
+		const removed = await app.request(
+			`/airside/companies/${company.id}/domains/${domain.id}`,
+			json(cookie, undefined, "DELETE"),
+		);
+		expect(removed.status).toBe(200);
+		expect(
+			(
+				await registerCarrier(cookie, company.id, {
+					...offDomain,
+					providerId: "acme-sky-two",
+				})
+			).status,
+		).toBe(403);
+	});
+
+	it("rejects unusable additional domains", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		for (const domain of ["localhost", "10.0.0.1", "gmail.com", "mistral.ai"]) {
+			const res = await app.request(
+				`/airside/companies/${company.id}/domains`,
+				json(cookie, { domain }),
+			);
+			expect(res.status).toBe(400);
+		}
+		const foreign = await app.request(
+			"/airside/companies/not-a-company/domains",
+			json(cookie, { domain: "acme-sky.cloud" }),
+		);
+		expect(foreign.status).toBe(404);
+	});
+
 	it("registers a new carrier as a pending custom claim", async () => {
 		await setUserEmail("ops@acme-sky.ai");
 		const company = await createCompany(cookie, "Acme Sky");

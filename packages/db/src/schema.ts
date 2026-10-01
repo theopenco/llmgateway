@@ -4957,6 +4957,35 @@ export const providerCompany = pgTable("provider_company", {
 	listingInviteCode: text(),
 });
 
+// Extra domains a company proved over DNS, beyond its website's. Each one is
+// claimable like the website domain, so a company can host its API on a
+// domain unrelated to its website or staff mail. The TXT token is the
+// company's `websiteVerificationToken`.
+export const providerCompanyDomain = pgTable(
+	"provider_company_domain",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		// Registrable domain, lowercase.
+		domain: text().notNull(),
+		// Null until the TXT record resolved.
+		verifiedAt: timestamp(),
+	},
+	(table) => [
+		uniqueIndex("provider_company_domain_company_domain_uidx").on(
+			table.providerCompanyId,
+			table.domain,
+		),
+	],
+);
+
 export const providerCompanyMember = pgTable(
 	"provider_company_member",
 	{

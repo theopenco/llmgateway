@@ -51,6 +51,16 @@ export function providerClaimDomains(providerId: string): Set<string> {
 	return domains;
 }
 
+/**
+ * The registrable domain in user input, which may be a bare host or a URL.
+ * Undefined for anything without a public suffix (localhost, IPs, typos).
+ */
+export function parseRegistrableDomain(input: string): string | undefined {
+	const trimmed = input.trim().toLowerCase();
+	const host = hostOf(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
+	return host ? (getDomain(host) ?? undefined) : undefined;
+}
+
 export function emailRegistrableDomain(email: string): string | undefined {
 	const at = email.lastIndexOf("@");
 	if (at === -1 || at === email.length - 1) {
