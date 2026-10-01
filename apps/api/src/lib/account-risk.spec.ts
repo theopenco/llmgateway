@@ -10,20 +10,9 @@ import { db, eq, tables } from "@llmgateway/db";
 import {
 	approveHighRiskUser,
 	assertOrganizationNotHighRisk,
-	flagUserIfAbusiveIp as flagUserIfAbusiveIpWithContext,
 	isUserHighRisk,
+	flagUserIfAbusiveIp,
 } from "./account-risk.js";
-import { runWithClientIp } from "./client-ip.js";
-
-function flagUserIfAbusiveIp(
-	options: Parameters<typeof flagUserIfAbusiveIpWithContext>[0],
-) {
-	return runWithClientIp(
-		options.headers ?? new Headers(),
-		options.headers?.get("x-forwarded-for") ?? undefined,
-		() => flagUserIfAbusiveIpWithContext(options),
-	);
-}
 
 const abusiveIp = "5.6.7.8";
 const originalApiKey = process.env.ABUSE_IPDB_API_KEY;
