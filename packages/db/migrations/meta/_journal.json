@@ -1989,6 +1989,13 @@
       "when": 1790792339959,
       "tag": "1790792339_bizarre_goblin_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 284,
+      "version": "8",
+      "when": 1790851418980,
+      "tag": "1790851418_naive_tusk",
+      "breakpoints": true
     }
   ]
 }
