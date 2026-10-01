@@ -3,7 +3,10 @@ import { HTTPException } from "hono/http-exception";
 
 import { app } from "@/app.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
-import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
+import {
+	extractCustomHeaders,
+	forwardedCustomHeaders,
+} from "@/chat/tools/extract-custom-headers.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
@@ -444,6 +447,7 @@ function forwardHeaders(c: Context): Record<string, string> {
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("images"),
 		...forwardedIpHeaders(c.req.raw.headers),
+		...forwardedCustomHeaders(c.req.raw.headers),
 	};
 }
 

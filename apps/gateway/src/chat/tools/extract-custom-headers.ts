@@ -19,3 +19,26 @@ export function extractCustomHeaders(c: any): Record<string, string> {
 
 	return customHeaders;
 }
+
+// Set by the gateway itself on the internal hop; never taken from the caller.
+const INTERNAL_SIGNAL_HEADERS = new Set(["x-llmgateway-thinking-type"]);
+
+/**
+ * X-LLMGateway-* metadata headers to carry across an internal `app.request()`
+ * hop, so the inner handler logs them as it would on a direct call.
+ */
+export function forwardedCustomHeaders(
+	headers: Headers,
+): Record<string, string> {
+	const forwarded: Record<string, string> = {};
+	for (const [key, value] of headers.entries()) {
+		const name = key.toLowerCase();
+		if (
+			name.startsWith("x-llmgateway-") &&
+			!INTERNAL_SIGNAL_HEADERS.has(name)
+		) {
+			forwarded[name] = value;
+		}
+	}
+	return forwarded;
+}
