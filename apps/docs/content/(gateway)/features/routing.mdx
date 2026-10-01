@@ -538,6 +538,7 @@ Failed attempts still count against the provider's uptime score, even when the r
 - Only gateway and upstream errors count: requests rejected as client errors (invalid request bodies, unsupported parameters) are excluded from both the error count and the request total, so your own bad requests never mark a provider as down
 - The exponential uptime penalty kicks in below 95% (see [Smart Routing Algorithm](#smart-routing-algorithm))
 - Future requests are automatically routed away from unreliable providers
+- A [custom provider](/features/custom-providers#routing-bare-model-ids) routed by bare model id is skipped while its uptime is below the low-uptime threshold and another provider is available
 - Your application stays reliable without any code changes on your side
 
 <Callout type="success">

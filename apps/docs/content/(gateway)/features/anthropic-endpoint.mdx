@@ -127,9 +127,16 @@ The endpoint returns responses in Anthropic's message format:
 	"usage": {
 		"input_tokens": 13,
 		"output_tokens": 20
+	},
+	"metadata": {
+		"requested_model": "gpt-5",
+		"used_model": "gpt-5",
+		"used_provider": "openai"
 	}
 }
 ```
+
+`metadata` is the same gateway object `/v1/chat/completions` returns: it names the provider, model and region that served the request, and lists every attempt in `routing` when a fallback happened (see [Routing Transparency](/features/routing#routing-transparency)). On streaming responses it is attached to the `message_delta` event.
 
 ### Request Format
 
@@ -233,4 +240,4 @@ Send every tool definition on every request, including the deferred ones — Ant
 
 ### Gateway Response Cache
 
-If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a repeated request with the same [cache-key fields](/features/caching/gateway-caching#cache-key-generation) — resolved provider and model, messages, and the other keyed parameters; fields outside the cache key and insignificant JSON whitespace don't affect matching, but the key order inside message and tool objects does, and a request routed to a different provider is a cache miss — is replayed from cache instead of being sent upstream. Because this endpoint exposes no metadata envelope or cost fields, the replayed body is indistinguishable from the original (same `id`, content, and token counts), so the `x-llmgateway-cache: HIT` response header is the marker to check. Send `x-no-cache: true` to bypass the cache for a single request.
+If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a repeated request with the same [cache-key fields](/features/caching/gateway-caching#cache-key-generation) — resolved provider and model, messages, and the other keyed parameters; fields outside the cache key and insignificant JSON whitespace don't affect matching, but the key order inside message and tool objects does, and a request routed to a different provider is a cache miss — is replayed from cache instead of being sent upstream. The replayed body keeps the original `id`, content, and token counts, so check the `x-llmgateway-cache: HIT` response header or `metadata.cached`. Send `x-no-cache: true` to bypass the cache for a single request.

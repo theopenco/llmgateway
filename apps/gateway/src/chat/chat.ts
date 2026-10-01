@@ -55,6 +55,7 @@ import {
 	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
 import { customModelToProviderMapping } from "@/lib/custom-model.js";
+import { getCustomProviderUptime } from "@/lib/custom-provider-health.js";
 import { getPublishedDynamicRoute } from "@/lib/dynamic-route-loader.js";
 import {
 	assertOriginAllowed,
@@ -464,6 +465,68 @@ function isCustomAutoRoutingMapping(
 		"customProviderKeyId" in mapping &&
 		"customProviderName" in mapping
 	);
+}
+
+/**
+ * Drops custom mappings whose recent uptime is below the fallback threshold so
+ * a failing custom provider stops winning on price or keyed preference. They
+ * are kept when nothing else could serve the request.
+ */
+function dropLowUptimeCustomProviders(
+	providers: ProviderModelMapping[],
+	modelId: string,
+	uptimeThreshold: number,
+	filteredOut: FilteredProvider[],
+): ProviderModelMapping[] {
+	const healthy = providers.filter((provider) => {
+		if (!isCustomAutoRoutingMapping(provider)) {
+			return true;
+		}
+		const uptime = getCustomProviderUptime(
+			provider.customProviderKeyId,
+			modelId,
+		);
+		return uptime === undefined || uptime >= uptimeThreshold;
+	});
+	if (healthy.length === 0 || healthy.length === providers.length) {
+		return providers;
+	}
+	// filteredProviders is keyed by provider id, which every custom mapping
+	// shares, so only report the exclusion when no custom mapping survived.
+	if (!healthy.some(isCustomAutoRoutingMapping)) {
+		recordFilteredProvider(filteredOut, "custom", [
+			exclusionReason("low_uptime"),
+		]);
+	}
+	return healthy;
+}
+
+/** Adds custom providers' in-memory uptime to the routing metrics. */
+function applyCustomProviderUptime(
+	metricsMap: Map<string, ProviderMetrics>,
+	modelId: string,
+	providers: ProviderModelMapping[],
+): void {
+	for (const provider of providers) {
+		if (!isCustomAutoRoutingMapping(provider)) {
+			continue;
+		}
+		const uptime = getCustomProviderUptime(
+			provider.customProviderKeyId,
+			modelId,
+		);
+		if (uptime === undefined) {
+			continue;
+		}
+		const key = metricsKey(modelId, provider.providerId, provider.region);
+		metricsMap.set(key, {
+			modelId,
+			providerId: provider.providerId,
+			totalRequests: 0,
+			...metricsMap.get(key),
+			uptime,
+		});
+	}
 }
 
 async function keepCheapestCustomRoutingMapping(
@@ -2782,6 +2845,14 @@ chat.openapi(completions, async (c) => {
 	// keyed per (org, model, session); creating it lazily per model id keeps the
 	// final routing decision pinned without affecting region sub-selection.
 	const sessionStickyEnabled = Boolean(sessionId) && routingCfg.session.enabled;
+	// Sticky sessions keep their own uptime policy, so a pinned custom provider
+	// is only dropped once the session threshold would break the pin anyway.
+	const customLowUptimeThreshold = sessionStickyEnabled
+		? Math.min(
+				routingCfg.retry.lowUptimeFallbackThreshold,
+				routingCfg.session.uptimeThreshold,
+			)
+		: routingCfg.retry.lowUptimeFallbackThreshold;
 	const createSessionStore = (modelId: string) =>
 		sessionStickyEnabled && sessionId
 			? createSessionProviderStore(
@@ -4219,7 +4290,12 @@ chat.openapi(completions, async (c) => {
 				: suitableProviders;
 			const deduplicatedSuitableProviders =
 				await keepCheapestCustomRoutingMapping(
-					toolChoiceSuitableProviders,
+					dropLowUptimeCustomProviders(
+						toolChoiceSuitableProviders,
+						modelDef.id,
+						customLowUptimeThreshold,
+						filteredOutForModel,
+					),
 					modelDef.id,
 					project.organizationId,
 					providerDiscountResolver,
@@ -4379,6 +4455,11 @@ chat.openapi(completions, async (c) => {
 					promptTokens: routingPromptTokens,
 					session: sessionStickyEnabled,
 				},
+			);
+			applyCustomProviderUptime(
+				metricsMap,
+				selectedModel.id,
+				selectedProviders,
 			);
 			providerAgnosticSelectedProviders =
 				await collapseProvidersToBestRegionPerProvider(
@@ -5350,7 +5431,12 @@ chat.openapi(completions, async (c) => {
 				filteredOutProvidersDirect,
 			);
 			const availableModelProviders = await keepCheapestCustomRoutingMapping(
-				eligibleModelProviders,
+				dropLowUptimeCustomProviders(
+					eligibleModelProviders,
+					modelInfo.id,
+					customLowUptimeThreshold,
+					filteredOutProvidersDirect,
+				),
 				modelInfo.id,
 				project.organizationId,
 				providerDiscountResolver,
@@ -5493,6 +5579,11 @@ chat.openapi(completions, async (c) => {
 						promptTokens: routingPromptTokens,
 						session: sessionStickyEnabled,
 					},
+				);
+				applyCustomProviderUptime(
+					metricsMap,
+					modelWithPricing.id,
+					routingCandidates,
 				);
 				const providerAgnosticCandidates =
 					await collapseProvidersToBestRegionPerProvider(
