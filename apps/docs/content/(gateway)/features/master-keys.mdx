@@ -805,7 +805,7 @@ Body parameters (all optional, at least one required):
 | `customModelsOnly`      | boolean                  | Toggle the custom-catalog restriction          |
 | `complianceAttestation` | object \| null           | Replace the attestation, or `null` to clear it |
 
-The provider `name` is immutable — it is the routing segment your model strings reference. Create a new provider instead of renaming.
+The provider `name` cannot be changed through the master API — it is the routing segment your model strings reference. Owners and admins can rename a custom provider from the dashboard, which changes the `<name>/<model>` prefix clients must use.
 
 Response (200): the updated custom provider.
 
