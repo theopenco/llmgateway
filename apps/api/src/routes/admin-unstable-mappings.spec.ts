@@ -203,6 +203,45 @@ describe("admin unstable mappings", () => {
 		expect(body.mappings).toHaveLength(0);
 	});
 
+	test("error scope selects which error classes count", async () => {
+		await seedLog({
+			hasError: true,
+			statusCode: 400,
+			classification: "client_error",
+		});
+		await seedLog({
+			hasError: true,
+			statusCode: 502,
+			classification: "upstream_error",
+		});
+		await seedLog({ hasError: false });
+
+		async function getErrors(scope: string): Promise<ErrorsBody> {
+			const res = await app.request(
+				`/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai&errorScope=${scope}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			return (await res.json()) as ErrorsBody;
+		}
+
+		for (const [scope, logsCount, statusCodes] of [
+			["non_client", 2, [502]],
+			["all", 3, [400, 502]],
+			["client", 2, [400]],
+		] as const) {
+			const body = await getMappings(`?errorScope=${scope}`);
+			expect(body.mappings[0]).toMatchObject({
+				logsCount,
+				errorsCount: statusCodes.length,
+			});
+			const errors = await getErrors(scope);
+			expect(errors.errors.map((e) => e.statusCode).sort()).toEqual(
+				statusCodes,
+			);
+		}
+	});
+
 	test("includes BYOK speech failures only when BYOK traffic is requested", async () => {
 		await db
 			.update(tables.providerKey)

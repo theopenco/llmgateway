@@ -126,8 +126,9 @@ export const mappingErrorShapesSchema = z.object({
 });
 
 /**
- * Top 10 error shapes over the latest non-client error logs of one mapping,
- * identified by the exact `log.used_model` value. Served by the partial
+ * Top 10 error shapes over the latest error logs of one mapping, identified
+ * by the exact `log.used_model` value; callers pick the error classes via
+ * `extraClauses`. Served by the partial
  * `log_error_used_provider_used_model_created_at_idx` index. With
  * `groupByKey`, returns the top 5 shapes of each provider key instead.
  * With `bucketSeconds`, each shape also carries its per-bucket counts.
@@ -181,7 +182,6 @@ export async function queryMappingErrorShapes({
 				${bucketExpr} AS bucket
 			FROM ${tables.log}
 			WHERE ${tables.log.hasError} = true
-				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
 				AND ${tables.log.usedModel} = ${usedModel}
 				AND ${tables.log.usedProvider} = ${provider}
 				AND ${tables.log.createdAt} >= ${windowInterval}

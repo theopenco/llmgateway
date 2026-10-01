@@ -30,7 +30,10 @@ import { ERROR_CLASSIFICATIONS, getProviderIcon } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ErrorTimeline } from "@/components/error-shape-timeline";
-import type { UnstableWindow } from "@/lib/unstable-mappings-params";
+import type {
+	UnstableErrorScope,
+	UnstableWindow,
+} from "@/lib/unstable-mappings-params";
 
 interface UnstableMapping {
 	modelId: string;
@@ -241,6 +244,7 @@ export function ErrorDetails({
 	logLimit,
 	ignoreExpected,
 	includeByok,
+	errorScope = "non_client",
 	incidentsOnly = false,
 }: {
 	usedModel: string;
@@ -251,6 +255,7 @@ export function ErrorDetails({
 	logLimit: number;
 	ignoreExpected: boolean;
 	includeByok: boolean;
+	errorScope?: UnstableErrorScope;
 	/** Only upstream and gateway errors, matching the Incidents counts. */
 	incidentsOnly?: boolean;
 }) {
@@ -272,6 +277,7 @@ export function ErrorDetails({
 					logLimit,
 					ignoreExpected: ignoreExpected ? "true" : "false",
 					includeByok: includeByok ? "true" : "false",
+					errorScope,
 					incidentsOnly: incidentsOnly ? "true" : "false",
 					groupByKey: canGroupByKey && groupByKey ? "true" : "false",
 				},
@@ -438,6 +444,7 @@ export function UnstableMappingsTable({
 	ignoreExpected,
 	splitByKey,
 	includeByok,
+	errorScope,
 }: {
 	mappings: UnstableMapping[];
 	includeRetried: boolean;
@@ -446,6 +453,7 @@ export function UnstableMappingsTable({
 	ignoreExpected: boolean;
 	splitByKey: boolean;
 	includeByok: boolean;
+	errorScope: UnstableErrorScope;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(null);
 	const { isPending, navigate } = useFilterNavigation();
@@ -600,6 +608,7 @@ export function UnstableMappingsTable({
 											logLimit={logLimit}
 											ignoreExpected={ignoreExpected}
 											includeByok={includeByok}
+											errorScope={errorScope}
 										/>
 									</TableCell>
 								</TableRow>

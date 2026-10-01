@@ -12793,6 +12793,24 @@ const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 // should not affect the platform credential health ranking by default.
 const unstableMappingsPlatformOnlyClause = sql`AND ${tables.log.usedMode} <> 'api-keys'`;
 
+// Which error classes count against a mapping. `non_client` (default) drops
+// client-error logs from the sample; `client` drops every other failure, so
+// both rate against successes plus the selected errors.
+const unstableErrorScopeSchema = z.enum(["non_client", "all", "client"]);
+
+function buildUnstableErrorScopeClause(
+	scope: z.infer<typeof unstableErrorScopeSchema>,
+) {
+	switch (scope) {
+		case "all":
+			return sql``;
+		case "client":
+			return sql`AND (${tables.log.hasError} IS NOT TRUE OR ${tables.log.unifiedFinishReason} = 'client_error')`;
+		default:
+			return sql`AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'`;
+	}
+}
+
 interface IgnoredErrorMatcherTarget {
 	pattern: string | null;
 	statusCode: number | null;
@@ -12947,6 +12965,7 @@ const unstableMappingsListSchema = z.object({
 	ignoreExpected: z.boolean(),
 	splitByKey: z.boolean(),
 	includeByok: z.boolean(),
+	errorScope: unstableErrorScopeSchema,
 	// Number of ignore matchers applied to this ranking (0 when disabled).
 	ignoredMatcherCount: z.number(),
 	// The exact `used_model` the ranking is narrowed to, if any.
@@ -12971,6 +12990,7 @@ const getUnstableMappings = createRoute({
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			splitByKey: z.enum(["true", "false"]).optional(),
 			includeByok: z.enum(["true", "false"]).optional(),
+			errorScope: unstableErrorScopeSchema.optional(),
 			/** Exact `used_model` (`provider/model[:region]`); requires `provider`. */
 			model: z.string().optional(),
 			provider: z.string().optional(),
@@ -13001,6 +13021,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const splitByKey = query.splitByKey === "true";
 	const includeByok = query.includeByok === "true";
 	const byokClause = includeByok ? sql`` : unstableMappingsPlatformOnlyClause;
+	const errorScope = query.errorScope ?? "non_client";
 	const { interval: windowInterval, hours: windowHours } =
 		resolveMappingErrorWindow(query.window);
 	const mapping = query.model && query.provider ? query.model : null;
@@ -13049,7 +13070,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 				${hasErrorExpr} AS has_error
 			FROM ${tables.log}
 			WHERE ${tables.log.createdAt} >= ${windowInterval}
-				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
+				${buildUnstableErrorScopeClause(errorScope)}
 				${retriedClause}
 				${byokClause}
 				${mappingClause}
@@ -13111,6 +13132,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		ignoreExpected,
 		splitByKey,
 		includeByok,
+		errorScope,
 		ignoredMatcherCount: ignoredMatchers.length,
 		mapping,
 		modelId: canonicalModelId,
@@ -13154,6 +13176,7 @@ const getUnstableMappingErrors = createRoute({
 				.optional(),
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			includeByok: z.enum(["true", "false"]).optional(),
+			errorScope: unstableErrorScopeSchema.optional(),
 			/**
 			 * Narrows the sample to one provider key, mirroring a row of the
 			 * key-split ranking. The literal `__unattributed__` selects logs with
@@ -13192,6 +13215,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		logLimit,
 		ignoreExpected,
 		includeByok,
+		errorScope,
 		providerKeyId,
 		incidentsOnly,
 		groupByKey: groupByKeyParam,
@@ -13237,6 +13261,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			retriedClause,
 			byokClause,
 			ignoredClause,
+			buildUnstableErrorScopeClause(errorScope ?? "non_client"),
 			incidentsOnly === "true" ? incidentErrorsClause : sql``,
 		],
 	});
