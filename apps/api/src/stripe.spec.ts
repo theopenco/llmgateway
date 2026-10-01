@@ -1347,6 +1347,40 @@ describe("handleSubscriptionUpdated — payment state", () => {
 		expect(org?.subscriptionPaymentStatus).toBe("current");
 	});
 
+	test("keeps a renewal date a concurrent paid renewal advanced", async () => {
+		const renewedThrough = new Date("2099-01-01T00:00:00.000Z");
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "50",
+			devPlanExpiresAt: new Date(Date.now() - 60_000),
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+			subscriptionPaymentStatus: "past_due",
+		});
+		// The recovery check is where invoice.payment_succeeded lands in between.
+		stripeMock.subscriptions.retrieve.mockImplementation(async () => {
+			await db
+				.update(tables.organization)
+				.set({ devPlanExpiresAt: renewedThrough })
+				.where(eq(tables.organization.id, ORG_ID));
+			return { status: "active" };
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: false, status: "active" }),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanExpiresAt?.getTime()).toBe(renewedThrough.getTime());
+		expect(org?.subscriptionPaymentStatus).toBe("current");
+	});
+
 	test("ignores a delayed past_due update after payment recovered", async () => {
 		stripeMock.subscriptions.retrieve.mockResolvedValue({ status: "active" });
 		await db.insert(tables.organization).values({

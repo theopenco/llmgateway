@@ -5149,7 +5149,11 @@ export async function handleSubscriptionUpdated(
 		await db
 			.update(tables.organization)
 			.set({
-				chatPlanExpiresAt: organization.chatPlanExpiresAt ?? expiresAt,
+				// Backfill only: writing the snapshot back would undo a renewal a
+				// concurrent invoice.payment_succeeded committed after it was read.
+				chatPlanExpiresAt: organization.chatPlanExpiresAt
+					? undefined
+					: expiresAt,
 				chatPlanCancelled: !isSubscriptionActive,
 				subscriptionPaymentStatus: paymentStatusUpdate,
 			})
@@ -5250,7 +5254,7 @@ export async function handleSubscriptionUpdated(
 		await db
 			.update(tables.organization)
 			.set({
-				devPlanExpiresAt: organization.devPlanExpiresAt ?? expiresAt,
+				devPlanExpiresAt: organization.devPlanExpiresAt ? undefined : expiresAt,
 				devPlanCancelled: !isSubscriptionActive,
 				subscriptionPaymentStatus: paymentStatusUpdate,
 			})
@@ -5321,7 +5325,7 @@ export async function handleSubscriptionUpdated(
 		await db
 			.update(tables.organization)
 			.set({
-				planExpiresAt: organization.planExpiresAt ?? expiresAt,
+				planExpiresAt: organization.planExpiresAt ? undefined : expiresAt,
 				subscriptionCancelled: !isSubscriptionActive,
 				subscriptionPaymentStatus: paymentStatusUpdate,
 			})
