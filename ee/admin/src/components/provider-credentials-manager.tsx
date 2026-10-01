@@ -1030,7 +1030,7 @@ export function ProviderCredentialsManager({
 						publishedAt={envPublishedAt}
 						envKeyCount={envKeyCount}
 					/>
-					<div className="flex flex-wrap items-center gap-4">
+					<div className="ml-auto flex flex-wrap items-center gap-4">
 						<div className="flex items-center gap-2">
 							<Switch
 								id="show-deleted-credentials"
