@@ -125,7 +125,12 @@ Probe the deployment. The same model differs between providers, and an
 Follow the comment rule in [Catalogue rules](#catalogue-rules).
 
 A new provider also needs a `providers.ts` entry, endpoint wiring in
-`get-provider-endpoint.ts`.
+`get-provider-endpoint.ts`. Set `encryptedReasoning: true` when its replayed
+reasoning payloads only verify on that provider; routing then never moves such
+models to another provider (exploration, low-uptime fallback, error retry).
+Probed 2026-09: OpenAI and Azure reject each other's `encrypted_content`, AI
+Studio and Vertex reject each other's Gemini 3 signatures, but signatures
+replay across different keys of the same Google platform.
 
 ## 5. Reasoning efforts
 

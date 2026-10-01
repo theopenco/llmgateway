@@ -209,6 +209,7 @@ import {
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
+	usesEncryptedReasoning,
 } from "@llmgateway/models";
 import {
 	complianceExclusionReason,
@@ -2791,6 +2792,17 @@ chat.openapi(completions, async (c) => {
 				)
 			: undefined;
 
+	// Another provider cannot verify the used mapping's encrypted reasoning, so
+	// requests on it never move providers (low-uptime reroute, retry).
+	const usedProviderEncryptsReasoning = () =>
+		modelInfo.providers.some(
+			(p) => p.providerId === usedProvider && usesEncryptedReasoning(p),
+		);
+	// Cross-provider retry is off for pinned requests; the failed provider is
+	// retried on another key or the same key instead.
+	const isProviderPinned = () =>
+		sessionStickyEnabled || usedProviderEncryptsReasoning();
+
 	const retryProjectContext = {
 		mode: project.mode,
 		organizationId: project.organizationId,
@@ -4993,13 +5005,15 @@ chat.openapi(completions, async (c) => {
 
 	// Check uptime for specifically requested providers (not llmgateway or custom)
 	// If uptime is below 80%, route to an alternative provider instead
-	// Skip this fallback if X-No-Fallback header is set
+	// Skip this fallback if X-No-Fallback header is set, and for encrypted-reasoning
+	// mappings: another provider rejects the conversation's reasoning payloads.
 	if (
 		!noFallback &&
 		usedProvider &&
 		requestedProvider &&
 		requestedProvider !== "llmgateway" &&
-		requestedProvider !== "custom"
+		requestedProvider !== "custom" &&
+		!usedProviderEncryptsReasoning()
 	) {
 		// Find the base model ID for metrics lookup
 		// Since custom providers are excluded above, modelInfo always has 'id'
@@ -8764,7 +8778,7 @@ chat.openapi(completions, async (c) => {
 							const willRetryTimeout = shouldRetryRequest({
 								requestedProvider,
 								noFallback,
-								sessionSticky: sessionStickyEnabled,
+								providerPinned: isProviderPinned(),
 								errorType: "upstream_timeout",
 								retryCount: retryAttempt,
 								remainingProviders:
@@ -8780,7 +8794,7 @@ chat.openapi(completions, async (c) => {
 								!willRetryTimeout &&
 								shouldRetrySameKey({
 									usedProvider,
-									sessionSticky: sessionStickyEnabled,
+									providerPinned: isProviderPinned(),
 									errorType: "upstream_timeout",
 									statusCode: 0,
 									envVarName,
@@ -9009,7 +9023,7 @@ chat.openapi(completions, async (c) => {
 							const willRetryFetch = shouldRetryRequest({
 								requestedProvider,
 								noFallback,
-								sessionSticky: sessionStickyEnabled,
+								providerPinned: isProviderPinned(),
 								errorType: "network_error",
 								retryCount: retryAttempt,
 								remainingProviders:
@@ -9025,7 +9039,7 @@ chat.openapi(completions, async (c) => {
 								!willRetryFetch &&
 								shouldRetrySameKey({
 									usedProvider,
-									sessionSticky: sessionStickyEnabled,
+									providerPinned: isProviderPinned(),
 									errorType: "network_error",
 									statusCode: 0,
 									envVarName,
@@ -9333,7 +9347,7 @@ chat.openapi(completions, async (c) => {
 						const willRetryHttpError = shouldRetryRequest({
 							requestedProvider,
 							noFallback,
-							sessionSticky: sessionStickyEnabled,
+							providerPinned: isProviderPinned(),
 							errorType: finishReason,
 							retryCount: retryAttempt,
 							remainingProviders:
@@ -9349,7 +9363,7 @@ chat.openapi(completions, async (c) => {
 							!willRetryHttpError &&
 							shouldRetrySameKey({
 								usedProvider,
-								sessionSticky: sessionStickyEnabled,
+								providerPinned: isProviderPinned(),
 								errorType: finishReason,
 								statusCode: res.status,
 								envVarName,
@@ -9718,7 +9732,7 @@ chat.openapi(completions, async (c) => {
 						const willRetryStreamingError = shouldRetryRequest({
 							requestedProvider,
 							noFallback,
-							sessionSticky: sessionStickyEnabled,
+							providerPinned: isProviderPinned(),
 							errorType,
 							retryCount: retryAttempt,
 							remainingProviders:
@@ -9734,7 +9748,7 @@ chat.openapi(completions, async (c) => {
 							!willRetryStreamingError &&
 							shouldRetrySameKey({
 								usedProvider,
-								sessionSticky: sessionStickyEnabled,
+								providerPinned: isProviderPinned(),
 								errorType,
 								statusCode: inferredStatusCode,
 								envVarName,
@@ -13266,7 +13280,7 @@ chat.openapi(completions, async (c) => {
 			const willRetryFetchNonStreaming = shouldRetryRequest({
 				requestedProvider,
 				noFallback,
-				sessionSticky: sessionStickyEnabled,
+				providerPinned: isProviderPinned(),
 				errorType: "network_error",
 				retryCount: retryAttempt,
 				remainingProviders:
@@ -13282,7 +13296,7 @@ chat.openapi(completions, async (c) => {
 				!willRetryFetchNonStreaming &&
 				shouldRetrySameKey({
 					usedProvider,
-					sessionSticky: sessionStickyEnabled,
+					providerPinned: isProviderPinned(),
 					errorType: "network_error",
 					statusCode: 0,
 					envVarName,
@@ -13717,7 +13731,7 @@ chat.openapi(completions, async (c) => {
 			const willRetryHttpNonStreaming = shouldRetryRequest({
 				requestedProvider,
 				noFallback,
-				sessionSticky: sessionStickyEnabled,
+				providerPinned: isProviderPinned(),
 				errorType: finishReason,
 				retryCount: retryAttempt,
 				remainingProviders:
@@ -13733,7 +13747,7 @@ chat.openapi(completions, async (c) => {
 				!willRetryHttpNonStreaming &&
 				shouldRetrySameKey({
 					usedProvider,
-					sessionSticky: sessionStickyEnabled,
+					providerPinned: isProviderPinned(),
 					errorType: finishReason,
 					statusCode: res.status,
 					envVarName,
