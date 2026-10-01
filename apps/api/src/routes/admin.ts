@@ -5635,6 +5635,7 @@ admin.openapi(getOrganizationDiscounts, async (c) => {
 });
 
 admin.openapi(createOrganizationDiscount, async (c) => {
+	const user = c.get("user");
 	const { orgId } = c.req.valid("param");
 	const body = c.req.valid("json");
 	const provider = body.provider ?? null;
@@ -5693,10 +5694,27 @@ admin.openapi(createOrganizationDiscount, async (c) => {
 		})
 		.returning();
 
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "discount.create",
+		resourceType: "discount",
+		resourceId: created.id,
+		metadata: {
+			provider,
+			model,
+			discountPercent: body.discountPercent,
+			reason: created.reason,
+			expiresAt: created.expiresAt?.toISOString() ?? null,
+			source: "admin",
+		},
+	});
+
 	return c.json(formatDiscount(created), 201);
 });
 
 admin.openapi(deleteOrganizationDiscount, async (c) => {
+	const user = c.get("user");
 	const { orgId, discountId } = c.req.valid("param");
 
 	const [deleted] = await db
@@ -5707,11 +5725,27 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 				eq(tables.discount.organizationId, orgId),
 			),
 		)
-		.returning({ id: tables.discount.id });
+		.returning();
 
 	if (!deleted) {
 		throw new HTTPException(404, { message: "Discount not found" });
 	}
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "discount.delete",
+		resourceType: "discount",
+		resourceId: deleted.id,
+		metadata: {
+			provider: deleted.provider,
+			model: deleted.model,
+			discountPercent: new Decimal(deleted.discountPercent ?? 0)
+				.times(100)
+				.toNumber(),
+			source: "admin",
+		},
+	});
 
 	return c.json({ success: true });
 });
@@ -6788,6 +6822,7 @@ admin.openapi(getOrganizationRateLimits, async (c) => {
 });
 
 admin.openapi(createOrganizationRateLimit, async (c) => {
+	const user = c.get("user");
 	const { orgId } = c.req.valid("param");
 	const body = c.req.valid("json");
 	const provider = body.provider ?? null;
@@ -6828,10 +6863,27 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 		});
 	}
 
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "rate_limit.create",
+		resourceType: "rate_limit",
+		resourceId: created.id,
+		metadata: {
+			provider,
+			model,
+			maxRpm: created.maxRpm,
+			maxRpd: created.maxRpd,
+			reason: created.reason,
+			source: "admin",
+		},
+	});
+
 	return c.json(formatRateLimit(created), 201);
 });
 
 admin.openapi(deleteOrganizationRateLimit, async (c) => {
+	const user = c.get("user");
 	const { orgId, rateLimitId } = c.req.valid("param");
 
 	const [deleted] = await db
@@ -6842,11 +6894,26 @@ admin.openapi(deleteOrganizationRateLimit, async (c) => {
 				eq(tables.rateLimit.organizationId, orgId),
 			),
 		)
-		.returning({ id: tables.rateLimit.id });
+		.returning();
 
 	if (!deleted) {
 		throw new HTTPException(404, { message: "Rate limit not found" });
 	}
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "rate_limit.delete",
+		resourceType: "rate_limit",
+		resourceId: deleted.id,
+		metadata: {
+			provider: deleted.provider,
+			model: deleted.model,
+			maxRpm: deleted.maxRpm,
+			maxRpd: deleted.maxRpd,
+			source: "admin",
+		},
+	});
 
 	return c.json({ success: true });
 });

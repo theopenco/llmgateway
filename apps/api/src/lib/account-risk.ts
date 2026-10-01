@@ -7,6 +7,7 @@ import {
 } from "@/utils/abuse-ip.js";
 import { notifyHighRiskAccount } from "@/utils/discord.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import { and, cdb, db, eq, inArray, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getClientIpFromHeaders } from "@llmgateway/shared/client-ip";
@@ -175,7 +176,7 @@ export async function approveHighRiskUser(options: {
 	});
 	const organizationIds = memberships.map((m) => m.organizationId);
 	if (organizationIds.length) {
-		await cdb
+		const unblocked = await cdb
 			.update(tables.organization)
 			.set({ riskFlagged: false })
 			.where(
@@ -183,7 +184,22 @@ export async function approveHighRiskUser(options: {
 					inArray(tables.organization.id, organizationIds),
 					eq(tables.organization.riskFlagged, true),
 				),
-			);
+			)
+			.returning({ id: tables.organization.id });
+		for (const organization of unblocked) {
+			await logAuditEvent({
+				organizationId: organization.id,
+				userId: reviewerId,
+				action: "organization.update",
+				resourceType: "organization",
+				resourceId: organization.id,
+				metadata: {
+					changes: { riskFlagged: { old: true, new: false } },
+					targetUserId: userId,
+					source: "admin",
+				},
+			});
+		}
 	}
 
 	logger.info("High-risk account approved", { userId, reviewerId });
