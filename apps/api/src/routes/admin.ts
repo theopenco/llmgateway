@@ -886,6 +886,7 @@ const getMetrics = createRoute({
 const sortBySchema = z.enum([
 	"name",
 	"billingEmail",
+	"kind",
 	"plan",
 	"devPlan",
 	"credits",
@@ -913,6 +914,11 @@ const getOrganizations = createRoute({
 			// Omitting both means all time.
 			from: z.string().optional(),
 			to: z.string().optional(),
+			kind: z.enum(["default", "devpass", "chat"]).optional(),
+			plan: z.enum(["free", "pro", "enterprise"]).optional(),
+			trialActive: z.enum(["true", "false"]).optional(),
+			// Minimum total spend (USD) within the usage window.
+			minSpent: z.coerce.number().min(0).optional(),
 		}),
 	},
 	responses: {
@@ -3191,21 +3197,7 @@ admin.openapi(getOrganizations, async (c) => {
 		usageEndDate.setUTCHours(23, 59, 59, 999);
 	}
 
-	const whereClause = buildOrganizationSearchFilter(search);
-
-	const [countResult] = await db
-		.select({
-			count: sql<number>`COUNT(*)`.as("count"),
-			totalCredits:
-				sql<string>`COALESCE(SUM(CAST(${tables.organization.credits} AS NUMERIC)), 0)`.as(
-					"totalCredits",
-				),
-		})
-		.from(tables.organization)
-		.where(whereClause);
-
-	const total = Number(countResult?.count ?? 0);
-	const totalCredits = String(countResult?.totalCredits ?? "0");
+	const searchFilter = buildOrganizationSearchFilter(search);
 
 	const orderFn = sortOrder === "asc" ? asc : desc;
 
@@ -3267,12 +3259,43 @@ admin.openapi(getOrganizations, async (c) => {
 		.groupBy(tables.project.organizationId)
 		.as("total_spent");
 
+	const whereClause = and(
+		searchFilter,
+		query.kind ? eq(tables.organization.kind, query.kind) : undefined,
+		query.plan ? eq(tables.organization.plan, query.plan) : undefined,
+		query.trialActive
+			? eq(tables.organization.isTrialActive, query.trialActive === "true")
+			: undefined,
+		query.minSpent
+			? sql`COALESCE(CAST(${totalSpentSub.total} AS NUMERIC), 0) >= ${query.minSpent}`
+			: undefined,
+	);
+
+	const [countResult] = await db
+		.select({
+			count: sql<number>`COUNT(*)`.as("count"),
+			totalCredits:
+				sql<string>`COALESCE(SUM(CAST(${tables.organization.credits} AS NUMERIC)), 0)`.as(
+					"totalCredits",
+				),
+		})
+		.from(tables.organization)
+		.leftJoin(
+			totalSpentSub,
+			eq(tables.organization.id, totalSpentSub.organizationId),
+		)
+		.where(whereClause);
+
+	const total = Number(countResult?.count ?? 0);
+	const totalCredits = String(countResult?.totalCredits ?? "0");
+
 	// Subquery for owner user per org
 	const ownerSub = buildOrganizationOwnerSubquery();
 
 	const sortColumnMap = {
 		name: tables.organization.name,
 		billingEmail: tables.organization.billingEmail,
+		kind: tables.organization.kind,
 		plan: tables.organization.plan,
 		devPlan: tables.organization.devPlan,
 		credits: tables.organization.credits,
@@ -3288,7 +3311,7 @@ admin.openapi(getOrganizations, async (c) => {
 
 	// A search for a user or domain usually matches several orgs; the
 	// enterprise one is almost always the one being looked for.
-	const searchOrderBy = whereClause
+	const searchOrderBy = searchFilter
 		? [desc(sql`${tables.organization.plan} = 'enterprise'`)]
 		: [];
 

@@ -13,6 +13,7 @@ import { BlockOrgButton } from "@/components/block-org-button";
 import { BulkBlockOrgsButton } from "@/components/bulk-block-orgs-button";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { OrgStatusToggleButton } from "@/components/org-status-toggle-button";
+import { OrganizationFiltersBar } from "@/components/organization-filters";
 import { PlanTermBadge } from "@/components/plan-term-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,10 @@ import {
 } from "@/lib/date-range";
 import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { getOrgDeletionBlockedReason } from "@/lib/org-deletion";
+import {
+	parseOrganizationFilters,
+	planFilterQuery,
+} from "@/lib/organization-filters";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -47,9 +52,12 @@ import {
 	formatCompactNumber,
 } from "@llmgateway/shared/number-format";
 
+import type { OrganizationFilters } from "@/lib/organization-filters";
+
 type SortBy =
 	| "name"
 	| "billingEmail"
+	| "kind"
 	| "plan"
 	| "devPlan"
 	| "credits"
@@ -76,12 +84,14 @@ function buildOrganizationsHref({
 	sortOrder,
 	search,
 	dateRange,
+	filters,
 }: {
 	page: number;
 	sortBy: SortBy;
 	sortOrder: SortOrder;
 	search: string;
 	dateRange: DateRangeParams;
+	filters: OrganizationFilters;
 }) {
 	const params = new URLSearchParams();
 	params.set("page", String(page));
@@ -97,6 +107,11 @@ function buildOrganizationsHref({
 		params.set("from", dateRange.from);
 		params.set("to", dateRange.to);
 	}
+	for (const [key, value] of Object.entries(filters)) {
+		if (value) {
+			params.set(key, value);
+		}
+	}
 	return `/organizations?${params.toString()}`;
 }
 
@@ -107,6 +122,7 @@ function SortableHeader({
 	currentSortOrder,
 	search,
 	dateRange,
+	filters,
 }: {
 	label: string;
 	sortKey: SortBy;
@@ -114,6 +130,7 @@ function SortableHeader({
 	currentSortOrder: SortOrder;
 	search: string;
 	dateRange: DateRangeParams;
+	filters: OrganizationFilters;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
@@ -124,6 +141,7 @@ function SortableHeader({
 		sortOrder: nextOrder,
 		search,
 		dateRange,
+		filters,
 	});
 
 	return (
@@ -223,6 +241,9 @@ export default async function OrganizationsPage({
 		range?: string;
 		from?: string;
 		to?: string;
+		kind?: string;
+		plan?: string;
+		minSpent?: string;
 	}>;
 }) {
 	await requireSession();
@@ -232,6 +253,7 @@ export default async function OrganizationsPage({
 	const search = params?.search ?? "";
 	const sortBy = (params?.sortBy as SortBy) || "createdAt";
 	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
+	const filters = parseOrganizationFilters(params ?? {});
 	const limit = 25;
 	const offset = (page - 1) * limit;
 
@@ -252,7 +274,20 @@ export default async function OrganizationsPage({
 
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/organizations", {
-		params: { query: { limit, offset, search, sortBy, sortOrder, from, to } },
+		params: {
+			query: {
+				limit,
+				offset,
+				search,
+				sortBy,
+				sortOrder,
+				from,
+				to,
+				kind: filters.kind,
+				...planFilterQuery(filters.plan),
+				minSpent: filters.minSpent ? Number(filters.minSpent) : undefined,
+			},
+		},
 	});
 
 	if (!data) {
@@ -278,6 +313,11 @@ export default async function OrganizationsPage({
 					from: (formData.get("from") as string) || undefined,
 					to: (formData.get("to") as string) || undefined,
 				},
+				filters: parseOrganizationFilters({
+					kind: formData.get("kind") as string | null,
+					plan: formData.get("plan") as string | null,
+					minSpent: formData.get("minSpent") as string | null,
+				}),
 			}),
 		);
 	}
@@ -326,6 +366,7 @@ export default async function OrganizationsPage({
 				</div>
 				<div className="flex w-full flex-wrap items-start gap-2 sm:w-auto sm:items-center">
 					<div className="flex min-w-0 flex-1 flex-col flex-wrap items-stretch gap-2 sm:flex-initial sm:flex-row sm:items-center">
+						<OrganizationFiltersBar filters={filters} />
 						<DateRangePicker defaultRange={ORGANIZATIONS_DEFAULT_RANGE} />
 						<form
 							action={handleSearch}
@@ -336,6 +377,13 @@ export default async function OrganizationsPage({
 							<input type="hidden" name="range" value={dateRange.range ?? ""} />
 							<input type="hidden" name="from" value={dateRange.from ?? ""} />
 							<input type="hidden" name="to" value={dateRange.to ?? ""} />
+							<input type="hidden" name="kind" value={filters.kind ?? ""} />
+							<input type="hidden" name="plan" value={filters.plan ?? ""} />
+							<input
+								type="hidden"
+								name="minSpent"
+								value={filters.minSpent ?? ""}
+							/>
 							<div className="relative min-w-0 flex-1 sm:max-w-64">
 								<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 								<input
@@ -374,6 +422,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -384,9 +433,20 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
-							<TableHead>Kind</TableHead>
+							<TableHead>
+								<SortableHeader
+									label="Kind"
+									sortKey="kind"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									search={search}
+									dateRange={dateRange}
+									filters={filters}
+								/>
+							</TableHead>
 							<TableHead>
 								<SortableHeader
 									label="Plan"
@@ -395,6 +455,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -405,6 +466,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -415,6 +477,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -425,6 +488,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -435,6 +499,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -445,6 +510,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -455,6 +521,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -465,6 +532,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -475,6 +543,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							{showActions ? <TableHead>Actions</TableHead> : null}
@@ -635,6 +704,7 @@ export default async function OrganizationsPage({
 									sortOrder,
 									search,
 									dateRange,
+									filters,
 								})}
 								className={page <= 1 ? "pointer-events-none opacity-50" : ""}
 							>
@@ -658,6 +728,7 @@ export default async function OrganizationsPage({
 									sortOrder,
 									search,
 									dateRange,
+									filters,
 								})}
 								className={
 									page >= totalPages ? "pointer-events-none opacity-50" : ""
