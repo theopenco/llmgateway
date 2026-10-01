@@ -1412,6 +1412,9 @@ describe("fallback and error status code handling", () => {
 			expect(res.status).toBe(500);
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
+			expect(["google-ai-studio", "google-vertex"]).toContain(
+				logs[0].usedProvider,
+			);
 			expect(logs[0].retried).toBe(false);
 		});
 	});
