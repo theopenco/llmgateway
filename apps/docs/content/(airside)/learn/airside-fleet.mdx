@@ -27,7 +27,7 @@ tariff filing still awaiting review.
 | **In service**                      | Approved and routable as `<provider>/<model>`; billed at the filed prices |
 | **Paused**                          | In service but taken out of routing by you until resumed                  |
 | **Rejected**                        | The initial filing was rejected; fix the price and file again             |
-| **Delisted**                        | Retired — kept in history, no longer routable                             |
+| **Delisted**                        | Out of service — kept in history; relist it to route traffic again        |
 | **Awaiting clearance / Fare filed** | A filing (initial or price update) is pending review                      |
 
 ## Registering an aircraft
@@ -81,3 +81,12 @@ history and analytics.
 	Delisting takes effect within about a minute — in-flight requests finish, but
 	new requests for the model are rejected.
 </Callout>
+
+## Relisting a model
+
+A delisted row shows who took it out of service and when: **Delisted by your
+crew** or **Delisted · claim revoked**. **Relist** puts it back in service
+immediately at its last approved fare, without review. Relisting needs an
+active claim on the carrier, and fails while another listing uses the same
+model id. Filings that were pending at delisting stay rejected, and
+model-level dispatch settings restart from the carrier default.

@@ -5199,6 +5199,9 @@ export const providerDraftModel = pgTable(
 			.default("draft"),
 		createdBy: text().references(() => user.id, { onDelete: "set null" }),
 		delistedAt: timestamp(),
+		// Why the listing left service: the carrier removed it, or an admin
+		// revoked the claim it was listed under.
+		delistReason: text({ enum: ["removed", "claim_revoked"] }),
 		// Mapping fields a catalogue import carries over from the static entry
 		// that the listing form does not manage. Materialized with the listing
 		// so it keeps serving the same way once the static entry is removed.

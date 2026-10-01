@@ -1045,7 +1045,12 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				);
 			await tx
 				.update(tables.providerDraftModel)
-				.set({ status: "delisted", delistedAt: new Date(), pausedAt: null })
+				.set({
+					status: "delisted",
+					delistedAt: new Date(),
+					delistReason: "claim_revoked",
+					pausedAt: null,
+				})
 				.where(inArray(tables.providerDraftModel.id, modelIds));
 			for (const model of companyModels) {
 				await dematerializeAirsideModel(claim.providerId, model.modelName, tx);
