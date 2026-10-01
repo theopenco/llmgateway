@@ -515,6 +515,7 @@ systemone.openapi(createSystemOne, async (c): Promise<any> => {
 		configIndex: number;
 		envVarName: string | undefined;
 		upstreamUrl: string;
+		tenantBaseUrl: string | null;
 		requestBody: Record<string, unknown>;
 	}
 
@@ -630,6 +631,7 @@ systemone.openapi(createSystemOne, async (c): Promise<any> => {
 			configIndex,
 			envVarName,
 			upstreamUrl: `${resolvedBaseUrl.replace(/\/+$/, "")}/v1/systemone`,
+			tenantBaseUrl: providerKeyInner?.baseUrl ?? null,
 			requestBody: {
 				model: upstreamModel,
 				state,
@@ -713,19 +715,23 @@ systemone.openapi(createSystemOne, async (c): Promise<any> => {
 			let fetchError: Error | null = null;
 			try {
 				const fetchSignal = createCombinedSignal(controller);
-				upstreamResponse = await fetchProvider(attempt.upstreamUrl, {
-					method: "POST",
-					// SSRF: never follow redirects on an authenticated provider request.
-					redirect: "error",
-					headers: {
-						"Content-Type": "application/json",
-						...getProviderHeaders(providerId, attempt.usedToken, {
-							requestId,
-						}),
+				upstreamResponse = await fetchProvider(
+					attempt.upstreamUrl,
+					{
+						method: "POST",
+						// SSRF: never follow redirects on an authenticated provider request.
+						redirect: "error",
+						headers: {
+							"Content-Type": "application/json",
+							...getProviderHeaders(providerId, attempt.usedToken, {
+								requestId,
+							}),
+						},
+						body: JSON.stringify(attempt.requestBody),
+						signal: fetchSignal,
 					},
-					body: JSON.stringify(attempt.requestBody),
-					signal: fetchSignal,
-				});
+					attempt.tenantBaseUrl,
+				);
 				upstreamText = await raceClientAbort(
 					upstreamResponse.text(),
 					c.req.raw.signal,
