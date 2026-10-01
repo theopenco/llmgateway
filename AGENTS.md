@@ -26,6 +26,7 @@ Area-specific rules live in skills under `.agents/skills`. Load the matching ski
 | `knowledge-base`   | Docs knowledge base pages                                                                        |
 | `core-web-vitals`  | Frontend performance                                                                             |
 | `skill-authoring`  | Creating or editing skills                                                                       |
+| `security-audit`   | Secure-by-default code, security reviews, full audits, the monthly audit routine                 |
 
 ## Development Commands
 
