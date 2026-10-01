@@ -4,6 +4,7 @@ import { apiErrorMessage, thrownErrorMessage } from "./api-error";
 import { createServerApiClient } from "./server-api";
 
 import type { paths } from "./api/v1";
+import type { ErrorWindow } from "./provider-key-error-window";
 
 export type ProviderCredential =
 	paths["/admin/provider-credentials"]["get"]["responses"]["200"]["content"]["application/json"]["credentials"][number];
@@ -87,11 +88,17 @@ async function request<T>(
 	return { success: true, result: data };
 }
 
-export async function getProviderCredentials(includeDeleted = false) {
+export async function getProviderCredentials(
+	includeDeleted = false,
+	errorWindow?: ErrorWindow,
+) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/provider-credentials", {
 		params: {
-			query: includeDeleted ? { includeDeleted: "true" } : {},
+			query: {
+				...(includeDeleted ? { includeDeleted: "true" as const } : {}),
+				...(errorWindow ? { errorWindow } : {}),
+			},
 		},
 	});
 	return data ?? null;

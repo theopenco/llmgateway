@@ -145,6 +145,18 @@ const credentialDailyPointSchema = z.object({
 	upstreamErrorCount: z.number(),
 });
 
+/** Windows the credentials table can show its error rate over. */
+const errorWindowSchema = z.enum(["4h", "1d", "7d"]);
+
+type ErrorWindow = z.infer<typeof errorWindowSchema>;
+
+/** One bucket of the error-rate window; `date` is the bucket start, ISO-8601. */
+const credentialErrorPointSchema = credentialDailyPointSchema.omit({
+	cost: true,
+});
+
+type CredentialErrorPoint = z.infer<typeof credentialErrorPointSchema>;
+
 /** List view only — the mutation responses do not compute the rollup. */
 const listedCredentialSchema = credentialSchema.extend({
 	last24h: credentialRecentStatsSchema,
@@ -153,6 +165,11 @@ const listedCredentialSchema = credentialSchema.extend({
 	 * day in progress, so its cost is partial by construction.
 	 */
 	last7dDaily: z.array(credentialDailyPointSchema),
+	/**
+	 * The requested `errorWindow`, zero-filled and oldest first: per hour for 4h
+	 * and 1d, per UTC day for 7d. The final bucket is still in progress.
+	 */
+	errorSeries: z.array(credentialErrorPointSchema),
 });
 
 const configKeySchema = z.object({
@@ -698,6 +715,8 @@ const listCredentials = createRoute({
 			 * so their lifetime usage and rollup history are still there.
 			 */
 			includeDeleted: z.enum(["true", "false"]).optional(),
+			/** Window `errorSeries` covers; defaults to 1d. */
+			errorWindow: errorWindowSchema.optional(),
 		}),
 	},
 	responses: {
@@ -716,6 +735,7 @@ const listCredentials = createRoute({
 
 adminProviderCredentials.openapi(listCredentials, async (c) => {
 	const { provider, includeDeleted } = c.req.valid("query");
+	const errorWindow = c.req.valid("query").errorWindow ?? "1d";
 
 	const rows = await db.query.providerKey.findMany({
 		where: {
@@ -735,17 +755,27 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 	});
 
 	const credentialIds = rows.map((row) => row.id);
-	const [recent, daily] = await Promise.all([
+	const [recent, daily, bucketed] = await Promise.all([
 		getRecentCredentialStats(credentialIds),
 		getDailyCredentialStats(credentialIds),
+		// The 7d window is the daily series the spend sparkline already loads.
+		errorWindow === "7d"
+			? null
+			: getBucketedCredentialErrorSeries(credentialIds, errorWindow),
 	]);
 
 	return c.json({
-		credentials: rows.map((row) => ({
-			...toCredential(row),
-			last24h: recent.get(row.id) ?? NO_RECENT_STATS,
-			last7dDaily: daily.get(row.id) ?? buildEmptyDailySeries(),
-		})),
+		credentials: rows.map((row) => {
+			const last7dDaily = daily.get(row.id) ?? buildEmptyDailySeries();
+			return {
+				...toCredential(row),
+				last24h: recent.get(row.id) ?? NO_RECENT_STATS,
+				last7dDaily,
+				errorSeries:
+					bucketed?.get(row.id) ??
+					last7dDaily.map(({ cost: _cost, ...point }) => point),
+			};
+		}),
 	});
 });
 
@@ -919,6 +949,86 @@ async function getDailyCredentialStats(providerKeyIds: string[]) {
 				return {
 					date,
 					cost: Number(row?.cost ?? 0),
+					requestCount: Number(row?.requestCount ?? 0),
+					errorCount: Number(row?.errorCount ?? 0),
+					clientErrorCount: Number(row?.clientErrorCount ?? 0),
+					gatewayErrorCount: Number(row?.gatewayErrorCount ?? 0),
+					upstreamErrorCount: Number(row?.upstreamErrorCount ?? 0),
+				};
+			}),
+		);
+	}
+	return series;
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Hour starts for a sub-week error window, oldest first, ending with the hour
+ * in progress. Epoch-aligned, which matches the UTC `hourTimestamp` buckets.
+ */
+function getErrorSeriesBuckets(
+	window: Exclude<ErrorWindow, "7d">,
+	now: Date = new Date(),
+): Date[] {
+	const count = window === "4h" ? 4 : 24;
+	const end = Math.floor(now.getTime() / HOUR_MS) * HOUR_MS;
+	return Array.from({ length: count }, (_, index) => {
+		const offsetMs = (count - 1 - index) * HOUR_MS;
+		return new Date(end - offsetMs);
+	});
+}
+
+/**
+ * Hourly request/error counts per credential for the sub-week error windows,
+ * from the hourly rollup. One grouped query for every credential, like the
+ * daily series. The rollup's grain is the hour, so nothing shorter is offered.
+ */
+async function getBucketedCredentialErrorSeries(
+	providerKeyIds: string[],
+	window: Exclude<ErrorWindow, "7d">,
+) {
+	const series = new Map<string, CredentialErrorPoint[]>();
+	if (providerKeyIds.length === 0) {
+		return series;
+	}
+
+	const buckets = getErrorSeriesBuckets(window);
+	const stats = tables.providerKeyHourlyStats;
+	const rows = await db
+		.select({
+			providerKeyId: stats.providerKeyId,
+			bucket: bucketLabel(sql<Date>`${stats.hourTimestamp}`).as("bucket"),
+			requestCount: sql<number>`COALESCE(SUM(${stats.requestCount}), 0)`.as(
+				"request_count",
+			),
+			errorCount: sql<number>`COALESCE(SUM(${stats.errorCount}), 0)`.as(
+				"error_count",
+			),
+			...hourlyErrorSplitFields(),
+		})
+		.from(stats)
+		.where(
+			and(
+				inArray(stats.providerKeyId, providerKeyIds),
+				gte(stats.hourTimestamp, buckets[0]),
+			),
+		)
+		.groupBy(stats.providerKeyId, stats.hourTimestamp);
+
+	const byKeyAndBucket = new Map<string, (typeof rows)[number]>();
+	for (const row of rows) {
+		byKeyAndBucket.set(`${row.providerKeyId}:${row.bucket}`, row);
+	}
+
+	for (const providerKeyId of providerKeyIds) {
+		series.set(
+			providerKeyId,
+			buckets.map((bucket) => {
+				const date = bucket.toISOString();
+				const row = byKeyAndBucket.get(`${providerKeyId}:${date}`);
+				return {
+					date,
 					requestCount: Number(row?.requestCount ?? 0),
 					errorCount: Number(row?.errorCount ?? 0),
 					clientErrorCount: Number(row?.clientErrorCount ?? 0),
