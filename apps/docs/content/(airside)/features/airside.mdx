@@ -48,7 +48,7 @@ A capability you have edited on a live listing lives in a filing until we approv
 
 Each check lists the upstream requests it actually sent. A check can be more than one request: the tool check walks the `tool_choice` modes and the reasoning check sweeps the effort tiers, so every attempt appears nested under its check with its own pass or fail and the upstream message on failure. The breakdown fills in while the run is still going. A tool or reasoning check fails only when every one of its requests failed.
 
-The vision check sends four image inputs: an inline PNG, an inline JPEG, two images in one message, and a remote image URL. Both inline formats must be answered correctly for the check to pass; the other two only report what your deployment accepts. Preflight proves the account behind the test key, so make sure the key serving live traffic reaches the same deployment.
+The vision check sends four image inputs: an inline PNG, an inline JPEG, two images in one message, and a remote image URL. Both inline formats must be answered correctly for the check to pass; the other two only report what your deployment accepts.
 
 Where a check can tell the difference between a capability and a dialect, it narrows the listing itself. A `tool_choice` mode your endpoint mishandles is dropped while tool calls stay on, and a `reasoning_effort` tier your endpoint rejects outright is retried at another tier — reasoning stays on and only the rejected tiers come off your declared set. If one tier is rejected the check goes on to try the others, since a tier left declared is one the gateway will forward verbatim. So a deployment implementing only a subset of the tiers verifies without losing reasoning, and you do not have to know which subset in advance.
 
