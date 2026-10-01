@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "cb9ddeec-d070-4e11-bd7a-8e4644dfbe2b",
+  "id": "42600dfa-4ef0-4dfd-b237-c21d47c4014b",
   "prevId": "1b5adbb2-0f8a-459a-95a0-c4075d6f57ae",
   "ddl": [
     {
@@ -14460,6 +14460,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "cache_read_input_price",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "image_input_price",
       "entityType": "columns",
       "schema": "public",
@@ -14513,6 +14526,58 @@
       "generated": null,
       "identity": null,
       "name": "max_output",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "min_cacheable_tokens",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "max_temperature",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "supports_developer_role",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "supports_assistant_prefill",
       "entityType": "columns",
       "schema": "public",
       "table": "model_provider_mapping"
@@ -14697,6 +14762,19 @@
       "generated": null,
       "identity": null,
       "name": "web_search_price",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "web_search_forced_only",
       "entityType": "columns",
       "schema": "public",
       "table": "model_provider_mapping"
@@ -24772,14 +24850,14 @@
       "table": "provider_draft_model"
     },
     {
-      "type": "text",
+      "type": "jsonb",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "delist_reason",
+      "name": "catalogue_metadata",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_draft_model"
