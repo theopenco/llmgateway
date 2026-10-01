@@ -43,7 +43,7 @@ export const metadata: Metadata = {
 		template: "%s | DevPass by LLM Gateway",
 	},
 	description:
-		"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, Cline, and any OpenAI-compatible tool. 200+ models, one API key.",
+		"One subscription for AI coding. Fixed-price dev plans for Claude Code, Cursor, Cline, and any OpenAI-compatible tool. Live model catalog, a single API key.",
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},

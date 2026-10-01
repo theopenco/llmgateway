@@ -48,7 +48,7 @@ function buildMonthMeta(month: TimelineMonthSummary | null): {
 		.map((model) => model.name)
 		.join(", ");
 	return {
-		title: `New AI Model Releases — ${month.label} Timeline`,
+		title: `AI Model Releases — ${month.label} Timeline`,
 		description: `${count} AI model${count === 1 ? "" : "s"} released in ${
 			month.label
 		}${month.isCurrentMonth ? " so far" : ""} — ${names} — plus every major LLM release date. Updated daily.`,
