@@ -12,6 +12,7 @@ import {
 } from "vitest";
 
 import { app } from "@/app.js";
+import { resetKeyHealth } from "@/lib/api-key-health.js";
 import {
 	cleanupTestOrganization,
 	clearCache,
@@ -31,6 +32,9 @@ const MOCK_PORT = 3097;
 const TEST_TOKEN = "custom-provider-token";
 const ROUTING_METRIC_MAPPING_ID = "custom-routing-openai-metric";
 
+// When set, the mock rejects requests sent with the custom provider's key.
+let customFailure: { status: number; body: unknown } | null = null;
+
 const mockRequests: Array<{
 	path: string;
 	authorization: string | undefined;
@@ -49,6 +53,13 @@ mockServer.on(
 			model: body.model,
 			stream: body.stream === true,
 		});
+
+		if (
+			customFailure &&
+			c.req.header("authorization") === "Bearer sk-test-key"
+		) {
+			return c.json(customFailure.body, customFailure.status as 400);
+		}
 
 		if (body.stream === true) {
 			return streamSSE(c, async (stream) => {
@@ -259,6 +270,181 @@ describe("Custom Provider", () => {
 		await clearCache();
 		await cleanupDb();
 		mockRequests.length = 0;
+		customFailure = null;
+		resetKeyHealth();
+	});
+
+	async function setupBareIdRouting() {
+		await setupTestData({
+			mode: "api-keys",
+			plan: "enterprise",
+			includeProviderKey: true,
+			includeCatalogProviderKey: true,
+			customModelsOnly: true,
+		});
+		await db.insert(tables.customModel).values({
+			id: "custom-routing-model",
+			providerKeyId: "provider-key-custom",
+			organizationId: "custom-org",
+			modelName: "gpt-4o-mini",
+			inputPrice: "0.01e-6",
+			outputPrice: "0.01e-6",
+			streaming: "true",
+		});
+	}
+
+	function bareIdRequest(requestId: string, stream = false) {
+		return app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-request-id": requestId,
+				Authorization: `Bearer ${TEST_TOKEN}`,
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				messages: [{ role: "user", content: `hello ${requestId}` }],
+				stream,
+			}),
+		});
+	}
+
+	describe("Bare-id fallback from a custom provider", () => {
+		test("falls back when the custom provider returns a 5xx", async () => {
+			await setupBareIdRouting();
+			customFailure = { status: 500, body: { error: { message: "boom" } } };
+
+			const res = await bareIdRequest("custom-fallback-500");
+			const json = await res.json();
+			expect(res.status).toBe(200);
+			expect(json.metadata.used_provider).toBe("openai");
+			expect(mockRequests.map((r) => r.authorization)).toEqual([
+				"Bearer sk-test-key",
+				"Bearer sk-openai-test-key",
+			]);
+		});
+
+		test("falls back when the custom provider does not serve the model", async () => {
+			await setupBareIdRouting();
+			customFailure = {
+				status: 400,
+				body: {
+					error: {
+						message: "Model 'gpt-4o-mini' is temporarily not supported",
+					},
+				},
+			};
+
+			const res = await bareIdRequest("custom-fallback-400");
+			const json = await res.json();
+			expect(res.status).toBe(200);
+			expect(json.metadata.used_provider).toBe("openai");
+		});
+
+		test("falls back on a streaming request", async () => {
+			await setupBareIdRouting();
+			customFailure = {
+				status: 400,
+				body: {
+					error: {
+						message: "Model 'gpt-4o-mini' is temporarily not supported",
+					},
+				},
+			};
+
+			const res = await bareIdRequest("custom-fallback-400-stream", true);
+			expect(res.status).toBe(200);
+			const stream = await readAll(res.body);
+			expect(stream.hasError).toBe(false);
+			expect(stream.hasContent).toBe(true);
+			const log = await waitForLogByRequestId("custom-fallback-400-stream");
+			expect(log.usedProvider).toBe("openai");
+		});
+
+		test("keeps an unrelated custom 400 as a client error", async () => {
+			await setupBareIdRouting();
+			customFailure = {
+				status: 400,
+				body: { error: { message: "temperature must be between 0 and 2" } },
+			};
+
+			const res = await bareIdRequest("custom-client-400");
+			expect(res.status).toBe(400);
+			expect(mockRequests).toHaveLength(1);
+		});
+
+		test("stops preferring a custom provider that keeps failing", async () => {
+			await setupBareIdRouting();
+			customFailure = { status: 500, body: { error: { message: "boom" } } };
+
+			for (let i = 0; i < 5; i++) {
+				const res = await bareIdRequest(`custom-uptime-${i}`);
+				expect(res.status).toBe(200);
+			}
+			mockRequests.length = 0;
+
+			const res = await bareIdRequest("custom-uptime-demoted");
+			expect(res.status).toBe(200);
+			expect(mockRequests.map((r) => r.authorization)).toEqual([
+				"Bearer sk-openai-test-key",
+			]);
+			const log = await waitForLogByRequestId("custom-uptime-demoted");
+			expect(log.usedProvider).toBe("openai");
+			expect(log.routingMetadata?.filteredProviders).toEqual([
+				expect.objectContaining({
+					providerId: "custom",
+					codes: ["low_uptime"],
+					reasons: ["custom provider uptime is below the fallback threshold"],
+				}),
+			]);
+		});
+
+		test("counts a rejected model against the custom provider's uptime", async () => {
+			await setupBareIdRouting();
+			customFailure = {
+				status: 400,
+				body: {
+					error: {
+						message: "Model 'gpt-4o-mini' is temporarily not supported",
+					},
+				},
+			};
+
+			for (let i = 0; i < 5; i++) {
+				await bareIdRequest(`custom-rejected-${i}`);
+			}
+			mockRequests.length = 0;
+
+			const res = await bareIdRequest("custom-rejected-demoted");
+			expect(res.status).toBe(200);
+			expect(mockRequests).toHaveLength(1);
+		});
+
+		test("does not fall back when the custom provider is pinned", async () => {
+			await setupBareIdRouting();
+			customFailure = {
+				status: 400,
+				body: {
+					error: {
+						message: "Model 'gpt-4o-mini' is temporarily not supported",
+					},
+				},
+			};
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${TEST_TOKEN}`,
+				},
+				body: JSON.stringify({
+					model: "my-custom/gpt-4o-mini",
+					messages: [{ role: "user", content: "pinned" }],
+				}),
+			});
+			expect(res.status).toBe(400);
+			expect(mockRequests).toHaveLength(1);
+		});
 	});
 
 	describe("Error cases - bare 'custom' model without provider name", () => {
@@ -604,6 +790,54 @@ describe("Custom Provider", () => {
 			expect((await res.json()).error.message).toContain(
 				"Custom providers are not supported in credits mode",
 			);
+		});
+	});
+
+	describe("/v1/messages routing metadata", () => {
+		function messagesRequest(stream: boolean) {
+			return app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${TEST_TOKEN}`,
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					max_tokens: 64,
+					messages: [{ role: "user", content: `metadata ${stream}` }],
+					stream,
+				}),
+			});
+		}
+
+		test("returns the serving provider", async () => {
+			await setupBareIdRouting();
+
+			const res = await messagesRequest(false);
+			const json = await res.json();
+			expect(res.status).toBe(200);
+			expect(json.metadata).toMatchObject({
+				requested_model: "gpt-4o-mini",
+				used_provider: "custom",
+			});
+		});
+
+		test("returns the serving provider on message_delta when streaming", async () => {
+			await setupBareIdRouting();
+			customFailure = { status: 500, body: { error: { message: "boom" } } };
+
+			const res = await messagesRequest(true);
+			expect(res.status).toBe(200);
+			const events = (await res.text())
+				.split("\n")
+				.filter((line) => line.startsWith("data: "))
+				.map((line) => JSON.parse(line.slice(6)));
+			const delta = events.find((event) => event.type === "message_delta");
+			expect(delta.metadata.used_provider).toBe("openai");
+			expect(delta.metadata.routing).toEqual([
+				expect.objectContaining({ provider: "custom", succeeded: false }),
+				expect.objectContaining({ provider: "openai", succeeded: true }),
+			]);
 		});
 	});
 

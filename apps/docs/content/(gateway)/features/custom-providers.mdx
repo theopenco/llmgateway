@@ -160,6 +160,26 @@ undefined models are rejected with `400`. This guarantees that every request has
 known cost attribution and enforced limits. When disabled, undefined models
 still work but remain unbilled, as before.
 
+### Routing bare model ids
+
+A catalog entry whose model id equals a built-in model id and has a price joins
+routing for that bare id: `gpt-5.5` can then be served by your custom provider
+or a built-in provider, scored like any other candidate (see
+[routing](/features/routing)). In hybrid mode, providers you hold a key for are
+preferred. A provider-prefixed id always pins that provider.
+
+Because the custom provider is one candidate among several:
+
+- A failed attempt falls back to the next provider. This includes a `4xx` in
+  which the custom provider says it does not serve the model (for example
+  `Model 'gpt-5.5' is not supported`); other `4xx` responses are returned as
+  client errors.
+- Its recent uptime is tracked per model. Below the low-uptime threshold
+  (default 90%) it is skipped while another provider can serve the request, and
+  retried a few minutes later.
+
+The serving provider is returned in `metadata.used_provider`.
+
 ## Visibility
 
 Every active organization member — including project-scoped **developer**

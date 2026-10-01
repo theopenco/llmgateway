@@ -55,6 +55,7 @@ import {
 	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
 import { customModelToProviderMapping } from "@/lib/custom-model.js";
+import { getCustomProviderUptime } from "@/lib/custom-provider-health.js";
 import { getPublishedDynamicRoute } from "@/lib/dynamic-route-loader.js";
 import {
 	assertOriginAllowed,
@@ -258,6 +259,7 @@ import {
 import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
 import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
+import { isCustomModelUnavailableError } from "./tools/custom-model-unavailable.js";
 import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.js";
 import { estimateTokens } from "./tools/estimate-tokens.js";
 import {
@@ -463,6 +465,64 @@ function isCustomAutoRoutingMapping(
 		"customProviderKeyId" in mapping &&
 		"customProviderName" in mapping
 	);
+}
+
+/**
+ * Drops custom mappings whose recent uptime is below the fallback threshold so
+ * a failing custom provider stops winning on price or keyed preference. They
+ * are kept when nothing else could serve the request.
+ */
+function dropLowUptimeCustomProviders(
+	providers: ProviderModelMapping[],
+	modelId: string,
+	uptimeThreshold: number,
+	filteredOut: FilteredProvider[],
+): ProviderModelMapping[] {
+	const healthy = providers.filter((provider) => {
+		if (!isCustomAutoRoutingMapping(provider)) {
+			return true;
+		}
+		const uptime = getCustomProviderUptime(
+			provider.customProviderKeyId,
+			modelId,
+		);
+		return uptime === undefined || uptime >= uptimeThreshold;
+	});
+	if (healthy.length === 0 || healthy.length === providers.length) {
+		return providers;
+	}
+	recordFilteredProvider(filteredOut, "custom", [
+		exclusionReason("low_uptime"),
+	]);
+	return healthy;
+}
+
+/** Adds custom providers' in-memory uptime to the routing metrics. */
+function applyCustomProviderUptime(
+	metricsMap: Map<string, ProviderMetrics>,
+	modelId: string,
+	providers: ProviderModelMapping[],
+): void {
+	for (const provider of providers) {
+		if (!isCustomAutoRoutingMapping(provider)) {
+			continue;
+		}
+		const uptime = getCustomProviderUptime(
+			provider.customProviderKeyId,
+			modelId,
+		);
+		if (uptime === undefined) {
+			continue;
+		}
+		const key = metricsKey(modelId, provider.providerId, provider.region);
+		metricsMap.set(key, {
+			modelId,
+			providerId: provider.providerId,
+			totalRequests: 0,
+			...metricsMap.get(key),
+			uptime,
+		});
+	}
 }
 
 async function keepCheapestCustomRoutingMapping(
@@ -4207,7 +4267,12 @@ chat.openapi(completions, async (c) => {
 				: suitableProviders;
 			const deduplicatedSuitableProviders =
 				await keepCheapestCustomRoutingMapping(
-					toolChoiceSuitableProviders,
+					dropLowUptimeCustomProviders(
+						toolChoiceSuitableProviders,
+						modelDef.id,
+						routingCfg.retry.lowUptimeFallbackThreshold,
+						filteredOutForModel,
+					),
 					modelDef.id,
 					project.organizationId,
 					providerDiscountResolver,
@@ -4367,6 +4432,11 @@ chat.openapi(completions, async (c) => {
 					promptTokens: routingPromptTokens,
 					session: sessionStickyEnabled,
 				},
+			);
+			applyCustomProviderUptime(
+				metricsMap,
+				selectedModel.id,
+				selectedProviders,
 			);
 			providerAgnosticSelectedProviders =
 				await collapseProvidersToBestRegionPerProvider(
@@ -5336,7 +5406,12 @@ chat.openapi(completions, async (c) => {
 				filteredOutProvidersDirect,
 			);
 			const availableModelProviders = await keepCheapestCustomRoutingMapping(
-				eligibleModelProviders,
+				dropLowUptimeCustomProviders(
+					eligibleModelProviders,
+					modelInfo.id,
+					routingCfg.retry.lowUptimeFallbackThreshold,
+					filteredOutProvidersDirect,
+				),
 				modelInfo.id,
 				project.organizationId,
 				providerDiscountResolver,
@@ -5479,6 +5554,11 @@ chat.openapi(completions, async (c) => {
 						promptTokens: routingPromptTokens,
 						session: sessionStickyEnabled,
 					},
+				);
+				applyCustomProviderUptime(
+					metricsMap,
+					modelWithPricing.id,
+					routingCandidates,
 				);
 				const providerAgnosticCandidates =
 					await collapseProvidersToBestRegionPerProvider(
@@ -7949,6 +8029,24 @@ chat.openapi(completions, async (c) => {
 		failedKeys.remember(providerId, region, options);
 	}
 
+	// A custom provider picked by routing that rejects the model it is
+	// catalogued for is a mapping gap, not a client error: make it retryable
+	// and count it against the key's uptime like a 404.
+	function classifyProviderHttpError(status: number, errorText: string) {
+		const customModelUnavailable =
+			usedProvider === "custom" &&
+			!requestedProvider &&
+			status >= 400 &&
+			status < 500 &&
+			isCustomModelUnavailableError(errorText, usedExternalId);
+		return {
+			finishReason: customModelUnavailable
+				? "gateway_error"
+				: getFinishReasonFromError(status, errorText),
+			healthStatusCode: customModelUnavailable ? 404 : status,
+		};
+	}
+
 	async function resolveProviderContextForRetry(
 		providerMapping: {
 			providerId: string;
@@ -9278,10 +9376,8 @@ chat.openapi(completions, async (c) => {
 							: null;
 
 						// Determine the finish reason for error handling
-						const finishReason = getFinishReasonFromError(
-							res.status,
-							errorResponseText,
-						);
+						const { finishReason, healthStatusCode } =
+							classifyProviderHttpError(res.status, errorResponseText);
 
 						if (
 							finishReason !== "client_error" &&
@@ -9507,7 +9603,7 @@ chat.openapi(completions, async (c) => {
 						if (trackedKeyHealthId && finishReason !== "content_filter") {
 							reportTrackedKeyError(
 								trackedKeyHealthId,
-								res.status,
+								healthStatusCode,
 								errorResponseText,
 								usedInternalModel,
 							);
@@ -13666,7 +13762,7 @@ chat.openapi(completions, async (c) => {
 			}
 
 			// Determine the finish reason first
-			const finishReason = getFinishReasonFromError(
+			const { finishReason, healthStatusCode } = classifyProviderHttpError(
 				res.status,
 				errorResponseText,
 			);
@@ -13910,7 +14006,7 @@ chat.openapi(completions, async (c) => {
 			if (trackedKeyHealthId && finishReason !== "content_filter") {
 				reportTrackedKeyError(
 					trackedKeyHealthId,
-					res.status,
+					healthStatusCode,
 					errorResponseText,
 					usedInternalModel,
 				);

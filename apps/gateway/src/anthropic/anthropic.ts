@@ -450,6 +450,10 @@ const anthropicResponseSchema = z.object({
 			})
 			.optional(),
 	}),
+	metadata: z.record(z.string(), z.unknown()).optional().openapi({
+		description:
+			"Gateway routing metadata, the same object /v1/chat/completions returns: used_provider, used_model, used_region and routing attempts. On streams it rides on the message_delta event.",
+	}),
 });
 
 type AnthropicRequest = z.infer<typeof anthropicRequestSchema>;
@@ -1181,11 +1185,8 @@ anthropic.openapi(messages, async (c) => {
 		);
 	}
 
-	// Surface gateway response-cache replays to native Anthropic clients. The
-	// Anthropic response body has no metadata envelope to carry the marker the
-	// inner /v1/chat/completions puts on `metadata.cached`, so forward the
-	// header instead — without it a replayed body (same id, same usage) is
-	// indistinguishable from a fresh sample.
+	// Surface gateway response-cache replays to native Anthropic clients, who
+	// usually ignore the non-Anthropic `metadata` field carrying `cached`.
 	const innerCacheStatus = response.headers.get("x-llmgateway-cache");
 	if (innerCacheStatus) {
 		c.header("x-llmgateway-cache", innerCacheStatus);
@@ -1253,6 +1254,8 @@ anthropic.openapi(messages, async (c) => {
 				const toolCallBlockIndex = new Map<number, number>();
 				let currentEventType: string | null = null;
 				let stopReason: string | null = null;
+				// Routing metadata from the inner final usage chunk.
+				let responseMetadata: Record<string, unknown> | undefined;
 				let contentBlockStopsSent = false;
 				let messageDeltaSent = false;
 
@@ -1328,6 +1331,7 @@ anthropic.openapi(messages, async (c) => {
 								stop_sequence: null,
 							},
 							usage: usage,
+							...(responseMetadata && { metadata: responseMetadata }),
 						}),
 						event: "message_delta",
 					});
@@ -1407,6 +1411,10 @@ anthropic.openapi(messages, async (c) => {
 										event: "message_stop",
 									});
 									return;
+								}
+
+								if (chunk.metadata && typeof chunk.metadata === "object") {
+									responseMetadata = chunk.metadata;
 								}
 
 								if (!messageId && chunk.id) {
@@ -1981,6 +1989,10 @@ anthropic.openapi(messages, async (c) => {
 					},
 				}),
 		},
+		...(openaiResponse.metadata &&
+			typeof openaiResponse.metadata === "object" && {
+				metadata: openaiResponse.metadata as Record<string, unknown>,
+			}),
 	};
 
 	return c.json(anthropicResponse);
