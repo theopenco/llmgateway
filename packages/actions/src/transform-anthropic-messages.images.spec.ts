@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { logger } from "@llmgateway/logger";
+
 import { RequestError } from "./request-error.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 
@@ -21,6 +23,7 @@ describe("transformAnthropicMessages image failures", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
 		vi.unstubAllEnvs();
+		vi.restoreAllMocks();
 	});
 
 	it("rejects a malformed data URL as a client error", async () => {
@@ -32,13 +35,17 @@ describe("transformAnthropicMessages image failures", () => {
 		expect((error as RequestError).statusCode).toBe(400);
 	});
 
-	it("keeps the URL out of the placeholder on a non-client failure", async () => {
+	it("keeps the URL out of the placeholder and the logs on a non-client failure", async () => {
 		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
 		vi.stubGlobal(
 			"fetch",
 			vi.fn().mockRejectedValue(new Error("socket hang up")),
 		);
 		const url = "https://example.com/secret-token.png";
+		const logSpies = [
+			vi.spyOn(logger, "error").mockImplementation(() => {}),
+			vi.spyOn(logger, "warn").mockImplementation(() => {}),
+		];
 
 		const [message] = await transformAnthropicMessages(imageMessage(url));
 
@@ -47,5 +54,10 @@ describe("transformAnthropicMessages image failures", () => {
 			text: "[Image failed to load]",
 		});
 		expect(JSON.stringify(message)).not.toContain(url);
+
+		const logged = logSpies.flatMap((spy) => spy.mock.calls);
+		expect(logged.length).toBeGreaterThan(0);
+		expect(JSON.stringify(logged)).not.toContain("secret-token");
+		expect(JSON.stringify(logged)).toContain("example.com");
 	});
 });
