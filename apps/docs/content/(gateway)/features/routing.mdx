@@ -162,7 +162,7 @@ The selection reason in routing metadata will show `stable-preferred` when a req
 
 **Your Own Provider Keys (hybrid mode)**:
 
-In a project in **hybrid** mode, routing first narrows the candidates to providers you have your own [provider key](/learn/provider-keys) for, and the weighted score picks among those. LLM Gateway's own credentials are used only when none of your keys can serve the requested model, or as fallback when attempts on your keys fail. Projects in API-keys or credits mode are unaffected.
+In a project in **hybrid** mode, routing first narrows the candidates to providers you have your own [provider key](/learn/provider-keys) for, and the weighted score picks among those. LLM Gateway's own credentials are used when none of your keys can serve the requested model, as fallback when attempts on your keys fail, or when your current keyed provider's uptime is degraded and no keyed candidate is healthier — escaping the degraded provider takes priority over staying on your key. Projects in API-keys or credits mode are unaffected.
 
 **Routing Metadata**:
 
