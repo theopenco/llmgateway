@@ -207,6 +207,8 @@ Organization throttles return 429 with `Retry-After` in seconds, zero remaining 
 
 The legacy `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` fields remain available. `RateLimit-Reset` is a delay in seconds; `X-RateLimit-Reset` is a Unix timestamp. These fields also remain available as `X-RateLimit-Limit` and `X-RateLimit-Remaining`. Browser clients on allowed CORS origins can read these headers.
 
+Later gates can overwrite the legacy fields: requests to free models report the per-model free-model allowance in `RateLimit-Limit`/`RateLimit-Remaining` (and their `X-` variants) even when the organization RPM limiter is exempt or disabled, a spend-limit `429` carries the dollar cap in `RateLimit-Limit`, and a provider-cap `429` carries that cap's reset delay and zero remaining. The structured `RateLimit-Policy` and `RateLimit` fields are not overwritten by these gates, so prefer them for tracking the organization RPM quota.
+
 Other gateway gates, such as spending limits, can reject requests independently of the advertised organization quota. Honor `Retry-After` when supplied; otherwise use exponential backoff with jitter. Inspect the error body to distinguish a temporary throttle from a spending limit that needs account action.
 
 ## Rate Limit Exceeded

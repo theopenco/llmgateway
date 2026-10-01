@@ -120,7 +120,7 @@ This ensures providers experiencing significant issues are strongly deprioritize
 
 **Provider Priority**:
 
-Each provider has a **priority** value (default `1`) that nudges routing toward or away from it independently of live metrics:
+Each provider has a **priority** value that nudges routing toward or away from it independently of live metrics. Several providers ship with their own built-in priority in the catalogue; a provider without one defaults to `1`, and Enterprise projects can override the value per provider (see [Per-Project Routing Configuration](#per-project-routing-configuration-enterprise)):
 
 - A provider's priority is applied as a `(1 - priority)` adjustment to its score — higher priority lowers the score (more preferred), lower priority raises it (less preferred).
 - A priority of **0** disables the provider entirely, removing it from routing for that model.
@@ -153,14 +153,16 @@ Requests that are part of the epsilon-greedy exploration bypass this preference 
 The selection reason in routing metadata will show `stable-preferred` when a request was served by the stored preference rather than the top-scored provider at that moment.
 
 <Callout type="info">
-	Self-hosted deployments can tune this behavior with three environment
-	variables: `PREFERRED_PROVIDER_TTL` (preference lifetime in seconds, default
-	`3600`), `PREFERRED_PROVIDER_UPTIME_THRESHOLD` (hard-switch uptime floor,
-	default `85`), and `PREFERRED_PROVIDER_SCORE_MARGIN` (soft-switch score gap,
-	default `0.15`). On the **Enterprise plan**, these same values can be
-	customized per project from the dashboard — see [Per-Project Routing
+	The preference lifetime (default `3600` seconds), hard-switch uptime floor
+	(default `85`), and soft-switch score gap (default `0.15`) come from the
+	routing configuration's `sticky` settings. On the **Enterprise plan**, they
+	can be customized per project from the dashboard — see [Per-Project Routing
 	Configuration](#per-project-routing-configuration-enterprise).
 </Callout>
+
+**Your Own Provider Keys (hybrid mode)**:
+
+In a project in **hybrid** mode, routing first narrows the candidates to providers you have your own [provider key](/learn/provider-keys) for, and the weighted score picks among those. LLM Gateway's own credentials are used only when none of your keys can serve the requested model, or as fallback when attempts on your keys fail. Projects in API-keys or credits mode are unaffected.
 
 **Routing Metadata**:
 
@@ -186,7 +188,7 @@ This transparency allows you to understand and debug routing decisions.
 
 ### Routing Strategy
 
-By default, model-ID routing uses the full weighted score described above (`routing: "auto"`). When you care about a single dimension, set the `routing` field — named after the factor it optimizes — to bias provider selection toward it:
+By default, model-ID routing uses the full weighted score described above (`routing: "auto"`). When you care about a single dimension, set the `routing` field — named after the factor it optimizes — to bias provider selection toward it. Each project can also set a default strategy under **Settings → Routing** (available on all plans); a per-request `routing` value overrides the project default:
 
 | Strategy           | Behavior                                                                                   |
 | ------------------ | ------------------------------------------------------------------------------------------ |
@@ -196,6 +198,8 @@ By default, model-ID routing uses the full weighted score described above (`rout
 | `latency`          | Gives latency a **90% relative weight**, so the lowest time-to-first-token wins.           |
 
 Each non-`auto` strategy keeps a small (10%) uptime weight, and the [exponential uptime penalty](#smart-routing-algorithm) still applies on top. This means the dominant pick is still skipped in favor of another provider when it has extremely bad uptime — you get the cheapest (or fastest) provider that is actually healthy, not one that is effectively down.
+
+A non-`auto` strategy also turns off [epsilon-greedy exploration](#smart-routing-algorithm) for the request: you asked to optimize a single factor, so no traffic is randomly rerouted to other providers. (A global `EXPLORATION_RATE` environment override on self-hosted deployments still takes precedence.)
 
 Because time-to-first-token is only measured for streaming requests, `routing: "latency"` only biases streaming requests; for non-streaming requests it falls back to selecting on uptime.
 
@@ -547,16 +551,16 @@ Overrides are merged on top of the defaults, so you only set the values you want
 
 The following groups can be customized per project:
 
-| Group                   | What it controls                                                                                                                                                                     | Defaults                                                                                                                                                                                                                           |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Weights**             | Relative importance of each scoring factor                                                                                                                                           | `price 0.6`, `imagePrice 1.0`, `uptime 0.5`, `throughput 0.05`, `latency 0.025`, `cache 0`                                                                                                                                         |
-| **Thresholds**          | Cache prompt size and pricing overrides, uptime-penalty threshold, exploration rate, and fallback metrics                                                                            | `cachePromptTokens 5000`, `cacheHitRate 0.1`, `cacheOutputRatio 0.2` (coding: `0.9` / `0.02`; Chat: `0.5` / `0.1`), `uptimePenalty 95`, `defaultUptime 100`, `defaultLatency 1000`, `defaultThroughput 50`, `explorationRate 0.01` |
-| **Retry**               | Max cross-provider fallback attempts and the low-uptime reroute threshold                                                                                                            | `maxRetries 2`, `lowUptimeFallbackThreshold 90`                                                                                                                                                                                    |
-| **Timeouts**            | Per-request time limits (end-to-end, streaming, non-streaming) — see [Request Timeouts](/features/timeouts). Capped at the infrastructure defaults — an override can only lower them | `gatewayMs 1,500,000`, `streamingMs 1,200,000`, `plainMs 600,000`                                                                                                                                                                  |
-| **History**             | The metrics window and the time-decay tier boundaries and weights                                                                                                                    | `windowMinutes 60` (max 120), `tier1Minutes 1`, `tier2Minutes 5`, `tier1Weight 10`, `tier2Weight 3`, `tier3Weight 1`                                                                                                               |
-| **Sticky**              | Stable-provider preference: on/off, TTL, hard-switch uptime floor, soft-switch score margin                                                                                          | `enabled true`, `ttlSeconds 3600`, `uptimeThreshold 85`, `scoreMargin 0.15`                                                                                                                                                        |
-| **Session**             | [Sticky session routing](#sticky-session-routing): on/off, pin TTL, re-pin uptime floor                                                                                              | `enabled true`, `ttlSeconds 3600`, `uptimeThreshold 85`                                                                                                                                                                            |
-| **Provider priorities** | Per-provider priority multipliers; set a provider to `0` to disable it for that project                                                                                              | `1` for every provider                                                                                                                                                                                                             |
+| Group                   | What it controls                                                                                                                                                                                                                      | Defaults                                                                                                                                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Weights**             | Relative importance of each scoring factor                                                                                                                                                                                            | `price 0.6`, `imagePrice 1.0`, `uptime 0.5`, `throughput 0.05`, `latency 0.025`, `cache 0`                                                                                                                                         |
+| **Thresholds**          | Cache prompt size and pricing overrides, uptime-penalty threshold, exploration rate, and fallback metrics                                                                                                                             | `cachePromptTokens 5000`, `cacheHitRate 0.1`, `cacheOutputRatio 0.2` (coding: `0.9` / `0.02`; Chat: `0.5` / `0.1`), `uptimePenalty 95`, `defaultUptime 100`, `defaultLatency 1000`, `defaultThroughput 50`, `explorationRate 0.01` |
+| **Retry**               | Max cross-provider fallback attempts and the low-uptime reroute threshold                                                                                                                                                             | `maxRetries 2`, `lowUptimeFallbackThreshold 90`                                                                                                                                                                                    |
+| **Timeouts**            | Per-request time limits (streaming, non-streaming, and the gateway value that caps the default streaming limit) — see [Request Timeouts](/features/timeouts). Capped at the infrastructure defaults — an override can only lower them | `gatewayMs 1,500,000`, `streamingMs 1,200,000`, `plainMs 600,000`                                                                                                                                                                  |
+| **History**             | The metrics window and the time-decay tier boundaries and weights                                                                                                                                                                     | `windowMinutes 60` (max 120), `tier1Minutes 1`, `tier2Minutes 5`, `tier1Weight 10`, `tier2Weight 3`, `tier3Weight 1`                                                                                                               |
+| **Sticky**              | Stable-provider preference: on/off, TTL, hard-switch uptime floor, soft-switch score margin                                                                                                                                           | `enabled true`, `ttlSeconds 3600`, `uptimeThreshold 85`, `scoreMargin 0.15`                                                                                                                                                        |
+| **Session**             | [Sticky session routing](#sticky-session-routing): on/off, pin TTL, re-pin uptime floor                                                                                                                                               | `enabled true`, `ttlSeconds 3600`, `uptimeThreshold 85`                                                                                                                                                                            |
+| **Provider priorities** | Per-provider priority multipliers; set a provider to `0` to disable it for that project                                                                                                                                               | The catalogue's built-in priority for each provider (`1` when it has none)                                                                                                                                                         |
 
 <Callout type="info">
 	Per-project routing configuration requires the Enterprise plan. If you'd like

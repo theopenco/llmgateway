@@ -10,7 +10,7 @@ Later, you can filter by specific values to return, such as for a specific user 
 
 ## Custom Headers
 
-You can include custom headers with the `X-LLMGateway-` prefix to send metadata alongside your LLM requests:
+You can include custom headers with the `X-LLMGateway-` prefix to send metadata alongside your LLM requests. Custom metadata headers are recorded on the OpenAI-compatible chat completions endpoint (`/v1/chat/completions`) and the image endpoints (`/v1/images`); the `/v1/messages` and `/v1/responses` endpoints do not currently forward them.
 
 ```bash
 curl -X POST https://api.llmgateway.io/v1/chat/completions \

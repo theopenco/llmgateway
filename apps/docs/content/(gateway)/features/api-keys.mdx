@@ -90,6 +90,8 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
+Alternatively, send the key in an `x-api-key` header — the convention Anthropic-style clients use, including on the [`/v1/messages` endpoint](/features/anthropic-endpoint). When both headers are present, `Authorization: Bearer` takes precedence.
+
 To show DevPass allowance meters in an integration, see the [DevPass Usage
 API](/developers/devpass-usage).
 
