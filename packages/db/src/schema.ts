@@ -4340,6 +4340,11 @@ export const auditLogActions = [
 	"enterprise_license_fee.update",
 	// Referral
 	"referral_bonus.update",
+	// Organization-scoped pricing and limits set by an administrator.
+	"discount.create",
+	"discount.delete",
+	"rate_limit.create",
+	"rate_limit.delete",
 	// Dev Plan
 	"dev_plan.subscribe",
 	"dev_plan.cancel",
@@ -4410,6 +4415,8 @@ export const auditLogResourceTypes = [
 	"payment_method",
 	"payment",
 	"transaction",
+	"discount",
+	"rate_limit",
 	"dev_plan",
 	"chat_plan",
 	"sso_provider",
