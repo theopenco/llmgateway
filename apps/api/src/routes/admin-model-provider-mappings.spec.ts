@@ -243,6 +243,38 @@ describe("admin model-provider mapping totals", () => {
 		});
 	});
 
+	test("narrows to an exact model and provider", async () => {
+		const window = `from=${fromDate}&to=${toDate}`;
+		const models = await getJson<CatalogRows>(
+			cookie,
+			`/admin/models?modelId=${BEDROCK_MODEL}&limit=100&${window}`,
+		);
+		expect(models.models!.map((m) => m.id)).toEqual([BEDROCK_MODEL]);
+
+		// A substring of a real id must not match the exact filter.
+		const partial = await getJson<CatalogRows>(
+			cookie,
+			`/admin/models?modelId=${MODEL_PREFIX}&limit=100&${window}`,
+		);
+		expect(partial.models).toEqual([]);
+
+		const mappings = await getJson<CatalogRows & CatalogTotals>(
+			cookie,
+			`/admin/model-provider-mappings?providerId=aws-mantle&modelId=${MANTLE_MODEL}&${window}`,
+		);
+		expect(mappings.mappings!.length).toBeGreaterThan(0);
+		expect(mappings.mappings!.every((m) => m.modelId === MANTLE_MODEL)).toBe(
+			true,
+		);
+		expect(mappings.totalRequests).toBe(20);
+
+		const mismatched = await getJson<CatalogRows>(
+			cookie,
+			`/admin/model-provider-mappings?providerId=aws-bedrock&modelId=${MANTLE_MODEL}&${window}`,
+		);
+		expect(mismatched.mappings).toEqual([]);
+	});
+
 	test("filters rows by status and usage thresholds", async () => {
 		const window = `from=${fromDate}&to=${toDate}`;
 		const modelIds = async (filter: string) => {

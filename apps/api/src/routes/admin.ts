@@ -7517,6 +7517,7 @@ const getModelStats = createRoute({
 		query: z
 			.object({
 				search: z.string().optional(),
+				modelId: z.string().optional(),
 				family: z.string().optional(),
 				sortBy: modelSortBySchema.default("logsCount").optional(),
 				sortOrder: sortOrderSchema.default("desc").optional(),
@@ -7561,6 +7562,9 @@ admin.openapi(getModelStats, async (c) => {
 				sql`LOWER(${tables.model.name}) LIKE ${`%${searchLower}%`}`,
 			),
 		);
+	}
+	if (query.modelId) {
+		conditions.push(eq(tables.model.id, query.modelId));
 	}
 	if (family) {
 		conditions.push(eq(tables.model.family, family));
@@ -12380,6 +12384,8 @@ const getModelProviderMappings = createRoute({
 		query: z
 			.object({
 				search: z.string().optional(),
+				providerId: z.string().optional(),
+				modelId: z.string().optional(),
 				sortBy: z
 					.enum([
 						"modelId",
@@ -12449,12 +12455,20 @@ admin.openapi(getModelProviderMappings, async (c) => {
 							AND ${concreteRegionalMapping.region} IS NOT NULL
 					)`,
 				);
-	const searchClause = search
-		? or(
-				sql`${tables.modelProviderMapping.modelId} ILIKE ${"%" + search + "%"}`,
-				sql`${tables.modelProviderMapping.providerId} ILIKE ${"%" + search + "%"}`,
-			)
-		: undefined;
+	const searchClause = and(
+		search
+			? or(
+					sql`${tables.modelProviderMapping.modelId} ILIKE ${"%" + search + "%"}`,
+					sql`${tables.modelProviderMapping.providerId} ILIKE ${"%" + search + "%"}`,
+				)
+			: undefined,
+		query.providerId
+			? eq(tables.modelProviderMapping.providerId, query.providerId)
+			: undefined,
+		query.modelId
+			? eq(tables.modelProviderMapping.modelId, query.modelId)
+			: undefined,
+	);
 	const whereClause = and(visibleMappingClause, searchClause);
 
 	const dateRange = (() => {

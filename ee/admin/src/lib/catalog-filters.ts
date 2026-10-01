@@ -63,3 +63,23 @@ export function catalogFilterQuery(filters: CatalogFilters): string {
 	const query = params.toString();
 	return query ? `&${query}` : "";
 }
+
+/** Free-text search plus the exact entity picked from its suggestions. */
+export interface CatalogSelection {
+	search?: string;
+	providerId?: string;
+	modelId?: string;
+}
+
+/** `&key=value` pairs for links that must keep the exact selection. */
+export function catalogExactQuery(selection: CatalogSelection): string {
+	const params = new URLSearchParams();
+	if (selection.providerId) {
+		params.set("providerId", selection.providerId);
+	}
+	if (selection.modelId) {
+		params.set("modelId", selection.modelId);
+	}
+	const query = params.toString();
+	return query ? `&${query}` : "";
+}

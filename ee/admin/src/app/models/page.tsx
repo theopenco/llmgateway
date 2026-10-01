@@ -1,15 +1,19 @@
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { CatalogFiltersBar } from "@/components/catalog-filters";
+import { CatalogSearch } from "@/components/catalog-search";
 import { ModelsTable } from "@/components/models-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import { UsageModeSelector } from "@/components/usage-mode-selector";
-import { catalogFilterQuery, parseCatalogFilters } from "@/lib/catalog-filters";
+import {
+	catalogExactQuery,
+	catalogFilterQuery,
+	parseCatalogFilters,
+} from "@/lib/catalog-filters";
 import {
 	CATALOG_PAGE_WINDOW_DEFAULT,
 	pageWindowOptionsWithMinutes,
@@ -74,7 +78,12 @@ export default async function ModelsPage({
 	const usageMode = parseUsageMode(params?.mode);
 	const { from, to } = windowToFromTo(pageWindow);
 	const filters = parseCatalogFilters(params);
-	const filterQuery = catalogFilterQuery(filters);
+	const selection = {
+		search,
+		modelId: params?.modelId,
+	};
+	const filterQuery =
+		catalogFilterQuery(filters) + catalogExactQuery(selection);
 	const limit = 50;
 	const offset = (page - 1) * limit;
 
@@ -85,6 +94,7 @@ export default async function ModelsPage({
 				limit,
 				offset,
 				search,
+				modelId: selection.modelId,
 				sortBy,
 				sortOrder,
 				from,
@@ -101,23 +111,6 @@ export default async function ModelsPage({
 
 	const totalPages = Math.ceil(data.total / limit);
 
-	async function handleSearch(formData: FormData) {
-		"use server";
-		const searchValue = formData.get("search") as string;
-		const sortByValue = formData.get("sortBy") as string;
-		const sortOrderValue = formData.get("sortOrder") as string;
-		const windowValue = formData.get("window") as string;
-		const modeValue = formData.get("mode") as string;
-		const searchParam = searchValue
-			? `&search=${encodeURIComponent(searchValue)}`
-			: "";
-		const sortParam = `&sortBy=${sortByValue}&sortOrder=${sortOrderValue}`;
-		const windowParam = windowValue ? `&window=${windowValue}` : "";
-		const modeParam = modeValue === "total" ? "" : `&mode=${modeValue}`;
-		redirect(
-			`/models?page=1${searchParam}${sortParam}${windowParam}${modeParam}${filterQuery}`,
-		);
-	}
 	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
 
 	return (
@@ -130,28 +123,9 @@ export default async function ModelsPage({
 					</p>
 				</div>
 				<div className="flex w-full items-center gap-3 sm:w-auto">
-					<form
-						action={handleSearch}
-						className="flex w-full items-center gap-2 sm:w-auto"
-					>
-						<input type="hidden" name="sortBy" value={sortBy} />
-						<input type="hidden" name="sortOrder" value={sortOrder} />
-						<input type="hidden" name="window" value={pageWindow} />
-						<input type="hidden" name="mode" value={usageMode} />
-						<div className="relative min-w-0 flex-1 sm:max-w-64">
-							<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-							<input
-								type="text"
-								name="search"
-								placeholder="Search by name or ID..."
-								defaultValue={search}
-								className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-							/>
-						</div>
-						<Button type="submit" size="sm">
-							Search
-						</Button>
-					</form>
+					<Suspense>
+						<CatalogSearch scope="models" selection={selection} />
+					</Suspense>
 				</div>
 			</header>
 
