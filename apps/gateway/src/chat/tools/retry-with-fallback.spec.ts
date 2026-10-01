@@ -140,11 +140,11 @@ describe("shouldRetryRequest", () => {
 		).toBe(true);
 	});
 
-	it("does not fall back to another provider for session-sticky requests", () => {
+	it("does not fall back to another provider for provider-pinned requests", () => {
 		// Sticky sessions pin to one provider to keep the upstream prompt cache
 		// warm; switching providers mid-session would break the pin. Same-provider
 		// retries handle transient failures instead.
-		expect(shouldRetryRequest({ ...defaultOpts, sessionSticky: true })).toBe(
+		expect(shouldRetryRequest({ ...defaultOpts, providerPinned: true })).toBe(
 			false,
 		);
 	});
@@ -199,26 +199,26 @@ describe("shouldRetrySameKey", () => {
 		);
 	});
 
-	it("retries the pinned provider for session-sticky requests even when others exist", () => {
+	it("retries the pinned provider even when others exist", () => {
 		// Cross-provider fallback is disabled for sticky sessions, so the pinned
 		// provider is retried on the same key even when alternatives exist.
 		expect(
 			shouldRetrySameKey({
 				...defaultOpts,
 				hasOtherProvider: true,
-				sessionSticky: true,
+				providerPinned: true,
 			}),
 		).toBe(true);
 	});
 
-	it("still excludes deterministic failures for session-sticky requests", () => {
+	it("still excludes deterministic failures for provider-pinned requests", () => {
 		// The sticky bypass only relaxes the hasOtherProvider gate — auth, 4xx and
 		// rate-limit failures remain non-retryable on the same key.
 		expect(
 			shouldRetrySameKey({
 				...defaultOpts,
 				hasOtherProvider: true,
-				sessionSticky: true,
+				providerPinned: true,
 				errorType: "gateway_error",
 				statusCode: 401,
 			}),
@@ -227,7 +227,7 @@ describe("shouldRetrySameKey", () => {
 			shouldRetrySameKey({
 				...defaultOpts,
 				hasOtherProvider: true,
-				sessionSticky: true,
+				providerPinned: true,
 				statusCode: 400,
 			}),
 		).toBe(false);
@@ -235,7 +235,7 @@ describe("shouldRetrySameKey", () => {
 			shouldRetrySameKey({
 				...defaultOpts,
 				hasOtherProvider: true,
-				sessionSticky: true,
+				providerPinned: true,
 				retryCount: 2,
 			}),
 		).toBe(false);

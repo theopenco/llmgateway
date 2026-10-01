@@ -10,6 +10,7 @@ export * from "./schema-cache-version.js";
 export * from "./discount-helpers.js";
 export * from "./email-recipients.js";
 export * from "./airside-routing.js";
+export * from "./airside-catalogue-metadata.js";
 export * from "./routing-score-multiplier.js";
 export * from "./rate-limit-helpers.js";
 export * from "./schema.js";

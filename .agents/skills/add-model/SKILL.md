@@ -40,7 +40,7 @@ git diff origin/main...HEAD -- packages/models/src/models/
 Apply these to every change in `packages/models`:
 
 - Write each model and provider mapping in full as a plain object literal in the `models` array. Duplicated fields are preferred here; small shared `const` values are fine, but no helper (e.g. `makeModel(...)`) builds definition objects.
-- A mapping on `origin/main` is never removed: historical usage and analytics reference it. Retire it with `deactivatedAt: new Date("YYYY-MM-DD")`. Mappings added only on the current branch may be removed. Exception: Iceberg and Granite may be removed with a one-time database cleanup after the source removal deploys, keeping shared models, logs, usage aggregates, and history.
+- A mapping on `origin/main` is never removed: historical usage and analytics reference it. Retire it with `deactivatedAt: new Date("YYYY-MM-DD")`. Mappings added only on the current branch may be removed. Exception: Iceberg and Granite may be removed with a one-time database cleanup after the source removal deploys, keeping shared models, logs, usage aggregates, and history. Also exempt: a mapping whose pair every environment serves from an active Airside listing (`source = "airside"`) that carries its catalogue metadata. Remove it, and mark a provider left with no static mappings `managedInAirside: true`.
 - Set `deactivatedAt` at least 7 days out for a mapping that still serves live requests, or on the provider's announced retirement date. A same-day or retroactive date requires the mapping to be unable to serve any live request today. A rejected parameter, a missing capability, or flaky quality is a metadata fix (`jsonOutput`, `vision`, `reasoningEfforts`, `supportedToolChoices`, `stability: "unstable"`, `test: "skip"`) or a gateway fix; leave the mapping active and say so in the PR.
 - Write per-token prices (`inputPrice`, `outputPrice`, `cachedInputPrice`, …) in `e-6` notation so the coefficient reads as USD per million tokens (`"1.4e-6"`). `requestPrice` (flat USD per request) and `perSecondPrice` are exempt.
 - One model definition has at most one mapping per `providerId`; regional variants go in that mapping's `regions` array. Lookups key on `(providerId, region)`, so a second same-provider mapping silently resolves to the first and bills at its prices. A distinct upstream deployment (e.g. a priority router with its own `externalId` and pricing) gets its own model entry and `id`.
@@ -125,7 +125,12 @@ Probe the deployment. The same model differs between providers, and an
 Follow the comment rule in [Catalogue rules](#catalogue-rules).
 
 A new provider also needs a `providers.ts` entry, endpoint wiring in
-`get-provider-endpoint.ts`.
+`get-provider-endpoint.ts`. Set `encryptedReasoning: true` when its replayed
+reasoning payloads only verify on that provider; routing then never moves such
+models to another provider (exploration, low-uptime fallback, error retry).
+Probed 2026-09: OpenAI and Azure reject each other's `encrypted_content`, AI
+Studio and Vertex reject each other's Gemini 3 signatures, but signatures
+replay across different keys of the same Google platform.
 
 ## 5. Reasoning efforts
 

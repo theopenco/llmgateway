@@ -775,23 +775,19 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect(store.value).toEqual({ providerId: "openai", region: undefined });
 		});
 
-		it("keeps a Gemini session on its signature provider despite low uptime", async () => {
+		function encryptedReasoningFixture(
+			providerIds: [string, string],
+			reasoning: boolean,
+		) {
 			const model = {
-				id: "gemini-session-test",
-				providers: [
-					{
-						providerId: "google-ai-studio",
-						externalId: "gemini-session-test",
-						inputPrice: "1e-6",
-						outputPrice: "2e-6",
-					},
-					{
-						providerId: "google-vertex",
-						externalId: "gemini-session-test",
-						inputPrice: "1e-6",
-						outputPrice: "2e-6",
-					},
-				],
+				id: "encrypted-reasoning-session-test",
+				providers: providerIds.map((providerId) => ({
+					providerId,
+					externalId: "encrypted-reasoning-session-test",
+					inputPrice: "1e-6",
+					outputPrice: "2e-6",
+					reasoning,
+				})),
 			};
 			const metricsMap = new Map(
 				model.providers.map((provider) => [
@@ -799,21 +795,56 @@ describe("getCheapestFromAvailableProviders", () => {
 					{
 						modelId: model.id,
 						providerId: provider.providerId,
-						uptime: provider.providerId === "google-vertex" ? 50 : 100,
+						uptime: provider.providerId === providerIds[1] ? 50 : 100,
 						averageLatency: 200,
 						throughput: 100,
 						totalRequests: 100,
 					},
 				]),
 			);
-			const natural = await getCheapestFromAvailableProviders(
-				model.providers,
-				model,
-				{ metricsMap },
-			);
-			expect(natural?.provider.providerId).toBe("google-ai-studio");
+			return { model, metricsMap };
+		}
 
-			const store = createMemoryStore({ providerId: "google-vertex" });
+		it.each([
+			[["google-ai-studio", "google-vertex"]],
+			[["openai", "azure"]],
+		] as Array<[[string, string]]>)(
+			"keeps an encrypted-reasoning session on %j despite low uptime",
+			async (providerIds) => {
+				const { model, metricsMap } = encryptedReasoningFixture(
+					providerIds,
+					true,
+				);
+				const natural = await getCheapestFromAvailableProviders(
+					model.providers,
+					model,
+					{ metricsMap },
+				);
+				expect(natural?.provider.providerId).toBe(providerIds[0]);
+
+				const store = createMemoryStore({ providerId: providerIds[1] });
+				const result = await getCheapestFromAvailableProviders(
+					model.providers,
+					model,
+					{
+						metricsMap,
+						sessionProviderStore: store,
+					},
+				);
+				expect(result?.provider.providerId).toBe(providerIds[1]);
+				expect(result?.metadata.selectionReason).toBe("session-sticky");
+				expect(store.setCalls).toEqual([
+					{ providerId: providerIds[1], region: undefined },
+				]);
+			},
+		);
+
+		it("re-pins a low-uptime session when the mapping has no reasoning", async () => {
+			const { model, metricsMap } = encryptedReasoningFixture(
+				["openai", "azure"],
+				false,
+			);
+			const store = createMemoryStore({ providerId: "azure" });
 			const result = await getCheapestFromAvailableProviders(
 				model.providers,
 				model,
@@ -822,11 +853,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					sessionProviderStore: store,
 				},
 			);
-			expect(result?.provider.providerId).toBe("google-vertex");
-			expect(result?.metadata.selectionReason).toBe("session-sticky");
-			expect(store.setCalls).toEqual([
-				{ providerId: "google-vertex", region: undefined },
-			]);
+			expect(result?.provider.providerId).toBe("openai");
 		});
 
 		it("keeps the pin when uptime is exactly at the threshold", async () => {
@@ -1162,6 +1189,60 @@ describe("getCheapestFromAvailableProviders", () => {
 			}
 		}
 	});
+
+	it.each([
+		{ reasoning: true, explores: false },
+		{ reasoning: false, explores: true },
+	])(
+		"skips random exploration for encrypted reasoning ($reasoning)",
+		async ({ reasoning, explores }) => {
+			const originalExplorationRate = process.env.EXPLORATION_RATE;
+			const originalArgv = process.argv;
+			const originalNodeEnv = process.env.NODE_ENV;
+			const originalVitest = process.env.VITEST;
+			process.env.EXPLORATION_RATE = "1";
+			delete process.env.NODE_ENV;
+			delete process.env.VITEST;
+			process.argv = ["node", "/tmp/not-a-test-run.mjs"];
+
+			try {
+				const model = {
+					id: "encrypted-reasoning-exploration-test",
+					providers: ["openai", "azure"].map((providerId) => ({
+						providerId,
+						externalId: "encrypted-reasoning-exploration-test",
+						inputPrice: "1e-6",
+						outputPrice: "2e-6",
+						reasoning,
+					})),
+				};
+				const result = await getCheapestFromAvailableProviders(
+					model.providers,
+					model,
+				);
+				expect(result?.metadata.selectionReason === "random-exploration").toBe(
+					explores,
+				);
+			} finally {
+				process.argv = originalArgv;
+				if (originalNodeEnv !== undefined) {
+					process.env.NODE_ENV = originalNodeEnv;
+				} else {
+					delete process.env.NODE_ENV;
+				}
+				if (originalVitest !== undefined) {
+					process.env.VITEST = originalVitest;
+				} else {
+					delete process.env.VITEST;
+				}
+				if (originalExplorationRate === undefined) {
+					delete process.env.EXPLORATION_RATE;
+				} else {
+					process.env.EXPLORATION_RATE = originalExplorationRate;
+				}
+			}
+		},
+	);
 
 	it("should prefer request pricing over zero token placeholders", () => {
 		expect(
@@ -1752,15 +1833,17 @@ describe("getCheapestFromAvailableProviders", () => {
 				).toBe(true);
 			});
 
-			it("reports cache support for a runware mapping with a cached price", () => {
-				const runwareMapping = models
-					.find((model) => model.id === "deepseek-v4-flash")
-					?.providers.find(
-						(provider) => provider.providerId === "runware",
-					) as ProviderModelMapping;
+			it("reports cache support for an Airside listing with a cached price", () => {
+				const listingMapping: ProviderModelMapping = {
+					providerId: "runware",
+					externalId: "deepseek-v4-flash",
+					inputPrice: "0.14e-6",
+					outputPrice: "0.28e-6",
+					cachedInputPrice: "0.028e-6",
+					streaming: true,
+				};
 
-				expect(runwareMapping.cachedInputPrice).toBeDefined();
-				expect(providerSupportsCaching(runwareMapping)).toBe(true);
+				expect(providerSupportsCaching(listingMapping)).toBe(true);
 			});
 		});
 	});

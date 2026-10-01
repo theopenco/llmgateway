@@ -3111,6 +3111,24 @@ describe("airside provider portal", () => {
 		});
 		expect(canonicalMapping?.source).toBe("airside");
 
+		// Catalogue-only fields travel with the listing into its mapping.
+		expect(body.imported).toContain("glm-5.3");
+		const glmListing = await db.query.providerDraftModel.findFirst({
+			where: {
+				providerId: { eq: "mistral" },
+				modelName: { eq: "glm-5.3" },
+			},
+		});
+		expect(glmListing?.catalogueMetadata).toMatchObject({ maxTemperature: 1 });
+		const glmMapping = await db.query.modelProviderMapping.findFirst({
+			where: {
+				modelId: { eq: "glm-5.3" },
+				providerId: { eq: "mistral" },
+				region: { isNull: true },
+			},
+		});
+		expect(glmMapping).toMatchObject({ source: "airside", maxTemperature: 1 });
+
 		// Re-importing skips everything already listed.
 		const again = await app.request(
 			"/airside/models/import",

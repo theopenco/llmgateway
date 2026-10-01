@@ -139,7 +139,9 @@ function ProviderIdentity({ provider }: { provider: ProviderDefinition }) {
 					{provider.name}
 				</Link>
 				<p className="mt-1 text-xs text-muted-foreground">
-					{activeModelCounts[provider.id] ?? 0} available models
+					{provider.managedInAirside
+						? "Models listed on Airside"
+						: `${activeModelCounts[provider.id] ?? 0} available models`}
 				</p>
 				<div className="mt-3 text-xs leading-5">
 					<span className="block font-medium text-muted-foreground">

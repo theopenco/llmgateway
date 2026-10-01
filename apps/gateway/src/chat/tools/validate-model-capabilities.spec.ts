@@ -63,7 +63,23 @@ const textImageModel = (() => {
 
 // gemma-4-31b-it has runware (supportsAssistantPrefill: false) alongside
 // providers that accept a trailing assistant message.
-const mixedPrefillModel = getModel("gemma-4-31b-it");
+// Runware serves gemma-4-31b-it as an Airside listing, merged into the static
+// model the way the gateway merges listings.
+const staticGemma = getModel("gemma-4-31b-it");
+const mixedPrefillModel: ModelDefinition = {
+	...staticGemma,
+	providers: [
+		...staticGemma.providers,
+		{
+			providerId: "runware",
+			externalId: "google:gemma@4-31b-it",
+			inputPrice: "0.13e-6",
+			outputPrice: "0.38e-6",
+			streaming: true,
+			supportsAssistantPrefill: false,
+		},
+	],
+};
 
 // JSON capability fixtures — looked up by capability combination so the tests
 // don't pin to a specific model id that may churn. Only chat-servable models

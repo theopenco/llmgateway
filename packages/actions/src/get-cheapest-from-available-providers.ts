@@ -11,6 +11,7 @@ import {
 	type ModelWithPricing,
 	type ProviderModelMapping,
 	resolveTimeBasedPricing,
+	usesEncryptedReasoning,
 } from "@llmgateway/models";
 import { randomFloat, randomInt } from "@llmgateway/shared/random";
 import {
@@ -700,15 +701,16 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
  * healthy (uptime at or above the session threshold), reuse it so the upstream
  * prompt cache stays warm. Otherwise persist the just-scored best provider so
  * subsequent requests in this session reuse it. The pin only moves when its
- * provider leaves the candidate list or its uptime drops too low. Gemini
- * sessions keep an eligible pin regardless of uptime to preserve signatures.
+ * provider leaves the candidate list or its uptime drops too low. Sessions on
+ * an encrypted-reasoning mapping keep an eligible pin regardless of uptime,
+ * since another provider rejects the conversation's reasoning payloads.
  */
 async function applySessionSticky<T extends AvailableModelProvider>(
 	naturalResult: ProviderSelectionResult<T>,
 	candidates: T[],
 	store: SessionProviderStore,
 	cfg: ResolvedRoutingConfig,
-	modelId: string,
+	modelWithPricing: ModelWithPricing & { id: string },
 	metricsMap: Map<string, ProviderMetrics> | undefined,
 ): Promise<ProviderSelectionResult<T>> {
 	const saved = await store.get();
@@ -720,12 +722,14 @@ async function applySessionSticky<T extends AvailableModelProvider>(
 		);
 		if (candidate) {
 			const uptime = metricsMap?.get(
-				metricsKey(modelId, candidate.providerId, candidate.region),
+				metricsKey(modelWithPricing.id, candidate.providerId, candidate.region),
 			)?.uptime;
-			// Gemini thought signatures are provider-bound. An uptime dip must not
-			// move a live conversation to a provider that rejects its history.
+			// An uptime dip must not move a live conversation to a provider that
+			// rejects its encrypted reasoning.
 			if (
-				modelId.startsWith("gemini-") ||
+				usesEncryptedReasoning(
+					findProviderMapping(modelWithPricing.providers, candidate),
+				) ||
 				uptime === undefined ||
 				uptime >= cfg.session.uptimeThreshold
 			) {
@@ -846,10 +850,17 @@ export async function getCheapestFromAvailableProviders<
 
 	// Epsilon-greedy exploration: randomly select a provider some % of the time
 	// (configurable per project via thresholds.explorationRate). Skip during tests
-	// to keep behavior deterministic, and for sticky sessions where we want the
-	// scored best provider to be the one we pin.
+	// to keep behavior deterministic, for sticky sessions where we want the
+	// scored best provider to be the one we pin, and for encrypted-reasoning
+	// models, whose conversations fail when a turn lands on another provider.
+	const encryptedReasoning = stableProviders.some((provider) =>
+		usesEncryptedReasoning(
+			findProviderMapping(modelWithPricing.providers, provider),
+		),
+	);
 	if (
 		!sessionSticky &&
+		!encryptedReasoning &&
 		!isTestProcess() &&
 		randomFloat() < getExplorationRate(cfg)
 	) {
@@ -914,7 +925,7 @@ export async function getCheapestFromAvailableProviders<
 					stableProviders,
 					sessionStore,
 					cfg,
-					modelWithPricing.id,
+					modelWithPricing,
 					metricsMap,
 				)
 			: priceOnlyResult;
@@ -938,7 +949,7 @@ export async function getCheapestFromAvailableProviders<
 					stableProviders,
 					sessionStore,
 					cfg,
-					modelWithPricing.id,
+					modelWithPricing,
 					metricsMap,
 				)
 			: priceOnlyResult;
@@ -1043,7 +1054,7 @@ export async function getCheapestFromAvailableProviders<
 				stableProviders,
 				sessionStore,
 				cfg,
-				modelWithPricing.id,
+				modelWithPricing,
 				metricsMap,
 			)
 		: weightedResult;

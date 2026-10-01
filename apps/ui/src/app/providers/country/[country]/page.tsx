@@ -4,7 +4,12 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { ProvidersGrid } from "@/components/providers/providers-grid";
 import { JsonLd } from "@/components/seo/json-ld";
-import { activeModelCounts, listedProviders } from "@/lib/providers-catalog";
+import { fetchModels } from "@/lib/fetch-models";
+import {
+	activeModelCounts,
+	countApiModelsByProvider,
+	listedProviders,
+} from "@/lib/providers-catalog";
 
 import { getProviderCountries } from "@llmgateway/models";
 
@@ -24,9 +29,13 @@ function providersForCountry(code: string) {
 	return listedProviders.filter((provider) => provider.headquarters === code);
 }
 
-function modelCountForProviders(providers: { id: string }[]): number {
+function modelCountForProviders(
+	providers: { id: string }[],
+	modelCounts: Record<string, number>,
+): number {
 	return providers.reduce(
-		(sum, provider) => sum + (activeModelCounts[provider.id] ?? 0),
+		(sum, provider) =>
+			sum + (modelCounts[provider.id] ?? activeModelCounts[provider.id] ?? 0),
 		0,
 	);
 }
@@ -42,7 +51,8 @@ export default async function ProviderCountryPage({
 	}
 
 	const countryProviders = providersForCountry(country.code);
-	const modelCount = modelCountForProviders(countryProviders);
+	const modelCounts = countApiModelsByProvider(await fetchModels());
+	const modelCount = modelCountForProviders(countryProviders, modelCounts);
 
 	const countryUrl = `https://llmgateway.io/providers/country/${country.code.toLowerCase()}`;
 
@@ -96,6 +106,7 @@ export default async function ProviderCountryPage({
 				<HeroRSC />
 				<ProvidersGrid
 					countryCode={country.code}
+					modelCounts={modelCounts}
 					heading={`${country.flag} AI Providers in ${country.name}`}
 					subheading={`Access ${modelCount} models from ${countryProviders.length} AI ${
 						countryProviders.length === 1 ? "provider" : "providers"

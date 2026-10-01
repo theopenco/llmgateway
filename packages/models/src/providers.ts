@@ -207,6 +207,11 @@ export interface ProviderDefinition {
 	 * to this provider. Informational only; request preparation does not use it.
 	 */
 	forwardsSafetyIdentifier: boolean;
+	/**
+	 * The provider's models are Airside listings only: the static catalogue
+	 * carries no mappings for it, and model counts come from the API.
+	 */
+	managedInAirside?: boolean;
 	// Environment variable configuration
 	env: ProviderEnvConfig;
 	// Whether the provider supports streaming
@@ -259,6 +264,14 @@ export interface ProviderDefinition {
 	 * cached prefix. Unset is treated as a cache break.
 	 */
 	reasoningEffortChangePreservesCache?: boolean;
+	/**
+	 * Whether this provider's reasoning mappings return opaque reasoning
+	 * payloads (encrypted reasoning items, thought signatures) that only this
+	 * provider can verify when a conversation replays them. Routing never moves
+	 * such models to another provider through random exploration, low-uptime
+	 * fallback, or error retry. See `usesEncryptedReasoning`.
+	 */
+	encryptedReasoning?: boolean;
 	termsUrl?: string | null;
 	privacyPolicyUrl?: string | null;
 	usagePolicyUrl?: string | null;
@@ -310,6 +323,7 @@ export const providers: ProviderDefinition[] = [
 		forwardsSafetyIdentifier: true,
 		description:
 			"OpenAI is an AI research and deployment company. Our mission is to ensure that artificial general intelligence benefits all of humanity.",
+		encryptedReasoning: true,
 		env: {
 			required: {
 				apiKey: "LLM_OPENAI_API_KEY",
@@ -399,6 +413,7 @@ export const providers: ProviderDefinition[] = [
 		forwardsSafetyIdentifier: false,
 		description:
 			"Google AI Studio is a platform for accessing Google's Gemini models.",
+		encryptedReasoning: true,
 		env: {
 			required: {
 				apiKey: "LLM_GOOGLE_AI_STUDIO_API_KEY",
@@ -476,6 +491,7 @@ export const providers: ProviderDefinition[] = [
 		forwardsSafetyIdentifier: false,
 		description:
 			"Google Vertex AI is a platform for accessing Google's Gemini models via Vertex AI.",
+		encryptedReasoning: true,
 		env: {
 			required: {
 				apiKey: "LLM_GOOGLE_VERTEX_API_KEY",
@@ -1116,6 +1132,7 @@ export const providers: ProviderDefinition[] = [
 		name: "Azure",
 		forwardsSafetyIdentifier: true,
 		description: "Microsoft Azure - enterprise-grade OpenAI models",
+		encryptedReasoning: true,
 		env: {
 			required: {
 				apiKey: "LLM_AZURE_API_KEY",
@@ -1528,6 +1545,7 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "scx-ai",
+		managedInAirside: true,
 		name: "SCX.ai (Turbo)",
 		forwardsSafetyIdentifier: false,
 		description:
@@ -1559,6 +1577,7 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "scx-ai-gp",
+		managedInAirside: true,
 		name: "SCX.ai",
 		forwardsSafetyIdentifier: false,
 		description:
@@ -1970,6 +1989,7 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "runware",
+		managedInAirside: true,
 		name: "Runware",
 		forwardsSafetyIdentifier: false,
 		description:
@@ -2001,6 +2021,7 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "gonka24",
+		managedInAirside: true,
 		name: "Gonka24",
 		forwardsSafetyIdentifier: false,
 		description:
@@ -2097,6 +2118,7 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "consensusprotocol",
+		managedInAirside: true,
 		name: "Consensus Protocol",
 		forwardsSafetyIdentifier: false,
 		description:
@@ -2237,6 +2259,19 @@ export function getProviderDefinition(
 	providerId: ProviderId | string,
 ): ProviderDefinition | undefined {
 	return providers.find((p) => p.id === providerId);
+}
+
+/**
+ * Whether a mapping returns reasoning that only its own provider can verify on
+ * replay, so moving a conversation to another provider fails upstream.
+ */
+export function usesEncryptedReasoning(
+	mapping: { providerId: string; reasoning?: boolean } | undefined,
+): boolean {
+	return (
+		mapping?.reasoning === true &&
+		getProviderDefinition(mapping.providerId)?.encryptedReasoning === true
+	);
 }
 
 /**

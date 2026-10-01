@@ -255,7 +255,10 @@ internalModels.openapi(getModelsRoute, async (c) => {
 								NonNullable<typeof sharedMapping>["reasoningEfforts"] | null) ??
 							null)
 						: (sharedMapping?.reasoningEfforts ?? null),
-				reasoningMaxTokens: sharedMapping?.reasoningMaxTokens ?? null,
+				reasoningMaxTokens:
+					mapping.source === "airside"
+						? mapping.reasoningMaxTokens
+						: (sharedMapping?.reasoningMaxTokens ?? null),
 				rerank: sharedMapping?.rerank ?? null,
 				audio: mapping.audio ?? sharedMapping?.audio ?? null,
 				document: sharedMapping?.document ?? null,

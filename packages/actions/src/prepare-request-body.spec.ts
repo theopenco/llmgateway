@@ -2190,6 +2190,7 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		provider: Parameters<typeof prepareRequestBody>[0];
 		model: string;
 		useResponsesApi?: boolean;
+		resolvedProviderMapping?: ProviderModelMapping;
 	}) {
 		return (await prepareRequestBody(
 			options.provider,
@@ -2218,6 +2219,17 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 			undefined,
 			undefined,
 			options.useResponsesApi ?? false,
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			undefined, // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			options.resolvedProviderMapping,
 		)) as any;
 	}
 
@@ -2258,10 +2270,7 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		["deepinfra", "deepseek-v4-pro"],
 		["deepinfra", "hy3"],
 		["novita", "hy3"],
-		["runware", "deepseek-v4-flash"],
 		["canopywave", "kimi-k3"],
-		["runware", "deepseek-v4-pro"],
-		["runware", "gemma-4-31b-it"],
 	])(
 		"forwards none to %s when the mapping declares it",
 		async (provider, model) => {
@@ -2269,6 +2278,24 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 			// their catalog entries also publish `none` — both paths must
 			// agree so a mapping-declared opt-in is never stripped (#3423).
 			const requestBody = await prepare({ provider, model });
+			expect(requestBody.reasoning_effort).toBe("none");
+		},
+	);
+
+	test.each(["deepseek-v4-flash", "deepseek-v4-pro", "gemma-4-31b-it"])(
+		"forwards none to a runware Airside listing of %s that declares it",
+		async (model) => {
+			const requestBody = await prepare({
+				provider: "runware",
+				model,
+				resolvedProviderMapping: {
+					providerId: "runware",
+					externalId: model,
+					streaming: true,
+					reasoning: true,
+					reasoningEfforts: ["none", "low", "medium", "high"],
+				},
+			});
 			expect(requestBody.reasoning_effort).toBe("none");
 		},
 	);

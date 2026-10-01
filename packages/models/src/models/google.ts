@@ -2533,31 +2533,6 @@ export const googleModels = [
 				jsonOutput: true,
 			},
 			{
-				providerId: "runware",
-				externalId: "google-gemma-4-31b",
-				inputPrice: "0.102e-6",
-				outputPrice: "0.297e-6",
-				cachedInputPrice: "0.012e-6",
-				requestPrice: "0",
-				contextSize: 262144,
-				maxOutput: 65536,
-				quantization: "bf16",
-				streaming: true,
-				reasoning: true,
-				// Runware maps reasoning_effort onto its thinkingLevel setting and
-				// 400s minimal/low/medium for this model.
-				reasoningEfforts: ["none", "high", "xhigh", "max"],
-				vision: true,
-				tools: true,
-				// Runware rejects json_object for this model ("Missing required
-				// parameter: 'jsonSchema'") and its json_schema path hangs until the
-				// upstream inference timeout, so no structured-output mode is offered.
-				jsonOutput: false,
-				// Runware 400s ("a conversation cannot end on an assistant turn") when
-				// the last message is an assistant turn (verified 2026-07-28).
-				supportsAssistantPrefill: false,
-			},
-			{
 				providerId: "novita",
 				externalId: "google/gemma-4-31b-it",
 				inputPrice: "0.14e-6",
@@ -2614,21 +2589,6 @@ export const googleModels = [
 					"tool_choice",
 					"reasoning_effort",
 				],
-			},
-			{
-				providerId: "scx-ai",
-				externalId: "gemma-4-31B-it",
-				inputPrice: "0.30e-6",
-				outputPrice: "0.91e-6",
-				requestPrice: "0",
-				contextSize: 131072,
-				maxOutput: 8192,
-				quantization: "bf16",
-				streaming: true,
-				reasoning: false,
-				vision: false,
-				tools: true,
-				jsonOutput: true,
 			},
 			{
 				// RanoAI serves Gemma 4 on Furiosa RNGD NPUs. The NPU deployment

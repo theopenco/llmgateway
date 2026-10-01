@@ -303,9 +303,43 @@ export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 		tools: listed.mapping.tools ?? undefined,
 		supportedToolChoices: listed.mapping.supportedToolChoices ?? undefined,
 		jsonOutput: listed.mapping.jsonOutput,
+		jsonOutputSchema: listed.mapping.jsonOutputSchema,
 		reasoning: listed.mapping.reasoning ?? undefined,
+		reasoningMaxTokens: listed.mapping.reasoningMaxTokens,
 		reasoningEfforts: (listed.mapping.reasoningEfforts ??
 			undefined) as ProviderModelMapping["reasoningEfforts"],
+		webSearch: listed.mapping.webSearch,
+		quantization: listed.mapping.quantization ?? undefined,
+		// Catalogue-only fields the listing carries in its DB row; a static
+		// entry still in the catalogue covers rows not synced yet.
+		supportsDeveloperRole:
+			listed.mapping.supportsDeveloperRole ??
+			staticMapping?.supportsDeveloperRole,
+		supportsAssistantPrefill:
+			listed.mapping.supportsAssistantPrefill ??
+			staticMapping?.supportsAssistantPrefill,
+		maxTemperature:
+			listed.mapping.maxTemperature ?? staticMapping?.maxTemperature,
+		minCacheableTokens:
+			listed.mapping.minCacheableTokens ?? staticMapping?.minCacheableTokens,
+		supportedParameters:
+			listed.mapping.supportedParameters ?? staticMapping?.supportedParameters,
+		reasoningOutput:
+			(listed.mapping.reasoningOutput as "omit" | null) ??
+			staticMapping?.reasoningOutput,
+		stability: listed.mapping.stability,
+		webSearchPrice:
+			listed.mapping.webSearchPrice ?? staticMapping?.webSearchPrice,
+		webSearchForcedOnly:
+			listed.mapping.webSearchForcedOnly ?? staticMapping?.webSearchForcedOnly,
+		cacheWriteInputPrice:
+			listed.mapping.cacheWriteInputPrice ??
+			staticMapping?.cacheWriteInputPrice,
+		cacheWriteInputPrice1h:
+			listed.mapping.cacheWriteInputPrice1h ??
+			staticMapping?.cacheWriteInputPrice1h,
+		cacheReadInputPrice:
+			listed.mapping.cacheReadInputPrice ?? staticMapping?.cacheReadInputPrice,
 		deactivatedAt: listed.mapping.deactivatedAt ?? undefined,
 	};
 	const modelInfo: ModelDefinition = {
