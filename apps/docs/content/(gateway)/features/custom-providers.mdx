@@ -170,10 +170,9 @@ preferred. A provider-prefixed id always pins that provider.
 
 Because the custom provider is one candidate among several:
 
-- A failed attempt falls back to the next provider. This includes a `4xx` in
-  which the custom provider says it does not serve the model (for example
-  `Model 'gpt-5.5' is not supported`); other `4xx` responses are returned as
-  client errors.
+- A failed attempt falls back to the next provider under the usual
+  [retry rules](/features/routing#what-triggers-a-retry). `4xx` responses are
+  returned as client errors.
 - Its recent uptime is tracked per model. Below the low-uptime threshold
   (default 90%) it is skipped while another provider can serve the request, and
   retried a few minutes later.

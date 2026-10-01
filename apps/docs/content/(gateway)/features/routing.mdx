@@ -437,7 +437,7 @@ Retries are triggered by failures classified as **provider-side or gateway-side 
 - **Timeouts** (upstream provider took too long to respond)
 - **Connection failures** (network errors, DNS failures, etc.)
 - **Upstream rate limits** (a `429` from the provider)
-- **Provider account and mapping problems** — an upstream `401`/`403` (bad provider credentials), `402` (provider account out of funds), `404`/`405` (model or endpoint mapping gap), and a few specific `400` bodies that indicate the same kinds of gateway-side problems, including a [custom provider](/features/custom-providers#routing-bare-model-ids) rejecting a model it does not serve
+- **Provider account and mapping problems** — an upstream `401`/`403` (bad provider credentials), `402` (provider account out of funds), `404`/`405` (model or endpoint mapping gap), and a few specific `400` bodies that indicate the same kinds of gateway-side problems
 
 Retries are **not** triggered by:
 

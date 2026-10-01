@@ -324,40 +324,16 @@ describe("Custom Provider", () => {
 			]);
 		});
 
-		test("falls back when the custom provider does not serve the model", async () => {
-			await setupBareIdRouting();
-			customFailure = {
-				status: 400,
-				body: {
-					error: {
-						message: "Model 'gpt-4o-mini' is temporarily not supported",
-					},
-				},
-			};
-
-			const res = await bareIdRequest("custom-fallback-400");
-			const json = await res.json();
-			expect(res.status).toBe(200);
-			expect(json.metadata.used_provider).toBe("openai");
-		});
-
 		test("falls back on a streaming request", async () => {
 			await setupBareIdRouting();
-			customFailure = {
-				status: 400,
-				body: {
-					error: {
-						message: "Model 'gpt-4o-mini' is temporarily not supported",
-					},
-				},
-			};
+			customFailure = { status: 500, body: { error: { message: "boom" } } };
 
-			const res = await bareIdRequest("custom-fallback-400-stream", true);
+			const res = await bareIdRequest("custom-fallback-500-stream", true);
 			expect(res.status).toBe(200);
 			const stream = await readAll(res.body);
 			expect(stream.hasError).toBe(false);
 			expect(stream.hasContent).toBe(true);
-			const log = await waitForLogByRequestId("custom-fallback-400-stream");
+			const log = await waitForLogByRequestId("custom-fallback-500-stream");
 			expect(log.usedProvider).toBe("openai");
 		});
 
@@ -399,37 +375,9 @@ describe("Custom Provider", () => {
 			]);
 		});
 
-		test("counts a rejected model against the custom provider's uptime", async () => {
-			await setupBareIdRouting();
-			customFailure = {
-				status: 400,
-				body: {
-					error: {
-						message: "Model 'gpt-4o-mini' is temporarily not supported",
-					},
-				},
-			};
-
-			for (let i = 0; i < 5; i++) {
-				await bareIdRequest(`custom-rejected-${i}`);
-			}
-			mockRequests.length = 0;
-
-			const res = await bareIdRequest("custom-rejected-demoted");
-			expect(res.status).toBe(200);
-			expect(mockRequests).toHaveLength(1);
-		});
-
 		test("does not fall back when the custom provider is pinned", async () => {
 			await setupBareIdRouting();
-			customFailure = {
-				status: 400,
-				body: {
-					error: {
-						message: "Model 'gpt-4o-mini' is temporarily not supported",
-					},
-				},
-			};
+			customFailure = { status: 500, body: { error: { message: "boom" } } };
 
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
@@ -442,7 +390,7 @@ describe("Custom Provider", () => {
 					messages: [{ role: "user", content: "pinned" }],
 				}),
 			});
-			expect(res.status).toBe(400);
+			expect(res.status).toBe(500);
 			expect(mockRequests).toHaveLength(1);
 		});
 	});

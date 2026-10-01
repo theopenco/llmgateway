@@ -259,7 +259,6 @@ import {
 import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
 import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
-import { isCustomModelUnavailableError } from "./tools/custom-model-unavailable.js";
 import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.js";
 import { estimateTokens } from "./tools/estimate-tokens.js";
 import {
@@ -8041,24 +8040,6 @@ chat.openapi(completions, async (c) => {
 		failedKeys.remember(providerId, region, options);
 	}
 
-	// A custom provider picked by routing that rejects the model it is
-	// catalogued for is a mapping gap, not a client error: make it retryable
-	// and count it against the key's uptime like a 404.
-	function classifyProviderHttpError(status: number, errorText: string) {
-		const customModelUnavailable =
-			usedProvider === "custom" &&
-			!requestedProvider &&
-			status >= 400 &&
-			status < 500 &&
-			isCustomModelUnavailableError(errorText, usedExternalId);
-		return {
-			finishReason: customModelUnavailable
-				? "gateway_error"
-				: getFinishReasonFromError(status, errorText),
-			healthStatusCode: customModelUnavailable ? 404 : status,
-		};
-	}
-
 	async function resolveProviderContextForRetry(
 		providerMapping: {
 			providerId: string;
@@ -9388,8 +9369,10 @@ chat.openapi(completions, async (c) => {
 							: null;
 
 						// Determine the finish reason for error handling
-						const { finishReason, healthStatusCode } =
-							classifyProviderHttpError(res.status, errorResponseText);
+						const finishReason = getFinishReasonFromError(
+							res.status,
+							errorResponseText,
+						);
 
 						if (
 							finishReason !== "client_error" &&
@@ -9615,7 +9598,7 @@ chat.openapi(completions, async (c) => {
 						if (trackedKeyHealthId && finishReason !== "content_filter") {
 							reportTrackedKeyError(
 								trackedKeyHealthId,
-								healthStatusCode,
+								res.status,
 								errorResponseText,
 								usedInternalModel,
 							);
@@ -13774,7 +13757,7 @@ chat.openapi(completions, async (c) => {
 			}
 
 			// Determine the finish reason first
-			const { finishReason, healthStatusCode } = classifyProviderHttpError(
+			const finishReason = getFinishReasonFromError(
 				res.status,
 				errorResponseText,
 			);
@@ -14018,7 +14001,7 @@ chat.openapi(completions, async (c) => {
 			if (trackedKeyHealthId && finishReason !== "content_filter") {
 				reportTrackedKeyError(
 					trackedKeyHealthId,
-					healthStatusCode,
+					res.status,
 					errorResponseText,
 					usedInternalModel,
 				);
