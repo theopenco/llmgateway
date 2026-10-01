@@ -166,6 +166,7 @@ function logInternalError(
 	context: GatewayContentFilterContext,
 	payload: Record<string, unknown>,
 	error?: unknown,
+	level: "error" | "warn" = "error",
 ) {
 	const logPayload = {
 		provider: "internal",
@@ -193,7 +194,7 @@ function logInternalError(
 		return;
 	}
 
-	logger.error("gateway_content_filter_error", logPayload);
+	logger[level]("gateway_content_filter_error", logPayload);
 }
 
 async function classifyPrompt(
@@ -330,14 +331,21 @@ export async function checkInternalContentFilter(
 		(verdict): verdict is InternalClassifyResponse => verdict !== null,
 	);
 	if (timeoutSignal.aborted && succeeded.length < prompts.length) {
-		logInternalError(context, {
-			durationMs: Date.now() - startTime,
-			timeout: true,
-			scope,
-			requestCount: prompts.length,
-			failedCount: prompts.length - succeeded.length,
-			skippedCount: prompts.length - verdicts.length,
-		});
+		// Newest chunks are screened first, so a partial result still covers
+		// the turn being sent; only a check with no verdict at all is an error.
+		logInternalError(
+			context,
+			{
+				durationMs: Date.now() - startTime,
+				timeout: true,
+				scope,
+				requestCount: prompts.length,
+				failedCount: prompts.length - succeeded.length,
+				skippedCount: prompts.length - verdicts.length,
+			},
+			undefined,
+			succeeded.length > 0 ? "warn" : "error",
+		);
 	}
 	if (succeeded.length === 0) {
 		return emptyResult();

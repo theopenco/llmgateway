@@ -267,6 +267,7 @@ describe("checkInternalContentFilter", () => {
 		const budget = new AbortController();
 		vi.spyOn(AbortSignal, "timeout").mockReturnValue(budget.signal);
 		const errorSpy = vi.spyOn(logger, "error");
+		const warnSpy = vi.spyOn(logger, "warn");
 		const { fetchMock } = recordPrompts(async (prompt, index) => {
 			if (index === 7) {
 				budget.abort(new DOMException("timed out", "TimeoutError"));
@@ -287,8 +288,10 @@ describe("checkInternalContentFilter", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(8);
 		expect(result.results).toHaveLength(7);
 		expect(result.partialModerationFailed).toBe(true);
-		expect(errorSpy).toHaveBeenCalledTimes(1);
-		expect(errorSpy).toHaveBeenCalledWith(
+		// Partial coverage is a warning, not an error.
+		expect(errorSpy).not.toHaveBeenCalled();
+		expect(warnSpy).toHaveBeenCalledTimes(1);
+		expect(warnSpy).toHaveBeenCalledWith(
 			"gateway_content_filter_error",
 			expect.objectContaining({
 				timeout: true,
@@ -296,6 +299,30 @@ describe("checkInternalContentFilter", () => {
 				failedCount: 3,
 				skippedCount: 2,
 			}),
+		);
+	});
+
+	it("logs an error when the budget runs out before any verdict", async () => {
+		const budget = new AbortController();
+		vi.spyOn(AbortSignal, "timeout").mockReturnValue(budget.signal);
+		const errorSpy = vi.spyOn(logger, "error");
+		const warnSpy = vi.spyOn(logger, "warn");
+		recordPrompts(async () => {
+			budget.abort(new DOMException("timed out", "TimeoutError"));
+			throw budget.signal.reason;
+		});
+
+		const result = await checkInternalContentFilter(
+			HISTORY_THEN_LATEST,
+			CONTEXT,
+		);
+
+		expect(result.results).toHaveLength(0);
+		expect(warnSpy).not.toHaveBeenCalled();
+		expect(errorSpy).toHaveBeenCalledTimes(1);
+		expect(errorSpy).toHaveBeenCalledWith(
+			"gateway_content_filter_error",
+			expect.objectContaining({ timeout: true, failedCount: 10 }),
 		);
 	});
 
