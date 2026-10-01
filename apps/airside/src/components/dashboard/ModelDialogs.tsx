@@ -761,6 +761,8 @@ export function RegisterModelDialog({
 		modelName: modelName.trim(),
 		externalId: externalId || undefined,
 		apiFormat,
+		contextSize: Number(contextSize) || undefined,
+		maxOutput: Number(maxOutput) || undefined,
 		...capabilities,
 		supportedToolChoices: capabilities.tools
 			? toolChoicePayload(toolChoices)
@@ -964,7 +966,10 @@ export function RegisterModelDialog({
 							<Input
 								id="model-context"
 								value={contextSize}
-								onChange={(e) => setContextSize(e.target.value)}
+								onChange={(e) => {
+									setContextSize(e.target.value);
+									resetVerification();
+								}}
 								type="number"
 								min={1}
 							/>
@@ -974,7 +979,10 @@ export function RegisterModelDialog({
 							<Input
 								id="model-max-output"
 								value={maxOutput}
-								onChange={(e) => setMaxOutput(e.target.value)}
+								onChange={(e) => {
+									setMaxOutput(e.target.value);
+									resetVerification();
+								}}
 								type="number"
 								min={1}
 								placeholder="optional"
@@ -1523,6 +1531,8 @@ export function EditModelDialog({
 	// The proposed capabilities, preflighted before they are filed. The pair
 	// itself never changes here, so the server takes it from the saved row.
 	const proposedCapabilities = {
+		contextSize: contextSize ? Number(contextSize) : null,
+		maxOutput: maxOutput ? Number(maxOutput) : null,
 		...capabilities,
 		supportedToolChoices: capabilities.tools
 			? toolChoicePayload(toolChoices)
@@ -1698,7 +1708,10 @@ export function EditModelDialog({
 							<Input
 								id="edit-context"
 								value={contextSize}
-								onChange={(e) => setContextSize(e.target.value)}
+								onChange={(e) => {
+									setContextSize(e.target.value);
+									resetVerification();
+								}}
 								type="number"
 								min={1}
 							/>
@@ -1708,7 +1721,10 @@ export function EditModelDialog({
 							<Input
 								id="edit-max-output"
 								value={maxOutput}
-								onChange={(e) => setMaxOutput(e.target.value)}
+								onChange={(e) => {
+									setMaxOutput(e.target.value);
+									resetVerification();
+								}}
 								type="number"
 								min={1}
 							/>
