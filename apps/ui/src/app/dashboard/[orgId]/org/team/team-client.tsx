@@ -680,6 +680,13 @@ function ManageAccessDialog({
 							</SelectContent>
 						</Select>
 						{!isEnterprise && <EnterpriseProjectAccessNote />}
+						{member.roleAssignmentSource === "sso" && (
+							<p className="text-xs text-muted-foreground">
+								This role comes from an SSO group mapping. A role you set here
+								is manual: directory sync no longer lowers it, but a mapped
+								group can still raise it.
+							</p>
+						)}
 					</div>
 
 					{isProjectScopedRole(role) && isEnterprise && (
@@ -1201,9 +1208,22 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 														</TableCell>
 														<TableCell>{member.user.email}</TableCell>
 														<TableCell>
-															<Badge variant="secondary" className="capitalize">
-																{member.role.replace("_", " ")}
-															</Badge>
+															<div className="flex flex-wrap items-center gap-1.5">
+																<Badge
+																	variant="secondary"
+																	className="capitalize"
+																>
+																	{member.role.replace("_", " ")}
+																</Badge>
+																{member.roleAssignmentSource === "sso" && (
+																	<Badge
+																		variant="outline"
+																		title="Granted by an SSO group mapping. Directory sync revokes it when the member leaves the mapped group."
+																	>
+																		via SSO
+																	</Badge>
+																)}
+															</div>
 														</TableCell>
 														<TableCell>
 															{member.team ? (

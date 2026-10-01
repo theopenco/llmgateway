@@ -15,10 +15,10 @@ const ROLE_RANK: Record<OrgRole, number> = {
 };
 
 // Recompute an org member's role from their SCIM group memberships and the
-// org's group->role mappings. The highest-precedence mapped role wins; the
-// default is `developer`. Owners are never auto-demoted — owner is only ever
-// assigned manually (or by an explicit owner mapping), so an admin who set up
-// SSO can't be locked out by a group that maps to a lower role.
+// org's group->role mappings. The highest-precedence mapped role wins. A
+// mapping always promotes, but only a role a mapping granted (source "sso") is
+// lowered or reset to `developer`: manual roles survive directory sync, and
+// owners are never auto-demoted.
 //
 // Returns the {old,new} role change when it updated the membership, or null
 // when nothing changed, so callers (e.g. SCIM) can audit the transition.
@@ -31,7 +31,7 @@ export async function recomputeUserRole(
 			userId: { eq: userId },
 			organizationId: { eq: organizationId },
 		},
-		columns: { id: true, role: true },
+		columns: { id: true, role: true, roleAssignmentSource: true },
 	});
 	if (!membership) {
 		return null;
@@ -43,7 +43,7 @@ export async function recomputeUserRole(
 	});
 	const groupIds = groupMemberships.map((m) => m.scimGroupId);
 
-	let mappedRole: OrgRole = "developer";
+	let mappedRole: OrgRole | null = null;
 	if (groupIds.length) {
 		const groups = await db.query.scimGroup.findMany({
 			where: {
@@ -62,29 +62,36 @@ export async function recomputeUserRole(
 				columns: { role: true },
 			});
 			for (const mapping of mappings) {
-				if (ROLE_RANK[mapping.role] > ROLE_RANK[mappedRole]) {
+				if (!mappedRole || ROLE_RANK[mapping.role] > ROLE_RANK[mappedRole]) {
 					mappedRole = mapping.role;
 				}
 			}
 		}
 	}
 
-	if (membership.role === "owner" && ROLE_RANK[mappedRole] < ROLE_RANK.owner) {
+	const targetRole = mappedRole ?? "developer";
+	if (membership.role === targetRole) {
 		return null;
 	}
-	if (membership.role !== mappedRole) {
-		await cdb
-			.update(tables.userOrganization)
-			.set({
-				role: mappedRole,
-				...(mappedRole === "developer"
-					? {}
-					: { teamId: null, teamAssignmentSource: "manual" as const }),
-			})
-			.where(eq(tables.userOrganization.id, membership.id));
-		return { old: membership.role, new: mappedRole };
+	const isDemotion = ROLE_RANK[targetRole] < ROLE_RANK[membership.role];
+	if (
+		isDemotion &&
+		(membership.role === "owner" || membership.roleAssignmentSource !== "sso")
+	) {
+		return null;
 	}
-	return null;
+
+	await cdb
+		.update(tables.userOrganization)
+		.set({
+			role: targetRole,
+			roleAssignmentSource: mappedRole ? "sso" : "manual",
+			...(targetRole === "developer"
+				? {}
+				: { teamId: null, teamAssignmentSource: "manual" as const }),
+		})
+		.where(eq(tables.userOrganization.id, membership.id));
+	return { old: membership.role, new: targetRole };
 }
 
 // Recompute the role of every member of the SCIM group(s) with `groupName` in

@@ -1161,6 +1161,13 @@ export const userOrganization = pgTable(
 		})
 			.notNull()
 			.default("owner"),
+		// "sso" marks a role granted by a group → role mapping; only those are
+		// revoked on sync, while "manual" roles stick.
+		roleAssignmentSource: text({
+			enum: ["manual", "sso"],
+		})
+			.notNull()
+			.default("manual"),
 		// Per-member budgets (config only; spend is read from existing per-key
 		// sources — apiKey.usage and apiKeyHourlyStats.cost — so no counters here).
 		// null = unlimited.
