@@ -10,18 +10,24 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useApi } from "@/lib/fetch-client";
+import { errorWindowOption } from "@/lib/provider-key-error-window";
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
-import type { DailyCredentialPoint } from "@/lib/provider-key-spend";
+import type { ErrorWindow } from "@/lib/provider-key-error-window";
 
 export interface RecentCredentialStats {
 	requestCount: number;
 	clientErrorCount: number;
 	gatewayErrorCount: number;
 	upstreamErrorCount: number;
+}
+
+/** One bucket of the selected window, as the credentials list returns it. */
+export interface ErrorSeriesPoint extends RecentCredentialStats {
+	date: string;
 }
 
 /**
@@ -66,35 +72,48 @@ function toneForFraction(fraction: number) {
 }
 
 /**
- * Rolling 24h error rate for one credential. Deliberately quiet: at a normal
- * rate it reads as muted small print next to the spend, and only takes colour
- * once enough requests have failed that an operator should look. Hovering adds
- * the per-model breakdown, which answers the follow-up question the headline
- * rate always raises — one broken model, or the whole credential?
+ * Error rate for one credential over the selected window. Deliberately quiet:
+ * at a normal rate it reads as muted small print next to the spend, and only
+ * takes colour once enough requests have failed that an operator should look.
+ * Hovering adds the per-model breakdown, which answers the follow-up question
+ * the headline rate always raises — one broken model, or the whole credential?
  */
 export function ProviderKeyErrorRateCell({
 	providerKeyId,
-	stats,
-	daily,
+	window,
+	series,
 }: {
 	providerKeyId: string;
-	stats: RecentCredentialStats;
-	daily?: DailyCredentialPoint[];
+	window: ErrorWindow;
+	series: ErrorSeriesPoint[];
 }) {
 	const [open, setOpen] = useState(false);
+	const { label } = errorWindowOption(window);
 
-	// The 24h headline and the 7d trend are independent: a credential can be
-	// quiet today and still have a week worth showing, so the trend renders even
-	// when the rate cannot.
-	const trend = daily ? <DailyErrorRateSparkline daily={daily} /> : null;
+	const trend = <ErrorRateSparkline window={window} series={series} />;
 
+	// The headline is the series summed, so it always agrees with the line.
+	const stats = series.reduce<RecentCredentialStats>(
+		(total, point) => ({
+			requestCount: total.requestCount + point.requestCount,
+			clientErrorCount: total.clientErrorCount + point.clientErrorCount,
+			gatewayErrorCount: total.gatewayErrorCount + point.gatewayErrorCount,
+			upstreamErrorCount: total.upstreamErrorCount + point.upstreamErrorCount,
+		}),
+		{
+			requestCount: 0,
+			clientErrorCount: 0,
+			gatewayErrorCount: 0,
+			upstreamErrorCount: 0,
+		},
+	);
 	const rate = credentialErrorRate(stats);
 	if (rate.fraction === null) {
 		return (
 			<div className="space-y-1">
 				<span
 					className="text-xs text-muted-foreground"
-					title="No requests other than client errors attributed to this credential in the last 24 hours."
+					title={`No requests other than client errors attributed to this credential in the ${label}.`}
 				>
 					—
 				</span>
@@ -122,8 +141,8 @@ export function ProviderKeyErrorRateCell({
 					<TooltipContent className="max-w-sm">
 						<p>
 							{formatNumber(rate.errorsCount)} of{" "}
-							{formatNumber(rate.requestCount)} requests failed in the last 24
-							hours ({formatNumber(stats.upstreamErrorCount)} returned by the
+							{formatNumber(rate.requestCount)} requests failed in the {label} (
+							{formatNumber(stats.upstreamErrorCount)} returned by the
 							provider). {formatNumber(stats.clientErrorCount)} client errors
 							are excluded.
 						</p>
@@ -136,24 +155,39 @@ export function ProviderKeyErrorRateCell({
 	);
 }
 
+/** Hover label for one bucket: as much of the timestamp as the grain needs. */
+function bucketLabel(window: ErrorWindow, date: string) {
+	if (window === "7d") {
+		return date.slice(0, 10);
+	}
+	return `${date.slice(5, 10)} ${date.slice(11, 16)} UTC`;
+}
+
 /**
- * Daily error rate over the sparkline window, so a rate that has been bad all
- * week reads differently from one that broke this morning. Scaled against the
- * critical threshold rather than the row's own maximum: the height then means
- * the same thing on every row, and a credential failing everything tops out
- * while a 0.5% blip stays flat.
+ * Error rate per bucket over the window, so a rate that has been bad throughout
+ * reads differently from one that just broke. Scaled against the critical
+ * threshold rather than the row's own maximum: the height then means the same
+ * thing on every row, and a credential failing everything tops out while a 0.5%
+ * blip stays flat.
  */
-function DailyErrorRateSparkline({ daily }: { daily: DailyCredentialPoint[] }) {
-	const pointRates = daily.map((point) => credentialErrorRate(point));
+function ErrorRateSparkline({
+	window,
+	series,
+}: {
+	window: ErrorWindow;
+	series: ErrorSeriesPoint[];
+}) {
+	const pointRates = series.map((point) => credentialErrorRate(point));
 	const rates = pointRates.map((rate) => rate.fraction);
 	if (rates.every((rate) => rate === null)) {
 		return null;
 	}
 
+	const { label, bucket } = errorWindowOption(window);
 	const peak = Math.max(...rates.map((rate) => rate ?? 0));
-	// Coloured by the most recent day with traffic, not by the week's peak, so the
-	// line agrees with the headline rate above it: a spike five days ago should
-	// show as a shape, not as a credential that is red right now.
+	// Coloured by the most recent bucket with traffic, not by the window's peak,
+	// so a spike early in the window shows as a shape, not as a credential that
+	// is red right now.
 	const latest = rates.filter((rate) => rate !== null).at(-1) ?? 0;
 
 	return (
@@ -161,12 +195,12 @@ function DailyErrorRateSparkline({ daily }: { daily: DailyCredentialPoint[] }) {
 			<SparklineLine
 				values={rates}
 				max={Math.max(peak, CRITICAL_THRESHOLD)}
-				points={daily.map((point, index) => {
+				points={series.map((point, index) => {
 					const rate = rates[index];
 					const suffix =
-						index === daily.length - 1 ? " — today, still in progress" : "";
+						index === series.length - 1 ? " — still in progress" : "";
 					return {
-						label: `${point.date.slice(0, 10)}: ${
+						label: `${bucketLabel(window, point.date)}: ${
 							rate === null
 								? "no requests"
 								: `${formatErrorPercent(rate)} (${formatNumber(
@@ -175,7 +209,7 @@ function DailyErrorRateSparkline({ daily }: { daily: DailyCredentialPoint[] }) {
 						}${suffix}`,
 					};
 				})}
-				ariaLabel={`Daily error rate over the last ${daily.length} UTC days, peaking at ${formatErrorPercent(peak)}`}
+				ariaLabel={`Error rate per ${bucket} over the ${label}, peaking at ${formatErrorPercent(peak)}`}
 			/>
 		</div>
 	);
@@ -183,8 +217,8 @@ function DailyErrorRateSparkline({ daily }: { daily: DailyCredentialPoint[] }) {
 
 /**
  * Per-model split, worst error rate first. Backed by
- * `global_provider_key_model_stats`, which is day-grained and lags the hourly
- * rollup the headline rate uses — hence the explicit window line rather than
+ * `global_provider_key_model_stats`, which is day-grained and lags the sources
+ * the headline rate uses — hence the explicit window line rather than
  * letting the totals silently disagree.
  */
 function ModelErrorBreakdown({

@@ -10,6 +10,7 @@ import {
 	reorderProviderCredentials,
 	updateProviderCredential,
 } from "@/lib/admin-provider-credentials";
+import { parseErrorWindow } from "@/lib/provider-key-error-window";
 
 function SignInPrompt() {
 	return (
@@ -34,11 +35,11 @@ function SignInPrompt() {
 export default async function ProviderCredentialsPage({
 	searchParams,
 }: {
-	searchParams: Promise<{ deleted?: string }>;
+	searchParams: Promise<{ deleted?: string; errors?: string }>;
 }) {
-	const { deleted } = await searchParams;
+	const { deleted, errors } = await searchParams;
 	const [credentialsData, catalogData] = await Promise.all([
-		getProviderCredentials(deleted === "1"),
+		getProviderCredentials(deleted === "1", parseErrorWindow(errors)),
 		getProviderCredentialCatalog(),
 	]);
 

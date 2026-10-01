@@ -74,6 +74,12 @@ import { canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
 import { apiErrorMessage, thrownErrorMessage } from "@/lib/api-error";
 import { useFetchClient } from "@/lib/fetch-client";
+import {
+	DEFAULT_ERROR_WINDOW,
+	ERROR_WINDOW_OPTIONS,
+	errorWindowOption,
+	parseErrorWindow,
+} from "@/lib/provider-key-error-window";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
@@ -93,6 +99,7 @@ import type {
 	ProviderCredentialModelVerification,
 	ProviderCredentialSelfTestResult,
 } from "@/lib/admin-provider-credentials";
+import type { ErrorWindow } from "@/lib/provider-key-error-window";
 import type { ProviderModelKind } from "@llmgateway/shared";
 
 type Variant = "default" | "enterprise" | "plans";
@@ -455,11 +462,13 @@ function RotationPosition({
 /** Every cell of a managed credential row after the leading position cell. */
 function ManagedCredentialCells({
 	credential,
+	errorWindow,
 	isAdmin,
 	onEdit,
 	onDelete,
 }: {
 	credential: ProviderCredential;
+	errorWindow: ErrorWindow;
 	isAdmin: boolean;
 	onEdit: (credential: ProviderCredential) => void;
 	onDelete: (credential: ProviderCredential) => void;
@@ -535,8 +544,8 @@ function ManagedCredentialCells({
 			<TableCell>
 				<ProviderKeyErrorRateCell
 					providerKeyId={credential.id}
-					stats={credential.last24h}
-					daily={credential.last7dDaily}
+					window={errorWindow}
+					series={credential.errorSeries}
 				/>
 			</TableCell>
 			<TableCell>
@@ -613,6 +622,9 @@ export function ProviderCredentialsManager({
 	// soft-deleted credentials at all.
 	const showDeleted = searchParams.get("deleted") === "1";
 	const sort = parseSort(searchParams.get("sort"));
+	// Read server-side too: the page asks the API for this window's series.
+	const errorWindow = parseErrorWindow(searchParams.get("errors"));
+	const errorWindowLabel = errorWindowOption(errorWindow);
 
 	// View state lives in the URL so a filtered or sorted view can be reloaded,
 	// shared and navigated back to, matching the other admin tables.
@@ -918,6 +930,7 @@ export function ProviderCredentialsManager({
 				</TableCell>
 				<ManagedCredentialCells
 					credential={credential}
+					errorWindow={errorWindow}
 					isAdmin={isAdmin}
 					onEdit={editCredential}
 					onDelete={requestDelete}
@@ -1031,6 +1044,23 @@ export function ProviderCredentialsManager({
 							</Label>
 						</div>
 						<Select
+							value={errorWindow}
+							onValueChange={(next) =>
+								setParam("errors", next === DEFAULT_ERROR_WINDOW ? null : next)
+							}
+						>
+							<SelectTrigger className="w-48" aria-label="Error rate window">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{ERROR_WINDOW_OPTIONS.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
+										Errors: {option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						<Select
 							value={sort}
 							onValueChange={(next) =>
 								setParam("sort", next === "order" ? null : next)
@@ -1069,8 +1099,10 @@ export function ProviderCredentialsManager({
 									</span>
 								</TableHead>
 								<TableHead className="whitespace-nowrap">
-									<span title="Share of requests attributed to this credential that failed in the last 24 hours. Hover a rate for the per-model split, or the line below it for the daily rate over the last 7 UTC days.">
-										Errors
+									<span
+										title={`Share of requests attributed to this credential that failed in the ${errorWindowLabel.label}. Hover a rate for the per-model split, or the line below it for the rate per ${errorWindowLabel.bucket}.`}
+									>
+										Errors ({errorWindowLabel.short})
 									</span>
 								</TableHead>
 								<TableHead>Status</TableHead>
@@ -1193,6 +1225,7 @@ export function ProviderCredentialsManager({
 																			</TableCell>
 																			<ManagedCredentialCells
 																				credential={credential}
+																				errorWindow={errorWindow}
 																				isAdmin={isAdmin}
 																				onEdit={editCredential}
 																				onDelete={requestDelete}
