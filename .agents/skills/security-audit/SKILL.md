@@ -82,7 +82,7 @@ Seed reconnaissance from these; they are not the whole attack surface.
 
 Follow `AUDIT-WORKFLOW.md`. Write the run directory outside the repo
 (default `~/security-audit-skill/llmgateway/run-<N>`) or under the worktree's
-`.context/`, which is git-excluded. Validate before reporting:
+`.context/`, which `.gitignore` excludes. Validate before reporting:
 
 ```bash
 node .agents/skills/security-audit/validate-findings.cjs <run-dir>/findings.json
