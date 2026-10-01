@@ -138,7 +138,8 @@ function apiMappingToDefinition(
 
 /** Merge the API-backed catalogue into a static definition. API mappings are
  * authoritative because they also contain approved Airside listings, while
- * unmatched static mappings remain as a safe fallback during DB sync. */
+ * unmatched static mappings remain as a safe fallback during DB sync — except
+ * for a provider whose listing the carrier paused or delisted. */
 export function mergeApiModelDefinition(
 	apiModel: ApiModel,
 	staticModel?: ModelDefinition,
@@ -155,6 +156,7 @@ export function mergeApiModelDefinition(
 			.filter((mapping) => (mapping.region ?? null) === null)
 			.map((mapping) => mapping.providerId),
 	);
+	const unlistedProviderIds = new Set(apiModel.unlistedProviderIds);
 	const providers = [
 		...apiModel.mappings
 			.filter((mapping) => mapping.status === "active")
@@ -164,7 +166,8 @@ export function mergeApiModelDefinition(
 		...staticMappings.filter(
 			(mapping) =>
 				!apiKeys.has(mappingKey(mapping)) &&
-				!globalApiProviderIds.has(mapping.providerId),
+				!globalApiProviderIds.has(mapping.providerId) &&
+				!unlistedProviderIds.has(mapping.providerId),
 		),
 	];
 
@@ -187,6 +190,16 @@ export function mergeApiModelDefinition(
 	};
 }
 
+/** The merged definition, or null when every mapping belongs to a listing
+ * that is out of service: the model has no public page until a relist. */
+export function publicModelDefinition(
+	apiModel: ApiModel,
+	staticModel?: ModelDefinition,
+): ModelDefinition | null {
+	const merged = mergeApiModelDefinition(apiModel, staticModel);
+	return merged.providers.length > 0 ? merged : null;
+}
+
 /** Public model definition from both catalogue sources. */
 export const findPublicModelDefinition = cache(
 	async (modelId: string): Promise<ModelDefinition | null> => {
@@ -196,7 +209,7 @@ export const findPublicModelDefinition = cache(
 		const apiModels = await fetchModels();
 		const apiModel = apiModels.find((model) => model.id === modelId);
 		if (apiModel) {
-			return mergeApiModelDefinition(apiModel, staticModel);
+			return publicModelDefinition(apiModel, staticModel);
 		}
 		return staticModel ?? null;
 	},

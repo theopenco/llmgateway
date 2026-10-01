@@ -34,7 +34,7 @@ Registering a model that already exists in the catalogue reuses its identity: di
 
 Draft listings save immediately. On a live listing, a metadata change (description, context size, capabilities, quantization, and so on) is filed for review and applies once approved. Saving again while that change is pending replaces it in place, and saving the live values withdraws it. A pending price filing blocks metadata edits until it is reviewed.
 
-Carriers claiming a catalogue provider can also **import their catalogue models** in one click: each active catalogue model becomes a managed listing with its current price as an approved filing. Once approved, the listing serves the model at its filed fares and keeps the catalogue entry's request handling. After a provider's models are all served this way, the LLM Gateway team removes its catalogue entries; from then on, delisting a model takes it out of service instead of falling back to the catalogue. This is how a provider's models migrate from the static catalogue into carrier self-management.
+Carriers claiming a catalogue provider can also **import their catalogue models** in one click: each active catalogue model becomes a managed listing with its current price as an approved filing. Once approved, the listing serves the model at its filed fares and keeps the catalogue entry's request handling. Pausing or delisting an imported model takes it out of service instead of falling back to the catalogue entry; relisting or resuming puts it back. After a provider's models are all served this way, the LLM Gateway team removes its catalogue entries. This is how a provider's models migrate from the static catalogue into carrier self-management.
 
 ### Upstream API and preflight
 

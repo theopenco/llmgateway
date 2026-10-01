@@ -33,7 +33,8 @@ import {
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
 	getContentFilterSettings,
-	listAirsideModels,
+	listAirsidePairs,
+	type AirsideListedModel,
 	type CustomModel,
 	type ManagedProviderAvailability,
 } from "@/lib/cached-queries.js";
@@ -3918,11 +3919,12 @@ chat.openapi(completions, async (c) => {
 			matchingModels.push(customModel);
 			activeCustomModelsByName.set(customModel.modelName, matchingModels);
 		}
-		const airsideListingsByModel = new Map<
-			string,
-			Awaited<ReturnType<typeof listAirsideModels>>
-		>();
-		for (const listing of await listAirsideModels()) {
+		const airsidePairs = await listAirsidePairs();
+		const airsideListingsByModel = new Map<string, AirsideListedModel[]>();
+		const airsideOwnedModelIds = new Set(
+			airsidePairs.unlisted.map((pair) => pair.modelId),
+		);
+		for (const listing of airsidePairs.listings) {
 			if (
 				!providers.some(
 					(provider) => provider.id === listing.mapping.providerId,
@@ -3933,6 +3935,7 @@ chat.openapi(completions, async (c) => {
 			const listings = airsideListingsByModel.get(listing.model.id) ?? [];
 			listings.push(listing);
 			airsideListingsByModel.set(listing.model.id, listings);
+			airsideOwnedModelIds.add(listing.model.id);
 		}
 
 		// Enterprise organizations can replace the built-in candidate set with
@@ -4020,9 +4023,12 @@ chat.openapi(completions, async (c) => {
 		let anyPostComplianceCandidate = false;
 
 		for (const staticModelDef of models) {
-			const listings = airsideListingsByModel.get(staticModelDef.id);
-			const modelDef = listings
-				? mergeAirsideListingsIntoModel(staticModelDef, listings).modelInfo
+			const modelDef = airsideOwnedModelIds.has(staticModelDef.id)
+				? mergeAirsideListingsIntoModel(
+						staticModelDef,
+						airsideListingsByModel.get(staticModelDef.id) ?? [],
+						airsidePairs.unlisted,
+					).modelInfo
 				: staticModelDef;
 			if (
 				modelDef.id === "auto" ||

@@ -168,6 +168,9 @@ const modelSchema = z.object({
 	stability: z.enum(["stable", "beta", "unstable", "experimental"]).nullable(),
 	status: z.enum(["active", "inactive"]),
 	mappings: z.array(modelProviderMappingSchema),
+	// Providers whose Airside listing of this model is paused or delisted. A
+	// static catalogue mapping of the same pair must not be shown either.
+	unlistedProviderIds: z.array(z.string()),
 });
 
 // GET /internal/models - Returns models with mappings sorted by createdAt desc
@@ -196,25 +199,40 @@ const getModelsRoute = createRoute({
 internalModels.openapi(getModelsRoute, async (c) => {
 	const now = new Date();
 
-	const [models, activeMappings, getPublicDiscount] = await Promise.all([
-		db.query.model.findMany({
-			where: {
-				status: { eq: "active" },
-			},
-			orderBy: {
-				createdAt: "desc",
-			},
-		}),
-		db.query.modelProviderMapping.findMany({
-			where: {
-				status: { eq: "active" },
-			},
-			orderBy: {
-				createdAt: "desc",
-			},
-		}),
-		loadPublicDiscounts(),
-	]);
+	const [models, activeMappings, unlistedMappings, getPublicDiscount] =
+		await Promise.all([
+			db.query.model.findMany({
+				where: {
+					status: { eq: "active" },
+				},
+				orderBy: {
+					createdAt: "desc",
+				},
+			}),
+			db.query.modelProviderMapping.findMany({
+				where: {
+					status: { eq: "active" },
+				},
+				orderBy: {
+					createdAt: "desc",
+				},
+			}),
+			db.query.modelProviderMapping.findMany({
+				where: {
+					status: { eq: "inactive" },
+					source: { eq: "airside" },
+					region: { isNull: true },
+				},
+				columns: { modelId: true, providerId: true },
+			}),
+			loadPublicDiscounts(),
+		]);
+	const unlistedProviderIdsByModelId = new Map<string, string[]>();
+	for (const mapping of unlistedMappings) {
+		const providerIds = unlistedProviderIdsByModelId.get(mapping.modelId) ?? [];
+		providerIds.push(mapping.providerId);
+		unlistedProviderIdsByModelId.set(mapping.modelId, providerIds);
+	}
 
 	const mappingsByModelId = new Map<string, typeof activeMappings>();
 	for (const mapping of activeMappings) {
@@ -229,6 +247,7 @@ internalModels.openapi(getModelsRoute, async (c) => {
 	// Transform and apply effective discount
 	const transformedModels = models.map((model) => ({
 		...model,
+		unlistedProviderIds: unlistedProviderIdsByModelId.get(model.id) ?? [],
 		mappings: (mappingsByModelId.get(model.id) ?? []).map((mapping) => {
 			const sharedMapping: ProviderModelMapping | null =
 				modelDefinitions

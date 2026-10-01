@@ -68,14 +68,17 @@ receiving new requests within about a minute and keeps its approved pricing,
 pending filings, and history. **Resume** puts it back in service the same way.
 Filings approved while paused apply without resuming the model.
 
-For a model imported from the built-in catalogue, pausing behaves like
-delisting: requests fall back to the catalogue entry until you resume.
+A paused model is hidden from the public model pages and `/v1/models` until
+you resume it. This also holds for a model imported from the built-in
+catalogue: requests do not fall back to the catalogue entry.
 
 ## Removing a model
 
 Deleting a drafted or rejected listing removes it outright. An in-service
-model is **delisted** instead: it stops routing immediately but stays in your
-history and analytics.
+model is **delisted** instead: it stops routing immediately and leaves the
+public model pages, but stays in your history and analytics. A model imported
+from the built-in catalogue is delisted the same way, without falling back to
+its catalogue entry.
 
 <Callout type="warning">
 	Delisting takes effect within about a minute — in-flight requests finish, but

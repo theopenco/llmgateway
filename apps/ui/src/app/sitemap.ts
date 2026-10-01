@@ -376,6 +376,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		},
 	];
 
+	// DB-only catalogue entries (Airside carriers and their listings) are not
+	// in the static definitions, so pull them from the API.
+	const { fetchModels, fetchProviders } = await import("@/lib/fetch-models");
+	const { publicModelDefinition } =
+		await import("@/lib/airside-model-fallback");
+	const [apiModels, apiProviders] = await Promise.all([
+		fetchModels(),
+		fetchProviders(),
+	]);
+	const apiModelById = new Map(apiModels.map((model) => [model.id, model]));
+
 	// Model pages
 	const modelPages: MetadataRoute.Sitemap = [];
 	const listedModelIds = new Set<string>();
@@ -386,6 +397,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			model.providers.length > 0 &&
 			model.providers.every((p) => isMappingDeactivated(p))
 		) {
+			continue;
+		}
+		// Every provider's listing is paused or delisted: the page is a 404.
+		const apiModel = apiModelById.get(model.id);
+		if (apiModel && !publicModelDefinition(apiModel, model)) {
 			continue;
 		}
 
@@ -403,16 +419,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		// to the base model page. Google still discovers both via internal links.
 	}
 
-	// DB-only catalogue entries (Airside carriers and their listings) are not
-	// in the static definitions, so pull them from the API.
-	const { fetchModels, fetchProviders } = await import("@/lib/fetch-models");
 	const staticProviderIds = new Set(
 		providerDefinitions.map((p) => p.id as string),
 	);
-	const [apiModels, apiProviders] = await Promise.all([
-		fetchModels(),
-		fetchProviders(),
-	]);
 	for (const model of apiModels) {
 		if (
 			listedModelIds.has(model.id) ||

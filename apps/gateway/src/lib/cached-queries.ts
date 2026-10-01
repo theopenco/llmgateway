@@ -69,7 +69,7 @@ import type { ApiKey } from "@llmgateway/db";
 import type { ApiKeyPeriodDurationUnit } from "@llmgateway/db";
 import type { EffectiveRateLimit } from "@llmgateway/db";
 import type { EffectiveDiscount } from "@llmgateway/db";
-import type { InferSelectModel } from "@llmgateway/db";
+import type { InferSelectModel, SQL } from "@llmgateway/db";
 import type {
 	apiKeyIamRule,
 	customModel,
@@ -102,6 +102,18 @@ export interface AirsideListedModel {
 	/** Regional price rows of the same pair. Optional so cache entries written
 	 *  before regional pricing existed stay readable. */
 	regionMappings?: InferSelectModel<typeof modelProviderMappingTable>[];
+}
+export interface AirsidePair {
+	modelId: string;
+	providerId: string;
+}
+/** Every pair a carrier owns in a lookup's scope. */
+export interface AirsideOwnedPairs {
+	/** Listings in service. */
+	listings: AirsideListedModel[];
+	/** Pairs the carrier paused or delisted. The static catalogue mapping of
+	 *  the same pair must not serve them either. */
+	unlisted: AirsidePair[];
 }
 type User = InferSelectModel<typeof user>;
 type UserOrganization = InferSelectModel<typeof userOrganization>;
@@ -555,18 +567,27 @@ export async function findCustomModel(
 	return results[0];
 }
 
-/** Group airside mapping rows into listings keyed by their canonical
- *  region-NULL row; regional price rows ride along on `regionMappings`. */
+/** Split airside mapping rows into the listings in service, keyed by their
+ *  canonical region-NULL row with regional price rows on `regionMappings`,
+ *  and the pairs taken out of service. */
 function groupAirsideRows(
 	rows: {
 		model: InferSelectModel<typeof modelTable>;
 		mapping: InferSelectModel<typeof modelProviderMappingTable>;
 	}[],
-): AirsideListedModel[] {
+): AirsideOwnedPairs {
 	const listings: AirsideListedModel[] = [];
+	const unlisted: AirsidePair[] = [];
 	const byPair = new Map<string, AirsideListedModel>();
 	for (const row of rows) {
 		if (row.mapping.region !== null) {
+			continue;
+		}
+		if (row.mapping.status !== "active") {
+			unlisted.push({
+				modelId: row.mapping.modelId,
+				providerId: row.mapping.providerId,
+			});
 			continue;
 		}
 		const listing: AirsideListedModel = { ...row, regionMappings: [] };
@@ -574,14 +595,32 @@ function groupAirsideRows(
 		listings.push(listing);
 	}
 	for (const row of rows) {
-		if (row.mapping.region === null) {
+		if (row.mapping.region === null || row.mapping.status !== "active") {
 			continue;
 		}
 		byPair
 			.get(`${row.mapping.modelId}:${row.mapping.providerId}`)
 			?.regionMappings?.push(row.mapping);
 	}
-	return listings;
+	return { listings, unlisted };
+}
+
+async function selectAirsideRows(...conditions: SQL[]) {
+	return groupAirsideRows(
+		await db
+			.select({
+				model: modelTable,
+				mapping: modelProviderMappingTable,
+			})
+			.from(modelProviderMappingTable)
+			.innerJoin(
+				modelTable,
+				eq(modelTable.id, modelProviderMappingTable.modelId),
+			)
+			.where(
+				and(eq(modelProviderMappingTable.source, "airside"), ...conditions),
+			),
+	);
 }
 
 /** Find an active Airside-owned canonical mapping. */
@@ -589,32 +628,17 @@ export async function findAirsideModel(
 	providerId: string,
 	modelName: string,
 ): Promise<AirsideListedModel | undefined> {
-	const results = await swrWrap(
-		`airsideModel:${providerId}:${modelName}`,
+	const owned = await swrWrap(
+		`airsidePair:${providerId}:${modelName}`,
 		[modelTableName, modelProviderMappingTableName],
 		async () =>
-			groupAirsideRows(
-				await db
-					.select({
-						model: modelTable,
-						mapping: modelProviderMappingTable,
-					})
-					.from(modelProviderMappingTable)
-					.innerJoin(
-						modelTable,
-						eq(modelTable.id, modelProviderMappingTable.modelId),
-					)
-					.where(
-						and(
-							eq(modelProviderMappingTable.source, "airside"),
-							eq(modelProviderMappingTable.status, "active"),
-							eq(modelProviderMappingTable.providerId, providerId),
-							eq(modelProviderMappingTable.modelId, modelName),
-						),
-					),
+			await selectAirsideRows(
+				eq(modelProviderMappingTable.status, "active"),
+				eq(modelProviderMappingTable.providerId, providerId),
+				eq(modelProviderMappingTable.modelId, modelName),
 			),
 	);
-	return results[0];
+	return owned.listings[0];
 }
 
 export interface AirsideCustomCarrier {
@@ -662,63 +686,25 @@ export async function findAirsideCustomProvider(
 	};
 }
 
-/** Active Airside mappings for a bare model name across all carriers. */
-export async function findAirsideModelsByBareName(
+/** Airside-owned mappings for a bare model name across all carriers. */
+export async function findAirsidePairsByBareName(
 	modelName: string,
-): Promise<AirsideListedModel[]> {
-	const rows = await swrWrap(
-		`airsideModelByName:${modelName}`,
+): Promise<AirsideOwnedPairs> {
+	return await swrWrap(
+		`airsidePairsByName:${modelName}`,
 		[modelTableName, modelProviderMappingTableName],
 		async () =>
-			groupAirsideRows(
-				await db
-					.select({
-						model: modelTable,
-						mapping: modelProviderMappingTable,
-					})
-					.from(modelProviderMappingTable)
-					.innerJoin(
-						modelTable,
-						eq(modelTable.id, modelProviderMappingTable.modelId),
-					)
-					.where(
-						and(
-							eq(modelProviderMappingTable.source, "airside"),
-							eq(modelProviderMappingTable.status, "active"),
-							eq(modelProviderMappingTable.modelId, modelName),
-						),
-					),
-			),
+			await selectAirsideRows(eq(modelProviderMappingTable.modelId, modelName)),
 	);
-	return rows;
 }
 
-/** Every active Airside-owned mapping for the /v1/models catalogue. */
-export async function listAirsideModels(): Promise<AirsideListedModel[]> {
-	const rows = await swrWrap(
-		"airsideModels:all",
+/** Every Airside-owned mapping, for the /v1/models catalogue and auto routing. */
+export async function listAirsidePairs(): Promise<AirsideOwnedPairs> {
+	return await swrWrap(
+		"airsidePairs:all",
 		[modelTableName, modelProviderMappingTableName],
-		async () =>
-			groupAirsideRows(
-				await db
-					.select({
-						model: modelTable,
-						mapping: modelProviderMappingTable,
-					})
-					.from(modelProviderMappingTable)
-					.innerJoin(
-						modelTable,
-						eq(modelTable.id, modelProviderMappingTable.modelId),
-					)
-					.where(
-						and(
-							eq(modelProviderMappingTable.source, "airside"),
-							eq(modelProviderMappingTable.status, "active"),
-						),
-					),
-			),
+		async () => await selectAirsideRows(),
 	);
-	return rows;
 }
 
 /** Find every active custom model catalog entry for an organization. */

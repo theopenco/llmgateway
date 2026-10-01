@@ -309,11 +309,18 @@ function staticMappingValues(mapping: ProviderModelMapping) {
 	};
 }
 
-/** Restore the static mapping(s), or remove a DB-only mapping, on delist. */
+/**
+ * Take a delisted listing out of the catalogue. A DB-only mapping is removed.
+ * A pair the static catalogue also maps keeps its row, out of service: the
+ * carrier still owns the pair, so the hardcoded mapping must not show or
+ * route it until a relist. `restoreStatic` hands the pair back to the static
+ * catalogue instead, for a carrier that lost the provider.
+ */
 export async function dematerializeAirsideModel(
 	providerId: string,
 	modelName: string,
 	transaction?: CatalogueTransaction,
+	options: { restoreStatic?: boolean } = {},
 ): Promise<void> {
 	const staticEntry = findStaticMappings(providerId, modelName);
 	const remove = async (tx: CatalogueTransaction) => {
@@ -335,7 +342,12 @@ export async function dematerializeAirsideModel(
 			isNull(tables.modelProviderMapping.region),
 			eq(tables.modelProviderMapping.source, "airside"),
 		);
-		if (staticEntry) {
+		if (staticEntry && !options.restoreStatic) {
+			await tx
+				.update(tables.modelProviderMapping)
+				.set({ status: "inactive" })
+				.where(mappingWhere);
+		} else if (staticEntry) {
 			await tx
 				.update(tables.modelProviderMapping)
 				.set(staticMappingValues(staticEntry.mapping))
