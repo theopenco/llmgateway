@@ -1,6 +1,7 @@
 import { Agent, interceptors, setGlobalDispatcher } from "undici";
 
 import { logger } from "@llmgateway/logger";
+import { safeOutboundLookup } from "@llmgateway/shared/url-safety-node";
 
 import type { Dispatcher } from "undici";
 
@@ -10,6 +11,7 @@ function envInt(name: string, fallback: number): number {
 }
 
 let agent: Agent | null = null;
+let tenantAgent: Agent | null = null;
 
 /**
  * Installs a tuned undici Agent as the global dispatcher used by `fetch` for
@@ -54,9 +56,30 @@ export function installUpstreamDispatcher(): Dispatcher {
 	return dispatcher;
 }
 
+/**
+ * Dispatcher for tenant-supplied base URLs (BYOK, custom providers, Airside
+ * carriers). Those URLs are checked at registration, but DNS can be repointed
+ * afterwards, so every connection re-checks the resolved address. It skips the
+ * shared DNS cache, which would otherwise answer from an unchecked lookup.
+ */
+export function getTenantUpstreamDispatcher(): Dispatcher {
+	tenantAgent ??= new Agent({
+		keepAliveTimeout: envInt("UPSTREAM_KEEPALIVE_TIMEOUT_MS", 60_000),
+		connect: {
+			timeout: envInt("UPSTREAM_CONNECT_TIMEOUT_MS", 10_000),
+			lookup: safeOutboundLookup,
+		},
+	});
+	return tenantAgent;
+}
+
 export async function closeUpstreamDispatcher(): Promise<void> {
 	if (agent) {
 		await agent.close();
 		agent = null;
+	}
+	if (tenantAgent) {
+		await tenantAgent.close();
+		tenantAgent = null;
 	}
 }
