@@ -225,9 +225,18 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 				})),
 		}));
 	const apiModelIds = new Set(apiProviderModels.map((model) => model.id));
+	// A listing the carrier paused or delisted stays off the page: its static
+	// mapping must not stand in for it.
+	const unlistedModelIds = new Set(
+		apiModels
+			.filter((model) => model.unlistedProviderIds?.includes(provider.id))
+			.map((model) => model.id),
+	);
 	const providerModels = [
 		...apiProviderModels,
-		...staticProviderModels.filter((model) => !apiModelIds.has(model.id)),
+		...staticProviderModels.filter(
+			(model) => !apiModelIds.has(model.id) && !unlistedModelIds.has(model.id),
+		),
 	].sort((a, b) => {
 		const aDate = a.releasedAt ? new Date(a.releasedAt).getTime() : 0;
 		const bDate = b.releasedAt ? new Date(b.releasedAt).getTime() : 0;

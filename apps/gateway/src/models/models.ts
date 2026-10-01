@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { airsideListingToModelDefinition } from "@/chat/tools/resolve-airside-model.js";
-import { listAirsideModels } from "@/lib/cached-queries.js";
+import { listAirsidePairs } from "@/lib/cached-queries.js";
 import {
 	rateLimitHeaders,
 	standardErrorResponses,
@@ -243,11 +243,25 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 		);
 
 		// Airside-owned canonical mappings join the static model metadata. The
-		// materialized row is authoritative for its provider/model pair.
-		const airsideDefinitions = (await listAirsideModels()).map(
+		// materialized row is authoritative for its provider/model pair, so a
+		// pair taken out of service drops its static mapping too.
+		const airsidePairs = await listAirsidePairs();
+		const airsideDefinitions = airsidePairs.listings.map(
 			(listed) => airsideListingToModelDefinition(listed).modelInfo,
 		);
-		const allCatalogueModels: ModelDefinition[] = [...modelsList];
+		const allCatalogueModels: ModelDefinition[] = modelsList.map((model) => {
+			const unlistedProviderIds = airsidePairs.unlisted
+				.filter((pair) => pair.modelId === model.id)
+				.map((pair) => pair.providerId);
+			return unlistedProviderIds.length > 0
+				? ({
+						...model,
+						providers: model.providers.filter(
+							(provider) => !unlistedProviderIds.includes(provider.providerId),
+						),
+					} as ModelDefinition)
+				: model;
+		});
 		const modelIndexById = new Map<string, number>();
 		allCatalogueModels.forEach((model, index) => {
 			modelIndexById.set(model.id, index);
@@ -281,6 +295,11 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 		// Filter models based on deactivation and deprecation status of their provider mappings
 		const deactivationFilteredModels = allCatalogueModels.filter(
 			(model: ModelDefinition) => {
+				// Every mapping belonged to a listing that is out of service.
+				if (model.providers.length === 0) {
+					return false;
+				}
+
 				// Check if all provider mappings are deactivated
 				const allDeactivated = model.providers.every(
 					(provider) =>

@@ -1052,9 +1052,23 @@ adminAirside.openapi(revokeClaim, async (c) => {
 					pausedAt: null,
 				})
 				.where(inArray(tables.providerDraftModel.id, modelIds));
-			for (const model of companyModels) {
-				await dematerializeAirsideModel(claim.providerId, model.modelName, tx);
-			}
+		}
+		// Hand every pair the carrier owned back to the static catalogue,
+		// including the ones it delisted itself.
+		const ownedMappings = await tx
+			.selectDistinct({ modelId: tables.modelProviderMapping.modelId })
+			.from(tables.modelProviderMapping)
+			.where(
+				and(
+					eq(tables.modelProviderMapping.providerId, claim.providerId),
+					eq(tables.modelProviderMapping.source, "airside"),
+				),
+			)
+			.$withCache(false);
+		for (const mapping of ownedMappings) {
+			await dematerializeAirsideModel(claim.providerId, mapping.modelId, tx, {
+				restoreStatic: true,
+			});
 		}
 		if (claim.kind === "custom") {
 			// The provider row only existed for this registration; drop it once no

@@ -14,7 +14,7 @@ import {
 	Search,
 } from "lucide-react";
 import Link from "next/link";
-import { notFound, permanentRedirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
@@ -93,9 +93,10 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	);
 
 	if (providerMappings.length === 0) {
-		// The model exists but this provider mapping was removed; send crawlers
-		// and old links to the model page instead of a 404.
-		permanentRedirect(`/models/${encodeURIComponent(decodedName)}`);
+		// The provider does not offer this model, or its carrier paused or
+		// delisted the listing. A relist brings the page back, so this is a 404
+		// and never a (browser-cached) permanent redirect.
+		notFound();
 	}
 
 	const staticProviderMapping = getDefaultProviderMapping(providerMappings);

@@ -3137,25 +3137,116 @@ describe("airside provider portal", () => {
 		const secondBody = await again.json();
 		expect(secondBody.imported).toEqual([]);
 		expect(secondBody.skipped).toContain("mistral-large-latest");
+	});
 
-		await app.request(`/airside/models/${row!.id}`, {
+	it("keeps a delisted catalogue listing out of service until it is relisted", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		await activateClaim();
+		await app.request(
+			"/airside/models/import",
+			json(cookie, { providerCompanyId: company.id, providerId: "mistral" }),
+		);
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: {
+				providerId: { eq: "mistral" },
+				modelName: { eq: "mistral-large-latest" },
+			},
+		});
+		const canonicalMapping = async () =>
+			await db.query.modelProviderMapping.findFirst({
+				where: {
+					modelId: { eq: "mistral-large-latest" },
+					providerId: { eq: "mistral" },
+					region: { isNull: true },
+				},
+			});
+		const publicModel = async () => {
+			const { models } = await (await app.request("/internal/models")).json();
+			const model = models.find(
+				(entry: { id: string }) => entry.id === "mistral-large-latest",
+			);
+			return {
+				listed: model.mappings.some(
+					(entry: { providerId: string }) => entry.providerId === "mistral",
+				) as boolean,
+				unlistedProviderIds: model.unlistedProviderIds as string[],
+			};
+		};
+		expect(await publicModel()).toEqual({
+			listed: true,
+			unlistedProviderIds: [],
+		});
+
+		// The static catalogue also maps this pair. The carrier still owns it
+		// after a delist, so the hardcoded mapping must not take over.
+		const delisted = await app.request(`/airside/models/${listing!.id}`, {
 			method: "DELETE",
 			headers: { Cookie: cookie },
 		});
-		const restored = await db.query.modelProviderMapping.findFirst({
-			where: {
-				modelId: { eq: "mistral-large-latest" },
-				providerId: { eq: "mistral" },
-				region: { isNull: true },
-			},
+		expect(delisted.status).toBe(200);
+		expect(await canonicalMapping()).toMatchObject({
+			source: "airside",
+			status: "inactive",
 		});
-		expect(restored).toMatchObject({
+		expect(await publicModel()).toEqual({
+			listed: false,
+			unlistedProviderIds: ["mistral"],
+		});
+
+		const relisted = await app.request(
+			`/airside/models/${listing!.id}/relist`,
+			json(cookie),
+		);
+		expect(relisted.status).toBe(200);
+		expect(await canonicalMapping()).toMatchObject({
+			source: "airside",
+			status: "active",
+		});
+		expect(await publicModel()).toEqual({
+			listed: true,
+			unlistedProviderIds: [],
+		});
+
+		// A paused listing is out of service the same way.
+		await app.request(`/airside/models/${listing!.id}/pause`, json(cookie));
+		expect(await publicModel()).toEqual({
+			listed: false,
+			unlistedProviderIds: ["mistral"],
+		});
+		await app.request(`/airside/models/${listing!.id}/resume`, json(cookie));
+		expect((await publicModel()).listed).toBe(true);
+
+		// Losing the provider hands every pair back to the static catalogue,
+		// including one the carrier had delisted itself.
+		await app.request(`/airside/models/${listing!.id}`, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		const revoked = await app.request(
+			`/admin/airside/claims/${claim.id}/revoke`,
+			json(cookie, { reviewNote: "Ownership dispute" }),
+		);
+		expect(revoked.status).toBe(200);
+		expect(await canonicalMapping()).toMatchObject({
 			source: "catalogue",
+			status: "active",
 			externalId: "mistral-large-latest",
 		});
+		expect(await publicModel()).toEqual({
+			listed: true,
+			unlistedProviderIds: [],
+		});
+		expect(
+			await db.query.modelProviderMapping.findFirst({
+				where: { providerId: { eq: "mistral" }, source: { eq: "airside" } },
+			}),
+		).toBeFalsy();
 	});
 
-	it("preserves imported quantization and restores it on delist", async () => {
+	it("preserves imported quantization and restores it once the claim is revoked", async () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@deepinfra.com";
 		await setUserEmail("ops@deepinfra.com");
 		const company = await createCompany(cookie);
@@ -3179,7 +3270,7 @@ describe("airside provider portal", () => {
 				.find((entry: { id: string }) => entry.id === listing!.modelName)
 				.mappings.find(
 					(entry: { providerId: string }) => entry.providerId === "deepinfra",
-				).quantization;
+				)?.quantization;
 		};
 		expect(await publicQuantization()).toBe(listing!.quantization);
 		const changed = await app.request(
@@ -3198,6 +3289,15 @@ describe("airside provider portal", () => {
 			headers: { Cookie: cookie },
 		});
 		expect(delisted.status).toBe(200);
+		expect(await publicQuantization()).toBeUndefined();
+		const claim = await db.query.providerClaim.findFirst({
+			where: { providerId: { eq: "deepinfra" } },
+		});
+		const revoked = await app.request(
+			`/admin/airside/claims/${claim!.id}/revoke`,
+			json(cookie, { reviewNote: "Ownership dispute" }),
+		);
+		expect(revoked.status).toBe(200);
 		expect(await publicQuantization()).toBe(listing!.quantization);
 	});
 

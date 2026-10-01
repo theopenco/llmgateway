@@ -133,6 +133,11 @@ export interface ApiModel {
 	status: "active" | "inactive";
 	mappings: ApiModelProviderMapping[];
 	/**
+	 * Providers whose Airside listing of this model is paused or delisted. A
+	 * static catalogue mapping of the same pair must not be shown either.
+	 */
+	unlistedProviderIds?: string[];
+	/**
 	 * Whether the model falls under the premium fair-use category
 	 * ($5+/M input or $15+/M output). Computed server-side with the same
 	 * function the gateway uses to enforce the DevPass weekly cap.
