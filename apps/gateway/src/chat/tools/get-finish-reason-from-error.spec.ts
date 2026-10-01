@@ -52,18 +52,25 @@ describe("getFinishReasonFromError", () => {
 	});
 
 	it("keeps unrelated does-not-exist errors as client_error", () => {
-		expect(
-			getFinishReasonFromError(
-				400,
-				'{"error":{"message":"The file file-123 does not exist","type":"invalid_request_error"}}',
-			),
-		).toBe("client_error");
-		expect(
-			getFinishReasonFromError(
-				400,
-				'{"error":{"message":"Tool get_weather not found","type":"invalid_request_error"}}',
-			),
-		).toBe("client_error");
+		for (const message of [
+			"The file file-123 does not exist",
+			"Tool get_weather not found",
+			"model foo-bar: image file not found",
+			"Model foo-bar could not load the image: file not found",
+			"The image for this model was not found",
+			"The file referenced for model foo-bar does not exist",
+			"Invalid request: the tool passed to model foo-bar does not exist",
+			"There is no such model parameter: top_k",
+		]) {
+			expect(
+				getFinishReasonFromError(
+					400,
+					JSON.stringify({
+						error: { message, type: "invalid_request_error" },
+					}),
+				),
+			).toBe("client_error");
+		}
 		expect(
 			getFinishReasonFromError(
 				400,

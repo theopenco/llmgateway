@@ -3,13 +3,14 @@ import { hasExhaustedProviderAccountError } from "@/lib/provider-funding-errors.
 
 import { isContentFilterErrorText } from "@llmgateway/shared";
 
-// The model must be named before the phrase, on the same line, so unrelated
-// "does not exist" / "not found" errors (files, tools) stay client errors.
+// The message must open with the model as its subject, followed by at most one
+// id token and then the phrase, so errors that merely mention a model ("model
+// x: image file not found", "the file for this model does not exist") stay
+// client errors.
 const MODEL_DOES_NOT_EXIST_PATTERNS = [
-	/\bmodel\b[^\n]{0,120}\bdoes(?: not|n't) exist\b/i,
-	/\bmodel\b[^\n]{0,120}\b(?:is |was )?not found\b/i,
-	/\bno such model\b/i,
-	/\bmodel_not_found\b/i,
+	/(?:^|")\s*(?:the\s+)?(?:requested\s+)?model(?:\s+[`'"\\]*[\w.:@/-]+[`'"\\]*)?\s+(?:does not exist|doesn't exist|(?:is |was )?not found)\b/i,
+	/(?:^|")\s*no such model\b/i,
+	/"model_not_found"/,
 ];
 
 /**
