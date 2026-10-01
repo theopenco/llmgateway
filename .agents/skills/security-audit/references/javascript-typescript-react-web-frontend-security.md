@@ -693,7 +693,7 @@ Detection hints:
 
 Fix:
 
-- Only allow relative paths (`/^\/[^\s]*$/`) or allowlisted origins.
+- Parse with `new URL(value, window.location.origin)`. Internal redirects must keep `window.location.origin`; external ones need an explicitly allowlisted HTTPS origin. A prefix or regex check is not enough: `//evil.example` and `/\evil.example` both leave the site. Navigate to the validated parsed URL.
 - Fall back to a safe default (e.g., `/`) when invalid.
 
 Notes:

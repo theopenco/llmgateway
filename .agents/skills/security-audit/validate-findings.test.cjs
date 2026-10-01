@@ -226,11 +226,15 @@ test("schema is an actual top-level array with exactly three branches", () => {
 	);
 });
 
-test("accepts a producer-shaped findings document through the CLI", () => {
-	const result = runCli(JSON.stringify(producerShapedFindings()));
-	assert.equal(result.status, 0, cliOutput(result));
-	assert.match(result.stdout, /PASS: 3 findings valid/);
-});
+test(
+	"accepts a producer-shaped findings document through the CLI",
+	{ skip: !HAS_SAFE_INPUT_OPEN },
+	() => {
+		const result = runCli(JSON.stringify(producerShapedFindings()));
+		assert.equal(result.status, 0, cliOutput(result));
+		assert.match(result.stdout, /PASS: 3 findings valid/);
+	},
+);
 
 test("accepts empty output and each complete branch", () => {
 	assert.deepEqual(errorsFor([]), []);
@@ -613,39 +617,47 @@ test("accepts legitimate Unicode source paths and prose", () => {
 	assert.deepEqual(errorsFor([finding]), []);
 });
 
-test("CLI rejects input above the byte limit without an exception trace", () => {
-	const result = runCli(Buffer.alloc(LIMITS.inputBytes + 1, 0x20));
-	const output = cliOutput(result);
-	assert.equal(result.status, 1, output);
-	assert.match(
-		output,
-		new RegExp(`input exceeds ${LIMITS.inputBytes} byte limit`),
-	);
-	assert.doesNotMatch(
-		output,
-		/RangeError|Maximum call stack|heap out of memory/i,
-	);
-});
+test(
+	"CLI rejects input above the byte limit without an exception trace",
+	{ skip: !HAS_SAFE_INPUT_OPEN },
+	() => {
+		const result = runCli(Buffer.alloc(LIMITS.inputBytes + 1, 0x20));
+		const output = cliOutput(result);
+		assert.equal(result.status, 1, output);
+		assert.match(
+			output,
+			new RegExp(`input exceeds ${LIMITS.inputBytes} byte limit`),
+		);
+		assert.doesNotMatch(
+			output,
+			/RangeError|Maximum call stack|heap out of memory/i,
+		);
+	},
+);
 
-test("CLI rejects invalid UTF-8 without replacement or an exception trace", () => {
-	const findings = producerShapedFindings();
-	findings[0].execution.payloads = ["INVALID_UTF8"];
-	const encoded = Buffer.from(JSON.stringify(findings));
-	const marker = Buffer.from("INVALID_UTF8");
-	const markerOffset = encoded.indexOf(marker);
-	assert.notEqual(markerOffset, -1);
-	const malformed = Buffer.concat([
-		encoded.subarray(0, markerOffset),
-		Buffer.from([0x80]),
-		encoded.subarray(markerOffset + marker.length),
-	]);
+test(
+	"CLI rejects invalid UTF-8 without replacement or an exception trace",
+	{ skip: !HAS_SAFE_INPUT_OPEN },
+	() => {
+		const findings = producerShapedFindings();
+		findings[0].execution.payloads = ["INVALID_UTF8"];
+		const encoded = Buffer.from(JSON.stringify(findings));
+		const marker = Buffer.from("INVALID_UTF8");
+		const markerOffset = encoded.indexOf(marker);
+		assert.notEqual(markerOffset, -1);
+		const malformed = Buffer.concat([
+			encoded.subarray(0, markerOffset),
+			Buffer.from([0x80]),
+			encoded.subarray(markerOffset + marker.length),
+		]);
 
-	const result = runCli(malformed);
-	const output = cliOutput(result);
-	assert.equal(result.status, 1, output);
-	assert.match(output, /input is not valid UTF-8/);
-	assert.doesNotMatch(output, /TypeError|stack|at validate-findings/i);
-});
+		const result = runCli(malformed);
+		const output = cliOutput(result);
+		assert.equal(result.status, 1, output);
+		assert.match(output, /input is not valid UTF-8/);
+		assert.doesNotMatch(output, /TypeError|stack|at validate-findings/i);
+	},
+);
 
 test(
 	"quotes input-derived controls in CLI validation errors",
@@ -705,25 +717,33 @@ test("does not reflect controls from a failed CLI input path", () => {
 	}
 });
 
-test("CLI rejects lone-surrogate prose without changing payload semantics", () => {
-	const findings = producerShapedFindings();
-	findings[0].title = "\ud800";
-	const result = runCli(JSON.stringify(findings));
-	const output = cliOutput(result);
-	assert.equal(result.status, 1, output);
-	assert.match(output, /must contain only valid Unicode scalar values/);
-	assert.doesNotMatch(output, /stack|at validate-findings/i);
-});
+test(
+	"CLI rejects lone-surrogate prose without changing payload semantics",
+	{ skip: !HAS_SAFE_INPUT_OPEN },
+	() => {
+		const findings = producerShapedFindings();
+		findings[0].title = "\ud800";
+		const result = runCli(JSON.stringify(findings));
+		const output = cliOutput(result);
+		assert.equal(result.status, 1, output);
+		assert.match(output, /must contain only valid Unicode scalar values/);
+		assert.doesNotMatch(output, /stack|at validate-findings/i);
+	},
+);
 
-test("CLI rejects Unicode format controls in source paths", () => {
-	const findings = producerShapedFindings();
-	findings[0].trace[0].file = "src/file\u202ename.c";
-	const result = runCli(JSON.stringify(findings));
-	const output = cliOutput(result);
-	assert.equal(result.status, 1, output);
-	assert.match(output, /must be a safe repository-relative source path/);
-	assert.doesNotMatch(output, /stack|at validate-findings/i);
-});
+test(
+	"CLI rejects Unicode format controls in source paths",
+	{ skip: !HAS_SAFE_INPUT_OPEN },
+	() => {
+		const findings = producerShapedFindings();
+		findings[0].trace[0].file = "src/file\u202ename.c";
+		const result = runCli(JSON.stringify(findings));
+		const output = cliOutput(result);
+		assert.equal(result.status, 1, output);
+		assert.match(output, /must be a safe repository-relative source path/);
+		assert.doesNotMatch(output, /stack|at validate-findings/i);
+	},
+);
 
 test(
 	"CLI rejects a FIFO without blocking",
@@ -782,33 +802,41 @@ test(
 	},
 );
 
-test("CLI rejects input above the nesting-depth limit without an exception trace", () => {
-	const levels = LIMITS.nestingDepth + 1;
-	const result = runCli(`${"[".repeat(levels)}0${"]".repeat(levels)}`);
-	const output = cliOutput(result);
-	assert.equal(result.status, 1, output);
-	assert.match(
-		output,
-		new RegExp(`${LIMITS.nestingDepth} level nesting depth limit`),
-	);
-	assert.doesNotMatch(
-		output,
-		/RangeError|Maximum call stack|heap out of memory/i,
-	);
-});
+test(
+	"CLI rejects input above the nesting-depth limit without an exception trace",
+	{ skip: !HAS_SAFE_INPUT_OPEN },
+	() => {
+		const levels = LIMITS.nestingDepth + 1;
+		const result = runCli(`${"[".repeat(levels)}0${"]".repeat(levels)}`);
+		const output = cliOutput(result);
+		assert.equal(result.status, 1, output);
+		assert.match(
+			output,
+			new RegExp(`${LIMITS.nestingDepth} level nesting depth limit`),
+		);
+		assert.doesNotMatch(
+			output,
+			/RangeError|Maximum call stack|heap out of memory/i,
+		);
+	},
+);
 
-test("CLI rejects an oversized array without an exception trace", () => {
-	const result = runCli(
-		JSON.stringify(Array(LIMITS.arrayItems + 1).fill(null)),
-	);
-	const output = cliOutput(result);
-	assert.equal(result.status, 1, output);
-	assert.match(output, new RegExp(`${LIMITS.arrayItems} item array limit`));
-	assert.doesNotMatch(
-		output,
-		/RangeError|Maximum call stack|heap out of memory/i,
-	);
-});
+test(
+	"CLI rejects an oversized array without an exception trace",
+	{ skip: !HAS_SAFE_INPUT_OPEN },
+	() => {
+		const result = runCli(
+			JSON.stringify(Array(LIMITS.arrayItems + 1).fill(null)),
+		);
+		const output = cliOutput(result);
+		assert.equal(result.status, 1, output);
+		assert.match(output, new RegExp(`${LIMITS.arrayItems} item array limit`));
+		assert.doesNotMatch(
+			output,
+			/RangeError|Maximum call stack|heap out of memory/i,
+		);
+	},
+);
 
 test("checks pattern and branch invariants", () => {
 	rejectMutation(rejected, (finding) => {
@@ -846,26 +874,30 @@ test("rejects unsupported and malformed schema keywords", () => {
 	);
 });
 
-test("caps malformed 1000-finding validation output", () => {
-	assert.equal(
-		errorsFor(Array.from({ length: LIMITS.arrayItems }, () => null)).length,
-		LIMITS.validationErrors,
-	);
-	if (!HAS_SAFE_INPUT_OPEN) return;
+test(
+	"caps malformed 1000-finding validation output",
+	{ skip: !HAS_SAFE_INPUT_OPEN },
+	() => {
+		assert.equal(
+			errorsFor(Array.from({ length: LIMITS.arrayItems }, () => null)).length,
+			LIMITS.validationErrors,
+		);
+		if (!HAS_SAFE_INPUT_OPEN) return;
 
-	const result = runCli(
-		JSON.stringify(Array.from({ length: LIMITS.arrayItems }, () => null)),
-	);
-	const output = cliOutput(result);
-	assert.notEqual(result.error && result.error.code, "ETIMEDOUT", output);
-	assert.equal(result.status, 1, output);
-	assert.match(output, /output capped at 100/);
-	assert(output.length < 20000, `unexpected output length ${output.length}`);
-	assert.doesNotMatch(
-		output,
-		/RangeError|Maximum call stack|stack|at validate-findings/i,
-	);
-});
+		const result = runCli(
+			JSON.stringify(Array.from({ length: LIMITS.arrayItems }, () => null)),
+		);
+		const output = cliOutput(result);
+		assert.notEqual(result.error && result.error.code, "ETIMEDOUT", output);
+		assert.equal(result.status, 1, output);
+		assert.match(output, /output capped at 100/);
+		assert(output.length < 20000, `unexpected output length ${output.length}`);
+		assert.doesNotMatch(
+			output,
+			/RangeError|Maximum call stack|stack|at validate-findings/i,
+		);
+	},
+);
 
 test(
 	"caps amplified in-limit findings output under a constrained Node heap",

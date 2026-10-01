@@ -196,14 +196,7 @@ Detection hints:
 - Check `package.json` and lockfiles for `next` version.
 - Compare against Next.js support policy and advisories.
 
-IMPORTANT: Any versions older than these minor versions are vulnerable to "react2shell" vulnerability (https://nextjs.org/blog/CVE-2025-66478):
-15.0.5
-15.1.9
-15.2.6
-15.3.6
-15.4.8
-15.5.7
-16.0.7
+IMPORTANT: "React2Shell" (https://nextjs.org/blog/CVE-2025-66478) affects App Router applications on Next.js 15.x and 16.x, and 14.3.0-canary.77 and later canaries. Next.js 13.x, stable 14.x, Pages Router-only applications and the Edge Runtime are not affected. Within an affected release line, versions below that line's patched release are vulnerable: 15.0.5, 15.1.9, 15.2.6, 15.3.6, 15.4.8, 15.5.7, 16.0.7.
 
 Fix:
 
@@ -496,7 +489,7 @@ Fix:
 
 Severity: Medium
 
-NOTE: It is most important to set the CSP's script-src. All other directives are not as important and can generally be excluded for the ease of development.
+NOTE: Start with `script-src`, but do not drop the other directives by default. `frame-ancestors`, `form-action`, `base-uri` and `object-src` each block attacks that script controls do not. Choose directives from the app's threat model.
 
 Required:
 
@@ -630,7 +623,7 @@ Required:
 - MUST ensure pages/endpoints that return user-specific or sensitive data are not statically generated or cached in a shared way.
 - Route Handlers are not cached by default, but GET handlers can opt into caching/static behavior; do not do this for per-user data. ([Next.js][1])
 - MUST treat `use cache` and similar caching mechanisms as potentially cross-user unless explicitly proven private; do not cache per-user DB results in shared caches. ([Next.js][1])
-- SHOULD set explicit `Cache-Control: no-store` / `private` for sensitive responses (auth/session/user data APIs).
+- SHOULD set `Cache-Control: no-store` for sensitive responses (auth/session/user data APIs). `private` alone still lets the browser reuse a response after an account switch; cache only with verified per-identity partitioning and logout/account-switch handling.
 
 Insecure patterns:
 

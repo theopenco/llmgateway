@@ -197,7 +197,7 @@ Required:
 - SHOULD configure CSP realistically (avoid `unsafe-inline` where possible) for pages that render user-influenced content.
 - SHOULD set `X-Content-Type-Options: nosniff`, clickjacking defenses (`X-Frame-Options` or CSP `frame-ancestors`), and appropriate referrer policy.
 
-NOTE: It is most important to set the CSP's script-src. All other directives are not as important and can generally be excluded for the ease of development.
+NOTE: Start with `script-src`, but do not drop the other directives by default. `frame-ancestors`, `form-action`, `base-uri` and `object-src` each block attacks that script controls do not. Choose directives from the app's threat model.
 
 Insecure patterns:
 
@@ -920,7 +920,7 @@ Notes:
 
 Severity: Medium / Low
 
-NOTE: `npm audit` often returns a large number of insignificant "vulnerabilities" which do not actually matter. You should only focus on Express or other extremely critical packages, ignoring ones listed in dev tools, bundlers, etc.
+NOTE: `npm audit` output is noisy. Triage each advisory by affected version, whether the vulnerable code is reachable in the deployment, and the advisory's preconditions. Development tooling is usually low risk but not exempt: a dev server exposed to the network (for example Vite's file-read advisories) is a real finding.
 
 Do not upgrade packages without concent from the user. This may break existing code in unexpected ways. Instead, inform them of the outdated packages.
 

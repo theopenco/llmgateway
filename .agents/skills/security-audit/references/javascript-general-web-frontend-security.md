@@ -372,7 +372,7 @@ Fix:
 
 Severity: Medium to High (depends on threat model; High when handling untrusted content)
 
-NOTE: It is most important to set the CSP's script-src. All other directives are not as important and can generally be excluded for the ease of development.
+NOTE: Start with `script-src`, but do not drop the other directives by default. `frame-ancestors`, `form-action`, `base-uri` and `object-src` each block attacks that script controls do not. Choose directives from the app's threat model.
 
 Required:
 
@@ -409,7 +409,7 @@ Fix:
 
 Severity: Medium
 
-NOTE: It is most important to set the CSP's script-src. All other directives are not as important and can generally be excluded for the ease of development.
+NOTE: Start with `script-src`, but do not drop the other directives by default. `frame-ancestors`, `form-action`, `base-uri` and `object-src` each block attacks that script controls do not. Choose directives from the app's threat model.
 
 Required:
 
