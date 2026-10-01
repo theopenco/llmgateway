@@ -59,6 +59,8 @@ interface ModelVerificationDefinition {
 	id: ModelVerificationCheckId;
 	label: string;
 	request: ModelVerificationRequest;
+	/** Colors a vision response must name, one per image sent. */
+	visionColors?: readonly string[];
 }
 
 export interface RunModelVerificationOptions {
@@ -98,6 +100,54 @@ export interface ModelVerificationRunResult {
 const RED_IMAGE_DATA_URL =
 	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAb0lEQVR4nO3PAQkAAAyEwO9feoshgnABdLep8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3IPanc8OLDQitxAAAAAElFTkSuQmCC";
 
+// A 64x64 solid blue JPEG.
+const BLUE_IMAGE_DATA_URL =
+	"data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBgoICAgLCgoLDhgQDg0NDh0VFhEYIx8lJCIfIiEmKzcvJik0KSEiMEExNDk7Pj4+JS5ESUM8SDc9Pjv/2wBDAQoLCw4NDhwQEBw7KCIoOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozv/wAARCABAAEADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDzCiiiv2Y84KKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooA//Z";
+
+// A 64x64 solid green PNG served from apps/ui/public.
+const GREEN_IMAGE_URL = "https://llmgateway.io/verification/green.png";
+
+interface VisionProbe {
+	label: string;
+	images: readonly string[];
+	colors: readonly string[];
+	/** A failed required probe fails the check; the rest only report. */
+	required: boolean;
+}
+
+/**
+ * The image inputs the vision check sends. A listing declares `vision`, not a
+ * format or an image count, so the inline formats every vision request relies
+ * on decide the check and the rest report what the deployment accepts. Each
+ * probe uses its own color so an answer cannot carry over from an earlier one.
+ */
+const VISION_PROBES: readonly VisionProbe[] = [
+	{
+		label: "PNG data URL",
+		images: [RED_IMAGE_DATA_URL],
+		colors: ["red"],
+		required: true,
+	},
+	{
+		label: "JPEG data URL",
+		images: [BLUE_IMAGE_DATA_URL],
+		colors: ["blue"],
+		required: true,
+	},
+	{
+		label: "two images",
+		images: [RED_IMAGE_DATA_URL, BLUE_IMAGE_DATA_URL],
+		colors: ["red", "blue"],
+		required: false,
+	},
+	{
+		label: "remote image URL",
+		images: [GREEN_IMAGE_URL],
+		colors: ["green"],
+		required: false,
+	},
+];
+
 const COUNTRY_SCHEMA = {
 	type: "object",
 	properties: {
@@ -132,6 +182,7 @@ export function createStreamingVerificationRequest(
 
 export function createVisionVerificationRequest(
 	model: string,
+	images: readonly string[] = [RED_IMAGE_DATA_URL],
 ): ModelVerificationRequest {
 	return {
 		model,
@@ -139,11 +190,17 @@ export function createVisionVerificationRequest(
 			{
 				role: "user",
 				content: [
-					{ type: "text", text: "What color is this image?" },
 					{
-						type: "image_url",
-						image_url: { url: RED_IMAGE_DATA_URL },
+						type: "text",
+						text:
+							images.length > 1
+								? "What color is each of these images?"
+								: "What color is this image?",
 					},
+					...images.map((url) => ({
+						type: "image_url" as const,
+						image_url: { url },
+					})),
 				],
 			},
 		],
@@ -661,15 +718,19 @@ function validateStructuredCountry(value: unknown): boolean {
 }
 
 function validateResponse(
-	id: ModelVerificationCheckId,
+	{ id, visionColors = ["red"] }: ModelVerificationDefinition,
 	body: unknown,
 ): string | null {
 	const assistantText = extractAssistantText(body);
 	switch (id) {
-		case "vision":
-			return /\bred\b/i.test(assistantText)
+		case "vision": {
+			const missed = visionColors.filter(
+				(color) => !new RegExp(`\\b${color}\\b`, "i").test(assistantText),
+			);
+			return missed.length === 0
 				? null
-				: "The response did not identify the red image.";
+				: `The response did not identify the ${missed.join(" and ")} image.`;
+		}
 		case "audio":
 			return /\b(?:tone|beep|sine(?: wave)?|440(?:\s*(?:hz|hertz))?|a4)\b/i.test(
 				assistantText,
@@ -917,6 +978,55 @@ async function runReasoningCheck(
 	};
 }
 
+/**
+ * Send every image input variant, even after one fails, so the breakdown always
+ * says what the deployment accepts.
+ */
+async function runVisionCheck(
+	definition: ModelVerificationDefinition,
+	options: RunModelVerificationOptions,
+	secrets: Set<string>,
+	reportProbes: ProbeReporter,
+): Promise<CheckOutcome> {
+	const probes: ProviderModelVerificationProbe[] = [];
+	const notAccepted: string[] = [];
+	let requiredFailure: CheckFailure | null = null;
+	for (const probe of VISION_PROBES) {
+		const failure = await attemptCheck(
+			{
+				...definition,
+				request: createVisionVerificationRequest(
+					options.target.modelName,
+					probe.images,
+				),
+				visionColors: probe.colors,
+			},
+			options,
+			secrets,
+		);
+		probes.push(probeResult(probe.label, failure));
+		await reportProbes(probes);
+		if (!failure) {
+			continue;
+		}
+		if (probe.required) {
+			requiredFailure ??= failure;
+		} else {
+			notAccepted.push(probe.label);
+		}
+	}
+	if (requiredFailure) {
+		return { failure: requiredFailure, probes };
+	}
+	return {
+		failure: null,
+		probes,
+		feedback: notAccepted.length
+			? `Passed. Not accepted: ${notAccepted.join(", ")}.`
+			: undefined,
+	};
+}
+
 async function runCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
@@ -932,6 +1042,9 @@ async function runCheck(
 			knownUnsupportedReasoningEfforts,
 			reportProbes,
 		);
+	}
+	if (definition.id === "vision") {
+		return await runVisionCheck(definition, options, secrets, reportProbes);
 	}
 	if (definition.id !== "tools") {
 		return { failure: await attemptCheck(definition, options, secrets) };
@@ -1106,12 +1219,12 @@ async function executeCheck(
 	}
 	const served = definition.request.stream
 		? validateStream(bodyText)
-		: validateServedResponse(definition.id, bodyText);
+		: validateServedResponse(definition, bodyText);
 	return served ? { message: served, rejected: false } : null;
 }
 
 function validateServedResponse(
-	id: ModelVerificationCheckId,
+	definition: ModelVerificationDefinition,
 	bodyText: string,
 ): string | null {
 	let body: unknown;
@@ -1120,7 +1233,7 @@ function validateServedResponse(
 	} catch {
 		return "The provider returned a non-JSON response.";
 	}
-	return validateResponse(id, body);
+	return validateResponse(definition, body);
 }
 
 export async function runProviderModelVerification(

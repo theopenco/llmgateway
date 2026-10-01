@@ -766,6 +766,17 @@ describe("model verification", () => {
 				response({ choices: [{ message: { content: "The image is red." } }] }),
 			)
 			.mockResolvedValueOnce(
+				response({ choices: [{ message: { content: "The image is blue." } }] }),
+			)
+			.mockResolvedValueOnce(
+				response({ choices: [{ message: { content: "Red, then blue." } }] }),
+			)
+			.mockResolvedValueOnce(
+				response({
+					choices: [{ message: { content: "The image is green." } }],
+				}),
+			)
+			.mockResolvedValueOnce(
 				response({ choices: [{ message: { content: "I hear a tone." } }] }),
 			)
 			.mockResolvedValueOnce(
@@ -830,7 +841,115 @@ describe("model verification", () => {
 		expect(result.checks.every((check) => check.status === "passed")).toBe(
 			true,
 		);
-		expect(fetchImplementation).toHaveBeenCalledTimes(10);
+		expect(fetchImplementation).toHaveBeenCalledTimes(13);
+	});
+
+	describe("vision probes", () => {
+		const visionTarget: ProviderModelVerificationTarget = {
+			...target,
+			streaming: false,
+			audio: false,
+			tools: false,
+			jsonOutput: false,
+			jsonOutputSchema: false,
+			reasoning: false,
+			reasoningMaxTokens: false,
+			webSearch: false,
+		};
+
+		// Answers each probe from the images it carries; `refuse` 400s a probe.
+		const visionEndpoint = (refuse: (urls: string[]) => boolean) =>
+			vi.fn<typeof fetch>().mockImplementation(async (_url, init) => {
+				const content = JSON.parse(String(init?.body)).messages.at(-1).content;
+				if (typeof content === "string") {
+					return Response.json({ choices: [{ message: { content: "OK" } }] });
+				}
+				const urls: string[] = content
+					.filter((part: { type: string }) => part.type === "image_url")
+					.map((part: { image_url: { url: string } }) => part.image_url.url);
+				if (refuse(urls)) {
+					return Response.json(
+						{ error: { message: "At most 0 image(s) may be provided." } },
+						{ status: 400 },
+					);
+				}
+				const colors = urls.map((url) =>
+					url.startsWith("data:image/png")
+						? "red"
+						: url.startsWith("data:image/jpeg")
+							? "blue"
+							: "green",
+				);
+				return Response.json({
+					choices: [{ message: { content: colors.join(" and ") } }],
+				});
+			});
+
+		it("reports every image input the deployment accepts", async () => {
+			const result = await runProviderModelVerification({
+				target: visionTarget,
+				token: "provider-key",
+				fetchImplementation: visionEndpoint(() => false),
+			});
+
+			expect(result.passed).toBe(true);
+			expect(result.checks[1]).toMatchObject({
+				id: "vision",
+				status: "passed",
+				feedback: "Passed",
+				probes: [
+					{ label: "PNG data URL", status: "passed" },
+					{ label: "JPEG data URL", status: "passed" },
+					{ label: "two images", status: "passed" },
+					{ label: "remote image URL", status: "passed" },
+				],
+			});
+		});
+
+		it("passes while naming the inputs the deployment refuses", async () => {
+			const result = await runProviderModelVerification({
+				target: visionTarget,
+				token: "provider-key",
+				fetchImplementation: visionEndpoint(
+					(urls) => urls.length > 1 || urls[0].startsWith("https://"),
+				),
+			});
+
+			expect(result.passed).toBe(true);
+			expect(result.checks[1]).toMatchObject({
+				status: "passed",
+				feedback: "Passed. Not accepted: two images, remote image URL.",
+				probes: [
+					{ status: "passed" },
+					{ status: "passed" },
+					{ label: "two images", status: "failed" },
+					{ label: "remote image URL", status: "failed" },
+				],
+			});
+		});
+
+		it("fails on a refused inline format and still runs every probe", async () => {
+			const result = await runProviderModelVerification({
+				target: visionTarget,
+				token: "provider-key",
+				fetchImplementation: visionEndpoint((urls) =>
+					urls.some((url) => url.startsWith("data:image/jpeg")),
+				),
+			});
+
+			expect(result.passed).toBe(false);
+			expect(result.checks[1]).toMatchObject({
+				status: "failed",
+				feedback: "At most 0 image(s) may be provided.",
+				probes: [
+					{ label: "PNG data URL", status: "passed" },
+					{ label: "JPEG data URL", status: "failed" },
+					{ label: "two images", status: "failed" },
+					{ label: "remote image URL", status: "passed" },
+				],
+			});
+			expect(disprovedCapabilities(result.checks)).toEqual(["vision"]);
+		});
 	});
 
 	it("runs completion and streaming checks without the gateway test runner", async () => {
