@@ -12841,6 +12841,13 @@ function buildIgnoredErrorMatchExpr(matchers: IgnoredErrorMatcherTarget[]) {
 	);
 }
 
+// Case-insensitive substring match against the serialized public and internal
+// error details JSON, so stealth-provider errors are searchable too.
+function buildErrorMessageMatchExpr(message: string) {
+	const pattern = `%${escapeLikePattern(message)}%`;
+	return sql`COALESCE(${tables.log.errorDetails}::text ILIKE ${pattern} OR ${tables.log.internalErrorDetails}::text ILIKE ${pattern}, false)`;
+}
+
 /**
  * Every `used_model` (`provider/model[:region]`) a canonical model id logs
  * under: catalogue mappings plus DB-only (Airside, deactivated) rows.
@@ -12972,6 +12979,8 @@ const unstableMappingsListSchema = z.object({
 	mapping: z.string().nullable(),
 	// The canonical model id the ranking is narrowed to (all its mappings).
 	modelId: z.string().nullable(),
+	// The error-details substring an error must contain to count, if any.
+	errorMessage: z.string().nullable(),
 });
 
 const getUnstableMappings = createRoute({
@@ -12996,6 +13005,8 @@ const getUnstableMappings = createRoute({
 			provider: z.string().optional(),
 			/** Canonical model id; matches every provider/region mapping of it. */
 			modelId: z.string().optional(),
+			/** Only errors whose public or internal details contain this text count. */
+			errorMessage: z.string().max(500).optional(),
 		}),
 	},
 	responses: {
@@ -13049,10 +13060,17 @@ admin.openapi(getUnstableMappings, async (c) => {
 	// without details are still counted. The full matcher count is returned
 	// regardless so the UI can surface it even when ignoring is toggled off.
 	const ignoredMatchers = await listIgnoredErrorMatchers();
+	const errorMessage = query.errorMessage?.trim() || null;
+	// A message filter narrows which errors count, not which logs are sampled,
+	// so the rate stays "share of traffic failing with this message".
+	const errorMessageClause =
+		errorMessage !== null
+			? sql` AND ${buildErrorMessageMatchExpr(errorMessage)}`
+			: sql``;
 	const hasErrorExpr =
 		ignoreExpected && ignoredMatchers.length > 0
-			? sql`(${tables.log.hasError} AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false))`
-			: sql`${tables.log.hasError}`;
+			? sql`(${tables.log.hasError} AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false)${errorMessageClause})`
+			: sql`(${tables.log.hasError}${errorMessageClause})`;
 
 	const rows = await db.execute<{
 		used_model: string;
@@ -13136,6 +13154,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		ignoredMatcherCount: ignoredMatchers.length,
 		mapping,
 		modelId: canonicalModelId,
+		errorMessage,
 	});
 });
 
@@ -13192,6 +13211,8 @@ const getUnstableMappingErrors = createRoute({
 			 * `providerKeyId` already narrows the sample to one key.
 			 */
 			groupByKey: z.enum(["true", "false"]).optional(),
+			/** Only errors whose public or internal details contain this text. */
+			errorMessage: z.string().max(500).optional(),
 			/**
 			 * Split each error into its streaming and non-streaming occurrences
 			 * instead of one shape carrying both counts.
@@ -13225,8 +13246,10 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		providerKeyId,
 		incidentsOnly,
 		groupByKey: groupByKeyParam,
+		errorMessage: errorMessageParam,
 		groupByStream: groupByStreamParam,
 	} = c.req.valid("query");
+	const errorMessage = errorMessageParam?.trim() || null;
 	const groupByKey = groupByKeyParam === "true" && providerKeyId === undefined;
 	const groupByStream = groupByStreamParam === "true";
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
@@ -13272,6 +13295,9 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			ignoredClause,
 			buildUnstableErrorScopeClause(errorScope ?? "non_client"),
 			incidentsOnly === "true" ? incidentErrorsClause : sql``,
+			errorMessage !== null
+				? sql`AND ${buildErrorMessageMatchExpr(errorMessage)}`
+				: sql``,
 		],
 	});
 

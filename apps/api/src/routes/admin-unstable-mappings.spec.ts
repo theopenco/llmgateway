@@ -25,6 +25,7 @@ interface ListBody {
 	includeByok: boolean;
 	mapping: string | null;
 	modelId: string | null;
+	errorMessage: string | null;
 }
 
 interface ErrorsBody {
@@ -100,6 +101,8 @@ describe("admin unstable mappings", () => {
 		usedModel = "openai/gpt-4o-mini",
 		usedProvider = "openai",
 		createdAt,
+		responseText,
+		internalResponseText,
 		streamed,
 	}: {
 		providerKeyId?: string | null;
@@ -109,6 +112,8 @@ describe("admin unstable mappings", () => {
 		usedProvider?: string;
 		classification?: "client_error" | "gateway_error" | "upstream_error";
 		createdAt?: Date;
+		responseText?: string;
+		internalResponseText?: string;
 		streamed?: boolean;
 	}) {
 		logIndex++;
@@ -125,7 +130,14 @@ describe("admin unstable mappings", () => {
 				? {
 						statusCode,
 						statusText: "err",
-						responseText: `failed ${statusCode}`,
+						responseText: responseText ?? `failed ${statusCode}`,
+					}
+				: null,
+			internalErrorDetails: internalResponseText
+				? {
+						statusCode,
+						statusText: "err",
+						responseText: internalResponseText,
 					}
 				: null,
 			duration: 100,
@@ -476,6 +488,51 @@ describe("admin unstable mappings", () => {
 			{ start: olderBucket, count: 2 },
 			{ start: currentBucket, count: 1 },
 		]);
+	});
+
+	test("filters errors by a message in public or internal details", async () => {
+		await seedLog({});
+		await seedLog({
+			hasError: true,
+			statusCode: 400,
+			responseText: "The request was rejected by policy",
+		});
+		await seedLog({
+			hasError: true,
+			statusCode: 403,
+			responseText: "redacted",
+			internalResponseText: "the REQUEST was rejected upstream",
+		});
+		await seedLog({ hasError: true, statusCode: 500 });
+		await seedLog({ hasError: true, statusCode: 502, responseText: "100%" });
+
+		const unfiltered = await getMappings();
+		expect(unfiltered.errorMessage).toBeNull();
+		expect(unfiltered.mappings[0].errorsCount).toBe(4);
+
+		const message = encodeURIComponent("The request was rejected");
+		const filtered = await getMappings(`?errorMessage=${message}`);
+		expect(filtered.errorMessage).toBe("The request was rejected");
+		// Non-matching logs stay in the sample; only matching errors count.
+		expect(filtered.sampledLogs).toBe(5);
+		expect(filtered.mappings).toHaveLength(1);
+		expect(filtered.mappings[0].logsCount).toBe(5);
+		expect(filtered.mappings[0].errorsCount).toBe(2);
+
+		// LIKE metacharacters are literal, not wildcards.
+		const literal = await getMappings(
+			`?errorMessage=${encodeURIComponent("%")}`,
+		);
+		expect(literal.mappings[0].errorsCount).toBe(1);
+
+		const res = await app.request(
+			`/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai&errorMessage=${message}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const errors = (await res.json()) as ErrorsBody;
+		expect(errors.sampledErrors).toBe(2);
+		expect(errors.errors.map((e) => e.statusCode).sort()).toEqual([400, 403]);
 	});
 
 	test("filters the ranking to one mapping", async () => {

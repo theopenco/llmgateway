@@ -5,6 +5,7 @@ import {
 } from "@/components/filter-navigation";
 import { IgnoredErrorMatchersDialog } from "@/components/ignored-error-matchers";
 import { SegmentedQueryToggle } from "@/components/segmented-query-toggle";
+import { UnstableErrorMessageFilter } from "@/components/unstable-error-message-filter";
 import { UnstableMappingsTable } from "@/components/unstable-mappings-table";
 import { UnstableScopeFilter } from "@/components/unstable-scope-filter";
 import { requireSession } from "@/lib/require-session";
@@ -37,6 +38,7 @@ export default async function UnstableMappingsPage({
 		errorScope?: string;
 		mapping?: string;
 		modelId?: string;
+		errorMessage?: string;
 	}>;
 }) {
 	await requireSession();
@@ -54,6 +56,7 @@ export default async function UnstableMappingsPage({
 		? mapping.slice(0, mapping.indexOf("/"))
 		: undefined;
 	const modelId = params?.modelId?.trim() || undefined;
+	const errorMessage = params?.errorMessage?.trim() || undefined;
 
 	const $api = await createServerApiClient();
 	const [{ data, error }, { data: scopeOptions, error: scopeOptionsError }] =
@@ -73,6 +76,7 @@ export default async function UnstableMappingsPage({
 							? { model: mapping, provider: mappingProvider }
 							: {}),
 						...(modelId ? { modelId } : {}),
+						...(errorMessage ? { errorMessage } : {}),
 					},
 				},
 			}),
@@ -119,6 +123,9 @@ export default async function UnstableMappingsPage({
 							{data.modelId
 								? `Filtered to every mapping of ${data.modelId}. `
 								: ""}
+							{data.errorMessage
+								? `Only errors containing "${data.errorMessage}" count. `
+								: ""}
 							Click a row to load its top 10 error details.
 						</p>
 					</div>
@@ -160,6 +167,15 @@ export default async function UnstableMappingsPage({
 								mapping={data.mapping}
 								modelId={data.modelId}
 								options={scopeOptions}
+							/>
+						</div>
+						<div className="flex flex-wrap items-center gap-2">
+							<span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+								Message
+							</span>
+							<UnstableErrorMessageFilter
+								key={data.errorMessage ?? ""}
+								errorMessage={data.errorMessage}
 							/>
 						</div>
 						<div className="flex flex-wrap items-center gap-2">
@@ -224,6 +240,7 @@ export default async function UnstableMappingsPage({
 							ignoreExpected={data.ignoreExpected}
 							splitByKey={data.splitByKey}
 							includeByok={data.includeByok}
+							errorMessage={data.errorMessage}
 							errorScope={data.errorScope}
 						/>
 					</div>

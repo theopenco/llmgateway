@@ -266,6 +266,7 @@ export function ErrorDetails({
 	includeByok,
 	errorScope = "non_client",
 	incidentsOnly = false,
+	errorMessage = null,
 }: {
 	usedModel: string;
 	provider: string;
@@ -278,6 +279,8 @@ export function ErrorDetails({
 	errorScope?: UnstableErrorScope;
 	/** Only upstream and gateway errors, matching the Incidents counts. */
 	incidentsOnly?: boolean;
+	/** Only errors whose public or internal details contain this text. */
+	errorMessage?: string | null;
 }) {
 	// A drilldown already scoped to one key has nothing to group by.
 	const canGroupByKey = providerKeyId === undefined;
@@ -303,6 +306,7 @@ export function ErrorDetails({
 					incidentsOnly: incidentsOnly ? "true" : "false",
 					groupByKey: groupBy === "key" ? "true" : "false",
 					groupByStream: groupBy === "stream" ? "true" : "false",
+					...(errorMessage ? { errorMessage } : {}),
 				},
 			},
 		},
@@ -477,6 +481,7 @@ export function UnstableMappingsTable({
 	ignoreExpected,
 	splitByKey,
 	includeByok,
+	errorMessage,
 	errorScope,
 }: {
 	mappings: UnstableMapping[];
@@ -486,6 +491,7 @@ export function UnstableMappingsTable({
 	ignoreExpected: boolean;
 	splitByKey: boolean;
 	includeByok: boolean;
+	errorMessage: string | null;
 	errorScope: UnstableErrorScope;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(null);
@@ -641,6 +647,7 @@ export function UnstableMappingsTable({
 											logLimit={logLimit}
 											ignoreExpected={ignoreExpected}
 											includeByok={includeByok}
+											errorMessage={errorMessage}
 											errorScope={errorScope}
 										/>
 									</TableCell>
