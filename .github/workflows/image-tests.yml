@@ -155,7 +155,7 @@ jobs:
           tags: test-unified-image:latest
           push: false
           load: true
-          cache-from: type=gha,scope=unified-linux-amd64
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}-unified:buildcache-linux-amd64
           secret-envs: |
             TURBO_TOKEN=TURBO_TOKEN
             TURBO_TEAM=TURBO_TEAM
