@@ -10481,6 +10481,7 @@ chat.openapi(completions, async (c) => {
 							// O(n) scans on multi-MB payloads (e.g. base64 image data).
 							// Large events (>64KB) are almost always valid image/binary data.
 							if (
+								process.env.NODE_ENV !== "production" &&
 								eventData.length < 65536 &&
 								(eventData.includes("event:") || eventData.includes("id:"))
 							) {
