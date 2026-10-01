@@ -743,55 +743,57 @@ describe("airside-listed models", () => {
 			.find((model) => model.id === "deepseek-v4-flash")!
 			.providers.map((mapping) => mapping.providerId);
 		expect(staticProviderIds).toContain("novita");
-		await materializeTestMapping({
-			providerId: "novita",
-			modelId: "deepseek-v4-flash",
-			inputPrice: "1e-6",
-			outputPrice: "2e-6",
-		});
-		const routedProviderIds = async () =>
-			(
-				await resolveAirsideModel("deepseek-v4-flash")
-			)?.modelInfoResult.modelInfo.providers.map(
-				(mapping) => mapping.providerId,
-			);
-		expect(await routedProviderIds()).toContain("novita");
+		try {
+			await materializeTestMapping({
+				providerId: "novita",
+				modelId: "deepseek-v4-flash",
+				inputPrice: "1e-6",
+				outputPrice: "2e-6",
+			});
+			const routedProviderIds = async () =>
+				(
+					await resolveAirsideModel("deepseek-v4-flash")
+				)?.modelInfoResult.modelInfo.providers.map(
+					(mapping) => mapping.providerId,
+				);
+			expect(await routedProviderIds()).toContain("novita");
 
-		await setListingServing("novita", "deepseek-v4-flash", false);
+			await setListingServing("novita", "deepseek-v4-flash", false);
 
-		const unlisted = await routedProviderIds();
-		expect(unlisted).not.toContain("novita");
-		expect(unlisted).toContain("deepinfra");
-		await expect(
-			resolveAirsideModel("novita/deepseek-v4-flash"),
-		).rejects.toThrow("Provider novita does not support model");
-		// Pinning another provider must not fall back onto the unlisted one.
-		const sibling = await resolveAirsideModel("deepinfra/deepseek-v4-flash");
-		expect(sibling?.parseResult.requestedProvider).toBe("deepinfra");
-		expect(
-			sibling?.modelInfoResult.allModelProviders.map(
-				(mapping) => mapping.providerId,
-			),
-		).not.toContain("novita");
-		const mapped = await mappedModelIds();
-		expect(mapped).not.toContain("novita/deepseek-v4-flash");
-		expect(mapped).toContain("deepinfra/deepseek-v4-flash");
-
-		await setListingServing("novita", "deepseek-v4-flash", true);
-		expect(await routedProviderIds()).toContain("novita");
-		expect(await mappedModelIds()).toContain("novita/deepseek-v4-flash");
-
-		// The catalogue tables outlive the harness reset.
-		await db
-			.delete(tables.modelProviderMapping)
-			.where(
-				and(
-					eq(tables.modelProviderMapping.providerId, "novita"),
-					eq(tables.modelProviderMapping.modelId, "deepseek-v4-flash"),
-					eq(tables.modelProviderMapping.source, "airside"),
+			const unlisted = await routedProviderIds();
+			expect(unlisted).not.toContain("novita");
+			expect(unlisted).toContain("deepinfra");
+			await expect(
+				resolveAirsideModel("novita/deepseek-v4-flash"),
+			).rejects.toThrow("Provider novita does not support model");
+			// Pinning another provider must not fall back onto the unlisted one.
+			const sibling = await resolveAirsideModel("deepinfra/deepseek-v4-flash");
+			expect(sibling?.parseResult.requestedProvider).toBe("deepinfra");
+			expect(
+				sibling?.modelInfoResult.allModelProviders.map(
+					(mapping) => mapping.providerId,
 				),
-			);
-		await clearCache();
+			).not.toContain("novita");
+			const mapped = await mappedModelIds();
+			expect(mapped).not.toContain("novita/deepseek-v4-flash");
+			expect(mapped).toContain("deepinfra/deepseek-v4-flash");
+
+			await setListingServing("novita", "deepseek-v4-flash", true);
+			expect(await routedProviderIds()).toContain("novita");
+			expect(await mappedModelIds()).toContain("novita/deepseek-v4-flash");
+		} finally {
+			// The catalogue tables outlive the harness reset.
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(
+					and(
+						eq(tables.modelProviderMapping.providerId, "novita"),
+						eq(tables.modelProviderMapping.modelId, "deepseek-v4-flash"),
+						eq(tables.modelProviderMapping.source, "airside"),
+					),
+				);
+			await clearCache();
+		}
 	});
 
 	test("downgrades a tool_choice the listing does not accept", async () => {

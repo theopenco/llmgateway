@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeApiModelDefinition } from "./airside-model-fallback";
+import {
+	mergeApiModelDefinition,
+	publicModelDefinition,
+} from "./airside-model-fallback";
 
 import type { ModelDefinition } from "@llmgateway/models";
 import type {
@@ -226,5 +229,34 @@ describe("mergeApiModelDefinition", () => {
 				]),
 			),
 		).toEqual(["openai", "mistral"]);
+	});
+
+	it("has no public model once its only provider is unlisted", () => {
+		const staticModel = {
+			id: "catalogue-model",
+			name: "Catalogue Model",
+			family: "catalogue",
+			providers: [
+				{
+					providerId: "mistral",
+					externalId: "catalogue-model",
+					inputPrice: "1e-6",
+					outputPrice: "3e-6",
+					streaming: true,
+				},
+			],
+		} satisfies ModelDefinition;
+
+		expect(publicModelDefinition(apiModel([], ["mistral"]), staticModel)).toBe(
+			null,
+		);
+		// A listing-only model whose listing is paused has no mappings at all.
+		expect(publicModelDefinition(apiModel([]))).toBe(null);
+		expect(
+			publicModelDefinition(
+				apiModel([mapping({ providerId: "mistral" })]),
+				staticModel,
+			)?.providers,
+		).toHaveLength(1);
 	});
 });
