@@ -1532,7 +1532,7 @@ export const alibabaModels = [
 					},
 				],
 				requestPrice: "0",
-				contextSize: 1000000,
+				contextSize: 983616,
 				maxOutput: 65536,
 				reasoning: true,
 				reasoningEfforts: [
@@ -1721,7 +1721,7 @@ export const alibabaModels = [
 					},
 				],
 				requestPrice: "0",
-				contextSize: 1000000,
+				contextSize: 983616,
 				maxOutput: 65536,
 				reasoning: true,
 				reasoningEfforts: [
@@ -1915,7 +1915,7 @@ export const alibabaModels = [
 					},
 				],
 				requestPrice: "0",
-				contextSize: 1000000,
+				contextSize: 983616,
 				maxOutput: 65536,
 				reasoning: true,
 				reasoningEfforts: [
@@ -1974,7 +1974,7 @@ export const alibabaModels = [
 					{ id: "cn-beijing" },
 				],
 				requestPrice: "0",
-				contextSize: 1000000,
+				contextSize: 983616,
 				maxOutput: 131072,
 				reasoning: true,
 				reasoningMaxTokens: true,
@@ -2187,7 +2187,7 @@ export const alibabaModels = [
 				cacheWriteInputPrice: "0.2e-6",
 				regions: [{ id: "singapore" }],
 				requestPrice: "0",
-				contextSize: 1000000,
+				contextSize: 983616,
 				maxOutput: 131072,
 				reasoning: true,
 				reasoningEfforts: [
@@ -3017,7 +3017,7 @@ export const alibabaModels = [
 					},
 				],
 				requestPrice: "0",
-				contextSize: 1000000,
+				contextSize: 997952,
 				maxOutput: 65536,
 				streaming: true,
 				vision: false,
@@ -3773,7 +3773,7 @@ export const alibabaModels = [
 					},
 				],
 				requestPrice: "0",
-				contextSize: 1000000,
+				contextSize: 983616,
 				maxOutput: 65536,
 				reasoning: true,
 				reasoningEfforts: [
@@ -4199,7 +4199,7 @@ export const alibabaModels = [
 					},
 				],
 				requestPrice: "0",
-				contextSize: 1000000,
+				contextSize: 983616,
 				maxOutput: 65536,
 				reasoning: true,
 				reasoningEfforts: [
