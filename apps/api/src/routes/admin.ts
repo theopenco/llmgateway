@@ -13141,6 +13141,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 
 const unstableMappingErrorsSchema = mappingErrorShapesSchema.extend({
 	groupByKey: z.boolean(),
+	groupByStream: z.boolean(),
 	/** Bucket grid of each error's `buckets`, covering the selected window. */
 	timeline: z.object({
 		bucketSeconds: z.number(),
@@ -13191,6 +13192,11 @@ const getUnstableMappingErrors = createRoute({
 			 * `providerKeyId` already narrows the sample to one key.
 			 */
 			groupByKey: z.enum(["true", "false"]).optional(),
+			/**
+			 * Split each error into its streaming and non-streaming occurrences
+			 * instead of one shape carrying both counts.
+			 */
+			groupByStream: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -13219,8 +13225,10 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		providerKeyId,
 		incidentsOnly,
 		groupByKey: groupByKeyParam,
+		groupByStream: groupByStreamParam,
 	} = c.req.valid("query");
 	const groupByKey = groupByKeyParam === "true" && providerKeyId === undefined;
+	const groupByStream = groupByStreamParam === "true";
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
 	const retriedClause = includeRetried === "true" ? sql`` : notRetriedClause;
 	const byokClause =
@@ -13256,6 +13264,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		sampleLimit,
 		groupByKey,
 		bucketSeconds,
+		splitByStream: groupByStream,
 		extraClauses: [
 			providerKeyClause,
 			retriedClause,
@@ -13277,6 +13286,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 	return c.json({
 		...shapes,
 		groupByKey,
+		groupByStream,
 		timeline: {
 			bucketSeconds,
 			start: Math.floor((now - windowMs) / bucketMs) * bucketMs,

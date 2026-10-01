@@ -105,8 +105,10 @@ interface ErrorShape {
 	responseText: string | null;
 	cause: string | null;
 	classification: string | null;
-	streamed: boolean;
+	/** Null when streaming and non-streaming occurrences are merged. */
+	streamed: boolean | null;
 	count: number;
+	streamedCount: number;
 	providerKeyId?: string | null;
 	buckets?: { start: number; count: number }[];
 }
@@ -165,28 +167,46 @@ function ProviderKeyLabel({
 	);
 }
 
+type ErrorGroupBy = "none" | "stream" | "key";
+
+const ERROR_GROUP_OPTIONS: { value: ErrorGroupBy; label: string }[] = [
+	{ value: "none", label: "None" },
+	{ value: "stream", label: "By stream mode" },
+	{ value: "key", label: "By key" },
+];
+
 function ErrorShapeItem({
 	error,
-	showStreamMode,
+	showStreamModes,
 	timeline,
 }: {
 	error: ErrorShape;
-	showStreamMode: boolean;
+	showStreamModes: boolean;
 	timeline: ErrorTimeline;
 }) {
 	const [showGraph, setShowGraph] = useState(false);
-	const streamMode = STREAM_MODES.find(
-		(mode) => mode.streamed === error.streamed,
-	);
+	// An error seen in both modes carries a count per mode; the total is on
+	// the right.
+	const modeCounts = STREAM_MODES.map((mode) => ({
+		...mode,
+		count: mode.streamed
+			? error.streamedCount
+			: error.count - error.streamedCount,
+	})).filter((mode) => mode.count > 0);
 	return (
 		<li className="rounded-md border border-border/60 bg-background/60 p-3">
 			<div className="flex items-center justify-between gap-3">
 				<div className="flex flex-wrap items-center gap-2">
-					{showStreamMode && streamMode && (
-						<Badge className={cn("font-medium", streamMode.badgeClass)}>
-							{streamMode.label}
-						</Badge>
-					)}
+					{showStreamModes &&
+						modeCounts.map((mode) => (
+							<Badge
+								key={mode.label}
+								className={cn("font-medium tabular-nums", mode.badgeClass)}
+							>
+								{mode.label}
+								{modeCounts.length > 1 && ` ${formatNumber(mode.count)}×`}
+							</Badge>
+						))}
 					{error.statusCode !== null && (
 						<Badge variant="outline" className="font-mono">
 							{error.statusCode}
@@ -261,7 +281,9 @@ export function ErrorDetails({
 }) {
 	// A drilldown already scoped to one key has nothing to group by.
 	const canGroupByKey = providerKeyId === undefined;
-	const [groupByKey, setGroupByKey] = useState(false);
+	const [selectedGroupBy, setGroupBy] = useState<ErrorGroupBy>("none");
+	const groupBy =
+		selectedGroupBy === "key" && !canGroupByKey ? "none" : selectedGroupBy;
 	const $api = useApi();
 	const { data, isLoading, isError, isFetching, refetch } = $api.useQuery(
 		"get",
@@ -279,7 +301,8 @@ export function ErrorDetails({
 					includeByok: includeByok ? "true" : "false",
 					errorScope,
 					incidentsOnly: incidentsOnly ? "true" : "false",
-					groupByKey: canGroupByKey && groupByKey ? "true" : "false",
+					groupByKey: groupBy === "key" ? "true" : "false",
+					groupByStream: groupBy === "stream" ? "true" : "false",
 				},
 			},
 		},
@@ -341,7 +364,7 @@ export function ErrorDetails({
 							<ErrorShapeItem
 								key={i}
 								error={error}
-								showStreamMode
+								showStreamModes
 								timeline={data.timeline}
 							/>
 						))}
@@ -349,7 +372,7 @@ export function ErrorDetails({
 				</div>
 			);
 		});
-	} else if (data) {
+	} else if (data?.groupByStream) {
 		// Streaming and non-streaming requests often fail differently, so split
 		// the drilldown into one section per mode to make debugging easier.
 		body = STREAM_MODES.map((mode) => ({
@@ -377,13 +400,26 @@ export function ErrorDetails({
 							<ErrorShapeItem
 								key={i}
 								error={error}
-								showStreamMode={false}
+								showStreamModes={false}
 								timeline={data.timeline}
 							/>
 						))}
 					</ul>
 				</div>
 			));
+	} else if (data) {
+		body = (
+			<ul className="space-y-2">
+				{errors.map((error, i) => (
+					<ErrorShapeItem
+						key={i}
+						error={error}
+						showStreamModes
+						timeline={data.timeline}
+					/>
+				))}
+			</ul>
+		);
 	}
 
 	return (
@@ -406,30 +442,27 @@ export function ErrorDetails({
 						</>
 					) : null}
 				</p>
-				{canGroupByKey && (
-					<div
-						className="flex items-center gap-1"
-						role="group"
-						aria-label="Group errors by"
-					>
-						<span className="mr-1 text-xs text-muted-foreground">Group</span>
-						{[
-							{ value: false, label: "By stream mode" },
-							{ value: true, label: "By key" },
-						].map((option) => (
-							<Button
-								key={option.label}
-								size="sm"
-								variant={groupByKey === option.value ? "default" : "outline"}
-								className="h-7 px-2 text-xs"
-								aria-pressed={groupByKey === option.value}
-								onClick={() => setGroupByKey(option.value)}
-							>
-								{option.label}
-							</Button>
-						))}
-					</div>
-				)}
+				<div
+					className="flex items-center gap-1"
+					role="group"
+					aria-label="Group errors by"
+				>
+					<span className="mr-1 text-xs text-muted-foreground">Group</span>
+					{ERROR_GROUP_OPTIONS.filter(
+						(option) => canGroupByKey || option.value !== "key",
+					).map((option) => (
+						<Button
+							key={option.value}
+							size="sm"
+							variant={groupBy === option.value ? "default" : "outline"}
+							className="h-7 px-2 text-xs"
+							aria-pressed={groupBy === option.value}
+							onClick={() => setGroupBy(option.value)}
+						>
+							{option.label}
+						</Button>
+					))}
+				</div>
 			</div>
 			{body}
 		</div>
