@@ -366,7 +366,6 @@ export default async function OrganizationsPage({
 				</div>
 				<div className="flex w-full flex-wrap items-start gap-2 sm:w-auto sm:items-center">
 					<div className="flex min-w-0 flex-1 flex-col flex-wrap items-stretch gap-2 sm:flex-initial sm:flex-row sm:items-center">
-						<OrganizationFiltersBar filters={filters} />
 						<DateRangePicker defaultRange={ORGANIZATIONS_DEFAULT_RANGE} />
 						<form
 							action={handleSearch}
@@ -409,6 +408,8 @@ export default async function OrganizationsPage({
 					) : null}
 				</div>
 			</header>
+
+			<OrganizationFiltersBar filters={filters} />
 
 			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
 				<Table>
