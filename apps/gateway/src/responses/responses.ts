@@ -5,6 +5,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 
 import { app } from "@/app.js";
+import { forwardedCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import {
 	assertApiKeyWithinUsageLimits,
 	assertMemberProjectAccess,
@@ -449,6 +450,7 @@ responses.post("/", async (c) => {
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("responses"),
 		...forwardedIpHeaders(c.req.raw.headers),
+		...forwardedCustomHeaders(c.req.raw.headers),
 	};
 
 	// Pass Responses API context via in-memory Map (not headers) so the chat
@@ -897,6 +899,7 @@ responses.post("/compact", async (c) => {
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("responses"),
 		...forwardedIpHeaders(c.req.raw.headers),
+		...forwardedCustomHeaders(c.req.raw.headers),
 	};
 
 	const contextKey = compactionId;
