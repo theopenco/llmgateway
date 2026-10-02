@@ -2045,6 +2045,13 @@
       "when": 1790955901284,
       "tag": "1790955901_green_penance",
       "breakpoints": true
+    },
+    {
+      "idx": 292,
+      "version": "8",
+      "when": 1790957235462,
+      "tag": "1790957235_gifted_quentin_quire",
+      "breakpoints": true
     }
   ]
 }
