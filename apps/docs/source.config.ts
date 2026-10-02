@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 
 import {
@@ -8,7 +9,12 @@ import {
 } from "fumadocs-mdx/config";
 import lastModified from "fumadocs-mdx/plugins/last-modified";
 
-import contentModified from "./lib/content-modified.json";
+// Written by scripts/update-content-modified.mjs; absent until the first build.
+const contentModifiedPath = resolve("lib/content-modified.json");
+const contentModified: Record<string, string> = existsSync(contentModifiedPath)
+	? JSON.parse(readFileSync(contentModifiedPath, "utf8"))
+	: {};
+const apiReferenceKey = "(gateway)/(api)";
 
 export const { docs, meta } = defineDocs({
 	dir: "content",
@@ -31,15 +37,12 @@ export default defineConfig({
 					"\\",
 					"/",
 				);
-				const entries: Record<string, { hash: string; lastModified: string }> =
-					contentModified;
-				const entry = entries[key];
-				if (!entry) {
-					throw new Error(
-						`No modification date for ${key}. Run pnpm gen-docs.`,
-					);
-				}
-				return new Date(entry.lastModified);
+				const lastModified =
+					contentModified[key] ??
+					(key.startsWith(`${apiReferenceKey}/`)
+						? contentModified[apiReferenceKey]
+						: undefined);
+				return lastModified ? new Date(lastModified) : undefined;
 			},
 		}),
 	],
