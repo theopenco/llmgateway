@@ -77,5 +77,12 @@ Review the diff and test output, then check the request in your&nbsp;[LLM Gatewa
 - **Authentication fails:** verify the gateway key and resolve conflicting Anthropic authentication variables.
 - **A model is missing from the picker:** launch with an explicit `--model` ID from the catalogue.
 - **An optional tool is unsupported:** use a model with the required capability, or disable the tool for that session.
+- **Claude Code returns `400 Invalid request format`:** if the error mentions
+  unsupported message content or request fields, disable experimental Anthropic
+  beta features before launching Claude Code:
+
+  ```bash
+  export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+  claude
 
 A&nbsp;[DevPass](https://devpass.llmgateway.io) plan key can also be used. Use canonical model IDs for plan routing.
