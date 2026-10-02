@@ -41,7 +41,9 @@ export type ModelVerificationCheckId =
 	| "structured_json"
 	| "reasoning"
 	| "reasoning_budget"
-	| "web_search";
+	| "web_search"
+	| "context_size"
+	| "max_output";
 
 export interface ModelVerificationRequest {
 	model: string;
@@ -324,6 +326,61 @@ export function createWebSearchVerificationRequest(
 	};
 }
 
+// Natural-English prose runs ~4 chars/token; 3 keeps the prompt under the
+// declared window even on a denser tokenizer.
+const CONTEXT_CHARS_PER_TOKEN = 3;
+const CONTEXT_FILL_RATIO = 0.7;
+// Tokenizers vary, so the reported input only has to reach half the target.
+const CONTEXT_MIN_REPORTED_RATIO = 0.5;
+const CONTEXT_FILLER_SENTENCE =
+	"The quick brown fox jumps over the lazy dog near the riverbank, while curious sparrows watched from the old oak tree branches above. ";
+
+// Bounds the prompt a declared window can make the worker allocate; a larger
+// window is verified up to this many tokens.
+const CONTEXT_MAX_PROBE_TOKENS = 2_000_000;
+
+function contextSizeTargetTokens(contextSize: number): number {
+	return Math.min(
+		Math.floor(contextSize * CONTEXT_FILL_RATIO),
+		CONTEXT_MAX_PROBE_TOKENS,
+	);
+}
+
+/** A prompt filling most of the declared context window. */
+export function createContextSizeVerificationRequest(
+	model: string,
+	contextSize: number,
+): ModelVerificationRequest {
+	const chars = contextSizeTargetTokens(contextSize) * CONTEXT_CHARS_PER_TOKEN;
+	const filler = CONTEXT_FILLER_SENTENCE.repeat(
+		Math.ceil(chars / CONTEXT_FILLER_SENTENCE.length),
+	).slice(0, chars);
+	return {
+		model,
+		messages: [
+			{
+				role: "user",
+				content: `Here is a long passage of text:\n\n${filler}\n\nNow reply with exactly OK.`,
+			},
+		],
+		max_tokens: 64,
+	};
+}
+
+/**
+ * Asks for the full declared output budget. An endpoint with a lower cap
+ * refuses the request; one that clamps silently cannot be told apart.
+ */
+export function createMaxOutputVerificationRequest(
+	model: string,
+	maxOutput: number,
+): ModelVerificationRequest {
+	return {
+		...createBasicVerificationRequest(model),
+		max_tokens: maxOutput,
+	};
+}
+
 /**
  * Effort tiers the reasoning checks probe, in the order they are tried. Every
  * non-`none` tier proves reasoning equally well, so `medium` leads as the tier
@@ -453,6 +510,32 @@ function verificationDefinitions(
 			id: "web_search",
 			label: "Web search",
 			request: createWebSearchVerificationRequest(target.modelName),
+		});
+	}
+	const { contextSize } = target;
+	if (contextSize) {
+		// Built on first use: queueing a run lists the checks without allocating
+		// the prompt.
+		let request: ModelVerificationRequest | undefined;
+		definitions.push({
+			id: "context_size",
+			label: "Context size",
+			get request() {
+				return (request ??= createContextSizeVerificationRequest(
+					target.modelName,
+					contextSize,
+				));
+			},
+		});
+	}
+	if (target.maxOutput) {
+		definitions.push({
+			id: "max_output",
+			label: "Max output",
+			request: createMaxOutputVerificationRequest(
+				target.modelName,
+				target.maxOutput,
+			),
 		});
 	}
 	return definitions;
@@ -660,12 +743,70 @@ function validateStructuredCountry(value: unknown): boolean {
 	);
 }
 
+function tokenCount(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Input tokens the upstream says it processed, cached ones included, across the
+ * usage shapes of the supported protocols. Undefined when none is reported.
+ */
+function reportedInputTokens(body: unknown): number | undefined {
+	const usage = atPath(body, ["usage"]);
+	if (isRecord(usage)) {
+		if (typeof usage.prompt_tokens === "number") {
+			return usage.prompt_tokens;
+		}
+		if (typeof usage.input_tokens === "number") {
+			return (
+				usage.input_tokens +
+				tokenCount(usage.cache_read_input_tokens) +
+				tokenCount(usage.cache_creation_input_tokens)
+			);
+		}
+		if (typeof usage.inputTokens === "number") {
+			return (
+				usage.inputTokens +
+				tokenCount(usage.cacheReadInputTokens) +
+				tokenCount(usage.cacheWriteInputTokens)
+			);
+		}
+	}
+	const google = atPath(body, ["usageMetadata", "promptTokenCount"]);
+	return typeof google === "number" ? google : undefined;
+}
+
+function validateContextSize(
+	body: unknown,
+	contextSize: number,
+): string | null {
+	// A 200 can still carry a failed operation, e.g. a Responses envelope.
+	if (isRecord(body) && (body.error || body.status === "failed")) {
+		const message = isRecord(body.error) ? body.error.message : body.error;
+		return typeof message === "string" && message
+			? message.slice(0, 500)
+			: "The provider reported a failed response.";
+	}
+	const reported = reportedInputTokens(body);
+	const expected = Math.floor(
+		contextSizeTargetTokens(contextSize) * CONTEXT_MIN_REPORTED_RATIO,
+	);
+	return reported !== undefined && reported < expected
+		? `The provider reported ${reported} input tokens for a prompt of at least ${expected}; the input may have been truncated.`
+		: null;
+}
+
 function validateResponse(
 	id: ModelVerificationCheckId,
 	body: unknown,
+	target: ProviderModelVerificationTarget,
 ): string | null {
 	const assistantText = extractAssistantText(body);
 	switch (id) {
+		// Accepting the prompt is the proof; a small output budget can leave a
+		// reasoning model with no visible text.
+		case "context_size":
+			return validateContextSize(body, target.contextSize ?? 0);
 		case "vision":
 			return /\bred\b/i.test(assistantText)
 				? null
@@ -917,6 +1058,38 @@ async function runReasoningCheck(
 	};
 }
 
+/**
+ * An upstream refusal of a limit probe is worded for whoever sent the request
+ * ("your messages resulted in…"), which reads as nonsense to a carrier who sent
+ * nothing. Say what the probe was before quoting the answer.
+ */
+function explainLimitRefusal(
+	id: ModelVerificationCheckId,
+	target: ProviderModelVerificationTarget,
+	failure: CheckFailure | null,
+): CheckFailure | null {
+	if (!failure?.rejected) {
+		return failure;
+	}
+	const tokens = (count: number) => count.toLocaleString("en-US");
+	let probe: string;
+	if (id === "context_size" && target.contextSize) {
+		const sent = contextSizeTargetTokens(target.contextSize);
+		probe =
+			sent === CONTEXT_MAX_PROBE_TOKENS
+				? `a test prompt of about ${tokens(sent)} tokens, the most preflight sends for the declared ${tokens(target.contextSize)}-token context size`
+				: `a test prompt filling about 70% of the declared ${tokens(target.contextSize)}-token context size`;
+	} else if (id === "max_output" && target.maxOutput) {
+		probe = `a request for the declared max output of ${tokens(target.maxOutput)} tokens`;
+	} else {
+		return failure;
+	}
+	return {
+		...failure,
+		message: `Your endpoint refused ${probe}. It answered: "${failure.message}"`,
+	};
+}
+
 async function runCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
@@ -934,7 +1107,13 @@ async function runCheck(
 		);
 	}
 	if (definition.id !== "tools") {
-		return { failure: await attemptCheck(definition, options, secrets) };
+		return {
+			failure: explainLimitRefusal(
+				definition.id,
+				options.target,
+				await attemptCheck(definition, options, secrets),
+			),
+		};
 	}
 	// Several OpenAI-compatible serving stacks mishandle the forcing modes and
 	// answer "required" with the model's raw tool markup as assistant content.
@@ -1091,7 +1270,9 @@ async function executeCheck(
 		headers,
 		body: payload instanceof FormData ? payload : JSON.stringify(payload),
 		signal: AbortSignal.timeout(
-			definition.id === "web_search" ? 300_000 : 120_000,
+			definition.id === "web_search" || definition.id === "context_size"
+				? 300_000
+				: 120_000,
 		),
 	});
 	const bodyText = await response.text();
@@ -1106,13 +1287,14 @@ async function executeCheck(
 	}
 	const served = definition.request.stream
 		? validateStream(bodyText)
-		: validateServedResponse(definition.id, bodyText);
+		: validateServedResponse(definition.id, bodyText, options.target);
 	return served ? { message: served, rejected: false } : null;
 }
 
 function validateServedResponse(
 	id: ModelVerificationCheckId,
 	bodyText: string,
+	target: ProviderModelVerificationTarget,
 ): string | null {
 	let body: unknown;
 	try {
@@ -1120,7 +1302,7 @@ function validateServedResponse(
 	} catch {
 		return "The provider returned a non-JSON response.";
 	}
-	return validateResponse(id, body);
+	return validateResponse(id, body, target);
 }
 
 export async function runProviderModelVerification(

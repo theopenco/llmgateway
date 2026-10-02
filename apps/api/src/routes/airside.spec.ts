@@ -192,6 +192,9 @@ async function createModel(
 					)
 				: null,
 			webSearch: body.webSearch === true,
+			contextSize:
+				typeof body.contextSize === "number" ? body.contextSize : null,
+			maxOutput: typeof body.maxOutput === "number" ? body.maxOutput : null,
 		},
 		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
 		status: "passed",
@@ -475,6 +478,8 @@ describe("airside provider portal", () => {
 			reasoningMaxTokens: true,
 			reasoningEfforts: ["low" as const],
 			webSearch: true,
+			contextSize: 128000,
+			maxOutput: 4096,
 		};
 		const queueAttempts = await Promise.all(
 			Array.from({ length: 4 }, () =>
@@ -509,6 +514,8 @@ describe("airside provider portal", () => {
 				expect.objectContaining({ id: "structured_json" }),
 				expect.objectContaining({ id: "reasoning_budget" }),
 				expect.objectContaining({ id: "web_search" }),
+				expect.objectContaining({ id: "context_size" }),
+				expect.objectContaining({ id: "max_output" }),
 			]),
 		});
 		const stored = await db.query.providerModelVerification.findFirst({
@@ -562,6 +569,14 @@ describe("airside provider portal", () => {
 				credentialCiphertext: null,
 			})
 			.where(eq(tables.providerModelVerification.id, stored!.id));
+		const widened = await app.request(
+			"/airside/models",
+			json(cookie, { ...submission, contextSize: 256000 }),
+		);
+		expect(widened.status).toBe(409);
+		expect((await widened.json()).message).toContain(
+			"changed after verification",
+		);
 		const created = await app.request(
 			"/airside/models",
 			json(cookie, submission),

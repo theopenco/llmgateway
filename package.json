@@ -32,6 +32,7 @@
 		"test:browser": "playwright test",
 		"test:e2e": "pnpm build:core && E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism",
 		"test:unit": "pnpm build:core && vitest run",
+		"test:seo": "playwright test --config apps/ui/playwright.config.ts apps/ui/e2e/seo-freshness.pw.ts",
 		"wait-for-services": "./scripts/wait-for-services.sh"
 	},
 	"commitlint": {

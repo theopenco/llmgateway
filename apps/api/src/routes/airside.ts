@@ -222,6 +222,8 @@ const verificationMappingSchema = z.object({
 	reasoningMaxTokens: z.boolean().optional(),
 	reasoningEfforts: reasoningEffortsValue.nullish(),
 	webSearch: z.boolean().optional(),
+	contextSize: z.number().int().positive().nullish(),
+	maxOutput: z.number().int().positive().nullish(),
 });
 
 /** The capability subset a carrier can preflight before saving an edit. */
@@ -237,6 +239,8 @@ const proposedCapabilitiesSchema = z.object({
 	reasoningMaxTokens: z.boolean().optional(),
 	reasoningEfforts: reasoningEffortsValue.nullish(),
 	webSearch: z.boolean().optional(),
+	contextSize: z.number().int().positive().nullish(),
+	maxOutput: z.number().int().positive().nullish(),
 });
 
 const queueVerificationSchema = verificationMappingSchema.extend({
@@ -541,6 +545,12 @@ function draftVerificationTarget(
 			: proposed.reasoningEfforts) ?? null) as
 			(typeof REASONING_EFFORT_VALUES)[number][] | null,
 		webSearch: proposed.webSearch ?? model.webSearch,
+		contextSize:
+			proposed.contextSize === undefined
+				? model.contextSize
+				: proposed.contextSize,
+		maxOutput:
+			proposed.maxOutput === undefined ? model.maxOutput : proposed.maxOutput,
 	});
 }
 
