@@ -212,6 +212,10 @@ export function buildGatewayContentFilterEvaluation(
 	evaluation: TieredContentFilterEvaluation,
 	moderationFailed: boolean,
 	durationMs: number,
+	breakdown: Pick<
+		GatewayContentFilterEvaluation,
+		"classifierDurationMs" | "classifierRequests" | "imageDurationMs"
+	> = {},
 ): GatewayContentFilterEvaluation {
 	const blocked = plan.enforce && evaluation.violation;
 	return {
@@ -230,6 +234,15 @@ export function buildGatewayContentFilterEvaluation(
 		categoryScores: evaluation.categoryScores,
 		moderationFailed,
 		durationMs,
+		...(breakdown.classifierDurationMs !== undefined
+			? { classifierDurationMs: breakdown.classifierDurationMs }
+			: {}),
+		...(breakdown.classifierRequests !== undefined
+			? { classifierRequests: breakdown.classifierRequests }
+			: {}),
+		...(breakdown.imageDurationMs !== undefined
+			? { imageDurationMs: breakdown.imageDurationMs }
+			: {}),
 		...(plan.classifier === "internal"
 			? { internalScope: plan.internalScope }
 			: {}),

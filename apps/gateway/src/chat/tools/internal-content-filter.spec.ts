@@ -203,6 +203,7 @@ describe("checkInternalContentFilter", () => {
 		// ~400 KB of text at 64 KB per request.
 		expect(fetchMock).toHaveBeenCalledTimes(7);
 		expect(result.results).toHaveLength(7);
+		expect(result.requestCount).toBe(7);
 		expect(result.partialModerationFailed).toBeUndefined();
 	});
 
