@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	apiKey,
+	contentFilterHourlyLatencyStats,
 	contentFilterHourlyModelStats,
 	contentFilterHourlyStats,
 	db,
@@ -132,6 +133,7 @@ const NO_DURATION = { durationSumMs: 0, durationCount: 0, durationMaxMs: null };
 describe("content filter stats aggregator", () => {
 	beforeEach(async () => {
 		vi.setSystemTime(new Date("2026-08-08T00:00:00Z"));
+		await db.delete(contentFilterHourlyLatencyStats);
 		await db.delete(contentFilterHourlyModelStats);
 		await db.delete(contentFilterHourlyStats);
 		await db.delete(log);
@@ -381,6 +383,98 @@ describe("content filter stats aggregator", () => {
 				violationCount: 1,
 				blockedCount: 0,
 				...NO_DURATION,
+			},
+		]);
+	});
+
+	it("rolls up classifier latency by internal scope, once per request", async () => {
+		const internal = (
+			overrides: Partial<GatewayContentFilterEvaluation>,
+		): GatewayContentFilterEvaluation =>
+			evaluation({ classifier: "internal", ...overrides });
+		const retried = internal({
+			internalScope: "full",
+			durationMs: 700,
+			classifierDurationMs: 300,
+			classifierRequests: 4,
+			imageDurationMs: 400,
+		});
+		await db.insert(log).values([
+			logRow({
+				gatewayContentFilterEvaluation: internal({
+					internalScope: "full",
+					durationMs: 100,
+					classifierDurationMs: 100,
+					classifierRequests: 2,
+					moderationFailed: true,
+				}),
+			}),
+			logRow({
+				requestId: "cf-req-retried",
+				hasError: true,
+				gatewayContentFilterEvaluation: retried,
+			}),
+			logRow({
+				requestId: "cf-req-retried",
+				usedModel: "anthropic/claude-sonnet-5",
+				usedProvider: "anthropic",
+				gatewayContentFilterEvaluation: retried,
+			}),
+			logRow({
+				gatewayContentFilterEvaluation: internal({
+					internalScope: "latest_turn",
+					durationMs: 10,
+					classifierDurationMs: 10,
+					classifierRequests: 1,
+				}),
+			}),
+			// Predates the split timings: left out.
+			logRow({
+				gatewayContentFilterEvaluation: internal({ durationMs: 50 }),
+			}),
+		]);
+
+		await calculateContentFilterStatsForHour(HOUR);
+		// A recount replaces the hour instead of adding to it.
+		await calculateContentFilterStatsForHour(HOUR);
+
+		const rows = (await db.select().from(contentFilterHourlyLatencyStats))
+			.map(({ id, createdAt, updatedAt, ...row }) => row)
+			.sort((a, b) => a.internalScope.localeCompare(b.internalScope));
+		expect(rows).toEqual([
+			{
+				hourTimestamp: HOUR,
+				classifier: "internal",
+				internalScope: "full",
+				checkCount: 2,
+				failedCount: 1,
+				classifierDurationSumMs: 400,
+				classifierDurationMaxMs: 300,
+				classifierDurationP50Ms: 200,
+				classifierDurationP95Ms: 290,
+				classifierDurationP99Ms: 298,
+				classifierRequestSum: 6,
+				imageCheckCount: 1,
+				imageDurationSumMs: 400,
+				imageDurationMaxMs: 400,
+				imageDurationP95Ms: 400,
+			},
+			{
+				hourTimestamp: HOUR,
+				classifier: "internal",
+				internalScope: "latest_turn",
+				checkCount: 1,
+				failedCount: 0,
+				classifierDurationSumMs: 10,
+				classifierDurationMaxMs: 10,
+				classifierDurationP50Ms: 10,
+				classifierDurationP95Ms: 10,
+				classifierDurationP99Ms: 10,
+				classifierRequestSum: 1,
+				imageCheckCount: 0,
+				imageDurationSumMs: 0,
+				imageDurationMaxMs: null,
+				imageDurationP95Ms: null,
 			},
 		]);
 	});
