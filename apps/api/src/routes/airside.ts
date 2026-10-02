@@ -14,13 +14,11 @@ import {
 } from "@/lib/airside-catalogue.js";
 import { domainPublishesToken } from "@/lib/airside-dns.js";
 import {
-	acceptedClaimDomains,
 	claimableProvidersForDomains,
 	emailRegistrableDomain,
 	isFreemailDomain,
 	parseRegistrableDomain,
 	registrableDomain,
-	verifiedWebsiteDomain,
 	WEBSITE_VERIFICATION_TXT_NAME,
 	websiteVerificationRecord,
 } from "@/lib/airside-domains.js";
@@ -278,11 +276,7 @@ const companySchema = z.object({
 	id: z.string(),
 	name: z.string(),
 	website: z.string().nullable(),
-	// DNS proof of the website's domain. `websiteVerifiedDomain` is non-null
-	// only while the proof still covers the current `website`.
-	websiteVerifiedDomain: z.string().nullable(),
-	websiteVerifiedAt: z.string().nullable(),
-	// Additional domains the company proved over DNS.
+	// Domains the company proved over DNS.
 	verifiedDomains: z.array(z.string()),
 	role: z.enum(["owner", "member"]),
 	paymentStatus: z.enum(["unpaid", "paid"]),
@@ -697,24 +691,24 @@ async function userClaimDomains(user: {
 		where: { userId: { eq: user.id } },
 		with: { providerCompany: { with: { domains: true } } },
 	});
-	const domains = acceptedClaimDomains(user.email, null);
+	const domains = new Set<string>();
+	const emailDomain = emailRegistrableDomain(user.email);
+	// A freemail address proves nothing about a carrier, so it never
+	// contributes — but a DNS-verified company domain still does.
+	if (emailDomain && !isFreemailDomain(emailDomain)) {
+		domains.add(emailDomain);
+	}
 	for (const membership of memberships) {
-		const company = membership.providerCompany;
-		if (!company) {
-			continue;
-		}
-		const verified = verifiedWebsiteDomain(company);
-		if (verified) {
-			domains.add(verified);
-		}
-		for (const domain of verifiedExtraDomains(company.domains)) {
+		for (const domain of verifiedCompanyDomains(
+			membership.providerCompany?.domains ?? [],
+		)) {
 			domains.add(domain);
 		}
 	}
 	return domains;
 }
 
-function verifiedExtraDomains(
+function verifiedCompanyDomains(
 	domains: { domain: string; verifiedAt: Date | null }[],
 ): string[] {
 	return domains.filter((d) => d.verifiedAt).map((d) => d.domain);
@@ -830,17 +824,12 @@ airside.openapi(listCompanies, async (c) => {
 			if (!company) {
 				return [];
 			}
-			const verifiedDomain = verifiedWebsiteDomain(company) ?? null;
 			return [
 				{
 					id: company.id,
 					name: company.name,
 					website: company.website,
-					websiteVerifiedDomain: verifiedDomain,
-					websiteVerifiedAt: verifiedDomain
-						? (company.websiteVerifiedAt?.toISOString() ?? null)
-						: null,
-					verifiedDomains: verifiedExtraDomains(company.domains),
+					verifiedDomains: verifiedCompanyDomains(company.domains),
 					role: m.role,
 					paymentStatus: company.paymentStatus,
 					paymentRequired: airsideListingFeeRequired(),
@@ -899,6 +888,13 @@ airside.openapi(createCompany, async (c) => {
 			userId: user.id,
 			role: "owner",
 		});
+		// The website's domain is the one most companies prove first.
+		const domain = usableWebsiteDomain(created.website);
+		if (domain) {
+			await tx
+				.insert(tables.providerCompanyDomain)
+				.values({ providerCompanyId: created.id, domain });
+		}
 		return created;
 	});
 	return c.json(
@@ -907,8 +903,6 @@ airside.openapi(createCompany, async (c) => {
 				id: company.id,
 				name: company.name,
 				website: company.website,
-				websiteVerifiedDomain: null,
-				websiteVerifiedAt: null,
 				verifiedDomains: [],
 				role: "owner" as const,
 				paymentStatus: company.paymentStatus,
@@ -926,31 +920,8 @@ airside.openapi(createCompany, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// Website domain verification (DNS TXT)
+// Company domain verification (DNS TXT)
 // ---------------------------------------------------------------------------
-
-const websiteVerificationSchema = z.object({
-	// The domain the token must be published on, derived from `website`.
-	domain: z.string().nullable(),
-	recordName: z.string(),
-	recordValue: z.string().nullable(),
-	verifiedDomain: z.string().nullable(),
-	verifiedAt: z.string().nullable(),
-});
-
-const getWebsiteVerification = createRoute({
-	method: "get",
-	path: "/companies/{id}/website-verification",
-	request: { params: z.object({ id: z.string() }) },
-	responses: {
-		200: {
-			content: {
-				"application/json": { schema: websiteVerificationSchema },
-			},
-			description: "The DNS record that proves the company's website domain.",
-		},
-	},
-});
 
 /**
  * Issues the company's verification token on first read and keeps it stable
@@ -971,100 +942,11 @@ async function ensureVerificationToken(company: {
 	return token;
 }
 
-function websiteDomainOf(website: string | null): string | null {
-	if (!website) {
-		return null;
-	}
-	try {
-		return registrableDomain(new URL(website).hostname);
-	} catch {
-		return null;
-	}
+/** The website's registrable domain, when it is one a company could prove. */
+function usableWebsiteDomain(website: string | null): string | undefined {
+	const domain = website ? parseRegistrableDomain(website) : undefined;
+	return domain && !isFreemailDomain(domain) ? domain : undefined;
 }
-
-airside.openapi(getWebsiteVerification, async (c) => {
-	const user = requireUser(c.get("user"));
-	const { id } = c.req.valid("param");
-	await requireCompanyMembership(user.id, id);
-	const company = await db.query.providerCompany.findFirst({
-		where: { id: { eq: id } },
-	});
-	if (!company) {
-		throw new HTTPException(404, { message: "Provider company not found" });
-	}
-	const domain = websiteDomainOf(company.website);
-	const verified = verifiedWebsiteDomain(company) ?? null;
-	return c.json({
-		domain,
-		recordName: WEBSITE_VERIFICATION_TXT_NAME,
-		recordValue: domain
-			? websiteVerificationRecord(await ensureVerificationToken(company))
-			: null,
-		verifiedDomain: verified,
-		verifiedAt: verified
-			? (company.websiteVerifiedAt?.toISOString() ?? null)
-			: null,
-	});
-});
-
-const checkWebsiteVerification = createRoute({
-	method: "post",
-	path: "/companies/{id}/website-verification",
-	request: { params: z.object({ id: z.string() }) },
-	responses: {
-		200: {
-			content: {
-				"application/json": { schema: websiteVerificationSchema },
-			},
-			description: "Re-resolves the TXT record and records the result.",
-		},
-	},
-});
-
-airside.openapi(checkWebsiteVerification, async (c) => {
-	const user = requireVerifiedUser(c.get("user"));
-	const { id } = c.req.valid("param");
-	await requireCompanyMembership(user.id, id);
-	const company = await db.query.providerCompany.findFirst({
-		where: { id: { eq: id } },
-	});
-	if (!company) {
-		throw new HTTPException(404, { message: "Provider company not found" });
-	}
-	const domain = websiteDomainOf(company.website);
-	if (!domain) {
-		throw new HTTPException(400, {
-			message: "Add your company website before verifying its domain.",
-		});
-	}
-	const token = await ensureVerificationToken(company);
-	const found = await domainPublishesToken(
-		WEBSITE_VERIFICATION_TXT_NAME,
-		domain,
-		token,
-	);
-	if (!found) {
-		throw new HTTPException(400, {
-			message: `No matching TXT record on ${WEBSITE_VERIFICATION_TXT_NAME}.${domain} yet. DNS changes can take a few minutes to propagate.`,
-		});
-	}
-	const [updated] = await db
-		.update(tables.providerCompany)
-		.set({ websiteVerifiedDomain: domain, websiteVerifiedAt: new Date() })
-		.where(eq(tables.providerCompany.id, id))
-		.returning();
-	return c.json({
-		domain,
-		recordName: WEBSITE_VERIFICATION_TXT_NAME,
-		recordValue: websiteVerificationRecord(token),
-		verifiedDomain: updated.websiteVerifiedDomain,
-		verifiedAt: updated.websiteVerifiedAt?.toISOString() ?? null,
-	});
-});
-
-// ---------------------------------------------------------------------------
-// Additional company domains (DNS TXT)
-// ---------------------------------------------------------------------------
 
 const MAX_COMPANY_DOMAINS = 10;
 
@@ -1078,6 +960,8 @@ const companyDomainsSchema = z.object({
 	recordName: z.string(),
 	recordValue: z.string(),
 	domains: z.array(companyDomainSchema),
+	// The website's domain while it has not been added yet.
+	suggestedDomain: z.string().nullable(),
 });
 
 function serializeCompanyDomain(row: {
@@ -1109,8 +993,7 @@ const listCompanyDomains = createRoute({
 	responses: {
 		200: {
 			content: { "application/json": { schema: companyDomainsSchema } },
-			description:
-				"Additional domains of the company and the TXT record that proves them.",
+			description: "The company's domains and the TXT record that proves them.",
 		},
 	},
 });
@@ -1124,12 +1007,17 @@ airside.openapi(listCompanyDomains, async (c) => {
 		where: { providerCompanyId: { eq: id } },
 		orderBy: { createdAt: "asc" },
 	});
+	const websiteDomain = usableWebsiteDomain(company.website);
 	return c.json({
 		recordName: WEBSITE_VERIFICATION_TXT_NAME,
 		recordValue: websiteVerificationRecord(
 			await ensureVerificationToken(company),
 		),
 		domains: domains.map(serializeCompanyDomain),
+		suggestedDomain:
+			websiteDomain && !domains.some((row) => row.domain === websiteDomain)
+				? websiteDomain
+				: null,
 	});
 });
 
@@ -1162,7 +1050,6 @@ airside.openapi(addCompanyDomain, async (c) => {
 	const user = requireVerifiedUser(c.get("user"));
 	const { id } = c.req.valid("param");
 	await requireCompanyMembership(user.id, id);
-	const company = await requireCompany(id);
 	const domain = parseRegistrableDomain(c.req.valid("json").domain);
 	if (!domain) {
 		throw new HTTPException(400, {
@@ -1172,11 +1059,6 @@ airside.openapi(addCompanyDomain, async (c) => {
 	if (isFreemailDomain(domain)) {
 		throw new HTTPException(400, {
 			message: "Personal email domains can't host a carrier API.",
-		});
-	}
-	if (domain === websiteDomainOf(company.website)) {
-		throw new HTTPException(400, {
-			message: `${domain} is your website's domain — verify it there.`,
 		});
 	}
 	const existing = await db.query.providerCompanyDomain.findMany({
@@ -1665,11 +1547,7 @@ airside.openapi(inviteCrewMember, async (c) => {
 	if (inviterDomain && !isFreemailDomain(inviterDomain)) {
 		allowedDomains.add(inviterDomain);
 	}
-	const verified = verifiedWebsiteDomain(company);
-	if (verified) {
-		allowedDomains.add(verified);
-	}
-	for (const domain of verifiedExtraDomains(company.domains)) {
+	for (const domain of verifiedCompanyDomains(company.domains)) {
 		allowedDomains.add(domain);
 	}
 	for (const claim of company.claims) {

@@ -114,55 +114,6 @@ export interface ClaimableProvider {
 	matchedDomain: string;
 }
 
-/**
- * The registrable domain a company proved via DNS, if the proof still applies.
- * Editing `website` to a different domain invalidates it: the token was
- * published on the old domain and says nothing about the new one.
- */
-export function verifiedWebsiteDomain(company: {
-	website: string | null;
-	websiteVerifiedDomain: string | null;
-	websiteVerifiedAt: Date | null;
-}): string | undefined {
-	if (!company.websiteVerifiedAt || !company.websiteVerifiedDomain) {
-		return undefined;
-	}
-	const host = company.website ? hostOf(company.website) : undefined;
-	if (!host || registrableDomain(host) !== company.websiteVerifiedDomain) {
-		return undefined;
-	}
-	return company.websiteVerifiedDomain;
-}
-
-/**
- * Every registrable domain a user may claim or register a carrier on: the
- * domain of their verified email, plus any domain their company proved by
- * publishing our TXT token. DNS control is at least as strong a proof as an
- * address on the domain, and it is what lets a company whose staff mail lives
- * elsewhere (contractors, acquired brands) still claim its own carrier.
- */
-export function acceptedClaimDomains(
-	email: string,
-	company?: {
-		website: string | null;
-		websiteVerifiedDomain: string | null;
-		websiteVerifiedAt: Date | null;
-	} | null,
-): Set<string> {
-	const domains = new Set<string>();
-	const emailDomain = emailRegistrableDomain(email);
-	// A freemail address proves nothing about a carrier, so it never
-	// contributes — but a DNS-verified company domain still does.
-	if (emailDomain && !isFreemailDomain(emailDomain)) {
-		domains.add(emailDomain);
-	}
-	const websiteDomain = company ? verifiedWebsiteDomain(company) : undefined;
-	if (websiteDomain) {
-		domains.add(websiteDomain);
-	}
-	return domains;
-}
-
 /** Catalogue providers whose claim domains match any of the given domains. */
 export function claimableProvidersForDomains(
 	domains: Set<string>,
@@ -189,8 +140,7 @@ export function claimableProvidersForEmail(email: string): ClaimableProvider[] {
 }
 
 /**
- * The DNS TXT record a company publishes to prove it controls its website's
- * domain. Scoped to a dedicated name so it cannot collide with other vendors'
+ * The DNS TXT record a company publishes to prove it controls a domain. Scoped to a dedicated name so it cannot collide with other vendors'
  * verification records on the same zone.
  */
 export const WEBSITE_VERIFICATION_TXT_NAME = "_llmgateway-airside";

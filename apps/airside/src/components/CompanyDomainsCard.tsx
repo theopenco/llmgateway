@@ -16,8 +16,9 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 /**
- * Extra domains a company proves over DNS, for a carrier API hosted on a
- * domain unrelated to the company's website or staff mail.
+ * Domains a company proves over DNS. A verified domain is claimable in its
+ * own right, which is what lets a company whose staff mail sits on another
+ * domain still claim or register its carrier.
  */
 export function CompanyDomainsCard({ companyId }: { companyId: string }) {
 	const api = useApi();
@@ -126,8 +127,9 @@ export function CompanyDomainsCard({ companyId }: { companyId: string }) {
 							</p>
 						</div>
 						<p className="text-muted-foreground mt-1 text-xs">
-							Publish this TXT record, then check. Once verified, you can
-							register a carrier API hosted on this domain.
+							Publish this TXT record, then check. A verified domain can claim
+							and register carriers even when your email is on a different
+							domain.
 						</p>
 						<div className="bg-muted/40 mt-3 space-y-1 rounded-md p-3 font-mono text-xs break-all">
 							<div>
@@ -189,6 +191,23 @@ export function CompanyDomainsCard({ companyId }: { companyId: string }) {
 				<Label htmlFor="company-domain" className="text-xs">
 					API hosted on another domain? Add it and verify it over DNS.
 				</Label>
+				{data.suggestedDomain ? (
+					<Button
+						type="button"
+						size="sm"
+						variant="outline"
+						data-testid="add-suggested-domain"
+						disabled={add.isPending}
+						onClick={() =>
+							add.mutate({
+								params,
+								body: { domain: data.suggestedDomain ?? "" },
+							})
+						}
+					>
+						Verify <span className="font-mono">{data.suggestedDomain}</span>
+					</Button>
+				) : null}
 				<div className="flex items-center gap-2">
 					<Input
 						id="company-domain"

@@ -34,7 +34,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { WebsiteVerificationCard } from "@/components/WebsiteVerificationCard";
 import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 
@@ -454,7 +453,6 @@ function OnboardingContent() {
 		new Set(
 			[
 				isFreemail ? null : emailDomain,
-				company?.websiteVerifiedDomain ?? null,
 				...(company?.verifiedDomains ?? []),
 			].filter((d): d is string => !!d),
 		),
@@ -521,7 +519,6 @@ function OnboardingContent() {
 										<BadgeCheck className="size-3" /> Registered
 									</Badge>
 								</div>
-								<WebsiteVerificationCard companyId={company.id} />
 								<CompanyDomainsCard companyId={company.id} />
 							</>
 						) : (
