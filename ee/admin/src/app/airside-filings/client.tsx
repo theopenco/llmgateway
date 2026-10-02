@@ -391,6 +391,12 @@ export function AirsideFilingsClient() {
 										</TableCell>
 										<TableCell className="font-mono text-xs">
 											{claim.matchedDomain}
+											<div className="text-muted-foreground font-sans">
+												{claim.company.verifiedDomains
+													.filter((d) => d.domain === claim.matchedDomain)
+													.map((d) => (d.method === "dns" ? "DNS" : "email"))
+													.join(" + ") || "unrecorded"}
+											</div>
 										</TableCell>
 										<TableCell className="text-muted-foreground text-xs">
 											{claim.claimedByEmail ?? "—"}
