@@ -568,6 +568,39 @@ describe("validateProviderKey region resolution", () => {
 		},
 	);
 
+	// Kimi K3 exists on Bedrock only as a cross-region inference profile, so
+	// the probe must name the profile; the bare id is rejected upstream.
+	it.each([
+		{ options: undefined, model: "global.moonshotai.kimi-k3" },
+		{
+			options: { aws_bedrock_region: "us" as const },
+			model: "us.moonshotai.kimi-k3",
+		},
+	])(
+		"probes a pinned Bedrock profile model as $model",
+		async ({ options, model }) => {
+			const fetchMock = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValue(new Response("{}", { status: 200 }));
+
+			const result = await validateProviderKey(
+				"aws-bedrock",
+				"ABSKtest",
+				"https://bedrock-proxy.example.com",
+				false,
+				options,
+				"kimi-k3",
+			);
+
+			expect(result.valid).toBe(true);
+			expect(fetchMock.mock.calls[0][0]).toBe(
+				"https://bedrock-proxy.example.com/openai/v1/chat/completions",
+			);
+			const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+			expect(body.model).toBe(model);
+		},
+	);
+
 	// Sol is not deployed to us-west-2, so a key pinned there must validate
 	// against a model that actually exists in the region.
 	it("picks a us-west-2 model when the key is pinned to us-west-2", async () => {

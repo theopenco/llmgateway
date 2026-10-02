@@ -19,6 +19,7 @@ import {
 } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
+import { getUpstreamModelId } from "./provider-api-format.js";
 import { describeNetworkFailure } from "./provider-key/network-error.js";
 import { redactToken } from "./provider-key/redact.js";
 
@@ -546,7 +547,12 @@ export async function validateProviderKey(
 				provider,
 				validationModel.modelId,
 				validationRegion ?? null,
-				validationModel.externalId,
+				getUpstreamModelId(
+					provider,
+					validationModel.modelId,
+					validationModel.externalId,
+					validationRegion,
+				),
 				messages,
 				false,
 				undefined,
