@@ -2647,6 +2647,35 @@ describe("managed credential allowed models", () => {
 		expect(await excluded()).toBeNull();
 	});
 
+	test("a stale edit keeps models the sync enabled since it loaded", async () => {
+		const [first, second, third] = await catalogModels("openai");
+		const createRes = await create({
+			provider: "openai",
+			token: "sk-stale-edit",
+			allowedModels: [first, second],
+		});
+		const { credential } = (await createRes.json()) as {
+			credential: { id: string };
+		};
+		// The daily sync enables a model after the editor loaded the list.
+		await db
+			.update(tables.providerKey)
+			.set({ allowedModels: [first, second, third] })
+			.where(eq(tables.providerKey.id, credential.id));
+
+		await patch(credential.id, {
+			allowedModels: [first],
+			allowedModelsBase: [first, second],
+		});
+
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+			columns: { allowedModels: true, modelSyncExcluded: true },
+		});
+		expect(row?.allowedModels).toEqual([first, third]);
+		expect(row?.modelSyncExcluded).toEqual([second]);
+	});
+
 	test("model-sync-history lists a credential's sync runs, newest first", async () => {
 		const createRes = await create({ provider: "openai", token: "sk-history" });
 		const { credential } = (await createRes.json()) as {

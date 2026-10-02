@@ -1750,6 +1750,11 @@ const updateCredential = createRoute({
 						config: z.record(z.string(), z.string()).optional(),
 						usageLimit: createNullableLimitSchema("Usage limit").optional(),
 						allowedModels: allowedModelsSchema,
+						/**
+						 * The `allowedModels` the editor loaded. Models the daily sync
+						 * enabled since then are kept instead of read as removals.
+						 */
+						allowedModelsBase: allowedModelsSchema,
 						skipValidation: z.boolean().optional(),
 					}),
 				},
@@ -1798,7 +1803,19 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 
 	if (body.allowedModels !== undefined) {
-		const allowedModels = normalizeAllowedModels(body.allowedModels);
+		const submitted = normalizeAllowedModels(body.allowedModels);
+		const current = existing.allowedModels ?? [];
+		// A stale editor never saw the models the daily sync enabled after it
+		// loaded, so its list omitting them is not a removal.
+		const base =
+			body.allowedModelsBase === undefined
+				? current
+				: (normalizeAllowedModels(body.allowedModelsBase) ?? []);
+		const syncedSince =
+			base.length > 0 ? current.filter((id) => !base.includes(id)) : [];
+		const allowedModels = submitted
+			? [...new Set([...submitted, ...syncedSince])]
+			: null;
 		// Checked against the config/region this PATCH leaves in effect, so an
 		// edit that also moves the region validates against the right mapping.
 		await validateManagedAllowedModels(
@@ -1813,9 +1830,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		updates.allowedModels = allowedModels;
 		// Remember removed models so the daily sync does not re-enable them;
 		// re-adding one, or clearing the restriction, forgets the exclusion.
-		const removed = (existing.allowedModels ?? []).filter(
-			(modelId) => !allowedModels?.includes(modelId),
-		);
+		const removed = base.filter((modelId) => !allowedModels?.includes(modelId));
 		const excluded = allowedModels
 			? [
 					...new Set([...(existing.modelSyncExcluded ?? []), ...removed]),
