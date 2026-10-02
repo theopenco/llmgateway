@@ -18,6 +18,8 @@ import {
 	REGION_WORKSPACE_ID_PLACEHOLDER,
 } from "@llmgateway/models";
 
+import { getBedrockProfilePrefix } from "./provider-api-format.js";
+
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
 function appendPath(url: string, path: string): string {
@@ -630,6 +632,12 @@ export function getProviderEndpoint(
 			((!apiFormat || apiFormat === "provider-native") &&
 				providerMapping?.apiFormat === "openai-chat-completions"))
 	) {
+		if (getBedrockProfilePrefix(providerMapping, region)) {
+			return appendPath(
+				url.includes("/openai/v1") ? url : appendPath(url, "/openai/v1"),
+				"/chat/completions",
+			);
+		}
 		return appendPath(
 			getBedrockMantleBaseUrl(url, region),
 			"/chat/completions",

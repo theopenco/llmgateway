@@ -5032,8 +5032,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			max_completion_tokens: 128,
 			top_p: 0.9,
 			response_format: { type: "json_object" },
-			reasoning: { effort: "high" },
+			reasoning_effort: "high",
 		});
+		expect(requestBody.reasoning).toBeUndefined();
 		expect(requestBody.inferenceConfig).toBeUndefined();
 		expect(requestBody.system).toBeUndefined();
 	});
@@ -5062,7 +5063,7 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		expect(requestBody).toMatchObject({
 			model: "xai.grok-4.6",
 			max_completion_tokens: 128,
-			reasoning: { effort: "xhigh" },
+			reasoning_effort: "xhigh",
 		});
 	});
 

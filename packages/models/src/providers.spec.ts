@@ -519,7 +519,7 @@ describe("AWS Bedrock Anthropic regions", () => {
 		});
 	});
 
-	it("exposes Grok 4.6 in us-west-2 at in-region prices", () => {
+	it("exposes Grok 4.6 cross-region profiles and us-west-2 in-region", () => {
 		const grok46 = xaiModels.find((candidate) => candidate.id === "grok-4-6");
 		const bedrockMapping = grok46?.providers.find(
 			(provider) => provider.providerId === "aws-bedrock",
@@ -528,7 +528,21 @@ describe("AWS Bedrock Anthropic regions", () => {
 			bedrockMapping ? [bedrockMapping] : [],
 		);
 
-		expect(getRegionIds(bedrockMapping)).toEqual(["us-west-2"]);
+		expect(getRegionIds(bedrockMapping)).toEqual(["global", "us", "us-west-2"]);
+		expect(
+			expandedMappings.find((provider) => provider.region === "global"),
+		).toMatchObject({
+			inputPrice: "2.0e-6",
+			outputPrice: "6.0e-6",
+			cachedInputPrice: "0.5e-6",
+		});
+		expect(
+			expandedMappings.find((provider) => provider.region === "us"),
+		).toMatchObject({
+			inputPrice: "2.2e-6",
+			outputPrice: "6.6e-6",
+			cachedInputPrice: "0.55e-6",
+		});
 		expect(
 			expandedMappings.find((provider) => provider.region === "us-west-2"),
 		).toMatchObject({
