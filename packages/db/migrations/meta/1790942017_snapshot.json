@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "3c5e5709-4356-423e-9284-63cfbd8d6454",
+  "id": "e20596f7-ad71-488b-bb52-fbfed3798d72",
   "prevId": "c5021a92-325a-4820-b70c-b1fbf79856db",
   "ddl": [
     {
@@ -24399,32 +24399,6 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "website_verified_domain",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_company"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "website_verified_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_company"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": {
@@ -24544,22 +24518,6 @@
       "generated": null,
       "identity": null,
       "name": "domain",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_company_domain"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'dns'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "verification_method",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_company_domain"
@@ -36472,13 +36430,6 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
-        },
-        {
-          "value": "verification_method",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
         }
       ],
       "isUnique": true,
@@ -36486,7 +36437,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "provider_company_domain_company_domain_method_uidx",
+      "name": "provider_company_domain_company_domain_uidx",
       "entityType": "indexes",
       "schema": "public",
       "table": "provider_company_domain"
