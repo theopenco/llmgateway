@@ -4512,6 +4512,49 @@ export const auditLog = pgTable(
 	],
 );
 
+export const platformAuditLogActions = [
+	// Daily worker run that enables newly working models on a managed credential.
+	"provider_key.models_synced",
+] as const;
+
+export type PlatformAuditLogAction = (typeof platformAuditLogActions)[number];
+
+/** Metadata of a `provider_key.models_synced` entry. */
+export interface ProviderKeyModelSyncMetadata {
+	provider: string;
+	/** Models the run probed, i.e. live-testable ones not yet allowed. */
+	probed: number;
+	/** Models that passed and were appended to `allowedModels`. */
+	added: string[];
+	failed: { model: string; statusCode?: number; error?: string }[];
+}
+
+/**
+ * Platform-wide counterpart of `audit_log` for resources no organization owns,
+ * such as managed provider credentials.
+ */
+export const platformAuditLog = pgTable(
+	"platform_audit_log",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		// NULL when the system (worker) performed the action.
+		userId: text().references(() => user.id, { onDelete: "set null" }),
+		action: text({ enum: platformAuditLogActions }).notNull(),
+		resourceType: text().notNull(),
+		resourceId: text(),
+		metadata: jsonb().$type<ProviderKeyModelSyncMetadata>(),
+	},
+	(table) => [
+		index("platform_audit_log_resource_idx").on(
+			table.resourceType,
+			table.resourceId,
+			table.createdAt,
+		),
+		index("platform_audit_log_created_at_idx").on(table.createdAt),
+	],
+);
+
 // Guardrails - Enterprise feature for content safety
 
 export type GuardrailAction = "block" | "redact" | "warn" | "allow";

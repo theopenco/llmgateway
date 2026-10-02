@@ -74,6 +74,7 @@ import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
 	refreshProjectHourlyStats,
 } from "./services/project-stats-aggregator.js";
+import { syncProviderKeyModels } from "./services/provider-key-model-sync.js";
 import { runRoutingBaselineBackfillStep } from "./services/routing-baseline-backfill.js";
 import { runSourceModelStatsBackfillStep } from "./services/source-model-stats-backfill.js";
 import {
@@ -3262,6 +3263,48 @@ async function runNotificationsLoop() {
 	}
 }
 
+const PROVIDER_KEY_MODEL_SYNC_LOCK_KEY = "provider_key_model_sync";
+
+async function runProviderKeyModelSyncLoop() {
+	activeLoops++;
+	// Hourly check; each credential is itself synced at most once a day.
+	const interval = 60 * 60 * 1000;
+	logger.info("Starting provider key model sync loop...");
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(PROVIDER_KEY_MODEL_SYNC_LOCK_KEY)) {
+					try {
+						await syncProviderKeyModels({
+							shouldStop: isStopRequested,
+							// A run outlasts the lock TTL, so keep the lock fresh.
+							onProgress: async () => {
+								await db
+									.update(tables.lock)
+									.set({ updatedAt: new Date() })
+									.where(eq(tables.lock.key, PROVIDER_KEY_MODEL_SYNC_LOCK_KEY));
+							},
+						});
+					} finally {
+						await releaseLock(PROVIDER_KEY_MODEL_SYNC_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in provider key model sync loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Provider key model sync loop stopped");
+	}
+}
+
 export async function startWorker() {
 	if (isWorkerRunning) {
 		logger.error("Worker is already running");
@@ -3395,6 +3438,7 @@ export async function startWorker() {
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
 	void runNotificationsLoop();
+	void runProviderKeyModelSyncLoop();
 	void runFollowUpEmailsLoop({
 		shouldStop: isStopRequested,
 		acquireLock,

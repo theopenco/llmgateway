@@ -134,6 +134,11 @@ Managed credentials cover the same axes as the environment variables they replac
 - A per-credential audience (all organizations / enterprise plans / DevPass and
   Chat plans), mirroring the `__ENTERPRISE` and `__PLANS` suffixes below.
 - An optional region, mirroring the `{ENV_VAR}__{REGION}` overrides.
+- An optional list of allowed models, for accounts that only have part of the
+  provider's catalogue enabled. For providers where models are deployed per
+  account (Azure and AWS Bedrock), the worker tests the remaining models once a
+  day and enables the ones that started working; it never removes a model. Each
+  run is listed under the credential's sync history.
 
 A request that resolves no region is served from the provider's default region,
 so it is served by a region-agnostic credential or by one pinned to that default

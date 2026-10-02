@@ -24,9 +24,10 @@ import {
 	encryptProviderKey,
 	getManagedCredentialConfigKeys,
 	getMissingManagedCredentialKeys,
-	getPinnedValidationModel,
 	getUnknownManagedCredentialKeys,
 	managedCredentialValidationOptions,
+	MODEL_PROBE_TIMEOUT_MS,
+	probeProviderKeyModel,
 	providerKeyEncryptionScope,
 	readProviderEnvInventory,
 	readProviderKey,
@@ -82,11 +83,6 @@ const statusSchema = z.enum(["active", "inactive"]);
 
 // One probe gating a write: a save must not hang, so it keeps a short budget.
 const SAVE_VALIDATION_TIMEOUT_MS = 30_000;
-// Self-test and verify-models are admin-initiated diagnostics where a slow but
-// working model is exactly the interesting case, and the UI probes one model
-// per request, so they get a far longer budget than the save-time check.
-const MODEL_PROBE_TIMEOUT_MS = 180_000;
-const MEDIA_MODEL_PROBE_TIMEOUT_MS = 300_000;
 
 const credentialSchema = z.object({
 	id: z.string(),
@@ -2189,58 +2185,14 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 					: undefined,
 			};
 		}
-		const pinned = getPinnedValidationModel(
-			target.provider as ProviderId,
+		return await probeProviderKeyModel({
+			provider: target.provider,
+			token: target.token,
 			modelId,
 			validationOptions,
-		);
-		if (!pinned) {
-			return {
-				model: modelId,
-				inCatalog: false,
-				valid: null,
-				error: `Not available from ${target.provider} per the catalogue`,
-			};
-		}
-		if (pinned.kind === "video") {
-			return {
-				model: modelId,
-				inCatalog: true,
-				valid: null,
-				error: "Not live-tested: video generation is intentionally skipped",
-			};
-		}
-		if (!pinned.kind) {
-			return {
-				model: modelId,
-				inCatalog: true,
-				valid: null,
-				error: "Cannot be live-tested: this model type is not supported yet",
-			};
-		}
-		if (isCredentialTestEnv()) {
-			return { model: modelId, inCatalog: true, valid: true };
-		}
-		const result = await validateProviderKey(
-			target.provider as ProviderId,
-			target.token,
-			undefined,
-			false,
-			validationOptions,
-			modelId,
-			AbortSignal.timeout(
-				pinned.kind === "image" || pinned.kind === "ocr"
-					? MEDIA_MODEL_PROBE_TIMEOUT_MS
-					: MODEL_PROBE_TIMEOUT_MS,
-			),
-		);
-		return {
-			model: modelId,
-			inCatalog: true,
-			valid: result.valid,
-			statusCode: result.statusCode,
-			error: result.error ? redactToken(result.error, target.token) : undefined,
-		};
+			skipLiveProbe: isCredentialTestEnv(),
+			validate: validateProviderKey,
+		});
 	};
 
 	// Small batches: enough parallelism that a long list stays responsive,
@@ -2259,6 +2211,67 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 		allValid: results.every(
 			(result) => result.inCatalog && result.valid !== false,
 		),
+	});
+});
+
+const modelSyncHistory = createRoute({
+	method: "get",
+	path: "/provider-credentials/{id}/model-sync-history",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						entries: z.array(
+							z.object({
+								id: z.string(),
+								createdAt: z.date(),
+								probed: z.number(),
+								added: z.array(z.string()),
+								failed: z.array(
+									z.object({
+										model: z.string(),
+										statusCode: z.number().optional(),
+										error: z.string().optional(),
+									}),
+								),
+							}),
+						),
+					}),
+				},
+			},
+			description:
+				"Most recent daily model sync runs for a managed credential.",
+		},
+	},
+});
+
+adminProviderCredentials.openapi(modelSyncHistory, async (c) => {
+	const { id } = c.req.valid("param");
+	const rows = await db
+		.select()
+		.from(tables.platformAuditLog)
+		.where(
+			and(
+				eq(tables.platformAuditLog.action, "provider_key.models_synced"),
+				eq(tables.platformAuditLog.resourceType, "provider_key"),
+				eq(tables.platformAuditLog.resourceId, id),
+			),
+		)
+		.orderBy(desc(tables.platformAuditLog.createdAt))
+		.limit(60);
+
+	return c.json({
+		entries: rows.map((row) => ({
+			id: row.id,
+			createdAt: row.createdAt,
+			probed: row.metadata?.probed ?? 0,
+			added: row.metadata?.added ?? [],
+			failed: row.metadata?.failed ?? [],
+		})),
 	});
 });
 

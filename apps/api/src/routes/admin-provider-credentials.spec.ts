@@ -2592,6 +2592,56 @@ describe("managed credential allowed models", () => {
 		expect(validateProviderKeyMock).not.toHaveBeenCalled();
 	});
 
+	test("model-sync-history lists a credential's sync runs, newest first", async () => {
+		const createRes = await create({ provider: "openai", token: "sk-history" });
+		const { credential } = (await createRes.json()) as {
+			credential: { id: string };
+		};
+		await db.insert(tables.platformAuditLog).values([
+			{
+				createdAt: new Date("2026-01-01T00:00:00Z"),
+				action: "provider_key.models_synced",
+				resourceType: "provider_key",
+				resourceId: credential.id,
+				metadata: { provider: "openai", probed: 1, added: [], failed: [] },
+			},
+			{
+				createdAt: new Date("2026-01-02T00:00:00Z"),
+				action: "provider_key.models_synced",
+				resourceType: "provider_key",
+				resourceId: credential.id,
+				metadata: {
+					provider: "openai",
+					probed: 2,
+					added: ["model-a"],
+					failed: [{ model: "model-b", statusCode: 404 }],
+				},
+			},
+			{
+				action: "provider_key.models_synced",
+				resourceType: "provider_key",
+				resourceId: "another-credential",
+				metadata: { provider: "openai", probed: 0, added: [], failed: [] },
+			},
+		]);
+
+		const res = await app.request(
+			`/admin/provider-credentials/${credential.id}/model-sync-history`,
+			{ headers: { Cookie: cookie } },
+		);
+
+		expect(res.status).toBe(200);
+		const { entries } = (await res.json()) as {
+			entries: { probed: number; added: string[]; failed: unknown[] }[];
+		};
+		expect(entries).toHaveLength(2);
+		expect(entries[0]).toMatchObject({
+			probed: 2,
+			added: ["model-a"],
+			failed: [{ model: "model-b", statusCode: 404 }],
+		});
+	});
+
 	test("verify-models accepts more than 50 models", async () => {
 		const models = Array.from(
 			{ length: 51 },
