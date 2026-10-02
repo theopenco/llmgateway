@@ -1,0 +1,21 @@
+CREATE TABLE "content_filter_hourly_latency_stats" (
+	"id" text PRIMARY KEY,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"hour_timestamp" timestamp NOT NULL,
+	"classifier" text NOT NULL,
+	"internal_scope" text DEFAULT '' NOT NULL,
+	"check_count" integer DEFAULT 0 NOT NULL,
+	"failed_count" integer DEFAULT 0 NOT NULL,
+	"classifier_duration_sum_ms" bigint DEFAULT 0 NOT NULL,
+	"classifier_duration_max_ms" integer,
+	"classifier_duration_p50_ms" integer,
+	"classifier_duration_p95_ms" integer,
+	"classifier_duration_p99_ms" integer,
+	"classifier_request_sum" integer DEFAULT 0 NOT NULL,
+	"image_check_count" integer DEFAULT 0 NOT NULL,
+	"image_duration_sum_ms" bigint DEFAULT 0 NOT NULL,
+	"image_duration_max_ms" integer,
+	"image_duration_p95_ms" integer,
+	CONSTRAINT "content_filter_hourly_latency_stats_bucket_unique" UNIQUE("hour_timestamp","classifier","internal_scope")
+);

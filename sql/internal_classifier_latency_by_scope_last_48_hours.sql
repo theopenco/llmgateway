@@ -7,57 +7,44 @@
 -- own columns.
 --
 -- Data source:
--- - log.gateway_content_filter_evaluation: content_filter_hourly_stats only
---   holds the combined duration, with no scope dimension and no percentiles.
+-- - content_filter_hourly_latency_stats: one row per hour, classifier and
+--   internal scope, platform wide. No `log` scan.
 --
 -- Notes:
--- - classifierDurationMs is the text classifier alone; imageDurationMs is the
---   OpenAI image call, present only when images were delegated (failed calls
---   included); durationMs is the whole check.
--- - Evaluations written before classifierDurationMs existed are left out.
--- - classifierRequests is the number of classify calls: a long conversation
---   is sent in chunks, up to 8 at a time.
--- - Retries copy the evaluation onto every attempt, hence distinct on
---   request_id.
+-- - Sums, counts and maxima are exact. Percentiles are stored per hour and do
+--   not combine across hours: p50/p95/p99 here are the hourly values weighted
+--   by check count, and worst_hour_p95_ms is the slowest single hour. For an
+--   exact percentile, read one hour's row or query
+--   log.gateway_content_filter_evaluation->>'classifierDurationMs'.
+-- - Only checks that recorded classifierDurationMs are counted, so hours
+--   before that field shipped have no rows.
+-- - The current hour is partial until the stats worker next recounts it.
+-- - avg_classify_calls is classify calls per check: a long conversation is
+--   sent in chunks, up to 8 at a time.
 --
 -- Tuning:
 -- - Change interval '48 hours' to adjust the lookback window.
--- - Add date_trunc('hour', created_at) to the select and group by for a
---   timeline, e.g. to see the moment the scope setting was switched.
+-- - Add hour_timestamp to the select and group by for a timeline, e.g. to
+--   see the moment the scope setting was switched.
 
-with evaluations as (
-	select distinct on (request_id)
-		created_at,
-		coalesce(e->>'internalScope', 'full')       as internal_scope,
-		(e->>'classifierDurationMs')::numeric       as classifier_ms,
-		(e->>'classifierRequests')::int             as classifier_requests,
-		(e->>'imageDurationMs')::numeric            as image_ms,
-		coalesce((e->>'moderationFailed')::boolean, false) as moderation_failed,
-		prompt_tokens
-	from log
-	cross join lateral (select gateway_content_filter_evaluation as e) as evaluation
-	where created_at >= now() - interval '48 hours'
-		and e->>'classifier' = 'internal'
-		and e ? 'classifierDurationMs'
-	order by request_id, created_at
-)
 select
 	internal_scope,
-	count(*)                                                         as requests,
-	min(created_at)                                                  as first_seen,
-	max(created_at)                                                  as last_seen,
-	round(avg(classifier_ms), 1)                                     as avg_ms,
-	percentile_cont(0.5)  within group (order by classifier_ms)      as p50_ms,
-	percentile_cont(0.95) within group (order by classifier_ms)      as p95_ms,
-	percentile_cont(0.99) within group (order by classifier_ms)      as p99_ms,
-	max(classifier_ms)                                               as max_ms,
-	round(avg(classifier_requests), 2)                               as avg_classify_calls,
-	max(classifier_requests)                                         as max_classify_calls,
-	round(avg(prompt_tokens))                                        as avg_prompt_tokens,
-	round(100.0 * count(*) filter (where moderation_failed) / count(*), 2) as failed_pct,
-	count(image_ms)                                                  as image_requests,
-	round(avg(image_ms), 1)                                          as avg_image_ms,
-	percentile_cont(0.95) within group (order by image_ms)           as p95_image_ms
-from evaluations
+	sum(check_count)                                                       as checks,
+	min(hour_timestamp)                                                    as first_hour,
+	max(hour_timestamp)                                                    as last_hour,
+	round(sum(classifier_duration_sum_ms)::numeric / nullif(sum(check_count), 0), 1) as avg_ms,
+	round(sum(classifier_duration_p50_ms::numeric * check_count) / nullif(sum(check_count), 0), 1) as p50_ms,
+	round(sum(classifier_duration_p95_ms::numeric * check_count) / nullif(sum(check_count), 0), 1) as p95_ms,
+	round(sum(classifier_duration_p99_ms::numeric * check_count) / nullif(sum(check_count), 0), 1) as p99_ms,
+	max(classifier_duration_p95_ms)                                        as worst_hour_p95_ms,
+	max(classifier_duration_max_ms)                                        as max_ms,
+	round(sum(classifier_request_sum)::numeric / nullif(sum(check_count), 0), 2) as avg_classify_calls,
+	round(100.0 * sum(failed_count) / nullif(sum(check_count), 0), 2)      as failed_pct,
+	sum(image_check_count)                                                 as image_checks,
+	round(sum(image_duration_sum_ms)::numeric / nullif(sum(image_check_count), 0), 1) as avg_image_ms,
+	max(image_duration_p95_ms)                                             as worst_hour_p95_image_ms
+from content_filter_hourly_latency_stats
+where classifier = 'internal'
+	and hour_timestamp >= now() - interval '48 hours'
 group by internal_scope
 order by internal_scope;

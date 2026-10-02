@@ -4251,6 +4251,49 @@ export const contentFilterHourlyModelStats = pgTable(
 	],
 );
 
+// Hourly classifier latency from log.gatewayContentFilterEvaluation, platform
+// wide, so the classifier's own speed can be read without scanning `log`. One
+// row per classifier and, for the internal classifier, the scope it read
+// (empty otherwise). The classifier columns exclude the image moderation
+// delegated to OpenAI, which the image columns carry. Percentiles are per hour
+// and do not combine across hours.
+export const contentFilterHourlyLatencyStats = pgTable(
+	"content_filter_hourly_latency_stats",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		hourTimestamp: timestamp().notNull(),
+		classifier: text().notNull(),
+		internalScope: text().notNull().default(""),
+		// Checks that recorded a classifier duration, failed ones included.
+		checkCount: integer().notNull().default(0),
+		failedCount: integer().notNull().default(0),
+		classifierDurationSumMs: bigint({ mode: "number" }).notNull().default(0),
+		classifierDurationMaxMs: integer(),
+		classifierDurationP50Ms: integer("classifier_duration_p50_ms"),
+		classifierDurationP95Ms: integer("classifier_duration_p95_ms"),
+		classifierDurationP99Ms: integer("classifier_duration_p99_ms"),
+		// Classify calls made; a long conversation is sent in chunks.
+		classifierRequestSum: integer().notNull().default(0),
+		// Over checks that delegated an image; imageCheckCount is the divisor.
+		imageCheckCount: integer().notNull().default(0),
+		imageDurationSumMs: bigint({ mode: "number" }).notNull().default(0),
+		imageDurationMaxMs: integer(),
+		imageDurationP95Ms: integer("image_duration_p95_ms"),
+	},
+	(table) => [
+		unique("content_filter_hourly_latency_stats_bucket_unique").on(
+			table.hourTimestamp,
+			table.classifier,
+			table.internalScope,
+		),
+	],
+);
+
 // Audit Log - Enterprise feature for tracking all API actions
 export const auditLogActions = [
 	// Organization
