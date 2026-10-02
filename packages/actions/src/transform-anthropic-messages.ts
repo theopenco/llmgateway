@@ -71,6 +71,22 @@ export async function transformAnthropicMessages(
 	let cacheControlCount = initialCacheControlCount;
 	const maxCacheControlBlocks = MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS;
 
+	// Breakpoints the caller placed further on. Auto-injection leaves room for
+	// them: spending the budget on early long blocks would drop the caller's
+	// trailing marker, the one that keeps a growing conversation cached.
+	let pendingCallerMarkers = 0;
+	for (const m of messages) {
+		if (m.tool_call_id && m.content !== undefined) {
+			if (m.tool_result_cache_control ?? findCacheControl(m.content)) {
+				pendingCallerMarkers++;
+			}
+		} else if (Array.isArray(m.content)) {
+			pendingCallerMarkers += m.content.filter(
+				(part) => isTextContent(part) && part.text && part.cache_control,
+			).length;
+		}
+	}
+
 	// Keep track of all tool_use IDs seen so far to ensure uniqueness
 	const seenToolUseIds = new Set<string>();
 	// Map original IDs to unique IDs - using arrays to handle multiple mappings for duplicate IDs
@@ -186,6 +202,7 @@ export async function transformAnthropicMessages(
 					}
 					if (isTextContent(part) && part.text) {
 						if (part.cache_control) {
+							pendingCallerMarkers--;
 							// Count caller-supplied markers toward Anthropic's 4-block
 							// cap so subsequent auto-injection and the turn-boundary
 							// placement don't push the total over 4 (which Anthropic
@@ -205,7 +222,7 @@ export async function transformAnthropicMessages(
 						} else if (
 							shouldApplyCacheControl &&
 							part.text.length >= minCacheableChars &&
-							cacheControlCount < maxCacheControlBlocks
+							cacheControlCount + pendingCallerMarkers < maxCacheControlBlocks
 						) {
 							// Automatically add cache_control for long text blocks.
 							cacheControlCount++;
@@ -223,7 +240,7 @@ export async function transformAnthropicMessages(
 			const shouldCache =
 				shouldApplyCacheControl &&
 				m.content.length >= minCacheableChars &&
-				cacheControlCount < maxCacheControlBlocks;
+				cacheControlCount + pendingCallerMarkers < maxCacheControlBlocks;
 			const textContent: TextContent = {
 				type: "text",
 				text: m.content,
@@ -347,6 +364,9 @@ export async function transformAnthropicMessages(
 
 			// Re-attach the caller's breakpoint to the last block, which is where the
 			// prefix ends, without exceeding Anthropic's four-breakpoint limit.
+			if (toolResultCacheControl) {
+				pendingCallerMarkers--;
+			}
 			if (toolResultCacheControl && cacheControlCount < maxCacheControlBlocks) {
 				const last = content[content.length - 1] as ToolResultContent;
 				last.cache_control = toolResultCacheControl;
@@ -379,8 +399,10 @@ export async function transformAnthropicMessages(
 			continue;
 		}
 
-		// Map role correctly for Anthropic (no system or tool roles)
-		const anthropicRole = m.role === "assistant" ? "assistant" : "user";
+		// Map role correctly for Anthropic (no tool role; a system message only
+		// reaches here on mappings that accept it mid-conversation)
+		const anthropicRole =
+			m.role === "assistant" || m.role === "system" ? m.role : "user";
 
 		let anthropicContent: AnthropicMessage["content"] = filteredContent;
 		if (nativeBlocks.length > 0) {

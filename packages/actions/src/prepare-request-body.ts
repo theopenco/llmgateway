@@ -973,6 +973,30 @@ function transformMessagesForNoSystemRole(messages: any[]): any[] {
 }
 
 /**
+ * Rewrites a mid-conversation system message as the user `<system-reminder>`
+ * Claude clients use on models without a system role inside `messages`.
+ */
+function toSystemReminderMessage(message: BaseMessage): BaseMessage {
+	if (message.role !== "system") {
+		return message;
+	}
+	const wrap = (text: string) =>
+		`<system-reminder>\n${text}\n</system-reminder>`;
+	return {
+		...message,
+		role: "user",
+		content:
+			typeof message.content === "string"
+				? wrap(message.content)
+				: message.content.map((part) =>
+						isTextContent(part) && part.text
+							? { ...part, text: wrap(part.text) }
+							: part,
+					),
+	};
+}
+
+/**
  * Maps the OpenAI-only `developer` role to `system`. Applied only for mappings
  * that declare `supportsDeveloperRole: false`, i.e. upstreams that reject
  * `developer` with a 400 ("developer is not one of ['system', 'assistant',
@@ -3068,13 +3092,27 @@ export async function prepareRequestBody(
 			);
 			requestBody.max_tokens = max_tokens ?? fallbackMaxTokens;
 
-			// Extract system messages for Anthropic's system field (required for prompt caching)
-			const systemMessages = processedMessages.filter(
-				(m) => m.role === "system",
-			);
-			const nonSystemMessages = processedMessages.filter(
+			// Only the system messages that open the conversation go into
+			// Anthropic's system field (required for prompt caching). Hoisting a
+			// later one would change the prefix every time a client such as Claude
+			// Code appends one, re-writing the cached conversation on each turn, so
+			// those stay in place: natively where the mapping accepts the role,
+			// otherwise as a user system-reminder.
+			const conversationStart = processedMessages.findIndex(
 				(m) => m.role !== "system",
 			);
+			const systemMessages =
+				conversationStart === -1
+					? processedMessages
+					: processedMessages.slice(0, conversationStart);
+			const conversationMessages =
+				conversationStart === -1
+					? []
+					: processedMessages.slice(conversationStart);
+			const nonSystemMessages =
+				providerMappingForOptions?.midConversationSystem === true
+					? conversationMessages
+					: conversationMessages.map(toSystemReminderMessage);
 
 			// Anthropic requires longer-TTL cache breakpoints to come before
 			// shorter ones ("a 1-hour cache entry must appear before any 5-minute
@@ -3262,8 +3300,8 @@ export async function prepareRequestBody(
 				nonSystemMessages.map((m) => ({
 					...m, // Preserve original properties for transformation
 					role:
-						m.role === "assistant"
-							? "assistant"
+						m.role === "assistant" || m.role === "system"
+							? m.role
 							: m.role === "tool"
 								? "user" // Tool results become user messages in Anthropic
 								: "user",

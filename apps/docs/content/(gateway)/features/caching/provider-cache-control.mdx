@@ -166,7 +166,7 @@ Anthropic requires cache breakpoints with longer TTLs to appear before shorter o
 
 - When your request contains an explicit `ttl: "1h"` marker in the **messages**, LLM Gateway skips its automatic marker injection for that request entirely and forwards only your markers — the same behavior you would get calling the provider directly.
 - A `ttl: "1h"` marker only on the **system** prompt does not disable automatic injection, since 5-minute breakpoints after it still satisfy the ordering rule.
-- Explicit markers that use the default 5-minute TTL coexist with automatic injection (capped at 4 breakpoints total per Anthropic's limit).
+- Explicit markers that use the default 5-minute TTL coexist with automatic injection (capped at 4 breakpoints total per Anthropic's limit). Your markers take priority: automatic injection only uses the breakpoints your request leaves free.
 
 This section describes the default **Automatic** mode. In **Client-managed** mode there is no injection to reconcile — your markers are forwarded exactly as sent, whatever their TTL.
 

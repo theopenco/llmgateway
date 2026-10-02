@@ -1485,6 +1485,124 @@ describe("prepareRequestBody - Anthropic", () => {
 		).length;
 		expect(systemMarkers + messageMarkers).toBe(4);
 	});
+
+	const midConversationMessages = [
+		{ role: "system", content: "You are a helpful assistant." },
+		{ role: "user", content: "Hello!" },
+		{ role: "system", content: "The date changed." },
+		{ role: "assistant", content: "Hi." },
+		{ role: "user", content: "Continue." },
+	];
+
+	test("keeps a mid-conversation system message in place where the mapping accepts it", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-5",
+			null,
+			"claude-sonnet-5",
+			midConversationMessages as any,
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as AnthropicRequestBody;
+
+		// Hoisting it would rewrite the cached prefix on every turn.
+		expect(requestBody.system).toEqual([
+			{ type: "text", text: "You are a helpful assistant." },
+		]);
+		expect(requestBody.messages.map((msg) => msg.role)).toEqual([
+			"user",
+			"system",
+			"assistant",
+			"user",
+		]);
+		expect(requestBody.messages[1].content).toEqual([
+			{ type: "text", text: "The date changed." },
+		]);
+	});
+
+	test("sends a mid-conversation system message as a user reminder elsewhere", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-haiku-4-5",
+			null,
+			"claude-haiku-4-5",
+			midConversationMessages as any,
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as AnthropicRequestBody;
+
+		expect(requestBody.system).toEqual([
+			{ type: "text", text: "You are a helpful assistant." },
+		]);
+		expect(requestBody.messages.map((msg) => msg.role)).toEqual([
+			"user",
+			"user",
+			"assistant",
+			"user",
+		]);
+		expect(requestBody.messages[1].content).toEqual([
+			{
+				type: "text",
+				text: "<system-reminder>\nThe date changed.\n</system-reminder>",
+			},
+		]);
+	});
+
+	test("auto-injection leaves budget for the caller's trailing breakpoint", async () => {
+		const long = "A".repeat(30000);
+		const marker = { type: "ephemeral" as const };
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-5",
+			null,
+			"claude-sonnet-5",
+			[
+				{
+					role: "system",
+					content: [
+						{ type: "text", text: "one", cache_control: marker },
+						{ type: "text", text: "two", cache_control: marker },
+					],
+				},
+				{ role: "user", content: long },
+				{ role: "assistant", content: long },
+				{ role: "user", content: long },
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "tail", cache_control: marker }],
+				},
+			] as any,
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as AnthropicRequestBody;
+
+		const lastMessage = requestBody.messages[requestBody.messages.length - 1];
+		expect(getCacheControl((lastMessage.content as unknown[])[0])).toEqual(
+			marker,
+		);
+		const messageMarkers = requestBody.messages.flatMap((msg) =>
+			Array.isArray(msg.content)
+				? msg.content.filter((block) => getCacheControl(block))
+				: [],
+		).length;
+		expect(messageMarkers).toBe(2);
+	});
 });
 
 describe("prepareRequestBody - OpenAI image generation", () => {

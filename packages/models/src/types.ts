@@ -205,7 +205,8 @@ export interface OpenAIMessage extends BaseMessage {
 }
 
 export interface AnthropicMessage {
-	role: "user" | "assistant";
+	// `system` only on mappings that declare `midConversationSystem`.
+	role: "user" | "assistant" | "system";
 	content: (MessageContent | AnthropicNativeBlock)[];
 }
 
