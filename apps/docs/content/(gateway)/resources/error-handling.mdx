@@ -101,7 +101,7 @@ For streaming requests (`"stream": true`), an error that occurs **after** the st
 
 ## Gateway Content Filter
 
-Requests routed to some providers may be screened by LLM Gateway's own content filter, which runs the prompt (and any image inputs) through a moderation model before the request reaches the provider. The filter runs on a sample of requests and its strictness follows your organization's [trust tier](/resources/rate-limits#trust-tiers-account-age-or-spend): tiers 0–2 use strict thresholds, tiers 3–4 lenient ones. LLM Gateway staff can pin an organization's content filter tier independently of its trust tier.
+Requests routed to some providers may be screened by LLM Gateway's own content filter, which runs the prompt (and, where enabled, image inputs) through a moderation model before the request reaches the provider. The filter runs on a sample of requests and its strictness follows your organization's [trust tier](/resources/rate-limits#trust-tiers-account-age-or-spend): tiers 0–2 use strict thresholds, tiers 3–4 lenient ones. LLM Gateway staff can pin an organization's content filter tier independently of its trust tier.
 
 By default the filter only records its findings. When blocking is active, a request over its tier's thresholds is rejected before dispatch and the response makes clear that the gateway filter, not the provider, stopped it:
 

@@ -77,6 +77,7 @@ const PLAN: TieredContentFilterPlan = {
 	enforce: true,
 	classifier: "jev",
 	internalScope: "full",
+	moderateImages: true,
 };
 
 describe("runContentFilterClassifier", () => {
@@ -339,6 +340,22 @@ describe("evaluateContentFilterWithClassifiers", () => {
 		expect(evaluated?.evaluation.moderationFailed).toBe(true);
 		// Fail open: an uncovered image is not a violation.
 		expect(evaluated?.evaluation.action).toBe("passed");
+	});
+
+	it("leaves images unmoderated when image moderation is off", async () => {
+		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
+
+		const evaluated = await evaluateContentFilterWithClassifiers({
+			plan: { ...PLAN, moderateImages: false },
+			messages: IMAGE_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: () => true,
+		});
+
+		expect(checkOpenAI).not.toHaveBeenCalled();
+		expect(evaluated?.evaluation.moderationFailed).toBe(false);
+		expect(evaluated?.results[0]?.results).toHaveLength(1);
 	});
 
 	it("skips entirely when the classifier is not permitted", async () => {
