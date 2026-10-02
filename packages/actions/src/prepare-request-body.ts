@@ -2017,7 +2017,11 @@ export async function prepareRequestBody(
 	// `processImageUrl` with the SSRF guard left on (its default): the guard is
 	// what enforces https-only and refuses internal hosts, so an `http://` URL
 	// is rejected rather than quietly forwarded to the provider to fetch.
-	if (providerMappingForOptions?.requiresBase64Images) {
+	// `resolvedProviderMapping` covers mappings shaped under another transport
+	// (AWS Bedrock's OpenAI format), which the provider-keyed lookup misses.
+	if (
+		(providerMappingForOptions ?? resolvedProviderMapping)?.requiresBase64Images
+	) {
 		processedMessages = await Promise.all(
 			processedMessages.map(async (m) => {
 				if (!Array.isArray(m.content)) {
@@ -3492,11 +3496,10 @@ export async function prepareRequestBody(
 					requestBody.top_p = top_p;
 				}
 				if (reasoning_effort !== undefined) {
-					const reasoningEffort =
+					// Bedrock's chat completions surface ignores the nested
+					// `reasoning.effort` form; only the top-level field is applied.
+					requestBody.reasoning_effort =
 						reasoning_effort === "minimal" ? "low" : reasoning_effort;
-					requestBody.reasoning = {
-						effort: reasoningEffort,
-					};
 				}
 				if (n !== undefined && n > 1) {
 					requestBody.n = n;

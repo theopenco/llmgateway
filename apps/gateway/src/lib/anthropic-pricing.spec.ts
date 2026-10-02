@@ -13,6 +13,7 @@ const LEGACY_RATIO_EXCEPTIONS = new Set(["claude-3-haiku-20240307"]);
 const CACHE_READ_MULTIPLIER_OVERRIDES = new Map([
 	["anthropic.claude-fable-5-1", 0.025],
 	["claude-fable-5-1", 0.025],
+	["anthropic.claude-opus-5-5", 0.05],
 	["claude-opus-5-5", 0.05],
 ]);
 const cacheReadMultiplierFor = (externalId: string) =>

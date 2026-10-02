@@ -143,6 +143,7 @@ import {
 	getDiscountedProviderSelectionPrice,
 	getGcpServiceAccountAccessToken,
 	getProviderApiTransport,
+	getUpstreamModelId,
 	getProviderEndpoint,
 	getProviderHeaders,
 	isPremiumServiceTier,
@@ -6995,7 +6996,14 @@ chat.openapi(completions, async (c) => {
 		usedProvider === "azure"
 			? credentialOptions?.azure_deployment_name
 			: undefined;
-	const upstreamModelName = azureDeploymentName || usedExternalId;
+	const upstreamModelName =
+		azureDeploymentName ||
+		getUpstreamModelId(
+			usedProvider,
+			usedInternalModel,
+			usedExternalId,
+			usedRegion,
+		);
 
 	// Resolve the Google Vertex token type from the live request state so the
 	// endpoint (`?key=` query param) and the headers (`Authorization: Bearer`)

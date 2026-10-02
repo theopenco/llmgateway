@@ -543,6 +543,13 @@ export interface ProviderModelMapping {
 	 */
 	apiFormat?: ProviderApiFormat;
 	/**
+	 * AWS Bedrock OpenAI-format mappings only: the cross-region regions
+	 * (`global`, `us`, …) are real inference profiles, served by
+	 * bedrock-runtime under the region-prefixed model id. Without it every
+	 * region is served in-region by Mantle under the bare id.
+	 */
+	crossRegionProfiles?: boolean;
+	/**
 	 * Route this Perplexity mapping to the Agent API (`POST /v1/agent`,
 	 * Responses-shaped) instead of Sonar's chat/completions, which Perplexity
 	 * retires on 2026-09-27. Per mapping rather than per provider so the
