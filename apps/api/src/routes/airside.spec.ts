@@ -1351,6 +1351,96 @@ describe("airside provider portal", () => {
 		const notRetriedBody = await notRetried.json();
 		expect(notRetriedBody.sampledErrors).toBe(2);
 
+		// The same errors grouped by type across mappings instead of per mapping.
+		await db.insert(tables.projectHourlyModelStats).values({
+			projectId: "test-project-id",
+			hourTimestamp: hour,
+			usedModel: "mistral/mistral-medium-3",
+			usedProvider: "mistral",
+			requestCount: 4,
+			errorCount: 1,
+			upstreamErrorCount: 1,
+		});
+		await db.insert(tables.log).values({
+			id: "incident-log-other-model",
+			requestId: "incident-request-other-model",
+			organizationId: "test-org-id",
+			projectId: "test-project-id",
+			apiKeyId: "test-api-key-id",
+			hasError: true,
+			retried: false,
+			streamed: false,
+			unifiedFinishReason: "upstream_error",
+			errorDetails: {
+				statusCode: 503,
+				statusText: "err",
+				responseText: "failed 503",
+			},
+			duration: 100,
+			usedMode: "credits" as const,
+			requestedModel: "mistral-medium-3",
+			requestedProvider: "mistral",
+			usedModel: "mistral/mistral-medium-3",
+			usedProvider: "mistral",
+			responseSize: 10,
+			mode: "credits" as const,
+		});
+		const typesBase = `/airside/incidents/error-types?providerCompanyId=${company.id}`;
+		const types = await app.request(typesBase, {
+			headers: { Cookie: cookie },
+		});
+		expect(types.status).toBe(200);
+		const typesBody = await types.json();
+		expect(typesBody).toMatchObject({
+			sampledErrors: 4,
+			sampleLimit: 500,
+			cappedMappings: 0,
+		});
+		expect(typesBody.errors).toEqual([
+			expect.objectContaining({
+				statusCode: 503,
+				count: 3,
+				streamedCount: 2,
+				models: [
+					{
+						providerId: "mistral",
+						usedModel: "mistral/mistral-large-3",
+						modelId: "mistral-large-3",
+						region: null,
+						count: 2,
+						streamedCount: 2,
+					},
+					{
+						providerId: "mistral",
+						usedModel: "mistral/mistral-medium-3",
+						modelId: "mistral-medium-3",
+						region: null,
+						count: 1,
+						streamedCount: 0,
+					},
+				],
+			}),
+			expect.objectContaining({
+				statusCode: 500,
+				count: 1,
+				streamedCount: 0,
+				models: [expect.objectContaining({ modelId: "mistral-large-3" })],
+			}),
+		]);
+
+		const typesNotRetried = await app.request(
+			`${typesBase}&includeRetried=false&mapping=mistral/mistral-large-3`,
+			{ headers: { Cookie: cookie } },
+		);
+		const typesNotRetriedBody = await typesNotRetried.json();
+		expect(typesNotRetriedBody.sampledErrors).toBe(2);
+		expect(typesNotRetriedBody.errors).toHaveLength(1);
+
+		const foreignTypes = await app.request(`${typesBase}&providerId=openai`, {
+			headers: { Cookie: cookie },
+		});
+		expect(foreignTypes.status).toBe(404);
+
 		const foreignErrors = await app.request(
 			`/airside/incidents/errors?providerCompanyId=${company.id}&providerId=openai&mapping=openai/gpt-6`,
 			{ headers: { Cookie: cookie } },
@@ -1369,10 +1459,18 @@ describe("airside provider portal", () => {
 			{ headers: { Cookie: cookie } },
 		);
 		expect(adminView.status).toBe(200);
-		expect((await adminView.json()).mappings).toEqual(body.mappings);
+		expect((await adminView.json()).mappings).toEqual(
+			expect.arrayContaining(body.mappings),
+		);
+		const adminTypes = await app.request(
+			"/admin/airside/incidents/error-types?providerId=mistral",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(adminTypes.status).toBe(200);
+		expect(await adminTypes.json()).toEqual(typesBody);
 
 		const outsider = await createSecondUser("outsider@example.com");
-		for (const path of [base, errorsBase]) {
+		for (const path of [base, errorsBase, typesBase]) {
 			const denied = await app.request(path, {
 				headers: { Cookie: outsider },
 			});

@@ -77,6 +77,8 @@ The **Incidents** page lists every mapping of your claimed providers that failed
 
 Expand a row to see the top error shapes behind it: HTTP status, status text, a response excerpt, the cause, the gateway's classification, and whether the request was streamed. Counts always include retried attempts; the **Retried errors in details** switch drops retried attempts from the error shapes only.
 
+Switch to **By error type** to group the same errors across mappings instead: each error shows its total, its streaming and non-streaming counts, and every model it hit with per-model counts. Use it to spot failures such as timeouts that are not specific to one model. Counts cover the latest 500 errors of each mapping.
+
 To focus on one mapping, pick it from the mapping filter or open `/dashboard/incidents?mapping=<provider>/<model>[:<region>]`. The **Errors** column on Traffic and the **Incidents** link on each active Fleet listing open the page pre-filtered.
 
 ## Fares and routing

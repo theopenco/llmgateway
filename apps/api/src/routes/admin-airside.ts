@@ -16,8 +16,12 @@ import {
 	currentMetadataFor,
 } from "@/lib/airside-metadata.js";
 import {
+	incidentErrorTypesSchema,
 	incidentsResponseSchema,
 	incidentsWindowSchema,
+	incidentErrorsClause,
+	notRetriedClause,
+	queryIncidentErrorTypes,
 	queryIncidentMappings,
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
@@ -1135,6 +1139,51 @@ adminAirside.openapi(listIncidents, async (c) => {
 			mapping,
 		}),
 	});
+});
+
+const listIncidentErrorTypes = createRoute({
+	method: "get",
+	path: "/airside/incidents/error-types",
+	request: {
+		query: z.object({
+			providerId: z.string(),
+			/** Exact `used_model` (`provider/model[:region]`). */
+			mapping: z.string().optional(),
+			window: incidentsWindowSchema.default("24h").optional(),
+			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: incidentErrorTypesSchema.openapi({}),
+				},
+			},
+			description:
+				"Top error shapes across one provider's mappings, each with its per-mapping and streaming counts.",
+		},
+	},
+});
+
+adminAirside.openapi(listIncidentErrorTypes, async (c) => {
+	const query = c.req.valid("query");
+	const { hours: windowHours, interval: windowInterval } =
+		resolveMappingErrorWindow(query.window, "24h");
+	return c.json(
+		await queryIncidentErrorTypes({
+			mappings: await queryIncidentMappings({
+				providerIds: [query.providerId],
+				windowHours,
+				mapping: query.mapping ?? null,
+			}),
+			windowInterval,
+			extraClauses: [
+				incidentErrorsClause,
+				query.includeRetried === "false" ? notRetriedClause : sql``,
+			],
+		}),
+	);
 });
 
 const listCompanies = createRoute({

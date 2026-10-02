@@ -63,7 +63,7 @@ export const percentFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 1,
 });
 
-function ClassificationBadge({
+export function ClassificationBadge({
 	classification,
 }: {
 	classification: string | null;
@@ -113,7 +113,7 @@ interface ErrorShape {
 	buckets?: { start: number; count: number }[];
 }
 
-const STREAM_MODES = [
+export const STREAM_MODES = [
 	{
 		streamed: true,
 		label: "Streaming",

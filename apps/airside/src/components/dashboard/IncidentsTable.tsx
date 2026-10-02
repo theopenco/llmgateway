@@ -34,7 +34,7 @@ export type IncidentsWindow = NonNullable<
 type IncidentMapping =
 	paths["/airside/incidents"]["get"]["responses"]["200"]["content"]["application/json"]["mappings"][number];
 
-function ClassificationBadge({
+export function ClassificationBadge({
 	classification,
 }: {
 	classification: string | null;
