@@ -104,8 +104,9 @@ interface ContentFilterRunOptions {
  * Run one classifier over a request's content.
  *
  * Jev and the internal classifier are text-only, so image parts are moderated
- * through OpenAI and merged in — but only when `imagesAllowed` says the
- * organization's compliance policy permits OpenAI and a credential exists.
+ * through OpenAI and merged in — but only when `imagesAllowed` says image
+ * delegation is on, the organization's compliance policy permits OpenAI, and
+ * a credential exists.
  * Without that, such a request carries no image coverage at all rather than
  * silently sending image data to a provider the policy excluded.
  */
@@ -247,7 +248,7 @@ export async function evaluateContentFilterWithClassifiers(options: {
 			context,
 			signal,
 			{
-				imagesAllowed: options.imagesAllowed,
+				imagesAllowed: options.imagesAllowed && plan.moderateImages,
 				internalScope: plan.internalScope,
 			},
 		);

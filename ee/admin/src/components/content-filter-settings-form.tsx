@@ -52,6 +52,7 @@ interface ContentFilterSettingsFormProps {
 		enforceEnterprise: boolean;
 		classifier: Classifier;
 		internalScope: InternalScope;
+		moderateImages: boolean;
 		providers: ContentFilterProvider[];
 	};
 	onSave: (
@@ -78,6 +79,7 @@ export function ContentFilterSettingsForm({
 	const [internalScope, setInternalScope] = useState<InternalScope>(
 		settings.internalScope,
 	);
+	const [moderateImages, setModerateImages] = useState(settings.moderateImages);
 	const [providerIds, setProviderIds] = useState<string[]>(() =>
 		settings.providers.filter((p) => p.enabled).map((p) => p.id),
 	);
@@ -105,6 +107,7 @@ export function ContentFilterSettingsForm({
 				enforceEnterprise: savedEnforceEnterprise,
 				classifier,
 				internalScope,
+				moderateImages,
 				providerIds,
 			});
 			if (!result.ok) {
@@ -230,11 +233,10 @@ export function ContentFilterSettingsForm({
 				</Select>
 				<p className="text-xs text-muted-foreground">
 					Model that scores sampled requests and decides the outcome. Jev and
-					the internal classifier are text-only: image parts are still moderated
-					by OpenAI. The internal classifier runs in our own infrastructure and
-					blocks only on its own verdict; its topic tags are recorded, never
-					enforced. Thresholds are per classifier, so re-measure before
-					switching an enforcing filter.
+					the internal classifier are text-only. The internal classifier runs in
+					our own infrastructure and blocks only on its own verdict; its topic
+					tags are recorded, never enforced. Thresholds are per classifier, so
+					re-measure before switching an enforcing filter.
 				</p>
 			</div>
 
@@ -271,6 +273,30 @@ export function ContentFilterSettingsForm({
 						system prompt plus the messages after the last assistant reply, in
 						one request.
 					</p>
+				</div>
+			)}
+
+			{classifier !== "openai" && (
+				<div className="flex items-center gap-3">
+					<Switch
+						id="content-filter-moderate-images"
+						checked={moderateImages}
+						disabled={pending || readOnly}
+						onCheckedChange={(checked) => {
+							setSaved(false);
+							setModerateImages(checked);
+						}}
+					/>
+					<div className="space-y-0.5">
+						<Label htmlFor="content-filter-moderate-images">
+							Moderate images with OpenAI
+						</Label>
+						<p className="text-xs text-muted-foreground">
+							{CLASSIFIER_LABELS[classifier]} is text-only. On sends image parts
+							to OpenAI moderation and merges the verdicts; off moderates text
+							only and leaves images unchecked.
+						</p>
+					</div>
 				</div>
 			)}
 
