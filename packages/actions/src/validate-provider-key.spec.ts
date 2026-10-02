@@ -4,6 +4,7 @@ import { logger } from "@llmgateway/logger";
 import { models, providers } from "@llmgateway/models";
 import { getProviderModelKind } from "@llmgateway/shared";
 
+import { managedCredentialValidationOptions } from "./provider-key/managed.js";
 import {
 	getPinnedValidationModel,
 	getValidationModel,
@@ -565,6 +566,47 @@ describe("validateProviderKey region resolution", () => {
 			expect(fetchMock.mock.calls[0][0]).toBe(
 				`https://bedrock-mantle.${region}.api.aws/openai/v1/responses`,
 			);
+		},
+	);
+
+	// Kimi K3 exists on Bedrock only as a cross-region inference profile, so
+	// the probe must name the profile; the bare id is rejected upstream.
+	it.each([
+		{ options: undefined, model: "global.moonshotai.kimi-k3" },
+		{
+			options: { aws_bedrock_region: "us" as const },
+			model: "us.moonshotai.kimi-k3",
+		},
+		{
+			options: managedCredentialValidationOptions(
+				"aws-bedrock",
+				{ region: "us." },
+				null,
+			),
+			model: "us.moonshotai.kimi-k3",
+		},
+	])(
+		"probes a pinned Bedrock profile model as $model",
+		async ({ options, model }) => {
+			const fetchMock = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValue(new Response("{}", { status: 200 }));
+
+			const result = await validateProviderKey(
+				"aws-bedrock",
+				"ABSKtest",
+				"https://bedrock-proxy.example.com",
+				false,
+				options,
+				"kimi-k3",
+			);
+
+			expect(result.valid).toBe(true);
+			expect(fetchMock.mock.calls[0][0]).toBe(
+				"https://bedrock-proxy.example.com/openai/v1/chat/completions",
+			);
+			const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+			expect(body.model).toBe(model);
 		},
 	);
 
