@@ -468,7 +468,7 @@ describe("admin organization metrics all-time top-ups", () => {
 		await deleteAll();
 	});
 
-	it("sums gross and net-of-refund top-ups, excluding gifts", async () => {
+	it("sums gross and net top-ups and gifted credits separately", async () => {
 		await db.insert(tables.transaction).values([
 			{
 				id: "org-details-topup",
@@ -524,8 +524,10 @@ describe("admin organization metrics all-time top-ups", () => {
 		const body = (await res.json()) as {
 			allTimeTopUpsGross: string;
 			allTimeTopUpsNet: string;
+			allTimeGiftedCredits: string;
 		};
 		expect(body.allTimeTopUpsGross).toBe("155.5");
 		expect(body.allTimeTopUpsNet).toBe("125.5");
+		expect(body.allTimeGiftedCredits).toBe("25");
 	});
 });

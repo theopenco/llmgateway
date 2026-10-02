@@ -620,6 +620,8 @@ const orgMetricsSchema = z.object({
 	// completed refunds of those payments.
 	allTimeTopUpsGross: z.string(),
 	allTimeTopUpsNet: z.string(),
+	// Credits granted via completed `credit_gift` rows.
+	allTimeGiftedCredits: z.string(),
 });
 
 const transactionSchema = z.object({
@@ -3671,6 +3673,18 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 				sql`CAST(${refundedTopUp.amount} AS NUMERIC) > 0`,
 			),
 		);
+	const [giftedRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_gift"),
+			),
+		);
 	const allTimeTopUpsGross = new Decimal(allTimeTopUpsRow?.total ?? 0);
 	const allTimeTopUpsNet = allTimeTopUpsGross.minus(
 		new Decimal(topUpRefundsRow?.total ?? 0),
@@ -3724,6 +3738,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		discountSavings,
 		allTimeTopUpsGross: allTimeTopUpsGross.toString(),
 		allTimeTopUpsNet: allTimeTopUpsNet.toString(),
+		allTimeGiftedCredits: new Decimal(giftedRow?.total ?? 0).toString(),
 	});
 });
 

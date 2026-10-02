@@ -308,6 +308,7 @@ export default async function OrganizationPage({
 	const contentFilterTier = orgMetricsRes.data?.contentFilterTier;
 	const allTimeTopUpsGross = orgMetricsRes.data?.allTimeTopUpsGross;
 	const allTimeTopUpsNet = orgMetricsRes.data?.allTimeTopUpsNet;
+	const allTimeGiftedCredits = orgMetricsRes.data?.allTimeGiftedCredits;
 	const projectsData = projectsRes.data;
 	const apiKeysData = apiKeysRes.data;
 	const providerKeysData = providerKeysRes.data;
@@ -479,10 +480,16 @@ export default async function OrganizationPage({
 								<p className="mt-1.5 text-xl font-semibold tabular-nums">
 									{creditsFormatter.format(parseFloat(org.credits))}
 								</p>
+								{allTimeGiftedCredits !== undefined ? (
+									<p className="mt-1 whitespace-nowrap text-xs text-muted-foreground tabular-nums">
+										{creditsFormatter.format(parseFloat(allTimeGiftedCredits))}{" "}
+										gifted
+									</p>
+								) : null}
 							</div>
-							<div title="Completed Stripe top-ups (incl. fees) and manual payments. Net subtracts their refunds.">
+							<div title="All-time completed Stripe top-ups (incl. fees) and manual payments. Net subtracts their refunds.">
 								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-									All-time top-ups (net)
+									Net top-ups
 								</p>
 								<p className="mt-1.5 text-xl font-semibold tabular-nums">
 									{allTimeTopUpsNet !== undefined
@@ -490,7 +497,7 @@ export default async function OrganizationPage({
 										: "—"}
 								</p>
 								{allTimeTopUpsGross !== undefined ? (
-									<p className="mt-1 text-xs text-muted-foreground tabular-nums">
+									<p className="mt-1 whitespace-nowrap text-xs text-muted-foreground tabular-nums">
 										{creditsFormatter.format(parseFloat(allTimeTopUpsGross))}{" "}
 										gross
 									</p>
