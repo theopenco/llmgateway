@@ -5853,6 +5853,7 @@ const rateLimitSchema = z.object({
 	limitType: z.enum(["rpm", "rpd"]),
 	maxRequests: z.number(),
 	enforcement: z.enum(["per_org", "global"]),
+	mode: z.enum(["strict", "soft"]),
 	reason: z.string().nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
@@ -5872,6 +5873,8 @@ const createRateLimitBodySchema = z.object({
 		.int("Limit must be a whole number")
 		.min(0, "Limit must be at least 0"),
 	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
+	// "soft" lets a session already pinned to the capped provider keep it.
+	mode: z.enum(["strict", "soft"]).optional().default("strict"),
 	reason: z.string().nullable().optional(),
 });
 
@@ -6053,6 +6056,7 @@ function formatRateLimit(r: {
 	maxRpm: number | null;
 	maxRpd: number | null;
 	enforcement: string;
+	mode: "strict" | "soft";
 	reason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
@@ -6069,6 +6073,7 @@ function formatRateLimit(r: {
 		maxRequests,
 		enforcement:
 			r.enforcement === "global" ? ("global" as const) : ("per_org" as const),
+		mode: r.mode,
 		reason: r.reason,
 		createdAt: r.createdAt.toISOString(),
 		updatedAt: r.updatedAt.toISOString(),
@@ -6101,6 +6106,12 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 		throw new HTTPException(400, { message: validation.error });
 	}
 
+	if (body.mode === "soft" && body.maxRequests === 0) {
+		throw new HTTPException(400, {
+			message: "A limit of 0 blocks all requests and cannot be soft",
+		});
+	}
+
 	const [created] = await db
 		.insert(tables.rateLimit)
 		.values({
@@ -6110,6 +6121,7 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
 			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
 			enforcement: body.enforcement,
+			mode: body.mode,
 			reason: body.reason ?? null,
 		})
 		.onConflictDoNothing()
@@ -6941,6 +6953,7 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			model,
 			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
 			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			mode: body.mode,
 			reason: body.reason ?? null,
 		})
 		.onConflictDoNothing()
@@ -6964,6 +6977,7 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			model,
 			maxRpm: created.maxRpm,
 			maxRpd: created.maxRpd,
+			mode: created.mode,
 			reason: created.reason,
 			source: "admin",
 		},

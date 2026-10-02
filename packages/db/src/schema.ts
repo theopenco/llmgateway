@@ -4964,6 +4964,11 @@ export const rateLimit = pgTable(
 		enforcement: text({ enum: ["per_org", "global"] })
 			.notNull()
 			.default("per_org"),
+		// "soft" keeps a session already pinned to the capped provider on it;
+		// all other traffic is routed away exactly as under "strict".
+		mode: text({ enum: ["strict", "soft"] })
+			.notNull()
+			.default("strict"),
 		// Optional metadata
 		reason: text(),
 	},
@@ -5250,6 +5255,7 @@ export interface AirsideModelMetadataChanges {
 	maxRpm?: number | null;
 	maxRpd?: number | null;
 	rateLimitScope?: "global" | "per_org";
+	rateLimitMode?: "strict" | "soft";
 }
 
 export interface AirsidePendingBranding {
@@ -5321,6 +5327,10 @@ export const providerDraftModel = pgTable(
 		rateLimitScope: text({ enum: ["global", "per_org"] })
 			.notNull()
 			.default("global"),
+		// Same semantics as `rate_limit.mode`.
+		rateLimitMode: text({ enum: ["strict", "soft"] })
+			.notNull()
+			.default("strict"),
 		status: text({ enum: ["draft", "active", "rejected", "delisted"] })
 			.notNull()
 			.default("draft"),

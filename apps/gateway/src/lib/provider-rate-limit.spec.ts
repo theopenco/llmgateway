@@ -160,6 +160,68 @@ describe("checkProviderRateLimit", () => {
 		}
 	});
 
+	describe("soft limits", () => {
+		const softRpm = {
+			maxRpm: 10,
+			maxRpd: 0,
+			rpmSource: "global_provider",
+			rpdSource: "none",
+			rpmMode: "soft",
+		} as const;
+
+		beforeEach(() => {
+			vi.mocked(redis.zcard).mockResolvedValue(10);
+			vi.mocked(redis.zrange).mockResolvedValue([
+				"member",
+				Date.now().toString(),
+			]);
+		});
+
+		it("blocks like a strict limit without the exemption", async () => {
+			vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue(
+				softRpm,
+			);
+
+			const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o");
+
+			expect(result.allowed).toBe(false);
+			expect(result.softOnly).toBe(true);
+			expect(redis.zadd).not.toHaveBeenCalled();
+		});
+
+		it("allows and still counts an exempt request past the cap", async () => {
+			vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue(
+				softRpm,
+			);
+
+			const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o", {
+				softExempt: true,
+			});
+
+			expect(result.allowed).toBe(true);
+			expect(result.softLimitBypassed).toBe(true);
+			expect(vi.mocked(redis.zadd).mock.calls[0][0]).toBe(
+				"rate_limit:provider_cap:rpm:org-1:openai:gpt-4o",
+			);
+		});
+
+		it("does not exempt a request also blocked by a strict window", async () => {
+			vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
+				...softRpm,
+				maxRpd: 10,
+				rpdSource: "global_provider",
+			});
+
+			const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o", {
+				softExempt: true,
+			});
+
+			expect(result.allowed).toBe(false);
+			expect(result.softOnly).toBe(false);
+			expect(redis.zadd).not.toHaveBeenCalled();
+		});
+	});
+
 	it("uses a unique member per request", async () => {
 		const now = 1_700_000_000_000;
 		const dateNowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
@@ -355,8 +417,41 @@ describe("filterRateLimitedProviders", () => {
 			{ providerId: "anthropic", model: "claude-3-5-sonnet" },
 		]);
 
-		expect(result.has("openai")).toBe(true);
-		expect(result.has("anthropic")).toBe(false);
+		expect(result.rateLimited.has("openai")).toBe(true);
+		expect(result.rateLimited.has("anthropic")).toBe(false);
+		expect(result.softOnly.size).toBe(0);
+	});
+
+	it("reports providers blocked by soft limits alone", async () => {
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit)
+			.mockResolvedValueOnce({
+				maxRpm: 10,
+				maxRpd: 0,
+				rpmSource: "global_provider",
+				rpdSource: "none",
+				rpmMode: "soft",
+			})
+			// Soft RPM and strict RPD both exceeded: not soft-only.
+			.mockResolvedValueOnce({
+				maxRpm: 10,
+				maxRpd: 100,
+				rpmSource: "global_provider",
+				rpdSource: "global_provider",
+				rpmMode: "soft",
+			});
+		vi.mocked(redis.zcard).mockResolvedValue(100);
+		vi.mocked(redis.zrange).mockResolvedValue([
+			"member",
+			Date.now().toString(),
+		]);
+
+		const result = await filterRateLimitedProviders("org-1", [
+			{ providerId: "openai", model: "gpt-4o" },
+			{ providerId: "anthropic", model: "claude-3-5-sonnet" },
+		]);
+
+		expect([...result.rateLimited].sort()).toEqual(["anthropic", "openai"]);
+		expect([...result.softOnly]).toEqual(["openai"]);
 	});
 });
 
