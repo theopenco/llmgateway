@@ -14,6 +14,9 @@ export const tencentModels = [
 				externalId: "tencent/Hy3",
 				// DeepInfra's deployment is currently unreliable
 				stability: "unstable",
+				// DeepInfra retires this model on 2026-10-08 and silently
+				// redirects requests to tencent/Hy4-preview afterwards.
+				deactivatedAt: new Date("2026-10-08"),
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.035e-6",
 				outputPrice: "0.58e-6",

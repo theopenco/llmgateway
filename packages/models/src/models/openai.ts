@@ -1148,6 +1148,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.1",
+				deactivatedAt: new Date("2027-04-01"),
 				serviceTiers: ["flex", "priority"],
 				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.25e-6",
@@ -1717,6 +1718,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.4-nano",
+				deactivatedAt: new Date("2027-04-01"),
 				serviceTiers: ["flex"],
 				inputPrice: "0.2e-6",
 				outputPrice: "1.25e-6",
@@ -3063,6 +3065,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.3-codex",
+				deactivatedAt: new Date("2027-04-01"),
 				serviceTiers: ["priority"],
 				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.75e-6",
@@ -3460,6 +3463,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "tts-1",
+				deactivatedAt: new Date("2027-01-06"),
 				inputPrice: "0",
 				outputPrice: "0",
 				inputCharacterPrice: "15e-6",
@@ -3485,6 +3489,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "tts-1-hd",
+				deactivatedAt: new Date("2027-01-06"),
 				inputPrice: "0",
 				outputPrice: "0",
 				inputCharacterPrice: "30e-6",
@@ -3510,6 +3515,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-4o-mini-tts",
+				deactivatedAt: new Date("2027-01-06"),
 				// Token-billed; the gateway requests stream_format=sse so the
 				// speech.audio.done event reports usage (the binary response has none).
 				inputPrice: "0.6e-6",

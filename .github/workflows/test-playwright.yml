@@ -30,6 +30,13 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+          # The docs build dates pages from Git history; the SEO tests assert them.
+          fetch-depth: 0
+          filter: blob:none
+
+      # Before the build, so Turbo does not restore a cached dateless docs build.
+      - name: Generate docs modification dates
+        run: node apps/docs/scripts/update-content-modified.mjs
 
       - uses: ./.github/actions/setup
 

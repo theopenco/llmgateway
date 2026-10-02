@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
-import { useDefaultProject } from "@/hooks/useDefaultProject";
 import { useDevPassProject } from "@/hooks/useDevPassProject";
 import { useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
@@ -17,6 +16,14 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { Label } from "@/lib/components/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/lib/components/select";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
@@ -89,6 +96,8 @@ export default function ConnectCliPage() {
 	const [params, setParams] = useState<ConnectParams | null>(null);
 	const [mounted, setMounted] = useState(false);
 	const [done, setDone] = useState(false);
+	const [selectedOrgId, setSelectedOrgId] = useState<string>();
+	const [selectedProjectId, setSelectedProjectId] = useState<string>();
 
 	useEffect(() => {
 		setParams(readParams());
@@ -97,17 +106,41 @@ export default function ConnectCliPage() {
 
 	const wantsDevPassOrg = params?.org === "devpass";
 	const devPassResult = useDevPassProject({ enabled: wantsDevPassOrg });
-	const defaultResult = useDefaultProject();
 
-	const project = wantsDevPassOrg
-		? devPassResult.data?.project
-		: defaultResult.data;
+	// Pay-as-you-go connects let the user pick the org and project; DevPass
+	// connects stay pinned to the DevPass org so usage bills the plan.
+	const pickerEnabled = !!user && !!params && !wantsDevPassOrg;
+	const orgsQuery = api.useQuery(
+		"get",
+		"/orgs",
+		{},
+		{ enabled: pickerEnabled },
+	);
+	const organizations = orgsQuery.data?.organizations ?? [];
+	const organization =
+		organizations.find((org) => org.id === selectedOrgId) ?? organizations[0];
+
+	const projectsQuery = api.useQuery(
+		"get",
+		"/orgs/{id}/projects",
+		{ params: { path: { id: organization?.id ?? "" } } },
+		{ enabled: pickerEnabled && !!organization?.id },
+	);
+	const projects = (projectsQuery.data?.projects ?? []).filter(
+		(p) => p.status !== "inactive",
+	);
+	const pickedProject =
+		projects.find((p) => p.id === selectedProjectId) ?? projects[0];
+
+	const project = wantsDevPassOrg ? devPassResult.data?.project : pickedProject;
 	const projectLoading = wantsDevPassOrg
 		? devPassResult.isLoading
-		: defaultResult.isLoading;
+		: orgsQuery.isLoading || projectsQuery.isLoading;
 	const projectError = wantsDevPassOrg
 		? devPassResult.isError
-		: defaultResult.isError;
+		: orgsQuery.isError ||
+			projectsQuery.isError ||
+			(!projectLoading && !pickedProject);
 
 	const createApiKey = api.useMutation("post", "/keys/api");
 
@@ -257,17 +290,62 @@ export default function ConnectCliPage() {
 									{devPassResult.data.organization.name}
 								</span>
 							</>
-						) : !wantsDevPassOrg && project?.name ? (
-							<>
-								{" "}
-								· project{" "}
-								<span className="font-medium text-foreground">
-									{project.name}
-								</span>
-							</>
 						) : null}
 					</span>
 				</div>
+				{!wantsDevPassOrg && organization ? (
+					<div className="space-y-3">
+						{organizations.length > 1 ? (
+							<div className="space-y-1.5">
+								<Label htmlFor="connect-org">Organization</Label>
+								<Select
+									value={organization.id}
+									onValueChange={(id) => {
+										setSelectedOrgId(id);
+										setSelectedProjectId(undefined);
+									}}
+									disabled={createApiKey.isPending}
+								>
+									<SelectTrigger id="connect-org" className="w-full">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{organizations.map((org) => (
+											<SelectItem key={org.id} value={org.id}>
+												{org.name}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+						) : null}
+						{pickedProject ? (
+							<div className="space-y-1.5">
+								<Label htmlFor="connect-project">Project</Label>
+								<Select
+									value={pickedProject.id}
+									onValueChange={setSelectedProjectId}
+									disabled={createApiKey.isPending}
+								>
+									<SelectTrigger id="connect-project" className="w-full">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{projects.map((p) => (
+											<SelectItem key={p.id} value={p.id}>
+												{p.name}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								<p className="text-xs text-muted-foreground">
+									The API key is created in this project and its usage is billed
+									to {organization.name}.
+								</p>
+							</div>
+						) : null}
+					</div>
+				) : null}
 				<p className="text-xs text-muted-foreground">
 					The key is delivered only to a local address on this machine, expires
 					in {CLI_KEY_TTL_DAYS} days, and can be revoked any time from the API
@@ -293,7 +371,9 @@ export default function ConnectCliPage() {
 					<p className="text-xs text-destructive">
 						{wantsDevPassOrg
 							? "Couldn't load your DevPass organization. Refresh this page and try again."
-							: "No project found on your account. Finish setup in the dashboard first."}
+							: organizations.length > 1
+								? "No project available in this organization. Pick another one or create a project in the dashboard."
+								: "No project found on your account. Finish setup in the dashboard first."}
 					</p>
 				) : null}
 			</CardFooter>
