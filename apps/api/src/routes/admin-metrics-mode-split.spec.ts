@@ -82,6 +82,13 @@ describe("admin — credits vs BYOK mode split", () => {
 				creditAmount: "100",
 				status: "completed",
 			},
+			// $20 gifted on top.
+			{
+				organizationId: ORG_ID,
+				type: "credit_gift",
+				creditAmount: "20",
+				status: "completed",
+			},
 			// A plan transaction so the DevPass org's usage is excluded from the
 			// global credit-economy metrics.
 			{
@@ -177,6 +184,7 @@ describe("admin — credits vs BYOK mode split", () => {
 			totalCreditsSpent: number;
 			totalApiKeysSpent: number;
 			unusedCredits: number;
+			unusedCreditsExcludingGifts: number;
 			overage: number;
 		};
 
@@ -185,8 +193,10 @@ describe("admin — credits vs BYOK mode split", () => {
 		expect(body.totalCreditsSpent).toBeCloseTo(10, 3);
 		expect(body.totalApiKeysSpent).toBeCloseTo(40, 3);
 		// Only debited spend counts against topped-up credits:
-		// 100 - (10 credits + 0.5 BYOK storage) = 89.5 — NOT 100 - 50.5.
-		expect(body.unusedCredits).toBeCloseTo(89.5, 3);
+		// 120 - (10 credits + 0.5 BYOK storage) = 109.5 — NOT 120 - 50.5.
+		expect(body.unusedCredits).toBeCloseTo(109.5, 3);
+		// Without the $20 gift.
+		expect(body.unusedCreditsExcludingGifts).toBeCloseTo(89.5, 3);
 		expect(body.overage).toBe(0);
 	});
 

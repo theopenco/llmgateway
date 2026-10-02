@@ -503,7 +503,15 @@ export default async function Page({
 								},
 								{
 									label: "Unused",
-									value: currencyFormatter.format(metrics.unusedCredits),
+									value: currencyFormatter.format(
+										metrics.unusedCreditsExcludingGifts,
+									),
+									sub: [
+										{
+											label: "Incl. gifted",
+											value: currencyFormatter.format(metrics.unusedCredits),
+										},
+									],
 								},
 							]}
 						/>
