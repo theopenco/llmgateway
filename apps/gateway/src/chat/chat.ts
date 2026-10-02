@@ -4700,6 +4700,27 @@ chat.openapi(completions, async (c) => {
 	// explicitly-requested (or custom) paid model with a pointer to the auto route.
 	assertTestWalletModelAllowed(endUserWallet, modelInfo);
 
+	// Peek the requested provider's caps before region selection below, which
+	// pins the session: read afterwards, a brand-new session would look already
+	// pinned and slip past a soft limit.
+	const requestedProviderRateLimitPeek =
+		usedProvider &&
+		requestedProvider &&
+		requestedProvider !== "llmgateway" &&
+		requestedProvider !== "custom"
+			? await peekProviderRateLimit(
+					project.organizationId,
+					usedProvider,
+					modelInfo.id,
+				)
+			: undefined;
+	if (usedProvider && requestedProviderRateLimitPeek?.softOnly) {
+		softLimitExemptProvider = await resolveSoftLimitExemptProvider(
+			createSessionStore(modelInfo.id),
+			new Set([usedProvider]),
+		);
+	}
+
 	// When a specific provider is requested and it has multiple mappings (for example,
 	// regional variants), pick the best eligible mapping up front so the request and
 	// any low-uptime fallback logic operate on the concrete provider-region pair.
@@ -4918,25 +4939,9 @@ chat.openapi(completions, async (c) => {
 
 	// Check provider RPM caps for specifically requested providers
 	// If rate-limited, route to an alternative (or 429 if no-fallback)
-	if (
-		usedProvider &&
-		requestedProvider &&
-		requestedProvider !== "llmgateway" &&
-		requestedProvider !== "custom"
-	) {
+	if (usedProvider && requestedProvider && requestedProviderRateLimitPeek) {
 		const baseModelId = (modelInfo as ModelDefinition).id;
-		const rateLimitPeek = await peekProviderRateLimit(
-			project.organizationId,
-			usedProvider,
-			baseModelId,
-		);
-
-		if (rateLimitPeek.softOnly) {
-			softLimitExemptProvider = await resolveSoftLimitExemptProvider(
-				createSessionStore(baseModelId),
-				new Set([usedProvider]),
-			);
-		}
+		const rateLimitPeek = requestedProviderRateLimitPeek;
 
 		if (rateLimitPeek.rateLimited && !softLimitExemptProvider) {
 			if (noFallback) {
@@ -6571,6 +6576,17 @@ chat.openapi(completions, async (c) => {
 				provider: usedProvider,
 				model: modelInfo.id,
 			});
+		}
+
+		// Serving an explicitly requested provider skips provider selection and
+		// its pinning, so pin here: the session's later requests then count as
+		// ongoing under a soft limit and stay on this provider's prompt cache.
+		if (
+			providerRateLimitResult.allowed &&
+			requestedProviderRateLimitPeek &&
+			usedProvider === requestedProvider
+		) {
+			await createSessionStore(modelInfo.id)?.set(usedProvider, usedRegion);
 		}
 
 		// Race condition: between peek and consume, the window may have filled.
