@@ -210,6 +210,7 @@ interface ProviderCredentialsManagerProps {
 			config?: Record<string, string>;
 			usageLimit?: string | null;
 			allowedModels?: string[] | null;
+			allowedModelsBase?: string[] | null;
 			skipValidation?: boolean;
 		},
 	) => Promise<MutationResult>;
@@ -1325,6 +1326,7 @@ export function ProviderCredentialsManager({
 							usageLimit: values.usageLimit || null,
 							allowedModels:
 								values.allowedModels.length > 0 ? values.allowedModels : null,
+							allowedModelsBase: editing.allowedModels,
 							skipValidation: values.skipValidation,
 						});
 						if (result.success) {
