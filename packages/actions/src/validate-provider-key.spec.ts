@@ -4,6 +4,7 @@ import { logger } from "@llmgateway/logger";
 import { models, providers } from "@llmgateway/models";
 import { getProviderModelKind } from "@llmgateway/shared";
 
+import { managedCredentialValidationOptions } from "./provider-key/managed.js";
 import {
 	getPinnedValidationModel,
 	getValidationModel,
@@ -574,6 +575,14 @@ describe("validateProviderKey region resolution", () => {
 		{ options: undefined, model: "global.moonshotai.kimi-k3" },
 		{
 			options: { aws_bedrock_region: "us" as const },
+			model: "us.moonshotai.kimi-k3",
+		},
+		{
+			options: managedCredentialValidationOptions(
+				"aws-bedrock",
+				{ region: "us." },
+				null,
+			),
 			model: "us.moonshotai.kimi-k3",
 		},
 	])(
