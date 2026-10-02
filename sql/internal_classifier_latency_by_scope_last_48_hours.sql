@@ -18,6 +18,7 @@
 --   log.gateway_content_filter_evaluation->>'classifierDurationMs'.
 -- - Only checks that recorded classifierDurationMs are counted, so hours
 --   before that field shipped have no rows.
+-- - hour_timestamp is UTC without a time zone, hence the UTC cutoff.
 -- - The current hour is partial until the stats worker next recounts it.
 -- - avg_classify_calls is classify calls per check: a long conversation is
 --   sent in chunks, up to 8 at a time.
@@ -45,6 +46,6 @@ select
 	max(image_duration_p95_ms)                                             as worst_hour_p95_image_ms
 from content_filter_hourly_latency_stats
 where classifier = 'internal'
-	and hour_timestamp >= now() - interval '48 hours'
+	and hour_timestamp >= (now() at time zone 'UTC') - interval '48 hours'
 group by internal_scope
 order by internal_scope;
