@@ -468,9 +468,10 @@ describe("admin organization metrics all-time top-ups", () => {
 		await deleteAll();
 	});
 
-	it("sums completed top-ups and manual payments, excluding gifts", async () => {
+	it("sums gross and net-of-refund top-ups, excluding gifts", async () => {
 		await db.insert(tables.transaction).values([
 			{
+				id: "org-details-topup",
 				organizationId: ORG_ID,
 				type: "credit_topup",
 				amount: "105.50",
@@ -499,10 +500,32 @@ describe("admin organization metrics all-time top-ups", () => {
 				status: "completed",
 			},
 		]);
+		await db.insert(tables.transaction).values([
+			{
+				organizationId: ORG_ID,
+				type: "credit_refund",
+				amount: "30",
+				creditAmount: "-28.44",
+				status: "completed",
+				relatedTransactionId: "org-details-topup",
+			},
+			// Unlinked refunds are not netted against top-ups.
+			{
+				organizationId: ORG_ID,
+				type: "credit_refund",
+				amount: "10",
+				creditAmount: "-10",
+				status: "completed",
+			},
+		]);
 
 		const res = await get("", cookie);
 		expect(res.status).toBe(200);
-		const body = (await res.json()) as { allTimeTopUps: string };
-		expect(body.allTimeTopUps).toBe("155.5");
+		const body = (await res.json()) as {
+			allTimeTopUpsGross: string;
+			allTimeTopUpsNet: string;
+		};
+		expect(body.allTimeTopUpsGross).toBe("155.5");
+		expect(body.allTimeTopUpsNet).toBe("125.5");
 	});
 });

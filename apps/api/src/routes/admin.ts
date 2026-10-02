@@ -615,9 +615,11 @@ const orgMetricsSchema = z.object({
 	mostUsedProvider: z.string().nullable(),
 	mostUsedModelCost: z.number(),
 	discountSavings: z.number(),
-	// All-time dollars paid for credits: completed Stripe top-ups (gross,
-	// incl fees) plus off-Stripe manual payments. Gifts are excluded.
-	allTimeTopUps: z.string(),
+	// All-time dollars paid for credits: completed Stripe top-ups (incl fees)
+	// plus off-Stripe manual payments. Gifts are excluded. Net subtracts
+	// completed refunds of those payments.
+	allTimeTopUpsGross: z.string(),
+	allTimeTopUpsNet: z.string(),
 });
 
 const transactionSchema = z.object({
@@ -3632,6 +3634,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		logOnly: org.contentFilterLogOnly,
 	};
 
+	const topUpTypes = ["credit_topup", "credit_manual_payment"] as const;
 	const [allTimeTopUpsRow] = await db
 		.select({
 			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
@@ -3641,13 +3644,37 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			and(
 				eq(tables.transaction.organizationId, orgId),
 				eq(tables.transaction.status, "completed"),
-				inArray(tables.transaction.type, [
-					"credit_topup",
-					"credit_manual_payment",
-				]),
+				inArray(tables.transaction.type, topUpTypes),
 				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
 			),
 		);
+
+	// Refunds net out only against the top-ups counted above.
+	const refundedTopUp = aliasedTable(tables.transaction, "refunded_topup");
+	const [topUpRefundsRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			refundedTopUp,
+			eq(tables.transaction.relatedTransactionId, refundedTopUp.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				eq(refundedTopUp.organizationId, orgId),
+				eq(refundedTopUp.status, "completed"),
+				inArray(refundedTopUp.type, topUpTypes),
+				sql`CAST(${refundedTopUp.amount} AS NUMERIC) > 0`,
+			),
+		);
+	const allTimeTopUpsGross = new Decimal(allTimeTopUpsRow?.total ?? 0);
+	const allTimeTopUpsNet = allTimeTopUpsGross.minus(
+		new Decimal(topUpRefundsRow?.total ?? 0),
+	);
 
 	return c.json({
 		organization: {
@@ -3695,7 +3722,8 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		mostUsedProvider,
 		mostUsedModelCost,
 		discountSavings,
-		allTimeTopUps: new Decimal(allTimeTopUpsRow?.total ?? 0).toString(),
+		allTimeTopUpsGross: allTimeTopUpsGross.toString(),
+		allTimeTopUpsNet: allTimeTopUpsNet.toString(),
 	});
 });
 

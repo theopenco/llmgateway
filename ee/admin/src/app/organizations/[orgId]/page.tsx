@@ -306,7 +306,8 @@ export default async function OrganizationPage({
 	const transactionsData = transactionsRes.data;
 	const trustTier = orgMetricsRes.data?.trustTier;
 	const contentFilterTier = orgMetricsRes.data?.contentFilterTier;
-	const allTimeTopUps = orgMetricsRes.data?.allTimeTopUps;
+	const allTimeTopUpsGross = orgMetricsRes.data?.allTimeTopUpsGross;
+	const allTimeTopUpsNet = orgMetricsRes.data?.allTimeTopUpsNet;
 	const projectsData = projectsRes.data;
 	const apiKeysData = apiKeysRes.data;
 	const providerKeysData = providerKeysRes.data;
@@ -479,15 +480,21 @@ export default async function OrganizationPage({
 									{creditsFormatter.format(parseFloat(org.credits))}
 								</p>
 							</div>
-							<div title="Completed Stripe top-ups (incl. fees) and manual payments">
+							<div title="Completed Stripe top-ups (incl. fees) and manual payments. Net subtracts their refunds.">
 								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-									All-time top-ups
+									All-time top-ups (net)
 								</p>
 								<p className="mt-1.5 text-xl font-semibold tabular-nums">
-									{allTimeTopUps !== undefined
-										? creditsFormatter.format(parseFloat(allTimeTopUps))
+									{allTimeTopUpsNet !== undefined
+										? creditsFormatter.format(parseFloat(allTimeTopUpsNet))
 										: "—"}
 								</p>
+								{allTimeTopUpsGross !== undefined ? (
+									<p className="mt-1 text-xs text-muted-foreground tabular-nums">
+										{creditsFormatter.format(parseFloat(allTimeTopUpsGross))}{" "}
+										gross
+									</p>
+								) : null}
 							</div>
 						</div>
 						<div className="p-4">
