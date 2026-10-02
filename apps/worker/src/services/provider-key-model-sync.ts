@@ -59,7 +59,8 @@ async function syncKey(
 		key.region,
 	);
 	const candidates = (getModelIdsByProvider().get(key.provider) ?? []).filter(
-		(modelId) => !allowed.includes(modelId),
+		(modelId) =>
+			!allowed.includes(modelId) && !key.modelSyncExcluded?.includes(modelId),
 	);
 
 	const added: string[] = [];

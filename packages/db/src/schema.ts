@@ -2058,6 +2058,10 @@ export const providerKey = pgTable(
 		// instead of picking it and failing upstream. NULL (or empty) means the
 		// key serves every model of its provider.
 		allowedModels: text().array(),
+		// Models an admin removed from `allowedModels`. The daily model sync
+		// skips them, so a deliberate exclusion is not re-enabled just because
+		// the account can still serve the model.
+		modelSyncExcluded: text().array(),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.

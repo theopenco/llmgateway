@@ -2592,6 +2592,34 @@ describe("managed credential allowed models", () => {
 		expect(validateProviderKeyMock).not.toHaveBeenCalled();
 	});
 
+	test("removed models are excluded from the daily sync until re-added", async () => {
+		const [first, second, third] = await catalogModels("openai");
+		const createRes = await create({
+			provider: "openai",
+			token: "sk-exclusions",
+			allowedModels: [first, second, third],
+		});
+		const { credential } = (await createRes.json()) as {
+			credential: { id: string };
+		};
+		const excluded = async () =>
+			(
+				await db.query.providerKey.findFirst({
+					where: { id: { eq: credential.id } },
+					columns: { modelSyncExcluded: true },
+				})
+			)?.modelSyncExcluded;
+
+		await patch(credential.id, { allowedModels: [first] });
+		expect(await excluded()).toEqual([second, third]);
+
+		await patch(credential.id, { allowedModels: [first, second] });
+		expect(await excluded()).toEqual([third]);
+
+		await patch(credential.id, { allowedModels: null });
+		expect(await excluded()).toBeNull();
+	});
+
 	test("model-sync-history lists a credential's sync runs, newest first", async () => {
 		const createRes = await create({ provider: "openai", token: "sk-history" });
 		const { credential } = (await createRes.json()) as {

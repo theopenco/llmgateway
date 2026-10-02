@@ -15,7 +15,11 @@ const bedrockModels = getModelIdsByProvider().get("aws-bedrock") ?? [];
 const [allowedModel, workingModel] = bedrockModels;
 
 async function createKey(
-	values: { provider?: string; allowedModels?: string[] | null } = {},
+	values: {
+		provider?: string;
+		allowedModels?: string[] | null;
+		modelSyncExcluded?: string[];
+	} = {},
 ) {
 	const id = `model-sync-key-${randomUUID()}`;
 	await db.insert(tables.providerKey).values({
@@ -27,6 +31,7 @@ async function createKey(
 			values.allowedModels === undefined
 				? [allowedModel]
 				: values.allowedModels,
+		modelSyncExcluded: values.modelSyncExcluded,
 	});
 	return id;
 }
@@ -108,6 +113,17 @@ describe("syncProviderKeyModels", () => {
 			statusCode: 404,
 			error: "model not enabled",
 		});
+	});
+
+	it("does not re-enable a model an admin removed", async () => {
+		const id = await createKey({ modelSyncExcluded: [workingModel!] });
+
+		await syncProviderKeyModels({ probe });
+
+		expect(await allowedModelsOf(id)).toEqual([allowedModel]);
+		expect(
+			probe.mock.calls.some(([options]) => options.modelId === workingModel),
+		).toBe(false);
 	});
 
 	it("syncs a credential at most once a day", async () => {

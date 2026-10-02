@@ -1804,6 +1804,17 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			),
 		);
 		updates.allowedModels = allowedModels;
+		// Remember removed models so the daily sync does not re-enable them;
+		// re-adding one, or clearing the restriction, forgets the exclusion.
+		const removed = (existing.allowedModels ?? []).filter(
+			(modelId) => !allowedModels?.includes(modelId),
+		);
+		const excluded = allowedModels
+			? [
+					...new Set([...(existing.modelSyncExcluded ?? []), ...removed]),
+				].filter((modelId) => !allowedModels.includes(modelId))
+			: [];
+		updates.modelSyncExcluded = excluded.length > 0 ? excluded : null;
 	}
 
 	// A new token, a changed config and a changed region all alter what the
