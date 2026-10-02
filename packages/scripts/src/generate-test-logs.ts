@@ -246,7 +246,7 @@ function generateLog(
 		timeToFirstToken,
 		requestedModel: model.id,
 		requestedProvider: model.provider,
-		usedModel: model.id,
+		usedModel: `${model.provider}/${model.id}`,
 		usedProvider: model.provider,
 		responseSize: outputTokens * randomInt(3, 7), // Variable bytes-per-token estimate
 		promptTokens: String(inputTokens),

@@ -68,8 +68,11 @@ export default function PrivacyPage() {
 			<ul>
 				<li>
 					The provider claimed, the claim type, and the{" "}
-					<strong>registrable email domain that satisfied the match</strong> —
-					this is the record of how the claim was authorized, so we retain it
+					<strong>
+						registrable domain that satisfied the match, verified through email
+						or website DNS control
+					</strong>{" "}
+					— this is the record of how the claim was authorized, so we retain it
 					for as long as the claim exists.
 				</li>
 				<li>
@@ -142,8 +145,8 @@ export default function PrivacyPage() {
 			<ul>
 				<li>
 					<strong>To verify and review claims</strong> — matching your verified
-					email domain against the provider&rsquo;s endpoint or website, and
-					deciding whether to approve.
+					email domain or DNS-verified website domain against the
+					provider&rsquo;s endpoint or website, and deciding whether to approve.
 				</li>
 				<li>
 					<strong>To operate your listings</strong> — publishing approved models

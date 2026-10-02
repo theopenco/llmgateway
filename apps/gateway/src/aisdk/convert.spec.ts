@@ -346,6 +346,27 @@ describe("tool conversion", () => {
 });
 
 describe("chat request building", () => {
+	test("maps V4 reasoning and defaults without dropping unsupported values silently", () => {
+		const build = (reasoning: string) =>
+			buildChatRequest({
+				options: { prompt: [], reasoning },
+				modelId: "test-model",
+				stream: false,
+				specVersion: 4,
+			});
+		expect(build("high").body.reasoning_effort).toBe("high");
+		expect(build("provider-default").body.reasoning_effort).toBeUndefined();
+		expect(build("invalid").warnings).toContainEqual(
+			expect.objectContaining({ feature: "reasoning" }),
+		);
+	});
+
+	test.each(["2oops", "2.9", "02"])(
+		"does not treat %s as a supported spec version",
+		(value) => {
+			expect(parseSpecVersion(value)).toBe(4);
+		},
+	);
 	const basePrompt: SpecMessage[] = [
 		{ role: "user", content: [{ type: "text", text: "hi" }] },
 	];
@@ -464,6 +485,68 @@ describe("chat request building", () => {
 	});
 });
 
+describe.each([2, 3, 4] as const)(
+	"finish reasons for spec v%i",
+	(specVersion) => {
+		test("preserves a meaningful finish reason across an empty trailing chunk", () => {
+			const state = createStreamingPartsState({ specVersion });
+			processChatChunk(state, {
+				choices: [{ finish_reason: "tool_calls" }],
+			});
+			processChatChunk(state, { choices: [{ finish_reason: "" }] });
+
+			expect(finalizeStream(state).at(-1)).toMatchObject({
+				type: "finish",
+				finishReason:
+					specVersion === 2
+						? "tool-calls"
+						: { unified: "tool-calls", raw: "tool_calls" },
+			});
+		});
+
+		test.each([
+			["stop", "stop"],
+			["length", "length"],
+			["tool_calls", "tool-calls"],
+			["function_call", "tool-calls"],
+			["content_filter", "content-filter"],
+			["error", "error"],
+			["provider-specific", "unknown"],
+			["", "unknown"],
+			[null, "unknown"],
+			[undefined, "unknown"],
+		])(
+			"preserves the finish reason %s in both response modes",
+			(raw, mapped) => {
+				const expected =
+					specVersion === 2
+						? mapped
+						: {
+								unified: mapped === "unknown" ? "other" : mapped,
+								raw: raw ?? undefined,
+							};
+				const response = {
+					choices: [{ message: { content: "done" }, finish_reason: raw }],
+				};
+				const generated = convertChatToGenerateResult({
+					response,
+					specVersion,
+					warnings: [],
+				});
+				const state = createStreamingPartsState({ specVersion });
+				processChatChunk(state, { choices: [{ finish_reason: raw }] });
+				processChatChunk(state, { usage: { total_tokens: 1 } });
+
+				expect(generated.finishReason).toEqual(expected);
+				expect(finalizeStream(state).at(-1)).toMatchObject({
+					type: "finish",
+					finishReason: expected,
+				});
+			},
+		);
+	},
+);
+
 describe("non-streaming response conversion", () => {
 	test("emits reasoning, text and tool-call content parts", () => {
 		const result = convertChatToGenerateResult({
@@ -506,7 +589,10 @@ describe("non-streaming response conversion", () => {
 				input: '{"a":1}',
 			},
 		]);
-		expect(result.finishReason).toBe("tool-calls");
+		expect(result.finishReason).toEqual({
+			unified: "tool-calls",
+			raw: "tool_calls",
+		});
 		expect(result.providerMetadata).toEqual({
 			llmgateway: {
 				cost: 0.002,
@@ -642,8 +728,8 @@ describe("streaming conversion", () => {
 			"finish",
 		]);
 
-		const finish = parts.at(-1) as { finishReason: string; usage: unknown };
-		expect(finish.finishReason).toBe("stop");
+		const finish = parts.at(-1) as { finishReason: unknown; usage: unknown };
+		expect(finish.finishReason).toEqual({ unified: "stop", raw: "stop" });
 		expect(finish.usage).toEqual({
 			inputTokens: {
 				total: 3,

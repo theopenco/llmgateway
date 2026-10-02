@@ -67,7 +67,7 @@ To use caching:
 
 ## Cache Key Generation
 
-The cache key is scoped to your **project** and includes the **resolved provider and model** — so two projects never share cache entries, and the same request routed to a different provider is a separate entry. The key is a hash of these request parameters:
+The cache key is scoped to your **project** and includes the **resolved provider and model** — so two projects never share cache entries, and the same request routed to a different provider is a separate entry. The key hashes the validated request options together with the resolved execution settings, including:
 
 - Resolved provider and model
 - Messages array (roles and content, including the system prompt)
@@ -75,15 +75,15 @@ The cache key is scoped to your **project** and includes the **resolved provider
 - Frequency and presence penalty
 - Response format
 - Tools/functions, tool choice, and the web search tool
-- Reasoning effort and reasoning max tokens
+- Reasoning settings, effort, and verbosity
+- Image configuration (including size and seed) and response plugins
 - `prompt_cache_key`, `prompt_cache_retention`, `prompt_cache_options`
 - `n` and `service_tier`
 - The response mode — streaming and non-streaming entries are kept separate, so an otherwise identical `stream: true` request never shares an entry with a non-streaming one
 
 <Callout type="info">
 	Requests with different values for any of these parameters, even slight
-	variations, will not share cache entries. Parameters outside this list do not
-	affect the cache key.
+	variations, will not share cache entries.
 </Callout>
 
 ## Cache Behavior

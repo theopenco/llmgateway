@@ -1,5 +1,5 @@
 export function extractFirstSseEventData(buffer: string): string | null {
-	const normalizedBuffer = buffer.replace(/\r\n/g, "\n");
+	const normalizedBuffer = buffer.replace(/\r\n|\r/g, "\n");
 	const completeEvents = normalizedBuffer.split("\n\n");
 	const completeEventCount = completeEvents.length - 1;
 

@@ -21,10 +21,11 @@ export type SpecVersion = (typeof SUPPORTED_SPEC_VERSIONS)[number];
 export const DEFAULT_SPEC_VERSION: SpecVersion = 4;
 
 export function parseSpecVersion(header: string | undefined): SpecVersion {
-	const parsed = Number.parseInt((header ?? "").trim(), 10);
-	return SUPPORTED_SPEC_VERSIONS.includes(parsed as SpecVersion)
-		? (parsed as SpecVersion)
-		: DEFAULT_SPEC_VERSION;
+	return (
+		SUPPORTED_SPEC_VERSIONS.find(
+			(version) => String(version) === header?.trim(),
+		) ?? DEFAULT_SPEC_VERSION
+	);
 }
 
 /**

@@ -57,7 +57,7 @@ export const bytedanceModels = [
 		id: "seed-1-6-flash-250715",
 		name: "Seed 1.6 Flash (250715)",
 		description:
-			"ByteDance Seed 1.6 Flash - faster, cost-effective vision model released July 15, 2025",
+			"ByteDance Seed 1.6 Flash, a faster, cost-effective vision model",
 		family: "bytedance",
 		releasedAt: new Date("2025-07-26"),
 		providers: [
@@ -83,7 +83,7 @@ export const bytedanceModels = [
 		id: "seed-1-8-251228",
 		name: "Seed 1.8 (251228)",
 		description:
-			"ByteDance Seed 1.8 advanced vision model released December 28, 2025 with enhanced capabilities",
+			"ByteDance Seed 1.8 advanced vision model with enhanced agentic capabilities",
 		family: "bytedance",
 		releasedAt: new Date("2025-12-18"),
 		providers: [

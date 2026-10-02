@@ -71,9 +71,11 @@ export function addApiKeyPeriodDuration(
 	const next = new Date(startedAt);
 
 	switch (unit) {
-		case "hour":
-			next.setHours(next.getHours() + value);
+		case "hour": {
+			const milliseconds = value * 60 * 60 * 1000;
+			next.setTime(next.getTime() + milliseconds);
 			return next;
+		}
 		case "day":
 			next.setDate(next.getDate() + value);
 			return next;

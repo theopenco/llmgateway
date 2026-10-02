@@ -548,7 +548,14 @@ export function ModelCard({
 					{/* CTA */}
 					<div className="mt-4 pt-4 border-t border-border/30">
 						{renderCta?.({
-							modelId: `${groupedByProvider[0]?.providerId}/${model.id}`,
+							modelId: (() => {
+								const mapping = model.providerDetails.find(
+									({ provider }) => !provider.blockedReasons?.length,
+								)?.provider;
+								return mapping
+									? `${mapping.providerId}/${model.id}${mapping.region ? `:${mapping.region}` : ""}`
+									: model.id;
+							})(),
 							output: model.output,
 							onClick: (e) => e.stopPropagation(),
 						})}

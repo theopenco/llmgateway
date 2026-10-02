@@ -39,31 +39,17 @@ export default async function CanvasPage({
 		cookieStore.get(CANVAS_MODEL_COOKIE)?.value,
 	);
 
-	const [models, providers, initialOrganizationsData, orgIdProjectsData] =
-		await Promise.all([
-			fetchModels(),
-			fetchProviders(),
-			// Ensure the dedicated Chat org exists, then list it so it can back the
-			// default billing context for the playground.
-			fetchServerData("GET", "/playground/chat-org").then(() =>
-				fetchServerData("GET", "/orgs", {
-					params: { query: { includeChat: "true" } },
-				}),
-			),
-			orgId
-				? fetchServerData("GET", "/orgs/{id}/projects", {
-						params: {
-							path: {
-								id: orgId,
-							},
-						},
-					})
-				: null,
-		]);
-
-	let initialProjectsData = (orgIdProjectsData ?? null) as {
-		projects: Project[];
-	} | null;
+	const [models, providers, initialOrganizationsData] = await Promise.all([
+		fetchModels(),
+		fetchProviders(),
+		// Ensure the dedicated Chat org exists, then list it so it can back the
+		// default billing context for the playground.
+		fetchServerData("GET", "/playground/chat-org").then(() =>
+			fetchServerData("GET", "/orgs", {
+				params: { query: { includeChat: "true" } },
+			}),
+		),
+	]);
 
 	const allOrganizations = (
 		initialOrganizationsData &&
@@ -87,32 +73,17 @@ export default async function CanvasPage({
 		return <PlaygroundSeoSection variant="canvas" />;
 	}
 
-	if (!initialProjectsData && selectedOrganization?.id) {
-		try {
-			initialProjectsData = (await fetchServerData(
-				"GET",
-				"/orgs/{id}/projects",
-				{
-					params: {
-						path: {
-							id: selectedOrganization.id,
-						},
-					},
-				},
-			)) as { projects: Project[] };
-		} catch (error) {
-			console.warn(
-				"Failed to fetch projects for organization:",
-				selectedOrganization?.id,
-				error,
-			);
-		}
-	}
-
-	const projects = (initialProjectsData?.projects ?? []) as Project[];
+	const initialProjectsData = (await fetchServerData(
+		"GET",
+		"/orgs/{id}/projects",
+		{
+			params: { path: { id: selectedOrganization.id } },
+		},
+	)) as { projects: Project[] } | null;
+	const projects = initialProjectsData?.projects ?? [];
 
 	let selectedProject: Project | null = null;
-	if (projectId) {
+	if (projectId && orgId === selectedOrganization.id) {
 		selectedProject = projects.find((p) => p.id === projectId) ?? null;
 		if (!selectedProject) {
 			notFound();

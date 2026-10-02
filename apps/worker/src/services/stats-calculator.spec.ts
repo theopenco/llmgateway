@@ -1642,6 +1642,44 @@ describe("stats-calculator", () => {
 	});
 
 	describe("backfillHistoryIfNeeded", () => {
+		it("repairs independent minute gaps even after newer rows succeed", async () => {
+			for (const minute of [27, 28, 29]) {
+				vi.setSystemTime(new Date(`2024-01-01T12:${minute + 1}:00.000Z`));
+				await calculateMinutelyHistory();
+			}
+			const missingModel = new Date("2024-01-01T12:27:00.000Z");
+			const missingMapping = new Date("2024-01-01T12:28:00.000Z");
+			const originalModel = await db
+				.select()
+				.from(modelHistory)
+				.where(eq(modelHistory.minuteTimestamp, missingModel));
+			const originalMapping = await db
+				.select()
+				.from(modelProviderMappingHistory)
+				.where(eq(modelProviderMappingHistory.minuteTimestamp, missingMapping));
+			await db
+				.delete(modelHistory)
+				.where(eq(modelHistory.minuteTimestamp, missingModel));
+			await db
+				.delete(modelProviderMappingHistory)
+				.where(eq(modelProviderMappingHistory.minuteTimestamp, missingMapping));
+			await backfillHistoryIfNeeded();
+			expect(
+				await db
+					.select()
+					.from(modelHistory)
+					.where(eq(modelHistory.minuteTimestamp, missingModel)),
+			).toHaveLength(originalModel.length);
+			expect(
+				await db
+					.select()
+					.from(modelProviderMappingHistory)
+					.where(
+						eq(modelProviderMappingHistory.minuteTimestamp, missingMapping),
+					),
+			).toHaveLength(originalMapping.length);
+		});
+
 		it("should backfill when no history exists", async () => {
 			// Set time to 12:30 so we backfill from 12:25 to 12:29 (5 minutes)
 			vi.setSystemTime(new Date("2024-01-01T12:30:00.000Z"));
@@ -1672,28 +1710,13 @@ describe("stats-calculator", () => {
 			expect(uniqueModelTimestamps.size).toBe(5); // 5 different minutes
 		});
 
-		it("should not backfill when history is up to date", async () => {
-			// Create recent history entry
-			const recentMinute = new Date("2024-01-01T12:28:00.000Z");
-			await db.insert(modelProviderMappingHistory).values({
-				modelId: "gpt-4",
-				providerId: "openai",
-				modelProviderMappingId: "mapping-1",
-				minuteTimestamp: recentMinute,
-				logsCount: 0,
-				errorsCount: 0,
-				cachedCount: 0,
-				totalOutputTokens: 0,
-				totalDuration: 0,
-			});
-
+		it("does not rewrite complete recent history", async () => {
+			await calculateMinutelyHistory();
+			const original = await db.select().from(modelProviderMappingHistory);
 			await backfillHistoryIfNeeded();
-
-			const historyRecords = await db
-				.select()
-				.from(modelProviderMappingHistory);
-			// Should only have the one we inserted, no backfill needed
-			expect(historyRecords).toHaveLength(1);
+			expect(await db.select().from(modelProviderMappingHistory)).toEqual(
+				original,
+			);
 		});
 
 		it("should backfill missing periods", async () => {

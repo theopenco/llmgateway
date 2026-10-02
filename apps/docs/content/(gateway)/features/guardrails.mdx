@@ -95,11 +95,16 @@ way: git SHAs and hex digests are not treated as AWS secrets, and template
 values such as `YOUR_API_KEY`, `${OPENAI_API_KEY}` or `********` are not treated
 as credentials.
 
+Private-key redaction removes the complete PEM block, including its body and
+closing marker. Violation previews use the same redaction.
+
 ### File Type Restrictions
 
 Control which file types can be uploaded:
 
-- Configure allowed MIME types
+The configured MIME allow-list applies to inline data URLs, image and file attachments, and audio input. Remote images are downloaded once with the configured size limit before validation, then that verified payload is sent upstream. This adds a download before the model request. Provider file IDs cannot be inspected and are rejected while file restrictions are enabled; send the file as a data URL instead. File attachments cannot be redacted, so a file rule set to redact blocks them.
+
+- Configure allowed types as MIME types (`application/pdf`), wildcards (`image/*`), or extensions (`pdf`)
 - Set maximum file size limits
 - Block potentially dangerous file types
 
@@ -129,6 +134,9 @@ Prevent specific words or phrases from being used:
 - Case-sensitive matching option
 - Multiple terms per rule
 
+Exact matching respects word boundaries, including terms containing punctuation.
+Redaction preserves the rule's case sensitivity and exact-match boundaries.
+
 ### Custom Regex
 
 Match patterns unique to your organization:
@@ -137,12 +145,20 @@ Match patterns unique to your organization:
 - Customer identifiers
 - Domain-specific sensitive data
 
+Regex rules use [RE2 syntax](https://github.com/google/re2/wiki/Syntax) with a
+1000-character limit. Lookarounds and backreferences are unsupported and rejected
+when saving a rule. Existing unsupported patterns block requests until corrected
+or disabled. The same limits apply to blocked terms in regex mode.
+
 ### Topic Restrictions
 
 Block content related to specific topics:
 
 - Define restricted topics
 - Keyword-based detection
+
+Keywords match whole words or phrases, so unrelated words containing a keyword
+are not blocked.
 
 ## Security Events Dashboard
 

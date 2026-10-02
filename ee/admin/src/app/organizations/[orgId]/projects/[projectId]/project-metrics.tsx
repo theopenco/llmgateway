@@ -10,20 +10,19 @@ import {
 	TrendingDown,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
 
 import { TokenTimeRangeToggle } from "@/components/token-time-range-toggle";
 import {
 	UsageModeSelector,
 	useUsageMode,
 } from "@/components/usage-mode-selector";
-import { loadProjectMetricsAction } from "@/lib/admin-organizations";
+import { useApi } from "@/lib/fetch-client";
 import { pickCost, pickRequests } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
-import type { ProjectMetrics, TokenWindow } from "@/lib/types";
+import type { TokenWindow } from "@/lib/types";
 
 const validWindows = new Set<TokenWindow>([
 	"1h",
@@ -109,30 +108,19 @@ export function ProjectMetricsSection({
 
 	const selectedWindow = parseWindow(searchParams.get("window"));
 	const usageMode = useUsageMode();
-	const [metrics, setMetrics] = useState<ProjectMetrics | null>(null);
-	const [loading, setLoading] = useState(true);
-	const [loadError, setLoadError] = useState<string | null>(null);
-
-	const loadMetrics = useCallback(
-		async (w: TokenWindow) => {
-			setLoading(true);
-			setLoadError(null);
-			try {
-				const data = await loadProjectMetricsAction(orgId, projectId, w);
-				setMetrics(data);
-			} catch {
-				setMetrics(null);
-				setLoadError("Unable to load usage data. Try again shortly.");
-			} finally {
-				setLoading(false);
-			}
+	const api = useApi();
+	const {
+		data: metrics,
+		isPending: loading,
+		isError,
+		refetch,
+	} = api.useQuery(
+		"get",
+		"/admin/organizations/{orgId}/projects/{projectId}/metrics",
+		{
+			params: { path: { orgId, projectId }, query: { window: selectedWindow } },
 		},
-		[orgId, projectId],
 	);
-
-	useEffect(() => {
-		void loadMetrics(selectedWindow);
-	}, [loadMetrics, selectedWindow]);
 
 	if (loading) {
 		return (
@@ -151,7 +139,16 @@ export function ProjectMetricsSection({
 			<section className="space-y-4">
 				<h2 className="text-lg font-semibold">Usage Metrics</h2>
 				<div className="rounded-lg border border-dashed border-border/60 p-8 text-center text-sm text-muted-foreground">
-					{loadError ?? "No usage data available."}
+					{isError ? "Unable to load usage data." : "No usage data available."}
+					{isError && (
+						<button
+							type="button"
+							onClick={() => void refetch()}
+							className="ml-2 underline"
+						>
+							Try again
+						</button>
+					)}
 				</div>
 			</section>
 		);

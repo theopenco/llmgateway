@@ -8,7 +8,9 @@ export default defineConfig({
 	workers: 1,
 	timeout: 90_000,
 	use: {
-		baseURL: process.env.PW_BASE_URL ?? "http://localhost:3007",
+		baseURL:
+			process.env.PW_BASE_URL ??
+			`http://localhost:${process.env.AIRSIDE_PORT ?? 3007}`,
 		trace: "retain-on-failure",
 		video: "retain-on-failure",
 	},

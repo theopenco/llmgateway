@@ -647,10 +647,16 @@ export async function calculateCosts(
 	}
 
 	// Track image input tokens separately. For image-output models (e.g.
-	// gpt-image-2) we prefer the upstream-reported image_tokens count, since
-	// the provider tokenises the input image and bills against it directly.
-	// For Google image-generation models we fall back to inputImageCount *
-	// imageInputTokensByResolution[size] (or 560/image legacy default).
+	// gpt-image-2, Gemini image models) we prefer the upstream-reported
+	// image token count, which is already part of the reported prompt tokens.
+	// Without one (estimated prompt tokens), Google image-generation models
+	// fall back to inputImageCount * imageInputTokensByResolution[size] (or
+	// 560/image legacy default) on top of the text estimate.
+	const isGoogleProvider =
+		provider === "google-ai-studio" ||
+		provider === "glacier" ||
+		provider === "google-vertex" ||
+		provider === "quartz";
 	const imageInputTokensPerImage = resolveByResolution(
 		providerInfo.imageInputTokensByResolution,
 		imageSize,
@@ -659,6 +665,7 @@ export async function calculateCosts(
 	const cachedImageInputPricePerToken = providerInfo.cachedImageInputPrice;
 	const isImageOutputModel = modelInfo.output?.includes("image") ?? false;
 	let imageInputTokens: number | null = null;
+	let imageInputTokensReported = false;
 	if (
 		imageInputPricePerToken &&
 		isImageOutputModel &&
@@ -666,6 +673,7 @@ export async function calculateCosts(
 		reportedImageInputTokens > 0
 	) {
 		imageInputTokens = reportedImageInputTokens;
+		imageInputTokensReported = true;
 	} else if (imageInputPricePerToken && inputImageCount > 0) {
 		const LEGACY_TOKENS_PER_INPUT_IMAGE = 560;
 		const tokensPerImage =
@@ -688,7 +696,8 @@ export async function calculateCosts(
 			separatelyPricedCacheWriteTokens,
 	);
 	// For providers whose upstream usage already folds image tokens into
-	// prompt_tokens (OpenAI/Azure/xAI on image-output models), the cached_tokens
+	// prompt_tokens (OpenAI/Azure/xAI on image-output models, Google when it
+	// reported the IMAGE modality split), the cached_tokens
 	// count covers a mix of text and image. OpenAI doesn't expose the split, so
 	// we apportion by the overall image:text ratio in prompt_tokens. The cached
 	// image portion is billed at cachedImageInputPrice; the rest at
@@ -696,7 +705,10 @@ export async function calculateCosts(
 	// legacy single-rate behavior.
 	const promptIncludesImageTokens =
 		isImageOutputModel &&
-		(provider === "openai" || provider === "azure" || provider === "xai");
+		(provider === "openai" ||
+			provider === "azure" ||
+			provider === "xai" ||
+			(isGoogleProvider && imageInputTokensReported));
 	let cachedImageTokens = 0;
 	if (
 		promptIncludesImageTokens &&
@@ -945,15 +957,10 @@ export async function calculateCosts(
 		audioInputCost: audioInputCost?.toNumber() ?? null,
 		totalCost: totalCost.toNumber(),
 		dataStorageCost: null as number | null,
-		// Only add image input tokens to promptTokens for providers whose upstream
-		// usage excludes them (Google). Other providers (OpenAI, xAI) already
-		// include image tokens in their reported prompt_tokens.
+		// Only add estimated Google image input tokens to the text-only prompt
+		// estimate. Reported image tokens are already in the prompt count.
 		promptTokens:
-			imageInputTokens &&
-			(provider === "google-ai-studio" ||
-				provider === "glacier" ||
-				provider === "google-vertex" ||
-				provider === "quartz")
+			imageInputTokens && isGoogleProvider && !imageInputTokensReported
 				? (calculatedPromptTokens || 0) + imageInputTokens
 				: calculatedPromptTokens,
 		completionTokens: calculatedCompletionTokens,

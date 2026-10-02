@@ -153,6 +153,8 @@ export async function runBenchmarkCli(args: string[]): Promise<number> {
 		return 0;
 	}
 
+	const output = values.output;
+	const format = inferFormat(values.format, output);
 	const modelIds = values.model ?? (positionals[0] ? [positionals[0]] : []);
 	if (modelIds.length === 0) {
 		throw new Error("Missing --model. Use --help for usage.");
@@ -278,8 +280,6 @@ export async function runBenchmarkCli(args: string[]): Promise<number> {
 					}
 				},
 	});
-	const output = values.output;
-	const format = inferFormat(values.format, output);
 	const rendered = renderBenchmarkResult(result, format);
 	if (output) {
 		await writeFile(output, rendered);

@@ -17,6 +17,7 @@ import {
 	Zap,
 } from "lucide-react";
 import { useState, useCallback } from "react";
+import { toast } from "sonner";
 
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -100,13 +101,19 @@ const agents: Agent[] = [
 export function AgentCards() {
 	const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
 
-	const copyToClipboard = useCallback((url: string) => {
+	const copyToClipboard = useCallback(async (url: string) => {
 		const templateName = url.split("/").pop();
-		void navigator.clipboard.writeText(
-			`npx @llmgateway/cli init --template ${templateName}`,
-		);
-		setCopiedUrl(url);
-		setTimeout(() => setCopiedUrl(null), 2000);
+		try {
+			await navigator.clipboard.writeText(
+				`npx @llmgateway/cli init --template ${templateName}`,
+			);
+			setCopiedUrl(url);
+			setTimeout(() => setCopiedUrl(null), 2000);
+		} catch {
+			toast.error(
+				"Could not copy the command. Check clipboard permissions and try again.",
+			);
+		}
 	}, []);
 
 	if (agents.length === 0) {

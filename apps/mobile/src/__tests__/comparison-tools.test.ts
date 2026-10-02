@@ -67,30 +67,47 @@ beforeEach(() => {
 	jest.resetAllMocks();
 	(client.GET as jest.Mock).mockResolvedValue({ data: history });
 	(client.POST as jest.Mock).mockResolvedValue({
-		data: { result: '{"messages":[{"id":"meeting"}]}' },
+		data: {
+			result: '{"messages":[{"id":"meeting"}]}',
+			tools: JSON.stringify([
+				{
+					...request,
+					state: "output-available",
+					output: { messages: [{ id: "meeting" }] },
+					approval: { ...request.approval, approved: true },
+				},
+			]),
+		},
 	});
 	jest.spyOn(loungeCompletion, "generateLoungeReply").mockResolvedValue(reply);
 });
 afterEach(() => jest.restoreAllMocks());
 
-test("persists uncertainty before executing, then stores the result before continuing only the root", async () => {
+test("claims the saved approval through the API before continuing only the root", async () => {
 	const events: string[] = [];
 	jest.mocked(saveReply).mockImplementation(async (_id, value) => {
 		events.push(value.tools?.[0]?.state ?? "reply");
 	});
 	(client.POST as jest.Mock).mockImplementation(async () => {
-		expect(events).toEqual(["output-error"]);
+		expect(events).toEqual([]);
 		events.push("execute");
-		return { data: { result: '{"messages":[{"id":"meeting"}]}' } };
+		return {
+			data: {
+				result: '{"messages":[{"id":"meeting"}]}',
+				tools: JSON.stringify([
+					{
+						...request,
+						state: "output-available",
+						output: { messages: [{ id: "meeting" }] },
+						approval: { ...request.approval, approved: true },
+					},
+				]),
+			},
+		};
 	});
 	const args = options();
 	await continueComparison(args);
-	expect(events).toEqual([
-		"output-error",
-		"execute",
-		"output-available",
-		"reply",
-	]);
+	expect(events).toEqual(["execute", "reply"]);
 	expect(saveReply).toHaveBeenLastCalledWith("root", reply, "assistant");
 	expect(args.onStored).toHaveBeenCalledTimes(3);
 	expect(loungeCompletion.generateLoungeReply).toHaveBeenCalledWith(
@@ -111,33 +128,51 @@ test("persists uncertainty before executing, then stores the result before conti
 	);
 });
 
-test("declines without executing a connector", async () => {
+test("persists a decline through the claim endpoint before continuing", async () => {
+	(client.POST as jest.Mock).mockResolvedValue({
+		data: {
+			result: "null",
+			tools: JSON.stringify([
+				{
+					...request,
+					state: "output-denied",
+					approval: { ...request.approval, approved: false },
+				},
+			]),
+		},
+	});
 	const args = options();
 	await continueComparison({
 		...args,
 		answer: { ...args.answer, approved: false },
 	});
-	expect(client.POST).not.toHaveBeenCalled();
-	expect(saveReply).toHaveBeenNthCalledWith(
-		1,
-		"root",
+	expect(client.POST).toHaveBeenCalledWith(
+		"/connectors/{connectorId}/tools/{toolName}",
 		expect.objectContaining({
-			tools: [expect.objectContaining({ state: "output-denied" })],
-			toolContinuation: true,
+			headers: expect.objectContaining({
+				"x-tool-message-id": "assistant",
+				"x-tool-call-id": "search",
+				"x-tool-approved": "false",
+			}),
 		}),
-		"assistant",
 	);
-	expect(loungeCompletion.generateLoungeReply).toHaveBeenCalledTimes(1);
+	expect(loungeCompletion.generateLoungeReply).toHaveBeenCalledWith(
+		expect.objectContaining({
+			initial: expect.objectContaining({
+				tools: [expect.objectContaining({ state: "output-denied" })],
+			}),
+		}),
+	);
 });
 
-test("does not execute when the safeguard cannot be saved", async () => {
-	jest
-		.mocked(saveReply)
-		.mockRejectedValueOnce(new Error("History unavailable"));
+test("does not continue when the server rejects the approval claim", async () => {
+	(client.POST as jest.Mock).mockResolvedValue({
+		error: { message: "Already claimed" },
+	});
 	await expect(continueComparison(options())).rejects.toThrow(
-		"History unavailable",
+		uncertainToolOutcome,
 	);
-	expect(client.POST).not.toHaveBeenCalled();
+	expect(saveReply).not.toHaveBeenCalled();
 	expect(loungeCompletion.generateLoungeReply).not.toHaveBeenCalled();
 });
 
@@ -170,6 +205,15 @@ test("an interrupted action stays uncertain and continuation after restart does 
 });
 
 test("waits for every pending approval before calling the model", async () => {
+	(client.POST as jest.Mock).mockResolvedValue({
+		data: {
+			result: "{}",
+			tools: JSON.stringify([
+				{ ...request, state: "output-available", output: {} },
+				{ ...request, toolCallId: "second" },
+			]),
+		},
+	});
 	(client.GET as jest.Mock).mockResolvedValue({
 		data: {
 			...history,
@@ -226,8 +270,6 @@ test("refuses a stale approval if another session already answered it", async ()
 test("retains the completed draft when continuation cannot be saved", async () => {
 	jest
 		.mocked(saveReply)
-		.mockResolvedValueOnce(undefined)
-		.mockResolvedValueOnce(undefined)
 		.mockRejectedValueOnce(new Error("History unavailable"));
 	const args = options();
 	await expect(continueComparison(args)).rejects.toThrow("History unavailable");

@@ -135,21 +135,21 @@ test.describe("crawlable archives", () => {
 			"DevPass changelog",
 		);
 	});
-});
 
-test("invalid products and page numbers are not indexable", async ({
-	page,
-}) => {
-	for (const path of [
-		"/changelog/tag/unknown",
-		"/changelog?page=0",
-		"/changelog?page=9999",
-		"/changelog?page=1&page=2",
-	]) {
-		await page.goto(path, { waitUntil: "domcontentloaded" });
-		await expect(
-			page.locator('meta[name="robots"][content="noindex"]'),
-		).toHaveCount(1);
-		await expect(page.getByRole("article")).toHaveCount(0);
-	}
+	test("invalid products and page numbers are not indexable", async ({
+		page,
+	}) => {
+		for (const path of [
+			"/changelog/tag/unknown",
+			"/changelog?page=0",
+			"/changelog?page=9999",
+			"/changelog?page=1&page=2",
+		]) {
+			await page.goto(path, { waitUntil: "domcontentloaded" });
+			await expect(
+				page.locator('meta[name="robots"][content="noindex"]'),
+			).toHaveCount(1);
+			await expect(page.getByRole("article")).toHaveCount(0);
+		}
+	});
 });

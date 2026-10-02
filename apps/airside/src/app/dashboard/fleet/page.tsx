@@ -312,6 +312,7 @@ function RelistModelButton({ model }: { model: AirsideModel }) {
 }
 
 export default function FleetPage() {
+	const queryClient = useQueryClient();
 	const api = useApi();
 	const { company, isLoading: companyLoading } = useCompany();
 
@@ -336,7 +337,14 @@ export default function FleetPage() {
 
 	const importModels = api.useMutation("post", "/airside/models/import", {
 		onSuccess: async (data) => {
-			await modelsQuery.refetch();
+			await Promise.all([
+				modelsQuery.refetch(),
+				queryClient.invalidateQueries({
+					queryKey: api.queryOptions("get", "/airside/filings", {
+						params: { query: { providerCompanyId: company?.id ?? "" } },
+					}).queryKey,
+				}),
+			]);
 			toast.success(
 				data.imported.length > 0
 					? `Imported ${data.imported.length} catalogue model${data.imported.length === 1 ? "" : "s"}.`
@@ -667,7 +675,7 @@ export default function FleetPage() {
 											</span>
 											{model.status === "active" ? (
 												<Link
-													href={`/dashboard/incidents?mapping=${encodeURIComponent(`${model.providerId}/${model.modelName}`)}`}
+													href={`/dashboard/incidents?model=${encodeURIComponent(`${model.providerId}/${model.modelName}`)}`}
 													className="text-primary hover:underline"
 												>
 													Incidents →

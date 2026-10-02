@@ -1,6 +1,6 @@
 import { and, eq, getTableName } from "drizzle-orm";
 
-import { swrWrap } from "@llmgateway/cache";
+import { invalidateSwrKeys, swrWrap } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { cdb, drizzleCache } from "./cdb.js";
@@ -38,8 +38,17 @@ export async function invalidateOrganizationsCache(
 	}
 	try {
 		await drizzleCache.onMutate({
-			tags: organizationIds.map(organizationCacheTag),
+			tags: organizationIds.flatMap((id) => [
+				organizationCacheTag(id),
+				`org-fresh:${id}`,
+			]),
 		});
+		await invalidateSwrKeys(
+			organizationIds.flatMap((id) => [
+				organizationCacheTag(id),
+				`org:fresh:${id}`,
+			]),
+		);
 	} catch (error) {
 		logger.error(
 			"Error invalidating organization cache tags",
