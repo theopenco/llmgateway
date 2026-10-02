@@ -57,7 +57,7 @@ export function ProviderKeyModelSyncDialog({
 					<DialogDescription>
 						Once a day, every model this credential does not allow yet is tested
 						and enabled if the account now serves it. Models are never removed
-						automatically.
+						automatically, and a model you removed by hand is not enabled again.
 					</DialogDescription>
 				</DialogHeader>
 
