@@ -4977,14 +4977,11 @@ export const providerCompany = pgTable("provider_company", {
 		.$onUpdate(() => new Date()),
 	name: text().notNull(),
 	website: text(),
-	// DNS ownership proof for `website`. The company publishes the token as a
-	// TXT record on the site's registrable domain; once resolved, that domain
-	// counts alongside the verified email domain when matching carrier claims,
-	// so a company whose staff mail is on a different domain can still claim.
+	// The token a company publishes as a TXT record to prove a domain; see
+	// `providerCompanyDomain`.
 	websiteVerificationToken: text(),
-	// The registrable domain the TXT record was found on, lowercase. Stored
-	// separately from `website` so editing the URL cannot silently carry an
-	// old proof over to a new domain.
+	// Deprecated, unused: superseded by `providerCompanyDomain`. Dropped in a
+	// follow-up once no deployed API reads them.
 	websiteVerifiedDomain: text(),
 	websiteVerifiedAt: timestamp(),
 	// One-time listing fee. Claims are gated on "paid" whenever the Stripe
@@ -4999,6 +4996,35 @@ export const providerCompany = pgTable("provider_company", {
 	// keeps working, and this records which code cleared it.
 	listingInviteCode: text(),
 });
+
+// Domains a company proves over DNS. A verified one counts alongside the
+// verified email domain when matching carrier claims, so a company can host
+// its API on a domain unrelated to its staff mail. The TXT token is the
+// company's `websiteVerificationToken`.
+export const providerCompanyDomain = pgTable(
+	"provider_company_domain",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		// Registrable domain, lowercase.
+		domain: text().notNull(),
+		// Null until the TXT record resolved.
+		verifiedAt: timestamp(),
+	},
+	(table) => [
+		uniqueIndex("provider_company_domain_company_domain_uidx").on(
+			table.providerCompanyId,
+			table.domain,
+		),
+	],
+);
 
 export const providerCompanyMember = pgTable(
 	"provider_company_member",

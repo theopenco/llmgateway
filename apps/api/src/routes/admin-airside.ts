@@ -10,7 +10,6 @@ import {
 	syncAirsideModelMetadata,
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
-import { verifiedWebsiteDomain } from "@/lib/airside-domains.js";
 import {
 	airsideModelMetadataSchema,
 	type AirsideModelMetadataInput,
@@ -563,10 +562,9 @@ const adminClaimSchema = z.object({
 		id: z.string(),
 		name: z.string(),
 		website: z.string().nullable(),
-		// The registrable domain the company proved over DNS, if the proof
-		// still covers the current website. A reviewer weighs a claim very
+		// Domains the company proved over DNS. A reviewer weighs a claim very
 		// differently when the company demonstrably controls the domain.
-		websiteVerifiedDomain: z.string().nullable(),
+		verifiedDomains: z.array(z.string()),
 	}),
 });
 
@@ -581,6 +579,10 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 				columns: { email: true },
 			})
 		: null;
+	const domains = await db.query.providerCompanyDomain.findMany({
+		where: { providerCompanyId: { eq: row.providerCompanyId } },
+		orderBy: { createdAt: "asc" },
+	});
 	return {
 		id: row.id,
 		providerId: row.providerId,
@@ -605,7 +607,7 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 			id: row.providerCompany.id,
 			name: row.providerCompany.name,
 			website: row.providerCompany.website,
-			websiteVerifiedDomain: verifiedWebsiteDomain(row.providerCompany) ?? null,
+			verifiedDomains: domains.flatMap((d) => (d.verifiedAt ? [d.domain] : [])),
 		},
 	};
 }

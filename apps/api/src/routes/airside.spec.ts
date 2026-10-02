@@ -3475,7 +3475,7 @@ describe("airside provider portal", () => {
 		);
 	}
 
-	it("verifies a company website over DNS and accepts it as a claim domain", async () => {
+	it("verifies the website's domain over DNS and accepts it as a claim domain", async () => {
 		// A freemail account proves nothing on its own, so this account can
 		// only register a carrier once it proves the company's domain.
 		await setUserEmail("founder@gmail.com");
@@ -3488,23 +3488,27 @@ describe("airside provider portal", () => {
 		const blocked = await registerCarrier(cookie, company.id);
 		expect(blocked.status).toBe(403);
 
+		// Registering the company queues its website's domain for verification.
 		const challenge = await app.request(
-			`/airside/companies/${company.id}/website-verification`,
+			`/airside/companies/${company.id}/domains`,
 			{ headers: { Cookie: cookie } },
 		);
 		expect(challenge.status).toBe(200);
 		const record = await challenge.json();
-		expect(record.domain).toBe("acme-sky.ai");
 		expect(record.recordName).toBe("_llmgateway-airside");
 		expect(record.recordValue).toMatch(
 			/^llmgateway-airside-verification=[0-9a-f]{32}$/,
 		);
-		expect(record.verifiedDomain).toBeNull();
+		expect(record.suggestedDomain).toBeNull();
+		expect(record.domains).toHaveLength(1);
+		const [domain] = record.domains;
+		expect(domain.domain).toBe("acme-sky.ai");
+		expect(domain.verifiedAt).toBeNull();
 
 		// Nothing published yet.
 		txtRecords.clear();
 		const tooEarly = await app.request(
-			`/airside/companies/${company.id}/website-verification`,
+			`/airside/companies/${company.id}/domains/${domain.id}/verify`,
 			json(cookie),
 		);
 		expect(tooEarly.status).toBe(400);
@@ -3513,11 +3517,11 @@ describe("airside provider portal", () => {
 			[record.recordValue as string],
 		]);
 		const verified = await app.request(
-			`/airside/companies/${company.id}/website-verification`,
+			`/airside/companies/${company.id}/domains/${domain.id}/verify`,
 			json(cookie),
 		);
 		expect(verified.status).toBe(200);
-		expect((await verified.json()).verifiedDomain).toBe("acme-sky.ai");
+		expect((await verified.json()).domain.verifiedAt).not.toBeNull();
 
 		// The proven domain now carries a registration the email domain could not.
 		const allowed = await registerCarrier(cookie, company.id);
@@ -3525,30 +3529,39 @@ describe("airside provider portal", () => {
 		expect((await allowed.json()).claim.matchedDomain).toBe("acme-sky.ai");
 	});
 
-	it("drops the DNS proof when the website moves to another domain", async () => {
+	it("suggests the website's domain and keeps a proof when the website moves", async () => {
 		await setUserEmail("ops@acme-sky.ai");
 		const company = await createCompany(cookie, "Acme Sky");
-		await db
-			.update(tables.providerCompany)
-			.set({ website: "https://acme-sky.ai" })
-			.where(eq(tables.providerCompany.id, company.id));
+		const domainsUrl = `/airside/companies/${company.id}/domains`;
+		const list = async () =>
+			await (
+				await app.request(domainsUrl, { headers: { Cookie: cookie } })
+			).json();
 
-		const record = await (
-			await app.request(
-				`/airside/companies/${company.id}/website-verification`,
-				{ headers: { Cookie: cookie } },
-			)
-		).json();
-		txtRecords.set("_llmgateway-airside.acme-sky.ai", [
-			[record.recordValue as string],
-		]);
+		// A company without a row for its website gets the domain suggested.
+		const [queued] = (await list()).domains;
 		await app.request(
-			`/airside/companies/${company.id}/website-verification`,
-			json(cookie),
+			`${domainsUrl}/${queued.id}`,
+			json(cookie, undefined, "DELETE"),
 		);
+		const emptied = await list();
+		expect(emptied.domains).toEqual([]);
+		expect(emptied.suggestedDomain).toBe("mistral.ai");
 
-		// Editing the website to a domain the token was never published on must
-		// not carry the old proof over.
+		const added = await app.request(
+			domainsUrl,
+			json(cookie, { domain: emptied.suggestedDomain }),
+		);
+		expect(added.status).toBe(201);
+		const { domain } = await added.json();
+		expect((await list()).suggestedDomain).toBeNull();
+
+		txtRecords.set("_llmgateway-airside.mistral.ai", [
+			[emptied.recordValue as string],
+		]);
+		await app.request(`${domainsUrl}/${domain.id}/verify`, json(cookie));
+
+		// The proof belongs to the domain, not to the website field.
 		await db
 			.update(tables.providerCompany)
 			.set({ website: "https://somewhere-else.ai" })
@@ -3557,7 +3570,103 @@ describe("airside provider portal", () => {
 			headers: { Cookie: cookie },
 		});
 		const [listed] = (await after.json()).companies;
-		expect(listed.websiteVerifiedDomain).toBeNull();
+		expect(listed.verifiedDomains).toEqual(["mistral.ai"]);
+	});
+
+	it("verifies an additional domain and accepts carriers hosted on it", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		const offDomain = { baseUrl: "https://flash.acme-sky.cloud" };
+		expect((await registerCarrier(cookie, company.id, offDomain)).status).toBe(
+			403,
+		);
+
+		// A URL or subdomain collapses to the registrable domain.
+		const added = await app.request(
+			`/airside/companies/${company.id}/domains`,
+			json(cookie, { domain: "https://Flash.acme-sky.cloud/v1" }),
+		);
+		expect(added.status).toBe(201);
+		const { domain } = await added.json();
+		expect(domain.domain).toBe("acme-sky.cloud");
+		expect(domain.verifiedAt).toBeNull();
+
+		const dupe = await app.request(
+			`/airside/companies/${company.id}/domains`,
+			json(cookie, { domain: "acme-sky.cloud" }),
+		);
+		expect(dupe.status).toBe(409);
+
+		// Added but unproven: still not claimable.
+		txtRecords.clear();
+		const tooEarly = await app.request(
+			`/airside/companies/${company.id}/domains/${domain.id}/verify`,
+			json(cookie),
+		);
+		expect(tooEarly.status).toBe(400);
+		expect((await registerCarrier(cookie, company.id, offDomain)).status).toBe(
+			403,
+		);
+
+		const listed = await (
+			await app.request(`/airside/companies/${company.id}/domains`, {
+				headers: { Cookie: cookie },
+			})
+		).json();
+		expect(listed.domains.map((d: { domain: string }) => d.domain)).toEqual([
+			"mistral.ai",
+			"acme-sky.cloud",
+		]);
+		txtRecords.set("_llmgateway-airside.acme-sky.cloud", [
+			[listed.recordValue as string],
+		]);
+		const verified = await app.request(
+			`/airside/companies/${company.id}/domains/${domain.id}/verify`,
+			json(cookie),
+		);
+		expect(verified.status).toBe(200);
+		expect((await verified.json()).domain.verifiedAt).not.toBeNull();
+
+		const companies = await (
+			await app.request("/airside/companies", { headers: { Cookie: cookie } })
+		).json();
+		expect(companies.companies[0].verifiedDomains).toEqual(["acme-sky.cloud"]);
+
+		const allowed = await registerCarrier(cookie, company.id, offDomain);
+		expect(allowed.status).toBe(201);
+		expect((await allowed.json()).claim.matchedDomain).toBe("acme-sky.cloud");
+
+		// Removing the domain withdraws it from future registrations.
+		const removed = await app.request(
+			`/airside/companies/${company.id}/domains/${domain.id}`,
+			json(cookie, undefined, "DELETE"),
+		);
+		expect(removed.status).toBe(200);
+		expect(
+			(
+				await registerCarrier(cookie, company.id, {
+					...offDomain,
+					providerId: "acme-sky-two",
+				})
+			).status,
+		).toBe(403);
+	});
+
+	it("rejects unusable domains", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		for (const domain of ["localhost", "10.0.0.1", "gmail.com"]) {
+			const res = await app.request(
+				`/airside/companies/${company.id}/domains`,
+				json(cookie, { domain }),
+			);
+			expect(res.status).toBe(400);
+		}
+		const foreign = await app.request(
+			"/airside/companies/not-a-company/domains",
+			json(cookie, { domain: "acme-sky.cloud" }),
+		);
+		expect(foreign.status).toBe(404);
 	});
 
 	it("registers a new carrier as a pending custom claim", async () => {
