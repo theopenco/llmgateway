@@ -47,13 +47,15 @@ import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ChartConfig } from "@/components/ui/chart";
 
-type SpendWindow = "1d" | "7d" | "30d" | "90d";
+type SpendWindow = "1d" | "7d" | "30d" | "90d" | "month" | "last_month";
 
 const WINDOWS: { key: SpendWindow; label: string }[] = [
 	{ key: "1d", label: "24h" },
 	{ key: "7d", label: "7d" },
 	{ key: "30d", label: "30d" },
 	{ key: "90d", label: "90d" },
+	{ key: "month", label: "This month" },
+	{ key: "last_month", label: "Last month" },
 ];
 
 const chartConfig = {
