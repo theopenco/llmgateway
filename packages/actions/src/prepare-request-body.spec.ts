@@ -1558,6 +1558,96 @@ describe("prepareRequestBody - Anthropic", () => {
 		]);
 	});
 
+	test("keeps a mid-conversation system message in place on Bedrock", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-5",
+			null,
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			midConversationMessages as any,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.system).toEqual([
+			{ text: "You are a helpful assistant." },
+		]);
+		expect(
+			requestBody.messages.map((msg: { role: string }) => msg.role),
+		).toEqual(["user", "user", "assistant", "user"]);
+		expect(requestBody.messages[1].content).toEqual([
+			{ text: "<system-reminder>\nThe date changed.\n</system-reminder>" },
+		]);
+	});
+
+	test("Bedrock keeps the caller's tool_result breakpoint ahead of heuristic ones", async () => {
+		const long = "A".repeat(30000);
+		const marker = { type: "ephemeral" as const };
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-5",
+			null,
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			[
+				{
+					role: "system",
+					content: [
+						{ type: "text", text: "one", cache_control: marker },
+						{ type: "text", text: "two", cache_control: marker },
+					],
+				},
+				{ role: "user", content: long },
+				{ role: "system", content: long },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "call_1",
+							type: "function",
+							function: { name: "run", arguments: "{}" },
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: "done",
+					tool_result_cache_control: marker,
+				},
+				{ role: "system", content: "Reminder." },
+			] as any,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as any;
+
+		const blocks = requestBody.messages.map((msg: { content: any[] }) =>
+			msg.content.map((block) => Object.keys(block)[0]),
+		);
+		expect(blocks).toEqual([
+			["text", "cachePoint"],
+			["text"],
+			["toolUse"],
+			["toolResult", "cachePoint"],
+			["text"],
+		]);
+	});
+
 	test("auto-injection leaves budget for the caller's trailing breakpoint", async () => {
 		const long = "A".repeat(30000);
 		const marker = { type: "ephemeral" as const };

@@ -54,6 +54,7 @@ async function sendUntilCacheRead(
 
 const hasAnthropicKey = !!process.env.LLM_ANTHROPIC_API_KEY;
 const hasBedrockKey = !!process.env.LLM_AWS_BEDROCK_API_KEY;
+const hasVertexKey = !!process.env.LLM_GOOGLE_VERTEX_API_KEY;
 
 // This suite tests hardcoded anthropic/bedrock model IDs, so it's not relevant
 // when the run is scoped via TEST_MODELS to unrelated providers.
@@ -936,5 +937,135 @@ describeCache(
 				expect(Number(logRow.cacheWrite1hTokens ?? 0)).toBe(0);
 			},
 		);
+
+		// The agent-loop shape Claude Code sends: a system message inside
+		// `messages` on every turn and a breakpoint on the last tool result. The
+		// conversation must be read from the cache on the next turn; merging the
+		// later system messages into the system prompt re-wrote it instead.
+		const agentLoopRunTag = `agent-loop-${Date.now()}`;
+
+		// `attempt` makes the final tool result unique, so a retry cannot be
+		// served from the cache entry its own previous attempt wrote.
+		function buildAgentLoopBody(
+			model: string,
+			rounds: number,
+			attempt: number,
+		) {
+			const messages: unknown[] = [
+				{ role: "user", content: "Run the lookup tool until told to stop." },
+				{ role: "system", content: "Session context: nothing to report." },
+			];
+			for (let round = 1; round <= rounds; round++) {
+				messages.push(
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "tool_use",
+								id: `toolu_${round}`,
+								name: "lookup",
+								input: { round },
+							},
+						],
+					},
+					{
+						role: "user",
+						content: [
+							{
+								type: "tool_result",
+								tool_use_id: `toolu_${round}`,
+								content: buildUniqueLongSystemPrompt(
+									`${agentLoopRunTag}-${model}-result-${round}-${round === rounds ? attempt : 0}`,
+								),
+								...(round === rounds && {
+									cache_control: { type: "ephemeral" },
+								}),
+							},
+						],
+					},
+					{ role: "system", content: `Reminder ${round}: reply briefly.` },
+				);
+			}
+			return {
+				model,
+				max_tokens: 32,
+				system: [
+					{
+						type: "text",
+						text: buildUniqueLongSystemPrompt(`${agentLoopRunTag}-${model}`),
+						cache_control: { type: "ephemeral" },
+					},
+				],
+				tools: [
+					{
+						name: "lookup",
+						description: "Look something up.",
+						input_schema: {
+							type: "object",
+							properties: { round: { type: "number" } },
+						},
+					},
+				],
+				messages,
+			};
+		}
+
+		const agentLoopModels: Array<[string, boolean]> = [
+			// Accepts the system role inside messages.
+			["anthropic/claude-sonnet-5", hasAnthropicKey],
+			// Does not: the message is sent as a user system-reminder.
+			["anthropic/claude-haiku-4-5", hasAnthropicKey],
+			["vertex-anthropic/claude-sonnet-5", hasVertexKey],
+			["aws-bedrock/claude-haiku-4-5", hasBedrockKey],
+		];
+
+		for (const [model, hasKey] of agentLoopModels) {
+			(hasKey ? test : test.skip)(
+				`/v1/messages reads the conversation from cache across agent turns for ${model}`,
+				getTestOptions(),
+				async () => {
+					const send = async (rounds: number, attempt = 0) => {
+						const res = await app.request("/v1/messages", {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"x-request-id": generateTestRequestId(),
+								"x-no-fallback": "true",
+								Authorization: `Bearer real-token`,
+							},
+							body: JSON.stringify(buildAgentLoopBody(model, rounds, attempt)),
+						});
+						const json = await res.json();
+						if (logMode) {
+							console.log("agent loop", model, rounds, res.status, json.usage);
+						}
+						return { status: res.status, json };
+					};
+
+					const first = await send(1);
+					expect(first.status).toBe(200);
+					const firstCached =
+						(first.json.usage.cache_creation_input_tokens ?? 0) +
+						(first.json.usage.cache_read_input_tokens ?? 0);
+					expect(firstCached).toBeGreaterThan(0);
+
+					// Cache writes are eventually consistent, so allow a few tries.
+					let cacheRead = 0;
+					for (let attempt = 1; attempt <= 4; attempt++) {
+						const second = await send(2, attempt);
+						expect(second.status).toBe(200);
+						cacheRead = second.json.usage.cache_read_input_tokens ?? 0;
+						if (cacheRead >= firstCached) {
+							break;
+						}
+						await new Promise((r) => setTimeout(r, 500 * attempt));
+					}
+
+					// Everything the first turn cached, system prompt and
+					// conversation alike, is read back rather than written again.
+					expect(cacheRead).toBeGreaterThanOrEqual(firstCached);
+				},
+			);
+		}
 	},
 );
