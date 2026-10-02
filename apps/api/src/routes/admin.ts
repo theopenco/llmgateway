@@ -37,6 +37,8 @@ import {
 	mappingErrorWindowSchema,
 	notRetriedClause,
 	queryMappingErrorShapes,
+	buildErrorTimeline,
+	errorTimelineSchema,
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
@@ -13262,13 +13264,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 const unstableMappingErrorsSchema = mappingErrorShapesSchema.extend({
 	groupByKey: z.boolean(),
 	groupByStream: z.boolean(),
-	/** Bucket grid of each error's `buckets`, covering the selected window. */
-	timeline: z.object({
-		bucketSeconds: z.number(),
-		/** First and last bucket start, epoch milliseconds. */
-		start: z.number(),
-		end: z.number(),
-	}),
+	timeline: errorTimelineSchema,
 	/** Keys in the sample, most errors first; empty unless grouped by key. */
 	keys: z.array(
 		z.object({
@@ -13362,9 +13358,6 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		hours: windowHours,
 		bucketSeconds,
 	} = resolveMappingErrorWindow(window);
-	const bucketMs = bucketSeconds * 1000;
-	const now = Date.now();
-	const windowMs = windowHours * 3_600_000;
 	const providerKeyClause =
 		providerKeyId === undefined
 			? sql``
@@ -13414,11 +13407,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		...shapes,
 		groupByKey,
 		groupByStream,
-		timeline: {
-			bucketSeconds,
-			start: Math.floor((now - windowMs) / bucketMs) * bucketMs,
-			end: Math.floor(now / bucketMs) * bucketMs,
-		},
+		timeline: buildErrorTimeline(windowHours, bucketSeconds),
 		keys: [...keyErrors].map(([id, errorsCount]) => ({
 			providerKeyId: id,
 			...describeProviderKey(providerKeyLabels, id),

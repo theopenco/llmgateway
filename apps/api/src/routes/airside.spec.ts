@@ -1517,7 +1517,20 @@ describe("airside provider portal", () => {
 			{ headers: { Cookie: cookie } },
 		);
 		expect(adminTypes.status).toBe(200);
-		expect(await adminTypes.json()).toEqual(typesBody);
+		// The admin view adds each error's occurrences over time for its graph.
+		const adminTypesBody = await adminTypes.json();
+		expect(adminTypesBody.timeline.bucketSeconds).toBe(1800);
+		expect(
+			adminTypesBody.errors.map(
+				(error: { buckets: { start: number; count: number }[] }) =>
+					error.buckets.reduce((sum, bucket) => sum + bucket.count, 0),
+			),
+		).toEqual(typesBody.errors.map((error: { count: number }) => error.count));
+		expect(
+			adminTypesBody.errors.map(
+				({ buckets: _buckets, ...error }: { buckets: unknown }) => error,
+			),
+		).toEqual(typesBody.errors);
 
 		const outsider = await createSecondUser("outsider@example.com");
 		for (const path of [base, errorsBase, typesBase]) {

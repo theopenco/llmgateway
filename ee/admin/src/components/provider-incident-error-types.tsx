@@ -1,10 +1,11 @@
 "use client";
 
 import { keepPreviousData } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { BarChart3, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
+import { ErrorShapeTimeline } from "@/components/error-shape-timeline";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,6 +26,7 @@ import { cn } from "@/lib/utils";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
+import type { ErrorTimeline } from "@/components/error-shape-timeline";
 import type { paths } from "@/lib/api/v1";
 
 type ErrorTypesQuery = paths["/admin/airside/incidents/error-types"]["get"];
@@ -36,11 +38,14 @@ const COLLAPSED_MODELS = 5;
 function ErrorTypeItem({
 	error,
 	providerId,
+	timeline,
 }: {
 	error: ErrorType;
 	providerId: string;
+	timeline: ErrorTimeline;
 }) {
 	const [showAll, setShowAll] = useState(false);
+	const [showGraph, setShowGraph] = useState(false);
 	const models = showAll
 		? error.models
 		: error.models.slice(0, COLLAPSED_MODELS);
@@ -58,10 +63,30 @@ function ErrorTypeItem({
 					)}
 					<ClassificationBadge classification={error.classification} />
 				</div>
-				<span className="shrink-0 text-sm font-semibold tabular-nums">
-					{formatNumber(error.count)}×
-				</span>
+				<div className="flex shrink-0 items-center gap-2">
+					{error.buckets && (
+						<Button
+							size="sm"
+							variant={showGraph ? "default" : "outline"}
+							className="h-7 px-2 text-xs"
+							aria-pressed={showGraph}
+							title="Show occurrences over the selected window"
+							onClick={() => setShowGraph(!showGraph)}
+						>
+							<BarChart3 className="h-3.5 w-3.5" />
+							Graph
+						</Button>
+					)}
+					<span className="text-sm font-semibold tabular-nums">
+						{formatNumber(error.count)}×
+					</span>
+				</div>
 			</div>
+			{showGraph && error.buckets && (
+				<div className="mt-2">
+					<ErrorShapeTimeline timeline={timeline} buckets={error.buckets} />
+				</div>
+			)}
 			<div className="mt-2 flex flex-wrap items-center gap-2">
 				{STREAM_MODES.map((mode) => ({
 					...mode,
@@ -243,7 +268,12 @@ export function ProviderIncidentErrorTypes({
 			)}
 			<ul className="space-y-3">
 				{data.errors.map((error, i) => (
-					<ErrorTypeItem key={i} error={error} providerId={providerId} />
+					<ErrorTypeItem
+						key={i}
+						error={error}
+						providerId={providerId}
+						timeline={data.timeline}
+					/>
 				))}
 			</ul>
 		</div>
