@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { BadgeCheck, Copy, ShieldCheck, X } from "lucide-react";
+import { BadgeCheck, Copy, Mail, ShieldCheck, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -87,7 +87,19 @@ export function CompanyDomainsCard({ companyId }: { companyId: string }) {
 	return (
 		<div className="mt-4 space-y-3" data-testid="company-domains">
 			{data.domains.map((row) =>
-				row.verifiedAt ? (
+				row.method === "email" ? (
+					<div
+						key={row.id}
+						className="text-muted-foreground flex items-center gap-1.5 text-xs"
+						data-testid="company-domain-email"
+					>
+						<Mail className="size-3.5 shrink-0" />
+						<p>
+							<span className="font-mono">{row.domain}</span> proven by a
+							verified email on this domain.
+						</p>
+					</div>
+				) : row.verifiedAt ? (
 					<div
 						key={row.id}
 						className="text-signal flex items-center gap-1.5 text-xs"

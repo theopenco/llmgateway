@@ -710,10 +710,36 @@ async function userClaimDomains(user: {
 	return domains;
 }
 
-function verifiedCompanyDomains(
-	domains: { domain: string; verifiedAt: Date | null }[],
-): string[] {
-	return domains.filter((d) => d.verifiedAt).map((d) => d.domain);
+type CompanyDomainRow = typeof tables.providerCompanyDomain.$inferSelect;
+
+/** Domains the company itself proved. Email rows are a record, not a grant. */
+function verifiedCompanyDomains(domains: CompanyDomainRow[]): string[] {
+	return domains
+		.filter((d) => d.verificationMethod === "dns" && d.verifiedAt)
+		.map((d) => d.domain);
+}
+
+/**
+ * Records that a claim was matched on the claimer's email domain, so the
+ * company's domain list documents every proof a listing rests on.
+ */
+async function recordEmailDomainProof(
+	providerCompanyId: string,
+	domain: string,
+	email: string,
+) {
+	if (emailRegistrableDomain(email) !== domain) {
+		return;
+	}
+	await db
+		.insert(tables.providerCompanyDomain)
+		.values({
+			providerCompanyId,
+			domain,
+			verificationMethod: "email",
+			verifiedAt: new Date(),
+		})
+		.onConflictDoNothing();
 }
 
 async function getActiveClaimedProviderIds(
@@ -955,6 +981,9 @@ const MAX_COMPANY_DOMAINS = 10;
 const companyDomainSchema = z.object({
 	id: z.string(),
 	domain: z.string(),
+	// `dns`: the company published our TXT record. `email`: a claim was
+	// matched on the claimer's email domain; kept as a record only.
+	method: z.enum(["dns", "email"]),
 	verifiedAt: z.string().nullable(),
 });
 
@@ -966,14 +995,11 @@ const companyDomainsSchema = z.object({
 	suggestedDomain: z.string().nullable(),
 });
 
-function serializeCompanyDomain(row: {
-	id: string;
-	domain: string;
-	verifiedAt: Date | null;
-}) {
+function serializeCompanyDomain(row: CompanyDomainRow) {
 	return {
 		id: row.id,
 		domain: row.domain,
+		method: row.verificationMethod,
 		verifiedAt: row.verifiedAt?.toISOString() ?? null,
 	};
 }
@@ -1017,7 +1043,11 @@ airside.openapi(listCompanyDomains, async (c) => {
 		),
 		domains: domains.map(serializeCompanyDomain),
 		suggestedDomain:
-			websiteDomain && !domains.some((row) => row.domain === websiteDomain)
+			websiteDomain &&
+			!domains.some(
+				(row) =>
+					row.verificationMethod === "dns" && row.domain === websiteDomain,
+			)
 				? websiteDomain
 				: null,
 	});
@@ -1064,7 +1094,10 @@ airside.openapi(addCompanyDomain, async (c) => {
 		});
 	}
 	const existing = await db.query.providerCompanyDomain.findMany({
-		where: { providerCompanyId: { eq: id } },
+		where: {
+			providerCompanyId: { eq: id },
+			verificationMethod: { eq: "dns" },
+		},
 	});
 	if (existing.some((row) => row.domain === domain)) {
 		throw new HTTPException(409, { message: `${domain} is already added.` });
@@ -1113,7 +1146,11 @@ airside.openapi(verifyCompanyDomain, async (c) => {
 	await requireCompanyMembership(user.id, id);
 	const company = await requireCompany(id);
 	const row = await db.query.providerCompanyDomain.findFirst({
-		where: { id: { eq: domainId }, providerCompanyId: { eq: id } },
+		where: {
+			id: { eq: domainId },
+			providerCompanyId: { eq: id },
+			verificationMethod: { eq: "dns" },
+		},
 	});
 	if (!row) {
 		throw new HTTPException(404, { message: "Domain not found" });
@@ -1164,6 +1201,8 @@ airside.openapi(removeCompanyDomain, async (c) => {
 			and(
 				eq(tables.providerCompanyDomain.id, domainId),
 				eq(tables.providerCompanyDomain.providerCompanyId, id),
+				// Email rows are a record of past claims, not removable.
+				eq(tables.providerCompanyDomain.verificationMethod, "dns"),
 			),
 		)
 		.returning();
@@ -1924,6 +1963,11 @@ airside.openapi(createClaim, async (c) => {
 		}
 		throw err;
 	}
+	await recordEmailDomainProof(
+		providerCompanyId,
+		match.matchedDomain,
+		user.email,
+	);
 	const providerNames = providerNamesById;
 	return c.json({ claim: serializeClaim(claim, providerNames) }, 201);
 });
@@ -2096,6 +2140,11 @@ airside.openapi(registerCarrier, async (c) => {
 		}
 		throw err;
 	}
+	await recordEmailDomainProof(
+		body.providerCompanyId,
+		matchedDomain,
+		user.email,
+	);
 	return c.json({ claim: serializeClaim(claim, providerNamesById) }, 201);
 });
 

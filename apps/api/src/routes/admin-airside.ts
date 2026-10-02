@@ -566,9 +566,11 @@ const adminClaimSchema = z.object({
 		id: z.string(),
 		name: z.string(),
 		website: z.string().nullable(),
-		// Domains the company proved over DNS. A reviewer weighs a claim very
-		// differently when the company demonstrably controls the domain.
-		verifiedDomains: z.array(z.string()),
+		// Domains the company has proven and how. A reviewer weighs a claim
+		// very differently when the company demonstrably controls the domain.
+		verifiedDomains: z.array(
+			z.object({ domain: z.string(), method: z.enum(["dns", "email"]) }),
+		),
 	}),
 });
 
@@ -611,7 +613,11 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 			id: row.providerCompany.id,
 			name: row.providerCompany.name,
 			website: row.providerCompany.website,
-			verifiedDomains: domains.flatMap((d) => (d.verifiedAt ? [d.domain] : [])),
+			verifiedDomains: domains.flatMap((d) =>
+				d.verifiedAt
+					? [{ domain: d.domain, method: d.verificationMethod }]
+					: [],
+			),
 		},
 	};
 }
