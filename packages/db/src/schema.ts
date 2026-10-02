@@ -2566,6 +2566,12 @@ export const log = pgTable(
 		index("log_error_used_provider_used_model_created_at_idx")
 			.on(table.usedProvider, table.usedModel, table.createdAt)
 			.where(sql`has_error = true`),
+		// Serves the incident drilldowns, whose upstream and gateway errors
+		// include failed 200s with has_error = false. Build CONCURRENTLY out of
+		// band in prod before deploying.
+		index("log_incident_used_provider_used_model_created_at_idx")
+			.on(table.usedProvider, table.usedModel, table.createdAt)
+			.where(sql`unified_finish_reason IN ('upstream_error', 'gateway_error')`),
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),

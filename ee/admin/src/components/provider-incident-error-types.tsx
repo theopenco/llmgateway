@@ -232,13 +232,13 @@ export function ProviderIncidentErrorTypes({
 			<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				Top {data.errors.length} error type
 				{data.errors.length === 1 ? "" : "s"} ·{" "}
-				{formatNumber(data.sampledErrors)} sampled
+				{formatNumber(data.sampledErrors)} total
 			</p>
 			{data.cappedMappings > 0 && (
 				<p className="text-xs text-muted-foreground">
 					{data.cappedMappings} model{data.cappedMappings === 1 ? "" : "s"} hit
-					the {formatNumber(data.sampleLimit)}-error sample cap; counts cover
-					each model&apos;s latest {formatNumber(data.sampleLimit)} errors.
+					the {formatNumber(data.sampleLimit)}-error cap; counts cover each
+					model&apos;s latest {formatNumber(data.sampleLimit)} errors.
 				</p>
 			)}
 			<ul className="space-y-3">

@@ -222,13 +222,13 @@ export function IncidentErrorTypes({
 				Top {data.errors.length} error type
 				{data.errors.length === 1 ? "" : "s"} ·{" "}
 				{formatCompact(data.sampledErrors)} error
-				{data.sampledErrors === 1 ? "" : "s"} sampled
+				{data.sampledErrors === 1 ? "" : "s"}
 			</p>
 			{data.cappedMappings > 0 ? (
 				<p className="text-muted-foreground text-xs">
 					{data.cappedMappings} model{data.cappedMappings === 1 ? "" : "s"} hit
-					the {formatCompact(data.sampleLimit)}-error sample cap; counts cover
-					each model&apos;s latest {formatCompact(data.sampleLimit)} errors.
+					the {formatCompact(data.sampleLimit)}-error cap; counts cover each
+					model&apos;s latest {formatCompact(data.sampleLimit)} errors.
 				</p>
 			) : null}
 			<ul className="space-y-3">

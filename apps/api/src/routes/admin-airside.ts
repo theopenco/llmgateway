@@ -19,7 +19,6 @@ import {
 	incidentErrorTypesSchema,
 	incidentsResponseSchema,
 	incidentsWindowSchema,
-	incidentErrorsClause,
 	notRetriedClause,
 	queryIncidentErrorTypes,
 	queryIncidentMappings,
@@ -1185,7 +1184,6 @@ adminAirside.openapi(listIncidentErrorTypes, async (c) => {
 			}),
 			windowInterval,
 			extraClauses: [
-				incidentErrorsClause,
 				query.includeRetried === "false" ? notRetriedClause : sql``,
 			],
 		}),

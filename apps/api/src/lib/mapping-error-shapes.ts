@@ -91,8 +91,20 @@ export function resolveMappingErrorWindow(
 export const notRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
 
 // Incidents count only failures the gateway retries: canceled and
-// content-filtered requests are neither retried nor outage signals.
-export const incidentErrorsClause = sql`AND ${tables.log.unifiedFinishReason} IN ('upstream_error', 'gateway_error')`;
+// content-filtered requests are neither retried nor outage signals. Matches
+// the hourly rollups, which count by finish reason: a 200 that fails
+// mid-response is an upstream error with `has_error = false`. Keep it equal to
+// the predicate of the partial
+// `log_incident_used_provider_used_model_created_at_idx` index.
+const incidentErrorsPredicate = sql`${tables.log.unifiedFinishReason} IN ('upstream_error', 'gateway_error')`;
+
+// Safety cap on the error logs one incident drilldown aggregates per mapping;
+// below it the counts cover every error in the window.
+export const INCIDENT_ERRORS_LOG_LIMIT = 100_000;
+
+// Errors without details (a 200 that failed mid-response) fall back to the
+// provider's raw finish reason, unless it only repeats the classification.
+const statusTextExpr = sql`COALESCE(error_details->>'statusText', NULLIF(finish_reason, classification))`;
 
 export const mappingErrorShapeSchema = z.object({
 	statusCode: z.number().nullable(),
@@ -124,14 +136,19 @@ export const mappingErrorShapeSchema = z.object({
 
 export const mappingErrorShapesSchema = z.object({
 	errors: z.array(mappingErrorShapeSchema),
+	/** Error logs aggregated: every error in the window unless `capped`. */
 	sampledErrors: z.number(),
+	/** The log limit was reached, so only the latest errors are covered. */
+	capped: z.boolean(),
 });
 
 /**
- * Top 10 error shapes over the latest error logs of one mapping, identified
- * by the exact `log.used_model` value; callers pick the error classes via
- * `extraClauses`. Served by the partial
- * `log_error_used_provider_used_model_created_at_idx` index. With
+ * Top 10 error shapes over the latest `sampleLimit` error logs of one mapping,
+ * identified by the exact `log.used_model` value; callers narrow the error
+ * classes via `extraClauses`. Served by the partial
+ * `log_error_used_provider_used_model_created_at_idx` index, or with
+ * `incidentsOnly` (upstream and gateway errors, with or without `has_error`)
+ * by `log_incident_used_provider_used_model_created_at_idx`. With
  * `groupByKey`, returns the top 5 shapes of each provider key instead.
  * With `bucketSeconds`, each shape also carries its per-bucket counts.
  * Without `splitByStream`, streaming and non-streaming occurrences of an
@@ -143,6 +160,7 @@ export async function queryMappingErrorShapes({
 	windowInterval,
 	sampleLimit,
 	extraClauses,
+	incidentsOnly = false,
 	groupByKey = false,
 	bucketSeconds,
 	splitByStream = true,
@@ -152,6 +170,7 @@ export async function queryMappingErrorShapes({
 	windowInterval: SQL;
 	sampleLimit: number;
 	extraClauses: SQL[];
+	incidentsOnly?: boolean;
 	groupByKey?: boolean;
 	bucketSeconds?: number;
 	splitByStream?: boolean;
@@ -186,10 +205,11 @@ export async function queryMappingErrorShapes({
 			SELECT ${tables.log.errorDetails} AS error_details,
 				${providerKeyExpr} AS provider_key_id,
 				${tables.log.unifiedFinishReason} AS classification,
+				${tables.log.finishReason} AS finish_reason,
 				COALESCE(${tables.log.streamed}, false) AS streamed,
 				${bucketExpr} AS bucket
 			FROM ${tables.log}
-			WHERE ${tables.log.hasError} = true
+			WHERE ${incidentsOnly ? incidentErrorsPredicate : sql`${tables.log.hasError} = true`}
 				AND ${tables.log.usedModel} = ${usedModel}
 				AND ${tables.log.usedProvider} = ${provider}
 				AND ${tables.log.createdAt} >= ${windowInterval}
@@ -199,7 +219,7 @@ export async function queryMappingErrorShapes({
 		),
 		shape_buckets AS (
 			SELECT error_details->>'statusCode' AS status_code,
-				error_details->>'statusText' AS status_text,
+				${statusTextExpr} AS status_text,
 				LEFT(error_details->>'responseText', 2000) AS response_text,
 				error_details->>'cause' AS cause,
 				classification,
@@ -278,6 +298,7 @@ export async function queryMappingErrorShapes({
 				: {}),
 		})),
 		sampledErrors,
+		capped: sampledErrors >= sampleLimit,
 	};
 }
 
@@ -359,9 +380,6 @@ export async function queryIncidentMappings({
 	}));
 }
 
-// Latest error logs sampled per mapping, matching the per-mapping drilldown.
-export const INCIDENT_ERROR_TYPES_SAMPLE_LIMIT = 500;
-
 export const incidentErrorTypesSchema = z.object({
 	errors: z.array(
 		z.object({
@@ -386,8 +404,9 @@ export const incidentErrorTypesSchema = z.object({
 			),
 		}),
 	),
+	/** Error logs aggregated: every error in the window unless capped. */
 	sampledErrors: z.number(),
-	/** Error logs sampled per mapping. */
+	/** Most error logs aggregated per mapping. */
 	sampleLimit: z.number(),
 	/** Mappings that hit `sampleLimit`; their counts are lower bounds. */
 	cappedMappings: z.number(),
@@ -395,9 +414,10 @@ export const incidentErrorTypesSchema = z.object({
 
 /**
  * Top 50 error shapes across mappings, each with its per-mapping counts.
- * Samples the latest error logs of every mapping separately so each lookup
- * stays on the partial `log_error_used_provider_used_model_created_at_idx`
- * index; the hourly rollups hold no error details.
+ * Reads the upstream and gateway error logs of every mapping separately so
+ * each lookup stays on the partial
+ * `log_incident_used_provider_used_model_created_at_idx` index; the hourly
+ * rollups hold no error details.
  */
 export async function queryIncidentErrorTypes({
 	mappings,
@@ -408,7 +428,7 @@ export async function queryIncidentErrorTypes({
 	windowInterval: SQL;
 	extraClauses: SQL[];
 }): Promise<z.infer<typeof incidentErrorTypesSchema>> {
-	const sampleLimit = INCIDENT_ERROR_TYPES_SAMPLE_LIMIT;
+	const sampleLimit = INCIDENT_ERRORS_LOG_LIMIT;
 	if (mappings.length === 0) {
 		return { errors: [], sampledErrors: 0, sampleLimit, cappedMappings: 0 };
 	}
@@ -438,14 +458,16 @@ export async function queryIncidentErrorTypes({
 				mappings.used_model,
 				sampled.error_details,
 				sampled.classification,
+				sampled.finish_reason,
 				sampled.streamed
 			FROM mappings
 			CROSS JOIN LATERAL (
 				SELECT ${tables.log.errorDetails} AS error_details,
 					${tables.log.unifiedFinishReason} AS classification,
+					${tables.log.finishReason} AS finish_reason,
 					COALESCE(${tables.log.streamed}, false) AS streamed
-				FROM ${tables.log}
-				WHERE ${tables.log.hasError} = true
+					FROM ${tables.log}
+				WHERE ${incidentErrorsPredicate}
 					AND ${tables.log.usedProvider} = mappings.used_provider
 					AND ${tables.log.usedModel} = mappings.used_model
 					AND ${tables.log.createdAt} >= ${windowInterval}
@@ -456,7 +478,7 @@ export async function queryIncidentErrorTypes({
 		),
 		shape_models AS (
 			SELECT error_details->>'statusCode' AS status_code,
-				error_details->>'statusText' AS status_text,
+				${statusTextExpr} AS status_text,
 				LEFT(error_details->>'responseText', 2000) AS response_text,
 				error_details->>'cause' AS cause,
 				classification,
