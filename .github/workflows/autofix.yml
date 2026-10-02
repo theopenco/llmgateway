@@ -25,4 +25,6 @@ jobs:
         uses: steebchen/actions/autofix@v0.17.0
         with:
           token: ${{ secrets.GH_TOKEN }}
-          format-command: pnpm migrations && pnpm build && pnpm format
+          # Docs modification dates come from Git history; a blobless
+          # deepen lets the build regenerate apps/docs/lib/content-modified.json.
+          format-command: git fetch --unshallow --filter=blob:none origin && pnpm migrations && pnpm build && pnpm format
