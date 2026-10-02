@@ -76,6 +76,15 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v7.0.1
+        with:
+          # Docs modification dates come from Git history, which the Docker
+          # build context excludes.
+          fetch-depth: ${{ matrix.app == 'docs' && '0' || '1' }}
+          filter: ${{ matrix.app == 'docs' && 'blob:none' || '' }}
+
+      - name: Generate docs modification dates
+        if: matrix.app == 'docs'
+        run: node apps/docs/scripts/update-content-modified.mjs
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.4.1
@@ -231,6 +240,14 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v7.0.1
+        with:
+          # Docs modification dates come from Git history, which the Docker
+          # build context excludes.
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Generate docs modification dates
+        run: node apps/docs/scripts/update-content-modified.mjs
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.4.1

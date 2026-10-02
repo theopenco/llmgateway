@@ -1,74 +1,95 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { readdir, stat, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const docsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = resolve(docsRoot, "../..");
-const contentRoot = join(docsRoot, "content");
+const contentPath = "apps/docs/content";
+const contentRoot = join(repositoryRoot, contentPath);
 const manifestPath = join(docsRoot, "lib/content-modified.json");
+// Generated API reference pages are untracked; they share this key, dated by
+// the gateway source they are generated from.
+const apiReferenceKey = "(gateway)/(api)";
 
 function git(...args) {
-	return execFileSync("git", args, {
+	return execFileSync("git", ["-c", "core.quotePath=false", ...args], {
 		cwd: repositoryRoot,
 		encoding: "utf8",
-	}).trim();
+		maxBuffer: 256 * 1024 * 1024,
+	}).trimEnd();
+}
+
+function hasFullHistory() {
+	return (
+		existsSync(join(repositoryRoot, ".git")) &&
+		git("rev-parse", "--is-shallow-repository") === "false"
+	);
+}
+
+// Newest commit date per tracked content file, from a single history walk.
+function committedDates() {
+	const dates = new Map();
+	let date = "";
+	const log = git("log", "--format=%x00%cI", "--name-only", "--", contentPath);
+	for (const line of log.split("\n")) {
+		if (line.startsWith("\0")) {
+			date = line.slice(1);
+		} else if (line && !dates.has(line)) {
+			dates.set(line, date);
+		}
+	}
+	return dates;
 }
 
 async function updateContentModified() {
-	const previous = JSON.parse(await readFile(manifestPath, "utf8"));
-	const hasHistory =
-		existsSync(join(repositoryRoot, ".git")) &&
-		git("rev-parse", "--is-shallow-repository") === "false";
-	const dirty = hasHistory
-		? new Set(
-				git("diff", "--name-only", "HEAD", "--", "apps/docs/content").split(
-					"\n",
-				),
-			)
-		: new Set();
+	// Dates only come from Git history. Shallow checkouts and Docker builds keep
+	// a manifest generated beforehand, or build without modification dates.
+	if (!hasFullHistory()) {
+		if (existsSync(manifestPath)) {
+			console.log("No Git history; keeping existing modification dates.");
+			return;
+		}
+		await writeFile(manifestPath, "{}\n");
+		console.warn("No Git history; building docs without modification dates.");
+		return;
+	}
+
+	const committed = committedDates();
+	const dirty = new Set(
+		git("status", "--porcelain", "--no-renames", "-uall", "--", contentPath)
+			.split("\n")
+			.filter(Boolean)
+			.map((line) => line.slice(3)),
+	);
 	const files = (await readdir(contentRoot, { recursive: true }))
+		.map((file) => file.replaceAll("\\", "/"))
 		.filter((file) => file.endsWith(".mdx"))
 		.sort();
 	const manifest = {};
-	for (const file of files) {
-		const fullPath = join(contentRoot, file);
-		const key = file.replaceAll("\\", "/");
-		const hash = createHash("sha256")
-			.update(await readFile(fullPath))
-			.digest("hex");
-		if (previous[key]?.hash === hash) {
-			manifest[key] = previous[key];
-			continue;
+	for (const key of files) {
+		const repositoryPath = `${contentPath}/${key}`;
+		const lastModified = dirty.has(repositoryPath)
+			? (await stat(join(contentRoot, key))).mtime
+			: committed.get(repositoryPath);
+		if (lastModified) {
+			manifest[key] = new Date(lastModified).toISOString();
 		}
-		if (!hasHistory) {
-			throw new Error(
-				`Missing trustworthy modification date for ${key}. Run pnpm --filter docs gen-docs in a checkout with full Git history and commit lib/content-modified.json.`,
-			);
-		}
-		const repositoryPath = relative(repositoryRoot, fullPath).replaceAll(
-			"\\",
-			"/",
-		);
-		let lastModified = dirty.has(repositoryPath)
-			? (await stat(fullPath)).mtime.toISOString()
-			: git("log", "-1", "--format=%cI", "--", repositoryPath);
-		if (!lastModified && key.startsWith("(gateway)/(api)/")) {
-			lastModified = git("log", "-1", "--format=%cI", "--", "apps/gateway/src");
-		}
-		if (!lastModified) {
-			lastModified = (await stat(fullPath)).mtime.toISOString();
-		}
-		manifest[key] = {
-			hash,
-			lastModified: new Date(lastModified).toISOString(),
-		};
+	}
+	const apiReferenceDate = git(
+		"log",
+		"-1",
+		"--format=%cI",
+		"--",
+		"apps/gateway/src",
+	);
+	if (apiReferenceDate) {
+		manifest[apiReferenceKey] = new Date(apiReferenceDate).toISOString();
 	}
 	await writeFile(manifestPath, `${JSON.stringify(manifest, null, "\t")}\n`);
 	console.log(
-		`Verified modification dates for ${files.length} documentation pages.`,
+		`Recorded modification dates for ${Object.keys(manifest).length} documentation entries.`,
 	);
 }
 

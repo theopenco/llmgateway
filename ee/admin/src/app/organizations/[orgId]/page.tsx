@@ -306,6 +306,9 @@ export default async function OrganizationPage({
 	const transactionsData = transactionsRes.data;
 	const trustTier = orgMetricsRes.data?.trustTier;
 	const contentFilterTier = orgMetricsRes.data?.contentFilterTier;
+	const allTimeTopUpsGross = orgMetricsRes.data?.allTimeTopUpsGross;
+	const allTimeTopUpsNet = orgMetricsRes.data?.allTimeTopUpsNet;
+	const allTimeGiftedCredits = orgMetricsRes.data?.allTimeGiftedCredits;
 	const projectsData = projectsRes.data;
 	const apiKeysData = apiKeysRes.data;
 	const providerKeysData = providerKeysRes.data;
@@ -469,13 +472,37 @@ export default async function OrganizationPage({
 								) : null}
 							</div>
 						</div>
-						<div className="border-b border-border/60 p-4 sm:border-r sm:border-b-0">
-							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-								Credits
-							</p>
-							<p className="mt-1.5 text-xl font-semibold tabular-nums">
-								{creditsFormatter.format(parseFloat(org.credits))}
-							</p>
+						<div className="flex gap-6 border-b border-border/60 p-4 sm:border-r sm:border-b-0">
+							<div>
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+									Credits
+								</p>
+								<p className="mt-1.5 text-xl font-semibold tabular-nums">
+									{creditsFormatter.format(parseFloat(org.credits))}
+								</p>
+								{allTimeGiftedCredits !== undefined ? (
+									<p className="mt-1 whitespace-nowrap text-xs text-muted-foreground tabular-nums">
+										{creditsFormatter.format(parseFloat(allTimeGiftedCredits))}{" "}
+										gifted
+									</p>
+								) : null}
+							</div>
+							<div title="All-time completed Stripe top-ups (incl. fees) and manual payments. Net subtracts their refunds.">
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+									Net top-ups
+								</p>
+								<p className="mt-1.5 text-xl font-semibold tabular-nums">
+									{allTimeTopUpsNet !== undefined
+										? creditsFormatter.format(parseFloat(allTimeTopUpsNet))
+										: "—"}
+								</p>
+								{allTimeTopUpsGross !== undefined ? (
+									<p className="mt-1 whitespace-nowrap text-xs text-muted-foreground tabular-nums">
+										{creditsFormatter.format(parseFloat(allTimeTopUpsGross))}{" "}
+										gross
+									</p>
+								) : null}
+							</div>
 						</div>
 						<div className="p-4">
 							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">

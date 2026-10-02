@@ -10,6 +10,9 @@
 /content/(gateway)/(api)/*.mdx
 !/content/(gateway)/(api)/index.mdx
 
+# page modification dates derived from Git history (pnpm gen-docs)
+/lib/content-modified.json
+
 # test & build
 /coverage
 /.next/
