@@ -33,6 +33,9 @@ const blog = defineCollection({
 		slug: z.string(),
 		date: z.string(),
 		updatedAt: z.string().optional(),
+		author: z
+			.object({ name: z.string(), url: z.string().url().optional() })
+			.optional(),
 		title: z.string(),
 		summary: z.string(),
 		draft: z.boolean().optional(),
