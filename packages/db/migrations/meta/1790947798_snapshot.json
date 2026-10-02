@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "6ffd85f8-e960-42f1-95de-049fdeb663be",
+  "id": "30a4de94-82c6-4413-a3f9-68cb89a1cb2d",
   "prevId": "e20596f7-ad71-488b-bb52-fbfed3798d72",
   "ddl": [
     {
@@ -457,12 +457,6 @@
     {
       "isRlsEnabled": false,
       "name": "payment_method",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "platform_audit_log",
       "entityType": "tables",
       "schema": "public"
     },
@@ -19827,100 +19821,6 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "platform_audit_log"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "platform_audit_log"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "user_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "platform_audit_log"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "action",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "platform_audit_log"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "resource_type",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "platform_audit_log"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "resource_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "platform_audit_log"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "metadata",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "platform_audit_log"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
       "table": "platform_webhook_delivery"
     },
     {
@@ -24623,6 +24523,22 @@
       "table": "provider_company_domain"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'dns'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "verification_method",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_company_domain"
+    },
+    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": false,
@@ -25622,19 +25538,6 @@
       "generated": null,
       "identity": null,
       "name": "allowed_models",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 1,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "model_sync_excluded",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_key"
@@ -36055,62 +35958,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "resource_type",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "resource_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "platform_audit_log_resource_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "platform_audit_log"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "platform_audit_log_created_at_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "platform_audit_log"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "status",
           "isExpression": false,
           "asc": true,
@@ -36599,6 +36446,13 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
+        },
+        {
+          "value": "verification_method",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
         }
       ],
       "isUnique": true,
@@ -36606,7 +36460,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "provider_company_domain_company_domain_uidx",
+      "name": "provider_company_domain_company_domain_method_uidx",
       "entityType": "indexes",
       "schema": "public",
       "table": "provider_company_domain"
@@ -40519,23 +40373,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "user_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "user",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "platform_audit_log_user_id_user_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "platform_audit_log"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "webhook_endpoint_id"
       ],
       "schemaTo": "public",
@@ -42668,16 +42505,6 @@
       "name": "payment_method_pkey",
       "schema": "public",
       "table": "payment_method",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "platform_audit_log_pkey",
-      "schema": "public",
-      "table": "platform_audit_log",
       "entityType": "pks"
     },
     {
