@@ -2248,6 +2248,7 @@ const modelSyncHistory = createRoute({
 								id: z.string(),
 								createdAt: z.date(),
 								probed: z.number(),
+								skipped: z.number(),
 								added: z.array(z.string()),
 								failed: z.array(
 									z.object({
@@ -2287,6 +2288,7 @@ adminProviderCredentials.openapi(modelSyncHistory, async (c) => {
 			id: row.id,
 			createdAt: row.createdAt,
 			probed: row.metadata?.probed ?? 0,
+			skipped: row.metadata?.skipped ?? 0,
 			added: row.metadata?.added ?? [],
 			failed: row.metadata?.failed ?? [],
 		})),

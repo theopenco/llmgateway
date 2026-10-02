@@ -55,9 +55,11 @@ export function ProviderKeyModelSyncDialog({
 				<DialogHeader>
 					<DialogTitle>Model sync — {label}</DialogTitle>
 					<DialogDescription>
-						Once a day, every model this credential does not allow yet is tested
-						and enabled if the account now serves it. Models are never removed
-						automatically, and a model you removed by hand is not enabled again.
+						Once a day, every testable model this credential does not allow yet
+						is tested and enabled if the account now serves it. Models are never
+						removed automatically, and a model you removed by hand is not
+						enabled again. Models that cannot be live-tested, such as video
+						generation, are skipped and stay manual.
 					</DialogDescription>
 				</DialogHeader>
 
@@ -78,6 +80,9 @@ export function ProviderKeyModelSyncDialog({
 									<span className="text-xs text-muted-foreground">
 										{entry.probed} tested · {entry.added.length} enabled ·{" "}
 										{entry.failed.length} unavailable
+										{entry.skipped > 0
+											? ` · ${entry.skipped} not testable`
+											: ""}
 									</span>
 								</div>
 								{entry.added.length > 0 && (

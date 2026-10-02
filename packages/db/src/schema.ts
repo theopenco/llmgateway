@@ -4528,6 +4528,8 @@ export interface ProviderKeyModelSyncMetadata {
 	provider: string;
 	/** Models the run probed, i.e. live-testable ones not yet allowed. */
 	probed: number;
+	/** Models with no live probe (e.g. video); these are never enabled. */
+	skipped: number;
 	/** Models that passed and were appended to `allowedModels`. */
 	added: string[];
 	failed: { model: string; statusCode?: number; error?: string }[];

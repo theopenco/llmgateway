@@ -2658,7 +2658,13 @@ describe("managed credential allowed models", () => {
 				action: "provider_key.models_synced",
 				resourceType: "provider_key",
 				resourceId: credential.id,
-				metadata: { provider: "openai", probed: 1, added: [], failed: [] },
+				metadata: {
+					provider: "openai",
+					probed: 1,
+					skipped: 0,
+					added: [],
+					failed: [],
+				},
 			},
 			{
 				createdAt: new Date("2026-01-02T00:00:00Z"),
@@ -2668,6 +2674,7 @@ describe("managed credential allowed models", () => {
 				metadata: {
 					provider: "openai",
 					probed: 2,
+					skipped: 3,
 					added: ["model-a"],
 					failed: [{ model: "model-b", statusCode: 404 }],
 				},
@@ -2676,7 +2683,13 @@ describe("managed credential allowed models", () => {
 				action: "provider_key.models_synced",
 				resourceType: "provider_key",
 				resourceId: "another-credential",
-				metadata: { provider: "openai", probed: 0, added: [], failed: [] },
+				metadata: {
+					provider: "openai",
+					probed: 0,
+					skipped: 0,
+					added: [],
+					failed: [],
+				},
 			},
 		]);
 
@@ -2692,6 +2705,7 @@ describe("managed credential allowed models", () => {
 		expect(entries).toHaveLength(2);
 		expect(entries[0]).toMatchObject({
 			probed: 2,
+			skipped: 3,
 			added: ["model-a"],
 			failed: [{ model: "model-b", statusCode: 404 }],
 		});

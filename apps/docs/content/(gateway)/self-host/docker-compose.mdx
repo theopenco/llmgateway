@@ -136,9 +136,10 @@ Managed credentials cover the same axes as the environment variables they replac
 - An optional region, mirroring the `{ENV_VAR}__{REGION}` overrides.
 - An optional list of allowed models, for accounts that only have part of the
   provider's catalogue enabled. For providers where models are deployed per
-  account (Azure and AWS Bedrock), the worker tests the remaining models once a
+  account (Azure and AWS Bedrock), the worker tests the remaining testable models once a
   day and enables the ones that started working; it never removes a model, and it
-  leaves out models you removed from the list yourself. Each
+  leaves out models you removed from the list yourself. Models without a live
+  test, such as video generation, stay manual. Each
   run is listed under the credential's sync history.
 
 A request that resolves no region is served from the provider's default region,

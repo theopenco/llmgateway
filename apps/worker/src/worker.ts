@@ -91,6 +91,7 @@ import {
 	processPendingWebhookDeliveries,
 } from "./services/video-jobs.js";
 import {
+	getStopSignal,
 	interruptibleSleep,
 	isStopRequested,
 	requestStop,
@@ -3277,7 +3278,7 @@ async function runProviderKeyModelSyncLoop() {
 				if (await acquireLock(PROVIDER_KEY_MODEL_SYNC_LOCK_KEY)) {
 					try {
 						await syncProviderKeyModels({
-							shouldStop: isStopRequested,
+							signal: getStopSignal(),
 							// A run outlasts the lock TTL, so keep the lock fresh.
 							onProgress: async () => {
 								await db

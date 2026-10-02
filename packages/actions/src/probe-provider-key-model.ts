@@ -39,6 +39,8 @@ export async function probeProviderKeyModel(options: {
 	skipLiveProbe?: boolean;
 	/** Override for the live probe; lets callers pass their own mockable binding. */
 	validate?: typeof validateProviderKey;
+	/** Cancels an in-flight live probe, e.g. on shutdown. */
+	abortSignal?: AbortSignal;
 }): Promise<ProviderKeyModelProbeResult> {
 	const { provider, token, modelId, validationOptions } = options;
 	const pinned = getPinnedValidationModel(
@@ -73,6 +75,10 @@ export async function probeProviderKeyModel(options: {
 	if (options.skipLiveProbe) {
 		return { model: modelId, inCatalog: true, valid: true };
 	}
+	const timeoutMs =
+		pinned.kind === "image" || pinned.kind === "ocr"
+			? MEDIA_MODEL_PROBE_TIMEOUT_MS
+			: MODEL_PROBE_TIMEOUT_MS;
 	const result = await (options.validate ?? validateProviderKey)(
 		provider as ProviderId,
 		token,
@@ -80,11 +86,9 @@ export async function probeProviderKeyModel(options: {
 		false,
 		validationOptions,
 		modelId,
-		AbortSignal.timeout(
-			pinned.kind === "image" || pinned.kind === "ocr"
-				? MEDIA_MODEL_PROBE_TIMEOUT_MS
-				: MODEL_PROBE_TIMEOUT_MS,
-		),
+		options.abortSignal
+			? AbortSignal.any([options.abortSignal, AbortSignal.timeout(timeoutMs)])
+			: AbortSignal.timeout(timeoutMs),
 	);
 	return {
 		model: modelId,

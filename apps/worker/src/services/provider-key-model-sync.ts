@@ -43,14 +43,15 @@ export interface ProviderKeyModelSyncOptions {
 	probe?: typeof probeProviderKeyModel;
 	/** Called between probe batches, e.g. to keep the caller's lock alive. */
 	onProgress?: () => Promise<void>;
-	shouldStop?: () => boolean;
+	/** Aborts in-flight probes and ends the run without recording it. */
+	signal?: AbortSignal;
 }
 
 async function syncKey(
 	key: ProviderKeyRow,
 	allowed: string[],
 	options: ProviderKeyModelSyncOptions,
-): Promise<void> {
+): Promise<boolean> {
 	const probe = options.probe ?? probeProviderKeyModel;
 	const token = readProviderKey(key);
 	const validationOptions = managedCredentialValidationOptions(
@@ -66,11 +67,8 @@ async function syncKey(
 	const added: string[] = [];
 	const failed: ProviderKeyModelSyncMetadata["failed"] = [];
 	let probed = 0;
+	let skipped = 0;
 	for (let i = 0; i < candidates.length; i += PROBE_BATCH_SIZE) {
-		if (options.shouldStop?.()) {
-			// A partial run is not recorded, so the key is retried on the next check.
-			return;
-		}
 		const results = await Promise.all(
 			candidates.slice(i, i + PROBE_BATCH_SIZE).map((modelId) =>
 				probe({
@@ -78,11 +76,18 @@ async function syncKey(
 					token,
 					modelId,
 					validationOptions,
+					abortSignal: options.signal,
 				}),
 			),
 		);
+		if (options.signal?.aborted) {
+			// Aborted probes read as failures, so a partial run is not recorded;
+			// the key is retried on the next check.
+			return false;
+		}
 		for (const result of results) {
 			if (result.valid === null) {
+				skipped++;
 				continue;
 			}
 			probed++;
@@ -125,7 +130,7 @@ async function syncKey(
 			logger.info("Provider key model sync skipped: key changed during run", {
 				providerKeyId: key.id,
 			});
-			return;
+			return false;
 		}
 	}
 
@@ -133,7 +138,7 @@ async function syncKey(
 		action: MODEL_SYNC_ACTION,
 		resourceType: "provider_key",
 		resourceId: key.id,
-		metadata: { provider: key.provider, probed, added, failed },
+		metadata: { provider: key.provider, probed, skipped, added, failed },
 	});
 	logger.info("Provider key models synced", {
 		providerKeyId: key.id,
@@ -142,6 +147,7 @@ async function syncKey(
 		added,
 		failedCount: failed.length,
 	});
+	return true;
 }
 
 /**
@@ -187,16 +193,20 @@ export async function syncProviderKeyModels(
 
 	let synced = 0;
 	for (const key of keys) {
-		if (options.shouldStop?.()) {
+		if (options.signal?.aborted) {
 			break;
 		}
 		if (recentlySynced.has(key.id)) {
 			continue;
 		}
 		try {
-			await syncKey(key, key.allowedModels ?? [], options);
-			synced++;
+			if (await syncKey(key, key.allowedModels ?? [], options)) {
+				synced++;
+			}
 		} catch (error) {
+			if (options.signal?.aborted) {
+				break;
+			}
 			// One broken credential must not stop the others from syncing; it is
 			// retried on the next check.
 			logger.error(

@@ -126,6 +126,48 @@ describe("syncProviderKeyModels", () => {
 		).toBe(false);
 	});
 
+	it("counts models without a live probe as skipped", async () => {
+		const id = await createKey();
+
+		await syncProviderKeyModels({
+			probe: async ({ modelId }) => ({
+				model: modelId,
+				inCatalog: true,
+				valid: null,
+			}),
+		});
+
+		const [entry] = await historyOf(id);
+		expect(entry?.metadata).toMatchObject({
+			probed: 0,
+			skipped: bedrockModels.length - 1,
+			added: [],
+		});
+		expect(await allowedModelsOf(id)).toEqual([allowedModel]);
+	});
+
+	it("passes the stop signal to probes and drops an aborted run", async () => {
+		const id = await createKey();
+		const controller = new AbortController();
+		const signals: (AbortSignal | undefined)[] = [];
+
+		const synced = await syncProviderKeyModels({
+			signal: controller.signal,
+			probe: async ({ modelId, abortSignal }) => {
+				signals.push(abortSignal);
+				controller.abort();
+				return { model: modelId, inCatalog: true, valid: true };
+			},
+		});
+
+		expect(synced).toBe(0);
+		expect(signals.every((signal) => signal === controller.signal)).toBe(true);
+		// Only the first batch started.
+		expect(signals.length).toBeLessThanOrEqual(5);
+		expect(await allowedModelsOf(id)).toEqual([allowedModel]);
+		expect(await historyOf(id)).toHaveLength(0);
+	});
+
 	it("syncs a credential at most once a day", async () => {
 		const id = await createKey();
 
