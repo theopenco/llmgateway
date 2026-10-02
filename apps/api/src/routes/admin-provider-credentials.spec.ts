@@ -1213,6 +1213,33 @@ describe("managed credential reorder cache invalidation", () => {
 			expect(body.data.length).toBeGreaterThan(0);
 		});
 
+		test("scopes calendar-month windows to their UTC month", async () => {
+			await seedTraffic([{ providerKeyId, cost: 0.05 }]);
+
+			const month = await app.request(
+				`/admin/provider-keys/${providerKeyId}/spend?window=month`,
+				{ headers: { Cookie: cookie } },
+			);
+			const monthBody = (await month.json()) as {
+				bucket: string;
+				totalCost: number;
+			};
+			expect(monthBody.bucket).toBe("day");
+			expect(monthBody.totalCost).toBeCloseTo(0.05, 6);
+
+			// Today's traffic sits past the previous month's exclusive end.
+			const lastMonth = await app.request(
+				`/admin/provider-keys/${providerKeyId}/spend?window=last_month`,
+				{ headers: { Cookie: cookie } },
+			);
+			const lastMonthBody = (await lastMonth.json()) as {
+				totalCost: number;
+				buckets: string[];
+			};
+			expect(lastMonthBody.totalCost).toBe(0);
+			expect(lastMonthBody.buckets.length).toBeGreaterThanOrEqual(28);
+		});
+
 		test("splits spend by consuming organization", async () => {
 			await seedTraffic([
 				{ providerKeyId, cost: 0.04 },

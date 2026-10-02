@@ -13,6 +13,8 @@ import {
 	getBucketUnitForWindow,
 	getTokenWindowStartDate,
 	getWindowBucketTimestamps,
+	getWindowRange,
+	spendWindowSchema,
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
@@ -41,6 +43,7 @@ import {
 	eq,
 	gte,
 	inArray,
+	lt,
 	ne,
 	shortid,
 	sql,
@@ -1078,7 +1081,7 @@ const spendByModelSchema = z.object({
 const SPEND_MODEL_ROW_LIMIT = 50;
 
 const providerKeySpendSchema = z.object({
-	window: tokenWindowSchema,
+	window: spendWindowSchema,
 	bucket: z.enum(["hour", "day"]),
 	key: z.object({
 		id: z.string(),
@@ -1123,7 +1126,7 @@ const getProviderKeySpend = createRoute({
 	request: {
 		params: z.object({ providerKeyId: z.string() }),
 		query: z.object({
-			window: tokenWindowSchema.default("7d").optional(),
+			window: spendWindowSchema.default("7d").optional(),
 		}),
 	},
 	responses: {
@@ -1145,7 +1148,7 @@ const getProviderKeySpend = createRoute({
 adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 	const { providerKeyId } = c.req.valid("param");
 	const window = c.req.valid("query").window ?? "7d";
-	const startDate = getTokenWindowStartDate(window);
+	const { start: startDate, end: endDate } = getWindowRange(window);
 	const bucketUnit = getBucketUnitForWindow(window);
 
 	const key = await db.query.providerKey.findFirst({
@@ -1170,6 +1173,9 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 	const baseFilter = and(
 		eq(tables.providerKeyHourlyStats.providerKeyId, providerKeyId),
 		gte(tables.providerKeyHourlyStats.hourTimestamp, startDate),
+		endDate
+			? lt(tables.providerKeyHourlyStats.hourTimestamp, endDate)
+			: undefined,
 	);
 
 	const modelsSince = new Date(startDate);
@@ -1256,6 +1262,7 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 				and(
 					eq(modelStats.providerKeyId, providerKeyId),
 					gte(modelStats.dayTimestamp, modelsSince),
+					endDate ? lt(modelStats.dayTimestamp, endDate) : undefined,
 				),
 			)
 			.groupBy(modelStats.usedModel, modelStats.usedProvider)
