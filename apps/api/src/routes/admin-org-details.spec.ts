@@ -449,3 +449,60 @@ describe("admin organization details endpoints", () => {
 		]);
 	});
 });
+
+describe("admin organization metrics all-time top-ups", () => {
+	let cookie: string;
+
+	beforeEach(async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
+		cookie = await createTestUser();
+		await insertOrg();
+	});
+
+	afterEach(async () => {
+		if (originalAdminEmails === undefined) {
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
+		} else {
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
+		}
+		await deleteAll();
+	});
+
+	it("sums completed top-ups and manual payments, excluding gifts", async () => {
+		await db.insert(tables.transaction).values([
+			{
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "105.50",
+				creditAmount: "100",
+				status: "completed",
+			},
+			{
+				organizationId: ORG_ID,
+				type: "credit_manual_payment",
+				amount: "50",
+				creditAmount: "50",
+				status: "completed",
+			},
+			{
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "20",
+				creditAmount: "20",
+				status: "pending",
+			},
+			{
+				organizationId: ORG_ID,
+				type: "credit_gift",
+				amount: "0",
+				creditAmount: "25",
+				status: "completed",
+			},
+		]);
+
+		const res = await get("", cookie);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { allTimeTopUps: string };
+		expect(body.allTimeTopUps).toBe("155.5");
+	});
+});

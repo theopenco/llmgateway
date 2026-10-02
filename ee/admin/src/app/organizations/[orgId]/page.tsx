@@ -306,6 +306,7 @@ export default async function OrganizationPage({
 	const transactionsData = transactionsRes.data;
 	const trustTier = orgMetricsRes.data?.trustTier;
 	const contentFilterTier = orgMetricsRes.data?.contentFilterTier;
+	const allTimeTopUps = orgMetricsRes.data?.allTimeTopUps;
 	const projectsData = projectsRes.data;
 	const apiKeysData = apiKeysRes.data;
 	const providerKeysData = providerKeysRes.data;
@@ -469,13 +470,25 @@ export default async function OrganizationPage({
 								) : null}
 							</div>
 						</div>
-						<div className="border-b border-border/60 p-4 sm:border-r sm:border-b-0">
-							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-								Credits
-							</p>
-							<p className="mt-1.5 text-xl font-semibold tabular-nums">
-								{creditsFormatter.format(parseFloat(org.credits))}
-							</p>
+						<div className="flex gap-6 border-b border-border/60 p-4 sm:border-r sm:border-b-0">
+							<div>
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+									Credits
+								</p>
+								<p className="mt-1.5 text-xl font-semibold tabular-nums">
+									{creditsFormatter.format(parseFloat(org.credits))}
+								</p>
+							</div>
+							<div title="Completed Stripe top-ups (incl. fees) and manual payments">
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+									All-time top-ups
+								</p>
+								<p className="mt-1.5 text-xl font-semibold tabular-nums">
+									{allTimeTopUps !== undefined
+										? creditsFormatter.format(parseFloat(allTimeTopUps))
+										: "—"}
+								</p>
+							</div>
 						</div>
 						<div className="p-4">
 							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">

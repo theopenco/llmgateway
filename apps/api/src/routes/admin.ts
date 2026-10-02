@@ -615,6 +615,9 @@ const orgMetricsSchema = z.object({
 	mostUsedProvider: z.string().nullable(),
 	mostUsedModelCost: z.number(),
 	discountSavings: z.number(),
+	// All-time dollars paid for credits: completed Stripe top-ups (gross,
+	// incl fees) plus off-Stripe manual payments. Gifts are excluded.
+	allTimeTopUps: z.string(),
 });
 
 const transactionSchema = z.object({
@@ -3629,6 +3632,23 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		logOnly: org.contentFilterLogOnly,
 	};
 
+	const [allTimeTopUpsRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, [
+					"credit_topup",
+					"credit_manual_payment",
+				]),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+			),
+		);
+
 	return c.json({
 		organization: {
 			id: org.id,
@@ -3675,6 +3695,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		mostUsedProvider,
 		mostUsedModelCost,
 		discountSavings,
+		allTimeTopUps: new Decimal(allTimeTopUpsRow?.total ?? 0).toString(),
 	});
 });
 
