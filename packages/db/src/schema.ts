@@ -4980,10 +4980,6 @@ export const providerCompany = pgTable("provider_company", {
 	// The token a company publishes as a TXT record to prove a domain; see
 	// `providerCompanyDomain`.
 	websiteVerificationToken: text(),
-	// Deprecated, unused: superseded by `providerCompanyDomain`. Dropped in a
-	// follow-up once no deployed API reads them.
-	websiteVerifiedDomain: text(),
-	websiteVerifiedAt: timestamp(),
 	// One-time listing fee. Claims are gated on "paid" whenever the Stripe
 	// price id is configured; self-hosted installs without it skip the gate.
 	paymentStatus: text({ enum: ["unpaid", "paid"] })
@@ -4997,10 +4993,12 @@ export const providerCompany = pgTable("provider_company", {
 	listingInviteCode: text(),
 });
 
-// Domains a company proves over DNS. A verified one counts alongside the
-// verified email domain when matching carrier claims, so a company can host
-// its API on a domain unrelated to its staff mail. The TXT token is the
-// company's `websiteVerificationToken`.
+// Domains a company has proven, and how. A verified `dns` row counts alongside
+// the verified email domain when matching carrier claims, so a company can
+// host its API on a domain unrelated to its staff mail; the TXT token is the
+// company's `websiteVerificationToken`. An `email` row only records that a
+// claim was matched on the claimer's email domain: that proof belongs to the
+// person, so it never grants the company claim rights.
 export const providerCompanyDomain = pgTable(
 	"provider_company_domain",
 	{
@@ -5015,13 +5013,17 @@ export const providerCompanyDomain = pgTable(
 			.references(() => providerCompany.id, { onDelete: "cascade" }),
 		// Registrable domain, lowercase.
 		domain: text().notNull(),
+		verificationMethod: text({ enum: ["dns", "email"] })
+			.notNull()
+			.default("dns"),
 		// Null until the TXT record resolved.
 		verifiedAt: timestamp(),
 	},
 	(table) => [
-		uniqueIndex("provider_company_domain_company_domain_uidx").on(
+		uniqueIndex("provider_company_domain_company_domain_method_uidx").on(
 			table.providerCompanyId,
 			table.domain,
+			table.verificationMethod,
 		),
 	],
 );

@@ -3786,6 +3786,40 @@ describe("airside provider portal", () => {
 		expect(dupe.status).toBe(409);
 	});
 
+	it("records an email-matched domain without granting it to the company", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		expect((await registerCarrier(cookie, company.id)).status).toBe(201);
+
+		const { domains } = await (
+			await app.request(`/airside/companies/${company.id}/domains`, {
+				headers: { Cookie: cookie },
+			})
+		).json();
+		const emailRow = domains.find(
+			(d: { method: string }) => d.method === "email",
+		);
+		expect(emailRow.domain).toBe("acme-sky.ai");
+		expect(emailRow.verifiedAt).not.toBeNull();
+
+		// A record of the proof, not a company grant: it is not listed as a
+		// verified domain, cannot be removed, and does not outlive the email.
+		const companies = await (
+			await app.request("/airside/companies", { headers: { Cookie: cookie } })
+		).json();
+		expect(companies.companies[0].verifiedDomains).toEqual([]);
+		const removed = await app.request(
+			`/airside/companies/${company.id}/domains/${emailRow.id}`,
+			json(cookie, undefined, "DELETE"),
+		);
+		expect(removed.status).toBe(404);
+		await setUserEmail("ops@elsewhere.ai");
+		const res = await registerCarrier(cookie, company.id, {
+			providerId: "acme-sky-two",
+		});
+		expect(res.status).toBe(403);
+	});
+
 	it("rejects freemail accounts and flags them on the claimable list", async () => {
 		await setUserEmail("someone@hotmail.com");
 		const company = await createCompany(cookie, "Personal Co");
