@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "3b9d1233-781f-4556-ad3f-4c62952eeb55",
-  "prevId": "c5021a92-325a-4820-b70c-b1fbf79856db",
+  "id": "30a4de94-82c6-4413-a3f9-68cb89a1cb2d",
+  "prevId": "e20596f7-ad71-488b-bb52-fbfed3798d72",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -24399,32 +24399,6 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "website_verified_domain",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_company"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "website_verified_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_company"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": {
@@ -24544,6 +24518,22 @@
       "generated": null,
       "identity": null,
       "name": "domain",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_company_domain"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'dns'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "verification_method",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_company_domain"
@@ -25160,22 +25150,6 @@
       "generated": null,
       "identity": null,
       "name": "rate_limit_scope",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_draft_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'strict'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "rate_limit_mode",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_draft_model"
@@ -27111,22 +27085,6 @@
       "generated": null,
       "identity": null,
       "name": "enforcement",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "rate_limit"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'strict'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "mode",
       "entityType": "columns",
       "schema": "public",
       "table": "rate_limit"
@@ -36488,6 +36446,13 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
+        },
+        {
+          "value": "verification_method",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
         }
       ],
       "isUnique": true,
@@ -36495,7 +36460,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "provider_company_domain_company_domain_uidx",
+      "name": "provider_company_domain_company_domain_method_uidx",
       "entityType": "indexes",
       "schema": "public",
       "table": "provider_company_domain"
