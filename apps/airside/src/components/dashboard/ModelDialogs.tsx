@@ -1182,16 +1182,21 @@ export function RegisterModelDialog({
 								placeholder="e.g. 20000"
 							/>
 						</div>
-						<RateLimitScopeField
-							id="model-rate-limit-scope"
-							value={rateLimitScope}
-							onChange={setRateLimitScope}
-						/>
-						<RateLimitModeField
-							id="model-rate-limit-mode"
-							value={rateLimitMode}
-							onChange={setRateLimitMode}
-						/>
+						{/* Scope and mode only mean something once a cap is set. */}
+						{maxRpm || maxRpd ? (
+							<>
+								<RateLimitScopeField
+									id="model-rate-limit-scope"
+									value={rateLimitScope}
+									onChange={setRateLimitScope}
+								/>
+								<RateLimitModeField
+									id="model-rate-limit-mode"
+									value={rateLimitMode}
+									onChange={setRateLimitMode}
+								/>
+							</>
+						) : null}
 					</div>
 
 					<div className="border-primary/40 bg-primary/5 space-y-4 rounded-lg border border-dashed p-4">
@@ -1932,16 +1937,21 @@ export function EditModelDialog({
 								placeholder="unlimited"
 							/>
 						</div>
-						<RateLimitScopeField
-							id="edit-rate-limit-scope"
-							value={rateLimitScope}
-							onChange={setRateLimitScope}
-						/>
-						<RateLimitModeField
-							id="edit-rate-limit-mode"
-							value={rateLimitMode}
-							onChange={setRateLimitMode}
-						/>
+						{/* Scope and mode only mean something once a cap is set. */}
+						{maxRpm || maxRpd ? (
+							<>
+								<RateLimitScopeField
+									id="edit-rate-limit-scope"
+									value={rateLimitScope}
+									onChange={setRateLimitScope}
+								/>
+								<RateLimitModeField
+									id="edit-rate-limit-mode"
+									value={rateLimitMode}
+									onChange={setRateLimitMode}
+								/>
+							</>
+						) : null}
 					</div>
 					<div className="border-border space-y-2 rounded-lg border p-3">
 						<Label htmlFor={`edit-verify-api-key-${model.id}`}>
