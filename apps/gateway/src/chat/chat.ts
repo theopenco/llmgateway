@@ -11215,7 +11215,11 @@ chat.openapi(completions, async (c) => {
 									}
 								}
 
-								if (usedProvider === "openai" || usedProvider === "azure") {
+								if (
+									usedProvider === "openai" ||
+									usedProvider === "azure" ||
+									usedProvider === "aws-bedrock"
+								) {
 									const served = resolveOpenAIServiceTier(data);
 									if (served !== undefined) {
 										servedServiceTier = served;
@@ -14801,7 +14805,11 @@ chat.openapi(completions, async (c) => {
 		),
 		json,
 	);
-	if (usedProvider === "openai" || usedProvider === "azure") {
+	if (
+		usedProvider === "openai" ||
+		usedProvider === "azure" ||
+		usedProvider === "aws-bedrock"
+	) {
 		const served = resolveOpenAIServiceTier(json);
 		if (served !== undefined) {
 			servedServiceTier = served;

@@ -2583,6 +2583,21 @@ export async function prepareRequestBody(
 					}
 				}
 
+				// AWS Bedrock's OpenAI format is shaped under this transport, so
+				// its tier support is keyed on the resolved mapping's provider.
+				if (
+					resolvedProviderMapping?.providerId === "aws-bedrock" &&
+					(service_tier === "flex" || service_tier === "priority") &&
+					supportsServiceTier(
+						usedInternalModel,
+						"aws-bedrock",
+						service_tier,
+						usedRegion,
+					)
+				) {
+					requestBody.service_tier = service_tier;
+				}
+
 				if (usedProvider === "openai") {
 					if (allowProviderCacheWrites) {
 						const upstreamCacheKey =

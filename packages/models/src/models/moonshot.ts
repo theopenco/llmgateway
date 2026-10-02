@@ -1014,6 +1014,7 @@ export const moonshotModels = [
 				cacheWriteInputPrice: "3.75e-6",
 				outputPrice: "15.0e-6",
 				requestPrice: "0",
+				serviceTiers: ["flex"],
 				contextSize: 1048576,
 				maxOutput: 1048576,
 				maxTemperature: 1,
