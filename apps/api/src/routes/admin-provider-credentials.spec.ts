@@ -2619,6 +2619,98 @@ describe("managed credential allowed models", () => {
 		expect(validateProviderKeyMock).not.toHaveBeenCalled();
 	});
 
+	test("removed models are excluded from the daily sync until re-added", async () => {
+		const [first, second, third] = await catalogModels("openai");
+		const createRes = await create({
+			provider: "openai",
+			token: "sk-exclusions",
+			allowedModels: [first, second, third],
+		});
+		const { credential } = (await createRes.json()) as {
+			credential: { id: string };
+		};
+		const excluded = async () =>
+			(
+				await db.query.providerKey.findFirst({
+					where: { id: { eq: credential.id } },
+					columns: { modelSyncExcluded: true },
+				})
+			)?.modelSyncExcluded;
+
+		await patch(credential.id, { allowedModels: [first] });
+		expect(await excluded()).toEqual([second, third]);
+
+		await patch(credential.id, { allowedModels: [first, second] });
+		expect(await excluded()).toEqual([third]);
+
+		await patch(credential.id, { allowedModels: null });
+		expect(await excluded()).toBeNull();
+	});
+
+	test("model-sync-history lists a credential's sync runs, newest first", async () => {
+		const createRes = await create({ provider: "openai", token: "sk-history" });
+		const { credential } = (await createRes.json()) as {
+			credential: { id: string };
+		};
+		await db.insert(tables.platformAuditLog).values([
+			{
+				createdAt: new Date("2026-01-01T00:00:00Z"),
+				action: "provider_key.models_synced",
+				resourceType: "provider_key",
+				resourceId: credential.id,
+				metadata: {
+					provider: "openai",
+					probed: 1,
+					skipped: 0,
+					added: [],
+					failed: [],
+				},
+			},
+			{
+				createdAt: new Date("2026-01-02T00:00:00Z"),
+				action: "provider_key.models_synced",
+				resourceType: "provider_key",
+				resourceId: credential.id,
+				metadata: {
+					provider: "openai",
+					probed: 2,
+					skipped: 3,
+					added: ["model-a"],
+					failed: [{ model: "model-b", statusCode: 404 }],
+				},
+			},
+			{
+				action: "provider_key.models_synced",
+				resourceType: "provider_key",
+				resourceId: "another-credential",
+				metadata: {
+					provider: "openai",
+					probed: 0,
+					skipped: 0,
+					added: [],
+					failed: [],
+				},
+			},
+		]);
+
+		const res = await app.request(
+			`/admin/provider-credentials/${credential.id}/model-sync-history`,
+			{ headers: { Cookie: cookie } },
+		);
+
+		expect(res.status).toBe(200);
+		const { entries } = (await res.json()) as {
+			entries: { probed: number; added: string[]; failed: unknown[] }[];
+		};
+		expect(entries).toHaveLength(2);
+		expect(entries[0]).toMatchObject({
+			probed: 2,
+			skipped: 3,
+			added: ["model-a"],
+			failed: [{ model: "model-b", statusCode: 404 }],
+		});
+	});
+
 	test("verify-models accepts more than 50 models", async () => {
 		const models = Array.from(
 			{ length: 51 },
