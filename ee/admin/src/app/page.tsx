@@ -484,7 +484,7 @@ export default async function Page({
 							label="Credit flow"
 							value={metrics.totalToppedUp}
 							format="currency"
-							sublabel="All-time credits purchased"
+							sublabel="All-time credits purchased + gifted"
 							icon={<PiggyBank className="h-4 w-4" strokeWidth={1.75} />}
 							accent="violet"
 							style={revealAt(5)}
@@ -492,14 +492,20 @@ export default async function Page({
 								{
 									label: "Spent",
 									value: currencyFormatter.format(metrics.totalSpent),
-								},
-								{
-									label: "Spent (credits)",
-									value: currencyFormatter.format(metrics.totalCreditsSpent),
-								},
-								{
-									label: "Spent (BYOK, not billed)",
-									value: currencyFormatter.format(metrics.totalApiKeysSpent),
+									sub: [
+										{
+											label: "Credits",
+											value: currencyFormatter.format(
+												metrics.totalCreditsSpent,
+											),
+										},
+										{
+											label: "BYOK, not billed",
+											value: currencyFormatter.format(
+												metrics.totalApiKeysSpent,
+											),
+										},
+									],
 								},
 								{
 									label: "Unused",
@@ -512,6 +518,10 @@ export default async function Page({
 											value: currencyFormatter.format(metrics.unusedCredits),
 										},
 									],
+								},
+								{
+									label: "Of which gifted",
+									value: currencyFormatter.format(metrics.totalToppedUpGifted),
 								},
 							]}
 						/>

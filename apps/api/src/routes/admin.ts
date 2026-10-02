@@ -412,6 +412,9 @@ const adminMetricsSchema = z.object({
 	totalProcessed: z.number(),
 	totalOrganizations: z.number(),
 	totalToppedUp: z.number(),
+	// Gifted credits inside totalToppedUp. Narrower than totalGiftedCredits,
+	// which also counts end-user wallet gifts.
+	totalToppedUpGifted: z.number(),
 	totalSpent: z.number(),
 	// Credits-vs-BYOK split of totalSpent. totalSpent stays blended; BYOK
 	// ("api-keys") usage is provider list price paid by the customer's own key,
@@ -1268,8 +1271,7 @@ admin.openapi(getMetrics, async (c) => {
 		);
 
 	const totalToppedUp = Number(toppedUpRow?.value ?? 0);
-	// Gifts inside `totalToppedUp` — same scope, unlike `totalGiftedCredits`.
-	const toppedUpGifted = Number(toppedUpRow?.giftedValue ?? 0);
+	const totalToppedUpGifted = Number(toppedUpRow?.giftedValue ?? 0);
 
 	// Total spent (usage cost from hourly stats). Excludes spend from projects
 	// belonging to orgs whose usage is/was on a DevPass or Chat Plan, so the
@@ -1731,7 +1733,10 @@ admin.openapi(getMetrics, async (c) => {
 	// unusedCredits (and overstate overage) for orgs with BYOK traffic.
 	const rawBalance = totalToppedUp - totalDebitedSpend;
 	const unusedCredits = Math.max(0, rawBalance);
-	const unusedCreditsExcludingGifts = Math.max(0, rawBalance - toppedUpGifted);
+	const unusedCreditsExcludingGifts = Math.max(
+		0,
+		rawBalance - totalToppedUpGifted,
+	);
 	const overage = Math.max(0, -rawBalance);
 
 	return c.json({
@@ -1742,6 +1747,7 @@ admin.openapi(getMetrics, async (c) => {
 		totalProcessed,
 		totalOrganizations,
 		totalToppedUp,
+		totalToppedUpGifted,
 		totalSpent,
 		totalCreditsSpent,
 		totalApiKeysSpent,
