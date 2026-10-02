@@ -5027,10 +5027,6 @@ export const providerCompany = pgTable("provider_company", {
 	// The token a company publishes as a TXT record to prove a domain; see
 	// `providerCompanyDomain`.
 	websiteVerificationToken: text(),
-	// Deprecated, unused: superseded by `providerCompanyDomain`. Dropped in a
-	// follow-up once no deployed API reads them.
-	websiteVerifiedDomain: text(),
-	websiteVerifiedAt: timestamp(),
 	// One-time listing fee. Claims are gated on "paid" whenever the Stripe
 	// price id is configured; self-hosted installs without it skip the gate.
 	paymentStatus: text({ enum: ["unpaid", "paid"] })
