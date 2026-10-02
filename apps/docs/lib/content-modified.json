@@ -4,8 +4,8 @@
 		"lastModified": "2026-09-25T17:37:39.000Z"
 	},
 	"(airside)/features/airside.mdx": {
-		"hash": "0d1da494984ca4c5815e0809fa2a95f1bfabd313ba7d9b69d68c39fb3ba3a9ed",
-		"lastModified": "2026-10-01T15:53:54.000Z"
+		"hash": "a7ff150ccf0b90fd499ee714386ed7b2053b973e1c1e395285f793a454ab599e",
+		"lastModified": "2026-10-02T07:20:01.000Z"
 	},
 	"(airside)/learn/airside-fleet.mdx": {
 		"hash": "49dccfadd8c6a5db614c2ba194d417a73be6e7542052d295a32d22a168be8c28",
@@ -248,8 +248,8 @@
 		"lastModified": "2026-09-25T17:37:39.000Z"
 	},
 	"(gateway)/features/anthropic-endpoint.mdx": {
-		"hash": "a51a0665aedb733641ec2b4bcd283b71a257980b6b28cd0aa8362a73f19809c3",
-		"lastModified": "2026-10-01T11:47:00.000Z"
+		"hash": "3bed4a50ecc64415e92758fc8c757f509d19f14ff05561c3f494df9c81c2c593",
+		"lastModified": "2026-10-02T07:58:46.000Z"
 	},
 	"(gateway)/features/api-keys.mdx": {
 		"hash": "c7bf4fd6e17f3f86b31185d419696ebf436df713cbd4fe02160fd97751c3cbd3",
@@ -268,8 +268,8 @@
 		"lastModified": "2026-09-25T17:37:39.000Z"
 	},
 	"(gateway)/features/caching/provider-cache-control.mdx": {
-		"hash": "d0ff7476775aadd9b323f7b5f135f87ec17e673dc944225019f018b0641e806d",
-		"lastModified": "2026-10-01T11:03:42.000Z"
+		"hash": "63a356f11993f9a64114fc42739889c36c97d3ec425c4227bed7e6145f50105a",
+		"lastModified": "2026-10-02T07:58:46.000Z"
 	},
 	"(gateway)/features/compliance.mdx": {
 		"hash": "0b0ccd4b40c6030e4dfffb509764269024c3dc15177fbe19ddfdcc2332410418",
@@ -580,8 +580,8 @@
 		"lastModified": "2026-09-30T10:39:13.000Z"
 	},
 	"(gateway)/resources/error-handling.mdx": {
-		"hash": "6d8484d7ead896395a347ccd484bc0c7657470e23c265973aa0e4772e7cb6e42",
-		"lastModified": "2026-10-01T11:03:42.000Z"
+		"hash": "11115bc29a1535decbe0fe71988e0df8770ea1582984efb331b5f9522c4b4b12",
+		"lastModified": "2026-10-02T07:21:06.000Z"
 	},
 	"(gateway)/resources/rate-limits.mdx": {
 		"hash": "ab829588ac37e22fde090da53fc545f263f8eda9a0e1d48a754a1515fb652b11",
