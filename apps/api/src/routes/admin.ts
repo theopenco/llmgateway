@@ -412,13 +412,22 @@ const adminMetricsSchema = z.object({
 	totalProcessed: z.number(),
 	totalOrganizations: z.number(),
 	totalToppedUp: z.number(),
+	// Gifted credits inside totalToppedUp. Narrower than totalGiftedCredits,
+	// which also counts end-user wallet gifts.
+	totalToppedUpGifted: z.number(),
 	totalSpent: z.number(),
 	// Credits-vs-BYOK split of totalSpent. totalSpent stays blended; BYOK
 	// ("api-keys") usage is provider list price paid by the customer's own key,
 	// not revenue-relevant spend.
 	totalCreditsSpent: z.number(),
 	totalApiKeysSpent: z.number(),
+	// Spend actually debited from credit balances: credits-mode cost plus BYOK
+	// rows' data-storage cost. totalToppedUp minus this is the balance.
+	totalDebitedSpend: z.number(),
 	unusedCredits: z.number(),
+	// unusedCredits with gifted credits taken out of the topped-up base, i.e.
+	// purchased credits not yet spent, assuming spend drains purchases first.
+	unusedCreditsExcludingGifts: z.number(),
 	overage: z.number(),
 	totalGiftedCredits: z.number(),
 	totalBonusCredits: z.number(),
@@ -1249,6 +1258,10 @@ admin.openapi(getMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
 					"value",
 				),
+			giftedValue:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.type} = 'credit_gift'), 0)`.as(
+					"giftedValue",
+				),
 		})
 		.from(tables.transaction)
 		.where(
@@ -1261,6 +1274,7 @@ admin.openapi(getMetrics, async (c) => {
 		);
 
 	const totalToppedUp = Number(toppedUpRow?.value ?? 0);
+	const totalToppedUpGifted = Number(toppedUpRow?.giftedValue ?? 0);
 
 	// Total spent (usage cost from hourly stats). Excludes spend from projects
 	// belonging to orgs whose usage is/was on a DevPass or Chat Plan, so the
@@ -1722,6 +1736,10 @@ admin.openapi(getMetrics, async (c) => {
 	// unusedCredits (and overstate overage) for orgs with BYOK traffic.
 	const rawBalance = totalToppedUp - totalDebitedSpend;
 	const unusedCredits = Math.max(0, rawBalance);
+	const unusedCreditsExcludingGifts = Math.max(
+		0,
+		rawBalance - totalToppedUpGifted,
+	);
 	const overage = Math.max(0, -rawBalance);
 
 	return c.json({
@@ -1732,10 +1750,13 @@ admin.openapi(getMetrics, async (c) => {
 		totalProcessed,
 		totalOrganizations,
 		totalToppedUp,
+		totalToppedUpGifted,
 		totalSpent,
 		totalCreditsSpent,
 		totalApiKeysSpent,
+		totalDebitedSpend,
 		unusedCredits,
+		unusedCreditsExcludingGifts,
 		overage,
 		totalGiftedCredits,
 		totalBonusCredits,
