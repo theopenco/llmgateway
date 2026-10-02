@@ -321,4 +321,129 @@ describe("session stickiness across candidate changes", () => {
 			providerId: "deepinfra",
 		});
 	});
+
+	// A soft rate limit routes new traffic away from the capped provider but
+	// keeps a session already pinned to it. The pin is on openai while azure is
+	// the natural winner, so a first attempt on azure means the pin was dropped.
+	describe("soft rate limits", () => {
+		const rpmKey = "rate_limit:provider_cap:rpm:org-id:openai:gpt-5.5";
+		const rpdKey = "rate_limit:provider_cap:rpd:org-id:openai:gpt-5.5";
+
+		async function capOpenai(mode: "strict" | "soft") {
+			await db.insert(tables.rateLimit).values({
+				id: `rate-limit-openai-${mode}`,
+				organizationId: "org-id",
+				provider: "openai",
+				model: MODEL,
+				maxRpm: 1,
+				mode,
+			});
+			// Fill the only slot so the cap is already reached.
+			await redisClient.zadd(rpmKey, Date.now(), "seed");
+		}
+
+		async function pinToOpenai(sessionId: string) {
+			await redisClient.set(
+				sessionPinKey(sessionId),
+				JSON.stringify({ providerId: "openai" }),
+				"EX",
+				3600,
+			);
+		}
+
+		async function send(token: string, sessionId?: string) {
+			const res = await chatCompletion(
+				token,
+				{ model: MODEL, messages: [{ role: "user", content: "hello" }] },
+				sessionId ? { "x-session-id": sessionId } : {},
+			);
+			const json = await res.json();
+			return {
+				status: res.status,
+				firstProvider: json.metadata?.routing?.[0]?.provider as
+					string | undefined,
+				usedProvider: json.metadata?.used_provider as string | undefined,
+			};
+		}
+
+		test("a pinned session stays on a soft-capped provider and still counts", async () => {
+			const token = await seedApiAndProviderKeys("soft-pinned");
+			const sessionId = "session-soft-pinned";
+			await capOpenai("soft");
+			await pinToOpenai(sessionId);
+
+			const result = await send(token, sessionId);
+
+			expect(result.status).toBe(200);
+			expect(result.firstProvider).toBe("openai");
+			expect(result.usedProvider).toBe("openai");
+			expect(await readSessionPin(sessionId)).toMatchObject({
+				providerId: "openai",
+			});
+			// Counted past the cap of 1, so new sessions keep being routed away.
+			expect(await redisClient.zcard(rpmKey)).toBe(2);
+		});
+
+		test("a new session is routed away from a soft-capped provider", async () => {
+			const token = await seedApiAndProviderKeys("soft-new");
+			const sessionId = "session-soft-new";
+			await capOpenai("soft");
+
+			const result = await send(token, sessionId);
+
+			expect(result.firstProvider).toBe("azure");
+			expect(await readSessionPin(sessionId)).toMatchObject({
+				providerId: "azure",
+			});
+			expect(await redisClient.zcard(rpmKey)).toBe(1);
+		});
+
+		test("a request without a session is routed away from a soft-capped provider", async () => {
+			const token = await seedApiAndProviderKeys("soft-no-session");
+			await capOpenai("soft");
+
+			const result = await send(token);
+
+			expect(result.firstProvider).toBe("azure");
+			expect(await redisClient.zcard(rpmKey)).toBe(1);
+		});
+
+		test("a strict cap still re-pins a pinned session", async () => {
+			const token = await seedApiAndProviderKeys("strict-pinned");
+			const sessionId = "session-strict-pinned";
+			await capOpenai("strict");
+			await pinToOpenai(sessionId);
+
+			const result = await send(token, sessionId);
+
+			expect(result.firstProvider).toBe("azure");
+			expect(await readSessionPin(sessionId)).toMatchObject({
+				providerId: "azure",
+			});
+			expect(await redisClient.zcard(rpmKey)).toBe(1);
+		});
+
+		test("a strict window exceeded alongside a soft one re-pins the session", async () => {
+			const token = await seedApiAndProviderKeys("mixed-pinned");
+			const sessionId = "session-mixed-pinned";
+			await capOpenai("soft");
+			// Strict RPD from a broader row; RPM and RPD resolve independently.
+			await db.insert(tables.rateLimit).values({
+				id: "rate-limit-openai-strict-rpd",
+				organizationId: "org-id",
+				provider: "openai",
+				model: null,
+				maxRpd: 1,
+			});
+			await redisClient.zadd(rpdKey, Date.now(), "seed");
+			await pinToOpenai(sessionId);
+
+			const result = await send(token, sessionId);
+
+			expect(result.firstProvider).toBe("azure");
+			expect(await readSessionPin(sessionId)).toMatchObject({
+				providerId: "azure",
+			});
+		});
+	});
 });

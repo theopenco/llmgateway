@@ -105,6 +105,7 @@ export default async function OrganizationRateLimitsPage({
 		model: string | null;
 		limitType: "rpm" | "rpd";
 		maxRequests: number;
+		mode: "strict" | "soft";
 		reason: string | null;
 	}): Promise<{ success: boolean; error?: string }> {
 		"use server";
@@ -115,6 +116,7 @@ export default async function OrganizationRateLimitsPage({
 				model: data.model,
 				limitType: data.limitType,
 				maxRequests: data.maxRequests,
+				mode: data.mode,
 				reason: data.reason,
 			});
 
@@ -186,6 +188,7 @@ export default async function OrganizationRateLimitsPage({
 							<TableHead>Provider</TableHead>
 							<TableHead>Model</TableHead>
 							<TableHead>Limit</TableHead>
+							<TableHead>Mode</TableHead>
 							<TableHead>Reason</TableHead>
 							<TableHead>Created</TableHead>
 							{isAdmin ? <TableHead className="w-[50px]" /> : null}
@@ -195,7 +198,7 @@ export default async function OrganizationRateLimitsPage({
 						{rateLimits.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={isAdmin ? 6 : 5}
+									colSpan={isAdmin ? 7 : 6}
 									className="h-24 text-center text-muted-foreground"
 								>
 									<div className="flex flex-col items-center gap-2">
@@ -231,6 +234,13 @@ export default async function OrganizationRateLimitsPage({
 											{formatNumber(rateLimit.maxRequests)}{" "}
 											{rateLimit.limitType.toUpperCase()}
 										</span>
+									</TableCell>
+									<TableCell>
+										{rateLimit.mode === "soft" ? (
+											<Badge variant="secondary">Soft</Badge>
+										) : (
+											<Badge variant="outline">Strict</Badge>
+										)}
 									</TableCell>
 									<TableCell className="max-w-[200px] truncate text-muted-foreground">
 										{rateLimit.reason ?? "\u2014"}

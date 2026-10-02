@@ -368,6 +368,8 @@ const modelSchema = z.object({
 	maxRpd: z.number().nullable(),
 	// "global" = one counter across all organizations, "per_org" = one each.
 	rateLimitScope: z.enum(["global", "per_org"]),
+	// "soft" lets a session already pinned to this listing keep it past the cap.
+	rateLimitMode: z.enum(["strict", "soft"]),
 	status: z.enum(["draft", "active", "rejected", "delisted"]),
 	// Set while an active listing is paused by the carrier.
 	pausedAt: z.string().nullable(),
@@ -617,6 +619,7 @@ function serializeModel(
 		maxRpm: row.maxRpm,
 		maxRpd: row.maxRpd,
 		rateLimitScope: row.rateLimitScope,
+		rateLimitMode: row.rateLimitMode,
 		status: row.status,
 		pausedAt: row.pausedAt ? row.pausedAt.toISOString() : null,
 		delistedAt: row.delistedAt ? row.delistedAt.toISOString() : null,
@@ -2690,6 +2693,7 @@ const createModel = createRoute({
 						maxRpm: z.number().int().positive().optional(),
 						maxRpd: z.number().int().positive().optional(),
 						rateLimitScope: z.enum(["global", "per_org"]).optional(),
+						rateLimitMode: z.enum(["strict", "soft"]).optional(),
 						pricing: pricingSchema,
 						note: z.string().max(1000).optional(),
 					}),
@@ -2815,6 +2819,7 @@ airside.openapi(createModel, async (c) => {
 					maxRpm: body.maxRpm ?? null,
 					maxRpd: body.maxRpd ?? null,
 					rateLimitScope: body.rateLimitScope ?? "global",
+					rateLimitMode: body.rateLimitMode ?? "strict",
 					createdBy: user.id,
 				})
 				.returning();

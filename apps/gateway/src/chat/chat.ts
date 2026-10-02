@@ -364,6 +364,7 @@ import {
 	describeSmartRoutingSwitch,
 	selectSmartRoutingModel,
 } from "./tools/smart-routing-selection.js";
+import { resolveSoftLimitExemptProvider } from "./tools/soft-rate-limit.js";
 import { resolveTieredContentFilterPlan } from "./tools/tiered-content-filter.js";
 import {
 	encodeChatMessages,
@@ -2888,6 +2889,14 @@ chat.openapi(completions, async (c) => {
 				)
 			: undefined;
 
+	// A session pinned to a provider keeps it past a soft rate limit; set once
+	// routing finds such a pin, and those requests still count toward the cap.
+	let softLimitExemptProvider: string | undefined;
+	const consumeProviderRateLimit = (providerId: string) =>
+		checkProviderRateLimit(project.organizationId, providerId, modelInfo.id, {
+			softExempt: providerId === softLimitExemptProvider,
+		});
+
 	// Another provider cannot verify the used mapping's encrypted reasoning, so
 	// requests on it never move providers (low-uptime reroute, retry).
 	const usedProviderEncryptsReasoning = () =>
@@ -4922,7 +4931,14 @@ chat.openapi(completions, async (c) => {
 			baseModelId,
 		);
 
-		if (rateLimitPeek.rateLimited) {
+		if (rateLimitPeek.softOnly) {
+			softLimitExemptProvider = await resolveSoftLimitExemptProvider(
+				createSessionStore(baseModelId),
+				new Set([usedProvider]),
+			);
+		}
+
+		if (rateLimitPeek.rateLimited && !softLimitExemptProvider) {
 			if (noFallback) {
 				const blockedLimits = rateLimitPeek.blockedBy
 					.map(
@@ -5553,17 +5569,26 @@ chat.openapi(completions, async (c) => {
 			// peeked across the full candidate list (not just keyed providers) so
 			// hybrid mode can overflow to credits-backed providers when every keyed
 			// candidate is rate limited.
-			const rateLimitedProviderIds = await filterRateLimitedProviders(
-				project.organizationId,
-				contentFilterPreferredProviders.map((p) => ({
-					providerId: p.providerId,
-					model: (modelInfo as ModelDefinition).id,
-				})),
+			const { rateLimited: rateLimitedProviderIds, softOnly } =
+				await filterRateLimitedProviders(
+					project.organizationId,
+					contentFilterPreferredProviders.map((p) => ({
+						providerId: p.providerId,
+						model: (modelInfo as ModelDefinition).id,
+					})),
+				);
+			softLimitExemptProvider = await resolveSoftLimitExemptProvider(
+				createSessionStore((modelInfo as ModelDefinition).id),
+				softOnly,
 			);
 			const routingCandidates = getRoutingCandidatesForProjectMode(
 				project.mode,
 				contentFilterPreferredProviders,
-				rateLimitedProviderIds,
+				new Set(
+					[...rateLimitedProviderIds].filter(
+						(providerId) => providerId !== softLimitExemptProvider,
+					),
+				),
 				providersWithKeys,
 			);
 			const routingCandidateProviderIds = new Set(
@@ -6531,11 +6556,22 @@ chat.openapi(completions, async (c) => {
 
 	// Consume a rate-limit slot for the chosen provider (routing already filtered rate-limited ones)
 	{
-		const providerRateLimitResult = await checkProviderRateLimit(
-			project.organizationId,
-			usedProvider,
-			modelInfo.id,
-		);
+		const providerRateLimitResult =
+			await consumeProviderRateLimit(usedProvider);
+
+		if (providerRateLimitResult.softLimitBypassed) {
+			const scoreEntry = routingMetadata?.providerScores.find(
+				(score) => score.providerId === usedProvider,
+			);
+			if (scoreEntry) {
+				scoreEntry.rate_limited = true;
+			}
+			logger.info("Soft provider rate limit bypassed for pinned session", {
+				organizationId: project.organizationId,
+				provider: usedProvider,
+				model: modelInfo.id,
+			});
+		}
 
 		// Race condition: between peek and consume, the window may have filled.
 		// Zero global caps always block, including when every routing candidate is capped.
@@ -8724,10 +8760,8 @@ chat.openapi(completions, async (c) => {
 						// Check and consume a rate-limit slot for the fallback candidate.
 						// Using checkProviderRateLimit (not peek) so RPM/RPD counters include
 						// requests routed to a provider via fallback, not just the initial pick.
-						const retryRateLimitResult = await checkProviderRateLimit(
-							project.organizationId,
+						const retryRateLimitResult = await consumeProviderRateLimit(
 							nextProvider.providerId,
-							modelInfo.id,
 						);
 						if (retryRateLimitResult.rateLimited) {
 							failedProviderIds.add(
@@ -8935,13 +8969,7 @@ chat.openapi(completions, async (c) => {
 								}) &&
 								// Same-key retries re-hit the provider, so consume a rate-limit
 								// slot like fallback retries do and skip the retry when limited.
-								!(
-									await checkProviderRateLimit(
-										project.organizationId,
-										usedProvider,
-										modelInfo.id,
-									)
-								).rateLimited;
+								!(await consumeProviderRateLimit(usedProvider)).rateLimited;
 							const willRetryRequest =
 								willRetrySameProvider || willRetryTimeout || willRetrySameKey;
 
@@ -9180,13 +9208,7 @@ chat.openapi(completions, async (c) => {
 								}) &&
 								// Same-key retries re-hit the provider, so consume a rate-limit
 								// slot like fallback retries do and skip the retry when limited.
-								!(
-									await checkProviderRateLimit(
-										project.organizationId,
-										usedProvider,
-										modelInfo.id,
-									)
-								).rateLimited;
+								!(await consumeProviderRateLimit(usedProvider)).rateLimited;
 							const willRetryRequest =
 								willRetrySameProvider || willRetryFetch || willRetrySameKey;
 
@@ -9504,13 +9526,7 @@ chat.openapi(completions, async (c) => {
 							}) &&
 							// Same-key retries re-hit the provider, so consume a rate-limit
 							// slot like fallback retries do and skip the retry when limited.
-							!(
-								await checkProviderRateLimit(
-									project.organizationId,
-									usedProvider,
-									modelInfo.id,
-								)
-							).rateLimited;
+							!(await consumeProviderRateLimit(usedProvider)).rateLimited;
 						const willRetryRequest =
 							willRetrySameProvider || willRetryHttpError || willRetrySameKey;
 
@@ -9889,13 +9905,7 @@ chat.openapi(completions, async (c) => {
 							}) &&
 							// Same-key retries re-hit the provider, so consume a rate-limit
 							// slot like fallback retries do and skip the retry when limited.
-							!(
-								await checkProviderRateLimit(
-									project.organizationId,
-									usedProvider,
-									modelInfo.id,
-								)
-							).rateLimited;
+							!(await consumeProviderRateLimit(usedProvider)).rateLimited;
 						const willRetryRequest =
 							willRetrySameProvider ||
 							willRetryStreamingError ||
@@ -13203,10 +13213,8 @@ chat.openapi(completions, async (c) => {
 			// Check and consume a rate-limit slot for the fallback candidate.
 			// Using checkProviderRateLimit (not peek) so RPM/RPD counters include
 			// requests routed to a provider via fallback, not just the initial pick.
-			const retryRateLimitResult = await checkProviderRateLimit(
-				project.organizationId,
+			const retryRateLimitResult = await consumeProviderRateLimit(
 				nextProvider.providerId,
-				modelInfo.id,
 			);
 			if (retryRateLimitResult.rateLimited) {
 				failedProviderIds.add(
@@ -13442,13 +13450,7 @@ chat.openapi(completions, async (c) => {
 				}) &&
 				// Same-key retries re-hit the provider, so consume a rate-limit
 				// slot like fallback retries do and skip the retry when limited.
-				!(
-					await checkProviderRateLimit(
-						project.organizationId,
-						usedProvider,
-						modelInfo.id,
-					)
-				).rateLimited;
+				!(await consumeProviderRateLimit(usedProvider)).rateLimited;
 			const willRetryRequest =
 				willRetrySameProvider || willRetryFetchNonStreaming || willRetrySameKey;
 
@@ -13893,13 +13895,7 @@ chat.openapi(completions, async (c) => {
 				}) &&
 				// Same-key retries re-hit the provider, so consume a rate-limit
 				// slot like fallback retries do and skip the retry when limited.
-				!(
-					await checkProviderRateLimit(
-						project.organizationId,
-						usedProvider,
-						modelInfo.id,
-					)
-				).rateLimited;
+				!(await consumeProviderRateLimit(usedProvider)).rateLimited;
 			const willRetryRequest =
 				willRetrySameProvider || willRetryHttpNonStreaming || willRetrySameKey;
 
