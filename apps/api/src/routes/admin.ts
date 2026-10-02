@@ -6168,6 +6168,7 @@ const contentFilterSettingsResponseSchema = z
 		enforceEnterprise: z.boolean(),
 		classifier: z.enum(CONTENT_FILTER_CLASSIFIERS),
 		internalScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES),
+		moderateImages: z.boolean(),
 		providers: z.array(
 			z.object({
 				id: z.string(),
@@ -6225,6 +6226,7 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 		enforceEnterprise: settings.enforceEnterprise,
 		classifier: settings.classifier,
 		internalScope: settings.internalScope,
+		moderateImages: settings.moderateImages,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -6238,6 +6240,7 @@ admin.openapi(updateContentFilterSettingsRoute, async (c) => {
 		enforceEnterprise: settings.enforceEnterprise,
 		classifier: settings.classifier,
 		internalScope: settings.internalScope,
+		moderateImages: settings.moderateImages,
 		providers: listContentFilterProviders(settings),
 	});
 });

@@ -5272,6 +5272,9 @@ export interface ProviderModelVerificationTarget {
 	reasoningMaxTokens: boolean;
 	reasoningEfforts: string[] | null;
 	webSearch: boolean;
+	/** Declared limits; unset on runs queued before they were verified. */
+	contextSize?: number | null;
+	maxOutput?: number | null;
 }
 
 // One queued verification of an Airside mapping or a catalogue mapping. The
