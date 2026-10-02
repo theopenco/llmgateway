@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { SparklineLine } from "@/components/sparkline";
@@ -35,7 +36,7 @@ export interface ErrorSeriesPoint extends RecentCredentialStats {
  * uptime surface: a caller's malformed request says nothing about the
  * credential. `fraction` is null when no request counts toward the rate.
  */
-function credentialErrorRate(stats: RecentCredentialStats) {
+export function credentialErrorRate(stats: RecentCredentialStats) {
 	const { requestCount, errorsCount, errorRate } = deriveStabilityMetrics({
 		logsCount: stats.requestCount,
 		clientErrorsCount: stats.clientErrorCount,
@@ -50,17 +51,17 @@ function credentialErrorRate(stats: RecentCredentialStats) {
 }
 
 /** Share of failed requests at which the rate stops being background noise. */
-const WARNING_THRESHOLD = 0.02;
+export const WARNING_THRESHOLD = 0.02;
 /** Share of failed requests that suggests the credential itself is unhealthy. */
 const CRITICAL_THRESHOLD = 0.1;
 
 /** Sub-0.1% rates round to "0.0%", which reads as "no errors" — say so instead. */
-function formatErrorPercent(fraction: number) {
+export function formatErrorPercent(fraction: number) {
 	const percent = fraction * 100;
 	return percent > 0 && percent < 0.1 ? "<0.1%" : `${percent.toFixed(1)}%`;
 }
 
-function toneForFraction(fraction: number) {
+export function toneForFraction(fraction: number) {
 	// One colour class rather than stacked conditionals: the amber pair carries
 	// a `dark:` variant, which would otherwise outrank an unprefixed
 	// `text-destructive` in dark mode and paint a critical rate amber.
@@ -129,14 +130,15 @@ export function ProviderKeyErrorRateCell({
 			<TooltipProvider delayDuration={200}>
 				<Tooltip open={open} onOpenChange={setOpen}>
 					<TooltipTrigger asChild>
-						<span
+						<Link
+							href={`/provider-credentials/${encodeURIComponent(providerKeyId)}`}
 							className={cn(
 								"text-xs tabular-nums underline decoration-dotted underline-offset-4",
 								toneForFraction(fraction),
 							)}
 						>
 							{formatErrorPercent(fraction)}
-						</span>
+						</Link>
 					</TooltipTrigger>
 					<TooltipContent className="max-w-sm">
 						<p>

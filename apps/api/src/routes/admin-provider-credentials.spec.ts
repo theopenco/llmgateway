@@ -1093,6 +1093,13 @@ describe("managed credential reorder cache invalidation", () => {
 				providerKeyId: string | null;
 				cost: number;
 				cached?: boolean;
+				error?: "upstream_error" | "gateway_error" | "client_error";
+				errorDetails?: {
+					statusCode: number;
+					statusText: string;
+					responseText: string;
+				};
+				usedModel?: string;
 			}[],
 		) {
 			await db.insert(tables.organization).values({
@@ -1135,11 +1142,14 @@ describe("managed credential reorder cache invalidation", () => {
 					providerKeyId: entry.providerKeyId,
 					cost: entry.cost,
 					cached: entry.cached ?? false,
+					hasError: entry.error !== undefined,
+					unifiedFinishReason: entry.error ?? "completed",
+					errorDetails: entry.errorDetails,
 					duration: 1000,
 					usedMode: "credits",
 					requestedModel: "openai/gpt-4o-mini",
 					requestedProvider: "openai",
-					usedModel: "gpt-4o-mini",
+					usedModel: entry.usedModel ?? "gpt-4o-mini",
 					usedProvider: "openai",
 					responseSize: 100,
 					mode: "credits",
@@ -1347,6 +1357,59 @@ describe("managed credential reorder cache invalidation", () => {
 			expect(body.buckets).toHaveLength(25);
 		});
 
+		test("splits errors by class per bucket and organization", async () => {
+			await seedTraffic([
+				{ providerKeyId, cost: 0.01 },
+				{ providerKeyId, cost: 0, error: "upstream_error" },
+				{ providerKeyId, cost: 0, error: "gateway_error" },
+				{ providerKeyId, cost: 0, error: "client_error" },
+			]);
+
+			const res = await getSpend();
+			const body = (await res.json()) as {
+				key: { maskedToken: string; variant: string };
+				data: Record<string, number>[];
+				organizations: Record<string, number>[];
+			};
+
+			const expected = {
+				requestCount: 4,
+				errorCount: 3,
+				upstreamErrorCount: 1,
+				gatewayErrorCount: 1,
+				clientErrorCount: 1,
+			};
+			expect(body.data).toEqual([expect.objectContaining(expected)]);
+			expect(body.organizations).toEqual([expect.objectContaining(expected)]);
+			expect(body.key.variant).toBe("default");
+			expect(body.key.maskedToken).not.toContain("sk-spend-cred");
+		});
+
+		test("overrides the bucket grain, except past a month", async () => {
+			await seedTraffic([{ providerKeyId, cost: 0.01 }]);
+
+			const hourly = await app.request(
+				`/admin/provider-keys/${providerKeyId}/spend?window=7d&bucket=hour`,
+				{ headers: { Cookie: cookie } },
+			);
+			const hourlyBody = (await hourly.json()) as {
+				bucket: string;
+				buckets: string[];
+				data: { timestamp: string }[];
+			};
+			expect(hourlyBody.bucket).toBe("hour");
+			// One per hour of the week, plus the hour in progress.
+			const weekHours = 7 * 24;
+			expect(hourlyBody.buckets).toHaveLength(weekHours + 1);
+			expect(hourlyBody.buckets).toContain(hourlyBody.data[0].timestamp);
+
+			const tooLong = await app.request(
+				`/admin/provider-keys/${providerKeyId}/spend?window=90d&bucket=hour`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(((await tooLong.json()) as { bucket: string }).bucket).toBe("day");
+		});
+
 		test("returns a bucket grid covering the whole window", async () => {
 			await seedTraffic([{ providerKeyId, cost: 0.01 }]);
 
@@ -1365,6 +1428,88 @@ describe("managed credential reorder cache invalidation", () => {
 			for (const point of body.data) {
 				expect(body.buckets).toContain(point.timestamp);
 			}
+		});
+
+		test("groups a key's errors by type across models", async () => {
+			const unavailable = {
+				statusCode: 503,
+				statusText: "Service Unavailable",
+				responseText: "overloaded",
+			};
+			await seedTraffic([
+				{ providerKeyId, cost: 0.01 },
+				{
+					providerKeyId,
+					cost: 0,
+					error: "upstream_error",
+					errorDetails: unavailable,
+				},
+				{
+					providerKeyId,
+					cost: 0,
+					error: "upstream_error",
+					errorDetails: unavailable,
+					usedModel: "gpt-4o",
+				},
+				{
+					providerKeyId,
+					cost: 0,
+					error: "gateway_error",
+					errorDetails: {
+						statusCode: 500,
+						statusText: "Internal",
+						responseText: "boom",
+					},
+				},
+				// Excluded: a caller's mistake, and another credential's failure.
+				{ providerKeyId, cost: 0, error: "client_error" },
+				{
+					providerKeyId: null,
+					cost: 0,
+					error: "upstream_error",
+					errorDetails: unavailable,
+				},
+			]);
+
+			const res = await app.request(
+				`/admin/provider-keys/${providerKeyId}/error-types`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				sampledErrors: number;
+				timeline: { bucketSeconds: number; start: number; end: number };
+				errors: {
+					statusCode: number | null;
+					classification: string | null;
+					count: number;
+					buckets: { start: number; count: number }[];
+					models: { usedModel: string; count: number }[];
+				}[];
+			};
+
+			expect(body.sampledErrors).toBe(3);
+			expect(body.errors).toHaveLength(2);
+			expect(body.errors[0]).toMatchObject({
+				statusCode: 503,
+				classification: "upstream_error",
+				count: 2,
+			});
+			expect(
+				body.errors[0].models.map((model) => model.usedModel).sort(),
+			).toEqual(["gpt-4o", "gpt-4o-mini"]);
+			expect(body.errors[1]).toMatchObject({ statusCode: 500, count: 1 });
+			const [bucket] = body.errors[0].buckets;
+			expect(bucket.count).toBe(2);
+			expect(bucket.start).toBeGreaterThanOrEqual(body.timeline.start);
+			const bucketMs = body.timeline.bucketSeconds * 1000;
+			expect(bucket.start).toBeLessThanOrEqual(body.timeline.end + bucketMs);
+
+			const missing = await app.request(
+				"/admin/provider-keys/does-not-exist/error-types",
+				{ headers: { Cookie: cookie } },
+			);
+			expect(missing.status).toBe(404);
 		});
 	});
 

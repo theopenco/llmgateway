@@ -28,9 +28,9 @@ import { toast } from "sonner";
 
 import { ProviderCredentialsSpendOverview } from "@/components/provider-credentials-spend-overview";
 import { ProviderKeyErrorRateCell } from "@/components/provider-key-error-rate-cell";
+import { ProviderKeyInsightsLink } from "@/components/provider-key-insights-link";
 import { ProviderKeyModelSyncDialog } from "@/components/provider-key-model-sync-dialog";
 import { ProviderKeySpendCell } from "@/components/provider-key-spend-cell";
-import { ProviderKeySpendDialog } from "@/components/provider-key-spend-dialog";
 import { ProviderKeyStatusBadge } from "@/components/provider-key-status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -559,7 +559,7 @@ function ManagedCredentialCells({
 			</TableCell>
 			<TableCell className="text-right">
 				<div className="flex justify-end gap-1">
-					<ProviderKeySpendDialog
+					<ProviderKeyInsightsLink
 						providerKeyId={credential.id}
 						label={`${credential.provider} ${credential.maskedToken}`}
 					/>

@@ -373,6 +373,11 @@ export const incidentErrorTypesSchema = z.object({
 			count: z.number(),
 			// How many of `count` were streaming requests.
 			streamedCount: z.number(),
+			// Only set when bucketed: occurrences per time bucket, sparse, keyed
+			// by bucket start in epoch milliseconds.
+			buckets: z
+				.array(z.object({ start: z.number(), count: z.number() }))
+				.optional(),
 			// Mappings that hit this error, most occurrences first.
 			models: z.array(
 				z.object({
@@ -397,21 +402,44 @@ export const incidentErrorTypesSchema = z.object({
  * Top 50 error shapes across mappings, each with its per-mapping counts.
  * Samples the latest error logs of every mapping separately so each lookup
  * stays on the partial `log_error_used_provider_used_model_created_at_idx`
- * index; the hourly rollups hold no error details.
+ * index; the hourly rollups hold no error details. With `bucketSeconds`, each
+ * shape also carries its per-bucket counts.
  */
 export async function queryIncidentErrorTypes({
 	mappings,
 	windowInterval,
 	extraClauses,
+	bucketSeconds,
 }: {
 	mappings: { providerId: string; usedModel: string }[];
 	windowInterval: SQL;
 	extraClauses: SQL[];
+	bucketSeconds?: number;
 }): Promise<z.infer<typeof incidentErrorTypesSchema>> {
 	const sampleLimit = INCIDENT_ERROR_TYPES_SAMPLE_LIMIT;
 	if (mappings.length === 0) {
 		return { errors: [], sampledErrors: 0, sampleLimit, cappedMappings: 0 };
 	}
+	const bucketExpr =
+		bucketSeconds !== undefined
+			? sql`FLOOR(EXTRACT(EPOCH FROM ${tables.log.createdAt}) / ${bucketSeconds}::int)::bigint * ${bucketSeconds * 1000}::bigint`
+			: sql`0::bigint`;
+	const bucketsExpr =
+		bucketSeconds !== undefined
+			? sql`(
+				SELECT json_agg(json_build_array(b.bucket, b.count) ORDER BY b.bucket)
+				FROM (
+					SELECT r.bucket, COUNT(*) AS count
+					FROM recent_errors r
+					WHERE r.error_details->>'statusCode' IS NOT DISTINCT FROM top_shapes.status_code
+						AND r.error_details->>'statusText' IS NOT DISTINCT FROM top_shapes.status_text
+						AND LEFT(r.error_details->>'responseText', 2000) IS NOT DISTINCT FROM top_shapes.response_text
+						AND r.error_details->>'cause' IS NOT DISTINCT FROM top_shapes.cause
+						AND r.classification IS NOT DISTINCT FROM top_shapes.classification
+					GROUP BY r.bucket
+				) b
+			)`
+			: sql`NULL::json`;
 	const rows = await db.execute<{
 		status_code: string | null;
 		status_text: string | null;
@@ -421,6 +449,7 @@ export async function queryIncidentErrorTypes({
 		count: string;
 		streamed_count: string;
 		models: [string, string, number, number][];
+		buckets: [number, number][] | null;
 		sampled_errors: string;
 		capped_mappings: string;
 	}>(sql`
@@ -438,12 +467,14 @@ export async function queryIncidentErrorTypes({
 				mappings.used_model,
 				sampled.error_details,
 				sampled.classification,
-				sampled.streamed
+				sampled.streamed,
+				sampled.bucket
 			FROM mappings
 			CROSS JOIN LATERAL (
 				SELECT ${tables.log.errorDetails} AS error_details,
 					${tables.log.unifiedFinishReason} AS classification,
-					COALESCE(${tables.log.streamed}, false) AS streamed
+					COALESCE(${tables.log.streamed}, false) AS streamed,
+					${bucketExpr} AS bucket
 				FROM ${tables.log}
 				WHERE ${tables.log.hasError} = true
 					AND ${tables.log.usedProvider} = mappings.used_provider
@@ -481,8 +512,15 @@ export async function queryIncidentErrorTypes({
 				) AS models
 			FROM shape_models
 			GROUP BY status_code, status_text, response_text, cause, classification
+		),
+		top_shapes AS (
+			SELECT *
+			FROM shapes
+			ORDER BY count DESC, status_code, response_text
+			LIMIT 50
 		)
-		SELECT shapes.*,
+		SELECT top_shapes.*,
+			${bucketsExpr} AS buckets,
 			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors,
 			(
 				SELECT COUNT(*)
@@ -493,9 +531,8 @@ export async function queryIncidentErrorTypes({
 					HAVING COUNT(*) >= ${sampleLimit}
 				) capped
 			) AS capped_mappings
-		FROM shapes
+		FROM top_shapes
 		ORDER BY count DESC, status_code, response_text
-		LIMIT 50
 	`);
 
 	return {
@@ -507,6 +544,14 @@ export async function queryIncidentErrorTypes({
 			classification: r.classification,
 			count: Number(r.count),
 			streamedCount: Number(r.streamed_count),
+			...(r.buckets
+				? {
+						buckets: r.buckets.map(([start, count]) => ({
+							start: Number(start),
+							count: Number(count),
+						})),
+					}
+				: {}),
 			models: r.models.map(([providerId, usedModel, count, streamedCount]) => ({
 				providerId,
 				usedModel,

@@ -95,8 +95,8 @@ export function getBucketUnitForWindow(window: string): "hour" | "day" {
 export function getWindowBucketTimestamps(
 	window: string,
 	now: Date = new Date(),
+	bucketUnit: "hour" | "day" = getBucketUnitForWindow(window),
 ): string[] {
-	const bucketUnit = getBucketUnitForWindow(window);
 	const stepMs = bucketUnit === "hour" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
 	const truncate = (date: Date) =>
 		Date.UTC(
