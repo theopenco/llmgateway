@@ -358,3 +358,167 @@ export async function queryIncidentMappings({
 		providerName: providerNamesById.get(row.providerId) ?? row.providerId,
 	}));
 }
+
+// Latest error logs sampled per mapping, matching the per-mapping drilldown.
+export const INCIDENT_ERROR_TYPES_SAMPLE_LIMIT = 500;
+
+export const incidentErrorTypesSchema = z.object({
+	errors: z.array(
+		z.object({
+			statusCode: z.number().nullable(),
+			statusText: z.string().nullable(),
+			responseText: z.string().nullable(),
+			cause: z.string().nullable(),
+			classification: z.string().nullable(),
+			count: z.number(),
+			// How many of `count` were streaming requests.
+			streamedCount: z.number(),
+			// Mappings that hit this error, most occurrences first.
+			models: z.array(
+				z.object({
+					providerId: z.string(),
+					usedModel: z.string(),
+					modelId: z.string(),
+					region: z.string().nullable(),
+					count: z.number(),
+					streamedCount: z.number(),
+				}),
+			),
+		}),
+	),
+	sampledErrors: z.number(),
+	/** Error logs sampled per mapping. */
+	sampleLimit: z.number(),
+	/** Mappings that hit `sampleLimit`; their counts are lower bounds. */
+	cappedMappings: z.number(),
+});
+
+/**
+ * Top 50 error shapes across mappings, each with its per-mapping counts.
+ * Samples the latest error logs of every mapping separately so each lookup
+ * stays on the partial `log_error_used_provider_used_model_created_at_idx`
+ * index; the hourly rollups hold no error details.
+ */
+export async function queryIncidentErrorTypes({
+	mappings,
+	windowInterval,
+	extraClauses,
+}: {
+	mappings: { providerId: string; usedModel: string }[];
+	windowInterval: SQL;
+	extraClauses: SQL[];
+}): Promise<z.infer<typeof incidentErrorTypesSchema>> {
+	const sampleLimit = INCIDENT_ERROR_TYPES_SAMPLE_LIMIT;
+	if (mappings.length === 0) {
+		return { errors: [], sampledErrors: 0, sampleLimit, cappedMappings: 0 };
+	}
+	const rows = await db.execute<{
+		status_code: string | null;
+		status_text: string | null;
+		response_text: string | null;
+		cause: string | null;
+		classification: string | null;
+		count: string;
+		streamed_count: string;
+		models: [string, string, number, number][];
+		sampled_errors: string;
+		capped_mappings: string;
+	}>(sql`
+		WITH mappings (used_provider, used_model) AS (
+			VALUES ${sql.join(
+				mappings.map(
+					(mapping) =>
+						sql`(${mapping.providerId}::text, ${mapping.usedModel}::text)`,
+				),
+				sql`, `,
+			)}
+		),
+		recent_errors AS (
+			SELECT mappings.used_provider,
+				mappings.used_model,
+				sampled.error_details,
+				sampled.classification,
+				sampled.streamed
+			FROM mappings
+			CROSS JOIN LATERAL (
+				SELECT ${tables.log.errorDetails} AS error_details,
+					${tables.log.unifiedFinishReason} AS classification,
+					COALESCE(${tables.log.streamed}, false) AS streamed
+				FROM ${tables.log}
+				WHERE ${tables.log.hasError} = true
+					AND ${tables.log.usedProvider} = mappings.used_provider
+					AND ${tables.log.usedModel} = mappings.used_model
+					AND ${tables.log.createdAt} >= ${windowInterval}
+					${sql.join(extraClauses, sql` `)}
+				ORDER BY ${tables.log.createdAt} DESC
+				LIMIT ${sampleLimit}
+			) sampled
+		),
+		shape_models AS (
+			SELECT error_details->>'statusCode' AS status_code,
+				error_details->>'statusText' AS status_text,
+				LEFT(error_details->>'responseText', 2000) AS response_text,
+				error_details->>'cause' AS cause,
+				classification,
+				used_provider,
+				used_model,
+				COUNT(*) AS count,
+				COUNT(*) FILTER (WHERE streamed) AS streamed_count
+			FROM recent_errors
+			GROUP BY 1, 2, 3, 4, classification, used_provider, used_model
+		),
+		shapes AS (
+			SELECT status_code,
+				status_text,
+				response_text,
+				cause,
+				classification,
+				SUM(count) AS count,
+				SUM(streamed_count) AS streamed_count,
+				json_agg(
+					json_build_array(used_provider, used_model, count, streamed_count)
+					ORDER BY count DESC, used_model
+				) AS models
+			FROM shape_models
+			GROUP BY status_code, status_text, response_text, cause, classification
+		)
+		SELECT shapes.*,
+			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors,
+			(
+				SELECT COUNT(*)
+				FROM (
+					SELECT 1
+					FROM recent_errors
+					GROUP BY used_provider, used_model
+					HAVING COUNT(*) >= ${sampleLimit}
+				) capped
+			) AS capped_mappings
+		FROM shapes
+		ORDER BY count DESC, status_code, response_text
+		LIMIT 50
+	`);
+
+	return {
+		errors: rows.rows.map((r) => ({
+			statusCode: r.status_code !== null ? Number(r.status_code) : null,
+			statusText: r.status_text,
+			responseText: r.response_text,
+			cause: r.cause,
+			classification: r.classification,
+			count: Number(r.count),
+			streamedCount: Number(r.streamed_count),
+			models: r.models.map(([providerId, usedModel, count, streamedCount]) => ({
+				providerId,
+				usedModel,
+				...parseUsedModel(usedModel, providerId),
+				count: Number(count),
+				streamedCount: Number(streamedCount),
+			})),
+		})),
+		sampledErrors:
+			rows.rows.length > 0 ? Number(rows.rows[0].sampled_errors) : 0,
+		sampleLimit,
+		cappedMappings:
+			rows.rows.length > 0 ? Number(rows.rows[0].capped_mappings) : 0,
+	};
+}
