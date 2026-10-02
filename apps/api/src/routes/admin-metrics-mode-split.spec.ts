@@ -183,6 +183,7 @@ describe("admin — credits vs BYOK mode split", () => {
 			totalSpent: number;
 			totalCreditsSpent: number;
 			totalApiKeysSpent: number;
+			totalDebitedSpend: number;
 			totalToppedUp: number;
 			totalToppedUpGifted: number;
 			unusedCredits: number;
@@ -196,6 +197,7 @@ describe("admin — credits vs BYOK mode split", () => {
 		expect(body.totalApiKeysSpent).toBeCloseTo(40, 3);
 		expect(body.totalToppedUp).toBeCloseTo(120, 3);
 		expect(body.totalToppedUpGifted).toBeCloseTo(20, 3);
+		expect(body.totalDebitedSpend).toBeCloseTo(10.5, 3);
 		// Only debited spend counts against topped-up credits:
 		// 120 - (10 credits + 0.5 BYOK storage) = 109.5 — NOT 120 - 50.5.
 		expect(body.unusedCredits).toBeCloseTo(109.5, 3);

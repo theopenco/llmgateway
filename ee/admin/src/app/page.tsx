@@ -490,38 +490,30 @@ export default async function Page({
 							style={revealAt(5)}
 							rows={[
 								{
-									label: "Spent",
-									value: currencyFormatter.format(metrics.totalSpent),
-									sub: [
-										{
-											label: "Credits",
-											value: currencyFormatter.format(
-												metrics.totalCreditsSpent,
-											),
-										},
-										{
-											label: "BYOK, not billed",
-											value: currencyFormatter.format(
-												metrics.totalApiKeysSpent,
-											),
-										},
-									],
+									label: "Spent from credits",
+									value: currencyFormatter.format(metrics.totalDebitedSpend),
 								},
 								{
 									label: "Unused",
-									value: currencyFormatter.format(
-										metrics.unusedCreditsExcludingGifts,
-									),
+									value: currencyFormatter.format(metrics.unusedCredits),
 									sub: [
 										{
-											label: "Incl. gifted",
-											value: currencyFormatter.format(metrics.unusedCredits),
+											label: "Excl. gifted",
+											value: currencyFormatter.format(
+												metrics.unusedCreditsExcludingGifts,
+											),
+										},
+										{
+											label: "Of which gifted",
+											value: currencyFormatter.format(
+												metrics.totalToppedUpGifted,
+											),
 										},
 									],
 								},
 								{
-									label: "Of which gifted",
-									value: currencyFormatter.format(metrics.totalToppedUpGifted),
+									label: "BYOK spend, not billed",
+									value: currencyFormatter.format(metrics.totalApiKeysSpent),
 								},
 							]}
 						/>

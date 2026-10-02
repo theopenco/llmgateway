@@ -421,6 +421,9 @@ const adminMetricsSchema = z.object({
 	// not revenue-relevant spend.
 	totalCreditsSpent: z.number(),
 	totalApiKeysSpent: z.number(),
+	// Spend actually debited from credit balances: credits-mode cost plus BYOK
+	// rows' data-storage cost. totalToppedUp minus this is the balance.
+	totalDebitedSpend: z.number(),
 	unusedCredits: z.number(),
 	// unusedCredits with gifted credits taken out of the topped-up base, i.e.
 	// purchased credits not yet spent, assuming spend drains purchases first.
@@ -1751,6 +1754,7 @@ admin.openapi(getMetrics, async (c) => {
 		totalSpent,
 		totalCreditsSpent,
 		totalApiKeysSpent,
+		totalDebitedSpend,
 		unusedCredits,
 		unusedCreditsExcludingGifts,
 		overage,
