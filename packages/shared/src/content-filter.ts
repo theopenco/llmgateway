@@ -8,7 +8,8 @@ export const CONTENT_FILTER_SETTING_ID = "content_filter";
  * - `openai`: OpenAI's moderation endpoint (fixed categories, provider `flagged`
  *   bit honoured in strict mode).
  * - `jev`: TypeSafe's Jev decision model, asked one calibrated yes/no question
- *   per policy category. Text only — image parts still go to OpenAI.
+ *   per policy category. Text only — image parts go to OpenAI while
+ *   `moderateImages` is on.
  * - `internal`: self-hosted classifier running in our own infrastructure. Its
  *   binary block verdict decides; topical tags are recorded only. Text only.
  */
@@ -46,6 +47,9 @@ export const contentFilterSettingsSchema = z.object({
 	// Classifier whose scores decide the outcome.
 	classifier: z.enum(CONTENT_FILTER_CLASSIFIERS).default("openai"),
 	internalScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES).default("full"),
+	// Whether a text-only classifier (jev, internal) hands image parts to
+	// OpenAI moderation. Off leaves images unmoderated.
+	moderateImages: z.boolean().default(true),
 });
 
 export type ContentFilterSettings = z.infer<typeof contentFilterSettingsSchema>;

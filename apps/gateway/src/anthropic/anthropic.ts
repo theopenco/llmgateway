@@ -35,6 +35,11 @@ import { logger, toError } from "@llmgateway/logger";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import {
+	anthropicContentBlockInputSchema,
+	anthropicCustomToolSchema,
+	lowerMidConversationBlocks,
+} from "./content-blocks.js";
+import {
 	buildOpenAiRequestRejectionMessage,
 	detectOpenAiChatCompletionsFields,
 } from "./openai-request-detection.js";
@@ -145,94 +150,7 @@ const anthropicMessageSchema = z.object({
 		"tool",
 		"function",
 	]),
-	content: z.union([
-		z.string(),
-		z.array(
-			z.union([
-				z.object({
-					type: z.literal("text"),
-					text: z.string(),
-					cache_control: z
-						.object({
-							type: z.enum(["ephemeral"]),
-							ttl: z.enum(["5m", "1h"]).optional(),
-						})
-						.optional(),
-				}),
-				z.object({
-					type: z.literal("image"),
-					source: z.object({
-						type: z.literal("base64"),
-						media_type: z.string(),
-						data: z.string(),
-					}),
-				}),
-				z.object({
-					type: z.literal("tool_use"),
-					id: z.string(),
-					name: z.string(),
-					input: z.record(z.unknown()),
-				}),
-				z.object({
-					type: z.literal("tool_result"),
-					tool_use_id: z.string(),
-					content: z.union([z.string(), z.array(z.unknown())]).optional(),
-					is_error: z.boolean().optional(),
-					// Anthropic allows a breakpoint here, and in an agentic loop the
-					// stable prefix usually ends on a tool result — dropping it would
-					// cost the caller the cache hit they explicitly asked for.
-					cache_control: z
-						.object({
-							type: z.enum(["ephemeral"]),
-							ttl: z.enum(["5m", "1h"]).optional(),
-						})
-						.optional(),
-				}),
-				// Extended-thinking blocks echoed back in conversation history. They
-				// carry no value for the internal OpenAI-format request, so they're
-				// accepted here and stripped during transformation.
-				z.object({
-					type: z.literal("thinking"),
-					thinking: z.string(),
-					signature: z.string().optional(),
-				}),
-				z.object({
-					type: z.literal("redacted_thinking"),
-					data: z.string(),
-				}),
-				// Anthropic server-tool blocks (web search) echoed back in
-				// conversation history. The gateway emits them on responses, so
-				// native SDK clients replay them on the next turn; they carry no
-				// representation in the internal OpenAI-format request (the
-				// `encrypted_content` Anthropic requires is not reconstructible from
-				// url_citation annotations), so they're accepted here and stripped
-				// during transformation.
-				z.object({
-					type: z.literal("server_tool_use"),
-					id: z.string(),
-					name: z.string(),
-					input: z.record(z.unknown()).optional(),
-				}),
-				z.object({
-					type: z.literal("web_search_tool_result"),
-					tool_use_id: z.string(),
-					// Either an array of web_search_result entries or an error object.
-					content: z
-						.union([z.array(z.unknown()), z.record(z.unknown())])
-						.optional(),
-				}),
-				// Server-side tool search results. Unlike the web-search blocks
-				// above these ARE forwarded: Anthropic expands the tool_reference
-				// entries they carry throughout the history, which is what lets
-				// Claude reuse a discovered tool without searching again.
-				z.object({
-					type: z.literal("tool_search_tool_result"),
-					tool_use_id: z.string(),
-					content: z.record(z.unknown()).optional(),
-				}),
-			]),
-		),
-	]),
+	content: z.union([z.string(), z.array(anthropicContentBlockInputSchema)]),
 	// OpenAI message properties
 	tool_call_id: z.string().optional(),
 	name: z.string().optional(),
@@ -255,22 +173,6 @@ const anthropicMessageSchema = z.object({
 			arguments: z.union([z.string(), z.record(z.unknown())]),
 		})
 		.optional(),
-});
-
-// Standard Anthropic "custom" tools: a name plus a JSON schema describing the
-// parameters the model should produce.
-const anthropicCustomToolSchema = z.object({
-	type: z.literal("custom").optional(),
-	name: z.string(),
-	description: z.string().optional(),
-	input_schema: z.record(z.unknown()),
-	cache_control: z
-		.object({
-			type: z.enum(["ephemeral"]),
-			ttl: z.enum(["5m", "1h"]).optional(),
-		})
-		.nullish(),
-	defer_loading: z.boolean().optional(),
 });
 
 // Anthropic's server-side tool search tool. Matched by prefix so the undated
@@ -458,7 +360,6 @@ const anthropicResponseSchema = z.object({
 });
 
 type AnthropicRequest = z.infer<typeof anthropicRequestSchema>;
-
 interface AnthropicWebSearchResult {
 	type: "web_search_result";
 	url: string;
@@ -691,7 +592,13 @@ anthropic.openapi(messages, async (c) => {
 	// break the tool_call_id pairing contract of the inner completions endpoint.
 	const pendingLegacyToolCallIds: string[] = [];
 
-	for (const message of anthropicRequest.messages) {
+	const {
+		messages: loweredMessages,
+		surfacedToolNames,
+		inlineToolDefinitions,
+	} = lowerMidConversationBlocks(anthropicRequest.messages);
+
+	for (const message of loweredMessages) {
 		// Handle tool role → convert to OpenAI tool format
 		if (message.role === "tool") {
 			openaiMessages.push({
@@ -986,9 +893,20 @@ anthropic.openapi(messages, async (c) => {
 	// `type` and no `input_schema`, so they're translated to the internal
 	// `web_search` tool the chat completions endpoint understands. Server tools
 	// we can't represent are dropped (with a warning) rather than rejected.
+	// Tools a mid-conversation tool change defined inline are not in `tools`.
+	const declaredToolNames = new Set(
+		(anthropicRequest.tools ?? []).map((tool) => tool.name),
+	);
+	const requestTools = [
+		...(anthropicRequest.tools ?? []),
+		...[...inlineToolDefinitions.values()].filter(
+			(tool) => !declaredToolNames.has(tool.name),
+		),
+	];
+
 	let openaiTools;
-	if (anthropicRequest.tools) {
-		openaiTools = anthropicRequest.tools
+	if (requestTools.length > 0) {
+		openaiTools = requestTools
 			.map((tool) => {
 				if ("input_schema" in tool) {
 					return {
@@ -1000,7 +918,9 @@ anthropic.openapi(messages, async (c) => {
 						},
 						// Carried through to Anthropic upstreams and stripped
 						// elsewhere, where the tool is simply loaded eagerly.
-						...(tool.defer_loading === true && { defer_loading: true }),
+						// A tool the client surfaced mid-conversation is loaded.
+						...(tool.defer_loading === true &&
+							!surfacedToolNames.has(tool.name) && { defer_loading: true }),
 						// Same deal for the caller's cache breakpoint: tools are the
 						// base of Anthropic's cache hierarchy, so dropping it here cost
 						// the caller the largest cacheable prefix they have.
