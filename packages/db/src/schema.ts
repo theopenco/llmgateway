@@ -2058,6 +2058,10 @@ export const providerKey = pgTable(
 		// instead of picking it and failing upstream. NULL (or empty) means the
 		// key serves every model of its provider.
 		allowedModels: text().array(),
+		// Models an admin removed from `allowedModels`. The daily model sync
+		// skips them, so a deliberate exclusion is not re-enabled just because
+		// the account can still serve the model.
+		modelSyncExcluded: text().array(),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.
@@ -4509,6 +4513,51 @@ export const auditLog = pgTable(
 		index("audit_log_user_id_idx").on(table.userId),
 		index("audit_log_action_idx").on(table.action),
 		index("audit_log_resource_type_idx").on(table.resourceType),
+	],
+);
+
+export const platformAuditLogActions = [
+	// Daily worker run that enables newly working models on a managed credential.
+	"provider_key.models_synced",
+] as const;
+
+export type PlatformAuditLogAction = (typeof platformAuditLogActions)[number];
+
+/** Metadata of a `provider_key.models_synced` entry. */
+export interface ProviderKeyModelSyncMetadata {
+	provider: string;
+	/** Models the run probed, i.e. live-testable ones not yet allowed. */
+	probed: number;
+	/** Models with no live probe (e.g. video); these are never enabled. */
+	skipped: number;
+	/** Models that passed and were appended to `allowedModels`. */
+	added: string[];
+	failed: { model: string; statusCode?: number; error?: string }[];
+}
+
+/**
+ * Platform-wide counterpart of `audit_log` for resources no organization owns,
+ * such as managed provider credentials.
+ */
+export const platformAuditLog = pgTable(
+	"platform_audit_log",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		// NULL when the system (worker) performed the action.
+		userId: text().references(() => user.id, { onDelete: "set null" }),
+		action: text({ enum: platformAuditLogActions }).notNull(),
+		resourceType: text().notNull(),
+		resourceId: text(),
+		metadata: jsonb().$type<ProviderKeyModelSyncMetadata>(),
+	},
+	(table) => [
+		index("platform_audit_log_resource_idx").on(
+			table.resourceType,
+			table.resourceId,
+			table.createdAt,
+		),
+		index("platform_audit_log_created_at_idx").on(table.createdAt),
 	],
 );
 

@@ -28,6 +28,7 @@ import { toast } from "sonner";
 
 import { ProviderCredentialsSpendOverview } from "@/components/provider-credentials-spend-overview";
 import { ProviderKeyErrorRateCell } from "@/components/provider-key-error-rate-cell";
+import { ProviderKeyModelSyncDialog } from "@/components/provider-key-model-sync-dialog";
 import { ProviderKeySpendCell } from "@/components/provider-key-spend-cell";
 import { ProviderKeySpendDialog } from "@/components/provider-key-spend-dialog";
 import { ProviderKeyStatusBadge } from "@/components/provider-key-status-badge";
@@ -84,7 +85,11 @@ import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon, PROVIDER_MODEL_KINDS } from "@llmgateway/shared";
+import {
+	getProviderIcon,
+	MODEL_SYNC_PROVIDERS,
+	PROVIDER_MODEL_KINDS,
+} from "@llmgateway/shared";
 import {
 	MultiModelIdSelector,
 	ReorderableItem,
@@ -557,6 +562,12 @@ function ManagedCredentialCells({
 						providerKeyId={credential.id}
 						label={`${credential.provider} ${credential.maskedToken}`}
 					/>
+					{MODEL_SYNC_PROVIDERS.includes(credential.provider) && (
+						<ProviderKeyModelSyncDialog
+							providerKeyId={credential.id}
+							label={`${credential.provider} ${credential.maskedToken}`}
+						/>
+					)}
 					{/* Global Stats is admin-only. */}
 					{isAdmin && (
 						<Button

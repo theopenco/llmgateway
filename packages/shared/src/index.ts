@@ -193,6 +193,7 @@ export {
 	PROVIDER_MODEL_KINDS,
 	type ProviderModelKind,
 	type ProviderModelsByKind,
+	MODEL_SYNC_PROVIDERS,
 } from "./provider-model-ids.js";
 
 export {
