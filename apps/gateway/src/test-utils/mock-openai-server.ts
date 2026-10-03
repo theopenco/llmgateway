@@ -1025,6 +1025,13 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		chatMessages,
 		"TRIGGER_FINISH_WITHOUT_DONE",
 	);
+	// An upstream that answers 200 but interrupts generation, e.g. SGLang.
+	const finishReason = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_FINISH_ABORT",
+	)
+		? "abort"
+		: "stop";
 	const shouldReturnStreamedProviderError = hasUserMessageTrigger(
 		chatMessages,
 		"TRIGGER_STREAM_PROVIDER_ERROR",
@@ -1270,7 +1277,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 							{
 								index,
 								delta: {},
-								finish_reason: "stop",
+								finish_reason: finishReason,
 							},
 						],
 						...(isLastChoice && { usage: streamingUsage }),
@@ -1354,6 +1361,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	const choices = Array.from({ length: requestedN }, (_, index) => ({
 		...baseChoice,
 		index,
+		finish_reason: finishReason,
 		message: {
 			role: "assistant",
 			content:
