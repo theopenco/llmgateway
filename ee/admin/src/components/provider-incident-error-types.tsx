@@ -35,13 +35,25 @@ type ErrorType =
 
 const COLLAPSED_MODELS = 5;
 
-function ErrorTypeItem({
+/**
+ * Identifies an error type across refetches, so an item's open graph or
+ * expanded model list stays with it when counts reorder the list.
+ */
+export function errorTypeKey(error: ErrorType) {
+	return JSON.stringify([
+		error.classification,
+		error.statusCode,
+		error.statusText,
+		error.cause,
+		error.responseText,
+	]);
+}
+
+export function ErrorTypeItem({
 	error,
-	providerId,
 	timeline,
 }: {
 	error: ErrorType;
-	providerId: string;
 	timeline: ErrorTimeline;
 }) {
 	const [showAll, setShowAll] = useState(false);
@@ -128,10 +140,10 @@ function ErrorTypeItem({
 				</TableHeader>
 				<TableBody>
 					{models.map((model) => (
-						<TableRow key={model.usedModel}>
+						<TableRow key={`${model.providerId}:${model.usedModel}`}>
 							<TableCell className="font-mono text-xs">
 								<Link
-									href={`/providers/${encodeURIComponent(providerId)}/incidents?mapping=${encodeURIComponent(model.usedModel)}`}
+									href={`/providers/${encodeURIComponent(model.providerId)}/incidents?mapping=${encodeURIComponent(model.usedModel)}`}
 									className="hover:underline"
 									title="Open this mapping's incidents"
 								>
@@ -267,11 +279,10 @@ export function ProviderIncidentErrorTypes({
 				</p>
 			)}
 			<ul className="space-y-3">
-				{data.errors.map((error, i) => (
+				{data.errors.map((error) => (
 					<ErrorTypeItem
-						key={i}
+						key={errorTypeKey(error)}
 						error={error}
-						providerId={providerId}
 						timeline={data.timeline}
 					/>
 				))}

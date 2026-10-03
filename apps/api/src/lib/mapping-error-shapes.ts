@@ -63,6 +63,21 @@ export const MAPPING_ERROR_WINDOWS = {
 		hours: 168,
 		bucketSeconds: 10800,
 	},
+	"30d": {
+		interval: sql`now() - interval '30 days'`,
+		hours: 720,
+		bucketSeconds: 21600,
+	},
+	"90d": {
+		interval: sql`now() - interval '90 days'`,
+		hours: 2160,
+		bucketSeconds: 86400,
+	},
+	"365d": {
+		interval: sql`now() - interval '365 days'`,
+		hours: 8760,
+		bucketSeconds: 86400,
+	},
 } as const;
 
 export const mappingErrorWindowSchema = z.enum([
@@ -75,6 +90,17 @@ export const mappingErrorWindowSchema = z.enum([
 	"24h",
 	"3d",
 	"7d",
+]);
+
+/**
+ * Adds the long windows for one credential's error types. The per-mapping
+ * rankings stay on the short ones.
+ */
+export const providerKeyErrorWindowSchema = z.enum([
+	...mappingErrorWindowSchema.options,
+	"30d",
+	"90d",
+	"365d",
 ]);
 
 export type MappingErrorWindow = keyof typeof MAPPING_ERROR_WINDOWS;
