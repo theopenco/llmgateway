@@ -75,9 +75,9 @@ Chart axes and compact counts use `k`, `M`, `B`, or `T` for thousands through tr
 
 The **Incidents** page lists every mapping of your claimed providers that failed requests in the selected window (1 hour to 3 days), with its error rate, error count, upstream/gateway split, and total requests. Only upstream and gateway errors count: both are retried on another key or provider, and upstream errors count against your uptime. Client errors, canceled requests, and content-filtered requests are excluded.
 
-Expand a row to see the top error shapes behind it: HTTP status, status text, a response excerpt, the cause, the gateway's classification, and whether the request was streamed. Counts always include retried attempts; the **Retried errors in details** switch drops retried attempts from the error shapes only.
+Expand a row to see the top error shapes behind it: HTTP status, status text, a response excerpt, the cause, the gateway's classification, and whether the request was streamed. The shapes cover every error in the window, including responses that started successfully and failed midway, up to the latest 100,000 per mapping. Counts always include retried attempts; the **Retried errors in details** switch drops retried attempts from the error shapes only.
 
-Switch to **By error type** to group the same errors across mappings instead: each error shows its total, its streaming and non-streaming counts, and every model it hit with per-model counts. Use it to spot failures such as timeouts that are not specific to one model. Counts cover the latest 500 errors of each mapping.
+Switch to **By error type** to group the same errors across mappings instead: each error shows its total, its streaming and non-streaming counts, and every model it hit with per-model counts. Use it to spot failures such as timeouts that are not specific to one model. The same per-mapping limit applies.
 
 To focus on one mapping, pick it from the mapping filter or open `/dashboard/incidents?mapping=<provider>/<model>[:<region>]`. The **Errors** column on Traffic and the **Incidents** link on each active Fleet listing open the page pre-filtered.
 
