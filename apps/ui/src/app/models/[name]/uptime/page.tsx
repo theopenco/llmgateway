@@ -109,8 +109,8 @@ export default async function ModelUptimePage({ params }: PageProps) {
 	const datasetSchema = {
 		"@context": "https://schema.org",
 		"@type": "Dataset",
-		name: `${modelLabel} provider uptime — last 4 hours`,
-		description: `Live request volume, error rates, latency (TTFT and total duration), and throughput for every provider serving ${modelLabel} on LLM Gateway, refreshed every minute over the last 4 hours.`,
+		name: `${modelLabel} provider uptime — last 24 hours`,
+		description: `Live token volume, request volume, error rates, latency (TTFT and total duration), and throughput for every provider serving ${modelLabel} on LLM Gateway, in hourly buckets over the last 24 hours and refreshed every minute.`,
 		url: uptimeUrl,
 		isAccessibleForFree: true,
 		license: "https://llmgateway.io/legal/terms",
@@ -120,6 +120,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 			url: "https://llmgateway.io",
 		},
 		variableMeasured: [
+			"Tokens",
 			"Requests",
 			"Error rate",
 			"Time to first token (TTFT)",
@@ -127,7 +128,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 			"Tokens per second",
 			"Uptime percent",
 		],
-		temporalCoverage: "PT4H",
+		temporalCoverage: "PT24H",
 		keywords: [
 			modelLabel,
 			"uptime",
@@ -146,7 +147,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 				name: `How is ${modelLabel} uptime measured?`,
 				acceptedAnswer: {
 					"@type": "Answer",
-					text: `Uptime is the share of valid requests that completed successfully over the last 4 hours. Client errors (4xx from your request) are excluded so the number reflects service reliability, not invalid requests.`,
+					text: `Uptime is the share of valid requests that completed successfully over the last 24 hours. Client errors (4xx from your request) are excluded so the number reflects service reliability, not invalid requests.`,
 				},
 			},
 			{
@@ -170,7 +171,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 				name: `How often does this page update?`,
 				acceptedAnswer: {
 					"@type": "Answer",
-					text: `Charts refresh every minute and aggregate the most recent 4 hours of traffic across all LLM Gateway projects. Data points are bucketed by minute.`,
+					text: `Charts refresh every minute and aggregate the most recent 24 hours of traffic across all LLM Gateway projects, bucketed by hour. The current hour fills in as traffic arrives.`,
 				},
 			},
 		],
@@ -221,7 +222,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 								</span>
 								Live
 							</Badge>
-							<Badge variant="outline">Last 4 hours</Badge>
+							<Badge variant="outline">Last 24 hours</Badge>
 						</div>
 						<h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
 							{modelLabel}&nbsp;– Uptime &amp; Latency
@@ -229,8 +230,8 @@ export default async function ModelUptimePage({ params }: PageProps) {
 						<p className="text-muted-foreground text-base md:text-lg">
 							Real-time reliability for every provider serving{" "}
 							<strong className="text-foreground">{modelLabel}</strong> on LLM
-							Gateway. Compare success rates, time-to-first-token, throughput,
-							and error breakdown across {providerCount} provider
+							Gateway. Compare token volume, success rates, time-to-first-token,
+							throughput, and error breakdown across {providerCount} provider
 							{providerCount === 1 ? "" : "s"} so you can pick the fastest, most
 							stable route for your workload.
 						</p>
@@ -270,8 +271,8 @@ export default async function ModelUptimePage({ params }: PageProps) {
 									Provider performance
 								</h2>
 								<p className="text-sm text-muted-foreground">
-									Each card shows live traffic from the last 4 hours. Switch
-									tabs to inspect requests, errors, latency, or token volume.
+									Each card shows hourly traffic from the last 24 hours. Switch
+									tabs to inspect tokens, requests, errors, or latency.
 								</p>
 							</div>
 						</div>
@@ -312,7 +313,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 						<div className="grid gap-4 md:grid-cols-2">
 							<FaqItem
 								question={`How is ${modelLabel} uptime measured?`}
-								answer={`Uptime is the share of valid requests that completed successfully over the last 4 hours. Client errors (4xx from your request) are excluded so the number reflects service reliability, not invalid requests.`}
+								answer={`Uptime is the share of valid requests that completed successfully over the last 24 hours. Client errors (4xx from your request) are excluded so the number reflects service reliability, not invalid requests.`}
 							/>
 							<FaqItem
 								question={`Which providers serve ${modelLabel}?`}
@@ -324,7 +325,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 							/>
 							<FaqItem
 								question="How often does this page update?"
-								answer="Charts refresh every minute and aggregate the most recent 4 hours of traffic across all LLM Gateway projects. Data points are bucketed by minute."
+								answer="Charts refresh every minute and aggregate the most recent 24 hours of traffic across all LLM Gateway projects, bucketed by hour. The current hour fills in as traffic arrives."
 							/>
 						</div>
 					</section>
@@ -393,7 +394,7 @@ export async function generateMetadata({
 	const modelLabel = model.name ?? model.id;
 
 	const title = `${modelLabel} Uptime & Latency — Live Provider Status`;
-	const description = `Live ${modelLabel} reliability across ${providerCount} provider${providerCount === 1 ? "" : "s"}: uptime %, time-to-first-token, throughput, and error rates from the last 4 hours.`;
+	const description = `Live ${modelLabel} usage and reliability across ${providerCount} provider${providerCount === 1 ? "" : "s"}: tokens served, uptime %, time-to-first-token, throughput, and error rates from the last 24 hours.`;
 
 	const canonical = `/models/${encodeURIComponent(decodedName)}/uptime`;
 	const primaryProvider =
