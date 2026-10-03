@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { detectCodingAgentFromUserAgent } from "@/chat/tools/detect-coding-agent.js";
-import { extractFirstSseEventData } from "@/chat/tools/extract-first-sse-event-data.js";
+import { extractSseEventData } from "@/chat/tools/extract-sse-event-data.js";
 import { applyPinnedDefaultRegions } from "@/chat/tools/pin-default-regions.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
@@ -1206,7 +1206,56 @@ const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
 const SMART_ROUTING_MEDIUM_EFFORT_MIN_MAX_TOKENS = 8192;
 const SMART_ROUTING_HIGH_EFFORT_MIN_MAX_TOKENS = 16384;
 
-const IMMEDIATE_STREAM_ERROR_PEEK_LIMIT = 64 * 1024;
+// Responses `response.created` echoes the request's tools and instructions, so
+// the peek must hold more than one small event.
+const IMMEDIATE_STREAM_ERROR_PEEK_LIMIT = 256 * 1024;
+
+// Lifecycle events providers send before any output. An error right after them
+// (e.g. an Azure 429 at sequence_number 1) is still retryable.
+const STREAM_PREAMBLE_EVENT_TYPES = new Set([
+	"response.created",
+	"response.in_progress",
+	"message_start",
+	"ping",
+	"keepalive",
+]);
+
+function getImmediateStreamError(
+	parsedEvent: unknown,
+): Record<string, unknown> | null {
+	if (!parsedEvent || typeof parsedEvent !== "object") {
+		return null;
+	}
+	if ("error" in parsedEvent) {
+		return parsedEvent.error && typeof parsedEvent.error === "object"
+			? (parsedEvent.error as Record<string, unknown>)
+			: null;
+	}
+	// Responses API: {"type":"response.failed","response":{"error":{...}}}
+	if (
+		"type" in parsedEvent &&
+		parsedEvent.type === "response.failed" &&
+		"response" in parsedEvent &&
+		parsedEvent.response &&
+		typeof parsedEvent.response === "object" &&
+		"error" in parsedEvent.response &&
+		parsedEvent.response.error &&
+		typeof parsedEvent.response.error === "object"
+	) {
+		return parsedEvent.response.error as Record<string, unknown>;
+	}
+	return null;
+}
+
+function isStreamPreambleEvent(parsedEvent: unknown): boolean {
+	return (
+		!!parsedEvent &&
+		typeof parsedEvent === "object" &&
+		"type" in parsedEvent &&
+		typeof parsedEvent.type === "string" &&
+		STREAM_PREAMBLE_EVENT_TYPES.has(parsedEvent.type)
+	);
+}
 
 function inferStreamingErrorStatusCode(
 	openAiCompatibleStreamError: Record<string, unknown>,
@@ -1326,7 +1375,7 @@ export async function inspectImmediateStreamingProviderError(
 	let peekBuffer = "";
 
 	try {
-		while (peekBuffer.length < IMMEDIATE_STREAM_ERROR_PEEK_LIMIT) {
+		peek: while (peekBuffer.length < IMMEDIATE_STREAM_ERROR_PEEK_LIMIT) {
 			const { done, value } = await reader.read();
 			if (done) {
 				break;
@@ -1335,29 +1384,27 @@ export async function inspectImmediateStreamingProviderError(
 			replayChunks.push(value);
 			peekBuffer += decoder.decode(value, { stream: true });
 
-			const firstEventData = extractFirstSseEventData(peekBuffer);
-			if (!firstEventData) {
-				continue;
-			}
+			let parsedEvent: unknown = null;
+			let openAiCompatibleStreamError: Record<string, unknown> | null = null;
+			for (const eventData of extractSseEventData(peekBuffer)) {
+				try {
+					parsedEvent = JSON.parse(eventData);
+				} catch {
+					break peek;
+				}
 
-			let parsedEvent: unknown;
-			try {
-				parsedEvent = JSON.parse(firstEventData);
-			} catch {
-				break;
+				openAiCompatibleStreamError = getImmediateStreamError(parsedEvent);
+				if (openAiCompatibleStreamError) {
+					break;
+				}
+				// Output has started; anything later is a mid-stream error.
+				if (!isStreamPreambleEvent(parsedEvent)) {
+					break peek;
+				}
 			}
-
-			const openAiCompatibleStreamError =
-				parsedEvent &&
-				typeof parsedEvent === "object" &&
-				"error" in parsedEvent &&
-				parsedEvent.error &&
-				typeof parsedEvent.error === "object"
-					? (parsedEvent.error as Record<string, unknown>)
-					: null;
 
 			if (!openAiCompatibleStreamError) {
-				break;
+				continue;
 			}
 
 			const errorResponseText = JSON.stringify(parsedEvent);
