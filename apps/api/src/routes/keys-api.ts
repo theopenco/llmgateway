@@ -61,6 +61,18 @@ export function assertApiKeyIsUserManaged(apiKey: {
 	}
 }
 
+// DevPass orgs have exactly one key, created and rolled via /dev-plans.
+export function assertOrgAllowsManualApiKeys(organization: {
+	kind: string;
+}): void {
+	if (organization.kind === "devpass") {
+		throw new HTTPException(403, {
+			message:
+				"DevPass includes a single API key. Roll it from the DevPass dashboard instead.",
+		});
+	}
+}
+
 type ApiKeyRecord = InferSelectModel<typeof tables.apiKey>;
 export type ApiKeyLimitConfig = Pick<
 	ApiKeyRecord,
@@ -1095,6 +1107,8 @@ export async function createApiKeyForProject(
 		});
 	}
 
+	assertOrgAllowsManualApiKeys(project.organization);
+
 	const orgProjects = await db.query.project.findMany({
 		where: { organizationId: { eq: project.organization.id } },
 		columns: { id: true },
@@ -1747,6 +1761,15 @@ keysApi.openapi(updateStatus, async (c) => {
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
+
+	// Reactivating a DevPass key would add a second active key.
+	if (
+		status === "active" &&
+		apiKey.status !== "active" &&
+		userOrg?.organization
+	) {
+		assertOrgAllowsManualApiKeys(userOrg.organization);
+	}
 	const userRole = userOrg?.role as
 		"owner" | "admin" | "project_admin" | "developer" | undefined;
 
