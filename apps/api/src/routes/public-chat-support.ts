@@ -61,14 +61,9 @@ function getStreamErrorDetails(error: unknown): {
 }
 
 // Upstream messages can name internal deployments and regions, so the client
-// only ever sees one of these fixed messages.
-export function getChatSupportErrorMessage(error: unknown): string {
-	const { statusCode, code } = getStreamErrorDetails(error);
-	if (statusCode === 429 || code === "rate_limit_exceeded") {
-		return "The assistant is getting a lot of requests right now. Please try again in a minute.";
-	}
-	return "The assistant could not answer right now. Please try again.";
-}
+// only ever sees this fixed message.
+const STREAM_ERROR_MESSAGE =
+	"The assistant could not answer right now. Please try again.";
 
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
@@ -626,7 +621,7 @@ publicChatSupport.post("/", async (c) => {
 	// intermediate proxies, which tend to buffer `text/plain` responses and
 	// surface as "Load failed" errors on iOS.
 	const uiStream = result.toUIMessageStream({
-		onError: getChatSupportErrorMessage,
+		onError: () => STREAM_ERROR_MESSAGE,
 	});
 	const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
 
