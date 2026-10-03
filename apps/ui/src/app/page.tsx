@@ -34,7 +34,7 @@ export default function Home() {
 
 	return (
 		<>
-			<HeroRSC />
+			<HeroRSC pilotCta />
 			<main>
 				<HomeHero />
 				<TrustBar />

@@ -2,6 +2,7 @@
 
 import {
 	Activity,
+	ArrowRight,
 	Blocks,
 	BookOpen,
 	Bot,
@@ -35,6 +36,7 @@ import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
+import { TrackedLink } from "@/components/home/tracked-link";
 import { AuthLink } from "@/components/shared/auth-link";
 import { ModelSearch } from "@/components/shared/model-search";
 import { useSessionStatus } from "@/hooks/useUser";
@@ -59,6 +61,9 @@ import { ProviderPromoBanner } from "./provider-promo-banner";
 import { ThemeToggle } from "./theme-toggle";
 
 import type { Route } from "next";
+
+const PILOT_BUTTON_CLASS =
+	"inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-amber-300 font-semibold text-[#09090b] shadow-[0_0_0_1px_rgba(180,120,20,0.35)] transition-colors hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500";
 
 function IconMenuItem({
 	title,
@@ -140,9 +145,11 @@ function IconMenuItem({
 export const Navbar = ({
 	children,
 	sticky = true,
+	pilotCta = false,
 }: {
 	children?: React.ReactNode;
 	sticky?: boolean;
+	pilotCta?: boolean;
 }) => {
 	const config = useAppConfig();
 	const posthog = usePostHog();
@@ -460,6 +467,19 @@ export const Navbar = ({
 								<LogoLockup className="h-6 w-auto shrink-0 text-black dark:text-white" />
 							</Link>
 
+							{pilotCta && (
+								<TrackedLink
+									href="/enterprise#contact"
+									location="navbar_mobile"
+									cta="start_pilot"
+									className={cn(
+										PILOT_BUTTON_CLASS,
+										"-my-1 ml-auto mr-4 h-8 px-3.5 text-xs nav:hidden",
+									)}
+								>
+									Start pilot
+								</TrackedLink>
+							)}
 							<button
 								onClick={() => setMenuState(!menuState)}
 								aria-label={menuState ? "Close Menu" : "Open Menu"}
@@ -619,6 +639,20 @@ export const Navbar = ({
 						<div className="bg-background group-data-[state=active]:block nav:group-data-[state=active]:flex mb-6 hidden max-h-[calc(100dvh-7rem)] w-full flex-wrap items-center justify-end space-y-6 overflow-y-auto overscroll-contain rounded-3xl border p-6 shadow-2xl shadow-zinc-300/20 md:flex-nowrap nav:m-0 nav:flex nav:max-h-none nav:w-fit nav:shrink-0 nav:gap-3 nav:space-y-0 nav:overflow-visible nav:border-transparent nav:bg-transparent nav:p-0 nav:shadow-none dark:shadow-none dark:nav:bg-transparent">
 							{/* Mobile nav */}
 							<div className="nav:hidden">
+								{pilotCta && (
+									<TrackedLink
+										href="/enterprise#contact"
+										location="navbar_menu"
+										cta="start_pilot"
+										className={cn(
+											PILOT_BUTTON_CLASS,
+											"mb-4 h-11 w-full gap-2 text-sm",
+										)}
+									>
+										Start your 30-day pilot
+										<ArrowRight className="size-4" />
+									</TrackedLink>
+								)}
 								<div className="mb-4">
 									<ModelSearch />
 								</div>
@@ -801,10 +835,28 @@ export const Navbar = ({
 
 										<Button
 											asChild
-											className="bg-zinc-900 dark:bg-white text-white dark:text-black hover:bg-zinc-700 dark:hover:bg-zinc-200 font-medium w-full md:w-fit"
+											className={cn(
+												"bg-zinc-900 dark:bg-white text-white dark:text-black hover:bg-zinc-700 dark:hover:bg-zinc-200 font-medium w-full md:w-fit",
+												pilotCta && "nav:hidden min-[1536px]:inline-flex",
+											)}
 										>
 											<AuthLink href="/signup">Get Started</AuthLink>
 										</Button>
+
+										{pilotCta && (
+											<TrackedLink
+												href="/enterprise#contact"
+												location="navbar"
+												cta="start_pilot"
+												className={cn(
+													PILOT_BUTTON_CLASS,
+													"hidden h-9 gap-1.5 px-4 text-sm nav:inline-flex",
+												)}
+											>
+												Start pilot
+												<ArrowRight className="size-3.5" />
+											</TrackedLink>
+										)}
 									</>
 								)}
 							</div>

@@ -3,22 +3,31 @@
 import { cn } from "@/lib/utils";
 
 import { ActivityView } from "./activity-view";
+import { AgentsView } from "./agents-view";
+import { AnalyticsView } from "./analytics-view";
+import { ApiKeysView } from "./api-keys-view";
 import { AuditLogsView } from "./audit-logs-view";
 import { useDemo } from "./context";
 import { EnterpriseBanner } from "./controls";
 import { GuardrailsView } from "./guardrails-view";
 import { ModelUsageView } from "./model-usage-view";
 import { OverviewView } from "./overview-view";
+import { PreferencesView } from "./preferences-view";
+import { RoutingView } from "./routing-view";
+import { SdkView } from "./sdk-view";
 import { SecurityEventsView } from "./security-events-view";
 import { DemoSidebarBody } from "./sidebar";
 import { SsoView } from "./sso-view";
 import { TeamView } from "./team-view";
 import { DemoMobileHeader, DemoTopBar } from "./top-bar";
+import { UsageView } from "./usage-view";
 
 import type { LiveView } from "./nav";
 import type { RefObject } from "react";
 
 const ENTERPRISE_NOTES: Partial<Record<LiveView, string>> = {
+	"settings/routing":
+		"Routing weights, retries and priorities are Enterprise features, shown with sample data.",
 	"org/team":
 		"Member usage, limits and teams are Enterprise features, shown with sample data.",
 	"org/guardrails": "Enterprise feature, shown with sample data.",
@@ -31,8 +40,22 @@ function ViewContent({ view }: { view: LiveView }) {
 	switch (view) {
 		case "activity":
 			return <ActivityView />;
+		case "agents":
+			return <AgentsView />;
 		case "model-usage":
 			return <ModelUsageView />;
+		case "analytics":
+			return <AnalyticsView />;
+		case "usage":
+			return <UsageView />;
+		case "api-keys":
+			return <ApiKeysView />;
+		case "settings/preferences":
+			return <PreferencesView />;
+		case "settings/sdk":
+			return <SdkView />;
+		case "settings/routing":
+			return <RoutingView />;
 		case "org/team":
 			return <TeamView />;
 		case "org/guardrails":

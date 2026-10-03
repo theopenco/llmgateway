@@ -374,11 +374,11 @@ export function EnterpriseBanner({
 			<p className="min-w-0 flex-1 font-medium">{message}</p>
 			<TrackedLink
 				href="/enterprise#contact"
-				location="home_demo"
-				cta={`book_demo_${slug}`}
+				location={`home_demo_${slug}`}
+				cta="start_pilot"
 				className="shrink-0 font-medium underline underline-offset-4"
 			>
-				Book a demo
+				Start your 30-day pilot
 			</TrackedLink>
 		</div>
 	);
