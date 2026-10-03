@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 
 import { discountFraction, getEffectiveProviderDiscount } from "@/lib/discount";
 import Logo from "@/lib/icons/Logo";
-import { getModelOgData } from "@/lib/model-og";
+import { getCheapestOgMapping, getModelOgData } from "@/lib/model-og";
 import { getOgModelFamilyIcon, getOgProviderIcon } from "@/lib/og-icons";
 import { formatContextSize } from "@/lib/utils";
 
@@ -95,8 +95,10 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 			);
 		}
 
-		const selectedMapping = model.providers.find(
-			(mapping) => mapping.providerId === decodedProvider,
+		const selectedMapping = getCheapestOgMapping(
+			model,
+			discounts,
+			decodedProvider,
 		);
 
 		if (!selectedMapping) {

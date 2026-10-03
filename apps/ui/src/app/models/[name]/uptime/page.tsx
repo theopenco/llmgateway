@@ -21,7 +21,8 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { fetchProviders } from "@/lib/fetch-models";
+import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
+import { getCheapestOgMapping } from "@/lib/model-og";
 
 import {
 	models as modelDefinitions,
@@ -377,7 +378,10 @@ export async function generateMetadata({
 }: PageProps): Promise<Metadata> {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
-	const model = await findPublicModelDefinition(decodedName);
+	const [model, discounts] = await Promise.all([
+		findPublicModelDefinition(decodedName),
+		fetchModelDiscounts(decodedName),
+	]);
 
 	if (!model) {
 		return {};
@@ -392,7 +396,8 @@ export async function generateMetadata({
 	const description = `Live ${modelLabel} reliability across ${providerCount} provider${providerCount === 1 ? "" : "s"}: uptime %, time-to-first-token, throughput, and error rates from the last 4 hours.`;
 
 	const canonical = `/models/${encodeURIComponent(decodedName)}/uptime`;
-	const primaryProvider = model.providers[0]?.providerId || "default";
+	const primaryProvider =
+		getCheapestOgMapping(model, discounts)?.providerId ?? "default";
 	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;
 
 	return {
