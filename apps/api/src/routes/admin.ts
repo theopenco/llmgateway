@@ -36,6 +36,7 @@ import {
 	mappingErrorShapesSchema,
 	mappingErrorWindowSchema,
 	notRetriedClause,
+	incidentErrorsClause,
 	queryMappingErrorShapes,
 	buildErrorTimeline,
 	errorTimelineSchema,
@@ -13379,7 +13380,6 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		provider,
 		windowInterval,
 		sampleLimit,
-		incidentsOnly: incidentsOnly === "true",
 		groupByKey,
 		bucketSeconds,
 		splitByStream: groupByStream,
@@ -13389,6 +13389,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			byokClause,
 			ignoredClause,
 			buildUnstableErrorScopeClause(errorScope ?? "non_client"),
+			incidentsOnly === "true" ? incidentErrorsClause : sql``,
 			errorMessage !== null
 				? sql`AND ${buildErrorMessageMatchExpr(errorMessage)}`
 				: sql``,

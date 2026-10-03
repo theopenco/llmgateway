@@ -1287,15 +1287,15 @@ describe("airside provider portal", () => {
 			})),
 		);
 
-		// A 200 that failed mid-response: an upstream error without `hasError`
-		// or error details, which the rollups count all the same.
+		// A 200 that failed mid-response: an upstream error without error
+		// details, described by its raw finish reason.
 		await db.insert(tables.log).values({
 			id: "incident-log-aborted",
 			requestId: "incident-request-aborted",
 			organizationId: "test-org-id",
 			projectId: "test-project-id",
 			apiKeyId: "test-api-key-id",
-			hasError: false,
+			hasError: true,
 			retried: false,
 			streamed: true,
 			finishReason: "abort",

@@ -91,12 +91,8 @@ export function resolveMappingErrorWindow(
 export const notRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
 
 // Incidents count only failures the gateway retries: canceled and
-// content-filtered requests are neither retried nor outage signals. Matches
-// the hourly rollups, which count by finish reason: a 200 that fails
-// mid-response is an upstream error with `has_error = false`. Keep it equal to
-// the predicate of the partial
-// `log_incident_used_provider_used_model_created_at_idx` index.
-const incidentErrorsPredicate = sql`${tables.log.unifiedFinishReason} IN ('upstream_error', 'gateway_error')`;
+// content-filtered requests are neither retried nor outage signals.
+export const incidentErrorsClause = sql`AND ${tables.log.unifiedFinishReason} IN ('upstream_error', 'gateway_error')`;
 
 // Safety cap on the error logs one incident drilldown aggregates per mapping;
 // below it the counts cover every error in the window.
@@ -146,9 +142,7 @@ export const mappingErrorShapesSchema = z.object({
  * Top 10 error shapes over the latest `sampleLimit` error logs of one mapping,
  * identified by the exact `log.used_model` value; callers narrow the error
  * classes via `extraClauses`. Served by the partial
- * `log_error_used_provider_used_model_created_at_idx` index, or with
- * `incidentsOnly` (upstream and gateway errors, with or without `has_error`)
- * by `log_incident_used_provider_used_model_created_at_idx`. With
+ * `log_error_used_provider_used_model_created_at_idx` index. With
  * `groupByKey`, returns the top 5 shapes of each provider key instead.
  * With `bucketSeconds`, each shape also carries its per-bucket counts.
  * Without `splitByStream`, streaming and non-streaming occurrences of an
@@ -160,7 +154,6 @@ export async function queryMappingErrorShapes({
 	windowInterval,
 	sampleLimit,
 	extraClauses,
-	incidentsOnly = false,
 	groupByKey = false,
 	bucketSeconds,
 	splitByStream = true,
@@ -170,7 +163,6 @@ export async function queryMappingErrorShapes({
 	windowInterval: SQL;
 	sampleLimit: number;
 	extraClauses: SQL[];
-	incidentsOnly?: boolean;
 	groupByKey?: boolean;
 	bucketSeconds?: number;
 	splitByStream?: boolean;
@@ -209,7 +201,7 @@ export async function queryMappingErrorShapes({
 				COALESCE(${tables.log.streamed}, false) AS streamed,
 				${bucketExpr} AS bucket
 			FROM ${tables.log}
-			WHERE ${incidentsOnly ? incidentErrorsPredicate : sql`${tables.log.hasError} = true`}
+			WHERE ${tables.log.hasError} = true
 				AND ${tables.log.usedModel} = ${usedModel}
 				AND ${tables.log.usedProvider} = ${provider}
 				AND ${tables.log.createdAt} >= ${windowInterval}
@@ -438,10 +430,9 @@ export const incidentErrorTypesSchema = z.object({
 
 /**
  * Top 50 error shapes across mappings, each with its per-mapping counts.
- * Reads the upstream and gateway error logs of every mapping separately so
- * each lookup stays on the partial
- * `log_incident_used_provider_used_model_created_at_idx` index; the hourly
- * rollups hold no error details. With `bucketSeconds`, each shape also
+ * Reads the error logs of every mapping separately so each lookup stays on
+ * the partial `log_error_used_provider_used_model_created_at_idx` index; the
+ * hourly rollups hold no error details. With `bucketSeconds`, each shape also
  * carries its per-bucket counts.
  */
 export async function queryIncidentErrorTypes({
@@ -504,7 +495,7 @@ export async function queryIncidentErrorTypes({
 					COALESCE(${tables.log.streamed}, false) AS streamed,
 					${bucketExpr} AS bucket
 				FROM ${tables.log}
-				WHERE ${incidentErrorsPredicate}
+				WHERE ${tables.log.hasError} = true
 					AND ${tables.log.usedProvider} = mappings.used_provider
 					AND ${tables.log.usedModel} = mappings.used_model
 					AND ${tables.log.createdAt} >= ${windowInterval}
