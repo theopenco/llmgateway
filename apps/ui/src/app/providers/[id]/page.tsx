@@ -91,7 +91,14 @@ async function renderDynamicProviderPage(id: string) {
 				</section>
 				<CompareFaq
 					heading={`${providerName} API questions`}
-					faqs={buildProviderFaqs({ id, name: providerName }, providerModels)}
+					faqs={buildProviderFaqs(
+						{ id, name: providerName },
+						providerModels.filter((model) =>
+							model.providerDetails.some(
+								({ provider: mapping }) => !isMappingDeactivated(mapping),
+							),
+						),
+					)}
 				/>
 			</main>
 			<Footer />
@@ -451,7 +458,7 @@ function buildProviderFaqs(
 	}
 	faqs.push({
 		question: `What happens if the ${provider.name} API is down?`,
-		answer: `LLM Gateway retries failed requests and fails over to other providers that serve the same model, so an outage at ${provider.name} does not have to take your app down. Pin the provider when you need every request to reach ${provider.name}.`,
+		answer: `When you request a model without a provider prefix, LLM Gateway retries failed requests on other providers that serve the same model, so an outage at ${provider.name} does not have to take your app down. Send X-No-Fallback: true with a provider-pinned model when every request must reach ${provider.name}.`,
 	});
 	return faqs;
 }
