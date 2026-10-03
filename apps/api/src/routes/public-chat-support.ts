@@ -564,7 +564,7 @@ publicChatSupport.post("/", async (c) => {
 	const system = await buildSystemPrompt();
 
 	const result = streamText({
-		model: llmgateway.chat("auto"),
+		model: llmgateway.chat("smart"),
 		instructions: system,
 		messages: await convertToModelMessages(contextMessages),
 		maxOutputTokens: 1024,
