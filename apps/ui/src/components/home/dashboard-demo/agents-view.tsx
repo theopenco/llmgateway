@@ -421,6 +421,10 @@ export function AgentsView() {
 	const agents = buildAgentStats(activity);
 	const models = buildModelStats(agents);
 	const selectedStats = agents.find((agent) => agent.id === selected);
+	// A filter can drop the selected agent; forget it so it can't reopen later.
+	if (selected && !selectedStats) {
+		setSelected(null);
+	}
 	const totalRequests = agents.reduce((sum, a) => sum + a.requestCount, 0);
 	const totalCost = agents.reduce((sum, a) => sum + a.cost, 0);
 

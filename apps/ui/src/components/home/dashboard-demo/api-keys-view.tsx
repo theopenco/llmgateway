@@ -104,16 +104,19 @@ export function ApiKeysView() {
 		};
 	});
 
-	const visible = rows.filter(
-		(row) =>
-			(creator === "all" || row.creatorId === "usr_maya") &&
-			(status === "all" || row.status === status),
+	const creatorRows = rows.filter(
+		(row) => creator === "all" || row.creatorId === "usr_maya",
 	);
-	const activeCount = rows.filter((row) => row.status === "active").length;
+	const visible = creatorRows.filter(
+		(row) => status === "all" || row.status === status,
+	);
+	const activeCount = creatorRows.filter(
+		(row) => row.status === "active",
+	).length;
 	const counts: Record<StatusFilter, number> = {
-		all: rows.length,
+		all: creatorRows.length,
 		active: activeCount,
-		inactive: rows.length - activeCount,
+		inactive: creatorRows.length - activeCount,
 	};
 
 	return (

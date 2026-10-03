@@ -1,7 +1,7 @@
 "use client";
 
 import { RotateCcw, Save } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import {
 	DEMO_MODELS,
@@ -67,14 +67,17 @@ function NumericFieldRow({
 	value: number;
 }) {
 	const { notify } = useDemo();
+	const id = useId();
 	return (
 		<div className="grid grid-cols-1 items-start gap-2 @2xl/demo:grid-cols-3">
 			<div>
-				<Label className="text-sm font-medium">{label}</Label>
+				<Label htmlFor={id} className="text-sm font-medium">
+					{label}
+				</Label>
 				<p className="text-xs text-muted-foreground">{help}</p>
 			</div>
 			<div className="flex items-center gap-2 @2xl/demo:col-span-2">
-				<Input type="number" defaultValue={value} />
+				<Input id={id} type="number" defaultValue={value} />
 				<Button
 					variant="ghost"
 					size="sm"
@@ -179,7 +182,7 @@ export function RoutingView() {
 						<CardHeader>
 							<CardTitle>Smart Routing</CardTitle>
 							<CardDescription>
-								Choose which models the <code className="text-xs">auto</code>{" "}
+								Choose which models the <code className="text-xs">smart</code>{" "}
 								model may resolve to for this project.
 							</CardDescription>
 						</CardHeader>
@@ -223,7 +226,11 @@ export function RoutingView() {
 									When disabled, this project uses the default routing values.
 								</CardDescription>
 							</div>
-							<Switch checked={enabled} onCheckedChange={setEnabled} />
+							<Switch
+								aria-label="Enabled"
+								checked={enabled}
+								onCheckedChange={setEnabled}
+							/>
 						</CardHeader>
 					</Card>
 
@@ -266,7 +273,11 @@ export function RoutingView() {
 									warms cold caches and bursts upstream rate limits.
 								</CardDescription>
 							</div>
-							<Switch checked={sticky} onCheckedChange={setSticky} />
+							<Switch
+								aria-label="Sticky Routing"
+								checked={sticky}
+								onCheckedChange={setSticky}
+							/>
 						</CardHeader>
 					</Card>
 
@@ -282,7 +293,11 @@ export function RoutingView() {
 									prompt caches warm.
 								</CardDescription>
 							</div>
-							<Switch checked={session} onCheckedChange={setSession} />
+							<Switch
+								aria-label="Session Stickiness"
+								checked={session}
+								onCheckedChange={setSession}
+							/>
 						</CardHeader>
 					</Card>
 
@@ -313,6 +328,7 @@ export function RoutingView() {
 											min={0}
 											max={1}
 											defaultValue={row.priority}
+											aria-label={`${row.providerId} priority`}
 										/>
 										<Button
 											variant="ghost"

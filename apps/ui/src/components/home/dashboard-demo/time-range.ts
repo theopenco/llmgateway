@@ -60,17 +60,32 @@ export function scaleDayToKey(
 	share: number,
 ): DailyActivity {
 	const scale = <
-		T extends { requestCount: number; totalTokens: number; cost: number },
+		T extends {
+			requestCount: number;
+			creditsRequestCount: number;
+			apiKeysRequestCount: number;
+			totalTokens: number;
+			cost: number;
+			creditsCost: number;
+			apiKeysCost: number;
+		},
 	>(
 		row: T,
 	): T => ({
 		...row,
 		requestCount: Math.round(row.requestCount * share),
+		creditsRequestCount: Math.round(row.creditsRequestCount * share),
+		apiKeysRequestCount: Math.round(row.apiKeysRequestCount * share),
 		totalTokens: Math.round(row.totalTokens * share),
 		cost: row.cost * share,
+		creditsCost: row.creditsCost * share,
+		apiKeysCost: row.apiKeysCost * share,
 	});
 	return {
 		...scale(day),
+		dataStorageCost: day.dataStorageCost * share,
+		creditsDataStorageCost: day.creditsDataStorageCost * share,
+		apiKeysDataStorageCost: day.apiKeysDataStorageCost * share,
 		modelBreakdown: day.modelBreakdown.map(scale),
 		apiKeyBreakdown: [],
 		userBreakdown: [],
