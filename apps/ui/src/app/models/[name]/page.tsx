@@ -46,6 +46,7 @@ import {
 } from "@/lib/discount";
 import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
 import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
+import { getCheapestOgMapping } from "@/lib/model-og";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -205,7 +206,8 @@ export default async function ModelPage({ params }: PageProps) {
 	const lowestInputPrice = Math.min(...providerPrices);
 	const highestInputPrice = Math.max(...providerPrices);
 
-	const primaryProviderId = modelDef.providers[0]?.providerId || "default";
+	const primaryProviderId =
+		getCheapestOgMapping(modelDef, allDiscounts)?.providerId ?? "default";
 	const productSchema = {
 		"@context": "https://schema.org",
 		"@type": "Product",
@@ -772,7 +774,10 @@ export async function generateMetadata({
 }: PageProps): Promise<Metadata> {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
-	const model = await findPublicModelDefinition(decodedName);
+	const [model, discounts] = await Promise.all([
+		findPublicModelDefinition(decodedName),
+		fetchModelDiscounts(decodedName),
+	]);
 
 	if (!model) {
 		return {};
@@ -785,7 +790,8 @@ export async function generateMetadata({
 			? `${model.description} ${pitch}`
 			: (model.description ?? pitch);
 
-	const primaryProvider = model.providers[0]?.providerId || "default";
+	const primaryProvider =
+		getCheapestOgMapping(model, discounts)?.providerId ?? "default";
 	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 
