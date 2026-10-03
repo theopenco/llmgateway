@@ -88,8 +88,8 @@ import {
 	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
-import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
+import { assertProviderBaseUrlAllowed } from "./keys-provider.js";
 import { getStripe } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
@@ -2086,7 +2086,7 @@ airside.openapi(registerCarrier, async (c) => {
 	// live on a domain the registrant proved — their verified email's domain,
 	// or one their company published our TXT token on. The SSRF guard keeps
 	// the stored URL a safe outbound fetch target (https, public host).
-	await assertSafeProviderUrl(body.baseUrl);
+	await assertProviderBaseUrlAllowed(body.baseUrl);
 	const emailDomain = emailRegistrableDomain(user.email);
 	const claimDomains = await userClaimDomains(user);
 	if (claimDomains.size === 0) {
