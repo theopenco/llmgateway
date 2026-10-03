@@ -1,4 +1,6 @@
 import {
+	APICallError,
+	StreamProviderError,
 	streamText,
 	convertToModelMessages,
 	createUIMessageStream,
@@ -43,6 +45,25 @@ function escapeHtml(text: string): string {
 	};
 	return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
 }
+
+function getStreamErrorDetails(error: unknown): {
+	statusCode?: number;
+	code?: string | number;
+	type?: string;
+} {
+	if (StreamProviderError.isInstance(error)) {
+		return { statusCode: error.statusCode, code: error.code, type: error.type };
+	}
+	if (APICallError.isInstance(error)) {
+		return { statusCode: error.statusCode };
+	}
+	return {};
+}
+
+// Upstream messages can name internal deployments and regions, so the client
+// only ever sees this fixed message.
+const STREAM_ERROR_MESSAGE =
+	"The assistant could not answer right now. Please try again.";
 
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
@@ -581,6 +602,15 @@ publicChatSupport.post("/", async (c) => {
 				execute: async ({ url }) => await fetchKnowledgePage(url),
 			}),
 		},
+		// Without this the AI SDK console.error()s the error, which emits one
+		// log entry per line of its inspected output.
+		onError: ({ error }) => {
+			logger.error(
+				"Chat support streaming error",
+				toError(error),
+				getStreamErrorDetails(error),
+			);
+		},
 		async onEnd({ text }) {
 			await persistMessage(conversationId, "assistant", text);
 		},
@@ -591,10 +621,7 @@ publicChatSupport.post("/", async (c) => {
 	// intermediate proxies, which tend to buffer `text/plain` responses and
 	// surface as "Load failed" errors on iOS.
 	const uiStream = result.toUIMessageStream({
-		onError: (error) => {
-			logger.error("Chat support streaming error", toError(error));
-			return "Something went wrong. Please try again.";
-		},
+		onError: () => STREAM_ERROR_MESSAGE,
 	});
 	const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
 
