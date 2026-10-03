@@ -58,9 +58,9 @@ const GROUPINGS = [
 	{ value: "model", label: "By model" },
 	{ value: "error", label: "By error type" },
 ] as const;
-// Mirrors the carrier's Airside view: every non-client error, BYOK included,
-// no expected-error matchers.
-const DRILLDOWN_LOG_LIMIT = 500;
+// Mirrors the carrier's Airside view: every upstream and gateway error in the
+// window (up to this cap), BYOK included, no expected-error matchers.
+const DRILLDOWN_LOG_LIMIT = 100_000;
 
 /** The carrier's Airside Incidents view, scoped to one provider. */
 export function ProviderIncidentsClient({

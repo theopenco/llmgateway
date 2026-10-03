@@ -276,7 +276,7 @@ export function buildProviderKeyReportCsv(
 		sections.push({
 			title: `Error details (last ${errorTypes.window}, ${
 				errorTypes.includeRetried ? "including" : "excluding"
-			} retried, ${errorTypes.sampledErrors} sampled)`,
+			} retried, ${errorTypes.sampledErrors} errors)`,
 			csv: buildCsv(
 				[
 					"statusCode",

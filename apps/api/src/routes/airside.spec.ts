@@ -1216,7 +1216,7 @@ describe("airside provider portal", () => {
 				requestCount: 10,
 				errorCount: 5,
 				clientErrorCount: 1,
-				upstreamErrorCount: 2,
+				upstreamErrorCount: 3,
 				gatewayErrorCount: 1,
 				canceledCount: 1,
 			},
@@ -1287,6 +1287,29 @@ describe("airside provider portal", () => {
 			})),
 		);
 
+		// A 200 that failed mid-response: an upstream error without error
+		// details, described by its raw finish reason.
+		await db.insert(tables.log).values({
+			id: "incident-log-aborted",
+			requestId: "incident-request-aborted",
+			organizationId: "test-org-id",
+			projectId: "test-project-id",
+			apiKeyId: "test-api-key-id",
+			hasError: true,
+			retried: false,
+			streamed: true,
+			finishReason: "abort",
+			unifiedFinishReason: "upstream_error",
+			duration: 100,
+			usedMode: "credits" as const,
+			requestedModel: "mistral-large-3",
+			requestedProvider: "mistral",
+			usedModel: "mistral/mistral-large-3",
+			usedProvider: "mistral",
+			responseSize: 10,
+			mode: "credits" as const,
+		});
+
 		const base = `/airside/incidents?providerCompanyId=${company.id}`;
 		const res = await app.request(base, { headers: { Cookie: cookie } });
 		expect(res.status).toBe(200);
@@ -1301,10 +1324,10 @@ describe("airside provider portal", () => {
 				modelId: "mistral-large-3",
 				region: null,
 				requestCount: 10,
-				errorCount: 3,
-				upstreamErrorCount: 2,
+				errorCount: 4,
+				upstreamErrorCount: 3,
 				gatewayErrorCount: 1,
-				errorRate: 0.3,
+				errorRate: 0.4,
 			},
 		]);
 
@@ -1339,17 +1362,33 @@ describe("airside provider portal", () => {
 		});
 		expect(errors.status).toBe(200);
 		const errorsBody = await errors.json();
-		expect(errorsBody.sampledErrors).toBe(3);
-		expect(errorsBody.errors).toEqual([
-			expect.objectContaining({ statusCode: 503, streamed: true, count: 2 }),
-			expect.objectContaining({ statusCode: 500, streamed: false, count: 1 }),
-		]);
+		// Every error the row counts, not a sample of them.
+		expect(errorsBody.sampledErrors).toBe(4);
+		expect(errorsBody.capped).toBe(false);
+		expect(errorsBody.errors).toHaveLength(3);
+		expect(errorsBody.errors).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ statusCode: 503, streamed: true, count: 2 }),
+				expect.objectContaining({
+					statusCode: 500,
+					streamed: false,
+					count: 1,
+				}),
+				expect.objectContaining({
+					statusCode: null,
+					statusText: "abort",
+					classification: "upstream_error",
+					streamed: true,
+					count: 1,
+				}),
+			]),
+		);
 
 		const notRetried = await app.request(`${errorsBase}&includeRetried=false`, {
 			headers: { Cookie: cookie },
 		});
 		const notRetriedBody = await notRetried.json();
-		expect(notRetriedBody.sampledErrors).toBe(2);
+		expect(notRetriedBody.sampledErrors).toBe(3);
 
 		// The same errors grouped by type across mappings instead of per mapping.
 		await db.insert(tables.projectHourlyModelStats).values({
@@ -1392,11 +1431,20 @@ describe("airside provider portal", () => {
 		expect(types.status).toBe(200);
 		const typesBody = await types.json();
 		expect(typesBody).toMatchObject({
-			sampledErrors: 4,
-			sampleLimit: 500,
+			sampledErrors: 5,
+			sampleLimit: 100_000,
 			cappedMappings: 0,
 		});
-		expect(typesBody.errors).toEqual([
+		expect(typesBody.errors).toHaveLength(3);
+		expect(typesBody.errors).toContainEqual(
+			expect.objectContaining({
+				statusCode: null,
+				statusText: "abort",
+				count: 1,
+				streamedCount: 1,
+			}),
+		);
+		expect(typesBody.errors.slice(0, 1)).toEqual([
 			expect.objectContaining({
 				statusCode: 503,
 				count: 3,
@@ -1420,21 +1468,23 @@ describe("airside provider portal", () => {
 					},
 				],
 			}),
+		]);
+		expect(typesBody.errors).toContainEqual(
 			expect.objectContaining({
 				statusCode: 500,
 				count: 1,
 				streamedCount: 0,
 				models: [expect.objectContaining({ modelId: "mistral-large-3" })],
 			}),
-		]);
+		);
 
 		const typesNotRetried = await app.request(
 			`${typesBase}&includeRetried=false&mapping=mistral/mistral-large-3`,
 			{ headers: { Cookie: cookie } },
 		);
 		const typesNotRetriedBody = await typesNotRetried.json();
-		expect(typesNotRetriedBody.sampledErrors).toBe(2);
-		expect(typesNotRetriedBody.errors).toHaveLength(1);
+		expect(typesNotRetriedBody.sampledErrors).toBe(3);
+		expect(typesNotRetriedBody.errors).toHaveLength(2);
 
 		const foreignTypes = await app.request(`${typesBase}&providerId=openai`, {
 			headers: { Cookie: cookie },
@@ -1467,7 +1517,20 @@ describe("airside provider portal", () => {
 			{ headers: { Cookie: cookie } },
 		);
 		expect(adminTypes.status).toBe(200);
-		expect(await adminTypes.json()).toEqual(typesBody);
+		// The admin view adds each error's occurrences over time for its graph.
+		const adminTypesBody = await adminTypes.json();
+		expect(adminTypesBody.timeline.bucketSeconds).toBe(1800);
+		expect(
+			adminTypesBody.errors.map(
+				(error: { buckets: { start: number; count: number }[] }) =>
+					error.buckets.reduce((sum, bucket) => sum + bucket.count, 0),
+			),
+		).toEqual(typesBody.errors.map((error: { count: number }) => error.count));
+		expect(
+			adminTypesBody.errors.map(
+				({ buckets: _buckets, ...error }: { buckets: unknown }) => error,
+			),
+		).toEqual(typesBody.errors);
 
 		const outsider = await createSecondUser("outsider@example.com");
 		for (const path of [base, errorsBase, typesBase]) {

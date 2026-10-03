@@ -22,6 +22,8 @@ import {
 	incidentErrorsClause,
 	notRetriedClause,
 	queryIncidentErrorTypes,
+	buildErrorTimeline,
+	errorTimelineSchema,
 	queryIncidentMappings,
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
@@ -1163,21 +1165,28 @@ const listIncidentErrorTypes = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: incidentErrorTypesSchema.openapi({}),
+					schema: incidentErrorTypesSchema
+						.extend({ timeline: errorTimelineSchema })
+						.openapi({}),
 				},
 			},
 			description:
-				"Top error shapes across one provider's mappings, each with its per-mapping and streaming counts.",
+				"Top error shapes across one provider's mappings, each with its per-mapping, streaming, and per-bucket counts.",
 		},
 	},
 });
 
 adminAirside.openapi(listIncidentErrorTypes, async (c) => {
 	const query = c.req.valid("query");
-	const { hours: windowHours, interval: windowInterval } =
-		resolveMappingErrorWindow(query.window, "24h");
-	return c.json(
-		await queryIncidentErrorTypes({
+	const {
+		hours: windowHours,
+		interval: windowInterval,
+		bucketSeconds,
+	} = resolveMappingErrorWindow(query.window, "24h");
+	return c.json({
+		timeline: buildErrorTimeline(windowHours, bucketSeconds),
+		...(await queryIncidentErrorTypes({
+			bucketSeconds,
 			mappings: await queryIncidentMappings({
 				providerIds: [query.providerId],
 				windowHours,
@@ -1188,8 +1197,8 @@ adminAirside.openapi(listIncidentErrorTypes, async (c) => {
 				incidentErrorsClause,
 				query.includeRetried === "false" ? notRetriedClause : sql``,
 			],
-		}),
-	);
+		})),
+	});
 });
 
 const listCompanies = createRoute({

@@ -38,6 +38,7 @@ import {
 	mappingErrorShapesSchema,
 	notRetriedClause,
 	incidentErrorsClause,
+	INCIDENT_ERRORS_LOG_LIMIT,
 	queryIncidentErrorTypes,
 	queryIncidentMappings,
 	queryMappingErrorShapes,
@@ -4082,7 +4083,7 @@ const incidentErrorsRoute = createRoute({
 				},
 			},
 			description:
-				"Top 10 error shapes of one mapping over its latest error logs.",
+				"Top 10 error shapes of one mapping over its error logs in the window.",
 		},
 	},
 });
@@ -4101,7 +4102,7 @@ airside.openapi(incidentErrorsRoute, async (c) => {
 			usedModel: query.mapping,
 			provider: query.providerId,
 			windowInterval,
-			sampleLimit: 500,
+			sampleLimit: INCIDENT_ERRORS_LOG_LIMIT,
 			extraClauses: [
 				incidentErrorsClause,
 				query.includeRetried === "false" ? notRetriedClause : sql``,

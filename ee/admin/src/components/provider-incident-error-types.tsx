@@ -54,8 +54,7 @@ export function ErrorTypeItem({
 	timeline,
 }: {
 	error: ErrorType;
-	/** Bucket grid of `error.buckets`; enables the occurrences graph. */
-	timeline?: ErrorTimeline;
+	timeline: ErrorTimeline;
 }) {
 	const [showAll, setShowAll] = useState(false);
 	const [showGraph, setShowGraph] = useState(false);
@@ -77,7 +76,7 @@ export function ErrorTypeItem({
 					<ClassificationBadge classification={error.classification} />
 				</div>
 				<div className="flex shrink-0 items-center gap-2">
-					{timeline && error.buckets && (
+					{error.buckets && (
 						<Button
 							size="sm"
 							variant={showGraph ? "default" : "outline"}
@@ -95,7 +94,7 @@ export function ErrorTypeItem({
 					</span>
 				</div>
 			</div>
-			{showGraph && timeline && error.buckets && (
+			{showGraph && error.buckets && (
 				<div className="mt-2">
 					<ErrorShapeTimeline timeline={timeline} buckets={error.buckets} />
 				</div>
@@ -270,18 +269,22 @@ export function ProviderIncidentErrorTypes({
 			<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				Top {data.errors.length} error type
 				{data.errors.length === 1 ? "" : "s"} ·{" "}
-				{formatNumber(data.sampledErrors)} sampled
+				{formatNumber(data.sampledErrors)} total
 			</p>
 			{data.cappedMappings > 0 && (
 				<p className="text-xs text-muted-foreground">
 					{data.cappedMappings} model{data.cappedMappings === 1 ? "" : "s"} hit
-					the {formatNumber(data.sampleLimit)}-error sample cap; counts cover
-					each model&apos;s latest {formatNumber(data.sampleLimit)} errors.
+					the {formatNumber(data.sampleLimit)}-error cap; counts cover each
+					model&apos;s latest {formatNumber(data.sampleLimit)} errors.
 				</p>
 			)}
 			<ul className="space-y-3">
 				{data.errors.map((error) => (
-					<ErrorTypeItem key={errorTypeKey(error)} error={error} />
+					<ErrorTypeItem
+						key={errorTypeKey(error)}
+						error={error}
+						timeline={data.timeline}
+					/>
 				))}
 			</ul>
 		</div>

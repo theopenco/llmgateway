@@ -899,7 +899,7 @@ export function ProviderKeyInsights({
 
 /**
  * The error responses behind the rate, from the logs. Its own window: error
- * details are sampled per model and only kept as long as logs are.
+ * details are only kept as long as logs are.
  */
 function ProviderKeyErrorTypes({
 	query,
@@ -951,14 +951,13 @@ function ProviderKeyErrorTypes({
 				<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					Top {data.errors.length} error type
 					{data.errors.length === 1 ? "" : "s"} ·{" "}
-					{formatNumber(data.sampledErrors)} sampled
+					{formatNumber(data.sampledErrors)} total
 				</p>
 				{data.cappedMappings > 0 && (
 					<p className="text-xs text-muted-foreground">
 						{data.cappedMappings} model{data.cappedMappings === 1 ? "" : "s"}{" "}
-						hit the {formatNumber(data.sampleLimit)}-error sample cap; counts
-						cover each model&apos;s latest {formatNumber(data.sampleLimit)}{" "}
-						errors.
+						hit the {formatNumber(data.sampleLimit)}-error cap; counts cover
+						each model&apos;s latest {formatNumber(data.sampleLimit)} errors.
 					</p>
 				)}
 				<ul className="space-y-3">

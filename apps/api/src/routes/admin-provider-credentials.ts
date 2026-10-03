@@ -4,6 +4,8 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	buildErrorTimeline,
+	errorTimelineSchema,
 	incidentErrorsClause,
 	incidentErrorTypesSchema,
 	notRetriedClause,
@@ -1430,13 +1432,7 @@ function toErrorSplit(row: z.infer<typeof errorSplitSchema>) {
 }
 
 const providerKeyErrorTypesSchema = incidentErrorTypesSchema.extend({
-	/** Bucket grid of each error's `buckets`, covering the selected window. */
-	timeline: z.object({
-		bucketSeconds: z.number(),
-		/** First and last bucket start, epoch milliseconds. */
-		start: z.number(),
-		end: z.number(),
-	}),
+	timeline: errorTimelineSchema,
 });
 
 const getProviderKeyErrorTypes = createRoute({
@@ -1513,9 +1509,8 @@ async function listKeyErrorMappings(
 
 /**
  * What actually failed on one credential. Reads `log`: the rollups carry error
- * counts but no status codes or response bodies. Each of the provider's failing
- * mappings is sampled separately on the partial error index, then narrowed to
- * this key.
+ * counts but no status codes or response bodies. Each failing mapping is read
+ * separately on the partial error index, narrowed to this key.
  */
 adminProviderCredentials.openapi(getProviderKeyErrorTypes, async (c) => {
 	const { providerKeyId } = c.req.valid("param");
@@ -1534,9 +1529,6 @@ adminProviderCredentials.openapi(getProviderKeyErrorTypes, async (c) => {
 		interval: windowInterval,
 		bucketSeconds,
 	} = resolveMappingErrorWindow(query.window, "24h");
-	const bucketMs = bucketSeconds * 1000;
-	const now = Date.now();
-	const windowMs = windowHours * HOUR_MS;
 
 	const errorTypes = await queryIncidentErrorTypes({
 		mappings: await listKeyErrorMappings(
@@ -1555,11 +1547,7 @@ adminProviderCredentials.openapi(getProviderKeyErrorTypes, async (c) => {
 
 	return c.json({
 		...errorTypes,
-		timeline: {
-			bucketSeconds,
-			start: Math.floor((now - windowMs) / bucketMs) * bucketMs,
-			end: Math.floor(now / bucketMs) * bucketMs,
-		},
+		timeline: buildErrorTimeline(windowHours, bucketSeconds),
 	});
 });
 
