@@ -149,7 +149,7 @@ export function Hero({ providerId, uploadedLogo, dynamicProvider }: HeroProps) {
 						</div>
 					)}
 					<h1 className="mt-10 text-4xl font-bold tracking-tight sm:text-6xl">
-						{provider.name} Provider
+						{provider.name} API
 					</h1>
 					<p className="mt-6 text-lg leading-8 text-muted-foreground">
 						{provider.description}
