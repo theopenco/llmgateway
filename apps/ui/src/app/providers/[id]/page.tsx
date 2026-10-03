@@ -67,6 +67,7 @@ async function renderDynamicProviderPage(id: string) {
 				.map((mapping) => ({ provider: mapping, providerInfo: apiProvider })),
 		}));
 	const uploadedLogo = apiProvider.airsideLogoUrl ?? undefined;
+	const providerName = apiProvider.name ?? id;
 	const description =
 		apiProvider.description && apiProvider.description !== "(empty)"
 			? apiProvider.description
@@ -79,7 +80,7 @@ async function renderDynamicProviderPage(id: string) {
 				<Hero
 					providerId={id as (typeof providerDefinitions)[number]["id"]}
 					uploadedLogo={uploadedLogo}
-					dynamicProvider={{ name: apiProvider.name ?? id, description }}
+					dynamicProvider={{ name: providerName, description }}
 				/>
 				<ProviderStatsRow providerId={id} />
 				<section className="py-12 bg-background">
@@ -88,6 +89,10 @@ async function renderDynamicProviderPage(id: string) {
 						<ProviderModelsGrid models={providerModels} />
 					</div>
 				</section>
+				<CompareFaq
+					heading={`${providerName} API questions`}
+					faqs={buildProviderFaqs({ id, name: providerName }, providerModels)}
+				/>
 			</main>
 			<Footer />
 		</div>
@@ -399,7 +404,7 @@ export async function generateMetadata({
 	};
 }
 function buildProviderFaqs(
-	provider: (typeof providerDefinitions)[number],
+	provider: ProviderFaqSource,
 	models: ModelWithProviders[],
 ): CompareFaqItem[] {
 	const names = models.slice(0, 5).map((model) => model.name ?? model.id);
@@ -409,7 +414,7 @@ function buildProviderFaqs(
 			question: `How do I use the ${provider.name} API?`,
 			answer: `Create an LLM Gateway API key and point any OpenAI-compatible SDK at https://api.llmgateway.io/v1.${
 				example
-					? ` Set the model to ${example}, or ${provider.id}/${example} to always route to ${provider.name}.`
+					? ` Set the model to ${example}. On pay-as-you-go keys, ${provider.id}/${example} pins every request to ${provider.name}; DevPass coding plans do not support provider pinning.`
 					: ""
 			} You do not need a separate ${provider.name} account or SDK.`,
 		},
@@ -424,7 +429,11 @@ function buildProviderFaqs(
 			} ${names.join(", ")}. Each model page lists per-token pricing, context window and capabilities.`,
 		});
 	}
-	if (provider.dataPolicy && provider.dataPolicy.apiTraining !== null) {
+	if (
+		provider.dataPolicy &&
+		provider.dataPolicy.apiTraining !== null &&
+		provider.dataPolicy.apiTraining !== undefined
+	) {
 		faqs.push({
 			question: `Does ${provider.name} train on API data?`,
 			answer: provider.dataPolicy.apiTraining
@@ -445,4 +454,10 @@ function buildProviderFaqs(
 		answer: `LLM Gateway retries failed requests and fails over to other providers that serve the same model, so an outage at ${provider.name} does not have to take your app down. Pin the provider when you need every request to reach ${provider.name}.`,
 	});
 	return faqs;
+}
+interface ProviderFaqSource {
+	id: string;
+	name: string;
+	dataPolicy?: { apiTraining?: boolean | null } | null;
+	headquarters?: string | null;
 }

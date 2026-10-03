@@ -4,11 +4,11 @@
 
 ## Quick answers
 
-- What is LLM Gateway? An open-source (AGPLv3) LLM API gateway: one OpenAI-compatible endpoint, `https://api.llmgateway.io/v1`, and one API key for models from every major provider.
-- How do I switch to it? Change your OpenAI SDK base URL and API key. Use a model ID such as `gpt-4o`, or the `provider/model` form (`openai/gpt-4o`) to pin a provider.
-- What does it cost? Provider token rates. Pay-as-you-go credits carry a flat 5% platform fee; Bring-Your-Own-Keys is free. Self-hosting is free.
-- What happens when a provider fails? Requests are retried and fail over to other providers that serve the same model.
-- How does it compare to OpenRouter or LiteLLM? See [OpenRouter alternatives](https://llmgateway.io/blog/openrouter-alternatives), [LiteLLM alternatives](https://llmgateway.io/blog/litellm-alternatives) and the [comparison pages](https://llmgateway.io/compare).
+- [What is LLM Gateway?](https://llmgateway.io/products/ai-gateway): An open-source (AGPLv3) LLM API gateway: one OpenAI-compatible endpoint, `https://api.llmgateway.io/v1`, and one API key for models from every major provider.
+- [How do I switch to it?](https://docs.llmgateway.io/quick-start): Change your OpenAI SDK base URL and API key, then use a model ID such as `gpt-4o`. On pay-as-you-go keys, the `provider/model` form (`openai/gpt-4o`) pins a provider; DevPass coding plans do not support pinning.
+- [What does it cost?](https://llmgateway.io/pricing): Provider token rates. Pay-as-you-go credits carry a flat 5% platform fee; Bring-Your-Own-Keys is free. Self-hosting is free.
+- [What happens when a provider fails?](https://llmgateway.io/reliability): Requests are retried and fail over to other providers that serve the same model.
+- [How does it compare to OpenRouter or LiteLLM?](https://llmgateway.io/compare): See the comparison pages and the [OpenRouter alternatives](https://llmgateway.io/blog/openrouter-alternatives) and [LiteLLM alternatives](https://llmgateway.io/blog/litellm-alternatives) posts.
 
 ## Key pages
 

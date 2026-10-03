@@ -94,21 +94,7 @@ export default async function RankingsPage() {
 	]);
 	const topModels = (stats?.models ?? []).slice(0, 10);
 	const topApps = apps?.apps ?? [];
-	// Routing pseudo-models (auto, custom) are not models a reader can pick.
-	const leaders = topModels
-		.filter((model) => modelMeta[model.modelId]?.family !== "llmgateway")
-		.slice(0, 3)
-		.map((model) => modelMeta[model.modelId]?.name ?? model.modelId);
-
 	const faqs = [
-		...(leaders.length
-			? [
-					{
-						question: "What are the most used LLMs right now?",
-						answer: `By token volume over the last 7 days, the most used models on LLM Gateway are ${leaders.join(", ")}. The table above updates from live traffic, so switch to 24 hours for what is trending today.`,
-					},
-				]
-			: []),
 		{
 			question: "How are the LLM rankings calculated?",
 			answer:
