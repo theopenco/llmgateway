@@ -973,6 +973,30 @@ function transformMessagesForNoSystemRole(messages: any[]): any[] {
 }
 
 /**
+ * Rewrites a mid-conversation system message as the user `<system-reminder>`
+ * Claude clients use on models without a system role inside `messages`.
+ */
+function toSystemReminderMessage(message: BaseMessage): BaseMessage {
+	if (message.role !== "system") {
+		return message;
+	}
+	const wrap = (text: string) =>
+		`<system-reminder>\n${text}\n</system-reminder>`;
+	return {
+		...message,
+		role: "user",
+		content:
+			typeof message.content === "string"
+				? wrap(message.content)
+				: message.content.map((part) =>
+						isTextContent(part) && part.text
+							? { ...part, text: wrap(part.text) }
+							: part,
+					),
+	};
+}
+
+/**
  * Maps the OpenAI-only `developer` role to `system`. Applied only for mappings
  * that declare `supportsDeveloperRole: false`, i.e. upstreams that reject
  * `developer` with a 400 ("developer is not one of ['system', 'assistant',
@@ -1825,10 +1849,17 @@ export async function prepareRequestBody(
 
 	// A tool message's `tool_result_cache_control` only has a destination on the
 	// Anthropic Messages API, where it becomes a marker on the tool_result block
-	// the message is lowered to. Anywhere else it would reach the upstream as an
-	// unknown message field, and a project that opted out of provider cache
-	// writes must not emit it at all.
-	if (!anthropicMessagesApi || !allowProviderCacheWrites) {
+	// the message is lowered to, and on Bedrock Converse, where it becomes a
+	// cachePoint after the toolResult. Anywhere else it would reach the upstream
+	// as an unknown message field, and a project that opted out of provider
+	// cache writes must not emit it at all.
+	const bedrockConverseApi =
+		usedProvider === "aws-bedrock" &&
+		providerMappingForOptions?.apiFormat !== "openai-chat-completions";
+	if (
+		!(anthropicMessagesApi || bedrockConverseApi) ||
+		!allowProviderCacheWrites
+	) {
 		processedMessages = processedMessages.map((m) => {
 			if (m.tool_result_cache_control === undefined) {
 				return m;
@@ -3087,13 +3118,27 @@ export async function prepareRequestBody(
 			);
 			requestBody.max_tokens = max_tokens ?? fallbackMaxTokens;
 
-			// Extract system messages for Anthropic's system field (required for prompt caching)
-			const systemMessages = processedMessages.filter(
-				(m) => m.role === "system",
-			);
-			const nonSystemMessages = processedMessages.filter(
+			// Only the system messages that open the conversation go into
+			// Anthropic's system field (required for prompt caching). Hoisting a
+			// later one would change the prefix every time a client such as Claude
+			// Code appends one, re-writing the cached conversation on each turn, so
+			// those stay in place: natively where the mapping accepts the role,
+			// otherwise as a user system-reminder.
+			const conversationStart = processedMessages.findIndex(
 				(m) => m.role !== "system",
 			);
+			const systemMessages =
+				conversationStart === -1
+					? processedMessages
+					: processedMessages.slice(0, conversationStart);
+			const conversationMessages =
+				conversationStart === -1
+					? []
+					: processedMessages.slice(conversationStart);
+			const nonSystemMessages =
+				providerMappingForOptions?.midConversationSystem === true
+					? conversationMessages
+					: conversationMessages.map(toSystemReminderMessage);
 
 			// Anthropic requires longer-TTL cache breakpoints to come before
 			// shorter ones ("a 1-hour cache entry must appear before any 5-minute
@@ -3281,8 +3326,8 @@ export async function prepareRequestBody(
 				nonSystemMessages.map((m) => ({
 					...m, // Preserve original properties for transformation
 					role:
-						m.role === "assistant"
-							? "assistant"
+						m.role === "assistant" || m.role === "system"
+							? m.role
 							: m.role === "tool"
 								? "user" // Tool results become user messages in Anthropic
 								: "user",
@@ -3561,13 +3606,23 @@ export async function prepareRequestBody(
 				};
 			};
 
-			// Extract system messages for Bedrock's system field (required for prompt caching)
-			const bedrockSystemMessages = processedMessages.filter(
-				(m) => m.role === "system",
-			);
-			const bedrockNonSystemMessages = processedMessages.filter(
+			// Mirror the Anthropic branch: only the system messages that open the
+			// conversation go into Bedrock's system field (required for prompt
+			// caching). Converse has no system role inside messages, so a later one
+			// stays in place as a user system-reminder.
+			const bedrockConversationStart = processedMessages.findIndex(
 				(m) => m.role !== "system",
 			);
+			const bedrockSystemMessages =
+				bedrockConversationStart === -1
+					? processedMessages
+					: processedMessages.slice(0, bedrockConversationStart);
+			const bedrockNonSystemMessages =
+				bedrockConversationStart === -1
+					? []
+					: processedMessages
+							.slice(bedrockConversationStart)
+							.map(toSystemReminderMessage);
 
 			// Mirror the Anthropic branch: Bedrock enforces the same
 			// longer-TTL-first ordering for cachePoints, and heuristic injection
@@ -3580,10 +3635,12 @@ export async function prepareRequestBody(
 				bedrockSupports1hTtl &&
 				bedrockNonSystemMessages.some(
 					(m) =>
-						Array.isArray(m.content) &&
-						m.content.some(
-							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
-						),
+						m.tool_result_cache_control?.ttl === "1h" ||
+						(Array.isArray(m.content) &&
+							m.content.some(
+								(part) =>
+									isTextContent(part) && part.cache_control?.ttl === "1h",
+							)),
 				);
 			const bedrockAutoCachePointEnabled =
 				autoInjectCacheControl && !bedrockCallerUses1hTtlInMessages;
@@ -3655,6 +3712,23 @@ export async function prepareRequestBody(
 				}
 			}
 
+			// Caller breakpoints further on in the conversation. Heuristic
+			// cachePoints leave room for them, so early long blocks cannot use up
+			// the budget before the caller's trailing marker.
+			let bedrockPendingCallerMarkers = 0;
+			for (const msg of bedrockNonSystemMessages) {
+				if (msg.tool_call_id) {
+					if (msg.tool_result_cache_control) {
+						bedrockPendingCallerMarkers++;
+					}
+				} else if (Array.isArray(msg.content)) {
+					bedrockPendingCallerMarkers += msg.content.filter(
+						(part) =>
+							isTextContent(part) && part.text?.trim() && part.cache_control,
+					).length;
+				}
+			}
+
 			// Transform non-system messages to Bedrock format.
 			// Bedrock expects all tool results for an assistant tool_use turn to be grouped
 			// into the next user message instead of split across multiple user messages.
@@ -3696,6 +3770,17 @@ export async function prepareRequestBody(
 							],
 						},
 					});
+					// In an agentic loop the caller's breakpoint sits on the last tool
+					// result, which is where the stable prefix ends.
+					if (msg.tool_result_cache_control) {
+						bedrockPendingCallerMarkers--;
+						if (bedrockCacheControlCount < bedrockMaxCacheControlBlocks) {
+							bedrockCacheControlCount++;
+							pendingToolResultMessage.content.push(
+								createBedrockCachePoint(msg.tool_result_cache_control.ttl),
+							);
+						}
+					}
 					continue;
 				}
 
@@ -3744,7 +3829,8 @@ export async function prepareRequestBody(
 						const shouldCache =
 							bedrockAutoCachePointEnabled &&
 							msg.content.length >= bedrockMinCacheableChars &&
-							bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+							bedrockCacheControlCount + bedrockPendingCallerMarkers <
+								bedrockMaxCacheControlBlocks;
 
 						if (shouldCache) {
 							bedrockCacheControlCount++;
@@ -3762,6 +3848,7 @@ export async function prepareRequestBody(
 								});
 
 								if (part.cache_control) {
+									bedrockPendingCallerMarkers--;
 									if (bedrockCacheControlCount < bedrockMaxCacheControlBlocks) {
 										bedrockCacheControlCount++;
 										bedrockMessage.content.push(
@@ -3774,7 +3861,8 @@ export async function prepareRequestBody(
 									const shouldCache =
 										bedrockAutoCachePointEnabled &&
 										part.text.length >= bedrockMinCacheableChars &&
-										bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+										bedrockCacheControlCount + bedrockPendingCallerMarkers <
+											bedrockMaxCacheControlBlocks;
 
 									if (shouldCache) {
 										bedrockCacheControlCount++;
