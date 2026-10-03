@@ -461,6 +461,9 @@ const adminMetricsSchema = z.object({
 	// Negotiated enterprise revenue recorded by an administrator. These rows do
 	// not grant credits and are kept separate from manual credit payments.
 	grossEnterpriseDealsRevenue: z.number(),
+	// Listing fees paid by providers (Airside carriers and the retired
+	// listing-request form), from `provider_listing_payment`.
+	grossProviderListingRevenue: z.number(),
 	// Gateway margin accrued on Airside-carrier traffic (credits mode), summed
 	// from the daily global rollups. A profit share inside credits spend, so it
 	// is reported alongside — not added to — the grossRevenue splits.
@@ -1665,6 +1668,31 @@ admin.openapi(getMetrics, async (c) => {
 		grossEnterpriseDealsRow?.value ?? 0,
 	);
 
+	// Provider listing fees. Their payers are not organizations, so they have
+	// no transaction rows.
+	const [grossProviderListingRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.providerListingPayment.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.providerListingPayment)
+		.where(
+			and(
+				startDate
+					? gte(tables.providerListingPayment.paidAt, startDate)
+					: undefined,
+				endDate
+					? lte(tables.providerListingPayment.paidAt, endDate)
+					: undefined,
+			),
+		);
+
+	const grossProviderListingRevenue = Number(
+		grossProviderListingRow?.value ?? 0,
+	);
+
 	// Airside gateway margin, per carrier. dayTimestamp is `timestamp without
 	// time zone`, so compare against UTC strings rather than Date parameters.
 	const toUtcTimestamp = (date: Date) =>
@@ -1731,7 +1759,8 @@ admin.openapi(getMetrics, async (c) => {
 		grossChatPlansRevenue +
 		grossProSubscriptionsRevenue +
 		grossManualPaymentsRevenue +
-		grossEnterpriseDealsRevenue;
+		grossEnterpriseDealsRevenue +
+		grossProviderListingRevenue;
 
 	// Balance derivation must use debited spend, not blended cost: BYOK usage
 	// never drains purchased credits, so subtracting it would understate
@@ -1774,6 +1803,7 @@ admin.openapi(getMetrics, async (c) => {
 		grossProSubscriptionsRevenue,
 		grossManualPaymentsRevenue,
 		grossEnterpriseDealsRevenue,
+		grossProviderListingRevenue,
 		airsideMarginProfit,
 		airsideMarginByCarrier,
 	});

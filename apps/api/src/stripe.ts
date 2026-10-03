@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
@@ -63,6 +64,7 @@ import {
 	resolveChatPlanBillingDetails,
 	resolveDevPassBillingDetails,
 } from "./utils/plan-billing.js";
+import { recordProviderListingPayment } from "./utils/provider-listing-payment.js";
 import { sendReceiptEmail } from "./utils/receipt.js";
 
 import type { ServerTypes } from "./vars.js";
@@ -2000,6 +2002,8 @@ export async function handleAirsideListingCheckout(
 		logger.error("Airside listing checkout session missing providerCompanyId");
 		return;
 	}
+	// Before the paid-once guard, so a duplicate charge is still counted.
+	await recordProviderListingPayment(session);
 	const updated = await db
 		.update(tables.providerCompany)
 		.set({
@@ -2041,9 +2045,8 @@ export async function handleAirsideListingCheckout(
 }
 
 /**
- * Emails the carrier a receipt for the one-time Airside listing fee. There is
- * no transaction row for this flow, so the Stripe checkout session id doubles
- * as the receipt number. Best-effort — the company is already marked paid.
+ * Emails the carrier a receipt for the one-time Airside listing fee. The
+ * Stripe checkout session id doubles as the receipt number. Best-effort — the company is already marked paid.
  */
 async function sendAirsideListingReceipt(
 	session: Stripe.Checkout.Session,
@@ -2098,6 +2101,8 @@ async function handleProviderListingCheckout(session: Stripe.Checkout.Session) {
 		logger.error("Provider listing checkout session missing submissionId");
 		return;
 	}
+
+	await recordProviderListingPayment(session);
 
 	await db
 		.update(tables.providerListingRequest)
@@ -3599,6 +3604,24 @@ export async function handleChargeRefunded(
 		logger.info("Ignoring non-SDK test-mode charge.refunded", {
 			paymentIntentId: payment_intent as string,
 		});
+		return;
+	}
+
+	// Listing fees have no transaction row; track the cumulative refund on the
+	// payment itself.
+	const listingPayments = await db
+		.update(tables.providerListingPayment)
+		.set({
+			refundedAmount: new Decimal(charge.amount_refunded).div(100).toString(),
+		})
+		.where(
+			eq(
+				tables.providerListingPayment.stripePaymentIntentId,
+				payment_intent as string,
+			),
+		)
+		.returning({ id: tables.providerListingPayment.id });
+	if (listingPayments.length > 0) {
 		return;
 	}
 
