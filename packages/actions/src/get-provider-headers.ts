@@ -149,6 +149,7 @@ export function getProviderHeaders(
 		case "zai":
 		case "canopywave":
 		case "embercloud":
+		case "flexai":
 		case "consensusprotocol":
 		case "atria":
 		case "deepinfra":

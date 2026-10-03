@@ -2260,6 +2260,39 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 	},
+	{
+		id: "flexai",
+		name: "FlexAI",
+		forwardsSafetyIdentifier: false,
+		description:
+			"FlexAI serves open-weight models on an OpenAI-compatible API, with per-model pricing published on its /v1/models endpoint.",
+		env: {
+			required: {
+				apiKey: "LLM_FLEXAI_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_FLEXAI_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#00349F",
+		website: "https://flex.ai",
+		statusPageUrl: "https://status.flex.ai",
+		announcement: null,
+		termsUrl: "https://flex.ai/terms-of-service",
+		privacyPolicyUrl: "https://flex.ai/privacy-policy",
+		usagePolicyUrl: "https://flex.ai/acceptable-use-policy",
+		legalEntity: "FlexAI Systems Inc",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
+			gdpr: true,
+		},
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
