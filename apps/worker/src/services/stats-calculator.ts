@@ -1687,7 +1687,13 @@ export async function calculateAggregatedStatistics() {
 					),
 			})
 			.from(modelProviderMappingHistory)
-			.where(gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo))
+			.where(
+				and(
+					gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo),
+					// BYOK failures reflect the customer's key, not the provider.
+					eq(modelProviderMappingHistory.usedMode, "credits"),
+				),
+			)
 			.groupBy(modelProviderMappingHistory.modelProviderMappingId);
 
 		interface RollupAgg {
