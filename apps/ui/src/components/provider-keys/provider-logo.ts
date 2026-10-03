@@ -41,6 +41,7 @@ export const providerLogoUrls: Partial<
 	xiaomi: ProviderIcons.xiaomi,
 	embercloud: ProviderIcons.embercloud,
 	deepinfra: ProviderIcons.deepinfra,
+	flexai: ProviderIcons.flexai,
 	reve: ProviderIcons.reve,
 	sakana: ProviderIcons.sakana,
 	"scx-ai": ProviderIcons["scx-ai"],
