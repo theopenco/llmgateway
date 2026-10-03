@@ -844,6 +844,9 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 			and(
 				eq(modelProviderMappingHistory.modelId, modelId),
 				gte(modelProviderMappingHistory.minuteTimestamp, since),
+				// Platform-credential traffic only; BYOK failures reflect the
+				// customer's key, not the provider.
+				eq(modelProviderMappingHistory.usedMode, "credits"),
 				// Per-provider totals: the region-less root row already includes the
 				// provider's regional traffic.
 				excludeRegionalMappingRows(modelProviderMappingHistory),
@@ -1064,6 +1067,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 				and(
 					eq(modelProviderMappingHistory.modelId, modelId),
 					gte(modelProviderMappingHistory.minuteTimestamp, since),
+					eq(modelProviderMappingHistory.usedMode, "credits"),
 					excludeRegionalMappingRows(modelProviderMappingHistory),
 				),
 			)
