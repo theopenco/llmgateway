@@ -1466,6 +1466,52 @@ const getProviderKeyErrorTypes = createRoute({
 });
 
 /**
+ * Mappings to sample for one key's errors: those the key's own daily rollup
+ * recorded upstream or gateway errors on, plus the provider's hourly failing
+ * mappings, which cover the hours the slower key rollup has not reached yet.
+ * The provider-wide list alone would drop a key's failing mapping that is
+ * quiet provider-wide or outside its top 200.
+ */
+async function listKeyErrorMappings(
+	providerKeyId: string,
+	provider: string,
+	windowHours: number,
+) {
+	const windowMs = windowHours * HOUR_MS;
+	const since = new Date(Date.now() - windowMs);
+	since.setUTCHours(0, 0, 0, 0);
+	const stats = tables.globalProviderKeyModelStats;
+	const [keyRows, providerRows] = await Promise.all([
+		db
+			.select({ providerId: stats.usedProvider, usedModel: stats.usedModel })
+			.from(stats)
+			.where(
+				and(
+					eq(stats.providerKeyId, providerKeyId),
+					gte(stats.dayTimestamp, since),
+				),
+			)
+			.groupBy(stats.usedProvider, stats.usedModel)
+			.having(
+				sql`SUM(${stats.gatewayErrorCount}) + SUM(${stats.upstreamErrorCount}) > 0`,
+			),
+		queryIncidentMappings({
+			providerIds: [provider],
+			windowHours,
+			mapping: null,
+		}),
+	]);
+	const mappings = new Map<string, { providerId: string; usedModel: string }>();
+	for (const row of [...keyRows, ...providerRows]) {
+		mappings.set(`${row.providerId}/${row.usedModel}`, {
+			providerId: row.providerId,
+			usedModel: row.usedModel,
+		});
+	}
+	return [...mappings.values()];
+}
+
+/**
  * What actually failed on one credential. Reads `log`: the rollups carry error
  * counts but no status codes or response bodies. Each of the provider's failing
  * mappings is sampled separately on the partial error index, then narrowed to
@@ -1493,11 +1539,11 @@ adminProviderCredentials.openapi(getProviderKeyErrorTypes, async (c) => {
 	const windowMs = windowHours * HOUR_MS;
 
 	const errorTypes = await queryIncidentErrorTypes({
-		mappings: await queryIncidentMappings({
-			providerIds: [key.provider],
+		mappings: await listKeyErrorMappings(
+			providerKeyId,
+			key.provider,
 			windowHours,
-			mapping: null,
-		}),
+		),
 		windowInterval,
 		bucketSeconds,
 		extraClauses: [

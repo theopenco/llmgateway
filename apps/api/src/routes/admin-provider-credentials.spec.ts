@@ -1525,6 +1525,66 @@ describe("managed credential reorder cache invalidation", () => {
 		});
 	});
 
+	test("samples a key's failing mapping the provider rollup misses", async () => {
+		// The key's daily rollup saw errors on this mapping, but the provider-wide
+		// hourly rollup has no row for it, as when it lags or ranks it out.
+		await db.insert(tables.providerKey).values({
+			id: "rollup-gap-cred",
+			...encryptProviderKeyForStorage("sk-rollup-gap", "rollup-gap-cred", null),
+			provider: "openai",
+			managed: true,
+			organizationId: null,
+		});
+		const day = new Date();
+		day.setUTCHours(0, 0, 0, 0);
+		await db.insert(tables.globalProviderKeyModelStats).values({
+			dayTimestamp: day,
+			providerKeyId: "rollup-gap-cred",
+			usedModel: "openai/gpt-4o",
+			usedProvider: "openai",
+			usedMode: "credits",
+			orgKind: "default",
+			requestCount: 1,
+			errorCount: 1,
+			upstreamErrorCount: 1,
+		});
+		await db.insert(tables.log).values({
+			id: "rollup-gap-log",
+			requestId: "rollup-gap-request",
+			organizationId: "test-org-id",
+			projectId: "test-project-id",
+			apiKeyId: "test-api-key-id",
+			providerKeyId: "rollup-gap-cred",
+			hasError: true,
+			unifiedFinishReason: "upstream_error",
+			errorDetails: {
+				statusCode: 503,
+				statusText: "Service Unavailable",
+				responseText: "overloaded",
+			},
+			duration: 100,
+			usedMode: "credits",
+			requestedModel: "gpt-4o",
+			requestedProvider: "openai",
+			usedModel: "openai/gpt-4o",
+			usedProvider: "openai",
+			responseSize: 10,
+			mode: "credits",
+		});
+
+		const res = await app.request(
+			"/admin/provider-keys/rollup-gap-cred/error-types",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			errors: { statusCode: number | null; count: number }[];
+		};
+		expect(body.errors).toEqual([
+			expect.objectContaining({ statusCode: 503, count: 1 }),
+		]);
+	});
+
 	describe("spend overview", () => {
 		const orgId = "overview-org";
 		const projectId = "overview-project";

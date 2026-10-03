@@ -35,6 +35,20 @@ type ErrorType =
 
 const COLLAPSED_MODELS = 5;
 
+/**
+ * Identifies an error type across refetches, so an item's open graph or
+ * expanded model list stays with it when counts reorder the list.
+ */
+export function errorTypeKey(error: ErrorType) {
+	return JSON.stringify([
+		error.classification,
+		error.statusCode,
+		error.statusText,
+		error.cause,
+		error.responseText,
+	]);
+}
+
 export function ErrorTypeItem({
 	error,
 	timeline,
@@ -266,8 +280,8 @@ export function ProviderIncidentErrorTypes({
 				</p>
 			)}
 			<ul className="space-y-3">
-				{data.errors.map((error, i) => (
-					<ErrorTypeItem key={i} error={error} />
+				{data.errors.map((error) => (
+					<ErrorTypeItem key={errorTypeKey(error)} error={error} />
 				))}
 			</ul>
 		</div>

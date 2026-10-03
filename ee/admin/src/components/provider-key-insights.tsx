@@ -22,7 +22,10 @@ import {
 	ChartTypeToggle,
 	type ChartType,
 } from "@/components/chart-type-toggle";
-import { ErrorTypeItem } from "@/components/provider-incident-error-types";
+import {
+	ErrorTypeItem,
+	errorTypeKey,
+} from "@/components/provider-incident-error-types";
 import {
 	credentialErrorRate,
 	formatErrorPercent,
@@ -171,6 +174,16 @@ function bucketDate(timestamp: string, grain: Grain) {
 		: new Date(timestamp);
 }
 
+/** The global HTTPException handler answers `{ status, message }`. */
+function isNotFound(error: unknown) {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"status" in error &&
+		error.status === 404
+	);
+}
+
 function errorRateOf(stats: RecentCredentialStats) {
 	return credentialErrorRate(stats).fraction;
 }
@@ -258,18 +271,19 @@ export function ProviderKeyInsights({
 		[searchParams, router, pathname],
 	);
 
-	const { data, isError, isPlaceholderData } = $api.useQuery(
-		"get",
-		"/admin/provider-keys/{providerKeyId}/spend",
-		{
-			params: { path: { providerKeyId }, query: { window, bucket: grain } },
-		},
-		{
-			refetchInterval: 60_000,
-			refetchIntervalInBackground: false,
-			placeholderData: keepPreviousData,
-		},
-	);
+	const { data, error, isError, isFetching, isPlaceholderData, refetch } =
+		$api.useQuery(
+			"get",
+			"/admin/provider-keys/{providerKeyId}/spend",
+			{
+				params: { path: { providerKeyId }, query: { window, bucket: grain } },
+			},
+			{
+				refetchInterval: 60_000,
+				refetchIntervalInBackground: false,
+				placeholderData: keepPreviousData,
+			},
+		);
 
 	// Owned here rather than by the error card so the report can include it.
 	const errorTypes = $api.useQuery(
@@ -343,9 +357,24 @@ export function ProviderKeyInsights({
 		return (
 			<>
 				{back}
-				{isError ? (
+				{isError && isNotFound(error) ? (
 					<div className="flex h-64 items-center justify-center text-muted-foreground">
 						Provider credential not found
+					</div>
+				) : isError ? (
+					<div
+						role="alert"
+						className="flex h-64 flex-col items-center justify-center gap-3 text-sm text-muted-foreground"
+					>
+						<span>Couldn&apos;t load this credential.</span>
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={isFetching}
+							onClick={() => void refetch()}
+						>
+							Retry
+						</Button>
 					</div>
 				) : (
 					<div className="space-y-4" aria-busy>
@@ -407,16 +436,19 @@ export function ProviderKeyInsights({
 		);
 	};
 
-	const spansDays = window !== "1d";
+	// The rendered buckets' grain, which lags `grain` while a placeholder from
+	// the previous selection is still on screen.
+	const dataGrain: Grain = data.bucket === "hour" ? "hour" : "day";
+	const spansDays = data.window !== "1d";
 	const formatTick = (value: string) =>
 		format(
-			bucketDate(value, grain),
-			grain === "day" ? "MMM d" : spansDays ? "MMM d HH:mm" : "HH:mm",
+			bucketDate(value, dataGrain),
+			dataGrain === "day" ? "MMM d" : spansDays ? "MMM d HH:mm" : "HH:mm",
 		);
 	const formatLabel = (value: unknown) =>
 		format(
-			bucketDate(String(value), grain),
-			grain === "day" ? "MMM d, yyyy" : "MMM d, HH:mm",
+			bucketDate(String(value), dataGrain),
+			dataGrain === "day" ? "MMM d, yyyy" : "MMM d, HH:mm",
 		);
 	const xAxis = (
 		<XAxis
@@ -930,8 +962,12 @@ function ProviderKeyErrorTypes({
 					</p>
 				)}
 				<ul className="space-y-3">
-					{data.errors.map((error, i) => (
-						<ErrorTypeItem key={i} error={error} timeline={data.timeline} />
+					{data.errors.map((error) => (
+						<ErrorTypeItem
+							key={errorTypeKey(error)}
+							error={error}
+							timeline={data.timeline}
+						/>
 					))}
 				</ul>
 			</div>
