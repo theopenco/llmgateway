@@ -12,7 +12,7 @@ faqs:
   - question: "Why is Kimi K3 up for someone else but down for me?"
     answer: "Almost always because you are on different providers. The same model ID can resolve to Moonshot for one caller and an independent host for another, and their incidents are unrelated."
   - question: "How is uptime measured?"
-    answer: "It is the share of requests that completed successfully on the upstream provider over the last 24 hours. Client errors from your own request and gateway-side errors are both excluded, so the figure reflects provider reliability."
+    answer: "It is the share of valid requests that completed successfully over the last 24 hours. Client errors caused by your own request are excluded; gateway errors and upstream provider errors both count against it, so the figure reflects the reliability of the route you are actually calling."
   - question: "Will failover slow my requests down?"
     answer: "Only the failed attempt costs you. Routing scores providers before the request goes out, so healthy traffic is not retried — and a provider that is timing out is scored down before it becomes your default."
 image:
@@ -31,7 +31,7 @@ Your agent has been running fine all morning. Then three tool calls in a row com
 The [live Kimi K3 uptime page](https://llmgateway.io/models/kimi-k3/uptime) shows every provider serving the model right now, each with:
 
 - **Tokens served** — hourly token volume, so you can see where traffic actually goes
-- **Uptime percent** — share of requests that completed successfully upstream
+- **Uptime percent** — share of valid requests that completed without a gateway or upstream error
 - **Time to first token** — the number you feel in an interactive agent
 - **Throughput** — tokens per second once the stream starts
 - **Error rate** — how often the provider is failing outright

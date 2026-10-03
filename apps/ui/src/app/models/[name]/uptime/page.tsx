@@ -242,7 +242,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 							icon={ShieldCheck}
 							label="Uptime"
 							value="Per provider"
-							hint="Share of requests with no upstream error"
+							hint="Share of valid requests with no gateway or upstream error"
 						/>
 						<MetricCard
 							icon={Clock}
