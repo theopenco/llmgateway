@@ -1505,6 +1505,18 @@ describe("managed credential reorder cache invalidation", () => {
 			const bucketMs = body.timeline.bucketSeconds * 1000;
 			expect(bucket.start).toBeLessThanOrEqual(body.timeline.end + bucketMs);
 
+			const yearly = await app.request(
+				`/admin/provider-keys/${providerKeyId}/error-types?window=365d`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(yearly.status).toBe(200);
+			const yearlyBody = (await yearly.json()) as {
+				sampledErrors: number;
+				timeline: { bucketSeconds: number };
+			};
+			expect(yearlyBody.sampledErrors).toBe(3);
+			expect(yearlyBody.timeline.bucketSeconds).toBe(86400);
+
 			const missing = await app.request(
 				"/admin/provider-keys/does-not-exist/error-types",
 				{ headers: { Cookie: cookie } },

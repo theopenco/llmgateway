@@ -6,8 +6,8 @@ import { z } from "zod";
 import {
 	incidentErrorsClause,
 	incidentErrorTypesSchema,
-	mappingErrorWindowSchema,
 	notRetriedClause,
+	providerKeyErrorWindowSchema,
 	queryIncidentErrorTypes,
 	queryIncidentMappings,
 	resolveMappingErrorWindow,
@@ -1445,7 +1445,7 @@ const getProviderKeyErrorTypes = createRoute({
 	request: {
 		params: z.object({ providerKeyId: z.string() }),
 		query: z.object({
-			window: mappingErrorWindowSchema.default("24h").optional(),
+			window: providerKeyErrorWindowSchema.default("24h").optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
 		}),
 	},

@@ -2,7 +2,7 @@
 
 import { keepPreviousData } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FileDown } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
@@ -55,11 +55,19 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { downloadCsv } from "@/lib/download-csv";
 import { useApi } from "@/lib/fetch-client";
+import {
+	buildProviderKeyReportCsv,
+	providerKeyReportFilename,
+} from "@/lib/provider-key-insights-csv";
 import { formatUsd } from "@/lib/provider-key-spend";
 import { cn } from "@/lib/utils";
 
-import { INCIDENT_BREAKDOWN_DESCRIPTION } from "@llmgateway/shared";
+import {
+	detectCsvFormat,
+	INCIDENT_BREAKDOWN_DESCRIPTION,
+} from "@llmgateway/shared";
 import {
 	formatCompactNumber,
 	formatNumber,
@@ -67,12 +75,17 @@ import {
 
 import type { RecentCredentialStats } from "@/components/provider-key-error-rate-cell";
 import type { ChartConfig } from "@/components/ui/chart";
+import type { paths } from "@/lib/api/v1";
 import type { ReactNode } from "react";
 
-type SpendWindow = "1d" | "7d" | "30d" | "90d" | "month" | "last_month";
+type SpendWindow =
+	"1d" | "7d" | "30d" | "90d" | "365d" | "month" | "last_month";
 type Grain = "hour" | "day";
-type ErrorTypesWindow = "1h" | "4h" | "24h" | "3d" | "7d";
+type ErrorTypesWindow =
+	"1h" | "4h" | "24h" | "3d" | "7d" | "30d" | "90d" | "365d";
 type BreakdownSort = "cost" | "errorRate" | "requests";
+type ErrorTypesData =
+	paths["/admin/provider-keys/{providerKeyId}/error-types"]["get"]["responses"]["200"]["content"]["application/json"];
 
 /** `hourly` is false where the API keeps the series day-grained. */
 const WINDOWS: { key: SpendWindow; label: string; hourly: boolean }[] = [
@@ -80,6 +93,7 @@ const WINDOWS: { key: SpendWindow; label: string; hourly: boolean }[] = [
 	{ key: "7d", label: "7d", hourly: true },
 	{ key: "30d", label: "30d", hourly: true },
 	{ key: "90d", label: "90d", hourly: false },
+	{ key: "365d", label: "365d", hourly: false },
 	{ key: "month", label: "This month", hourly: true },
 	{ key: "last_month", label: "Last month", hourly: true },
 ];
@@ -97,6 +111,9 @@ const ERROR_TYPES_WINDOWS: { key: ErrorTypesWindow; label: string }[] = [
 	{ key: "24h", label: "24h" },
 	{ key: "3d", label: "3d" },
 	{ key: "7d", label: "7d" },
+	{ key: "30d", label: "30d" },
+	{ key: "90d", label: "90d" },
+	{ key: "365d", label: "365d" },
 ];
 
 const DEFAULT_ERROR_TYPES_WINDOW: ErrorTypesWindow = "24h";
@@ -212,6 +229,12 @@ export function ProviderKeyInsights({
 		defaultGrain(window),
 	);
 	const grain = hourlyAvailable ? requestedGrain : "day";
+	const errorTypesWindow = parseOption(
+		ERROR_TYPES_WINDOWS,
+		searchParams.get("errors"),
+		DEFAULT_ERROR_TYPES_WINDOW,
+	);
+	const includeRetried = searchParams.get("retried") !== "0";
 	const [chartType, setChartType] = useState<ChartType>("bar");
 	const [sort, setSort] = useState<BreakdownSort>("cost");
 	const $api = useApi();
@@ -248,6 +271,26 @@ export function ProviderKeyInsights({
 		},
 	);
 
+	// Owned here rather than by the error card so the report can include it.
+	const errorTypes = $api.useQuery(
+		"get",
+		"/admin/provider-keys/{providerKeyId}/error-types",
+		{
+			params: {
+				path: { providerKeyId },
+				query: {
+					window: errorTypesWindow,
+					includeRetried: includeRetried ? "true" : "false",
+				},
+			},
+		},
+		{
+			refetchInterval: 30_000,
+			refetchIntervalInBackground: false,
+			placeholderData: keepPreviousData,
+		},
+	);
+
 	const chartData = useMemo(() => {
 		const byTimestamp = new Map(
 			(data?.data ?? []).map((point) => [point.timestamp, point]),
@@ -265,6 +308,11 @@ export function ProviderKeyInsights({
 				timestamp,
 				cost: point?.cost ?? 0,
 				...stats,
+				errorCount: point?.errorCount ?? 0,
+				cacheCount: point?.cacheCount ?? 0,
+				inputTokens: point?.inputTokens ?? "0",
+				outputTokens: point?.outputTokens ?? "0",
+				totalTokens: point?.totalTokens ?? "0",
 				// Null where nothing counted toward the rate, so the line breaks
 				// instead of claiming a healthy 0%.
 				errorRate: fraction === null ? null : fraction * 100,
@@ -331,6 +379,34 @@ export function ProviderKeyInsights({
 	);
 	const rate = credentialErrorRate(totals);
 
+	const exportReport = () => {
+		const generatedAt = new Date();
+		downloadCsv(
+			providerKeyReportFilename(providerKeyId, window, generatedAt),
+			buildProviderKeyReportCsv(
+				{
+					generatedAt,
+					key,
+					window,
+					bucket: data.bucket,
+					points: chartData,
+					modelsSince: data.modelsSince,
+					models: data.models,
+					organizations: data.organizations,
+					errorTypes: errorTypes.data
+						? {
+								window: errorTypesWindow,
+								includeRetried,
+								sampledErrors: errorTypes.data.sampledErrors,
+								errors: errorTypes.data.errors,
+							}
+						: null,
+				},
+				detectCsvFormat(),
+			),
+		);
+	};
+
 	const spansDays = window !== "1d";
 	const formatTick = (value: string) =>
 		format(
@@ -378,6 +454,17 @@ export function ProviderKeyInsights({
 							"Requests, errors and upstream spend attributed to this credential."}
 					</p>
 				</div>
+				<Button
+					variant="outline"
+					size="sm"
+					className="h-8 gap-1.5 px-3 text-xs"
+					disabled={isPlaceholderData || errorTypes.isPlaceholderData}
+					onClick={exportReport}
+					title="Download every section for the selected windows as one CSV report"
+				>
+					<FileDown className="h-3.5 w-3.5" aria-hidden />
+					Export CSV
+				</Button>
 			</header>
 
 			<div className="flex flex-wrap items-center justify-between gap-2">
@@ -640,7 +727,19 @@ export function ProviderKeyInsights({
 				</section>
 			</div>
 
-			<ProviderKeyErrorTypes providerKeyId={providerKeyId} />
+			<ProviderKeyErrorTypes
+				query={errorTypes}
+				window={errorTypesWindow}
+				includeRetried={includeRetried}
+				onWindowChange={(next) =>
+					setParams({
+						errors: next === DEFAULT_ERROR_TYPES_WINDOW ? null : next,
+					})
+				}
+				onIncludeRetriedChange={(next) =>
+					setParams({ retried: next ? null : "0" })
+				}
+			/>
 
 			<div
 				className={cn(
@@ -767,28 +866,27 @@ export function ProviderKeyInsights({
 }
 
 /**
- * The error responses behind the rate, from the logs. Its own, shorter window:
- * error details are sampled per model and only kept as long as logs are.
+ * The error responses behind the rate, from the logs. Its own window: error
+ * details are sampled per model and only kept as long as logs are.
  */
-function ProviderKeyErrorTypes({ providerKeyId }: { providerKeyId: string }) {
-	const [window, setWindow] = useState(DEFAULT_ERROR_TYPES_WINDOW);
-	const [includeRetried, setIncludeRetried] = useState(true);
-	const $api = useApi();
-	const { data, isError, isPlaceholderData } = $api.useQuery(
-		"get",
-		"/admin/provider-keys/{providerKeyId}/error-types",
-		{
-			params: {
-				path: { providerKeyId },
-				query: { window, includeRetried: includeRetried ? "true" : "false" },
-			},
-		},
-		{
-			refetchInterval: 30_000,
-			refetchIntervalInBackground: false,
-			placeholderData: keepPreviousData,
-		},
-	);
+function ProviderKeyErrorTypes({
+	query,
+	window,
+	includeRetried,
+	onWindowChange,
+	onIncludeRetriedChange,
+}: {
+	query: {
+		data?: ErrorTypesData;
+		isError: boolean;
+		isPlaceholderData: boolean;
+	};
+	window: ErrorTypesWindow;
+	includeRetried: boolean;
+	onWindowChange: (window: ErrorTypesWindow) => void;
+	onIncludeRetriedChange: (includeRetried: boolean) => void;
+}) {
+	const { data, isError, isPlaceholderData } = query;
 
 	let body: ReactNode;
 	if (!data) {
@@ -856,7 +954,7 @@ function ProviderKeyErrorTypes({ providerKeyId }: { providerKeyId: string }) {
 							size="sm"
 							aria-pressed={includeRetried}
 							title="Retried requests failed here but were served by another key or provider."
-							onClick={() => setIncludeRetried(!includeRetried)}
+							onClick={() => onIncludeRetriedChange(!includeRetried)}
 						>
 							Include retried
 						</Button>
@@ -871,7 +969,7 @@ function ProviderKeyErrorTypes({ providerKeyId }: { providerKeyId: string }) {
 									variant={window === entry.key ? "secondary" : "ghost"}
 									size="sm"
 									aria-pressed={window === entry.key}
-									onClick={() => setWindow(entry.key)}
+									onClick={() => onWindowChange(entry.key)}
 								>
 									{entry.label}
 								</Button>
