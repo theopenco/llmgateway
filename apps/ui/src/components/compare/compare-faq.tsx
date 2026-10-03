@@ -7,6 +7,7 @@ import {
 	AccordionContent,
 	AccordionItem,
 } from "@/lib/components/accordion";
+import { serializeJsonLd } from "@/lib/json-ld";
 
 export interface CompareFaqItem {
 	question: string;
@@ -39,7 +40,7 @@ export function CompareFaq({ heading, description, faqs }: CompareFaqProps) {
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(faqSchema),
+					__html: serializeJsonLd(faqSchema),
 				}}
 			/>
 			<div className="container mx-auto px-4 md:px-6">
