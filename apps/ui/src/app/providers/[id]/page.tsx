@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { CompareFaq } from "@/components/compare/compare-faq";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { adaptProviderMapping } from "@/components/models/adapt-model";
@@ -18,12 +19,15 @@ import {
 import { isPremiumModel } from "@llmgateway/shared";
 import { isMappingDeactivated } from "@llmgateway/shared/components";
 
+import type { CompareFaqItem } from "@/components/compare/compare-faq";
 import type {
 	ApiModel,
 	ApiModelProviderMapping,
 	ApiProvider,
 } from "@/lib/fetch-models";
 import type { Metadata } from "next";
+
+const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
 
 interface ModelWithProviders extends ApiModel {
 	providerDetails: Array<{
@@ -318,6 +322,10 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 						<ProviderModelsGrid models={providerModels} />
 					</div>
 				</section>
+				<CompareFaq
+					heading={`${provider.name} API questions`}
+					faqs={buildProviderFaqs(provider, activeProviderModels)}
+				/>
 			</main>
 			<Footer />
 		</div>
@@ -369,7 +377,9 @@ export async function generateMetadata({
 				(p) => p.providerId === provider.id && !isMappingDeactivated(p),
 			),
 		).length;
-	const description = `Access ${modelCount} ${provider.name} models through LLM Gateway's OpenAI-compatible API with per-token pricing, automatic fallback, caching, and cost analytics.`;
+	const description = `Access ${modelCount} ${provider.name} ${
+		modelCount === 1 ? "model" : "models"
+	} through LLM Gateway's OpenAI-compatible API with per-token pricing, automatic fallback, caching, and cost analytics.`;
 
 	return {
 		title: `${provider.name} API — Models & Pricing`,
@@ -387,4 +397,52 @@ export async function generateMetadata({
 			description,
 		},
 	};
+}
+function buildProviderFaqs(
+	provider: (typeof providerDefinitions)[number],
+	models: ModelWithProviders[],
+): CompareFaqItem[] {
+	const names = models.slice(0, 5).map((model) => model.name ?? model.id);
+	const example = models[0]?.id;
+	const faqs: CompareFaqItem[] = [
+		{
+			question: `How do I use the ${provider.name} API?`,
+			answer: `Create an LLM Gateway API key and point any OpenAI-compatible SDK at https://api.llmgateway.io/v1.${
+				example
+					? ` Set the model to ${example}, or ${provider.id}/${example} to always route to ${provider.name}.`
+					: ""
+			} You do not need a separate ${provider.name} account or SDK.`,
+		},
+	];
+	if (names.length) {
+		faqs.push({
+			question: `Which ${provider.name} models are available?`,
+			answer: `LLM Gateway serves ${models.length} ${provider.name} ${
+				models.length === 1 ? "model" : "models"
+			}${
+				models.length > names.length ? ", including" : ":"
+			} ${names.join(", ")}. Each model page lists per-token pricing, context window and capabilities.`,
+		});
+	}
+	if (provider.dataPolicy && provider.dataPolicy.apiTraining !== null) {
+		faqs.push({
+			question: `Does ${provider.name} train on API data?`,
+			answer: provider.dataPolicy.apiTraining
+				? `Yes. ${provider.name}'s published policy allows training on API traffic. Use provider routing rules in LLM Gateway to keep sensitive workloads on providers that do not.`
+				: `No. ${provider.name}'s published policy states that API traffic is not used for model training.`,
+		});
+	}
+	if (provider.headquarters) {
+		faqs.push({
+			question: `Where is ${provider.name} based?`,
+			answer: `${provider.name} is headquartered in ${
+				regionNames.of(provider.headquarters) ?? provider.headquarters
+			}. LLM Gateway shows each provider's location and data policy so you can route by compliance requirements.`,
+		});
+	}
+	faqs.push({
+		question: `What happens if the ${provider.name} API is down?`,
+		answer: `LLM Gateway retries failed requests and fails over to other providers that serve the same model, so an outage at ${provider.name} does not have to take your app down. Pin the provider when you need every request to reach ${provider.name}.`,
+	});
+	return faqs;
 }

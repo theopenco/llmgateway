@@ -112,3 +112,35 @@ test("the roundup has a visible named byline matching metadata and Article schem
 	);
 	expect(article?.author).toMatchObject({ "@type": "Person", name: author });
 });
+
+test("provider pages target the provider API query and answer it in FAQ schema", async ({
+	page,
+}) => {
+	await page.goto("/providers/openai");
+	await expect(page.locator("h1")).toHaveText("OpenAI API");
+	const faq = (await getSchemas(page)).find(
+		(schema) => schema["@type"] === "FAQPage",
+	);
+	const questions = (faq?.mainEntity as Array<{ name: string }>).map(
+		(question) => question.name,
+	);
+	expect(questions).toContain("How do I use the OpenAI API?");
+	expect(questions).toContain("Which OpenAI models are available?");
+});
+
+test("rankings explain their method with headings and FAQ schema", async ({
+	page,
+}) => {
+	await page.goto("/rankings");
+	await expect(
+		page.getByRole("heading", { level: 2, name: "How the LLM rankings work" }),
+	).toBeVisible();
+	const faq = (await getSchemas(page)).find(
+		(schema) => schema["@type"] === "FAQPage",
+	);
+	expect(faq?.mainEntity).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({ name: "How are the LLM rankings calculated?" }),
+		]),
+	);
+});
