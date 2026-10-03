@@ -245,7 +245,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 				aria-labelledby={`metric-tab-${provider.providerId}-${activeMetric}`}
 				className="px-2 pb-4 sm:px-6"
 			>
-				{provider.logsCount === 0 ? (
+				{provider.logsCount === 0 && provider.totalTokens === 0 ? (
 					<div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
 						No traffic in the last 24 hours
 					</div>
