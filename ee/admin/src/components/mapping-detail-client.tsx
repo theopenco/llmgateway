@@ -122,6 +122,14 @@ export function MappingDetailClient({
 			? mapping.externalId
 			: mapping.modelId;
 
+	// Match the history chart's scope: it counts BYOK traffic, and a region-less
+	// mapping's history also rolls up its regional rows, which only the
+	// model-wide filter covers.
+	const recentErrorsScope = mapping.region
+		? `mapping=${encodeURIComponent(`${mapping.providerId}/${mapping.modelId}:${mapping.region}`)}`
+		: `modelId=${encodeURIComponent(mapping.modelId)}`;
+	const recentErrorsHref = `/unstable-mappings?${recentErrorsScope}&includeByok=true`;
+
 	return (
 		<>
 			<header className="flex items-start gap-3">
@@ -157,9 +165,7 @@ export function MappingDetailClient({
 					</a>
 				</Button>
 				<Button asChild variant="outline" size="sm">
-					<Link
-						href={`/unstable-mappings?mapping=${encodeURIComponent(`${mapping.providerId}/${mapping.modelId}${mapping.region ? `:${mapping.region}` : ""}`)}`}
-					>
+					<Link href={recentErrorsHref}>
 						<AlertTriangle className="mr-1 h-4 w-4" />
 						Recent errors
 					</Link>
