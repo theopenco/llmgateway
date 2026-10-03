@@ -81,6 +81,7 @@ import {
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
+	errorFinishReasonDetails,
 	getUnifiedFinishReason,
 	isContentFilterFinishReason,
 	isLengthLimitFinishReason,
@@ -12904,7 +12905,13 @@ chat.openapi(completions, async (c) => {
 													? streamingError.message
 													: String(streamingError),
 								}
-							: null,
+							: canceled
+								? null
+								: errorFinishReasonDetails(
+										finishReason,
+										transportProvider,
+										res?.status ?? 200,
+									),
 						streamed: true,
 						canceled: canceled,
 						inputCost: costs.inputCost,
@@ -14837,6 +14844,10 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Read before parsing and transforming, which canonicalize it in place
+	// (e.g. "abort" -> "upstream_error").
+	const rawFinishReason: unknown = json?.choices?.[0]?.finish_reason;
+
 	// Extract content and token usage based on provider
 	const parsedResponse = parseProviderResponse(
 		transportProvider,
@@ -15336,7 +15347,12 @@ chat.openapi(completions, async (c) => {
 					responseText:
 						"Response finished successfully but returned no content or tool calls",
 				}
-			: null,
+			: errorFinishReasonDetails(
+					finishReason,
+					transportProvider,
+					res.status,
+					typeof rawFinishReason === "string" ? rawFinishReason : finishReason,
+				),
 		inputCost: costs.inputCost,
 		outputCost: costs.outputCost,
 		cachedInputCost: costs.cachedInputCost,
