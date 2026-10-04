@@ -4159,6 +4159,21 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
+			// Retired mappings are gone upstream. Audio/document requests widen
+			// the candidate set to the whole catalogue, where a long-deactivated
+			// mapping would otherwise win on price.
+			const activeMappings = expandAllProviderRegions(
+				modelDef.providers as ProviderModelMapping[],
+			).filter(
+				(mapping) => !(mapping.deactivatedAt && now > mapping.deactivatedAt),
+			);
+			if (
+				activeMappings.length === 0 &&
+				!activeCustomModelsByName.has(modelDef.id)
+			) {
+				continue;
+			}
+
 			// Validate IAM rules for this candidate model and filter providers.
 			// We must re-evaluate per model because iamAllowedProviders was computed
 			// for the "auto" model which only has the "llmgateway" provider.
@@ -4186,14 +4201,10 @@ chat.openapi(completions, async (c) => {
 				applyPinnedDefaultRegions(
 					project.mode === "credits"
 						? filterRegionsByAvailableKeys(
-								expandAllProviderRegions(
-									modelDef.providers as ProviderModelMapping[],
-								),
+								activeMappings,
 								managedRegionAvailability,
 							)
-						: expandAllProviderRegions(
-								modelDef.providers as ProviderModelMapping[],
-							),
+						: activeMappings,
 					{
 						explicitLocks: autoProviderLockedRegions,
 						requestedRegion,
