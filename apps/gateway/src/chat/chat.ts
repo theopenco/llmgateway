@@ -3601,7 +3601,13 @@ chat.openapi(completions, async (c) => {
 				}
 			: {
 					...complianceContext,
-					region: provider.region ?? provider.regions?.[0]?.id,
+					// Only a concrete region counts. A mapping listed once with several
+					// regions resolves to its default region at request time, so it must
+					// not borrow residency from regions[0]. A pinned `:region` request
+					// routes to exactly that region.
+					region:
+						provider.region ??
+						(provider.providerId === usedProvider ? usedRegion : undefined),
 				};
 
 	// Which policy rules a dropped mapping failed, recorded next to the coarse
@@ -7609,12 +7615,12 @@ chat.openapi(completions, async (c) => {
 		} else {
 			cacheKey = generateCacheKey(project.id, cachePayload);
 			let cachedResponse = cacheKey ? await getCache(cacheKey) : null;
-			// The embedding call sends prompt text to the embedding provider, which
-			// a data-residency restriction does not vet, so residency disables it.
+			// The embedding call sends prompt text to an embedding provider that the
+			// compliance policy does not vet, so any active policy disables it.
 			if (
 				!cachedResponse &&
 				projectSemanticCacheEnabled &&
-				!compliancePolicy?.dataResidency &&
+				!compliancePolicy &&
 				!tools?.length
 			) {
 				const semanticText = semanticCacheText(messages as BaseMessage[]);

@@ -191,6 +191,28 @@ describe("enterprise controls", () => {
 		expect(invalid.status).toBe(400);
 	});
 
+	test("EU residency does not route a multi-region mapping to its default region", async () => {
+		await seedKeys();
+		await db.insert(tables.providerKey).values({
+			id: "alibaba-key-id",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"alibaba-key-id",
+				"org-id",
+			),
+			provider: "alibaba",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+		for (const model of ["alibaba/qwen-plus", "qwen-plus"]) {
+			const res = await chat(
+				{ model, messages: [{ role: "user", content: `eu only ${model}` }] },
+				{ "x-llmgateway-data-residency": "eu", "x-no-fallback": "true" },
+			);
+			expect(res.status).toBe(403);
+		}
+	});
+
 	test("org EU residency policy blocks providers outside the EU", async () => {
 		await seedKeys();
 		await db.insert(tables.providerKey).values({
