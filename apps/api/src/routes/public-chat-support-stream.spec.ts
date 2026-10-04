@@ -54,9 +54,10 @@ describe("public chat support stream errors", () => {
 		await new Promise((resolve) => server.close(resolve));
 	});
 
-	it("logs one structured entry and forwards a safe message", async () => {
+	it("logs one upstream warning and forwards a safe message", async () => {
 		const consoleError = vi.spyOn(console, "error");
 		const loggerError = vi.spyOn(logger, "error");
+		const loggerWarn = vi.spyOn(logger, "warn");
 
 		const res = await app.request("/public/chat-support", {
 			method: "POST",
@@ -80,13 +81,14 @@ describe("public chat support stream errors", () => {
 		);
 		expect(body).not.toContain(UPSTREAM_MESSAGE);
 
-		const streamLogs = loggerError.mock.calls.filter(
-			([message]) => message === "Chat support streaming error",
-		);
-		expect(streamLogs).toHaveLength(1);
+		const isStreamLog = ([message]: unknown[]) =>
+			message === "Chat support streaming error";
+		expect(loggerWarn.mock.calls.filter(isStreamLog)).toHaveLength(1);
+		expect(loggerError.mock.calls.filter(isStreamLog)).toHaveLength(0);
 		expect(consoleError).not.toHaveBeenCalled();
 
 		consoleError.mockRestore();
 		loggerError.mockRestore();
+		loggerWarn.mockRestore();
 	});
 });
