@@ -41,6 +41,10 @@ Stealth providers are undisclosed platforms that LLM Gateway routes to without n
 
 The settings page shows a live **Provider Impact** preview of which providers are allowed (green) and which are blocked (red) under the current policy, so you can see the impact before saving. Hovering a blocked provider lists exactly which requirements it does not meet — a missing certification, its data policy, its headquarters country, or a provider-list restriction.
 
+## Data residency
+
+Choose **European Union (EU/EEA)** to route only to providers headquartered in the EU or EEA, or to their EU regional endpoints. Single requests can opt in with the `x-llmgateway-data-residency: eu` header. See [Data residency](/features/data-residency).
+
 ## Provider headquarters
 
 Beyond certifications, you can restrict routing by the country a provider is headquartered in. The **Provider Headquarters** card presents a country selector, and requests are only routed to providers based in a selected country.

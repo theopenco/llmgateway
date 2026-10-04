@@ -1,0 +1,53 @@
+---
+title: Data Streams
+description: Forward audit logs to your SIEM and export request logs to S3, Datadog, Splunk, or a webhook
+icon: Radio
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+Data streams deliver your organization's logs to the tools your security and data teams already use:
+
+- **SIEM forwarding** sends [audit logs](/features/audit-logs): every admin action in the organization.
+- **Log export** sends request logs: one event per gateway request with model, provider, tokens, cost, latency, and finish reason.
+
+<Callout type="info">
+	Data streams are available on the [**Enterprise
+	plan**](https://llmgateway.io/enterprise) for organization owners and admins.
+	Manage them on the [**Data Streams**](/learn/data-streams) page.
+</Callout>
+
+## Destinations
+
+| Destination       | Settings                                              | Delivery                                                          |
+| ----------------- | ----------------------------------------------------- | ----------------------------------------------------------------- |
+| **Splunk HEC**    | HEC URL, token, optional index                        | `POST /services/collector/event`, one HEC event per log           |
+| **Datadog Logs**  | Site, API key, optional service                       | Logs intake API, `ddsource: llmgateway`                           |
+| **Amazon S3**     | Bucket, region, access key, optional prefix, endpoint | One NDJSON object per batch at `<prefix>/<source>/<date>/…ndjson` |
+| **HTTPS webhook** | URL, signing secret, optional bearer token            | `POST` JSON `{ stream, source, events }`                          |
+
+Set a custom S3 endpoint for S3-compatible storage. Credentials are encrypted at rest and never returned by the API.
+
+Webhooks carry `X-LLMGateway-Signature: t=<unix>,v1=<hex>`, where `v1` is the HMAC-SHA256 of `<t>.<body>` with your signing secret, the same scheme as [platform webhooks](/features/embeddable-payments).
+
+## Delivery
+
+- Events are delivered in order, in batches of up to 500.
+- A stream keeps a cursor and advances it only after the destination accepts a batch. A failed batch is retried, so delivery is at least once; deduplicate on the event `id`.
+- Audit events are sent after about 30 seconds and request logs after about 2 minutes, so late writes are not skipped.
+- New streams start with events created after they were added. Use replay to backfill.
+- The last error and delivered count show on each stream.
+
+## Request log payloads
+
+Request log events never include prompts or completions unless you turn on **Include prompts and completions**. Payloads already removed by [data retention](/features/data-retention) are sent as `null`. Request-log streams can cover every project or one.
+
+## Replay
+
+**Replay** re-sends every event in a window of up to 30 days. It runs alongside live delivery and does not move the live cursor.
+
+## Test
+
+**Send test event** delivers one synthetic event (`"test": true`) and reports the destination's response.
+
+All stream changes are recorded in audit logs as `data_stream.*` actions.

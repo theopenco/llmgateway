@@ -1,0 +1,70 @@
+---
+title: Prompt Management
+description: Store versioned prompt templates in LLM Gateway and reference them from requests
+icon: FileText
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+Prompt management keeps your prompts in LLM Gateway instead of your code. Each prompt has immutable versions; one of them is the production version. Change a prompt, deploy it, and every request picks it up without a redeploy.
+
+Manage prompts on the [**Prompts**](/learn/prompts) page of a project, or through the API.
+
+## Templates and variables
+
+A version holds a list of messages, an optional default model, and optional parameters (`temperature`, `top_p`, `max_tokens`, `frequency_penalty`, `presence_penalty`, `reasoning_effort`). Write `{{name}}` anywhere in a message to declare a variable. Names start with a letter or underscore and may contain letters, digits, `_`, `.`, and `-`.
+
+## Calling a prompt
+
+Send a `prompt` object instead of (or alongside) `messages`:
+
+```bash
+curl https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": {
+      "id": "support-reply",
+      "variables": { "product": "Acme Cloud", "question": "How do I rotate my key?" }
+    }
+  }'
+```
+
+| Field              | Description                                                     |
+| ------------------ | --------------------------------------------------------------- |
+| `prompt.id`        | Prompt id or name, scoped to the API key's project              |
+| `prompt.version`   | Pin a version. Omit to use the production version               |
+| `prompt.variables` | Values for every `{{variable}}`. Strings, numbers, and booleans |
+
+The gateway expands the reference before routing:
+
+- The version's rendered messages go first, followed by any `messages` you send.
+- The version's model and parameters apply only to fields the request leaves unset, so a request can always override them.
+- Values are inserted verbatim. A value containing `{{x}}` is not expanded again.
+
+Responses carry `x-llmgateway-prompt-id` and `x-llmgateway-prompt-version` so you can tell which version served a request.
+
+<Callout type="warning">
+	A missing variable returns `400`. An unknown prompt, a prompt from another
+	project, or a prompt with no production version returns `404`.
+</Callout>
+
+## Versions and deploys
+
+Saving a change always creates a new version; existing versions never change. Choose whether to deploy it right away, or deploy any earlier version later to roll back. Creating a prompt makes version 1 the production version.
+
+## API
+
+The dashboard uses these endpoints on the LLM Gateway API:
+
+| Method   | Path                     | Purpose                                     |
+| -------- | ------------------------ | ------------------------------------------- |
+| `GET`    | `/prompts?projectId=`    | List a project's prompts                    |
+| `POST`   | `/prompts`               | Create a prompt (version 1, deployed)       |
+| `GET`    | `/prompts/{id}`          | Prompt with all versions, newest first      |
+| `PATCH`  | `/prompts/{id}`          | Rename or describe                          |
+| `POST`   | `/prompts/{id}/versions` | Create a version, optionally `deploy: true` |
+| `POST`   | `/prompts/{id}/deploy`   | Make `version` the production version       |
+| `DELETE` | `/prompts/{id}`          | Delete a prompt and its versions            |
+
+Project admins create and change prompts; every project member can read them. Changes are recorded in [audit logs](/features/audit-logs).

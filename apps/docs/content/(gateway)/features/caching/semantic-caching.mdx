@@ -1,0 +1,41 @@
+---
+title: Semantic Caching
+description: Serve cached responses for prompts that mean the same thing
+icon: Sparkles
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+[Gateway caching](/features/caching/gateway-caching) replays a response only for a byte-identical request. Semantic caching also replays it when a new prompt is close enough in meaning, so "How do I reset my password?" can reuse the answer to "How can I reset the password for my account?".
+
+<Callout type="info">
+	Semantic caching is available on the [**Enterprise
+	plan**](https://llmgateway.io/enterprise).
+</Callout>
+
+## Enable it
+
+In the project's [**Preferences**](/learn/preferences), turn on **Enable request caching**, then **Enable semantic caching**, and set a **Similarity threshold** between 0.80 and 0.999. Matches expire with the cache duration you set for request caching.
+
+## How a lookup works
+
+1. The exact cache is checked first.
+2. On a miss, the gateway embeds the latest text turns of the conversation (up to eight messages, with roles).
+3. It compares that embedding with recent cached requests that share the same model, provider, and request parameters. Only these entries are eligible, so a response is never reused under different settings.
+4. The most similar entry at or above the threshold is returned as a normal cached response.
+
+A semantic hit returns `x-llmgateway-cache: HIT` plus `x-llmgateway-cache-match: semantic` and `x-llmgateway-cache-similarity`. It is logged and billed as a cached request.
+
+## Limits
+
+- Non-streaming requests without `tools` only.
+- Requests with images, audio, or other non-text parts are skipped.
+- Up to 256 recent entries are compared per model and parameter set.
+- `x-no-cache: true`, zero data retention, and DevPass organizations bypass it, as with request caching.
+- If the embedding call fails or times out (2 seconds), the request continues as a miss.
+
+Pick a higher threshold when small wording changes alter the answer (numbers, names, dates); lower it for FAQ-style traffic.
+
+## Self-hosting
+
+The gateway embeds with `SEMANTIC_CACHE_EMBEDDING_MODEL` (default `text-embedding-3-small`) on an OpenAI-compatible endpoint. Set `SEMANTIC_CACHE_EMBEDDING_API_KEY` and `SEMANTIC_CACHE_EMBEDDING_BASE_URL`; they fall back to `LLM_OPENAI_API_KEY` and `LLM_OPENAI_BASE_URL`.
