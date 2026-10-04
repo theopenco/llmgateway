@@ -17,6 +17,26 @@ import type {
 
 const DELIVERY_TIMEOUT_MS = 15_000;
 
+/** Strips leading and/or trailing slashes in linear time (no regex backtracking). */
+export function trimSlashes(
+	value: string,
+	sides: { start?: boolean; end?: boolean } = { start: true, end: true },
+): string {
+	let start = 0;
+	let end = value.length;
+	if (sides.start) {
+		while (start < end && value[start] === "/") {
+			start++;
+		}
+	}
+	if (sides.end) {
+		while (end > start && value[end - 1] === "/") {
+			end--;
+		}
+	}
+	return value.slice(start, end);
+}
+
 /** Datadog intake sites; the fixed host list is the SSRF guard. */
 export const DATADOG_SITES = [
 	"datadoghq.com",
@@ -286,7 +306,7 @@ export function buildS3PutRequest(
 		.map((segment) => encodeURIComponent(segment))
 		.join("/");
 	const path = config.endpoint
-		? `${endpoint.pathname.replace(/\/+$/, "")}/${bucket}/${encodedKey}`
+		? `${trimSlashes(endpoint.pathname, { end: true })}/${bucket}/${encodedKey}`
 		: `/${encodedKey}`;
 	const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
 	const date = amzDate.slice(0, 8);
@@ -339,10 +359,7 @@ function s3ObjectKey(
 	events: DataStreamEvent[],
 	now: Date,
 ): string {
-	const prefix = (stream.config.prefix ?? "llmgateway").replace(
-		/^\/+|\/+$/g,
-		"",
-	);
+	const prefix = trimSlashes(stream.config.prefix ?? "llmgateway");
 	const day = now.toISOString().slice(0, 10);
 	const first = events[0]?.id ?? "empty";
 	return `${prefix}/${stream.source}/${day}/${now.getTime()}-${first}.ndjson`;
@@ -381,7 +398,7 @@ export async function deliverDataStreamBatch(
 			return;
 		}
 		case "splunk": {
-			const base = stream.config.url!.replace(/\/+$/, "");
+			const base = trimSlashes(stream.config.url!, { end: true });
 			const url = base.endsWith("/services/collector/event")
 				? base
 				: `${base}/services/collector/event`;

@@ -19,6 +19,7 @@ import {
 	encryptDataStreamSecret,
 	formatRequestLogEvent,
 	signDataStreamPayload,
+	trimSlashes,
 	validateDataStreamConfig,
 	type RequestLogRow,
 } from "./data-streams.js";
@@ -219,6 +220,14 @@ describe("data streams", () => {
 });
 
 describe("data stream formatting", () => {
+	test("trimSlashes trims without regex backtracking", () => {
+		expect(trimSlashes("//a/b//")).toBe("a/b");
+		expect(trimSlashes("https://x.example///", { end: true })).toBe(
+			"https://x.example",
+		);
+		expect(trimSlashes("/".repeat(100_000))).toBe("");
+	});
+
 	test("signature has the platform webhook shape", () => {
 		expect(signDataStreamPayload("{}", "secret", 1700000000)).toMatch(
 			/^t=1700000000,v1=[0-9a-f]{64}$/,

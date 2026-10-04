@@ -1,3 +1,4 @@
+import { trimSlashes } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
 
 import type { BaseMessage } from "@llmgateway/models";
@@ -72,11 +73,12 @@ function embeddingConfig(): {
 	if (!apiKey) {
 		return null;
 	}
-	const baseUrl = (
+	const baseUrl = trimSlashes(
 		process.env.SEMANTIC_CACHE_EMBEDDING_BASE_URL ??
-		process.env.LLM_OPENAI_BASE_URL ??
-		"https://api.openai.com"
-	).replace(/\/+$/, "");
+			process.env.LLM_OPENAI_BASE_URL ??
+			"https://api.openai.com",
+		{ end: true },
+	);
 	return {
 		url: `${baseUrl}/v1/embeddings`,
 		apiKey,
