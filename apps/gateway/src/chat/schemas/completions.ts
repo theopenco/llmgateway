@@ -258,6 +258,20 @@ export const completionsRequestSchema = z.object({
 				"How many chat completion choices to generate for each input message. Only accepted when the resolved model supports it upstream (currently OpenAI Chat Completions models and Google Gemini 2.5 models via `candidateCount`); requests for unsupported models are rejected with 400. Streaming is supported for OpenAI models: choice deltas are demultiplexed by `choices[].index` on a single SSE stream. Exceptions rejected with 400: `n > 1` with `stream: true` **and** function `tools` (the streaming tool-call aggregator can't disambiguate concurrent calls across choices; native `web_search` tools and the `web_search: true` flag are exempt), `n > 1` with `stream: true` on Google models (Gemini rejects candidateCount on streamGenerateContent), and `n > 8` on Google models (Gemini caps candidateCount at 8).",
 			example: 1,
 		}),
+	prompt: z
+		.object({
+			id: z.string(),
+			version: z.number().int().min(1).optional(),
+			variables: z
+				.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+				.optional(),
+		})
+		.optional()
+		.openapi({
+			description:
+				"Managed prompt to expand before routing, by id or name. Its rendered messages are prepended to `messages`, and its model and parameters fill fields you leave unset. Omit `version` to use the production version.",
+			example: { id: "support-reply", variables: { customer: "Ada" } },
+		}),
 	prompt_cache_key: z
 		.string()
 		.nullable()

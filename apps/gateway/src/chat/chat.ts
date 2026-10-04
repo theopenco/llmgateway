@@ -46,8 +46,11 @@ import {
 } from "@/lib/coding-models.js";
 import {
 	complianceBlockMessage,
+	DATA_RESIDENCY_HEADER,
 	getActiveCompliancePolicy,
 	getComplianceFailureReasons,
+	getRequestDataResidency,
+	withRequestDataResidency,
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
@@ -96,6 +99,7 @@ import {
 	resolvePreferredProvider,
 	setPreferredProvider,
 } from "@/lib/preferred-provider.js";
+import { applyPromptReference } from "@/lib/prompt-template.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import {
 	checkProviderRateLimit,
@@ -108,6 +112,10 @@ import {
 import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
+import {
+	embedForSemanticCache,
+	semanticCacheText,
+} from "@/lib/semantic-cache-embedding.js";
 import {
 	createSmartRoutingSessionStore,
 	type SmartRoutingSessionStore,
@@ -167,7 +175,10 @@ import {
 	preserveGoogleResponseText,
 } from "@llmgateway/actions";
 import {
+	addSemanticCacheEntry,
+	findSemanticCacheMatch,
 	generateCacheKey,
+	generateSemanticCacheScopeKey,
 	generateStreamingCacheKey,
 	getCache,
 	getStreamingCache,
@@ -1553,6 +1564,18 @@ export const chat = new OpenAPIHono<ServerTypes>({
 	},
 });
 
+// A `prompt` reference supplies model and messages, so the route only
+// requires them without one. The handler re-validates the expanded body
+// against the full schema.
+const completionsRouteBodySchema = completionsRequestSchema
+	.partial({ model: true, messages: true })
+	.refine(
+		(body) =>
+			body.prompt !== undefined ||
+			(body.model !== undefined && body.messages !== undefined),
+		{ message: "model and messages are required unless prompt is set" },
+	);
+
 const completions = createRoute({
 	operationId: "v1_chat_completions",
 	summary: "Chat Completions",
@@ -1568,7 +1591,7 @@ const completions = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: completionsRequestSchema,
+					schema: completionsRouteBodySchema,
 				},
 			},
 		},
@@ -1773,6 +1796,19 @@ chat.openapi(completions, async (c) => {
 				},
 			},
 			400,
+		);
+	}
+
+	const promptExpansion = await applyPromptReference(
+		rawBody,
+		c.req.raw.headers,
+	);
+	rawBody = promptExpansion.body;
+	if (promptExpansion.applied) {
+		c.header("x-llmgateway-prompt-id", promptExpansion.applied.promptId);
+		c.header(
+			"x-llmgateway-prompt-version",
+			String(promptExpansion.applied.version),
 		);
 	}
 
@@ -3541,7 +3577,13 @@ chat.openapi(completions, async (c) => {
 	// Enterprise provider compliance guardrails: drop providers that do not meet
 	// the org's required certifications/data policies, and block the request when
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
-	const compliancePolicy = getActiveCompliancePolicy(organization);
+	const compliancePolicy = withRequestDataResidency(
+		getActiveCompliancePolicy(organization),
+		getRequestDataResidency(
+			c.req.header(DATA_RESIDENCY_HEADER),
+			c.req.header("host"),
+		),
+	);
 
 	const complianceContextFor = (
 		provider: ProviderModelMapping,
@@ -3553,7 +3595,10 @@ chat.openapi(completions, async (c) => {
 							?.complianceAttestation ?? null,
 					customProviderName: provider.customProviderName,
 				}
-			: complianceContext;
+			: {
+					...complianceContext,
+					region: provider.region ?? provider.regions?.[0]?.id,
+				};
 
 	// Which policy rules a dropped mapping failed, recorded next to the coarse
 	// "compliance" code so the routing analytics can break the total down by rule
@@ -7155,6 +7200,8 @@ chat.openapi(completions, async (c) => {
 		enabled: projectCachingEnabled,
 		duration: cacheDuration,
 		providerCacheControlMode: configuredProviderCacheControlMode,
+		semanticCacheEnabled: projectSemanticCacheEnabled,
+		semanticCacheThreshold,
 	} = await isCachingEnabled(project.id);
 	const providerCacheControlMode = zeroDataRetentionEnabled
 		? "off"
@@ -7171,6 +7218,8 @@ chat.openapi(completions, async (c) => {
 
 	let cacheKey: string | null = null;
 	let streamingCacheKey: string | null = null;
+	let semanticCacheWrite: { scopeKey: string; embedding: number[] } | null =
+		null;
 
 	if (cachingEnabled) {
 		const cachePayload = {
@@ -7552,7 +7601,34 @@ chat.openapi(completions, async (c) => {
 			}
 		} else {
 			cacheKey = generateCacheKey(project.id, cachePayload);
-			const cachedResponse = cacheKey ? await getCache(cacheKey) : null;
+			let cachedResponse = cacheKey ? await getCache(cacheKey) : null;
+			if (!cachedResponse && projectSemanticCacheEnabled && !tools?.length) {
+				const semanticText = semanticCacheText(messages as BaseMessage[]);
+				const embedding = semanticText
+					? await embedForSemanticCache(semanticText)
+					: null;
+				if (embedding) {
+					const scopeKey = generateSemanticCacheScopeKey(project.id, {
+						...cachePayload,
+						messages: undefined,
+					});
+					const match = await findSemanticCacheMatch(
+						scopeKey,
+						embedding,
+						semanticCacheThreshold,
+					);
+					cachedResponse = match ? await getCache(match.cacheKey) : null;
+					if (match && cachedResponse) {
+						c.header("x-llmgateway-cache-match", "semantic");
+						c.header(
+							"x-llmgateway-cache-similarity",
+							match.similarity.toFixed(4),
+						);
+					} else {
+						semanticCacheWrite = { scopeKey, embedding };
+					}
+				}
+			}
 			if (cachedResponse) {
 				// Log the cached request
 				const duration = 0; // No processing time needed
@@ -15445,6 +15521,13 @@ chat.openapi(completions, async (c) => {
 			stripRequestScopedMetadataFromOpenAiResponse(transformedResponse),
 			cacheDuration,
 		);
+		if (semanticCacheWrite) {
+			await addSemanticCacheEntry(
+				semanticCacheWrite.scopeKey,
+				{ cacheKey, embedding: semanticCacheWrite.embedding },
+				cacheDuration,
+			);
+		}
 	}
 
 	// For image generation models with streaming requested, convert to SSE format

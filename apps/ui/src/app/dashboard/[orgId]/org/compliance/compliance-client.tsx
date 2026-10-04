@@ -39,6 +39,7 @@ import {
 	getProviderRequirementFailures,
 	models,
 	providers,
+	type DataResidency,
 	type ProviderCompliancePolicy,
 	type ProviderDefinition,
 	type ProviderId,
@@ -55,6 +56,15 @@ import { ComplianceAlertsCard } from "./compliance-alerts-card";
 import { ContactSalesCard } from "./contact-sales-card";
 
 import type { ReactElement } from "react";
+
+const RESIDENCY_CHOICES: {
+	value: DataResidency | null;
+	label: string;
+	flag: string;
+}[] = [
+	{ value: null, label: "Global", flag: "🌐" },
+	{ value: "eu", label: "European Union (EU/EEA)", flag: "🇪🇺" },
+];
 
 // Internal/virtual providers that should never appear in the impact preview.
 const HIDDEN_PROVIDER_IDS = new Set(["llmgateway", "custom"]);
@@ -687,6 +697,62 @@ export function ComplianceClient() {
 								</div>
 							);
 						})}
+					</CardContent>
+				</Card>
+
+				<Card>
+					<CardHeader>
+						<CardTitle>Data Residency</CardTitle>
+						<CardDescription>
+							Keep requests inside a jurisdiction. Routing only uses providers
+							headquartered there, or regional endpoints located there. Single
+							requests can opt in with the{" "}
+							<code className="text-xs">x-llmgateway-data-residency: eu</code>{" "}
+							header.
+						</CardDescription>
+					</CardHeader>
+					<CardContent
+						className={
+							policy.enabled
+								? undefined
+								: "opacity-60 pointer-events-none select-none"
+						}
+					>
+						<div className="flex flex-wrap gap-2" role="radiogroup">
+							{RESIDENCY_CHOICES.map((choice) => {
+								const selected =
+									(policy.dataResidency ?? null) === choice.value;
+								return (
+									<button
+										key={choice.label}
+										type="button"
+										role="radio"
+										disabled={!policy.enabled}
+										aria-checked={selected}
+										onClick={() =>
+											setPolicy((p) => ({
+												...p,
+												dataResidency: choice.value ?? undefined,
+											}))
+										}
+										className={cn(
+											"inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+											selected
+												? "border-primary bg-primary/10 text-primary"
+												: "border-border text-muted-foreground hover:bg-muted",
+										)}
+									>
+										<span className="text-base leading-none">
+											{choice.flag}
+										</span>
+										<span>{choice.label}</span>
+										{selected ? (
+											<Check className="h-3.5 w-3.5 shrink-0" />
+										) : null}
+									</button>
+								);
+							})}
+						</div>
 					</CardContent>
 				</Card>
 

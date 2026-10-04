@@ -8,7 +8,9 @@ import { z } from "zod";
 import {
 	checkAndReserveTopUp,
 	flushLimitHits,
+	listActiveDataStreams,
 	releaseTopUpReservation,
+	runDataStream,
 } from "@llmgateway/actions";
 import {
 	closeRedisClient,
@@ -3264,6 +3266,58 @@ async function runNotificationsLoop() {
 	}
 }
 
+const DATA_STREAMS_LOCK_KEY = "data_streams";
+
+/** Forwards audit and request logs to each enabled data stream destination. */
+export async function processDataStreams(): Promise<void> {
+	const streams = await listActiveDataStreams();
+	for (const stream of streams) {
+		if (isStopRequested()) {
+			return;
+		}
+		const result = await runDataStream(stream);
+		if (result.error) {
+			logger.warn("Data stream delivery failed", {
+				streamId: stream.id,
+				destination: stream.destination,
+				error: result.error,
+			});
+		}
+	}
+}
+
+async function runDataStreamsLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 30 : 10) * 1000;
+	logger.info(
+		`Starting data streams loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(DATA_STREAMS_LOCK_KEY)) {
+					try {
+						await processDataStreams();
+					} finally {
+						await releaseLock(DATA_STREAMS_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in data streams loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Data streams loop stopped");
+	}
+}
+
 const PROVIDER_KEY_MODEL_SYNC_LOCK_KEY = "provider_key_model_sync";
 
 async function runProviderKeyModelSyncLoop() {
@@ -3439,6 +3493,7 @@ export async function startWorker() {
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
 	void runNotificationsLoop();
+	void runDataStreamsLoop();
 	void runProviderKeyModelSyncLoop();
 	void runFollowUpEmailsLoop({
 		shouldStop: isStopRequested,

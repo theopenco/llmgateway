@@ -1296,6 +1296,11 @@ export const project = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		cachingEnabled: boolean().notNull().default(false),
 		cacheDurationSeconds: integer().notNull().default(60),
+		// Serve cached responses for prompts whose embedding is at least
+		// `semanticCacheThreshold` cosine-similar to a cached one. Requires
+		// `cachingEnabled`.
+		semanticCacheEnabled: boolean().notNull().default(false),
+		semanticCacheThreshold: real().notNull().default(0.95),
 		// How provider-side prompt-cache markers are handled for this project.
 		// "passthrough" exists because a single key often serves both a coding
 		// agent that manages its own markers and traffic that must not pay the
@@ -4408,6 +4413,17 @@ export const auditLogActions = [
 	"dev_plan.reset_pass_redeem",
 	// Free Reset Pass granted for a quarterly model-survey response.
 	"dev_plan.reset_pass_reward",
+	// Prompt management
+	"prompt.create",
+	"prompt.update",
+	"prompt.delete",
+	"prompt.version_create",
+	"prompt.deploy",
+	// Data streams (SIEM forwarding and log export)
+	"data_stream.create",
+	"data_stream.update",
+	"data_stream.delete",
+	"data_stream.replay",
 	"dev_plan.reset_pass_gift",
 	// Cancellation performed by an administrator on behalf of the subscriber.
 	"dev_plan.admin_cancel",
@@ -4474,6 +4490,8 @@ export const auditLogResourceTypes = [
 	"scim_token",
 	"scim_user",
 	"scim_group",
+	"prompt",
+	"data_stream",
 ] as const;
 
 export type AuditLogAction = (typeof auditLogActions)[number];
@@ -7203,5 +7221,133 @@ export const benchmarkRun = pgTable(
 	(table) => [
 		index("benchmark_run_queue_idx").on(table.status, table.createdAt),
 		index("benchmark_run_model_idx").on(table.modelId, table.createdAt),
+	],
+);
+
+export interface PromptMessage {
+	role: "system" | "user" | "assistant" | "developer";
+	content: string;
+}
+
+export interface PromptParameters {
+	temperature?: number;
+	top_p?: number;
+	max_tokens?: number;
+	frequency_penalty?: number;
+	presence_penalty?: number;
+	reasoning_effort?: string;
+}
+
+// Versioned prompt templates, referenced from requests by `prompt.id`.
+export const prompt = pgTable(
+	"prompt",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		description: text(),
+		// Version served when a request does not pin one. Null until deployed.
+		productionVersion: integer(),
+		latestVersion: integer().notNull().default(0),
+	},
+	(table) => [
+		index("prompt_project_id_idx").on(table.projectId),
+		unique().on(table.projectId, table.name),
+	],
+);
+
+export const promptVersion = pgTable(
+	"prompt_version",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		promptId: text()
+			.notNull()
+			.references(() => prompt.id, { onDelete: "cascade" }),
+		version: integer().notNull(),
+		messages: jsonb().$type<PromptMessage[]>().notNull(),
+		model: text(),
+		parameters: jsonb().$type<PromptParameters>().notNull().default({}),
+		variables: jsonb().$type<string[]>().notNull().default([]),
+		commitMessage: text(),
+		createdBy: text().references(() => user.id, { onDelete: "set null" }),
+	},
+	(table) => [unique().on(table.promptId, table.version)],
+);
+
+export const dataStreamSources = ["audit_logs", "request_logs"] as const;
+export type DataStreamSource = (typeof dataStreamSources)[number];
+
+export const dataStreamDestinations = [
+	"webhook",
+	"datadog",
+	"splunk",
+	"s3",
+] as const;
+export type DataStreamDestination = (typeof dataStreamDestinations)[number];
+
+/** Non-secret destination settings; secrets live encrypted in `secret`. */
+export interface DataStreamConfig {
+	url?: string;
+	site?: string;
+	service?: string;
+	index?: string;
+	sourcetype?: string;
+	bucket?: string;
+	region?: string;
+	prefix?: string;
+	endpoint?: string;
+	accessKeyId?: string;
+	includePayloads?: boolean;
+}
+
+// Continuous delivery of audit or request logs to an external destination
+// (SIEM, log platform, bucket). The worker advances the (createdAt, id)
+// cursor after each delivered batch; a replay re-sends a bounded window on a
+// separate cursor.
+export const dataStream = pgTable(
+	"data_stream",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		// Request-log streams may be narrowed to one project.
+		projectId: text().references(() => project.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		source: text({ enum: dataStreamSources }).notNull(),
+		destination: text({ enum: dataStreamDestinations }).notNull(),
+		config: jsonb().$type<DataStreamConfig>().notNull().default({}),
+		// Encrypted with the provider-key keyring (token, API key, secret key).
+		secret: text(),
+		enabled: boolean().notNull().default(true),
+		cursorCreatedAt: timestamp().notNull().defaultNow(),
+		cursorId: text().notNull().default(""),
+		replayFrom: timestamp(),
+		replayTo: timestamp(),
+		replayCursorCreatedAt: timestamp(),
+		replayCursorId: text(),
+		deliveredCount: bigint({ mode: "number" }).notNull().default(0),
+		lastDeliveredAt: timestamp(),
+		lastError: text(),
+		lastErrorAt: timestamp(),
+	},
+	(table) => [
+		index("data_stream_organization_id_idx").on(table.organizationId),
 	],
 );

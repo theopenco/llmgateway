@@ -36,6 +36,11 @@ const cachingFormSchema = z.object({
 			"Cache duration must not exceed 31,536,000 seconds (1 year)",
 		),
 	providerCacheControlMode: z.enum(["auto", "passthrough", "off"]),
+	semanticCacheEnabled: z.boolean(),
+	semanticCacheThreshold: z
+		.number()
+		.min(0.8, "Similarity must be at least 0.80")
+		.max(0.999, "Similarity must be below 1"),
 });
 
 type CachingFormData = z.infer<typeof cachingFormSchema>;
@@ -90,10 +95,16 @@ export function CachingSettings({
 				initialData.preferences.preferences.cacheDurationSeconds ?? 60,
 			providerCacheControlMode:
 				initialData.preferences.preferences.providerCacheControlMode ?? "auto",
+			semanticCacheEnabled:
+				initialData.preferences.preferences.semanticCacheEnabled ?? false,
+			semanticCacheThreshold:
+				initialData.preferences.preferences.semanticCacheThreshold ?? 0.95,
 		},
 	});
 
 	const cachingEnabled = form.watch("cachingEnabled");
+	const semanticCacheEnabled = form.watch("semanticCacheEnabled");
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
 	const api = useApi();
 
@@ -113,6 +124,12 @@ export function CachingSettings({
 				body: {
 					cachingEnabled: data.cachingEnabled,
 					cacheDurationSeconds: data.cacheDurationSeconds,
+					...(isEnterprise
+						? {
+								semanticCacheEnabled: data.semanticCacheEnabled,
+								semanticCacheThreshold: data.semanticCacheThreshold,
+							}
+						: {}),
 					...(zeroDataRetentionEnabled
 						? {}
 						: { providerCacheControlMode: data.providerCacheControlMode }),
@@ -211,6 +228,81 @@ export function CachingSettings({
 									<br />
 									Note: changing this setting may take up to 5 minutes to take
 									effect.
+								</FormDescription>
+								<FormMessage />
+							</FormItem>
+						)}
+					/>
+
+					<Separator />
+
+					<div>
+						<h4 className="text-base font-medium">Semantic Caching</h4>
+						<p className="text-muted-foreground text-sm">
+							Also serve a cached response when a new prompt means the same as a
+							cached one, not just when it is byte-identical. Non-streaming
+							requests without tools only.
+						</p>
+						{isEnterprise ? null : (
+							<p className="text-muted-foreground text-sm mt-1">
+								Available on the{" "}
+								<Link
+									href="/enterprise"
+									className="font-medium text-foreground underline underline-offset-4"
+								>
+									Enterprise plan
+								</Link>
+								.
+							</p>
+						)}
+					</div>
+
+					<FormField
+						control={form.control}
+						name="semanticCacheEnabled"
+						render={({ field }) => (
+							<FormItem className="flex flex-row items-start space-x-3 space-y-0">
+								<FormControl>
+									<Switch
+										checked={field.value}
+										onCheckedChange={field.onChange}
+										disabled={!cachingEnabled || !isEnterprise}
+									/>
+								</FormControl>
+								<div className="space-y-1 leading-none">
+									<FormLabel>Enable semantic caching</FormLabel>
+									<FormDescription>
+										Requires request caching. Matches use the cache duration
+										above.
+									</FormDescription>
+								</div>
+							</FormItem>
+						)}
+					/>
+
+					<FormField
+						control={form.control}
+						name="semanticCacheThreshold"
+						render={({ field }) => (
+							<FormItem>
+								<FormLabel>Similarity threshold</FormLabel>
+								<FormControl>
+									<Input
+										type="number"
+										step={0.01}
+										min={0.8}
+										max={0.999}
+										className="w-32"
+										disabled={
+											!cachingEnabled || !semanticCacheEnabled || !isEnterprise
+										}
+										{...field}
+										onChange={(e) => field.onChange(Number(e.target.value))}
+									/>
+								</FormControl>
+								<FormDescription>
+									Cosine similarity a prompt must reach to reuse a cached
+									response (0.80 to 0.999). Higher is stricter.
 								</FormDescription>
 								<FormMessage />
 							</FormItem>

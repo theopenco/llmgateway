@@ -12,9 +12,10 @@ import {
 	getProviderRefPolicyListFailures,
 	isAttestationCompliant,
 	isModelAllowedByPolicy,
-	isProviderCompliant,
+	isDataResidency,
 	isProviderRefAllowedByPolicy,
 	type ComplianceFailureReason,
+	type DataResidency,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -66,6 +67,53 @@ export interface ComplianceCheckContext {
 	customAttestation?: ProviderComplianceAttestation | null;
 	/** Routing-prefix name of the custom provider handling this request. */
 	customProviderName?: string;
+	/** Regional endpoint the mapping routes to; satisfies a matching residency. */
+	region?: string | null;
+}
+
+export const DATA_RESIDENCY_HEADER = "x-llmgateway-data-residency";
+
+/**
+ * Residency requested by the call itself: the `x-llmgateway-data-residency`
+ * header, or a regional hostname such as `eu.api.llmgateway.io`. Throws 400
+ * on an unknown header value so a typo never silently routes globally.
+ */
+export function getRequestDataResidency(
+	header: string | undefined,
+	host: string | undefined,
+): DataResidency | undefined {
+	if (header) {
+		const value = header.trim().toLowerCase();
+		if (!isDataResidency(value)) {
+			throw new HTTPException(400, {
+				message: `Unsupported ${DATA_RESIDENCY_HEADER} value '${header}'. Supported: eu.`,
+			});
+		}
+		return value;
+	}
+	const label = host?.split(".")[0]?.toLowerCase();
+	return label && host?.includes(".") && isDataResidency(label)
+		? label
+		: undefined;
+}
+
+/**
+ * The org policy tightened by a request-level residency. A request can only
+ * add the restriction, never lift an org-level one.
+ */
+export function withRequestDataResidency(
+	policy: ProviderCompliancePolicy | undefined,
+	residency: DataResidency | undefined,
+): ProviderCompliancePolicy | undefined {
+	if (!residency) {
+		return policy;
+	}
+	if (policy?.dataResidency && policy.dataResidency !== residency) {
+		throw new HTTPException(400, {
+			message: `This request asks for '${residency}' data residency, but your organization enforces '${policy.dataResidency}'.`,
+		});
+	}
+	return { ...(policy ?? {}), enabled: true, dataResidency: residency };
 }
 
 /** Whether a provider id satisfies the policy (unknown providers fail closed). */
@@ -87,7 +135,10 @@ export function isProviderIdCompliant(
 		);
 	}
 	const definition = getProviderDefinition(providerId);
-	return definition ? isProviderCompliant(definition, policy) : false;
+	return definition
+		? getProviderComplianceFailures(definition, policy, context?.region)
+				.length === 0
+		: false;
 }
 
 /**
@@ -132,7 +183,7 @@ export function getComplianceFailureReasons(
 		const definition = getProviderDefinition(providerId);
 		failures.push(
 			...(definition
-				? getProviderComplianceFailures(definition, policy)
+				? getProviderComplianceFailures(definition, policy, context?.region)
 				: ["unknownProvider" as const]),
 		);
 	}
@@ -155,7 +206,7 @@ export function filterCompliantProviders<T extends { providerId: string }>(
 }
 
 export function complianceBlockMessage(modelId: string): string {
-	return `This request was blocked by your organization's provider compliance policy. No available provider for ${modelId} meets the required certifications or provider/model restrictions. Contact your LLMGateway admin to adjust the policy.`;
+	return `This request was blocked by your organization's provider compliance policy. No available provider for ${modelId} meets the required certifications, data residency, or provider/model restrictions. Contact your LLMGateway admin to adjust the policy.`;
 }
 
 /**

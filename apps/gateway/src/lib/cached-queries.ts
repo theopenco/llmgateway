@@ -19,6 +19,7 @@ import {
 	gte,
 	inArray,
 	ne,
+	or,
 	sql,
 	cdb as db,
 	apiKey as apiKeyTable,
@@ -37,6 +38,8 @@ import {
 	providerKeyAllowsModel,
 	organization as organizationTable,
 	project as projectTable,
+	prompt as promptTable,
+	promptVersion as promptVersionTable,
 	model as modelTable,
 	modelProviderMapping as modelProviderMappingTable,
 	providerClaim as providerClaimTable,
@@ -135,6 +138,8 @@ const organizationTeamProjectTableName = getTableName(
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
+const promptTableName = getTableName(promptTable);
+const promptVersionTableName = getTableName(promptVersionTable);
 const modelTableName = getTableName(modelTable);
 const modelProviderMappingTableName = getTableName(modelProviderMappingTable);
 const providerClaimTableName = getTableName(providerClaimTable);
@@ -544,6 +549,48 @@ export async function findCustomProviderKey(
  * Custom models are matched by exact `modelName` (the id used after the provider
  * prefix). Returns undefined when no catalog entry exists for that model.
  */
+/**
+ * A project's prompt by id or name, with the requested version (or the
+ * production version when none is pinned). Undefined when either is missing.
+ */
+export async function findPromptVersion(
+	projectId: string,
+	ref: string,
+	version: number | undefined,
+) {
+	return await swrWrap(
+		`prompt:${projectId}:${ref}:${version ?? "production"}`,
+		[promptTableName, promptVersionTableName],
+		async () => {
+			const [prompt] = await db
+				.select()
+				.from(promptTable)
+				.where(
+					and(
+						eq(promptTable.projectId, projectId),
+						or(eq(promptTable.id, ref), eq(promptTable.name, ref)),
+					),
+				)
+				.limit(1);
+			const resolved = version ?? prompt?.productionVersion ?? undefined;
+			if (!prompt || resolved === undefined) {
+				return undefined;
+			}
+			const [row] = await db
+				.select()
+				.from(promptVersionTable)
+				.where(
+					and(
+						eq(promptVersionTable.promptId, prompt.id),
+						eq(promptVersionTable.version, resolved),
+					),
+				)
+				.limit(1);
+			return row ? { prompt, version: row } : undefined;
+		},
+	);
+}
+
 export async function findCustomModel(
 	providerKeyId: string,
 	modelName: string,

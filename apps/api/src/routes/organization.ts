@@ -62,7 +62,12 @@ import {
 	tables,
 	projectHourlyStats,
 } from "@llmgateway/db";
-import { getProviderCountries, models, providers } from "@llmgateway/models";
+import {
+	DATA_RESIDENCY_OPTIONS,
+	getProviderCountries,
+	models,
+	providers,
+} from "@llmgateway/models";
 import {
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CUSTOM_PROVIDER_NAME_REGEX,
@@ -150,6 +155,7 @@ const providerCompliancePolicySchema = z.object({
 			}),
 		)
 		.optional(),
+	dataResidency: z.enum(DATA_RESIDENCY_OPTIONS).optional(),
 	blockedProviders: z.array(complianceProviderRefSchema).max(500).optional(),
 	allowedProviders: z.array(complianceProviderRefSchema).max(500).optional(),
 	blockedModels: z.array(complianceModelRefSchema).max(500).optional(),
@@ -245,6 +251,8 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
+	semanticCacheEnabled: z.boolean(),
+	semanticCacheThreshold: z.number(),
 	providerCacheControlMode: providerCacheControlModeSchema,
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
