@@ -588,7 +588,7 @@ Auto routing automatically selects the best model for your specific use case wit
 
 ### Default behaviour
 
-By default, auto routing picks the cheapest of a small built-in set of models that can serve the request: it filters out models whose context window, capabilities (vision, tools, reasoning, structured output) or provider availability do not fit, then selects the cheapest of what remains. Larger prompts skip the smallest model.
+By default, auto routing picks the cheapest of a small built-in set of models that can serve the request: it filters out models whose context window, capabilities (vision, tools, reasoning, structured output) or provider availability do not fit, then selects the cheapest of what remains. Larger prompts skip the smallest model. Requests with audio or document input search every active model that supports that input instead of the built-in set.
 
 ```bash
 # Let LLMGateway choose the optimal model

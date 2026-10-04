@@ -609,8 +609,9 @@ describe("smart routing", () => {
 		const token = await seedBase("free-narrow", {
 			orgConfig: {
 				classifier: "none",
-				models: [MID_MODEL, "claude-haiku-4-5-free"],
+				models: [MID_MODEL, "atria-dawn-preview"],
 			},
+			providers: ["openai", "atria"],
 		});
 
 		const res = await chatCompletion(token, {
@@ -619,7 +620,7 @@ describe("smart routing", () => {
 			free_models_only: true,
 		});
 		expect(res.status).toBe(200);
-		expect((await res.json()).model).toContain("claude-haiku-4-5-free");
+		expect((await res.json()).model).toContain("atria-dawn-preview");
 	});
 
 	test("skips the classifier when the policy blocks its provider", async () => {
