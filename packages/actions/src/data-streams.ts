@@ -366,6 +366,65 @@ function s3ObjectKey(
 }
 
 /** Delivers one batch. Throws on any failure so the caller keeps its cursor. */
+/** Datadog caps a request at 5 MB and one log at 1 MB; Splunk HEC defaults are similar. */
+export const DATA_STREAM_MAX_REQUEST_BYTES = 4_000_000;
+export const DATA_STREAM_MAX_EVENT_BYTES = 900_000;
+
+function byteLength(value: string): number {
+	return Buffer.byteLength(value, "utf8");
+}
+
+/**
+ * Replaces an oversized event's prompt and completion with a marker so a
+ * single huge request log can never block the stream.
+ */
+export function capDataStreamEvent(
+	event: DataStreamEvent,
+	maxBytes: number = DATA_STREAM_MAX_EVENT_BYTES,
+): DataStreamEvent {
+	if (byteLength(JSON.stringify(event)) <= maxBytes) {
+		return event;
+	}
+	const { messages: _messages, content: _content, metadata, ...rest } = event;
+	const capped: DataStreamEvent = { ...rest, truncated: true };
+	if (
+		metadata !== undefined &&
+		byteLength(JSON.stringify(metadata)) < maxBytes / 2
+	) {
+		capped.metadata = metadata;
+	}
+	return capped;
+}
+
+/** Splits events into chunks whose serialized size stays under `maxBytes`. */
+export function chunkDataStreamEvents(
+	events: DataStreamEvent[],
+	maxBytes: number = DATA_STREAM_MAX_REQUEST_BYTES,
+): DataStreamEvent[][] {
+	const chunks: DataStreamEvent[][] = [];
+	let current: DataStreamEvent[] = [];
+	let size = 0;
+	for (const event of events) {
+		const eventBytes = byteLength(JSON.stringify(event)) + 256;
+		if (current.length > 0 && size + eventBytes > maxBytes) {
+			chunks.push(current);
+			current = [];
+			size = 0;
+		}
+		current.push(event);
+		size += eventBytes;
+	}
+	if (current.length > 0) {
+		chunks.push(current);
+	}
+	return chunks;
+}
+
+/**
+ * Delivers one batch. Request-based destinations get it in size-bounded
+ * chunks; S3 takes the whole batch as one object. Throws on the first failed
+ * chunk so the caller keeps its cursor (earlier chunks may be re-sent).
+ */
 export async function deliverDataStreamBatch(
 	stream: DataStreamTarget,
 	secret: DataStreamSecret,
@@ -375,6 +434,22 @@ export async function deliverDataStreamBatch(
 	if (events.length === 0) {
 		return;
 	}
+	if (stream.destination === "s3") {
+		await deliverChunk(stream, secret, events, now);
+		return;
+	}
+	const capped = events.map((event) => capDataStreamEvent(event));
+	for (const chunk of chunkDataStreamEvents(capped)) {
+		await deliverChunk(stream, secret, chunk, now);
+	}
+}
+
+async function deliverChunk(
+	stream: DataStreamTarget,
+	secret: DataStreamSecret,
+	events: DataStreamEvent[],
+	now: Date,
+): Promise<void> {
 	switch (stream.destination) {
 		case "webhook": {
 			const body = JSON.stringify({

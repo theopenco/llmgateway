@@ -36,6 +36,8 @@ Webhooks carry `X-LLMGateway-Signature: t=<unix>,v1=<hex>`, where `v1` is the HM
 - A stream keeps a cursor and advances it only after the destination accepts a batch. A failed batch is retried, so delivery is at least once; deduplicate on the event `id`.
 - Audit events are sent after about 30 seconds and request logs after about 2 minutes, so late writes are not skipped.
 - New streams start with events created after they were added. Use replay to backfill.
+- Splunk, Datadog, and webhook requests are split to stay under about 4 MB. A single event over about 900 KB is sent without its prompt and completion and marked `"truncated": true`.
+- Delivery stops while the organization is not on the Enterprise plan.
 - The last error and delivered count show on each stream.
 
 ## Request log payloads

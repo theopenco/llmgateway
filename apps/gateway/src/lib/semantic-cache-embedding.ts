@@ -122,6 +122,7 @@ export async function embedForSemanticCache(
 		};
 		const embedding = json.data?.[0]?.embedding;
 		return Array.isArray(embedding) &&
+			embedding.length > 0 &&
 			embedding.every((value) => typeof value === "number")
 			? embedding
 			: null;

@@ -13,13 +13,15 @@ import {
 
 import { db, eq, tables } from "@llmgateway/db";
 
-import { runDataStream } from "./data-stream-runner.js";
+import { listActiveDataStreams, runDataStream } from "./data-stream-runner.js";
 import {
 	buildS3PutRequest,
 	encryptDataStreamSecret,
 	formatRequestLogEvent,
 	signDataStreamPayload,
 	trimSlashes,
+	capDataStreamEvent,
+	chunkDataStreamEvents,
 	validateDataStreamConfig,
 	type RequestLogRow,
 } from "./data-streams.js";
@@ -197,6 +199,27 @@ describe("data streams", () => {
 		expect(after.lastErrorAt).not.toBeNull();
 	});
 
+	test("skips streams of organizations without Enterprise access", async () => {
+		await seedStream(new Date());
+		expect(
+			(await listActiveDataStreams()).some((s) => s.id === STREAM_ID),
+		).toBe(true);
+		await db
+			.update(tables.organization)
+			.set({ plan: "pro" })
+			.where(eq(tables.organization.id, ORG_ID));
+		expect(
+			(await listActiveDataStreams()).some((s) => s.id === STREAM_ID),
+		).toBe(false);
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise", status: "deleted" })
+			.where(eq(tables.organization.id, ORG_ID));
+		expect(
+			(await listActiveDataStreams()).some((s) => s.id === STREAM_ID),
+		).toBe(false);
+	});
+
 	test("replays a past window without moving the live cursor", async () => {
 		const old = new Date(Date.now() - ONE_HOUR_MS);
 		await seedAudit(["r1", "r2"], old);
@@ -220,6 +243,35 @@ describe("data streams", () => {
 });
 
 describe("data stream formatting", () => {
+	test("caps oversized events and chunks by size", () => {
+		const big = {
+			id: "big",
+			type: "request_log" as const,
+			timestamp: "2026-01-01T00:00:00Z",
+			messages: "x".repeat(2_000_000),
+			content: "y".repeat(10),
+			usedModel: "m",
+		};
+		const capped = capDataStreamEvent(big);
+		expect(capped.truncated).toBe(true);
+		expect(capped).not.toHaveProperty("messages");
+		expect(capped.usedModel).toBe("m");
+		const small = { id: "s", type: "audit_log" as const, timestamp: "t" };
+		expect(capDataStreamEvent(small)).toBe(small);
+		const events = Array.from({ length: 10 }, (_, i) => ({
+			id: String(i),
+			type: "request_log" as const,
+			timestamp: "t",
+			content: "z".repeat(500_000),
+		}));
+		const chunks = chunkDataStreamEvents(events);
+		expect(chunks.length).toBeGreaterThan(1);
+		expect(chunks.flat()).toHaveLength(10);
+		for (const chunk of chunks) {
+			expect(Buffer.byteLength(JSON.stringify(chunk))).toBeLessThan(4_000_000);
+		}
+	});
+
 	test("trimSlashes trims without regex backtracking", () => {
 		expect(trimSlashes("//a/b//")).toBe("a/b");
 		expect(trimSlashes("https://x.example///", { end: true })).toBe(

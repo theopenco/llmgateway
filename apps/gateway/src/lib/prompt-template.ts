@@ -104,8 +104,14 @@ export async function applyPromptReference(
 	if (body.model === undefined && found.version.model) {
 		body.model = found.version.model;
 	}
+	const reasoning = body.reasoning as { effort?: unknown } | undefined;
 	for (const key of PARAMETER_KEYS) {
 		const value = found.version.parameters[key];
+		// `reasoning.effort` and `reasoning_effort` are mutually exclusive in the
+		// schema; a caller's `reasoning.effort` overrides the prompt's effort.
+		if (key === "reasoning_effort" && reasoning?.effort !== undefined) {
+			continue;
+		}
 		if (body[key] === undefined && value !== undefined) {
 			body[key] = value;
 		}

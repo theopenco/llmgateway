@@ -75,18 +75,34 @@ function encodeEntry(entry: SemanticCacheEntry): string {
 	});
 }
 
-function decodeEntry(raw: string): SemanticCacheEntry | null {
-	const parsed = JSON.parse(raw) as { k?: unknown; e?: unknown };
-	if (typeof parsed.k !== "string" || typeof parsed.e !== "string") {
+/** Null for any malformed entry, so one bad element never disables the scope. */
+export function decodeSemanticCacheEntry(
+	raw: string,
+): SemanticCacheEntry | null {
+	let parsed: { k?: unknown; e?: unknown };
+	try {
+		parsed = JSON.parse(raw) as { k?: unknown; e?: unknown };
+	} catch {
+		return null;
+	}
+	if (!parsed || typeof parsed.k !== "string" || typeof parsed.e !== "string") {
 		return null;
 	}
 	const bytes = Buffer.from(parsed.e, "base64");
-	const floats = new Float32Array(
-		bytes.buffer,
-		bytes.byteOffset,
-		bytes.byteLength / Float32Array.BYTES_PER_ELEMENT,
-	);
-	return { cacheKey: parsed.k, embedding: Array.from(floats) };
+	if (
+		bytes.byteLength === 0 ||
+		bytes.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0
+	) {
+		return null;
+	}
+	// Copy into a fresh, aligned buffer: pooled Buffers can start at an offset
+	// that is not a multiple of 4.
+	const aligned = new Uint8Array(bytes.byteLength);
+	aligned.set(bytes);
+	return {
+		cacheKey: parsed.k,
+		embedding: Array.from(new Float32Array(aligned.buffer)),
+	};
 }
 
 export async function findSemanticCacheMatch(
@@ -101,7 +117,7 @@ export async function findSemanticCacheMatch(
 			SEMANTIC_CACHE_MAX_ENTRIES - 1,
 		);
 		const entries = raw
-			.map(decodeEntry)
+			.map(decodeSemanticCacheEntry)
 			.filter((entry): entry is SemanticCacheEntry => entry !== null);
 		return findBestSemanticMatch(embedding, entries, threshold);
 	} catch (error) {

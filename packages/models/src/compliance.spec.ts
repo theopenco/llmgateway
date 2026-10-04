@@ -1029,6 +1029,9 @@ describe("data residency", () => {
 		expect(getProviderComplianceFailures(inUs, policy, "europe-west4")).toEqual(
 			[],
 		);
+		expect(getProviderComplianceFailures(inUs, policy, "eu-west-2")).toEqual([
+			"dataResidency",
+		]);
 		expect(getProviderComplianceFailures(inUs, policy, "us-east-1")).toEqual([
 			"dataResidency",
 		]);
@@ -1054,9 +1057,13 @@ describe("data residency", () => {
 	});
 
 	it("matches EU region ids only", () => {
-		expect(isRegionInDataResidency("eu", "eu")).toBe(true);
-		expect(isRegionInDataResidency("eu.", "eu")).toBe(true);
+		expect(isRegionInDataResidency("eu-frankfurt", "eu")).toBe(true);
+		expect(isRegionInDataResidency("eu-central-1", "eu")).toBe(true);
 		expect(isRegionInDataResidency("europe-west1", "eu")).toBe(true);
+		expect(isRegionInDataResidency("eu-west-2", "eu")).toBe(false);
+		expect(isRegionInDataResidency("eu-central-2", "eu")).toBe(false);
+		expect(isRegionInDataResidency("europe-west2", "eu")).toBe(false);
+		expect(isRegionInDataResidency("eu", "eu")).toBe(false);
 		expect(isRegionInDataResidency("eurasia", "eu")).toBe(false);
 		expect(isRegionInDataResidency("us-virginia", "eu")).toBe(false);
 		expect(isRegionInDataResidency(undefined, "eu")).toBe(false);

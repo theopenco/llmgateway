@@ -3,7 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, FileText, Rocket } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
 	PromptMessagesEditor,
@@ -243,9 +243,13 @@ function PromptDetail({ promptId }: { promptId: string }) {
 		(version) => version.version === prompt?.productionVersion,
 	);
 
+	// Seed the draft once per base version. Refetches (window focus) return a
+	// new data object for the same version and must not wipe unsaved edits.
+	const seededVersionId = useRef<string | null>(null);
 	useEffect(() => {
 		const base = production ?? versions[0];
-		if (base) {
+		if (base && seededVersionId.current !== base.id) {
+			seededVersionId.current = base.id;
 			setMessages(base.messages);
 			setModel(base.model ?? "");
 		}
@@ -297,12 +301,20 @@ function PromptDetail({ promptId }: { promptId: string }) {
 	};
 
 	const promote = async (version: number) => {
-		await deployVersion.mutateAsync({
-			params: { path: { id: prompt.id } },
-			body: { version },
-		});
-		await refresh();
-		toast({ title: `Version ${version} deployed` });
+		try {
+			await deployVersion.mutateAsync({
+				params: { path: { id: prompt.id } },
+				body: { version },
+			});
+			await refresh();
+			toast({ title: `Version ${version} deployed` });
+		} catch (error) {
+			toast({
+				title: "Could not deploy version",
+				description: errorMessage(error),
+				variant: "destructive",
+			});
+		}
 	};
 
 	return (

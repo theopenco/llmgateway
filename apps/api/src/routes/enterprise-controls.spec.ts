@@ -181,6 +181,33 @@ describe("prompts, data streams and semantic cache settings", () => {
 		expect(project.semanticCacheThreshold).toBeCloseTo(0.9);
 	});
 
+	test("semantic caching rules: threshold needs enterprise, policy blocks enabling", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "pro" })
+			.where(eq(tables.organization.id, ORG_ID));
+		const threshold = await call("PATCH", `/projects/${PROJECT_ID}`, {
+			semanticCacheThreshold: 0.9,
+		});
+		expect(threshold.status).toBe(403);
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, requireGdpr: true },
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+		const blocked = await call("PATCH", `/projects/${PROJECT_ID}`, {
+			cachingEnabled: true,
+			semanticCacheEnabled: true,
+		});
+		expect(blocked.status).toBe(409);
+		const disable = await call("PATCH", `/projects/${PROJECT_ID}`, {
+			semanticCacheEnabled: false,
+		});
+		expect(disable.status).toBe(200);
+	});
+
 	test("org compliance policy accepts EU data residency", async () => {
 		const res = await call("PATCH", `/orgs/${ORG_ID}`, {
 			providerCompliancePolicy: { enabled: true, dataResidency: "eu" },

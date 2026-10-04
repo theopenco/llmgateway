@@ -105,6 +105,8 @@ export function CachingSettings({
 	const cachingEnabled = form.watch("cachingEnabled");
 	const semanticCacheEnabled = form.watch("semanticCacheEnabled");
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
+	const compliancePolicyActive =
+		selectedOrganization?.providerCompliancePolicy?.enabled === true;
 
 	const api = useApi();
 
@@ -126,7 +128,8 @@ export function CachingSettings({
 					cacheDurationSeconds: data.cacheDurationSeconds,
 					...(isEnterprise
 						? {
-								semanticCacheEnabled: data.semanticCacheEnabled,
+								semanticCacheEnabled:
+									data.cachingEnabled && data.semanticCacheEnabled,
 								semanticCacheThreshold: data.semanticCacheThreshold,
 							}
 						: {}),
@@ -243,6 +246,13 @@ export function CachingSettings({
 							cached one, not just when it is byte-identical. Non-streaming
 							requests without tools only.
 						</p>
+						{isEnterprise && compliancePolicyActive ? (
+							<p className="text-muted-foreground text-sm mt-1">
+								Not applied while your organization&apos;s compliance policy is
+								active: the embedding call would send prompts to a provider the
+								policy does not vet.
+							</p>
+						) : null}
 						{isEnterprise ? null : (
 							<p className="text-muted-foreground text-sm mt-1">
 								Available on the{" "}
@@ -266,7 +276,11 @@ export function CachingSettings({
 									<Switch
 										checked={field.value}
 										onCheckedChange={field.onChange}
-										disabled={!cachingEnabled || !isEnterprise}
+										disabled={
+											!cachingEnabled ||
+											!isEnterprise ||
+											(compliancePolicyActive && !field.value)
+										}
 									/>
 								</FormControl>
 								<div className="space-y-1 leading-none">

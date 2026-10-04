@@ -5,7 +5,15 @@ import { z } from "zod";
 import { userHasProjectAccess } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { and, db, desc, eq, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	desc,
+	drizzleCache,
+	eq,
+	getTableName,
+	tables,
+} from "@llmgateway/db";
 import { canManageProject } from "@llmgateway/shared/organization-roles";
 import { extractPromptVariables } from "@llmgateway/shared/prompt-template";
 
@@ -14,6 +22,16 @@ import type { ServerTypes } from "@/vars.js";
 export const prompts = new OpenAPIHono<ServerTypes>();
 
 const MAX_PROMPTS_PER_PROJECT = 500;
+
+/**
+ * Writes go through the plain client, so evict the gateway's cached prompt
+ * lookups (query cache and SWR mirror) explicitly once a mutation commits.
+ */
+async function invalidatePromptCache(): Promise<void> {
+	await drizzleCache.onMutate({
+		tables: [getTableName(tables.prompt), getTableName(tables.promptVersion)],
+	});
+}
 
 const messageSchema = z.object({
 	role: z.enum(["system", "user", "assistant", "developer"]),
@@ -232,6 +250,7 @@ prompts.openapi(createPrompt, async (c) => {
 			.returning();
 		return { prompt, version };
 	});
+	await invalidatePromptCache();
 	await logAuditEvent({
 		organizationId: project.organizationId,
 		userId: user.id,
@@ -330,6 +349,7 @@ prompts.openapi(updatePrompt, async (c) => {
 		})
 		.where(eq(tables.prompt.id, existing.id))
 		.returning();
+	await invalidatePromptCache();
 	await logAuditEvent({
 		organizationId: existing.organizationId,
 		userId: user.id,
@@ -401,6 +421,7 @@ prompts.openapi(createVersion, async (c) => {
 			.returning();
 		return { prompt, version };
 	});
+	await invalidatePromptCache();
 	await logAuditEvent({
 		organizationId: existing.organizationId,
 		userId: user.id,
@@ -461,6 +482,7 @@ prompts.openapi(deployVersion, async (c) => {
 		.set({ productionVersion: version })
 		.where(eq(tables.prompt.id, existing.id))
 		.returning();
+	await invalidatePromptCache();
 	await logAuditEvent({
 		organizationId: existing.organizationId,
 		userId: user.id,
@@ -495,6 +517,7 @@ prompts.openapi(deletePrompt, async (c) => {
 	const user = requireUser(c.get("user"));
 	const existing = await loadPrompt(user.id, c.req.valid("param").id, true);
 	await db.delete(tables.prompt).where(eq(tables.prompt.id, existing.id));
+	await invalidatePromptCache();
 	await logAuditEvent({
 		organizationId: existing.organizationId,
 		userId: user.id,

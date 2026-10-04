@@ -3,6 +3,7 @@ import { afterAll, describe, expect, test } from "vitest";
 import {
 	addSemanticCacheEntry,
 	cosineSimilarity,
+	decodeSemanticCacheEntry,
 	findBestSemanticMatch,
 	findSemanticCacheMatch,
 	generateSemanticCacheScopeKey,
@@ -43,6 +44,36 @@ describe("semantic cache", () => {
 		expect(generateSemanticCacheScopeKey("p", { temperature: 0 })).not.toBe(
 			generateSemanticCacheScopeKey("q", { temperature: 0 }),
 		);
+	});
+
+	test("skips malformed entries instead of failing the lookup", () => {
+		expect(decodeSemanticCacheEntry("not json")).toBeNull();
+		expect(
+			decodeSemanticCacheEntry(JSON.stringify({ k: "x", e: "AAA" })),
+		).toBeNull();
+		expect(decodeSemanticCacheEntry("null")).toBeNull();
+		const valid = JSON.stringify({
+			k: "x",
+			e: Buffer.from(new Float32Array([0.5, 0.25]).buffer).toString("base64"),
+		});
+		expect(decodeSemanticCacheEntry(valid)).toEqual({
+			cacheKey: "x",
+			embedding: [0.5, 0.25],
+		});
+	});
+
+	test("one corrupt list element does not hide valid entries", async () => {
+		await storageRedisClient.del(scopeKey);
+		await storageRedisClient.lpush(scopeKey, "{corrupt");
+		await addSemanticCacheEntry(
+			scopeKey,
+			{ cacheKey: "good", embedding: [1, 0] },
+			60,
+		);
+		await storageRedisClient.rpush(scopeKey, "{also-corrupt");
+		const hit = await findSemanticCacheMatch(scopeKey, [1, 0], 0.99);
+		expect(hit?.cacheKey).toBe("good");
+		await storageRedisClient.del(scopeKey);
 	});
 
 	test("round-trips entries through Redis", async () => {

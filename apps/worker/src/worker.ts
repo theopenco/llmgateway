@@ -3269,12 +3269,17 @@ async function runNotificationsLoop() {
 const DATA_STREAMS_LOCK_KEY = "data_streams";
 
 /** Forwards audit and request logs to each enabled data stream destination. */
-export async function processDataStreams(): Promise<void> {
+export async function processDataStreams(
+	onProgress?: () => Promise<void>,
+): Promise<void> {
 	const streams = await listActiveDataStreams();
 	for (const stream of streams) {
 		if (isStopRequested()) {
 			return;
 		}
+		// A pass can outlast the lock TTL with slow destinations; keep the lock
+		// fresh so a second worker never runs the same streams concurrently.
+		await onProgress?.();
 		// One broken stream must never hold up delivery for the others.
 		try {
 			const result = await runDataStream(stream);
@@ -3306,7 +3311,12 @@ async function runDataStreamsLoop() {
 			try {
 				if (await acquireLock(DATA_STREAMS_LOCK_KEY)) {
 					try {
-						await processDataStreams();
+						await processDataStreams(async () => {
+							await db
+								.update(tables.lock)
+								.set({ updatedAt: new Date() })
+								.where(eq(tables.lock.key, DATA_STREAMS_LOCK_KEY));
+						});
 					} finally {
 						await releaseLock(DATA_STREAMS_LOCK_KEY);
 					}

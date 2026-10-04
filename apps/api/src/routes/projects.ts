@@ -346,18 +346,33 @@ projects.openapi(updateProject, async (c) => {
 		updateData.cacheDurationSeconds = cacheDurationSeconds;
 	}
 
+	const semanticCacheEntitled = hasOrganizationEnterpriseAccess(
+		projectUserOrg?.organization?.id,
+		projectUserOrg?.organization?.plan,
+	);
+	if (
+		(semanticCacheEnabled === true || semanticCacheThreshold !== undefined) &&
+		!semanticCacheEntitled
+	) {
+		throw new HTTPException(403, {
+			message: "Semantic caching is available on the Enterprise plan.",
+		});
+	}
+	// The gateway never embeds prompts under an active compliance policy (the
+	// embedding provider is not vetted by it), so refuse a setting that would
+	// silently do nothing.
+	if (
+		semanticCacheEnabled === true &&
+		!project.semanticCacheEnabled &&
+		projectUserOrg?.organization?.providerCompliancePolicy?.enabled
+	) {
+		throw new HTTPException(409, {
+			message:
+				"Semantic caching cannot be enabled while a provider compliance policy is active.",
+		});
+	}
+
 	if (semanticCacheEnabled !== undefined) {
-		if (
-			semanticCacheEnabled &&
-			!hasOrganizationEnterpriseAccess(
-				projectUserOrg?.organization?.id,
-				projectUserOrg?.organization?.plan,
-			)
-		) {
-			throw new HTTPException(403, {
-				message: "Semantic caching is available on the Enterprise plan.",
-			});
-		}
 		updateData.semanticCacheEnabled = semanticCacheEnabled;
 	}
 

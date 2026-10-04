@@ -11,6 +11,7 @@ import {
 	sql,
 	tables,
 } from "@llmgateway/db";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import {
 	decryptDataStreamSecret,
@@ -247,9 +248,18 @@ export async function runDataStream(
 
 /** Streams the worker should run now. */
 export async function listActiveDataStreams(): Promise<DataStreamRow[]> {
-	return await db
-		.select()
+	const rows = await db
+		.select({
+			stream: tables.dataStream,
+			organizationId: tables.organization.id,
+			plan: tables.organization.plan,
+			status: tables.organization.status,
+		})
 		.from(tables.dataStream)
+		.innerJoin(
+			tables.organization,
+			eq(tables.organization.id, tables.dataStream.organizationId),
+		)
 		.where(
 			and(
 				eq(tables.dataStream.enabled, true),
@@ -259,4 +269,13 @@ export async function listActiveDataStreams(): Promise<DataStreamRow[]> {
 				),
 			),
 		);
+	// Delivery stops as soon as the organization loses Enterprise access or is
+	// deleted; the API guard alone does not cover the worker path.
+	return rows
+		.filter(
+			(row) =>
+				row.status !== "deleted" &&
+				hasOrganizationEnterpriseAccess(row.organizationId, row.plan),
+		)
+		.map((row) => row.stream);
 }

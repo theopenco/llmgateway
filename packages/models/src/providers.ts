@@ -237,8 +237,31 @@ export const DATA_RESIDENCY_COUNTRIES: Record<
 	],
 };
 
-const DATA_RESIDENCY_REGION_PATTERNS: Record<DataResidency, RegExp> = {
-	eu: /^(eu|europe)(?:[-_.]|$)/i,
+/**
+ * Regional endpoint ids located inside each residency. An explicit allowlist,
+ * not a prefix: cloud "eu-*" ids include London (eu-west-2) and Zurich
+ * (eu-central-2), and multi-country inference profiles ("eu") can span them.
+ */
+const DATA_RESIDENCY_REGIONS: Record<DataResidency, ReadonlySet<string>> = {
+	eu: new Set([
+		"eu-frankfurt",
+		"eu-central-1",
+		"eu-west-1",
+		"eu-west-3",
+		"eu-north-1",
+		"eu-south-1",
+		"eu-south-2",
+		"europe-west1",
+		"europe-west3",
+		"europe-west4",
+		"europe-west8",
+		"europe-west9",
+		"europe-west10",
+		"europe-west12",
+		"europe-north1",
+		"europe-central2",
+		"europe-southwest1",
+	]),
 };
 
 export function isDataResidency(value: unknown): value is DataResidency {
@@ -250,7 +273,9 @@ export function isRegionInDataResidency(
 	region: string | null | undefined,
 	residency: DataResidency,
 ): boolean {
-	return !!region && DATA_RESIDENCY_REGION_PATTERNS[residency].test(region);
+	return (
+		!!region && DATA_RESIDENCY_REGIONS[residency].has(region.toLowerCase())
+	);
 }
 
 /** DevPass exposes only the no-API-training requirement. */

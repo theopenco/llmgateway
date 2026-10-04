@@ -11,6 +11,7 @@ import {
 	isProviderIdCompliant,
 	withRequestDataResidency,
 } from "./lib/compliance.js";
+import { applyPromptReference } from "./lib/prompt-template.js";
 import { semanticCacheText } from "./lib/semantic-cache-embedding.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 import { waitForLogs } from "./test-utils/test-helpers.js";
@@ -123,6 +124,39 @@ describe("enterprise controls", () => {
 		const sent = JSON.stringify(logs[0].messages);
 		expect(sent.indexOf("Draft v2 about caching.")).toBeLessThan(
 			sent.indexOf("Then list three tips."),
+		);
+	});
+
+	test("a caller's reasoning.effort overrides the prompt's reasoning_effort", async () => {
+		await seedKeys();
+		await seedPrompt();
+		await db
+			.update(tables.promptVersion)
+			.set({ parameters: { temperature: 0.2, reasoning_effort: "high" } })
+			.where(eq(tables.promptVersion.version, 1));
+		const headers = new Headers({ Authorization: "Bearer real-token" });
+		const withReasoning = await applyPromptReference(
+			{
+				prompt: {
+					id: "support-reply",
+					variables: { product: "p", topic: "t" },
+				},
+				reasoning: { effort: "low" },
+			},
+			headers,
+		);
+		expect(withReasoning.body).not.toHaveProperty("reasoning_effort");
+		const plain = await applyPromptReference(
+			{
+				prompt: {
+					id: "support-reply",
+					variables: { product: "p", topic: "t" },
+				},
+			},
+			headers,
+		);
+		expect((plain.body as Record<string, unknown>).reasoning_effort).toBe(
+			"high",
 		);
 	});
 
