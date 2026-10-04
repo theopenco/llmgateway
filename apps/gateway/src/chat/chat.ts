@@ -3280,6 +3280,12 @@ chat.openapi(completions, async (c) => {
 	// to the upstream provider API — derived from the chosen provider
 	// mapping after routing. Empty until routing resolves a mapping.
 	let usedExternalId: string = requestedModel;
+	// Parsed up front: the dynamic-route classifier runs before routing and must
+	// honour a request-level residency as well as the org policy.
+	const requestDataResidency = getRequestDataResidency(
+		c.req.header(DATA_RESIDENCY_HEADER),
+		c.req.header("host"),
+	);
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
 	// Verdict a dynamic route's classifier nodes branched on, recorded on the
@@ -3328,6 +3334,7 @@ chat.openapi(completions, async (c) => {
 		if (graphUsesClassifier(publishedRoute.graph)) {
 			dynamicRouteClassification = await resolveDynamicRouteClassification({
 				organization,
+				dataResidency: requestDataResidency,
 				context: {
 					requestId,
 					project,
@@ -3579,10 +3586,7 @@ chat.openapi(completions, async (c) => {
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
 	const compliancePolicy = withRequestDataResidency(
 		getActiveCompliancePolicy(organization),
-		getRequestDataResidency(
-			c.req.header(DATA_RESIDENCY_HEADER),
-			c.req.header("host"),
-		),
+		requestDataResidency,
 	);
 
 	const complianceContextFor = (
@@ -3654,7 +3658,10 @@ chat.openapi(completions, async (c) => {
 			usedProvider !== undefined &&
 			usedProvider !== "llmgateway" &&
 			usedProvider !== "custom" &&
-			!isProviderIdCompliant(usedProvider, compliancePolicy, complianceContext);
+			!isProviderIdCompliant(usedProvider, compliancePolicy, {
+				...complianceContext,
+				region: usedRegion,
+			});
 		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,
@@ -7602,7 +7609,14 @@ chat.openapi(completions, async (c) => {
 		} else {
 			cacheKey = generateCacheKey(project.id, cachePayload);
 			let cachedResponse = cacheKey ? await getCache(cacheKey) : null;
-			if (!cachedResponse && projectSemanticCacheEnabled && !tools?.length) {
+			// The embedding call sends prompt text to the embedding provider, which
+			// a data-residency restriction does not vet, so residency disables it.
+			if (
+				!cachedResponse &&
+				projectSemanticCacheEnabled &&
+				!compliancePolicy?.dataResidency &&
+				!tools?.length
+			) {
 				const semanticText = semanticCacheText(messages as BaseMessage[]);
 				const embedding = semanticText
 					? await embedForSemanticCache(semanticText)

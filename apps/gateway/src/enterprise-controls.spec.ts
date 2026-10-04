@@ -5,8 +5,10 @@ import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
+import { resolveDynamicRouteClassification } from "./chat/tools/resolve-dynamic-route-classification.js";
 import {
 	getRequestDataResidency,
+	isProviderIdCompliant,
 	withRequestDataResidency,
 } from "./lib/compliance.js";
 import { semanticCacheText } from "./lib/semantic-cache-embedding.js";
@@ -207,6 +209,31 @@ describe("enterprise controls", () => {
 			messages: [{ role: "user", content: "policy check" }],
 		});
 		expect(res.status).toBe(403);
+	});
+});
+
+describe("residency with regional endpoints", () => {
+	const policy = { enabled: true, dataResidency: "eu" as const };
+	test("an EU regional endpoint of a non-EU provider is compliant", () => {
+		expect(
+			isProviderIdCompliant("alibaba", policy, { region: "eu-frankfurt" }),
+		).toBe(true);
+		expect(
+			isProviderIdCompliant("alibaba", policy, { region: "us-virginia" }),
+		).toBe(false);
+		expect(isProviderIdCompliant("alibaba", policy)).toBe(false);
+	});
+	test("a request residency also blocks the dynamic-route classifier", async () => {
+		const result = await resolveDynamicRouteClassification({
+			organization: { id: "org-id", plan: "enterprise" },
+			dataResidency: "eu",
+			context: {} as never,
+			sessionStickyEnabled: false,
+			routingCfg: {} as never,
+			messages: [{ role: "user", content: "hi" }],
+			hasImages: false,
+		});
+		expect(result).toBeNull();
 	});
 });
 

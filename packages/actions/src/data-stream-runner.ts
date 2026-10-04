@@ -153,16 +153,16 @@ export async function runDataStream(
 	stream: DataStreamRow,
 	now: Date = new Date(),
 ): Promise<DataStreamRunResult> {
-	const secret = decryptDataStreamSecret(
-		stream.secret,
-		stream.id,
-		stream.organizationId,
-	);
-	const projectIds =
-		stream.source === "request_logs" ? await projectIdsFor(stream) : [];
 	const settled = new Date(now.getTime() - SETTLE_DELAY_MS[stream.source]);
 	let delivered = 0;
 	try {
+		const secret = decryptDataStreamSecret(
+			stream.secret,
+			stream.id,
+			stream.organizationId,
+		);
+		const projectIds =
+			stream.source === "request_logs" ? await projectIdsFor(stream) : [];
 		if (stream.replayFrom && stream.replayTo) {
 			let cursor: Cursor = {
 				createdAt:

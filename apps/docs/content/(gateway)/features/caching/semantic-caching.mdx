@@ -33,6 +33,7 @@ A semantic hit returns `x-llmgateway-cache: HIT` plus `x-llmgateway-cache-match:
 - Up to 256 recent entries are compared per model and parameter set.
 - `x-no-cache: true`, zero data retention, and DevPass organizations bypass it, as with request caching.
 - If the embedding call fails or times out (2 seconds), the request continues as a miss.
+- Requests under a [data residency](/features/data-residency) restriction skip it, because the embedding call would send prompt text outside the jurisdiction.
 
 Pick a higher threshold when small wording changes alter the answer (numbers, names, dates); lower it for FAQ-style traffic.
 

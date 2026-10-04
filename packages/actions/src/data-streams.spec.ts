@@ -185,6 +185,17 @@ describe("data streams", () => {
 		expect((await reload()).lastError).toBeNull();
 	});
 
+	test("records an undecryptable secret as a stream error instead of throwing", async () => {
+		const stream = await seedStream(new Date());
+		const broken = { ...stream, secret: "not-a-valid-ciphertext" };
+		const result = await runDataStream(broken);
+		expect(result.delivered).toBe(0);
+		expect(result.error).toBeTruthy();
+		const after = await reload();
+		expect(after.lastError).toBeTruthy();
+		expect(after.lastErrorAt).not.toBeNull();
+	});
+
 	test("replays a past window without moving the live cursor", async () => {
 		const old = new Date(Date.now() - ONE_HOUR_MS);
 		await seedAudit(["r1", "r2"], old);

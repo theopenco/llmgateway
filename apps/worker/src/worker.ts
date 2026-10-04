@@ -3275,12 +3275,20 @@ export async function processDataStreams(): Promise<void> {
 		if (isStopRequested()) {
 			return;
 		}
-		const result = await runDataStream(stream);
-		if (result.error) {
-			logger.warn("Data stream delivery failed", {
+		// One broken stream must never hold up delivery for the others.
+		try {
+			const result = await runDataStream(stream);
+			if (result.error) {
+				logger.warn("Data stream delivery failed", {
+					streamId: stream.id,
+					destination: stream.destination,
+					error: result.error,
+				});
+			}
+		} catch (error) {
+			logger.error("Data stream run crashed", {
 				streamId: stream.id,
-				destination: stream.destination,
-				error: result.error,
+				error: error instanceof Error ? error : new Error(String(error)),
 			});
 		}
 	}
