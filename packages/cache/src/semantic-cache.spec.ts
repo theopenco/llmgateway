@@ -7,15 +7,17 @@ import {
 	findSemanticCacheHit,
 	findSemanticCacheMatches,
 	generateSemanticCacheScopeKey,
+	quantiseEmbedding,
 	rankSemanticMatches,
 	sameWordOrder,
 	semanticAnchors,
 	semanticWords,
+	wordKeys,
 } from "./semantic-cache.js";
 import { storageRedisClient } from "./storage-redis.js";
 
 const none: string[] = [];
-const plain = { anchors: none, words: none };
+const plain = { anchors: none, wordKeys: none };
 
 describe("semantic cache", () => {
 	const scopeKey = generateSemanticCacheScopeKey(`spec-${Date.now()}`, {
@@ -78,6 +80,27 @@ describe("semantic cache", () => {
 		expect(semanticAnchors("Weather in Paris today")).toEqual(["Paris"]);
 		expect(semanticAnchors("Weather in London today")).toEqual(["London"]);
 		expect(semanticAnchors("Paris weather. Tell me more")).toEqual(["more"]);
+		// Pronoun parties anchor only when two or more differ.
+		expect(semanticAnchors("transfer the money from me to him")).toEqual([
+			"@me",
+			"@him",
+		]);
+		expect(semanticAnchors("transfer the money from him to me")).toEqual([
+			"@him",
+			"@me",
+		]);
+		expect(semanticAnchors("I sent it to them")).toEqual([
+			"@me",
+			"send",
+			"@them",
+		]);
+		expect(semanticAnchors("They sent it to me")).toEqual([
+			"@them",
+			"send",
+			"@me",
+		]);
+		expect(semanticAnchors("Summarise my notes please.")).toEqual([]);
+		expect(semanticAnchors("How do I reset my password?")).toEqual([]);
 		// Rewordings of the same question carry no anchors.
 		expect(semanticAnchors("How do I reset my password?")).toEqual([]);
 		expect(
@@ -124,21 +147,25 @@ describe("semantic cache", () => {
 		expect(swap("Explain LLM routing", "Can you explain LLM routing?")).toBe(
 			true,
 		);
+		const keys = (text: string) => wordKeys(words(text));
+		expect(keys("transfer 500 from savings to checking")).toHaveLength(4);
+		expect(keys("eur usd")).toEqual(keys("eur usd"));
+		expect(keys("eur usd")).not.toEqual(keys("usd eur"));
 		expect(
 			rankSemanticMatches(
-				{ embedding: [1, 0], anchors: none, words: words("eur to usd") },
+				{ embedding: [1, 0], anchors: none, wordKeys: keys("eur to usd") },
 				[
 					{
 						cacheKey: "reverse",
 						embedding: [1, 0],
 						anchors: none,
-						words: words("usd to eur"),
+						wordKeys: keys("usd to eur"),
 					},
 					{
 						cacheKey: "same",
 						embedding: [1, 0],
 						anchors: none,
-						words: words("please convert eur to usd"),
+						wordKeys: keys("please convert eur to usd"),
 					},
 				],
 				0.9,
@@ -164,25 +191,35 @@ describe("semantic cache", () => {
 
 	test("an identical vector with different anchors never matches", () => {
 		const entries = [
-			{ cacheKey: "sum-4", embedding: [1, 0], anchors: ["2+2"], words: none },
-			{ cacheKey: "sum-5", embedding: [1, 0], anchors: ["2+3"], words: none },
+			{
+				cacheKey: "sum-4",
+				embedding: [1, 0],
+				anchors: ["2+2"],
+				wordKeys: none,
+			},
+			{
+				cacheKey: "sum-5",
+				embedding: [1, 0],
+				anchors: ["2+3"],
+				wordKeys: none,
+			},
 		];
 		expect(
 			rankSemanticMatches(
-				{ embedding: [1, 0], anchors: ["2+3"], words: none },
+				{ embedding: [1, 0], anchors: ["2+3"], wordKeys: none },
 				entries,
 				0.9,
 			).map((m) => m.cacheKey),
 		).toEqual(["sum-5"]);
 		expect(
 			rankSemanticMatches(
-				{ embedding: [1, 0], anchors: ["EUR", "USD"], words: none },
+				{ embedding: [1, 0], anchors: ["EUR", "USD"], wordKeys: none },
 				[
 					{
 						cacheKey: "x",
 						embedding: [1, 0],
 						anchors: ["USD", "EUR"],
-						words: none,
+						wordKeys: none,
 					},
 				],
 				0.9,
@@ -202,9 +239,7 @@ describe("semantic cache", () => {
 	test("skips malformed entries instead of failing the lookup", () => {
 		expect(decodeSemanticCacheEntry("not json")).toBeNull();
 		expect(
-			decodeSemanticCacheEntry(
-				JSON.stringify({ k: "x", a: [], w: [], e: "AAA" }),
-			),
+			decodeSemanticCacheEntry(JSON.stringify({ k: "x", a: [], w: "", e: "" })),
 		).toBeNull();
 		expect(
 			decodeSemanticCacheEntry(JSON.stringify({ k: "x", e: "AAAAAAAA" })),
@@ -218,15 +253,28 @@ describe("semantic cache", () => {
 		const valid = JSON.stringify({
 			k: "x",
 			a: ["42"],
-			w: ["sum", "42"],
-			e: Buffer.from(new Float32Array([0.5, 0.25]).buffer).toString("base64"),
+			w: "abc def",
+			e: Buffer.from(new Int8Array([127, -64]).buffer).toString("base64"),
 		});
 		expect(decodeSemanticCacheEntry(valid)).toEqual({
 			cacheKey: "x",
 			anchors: ["42"],
-			words: ["sum", "42"],
-			embedding: [0.5, 0.25],
+			wordKeys: ["abc", "def"],
+			embedding: [127, -64],
 		});
+	});
+
+	test("stores 8-bit vectors that keep similarities within 0.002", () => {
+		const a = Array.from({ length: 256 }, (_, i) => Math.sin(i * 0.37));
+		const b = a.map((value, i) => value + (i % 7 === 0 ? 0.08 : 0));
+		const exact = cosineSimilarity(a, b);
+		const stored = cosineSimilarity(quantiseEmbedding(a), quantiseEmbedding(b));
+		expect(Math.abs(exact - stored)).toBeLessThan(0.002);
+		expect(
+			cosineSimilarity(quantiseEmbedding(a), quantiseEmbedding(a)),
+		).toBeCloseTo(1, 10);
+		expect(quantiseEmbedding([0, 0])).toEqual([0, 0]);
+		expect(Math.max(...quantiseEmbedding(a).map(Math.abs))).toBe(127);
 	});
 
 	test("one corrupt list element does not hide valid entries", async () => {

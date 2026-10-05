@@ -33,7 +33,7 @@ Matches expire with the cache duration you set for request caching. Turning requ
 1. The exact cache is checked first.
 2. On a miss, the gateway embeds the **final user message** only.
 3. It compares that embedding with recent cached requests whose everything else is identical: model, request parameters, the system prompt, every earlier message, and the final message's other fields. Only the wording of the final user message may differ. For auto-routed requests the pool is shared across providers.
-4. Candidates must carry the same **anchor tokens** in the same order: numbers and anything containing a digit (`2+3`, `2024-05-01`, `$120`); all-caps codes (`EUR`, `USD`, `TSLA`), also when joined by punctuation (`EUR→USD`, `EUR/USD`); negations, including every `n't` contraction; polar words whose swap flips the meaning (buy/sell, approve/reject, confirm/cancel, enable/disable, on/off, before/after, …) matched on their base form; and capitalised names after the first word of a sentence (Paris, Tesla). "Convert EUR→USD" never replays "Convert USD→EUR", "sell Tesla" never replays "buy Tesla", "I didn't receive it" never replays "I received it".
+4. Candidates must carry the same **anchor tokens** in the same order: numbers and anything containing a digit (`2+3`, `2024-05-01`, `$120`); all-caps codes (`EUR`, `USD`, `TSLA`), also when joined by punctuation (`EUR→USD`, `EUR/USD`); negations, including every `n't` contraction; polar words whose swap flips the meaning (buy/sell, approve/reject, confirm/cancel, enable/disable, on/off, before/after, …) matched on their base form; capitalised names after the first word of a sentence (Paris, Tesla); and the parties of personal pronouns when two or more differ ("from me to him", "I sent it to them"). "Convert EUR→USD" never replays "Convert USD→EUR", "sell Tesla" never replays "buy Tesla", "I didn't receive it" never replays "I received it", "from me to him" never replays "from him to me".
 5. The words both prompts share must appear in the same order. A rewording may add, drop or replace words; moving shared words around each other is an operand swap, so "transfer 500 from savings to checking" never replays "transfer 500 from checking to savings" and "convert 100 eur to usd" never replays "convert 100 usd to eur".
 6. The most similar entry at or above the threshold whose response is still cached is returned as a normal cached response.
 
@@ -48,7 +48,7 @@ Every lookup that found a match, served or not, writes `routingMetadata.semantic
 - Requests without `tools` only; image generation models are skipped.
 - The final message must be from the user, text only, and at least 16 characters: shorter turns ("yes", "cancel") are too close to their opposites to separate.
 - Requests with images, audio, or other non-text parts are skipped.
-- Up to 512 entries are compared per scope; a served entry moves back to the front, so repeated prompts outlive one-off traffic.
+- Up to 512 entries are compared per scope; a served entry moves back to the front, so repeated prompts outlive one-off traffic. An entry stores an 8-bit vector, short word keys and its anchors, about 1 KB, so a full scope reads about half a megabyte.
 - `x-no-cache: true`, zero data retention, and DevPass organizations bypass it, as with request caching.
 - If the embedding call fails or times out (2 seconds), the request continues as a miss. After three consecutive failures the gateway stops embedding for 30 seconds.
 - It stops when the organization leaves the Enterprise plan.

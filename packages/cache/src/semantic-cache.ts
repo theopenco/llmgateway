@@ -138,6 +138,43 @@ const IRREGULAR_POLAR: Record<string, string> = {
 	ran: "run",
 };
 
+/**
+ * Personal pronouns by party. Two parties in one prompt form a relation whose
+ * direction the embedding blurs: "from me to him" scores the same as "from
+ * him to me". A single party ("my password") is not an operand, so pronouns
+ * only anchor when at least two different parties appear.
+ */
+const PRONOUN_PARTIES: Record<string, string> = {
+	i: "@me",
+	me: "@me",
+	my: "@me",
+	mine: "@me",
+	myself: "@me",
+	you: "@you",
+	your: "@you",
+	yours: "@you",
+	yourself: "@you",
+	yourselves: "@you",
+	he: "@him",
+	him: "@him",
+	his: "@him",
+	himself: "@him",
+	she: "@her",
+	her: "@her",
+	hers: "@her",
+	herself: "@her",
+	they: "@them",
+	them: "@them",
+	their: "@them",
+	theirs: "@them",
+	themselves: "@them",
+	we: "@us",
+	us: "@us",
+	our: "@us",
+	ours: "@us",
+	ourselves: "@us",
+};
+
 /** Base form of a polar word, or null when the word is not one. */
 function polarBase(word: string): string | null {
 	const lower = word.toLowerCase();
@@ -166,14 +203,18 @@ function polarBase(word: string): string | null {
  *   ("EUR→USD", "EUR/USD");
  * - negations, including every "n't" contraction, normalised to "not";
  * - polar words whose swap flips the meaning (buy/sell, approve/reject);
- * - capitalised names after the first word of a sentence (Paris, Tesla).
+ * - capitalised names after the first word of a sentence (Paris, Tesla);
+ * - the parties of personal pronouns, when two or more differ ("from me to
+ *   him", "I sent it to them").
  *
  * Two prompts only match when their anchors agree in order, so "EUR to USD"
  * never replays "USD to EUR", "2+3" never replays "2+4", "sell Tesla" never
- * replays "buy Tesla" and "didn't receive" never replays "received".
+ * replays "buy Tesla", "didn't receive" never replays "received" and "from me
+ * to him" never replays "from him to me".
  */
 export function semanticAnchors(text: string): string[] {
 	const anchors: string[] = [];
+	const parties = new Set<string>();
 	let sentenceStart = true;
 	for (const raw of text.split(/\s+/)) {
 		if (!raw) {
@@ -198,6 +239,9 @@ export function semanticAnchors(text: string): string[] {
 				anchors.push(part);
 			} else if (lower.endsWith("n't") || NEGATIONS.has(lower)) {
 				anchors.push(lower === "no" ? "no" : "not");
+			} else if (PRONOUN_PARTIES[lower]) {
+				anchors.push(PRONOUN_PARTIES[lower]);
+				parties.add(PRONOUN_PARTIES[lower]);
 			} else if (polarBase(part)) {
 				anchors.push(polarBase(part) as string);
 			} else if (
@@ -208,7 +252,9 @@ export function semanticAnchors(text: string): string[] {
 			}
 		});
 	}
-	return anchors;
+	return parties.size >= 2
+		? anchors
+		: anchors.filter((anchor) => !anchor.startsWith("@"));
 }
 
 const STOP_WORDS = new Set([
@@ -351,6 +397,25 @@ export function semanticWords(text: string): string[] {
 	return words;
 }
 
+/** Content words kept per entry; swaps deeper into a prompt are not checked. */
+const MAX_WORD_KEYS = 96;
+
+/**
+ * Short, order-preserving fingerprints of content words, so an entry stores
+ * a few hundred bytes of word keys instead of the words themselves.
+ */
+export function wordKeys(words: string[]): string[] {
+	return words.slice(0, MAX_WORD_KEYS).map((word) => {
+		// FNV-1a, 32-bit.
+		let hash = 0x811c9dc5;
+		for (let i = 0; i < word.length; i++) {
+			hash ^= word.charCodeAt(i);
+			hash = Math.imul(hash, 0x01000193) >>> 0;
+		}
+		return hash.toString(36);
+	});
+}
+
 /**
  * True when the words both prompts share appear in the same relative order.
  * Adding, dropping or replacing words (a rewording) passes; moving shared
@@ -372,8 +437,8 @@ export interface SemanticCacheEntry {
 	cacheKey: string;
 	embedding: number[];
 	anchors: string[];
-	/** Ordered content words of the embedded text; see `sameWordOrder`. */
-	words: string[];
+	/** `wordKeys` of the embedded text's content words; see `sameWordOrder`. */
+	wordKeys: string[];
 }
 
 export interface SemanticCacheMatch {
@@ -426,7 +491,7 @@ function sameAnchors(a: string[], b: string[]): boolean {
 
 export type SemanticCacheQuery = Pick<
 	SemanticCacheEntry,
-	"embedding" | "anchors" | "words"
+	"embedding" | "anchors" | "wordKeys"
 >;
 
 /**
@@ -442,7 +507,7 @@ export function rankSemanticMatches<T extends SemanticCacheEntry>(
 		.filter(
 			(entry) =>
 				sameAnchors(entry.anchors, query.anchors) &&
-				sameWordOrder(entry.words, query.words),
+				sameWordOrder(entry.wordKeys, query.wordKeys),
 		)
 		.map((entry) => ({
 			...entry,
@@ -452,12 +517,40 @@ export function rankSemanticMatches<T extends SemanticCacheEntry>(
 		.sort((a, b) => b.similarity - a.similarity);
 }
 
+/** Anchors kept per entry. */
+const MAX_ANCHORS = 64;
+
+/**
+ * Scales a vector so its largest component is ±127 and rounds to integers.
+ * Cosine similarity is scale-invariant, so storing 8-bit components keeps
+ * similarities within about 0.002 of the full-precision value while cutting
+ * the stored vector to a quarter. Both sides of a comparison are quantised,
+ * so identical vectors still score exactly 1.
+ */
+export function quantiseEmbedding(embedding: number[]): number[] {
+	let maxAbs = 0;
+	for (const value of embedding) {
+		maxAbs = Math.max(maxAbs, Math.abs(value));
+	}
+	if (maxAbs === 0) {
+		return embedding.map(() => 0);
+	}
+	return embedding.map((value) => Math.round((value / maxAbs) * 127));
+}
+
+/**
+ * One entry is about 1 KB with a 256-dimension vector (344 base64 chars),
+ * at most 96 six-character word keys and a handful of anchors, so a full
+ * scope of 512 entries reads about half a megabyte.
+ */
 function encodeEntry(entry: SemanticCacheEntry): string {
 	return JSON.stringify({
 		k: entry.cacheKey,
-		a: entry.anchors,
-		w: entry.words,
-		e: Buffer.from(new Float32Array(entry.embedding).buffer).toString("base64"),
+		a: entry.anchors.slice(0, MAX_ANCHORS),
+		w: entry.wordKeys.slice(0, MAX_WORD_KEYS).join(" "),
+		e: Buffer.from(
+			new Int8Array(quantiseEmbedding(entry.embedding)).buffer,
+		).toString("base64"),
 	});
 }
 
@@ -471,33 +564,27 @@ export function decodeSemanticCacheEntry(
 	} catch {
 		return null;
 	}
-	const isStringList = (value: unknown): value is string[] =>
-		Array.isArray(value) && value.every((item) => typeof item === "string");
 	if (
 		!parsed ||
 		typeof parsed.k !== "string" ||
 		typeof parsed.e !== "string" ||
-		!isStringList(parsed.a) ||
-		!isStringList(parsed.w)
+		typeof parsed.w !== "string" ||
+		!Array.isArray(parsed.a) ||
+		!parsed.a.every((item) => typeof item === "string")
 	) {
 		return null;
 	}
 	const bytes = Buffer.from(parsed.e, "base64");
-	if (
-		bytes.byteLength === 0 ||
-		bytes.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0
-	) {
+	if (bytes.byteLength === 0) {
 		return null;
 	}
-	// Copy into a fresh, aligned buffer: pooled Buffers can start at an offset
-	// that is not a multiple of 4.
-	const aligned = new Uint8Array(bytes.byteLength);
-	aligned.set(bytes);
 	return {
 		cacheKey: parsed.k,
-		anchors: parsed.a,
-		words: parsed.w,
-		embedding: Array.from(new Float32Array(aligned.buffer)),
+		anchors: parsed.a as string[],
+		wordKeys: parsed.w ? parsed.w.split(" ") : [],
+		embedding: Array.from(
+			new Int8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+		),
 	};
 }
 
@@ -523,9 +610,11 @@ export async function findSemanticCacheMatches(
 	threshold: number,
 ): Promise<SemanticCacheMatch[]> {
 	try {
-		return rankSemanticMatches(query, await readScope(scopeKey), threshold).map(
-			({ cacheKey, similarity }) => ({ cacheKey, similarity }),
-		);
+		return rankSemanticMatches(
+			{ ...query, embedding: quantiseEmbedding(query.embedding) },
+			await readScope(scopeKey),
+			threshold,
+		).map(({ cacheKey, similarity }) => ({ cacheKey, similarity }));
 	} catch (error) {
 		logger.error("Error reading semantic cache", error as Error);
 		return [];
@@ -551,7 +640,11 @@ export async function findSemanticCacheHit<T>(
 ): Promise<SemanticCacheHit<T> | null> {
 	let matches: (StoredEntry & { similarity: number })[];
 	try {
-		matches = rankSemanticMatches(query, await readScope(scopeKey), threshold);
+		matches = rankSemanticMatches(
+			{ ...query, embedding: quantiseEmbedding(query.embedding) },
+			await readScope(scopeKey),
+			threshold,
+		);
 	} catch (error) {
 		logger.error("Error reading semantic cache", error as Error);
 		return null;

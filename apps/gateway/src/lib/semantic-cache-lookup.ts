@@ -70,7 +70,7 @@ export async function semanticCacheLookup<T>(options: {
 	const query = {
 		embedding: embedding.vector,
 		anchors: input.anchors,
-		words: input.words,
+		wordKeys: input.wordKeys,
 	};
 	const remember = (cacheKey: string, expirationSeconds: number) =>
 		addSemanticCacheEntry(scopeKey, { cacheKey, ...query }, expirationSeconds);

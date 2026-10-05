@@ -151,7 +151,7 @@ describe("semantic cache", () => {
 		expect(other.headers.get("x-llmgateway-cache")).toBeNull();
 	});
 
-	test("different numbers, codes, negations, polar words, names or operand order never match", async () => {
+	test("different numbers, codes, negations, polar words, names, pronoun parties or operand order never match", async () => {
 		const tag = randomUUID();
 		const pairs: Array<[string, string[]]> = [
 			[
@@ -194,6 +194,11 @@ describe("semantic cache", () => {
 				`is paris bigger than london (${tag})`,
 				[`is london bigger than paris (${tag})`],
 			],
+			[
+				`transfer the money from me to him (${tag})`,
+				[`transfer the money from him to me (${tag})`],
+			],
+			[`I sent it to them (${tag})`, [`They sent it to me (${tag})`]],
 		];
 		for (const [primed, variants] of pairs) {
 			await prime({ messages: [{ role: "user", content: primed }] });
