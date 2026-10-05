@@ -1,0 +1,106 @@
+---
+title: Prompt Management
+description: Store versioned prompt templates in LLM Gateway and reference them from requests
+icon: FileText
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+Prompt management keeps your prompts in LLM Gateway instead of your code. Each prompt has immutable versions, and named labels such as `production` and `staging` point at them. Change a prompt, move a label, and every request that follows that label picks it up without a redeploy.
+
+Manage prompts on the [**Prompts**](/learn/prompts) page of a project, or through the API.
+
+## Templates and variables
+
+A version holds a list of messages, an optional default model, and optional parameters (`temperature`, `top_p`, `max_tokens`, `frequency_penalty`, `presence_penalty`, `reasoning_effort` from `none` to `max`). Write `{{name}}` anywhere in a message to declare a variable. Names start with a letter or underscore and may contain letters, digits, `_`, `.`, and `-`.
+
+## Labels and versions
+
+Saving a change always creates a new version; existing versions never change. Labels are named pointers at a version:
+
+- `production` is what requests use when they pick nothing else. Creating a prompt points it at version 1.
+- Any other label (`staging`, `canary`, a customer name) lets you run one version somewhere while `production` serves another.
+- `latest` always means the newest version. It is implicit and cannot be assigned.
+
+Deploying is moving `production`. Roll back by pointing it at an earlier version. `production` can be moved but not removed, so a request that names no label always resolves. Label names start with a letter and may contain letters, digits, `_`, `.`, and `-`.
+
+## Calling a prompt
+
+Reference a prompt through `model`, or send a `prompt` object:
+
+```bash
+curl https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "@prompt/support-reply",
+    "messages": [{ "role": "user", "content": "How do I rotate my key?" }]
+  }'
+```
+
+`model: "@prompt/<name>"` works with any OpenAI-compatible client, including tools that only let you set a base URL and a model. Add `@<label>` or `@<version>` to pick something other than `production`: `@prompt/support-reply@staging`, `@prompt/support-reply@3`. The version's default model is used, so set one on the version.
+
+Prompts with variables need the `prompt` object:
+
+```bash
+curl https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": {
+      "id": "support-reply",
+      "label": "staging",
+      "variables": { "product": "Acme Cloud", "question": "How do I rotate my key?" }
+    }
+  }'
+```
+
+| Field              | Description                                                               |
+| ------------------ | ------------------------------------------------------------------------- |
+| `prompt.id`        | Prompt id or name, scoped to the API key's project                        |
+| `prompt.label`     | Label to follow. Defaults to `production`; `latest` is the newest version |
+| `prompt.version`   | Pin a version instead of following a label. Exclusive with `prompt.label` |
+| `prompt.variables` | Values for every `{{variable}}`. Strings, numbers, and booleans           |
+
+The gateway expands the reference before routing:
+
+- The version's rendered messages go first, followed by any `messages` you send.
+- The version's model and parameters apply only to fields the request leaves unset, so a request can always override them.
+- Values are inserted verbatim. A value containing `{{x}}` is not expanded again.
+
+Responses carry `x-llmgateway-prompt-id`, `x-llmgateway-prompt-version` and, when a label was followed, `x-llmgateway-prompt-label`, so you can tell which version served a request. The same three values are stored on the request's log entry and shown on its log card; filter `GET /logs` by `promptId` and `promptVersion` to compare versions side by side.
+
+### Responses API
+
+`/v1/responses` accepts the same `prompt` object, in the shape OpenAI's SDKs already type (`version` may be a string), plus `label`. `model` and `input` become optional when a prompt is referenced:
+
+```python
+client.responses.create(
+    prompt={"id": "support-reply", "variables": {"product": "Acme Cloud", "question": "..."}},
+)
+```
+
+As with OpenAI, `prompt` is not carried across turns: a request that continues a conversation through `previous_response_id` sends `prompt` again if it wants the template applied to that turn.
+
+<Callout type="warning">
+	A missing variable returns `400`, as does `model: "@prompt/..."` on a version
+	without a default model. An unknown prompt, a prompt from another project, or
+	a label that is not set returns `404`.
+</Callout>
+
+## API
+
+The dashboard uses these endpoints on the LLM Gateway API:
+
+| Method   | Path                           | Purpose                                                    |
+| -------- | ------------------------------ | ---------------------------------------------------------- |
+| `GET`    | `/prompts?projectId=`          | List a project's prompts with their labels                 |
+| `POST`   | `/prompts`                     | Create a prompt (version 1, labelled `production`)         |
+| `GET`    | `/prompts/{id}`                | Prompt with labels and all versions, newest first          |
+| `PATCH`  | `/prompts/{id}`                | Rename or describe                                         |
+| `POST`   | `/prompts/{id}/versions`       | Create a version, optionally with `labels: ["production"]` |
+| `PUT`    | `/prompts/{id}/labels/{label}` | Point `label` at `{ "version": n }`. Deploy = `production` |
+| `DELETE` | `/prompts/{id}/labels/{label}` | Remove a label                                             |
+| `DELETE` | `/prompts/{id}`                | Delete a prompt, its versions and labels                   |
+
+Project admins create and change prompts; every project member can read them. Changes are recorded in [audit logs](/features/audit-logs).

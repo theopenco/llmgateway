@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 
 import { buildRoutingAttempt } from "@/chat/tools/build-routing-attempt.js";
@@ -84,6 +85,8 @@ import type { Context } from "hono";
 
 const DEFAULT_SEARCH_MODEL = "perplexity-search";
 
+const AUTO_SEARCH_MODELS = new Set(["auto", "llmgateway/auto"]);
+
 const SEARCH_MODEL_BY_TYPE: Record<string, string> = {
 	web: "perplexity-search",
 	fast: "perplexity-search-fast",
@@ -97,7 +100,7 @@ const dateFilterSchema = z
 const searchRequestSchema = z.object({
 	model: z.string().optional().openapi({
 		description:
-			"ID of the search model to use. Defaults to perplexity/perplexity-search, or perplexity/perplexity-search-fast when search_type is fast.",
+			'ID of the search model to use, or "auto" for the cheapest active search model (matching search_type when set). Defaults to perplexity/perplexity-search, or perplexity/perplexity-search-fast when search_type is fast.',
 		example: "perplexity/perplexity-search",
 	}),
 	query: z
@@ -182,12 +185,7 @@ const searchResponseSchema = z
 		description: "Perplexity-compatible search response payload.",
 	});
 
-function findSearchMapping(modelId: string): {
-	mapping: ProviderModelMapping;
-	modelDef: ModelDefinition;
-	modelDefId: string;
-	explicitProvider: boolean;
-} | null {
+function findSearchMapping(modelId: string): SearchMappingMatch | null {
 	let requestedProvider: string | undefined;
 	let modelKey = modelId;
 	const slashIdx = modelId.indexOf("/");
@@ -210,11 +208,73 @@ function findSearchMapping(modelId: string): {
 					modelDef: model,
 					modelDefId: model.id,
 					explicitProvider: requestedProvider !== undefined,
+					autoRouted: false,
+					availableProviders: [candidate.providerId],
 				};
 			}
 		}
 	}
 	return null;
+}
+
+interface SearchMappingMatch {
+	mapping: ProviderModelMapping;
+	modelDef: ModelDefinition;
+	modelDefId: string;
+	explicitProvider: boolean;
+	autoRouted: boolean;
+	availableProviders: string[];
+}
+
+function isMappingActive(mapping: ProviderModelMapping, now: Date): boolean {
+	return !(mapping.deactivatedAt && new Date(mapping.deactivatedAt) <= now);
+}
+
+/**
+ * Resolves "auto" to the cheapest active search mapping. For Perplexity the
+ * mapping's externalId is the upstream search_type, so a requested
+ * search_type narrows the candidates.
+ */
+function findAutoSearchMapping(
+	searchType: string | undefined,
+): SearchMappingMatch | null {
+	const now = new Date();
+	const candidates: {
+		mapping: ProviderModelMapping;
+		modelDef: ModelDefinition;
+	}[] = [];
+	for (const model of modelDefinitions) {
+		for (const mapping of model.providers) {
+			const candidate = mapping as ProviderModelMapping;
+			if (
+				candidate.search &&
+				isMappingActive(candidate, now) &&
+				(!searchType || candidate.externalId === searchType)
+			) {
+				candidates.push({ mapping: candidate, modelDef: model });
+			}
+		}
+	}
+	if (candidates.length === 0) {
+		return null;
+	}
+	const cheapest = candidates.reduce((best, candidate) =>
+		new Decimal(candidate.mapping.requestPrice ?? "0").lessThan(
+			best.mapping.requestPrice ?? "0",
+		)
+			? candidate
+			: best,
+	);
+	return {
+		mapping: cheapest.mapping,
+		modelDef: cheapest.modelDef,
+		modelDefId: cheapest.modelDef.id,
+		explicitProvider: false,
+		autoRouted: true,
+		availableProviders: [
+			...new Set(candidates.map((c) => c.mapping.providerId)),
+		],
+	};
 }
 
 function getAvailableCredits(
@@ -442,7 +502,9 @@ search.openapi(createSearch, async (c): Promise<any> => {
 	const retentionLevel = getEffectiveRetentionLevel(organization);
 
 	// 2. Resolve model → provider mapping
-	const result = findSearchMapping(requestedModel);
+	const result = AUTO_SEARCH_MODELS.has(requestedModel)
+		? findAutoSearchMapping(requestedSearchType)
+		: findSearchMapping(requestedModel);
 	if (!result) {
 		return c.json(
 			{
@@ -462,6 +524,8 @@ search.openapi(createSearch, async (c): Promise<any> => {
 		modelDef,
 		modelDefId,
 		explicitProvider,
+		autoRouted,
+		availableProviders,
 	} = result;
 	const providerId = searchMapping.providerId;
 	const upstreamModel = searchMapping.externalId;
@@ -529,11 +593,13 @@ search.openapi(createSearch, async (c): Promise<any> => {
 		usedCredentialSource: RoutingCredentialSource,
 		usedProviderKey: { id?: string; label?: string },
 	): RoutingMetadata => ({
-		availableProviders: [providerId],
+		availableProviders,
 		selectedProvider: providerId,
-		selectionReason: explicitProvider
-			? "direct-provider-specified"
-			: "single-provider-available",
+		selectionReason: autoRouted
+			? "price-only"
+			: explicitProvider
+				? "direct-provider-specified"
+				: "single-provider-available",
 		...(usedApiKeyHash
 			? {
 					usedApiKeyHash,
@@ -767,7 +833,7 @@ search.openapi(createSearch, async (c): Promise<any> => {
 				usedModelMapping: upstreamModel,
 				usedProvider: providerId,
 				requestedModel,
-				requestedProvider: providerId,
+				requestedProvider: autoRouted ? "llmgateway" : providerId,
 				messages: [
 					{
 						role: "user",
