@@ -1,10 +1,36 @@
 import { describe, expect, it } from "vitest";
 
 import { applyRedactions } from "./engine.js";
+import { checkCustomRegex } from "./rules/custom/regex.js";
 
 import type { Message, RedactionInfo } from "./types.js";
 
 describe("applyRedactions", () => {
+	it("redacts an entire regex match spanning former scanning windows", () => {
+		const content = `SECRET:${"x".repeat(75_000)}`;
+		const pattern = "SECRET:[a-z]+";
+		const result = checkCustomRegex(
+			content,
+			{ type: "custom_regex", pattern },
+			"redact",
+		);
+		expect(result.passed).toBe(false);
+		expect(
+			applyRedactions(
+				[{ role: "user", content }],
+				[
+					{
+						ruleId: "long-regex",
+						messageIndex: 0,
+						kind: "mask",
+						matches: result.matches,
+						caseSensitive: true,
+						pattern,
+					},
+				],
+			)[0].content,
+		).toBe("*".repeat(content.length));
+	});
 	it("returns messages unchanged when there are no redactions", () => {
 		const messages: Message[] = [{ role: "user", content: "hello world" }];
 		expect(applyRedactions(messages, [])).toEqual(messages);

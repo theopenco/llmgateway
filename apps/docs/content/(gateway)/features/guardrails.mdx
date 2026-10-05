@@ -149,6 +149,8 @@ Regex rules use [RE2 syntax](https://github.com/google/re2/wiki/Syntax) with a
 1000-character limit. Lookarounds and backreferences are unsupported and rejected
 when saving a rule. Existing unsupported patterns block requests until corrected
 or disabled. The same limits apply to blocked terms in regex mode.
+Patterns match each complete message's text, preserving anchors, word boundaries,
+and the full matched content for redaction even in long messages.
 
 ### Topic Restrictions
 

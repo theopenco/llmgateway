@@ -45,11 +45,39 @@ describe("guardrail regex engine", () => {
 		expect(matchGuardrailRegex("\\d*", "a1b22c")).toEqual(["1", "22"]);
 	});
 
-	it("scans inputs larger than the wasm heap and across window boundaries", () => {
+	it("scans large inputs without splitting their context", () => {
 		const filler = "lorem ipsum ".repeat(1_000_000);
 		const boundary = 65_536 - 3;
 		const text = `${filler.slice(0, boundary)}secret${filler}secret`;
 		expect(matchGuardrailRegex("secret", text)).toEqual(["secret", "secret"]);
+	});
+
+	it("matches the full span across former scanning windows", () => {
+		const content = `BEGIN${"x".repeat(70_000)}END`;
+		expect(matchGuardrailRegex("BEGIN[\\s\\S]*END", content)).toEqual([
+			content,
+		]);
+	});
+
+	it.each([
+		["^secret", `${"x".repeat(65_536)}secret`],
+		["\\bsecret", `${"x".repeat(65_536)}secret`],
+		["secret$", `${"x".repeat(69_626)}secret tail`],
+		["secret\\b", `${"x".repeat(69_626)}secretx`],
+	])("preserves whole-input boundaries for %s", (pattern, content) => {
+		expect(matchGuardrailRegex(pattern, content)).toEqual([]);
+	});
+
+	it("does not duplicate overlapping matches", () => {
+		const content = "x".repeat(150_000);
+		expect(matchGuardrailRegex("x+", content)).toEqual([content]);
+	});
+
+	it("preserves JavaScript Unicode escapes and named groups", () => {
+		expect(matchGuardrailRegex("(?<word>\\u0073ecret)", "secret")).toEqual([
+			"secret",
+		]);
+		expect(matchGuardrailRegex("\\u{1F600}+", "a😀😀b")).toEqual(["😀😀"]);
 	});
 
 	it("matches after lone surrogates and astral characters", () => {

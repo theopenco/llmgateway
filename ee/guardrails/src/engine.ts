@@ -382,7 +382,11 @@ export async function checkGuardrails(
 						kind: "mask",
 						matches: result.matches,
 						pattern: result.matches.join(", "),
-						caseSensitive: termsConfig?.caseSensitive,
+						// Regex results already contain each match's original casing.
+						caseSensitive:
+							rule.type === "custom_regex" ||
+							termsConfig?.matchType === "regex" ||
+							termsConfig?.caseSensitive,
 						wholeWord: termsConfig?.matchType === "exact",
 					});
 				}
@@ -469,6 +473,10 @@ export function applyRedactions(
 			for (const mask of masks) {
 				for (const match of mask.matches) {
 					if (match.trim()) {
+						if (mask.caseSensitive && !mask.wholeWord) {
+							result = result.replaceAll(match, "*".repeat(match.length));
+							continue;
+						}
 						result = result.replace(
 							createLiteralRegex(match, mask.caseSensitive, mask.wholeWord),
 							(value) => "*".repeat(value.length),
