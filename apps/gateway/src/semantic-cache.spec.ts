@@ -151,7 +151,7 @@ describe("semantic cache", () => {
 		expect(other.headers.get("x-llmgateway-cache")).toBeNull();
 	});
 
-	test("different numbers, codes, negations, polar words or names never match", async () => {
+	test("different numbers, codes, negations, polar words, names or operand order never match", async () => {
 		const tag = randomUUID();
 		const pairs: Array<[string, string[]]> = [
 			[
@@ -181,6 +181,18 @@ describe("semantic cache", () => {
 			[
 				`What is the weather in Paris (${tag})`,
 				[`What is the weather in London (${tag})`],
+			],
+			[
+				`transfer 500 from savings to checking (${tag})`,
+				[`transfer 500 from checking to savings (${tag})`],
+			],
+			[
+				`convert 100 eur to usd (${tag})`,
+				[`convert 100 usd to eur (${tag})`, `change 100 usd to eur (${tag})`],
+			],
+			[
+				`is paris bigger than london (${tag})`,
+				[`is london bigger than paris (${tag})`],
 			],
 		];
 		for (const [primed, variants] of pairs) {

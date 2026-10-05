@@ -1,5 +1,5 @@
 import { trimSlashes } from "@llmgateway/actions";
-import { semanticAnchors } from "@llmgateway/cache";
+import { semanticAnchors, semanticWords } from "@llmgateway/cache";
 import { logger, toError } from "@llmgateway/logger";
 import { isProviderUrlGuardEnabled } from "@llmgateway/shared";
 
@@ -48,6 +48,8 @@ export interface SemanticCacheInput {
 	text: string;
 	/** Anchor tokens of `text`; a match must carry the same ones in order. */
 	anchors: string[];
+	/** Content words of `text`; a match must keep the shared ones in order. */
+	words: string[];
 	/**
 	 * What the embedding leaves out: every other message (system prompt,
 	 * history), the final turn's other fields (name, tool calls) and text past
@@ -94,6 +96,7 @@ export function semanticCacheInput(
 	return {
 		text: embedded,
 		anchors: semanticAnchors(embedded),
+		words: semanticWords(embedded),
 		context: {
 			messages: messages.slice(0, -1),
 			last: { ...last, content: undefined },

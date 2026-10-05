@@ -34,7 +34,8 @@ Matches expire with the cache duration you set for request caching. Turning requ
 2. On a miss, the gateway embeds the **final user message** only.
 3. It compares that embedding with recent cached requests whose everything else is identical: model, request parameters, the system prompt, every earlier message, and the final message's other fields. Only the wording of the final user message may differ. For auto-routed requests the pool is shared across providers.
 4. Candidates must carry the same **anchor tokens** in the same order: numbers and anything containing a digit (`2+3`, `2024-05-01`, `$120`); all-caps codes (`EUR`, `USD`, `TSLA`), also when joined by punctuation (`EUR→USD`, `EUR/USD`); negations, including every `n't` contraction; polar words whose swap flips the meaning (buy/sell, approve/reject, confirm/cancel, enable/disable, on/off, before/after, …) matched on their base form; and capitalised names after the first word of a sentence (Paris, Tesla). "Convert EUR→USD" never replays "Convert USD→EUR", "sell Tesla" never replays "buy Tesla", "I didn't receive it" never replays "I received it".
-5. The most similar entry at or above the threshold whose response is still cached is returned as a normal cached response.
+5. The words both prompts share must appear in the same order. A rewording may add, drop or replace words; moving shared words around each other is an operand swap, so "transfer 500 from savings to checking" never replays "transfer 500 from checking to savings" and "convert 100 eur to usd" never replays "convert 100 usd to eur".
+6. The most similar entry at or above the threshold whose response is still cached is returned as a normal cached response.
 
 A served hit returns `x-llmgateway-cache: HIT` plus `x-llmgateway-cache-match: semantic` and `x-llmgateway-cache-similarity`, on `/v1/chat/completions`, `/v1/messages` and the AI SDK endpoint. It is logged and billed as a cached request.
 

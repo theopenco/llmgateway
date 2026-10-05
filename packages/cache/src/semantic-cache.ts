@@ -211,11 +211,169 @@ export function semanticAnchors(text: string): string[] {
 	return anchors;
 }
 
+const STOP_WORDS = new Set([
+	"a",
+	"an",
+	"the",
+	"i",
+	"me",
+	"my",
+	"mine",
+	"you",
+	"your",
+	"yours",
+	"we",
+	"us",
+	"our",
+	"ours",
+	"he",
+	"him",
+	"his",
+	"she",
+	"her",
+	"hers",
+	"it",
+	"its",
+	"they",
+	"them",
+	"their",
+	"theirs",
+	"this",
+	"that",
+	"these",
+	"those",
+	"am",
+	"is",
+	"are",
+	"was",
+	"were",
+	"be",
+	"been",
+	"being",
+	"do",
+	"does",
+	"did",
+	"have",
+	"has",
+	"had",
+	"can",
+	"could",
+	"should",
+	"would",
+	"will",
+	"shall",
+	"may",
+	"might",
+	"must",
+	"to",
+	"from",
+	"into",
+	"onto",
+	"of",
+	"for",
+	"in",
+	"at",
+	"by",
+	"with",
+	"about",
+	"as",
+	"via",
+	"than",
+	"and",
+	"or",
+	"but",
+	"if",
+	"so",
+	"then",
+	"what",
+	"which",
+	"who",
+	"whom",
+	"whose",
+	"how",
+	"when",
+	"where",
+	"why",
+	"please",
+	"kindly",
+	"just",
+	"also",
+	"tell",
+	"let",
+	"know",
+	"want",
+	"need",
+	"like",
+	"help",
+	"hi",
+	"hello",
+	"hey",
+	"thanks",
+	"thank",
+	"there",
+	"here",
+	"some",
+	"any",
+	"all",
+	"ok",
+	"okay",
+	"yes",
+	"no",
+	"not",
+]);
+
+/**
+ * The content words of a prompt, lowercased and in order, with stop words
+ * removed. Used to catch operand reordering that anchors cannot see:
+ * "transfer 500 from savings to checking" and "transfer 500 from checking
+ * to savings" carry the same words in a different order.
+ */
+export function semanticWords(text: string): string[] {
+	const words: string[] = [];
+	for (const raw of text.split(/\s+/)) {
+		const word = raw
+			.replace(/[\u2018\u2019\u02bc]/g, "'")
+			.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")
+			.toLowerCase();
+		if (!word || STOP_WORDS.has(word) || word.endsWith("n't")) {
+			continue;
+		}
+		for (const part of /\p{N}/u.test(word)
+			? [word]
+			: word.split(/[^\p{L}']+/u).filter(Boolean)) {
+			words.push(
+				part.length > 3 && part.endsWith("s") && !part.endsWith("ss")
+					? part.slice(0, -1)
+					: part,
+			);
+		}
+	}
+	return words;
+}
+
+/**
+ * True when the words both prompts share appear in the same relative order.
+ * Adding, dropping or replacing words (a rewording) passes; moving shared
+ * words around each other (an operand swap) does not.
+ */
+export function sameWordOrder(a: string[], b: string[]): boolean {
+	const inA = new Set(a);
+	const inB = new Set(b);
+	const sharedA = a.filter((word) => inB.has(word));
+	const sharedB = b.filter((word) => inA.has(word));
+	return (
+		sharedA.length === sharedB.length &&
+		sharedA.every((word, i) => word === sharedB[i])
+	);
+}
+
 export interface SemanticCacheEntry {
 	/** Response-cache key holding the cached completion. */
 	cacheKey: string;
 	embedding: number[];
 	anchors: string[];
+	/** Ordered content words of the embedded text; see `sameWordOrder`. */
+	words: string[];
 }
 
 export interface SemanticCacheMatch {
@@ -266,14 +424,26 @@ function sameAnchors(a: string[], b: string[]): boolean {
 	return a.length === b.length && a.every((token, i) => token === b[i]);
 }
 
-/** Entries with the same anchors at or above `threshold`, most similar first. */
+export type SemanticCacheQuery = Pick<
+	SemanticCacheEntry,
+	"embedding" | "anchors" | "words"
+>;
+
+/**
+ * Entries with the same anchors and shared-word order at or above
+ * `threshold`, most similar first.
+ */
 export function rankSemanticMatches<T extends SemanticCacheEntry>(
-	query: Pick<SemanticCacheEntry, "embedding" | "anchors">,
+	query: SemanticCacheQuery,
 	entries: T[],
 	threshold: number,
 ): (T & { similarity: number })[] {
 	return entries
-		.filter((entry) => sameAnchors(entry.anchors, query.anchors))
+		.filter(
+			(entry) =>
+				sameAnchors(entry.anchors, query.anchors) &&
+				sameWordOrder(entry.words, query.words),
+		)
 		.map((entry) => ({
 			...entry,
 			similarity: cosineSimilarity(query.embedding, entry.embedding),
@@ -286,6 +456,7 @@ function encodeEntry(entry: SemanticCacheEntry): string {
 	return JSON.stringify({
 		k: entry.cacheKey,
 		a: entry.anchors,
+		w: entry.words,
 		e: Buffer.from(new Float32Array(entry.embedding).buffer).toString("base64"),
 	});
 }
@@ -294,18 +465,20 @@ function encodeEntry(entry: SemanticCacheEntry): string {
 export function decodeSemanticCacheEntry(
 	raw: string,
 ): SemanticCacheEntry | null {
-	let parsed: { k?: unknown; a?: unknown; e?: unknown };
+	let parsed: { k?: unknown; a?: unknown; w?: unknown; e?: unknown };
 	try {
-		parsed = JSON.parse(raw) as { k?: unknown; a?: unknown; e?: unknown };
+		parsed = JSON.parse(raw) as typeof parsed;
 	} catch {
 		return null;
 	}
+	const isStringList = (value: unknown): value is string[] =>
+		Array.isArray(value) && value.every((item) => typeof item === "string");
 	if (
 		!parsed ||
 		typeof parsed.k !== "string" ||
 		typeof parsed.e !== "string" ||
-		!Array.isArray(parsed.a) ||
-		!parsed.a.every((token) => typeof token === "string")
+		!isStringList(parsed.a) ||
+		!isStringList(parsed.w)
 	) {
 		return null;
 	}
@@ -322,7 +495,8 @@ export function decodeSemanticCacheEntry(
 	aligned.set(bytes);
 	return {
 		cacheKey: parsed.k,
-		anchors: parsed.a as string[],
+		anchors: parsed.a,
+		words: parsed.w,
 		embedding: Array.from(new Float32Array(aligned.buffer)),
 	};
 }
@@ -345,7 +519,7 @@ async function readScope(scopeKey: string): Promise<StoredEntry[]> {
 
 export async function findSemanticCacheMatches(
 	scopeKey: string,
-	query: Pick<SemanticCacheEntry, "embedding" | "anchors">,
+	query: SemanticCacheQuery,
 	threshold: number,
 ): Promise<SemanticCacheMatch[]> {
 	try {
@@ -371,7 +545,7 @@ export interface SemanticCacheHit<T> extends SemanticCacheMatch {
  */
 export async function findSemanticCacheHit<T>(
 	scopeKey: string,
-	query: Pick<SemanticCacheEntry, "embedding" | "anchors">,
+	query: SemanticCacheQuery,
 	threshold: number,
 	load: (cacheKey: string) => Promise<T | null>,
 ): Promise<SemanticCacheHit<T> | null> {
