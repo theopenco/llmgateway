@@ -28,8 +28,9 @@ import { toast } from "sonner";
 
 import { ProviderCredentialsSpendOverview } from "@/components/provider-credentials-spend-overview";
 import { ProviderKeyErrorRateCell } from "@/components/provider-key-error-rate-cell";
+import { ProviderKeyInsightsLink } from "@/components/provider-key-insights-link";
+import { ProviderKeyModelSyncDialog } from "@/components/provider-key-model-sync-dialog";
 import { ProviderKeySpendCell } from "@/components/provider-key-spend-cell";
-import { ProviderKeySpendDialog } from "@/components/provider-key-spend-dialog";
 import { ProviderKeyStatusBadge } from "@/components/provider-key-status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -84,7 +85,11 @@ import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon, PROVIDER_MODEL_KINDS } from "@llmgateway/shared";
+import {
+	getProviderIcon,
+	MODEL_SYNC_PROVIDERS,
+	PROVIDER_MODEL_KINDS,
+} from "@llmgateway/shared";
 import {
 	MultiModelIdSelector,
 	ReorderableItem,
@@ -205,6 +210,7 @@ interface ProviderCredentialsManagerProps {
 			config?: Record<string, string>;
 			usageLimit?: string | null;
 			allowedModels?: string[] | null;
+			allowedModelsBase?: string[] | null;
 			skipValidation?: boolean;
 		},
 	) => Promise<MutationResult>;
@@ -553,10 +559,16 @@ function ManagedCredentialCells({
 			</TableCell>
 			<TableCell className="text-right">
 				<div className="flex justify-end gap-1">
-					<ProviderKeySpendDialog
+					<ProviderKeyInsightsLink
 						providerKeyId={credential.id}
 						label={`${credential.provider} ${credential.maskedToken}`}
 					/>
+					{MODEL_SYNC_PROVIDERS.includes(credential.provider) && (
+						<ProviderKeyModelSyncDialog
+							providerKeyId={credential.id}
+							label={`${credential.provider} ${credential.maskedToken}`}
+						/>
+					)}
 					{/* Global Stats is admin-only. */}
 					{isAdmin && (
 						<Button
@@ -1314,6 +1326,7 @@ export function ProviderCredentialsManager({
 							usageLimit: values.usageLimit || null,
 							allowedModels:
 								values.allowedModels.length > 0 ? values.allowedModels : null,
+							allowedModelsBase: editing.allowedModels,
 							skipValidation: values.skipValidation,
 						});
 						if (result.success) {

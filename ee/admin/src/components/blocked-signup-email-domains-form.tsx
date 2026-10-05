@@ -61,6 +61,12 @@ export function BlockedSignupEmailDomainsForm({
 					disabled={pending || readOnly}
 					spellCheck={false}
 					autoCapitalize="none"
+					autoComplete="off"
+					// The "email" in the id makes password managers offer autofill.
+					data-1p-ignore
+					data-lpignore="true"
+					data-bwignore
+					data-form-type="other"
 					onChange={(event) => {
 						setValue(event.target.value);
 						setSaved(false);

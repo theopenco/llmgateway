@@ -9481,6 +9481,58 @@ describe("api", () => {
 			expect(logs[0].hasError).toBe(false);
 		});
 
+		test.each([false, true])(
+			"upstream abort finish reason records error details (stream: %s)",
+			async (stream) => {
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					...hashApiKeyForStorage("real-token"),
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+
+				await db.insert(tables.providerKey).values({
+					id: "provider-key-id",
+					...encryptProviderKeyForStorage(
+						"sk-test-key",
+						"provider-key-id",
+						"org-id",
+					),
+					provider: "llmgateway",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: "llmgateway/custom",
+						messages: [{ role: "user", content: "TRIGGER_FINISH_ABORT" }],
+						stream,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				await res.text();
+
+				const logs = await waitForLogs(1);
+				expect(logs.length).toBe(1);
+				expect(logs[0].unifiedFinishReason).toBe("upstream_error");
+				expect(logs[0].hasError).toBe(true);
+				expect(logs[0].errorDetails).toEqual({
+					statusCode: 200,
+					statusText: "finish_reason: abort",
+					responseText:
+						'The provider answered 200 but ended the response early with finish_reason "abort".',
+				});
+			},
+		);
+
 		test("streaming OpenAI Responses API closes cleanly after done events", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",

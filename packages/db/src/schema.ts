@@ -2058,6 +2058,10 @@ export const providerKey = pgTable(
 		// instead of picking it and failing upstream. NULL (or empty) means the
 		// key serves every model of its provider.
 		allowedModels: text().array(),
+		// Models an admin removed from `allowedModels`. The daily model sync
+		// skips them, so a deliberate exclusion is not re-enabled just because
+		// the account can still serve the model.
+		modelSyncExcluded: text().array(),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.
@@ -2527,6 +2531,9 @@ export const log = pgTable(
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
 		index("log_request_id_idx").on(table.requestId),
+		// Not unique: fallback attempts and client-propagated trace context share
+		// a trace id. Build CONCURRENTLY out of band in prod before deploying.
+		index("log_trace_id_idx").on(table.traceId),
 		// Index for worker stats queries: WHERE createdAt >= ? AND createdAt < ? GROUP BY usedModel, usedProvider
 		index("log_created_at_used_model_used_provider_idx").on(
 			table.createdAt,
@@ -4512,6 +4519,51 @@ export const auditLog = pgTable(
 	],
 );
 
+export const platformAuditLogActions = [
+	// Daily worker run that enables newly working models on a managed credential.
+	"provider_key.models_synced",
+] as const;
+
+export type PlatformAuditLogAction = (typeof platformAuditLogActions)[number];
+
+/** Metadata of a `provider_key.models_synced` entry. */
+export interface ProviderKeyModelSyncMetadata {
+	provider: string;
+	/** Models the run probed, i.e. live-testable ones not yet allowed. */
+	probed: number;
+	/** Models with no live probe (e.g. video); these are never enabled. */
+	skipped: number;
+	/** Models that passed and were appended to `allowedModels`. */
+	added: string[];
+	failed: { model: string; statusCode?: number; error?: string }[];
+}
+
+/**
+ * Platform-wide counterpart of `audit_log` for resources no organization owns,
+ * such as managed provider credentials.
+ */
+export const platformAuditLog = pgTable(
+	"platform_audit_log",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		// NULL when the system (worker) performed the action.
+		userId: text().references(() => user.id, { onDelete: "set null" }),
+		action: text({ enum: platformAuditLogActions }).notNull(),
+		resourceType: text().notNull(),
+		resourceId: text(),
+		metadata: jsonb().$type<ProviderKeyModelSyncMetadata>(),
+	},
+	(table) => [
+		index("platform_audit_log_resource_idx").on(
+			table.resourceType,
+			table.resourceId,
+			table.createdAt,
+		),
+		index("platform_audit_log_created_at_idx").on(table.createdAt),
+	],
+);
+
 // Guardrails - Enterprise feature for content safety
 
 export type GuardrailAction = "block" | "redact" | "warn" | "allow";
@@ -4915,6 +4967,11 @@ export const rateLimit = pgTable(
 		enforcement: text({ enum: ["per_org", "global"] })
 			.notNull()
 			.default("per_org"),
+		// "soft" keeps a session already pinned to the capped provider on it;
+		// all other traffic is routed away exactly as under "strict".
+		mode: text({ enum: ["strict", "soft"] })
+			.notNull()
+			.default("strict"),
 		// Optional metadata
 		reason: text(),
 	},
@@ -4980,10 +5037,6 @@ export const providerCompany = pgTable("provider_company", {
 	// The token a company publishes as a TXT record to prove a domain; see
 	// `providerCompanyDomain`.
 	websiteVerificationToken: text(),
-	// Deprecated, unused: superseded by `providerCompanyDomain`. Dropped in a
-	// follow-up once no deployed API reads them.
-	websiteVerifiedDomain: text(),
-	websiteVerifiedAt: timestamp(),
 	// One-time listing fee. Claims are gated on "paid" whenever the Stripe
 	// price id is configured; self-hosted installs without it skip the gate.
 	paymentStatus: text({ enum: ["unpaid", "paid"] })
@@ -4997,10 +5050,12 @@ export const providerCompany = pgTable("provider_company", {
 	listingInviteCode: text(),
 });
 
-// Domains a company proves over DNS. A verified one counts alongside the
-// verified email domain when matching carrier claims, so a company can host
-// its API on a domain unrelated to its staff mail. The TXT token is the
-// company's `websiteVerificationToken`.
+// Domains a company has proven, and how. A verified `dns` row counts alongside
+// the verified email domain when matching carrier claims, so a company can
+// host its API on a domain unrelated to its staff mail; the TXT token is the
+// company's `websiteVerificationToken`. An `email` row only records that a
+// claim was matched on the claimer's email domain: that proof belongs to the
+// person, so it never grants the company claim rights.
 export const providerCompanyDomain = pgTable(
 	"provider_company_domain",
 	{
@@ -5015,13 +5070,17 @@ export const providerCompanyDomain = pgTable(
 			.references(() => providerCompany.id, { onDelete: "cascade" }),
 		// Registrable domain, lowercase.
 		domain: text().notNull(),
+		verificationMethod: text({ enum: ["dns", "email"] })
+			.notNull()
+			.default("dns"),
 		// Null until the TXT record resolved.
 		verifiedAt: timestamp(),
 	},
 	(table) => [
-		uniqueIndex("provider_company_domain_company_domain_uidx").on(
+		uniqueIndex("provider_company_domain_company_domain_method_uidx").on(
 			table.providerCompanyId,
 			table.domain,
+			table.verificationMethod,
 		),
 	],
 );
@@ -5199,6 +5258,7 @@ export interface AirsideModelMetadataChanges {
 	maxRpm?: number | null;
 	maxRpd?: number | null;
 	rateLimitScope?: "global" | "per_org";
+	rateLimitMode?: "strict" | "soft";
 }
 
 export interface AirsidePendingBranding {
@@ -5270,6 +5330,10 @@ export const providerDraftModel = pgTable(
 		rateLimitScope: text({ enum: ["global", "per_org"] })
 			.notNull()
 			.default("global"),
+		// Same semantics as `rate_limit.mode`.
+		rateLimitMode: text({ enum: ["strict", "soft"] })
+			.notNull()
+			.default("strict"),
 		status: text({ enum: ["draft", "active", "rejected", "delisted"] })
 			.notNull()
 			.default("draft"),

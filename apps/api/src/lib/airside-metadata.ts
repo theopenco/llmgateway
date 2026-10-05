@@ -48,6 +48,7 @@ export const airsideModelMetadataSchema = z.object({
 	maxRpm: z.number().int().positive().nullish(),
 	maxRpd: z.number().int().positive().nullish(),
 	rateLimitScope: z.enum(["global", "per_org"]).optional(),
+	rateLimitMode: z.enum(["strict", "soft"]).optional(),
 });
 
 export type AirsideModelMetadataInput = z.infer<

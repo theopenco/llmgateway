@@ -12,7 +12,7 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 Sign up at [airside.llmgateway.io](https://airside.llmgateway.io) with your **company email** and verify it. A catalogue provider is claimable when the registrable domain of your verified email matches the registrable domain of the provider's API endpoint (or its website) — if your API is served from `api.example.ai`, an `@example.ai` address can claim it. Subdomains collapse to the registrable domain, so `ops@mail.example.ai` works too.
 
-If your email is on a different domain than your API, prove the API's domain over DNS instead. On the onboarding page, add each domain under your company and publish the shown TXT record on `_llmgateway-airside.<domain>`. Every domain verified this way counts like your email domain for claiming, registering a carrier, and crew invites.
+If your email is on a different domain than your API, prove the API's domain over DNS instead. On the onboarding page, add each domain under your company and publish the shown TXT record on `_llmgateway-airside.<domain>`. Every domain verified this way counts like your email domain for claiming, registering a carrier, and crew invites. The onboarding page lists each domain with how it was proven: over DNS, or by a verified email when a claim was matched on your email domain. An email proof belongs to the person who filed the claim, so only DNS-verified domains carry over to the rest of your crew.
 
 Every claim is reviewed by the LLM Gateway team before the carrier goes live; a rejected claim shows the review note so you can follow up. One company can operate several carriers — regional deployments or separate brands all live under one console.
 
@@ -75,9 +75,9 @@ Chart axes and compact counts use `k`, `M`, `B`, or `T` for thousands through tr
 
 The **Incidents** page lists every mapping of your claimed providers that failed requests in the selected window (1 hour to 3 days), with its error rate, error count, upstream/gateway split, and total requests. Only upstream and gateway errors count: both are retried on another key or provider, and upstream errors count against your uptime. Client errors, canceled requests, and content-filtered requests are excluded.
 
-Expand a row to see the top error shapes behind it: HTTP status, status text, a response excerpt, the cause, the gateway's classification, and whether the request was streamed. Counts always include retried attempts; the **Retried errors in details** switch drops retried attempts from the error shapes only.
+Expand a row to see the top error shapes behind it: HTTP status, status text, a response excerpt, the cause, the gateway's classification, and whether the request was streamed. The shapes cover every error in the window, including responses that started successfully and failed midway, up to the latest 100,000 per mapping. Counts always include retried attempts; the **Retried errors in details** switch drops retried attempts from the error shapes only.
 
-Switch to **By error type** to group the same errors across mappings instead: each error shows its total, its streaming and non-streaming counts, and every model it hit with per-model counts. Use it to spot failures such as timeouts that are not specific to one model. Counts cover the latest 500 errors of each mapping.
+Switch to **By error type** to group the same errors across mappings instead: each error shows its total, its streaming and non-streaming counts, and every model it hit with per-model counts. Use it to spot failures such as timeouts that are not specific to one model. The same per-mapping limit applies.
 
 To focus on one mapping, pick it from the mapping filter or open `/dashboard/incidents?mapping=<provider>/<model>[:<region>]`. The **Errors** column on Traffic and the **Incidents** link on each active Fleet listing open the page pre-filtered.
 

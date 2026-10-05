@@ -983,6 +983,15 @@ export const providers: ProviderDefinition[] = [
 		apiKeyInstructions:
 			"Use AWS Bedrock Long-Term API Keys (not IAM service account or private keys)",
 		learnMore: "https://docs.llmgateway.io/integrations/aws-bedrock",
+		serviceTiers: [
+			{
+				id: "flex",
+				name: "Flex",
+				multiplier: 0.5,
+				description:
+					"Lower-priority processing at a 50% discount, with longer and less predictable latency.",
+			},
+		],
 		regionConfig: {
 			optionsKey: "aws_bedrock_region",
 			defaultRegion: "global",

@@ -484,26 +484,36 @@ export default async function Page({
 							label="Credit flow"
 							value={metrics.totalToppedUp}
 							format="currency"
-							sublabel="All-time credits purchased"
+							sublabel="All-time credits purchased + gifted"
 							icon={<PiggyBank className="h-4 w-4" strokeWidth={1.75} />}
 							accent="violet"
 							style={revealAt(5)}
 							rows={[
 								{
-									label: "Spent",
-									value: currencyFormatter.format(metrics.totalSpent),
-								},
-								{
-									label: "Spent (credits)",
-									value: currencyFormatter.format(metrics.totalCreditsSpent),
-								},
-								{
-									label: "Spent (BYOK, not billed)",
-									value: currencyFormatter.format(metrics.totalApiKeysSpent),
+									label: "Spent from credits",
+									value: currencyFormatter.format(metrics.totalDebitedSpend),
 								},
 								{
 									label: "Unused",
 									value: currencyFormatter.format(metrics.unusedCredits),
+									sub: [
+										{
+											label: "Excl. gifted",
+											value: currencyFormatter.format(
+												metrics.unusedCreditsExcludingGifts,
+											),
+										},
+										{
+											label: "Of which gifted",
+											value: currencyFormatter.format(
+												metrics.totalToppedUpGifted,
+											),
+										},
+									],
+								},
+								{
+									label: "BYOK spend, not billed",
+									value: currencyFormatter.format(metrics.totalApiKeysSpent),
 								},
 							]}
 						/>

@@ -131,6 +131,7 @@ export async function updateProviderCredential(
 		config?: Record<string, string>;
 		usageLimit?: string | null;
 		allowedModels?: string[] | null;
+		allowedModelsBase?: string[] | null;
 		skipValidation?: boolean;
 	},
 ): Promise<MutationResult> {

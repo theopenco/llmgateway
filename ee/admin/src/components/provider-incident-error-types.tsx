@@ -1,10 +1,11 @@
 "use client";
 
 import { keepPreviousData } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { BarChart3, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
+import { ErrorShapeTimeline } from "@/components/error-shape-timeline";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,6 +26,7 @@ import { cn } from "@/lib/utils";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
+import type { ErrorTimeline } from "@/components/error-shape-timeline";
 import type { paths } from "@/lib/api/v1";
 
 type ErrorTypesQuery = paths["/admin/airside/incidents/error-types"]["get"];
@@ -33,14 +35,29 @@ type ErrorType =
 
 const COLLAPSED_MODELS = 5;
 
-function ErrorTypeItem({
+/**
+ * Identifies an error type across refetches, so an item's open graph or
+ * expanded model list stays with it when counts reorder the list.
+ */
+export function errorTypeKey(error: ErrorType) {
+	return JSON.stringify([
+		error.classification,
+		error.statusCode,
+		error.statusText,
+		error.cause,
+		error.responseText,
+	]);
+}
+
+export function ErrorTypeItem({
 	error,
-	providerId,
+	timeline,
 }: {
 	error: ErrorType;
-	providerId: string;
+	timeline: ErrorTimeline;
 }) {
 	const [showAll, setShowAll] = useState(false);
+	const [showGraph, setShowGraph] = useState(false);
 	const models = showAll
 		? error.models
 		: error.models.slice(0, COLLAPSED_MODELS);
@@ -58,10 +75,30 @@ function ErrorTypeItem({
 					)}
 					<ClassificationBadge classification={error.classification} />
 				</div>
-				<span className="shrink-0 text-sm font-semibold tabular-nums">
-					{formatNumber(error.count)}×
-				</span>
+				<div className="flex shrink-0 items-center gap-2">
+					{error.buckets && (
+						<Button
+							size="sm"
+							variant={showGraph ? "default" : "outline"}
+							className="h-7 px-2 text-xs"
+							aria-pressed={showGraph}
+							title="Show occurrences over the selected window"
+							onClick={() => setShowGraph(!showGraph)}
+						>
+							<BarChart3 className="h-3.5 w-3.5" />
+							Graph
+						</Button>
+					)}
+					<span className="text-sm font-semibold tabular-nums">
+						{formatNumber(error.count)}×
+					</span>
+				</div>
 			</div>
+			{showGraph && error.buckets && (
+				<div className="mt-2">
+					<ErrorShapeTimeline timeline={timeline} buckets={error.buckets} />
+				</div>
+			)}
 			<div className="mt-2 flex flex-wrap items-center gap-2">
 				{STREAM_MODES.map((mode) => ({
 					...mode,
@@ -103,10 +140,10 @@ function ErrorTypeItem({
 				</TableHeader>
 				<TableBody>
 					{models.map((model) => (
-						<TableRow key={model.usedModel}>
+						<TableRow key={`${model.providerId}:${model.usedModel}`}>
 							<TableCell className="font-mono text-xs">
 								<Link
-									href={`/providers/${encodeURIComponent(providerId)}/incidents?mapping=${encodeURIComponent(model.usedModel)}`}
+									href={`/providers/${encodeURIComponent(model.providerId)}/incidents?mapping=${encodeURIComponent(model.usedModel)}`}
 									className="hover:underline"
 									title="Open this mapping's incidents"
 								>
@@ -232,13 +269,13 @@ export function ProviderIncidentErrorTypes({
 			<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				Top {data.errors.length} error type
 				{data.errors.length === 1 ? "" : "s"} ·{" "}
-				{formatNumber(data.sampledErrors)} sampled
+				{formatNumber(data.sampledErrors)} total
 			</p>
 			{data.cappedMappings > 0 && (
 				<p className="text-xs text-muted-foreground">
 					{data.cappedMappings} model{data.cappedMappings === 1 ? "" : "s"} hit
-					the {formatNumber(data.sampleLimit)}-error sample cap; counts cover
-					each model&apos;s latest {formatNumber(data.sampleLimit)} errors.
+					the {formatNumber(data.sampleLimit)}-error cap; counts cover each
+					model&apos;s latest {formatNumber(data.sampleLimit)} errors.
 				</p>
 			)}
 			<ul className="space-y-3">
@@ -246,21 +283,10 @@ export function ProviderIncidentErrorTypes({
 					<ErrorTypeItem
 						key={errorTypeKey(error)}
 						error={error}
-						providerId={providerId}
+						timeline={data.timeline}
 					/>
 				))}
 			</ul>
 		</div>
 	);
-}
-// Stable per-shape key so a refetch that reorders shapes keeps each item's
-// expanded state with its own error.
-function errorTypeKey(error: ErrorType): string {
-	return JSON.stringify([
-		error.statusCode,
-		error.statusText,
-		error.classification,
-		error.cause,
-		error.responseText,
-	]);
 }

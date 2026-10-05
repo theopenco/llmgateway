@@ -302,6 +302,38 @@ export function calculateDataStorageCost(
 
 export type LogData = InferInsertModel<typeof log>;
 
+const ERROR_FINISH_REASONS = new Set<string | null | undefined>([
+	UnifiedFinishReason.CLIENT_ERROR,
+	UnifiedFinishReason.GATEWAY_ERROR,
+	UnifiedFinishReason.UPSTREAM_ERROR,
+]);
+
+/**
+ * Error details for a response the upstream accepted (e.g. HTTP 200) but ended
+ * with an error finish reason such as `abort`, which carries no error body.
+ * Null when `finishReason` is not an error. `rawFinishReason` is the provider's
+ * value before canonicalization (e.g. `abort` rather than `upstream_error`).
+ */
+export function errorFinishReasonDetails(
+	finishReason: string | null | undefined,
+	provider: string | null | undefined,
+	statusCode: number,
+	rawFinishReason: string | null | undefined = finishReason,
+): LogInsertData["errorDetails"] {
+	if (
+		!finishReason ||
+		!ERROR_FINISH_REASONS.has(getUnifiedFinishReason(finishReason, provider))
+	) {
+		return null;
+	}
+	const reason = rawFinishReason ?? finishReason;
+	return {
+		statusCode,
+		statusText: `finish_reason: ${reason}`,
+		responseText: `The provider answered ${statusCode} but ended the response early with finish_reason "${reason}".`,
+	};
+}
+
 /**
  * The portion of a log's cost that actually drains `organization.credits`, which
  * is what the per-org spend caps are meant to bound. Mirrors the worker's debit
@@ -337,8 +369,6 @@ export async function insertLog(
 	logData: LogInsertData,
 	options?: { retentionLevel?: "retain" | "none" | null },
 ): Promise<unknown> {
-	logData.errorCategory ??= getLogErrorCategory(logData);
-
 	// Fail closed on retention: unless the organization is explicitly known to
 	// retain data, strip the request/response payload fields here — before the
 	// row is ever published to the log queue — so large prompts, completions, and
@@ -384,6 +414,13 @@ export async function insertLog(
 			}
 		}
 	}
+
+	// An error finish reason is a failed request even when the upstream
+	// answered 200 and failed mid-response (an aborted stream, a socket close).
+	if (ERROR_FINISH_REASONS.has(logData.unifiedFinishReason)) {
+		logData.hasError = true;
+	}
+	logData.errorCategory ??= getLogErrorCategory(logData);
 
 	// Record Prometheus metrics for chat completion requests
 	const errorType = getErrorTypeFromUnifiedFinishReason(

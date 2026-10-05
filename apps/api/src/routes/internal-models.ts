@@ -6,7 +6,6 @@ import { loadPublicDiscounts } from "@/lib/public-discounts.js";
 
 import {
 	and,
-	asc,
 	avgEffectiveTtftSql,
 	db,
 	effectiveTtftTotals,
@@ -14,6 +13,7 @@ import {
 	excludeRegionalMappingRows,
 	gte,
 	modelProviderMappingHistory,
+	modelProviderMappingHistoryHourly,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -77,13 +77,7 @@ const peakPricingSchema = z.object({
 	peak: timeBasedTokenPricesSchema,
 	offPeak: timeBasedTokenPricesSchema,
 	hoursUtc: z.array(z.tuple([z.number(), z.number()])),
-	offPeakDays: z
-		.object({
-			daysOfWeek: z.array(z.number()),
-			utcOffsetMinutes: z.number(),
-			timeZoneLabel: z.string(),
-		})
-		.nullable(),
+	offPeakDaysUtc: z.array(z.number()).nullable(),
 });
 
 // Model provider mapping schema
@@ -406,16 +400,8 @@ internalModels.openapi(getModelsRoute, async (c) => {
 								hoursUtc: sharedMapping.peakPricing.hoursUtc.map(
 									([start, end]) => [start, end] as [number, number],
 								),
-								offPeakDays: sharedMapping.peakPricing.offPeakDays
-									? {
-											daysOfWeek: [
-												...sharedMapping.peakPricing.offPeakDays.daysOfWeek,
-											],
-											utcOffsetMinutes:
-												sharedMapping.peakPricing.offPeakDays.utcOffsetMinutes,
-											timeZoneLabel:
-												sharedMapping.peakPricing.offPeakDays.timeZoneLabel,
-										}
+								offPeakDaysUtc: sharedMapping.peakPricing.offPeakDaysUtc
+									? [...sharedMapping.peakPricing.offPeakDaysUtc]
 									: null,
 							}
 						: null,
@@ -844,6 +830,9 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 			and(
 				eq(modelProviderMappingHistory.modelId, modelId),
 				gte(modelProviderMappingHistory.minuteTimestamp, since),
+				// Platform-credential traffic only; BYOK failures reflect the
+				// customer's key, not the provider.
+				eq(modelProviderMappingHistory.usedMode, "credits"),
 				// Per-provider totals: the region-less root row already includes the
 				// provider's regional traffic.
 				excludeRegionalMappingRows(modelProviderMappingHistory),
@@ -912,7 +901,7 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 	return c.json({ modelId, providers, arena });
 });
 
-// --- Public per-provider uptime/history (last 4h) ---
+// --- Public per-provider uptime/history (last 24h, hourly) ---
 
 const uptimePointSchema = z.object({
 	timestamp: z.string(),
@@ -942,12 +931,14 @@ const uptimeProviderSchema = z.object({
 	ttftCount: z.number(),
 	avgDuration: z.number().nullable(),
 	tokensPerSecond: z.number().nullable(),
+	totalTokens: z.number(),
 	points: z.array(uptimePointSchema),
 });
 
 const modelUptimeSchema = z.object({
 	modelId: z.string(),
 	windowMinutes: z.number(),
+	bucketMinutes: z.number(),
 	providers: z.array(uptimeProviderSchema),
 });
 
@@ -955,7 +946,7 @@ const modelUptimeRoute = createRoute({
 	operationId: "internal_get_model_uptime",
 	summary: "Get model uptime",
 	description:
-		"Returns per-provider request volume, errors, latency, and throughput for a specific model over the last 4 hours.",
+		"Returns per-provider token volume, requests, errors, latency, and throughput for a specific model over the last 24 hours, bucketed by hour.",
 	method: "get",
 	path: "/models/{modelId}/uptime",
 	request: {
@@ -970,7 +961,8 @@ const modelUptimeRoute = createRoute({
 					schema: modelUptimeSchema,
 				},
 			},
-			description: "Per-provider uptime time series for the last 4 hours.",
+			description:
+				"Per-provider hourly uptime time series for the last 24 hours.",
 		},
 	},
 });
@@ -978,9 +970,19 @@ const modelUptimeRoute = createRoute({
 internalModels.openapi(modelUptimeRoute, async (c) => {
 	const { modelId } = c.req.valid("param");
 
-	const WINDOW_MINUTES = 240; // 4h
-	const WINDOW_MS = WINDOW_MINUTES * 60_000;
-	const since = new Date(Date.now() - WINDOW_MS);
+	const WINDOW_HOURS = 24;
+	const HOUR_MS = 60 * 60_000;
+	// Hour-aligned buckets ending with the in-progress hour. The hourly rollup
+	// is refreshed every minute (current hour included) and stores UTC in a
+	// zone-less timestamp, so epoch-aligned hours match its rows exactly.
+	const currentHour = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+	const precedingHoursMs = (WINDOW_HOURS - 1) * HOUR_MS;
+	const since = new Date(currentHour - precedingHoursMs);
+	const bucketTimestamps = Array.from({ length: WINDOW_HOURS }, (_, i) => {
+		const offsetMs = i * HOUR_MS;
+		return new Date(since.getTime() + offsetMs).toISOString();
+	});
+	const history = modelProviderMappingHistoryHourly;
 
 	// Active providers serving this model — included even if they have no
 	// recent traffic so the page can render an idle state for them.
@@ -1003,98 +1005,103 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			),
 		db
 			.select({
-				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
-				providerId: modelProviderMappingHistory.providerId,
+				hourTimestamp: history.hourTimestamp,
+				providerId: history.providerId,
 				providerName: tables.provider.name,
-				logsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
-						"logs_count",
-					),
+				logsCount: sql<number>`COALESCE(SUM(${history.logsCount}), 0)`.as(
+					"logs_count",
+				),
 				clientErrorsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${history.clientErrorsCount}), 0)`.as(
 						"client_errors_count",
 					),
 				gatewayErrorsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${history.gatewayErrorsCount}), 0)`.as(
 						"gateway_errors_count",
 					),
 				upstreamErrorsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${history.upstreamErrorsCount}), 0)`.as(
 						"upstream_errors_count",
 					),
-				cachedCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
-						"cached_count",
-					),
+				cachedCount: sql<number>`COALESCE(SUM(${history.cachedCount}), 0)`.as(
+					"cached_count",
+				),
 				totalDuration:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalDuration}), 0)`.as(
+					sql<number>`COALESCE(SUM(${history.totalDuration}), 0)`.as(
 						"total_duration",
 					),
 				totalTimeToFirstToken:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTimeToFirstToken}), 0)`.as(
+					sql<number>`COALESCE(SUM(${history.totalTimeToFirstToken}), 0)`.as(
 						"total_ttft",
 					),
 				timeToFirstTokenCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.timeToFirstTokenCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${history.timeToFirstTokenCount}), 0)`.as(
 						"ttft_count",
 					),
 				totalTimeToFirstReasoningToken:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTimeToFirstReasoningToken}), 0)`.as(
+					sql<number>`COALESCE(SUM(${history.totalTimeToFirstReasoningToken}), 0)`.as(
 						"total_ttfrt",
 					),
 				timeToFirstReasoningTokenCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.timeToFirstReasoningTokenCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${history.timeToFirstReasoningTokenCount}), 0)`.as(
 						"ttfrt_count",
 					),
-				totalTokens:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTokens}), 0)`.as(
-						"total_tokens",
-					),
+				totalTokens: sql<number>`COALESCE(SUM(${history.totalTokens}), 0)`.as(
+					"total_tokens",
+				),
 				totalOutputTokens:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalOutputTokens}), 0)`.as(
+					sql<number>`COALESCE(SUM(${history.totalOutputTokens}), 0)`.as(
 						"total_output_tokens",
 					),
 			})
-			.from(modelProviderMappingHistory)
-			.innerJoin(
-				tables.provider,
-				eq(modelProviderMappingHistory.providerId, tables.provider.id),
-			)
+			.from(history)
+			.innerJoin(tables.provider, eq(history.providerId, tables.provider.id))
 			.where(
 				and(
-					eq(modelProviderMappingHistory.modelId, modelId),
-					gte(modelProviderMappingHistory.minuteTimestamp, since),
-					excludeRegionalMappingRows(modelProviderMappingHistory),
+					eq(history.modelId, modelId),
+					gte(history.hourTimestamp, since),
+					eq(history.usedMode, "credits"),
+					excludeRegionalMappingRows(history),
 				),
 			)
-			.groupBy(
-				modelProviderMappingHistory.minuteTimestamp,
-				modelProviderMappingHistory.providerId,
-				tables.provider.name,
-			)
-			.orderBy(asc(modelProviderMappingHistory.minuteTimestamp)),
+			.groupBy(history.hourTimestamp, history.providerId, tables.provider.name),
 	]);
+
+	interface HourTotals {
+		logsCount: number;
+		clientErrorsCount: number;
+		gatewayErrorsCount: number;
+		upstreamErrorsCount: number;
+		cachedCount: number;
+		totalDuration: number;
+		totalTimeToFirstToken: number;
+		timeToFirstTokenCount: number;
+		totalTimeToFirstReasoningToken: number;
+		timeToFirstReasoningTokenCount: number;
+		totalTokens: number;
+		totalOutputTokens: number;
+	}
+	const idleHour: HourTotals = {
+		logsCount: 0,
+		clientErrorsCount: 0,
+		gatewayErrorsCount: 0,
+		upstreamErrorsCount: 0,
+		cachedCount: 0,
+		totalDuration: 0,
+		totalTimeToFirstToken: 0,
+		timeToFirstTokenCount: 0,
+		totalTimeToFirstReasoningToken: 0,
+		timeToFirstReasoningTokenCount: 0,
+		totalTokens: 0,
+		totalOutputTokens: 0,
+	};
 
 	const byProvider = new Map<
 		string,
 		{
 			providerId: string;
 			providerName: string;
-			points: Array<{
-				timestamp: string;
-				logsCount: number;
-				clientErrorsCount: number;
-				gatewayErrorsCount: number;
-				upstreamErrorsCount: number;
-				cachedCount: number;
-				totalDuration: number;
-				totalTimeToFirstToken: number;
-				timeToFirstTokenCount: number;
-				totalTimeToFirstReasoningToken: number;
-				timeToFirstReasoningTokenCount: number;
-				totalTokens: number;
-				totalOutputTokens: number;
-			}>;
+			hours: Map<string, HourTotals>;
 		}
 	>();
 
@@ -1104,20 +1111,18 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			byProvider.set(p.providerId, {
 				providerId: p.providerId,
 				providerName: p.providerName ?? p.providerId,
-				points: [],
+				hours: new Map(),
 			});
 		}
 	}
 
 	for (const r of rows) {
-		const key = r.providerId;
-		const entry = byProvider.get(key) ?? {
+		const entry = byProvider.get(r.providerId) ?? {
 			providerId: r.providerId,
 			providerName: r.providerName ?? r.providerId,
-			points: [],
+			hours: new Map<string, HourTotals>(),
 		};
-		entry.points.push({
-			timestamp: r.minuteTimestamp.toISOString(),
+		entry.hours.set(r.hourTimestamp.toISOString(), {
 			logsCount: Number(r.logsCount),
 			clientErrorsCount: Number(r.clientErrorsCount),
 			gatewayErrorsCount: Number(r.gatewayErrorsCount),
@@ -1131,7 +1136,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			totalTokens: Number(r.totalTokens),
 			totalOutputTokens: Number(r.totalOutputTokens),
 		});
-		byProvider.set(key, entry);
+		byProvider.set(r.providerId, entry);
 	}
 
 	const providers = Array.from(byProvider.values()).map((p) => {
@@ -1144,9 +1149,13 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 		let totalTtftCount = 0;
 		let totalTtfrt = 0;
 		let totalTtfrtCount = 0;
+		let totalTokens = 0;
 		let totalOutputTokens = 0;
 
-		const points = p.points.map((pt) => {
+		// Every hour of the window is emitted, zero-filled when idle, so the
+		// chart axis always spans the full 24h.
+		const points = bucketTimestamps.map((timestamp) => {
+			const pt = p.hours.get(timestamp) ?? idleHour;
 			totalLogs += pt.logsCount;
 			totalClientErrors += pt.clientErrorsCount;
 			totalGatewayErrors += pt.gatewayErrorsCount;
@@ -1156,6 +1165,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			totalTtftCount += pt.timeToFirstTokenCount;
 			totalTtfrt += pt.totalTimeToFirstReasoningToken;
 			totalTtfrtCount += pt.timeToFirstReasoningTokenCount;
+			totalTokens += pt.totalTokens;
 			totalOutputTokens += pt.totalOutputTokens;
 			// Only streamed requests contribute a TTFT sample, so divide by the
 			// sample count instead of the request count. Reasoning-token samples
@@ -1170,7 +1180,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 				upstreamErrorsCount: pt.upstreamErrorsCount,
 			});
 			return {
-				timestamp: pt.timestamp,
+				timestamp,
 				logsCount: pt.logsCount,
 				errorsCount: pointMetrics.errorsCount,
 				clientErrorsCount: pt.clientErrorsCount,
@@ -1223,15 +1233,17 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			ttftCount: providerTtftCount,
 			avgDuration: totalLogs > 0 ? Math.round(totalDuration / totalLogs) : null,
 			tokensPerSecond,
+			totalTokens,
 			points,
 		};
 	});
 
-	providers.sort((a, b) => b.logsCount - a.logsCount);
+	providers.sort((a, b) => b.totalTokens - a.totalTokens);
 
 	return c.json({
 		modelId,
-		windowMinutes: WINDOW_MINUTES,
+		windowMinutes: WINDOW_HOURS * 60,
+		bucketMinutes: 60,
 		providers,
 	});
 });

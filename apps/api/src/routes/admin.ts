@@ -38,9 +38,15 @@ import {
 	notRetriedClause,
 	incidentErrorsClause,
 	queryMappingErrorShapes,
+	buildErrorTimeline,
+	errorTimelineSchema,
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
+import {
+	getModelErrorRateAlertsSettings,
+	setModelErrorRateAlertsSettings,
+} from "@/lib/model-error-rate-alerts.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
 	getBucketUnitForWindow,
@@ -148,6 +154,7 @@ import {
 	getPlanClass,
 	isValidSystemBannerLink,
 	LOG_ERROR_TYPES,
+	modelErrorRateAlertsSettingsSchema,
 	parseUsedModel,
 	resolveTrustTierOverride,
 	SYSTEM_BANNER_SEVERITIES,
@@ -412,13 +419,22 @@ const adminMetricsSchema = z.object({
 	totalProcessed: z.number(),
 	totalOrganizations: z.number(),
 	totalToppedUp: z.number(),
+	// Gifted credits inside totalToppedUp. Narrower than totalGiftedCredits,
+	// which also counts end-user wallet gifts.
+	totalToppedUpGifted: z.number(),
 	totalSpent: z.number(),
 	// Credits-vs-BYOK split of totalSpent. totalSpent stays blended; BYOK
 	// ("api-keys") usage is provider list price paid by the customer's own key,
 	// not revenue-relevant spend.
 	totalCreditsSpent: z.number(),
 	totalApiKeysSpent: z.number(),
+	// Spend actually debited from credit balances: credits-mode cost plus BYOK
+	// rows' data-storage cost. totalToppedUp minus this is the balance.
+	totalDebitedSpend: z.number(),
 	unusedCredits: z.number(),
+	// unusedCredits with gifted credits taken out of the topped-up base, i.e.
+	// purchased credits not yet spent, assuming spend drains purchases first.
+	unusedCreditsExcludingGifts: z.number(),
 	overage: z.number(),
 	totalGiftedCredits: z.number(),
 	totalBonusCredits: z.number(),
@@ -1249,6 +1265,10 @@ admin.openapi(getMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
 					"value",
 				),
+			giftedValue:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.type} = 'credit_gift'), 0)`.as(
+					"giftedValue",
+				),
 		})
 		.from(tables.transaction)
 		.where(
@@ -1261,6 +1281,7 @@ admin.openapi(getMetrics, async (c) => {
 		);
 
 	const totalToppedUp = Number(toppedUpRow?.value ?? 0);
+	const totalToppedUpGifted = Number(toppedUpRow?.giftedValue ?? 0);
 
 	// Total spent (usage cost from hourly stats). Excludes spend from projects
 	// belonging to orgs whose usage is/was on a DevPass or Chat Plan, so the
@@ -1722,6 +1743,10 @@ admin.openapi(getMetrics, async (c) => {
 	// unusedCredits (and overstate overage) for orgs with BYOK traffic.
 	const rawBalance = totalToppedUp - totalDebitedSpend;
 	const unusedCredits = Math.max(0, rawBalance);
+	const unusedCreditsExcludingGifts = Math.max(
+		0,
+		rawBalance - totalToppedUpGifted,
+	);
 	const overage = Math.max(0, -rawBalance);
 
 	return c.json({
@@ -1732,10 +1757,13 @@ admin.openapi(getMetrics, async (c) => {
 		totalProcessed,
 		totalOrganizations,
 		totalToppedUp,
+		totalToppedUpGifted,
 		totalSpent,
 		totalCreditsSpent,
 		totalApiKeysSpent,
+		totalDebitedSpend,
 		unusedCredits,
+		unusedCreditsExcludingGifts,
 		overage,
 		totalGiftedCredits,
 		totalBonusCredits,
@@ -5853,6 +5881,7 @@ const rateLimitSchema = z.object({
 	limitType: z.enum(["rpm", "rpd"]),
 	maxRequests: z.number(),
 	enforcement: z.enum(["per_org", "global"]),
+	mode: z.enum(["strict", "soft"]),
 	reason: z.string().nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
@@ -5872,6 +5901,8 @@ const createRateLimitBodySchema = z.object({
 		.int("Limit must be a whole number")
 		.min(0, "Limit must be at least 0"),
 	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
+	// "soft" lets a session already pinned to the capped provider keep it.
+	mode: z.enum(["strict", "soft"]).optional().default("strict"),
 	reason: z.string().nullable().optional(),
 });
 
@@ -6053,6 +6084,7 @@ function formatRateLimit(r: {
 	maxRpm: number | null;
 	maxRpd: number | null;
 	enforcement: string;
+	mode: "strict" | "soft";
 	reason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
@@ -6069,6 +6101,7 @@ function formatRateLimit(r: {
 		maxRequests,
 		enforcement:
 			r.enforcement === "global" ? ("global" as const) : ("per_org" as const),
+		mode: r.mode,
 		reason: r.reason,
 		createdAt: r.createdAt.toISOString(),
 		updatedAt: r.updatedAt.toISOString(),
@@ -6101,6 +6134,12 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 		throw new HTTPException(400, { message: validation.error });
 	}
 
+	if (body.mode === "soft" && body.maxRequests === 0) {
+		throw new HTTPException(400, {
+			message: "A limit of 0 blocks all requests and cannot be soft",
+		});
+	}
+
 	const [created] = await db
 		.insert(tables.rateLimit)
 		.values({
@@ -6110,6 +6149,7 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
 			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
 			enforcement: body.enforcement,
+			mode: body.mode,
 			reason: body.reason ?? null,
 		})
 		.onConflictDoNothing()
@@ -6511,6 +6551,56 @@ admin.openapi(updateForceThreeDSecure, async (c) => {
 	await setForcedThreeDSecureMode(mode);
 
 	return c.json(await forceThreeDSecureState());
+});
+
+// --- Model error-rate Discord alerts ---
+
+const getModelErrorRateAlertsRoute = createRoute({
+	method: "get",
+	path: "/settings/model-error-rate-alerts",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+				},
+			},
+			description: "Model error-rate Discord alert rules.",
+		},
+	},
+});
+
+const updateModelErrorRateAlertsRoute = createRoute({
+	method: "put",
+	path: "/settings/model-error-rate-alerts",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+				},
+			},
+			description: "Updated model error-rate Discord alert rules.",
+		},
+	},
+});
+
+admin.openapi(getModelErrorRateAlertsRoute, async (c) => {
+	return c.json(await getModelErrorRateAlertsSettings());
+});
+
+admin.openapi(updateModelErrorRateAlertsRoute, async (c) => {
+	return c.json(await setModelErrorRateAlertsSettings(c.req.valid("json")));
 });
 
 // --- Announcement Banner ---
@@ -6941,6 +7031,7 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			model,
 			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
 			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			mode: body.mode,
 			reason: body.reason ?? null,
 		})
 		.onConflictDoNothing()
@@ -6964,6 +7055,7 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			model,
 			maxRpm: created.maxRpm,
 			maxRpd: created.maxRpd,
+			mode: created.mode,
 			reason: created.reason,
 			source: "admin",
 		},
@@ -13228,13 +13320,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 const unstableMappingErrorsSchema = mappingErrorShapesSchema.extend({
 	groupByKey: z.boolean(),
 	groupByStream: z.boolean(),
-	/** Bucket grid of each error's `buckets`, covering the selected window. */
-	timeline: z.object({
-		bucketSeconds: z.number(),
-		/** First and last bucket start, epoch milliseconds. */
-		start: z.number(),
-		end: z.number(),
-	}),
+	timeline: errorTimelineSchema,
 	/** Keys in the sample, most errors first; empty unless grouped by key. */
 	keys: z.array(
 		z.object({
@@ -13328,9 +13414,6 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		hours: windowHours,
 		bucketSeconds,
 	} = resolveMappingErrorWindow(window);
-	const bucketMs = bucketSeconds * 1000;
-	const now = Date.now();
-	const windowMs = windowHours * 3_600_000;
 	const providerKeyClause =
 		providerKeyId === undefined
 			? sql``
@@ -13380,11 +13463,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		...shapes,
 		groupByKey,
 		groupByStream,
-		timeline: {
-			bucketSeconds,
-			start: Math.floor((now - windowMs) / bucketMs) * bucketMs,
-			end: Math.floor(now / bucketMs) * bucketMs,
-		},
+		timeline: buildErrorTimeline(windowHours, bucketSeconds),
 		keys: [...keyErrors].map(([id, errorsCount]) => ({
 			providerKeyId: id,
 			...describeProviderKey(providerKeyLabels, id),

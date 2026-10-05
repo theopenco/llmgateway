@@ -177,16 +177,10 @@ export interface PeakPricing {
 	 */
 	hoursUtc: readonly [start: number, end: number][];
 	/**
-	 * Local calendar days that are always billed off-peak. Days use
-	 * JavaScript's numbering (Sunday = 0, Saturday = 6), shifted from UTC by
-	 * `utcOffsetMinutes`.
+	 * UTC days of the week that are always billed off-peak, using JavaScript's
+	 * numbering (Sunday = 0, Saturday = 6).
 	 */
-	offPeakDays?: {
-		daysOfWeek: readonly number[];
-		utcOffsetMinutes: number;
-		/** Human-readable time zone used in pricing disclosures. */
-		timeZoneLabel: string;
-	};
+	offPeakDaysUtc?: readonly number[];
 }
 
 /**
@@ -429,8 +423,7 @@ export interface ProviderModelMapping {
 	/**
 	 * Peak/off-peak time-of-day pricing. When present, `peak` applies while the
 	 * current UTC hour falls inside `hoursUtc` and `offPeak` applies otherwise.
-	 * `offPeakDays` can override those windows for provider-defined local
-	 * calendar days.
+	 * `offPeakDaysUtc` makes whole UTC days off-peak.
 	 */
 	peakPricing?: PeakPricing;
 	/**
@@ -542,6 +535,13 @@ export interface ProviderModelMapping {
 	 * surfaces for different models. Defaults to the provider's native format.
 	 */
 	apiFormat?: ProviderApiFormat;
+	/**
+	 * AWS Bedrock OpenAI-format mappings only: the cross-region regions
+	 * (`global`, `us`, …) are real inference profiles, served by
+	 * bedrock-runtime under the region-prefixed model id. Without it every
+	 * region is served in-region by Mantle under the bare id.
+	 */
+	crossRegionProfiles?: boolean;
 	/**
 	 * Route this Perplexity mapping to the Agent API (`POST /v1/agent`,
 	 * Responses-shaped) instead of Sonar's chat/completions, which Perplexity

@@ -24,6 +24,15 @@ provider remains selected, the request returns `429` without calling it, even
 when every candidate is rate-limited. No configured limit still means unlimited;
 other rate-limit settings retain their existing behavior.
 
+Each limit is **strict** (the default) or **soft**. Both route traffic away from
+a provider that has reached its limit. A soft limit makes one exception: a
+[session](/features/sessions) already pinned to that provider keeps using it, so
+its prompt cache stays warm. Those requests still count toward the limit, so
+usage can exceed it until the pinned sessions end. New sessions, requests
+without a session id, and a session's first request on a model are routed away
+as usual. A limit of `0` is always strict, and a session stays pinned only when
+every limit it exceeds is soft.
+
 ## Model Selection
 
 ### Any Model Name
@@ -78,6 +87,8 @@ Provider metrics (uptime, throughput, latency) are not a flat "last N minutes" s
 - The remainder of the 60-minute window is weighted **1×**
 
 This makes routing react quickly to a provider that just started failing or slowing down, without overreacting to a single noisy data point.
+
+Only requests served on LLM Gateway's own credentials feed these metrics. Requests on your own [provider keys](/learn/provider-keys) never count toward a provider's uptime, so a misconfigured key cannot degrade routing for anyone else.
 
 **Prompt Caching and Token Costs**:
 
@@ -433,7 +444,7 @@ When using model ID routing (without a provider prefix), LLMGateway automaticall
 Request → Provider A (500 error) → Provider B (200 OK) → Response
 ```
 
-Both streaming and non-streaming requests support automatic retry.
+Both streaming and non-streaming requests support automatic retry. A streaming request is retried when the provider fails before sending any output, including an error event that follows only stream lifecycle events such as `response.created`. Once output has reached the client, a later error ends the stream instead.
 
 ### What Triggers a Retry
 
@@ -577,7 +588,7 @@ Auto routing automatically selects the best model for your specific use case wit
 
 ### Default behaviour
 
-By default, auto routing picks the cheapest of a small built-in set of models that can serve the request: it filters out models whose context window, capabilities (vision, tools, reasoning, structured output) or provider availability do not fit, then selects the cheapest of what remains. Larger prompts skip the smallest model.
+By default, auto routing picks the cheapest of a small built-in set of models that can serve the request: it filters out models whose context window, capabilities (vision, tools, reasoning, structured output) or provider availability do not fit, then selects the cheapest of what remains. Larger prompts skip the smallest model. Requests with audio or document input search every active model that supports that input instead of the built-in set.
 
 ```bash
 # Let LLMGateway choose the optimal model
