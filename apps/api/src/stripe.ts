@@ -3609,19 +3609,17 @@ export async function handleChargeRefunded(
 
 	// Listing fees have no transaction row; track the cumulative refund on the
 	// payment itself.
-	const listingPayments = await db
-		.update(tables.providerListingPayment)
-		.set({
-			refundedAmount: new Decimal(charge.amount_refunded).div(100).toString(),
-		})
-		.where(
-			eq(
-				tables.providerListingPayment.stripePaymentIntentId,
-				payment_intent as string,
-			),
-		)
-		.returning({ id: tables.providerListingPayment.id });
-	if (listingPayments.length > 0) {
+	const listingPayment = await db.query.providerListingPayment.findFirst({
+		where: { stripePaymentIntentId: { eq: payment_intent as string } },
+		columns: { id: true },
+	});
+	if (listingPayment) {
+		await db
+			.update(tables.providerListingPayment)
+			.set({
+				refundedAmount: new Decimal(charge.amount_refunded).div(100).toString(),
+			})
+			.where(eq(tables.providerListingPayment.id, listingPayment.id));
 		return;
 	}
 
