@@ -373,6 +373,23 @@ describe("airside provider portal", () => {
 		expect(accepted.status).toBe(200);
 		const { termsAcceptedAt } = await accepted.json();
 		expect((await list()).termsAcceptedAt).toBe(termsAcceptedAt);
+
+		await db.insert(tables.providerCompanyMember).values({
+			providerCompanyId: company.id,
+			userId: "crew-outsider-example-com",
+			role: "member",
+		});
+		const repeat = await app.request(
+			`/airside/companies/${company.id}/accept-terms`,
+			json(other),
+		);
+		expect(repeat.status).toBe(200);
+		expect((await repeat.json()).termsAcceptedAt).toBe(termsAcceptedAt);
+		const row = await db.query.providerCompany.findFirst({
+			where: { id: { eq: company.id } },
+		});
+		expect(row?.termsAcceptedAt?.toISOString()).toBe(termsAcceptedAt);
+		expect(row?.termsAcceptedBy).toBe("test-user-id");
 	});
 
 	it("fills catalogue claim profiles from the catalogue", async () => {

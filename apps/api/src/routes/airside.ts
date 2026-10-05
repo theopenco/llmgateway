@@ -1017,16 +1017,23 @@ airside.openapi(acceptCompanyTerms, async (c) => {
 	const user = requireUser(c.get("user"));
 	const { id } = c.req.valid("param");
 	await requireCompanyMembership(user.id, id);
-	const acceptedAt = new Date();
+	// The first acceptance is the record: repeat calls keep its time and user.
 	const [updated] = await db
 		.update(tables.providerCompany)
-		.set({ termsAcceptedAt: acceptedAt, termsAcceptedBy: user.id })
-		.where(eq(tables.providerCompany.id, id))
+		.set({ termsAcceptedAt: new Date(), termsAcceptedBy: user.id })
+		.where(
+			and(
+				eq(tables.providerCompany.id, id),
+				sql`${tables.providerCompany.termsAcceptedAt} IS NULL`,
+			),
+		)
 		.returning({ termsAcceptedAt: tables.providerCompany.termsAcceptedAt });
-	if (!updated?.termsAcceptedAt) {
+	const termsAcceptedAt =
+		updated?.termsAcceptedAt ?? (await requireCompany(id)).termsAcceptedAt;
+	if (!termsAcceptedAt) {
 		throw new HTTPException(404, { message: "Provider company not found" });
 	}
-	return c.json({ termsAcceptedAt: updated.termsAcceptedAt.toISOString() });
+	return c.json({ termsAcceptedAt: termsAcceptedAt.toISOString() });
 });
 
 // ---------------------------------------------------------------------------
