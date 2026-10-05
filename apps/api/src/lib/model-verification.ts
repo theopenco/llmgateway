@@ -1,6 +1,8 @@
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { assertTestingKeyIsSeparate } from "@/lib/airside-carrier-keys.js";
+
 import {
 	createQueuedModelVerificationChecks,
 	decryptClaimVerificationKey,
@@ -185,6 +187,7 @@ export async function saveClaimVerificationKey(
 	claim: ProviderClaimRow,
 	apiKey: string,
 ): Promise<{ verificationKeyMasked: string; verificationKeySetAt: string }> {
+	await assertTestingKeyIsSeparate(claim, apiKey);
 	const values = claimVerificationKeyValues(
 		apiKey,
 		claim.id,

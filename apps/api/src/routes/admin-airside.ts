@@ -28,7 +28,9 @@ import {
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { validateCredentialToken } from "@/routes/admin-provider-credentials.js";
 
+import { readProviderKey } from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
 	and,
@@ -50,7 +52,6 @@ import {
 } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
-import type { SQL } from "@llmgateway/db";
 
 /**
  * Admin review queue for Airside price filings. Approving an `initial` filing
@@ -566,6 +567,11 @@ adminAirside.openapi(rejectFiling, async (c) => {
 // Carrier claims — new carriers only go live once approved here.
 // ---------------------------------------------------------------------------
 
+const carrierKeySchema = z.object({
+	masked: z.string(),
+	submittedAt: z.string(),
+});
+
 const adminClaimSchema = z.object({
 	id: z.string(),
 	providerId: z.string(),
@@ -589,6 +595,10 @@ const adminClaimSchema = z.object({
 			iconUrl: z.string().nullable().optional(),
 		})
 		.nullable(),
+	// Custom carriers only: the provider key serving traffic, and a
+	// replacement awaiting approval here.
+	providerKey: carrierKeySchema.nullable(),
+	pendingProviderKey: carrierKeySchema.nullable(),
 	company: z.object({
 		id: z.string(),
 		name: z.string(),
@@ -616,6 +626,25 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 		where: { providerCompanyId: { eq: row.providerCompanyId } },
 		orderBy: { createdAt: "asc" },
 	});
+	const keyIds = [row.providerKeyId, row.pendingProviderKeyId].filter(
+		(keyId): keyId is string => keyId !== null,
+	);
+	const keys =
+		keyIds.length > 0
+			? await db.query.providerKey.findMany({
+					where: { id: { in: keyIds }, status: { ne: "deleted" } },
+					columns: { id: true, tokenMasked: true, createdAt: true },
+				})
+			: [];
+	const keySummary = (keyId: string | null) => {
+		const key = keys.find((k) => k.id === keyId);
+		return key
+			? {
+					masked: key.tokenMasked ?? "",
+					submittedAt: key.createdAt.toISOString(),
+				}
+			: null;
+	};
 	return {
 		id: row.id,
 		providerId: row.providerId,
@@ -636,6 +665,8 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 		logoUrl: row.logoUrl,
 		iconUrl: row.iconUrl,
 		pendingBranding: row.pendingBranding ?? null,
+		providerKey: keySummary(row.providerKeyId),
+		pendingProviderKey: keySummary(row.pendingProviderKeyId),
 		company: {
 			id: row.providerCompany.id,
 			name: row.providerCompany.name,
@@ -657,6 +688,11 @@ const listClaims = createRoute({
 			status: z.enum(["pending", "active", "rejected", "revoked"]).optional(),
 			// Only claims with a branding change awaiting review.
 			pendingBranding: z
+				.enum(["true", "false"])
+				.transform((value) => value === "true")
+				.optional(),
+			// Only claims with a provider key replacement awaiting review.
+			pendingProviderKey: z
 				.enum(["true", "false"])
 				.transform((value) => value === "true")
 				.optional(),
@@ -688,6 +724,9 @@ adminAirside.openapi(listClaims, async (c) => {
 			...(query.pendingBranding
 				? { pendingBranding: { isNotNull: true } }
 				: {}),
+			...(query.pendingProviderKey
+				? { pendingProviderKeyId: { isNotNull: true } }
+				: {}),
 		},
 		with: { providerCompany: true },
 		orderBy: { createdAt: "desc", id: "desc" },
@@ -706,6 +745,9 @@ adminAirside.openapi(listClaims, async (c) => {
 		countClaims([
 			query.status ? eq(claimTable.status, query.status) : undefined,
 			query.pendingBranding ? isNotNull(claimTable.pendingBranding) : undefined,
+			query.pendingProviderKey
+				? isNotNull(claimTable.pendingProviderKeyId)
+				: undefined,
 		]),
 		countClaims([eq(claimTable.status, "pending")]),
 	]);
@@ -815,18 +857,24 @@ adminAirside.openapi(rejectBranding, async (c) => {
 	});
 });
 
-/** A custom carrier's managed credentials, by default every non-deleted one. */
-function carrierManagedKeys(
-	providerId: string,
-	status?: "active" | "inactive",
-): SQL | undefined {
-	return and(
-		eq(tables.providerKey.provider, providerId),
-		eq(tables.providerKey.managed, true),
-		status
-			? eq(tables.providerKey.status, status)
-			: ne(tables.providerKey.status, "deleted"),
-	);
+/** Drops a carrier's provider key that never went live. */
+async function discardPendingProviderKey(claimId: string, keyId: string) {
+	// cdb: managed provider_key rows feed the gateway's credential cache.
+	await cdb.transaction(async (tx) => {
+		await tx
+			.update(tables.providerKey)
+			.set({ status: "deleted" })
+			.where(eq(tables.providerKey.id, keyId));
+		await tx
+			.update(tables.providerClaim)
+			.set({ pendingProviderKeyId: null })
+			.where(
+				and(
+					eq(tables.providerClaim.id, claimId),
+					eq(tables.providerClaim.pendingProviderKeyId, keyId),
+				),
+			);
+	});
 }
 
 const approveClaim = createRoute({
@@ -861,6 +909,13 @@ adminAirside.openapi(approveClaim, async (c) => {
 				status: "active",
 				reviewedBy: user?.id ?? null,
 				reviewedAt: new Date(),
+				// The provider key filed with the registration starts serving.
+				...(claim.pendingProviderKeyId
+					? {
+							providerKeyId: claim.pendingProviderKeyId,
+							pendingProviderKeyId: null,
+						}
+					: {}),
 			})
 			.where(
 				and(
@@ -885,11 +940,12 @@ adminAirside.openapi(approveClaim, async (c) => {
 					description: claim.customDescription ?? "",
 				})
 				.onConflictDoNothing();
-			// The key filed with the registration starts serving traffic.
-			await tx
-				.update(tables.providerKey)
-				.set({ status: "active" })
-				.where(carrierManagedKeys(claim.providerId, "inactive"));
+			if (claim.pendingProviderKeyId) {
+				await tx
+					.update(tables.providerKey)
+					.set({ status: "active" })
+					.where(eq(tables.providerKey.id, claim.pendingProviderKeyId));
+			}
 		}
 		const [settings] = await tx
 			.select()
@@ -919,6 +975,137 @@ adminAirside.openapi(approveClaim, async (c) => {
 				.where(eq(tables.providerRoutingSettings.id, settings.id));
 		}
 	});
+	const updated = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	return c.json({
+		claim: await serializeAdminClaim(updated as ClaimWithRelations),
+	});
+});
+
+// A carrier's replacement provider key only serves traffic once approved
+// here. Approval smoke-tests it against one of the carrier's live listings.
+async function getClaimWithPendingProviderKey(id: string) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	if (claim.status !== "active" || !claim.pendingProviderKeyId) {
+		throw new HTTPException(409, {
+			message: "This claim has no provider key awaiting review.",
+		});
+	}
+	return claim as ClaimWithRelations & { pendingProviderKeyId: string };
+}
+
+const approveProviderKey = createRoute({
+	method: "post",
+	path: "/airside/claims/{id}/provider-key/approve",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						// Approve without the live check, e.g. while the
+						// carrier's endpoint is briefly down.
+						skipValidation: z.boolean().optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ claim: adminClaimSchema }) },
+			},
+			description:
+				"The claim with the new provider key serving and the old one retired.",
+		},
+	},
+});
+
+adminAirside.openapi(approveProviderKey, async (c) => {
+	const { id } = c.req.valid("param");
+	const { skipValidation } = c.req.valid("json");
+	const claim = await getClaimWithPendingProviderKey(id);
+	const pendingId = claim.pendingProviderKeyId;
+	const pendingKey = await db.query.providerKey.findFirst({
+		where: { id: { eq: pendingId } },
+	});
+	if (!pendingKey) {
+		throw new HTTPException(409, {
+			message: "This claim has no provider key awaiting review.",
+		});
+	}
+	if (!skipValidation) {
+		await validateCredentialToken(
+			claim.providerId,
+			readProviderKey(pendingKey),
+			{},
+			null,
+		);
+	}
+	// cdb: managed provider_key rows feed the gateway's credential cache.
+	await cdb.transaction(async (tx) => {
+		const updated = await tx
+			.update(tables.providerClaim)
+			.set({ providerKeyId: pendingId, pendingProviderKeyId: null })
+			.where(
+				and(
+					eq(tables.providerClaim.id, id),
+					eq(tables.providerClaim.pendingProviderKeyId, pendingId),
+				),
+			)
+			.returning({ id: tables.providerClaim.id });
+		if (updated.length === 0) {
+			throw new HTTPException(409, {
+				message: "The provider key changed in the meantime — reload.",
+			});
+		}
+		await tx
+			.update(tables.providerKey)
+			.set({ status: "active" })
+			.where(eq(tables.providerKey.id, pendingId));
+		if (claim.providerKeyId) {
+			await tx
+				.update(tables.providerKey)
+				.set({ status: "deleted" })
+				.where(eq(tables.providerKey.id, claim.providerKeyId));
+		}
+	});
+	const updated = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	return c.json({
+		claim: await serializeAdminClaim(updated as ClaimWithRelations),
+	});
+});
+
+const rejectProviderKey = createRoute({
+	method: "post",
+	path: "/airside/claims/{id}/provider-key/reject",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ claim: adminClaimSchema }) },
+			},
+			description: "The claim with the replacement discarded.",
+		},
+	},
+});
+
+adminAirside.openapi(rejectProviderKey, async (c) => {
+	const { id } = c.req.valid("param");
+	const claim = await getClaimWithPendingProviderKey(id);
+	await discardPendingProviderKey(id, claim.pendingProviderKeyId);
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
 		with: { providerCompany: true },
@@ -980,12 +1167,8 @@ adminAirside.openapi(rejectClaim, async (c) => {
 			message: "This claim has already been reviewed.",
 		});
 	}
-	if (claim.kind === "custom") {
-		// cdb: managed provider_key rows feed the gateway's credential cache.
-		await cdb
-			.update(tables.providerKey)
-			.set({ status: "deleted" })
-			.where(carrierManagedKeys(claim.providerId, "inactive"));
+	if (claim.pendingProviderKeyId) {
+		await discardPendingProviderKey(claim.id, claim.pendingProviderKeyId);
 	}
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
@@ -1078,7 +1261,16 @@ adminAirside.openapi(revokeClaim, async (c) => {
 			await tx
 				.update(tables.providerKey)
 				.set({ status: "deleted" })
-				.where(carrierManagedKeys(claim.providerId));
+				.where(
+					and(
+						eq(tables.providerKey.provider, claim.providerId),
+						eq(tables.providerKey.managed, true),
+					),
+				);
+			await tx
+				.update(tables.providerClaim)
+				.set({ providerKeyId: null, pendingProviderKeyId: null })
+				.where(eq(tables.providerClaim.id, id));
 		}
 		// A pending fare change would otherwise survive as a zombie and block
 		// the provider's next owner (one pending filing per provider).

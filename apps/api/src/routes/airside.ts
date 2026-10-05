@@ -5,6 +5,11 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	assertDistinctRegistrationKeys,
+	assertProviderKeyIsSeparate,
+	carrierProviderKeyValues,
+} from "@/lib/airside-carrier-keys.js";
+import {
 	dematerializeAirsideModel,
 	materializeAirsideModel,
 	setAirsideModelServing,
@@ -63,7 +68,6 @@ import {
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
-import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
 	AIRSIDE_DISCOUNT_MAX,
@@ -78,6 +82,7 @@ import {
 	eq,
 	gte,
 	inArray,
+	isNull,
 	shortid,
 	sql,
 	tables,
@@ -251,6 +256,11 @@ const queueVerificationSchema = verificationMappingSchema.extend({
 	apiKey: z.string().min(1).max(20_000).optional(),
 });
 
+const carrierKeySchema = z.object({
+	masked: z.string(),
+	submittedAt: z.string(),
+});
+
 const claimSchema = z.object({
 	id: z.string(),
 	providerCompanyId: z.string(),
@@ -275,6 +285,10 @@ const claimSchema = z.object({
 	// provider runs on it unless the carrier pastes another one.
 	verificationKeyMasked: z.string().nullable(),
 	verificationKeySetAt: z.string().nullable(),
+	// Custom carriers only: the provider key we serve traffic with, and a
+	// replacement awaiting admin approval. Resolved on the companies listing.
+	providerKey: carrierKeySchema.nullable(),
+	pendingProviderKey: carrierKeySchema.nullable(),
 	createdAt: z.string(),
 });
 
@@ -450,10 +464,13 @@ type ProviderClaimRow = typeof tables.providerClaim.$inferSelect;
 type PriceFilingRow = typeof tables.providerPriceFiling.$inferSelect;
 type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
 
+type CarrierKeySummary = z.infer<typeof carrierKeySchema>;
+
 function serializeClaim(
 	row: ProviderClaimRow,
 	providerNames: Map<string, string>,
 	credentialedProviders?: Set<string>,
+	carrierKeys?: Map<string, CarrierKeySummary>,
 ) {
 	return {
 		id: row.id,
@@ -474,8 +491,41 @@ function serializeClaim(
 		hasManagedCredential: credentialedProviders?.has(row.providerId) ?? true,
 		verificationKeyMasked: row.verificationKeyMasked,
 		verificationKeySetAt: row.verificationKeyUpdatedAt?.toISOString() ?? null,
+		providerKey: row.providerKeyId
+			? (carrierKeys?.get(row.providerKeyId) ?? null)
+			: null,
+		pendingProviderKey: row.pendingProviderKeyId
+			? (carrierKeys?.get(row.pendingProviderKeyId) ?? null)
+			: null,
 		createdAt: row.createdAt.toISOString(),
 	};
+}
+
+/** Masked summaries of the provider keys the given claims point at. */
+async function carrierKeySummaries(
+	claims: ProviderClaimRow[],
+): Promise<Map<string, CarrierKeySummary>> {
+	const ids = claims.flatMap((claim) =>
+		[claim.providerKeyId, claim.pendingProviderKeyId].filter(
+			(id): id is string => id !== null,
+		),
+	);
+	if (ids.length === 0) {
+		return new Map();
+	}
+	const keys = await db.query.providerKey.findMany({
+		where: { id: { in: ids }, status: { ne: "deleted" } },
+		columns: { id: true, tokenMasked: true, createdAt: true },
+	});
+	return new Map(
+		keys.map((key) => [
+			key.id,
+			{
+				masked: key.tokenMasked ?? "",
+				submittedAt: key.createdAt.toISOString(),
+			},
+		]),
+	);
 }
 
 /**
@@ -839,12 +889,12 @@ airside.openapi(listCompanies, async (c) => {
 		orderBy: { createdAt: "asc" },
 	});
 	const providerNames = providerNamesById;
-	const credentialed = await credentialedProviderIds([
-		...new Set(
-			memberships.flatMap(
-				(m) => m.providerCompany?.claims.map((claim) => claim.providerId) ?? [],
-			),
-		),
+	const allClaims = memberships.flatMap((m) => m.providerCompany?.claims ?? []);
+	const [credentialed, carrierKeys] = await Promise.all([
+		credentialedProviderIds([
+			...new Set(allClaims.map((claim) => claim.providerId)),
+		]),
+		carrierKeySummaries(allClaims),
 	]);
 	// Only fetch the Stripe amount while someone still has the fee ahead of
 	// them — the paid state never renders it.
@@ -876,7 +926,9 @@ airside.openapi(listCompanies, async (c) => {
 						// Rejected claims stay visible so the carrier sees the
 						// review note; only revoked ones disappear.
 						.filter((claim) => claim.status !== "revoked")
-						.map((claim) => serializeClaim(claim, providerNames, credentialed)),
+						.map((claim) =>
+							serializeClaim(claim, providerNames, credentialed, carrierKeys),
+						),
 				},
 			];
 		}),
@@ -2015,7 +2067,9 @@ const registerCarrier = createRoute({
 						logoUrl: imageDataUrl(LOGO_MAX_BYTES).optional(),
 						iconUrl: imageDataUrl(ICON_MAX_BYTES).optional(),
 						// The key we serve the carrier's traffic with once approved.
-						apiKey: z.string().trim().min(1).max(20_000),
+						providerKey: z.string().trim().min(1).max(20_000),
+						// A separate key for preflight runs, billed apart from traffic.
+						testingKey: z.string().trim().min(1).max(20_000),
 					}),
 				},
 			},
@@ -2087,6 +2141,7 @@ airside.openapi(registerCarrier, async (c) => {
 			message: PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
 		});
 	}
+	assertDistinctRegistrationKeys(body.providerKey, body.testingKey);
 	// The same anti-squatting rule as claiming: the registered endpoint must
 	// live on a domain the registrant proved — their verified email's domain,
 	// or one their company published our TXT token on. The SSRF guard keeps
@@ -2133,6 +2188,12 @@ airside.openapi(registerCarrier, async (c) => {
 	try {
 		// cdb: managed provider_key rows feed the gateway's credential cache.
 		claim = await cdb.transaction(async (tx) => {
+			// Serves the carrier's traffic once an admin approves the
+			// registration (see admin-airside approveClaim).
+			await tx.insert(tables.providerKey).values({
+				...carrierProviderKeyValues(body.providerKey, providerKeyId),
+				provider: providerId,
+			});
 			const [inserted] = await tx
 				.insert(tables.providerClaim)
 				.values({
@@ -2147,25 +2208,14 @@ airside.openapi(registerCarrier, async (c) => {
 					logoUrl: body.logoUrl ?? null,
 					iconUrl: body.iconUrl ?? null,
 					claimedBy: user.id,
-					// The same key runs the carrier's preflight checks.
+					pendingProviderKeyId: providerKeyId,
 					...claimVerificationKeyValues(
-						body.apiKey,
+						body.testingKey,
 						claimId,
 						body.providerCompanyId,
 					),
 				})
 				.returning();
-			// Serves the carrier's traffic: inactive until an admin approves
-			// the registration (see admin-airside approveClaim).
-			await tx.insert(tables.providerKey).values({
-				id: providerKeyId,
-				managed: true,
-				organizationId: null,
-				provider: providerId,
-				status: "inactive",
-				comment: "Filed with the Airside carrier registration",
-				...encryptProviderKeyForStorage(body.apiKey, providerKeyId, null),
-			});
 			return inserted;
 		});
 	} catch (err) {
@@ -2345,6 +2395,151 @@ airside.openapi(deleteVerificationKey, async (c) => {
 		})
 		.where(eq(tables.providerClaim.id, id));
 	return c.json({ verificationKeyMasked: null, verificationKeySetAt: null });
+});
+
+// A custom carrier's provider key serves live traffic, so a replacement only
+// takes over once an admin approves it (admin-airside provider-key/approve).
+const pendingProviderKeySchema = z.object({
+	pendingProviderKey: carrierKeySchema.nullable(),
+});
+
+/** Compare-and-set guard on the claim's pending provider key pointer. */
+function pendingProviderKeyIs(id: string | null) {
+	return id
+		? eq(tables.providerClaim.pendingProviderKeyId, id)
+		: isNull(tables.providerClaim.pendingProviderKeyId);
+}
+
+async function requireOwnedCustomClaim(userId: string, claimId: string) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: claimId } },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	await requireCompanyMembership(userId, claim.providerCompanyId);
+	if (claim.kind !== "custom") {
+		throw new HTTPException(409, {
+			message: "Only registered carriers supply their own provider key.",
+		});
+	}
+	if (claim.status !== "active") {
+		throw new HTTPException(409, {
+			message: "Only an active carrier can replace its provider key.",
+		});
+	}
+	return claim;
+}
+
+const submitProviderKey = createRoute({
+	method: "put",
+	path: "/claims/{id}/provider-key",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ apiKey: z.string().trim().min(1).max(20_000) }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: pendingProviderKeySchema },
+			},
+			description: "The replacement key, masked and awaiting approval.",
+		},
+	},
+});
+
+airside.openapi(submitProviderKey, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const { apiKey } = c.req.valid("json");
+	const claim = await requireOwnedCustomClaim(user.id, id);
+	await assertProviderKeyIsSeparate(claim, apiKey);
+	const providerKeyId = shortid();
+	// cdb: managed provider_key rows feed the gateway's credential cache.
+	const key = await cdb.transaction(async (tx) => {
+		const [inserted] = await tx
+			.insert(tables.providerKey)
+			.values({
+				...carrierProviderKeyValues(apiKey, providerKeyId),
+				provider: claim.providerId,
+			})
+			.returning();
+		// A new submission replaces one still awaiting review.
+		if (claim.pendingProviderKeyId) {
+			await tx
+				.update(tables.providerKey)
+				.set({ status: "deleted" })
+				.where(eq(tables.providerKey.id, claim.pendingProviderKeyId));
+		}
+		const updated = await tx
+			.update(tables.providerClaim)
+			.set({ pendingProviderKeyId: providerKeyId })
+			.where(
+				and(
+					eq(tables.providerClaim.id, claim.id),
+					pendingProviderKeyIs(claim.pendingProviderKeyId),
+				),
+			)
+			.returning({ id: tables.providerClaim.id });
+		if (updated.length === 0) {
+			throw new HTTPException(409, {
+				message:
+					"Your provider key changed in the meantime — reload and retry.",
+			});
+		}
+		return inserted;
+	});
+	return c.json({
+		pendingProviderKey: {
+			masked: key.tokenMasked ?? "",
+			submittedAt: key.createdAt.toISOString(),
+		},
+	});
+});
+
+const withdrawProviderKey = createRoute({
+	method: "delete",
+	path: "/claims/{id}/provider-key",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: pendingProviderKeySchema },
+			},
+			description: "The replacement awaiting approval was withdrawn.",
+		},
+	},
+});
+
+airside.openapi(withdrawProviderKey, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const claim = await requireOwnedCustomClaim(user.id, id);
+	const pendingId = claim.pendingProviderKeyId;
+	if (pendingId) {
+		await cdb.transaction(async (tx) => {
+			await tx
+				.update(tables.providerKey)
+				.set({ status: "deleted" })
+				.where(eq(tables.providerKey.id, pendingId));
+			await tx
+				.update(tables.providerClaim)
+				.set({ pendingProviderKeyId: null })
+				.where(
+					and(
+						eq(tables.providerClaim.id, claim.id),
+						pendingProviderKeyIs(pendingId),
+					),
+				);
+		});
+	}
+	return c.json({ pendingProviderKey: null });
 });
 
 // ---------------------------------------------------------------------------
