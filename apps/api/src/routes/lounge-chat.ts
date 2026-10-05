@@ -13,6 +13,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { listConnectorTools } from "@/lib/connectors/tools.js";
 import { resolvePlaygroundToken } from "@/utils/playground-key.js";
+import { isUpstreamError } from "@/utils/upstream-error.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { logger } from "@llmgateway/logger";
@@ -190,8 +191,10 @@ loungeChat.openapi(
 			temperature: body.temperature,
 			maxOutputTokens: body.maxTokens,
 			maxRetries: 0,
+			// Upstream failures reach the client below, so they are warnings.
 			onError: ({ error }) => {
-				logger.error("Lounge chat stream failed", {
+				const level = isUpstreamError(error) ? "warn" : "error";
+				logger[level]("Lounge chat stream failed", {
 					errorName: error instanceof Error ? error.name : "UnknownError",
 					upstreamStatus: APICallError.isInstance(error)
 						? error.statusCode

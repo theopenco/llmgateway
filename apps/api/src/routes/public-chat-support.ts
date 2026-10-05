@@ -24,6 +24,7 @@ import {
 import { notifyChatSupportEscalation } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
+import { isUpstreamError } from "@/utils/upstream-error.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { and, db, desc, eq, isNull, tables } from "@llmgateway/db";
@@ -603,9 +604,11 @@ publicChatSupport.post("/", async (c) => {
 			}),
 		},
 		// Without this the AI SDK console.error()s the error, which emits one
-		// log entry per line of its inspected output.
+		// log entry per line of its inspected output. Upstream failures reach the
+		// visitor below, so they are warnings.
 		onError: ({ error }) => {
-			logger.error(
+			const level = isUpstreamError(error) ? "warn" : "error";
+			logger[level](
 				"Chat support streaming error",
 				toError(error),
 				getStreamErrorDetails(error),
