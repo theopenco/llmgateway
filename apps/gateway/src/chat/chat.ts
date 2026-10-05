@@ -46,8 +46,11 @@ import {
 } from "@/lib/coding-models.js";
 import {
 	complianceBlockMessage,
+	DATA_RESIDENCY_HEADER,
 	getActiveCompliancePolicy,
 	getComplianceFailureReasons,
+	getRequestDataResidency,
+	withRequestDataResidency,
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
@@ -3244,6 +3247,12 @@ chat.openapi(completions, async (c) => {
 	// to the upstream provider API — derived from the chosen provider
 	// mapping after routing. Empty until routing resolves a mapping.
 	let usedExternalId: string = requestedModel;
+	// Parsed up front: the dynamic-route classifier runs before routing and must
+	// honour a request-level residency as well as the org policy.
+	const requestDataResidency = getRequestDataResidency(
+		c.req.header(DATA_RESIDENCY_HEADER),
+		c.req.header("host"),
+	);
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
 	// Verdict a dynamic route's classifier nodes branched on, recorded on the
@@ -3292,6 +3301,7 @@ chat.openapi(completions, async (c) => {
 		if (graphUsesClassifier(publishedRoute.graph)) {
 			dynamicRouteClassification = await resolveDynamicRouteClassification({
 				organization,
+				dataResidency: requestDataResidency,
 				context: {
 					requestId,
 					project,
@@ -3541,7 +3551,10 @@ chat.openapi(completions, async (c) => {
 	// Enterprise provider compliance guardrails: drop providers that do not meet
 	// the org's required certifications/data policies, and block the request when
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
-	const compliancePolicy = getActiveCompliancePolicy(organization);
+	const compliancePolicy = withRequestDataResidency(
+		getActiveCompliancePolicy(organization),
+		requestDataResidency,
+	);
 
 	const complianceContextFor = (
 		provider: ProviderModelMapping,
@@ -3553,7 +3566,16 @@ chat.openapi(completions, async (c) => {
 							?.complianceAttestation ?? null,
 					customProviderName: provider.customProviderName,
 				}
-			: complianceContext;
+			: {
+					...complianceContext,
+					// Only a concrete region counts. A mapping listed once with several
+					// regions resolves to its default region at request time, so it must
+					// not borrow residency from regions[0]. A pinned `:region` request
+					// routes to exactly that region.
+					region:
+						provider.region ??
+						(provider.providerId === usedProvider ? usedRegion : undefined),
+				};
 
 	// Which policy rules a dropped mapping failed, recorded next to the coarse
 	// "compliance" code so the routing analytics can break the total down by rule
@@ -3609,7 +3631,10 @@ chat.openapi(completions, async (c) => {
 			usedProvider !== undefined &&
 			usedProvider !== "llmgateway" &&
 			usedProvider !== "custom" &&
-			!isProviderIdCompliant(usedProvider, compliancePolicy, complianceContext);
+			!isProviderIdCompliant(usedProvider, compliancePolicy, {
+				...complianceContext,
+				region: usedRegion,
+			});
 		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,

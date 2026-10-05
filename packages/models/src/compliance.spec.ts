@@ -14,6 +14,7 @@ import {
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
+	isRegionInDataResidency,
 	isStealthProvider,
 	PROVIDER_COUNTRY_NAMES,
 	providers,
@@ -983,5 +984,88 @@ describe("getCompliantProvidersForModel", () => {
 				now,
 			),
 		).toEqual([]);
+	});
+});
+
+describe("data residency", () => {
+	const base = getProviderDefinition("openai")!;
+	const inEu: ProviderDefinition = {
+		...base,
+		id: "eu-test",
+		headquarters: "FR",
+	};
+	const inUs: ProviderDefinition = {
+		...base,
+		id: "us-test",
+		headquarters: "US",
+	};
+	const unknown: ProviderDefinition = {
+		...base,
+		id: "unknown-test",
+		headquarters: null,
+	};
+	const policy: ProviderCompliancePolicy = {
+		enabled: true,
+		dataResidency: "eu",
+	};
+
+	it("accepts providers headquartered in the EU/EEA", () => {
+		expect(getProviderComplianceFailures(inEu, policy)).toEqual([]);
+	});
+
+	it("rejects providers outside the jurisdiction and unknown headquarters", () => {
+		expect(getProviderComplianceFailures(inUs, policy)).toEqual([
+			"dataResidency",
+		]);
+		expect(getProviderComplianceFailures(unknown, policy)).toEqual([
+			"dataResidency",
+		]);
+	});
+
+	it("accepts an in-jurisdiction regional endpoint of an outside provider", () => {
+		expect(getProviderComplianceFailures(inUs, policy, "eu-frankfurt")).toEqual(
+			[],
+		);
+		expect(getProviderComplianceFailures(inUs, policy, "europe-west4")).toEqual(
+			[],
+		);
+		expect(getProviderComplianceFailures(inUs, policy, "eu-west-2")).toEqual([
+			"dataResidency",
+		]);
+		expect(getProviderComplianceFailures(inUs, policy, "us-east-1")).toEqual([
+			"dataResidency",
+		]);
+	});
+
+	it("keeps other requirements when a region satisfies residency", () => {
+		expect(
+			getProviderComplianceFailures(
+				inUs,
+				{ ...policy, blockedProviders: ["us-test"] },
+				"eu-frankfurt",
+			),
+		).toEqual(["blockedProviders"]);
+	});
+
+	it("is ignored by a disabled policy", () => {
+		expect(
+			getProviderComplianceFailures(inUs, {
+				enabled: false,
+				dataResidency: "eu",
+			}),
+		).toEqual([]);
+	});
+
+	it("matches EU region ids only", () => {
+		expect(isRegionInDataResidency("eu-frankfurt", "eu")).toBe(true);
+		expect(isRegionInDataResidency("eu-central-1", "eu")).toBe(true);
+		expect(isRegionInDataResidency("europe-west1", "eu")).toBe(true);
+		expect(isRegionInDataResidency("eu-west-2", "eu")).toBe(false);
+		expect(isRegionInDataResidency("eu-central-2", "eu")).toBe(false);
+		expect(isRegionInDataResidency("europe-west2", "eu")).toBe(false);
+		expect(isRegionInDataResidency("eu", "eu")).toBe(false);
+		expect(isRegionInDataResidency("eurasia", "eu")).toBe(false);
+		expect(isRegionInDataResidency("us-virginia", "eu")).toBe(false);
+		expect(isRegionInDataResidency(undefined, "eu")).toBe(false);
 	});
 });

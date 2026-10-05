@@ -1,0 +1,44 @@
+---
+title: Data Residency
+description: Keep requests inside the EU with an organization policy or a per-request header
+icon: Globe
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+Data residency restricts routing to providers that keep requests in a jurisdiction. The `eu` residency covers the EU and EEA.
+
+<Callout type="info">
+	Organization-wide residency is part of the [compliance
+	policy](/features/compliance) and is available on the [**Enterprise
+	plan**](https://llmgateway.io/enterprise).
+</Callout>
+
+## What qualifies
+
+A provider mapping qualifies when either:
+
+- the provider is headquartered in the EU or EEA, or
+- the request pins one of the provider's regional endpoints located in an EU or EEA country, for example `alibaba/qwen-plus:eu-frankfurt`. London (`eu-west-2`), Zurich (`eu-central-2`), and multi-country profiles such as Bedrock's `eu` do not qualify. An unpinned request to a provider outside the EU does not qualify, because it would use the provider's default region.
+
+Providers with unknown headquarters never qualify. Everything else in your compliance policy still applies on top. The live [providers page](https://llmgateway.io/providers) shows each provider's headquarters, and the **Provider Impact** preview on the Compliance page lists which providers remain eligible.
+
+## Organization policy
+
+On **Compliance**, enable the policy and choose **European Union (EU/EEA)** under **Data Residency**. Every request from the organization is then restricted. A request with no qualifying provider is rejected with `403` before any data is sent, and the block is recorded as a security event.
+
+## Per-request opt-in
+
+Without an organization policy, a single request can ask for residency:
+
+```bash
+curl https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "x-llmgateway-data-residency: eu" \
+  -H "Content-Type: application/json" \
+  -d '{ "model": "auto", "messages": [{ "role": "user", "content": "Hello" }] }'
+```
+
+A host name whose first label is `eu` (for example `eu.api.example.com` on a self-hosted deployment routed to the gateway) has the same effect. A request can only add a restriction: an unknown value returns `400`, and a value that conflicts with the organization's residency returns `400`.
+
+The organization policy applies to every routed request. The per-request header and host are read on `/v1/chat/completions`.

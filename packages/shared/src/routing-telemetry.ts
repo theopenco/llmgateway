@@ -72,6 +72,7 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	compliance_zero_retention: "compliance: does not support zero data retention",
 	compliance_stealth_provider: "compliance: stealth provider",
 	compliance_country: "compliance: headquarters not in an allowed country",
+	compliance_data_residency: "compliance: outside the required data residency",
 	compliance_blocked_provider: "compliance: on the blocked-providers list",
 	compliance_provider_allowlist:
 		"compliance: not on the allowed-providers list",
@@ -135,6 +136,7 @@ export const ROUTING_EXCLUSION_REASON_LABELS: Record<
 	compliance_zero_retention: "Zero data retention",
 	compliance_stealth_provider: "Stealth provider",
 	compliance_country: "Headquarters country",
+	compliance_data_residency: "Data residency",
 	compliance_blocked_provider: "Blocked provider",
 	compliance_provider_allowlist: "Provider allowlist",
 	compliance_blocked_model: "Blocked model",
@@ -160,6 +162,7 @@ export const COMPLIANCE_EXCLUSION_REASONS = {
 	zeroDataRetention: "compliance_zero_retention",
 	blockStealthProviders: "compliance_stealth_provider",
 	allowedCountries: "compliance_country",
+	dataResidency: "compliance_data_residency",
 	blockedProviders: "compliance_blocked_provider",
 	allowedProviders: "compliance_provider_allowlist",
 	blockedModels: "compliance_blocked_model",

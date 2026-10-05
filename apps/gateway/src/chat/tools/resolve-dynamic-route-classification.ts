@@ -1,6 +1,7 @@
 import {
 	getActiveCompliancePolicy,
 	isProviderIdCompliant,
+	withRequestDataResidency,
 } from "@/lib/compliance.js";
 import { createDynamicRouteClassifierStore } from "@/lib/smart-routing-session.js";
 
@@ -8,12 +9,14 @@ import { hasContentFilterCredential } from "./content-filter-credential.js";
 import { classifyRequest } from "./jev-request-classifier.js";
 
 import type { ClassifierRequestContext } from "./log-classifier-usage.js";
-import type { BaseMessage } from "@llmgateway/models";
+import type { BaseMessage, DataResidency } from "@llmgateway/models";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 import type { RequestClassification } from "@llmgateway/shared/smart-routing";
 
 interface ResolveDynamicRouteClassificationParams {
 	organization: Parameters<typeof getActiveCompliancePolicy>[0];
+	/** Residency requested by the call itself; tightens the org policy. */
+	dataResidency?: DataResidency;
 	context: ClassifierRequestContext;
 	sessionId?: string;
 	sessionStickyEnabled: boolean;
@@ -40,7 +43,10 @@ export async function resolveDynamicRouteClassification(
 	// The classifier sends prompt text to TypeSafe, so an organization whose
 	// compliance policy disallows that provider must not have its prompts sent
 	// there — the same fail-closed rule the content filter applies.
-	const compliancePolicy = getActiveCompliancePolicy(params.organization);
+	const compliancePolicy = withRequestDataResidency(
+		getActiveCompliancePolicy(params.organization),
+		params.dataResidency,
+	);
 	if (
 		compliancePolicy &&
 		!isProviderIdCompliant("typesafe", compliancePolicy)

@@ -161,6 +161,12 @@ export interface ProviderCompliancePolicy {
 	 */
 	allowedCountries?: string[];
 	/**
+	 * Restrict routing to providers headquartered in the named jurisdiction
+	 * (see {@link DATA_RESIDENCY_COUNTRIES}). Combines with `allowedCountries`:
+	 * a provider must pass both. Fail-closed on unknown headquarters.
+	 */
+	dataResidency?: DataResidency;
+	/**
 	 * Deny list of individual providers. Entries are catalogue provider ids
 	 * (e.g. "openai") or `custom:<name>` refs (see {@link customProviderRef})
 	 * for the org's own custom providers. A listed provider is always blocked,
@@ -187,6 +193,89 @@ export interface ProviderCompliancePolicy {
 	 * requested. Empty/omitted applies no allow-list restriction.
 	 */
 	allowedModels?: string[];
+}
+
+export const DATA_RESIDENCY_OPTIONS = ["eu"] as const;
+export type DataResidency = (typeof DATA_RESIDENCY_OPTIONS)[number];
+
+/** Headquarters countries (ISO 3166-1 alpha-2) that satisfy each residency. */
+export const DATA_RESIDENCY_COUNTRIES: Record<
+	DataResidency,
+	readonly string[]
+> = {
+	eu: [
+		"AT",
+		"BE",
+		"BG",
+		"HR",
+		"CY",
+		"CZ",
+		"DK",
+		"EE",
+		"FI",
+		"FR",
+		"DE",
+		"GR",
+		"HU",
+		"IE",
+		"IT",
+		"LV",
+		"LT",
+		"LU",
+		"MT",
+		"NL",
+		"PL",
+		"PT",
+		"RO",
+		"SK",
+		"SI",
+		"ES",
+		"SE",
+		"IS",
+		"LI",
+		"NO",
+	],
+};
+
+/**
+ * Regional endpoint ids located inside each residency. An explicit allowlist,
+ * not a prefix: cloud "eu-*" ids include London (eu-west-2) and Zurich
+ * (eu-central-2), and multi-country inference profiles ("eu") can span them.
+ */
+const DATA_RESIDENCY_REGIONS: Record<DataResidency, ReadonlySet<string>> = {
+	eu: new Set([
+		"eu-frankfurt",
+		"eu-central-1",
+		"eu-west-1",
+		"eu-west-3",
+		"eu-north-1",
+		"eu-south-1",
+		"eu-south-2",
+		"europe-west1",
+		"europe-west3",
+		"europe-west4",
+		"europe-west8",
+		"europe-west9",
+		"europe-west10",
+		"europe-west12",
+		"europe-north1",
+		"europe-central2",
+		"europe-southwest1",
+	]),
+};
+
+export function isDataResidency(value: unknown): value is DataResidency {
+	return DATA_RESIDENCY_OPTIONS.includes(value as DataResidency);
+}
+
+/** Whether a regional endpoint id (e.g. "eu-frankfurt") is inside the residency. */
+export function isRegionInDataResidency(
+	region: string | null | undefined,
+	residency: DataResidency,
+): boolean {
+	return (
+		!!region && DATA_RESIDENCY_REGIONS[residency].has(region.toLowerCase())
+	);
 }
 
 /** DevPass exposes only the no-API-training requirement. */
@@ -2393,6 +2482,7 @@ export type ComplianceFailureReason =
 	| "zeroDataRetention"
 	| "blockStealthProviders"
 	| "allowedCountries"
+	| "dataResidency"
 	| "blockedProviders"
 	| "allowedProviders"
 	| "blockedModels"
@@ -2451,6 +2541,13 @@ export function getDataPolicyComplianceFailures(
 		(!headquarters || !policy.allowedCountries.includes(headquarters))
 	) {
 		failures.push("allowedCountries");
+	}
+	if (
+		policy.dataResidency &&
+		(!headquarters ||
+			!DATA_RESIDENCY_COUNTRIES[policy.dataResidency].includes(headquarters))
+	) {
+		failures.push("dataResidency");
 	}
 	return failures;
 }
@@ -2620,11 +2717,16 @@ export function getProviderRequirementFailures(
 export function getProviderComplianceFailures(
 	provider: ProviderDefinition,
 	policy: ProviderCompliancePolicy,
+	region?: string | null,
 ): ComplianceFailureReason[] {
-	return [
+	const failures = [
 		...getProviderRefPolicyListFailures(provider.id, policy),
 		...getProviderRequirementFailures(provider, policy),
 	];
+	return policy.dataResidency &&
+		isRegionInDataResidency(region, policy.dataResidency)
+		? failures.filter((failure) => failure !== "dataResidency")
+		: failures;
 }
 
 export interface ModelMappingAvailability {
