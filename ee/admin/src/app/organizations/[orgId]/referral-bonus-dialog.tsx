@@ -17,61 +17,78 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 interface ReferralBonusDialogProps {
+	orgId: string;
 	orgName: string;
 	enabled: boolean;
 	percent: number;
-	onSave: (data: {
-		enabled: boolean;
-		percent: number;
-	}) => Promise<{ success: boolean; error?: string }>;
 }
 
 export function ReferralBonusDialog({
+	orgId,
 	orgName,
 	enabled,
 	percent,
-	onSave,
 }: ReferralBonusDialogProps) {
 	const router = useRouter();
+	const $api = useApi();
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [validationError, setValidationError] = useState<string | null>(null);
 	const [isEnabled, setIsEnabled] = useState(enabled);
 	const [percentValue, setPercentValue] = useState(String(percent));
 
-	const handleSubmit = async () => {
+	const saveMutation = $api.useMutation(
+		"patch",
+		"/admin/organizations/{orgId}/referral-bonus",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
+				setOpen(false);
+				router.refresh();
+			},
+		},
+	);
+	const loading = saveMutation.isPending;
+	const error =
+		validationError ??
+		(saveMutation.isError
+			? apiErrorMessage(saveMutation.error, "Failed to update referral bonus")
+			: null);
+
+	const handleOpenChange = (next: boolean) => {
+		if (next) {
+			saveMutation.reset();
+			setValidationError(null);
+		}
+		setOpen(next);
+	};
+
+	const handleSubmit = () => {
 		const parsed = parseFloat(percentValue);
 		const isValidPercent = !isNaN(parsed) && parsed >= 0 && parsed <= 1000;
 
 		// Only block on an invalid percent when the bonus is being enabled;
 		// disabling should always succeed regardless of the (disabled) input.
 		if (isEnabled && !isValidPercent) {
-			setError("Percent must be a number between 0 and 1000");
+			setValidationError("Percent must be a number between 0 and 1000");
 			return;
 		}
 
-		setLoading(true);
-		setError(null);
-
-		const result = await onSave({
-			enabled: isEnabled,
-			percent: isValidPercent ? parsed : percent,
+		setValidationError(null);
+		saveMutation.mutate({
+			params: { path: { orgId } },
+			body: {
+				enabled: isEnabled,
+				percent: isValidPercent ? parsed : percent,
+			},
 		});
-
-		setLoading(false);
-
-		if (result.success) {
-			setOpen(false);
-			router.refresh();
-		} else {
-			setError(result.error ?? "Failed to update referral bonus");
-		}
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogTrigger asChild>
 				<Button variant="outline" size="sm">
 					<Percent className="mr-1.5 h-4 w-4" />

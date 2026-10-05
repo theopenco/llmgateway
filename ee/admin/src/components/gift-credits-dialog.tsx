@@ -17,57 +17,69 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 interface GiftCreditsDialogProps {
 	orgId: string;
 	orgName: string;
-	onGift: (data: {
-		creditAmount: number;
-		comment?: string;
-	}) => Promise<{ success: boolean; error?: string }>;
 }
 
-export function GiftCreditsDialog({
-	orgId: _orgId,
-	orgName,
-	onGift,
-}: GiftCreditsDialogProps) {
+export function GiftCreditsDialog({ orgId, orgName }: GiftCreditsDialogProps) {
 	const router = useRouter();
+	const $api = useApi();
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [validationError, setValidationError] = useState<string | null>(null);
 	const [creditAmount, setCreditAmount] = useState("");
 	const [comment, setComment] = useState("");
 
-	const handleSubmit = async () => {
+	const giftMutation = $api.useMutation(
+		"post",
+		"/admin/organizations/{orgId}/gift-credits",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
+				setOpen(false);
+				setCreditAmount("");
+				setComment("");
+				router.refresh();
+			},
+		},
+	);
+	const loading = giftMutation.isPending;
+	const error =
+		validationError ??
+		(giftMutation.isError
+			? apiErrorMessage(giftMutation.error, "Failed to gift credits")
+			: null);
+
+	const handleOpenChange = (next: boolean) => {
+		if (next) {
+			giftMutation.reset();
+			setValidationError(null);
+		}
+		setOpen(next);
+	};
+
+	const handleSubmit = () => {
 		const amount = parseFloat(creditAmount);
 		if (isNaN(amount) || amount <= 0) {
-			setError("Credit amount must be a positive number");
+			setValidationError("Credit amount must be a positive number");
 			return;
 		}
 
-		setLoading(true);
-		setError(null);
-
-		const result = await onGift({
-			creditAmount: amount,
-			comment: comment.trim() || undefined,
+		setValidationError(null);
+		giftMutation.mutate({
+			params: { path: { orgId } },
+			body: {
+				creditAmount: amount,
+				comment: comment.trim() || undefined,
+			},
 		});
-
-		setLoading(false);
-
-		if (result.success) {
-			setOpen(false);
-			setCreditAmount("");
-			setComment("");
-			router.refresh();
-		} else {
-			setError(result.error ?? "Failed to gift credits");
-		}
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogTrigger asChild>
 				<Button variant="outline" size="sm">
 					<Gift className="mr-1.5 h-4 w-4" />

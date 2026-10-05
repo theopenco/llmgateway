@@ -5059,6 +5059,47 @@ export const providerCompany = pgTable("provider_company", {
 	listingInviteCode: text(),
 });
 
+// Money received for provider listing fees. Neither payer is an
+// `organization`, so these stay out of `transaction`. One row per paid Stripe
+// checkout session, so a duplicate charge awaiting refund is still counted.
+export const providerListingPayment = pgTable(
+	"provider_listing_payment",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// `airside`: the carrier listing fee. `listing_request`: the fee on the
+		// retired public listing-request form.
+		source: text({ enum: ["airside", "listing_request"] }).notNull(),
+		providerCompanyId: text().references(() => providerCompany.id, {
+			onDelete: "set null",
+		}),
+		providerListingRequestId: text().references(
+			() => providerListingRequest.id,
+			{ onDelete: "set null" },
+		),
+		amount: decimal().notNull(),
+		// Cumulative amount sent back to the payer.
+		refundedAmount: decimal().notNull().default("0"),
+		currency: text().notNull().default("USD"),
+		stripeCheckoutSessionId: text().notNull(),
+		stripePaymentIntentId: text(),
+		paidAt: timestamp().notNull(),
+	},
+	(table) => [
+		uniqueIndex("provider_listing_payment_checkout_session_unique").on(
+			table.stripeCheckoutSessionId,
+		),
+		index("provider_listing_payment_payment_intent_idx").on(
+			table.stripePaymentIntentId,
+		),
+		index("provider_listing_payment_paid_at_idx").on(table.paidAt),
+	],
+);
+
 // Domains a company has proven, and how. A verified `dns` row counts alongside
 // the verified email domain when matching carrier claims, so a company can
 // host its API on a domain unrelated to its staff mail; the TXT token is the

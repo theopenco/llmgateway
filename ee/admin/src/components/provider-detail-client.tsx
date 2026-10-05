@@ -1,16 +1,17 @@
 "use client";
 
+import { keepPreviousData } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { DetailStatCards } from "@/components/detail-stat-cards";
 import { HistoryChart, windowOptions } from "@/components/history-chart";
 import { ProviderModelsTable } from "@/components/provider-models-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getProviderDetail, getProviderHistory } from "@/lib/admin-history";
 import { useApi } from "@/lib/fetch-client";
+import { useHistoryClient } from "@/lib/history-client";
 
 import { getProviderIcon } from "@llmgateway/shared";
 
@@ -128,42 +129,28 @@ export function ProviderDetailClient({
 	const router = useRouter();
 	const pathname = usePathname();
 	const window = parseHistoryWindow(searchParams.get("window"));
-	const [loading, setLoading] = useState(false);
-	const [info, setInfo] = useState<ProviderInfo>(providerInfo);
-	const [models, setModels] = useState<ProviderModelStats[]>(initialModels);
-	const initialWindowRef = useRef(window);
-
-	const loadDetail = useCallback(
-		async (w: HistoryWindow) => {
-			setLoading(true);
-			try {
-				const data = await getProviderDetail(providerId, w);
-				if (data) {
-					setInfo(data.provider);
-					setModels(data.models);
-				}
-			} finally {
-				setLoading(false);
-			}
-		},
-		[providerId],
+	// The server rendered the stats for the initial window; only refetch for others.
+	const [initialWindow] = useState(window);
+	const $api = useApi();
+	const detailQuery = $api.useQuery(
+		"get",
+		"/admin/providers/{providerId}",
+		{ params: { path: { providerId }, query: { window } } },
+		{ enabled: window !== initialWindow, placeholderData: keepPreviousData },
 	);
+	const detail = window === initialWindow ? undefined : detailQuery.data;
+	const info: ProviderInfo = detail?.provider ?? providerInfo;
+	const models: ProviderModelStats[] = detail?.models ?? initialModels;
+	const loading = window !== initialWindow && detailQuery.isFetching;
 
-	useEffect(() => {
-		if (window === initialWindowRef.current) {
-			return;
-		}
-		void loadDetail(window);
-	}, [loadDetail, window]);
-
+	const history = useHistoryClient();
 	const fetchHistory = useCallback(
 		async (w: HistoryWindow) => {
-			return await getProviderHistory(providerId, w);
+			return await history.providerHistory(providerId, w);
 		},
-		[providerId],
+		[history, providerId],
 	);
 
-	const $api = useApi();
 	const verificationsQuery = $api.useQuery(
 		"get",
 		"/admin/model-verifications",
