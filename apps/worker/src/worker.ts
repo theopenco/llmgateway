@@ -68,12 +68,14 @@ import {
 	GLOBAL_STATS_INTERVAL_SECONDS,
 	processClosedHours,
 } from "./services/global-stats-aggregator.js";
+import { checkModelErrorRateAlerts } from "./services/model-error-rate-alerts.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
 import { processNotifications } from "./services/notifications.js";
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
 	refreshProjectHourlyStats,
 } from "./services/project-stats-aggregator.js";
+import { syncProviderKeyModels } from "./services/provider-key-model-sync.js";
 import { runRoutingBaselineBackfillStep } from "./services/routing-baseline-backfill.js";
 import { runSourceModelStatsBackfillStep } from "./services/source-model-stats-backfill.js";
 import {
@@ -90,6 +92,7 @@ import {
 	processPendingWebhookDeliveries,
 } from "./services/video-jobs.js";
 import {
+	getStopSignal,
 	interruptibleSleep,
 	isStopRequested,
 	requestStop,
@@ -128,6 +131,7 @@ const LIMIT_HIT_FLUSH_LOCK_KEY = "limit_hit_flush";
 const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
+const MODEL_ERROR_RATE_ALERTS_LOCK_KEY = "model_error_rate_alerts";
 const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
 const SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY = "source_model_stats_backfill";
 const LOCK_DURATION_MINUTES = 5;
@@ -3264,6 +3268,80 @@ async function runNotificationsLoop() {
 	}
 }
 
+async function runModelErrorRateAlertsLoop() {
+	activeLoops++;
+	const interval = 60 * 1000;
+	logger.info(
+		`Starting model error-rate alerts loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(MODEL_ERROR_RATE_ALERTS_LOCK_KEY)) {
+					try {
+						await checkModelErrorRateAlerts();
+					} finally {
+						await releaseLock(MODEL_ERROR_RATE_ALERTS_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in model error-rate alerts loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Model error-rate alerts loop stopped");
+	}
+}
+
+const PROVIDER_KEY_MODEL_SYNC_LOCK_KEY = "provider_key_model_sync";
+
+async function runProviderKeyModelSyncLoop() {
+	activeLoops++;
+	// Hourly check; each credential is itself synced at most once a day.
+	const interval = 60 * 60 * 1000;
+	logger.info("Starting provider key model sync loop...");
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(PROVIDER_KEY_MODEL_SYNC_LOCK_KEY)) {
+					try {
+						await syncProviderKeyModels({
+							signal: getStopSignal(),
+							// A run outlasts the lock TTL, so keep the lock fresh.
+							onProgress: async () => {
+								await db
+									.update(tables.lock)
+									.set({ updatedAt: new Date() })
+									.where(eq(tables.lock.key, PROVIDER_KEY_MODEL_SYNC_LOCK_KEY));
+							},
+						});
+					} finally {
+						await releaseLock(PROVIDER_KEY_MODEL_SYNC_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in provider key model sync loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Provider key model sync loop stopped");
+	}
+}
+
 export async function startWorker() {
 	if (isWorkerRunning) {
 		logger.error("Worker is already running");
@@ -3401,6 +3479,8 @@ export async function startWorker() {
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
 	void runNotificationsLoop();
+	void runModelErrorRateAlertsLoop();
+	void runProviderKeyModelSyncLoop();
 	void runFollowUpEmailsLoop({
 		shouldStop: isStopRequested,
 		acquireLock,

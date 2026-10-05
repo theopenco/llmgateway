@@ -9,6 +9,7 @@ import { logger } from "@llmgateway/logger";
 import { GATEWAY_CONTENT_FILTER_MESSAGE } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
+import { lowerMidConversationBlocks } from "./anthropic/content-blocks.js";
 import { app } from "./app.js";
 import {
 	getTrackedKeyMetrics,
@@ -274,6 +275,155 @@ describe("api", () => {
 		// Before the fix this returned 400 with a Zod invalid_union error
 		// because `thinking` blocks weren't whitelisted in the content schema.
 		expect(res.status).toBe(200);
+	});
+
+	test("/v1/messages lowers mid-conversation tool changes and unknown blocks", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: any = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			// The shape Claude Code sends when an MCP server connects after the
+			// first turn (mid-conversation-tool-changes beta).
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					max_tokens: 1024,
+					tools: [
+						{
+							name: "mcp__late__lookup",
+							input_schema: { type: "object", properties: {} },
+						},
+					],
+					messages: [
+						{ role: "user", content: "Continue." },
+						{
+							role: "system",
+							content: [
+								{ type: "text", text: "An MCP server connected." },
+								{
+									type: "tool_addition",
+									tool: { type: "tool_reference", name: "mcp__late__lookup" },
+								},
+								{
+									type: "tool_addition",
+									tool: {
+										type: "tool_definition",
+										definition: {
+											name: "mcp__late__inline",
+											description: "Defined inline",
+											input_schema: { type: "object", properties: {} },
+										},
+									},
+								},
+								{
+									type: "tool_removal",
+									tool: { type: "tool_reference", name: "mcp__gone__tool" },
+								},
+								{ type: "some_future_block", payload: { a: 1 } },
+							],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const lowered = JSON.stringify(upstreamBody.messages);
+			expect(lowered).toContain("Tool now available: mcp__late__lookup");
+			expect(lowered).toContain("Tool now available: mcp__late__inline");
+			expect(lowered).toContain("Tool no longer available: mcp__gone__tool");
+			expect(lowered).not.toContain("tool_addition");
+			expect(lowered).not.toContain("some_future_block");
+			expect(
+				upstreamBody.tools.map(
+					(tool: { function: { name: string } }) => tool.function.name,
+				),
+			).toEqual(["mcp__late__lookup", "mcp__late__inline"]);
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test("/v1/messages still rejects a malformed known block", async () => {
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				messages: [{ role: "user", content: [{ type: "text" }] }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+	});
+
+	test("lowerMidConversationBlocks tracks surfaced and removed tools", () => {
+		const reference = (name: string) => ({
+			type: "tool_reference" as const,
+			name,
+		});
+		const { surfacedToolNames } = lowerMidConversationBlocks([
+			{
+				role: "system",
+				content: [
+					{ type: "tool_addition", tool: reference("kept") },
+					{ type: "tool_addition", tool: reference("dropped") },
+				],
+			},
+			{
+				role: "system",
+				content: [{ type: "tool_removal", tool: reference("dropped") }],
+			},
+		]);
+
+		expect([...surfacedToolNames]).toEqual(["kept"]);
 	});
 
 	test("/v1/messages pairs a legacy id-less function_call with its function result", async () => {
@@ -9330,6 +9480,58 @@ describe("api", () => {
 			expect(logs[0].unifiedFinishReason).toBe("completed");
 			expect(logs[0].hasError).toBe(false);
 		});
+
+		test.each([false, true])(
+			"upstream abort finish reason records error details (stream: %s)",
+			async (stream) => {
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					...hashApiKeyForStorage("real-token"),
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+
+				await db.insert(tables.providerKey).values({
+					id: "provider-key-id",
+					...encryptProviderKeyForStorage(
+						"sk-test-key",
+						"provider-key-id",
+						"org-id",
+					),
+					provider: "llmgateway",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: "llmgateway/custom",
+						messages: [{ role: "user", content: "TRIGGER_FINISH_ABORT" }],
+						stream,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				await res.text();
+
+				const logs = await waitForLogs(1);
+				expect(logs.length).toBe(1);
+				expect(logs[0].unifiedFinishReason).toBe("upstream_error");
+				expect(logs[0].hasError).toBe(true);
+				expect(logs[0].errorDetails).toEqual({
+					statusCode: 200,
+					statusText: "finish_reason: abort",
+					responseText:
+						'The provider answered 200 but ended the response early with finish_reason "abort".',
+				});
+			},
+		);
 
 		test("streaming OpenAI Responses API closes cleanly after done events", async () => {
 			await db.insert(tables.apiKey).values({

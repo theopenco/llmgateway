@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { detectCodingAgentFromUserAgent } from "@/chat/tools/detect-coding-agent.js";
-import { extractFirstSseEventData } from "@/chat/tools/extract-first-sse-event-data.js";
+import { extractSseEventData } from "@/chat/tools/extract-sse-event-data.js";
 import { applyPinnedDefaultRegions } from "@/chat/tools/pin-default-regions.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
@@ -81,6 +81,7 @@ import {
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
+	errorFinishReasonDetails,
 	getUnifiedFinishReason,
 	isContentFilterFinishReason,
 	isLengthLimitFinishReason,
@@ -144,6 +145,7 @@ import {
 	getDiscountedProviderSelectionPrice,
 	getGcpServiceAccountAccessToken,
 	getProviderApiTransport,
+	getUpstreamModelId,
 	getProviderEndpoint,
 	getProviderHeaders,
 	isPremiumServiceTier,
@@ -365,6 +367,7 @@ import {
 	describeSmartRoutingSwitch,
 	selectSmartRoutingModel,
 } from "./tools/smart-routing-selection.js";
+import { resolveSoftLimitExemptProvider } from "./tools/soft-rate-limit.js";
 import { resolveTieredContentFilterPlan } from "./tools/tiered-content-filter.js";
 import {
 	encodeChatMessages,
@@ -1200,7 +1203,56 @@ const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
 const SMART_ROUTING_MEDIUM_EFFORT_MIN_MAX_TOKENS = 8192;
 const SMART_ROUTING_HIGH_EFFORT_MIN_MAX_TOKENS = 16384;
 
-const IMMEDIATE_STREAM_ERROR_PEEK_LIMIT = 64 * 1024;
+// Responses `response.created` echoes the request's tools and instructions, so
+// the peek must hold more than one small event.
+const IMMEDIATE_STREAM_ERROR_PEEK_LIMIT = 256 * 1024;
+
+// Lifecycle events providers send before any output. An error right after them
+// (e.g. an Azure 429 at sequence_number 1) is still retryable.
+const STREAM_PREAMBLE_EVENT_TYPES = new Set([
+	"response.created",
+	"response.in_progress",
+	"message_start",
+	"ping",
+	"keepalive",
+]);
+
+function getImmediateStreamError(
+	parsedEvent: unknown,
+): Record<string, unknown> | null {
+	if (!parsedEvent || typeof parsedEvent !== "object") {
+		return null;
+	}
+	if ("error" in parsedEvent) {
+		return parsedEvent.error && typeof parsedEvent.error === "object"
+			? (parsedEvent.error as Record<string, unknown>)
+			: null;
+	}
+	// Responses API: {"type":"response.failed","response":{"error":{...}}}
+	if (
+		"type" in parsedEvent &&
+		parsedEvent.type === "response.failed" &&
+		"response" in parsedEvent &&
+		parsedEvent.response &&
+		typeof parsedEvent.response === "object" &&
+		"error" in parsedEvent.response &&
+		parsedEvent.response.error &&
+		typeof parsedEvent.response.error === "object"
+	) {
+		return parsedEvent.response.error as Record<string, unknown>;
+	}
+	return null;
+}
+
+function isStreamPreambleEvent(parsedEvent: unknown): boolean {
+	return (
+		!!parsedEvent &&
+		typeof parsedEvent === "object" &&
+		"type" in parsedEvent &&
+		typeof parsedEvent.type === "string" &&
+		STREAM_PREAMBLE_EVENT_TYPES.has(parsedEvent.type)
+	);
+}
 
 function inferStreamingErrorStatusCode(
 	openAiCompatibleStreamError: Record<string, unknown>,
@@ -1320,7 +1372,7 @@ export async function inspectImmediateStreamingProviderError(
 	let peekBuffer = "";
 
 	try {
-		while (peekBuffer.length < IMMEDIATE_STREAM_ERROR_PEEK_LIMIT) {
+		peek: while (peekBuffer.length < IMMEDIATE_STREAM_ERROR_PEEK_LIMIT) {
 			const { done, value } = await reader.read();
 			if (done) {
 				break;
@@ -1329,29 +1381,27 @@ export async function inspectImmediateStreamingProviderError(
 			replayChunks.push(value);
 			peekBuffer += decoder.decode(value, { stream: true });
 
-			const firstEventData = extractFirstSseEventData(peekBuffer);
-			if (!firstEventData) {
-				continue;
-			}
+			let parsedEvent: unknown = null;
+			let openAiCompatibleStreamError: Record<string, unknown> | null = null;
+			for (const eventData of extractSseEventData(peekBuffer)) {
+				try {
+					parsedEvent = JSON.parse(eventData);
+				} catch {
+					break peek;
+				}
 
-			let parsedEvent: unknown;
-			try {
-				parsedEvent = JSON.parse(firstEventData);
-			} catch {
-				break;
+				openAiCompatibleStreamError = getImmediateStreamError(parsedEvent);
+				if (openAiCompatibleStreamError) {
+					break;
+				}
+				// Output has started; anything later is a mid-stream error.
+				if (!isStreamPreambleEvent(parsedEvent)) {
+					break peek;
+				}
 			}
-
-			const openAiCompatibleStreamError =
-				parsedEvent &&
-				typeof parsedEvent === "object" &&
-				"error" in parsedEvent &&
-				parsedEvent.error &&
-				typeof parsedEvent.error === "object"
-					? (parsedEvent.error as Record<string, unknown>)
-					: null;
 
 			if (!openAiCompatibleStreamError) {
-				break;
+				continue;
 			}
 
 			const errorResponseText = JSON.stringify(parsedEvent);
@@ -2882,6 +2932,14 @@ chat.openapi(completions, async (c) => {
 				)
 			: undefined;
 
+	// A session pinned to a provider keeps it past a soft rate limit; set once
+	// routing finds such a pin, and those requests still count toward the cap.
+	let softLimitExemptProvider: string | undefined;
+	const consumeProviderRateLimit = (providerId: string) =>
+		checkProviderRateLimit(project.organizationId, providerId, modelInfo.id, {
+			softExempt: providerId === softLimitExemptProvider,
+		});
+
 	// Another provider cannot verify the used mapping's encrypted reasoning, so
 	// requests on it never move providers (low-uptime reroute, retry).
 	const usedProviderEncryptsReasoning = () =>
@@ -4132,6 +4190,21 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
+			// Retired mappings are gone upstream. Audio/document requests widen
+			// the candidate set to the whole catalogue, where a long-deactivated
+			// mapping would otherwise win on price.
+			const activeMappings = expandAllProviderRegions(
+				modelDef.providers as ProviderModelMapping[],
+			).filter(
+				(mapping) => !(mapping.deactivatedAt && now > mapping.deactivatedAt),
+			);
+			if (
+				activeMappings.length === 0 &&
+				!activeCustomModelsByName.has(modelDef.id)
+			) {
+				continue;
+			}
+
 			// Validate IAM rules for this candidate model and filter providers.
 			// We must re-evaluate per model because iamAllowedProviders was computed
 			// for the "auto" model which only has the "llmgateway" provider.
@@ -4160,15 +4233,11 @@ chat.openapi(completions, async (c) => {
 				applyPinnedDefaultRegions(
 					project.mode === "credits"
 						? filterRegionsByAvailableKeys(
-								expandAllProviderRegions(
-									modelDef.providers as ProviderModelMapping[],
-								),
+								activeMappings,
 								managedRegionAvailability,
 								envVariant,
 							)
-						: expandAllProviderRegions(
-								modelDef.providers as ProviderModelMapping[],
-							),
+						: activeMappings,
 					{
 						explicitLocks: autoProviderLockedRegions,
 						requestedRegion,
@@ -4724,6 +4793,27 @@ chat.openapi(completions, async (c) => {
 	// explicitly-requested (or custom) paid model with a pointer to the auto route.
 	assertTestWalletModelAllowed(endUserWallet, modelInfo);
 
+	// Peek the requested provider's caps before region selection below, which
+	// pins the session: read afterwards, a brand-new session would look already
+	// pinned and slip past a soft limit.
+	const requestedProviderRateLimitPeek =
+		usedProvider &&
+		requestedProvider &&
+		requestedProvider !== "llmgateway" &&
+		requestedProvider !== "custom"
+			? await peekProviderRateLimit(
+					project.organizationId,
+					usedProvider,
+					modelInfo.id,
+				)
+			: undefined;
+	if (usedProvider && requestedProviderRateLimitPeek?.softOnly) {
+		softLimitExemptProvider = await resolveSoftLimitExemptProvider(
+			createSessionStore(modelInfo.id),
+			new Set([usedProvider]),
+		);
+	}
+
 	// When a specific provider is requested and it has multiple mappings (for example,
 	// regional variants), pick the best eligible mapping up front so the request and
 	// any low-uptime fallback logic operate on the concrete provider-region pair.
@@ -4942,20 +5032,11 @@ chat.openapi(completions, async (c) => {
 
 	// Check provider RPM caps for specifically requested providers
 	// If rate-limited, route to an alternative (or 429 if no-fallback)
-	if (
-		usedProvider &&
-		requestedProvider &&
-		requestedProvider !== "llmgateway" &&
-		requestedProvider !== "custom"
-	) {
+	if (usedProvider && requestedProvider && requestedProviderRateLimitPeek) {
 		const baseModelId = (modelInfo as ModelDefinition).id;
-		const rateLimitPeek = await peekProviderRateLimit(
-			project.organizationId,
-			usedProvider,
-			baseModelId,
-		);
+		const rateLimitPeek = requestedProviderRateLimitPeek;
 
-		if (rateLimitPeek.rateLimited) {
+		if (rateLimitPeek.rateLimited && !softLimitExemptProvider) {
 			if (noFallback) {
 				const blockedLimits = rateLimitPeek.blockedBy
 					.map(
@@ -5589,17 +5670,26 @@ chat.openapi(completions, async (c) => {
 			// peeked across the full candidate list (not just keyed providers) so
 			// hybrid mode can overflow to credits-backed providers when every keyed
 			// candidate is rate limited.
-			const rateLimitedProviderIds = await filterRateLimitedProviders(
-				project.organizationId,
-				contentFilterPreferredProviders.map((p) => ({
-					providerId: p.providerId,
-					model: (modelInfo as ModelDefinition).id,
-				})),
+			const { rateLimited: rateLimitedProviderIds, softOnly } =
+				await filterRateLimitedProviders(
+					project.organizationId,
+					contentFilterPreferredProviders.map((p) => ({
+						providerId: p.providerId,
+						model: (modelInfo as ModelDefinition).id,
+					})),
+				);
+			softLimitExemptProvider = await resolveSoftLimitExemptProvider(
+				createSessionStore((modelInfo as ModelDefinition).id),
+				softOnly,
 			);
 			const routingCandidates = getRoutingCandidatesForProjectMode(
 				project.mode,
 				contentFilterPreferredProviders,
-				rateLimitedProviderIds,
+				new Set(
+					[...rateLimitedProviderIds].filter(
+						(providerId) => providerId !== softLimitExemptProvider,
+					),
+				),
 				providersWithKeys,
 			);
 			const routingCandidateProviderIds = new Set<string>(
@@ -6567,11 +6657,33 @@ chat.openapi(completions, async (c) => {
 
 	// Consume a rate-limit slot for the chosen provider (routing already filtered rate-limited ones)
 	{
-		const providerRateLimitResult = await checkProviderRateLimit(
-			project.organizationId,
-			usedProvider,
-			modelInfo.id,
-		);
+		const providerRateLimitResult =
+			await consumeProviderRateLimit(usedProvider);
+
+		if (providerRateLimitResult.softLimitBypassed) {
+			const scoreEntry = routingMetadata?.providerScores.find(
+				(score) => score.providerId === usedProvider,
+			);
+			if (scoreEntry) {
+				scoreEntry.rate_limited = true;
+			}
+			logger.info("Soft provider rate limit bypassed for pinned session", {
+				organizationId: project.organizationId,
+				provider: usedProvider,
+				model: modelInfo.id,
+			});
+		}
+
+		// Serving an explicitly requested provider skips provider selection and
+		// its pinning, so pin here: the session's later requests then count as
+		// ongoing under a soft limit and stay on this provider's prompt cache.
+		if (
+			providerRateLimitResult.allowed &&
+			requestedProviderRateLimitPeek &&
+			usedProvider === requestedProvider
+		) {
+			await createSessionStore(modelInfo.id)?.set(usedProvider, usedRegion);
+		}
 
 		// Race condition: between peek and consume, the window may have filled.
 		// Zero global caps always block, including when every routing candidate is capped.
@@ -6979,7 +7091,14 @@ chat.openapi(completions, async (c) => {
 		usedProvider === "azure"
 			? credentialOptions?.azure_deployment_name
 			: undefined;
-	const upstreamModelName = azureDeploymentName || usedExternalId;
+	const upstreamModelName =
+		azureDeploymentName ||
+		getUpstreamModelId(
+			usedProvider,
+			usedInternalModel,
+			usedExternalId,
+			usedRegion,
+		);
 
 	// Resolve the Google Vertex token type from the live request state so the
 	// endpoint (`?key=` query param) and the headers (`Authorization: Bearer`)
@@ -8761,10 +8880,8 @@ chat.openapi(completions, async (c) => {
 						// Check and consume a rate-limit slot for the fallback candidate.
 						// Using checkProviderRateLimit (not peek) so RPM/RPD counters include
 						// requests routed to a provider via fallback, not just the initial pick.
-						const retryRateLimitResult = await checkProviderRateLimit(
-							project.organizationId,
+						const retryRateLimitResult = await consumeProviderRateLimit(
 							nextProvider.providerId,
-							modelInfo.id,
 						);
 						if (retryRateLimitResult.rateLimited) {
 							failedProviderIds.add(
@@ -8959,13 +9076,7 @@ chat.openapi(completions, async (c) => {
 								}) &&
 								// Same-key retries re-hit the provider, so consume a rate-limit
 								// slot like fallback retries do and skip the retry when limited.
-								!(
-									await checkProviderRateLimit(
-										project.organizationId,
-										usedProvider,
-										modelInfo.id,
-									)
-								).rateLimited;
+								!(await consumeProviderRateLimit(usedProvider)).rateLimited;
 							const willRetryRequest =
 								willRetrySameProvider || willRetryTimeout || willRetrySameKey;
 
@@ -9204,13 +9315,7 @@ chat.openapi(completions, async (c) => {
 								}) &&
 								// Same-key retries re-hit the provider, so consume a rate-limit
 								// slot like fallback retries do and skip the retry when limited.
-								!(
-									await checkProviderRateLimit(
-										project.organizationId,
-										usedProvider,
-										modelInfo.id,
-									)
-								).rateLimited;
+								!(await consumeProviderRateLimit(usedProvider)).rateLimited;
 							const willRetryRequest =
 								willRetrySameProvider || willRetryFetch || willRetrySameKey;
 
@@ -9528,13 +9633,7 @@ chat.openapi(completions, async (c) => {
 							}) &&
 							// Same-key retries re-hit the provider, so consume a rate-limit
 							// slot like fallback retries do and skip the retry when limited.
-							!(
-								await checkProviderRateLimit(
-									project.organizationId,
-									usedProvider,
-									modelInfo.id,
-								)
-							).rateLimited;
+							!(await consumeProviderRateLimit(usedProvider)).rateLimited;
 						const willRetryRequest =
 							willRetrySameProvider || willRetryHttpError || willRetrySameKey;
 
@@ -9913,13 +10012,7 @@ chat.openapi(completions, async (c) => {
 							}) &&
 							// Same-key retries re-hit the provider, so consume a rate-limit
 							// slot like fallback retries do and skip the retry when limited.
-							!(
-								await checkProviderRateLimit(
-									project.organizationId,
-									usedProvider,
-									modelInfo.id,
-								)
-							).rateLimited;
+							!(await consumeProviderRateLimit(usedProvider)).rateLimited;
 						const willRetryRequest =
 							willRetrySameProvider ||
 							willRetryStreamingError ||
@@ -11232,7 +11325,11 @@ chat.openapi(completions, async (c) => {
 									}
 								}
 
-								if (usedProvider === "openai" || usedProvider === "azure") {
+								if (
+									usedProvider === "openai" ||
+									usedProvider === "azure" ||
+									usedProvider === "aws-bedrock"
+								) {
 									const served = resolveOpenAIServiceTier(data);
 									if (served !== undefined) {
 										servedServiceTier = served;
@@ -12890,7 +12987,13 @@ chat.openapi(completions, async (c) => {
 													? streamingError.message
 													: String(streamingError),
 								}
-							: null,
+							: canceled
+								? null
+								: errorFinishReasonDetails(
+										finishReason,
+										transportProvider,
+										res?.status ?? 200,
+									),
 						streamed: true,
 						canceled: canceled,
 						inputCost: costs.inputCost,
@@ -13227,10 +13330,8 @@ chat.openapi(completions, async (c) => {
 			// Check and consume a rate-limit slot for the fallback candidate.
 			// Using checkProviderRateLimit (not peek) so RPM/RPD counters include
 			// requests routed to a provider via fallback, not just the initial pick.
-			const retryRateLimitResult = await checkProviderRateLimit(
-				project.organizationId,
+			const retryRateLimitResult = await consumeProviderRateLimit(
 				nextProvider.providerId,
-				modelInfo.id,
 			);
 			if (retryRateLimitResult.rateLimited) {
 				failedProviderIds.add(
@@ -13456,13 +13557,7 @@ chat.openapi(completions, async (c) => {
 				}) &&
 				// Same-key retries re-hit the provider, so consume a rate-limit
 				// slot like fallback retries do and skip the retry when limited.
-				!(
-					await checkProviderRateLimit(
-						project.organizationId,
-						usedProvider,
-						modelInfo.id,
-					)
-				).rateLimited;
+				!(await consumeProviderRateLimit(usedProvider)).rateLimited;
 			const willRetryRequest =
 				willRetrySameProvider || willRetryFetchNonStreaming || willRetrySameKey;
 
@@ -13907,13 +14002,7 @@ chat.openapi(completions, async (c) => {
 				}) &&
 				// Same-key retries re-hit the provider, so consume a rate-limit
 				// slot like fallback retries do and skip the retry when limited.
-				!(
-					await checkProviderRateLimit(
-						project.organizationId,
-						usedProvider,
-						modelInfo.id,
-					)
-				).rateLimited;
+				!(await consumeProviderRateLimit(usedProvider)).rateLimited;
 			const willRetryRequest =
 				willRetrySameProvider || willRetryHttpNonStreaming || willRetrySameKey;
 
@@ -14807,7 +14896,11 @@ chat.openapi(completions, async (c) => {
 		),
 		json,
 	);
-	if (usedProvider === "openai" || usedProvider === "azure") {
+	if (
+		usedProvider === "openai" ||
+		usedProvider === "azure" ||
+		usedProvider === "aws-bedrock"
+	) {
 		const served = resolveOpenAIServiceTier(json);
 		if (served !== undefined) {
 			servedServiceTier = served;
@@ -14822,6 +14915,10 @@ chat.openapi(completions, async (c) => {
 			servedServiceTier = served;
 		}
 	}
+
+	// Read before parsing and transforming, which canonicalize it in place
+	// (e.g. "abort" -> "upstream_error").
+	const rawFinishReason: unknown = json?.choices?.[0]?.finish_reason;
 
 	// Extract content and token usage based on provider
 	const parsedResponse = parseProviderResponse(
@@ -15322,7 +15419,12 @@ chat.openapi(completions, async (c) => {
 					responseText:
 						"Response finished successfully but returned no content or tool calls",
 				}
-			: null,
+			: errorFinishReasonDetails(
+					finishReason,
+					transportProvider,
+					res.status,
+					typeof rawFinishReason === "string" ? rawFinishReason : finishReason,
+				),
 		inputCost: costs.inputCost,
 		outputCost: costs.outputCost,
 		cachedInputCost: costs.cachedInputCost,

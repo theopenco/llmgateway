@@ -11,6 +11,7 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useState } from "react";
 
+import { ProviderIncidentErrorTypes } from "@/components/provider-incident-error-types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -53,9 +54,13 @@ type IncidentsWindow = NonNullable<
 
 const WINDOWS: IncidentsWindow[] = ["1h", "4h", "24h", "3d"];
 const ALL_MAPPINGS = "__all__";
-// Mirrors the carrier's Airside view: every non-client error, BYOK included,
-// no expected-error matchers.
-const DRILLDOWN_LOG_LIMIT = 500;
+const GROUPINGS = [
+	{ value: "model", label: "By model" },
+	{ value: "error", label: "By error type" },
+] as const;
+// Mirrors the carrier's Airside view: every upstream and gateway error in the
+// window (up to this cap), BYOK included, no expected-error matchers.
+const DRILLDOWN_LOG_LIMIT = 100_000;
 
 /** The carrier's Airside Incidents view, scoped to one provider. */
 export function ProviderIncidentsClient({
@@ -68,6 +73,7 @@ export function ProviderIncidentsClient({
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const mapping = searchParams.get("mapping");
+	const groupByError = searchParams.get("group") === "error";
 	const [timeWindow, setTimeWindow] = useState<IncidentsWindow>("24h");
 	const [includeRetried, setIncludeRetried] = useState(true);
 	const [expanded, setExpanded] = useState<string | null>(null);
@@ -95,7 +101,7 @@ export function ProviderIncidentsClient({
 	);
 	const activeQuery = mapping !== null ? filteredQuery : allQuery;
 	const data = activeQuery.data;
-	const refreshing = activeQuery.isPlaceholderData;
+	const refreshing = activeQuery.isPlaceholderData && !groupByError;
 	const rows = data?.mappings ?? [];
 	const openKey =
 		expanded ??
@@ -106,17 +112,18 @@ export function ProviderIncidentsClient({
 		mappingOptions.unshift(mapping);
 	}
 
-	function setMapping(next: string | null) {
+	function setParam(name: string, next: string | null) {
 		const params = new URLSearchParams(searchParams.toString());
 		if (next) {
-			params.set("mapping", next);
+			params.set(name, next);
 		} else {
-			params.delete("mapping");
+			params.delete(name);
 		}
 		setExpanded(null);
 		const qs = params.toString();
 		router.replace(qs ? `${pathname}?${qs}` : pathname);
 	}
+	const setMapping = (next: string | null) => setParam("mapping", next);
 
 	const ProviderIcon = getProviderIcon(providerId);
 
@@ -139,8 +146,9 @@ export function ProviderIncidentsClient({
 							What the carrier sees in Airside for{" "}
 							<span className="font-mono">{providerId}</span>: failed requests
 							over the last {timeWindow}. {INCIDENT_BREAKDOWN_DESCRIPTION}{" "}
-							Counts include retried attempts; expand a row for the top error
-							shapes.
+							{groupByError
+								? "Each error lists the models it hit, split by streaming and non-streaming requests."
+								: "Counts include retried attempts; expand a row for the top error shapes."}
 						</p>
 					</div>
 				</div>
@@ -162,6 +170,28 @@ export function ProviderIncidentsClient({
 			</header>
 
 			<div className="flex flex-wrap items-center gap-4">
+				<div
+					className="flex items-center gap-1"
+					role="group"
+					aria-label="Group errors"
+				>
+					{GROUPINGS.map((grouping) => {
+						const active = (grouping.value === "error") === groupByError;
+						return (
+							<Button
+								key={grouping.value}
+								size="sm"
+								variant={active ? "default" : "outline"}
+								aria-pressed={active}
+								onClick={() =>
+									setParam("group", grouping.value === "error" ? "error" : null)
+								}
+							>
+								{grouping.label}
+							</Button>
+						);
+					})}
+				</div>
 				<Select
 					disabled={!allQuery.data}
 					value={mapping ?? ALL_MAPPINGS}
@@ -204,12 +234,12 @@ export function ProviderIncidentsClient({
 						onCheckedChange={setIncludeRetried}
 					/>
 					<Label htmlFor="include-retried" className="text-xs">
-						Retried errors in details
+						{groupByError ? "Retried errors" : "Retried errors in details"}
 					</Label>
 				</div>
 			</div>
 
-			{activeQuery.isError && (
+			{activeQuery.isError && !groupByError && (
 				<div
 					role="alert"
 					className="flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm"
@@ -239,9 +269,16 @@ export function ProviderIncidentsClient({
 					"min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card transition-opacity",
 					refreshing && "pointer-events-none opacity-50",
 				)}
-				aria-busy={refreshing || activeQuery.isLoading}
+				aria-busy={refreshing || (activeQuery.isLoading && !groupByError)}
 			>
-				{!data ? (
+				{groupByError ? (
+					<ProviderIncidentErrorTypes
+						providerId={providerId}
+						mapping={mapping}
+						window={timeWindow}
+						includeRetried={includeRetried}
+					/>
+				) : !data ? (
 					activeQuery.isError ? null : (
 						<div className="space-y-3 p-4">
 							<p className="flex items-center gap-2 text-xs text-muted-foreground">

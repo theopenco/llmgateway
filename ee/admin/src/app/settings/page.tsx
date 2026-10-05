@@ -5,6 +5,7 @@ import { BlockedSignupCountriesForm } from "@/components/blocked-signup-countrie
 import { BlockedSignupEmailDomainsForm } from "@/components/blocked-signup-email-domains-form";
 import { CreditPurchaseBlockToggle } from "@/components/credit-purchase-block-toggle";
 import { ForceThreeDSecureForm } from "@/components/force-three-d-secure-form";
+import { ModelErrorRateAlertsForm } from "@/components/model-error-rate-alerts-form";
 import { SystemBannerForm } from "@/components/system-banner-form";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,11 +20,13 @@ import {
 	getBlockedSignupEmailDomains,
 	getCreditPurchaseBlock,
 	getForceThreeDSecure,
+	getModelErrorRateAlerts,
 	getSystemBanner,
 	updateBlockedSignupCountries,
 	updateBlockedSignupEmailDomains,
 	updateCreditPurchaseBlock,
 	updateForceThreeDSecure,
+	updateModelErrorRateAlerts,
 	updateSystemBanner,
 } from "@/lib/admin-settings";
 
@@ -31,6 +34,7 @@ import type {
 	ForceThreeDSecureMode,
 	SystemBannerSettingInput,
 } from "@/lib/admin-settings";
+import type { ModelErrorRateAlertsSettings } from "@llmgateway/shared";
 
 function SignInPrompt() {
 	return (
@@ -59,12 +63,14 @@ export default async function SettingsPage() {
 		blockedSignupEmailDomains,
 		forceThreeDSecure,
 		systemBanner,
+		modelErrorRateAlerts,
 	] = await Promise.all([
 		getCreditPurchaseBlock(),
 		getBlockedSignupCountries(),
 		getBlockedSignupEmailDomains(),
 		getForceThreeDSecure(),
 		getSystemBanner(),
+		getModelErrorRateAlerts(),
 	]);
 
 	if (
@@ -72,7 +78,8 @@ export default async function SettingsPage() {
 		blockedSignupCountries === null ||
 		blockedSignupEmailDomains === null ||
 		forceThreeDSecure === null ||
-		systemBanner === null
+		systemBanner === null ||
+		modelErrorRateAlerts === null
 	) {
 		return <SignInPrompt />;
 	}
@@ -102,6 +109,15 @@ export default async function SettingsPage() {
 		return { ok: result.banner !== null, message: result.message };
 	}
 
+	async function handleSaveErrorRateAlerts(
+		input: ModelErrorRateAlertsSettings,
+	) {
+		"use server";
+
+		const result = await updateModelErrorRateAlerts(input);
+		return { ok: result.settings !== null, message: result.message };
+	}
+
 	async function handleSaveThreeDSecure(mode: ForceThreeDSecureMode) {
 		"use server";
 
@@ -118,7 +134,7 @@ export default async function SettingsPage() {
 				<div>
 					<h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
 					<p className="text-sm text-muted-foreground">
-						Platform-wide announcements and emergency switches
+						Platform-wide announcements, alerts and emergency switches
 					</p>
 				</div>
 			</header>
@@ -134,6 +150,24 @@ export default async function SettingsPage() {
 				</CardHeader>
 				<CardContent>
 					<SystemBannerForm banner={systemBanner} onSave={handleSaveBanner} />
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Model error-rate alerts</CardTitle>
+					<CardDescription>
+						Posts to Discord when a model/provider mapping&apos;s gateway and
+						upstream error rate over a rule&apos;s window reaches its threshold.
+						Credit traffic only, checked every minute; each mapping alerts once
+						per cooldown. Needs MODEL_ERROR_RATE_DISCORD_URL on the worker.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<ModelErrorRateAlertsForm
+						settings={modelErrorRateAlerts}
+						onSave={handleSaveErrorRateAlerts}
+					/>
 				</CardContent>
 			</Card>
 

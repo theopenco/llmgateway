@@ -563,6 +563,7 @@ function toolChoicePayload(
 type CapabilityKey = (typeof CAPABILITIES)[number]["key"];
 
 type RateLimitScope = "global" | "per_org";
+type RateLimitMode = "strict" | "soft";
 
 const API_FORMATS: Array<{
 	value: AirsideModel["apiFormat"];
@@ -617,6 +618,43 @@ function RateLimitScopeField({
 	);
 }
 
+function RateLimitModeField({
+	id,
+	value,
+	onChange,
+}: {
+	id: string;
+	value: RateLimitMode;
+	onChange: (value: RateLimitMode) => void;
+}) {
+	return (
+		<div className="space-y-2 sm:col-span-2">
+			<Label htmlFor={id}>When the cap is reached</Label>
+			<Select
+				value={value}
+				onValueChange={(next) => onChange(next as RateLimitMode)}
+			>
+				<SelectTrigger id={id} data-testid={id}>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="strict">
+						Strict (route all traffic elsewhere)
+					</SelectItem>
+					<SelectItem value="soft">
+						Soft (keep ongoing sessions, route new ones elsewhere)
+					</SelectItem>
+				</SelectContent>
+			</Select>
+			<p className="text-muted-foreground text-xs">
+				{value === "strict"
+					? "Sessions in progress move to another provider and lose their warm prompt cache."
+					: "Sessions already on your deployment stay on it, so traffic can exceed the cap until they finish."}
+			</p>
+		</div>
+	);
+}
+
 export function RegisterModelDialog({
 	providerCompanyId,
 	providerIds,
@@ -657,6 +695,7 @@ export function RegisterModelDialog({
 	const [maxRpd, setMaxRpd] = useState("");
 	const [rateLimitScope, setRateLimitScope] =
 		useState<RateLimitScope>("global");
+	const [rateLimitMode, setRateLimitMode] = useState<RateLimitMode>("strict");
 	const [capabilities, setCapabilities] = useState<
 		Record<CapabilityKey, boolean>
 	>({
@@ -761,6 +800,8 @@ export function RegisterModelDialog({
 		modelName: modelName.trim(),
 		externalId: externalId || undefined,
 		apiFormat,
+		contextSize: Number(contextSize) || undefined,
+		maxOutput: Number(maxOutput) || undefined,
 		...capabilities,
 		supportedToolChoices: capabilities.tools
 			? toolChoicePayload(toolChoices)
@@ -850,6 +891,7 @@ export function RegisterModelDialog({
 								maxRpm: Number(maxRpm) || undefined,
 								maxRpd: Number(maxRpd) || undefined,
 								rateLimitScope,
+								rateLimitMode,
 								pricing: {
 									inputPrice: perMillionToPerToken(inputPrice),
 									outputPrice: perMillionToPerToken(outputPrice),
@@ -964,7 +1006,11 @@ export function RegisterModelDialog({
 							<Input
 								id="model-context"
 								value={contextSize}
-								onChange={(e) => setContextSize(e.target.value)}
+								onChange={(e) => {
+									setContextSize(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 							/>
@@ -974,7 +1020,11 @@ export function RegisterModelDialog({
 							<Input
 								id="model-max-output"
 								value={maxOutput}
-								onChange={(e) => setMaxOutput(e.target.value)}
+								onChange={(e) => {
+									setMaxOutput(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 								placeholder="optional"
@@ -1132,11 +1182,21 @@ export function RegisterModelDialog({
 								placeholder="e.g. 20000"
 							/>
 						</div>
-						<RateLimitScopeField
-							id="model-rate-limit-scope"
-							value={rateLimitScope}
-							onChange={setRateLimitScope}
-						/>
+						{/* Scope and mode only mean something once a cap is set. */}
+						{maxRpm || maxRpd ? (
+							<>
+								<RateLimitScopeField
+									id="model-rate-limit-scope"
+									value={rateLimitScope}
+									onChange={setRateLimitScope}
+								/>
+								<RateLimitModeField
+									id="model-rate-limit-mode"
+									value={rateLimitMode}
+									onChange={setRateLimitMode}
+								/>
+							</>
+						) : null}
 					</div>
 
 					<div className="border-primary/40 bg-primary/5 space-y-4 rounded-lg border border-dashed p-4">
@@ -1498,6 +1558,9 @@ export function EditModelDialog({
 	const [rateLimitScope, setRateLimitScope] = useState<RateLimitScope>(
 		proposed.rateLimitScope,
 	);
+	const [rateLimitMode, setRateLimitMode] = useState<RateLimitMode>(
+		proposed.rateLimitMode,
+	);
 
 	function resetFromModel() {
 		setDisplayName(proposed.displayName ?? "");
@@ -1524,11 +1587,14 @@ export function EditModelDialog({
 		setMaxRpm(proposed.maxRpm ? String(proposed.maxRpm) : "");
 		setMaxRpd(proposed.maxRpd ? String(proposed.maxRpd) : "");
 		setRateLimitScope(proposed.rateLimitScope);
+		setRateLimitMode(proposed.rateLimitMode);
 	}
 
 	// The proposed capabilities, preflighted before they are filed. The pair
 	// itself never changes here, so the server takes it from the saved row.
 	const proposedCapabilities = {
+		contextSize: contextSize ? Number(contextSize) : null,
+		maxOutput: maxOutput ? Number(maxOutput) : null,
 		...capabilities,
 		supportedToolChoices: capabilities.tools
 			? toolChoicePayload(toolChoices)
@@ -1670,6 +1736,7 @@ export function EditModelDialog({
 								maxRpm: maxRpm ? Number(maxRpm) : null,
 								maxRpd: maxRpd ? Number(maxRpd) : null,
 								rateLimitScope,
+								rateLimitMode,
 							},
 						});
 					}}
@@ -1704,7 +1771,11 @@ export function EditModelDialog({
 							<Input
 								id="edit-context"
 								value={contextSize}
-								onChange={(e) => setContextSize(e.target.value)}
+								onChange={(e) => {
+									setContextSize(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 							/>
@@ -1714,7 +1785,11 @@ export function EditModelDialog({
 							<Input
 								id="edit-max-output"
 								value={maxOutput}
-								onChange={(e) => setMaxOutput(e.target.value)}
+								onChange={(e) => {
+									setMaxOutput(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 							/>
@@ -1868,11 +1943,21 @@ export function EditModelDialog({
 								placeholder="unlimited"
 							/>
 						</div>
-						<RateLimitScopeField
-							id="edit-rate-limit-scope"
-							value={rateLimitScope}
-							onChange={setRateLimitScope}
-						/>
+						{/* Scope and mode only mean something once a cap is set. */}
+						{maxRpm || maxRpd ? (
+							<>
+								<RateLimitScopeField
+									id="edit-rate-limit-scope"
+									value={rateLimitScope}
+									onChange={setRateLimitScope}
+								/>
+								<RateLimitModeField
+									id="edit-rate-limit-mode"
+									value={rateLimitMode}
+									onChange={setRateLimitMode}
+								/>
+							</>
+						) : null}
 					</div>
 					<div className="border-border space-y-2 rounded-lg border p-3">
 						<Label htmlFor={`edit-verify-api-key-${model.id}`}>

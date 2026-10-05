@@ -24,10 +24,10 @@ export default function ListingGuide() {
 				<p>
 					Use a company email and verify it. Have your API base URL and public
 					website ready. The domain checks connect those addresses to the
-					provider you want to claim. If your email and API domains differ,
-					follow the website verification flow in onboarding. Existing catalogue
-					providers can be claimed; a new provider can register a custom
-					carrier.
+					provider you want to claim. If your email and API domains differ, add
+					the API domain in onboarding and verify it over DNS. Existing
+					catalogue providers can be claimed; a new provider can register a
+					custom carrier.
 				</p>
 				<p className="mt-3">
 					Onboarding shows the applicable listing fee or invite-code option
@@ -62,12 +62,14 @@ export default function ListingGuide() {
 				</p>
 				<p className="mt-3">
 					Paste a provider API key that can call this model and run preflight
-					verification. We store it encrypted as this carrier's test key, so
-					later runs reuse it — change or remove it under Settings at any time.
-					Use a key separate from the one behind your live integration:
-					preflight traffic is billed by your own platform and is not tracked in
-					LLMGateway usage or billing. Resolve failed checks before submitting
-					the model. Changing the verified mapping requires a new verification.
+					verification. Preflight checks each declared capability, fills most of
+					the declared context window and requests the full output limit. We
+					store the key encrypted as this carrier's test key, so later runs
+					reuse it — change or remove it under Settings at any time. Use a key
+					separate from the one behind your live integration: preflight traffic
+					is billed by your own platform and is not tracked in LLMGateway usage
+					or billing. Resolve failed checks before submitting the model.
+					Changing the verified mapping requires a new verification.
 				</p>
 				<p className="mt-3">
 					Every preflight stays on the record. The Verify dialog lists past runs

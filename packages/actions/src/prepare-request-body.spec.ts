@@ -2195,6 +2195,66 @@ describe("prepareRequestBody - verbosity", () => {
 	});
 });
 
+describe("prepareRequestBody - AWS Bedrock service tier", () => {
+	const bedrockMapping = (modelId: string) =>
+		models
+			.find((m) => m.id === modelId)
+			?.providers.find((p) => p.providerId === "aws-bedrock") as
+			ProviderModelMapping | undefined;
+
+	async function prepare(modelId: string, externalId: string) {
+		return (await prepareRequestBody(
+			"openai",
+			modelId,
+			"global",
+			externalId,
+			[{ role: "user", content: "Hello!" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"flex",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			bedrockMapping(modelId),
+		)) as any;
+	}
+
+	test("forwards flex for a mapping that declares it", async () => {
+		const requestBody = await prepare("kimi-k3", "global.moonshotai.kimi-k3");
+		expect(requestBody.service_tier).toBe("flex");
+	});
+
+	test("drops flex for a mapping that does not declare it", async () => {
+		const requestBody = await prepare("grok-4-7", "global.xai.grok-4.7");
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+});
+
 describe("prepareRequestBody - reasoning_effort none", () => {
 	async function prepare(options: {
 		provider: Parameters<typeof prepareRequestBody>[0];
@@ -5042,8 +5102,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			max_completion_tokens: 128,
 			top_p: 0.9,
 			response_format: { type: "json_object" },
-			reasoning: { effort: "high" },
+			reasoning_effort: "high",
 		});
+		expect(requestBody.reasoning).toBeUndefined();
 		expect(requestBody.inferenceConfig).toBeUndefined();
 		expect(requestBody.system).toBeUndefined();
 	});
@@ -5072,7 +5133,7 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		expect(requestBody).toMatchObject({
 			model: "xai.grok-4.6",
 			max_completion_tokens: 128,
-			reasoning: { effort: "xhigh" },
+			reasoning_effort: "xhigh",
 		});
 	});
 

@@ -7,6 +7,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { useCompany } from "@/components/dashboard/company-context";
+import { IncidentErrorTypes } from "@/components/dashboard/IncidentErrorTypes";
 import {
 	IncidentsTable,
 	IncidentsTableSkeleton,
@@ -36,6 +37,10 @@ import { INCIDENT_BREAKDOWN_DESCRIPTION } from "@llmgateway/shared";
 
 const WINDOWS: IncidentsWindow[] = ["1h", "4h", "24h", "3d"];
 const ALL_MAPPINGS = "__all__";
+const GROUPINGS = [
+	{ value: "model", label: "By model" },
+	{ value: "error", label: "By error type" },
+] as const;
 
 function IncidentsContent() {
 	const api = useApi();
@@ -44,6 +49,7 @@ function IncidentsContent() {
 	const searchParams = useSearchParams();
 	const mapping = searchParams.get("mapping");
 	const model = searchParams.get("model");
+	const groupByError = searchParams.get("group") === "error";
 	const { company, isLoading: companyLoading } = useCompany();
 	const [timeWindow, setTimeWindow] = useState<IncidentsWindow>("24h");
 	const [providerId, setProviderId] = useState<string | undefined>(undefined);
@@ -91,17 +97,18 @@ function IncidentsContent() {
 		},
 	);
 
-	function setMapping(next: string | null) {
+	function setParam(name: string, next: string | null) {
 		const params = new URLSearchParams(searchParams.toString());
 		params.delete("model");
 		if (next) {
-			params.set("mapping", next);
+			params.set(name, next);
 		} else {
-			params.delete("mapping");
+			params.delete(name);
 		}
 		const qs = params.toString();
 		router.replace(qs ? `${pathname}?${qs}` : pathname);
 	}
+	const setMapping = (next: string | null) => setParam("mapping", next);
 
 	if (companyLoading) {
 		return (
@@ -198,8 +205,8 @@ function IncidentsContent() {
 			<Card>
 				<CardHeader>
 					<CardTitle className="font-display flex items-center gap-2">
-						Errors by mapping
-						{refreshing ? (
+						{groupByError ? "Errors by type" : "Errors by mapping"}
+						{refreshing && !groupByError ? (
 							<span className="text-muted-foreground flex items-center gap-1 font-sans text-xs font-normal">
 								<Loader2 className="size-3.5 animate-spin" />
 								Updating…
@@ -208,10 +215,42 @@ function IncidentsContent() {
 					</CardTitle>
 					<CardDescription>
 						Failed requests over the last {timeWindow}.{" "}
-						{INCIDENT_BREAKDOWN_DESCRIPTION} Counts include retried attempts;
-						expand a row for the top error shapes.
+						{INCIDENT_BREAKDOWN_DESCRIPTION}{" "}
+						{groupByError
+							? "Each error lists the models it hit, split by streaming and non-streaming requests."
+							: "Counts include retried attempts; expand a row for the top error shapes."}
 					</CardDescription>
 					<div className="flex flex-wrap items-center gap-4 pt-2">
+						<div
+							className="border-border flex rounded-md border p-0.5"
+							role="group"
+							aria-label="Group errors"
+						>
+							{GROUPINGS.map((grouping) => {
+								const active = (grouping.value === "error") === groupByError;
+								return (
+									<button
+										key={grouping.value}
+										type="button"
+										aria-pressed={active}
+										onClick={() =>
+											setParam(
+												"group",
+												grouping.value === "error" ? "error" : null,
+											)
+										}
+										className={cn(
+											"rounded px-2.5 py-1 font-mono text-xs",
+											active
+												? "bg-primary/15 text-primary"
+												: "text-muted-foreground hover:text-foreground",
+										)}
+									>
+										{grouping.label}
+									</button>
+								);
+							})}
+						</div>
 						<Select
 							disabled={!allQuery.data}
 							value={mapping ?? ALL_MAPPINGS}
@@ -260,43 +299,56 @@ function IncidentsContent() {
 								onCheckedChange={setIncludeRetried}
 							/>
 							<Label htmlFor="include-retried" className="text-xs">
-								Retried errors in details
+								{groupByError ? "Retried errors" : "Retried errors in details"}
 							</Label>
 						</div>
 					</div>
 				</CardHeader>
 				<CardContent>
-					{activeQuery.isError ? (
-						<div className="mb-4">
-							<QueryError
-								message={
-									data
-										? "Couldn't refresh incidents — showing the last loaded data."
-										: "Couldn't load incidents."
-								}
-								onRetry={() => void activeQuery.refetch()}
-								retrying={activeQuery.isFetching}
-							/>
-						</div>
-					) : null}
-					{data ? (
-						<div
-							className={cn(
-								"transition-opacity",
-								refreshing && "pointer-events-none opacity-50",
+					{groupByError ? (
+						<IncidentErrorTypes
+							providerCompanyId={company.id}
+							providerId={providerId}
+							mapping={mapping}
+							window={timeWindow}
+							includeRetried={includeRetried}
+							showCarrier={company.claims.length > 1}
+						/>
+					) : (
+						<>
+							{activeQuery.isError ? (
+								<div className="mb-4">
+									<QueryError
+										message={
+											data
+												? "Couldn't refresh incidents — showing the last loaded data."
+												: "Couldn't load incidents."
+										}
+										onRetry={() => void activeQuery.refetch()}
+										retrying={activeQuery.isFetching}
+									/>
+								</div>
+							) : null}
+							{data ? (
+								<div
+									className={cn(
+										"transition-opacity",
+										refreshing && "pointer-events-none opacity-50",
+									)}
+									aria-busy={refreshing}
+								>
+									<IncidentsTable
+										key={`${mapping ?? ""}-${timeWindow}-${providerId ?? ""}`}
+										providerCompanyId={company.id}
+										mappings={data.mappings}
+										window={timeWindow}
+										includeRetried={includeRetried}
+									/>
+								</div>
+							) : activeQuery.isError ? null : (
+								<IncidentsTableSkeleton />
 							)}
-							aria-busy={refreshing}
-						>
-							<IncidentsTable
-								key={`${mapping ?? ""}-${timeWindow}-${providerId ?? ""}`}
-								providerCompanyId={company.id}
-								mappings={data.mappings}
-								window={timeWindow}
-								includeRetried={includeRetried}
-							/>
-						</div>
-					) : activeQuery.isError ? null : (
-						<IncidentsTableSkeleton />
+						</>
 					)}
 				</CardContent>
 			</Card>

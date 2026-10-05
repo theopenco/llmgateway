@@ -1083,6 +1083,30 @@ describe("calculateCosts", () => {
 			expect(result.totalCost).toBeCloseTo((0.00125 + 0.007) * 1.8);
 		});
 
+		it("halves Kimi K3 token costs on AWS Bedrock Flex", async () => {
+			const result = await calculateCosts(
+				"kimi-k3",
+				"aws-bedrock",
+				"us",
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "flex" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.00165, 9);
+			expect(result.outputCost).toBeCloseTo(0.005775, 9);
+		});
+
 		it("applies the Flex multiplier (0.5x) to token costs", async () => {
 			const result = await calculateCosts(
 				"gemini-3.5-flash",

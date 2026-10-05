@@ -65,6 +65,8 @@ export interface VerificationTargetInput {
 	reasoningMaxTokens?: boolean | null;
 	reasoningEfforts?: string[] | null;
 	webSearch?: boolean | null;
+	contextSize?: number | null;
+	maxOutput?: number | null;
 }
 
 const CAPABILITY_KEYS = [
@@ -79,6 +81,8 @@ const CAPABILITY_KEYS = [
 	"reasoningMaxTokens",
 	"reasoningEfforts",
 	"webSearch",
+	"contextSize",
+	"maxOutput",
 ] as const;
 
 export type CapabilityOverrides = Pick<
@@ -132,6 +136,8 @@ export function buildVerificationTarget(
 		reasoningMaxTokens: input.reasoningMaxTokens ?? false,
 		reasoningEfforts: input.reasoningEfforts ?? null,
 		webSearch: input.webSearch ?? false,
+		contextSize: input.contextSize ?? null,
+		maxOutput: input.maxOutput ?? null,
 	};
 }
 
@@ -158,7 +164,9 @@ export function verificationTargetsMatch(
 		left.reasoningMaxTokens === right.reasoningMaxTokens &&
 		JSON.stringify(left.reasoningEfforts) ===
 			JSON.stringify(right.reasoningEfforts) &&
-		left.webSearch === right.webSearch
+		left.webSearch === right.webSearch &&
+		(left.contextSize ?? null) === (right.contextSize ?? null) &&
+		(left.maxOutput ?? null) === (right.maxOutput ?? null)
 	);
 }
 

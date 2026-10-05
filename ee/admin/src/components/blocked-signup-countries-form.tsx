@@ -66,6 +66,11 @@ export function BlockedSignupCountriesForm({
 					placeholder="e.g. KP, SY"
 					value={value}
 					disabled={pending || readOnly}
+					autoComplete="off"
+					data-1p-ignore
+					data-lpignore="true"
+					data-bwignore
+					data-form-type="other"
 					onChange={(event) => {
 						setValue(event.target.value);
 						setSaved(false);

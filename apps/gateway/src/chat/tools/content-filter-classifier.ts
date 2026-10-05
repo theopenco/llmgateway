@@ -73,6 +73,12 @@ export interface ContentFilterCheckResult extends OpenAIContentFilterCheckResult
 	partialModerationFailed?: boolean;
 	/** Wall-clock time of the whole check, including image delegation. */
 	durationMs: number;
+	/** The text-only classifier's own time; unset when OpenAI decided. */
+	classifierDurationMs?: number;
+	/** Calls the internal classifier made, one per chunk. */
+	classifierRequests?: number;
+	/** Time of the image moderation delegated to OpenAI, when it ran. */
+	imageDurationMs?: number;
 }
 
 /** Whether a check covered everything it set out to cover. */
@@ -96,6 +102,8 @@ export async function hasClassifierCredential(
 interface ContentFilterRunOptions {
 	/** Whether the organization's policy permits OpenAI (image delegation). */
 	imagesAllowed: boolean;
+	/** False when an admin turned image moderation off: images skip it by design. */
+	moderateImages?: boolean;
 	/** What the internal classifier reads. Defaults to the whole conversation. */
 	internalScope?: ContentFilterInternalScope;
 }
@@ -104,8 +112,9 @@ interface ContentFilterRunOptions {
  * Run one classifier over a request's content.
  *
  * Jev and the internal classifier are text-only, so image parts are moderated
- * through OpenAI and merged in — but only when `imagesAllowed` says the
- * organization's compliance policy permits OpenAI and a credential exists.
+ * through OpenAI and merged in — but only when image moderation is on, the
+ * organization's compliance policy permits OpenAI (`imagesAllowed`), and a
+ * credential exists.
  * Without that, such a request carries no image coverage at all rather than
  * silently sending image data to a provider the policy excluded.
  */
@@ -146,8 +155,13 @@ async function runClassifierChecks(
 		return { ...result, classifier };
 	}
 
-	const textResult: OpenAIContentFilterCheckResult & {
+	const textStartTime = performance.now();
+	const {
+		requestCount,
+		...textResult
+	}: OpenAIContentFilterCheckResult & {
 		partialModerationFailed?: boolean;
+		requestCount?: number;
 	} =
 		classifier === "internal"
 			? await checkInternalContentFilter(
@@ -157,20 +171,34 @@ async function runClassifierChecks(
 					options.internalScope,
 				)
 			: await checkJevContentFilter(messages, context, requestSignal);
+	const timings = {
+		classifierDurationMs: Math.round(performance.now() - textStartTime),
+		...(requestCount !== undefined ? { classifierRequests: requestCount } : {}),
+	};
 
-	if (buildOpenAIContentFilterImageInputs(messages).length === 0) {
-		return { ...textResult, classifier };
+	if (
+		options.moderateImages === false ||
+		buildOpenAIContentFilterImageInputs(messages).length === 0
+	) {
+		return { ...textResult, ...timings, classifier };
 	}
 	if (!options.imagesAllowed || !(await hasOpenAIContentFilterCredential())) {
-		return { ...textResult, classifier, partialModerationFailed: true };
+		return {
+			...textResult,
+			...timings,
+			classifier,
+			partialModerationFailed: true,
+		};
 	}
 
+	const imageStartTime = performance.now();
 	const imageResult = await checkOpenAIContentFilter(
 		messages,
 		context,
 		requestSignal,
 		{ kinds: ["image"] },
 	);
+	const imageDurationMs = Math.round(performance.now() - imageStartTime);
 
 	// Both filters fail open by returning no results, and the delegation only
 	// runs when the request actually carries images — so an empty result on
@@ -179,7 +207,13 @@ async function runClassifierChecks(
 		textResult.results.length === 0 ||
 		textResult.partialModerationFailed === true;
 	if (imageResult.results.length === 0) {
-		return { ...textResult, classifier, partialModerationFailed: true };
+		return {
+			...textResult,
+			...timings,
+			imageDurationMs,
+			classifier,
+			partialModerationFailed: true,
+		};
 	}
 
 	logger.debug("gateway_content_filter_image_delegated", {
@@ -191,6 +225,8 @@ async function runClassifierChecks(
 
 	return {
 		classifier,
+		...timings,
+		imageDurationMs,
 		flagged: textResult.flagged || imageResult.flagged,
 		model: textResult.model,
 		upstreamRequestId:
@@ -245,6 +281,7 @@ export async function evaluateContentFilterWithClassifiers(options: {
 			signal,
 			{
 				imagesAllowed: options.imagesAllowed,
+				moderateImages: plan.moderateImages,
 				internalScope: plan.internalScope,
 			},
 		);
@@ -256,6 +293,11 @@ export async function evaluateContentFilterWithClassifiers(options: {
 			evaluateTieredContentFilter(result.results, plan.level),
 			moderationFailed(result),
 			result.durationMs,
+			{
+				classifierDurationMs: result.classifierDurationMs,
+				classifierRequests: result.classifierRequests,
+				imageDurationMs: result.imageDurationMs,
+			},
 		),
 		results: [result],
 	};

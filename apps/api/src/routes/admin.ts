@@ -38,9 +38,15 @@ import {
 	notRetriedClause,
 	incidentErrorsClause,
 	queryMappingErrorShapes,
+	buildErrorTimeline,
+	errorTimelineSchema,
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
+import {
+	getModelErrorRateAlertsSettings,
+	setModelErrorRateAlertsSettings,
+} from "@/lib/model-error-rate-alerts.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
 	getBucketUnitForWindow,
@@ -148,6 +154,7 @@ import {
 	getPlanClass,
 	isValidSystemBannerLink,
 	LOG_ERROR_TYPES,
+	modelErrorRateAlertsSettingsSchema,
 	parseUsedModel,
 	resolveTrustTierOverride,
 	SYSTEM_BANNER_SEVERITIES,
@@ -412,13 +419,22 @@ const adminMetricsSchema = z.object({
 	totalProcessed: z.number(),
 	totalOrganizations: z.number(),
 	totalToppedUp: z.number(),
+	// Gifted credits inside totalToppedUp. Narrower than totalGiftedCredits,
+	// which also counts end-user wallet gifts.
+	totalToppedUpGifted: z.number(),
 	totalSpent: z.number(),
 	// Credits-vs-BYOK split of totalSpent. totalSpent stays blended; BYOK
 	// ("api-keys") usage is provider list price paid by the customer's own key,
 	// not revenue-relevant spend.
 	totalCreditsSpent: z.number(),
 	totalApiKeysSpent: z.number(),
+	// Spend actually debited from credit balances: credits-mode cost plus BYOK
+	// rows' data-storage cost. totalToppedUp minus this is the balance.
+	totalDebitedSpend: z.number(),
 	unusedCredits: z.number(),
+	// unusedCredits with gifted credits taken out of the topped-up base, i.e.
+	// purchased credits not yet spent, assuming spend drains purchases first.
+	unusedCreditsExcludingGifts: z.number(),
 	overage: z.number(),
 	totalGiftedCredits: z.number(),
 	totalBonusCredits: z.number(),
@@ -615,6 +631,13 @@ const orgMetricsSchema = z.object({
 	mostUsedProvider: z.string().nullable(),
 	mostUsedModelCost: z.number(),
 	discountSavings: z.number(),
+	// All-time dollars paid for credits: completed Stripe top-ups (incl fees)
+	// plus off-Stripe manual payments. Gifts are excluded. Net subtracts
+	// completed refunds of those payments.
+	allTimeTopUpsGross: z.string(),
+	allTimeTopUpsNet: z.string(),
+	// Credits granted via completed `credit_gift` rows.
+	allTimeGiftedCredits: z.string(),
 });
 
 const transactionSchema = z.object({
@@ -1242,6 +1265,10 @@ admin.openapi(getMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
 					"value",
 				),
+			giftedValue:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.type} = 'credit_gift'), 0)`.as(
+					"giftedValue",
+				),
 		})
 		.from(tables.transaction)
 		.where(
@@ -1254,6 +1281,7 @@ admin.openapi(getMetrics, async (c) => {
 		);
 
 	const totalToppedUp = Number(toppedUpRow?.value ?? 0);
+	const totalToppedUpGifted = Number(toppedUpRow?.giftedValue ?? 0);
 
 	// Total spent (usage cost from hourly stats). Excludes spend from projects
 	// belonging to orgs whose usage is/was on a DevPass or Chat Plan, so the
@@ -1715,6 +1743,10 @@ admin.openapi(getMetrics, async (c) => {
 	// unusedCredits (and overstate overage) for orgs with BYOK traffic.
 	const rawBalance = totalToppedUp - totalDebitedSpend;
 	const unusedCredits = Math.max(0, rawBalance);
+	const unusedCreditsExcludingGifts = Math.max(
+		0,
+		rawBalance - totalToppedUpGifted,
+	);
 	const overage = Math.max(0, -rawBalance);
 
 	return c.json({
@@ -1725,10 +1757,13 @@ admin.openapi(getMetrics, async (c) => {
 		totalProcessed,
 		totalOrganizations,
 		totalToppedUp,
+		totalToppedUpGifted,
 		totalSpent,
 		totalCreditsSpent,
 		totalApiKeysSpent,
+		totalDebitedSpend,
 		unusedCredits,
+		unusedCreditsExcludingGifts,
 		overage,
 		totalGiftedCredits,
 		totalBonusCredits,
@@ -3629,6 +3664,60 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		logOnly: org.contentFilterLogOnly,
 	};
 
+	const topUpTypes = ["credit_topup", "credit_manual_payment"] as const;
+	const [allTimeTopUpsRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, topUpTypes),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+			),
+		);
+
+	// Refunds net out only against the top-ups counted above.
+	const refundedTopUp = aliasedTable(tables.transaction, "refunded_topup");
+	const [topUpRefundsRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			refundedTopUp,
+			eq(tables.transaction.relatedTransactionId, refundedTopUp.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				eq(refundedTopUp.organizationId, orgId),
+				eq(refundedTopUp.status, "completed"),
+				inArray(refundedTopUp.type, topUpTypes),
+				sql`CAST(${refundedTopUp.amount} AS NUMERIC) > 0`,
+			),
+		);
+	const [giftedRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_gift"),
+			),
+		);
+	const allTimeTopUpsGross = new Decimal(allTimeTopUpsRow?.total ?? 0);
+	const allTimeTopUpsNet = allTimeTopUpsGross.minus(
+		new Decimal(topUpRefundsRow?.total ?? 0),
+	);
+
 	return c.json({
 		organization: {
 			id: org.id,
@@ -3675,6 +3764,9 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		mostUsedProvider,
 		mostUsedModelCost,
 		discountSavings,
+		allTimeTopUpsGross: allTimeTopUpsGross.toString(),
+		allTimeTopUpsNet: allTimeTopUpsNet.toString(),
+		allTimeGiftedCredits: new Decimal(giftedRow?.total ?? 0).toString(),
 	});
 });
 
@@ -5789,6 +5881,7 @@ const rateLimitSchema = z.object({
 	limitType: z.enum(["rpm", "rpd"]),
 	maxRequests: z.number(),
 	enforcement: z.enum(["per_org", "global"]),
+	mode: z.enum(["strict", "soft"]),
 	reason: z.string().nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
@@ -5808,6 +5901,8 @@ const createRateLimitBodySchema = z.object({
 		.int("Limit must be a whole number")
 		.min(0, "Limit must be at least 0"),
 	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
+	// "soft" lets a session already pinned to the capped provider keep it.
+	mode: z.enum(["strict", "soft"]).optional().default("strict"),
 	reason: z.string().nullable().optional(),
 });
 
@@ -5989,6 +6084,7 @@ function formatRateLimit(r: {
 	maxRpm: number | null;
 	maxRpd: number | null;
 	enforcement: string;
+	mode: "strict" | "soft";
 	reason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
@@ -6005,6 +6101,7 @@ function formatRateLimit(r: {
 		maxRequests,
 		enforcement:
 			r.enforcement === "global" ? ("global" as const) : ("per_org" as const),
+		mode: r.mode,
 		reason: r.reason,
 		createdAt: r.createdAt.toISOString(),
 		updatedAt: r.updatedAt.toISOString(),
@@ -6037,6 +6134,12 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 		throw new HTTPException(400, { message: validation.error });
 	}
 
+	if (body.mode === "soft" && body.maxRequests === 0) {
+		throw new HTTPException(400, {
+			message: "A limit of 0 blocks all requests and cannot be soft",
+		});
+	}
+
 	const [created] = await db
 		.insert(tables.rateLimit)
 		.values({
@@ -6046,6 +6149,7 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
 			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
 			enforcement: body.enforcement,
+			mode: body.mode,
 			reason: body.reason ?? null,
 		})
 		.onConflictDoNothing()
@@ -6168,6 +6272,7 @@ const contentFilterSettingsResponseSchema = z
 		enforceEnterprise: z.boolean(),
 		classifier: z.enum(CONTENT_FILTER_CLASSIFIERS),
 		internalScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES),
+		moderateImages: z.boolean(),
 		providers: z.array(
 			z.object({
 				id: z.string(),
@@ -6225,6 +6330,7 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 		enforceEnterprise: settings.enforceEnterprise,
 		classifier: settings.classifier,
 		internalScope: settings.internalScope,
+		moderateImages: settings.moderateImages,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -6238,6 +6344,7 @@ admin.openapi(updateContentFilterSettingsRoute, async (c) => {
 		enforceEnterprise: settings.enforceEnterprise,
 		classifier: settings.classifier,
 		internalScope: settings.internalScope,
+		moderateImages: settings.moderateImages,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -6444,6 +6551,56 @@ admin.openapi(updateForceThreeDSecure, async (c) => {
 	await setForcedThreeDSecureMode(mode);
 
 	return c.json(await forceThreeDSecureState());
+});
+
+// --- Model error-rate Discord alerts ---
+
+const getModelErrorRateAlertsRoute = createRoute({
+	method: "get",
+	path: "/settings/model-error-rate-alerts",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+				},
+			},
+			description: "Model error-rate Discord alert rules.",
+		},
+	},
+});
+
+const updateModelErrorRateAlertsRoute = createRoute({
+	method: "put",
+	path: "/settings/model-error-rate-alerts",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+				},
+			},
+			description: "Updated model error-rate Discord alert rules.",
+		},
+	},
+});
+
+admin.openapi(getModelErrorRateAlertsRoute, async (c) => {
+	return c.json(await getModelErrorRateAlertsSettings());
+});
+
+admin.openapi(updateModelErrorRateAlertsRoute, async (c) => {
+	return c.json(await setModelErrorRateAlertsSettings(c.req.valid("json")));
 });
 
 // --- Announcement Banner ---
@@ -6874,6 +7031,7 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			model,
 			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
 			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			mode: body.mode,
 			reason: body.reason ?? null,
 		})
 		.onConflictDoNothing()
@@ -6897,6 +7055,7 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			model,
 			maxRpm: created.maxRpm,
 			maxRpd: created.maxRpd,
+			mode: created.mode,
 			reason: created.reason,
 			source: "admin",
 		},
@@ -13161,13 +13320,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 const unstableMappingErrorsSchema = mappingErrorShapesSchema.extend({
 	groupByKey: z.boolean(),
 	groupByStream: z.boolean(),
-	/** Bucket grid of each error's `buckets`, covering the selected window. */
-	timeline: z.object({
-		bucketSeconds: z.number(),
-		/** First and last bucket start, epoch milliseconds. */
-		start: z.number(),
-		end: z.number(),
-	}),
+	timeline: errorTimelineSchema,
 	/** Keys in the sample, most errors first; empty unless grouped by key. */
 	keys: z.array(
 		z.object({
@@ -13261,9 +13414,6 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		hours: windowHours,
 		bucketSeconds,
 	} = resolveMappingErrorWindow(window);
-	const bucketMs = bucketSeconds * 1000;
-	const now = Date.now();
-	const windowMs = windowHours * 3_600_000;
 	const providerKeyClause =
 		providerKeyId === undefined
 			? sql``
@@ -13313,11 +13463,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		...shapes,
 		groupByKey,
 		groupByStream,
-		timeline: {
-			bucketSeconds,
-			start: Math.floor((now - windowMs) / bucketMs) * bucketMs,
-			end: Math.floor(now / bucketMs) * bucketMs,
-		},
+		timeline: buildErrorTimeline(windowHours, bucketSeconds),
 		keys: [...keyErrors].map(([id, errorsCount]) => ({
 			providerKeyId: id,
 			...describeProviderKey(providerKeyLabels, id),

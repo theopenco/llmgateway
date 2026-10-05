@@ -27,6 +27,7 @@ async function seedMinute(
 		totalTimeToFirstReasoningToken?: number;
 		timeToFirstReasoningTokenCount?: number;
 	},
+	usedMode: "credits" | "api-keys" = "credits",
 ) {
 	const minuteMs = 60_000;
 	const offsetMs = minutesAgo * minuteMs;
@@ -37,6 +38,7 @@ async function seedMinute(
 		providerId: PROVIDER_ID,
 		modelProviderMappingId: `${MODEL_ID}::${PROVIDER_ID}::${minutesAgo}`,
 		minuteTimestamp,
+		usedMode,
 		...stats,
 	});
 }
@@ -88,6 +90,7 @@ describe("public providers stats", () => {
 				modelId: MODEL_ID,
 				providerId: PROVIDER_ID,
 				modelProviderMappingId: "deleted-mapping",
+				usedMode: "credits",
 				hourTimestamp: new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000),
 				logsCount: 10,
 			});
@@ -173,6 +176,30 @@ describe("public providers stats", () => {
 		const provider = await fetchProviderStats();
 		expect(provider.errorsCount).toBe(2);
 		expect(provider.uptime).toBeCloseTo((7 / 9) * 100);
+	});
+
+	test("excludes bring-your-own-key traffic", async () => {
+		await seedMinute(1, {
+			logsCount: 10,
+			totalTimeToFirstToken: 0,
+			timeToFirstTokenCount: 0,
+		});
+		await seedMinute(
+			1,
+			{
+				logsCount: 50,
+				errorsCount: 50,
+				gatewayErrorsCount: 50,
+				totalTimeToFirstToken: 0,
+				timeToFirstTokenCount: 0,
+			},
+			"api-keys",
+		);
+
+		const provider = await fetchProviderStats();
+		expect(provider.logsCount).toBe(10);
+		expect(provider.errorsCount).toBe(0);
+		expect(provider.uptime).toBe(100);
 	});
 
 	test("counts upstream errors the hasError column never flagged", async () => {

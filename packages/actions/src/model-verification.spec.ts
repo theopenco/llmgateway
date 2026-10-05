@@ -770,6 +770,176 @@ describe("model verification", () => {
 		]);
 	});
 
+	describe("declared limits", () => {
+		const limitsTarget: ProviderModelVerificationTarget = {
+			...target,
+			streaming: false,
+			vision: false,
+			audio: false,
+			tools: false,
+			jsonOutput: false,
+			jsonOutputSchema: false,
+			reasoning: false,
+			reasoningMaxTokens: false,
+			webSearch: false,
+			contextSize: 10_000,
+			maxOutput: 4_096,
+		};
+		const respond = (promptTokens: number) =>
+			vi.fn<typeof fetch>().mockImplementation(async () =>
+				Response.json({
+					choices: [{ message: { content: "OK" } }],
+					usage: { prompt_tokens: promptTokens },
+				}),
+			);
+
+		it("queues a check per declared limit", () => {
+			expect(
+				createQueuedModelVerificationChecks(limitsTarget).map(({ id }) => id),
+			).toEqual(["basic", "context_size", "max_output"]);
+		});
+
+		it("fills the declared window and requests the declared output", async () => {
+			const fetchImplementation = respond(5_000);
+			const result = await runProviderModelVerification({
+				target: limitsTarget,
+				token: "provider-key",
+				fetchImplementation,
+			});
+
+			expect(result.passed).toBe(true);
+			const [, context, output] = fetchImplementation.mock.calls.map(
+				([, request]) => JSON.parse(String(request?.body)),
+			);
+			// 70% of the window at 3 chars per token.
+			expect(context.messages[0].content.length).toBeGreaterThan(21_000);
+			expect(JSON.stringify(output)).toContain("4096");
+		});
+
+		it("fails the context check when the upstream refuses the prompt", async () => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockImplementation(async (_url, request) =>
+					String(request?.body).length > 20_000
+						? Response.json(
+								{ error: { message: "maximum context length is 4096" } },
+								{ status: 400 },
+							)
+						: Response.json({ choices: [{ message: { content: "OK" } }] }),
+				);
+			const result = await runProviderModelVerification({
+				target: limitsTarget,
+				token: "provider-key",
+				fetchImplementation,
+			});
+
+			expect(result.passed).toBe(false);
+			expect(result.checks).toMatchObject([
+				{ id: "basic", status: "passed" },
+				{
+					id: "context_size",
+					status: "failed",
+					feedback:
+						'Your endpoint refused a test prompt filling about 70% of the declared 10,000-token context size. It answered: "maximum context length is 4096"',
+				},
+				{ id: "max_output", status: "passed" },
+			]);
+		});
+
+		it("fails the context check when the reported input was truncated", async () => {
+			const result = await runProviderModelVerification({
+				target: limitsTarget,
+				token: "provider-key",
+				fetchImplementation: respond(1_000),
+			});
+
+			expect(result.checks[1]).toMatchObject({
+				id: "context_size",
+				status: "failed",
+				feedback: expect.stringContaining("1000 input tokens"),
+			});
+		});
+
+		it("caps the prompt for an oversized declared window", async () => {
+			const fetchImplementation = respond(1_500_000);
+			const result = await runProviderModelVerification({
+				target: { ...limitsTarget, contextSize: 100_000_000 },
+				token: "provider-key",
+				fetchImplementation,
+			});
+
+			expect(result.passed).toBe(true);
+			const context = String(fetchImplementation.mock.calls[1][1]?.body);
+			expect(context.length).toBeLessThan(6_100_000);
+		});
+
+		it("fails the context check on a failed response envelope", async () => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockImplementation(async (_url, request) =>
+					String(request?.body).length > 20_000
+						? Response.json({
+								status: "failed",
+								error: { message: "context window exceeded" },
+							})
+						: Response.json({ choices: [{ message: { content: "OK" } }] }),
+				);
+			const result = await runProviderModelVerification({
+				target: limitsTarget,
+				token: "provider-key",
+				fetchImplementation,
+			});
+
+			expect(result.checks[1]).toMatchObject({
+				id: "context_size",
+				status: "failed",
+				feedback: "context window exceeded",
+			});
+		});
+
+		it("counts cached input tokens towards the processed prompt", async () => {
+			const result = await runProviderModelVerification({
+				target: limitsTarget,
+				token: "provider-key",
+				fetchImplementation: vi
+					.fn<typeof fetch>()
+					.mockImplementation(async () =>
+						Response.json({
+							choices: [{ message: { content: "OK" } }],
+							usage: { input_tokens: 10, cache_creation_input_tokens: 5_000 },
+						}),
+					),
+			});
+
+			expect(result.passed).toBe(true);
+		});
+
+		it("fails the output check when the upstream refuses the budget", async () => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockImplementation(async (_url, request) =>
+					String(request?.body).includes("4096")
+						? Response.json(
+								{ error: { message: "max_tokens must be <= 2048" } },
+								{ status: 400 },
+							)
+						: Response.json({ choices: [{ message: { content: "OK" } }] }),
+				);
+			const result = await runProviderModelVerification({
+				target: limitsTarget,
+				token: "provider-key",
+				fetchImplementation,
+			});
+
+			expect(result.checks[2]).toMatchObject({
+				id: "max_output",
+				status: "failed",
+				feedback:
+					'Your endpoint refused a request for the declared max output of 4,096 tokens. It answered: "max_tokens must be <= 2048"',
+			});
+		});
+	});
+
 	it("validates every declared capability with provider responses", async () => {
 		const response = (body: unknown) =>
 			new Response(JSON.stringify(body), { status: 200 });

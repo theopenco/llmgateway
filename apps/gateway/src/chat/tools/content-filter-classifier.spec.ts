@@ -77,6 +77,7 @@ const PLAN: TieredContentFilterPlan = {
 	enforce: true,
 	classifier: "jev",
 	internalScope: "full",
+	moderateImages: true,
 };
 
 describe("runContentFilterClassifier", () => {
@@ -145,6 +146,51 @@ describe("runContentFilterClassifier", () => {
 		);
 
 		expect(checked.durationMs).toBeGreaterThanOrEqual(75);
+	});
+
+	it("times the text check and the image delegation separately", async () => {
+		checkInternal.mockImplementation(async () => {
+			await sleep(40);
+			return {
+				...result(false, {}, "internal-classifier"),
+				requestCount: 3,
+			};
+		});
+		checkOpenAI.mockImplementation(async () => {
+			await sleep(120);
+			return result(false, { violence: 0.1 }, "omni-moderation-latest");
+		});
+
+		const evaluated = await evaluateContentFilterWithClassifiers({
+			plan: { ...PLAN, classifier: "internal", internalScope: "latest_turn" },
+			messages: IMAGE_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: () => true,
+		});
+
+		const evaluation = evaluated?.evaluation;
+		expect(evaluation?.internalScope).toBe("latest_turn");
+		expect(evaluation?.classifierRequests).toBe(3);
+		expect(evaluation?.classifierDurationMs).toBeGreaterThanOrEqual(35);
+		expect(evaluation?.classifierDurationMs).toBeLessThan(110);
+		expect(evaluation?.imageDurationMs).toBeGreaterThanOrEqual(110);
+	});
+
+	it("records no image duration for a text-only request", async () => {
+		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
+
+		const checked = await runContentFilterClassifier(
+			"jev",
+			TEXT_MESSAGES,
+			CONTEXT,
+			undefined,
+			{ imagesAllowed: true },
+		);
+
+		expect(checked.classifierDurationMs).toBeGreaterThanOrEqual(0);
+		expect(checked.classifierRequests).toBeUndefined();
+		expect(checked.imageDurationMs).toBeUndefined();
 	});
 
 	it("marks a failed image delegation without changing the text verdict", async () => {
@@ -357,6 +403,22 @@ describe("evaluateContentFilterWithClassifiers", () => {
 		expect(evaluated?.evaluation.moderationFailed).toBe(true);
 		// Fail open: an uncovered image is not a violation.
 		expect(evaluated?.evaluation.action).toBe("passed");
+	});
+
+	it("leaves images unmoderated when image moderation is off", async () => {
+		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
+
+		const evaluated = await evaluateContentFilterWithClassifiers({
+			plan: { ...PLAN, moderateImages: false },
+			messages: IMAGE_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: () => true,
+		});
+
+		expect(checkOpenAI).not.toHaveBeenCalled();
+		expect(evaluated?.evaluation.moderationFailed).toBe(false);
+		expect(evaluated?.results[0]?.results).toHaveLength(1);
 	});
 
 	it("skips entirely when the classifier is not permitted", async () => {

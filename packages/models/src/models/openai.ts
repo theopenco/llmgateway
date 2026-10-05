@@ -1148,6 +1148,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.1",
+				deactivatedAt: new Date("2027-04-01"),
 				serviceTiers: ["flex", "priority"],
 				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.25e-6",
@@ -1717,6 +1718,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.4-nano",
+				deactivatedAt: new Date("2027-04-01"),
 				serviceTiers: ["flex"],
 				inputPrice: "0.2e-6",
 				outputPrice: "1.25e-6",
@@ -2882,6 +2884,56 @@ export const openaiModels = [
 				],
 				jsonOutput: true,
 			},
+			{
+				test: "skip",
+				providerId: "azure",
+				externalId: "gpt-6.1-sol",
+				inputPrice: "2.0e-6",
+				outputPrice: "10.0e-6",
+				cachedInputPrice: "0.1e-6",
+				cacheWriteInputPrice: "2.5e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "2.0e-6",
+						outputPrice: "10.0e-6",
+						cachedInputPrice: "0.1e-6",
+						cacheWriteInputPrice: "2.5e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "4.0e-6",
+						outputPrice: "15.0e-6",
+						cachedInputPrice: "0.2e-6",
+						cacheWriteInputPrice: "5.0e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.01",
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"verbosity",
+					"tools",
+					"tool_choice",
+				],
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -3063,6 +3115,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.3-codex",
+				deactivatedAt: new Date("2027-04-01"),
 				serviceTiers: ["priority"],
 				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.75e-6",
@@ -3460,6 +3513,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "tts-1",
+				deactivatedAt: new Date("2027-01-06"),
 				inputPrice: "0",
 				outputPrice: "0",
 				inputCharacterPrice: "15e-6",
@@ -3485,6 +3539,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "tts-1-hd",
+				deactivatedAt: new Date("2027-01-06"),
 				inputPrice: "0",
 				outputPrice: "0",
 				inputCharacterPrice: "30e-6",
@@ -3510,6 +3565,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-4o-mini-tts",
+				deactivatedAt: new Date("2027-01-06"),
 				// Token-billed; the gateway requests stream_format=sse so the
 				// speech.audio.done event reports usage (the binary response has none).
 				inputPrice: "0.6e-6",

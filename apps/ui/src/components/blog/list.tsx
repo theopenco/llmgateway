@@ -21,6 +21,7 @@ interface BlogItem {
 	summary: string;
 	categories?: string[];
 	image?: BlogItemImage;
+	author?: { name: string; url?: string };
 }
 
 interface BlogListProps {
@@ -138,6 +139,7 @@ export function BlogList({
 										{entry.summary}
 									</p>
 									<div className="text-xs text-muted-foreground">
+										{entry.author && <p>By {entry.author.name}</p>}
 										{new Date(entry.date).toLocaleDateString("en-US", {
 											year: "numeric",
 											month: "long",

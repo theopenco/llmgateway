@@ -2058,6 +2058,10 @@ export const providerKey = pgTable(
 		// instead of picking it and failing upstream. NULL (or empty) means the
 		// key serves every model of its provider.
 		allowedModels: text().array(),
+		// Models an admin removed from `allowedModels`. The daily model sync
+		// skips them, so a deliberate exclusion is not re-enabled just because
+		// the account can still serve the model.
+		modelSyncExcluded: text().array(),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.
@@ -4251,6 +4255,49 @@ export const contentFilterHourlyModelStats = pgTable(
 	],
 );
 
+// Hourly classifier latency from log.gatewayContentFilterEvaluation, platform
+// wide, so the classifier's own speed can be read without scanning `log`. One
+// row per classifier and, for the internal classifier, the scope it read
+// (empty otherwise). The classifier columns exclude the image moderation
+// delegated to OpenAI, which the image columns carry. Percentiles are per hour
+// and do not combine across hours.
+export const contentFilterHourlyLatencyStats = pgTable(
+	"content_filter_hourly_latency_stats",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		hourTimestamp: timestamp().notNull(),
+		classifier: text().notNull(),
+		internalScope: text().notNull().default(""),
+		// Checks that recorded a classifier duration, failed ones included.
+		checkCount: integer().notNull().default(0),
+		failedCount: integer().notNull().default(0),
+		classifierDurationSumMs: bigint({ mode: "number" }).notNull().default(0),
+		classifierDurationMaxMs: integer(),
+		classifierDurationP50Ms: integer("classifier_duration_p50_ms"),
+		classifierDurationP95Ms: integer("classifier_duration_p95_ms"),
+		classifierDurationP99Ms: integer("classifier_duration_p99_ms"),
+		// Classify calls made; a long conversation is sent in chunks.
+		classifierRequestSum: integer().notNull().default(0),
+		// Over checks that delegated an image; imageCheckCount is the divisor.
+		imageCheckCount: integer().notNull().default(0),
+		imageDurationSumMs: bigint({ mode: "number" }).notNull().default(0),
+		imageDurationMaxMs: integer(),
+		imageDurationP95Ms: integer("image_duration_p95_ms"),
+	},
+	(table) => [
+		unique("content_filter_hourly_latency_stats_bucket_unique").on(
+			table.hourTimestamp,
+			table.classifier,
+			table.internalScope,
+		),
+	],
+);
+
 // Audit Log - Enterprise feature for tracking all API actions
 export const auditLogActions = [
 	// Organization
@@ -4466,6 +4513,51 @@ export const auditLog = pgTable(
 		index("audit_log_user_id_idx").on(table.userId),
 		index("audit_log_action_idx").on(table.action),
 		index("audit_log_resource_type_idx").on(table.resourceType),
+	],
+);
+
+export const platformAuditLogActions = [
+	// Daily worker run that enables newly working models on a managed credential.
+	"provider_key.models_synced",
+] as const;
+
+export type PlatformAuditLogAction = (typeof platformAuditLogActions)[number];
+
+/** Metadata of a `provider_key.models_synced` entry. */
+export interface ProviderKeyModelSyncMetadata {
+	provider: string;
+	/** Models the run probed, i.e. live-testable ones not yet allowed. */
+	probed: number;
+	/** Models with no live probe (e.g. video); these are never enabled. */
+	skipped: number;
+	/** Models that passed and were appended to `allowedModels`. */
+	added: string[];
+	failed: { model: string; statusCode?: number; error?: string }[];
+}
+
+/**
+ * Platform-wide counterpart of `audit_log` for resources no organization owns,
+ * such as managed provider credentials.
+ */
+export const platformAuditLog = pgTable(
+	"platform_audit_log",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		// NULL when the system (worker) performed the action.
+		userId: text().references(() => user.id, { onDelete: "set null" }),
+		action: text({ enum: platformAuditLogActions }).notNull(),
+		resourceType: text().notNull(),
+		resourceId: text(),
+		metadata: jsonb().$type<ProviderKeyModelSyncMetadata>(),
+	},
+	(table) => [
+		index("platform_audit_log_resource_idx").on(
+			table.resourceType,
+			table.resourceId,
+			table.createdAt,
+		),
+		index("platform_audit_log_created_at_idx").on(table.createdAt),
 	],
 );
 
@@ -4872,6 +4964,11 @@ export const rateLimit = pgTable(
 		enforcement: text({ enum: ["per_org", "global"] })
 			.notNull()
 			.default("per_org"),
+		// "soft" keeps a session already pinned to the capped provider on it;
+		// all other traffic is routed away exactly as under "strict".
+		mode: text({ enum: ["strict", "soft"] })
+			.notNull()
+			.default("strict"),
 		// Optional metadata
 		reason: text(),
 	},
@@ -4934,16 +5031,9 @@ export const providerCompany = pgTable("provider_company", {
 		.$onUpdate(() => new Date()),
 	name: text().notNull(),
 	website: text(),
-	// DNS ownership proof for `website`. The company publishes the token as a
-	// TXT record on the site's registrable domain; once resolved, that domain
-	// counts alongside the verified email domain when matching carrier claims,
-	// so a company whose staff mail is on a different domain can still claim.
+	// The token a company publishes as a TXT record to prove a domain; see
+	// `providerCompanyDomain`.
 	websiteVerificationToken: text(),
-	// The registrable domain the TXT record was found on, lowercase. Stored
-	// separately from `website` so editing the URL cannot silently carry an
-	// old proof over to a new domain.
-	websiteVerifiedDomain: text(),
-	websiteVerifiedAt: timestamp(),
 	// One-time listing fee. Claims are gated on "paid" whenever the Stripe
 	// price id is configured; self-hosted installs without it skip the gate.
 	paymentStatus: text({ enum: ["unpaid", "paid"] })
@@ -4956,6 +5046,41 @@ export const providerCompany = pgTable("provider_company", {
 	// keeps working, and this records which code cleared it.
 	listingInviteCode: text(),
 });
+
+// Domains a company has proven, and how. A verified `dns` row counts alongside
+// the verified email domain when matching carrier claims, so a company can
+// host its API on a domain unrelated to its staff mail; the TXT token is the
+// company's `websiteVerificationToken`. An `email` row only records that a
+// claim was matched on the claimer's email domain: that proof belongs to the
+// person, so it never grants the company claim rights.
+export const providerCompanyDomain = pgTable(
+	"provider_company_domain",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		// Registrable domain, lowercase.
+		domain: text().notNull(),
+		verificationMethod: text({ enum: ["dns", "email"] })
+			.notNull()
+			.default("dns"),
+		// Null until the TXT record resolved.
+		verifiedAt: timestamp(),
+	},
+	(table) => [
+		uniqueIndex("provider_company_domain_company_domain_method_uidx").on(
+			table.providerCompanyId,
+			table.domain,
+			table.verificationMethod,
+		),
+	],
+);
 
 export const providerCompanyMember = pgTable(
 	"provider_company_member",
@@ -5130,6 +5255,7 @@ export interface AirsideModelMetadataChanges {
 	maxRpm?: number | null;
 	maxRpd?: number | null;
 	rateLimitScope?: "global" | "per_org";
+	rateLimitMode?: "strict" | "soft";
 }
 
 export interface AirsidePendingBranding {
@@ -5201,6 +5327,10 @@ export const providerDraftModel = pgTable(
 		rateLimitScope: text({ enum: ["global", "per_org"] })
 			.notNull()
 			.default("global"),
+		// Same semantics as `rate_limit.mode`.
+		rateLimitMode: text({ enum: ["strict", "soft"] })
+			.notNull()
+			.default("strict"),
 		status: text({ enum: ["draft", "active", "rejected", "delisted"] })
 			.notNull()
 			.default("draft"),
@@ -5272,6 +5402,9 @@ export interface ProviderModelVerificationTarget {
 	reasoningMaxTokens: boolean;
 	reasoningEfforts: string[] | null;
 	webSearch: boolean;
+	/** Declared limits; unset on runs queued before they were verified. */
+	contextSize?: number | null;
+	maxOutput?: number | null;
 }
 
 // One queued verification of an Airside mapping or a catalogue mapping. The

@@ -209,6 +209,48 @@ describe("admin rate limits for airside listings", () => {
 		},
 	);
 
+	test("mode defaults to strict and round-trips soft", async () => {
+		const strict = await app.request("/admin/rate-limits", {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				provider: CARRIER_ID,
+				limitType: "rpm",
+				maxRequests: 10,
+			}),
+		});
+		expect(strict.status).toBe(201);
+		expect(await strict.json()).toMatchObject({ mode: "strict" });
+
+		const soft = await app.request("/admin/rate-limits", {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				provider: CARRIER_ID,
+				model: MODEL_ID,
+				limitType: "rpm",
+				maxRequests: 10,
+				mode: "soft",
+			}),
+		});
+		expect(soft.status).toBe(201);
+		expect(await soft.json()).toMatchObject({ mode: "soft" });
+	});
+
+	test("rejects a soft zero limit", async () => {
+		const response = await app.request("/admin/rate-limits", {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				provider: CARRIER_ID,
+				limitType: "rpm",
+				maxRequests: 0,
+				mode: "soft",
+			}),
+		});
+		expect(response.status).toBe(400);
+	});
+
 	test("still rejects zero on organization-specific limits", async () => {
 		const response = await app.request(
 			"/admin/organizations/test-org/rate-limits",
