@@ -315,4 +315,46 @@ describe("anthropic tool search", () => {
 			},
 		]);
 	});
+
+	test("drops empty text parts from an array tool_result", async () => {
+		const toolResult = async (content: BaseMessage["content"]) => {
+			const body = (await prepare(
+				"anthropic",
+				"claude-sonnet-4-6",
+				[
+					{ role: "user", content: "What is the weather in Paris?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "toolu_1",
+								type: "function",
+								function: { name: "get_weather", arguments: "{}" },
+							},
+						],
+					},
+					{ role: "tool", tool_call_id: "toolu_1", content },
+				],
+				[DEFERRED_TOOL],
+			)) as AnthropicRequestBody;
+			return body.messages.at(-1)?.content;
+		};
+
+		expect(await toolResult([{ type: "text", text: "" }])).toEqual([
+			{ type: "tool_result", tool_use_id: "toolu_1", content: "No output" },
+		]);
+		expect(
+			await toolResult([
+				{ type: "text", text: " " },
+				{ type: "text", text: "sunny" },
+			]),
+		).toEqual([
+			{
+				type: "tool_result",
+				tool_use_id: "toolu_1",
+				content: [{ type: "text", text: "sunny" }],
+			},
+		]);
+	});
 });

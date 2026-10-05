@@ -319,16 +319,28 @@ export async function transformAnthropicMessages(
 			// A client-side tool search returns `tool_reference` blocks in the
 			// tool_result content array. Stringifying that array would leave
 			// Anthropic nothing to expand, so replay the original blocks verbatim.
-			const resultContent: ToolResultContent["content"] = Array.isArray(
-				m.content,
-			)
+			// Nested blocks bypass the top-level empty-text filter below, and
+			// Anthropic rejects empty text blocks, so drop them here.
+			const resultBlocks = Array.isArray(m.content)
 				? [
-						...content.map((part) => ({ ...part })),
+						...content
+							.filter(
+								(part) =>
+									!(
+										isTextContent(part) &&
+										(!part.text || part.text.trim() === "")
+									),
+							)
+							.map((part) => ({ ...part })),
 						...(m.anthropic_native_blocks ?? []),
 					]
-				: m.anthropic_native_blocks?.length
-					? m.anthropic_native_blocks
-					: toolResultContent;
+				: (m.anthropic_native_blocks ?? []);
+			const resultContent: ToolResultContent["content"] =
+				resultBlocks.length > 0
+					? resultBlocks
+					: Array.isArray(m.content)
+						? "No output"
+						: toolResultContent;
 
 			// If there are multiple mapped IDs, create tool_result blocks for each one
 			// This handles the case where we have duplicate tool_use but only one tool_result
