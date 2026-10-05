@@ -9738,7 +9738,8 @@ async function blockOrganizationById(
 		}
 	});
 
-	await invalidateOrganizationsCache([orgId]);
+	// A blocked org must not be served its pre-block row during an outage.
+	await invalidateOrganizationsCache([orgId], { dropFallback: true });
 
 	if (memberUserIds.length > 0) {
 		const members = await db.query.user.findMany({

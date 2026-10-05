@@ -1,6 +1,6 @@
 import { and, eq, getTableName } from "drizzle-orm";
 
-import { invalidateSwrKeys, swrWrap } from "@llmgateway/cache";
+import { invalidateSwrKeys, refreshSwrKeys, swrWrap } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { cdb, drizzleCache } from "./cdb.js";
@@ -29,9 +29,13 @@ export function organizationCacheTag(organizationId: string): string {
  * Evict the tagged org-row cache entries for the given organizations.
  * Best-effort: a failure only delays freshness until the TTL, so it must
  * never break the caller (the worker's billing loop).
+ *
+ * The SWR outage fallback is kept and refreshed on the next read, unless
+ * `dropFallback` is set because the old row must never be served again.
  */
 export async function invalidateOrganizationsCache(
 	organizationIds: string[],
+	{ dropFallback = false }: { dropFallback?: boolean } = {},
 ): Promise<void> {
 	if (organizationIds.length === 0) {
 		return;
@@ -43,12 +47,11 @@ export async function invalidateOrganizationsCache(
 				`org-fresh:${id}`,
 			]),
 		});
-		await invalidateSwrKeys(
-			organizationIds.flatMap((id) => [
-				organizationCacheTag(id),
-				`org:fresh:${id}`,
-			]),
-		);
+		const swrKeys = organizationIds.flatMap((id) => [
+			organizationCacheTag(id),
+			`org:fresh:${id}`,
+		]);
+		await (dropFallback ? invalidateSwrKeys(swrKeys) : refreshSwrKeys(swrKeys));
 	} catch (error) {
 		logger.error(
 			"Error invalidating organization cache tags",
