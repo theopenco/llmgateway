@@ -124,7 +124,6 @@ export async function processNotifications(now = new Date()): Promise<void> {
 	});
 	const providers = await db.query.provider.findMany({
 		where: { status: "active" },
-		columns: { streaming: false },
 	});
 	for (const userId of userIds) {
 		const recipient = await db.query.user.findFirst({
