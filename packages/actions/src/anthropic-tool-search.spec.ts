@@ -278,6 +278,41 @@ describe("anthropic tool search", () => {
 		);
 	});
 
+	test("keeps a tool_reference-only tool result for other providers", async () => {
+		const references = [{ type: "tool_reference", tool_name: "get_weather" }];
+		const body = (await prepare(
+			"openai",
+			"gpt-4o-mini",
+			[
+				{ role: "user", content: "What is the weather in Paris?" },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "toolu_search",
+							type: "function",
+							function: { name: "find_tools", arguments: '{"q":"weather"}' },
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "toolu_search",
+					content: "",
+					anthropic_native_blocks: references,
+				},
+			],
+			[DEFERRED_TOOL],
+		)) as OpenAIRequestBody;
+
+		expect(body.messages.at(-1)).toMatchObject({
+			role: "tool",
+			tool_call_id: "toolu_search",
+			content: JSON.stringify(references),
+		});
+	});
+
 	test("replays tool_reference blocks in a tool_result verbatim", async () => {
 		const references = [{ type: "tool_reference", tool_name: "get_weather" }];
 		const body = (await prepare(
