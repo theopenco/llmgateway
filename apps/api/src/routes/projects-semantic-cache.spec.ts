@@ -51,24 +51,59 @@ describe("semantic cache settings", () => {
 			.where(eq(tables.organization.id, ORG_ID));
 		const semantic = await call("PATCH", `/projects/${PROJECT_ID}`, {
 			cachingEnabled: true,
-			semanticCacheEnabled: true,
+			semanticCacheMode: "on",
 		});
 		expect(semantic.status).toBe(403);
+		const shadow = await call("PATCH", `/projects/${PROJECT_ID}`, {
+			cachingEnabled: true,
+			semanticCacheMode: "shadow",
+		});
+		expect(shadow.status).toBe(403);
 	});
 
-	test("enterprise projects can enable semantic caching", async () => {
-		const res = await call("PATCH", `/projects/${PROJECT_ID}`, {
-			cachingEnabled: true,
-			semanticCacheEnabled: true,
-			semanticCacheThreshold: 0.9,
-		});
-		expect(res.status).toBe(200);
+	async function stored() {
 		const [project] = await db
 			.select()
 			.from(tables.project)
 			.where(eq(tables.project.id, PROJECT_ID));
-		expect(project.semanticCacheEnabled).toBe(true);
-		expect(project.semanticCacheThreshold).toBeCloseTo(0.9);
+		return project;
+	}
+
+	test("enterprise projects can enable semantic caching", async () => {
+		const res = await call("PATCH", `/projects/${PROJECT_ID}`, {
+			cachingEnabled: true,
+			semanticCacheMode: "on",
+			semanticCacheThreshold: 0.92,
+		});
+		expect(res.status).toBe(200);
+		const project = await stored();
+		expect(project.semanticCacheMode).toBe("on");
+		expect(project.semanticCacheThreshold).toBeCloseTo(0.92);
+	});
+
+	test("threshold floor is 0.90", async () => {
+		const low = await call("PATCH", `/projects/${PROJECT_ID}`, {
+			semanticCacheThreshold: 0.85,
+		});
+		expect(low.status).toBe(400);
+	});
+
+	test("turning off request caching turns semantic caching off", async () => {
+		await call("PATCH", `/projects/${PROJECT_ID}`, {
+			cachingEnabled: true,
+			semanticCacheMode: "shadow",
+		});
+		expect((await stored()).semanticCacheMode).toBe("shadow");
+		const off = await call("PATCH", `/projects/${PROJECT_ID}`, {
+			cachingEnabled: false,
+		});
+		expect(off.status).toBe(200);
+		expect((await stored()).semanticCacheMode).toBe("off");
+		const back = await call("PATCH", `/projects/${PROJECT_ID}`, {
+			cachingEnabled: true,
+		});
+		expect(back.status).toBe(200);
+		expect((await stored()).semanticCacheMode).toBe("off");
 	});
 
 	test("semantic caching rules: threshold needs enterprise, policy blocks enabling", async () => {
@@ -89,11 +124,11 @@ describe("semantic cache settings", () => {
 			.where(eq(tables.organization.id, ORG_ID));
 		const blocked = await call("PATCH", `/projects/${PROJECT_ID}`, {
 			cachingEnabled: true,
-			semanticCacheEnabled: true,
+			semanticCacheMode: "on",
 		});
 		expect(blocked.status).toBe(409);
 		const disable = await call("PATCH", `/projects/${PROJECT_ID}`, {
-			semanticCacheEnabled: false,
+			semanticCacheMode: "off",
 		});
 		expect(disable.status).toBe(200);
 	});

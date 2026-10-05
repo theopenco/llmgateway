@@ -8,8 +8,11 @@ import {
 	findSemanticCacheMatches,
 	generateSemanticCacheScopeKey,
 	rankSemanticMatches,
+	semanticAnchors,
 } from "./semantic-cache.js";
 import { storageRedisClient } from "./storage-redis.js";
+
+const none: string[] = [];
 
 describe("semantic cache", () => {
 	const scopeKey = generateSemanticCacheScopeKey(`spec-${Date.now()}`, {
@@ -28,16 +31,64 @@ describe("semantic cache", () => {
 		expect(cosineSimilarity([0, 0], [1, 0])).toBe(0);
 	});
 
+	test("anchors keep numbers, codes and negations in order", () => {
+		expect(semanticAnchors("What is 2+3?")).toEqual(["2+3"]);
+		expect(semanticAnchors("Convert 100 EUR to USD.")).toEqual([
+			"100",
+			"EUR",
+			"USD",
+		]);
+		expect(semanticAnchors("Convert 100 USD to EUR.")).not.toEqual(
+			semanticAnchors("Convert 100 EUR to USD."),
+		);
+		expect(semanticAnchors("Please don't cancel my order")).toEqual(["don't"]);
+		expect(semanticAnchors("How do I reset my password?")).toEqual([]);
+		expect(
+			semanticAnchors("How can I reset the password for my account?"),
+		).toEqual([]);
+	});
+
 	test("ranks entries at or above the threshold, most similar first", () => {
 		const entries = [
-			{ cacheKey: "a", embedding: [1, 0.2] },
-			{ cacheKey: "b", embedding: [1, 0.05] },
-			{ cacheKey: "c", embedding: [0, 1] },
+			{ cacheKey: "a", embedding: [1, 0.2], anchors: none },
+			{ cacheKey: "b", embedding: [1, 0.05], anchors: none },
+			{ cacheKey: "c", embedding: [0, 1], anchors: none },
 		];
 		expect(
-			rankSemanticMatches([1, 0], entries, 0.95).map((m) => m.cacheKey),
+			rankSemanticMatches(
+				{ embedding: [1, 0], anchors: none },
+				entries,
+				0.95,
+			).map((m) => m.cacheKey),
 		).toEqual(["b", "a"]);
-		expect(rankSemanticMatches([0.7, 0.7], entries, 0.99)).toEqual([]);
+		expect(
+			rankSemanticMatches(
+				{ embedding: [0.7, 0.7], anchors: none },
+				entries,
+				0.99,
+			),
+		).toEqual([]);
+	});
+
+	test("an identical vector with different anchors never matches", () => {
+		const entries = [
+			{ cacheKey: "sum-4", embedding: [1, 0], anchors: ["2+2"] },
+			{ cacheKey: "sum-5", embedding: [1, 0], anchors: ["2+3"] },
+		];
+		expect(
+			rankSemanticMatches(
+				{ embedding: [1, 0], anchors: ["2+3"] },
+				entries,
+				0.9,
+			).map((m) => m.cacheKey),
+		).toEqual(["sum-5"]);
+		expect(
+			rankSemanticMatches(
+				{ embedding: [1, 0], anchors: ["EUR", "USD"] },
+				[{ cacheKey: "x", embedding: [1, 0], anchors: ["USD", "EUR"] }],
+				0.9,
+			),
+		).toEqual([]);
 	});
 
 	test("scope keys differ by settings and project", () => {
@@ -52,15 +103,20 @@ describe("semantic cache", () => {
 	test("skips malformed entries instead of failing the lookup", () => {
 		expect(decodeSemanticCacheEntry("not json")).toBeNull();
 		expect(
-			decodeSemanticCacheEntry(JSON.stringify({ k: "x", e: "AAA" })),
+			decodeSemanticCacheEntry(JSON.stringify({ k: "x", a: [], e: "AAA" })),
+		).toBeNull();
+		expect(
+			decodeSemanticCacheEntry(JSON.stringify({ k: "x", e: "AAAAAAAA" })),
 		).toBeNull();
 		expect(decodeSemanticCacheEntry("null")).toBeNull();
 		const valid = JSON.stringify({
 			k: "x",
+			a: ["42"],
 			e: Buffer.from(new Float32Array([0.5, 0.25]).buffer).toString("base64"),
 		});
 		expect(decodeSemanticCacheEntry(valid)).toEqual({
 			cacheKey: "x",
+			anchors: ["42"],
 			embedding: [0.5, 0.25],
 		});
 	});
@@ -70,11 +126,15 @@ describe("semantic cache", () => {
 		await storageRedisClient.lpush(scopeKey, "{corrupt");
 		await addSemanticCacheEntry(
 			scopeKey,
-			{ cacheKey: "good", embedding: [1, 0] },
+			{ cacheKey: "good", embedding: [1, 0], anchors: none },
 			60,
 		);
 		await storageRedisClient.rpush(scopeKey, "{also-corrupt");
-		const [hit] = await findSemanticCacheMatches(scopeKey, [1, 0], 0.99);
+		const [hit] = await findSemanticCacheMatches(
+			scopeKey,
+			{ embedding: [1, 0], anchors: none },
+			0.99,
+		);
 		expect(hit?.cacheKey).toBe("good");
 		await storageRedisClient.del(scopeKey);
 	});
@@ -82,45 +142,65 @@ describe("semantic cache", () => {
 	test("round-trips entries through Redis", async () => {
 		await addSemanticCacheEntry(
 			scopeKey,
-			{ cacheKey: "cached-response", embedding: [0.6, 0.8, 0] },
+			{ cacheKey: "cached-response", embedding: [0.6, 0.8, 0], anchors: none },
 			60,
 		);
 		const [hit] = await findSemanticCacheMatches(
 			scopeKey,
-			[0.61, 0.79, 0.01],
+			{ embedding: [0.61, 0.79, 0.01], anchors: none },
 			0.99,
 		);
 		expect(hit?.cacheKey).toBe("cached-response");
 		expect(hit?.similarity).toBeGreaterThan(0.99);
-		expect(await findSemanticCacheMatches(scopeKey, [0, 0, 1], 0.9)).toEqual(
-			[],
-		);
+		expect(
+			await findSemanticCacheMatches(
+				scopeKey,
+				{ embedding: [0, 0, 1], anchors: none },
+				0.9,
+			),
+		).toEqual([]);
 		expect(await storageRedisClient.ttl(scopeKey)).toBeGreaterThan(0);
 	});
 
-	test("falls through to the next match when the best response is gone", async () => {
+	test("falls through to the next match when the best response is gone, and moves a hit to the front", async () => {
 		await storageRedisClient.del(scopeKey);
 		const live = `spec-live-${Date.now()}`;
-		await storageRedisClient.set(
-			live,
-			JSON.stringify({ id: "live" }),
-			"EX",
+		const responses = new Map([[live, { id: "live" }]]);
+		const load = async (key: string) => responses.get(key) ?? null;
+		await addSemanticCacheEntry(
+			scopeKey,
+			{ cacheKey: live, embedding: [1, 0.1], anchors: none },
 			60,
 		);
 		await addSemanticCacheEntry(
 			scopeKey,
-			{ cacheKey: live, embedding: [1, 0.1] },
+			{ cacheKey: "spec-expired", embedding: [1, 0], anchors: none },
 			60,
 		);
 		await addSemanticCacheEntry(
 			scopeKey,
-			{ cacheKey: "spec-expired", embedding: [1, 0] },
+			{ cacheKey: "spec-newest", embedding: [0, 1], anchors: none },
 			60,
 		);
-		const hit = await findSemanticCacheHit(scopeKey, [1, 0], 0.9);
+		const hit = await findSemanticCacheHit(
+			scopeKey,
+			{ embedding: [1, 0], anchors: none },
+			0.9,
+			load,
+		);
 		expect(hit?.cacheKey).toBe(live);
 		expect(hit?.response).toEqual({ id: "live" });
-		expect(await findSemanticCacheHit(scopeKey, [0, 1], 0.9)).toBeNull();
-		await storageRedisClient.del(scopeKey, live);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		const [front] = await storageRedisClient.lrange(scopeKey, 0, 0);
+		expect(decodeSemanticCacheEntry(front)?.cacheKey).toBe(live);
+		expect(
+			await findSemanticCacheHit(
+				scopeKey,
+				{ embedding: [0, 1], anchors: none },
+				0.9,
+				load,
+			),
+		).toBeNull();
+		await storageRedisClient.del(scopeKey);
 	});
 });

@@ -19,7 +19,15 @@ import {
 } from "@/utils/zdr-settings.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { cdb, db, eq, tables } from "@llmgateway/db";
+import {
+	cdb,
+	db,
+	eq,
+	SEMANTIC_CACHE_MAX_THRESHOLD,
+	SEMANTIC_CACHE_MIN_THRESHOLD,
+	SEMANTIC_CACHE_MODES,
+	tables,
+} from "@llmgateway/db";
 import { normalizeStatementDescriptorSuffix } from "@llmgateway/shared";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { canManageProject } from "@llmgateway/shared/organization-roles";
@@ -44,7 +52,7 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
-	semanticCacheEnabled: z.boolean(),
+	semanticCacheMode: z.enum(SEMANTIC_CACHE_MODES),
 	semanticCacheThreshold: z.number(),
 	providerCacheControlMode: providerCacheControlModeSchema,
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
@@ -75,8 +83,12 @@ const updateProjectSchema = z.object({
 	name: z.string().min(1).max(255).optional(),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(), // Min 10 seconds, max 1 year
-	semanticCacheEnabled: z.boolean().optional(),
-	semanticCacheThreshold: z.number().min(0.8).max(0.999).optional(),
+	semanticCacheMode: z.enum(SEMANTIC_CACHE_MODES).optional(),
+	semanticCacheThreshold: z
+		.number()
+		.min(SEMANTIC_CACHE_MIN_THRESHOLD)
+		.max(SEMANTIC_CACHE_MAX_THRESHOLD)
+		.optional(),
 	providerCacheControlMode: providerCacheControlModeSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
@@ -246,7 +258,7 @@ projects.openapi(updateProject, async (c) => {
 		name,
 		cachingEnabled,
 		cacheDurationSeconds,
-		semanticCacheEnabled,
+		semanticCacheMode,
 		semanticCacheThreshold,
 		mode,
 		defaultRoutingStrategy,
@@ -351,7 +363,8 @@ projects.openapi(updateProject, async (c) => {
 		projectUserOrg?.organization?.plan,
 	);
 	if (
-		(semanticCacheEnabled === true || semanticCacheThreshold !== undefined) &&
+		((semanticCacheMode !== undefined && semanticCacheMode !== "off") ||
+			semanticCacheThreshold !== undefined) &&
 		!semanticCacheEntitled
 	) {
 		throw new HTTPException(403, {
@@ -362,8 +375,9 @@ projects.openapi(updateProject, async (c) => {
 	// embedding provider is not vetted by it), so refuse a setting that would
 	// silently do nothing.
 	if (
-		semanticCacheEnabled === true &&
-		!project.semanticCacheEnabled &&
+		semanticCacheMode !== undefined &&
+		semanticCacheMode !== "off" &&
+		project.semanticCacheMode === "off" &&
 		projectUserOrg?.organization?.providerCompliancePolicy?.enabled
 	) {
 		throw new HTTPException(409, {
@@ -372,8 +386,13 @@ projects.openapi(updateProject, async (c) => {
 		});
 	}
 
-	if (semanticCacheEnabled !== undefined) {
-		updateData.semanticCacheEnabled = semanticCacheEnabled;
+	if (semanticCacheMode !== undefined) {
+		updateData.semanticCacheMode = semanticCacheMode;
+	}
+	// Semantic caching rides on request caching: turning that off turns this
+	// off too, instead of leaving it armed for whenever caching comes back.
+	if (cachingEnabled === false && project.semanticCacheMode !== "off") {
+		updateData.semanticCacheMode = "off";
 	}
 
 	if (semanticCacheThreshold !== undefined) {
@@ -517,12 +536,12 @@ projects.openapi(updateProject, async (c) => {
 		};
 	}
 	if (
-		semanticCacheEnabled !== undefined &&
-		semanticCacheEnabled !== project.semanticCacheEnabled
+		updateData.semanticCacheMode !== undefined &&
+		updateData.semanticCacheMode !== project.semanticCacheMode
 	) {
-		changes.semanticCacheEnabled = {
-			old: project.semanticCacheEnabled,
-			new: semanticCacheEnabled,
+		changes.semanticCacheMode = {
+			old: project.semanticCacheMode,
+			new: updateData.semanticCacheMode,
 		};
 	}
 	if (

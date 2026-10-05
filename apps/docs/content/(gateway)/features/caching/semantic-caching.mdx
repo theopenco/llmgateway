@@ -6,38 +6,60 @@ icon: Sparkles
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-[Gateway caching](/features/caching/gateway-caching) replays a response only for a byte-identical request. Semantic caching also replays it when a new prompt is close enough in meaning, so "How do I reset my password?" can reuse the answer to "How can I reset the password for my account?".
+[Gateway caching](/features/caching/gateway-caching) replays a response only for a byte-identical request. Semantic caching also replays it when the final user message is close enough in meaning, so "How do I reset my password?" can reuse the answer to "How can I reset the password for my account?".
 
 <Callout type="info">
 	Semantic caching is available on the [**Enterprise
 	plan**](https://llmgateway.io/enterprise).
 </Callout>
 
+<Callout type="warn">
+	An embedding cannot tell every pair of prompts apart. Start in **Shadow**
+	mode, review the logged matches, and only then switch to **On**.
+</Callout>
+
 ## Enable it
 
-In the project's [**Preferences**](/learn/preferences), turn on **Enable request caching**, then **Enable semantic caching**, and set a **Similarity threshold** between 0.80 and 0.999. Matches expire with the cache duration you set for request caching.
+In the project's [**Preferences**](/learn/preferences), turn on **Enable request caching**, then pick a **Semantic caching** mode and a **Similarity threshold** between 0.90 and 0.999.
+
+- **Off**: only byte-identical requests are served from the cache.
+- **Shadow**: lookups run and matches are recorded on the request log, but every request still goes to the provider. Use it to check a threshold before it affects answers.
+- **On**: a matching prompt is served the cached response.
+
+Matches expire with the cache duration you set for request caching. Turning request caching off sets semantic caching to **Off**; it does not come back when request caching is re-enabled.
 
 ## How a lookup works
 
 1. The exact cache is checked first.
-2. On a miss, the gateway embeds the latest text turns of the conversation (up to eight messages, with roles).
-3. It compares that embedding with recent cached requests that share the same model, provider, request parameters, and any earlier messages outside those turns. Only these entries are eligible; the embedded turns themselves may differ in wording when they meet the threshold.
-4. The most similar entry at or above the threshold whose response is still cached is returned as a normal cached response.
+2. On a miss, the gateway embeds the **final user message** only.
+3. It compares that embedding with recent cached requests whose everything else is identical: model, request parameters, the system prompt, every earlier message, and the final message's other fields. Only the wording of the final user message may differ. For auto-routed requests the pool is shared across providers.
+4. Candidates must carry the same **anchor tokens** in the same order: numbers and anything containing a digit (`2+3`, `2024-05-01`, `$120`), all-caps codes (`EUR`, `USD`, `TSLA`) and negations (`no`, `not`, `don't`). "Convert EUR to USD" never replays "Convert USD to EUR".
+5. The most similar entry at or above the threshold whose response is still cached is returned as a normal cached response.
 
-A semantic hit returns `x-llmgateway-cache: HIT` plus `x-llmgateway-cache-match: semantic` and `x-llmgateway-cache-similarity`. It is logged and billed as a cached request.
+A served hit returns `x-llmgateway-cache: HIT` plus `x-llmgateway-cache-match: semantic` and `x-llmgateway-cache-similarity`, on `/v1/chat/completions`, `/v1/messages` and the AI SDK endpoint. It is logged and billed as a cached request.
+
+## Auditing matches
+
+Every lookup that found a match, served or not, writes `routingMetadata.semanticCache` on the request log: the similarity, the cache key it matched and `served` (`false` in shadow mode). Filter logs on it to find false matches and tune the threshold.
 
 ## Limits
 
-- Non-streaming requests without `tools` only.
+- Requests without `tools` only; image generation models are skipped.
+- The final message must be from the user, text only, and at least 16 characters: shorter turns ("yes", "cancel") are too close to their opposites to separate.
 - Requests with images, audio, or other non-text parts are skipped.
-- Up to 256 recent entries are compared per model and parameter set.
+- Up to 512 entries are compared per scope; a served entry moves back to the front, so repeated prompts outlive one-off traffic.
 - `x-no-cache: true`, zero data retention, and DevPass organizations bypass it, as with request caching.
-- If the embedding call fails or times out (2 seconds), the request continues as a miss.
+- If the embedding call fails or times out (2 seconds), the request continues as a miss. After three consecutive failures the gateway stops embedding for 30 seconds.
 - It stops when the organization leaves the Enterprise plan.
-- Requests under an active [compliance policy](/features/compliance) skip it, because the embedding call would send prompt text to a provider the policy does not vet. For the same reason it cannot be turned on while a policy is active, and turning off request caching turns it off too.
+- Requests under an active [compliance policy](/features/compliance) skip it, because the embedding call would send prompt text to a provider the policy does not vet. For the same reason it cannot be turned on while a policy is active.
+- The embedding call goes to the configured embedding endpoint regardless of data residency settings; self-host an embedding endpoint in-region if that matters.
 
-Pick a higher threshold when small wording changes alter the answer (numbers, names, dates); lower it for FAQ-style traffic.
+Pick a higher threshold when small wording changes alter the answer (names, dates, instructions); lower it for FAQ-style traffic. Rewordings of the same question typically score 0.90 to 0.95 with `text-embedding-3-small`.
 
 ## Self-hosting
 
-The gateway embeds with `SEMANTIC_CACHE_EMBEDDING_MODEL` (default `text-embedding-3-small`) on an OpenAI-compatible endpoint. Set `SEMANTIC_CACHE_EMBEDDING_API_KEY` and `SEMANTIC_CACHE_EMBEDDING_BASE_URL`; they fall back to `LLM_OPENAI_API_KEY` and `LLM_OPENAI_BASE_URL`. The base URL must use HTTPS unless `ALLOW_INSECURE_PROVIDER_URLS=true`. Changing the model starts a fresh set of entries.
+The gateway embeds with `SEMANTIC_CACHE_EMBEDDING_MODEL` (default `text-embedding-3-small`) on an OpenAI-compatible endpoint. Set `SEMANTIC_CACHE_EMBEDDING_API_KEY` and `SEMANTIC_CACHE_EMBEDDING_BASE_URL`; they fall back to `LLM_OPENAI_API_KEY` and `LLM_OPENAI_BASE_URL`. The base URL must use HTTPS unless `ALLOW_INSECURE_PROVIDER_URLS=true`.
+
+`SEMANTIC_CACHE_EMBEDDING_DIMENSIONS` shortens the vector (default 256 for `text-embedding-3-*` models, full length otherwise). Changing the model or dimensions starts a fresh set of entries.
+
+Each embedding call is logged with its project id and token usage (`Semantic cache embedding`), so the platform's embedding spend can be attributed.

@@ -7,6 +7,7 @@ import { cdb, drizzleCache } from "./cdb.js";
 import {
 	project as projectTable,
 	providerKey as providerKeyTable,
+	type SemanticCacheMode,
 } from "./schema.js";
 
 import type { ProviderCacheControlMode } from "@llmgateway/models";
@@ -64,7 +65,7 @@ export async function isCachingEnabled(projectId: string): Promise<{
 	enabled: boolean;
 	duration: number;
 	providerCacheControlMode: ProviderCacheControlMode;
-	semanticCacheEnabled: boolean;
+	semanticCacheMode: SemanticCacheMode;
 	semanticCacheThreshold: number;
 }> {
 	try {
@@ -77,7 +78,7 @@ export async function isCachingEnabled(projectId: string): Promise<{
 						cachingEnabled: projectTable.cachingEnabled,
 						cacheDurationSeconds: projectTable.cacheDurationSeconds,
 						providerCacheControlMode: projectTable.providerCacheControlMode,
-						semanticCacheEnabled: projectTable.semanticCacheEnabled,
+						semanticCacheMode: projectTable.semanticCacheMode,
 						semanticCacheThreshold: projectTable.semanticCacheThreshold,
 					})
 					.from(projectTable)
@@ -91,7 +92,7 @@ export async function isCachingEnabled(projectId: string): Promise<{
 						enabled: false,
 						duration: 0,
 						providerCacheControlMode: "auto" as ProviderCacheControlMode,
-						semanticCacheEnabled: false,
+						semanticCacheMode: "off" as SemanticCacheMode,
 						semanticCacheThreshold: 0.95,
 					};
 				}
@@ -100,7 +101,7 @@ export async function isCachingEnabled(projectId: string): Promise<{
 					enabled: project.cachingEnabled || false,
 					duration: project.cacheDurationSeconds || 60,
 					providerCacheControlMode: project.providerCacheControlMode ?? "auto",
-					semanticCacheEnabled: project.semanticCacheEnabled ?? false,
+					semanticCacheMode: project.semanticCacheMode ?? "off",
 					semanticCacheThreshold: project.semanticCacheThreshold ?? 0.95,
 				};
 			},

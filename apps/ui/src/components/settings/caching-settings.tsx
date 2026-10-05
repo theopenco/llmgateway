@@ -36,14 +36,33 @@ const cachingFormSchema = z.object({
 			"Cache duration must not exceed 31,536,000 seconds (1 year)",
 		),
 	providerCacheControlMode: z.enum(["auto", "passthrough", "off"]),
-	semanticCacheEnabled: z.boolean(),
+	semanticCacheMode: z.enum(["off", "shadow", "on"]),
 	semanticCacheThreshold: z
 		.number()
-		.min(0.8, "Similarity must be at least 0.80")
+		.min(0.9, "Similarity must be at least 0.90")
 		.max(0.999, "Similarity must be below 1"),
 });
 
 type CachingFormData = z.infer<typeof cachingFormSchema>;
+
+const SEMANTIC_CACHE_MODE_OPTIONS = [
+	{
+		value: "off" as const,
+		label: "Off",
+		description: "Only byte-identical requests are served from the cache.",
+	},
+	{
+		value: "shadow" as const,
+		label: "Shadow",
+		description:
+			"Look up matches and record them on the request log, but still call the provider. Use it to check a threshold before it affects answers.",
+	},
+	{
+		value: "on" as const,
+		label: "On",
+		description: "Serve the cached response for a matching prompt.",
+	},
+];
 
 const PROVIDER_CACHE_CONTROL_OPTIONS = [
 	{
@@ -95,15 +114,15 @@ export function CachingSettings({
 				initialData.preferences.preferences.cacheDurationSeconds ?? 60,
 			providerCacheControlMode:
 				initialData.preferences.preferences.providerCacheControlMode ?? "auto",
-			semanticCacheEnabled:
-				initialData.preferences.preferences.semanticCacheEnabled ?? false,
+			semanticCacheMode:
+				initialData.preferences.preferences.semanticCacheMode ?? "off",
 			semanticCacheThreshold:
 				initialData.preferences.preferences.semanticCacheThreshold ?? 0.95,
 		},
 	});
 
 	const cachingEnabled = form.watch("cachingEnabled");
-	const semanticCacheEnabled = form.watch("semanticCacheEnabled");
+	const semanticCacheMode = form.watch("semanticCacheMode");
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const compliancePolicyActive =
 		selectedOrganization?.providerCompliancePolicy?.enabled === true;
@@ -128,8 +147,9 @@ export function CachingSettings({
 					cacheDurationSeconds: data.cacheDurationSeconds,
 					...(isEnterprise
 						? {
-								semanticCacheEnabled:
-									data.cachingEnabled && data.semanticCacheEnabled,
+								semanticCacheMode: data.cachingEnabled
+									? data.semanticCacheMode
+									: "off",
 								semanticCacheThreshold: data.semanticCacheThreshold,
 							}
 						: {}),
@@ -242,9 +262,10 @@ export function CachingSettings({
 					<div>
 						<h4 className="text-base font-medium">Semantic Caching</h4>
 						<p className="text-muted-foreground text-sm">
-							Also serve a cached response when a new prompt means the same as a
-							cached one, not just when it is byte-identical. Non-streaming
-							requests without tools only.
+							Also serve a cached response when the final user message means the
+							same as a cached one, not just when it is byte-identical. The
+							system prompt and earlier turns must match exactly. Requests
+							without tools only.
 						</p>
 						{isEnterprise && compliancePolicyActive ? (
 							<p className="text-muted-foreground text-sm mt-1">
@@ -269,27 +290,50 @@ export function CachingSettings({
 
 					<FormField
 						control={form.control}
-						name="semanticCacheEnabled"
+						name="semanticCacheMode"
 						render={({ field }) => (
-							<FormItem className="flex flex-row items-start space-x-3 space-y-0">
+							<FormItem className="space-y-3">
 								<FormControl>
-									<Switch
-										checked={field.value}
-										onCheckedChange={field.onChange}
-										disabled={
-											!cachingEnabled ||
-											!isEnterprise ||
-											(compliancePolicyActive && !field.value)
-										}
-									/>
+									<RadioGroup
+										value={field.value}
+										onValueChange={field.onChange}
+										className="gap-3"
+										disabled={!cachingEnabled || !isEnterprise}
+									>
+										{SEMANTIC_CACHE_MODE_OPTIONS.map((option) => (
+											<div
+												key={option.value}
+												className="flex flex-row items-start space-x-3"
+											>
+												<RadioGroupItem
+													value={option.value}
+													id={`semantic-cache-${option.value}`}
+													className="mt-1"
+													disabled={
+														!cachingEnabled ||
+														!isEnterprise ||
+														(compliancePolicyActive &&
+															option.value !== "off" &&
+															field.value === "off")
+													}
+												/>
+												<div className="space-y-1 leading-none">
+													<Label htmlFor={`semantic-cache-${option.value}`}>
+														{option.label}
+													</Label>
+													<p className="text-muted-foreground text-sm">
+														{option.description}
+													</p>
+												</div>
+											</div>
+										))}
+									</RadioGroup>
 								</FormControl>
-								<div className="space-y-1 leading-none">
-									<FormLabel>Enable semantic caching</FormLabel>
-									<FormDescription>
-										Requires request caching. Matches use the cache duration
-										above.
-									</FormDescription>
-								</div>
+								<FormDescription>
+									Requires request caching. Matches use the cache duration
+									above.
+								</FormDescription>
+								<FormMessage />
 							</FormItem>
 						)}
 					/>
@@ -304,19 +348,23 @@ export function CachingSettings({
 									<Input
 										type="number"
 										step={0.001}
-										min={0.8}
+										min={0.9}
 										max={0.999}
 										className="w-32"
 										disabled={
-											!cachingEnabled || !semanticCacheEnabled || !isEnterprise
+											!cachingEnabled ||
+											semanticCacheMode === "off" ||
+											!isEnterprise
 										}
 										{...field}
 										onChange={(e) => field.onChange(Number(e.target.value))}
 									/>
 								</FormControl>
 								<FormDescription>
-									Cosine similarity a prompt must reach to reuse a cached
-									response (0.80 to 0.999). Higher is stricter.
+									Cosine similarity the final user message must reach to reuse a
+									cached response (0.90 to 0.999). Higher is stricter. Run in
+									shadow mode first and review the logged matches before serving
+									them.
 								</FormDescription>
 								<FormMessage />
 							</FormItem>

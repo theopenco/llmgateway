@@ -1,4 +1,5 @@
 import { trimSlashes } from "@llmgateway/actions";
+import { semanticAnchors } from "@llmgateway/cache";
 import { logger, toError } from "@llmgateway/logger";
 import { isProviderUrlGuardEnabled } from "@llmgateway/shared";
 
@@ -6,7 +7,19 @@ import type { BaseMessage } from "@llmgateway/models";
 
 const EMBEDDING_TIMEOUT_MS = 2_000;
 const MAX_EMBEDDED_CHARS = 8_000;
-const MAX_EMBEDDED_MESSAGES = 8;
+/**
+ * Below this, prompts are too short for an embedding to separate: "yes" and
+ * "no", "confirm" and "cancel" score above any usable threshold.
+ */
+export const MIN_EMBEDDED_CHARS = 16;
+/**
+ * OpenAI's text-embedding-3 models can be truncated to fewer dimensions with
+ * little loss; 256 keeps a scope's whole list under half a megabyte.
+ */
+const DEFAULT_OPENAI_DIMENSIONS = 256;
+
+const BREAKER_FAILURES = 3;
+const BREAKER_OPEN_MS = 30_000;
 
 function messageText(content: unknown): string {
 	if (typeof content === "string") {
@@ -31,57 +44,60 @@ function messageText(content: unknown): string {
 }
 
 export interface SemanticCacheInput {
-	/** The latest messages with their roles, embedded and matched by meaning. */
+	/** The final user turn, embedded and matched by meaning. */
 	text: string;
+	/** Anchor tokens of `text`; a match must carry the same ones in order. */
+	anchors: string[];
 	/**
-	 * What the embedding leaves out: earlier messages, the embedded messages'
-	 * other fields (names, tool calls), and text past the size limit. It goes
-	 * into the scope key, so it must match exactly.
+	 * What the embedding leaves out: every other message (system prompt,
+	 * history), the final turn's other fields (name, tool calls) and text past
+	 * the size limit. It goes into the scope key, so it must match exactly.
 	 */
 	context: {
-		earlier: BaseMessage[];
-		recent: Partial<BaseMessage>[];
+		messages: BaseMessage[];
+		last: Partial<BaseMessage>;
 		truncated: string;
 	};
 }
 
 /**
- * Splits a conversation for a semantic-cache lookup, so two conversations
- * only match when their recent turns agree in meaning and everything else is
- * identical. Null when a recent message carries non-text content (images,
- * audio), which the embedding cannot represent and must not be matched on.
+ * Splits a conversation for a semantic-cache lookup: only the final user turn
+ * is matched by meaning, everything else must be identical. Null when there is
+ * no final user turn, it is too short to separate from its opposites, or it
+ * carries non-text content (images, audio) the embedding cannot represent.
  */
 export function semanticCacheInput(
 	messages: BaseMessage[],
 ): SemanticCacheInput | null {
-	const recent = messages.slice(-MAX_EMBEDDED_MESSAGES);
-	const lines: string[] = [];
-	for (const message of recent) {
-		const content = (message as { content?: unknown }).content;
-		if (
-			Array.isArray(content) &&
-			content.some(
-				(part) =>
-					part &&
-					typeof part === "object" &&
-					"type" in part &&
-					part.type !== "text",
-			)
-		) {
-			return null;
-		}
-		lines.push(`${message.role}: ${messageText(content)}`);
-	}
-	const text = lines.join("\n").trim();
-	if (!text) {
+	const last = messages[messages.length - 1];
+	if (!last || last.role !== "user") {
 		return null;
 	}
+	const content = (last as { content?: unknown }).content;
+	if (
+		Array.isArray(content) &&
+		content.some(
+			(part) =>
+				part &&
+				typeof part === "object" &&
+				"type" in part &&
+				part.type !== "text",
+		)
+	) {
+		return null;
+	}
+	const text = messageText(content).trim();
+	if (text.length < MIN_EMBEDDED_CHARS) {
+		return null;
+	}
+	const embedded = text.slice(0, MAX_EMBEDDED_CHARS);
 	return {
-		text: text.slice(-MAX_EMBEDDED_CHARS),
+		text: embedded,
+		anchors: semanticAnchors(embedded),
 		context: {
-			earlier: messages.slice(0, -MAX_EMBEDDED_MESSAGES),
-			recent: recent.map((message) => ({ ...message, content: undefined })),
-			truncated: text.slice(0, -MAX_EMBEDDED_CHARS),
+			messages: messages.slice(0, -1),
+			last: { ...last, content: undefined },
+			truncated: text.slice(MAX_EMBEDDED_CHARS),
 		},
 	};
 }
@@ -90,6 +106,7 @@ function embeddingConfig(): {
 	url: string;
 	apiKey: string;
 	model: string;
+	dimensions: number | undefined;
 } | null {
 	const apiKey = (
 		process.env.SEMANTIC_CACHE_EMBEDDING_API_KEY ??
@@ -107,28 +124,59 @@ function embeddingConfig(): {
 			"https://api.openai.com",
 		{ end: true },
 	);
-	return {
-		url: `${baseUrl}/v1/embeddings`,
-		apiKey,
-		model:
-			process.env.SEMANTIC_CACHE_EMBEDDING_MODEL ?? "text-embedding-3-small",
-	};
+	const model =
+		process.env.SEMANTIC_CACHE_EMBEDDING_MODEL ?? "text-embedding-3-small";
+	const configuredDimensions = Number(
+		process.env.SEMANTIC_CACHE_EMBEDDING_DIMENSIONS,
+	);
+	const dimensions =
+		Number.isInteger(configuredDimensions) && configuredDimensions > 0
+			? configuredDimensions
+			: model.startsWith("text-embedding-3")
+				? DEFAULT_OPENAI_DIMENSIONS
+				: undefined;
+	return { url: `${baseUrl}/v1/embeddings`, apiKey, model, dimensions };
 }
 
 export interface SemanticCacheEmbedding {
 	vector: number[];
-	/** Vectors from different models are not comparable. */
+	/** Model and dimension count: vectors from different ones are not comparable. */
 	model: string;
 }
 
 /**
+ * Trips after consecutive failures so an embedding outage costs at most a few
+ * timeouts, not one per cache miss.
+ */
+const breaker = { failures: 0, openUntil: 0 };
+
+export function resetSemanticCacheEmbeddingBreaker(): void {
+	breaker.failures = 0;
+	breaker.openUntil = 0;
+}
+
+function recordFailure(): void {
+	breaker.failures++;
+	if (breaker.failures >= BREAKER_FAILURES) {
+		breaker.openUntil = Date.now() + BREAKER_OPEN_MS;
+		breaker.failures = 0;
+		logger.warn("Semantic cache embedding paused after repeated failures", {
+			pauseMs: BREAKER_OPEN_MS,
+		});
+	}
+}
+
+/**
  * Embeds text for the semantic cache with the deployment's own embedding
- * credential. Returns null (a cache miss) when no credential is configured or
- * the call fails: the semantic cache is an optimisation and must never fail
- * or delay a request beyond the short timeout.
+ * credential. Returns null (a cache miss) when no credential is configured,
+ * the breaker is open or the call fails: the semantic cache is an
+ * optimisation and must never fail or delay a request beyond the short
+ * timeout. Token usage is logged per project so the platform's embedding
+ * spend can be attributed.
  */
 export async function embedForSemanticCache(
 	text: string,
+	attribution: { projectId: string },
 ): Promise<SemanticCacheEmbedding | null> {
 	const config = embeddingConfig();
 	if (!config) {
@@ -143,6 +191,10 @@ export async function embedForSemanticCache(
 		logger.warn("Semantic cache embedding URL must use https");
 		return null;
 	}
+	if (Date.now() < breaker.openUntil) {
+		return null;
+	}
+	const startedAt = Date.now();
 	try {
 		const res = await fetch(config.url, {
 			method: "POST",
@@ -150,12 +202,17 @@ export async function embedForSemanticCache(
 				"Content-Type": "application/json",
 				Authorization: `Bearer ${config.apiKey}`,
 			},
-			body: JSON.stringify({ model: config.model, input: text }),
+			body: JSON.stringify({
+				model: config.model,
+				input: text,
+				...(config.dimensions ? { dimensions: config.dimensions } : {}),
+			}),
 			// A redirect would resend the prompt to wherever it points.
 			redirect: "error",
 			signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS),
 		});
 		if (!res.ok) {
+			recordFailure();
 			logger.warn("Semantic cache embedding request failed", {
 				status: res.status,
 			});
@@ -163,14 +220,33 @@ export async function embedForSemanticCache(
 		}
 		const json = (await res.json()) as {
 			data?: { embedding?: unknown }[];
+			usage?: { total_tokens?: unknown };
 		};
 		const embedding = json.data?.[0]?.embedding;
-		return Array.isArray(embedding) &&
-			embedding.length > 0 &&
-			embedding.every((value) => typeof value === "number")
-			? { vector: embedding, model: config.model }
-			: null;
+		if (
+			!Array.isArray(embedding) ||
+			embedding.length === 0 ||
+			!embedding.every((value) => typeof value === "number")
+		) {
+			recordFailure();
+			return null;
+		}
+		breaker.failures = 0;
+		logger.info("Semantic cache embedding", {
+			projectId: attribution.projectId,
+			model: config.model,
+			tokens:
+				typeof json.usage?.total_tokens === "number"
+					? json.usage.total_tokens
+					: null,
+			durationMs: Date.now() - startedAt,
+		});
+		return {
+			vector: embedding,
+			model: `${config.model}:${config.dimensions ?? embedding.length}`,
+		};
 	} catch (error) {
+		recordFailure();
 		logger.warn("Semantic cache embedding request errored", {
 			error: toError(error),
 		});
