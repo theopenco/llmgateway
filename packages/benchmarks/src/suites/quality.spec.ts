@@ -84,6 +84,12 @@ describe("quality suite", () => {
 			(await benchmarkCase.evaluate!(response("FINAL: tzglqdomyzwq"), context))
 				.passed,
 		).toBe(false);
+		for (const answer of ["`TZGLQDOMYZWQ`", '"TZGLQDOMYZWQ"']) {
+			expect(
+				(await benchmarkCase.evaluate!(response(`FINAL: ${answer}`), context))
+					.passed,
+			).toBe(true);
+		}
 	});
 	it("extracts and normalizes the last FINAL answer", () => {
 		expect(extractFinalAnswer("FINAL: wrong\nwork\nFINAL: 3 / 11")).toBe(
