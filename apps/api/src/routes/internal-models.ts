@@ -77,13 +77,7 @@ const peakPricingSchema = z.object({
 	peak: timeBasedTokenPricesSchema,
 	offPeak: timeBasedTokenPricesSchema,
 	hoursUtc: z.array(z.tuple([z.number(), z.number()])),
-	offPeakDays: z
-		.object({
-			daysOfWeek: z.array(z.number()),
-			utcOffsetMinutes: z.number(),
-			timeZoneLabel: z.string(),
-		})
-		.nullable(),
+	offPeakDaysUtc: z.array(z.number()).nullable(),
 });
 
 // Model provider mapping schema
@@ -406,16 +400,8 @@ internalModels.openapi(getModelsRoute, async (c) => {
 								hoursUtc: sharedMapping.peakPricing.hoursUtc.map(
 									([start, end]) => [start, end] as [number, number],
 								),
-								offPeakDays: sharedMapping.peakPricing.offPeakDays
-									? {
-											daysOfWeek: [
-												...sharedMapping.peakPricing.offPeakDays.daysOfWeek,
-											],
-											utcOffsetMinutes:
-												sharedMapping.peakPricing.offPeakDays.utcOffsetMinutes,
-											timeZoneLabel:
-												sharedMapping.peakPricing.offPeakDays.timeZoneLabel,
-										}
+								offPeakDaysUtc: sharedMapping.peakPricing.offPeakDaysUtc
+									? [...sharedMapping.peakPricing.offPeakDaysUtc]
 									: null,
 							}
 						: null,

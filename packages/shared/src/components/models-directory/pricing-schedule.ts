@@ -225,11 +225,14 @@ function formatDays(days: number[]): string {
 	if (uniqueDays.length === 7) {
 		return "Every day";
 	}
+	// A contiguous run of 3+ days (wrapping past Saturday) renders as a range.
+	const runStart = uniqueDays.find((day) => !days.includes((day + 6) % 7));
 	if (
-		uniqueDays.length === 5 &&
-		uniqueDays.every((day, index) => day === orderedDays[index])
+		uniqueDays.length >= 3 &&
+		runStart !== undefined &&
+		uniqueDays.every((_, index) => days.includes((runStart + index) % 7))
 	) {
-		return "Monday–Friday";
+		return `${dayNames[runStart]}–${dayNames[(runStart + uniqueDays.length - 1) % 7]}`;
 	}
 
 	const names = uniqueDays.map((day) => dayNames[day]);
@@ -242,41 +245,69 @@ function formatDays(days: number[]): string {
 	return `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
 }
 
-function formatTime(hourUtc: number, utcOffsetMinutes: number): string {
-	const minutesPerDay = 24 * 60;
+const minutesPerDay = 24 * 60;
+
+function shiftedMinutes(hourUtc: number, utcOffsetMinutes: number): number {
 	const utcMinutes = hourUtc * 60;
+	return utcMinutes + utcOffsetMinutes;
+}
+
+function formatTime(hourUtc: number, utcOffsetMinutes: number): string {
 	const localMinutes =
-		(((utcMinutes + utcOffsetMinutes) % minutesPerDay) + minutesPerDay) %
+		((shiftedMinutes(hourUtc, utcOffsetMinutes) % minutesPerDay) +
+			minutesPerDay) %
 		minutesPerDay;
 	const hours = Math.floor(localMinutes / 60);
 	const minutes = localMinutes % 60;
 	return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
+function peakDaysUtc(peakPricing: PeakPricing): number[] {
+	const offPeakDays = peakPricing.offPeakDaysUtc ?? [];
+	return orderedDays.filter((day) => !offPeakDays.includes(day));
+}
+
+/** Peak/off-peak schedule in UTC, the clock billing uses. */
 export function formatPeakPricingSchedule(peakPricing: PeakPricing): {
 	peakDays: string;
 	offPeakDays: string | null;
 	peakHours: string;
-	timeZoneLabel: string;
 } {
-	const offPeakDays = peakPricing.offPeakDays;
-	const utcOffsetMinutes = offPeakDays?.utcOffsetMinutes ?? 0;
-	const allDayOffPeakDays = offPeakDays?.daysOfWeek ?? [];
-	const peakDays = orderedDays.filter(
-		(day) => !allDayOffPeakDays.includes(day),
-	);
-	const peakHours = peakPricing.hoursUtc
-		.map(
-			([start, end]) =>
-				`${formatTime(start, utcOffsetMinutes)}–${formatTime(end, utcOffsetMinutes)}`,
-		)
-		.join(" and ");
-
+	const offPeakDays = peakPricing.offPeakDaysUtc ?? [];
 	return {
-		peakDays: formatDays(peakDays),
-		offPeakDays:
-			allDayOffPeakDays.length > 0 ? formatDays(allDayOffPeakDays) : null,
-		peakHours,
-		timeZoneLabel: offPeakDays?.timeZoneLabel ?? "UTC",
+		peakDays: formatDays(peakDaysUtc(peakPricing)),
+		offPeakDays: offPeakDays.length > 0 ? formatDays(offPeakDays) : null,
+		peakHours: peakPricing.hoursUtc
+			.map(([start, end]) => `${formatTime(start, 0)}–${formatTime(end, 0)}`)
+			.join(" and "),
 	};
+}
+
+/**
+ * Peak windows shifted into a local time zone, e.g. "Sunday–Thursday
+ * 17:00–20:00 and 22:00–02:00" at UTC-8. Windows whose local start lands on a
+ * different day shift are listed as separate groups.
+ */
+export function formatLocalPeakWindows(
+	peakPricing: PeakPricing,
+	utcOffsetMinutes: number,
+): string {
+	const days = peakDaysUtc(peakPricing);
+	const windowsByDayShift = new Map<number, string[]>();
+	for (const [start, end] of peakPricing.hoursUtc) {
+		const dayShift = Math.floor(
+			shiftedMinutes(start, utcOffsetMinutes) / minutesPerDay,
+		);
+		const windows = windowsByDayShift.get(dayShift) ?? [];
+		windows.push(
+			`${formatTime(start, utcOffsetMinutes)}–${formatTime(end, utcOffsetMinutes)}`,
+		);
+		windowsByDayShift.set(dayShift, windows);
+	}
+	return Array.from(windowsByDayShift)
+		.map(
+			([dayShift, windows]) =>
+				`${formatDays(days.map((day) => (((day + dayShift) % 7) + 7) % 7))} ${windows.join(" and ")}`,
+		)
+		.join("; ");
 }
