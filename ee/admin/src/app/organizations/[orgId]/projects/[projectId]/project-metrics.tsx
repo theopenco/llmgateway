@@ -120,6 +120,8 @@ export function ProjectMetricsSection({
 		{
 			params: { path: { orgId, projectId }, query: { window: selectedWindow } },
 		},
+		// Live usage: refetch on every visit instead of the 5-minute default.
+		{ staleTime: 0 },
 	);
 
 	if (loading) {
