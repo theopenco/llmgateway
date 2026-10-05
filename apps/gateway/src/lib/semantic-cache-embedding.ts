@@ -6,7 +6,6 @@ import type { BaseMessage } from "@llmgateway/models";
 
 const EMBEDDING_TIMEOUT_MS = 2_000;
 const MAX_EMBEDDED_CHARS = 8_000;
-const MAX_EMBEDDED_MESSAGES = 8;
 
 function messageText(content: unknown): string {
 	if (typeof content === "string") {
@@ -31,56 +30,57 @@ function messageText(content: unknown): string {
 }
 
 export interface SemanticCacheInput {
-	/** The latest messages with their roles, embedded and matched by meaning. */
+	/** The latest user message, embedded and matched by meaning. */
 	text: string;
 	/**
-	 * What the embedding leaves out: earlier messages, the embedded messages'
-	 * other fields (names, tool calls), and text past the size limit. It goes
-	 * into the scope key, so it must match exactly.
+	 * Everything else: the system prompt, earlier messages, the latest
+	 * message's other fields (name), and text past the size limit. It goes into
+	 * the scope key, so it must match exactly. Embedding the system prompt would
+	 * let it dominate the vector, so prompts that differ only in per-user data
+	 * there (names, balances) would match and replay another user's response.
 	 */
 	context: {
 		earlier: BaseMessage[];
-		recent: Partial<BaseMessage>[];
+		latest: Partial<BaseMessage>;
 		truncated: string;
 	};
 }
 
 /**
  * Splits a conversation for a semantic-cache lookup, so two conversations
- * only match when their recent turns agree in meaning and everything else is
- * identical. Null when a recent message carries non-text content (images,
- * audio), which the embedding cannot represent and must not be matched on.
+ * only match when their latest user messages agree in meaning and everything
+ * else is identical. Null unless the conversation ends with a text-only user
+ * message: the embedding cannot represent images or audio.
  */
 export function semanticCacheInput(
 	messages: BaseMessage[],
 ): SemanticCacheInput | null {
-	const recent = messages.slice(-MAX_EMBEDDED_MESSAGES);
-	const lines: string[] = [];
-	for (const message of recent) {
-		const content = (message as { content?: unknown }).content;
-		if (
-			Array.isArray(content) &&
-			content.some(
-				(part) =>
-					part &&
-					typeof part === "object" &&
-					"type" in part &&
-					part.type !== "text",
-			)
-		) {
-			return null;
-		}
-		lines.push(`${message.role}: ${messageText(content)}`);
+	const latest = messages.at(-1);
+	if (latest?.role !== "user") {
+		return null;
 	}
-	const text = lines.join("\n").trim();
+	const content = (latest as { content?: unknown }).content;
+	if (
+		Array.isArray(content) &&
+		content.some(
+			(part) =>
+				part &&
+				typeof part === "object" &&
+				"type" in part &&
+				part.type !== "text",
+		)
+	) {
+		return null;
+	}
+	const text = messageText(content).trim();
 	if (!text) {
 		return null;
 	}
 	return {
 		text: text.slice(-MAX_EMBEDDED_CHARS),
 		context: {
-			earlier: messages.slice(0, -MAX_EMBEDDED_MESSAGES),
-			recent: recent.map((message) => ({ ...message, content: undefined })),
+			earlier: messages.slice(0, -1),
+			latest: { ...latest, content: undefined },
 			truncated: text.slice(0, -MAX_EMBEDDED_CHARS),
 		},
 	};

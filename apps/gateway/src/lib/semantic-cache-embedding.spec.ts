@@ -6,7 +6,7 @@ import {
 } from "./semantic-cache-embedding.js";
 
 describe("semantic cache input", () => {
-	test("embeds recent text turns with roles", () => {
+	test("embeds only the latest user message", () => {
 		expect(
 			semanticCacheInput([
 				{ role: "system", content: "Be brief." },
@@ -15,31 +15,32 @@ describe("semantic cache input", () => {
 					content: [{ type: "text", text: "What is LLM routing?" }],
 				},
 			])?.text,
-		).toBe("system: Be brief.\nuser: What is LLM routing?");
+		).toBe("What is LLM routing?");
 	});
 
-	test("keeps context the embedding leaves out for an exact match", () => {
-		const turns = Array.from({ length: 8 }, (_, i) => ({
-			role: "user" as const,
-			content: `turn ${i}`,
-		}));
-		const french = semanticCacheInput([
-			{ role: "system", content: "Answer in French." },
-			...turns,
-		]);
-		const english = semanticCacheInput([
-			{ role: "system", content: "Answer in English." },
-			...turns,
-		]);
-		expect(french?.text).toBe(english?.text);
-		expect(french?.context).not.toEqual(english?.context);
+	test("keeps the system prompt and earlier turns for an exact match", () => {
+		const record = (name: string) =>
+			semanticCacheInput([
+				{ role: "system", content: `Customer: ${name}` },
+				{ role: "user", content: "What's my balance?" },
+			]);
+		expect(record("Alice")?.text).toBe(record("Bob")?.text);
+		expect(record("Alice")?.context).not.toEqual(record("Bob")?.context);
 
 		const long = semanticCacheInput([
-			{ role: "system", content: "x".repeat(10_000) },
-			{ role: "user", content: "hi" },
+			{ role: "user", content: "x".repeat(10_000) },
 		]);
 		expect(long?.text).toHaveLength(8_000);
 		expect(long?.context.truncated).not.toBe("");
+	});
+
+	test("skips conversations that do not end with a user message", () => {
+		expect(
+			semanticCacheInput([
+				{ role: "user", content: "Hi" },
+				{ role: "assistant", content: "Hello" },
+			]),
+		).toBe(null);
 	});
 
 	test("keeps message metadata out of the embedding but in the context", () => {
