@@ -17,7 +17,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { getProviderHistory } from "@/lib/admin-history";
+import { useHistoryClient } from "@/lib/history-client";
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
@@ -145,11 +145,12 @@ function ProviderRow({
 
 	const ProviderIcon = getProviderIcon(provider.id);
 
+	const history = useHistoryClient();
 	const fetchData = useCallback(
 		async (window: HistoryWindow) => {
-			return await getProviderHistory(provider.id, window, usageMode);
+			return await history.providerHistory(provider.id, window, usageMode);
 		},
-		[provider.id, usageMode],
+		[history, provider.id, usageMode],
 	);
 
 	return (

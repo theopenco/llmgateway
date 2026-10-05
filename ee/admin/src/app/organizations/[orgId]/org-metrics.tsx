@@ -10,20 +10,19 @@ import {
 	TrendingDown,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
 
 import { TokenTimeRangeToggle } from "@/components/token-time-range-toggle";
 import {
 	UsageModeSelector,
 	useUsageMode,
 } from "@/components/usage-mode-selector";
-import { loadMetricsAction } from "@/lib/admin-organizations";
+import { useApi } from "@/lib/fetch-client";
 import { pickCost, pickRequests } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
-import type { OrganizationMetrics, TokenWindow } from "@/lib/types";
+import type { TokenWindow } from "@/lib/types";
 
 const validWindows = new Set<TokenWindow>([
 	"1h",
@@ -103,23 +102,14 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 
 	const window = parseWindow(searchParams.get("window"));
 	const usageMode = useUsageMode();
-	const [metrics, setMetrics] = useState<OrganizationMetrics | null>(null);
-	const [loading, setLoading] = useState(true);
-
-	const loadMetrics = useCallback(
-		async (w: TokenWindow) => {
-			setLoading(true);
-			const data = await loadMetricsAction(orgId, w);
-			setMetrics(data);
-			setLoading(false);
-		},
-		[orgId],
+	const $api = useApi();
+	const { data: metrics, isLoading: loading } = $api.useQuery(
+		"get",
+		"/admin/organizations/{orgId}",
+		{ params: { path: { orgId }, query: { window } } },
+		// Live usage: refetch on every visit, as the page did before.
+		{ staleTime: 0 },
 	);
-
-	// Load metrics automatically on mount and when window changes
-	useEffect(() => {
-		void loadMetrics(window);
-	}, [loadMetrics, window]);
 
 	if (loading) {
 		return (
