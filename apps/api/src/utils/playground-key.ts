@@ -76,7 +76,7 @@ export async function getOrCreatePlaygroundApiKey(
 			: [];
 
 		const now = Date.now();
-		let key = presented;
+		let key: typeof presented | undefined = presented;
 		if (!key) {
 			// No usable key for this device: reuse an expired row, or the stalest
 			// one once the member is at the cap, so rows stay bounded.
