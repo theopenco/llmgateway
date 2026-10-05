@@ -22,6 +22,8 @@ import {
 	incidentErrorsClause,
 	notRetriedClause,
 	queryIncidentErrorTypes,
+	buildErrorTimeline,
+	errorTimelineSchema,
 	queryIncidentMappings,
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
@@ -32,9 +34,11 @@ import {
 	and,
 	cdb,
 	computeAirsideAdjustment,
+	count,
 	db,
 	eq,
 	inArray,
+	isNotNull,
 	ne,
 	sql,
 	tables,
@@ -276,6 +280,7 @@ const listFilings = createRoute({
 			status: z.enum(["pending", "approved", "rejected"]).optional(),
 			limit: z.coerce.number().min(1).max(100).default(50).optional(),
 			offset: z.coerce.number().min(0).default(0).optional(),
+			routingOffset: z.coerce.number().min(0).default(0).optional(),
 		}),
 	},
 	responses: {
@@ -284,45 +289,64 @@ const listFilings = createRoute({
 				"application/json": {
 					schema: z.object({
 						filings: z.array(adminFilingSchema),
+						total: z.number(),
 						pendingCount: z.number(),
 						routingFilings: z.array(adminRoutingFilingSchema),
+						routingTotal: z.number(),
 						routingPendingCount: z.number(),
 					}),
 				},
 			},
 			description:
-				"Airside price and fare-change filings, oldest pending first.",
+				"Airside price and fare-change filings, newest first. `offset` pages price filings, `routingOffset` pages fare-change filings.",
 		},
 	},
 });
 
 adminAirside.openapi(listFilings, async (c) => {
 	const query = c.req.valid("query");
+	const limit = query.limit ?? 50;
+	type FilingStatus = NonNullable<typeof query.status>;
+	const countPrice = async (status: FilingStatus | undefined) => {
+		const table = tables.providerPriceFiling;
+		const [row] = await db
+			.select({ count: count() })
+			.from(table)
+			.where(status ? eq(table.status, status) : undefined);
+		return row?.count ?? 0;
+	};
+	const countRouting = async (status: FilingStatus | undefined) => {
+		const table = tables.providerRoutingFiling;
+		const [row] = await db
+			.select({ count: count() })
+			.from(table)
+			.where(status ? eq(table.status, status) : undefined);
+		return row?.count ?? 0;
+	};
 	const rows = await db.query.providerPriceFiling.findMany({
 		where: query.status ? { status: { eq: query.status } } : undefined,
 		with: {
 			draftModel: { with: { priceFilings: true } },
 			providerCompany: true,
 		},
-		orderBy: { createdAt: "asc" },
-		limit: query.limit ?? 50,
+		orderBy: { createdAt: "desc", id: "desc" },
+		limit,
 		offset: query.offset ?? 0,
-	});
-	const pending = await db.query.providerPriceFiling.findMany({
-		where: { status: { eq: "pending" } },
-		columns: { id: true },
 	});
 	const routingRows = await db.query.providerRoutingFiling.findMany({
 		where: query.status ? { status: { eq: query.status } } : undefined,
 		with: { providerCompany: true },
-		orderBy: { createdAt: "asc" },
-		limit: query.limit ?? 50,
-		offset: query.offset ?? 0,
+		orderBy: { createdAt: "desc", id: "desc" },
+		limit,
+		offset: query.routingOffset ?? 0,
 	});
-	const routingPending = await db.query.providerRoutingFiling.findMany({
-		where: { status: { eq: "pending" } },
-		columns: { id: true },
-	});
+	const [total, pendingCount, routingTotal, routingPendingCount] =
+		await Promise.all([
+			countPrice(query.status),
+			countPrice("pending"),
+			countRouting(query.status),
+			countRouting("pending"),
+		]);
 	const currentSettings = routingRows.length
 		? await db.query.providerRoutingSettings.findMany({
 				where: {
@@ -344,7 +368,8 @@ adminAirside.openapi(listFilings, async (c) => {
 		filings: rows.map((row) =>
 			serializeAdminFiling(row as FilingWithRelations),
 		),
-		pendingCount: pending.length,
+		total,
+		pendingCount,
 		routingFilings: routingRows.map((row) =>
 			serializeAdminRoutingFiling(
 				row as RoutingFilingWithCompany,
@@ -352,7 +377,8 @@ adminAirside.openapi(listFilings, async (c) => {
 					currentByScope.get(routingScopeKey(row.providerId, null)),
 			),
 		),
-		routingPendingCount: routingPending.length,
+		routingTotal,
+		routingPendingCount,
 	});
 });
 
@@ -633,6 +659,8 @@ const listClaims = createRoute({
 				.enum(["true", "false"])
 				.transform((value) => value === "true")
 				.optional(),
+			limit: z.coerce.number().min(1).max(100).default(100).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
 		}),
 	},
 	responses: {
@@ -641,11 +669,12 @@ const listClaims = createRoute({
 				"application/json": {
 					schema: z.object({
 						claims: z.array(adminClaimSchema),
+						total: z.number(),
 						pendingCount: z.number(),
 					}),
 				},
 			},
-			description: "Carrier claims, oldest pending first.",
+			description: "Carrier claims, newest first.",
 		},
 	},
 });
@@ -660,18 +689,30 @@ adminAirside.openapi(listClaims, async (c) => {
 				: {}),
 		},
 		with: { providerCompany: true },
-		orderBy: { createdAt: "asc" },
-		limit: 100,
+		orderBy: { createdAt: "desc", id: "desc" },
+		limit: query.limit ?? 100,
+		offset: query.offset ?? 0,
 	});
-	const pending = await db.query.providerClaim.findMany({
-		where: { status: { eq: "pending" } },
-		columns: { id: true },
-	});
+	const claimTable = tables.providerClaim;
+	const countClaims = async (where: Parameters<typeof and>) => {
+		const [row] = await db
+			.select({ count: count() })
+			.from(claimTable)
+			.where(and(...where));
+		return row?.count ?? 0;
+	};
+	const [total, pendingCount] = await Promise.all([
+		countClaims([
+			query.status ? eq(claimTable.status, query.status) : undefined,
+			query.pendingBranding ? isNotNull(claimTable.pendingBranding) : undefined,
+		]),
+		countClaims([eq(claimTable.status, "pending")]),
+	]);
 	const claims = [];
 	for (const row of rows) {
 		claims.push(await serializeAdminClaim(row as ClaimWithRelations));
 	}
-	return c.json({ claims, pendingCount: pending.length });
+	return c.json({ claims, total, pendingCount });
 });
 
 async function getPendingClaim(id: string) {
@@ -1163,21 +1204,28 @@ const listIncidentErrorTypes = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: incidentErrorTypesSchema.openapi({}),
+					schema: incidentErrorTypesSchema
+						.extend({ timeline: errorTimelineSchema })
+						.openapi({}),
 				},
 			},
 			description:
-				"Top error shapes across one provider's mappings, each with its per-mapping and streaming counts.",
+				"Top error shapes across one provider's mappings, each with its per-mapping, streaming, and per-bucket counts.",
 		},
 	},
 });
 
 adminAirside.openapi(listIncidentErrorTypes, async (c) => {
 	const query = c.req.valid("query");
-	const { hours: windowHours, interval: windowInterval } =
-		resolveMappingErrorWindow(query.window, "24h");
-	return c.json(
-		await queryIncidentErrorTypes({
+	const {
+		hours: windowHours,
+		interval: windowInterval,
+		bucketSeconds,
+	} = resolveMappingErrorWindow(query.window, "24h");
+	return c.json({
+		timeline: buildErrorTimeline(windowHours, bucketSeconds),
+		...(await queryIncidentErrorTypes({
+			bucketSeconds,
 			mappings: await queryIncidentMappings({
 				providerIds: [query.providerId],
 				windowHours,
@@ -1188,8 +1236,8 @@ adminAirside.openapi(listIncidentErrorTypes, async (c) => {
 				incidentErrorsClause,
 				query.includeRetried === "false" ? notRetriedClause : sql``,
 			],
-		}),
-	);
+		})),
+	});
 });
 
 const listCompanies = createRoute({
@@ -1597,11 +1645,20 @@ function serializeInviteCode(
 const listInviteCodes = createRoute({
 	method: "get",
 	path: "/airside/invite-codes",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().min(1).max(200).default(200).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({ codes: z.array(adminInviteCodeSchema) }),
+					schema: z.object({
+						codes: z.array(adminInviteCodeSchema),
+						total: z.number(),
+					}),
 				},
 			},
 			description: "Listing invite codes, newest first.",
@@ -1610,10 +1667,15 @@ const listInviteCodes = createRoute({
 });
 
 adminAirside.openapi(listInviteCodes, async (c) => {
+	const query = c.req.valid("query");
 	const rows = await db.query.airsideInviteCode.findMany({
-		orderBy: { createdAt: "desc" },
-		limit: 200,
+		orderBy: { createdAt: "desc", id: "desc" },
+		limit: query.limit ?? 200,
+		offset: query.offset ?? 0,
 	});
+	const [totalRow] = await db
+		.select({ count: count() })
+		.from(tables.airsideInviteCode);
 	const codes = rows.map((row) => row.code);
 	const redeemers = codes.length
 		? await db.query.providerCompany.findMany({
@@ -1630,6 +1692,7 @@ adminAirside.openapi(listInviteCodes, async (c) => {
 					.map((company) => ({ id: company.id, name: company.name })),
 			),
 		),
+		total: totalRow?.count ?? 0,
 	});
 });
 

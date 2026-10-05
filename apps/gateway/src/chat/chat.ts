@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { detectCodingAgentFromUserAgent } from "@/chat/tools/detect-coding-agent.js";
-import { extractFirstSseEventData } from "@/chat/tools/extract-first-sse-event-data.js";
+import { extractSseEventData } from "@/chat/tools/extract-sse-event-data.js";
 import { applyPinnedDefaultRegions } from "@/chat/tools/pin-default-regions.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
@@ -81,6 +81,7 @@ import {
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
+	errorFinishReasonDetails,
 	getUnifiedFinishReason,
 	isContentFilterFinishReason,
 	isLengthLimitFinishReason,
@@ -1205,7 +1206,56 @@ const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
 const SMART_ROUTING_MEDIUM_EFFORT_MIN_MAX_TOKENS = 8192;
 const SMART_ROUTING_HIGH_EFFORT_MIN_MAX_TOKENS = 16384;
 
-const IMMEDIATE_STREAM_ERROR_PEEK_LIMIT = 64 * 1024;
+// Responses `response.created` echoes the request's tools and instructions, so
+// the peek must hold more than one small event.
+const IMMEDIATE_STREAM_ERROR_PEEK_LIMIT = 256 * 1024;
+
+// Lifecycle events providers send before any output. An error right after them
+// (e.g. an Azure 429 at sequence_number 1) is still retryable.
+const STREAM_PREAMBLE_EVENT_TYPES = new Set([
+	"response.created",
+	"response.in_progress",
+	"message_start",
+	"ping",
+	"keepalive",
+]);
+
+function getImmediateStreamError(
+	parsedEvent: unknown,
+): Record<string, unknown> | null {
+	if (!parsedEvent || typeof parsedEvent !== "object") {
+		return null;
+	}
+	if ("error" in parsedEvent) {
+		return parsedEvent.error && typeof parsedEvent.error === "object"
+			? (parsedEvent.error as Record<string, unknown>)
+			: null;
+	}
+	// Responses API: {"type":"response.failed","response":{"error":{...}}}
+	if (
+		"type" in parsedEvent &&
+		parsedEvent.type === "response.failed" &&
+		"response" in parsedEvent &&
+		parsedEvent.response &&
+		typeof parsedEvent.response === "object" &&
+		"error" in parsedEvent.response &&
+		parsedEvent.response.error &&
+		typeof parsedEvent.response.error === "object"
+	) {
+		return parsedEvent.response.error as Record<string, unknown>;
+	}
+	return null;
+}
+
+function isStreamPreambleEvent(parsedEvent: unknown): boolean {
+	return (
+		!!parsedEvent &&
+		typeof parsedEvent === "object" &&
+		"type" in parsedEvent &&
+		typeof parsedEvent.type === "string" &&
+		STREAM_PREAMBLE_EVENT_TYPES.has(parsedEvent.type)
+	);
+}
 
 function inferStreamingErrorStatusCode(
 	openAiCompatibleStreamError: Record<string, unknown>,
@@ -1325,7 +1375,7 @@ export async function inspectImmediateStreamingProviderError(
 	let peekBuffer = "";
 
 	try {
-		while (peekBuffer.length < IMMEDIATE_STREAM_ERROR_PEEK_LIMIT) {
+		peek: while (peekBuffer.length < IMMEDIATE_STREAM_ERROR_PEEK_LIMIT) {
 			const { done, value } = await reader.read();
 			if (done) {
 				break;
@@ -1334,29 +1384,27 @@ export async function inspectImmediateStreamingProviderError(
 			replayChunks.push(value);
 			peekBuffer += decoder.decode(value, { stream: true });
 
-			const firstEventData = extractFirstSseEventData(peekBuffer);
-			if (!firstEventData) {
-				continue;
-			}
+			let parsedEvent: unknown = null;
+			let openAiCompatibleStreamError: Record<string, unknown> | null = null;
+			for (const eventData of extractSseEventData(peekBuffer)) {
+				try {
+					parsedEvent = JSON.parse(eventData);
+				} catch {
+					break peek;
+				}
 
-			let parsedEvent: unknown;
-			try {
-				parsedEvent = JSON.parse(firstEventData);
-			} catch {
-				break;
+				openAiCompatibleStreamError = getImmediateStreamError(parsedEvent);
+				if (openAiCompatibleStreamError) {
+					break;
+				}
+				// Output has started; anything later is a mid-stream error.
+				if (!isStreamPreambleEvent(parsedEvent)) {
+					break peek;
+				}
 			}
-
-			const openAiCompatibleStreamError =
-				parsedEvent &&
-				typeof parsedEvent === "object" &&
-				"error" in parsedEvent &&
-				parsedEvent.error &&
-				typeof parsedEvent.error === "object"
-					? (parsedEvent.error as Record<string, unknown>)
-					: null;
 
 			if (!openAiCompatibleStreamError) {
-				break;
+				continue;
 			}
 
 			const errorResponseText = JSON.stringify(parsedEvent);
@@ -4111,6 +4159,21 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
+			// Retired mappings are gone upstream. Audio/document requests widen
+			// the candidate set to the whole catalogue, where a long-deactivated
+			// mapping would otherwise win on price.
+			const activeMappings = expandAllProviderRegions(
+				modelDef.providers as ProviderModelMapping[],
+			).filter(
+				(mapping) => !(mapping.deactivatedAt && now > mapping.deactivatedAt),
+			);
+			if (
+				activeMappings.length === 0 &&
+				!activeCustomModelsByName.has(modelDef.id)
+			) {
+				continue;
+			}
+
 			// Validate IAM rules for this candidate model and filter providers.
 			// We must re-evaluate per model because iamAllowedProviders was computed
 			// for the "auto" model which only has the "llmgateway" provider.
@@ -4138,14 +4201,10 @@ chat.openapi(completions, async (c) => {
 				applyPinnedDefaultRegions(
 					project.mode === "credits"
 						? filterRegionsByAvailableKeys(
-								expandAllProviderRegions(
-									modelDef.providers as ProviderModelMapping[],
-								),
+								activeMappings,
 								managedRegionAvailability,
 							)
-						: expandAllProviderRegions(
-								modelDef.providers as ProviderModelMapping[],
-							),
+						: activeMappings,
 					{
 						explicitLocks: autoProviderLockedRegions,
 						requestedRegion,
@@ -7370,6 +7429,7 @@ chat.openapi(completions, async (c) => {
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount ?? null,
 					pricingTier: costs.pricingTier ?? null,
+					pricingPeriod: costs.pricingPeriod ?? null,
 					dataStorageCost: "0",
 					cached: true,
 					toolResults:
@@ -7700,6 +7760,7 @@ chat.openapi(completions, async (c) => {
 					estimatedCost: cachedCosts.estimatedCost,
 					discount: cachedCosts.discount ?? null,
 					pricingTier: cachedCosts.pricingTier ?? null,
+					pricingPeriod: cachedCosts.pricingPeriod ?? null,
 					dataStorageCost: "0",
 					cached: true,
 					toolResults: cachedResponse.choices?.[0]?.message?.tool_calls ?? null,
@@ -8704,6 +8765,8 @@ chat.openapi(completions, async (c) => {
 						cost: cancelledCosts?.totalCost ?? null,
 						estimatedCost: cancelledCosts?.estimatedCost ?? false,
 						discount: cancelledCosts?.discount ?? null,
+						pricingTier: cancelledCosts?.pricingTier ?? null,
+						pricingPeriod: cancelledCosts?.pricingPeriod ?? null,
 						dataStorageCost: billCancelled
 							? calculateDataStorageCost(
 									cancelledCosts?.promptTokens ?? estimatedPromptTokens,
@@ -9668,6 +9731,8 @@ chat.openapi(completions, async (c) => {
 							imageInputCost: contentFilterCosts?.imageInputCost ?? null,
 							imageOutputCost: contentFilterCosts?.imageOutputCost ?? null,
 							discount: contentFilterCosts?.discount ?? null,
+							pricingTier: contentFilterCosts?.pricingTier ?? null,
+							pricingPeriod: contentFilterCosts?.pricingPeriod ?? null,
 							dataStorageCost: "0",
 							cached: false,
 							toolResults: null,
@@ -12290,6 +12355,7 @@ chat.openapi(completions, async (c) => {
 										estimatedCost: false,
 										discount: undefined,
 										pricingTier: undefined,
+										pricingPeriod: undefined,
 										dataStorageCost: null as number | null,
 									}
 								: await calculateCosts(
@@ -12642,6 +12708,7 @@ chat.openapi(completions, async (c) => {
 									estimatedCost: false,
 									discount: undefined,
 									pricingTier: undefined,
+									pricingPeriod: undefined,
 									dataStorageCost: null as number | null,
 								}
 							: await calculateCosts(
@@ -12904,7 +12971,13 @@ chat.openapi(completions, async (c) => {
 													? streamingError.message
 													: String(streamingError),
 								}
-							: null,
+							: canceled
+								? null
+								: errorFinishReasonDetails(
+										finishReason,
+										transportProvider,
+										res?.status ?? 200,
+									),
 						streamed: true,
 						canceled: canceled,
 						inputCost: costs.inputCost,
@@ -12924,6 +12997,7 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: costs.estimatedCost,
 						discount: costs.discount,
 						pricingTier: costs.pricingTier,
+						pricingPeriod: costs.pricingPeriod,
 						dataStorageCost: shouldIncludeTokensForBilling
 							? calculateDataStorageCost(
 									calculatedPromptTokens,
@@ -13158,6 +13232,8 @@ chat.openapi(completions, async (c) => {
 			cost: cancelledCosts?.totalCost ?? null,
 			estimatedCost: cancelledCosts?.estimatedCost ?? false,
 			discount: cancelledCosts?.discount ?? null,
+			pricingTier: cancelledCosts?.pricingTier ?? null,
+			pricingPeriod: cancelledCosts?.pricingPeriod ?? null,
 			dataStorageCost: billCancelled
 				? calculateDataStorageCost(
 						cancelledCosts?.promptTokens ?? estimatedPromptTokens,
@@ -14060,6 +14136,8 @@ chat.openapi(completions, async (c) => {
 				imageOutputCost: nonStreamContentFilterCosts?.imageOutputCost ?? null,
 				estimatedCost: nonStreamContentFilterCosts?.estimatedCost ?? false,
 				discount: nonStreamContentFilterCosts?.discount ?? null,
+				pricingTier: nonStreamContentFilterCosts?.pricingTier ?? null,
+				pricingPeriod: nonStreamContentFilterCosts?.pricingPeriod ?? null,
 				dataStorageCost: "0",
 				cached: false,
 				toolResults: null,
@@ -14837,6 +14915,10 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Read before parsing and transforming, which canonicalize it in place
+	// (e.g. "abort" -> "upstream_error").
+	const rawFinishReason: unknown = json?.choices?.[0]?.finish_reason;
+
 	// Extract content and token usage based on provider
 	const parsedResponse = parseProviderResponse(
 		transportProvider,
@@ -15336,7 +15418,12 @@ chat.openapi(completions, async (c) => {
 					responseText:
 						"Response finished successfully but returned no content or tool calls",
 				}
-			: null,
+			: errorFinishReasonDetails(
+					finishReason,
+					transportProvider,
+					res.status,
+					typeof rawFinishReason === "string" ? rawFinishReason : finishReason,
+				),
 		inputCost: costs.inputCost,
 		outputCost: costs.outputCost,
 		cachedInputCost: costs.cachedInputCost,
@@ -15354,6 +15441,7 @@ chat.openapi(completions, async (c) => {
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,
 		pricingTier: costs.pricingTier,
+		pricingPeriod: costs.pricingPeriod,
 		dataStorageCost: calculateDataStorageCost(
 			calculatedPromptTokens,
 			cachedTokens,

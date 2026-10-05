@@ -1297,11 +1297,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					[1, 4],
 					[6, 10],
 				] as [number, number][],
-				offPeakDays: {
-					daysOfWeek: [0, 6] as const,
-					utcOffsetMinutes: 480,
-					timeZoneLabel: "Beijing time",
-				},
+				offPeakDaysUtc: [0, 6] as const,
 			},
 		};
 
@@ -1605,6 +1601,41 @@ describe("getCheapestFromAvailableProviders", () => {
 				).toNumber(),
 				// Tier cached price is 0: (0*0.5 + 6.0*0.5) / 2
 			).toBe(1.5e-6);
+		});
+
+		it("ranks a tier with its own peak/off-peak rates by time of day", () => {
+			const peakTieredMapping = {
+				...tieredMapping,
+				peakPricing: {
+					peak: { inputPrice: "3.0e-6", outputPrice: "15.0e-6" },
+					offPeak: { inputPrice: "1.5e-6", outputPrice: "7.5e-6" },
+					hoursUtc: [[1, 4]] as [number, number][],
+				},
+				pricingTiers: tieredMapping.pricingTiers.map((tier) => ({
+					...tier,
+					peakPricing: {
+						peak: {
+							inputPrice: tier.inputPrice,
+							outputPrice: tier.outputPrice,
+						},
+						offPeak: {
+							inputPrice: String(Number(tier.inputPrice) / 2),
+							outputPrice: String(Number(tier.outputPrice) / 2),
+						},
+					},
+				})),
+			};
+			const priceAt = (iso: string) =>
+				getProviderSelectionPrice(
+					peakTieredMapping,
+					undefined,
+					new Date(iso),
+					undefined,
+					200_000,
+				).toNumber();
+
+			expect(priceAt("2026-08-17T02:00:00Z")).toBe((6.0e-6 + 30.0e-6) / 2);
+			expect(priceAt("2026-08-17T12:00:00Z")).toBe((3.0e-6 + 15.0e-6) / 2);
 		});
 
 		it("re-ranks long-context requests through full provider selection", async () => {

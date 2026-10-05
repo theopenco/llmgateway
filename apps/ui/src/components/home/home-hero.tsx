@@ -135,7 +135,9 @@ export function HomeHero() {
 						</TrackedLink>
 
 						<h1 className="mt-7 text-balance font-display text-[40px] font-bold leading-[1.08] tracking-[-0.04em] sm:text-6xl xl:text-[76px]">
-							<span className="sr-only">LLM Gateway: </span>
+							<span className="sr-only">
+								LLM Gateway, the open-source LLM API gateway:{" "}
+							</span>
 							<span className="whitespace-nowrap">Company-wide</span> AI,
 							<span
 								className={cn(
@@ -148,11 +150,12 @@ export function HomeHero() {
 						</h1>
 
 						<p className="mt-6 max-w-xl text-lg leading-relaxed text-[#111113]/70 dark:text-[#f4f1e8]/70">
-							One OpenAI-compatible gateway to {MARKETING_STATS.models} models
-							from {MARKETING_STATS.providers} providers, with retries, failover
-							across providers that serve the same model, spend limits and
-							per-request costs built in. Enterprise adds SAML SSO, audit logs
-							and guardrails, in our cloud or yours.
+							An open-source, OpenAI-compatible LLM API gateway to{" "}
+							{MARKETING_STATS.models} models from {MARKETING_STATS.providers}{" "}
+							providers, with retries, failover across providers that serve the
+							same model, spend limits and per-request costs built in.
+							Enterprise adds SAML SSO, audit logs and guardrails, in our cloud
+							or yours.
 						</p>
 					</div>
 

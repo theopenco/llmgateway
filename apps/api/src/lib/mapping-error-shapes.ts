@@ -63,6 +63,21 @@ export const MAPPING_ERROR_WINDOWS = {
 		hours: 168,
 		bucketSeconds: 10800,
 	},
+	"30d": {
+		interval: sql`now() - interval '30 days'`,
+		hours: 720,
+		bucketSeconds: 21600,
+	},
+	"90d": {
+		interval: sql`now() - interval '90 days'`,
+		hours: 2160,
+		bucketSeconds: 86400,
+	},
+	"365d": {
+		interval: sql`now() - interval '365 days'`,
+		hours: 8760,
+		bucketSeconds: 86400,
+	},
 } as const;
 
 export const mappingErrorWindowSchema = z.enum([
@@ -75,6 +90,17 @@ export const mappingErrorWindowSchema = z.enum([
 	"24h",
 	"3d",
 	"7d",
+]);
+
+/**
+ * Adds the long windows for one credential's error types. The per-mapping
+ * rankings stay on the short ones.
+ */
+export const providerKeyErrorWindowSchema = z.enum([
+	...mappingErrorWindowSchema.options,
+	"30d",
+	"90d",
+	"365d",
 ]);
 
 export type MappingErrorWindow = keyof typeof MAPPING_ERROR_WINDOWS;
@@ -93,6 +119,14 @@ export const notRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM t
 // Incidents count only failures the gateway retries: canceled and
 // content-filtered requests are neither retried nor outage signals.
 export const incidentErrorsClause = sql`AND ${tables.log.unifiedFinishReason} IN ('upstream_error', 'gateway_error')`;
+
+// Safety cap on the error logs one incident drilldown aggregates per mapping;
+// below it the counts cover every error in the window.
+export const INCIDENT_ERRORS_LOG_LIMIT = 100_000;
+
+// Errors without details (a 200 that failed mid-response) fall back to the
+// provider's raw finish reason, unless it only repeats the classification.
+const statusTextExpr = sql`COALESCE(error_details->>'statusText', NULLIF(finish_reason, classification))`;
 
 export const mappingErrorShapeSchema = z.object({
 	statusCode: z.number().nullable(),
@@ -124,13 +158,16 @@ export const mappingErrorShapeSchema = z.object({
 
 export const mappingErrorShapesSchema = z.object({
 	errors: z.array(mappingErrorShapeSchema),
+	/** Error logs aggregated: every error in the window unless `capped`. */
 	sampledErrors: z.number(),
+	/** The log limit was reached, so only the latest errors are covered. */
+	capped: z.boolean(),
 });
 
 /**
- * Top 10 error shapes over the latest error logs of one mapping, identified
- * by the exact `log.used_model` value; callers pick the error classes via
- * `extraClauses`. Served by the partial
+ * Top 10 error shapes over the latest `sampleLimit` error logs of one mapping,
+ * identified by the exact `log.used_model` value; callers narrow the error
+ * classes via `extraClauses`. Served by the partial
  * `log_error_used_provider_used_model_created_at_idx` index. With
  * `groupByKey`, returns the top 5 shapes of each provider key instead.
  * With `bucketSeconds`, each shape also carries its per-bucket counts.
@@ -186,6 +223,7 @@ export async function queryMappingErrorShapes({
 			SELECT ${tables.log.errorDetails} AS error_details,
 				${providerKeyExpr} AS provider_key_id,
 				${tables.log.unifiedFinishReason} AS classification,
+				${tables.log.finishReason} AS finish_reason,
 				COALESCE(${tables.log.streamed}, false) AS streamed,
 				${bucketExpr} AS bucket
 			FROM ${tables.log}
@@ -199,7 +237,7 @@ export async function queryMappingErrorShapes({
 		),
 		shape_buckets AS (
 			SELECT error_details->>'statusCode' AS status_code,
-				error_details->>'statusText' AS status_text,
+				${statusTextExpr} AS status_text,
 				LEFT(error_details->>'responseText', 2000) AS response_text,
 				error_details->>'cause' AS cause,
 				classification,
@@ -278,6 +316,7 @@ export async function queryMappingErrorShapes({
 				: {}),
 		})),
 		sampledErrors,
+		capped: sampledErrors >= sampleLimit,
 	};
 }
 
@@ -359,8 +398,24 @@ export async function queryIncidentMappings({
 	}));
 }
 
-// Latest error logs sampled per mapping, matching the per-mapping drilldown.
-export const INCIDENT_ERROR_TYPES_SAMPLE_LIMIT = 500;
+/** Bucket grid of each error's `buckets`, covering the selected window. */
+export const errorTimelineSchema = z.object({
+	bucketSeconds: z.number(),
+	/** First and last bucket start, epoch milliseconds. */
+	start: z.number(),
+	end: z.number(),
+});
+
+export function buildErrorTimeline(windowHours: number, bucketSeconds: number) {
+	const bucketMs = bucketSeconds * 1000;
+	const now = Date.now();
+	const windowMs = windowHours * 3_600_000;
+	return {
+		bucketSeconds,
+		start: Math.floor((now - windowMs) / bucketMs) * bucketMs,
+		end: Math.floor(now / bucketMs) * bucketMs,
+	};
+}
 
 export const incidentErrorTypesSchema = z.object({
 	errors: z.array(
@@ -384,10 +439,16 @@ export const incidentErrorTypesSchema = z.object({
 					streamedCount: z.number(),
 				}),
 			),
+			// Only set when bucketed: occurrences per time bucket across all
+			// mappings, sparse, keyed by bucket start in epoch milliseconds.
+			buckets: z
+				.array(z.object({ start: z.number(), count: z.number() }))
+				.optional(),
 		}),
 	),
+	/** Error logs aggregated: every error in the window unless capped. */
 	sampledErrors: z.number(),
-	/** Error logs sampled per mapping. */
+	/** Most error logs aggregated per mapping. */
 	sampleLimit: z.number(),
 	/** Mappings that hit `sampleLimit`; their counts are lower bounds. */
 	cappedMappings: z.number(),
@@ -395,20 +456,28 @@ export const incidentErrorTypesSchema = z.object({
 
 /**
  * Top 50 error shapes across mappings, each with its per-mapping counts.
- * Samples the latest error logs of every mapping separately so each lookup
- * stays on the partial `log_error_used_provider_used_model_created_at_idx`
- * index; the hourly rollups hold no error details.
+ * Reads the error logs of every mapping separately so each lookup stays on
+ * the partial `log_error_used_provider_used_model_created_at_idx` index; the
+ * hourly rollups hold no error details. With `bucketSeconds`, each shape also
+ * carries its per-bucket counts.
  */
 export async function queryIncidentErrorTypes({
 	mappings,
 	windowInterval,
 	extraClauses,
+	bucketSeconds,
 }: {
 	mappings: { providerId: string; usedModel: string }[];
 	windowInterval: SQL;
 	extraClauses: SQL[];
+	bucketSeconds?: number;
 }): Promise<z.infer<typeof incidentErrorTypesSchema>> {
-	const sampleLimit = INCIDENT_ERROR_TYPES_SAMPLE_LIMIT;
+	const sampleLimit = INCIDENT_ERRORS_LOG_LIMIT;
+	// Unbucketed, every row falls into one constant bucket.
+	const bucketExpr =
+		bucketSeconds !== undefined
+			? sql`FLOOR(EXTRACT(EPOCH FROM ${tables.log.createdAt}) / ${bucketSeconds}::int)::bigint * ${bucketSeconds * 1000}::bigint`
+			: sql`0::bigint`;
 	if (mappings.length === 0) {
 		return { errors: [], sampledErrors: 0, sampleLimit, cappedMappings: 0 };
 	}
@@ -421,6 +490,7 @@ export async function queryIncidentErrorTypes({
 		count: string;
 		streamed_count: string;
 		models: [string, string, number, number][];
+		buckets: [number, number][];
 		sampled_errors: string;
 		capped_mappings: string;
 	}>(sql`
@@ -436,14 +506,20 @@ export async function queryIncidentErrorTypes({
 		recent_errors AS (
 			SELECT mappings.used_provider,
 				mappings.used_model,
-				sampled.error_details,
+				sampled.error_details->>'statusCode' AS status_code,
+				COALESCE(sampled.error_details->>'statusText', NULLIF(sampled.finish_reason, sampled.classification)) AS status_text,
+				LEFT(sampled.error_details->>'responseText', 2000) AS response_text,
+				sampled.error_details->>'cause' AS cause,
 				sampled.classification,
-				sampled.streamed
+				sampled.streamed,
+				sampled.bucket
 			FROM mappings
 			CROSS JOIN LATERAL (
 				SELECT ${tables.log.errorDetails} AS error_details,
 					${tables.log.unifiedFinishReason} AS classification,
-					COALESCE(${tables.log.streamed}, false) AS streamed
+					${tables.log.finishReason} AS finish_reason,
+					COALESCE(${tables.log.streamed}, false) AS streamed,
+					${bucketExpr} AS bucket
 				FROM ${tables.log}
 				WHERE ${tables.log.hasError} = true
 					AND ${tables.log.usedProvider} = mappings.used_provider
@@ -455,17 +531,17 @@ export async function queryIncidentErrorTypes({
 			) sampled
 		),
 		shape_models AS (
-			SELECT error_details->>'statusCode' AS status_code,
-				error_details->>'statusText' AS status_text,
-				LEFT(error_details->>'responseText', 2000) AS response_text,
-				error_details->>'cause' AS cause,
+			SELECT status_code,
+				status_text,
+				response_text,
+				cause,
 				classification,
 				used_provider,
 				used_model,
 				COUNT(*) AS count,
 				COUNT(*) FILTER (WHERE streamed) AS streamed_count
 			FROM recent_errors
-			GROUP BY 1, 2, 3, 4, classification, used_provider, used_model
+			GROUP BY status_code, status_text, response_text, cause, classification, used_provider, used_model
 		),
 		shapes AS (
 			SELECT status_code,
@@ -481,8 +557,31 @@ export async function queryIncidentErrorTypes({
 				) AS models
 			FROM shape_models
 			GROUP BY status_code, status_text, response_text, cause, classification
+			ORDER BY count DESC, status_code, response_text
+			LIMIT 50
+		),
+		shape_buckets AS (
+			SELECT status_code,
+				status_text,
+				response_text,
+				cause,
+				classification,
+				json_agg(json_build_array(bucket, count) ORDER BY bucket) AS buckets
+			FROM (
+				SELECT status_code,
+					status_text,
+					response_text,
+					cause,
+					classification,
+					bucket,
+					COUNT(*) AS count
+				FROM recent_errors
+				GROUP BY status_code, status_text, response_text, cause, classification, bucket
+			) bucketed
+			GROUP BY status_code, status_text, response_text, cause, classification
 		)
 		SELECT shapes.*,
+			shape_buckets.buckets,
 			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors,
 			(
 				SELECT COUNT(*)
@@ -494,8 +593,10 @@ export async function queryIncidentErrorTypes({
 				) capped
 			) AS capped_mappings
 		FROM shapes
-		ORDER BY count DESC, status_code, response_text
-		LIMIT 50
+		JOIN shape_buckets
+			ON (shapes.status_code, shapes.status_text, shapes.response_text, shapes.cause, shapes.classification)
+				IS NOT DISTINCT FROM (shape_buckets.status_code, shape_buckets.status_text, shape_buckets.response_text, shape_buckets.cause, shape_buckets.classification)
+		ORDER BY shapes.count DESC, shapes.status_code, shapes.response_text
 	`);
 
 	return {
@@ -514,6 +615,14 @@ export async function queryIncidentErrorTypes({
 				count: Number(count),
 				streamedCount: Number(streamedCount),
 			})),
+			...(bucketSeconds !== undefined
+				? {
+						buckets: r.buckets.map(([start, count]) => ({
+							start: Number(start),
+							count: Number(count),
+						})),
+					}
+				: {}),
 		})),
 		sampledErrors:
 			rows.rows.length > 0 ? Number(rows.rows[0].sampled_errors) : 0,

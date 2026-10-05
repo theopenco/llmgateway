@@ -12,7 +12,15 @@ import { fetchModels } from "./fetch-models";
 import type {
 	ApiModel,
 	ApiModelProviderMapping,
+	TimeBasedTokenPrices,
 } from "@llmgateway/shared/components";
+
+function fromTimeBasedPrices(prices: TimeBasedTokenPrices) {
+	return {
+		...prices,
+		cachedInputPrice: optional(prices.cachedInputPrice),
+	};
+}
 
 function optional<T>(value: T | null | undefined): T | undefined {
 	return value ?? undefined;
@@ -104,23 +112,19 @@ function apiMappingToDefinition(
 			cacheReadInputPrice: optional(tier.cacheReadInputPrice),
 			cacheWriteInputPrice: optional(tier.cacheWriteInputPrice),
 			cacheWriteInputPrice1h: optional(tier.cacheWriteInputPrice1h),
+			peakPricing: tier.peakPricing
+				? {
+						peak: fromTimeBasedPrices(tier.peakPricing.peak),
+						offPeak: fromTimeBasedPrices(tier.peakPricing.offPeak),
+					}
+				: undefined,
 		})),
 		peakPricing: mapping.peakPricing
 			? {
-					peak: {
-						...mapping.peakPricing.peak,
-						cachedInputPrice: optional(
-							mapping.peakPricing.peak.cachedInputPrice,
-						),
-					},
-					offPeak: {
-						...mapping.peakPricing.offPeak,
-						cachedInputPrice: optional(
-							mapping.peakPricing.offPeak.cachedInputPrice,
-						),
-					},
+					peak: fromTimeBasedPrices(mapping.peakPricing.peak),
+					offPeak: fromTimeBasedPrices(mapping.peakPricing.offPeak),
 					hoursUtc: mapping.peakPricing.hoursUtc,
-					offPeakDays: optional(mapping.peakPricing.offPeakDays),
+					offPeakDaysUtc: optional(mapping.peakPricing.offPeakDaysUtc),
 				}
 			: undefined,
 		serviceTiers: optional(

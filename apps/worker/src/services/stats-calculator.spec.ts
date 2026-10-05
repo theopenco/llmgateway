@@ -1498,6 +1498,7 @@ describe("stats-calculator", () => {
 					modelId: "gpt-4",
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
+					usedMode: "credits",
 					minuteTimestamp: minutesAgo(now, 4), // 4 minutes ago
 					logsCount: 10,
 					errorsCount: 1,
@@ -1507,6 +1508,7 @@ describe("stats-calculator", () => {
 					modelId: "gpt-4",
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
+					usedMode: "credits",
 					minuteTimestamp: minutesAgo(now, 3), // 3 minutes ago
 					logsCount: 15,
 					errorsCount: 2,
@@ -1541,6 +1543,7 @@ describe("stats-calculator", () => {
 					modelId: "gpt-4",
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
+					usedMode: "credits",
 					minuteTimestamp: minutesAgo(now, 4),
 					logsCount: 20,
 					errorsCount: 2,
@@ -1572,6 +1575,7 @@ describe("stats-calculator", () => {
 					modelId: "gpt-4",
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
+					usedMode: "credits",
 					minuteTimestamp: minutesAgo(now, 4),
 					logsCount: 30,
 					errorsCount: 3,
@@ -1892,7 +1896,8 @@ describe("stats-calculator", () => {
 				.from(modelProviderMapping)
 				.orderBy(modelProviderMapping.id);
 			expect(mappings).toEqual([
-				{ id: "mapping-1", logsCount: 26 },
+				// Credits only: api-keys (BYOK) and unknown rows are left out.
+				{ id: "mapping-1", logsCount: 8 },
 				{ id: "mapping-regional", logsCount: 13 },
 			]);
 			const [archivedModel] = await db

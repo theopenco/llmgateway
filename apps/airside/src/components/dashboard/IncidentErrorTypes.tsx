@@ -222,20 +222,35 @@ export function IncidentErrorTypes({
 				Top {data.errors.length} error type
 				{data.errors.length === 1 ? "" : "s"} ·{" "}
 				{formatCompact(data.sampledErrors)} error
-				{data.sampledErrors === 1 ? "" : "s"} sampled
+				{data.sampledErrors === 1 ? "" : "s"}
 			</p>
 			{data.cappedMappings > 0 ? (
 				<p className="text-muted-foreground text-xs">
 					{data.cappedMappings} model{data.cappedMappings === 1 ? "" : "s"} hit
-					the {formatCompact(data.sampleLimit)}-error sample cap; counts cover
-					each model&apos;s latest {formatCompact(data.sampleLimit)} errors.
+					the {formatCompact(data.sampleLimit)}-error cap; counts cover each
+					model&apos;s latest {formatCompact(data.sampleLimit)} errors.
 				</p>
 			) : null}
 			<ul className="space-y-3">
-				{data.errors.map((error, i) => (
-					<ErrorTypeItem key={i} error={error} showCarrier={showCarrier} />
+				{data.errors.map((error) => (
+					<ErrorTypeItem
+						key={errorTypeKey(error)}
+						error={error}
+						showCarrier={showCarrier}
+					/>
 				))}
 			</ul>
 		</div>
 	);
+}
+// Stable per-shape key so a refetch that reorders shapes keeps each item's
+// expanded state with its own error.
+function errorTypeKey(error: ErrorType): string {
+	return JSON.stringify([
+		error.statusCode,
+		error.statusText,
+		error.classification,
+		error.cause,
+		error.responseText,
+	]);
 }

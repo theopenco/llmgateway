@@ -448,6 +448,22 @@ export function buildYearFaqs(
 
 const TIMELINE_BASE_URL = "https://llmgateway.io";
 
+const DAY_MS = 86_400_000;
+
+/** Models released in the `days` days up to `now`, newest first. */
+export function modelsReleasedWithin(
+	models: TimelineModel[],
+	now: Date,
+	days: number,
+): TimelineModel[] {
+	const windowMs = days * DAY_MS;
+	const since = now.getTime() - windowMs;
+	return recentModels(models, models.length).filter((model) => {
+		const releasedAt = new Date(model.releasedAt!).getTime();
+		return releasedAt >= since && releasedAt <= now.getTime();
+	});
+}
+
 /**
  * Google validates a nested Dataset node (the `isPartOf` reference on a year
  * page) exactly like a top-level one, so every Dataset we emit — nested or not

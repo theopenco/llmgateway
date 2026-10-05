@@ -38,9 +38,15 @@ import {
 	notRetriedClause,
 	incidentErrorsClause,
 	queryMappingErrorShapes,
+	buildErrorTimeline,
+	errorTimelineSchema,
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
+import {
+	getModelErrorRateAlertsSettings,
+	setModelErrorRateAlertsSettings,
+} from "@/lib/model-error-rate-alerts.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
 	getBucketUnitForWindow,
@@ -148,6 +154,7 @@ import {
 	getPlanClass,
 	isValidSystemBannerLink,
 	LOG_ERROR_TYPES,
+	modelErrorRateAlertsSettingsSchema,
 	parseUsedModel,
 	resolveTrustTierOverride,
 	SYSTEM_BANNER_SEVERITIES,
@@ -3259,7 +3266,10 @@ admin.openapi(getOrganizations, async (c) => {
 
 	const orderFn = sortOrder === "asc" ? asc : desc;
 
-	// Subquery for all-time credits per org
+	// All-time pay-as-you-go credits per org: top-ups (incl. a DevPass org's
+	// PAYG top-ups) net of their refunds. Excludes DevPass/Chat Plan virtual
+	// credits, gifts, and end-user wallet rows. Refunds of non-top-up charges
+	// carry a zero creditAmount, so including every credit_refund is safe.
 	const allTimeCredits = db
 		.select({
 			organizationId: tables.transaction.organizationId,
@@ -3269,7 +3279,16 @@ admin.openapi(getOrganizations, async (c) => {
 				),
 		})
 		.from(tables.transaction)
-		.where(eq(tables.transaction.status, "completed"))
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, [
+					"credit_topup",
+					"credit_manual_payment",
+					"credit_refund",
+				]),
+			),
+		)
 		.groupBy(tables.transaction.organizationId)
 		.as("all_time_credits");
 
@@ -4560,6 +4579,7 @@ const logEntrySchema = z.object({
 	usedMode: z.string(),
 	discount: z.number().nullable(),
 	pricingTier: z.string().nullable(),
+	pricingPeriod: z.string().nullable(),
 	timeToFirstToken: z.number().nullable(),
 	timeToFirstReasoningToken: z.number().nullable(),
 	responseSize: z.number().nullable(),
@@ -4768,6 +4788,7 @@ async function fetchAdminLogs(scope: SQLWrapper, query: AdminLogQuery) {
 			usedMode: tables.log.usedMode,
 			discount: tables.log.discount,
 			pricingTier: tables.log.pricingTier,
+			pricingPeriod: tables.log.pricingPeriod,
 			timeToFirstToken: tables.log.timeToFirstToken,
 			timeToFirstReasoningToken: tables.log.timeToFirstReasoningToken,
 			responseSize: tables.log.responseSize,
@@ -6574,6 +6595,56 @@ admin.openapi(updateForceThreeDSecure, async (c) => {
 	await setForcedThreeDSecureMode(mode);
 
 	return c.json(await forceThreeDSecureState());
+});
+
+// --- Model error-rate Discord alerts ---
+
+const getModelErrorRateAlertsRoute = createRoute({
+	method: "get",
+	path: "/settings/model-error-rate-alerts",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+				},
+			},
+			description: "Model error-rate Discord alert rules.",
+		},
+	},
+});
+
+const updateModelErrorRateAlertsRoute = createRoute({
+	method: "put",
+	path: "/settings/model-error-rate-alerts",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+				},
+			},
+			description: "Updated model error-rate Discord alert rules.",
+		},
+	},
+});
+
+admin.openapi(getModelErrorRateAlertsRoute, async (c) => {
+	return c.json(await getModelErrorRateAlertsSettings());
+});
+
+admin.openapi(updateModelErrorRateAlertsRoute, async (c) => {
+	return c.json(await setModelErrorRateAlertsSettings(c.req.valid("json")));
 });
 
 // --- Announcement Banner ---
@@ -13293,13 +13364,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 const unstableMappingErrorsSchema = mappingErrorShapesSchema.extend({
 	groupByKey: z.boolean(),
 	groupByStream: z.boolean(),
-	/** Bucket grid of each error's `buckets`, covering the selected window. */
-	timeline: z.object({
-		bucketSeconds: z.number(),
-		/** First and last bucket start, epoch milliseconds. */
-		start: z.number(),
-		end: z.number(),
-	}),
+	timeline: errorTimelineSchema,
 	/** Keys in the sample, most errors first; empty unless grouped by key. */
 	keys: z.array(
 		z.object({
@@ -13393,9 +13458,6 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		hours: windowHours,
 		bucketSeconds,
 	} = resolveMappingErrorWindow(window);
-	const bucketMs = bucketSeconds * 1000;
-	const now = Date.now();
-	const windowMs = windowHours * 3_600_000;
 	const providerKeyClause =
 		providerKeyId === undefined
 			? sql``
@@ -13445,11 +13507,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		...shapes,
 		groupByKey,
 		groupByStream,
-		timeline: {
-			bucketSeconds,
-			start: Math.floor((now - windowMs) / bucketMs) * bucketMs,
-			end: Math.floor(now / bucketMs) * bucketMs,
-		},
+		timeline: buildErrorTimeline(windowHours, bucketSeconds),
 		keys: [...keyErrors].map(([id, errorsCount]) => ({
 			providerKeyId: id,
 			...describeProviderKey(providerKeyLabels, id),

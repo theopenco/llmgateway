@@ -4,6 +4,17 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	buildErrorTimeline,
+	errorTimelineSchema,
+	incidentErrorsClause,
+	incidentErrorTypesSchema,
+	notRetriedClause,
+	providerKeyErrorWindowSchema,
+	queryIncidentErrorTypes,
+	queryIncidentMappings,
+	resolveMappingErrorWindow,
+} from "@/lib/mapping-error-shapes.js";
+import {
 	allowedModelsSchema,
 	normalizeAllowedModels,
 	pickAllowedValidationModel,
@@ -1048,33 +1059,60 @@ function bucketLabel(bucketExpr: SQL<Date>) {
 	return sql<string>`to_char(${bucketExpr}, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 }
 
-const spendPointSchema = z.object({
+/** Error split by unified finish reason; `errorCount` covers all three. */
+const errorSplitSchema = z.object({
+	errorCount: z.number(),
+	clientErrorCount: z.number(),
+	gatewayErrorCount: z.number(),
+	upstreamErrorCount: z.number(),
+});
+
+const spendPointSchema = errorSplitSchema.extend({
 	timestamp: z.string(),
 	cost: z.number(),
 	requestCount: z.number(),
-	errorCount: z.number(),
-	upstreamErrorCount: z.number(),
+	cacheCount: z.number(),
+	inputTokens: z.string(),
+	outputTokens: z.string(),
 	totalTokens: z.string(),
 });
 
-const spendByOrganizationSchema = z.object({
+const spendByOrganizationSchema = errorSplitSchema.extend({
 	organizationId: z.string(),
 	organizationName: z.string().nullable(),
 	cost: z.number(),
 	requestCount: z.number(),
 });
 
-const spendByModelSchema = z.object({
+const spendByModelSchema = errorSplitSchema.extend({
 	/** Display id as stored in the rollup: `provider/model[:region]`. */
 	usedModel: z.string(),
 	usedProvider: z.string(),
 	cost: z.number(),
 	requestCount: z.number(),
+	cacheCount: z.number(),
+	/** Non-error finish reasons worth watching next to the error split. */
+	lengthLimitCount: z.number(),
+	contentFilterCount: z.number(),
+	canceledCount: z.number(),
 	totalTokens: z.string(),
 });
 
+/** Windows longer than this stay day-grained: hourly would be 2000+ points. */
+const HOURLY_BUCKET_WINDOWS: readonly string[] = [
+	"1h",
+	"4h",
+	"12h",
+	"1d",
+	"7d",
+	"30d",
+	"month",
+	"last_month",
+];
+
 /** Rows returned in the per-model split; the long tail is dropped. */
 const SPEND_MODEL_ROW_LIMIT = 50;
+const SPEND_ORGANIZATION_ROW_LIMIT = 50;
 
 const providerKeySpendSchema = z.object({
 	window: spendWindowSchema,
@@ -1083,6 +1121,11 @@ const providerKeySpendSchema = z.object({
 		id: z.string(),
 		provider: z.string(),
 		name: z.string().nullable(),
+		/** Operator note (managed) or customer description (BYOK). */
+		comment: z.string().nullable(),
+		maskedToken: z.string(),
+		variant: variantSchema,
+		region: z.string().nullable(),
 		managed: z.boolean(),
 		status: z.string().nullable(),
 		organizationId: z.string().nullable(),
@@ -1123,6 +1166,11 @@ const getProviderKeySpend = createRoute({
 		params: z.object({ providerKeyId: z.string() }),
 		query: z.object({
 			window: spendWindowSchema.default("7d").optional(),
+			/**
+			 * Overrides the window's default grain. `hour` is ignored past a
+			 * month, where the rollup would return thousands of points.
+			 */
+			bucket: z.enum(["hour", "day"]).optional(),
 		}),
 	},
 	responses: {
@@ -1144,8 +1192,12 @@ const getProviderKeySpend = createRoute({
 adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 	const { providerKeyId } = c.req.valid("param");
 	const window = c.req.valid("query").window ?? "7d";
+	const requestedBucket = c.req.valid("query").bucket;
 	const { start: startDate, end: endDate } = getWindowRange(window);
-	const bucketUnit = getBucketUnitForWindow(window);
+	const bucketUnit =
+		requestedBucket === "hour" && !HOURLY_BUCKET_WINDOWS.includes(window)
+			? "day"
+			: (requestedBucket ?? getBucketUnitForWindow(window));
 
 	const key = await db.query.providerKey.findFirst({
 		where: { id: { eq: providerKeyId } },
@@ -1194,9 +1246,18 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.errorCount}), 0)`.as(
 						"error_count",
 					),
-				upstreamErrorCount:
-					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.upstreamErrorCount}), 0)`.as(
-						"upstream_error_count",
+				...hourlyErrorSplitFields(),
+				cacheCount:
+					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.cacheCount}), 0)`.as(
+						"cache_count",
+					),
+				inputTokens:
+					sql<string>`COALESCE(SUM(CAST(${tables.providerKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
+						"input_tokens",
+					),
+				outputTokens:
+					sql<string>`COALESCE(SUM(CAST(${tables.providerKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
+						"output_tokens",
 					),
 				totalTokens:
 					sql<string>`COALESCE(SUM(CAST(${tables.providerKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
@@ -1221,6 +1282,11 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.requestCount}), 0)`.as(
 						"request_count",
 					),
+				errorCount:
+					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.errorCount}), 0)`.as(
+						"error_count",
+					),
+				...hourlyErrorSplitFields(),
 			})
 			.from(tables.providerKeyHourlyStats)
 			.innerJoin(
@@ -1237,8 +1303,9 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 				desc(
 					sql`SUM(cast(${tables.providerKeyHourlyStats.cost} as double precision))`,
 				),
+				desc(sql`SUM(${tables.providerKeyHourlyStats.requestCount})`),
 			)
-			.limit(20),
+			.limit(SPEND_ORGANIZATION_ROW_LIMIT),
 		db
 			.select({
 				usedModel: modelStats.usedModel,
@@ -1247,6 +1314,36 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 				requestCount:
 					sql<number>`COALESCE(SUM(${modelStats.requestCount}), 0)`.as(
 						"request_count",
+					),
+				errorCount: sql<number>`COALESCE(SUM(${modelStats.errorCount}), 0)`.as(
+					"error_count",
+				),
+				clientErrorCount:
+					sql<number>`COALESCE(SUM(${modelStats.clientErrorCount}), 0)`.as(
+						"client_error_count",
+					),
+				gatewayErrorCount:
+					sql<number>`COALESCE(SUM(${modelStats.gatewayErrorCount}), 0)`.as(
+						"gateway_error_count",
+					),
+				upstreamErrorCount:
+					sql<number>`COALESCE(SUM(${modelStats.upstreamErrorCount}), 0)`.as(
+						"upstream_error_count",
+					),
+				cacheCount: sql<number>`COALESCE(SUM(${modelStats.cacheCount}), 0)`.as(
+					"cache_count",
+				),
+				lengthLimitCount:
+					sql<number>`COALESCE(SUM(${modelStats.lengthLimitCount}), 0)`.as(
+						"length_limit_count",
+					),
+				contentFilterCount:
+					sql<number>`COALESCE(SUM(${modelStats.contentFilterCount}), 0)`.as(
+						"content_filter_count",
+					),
+				canceledCount:
+					sql<number>`COALESCE(SUM(${modelStats.canceledCount}), 0)`.as(
+						"canceled_count",
 					),
 				totalTokens:
 					sql<string>`COALESCE(SUM(CAST(${modelStats.totalTokens} AS NUMERIC)), 0)`.as(
@@ -1271,8 +1368,10 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 		timestamp: point.timestamp,
 		cost: Number(point.cost),
 		requestCount: Number(point.requestCount),
-		errorCount: Number(point.errorCount),
-		upstreamErrorCount: Number(point.upstreamErrorCount),
+		...toErrorSplit(point),
+		cacheCount: Number(point.cacheCount),
+		inputTokens: String(point.inputTokens),
+		outputTokens: String(point.outputTokens),
 		totalTokens: String(point.totalTokens),
 	}));
 
@@ -1283,6 +1382,12 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 			id: key.id,
 			provider: key.provider,
 			name: key.name,
+			comment: key.managed ? key.comment : key.description,
+			maskedToken: key.managed
+				? maskToken(readProviderKey(key), 6, 4)
+				: key.tokenMasked,
+			variant: key.variant,
+			region: key.region,
 			managed: key.managed,
 			status: key.status,
 			organizationId: key.organizationId,
@@ -1292,13 +1397,14 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 		totalCost: data.reduce((sum, point) => sum + point.cost, 0),
 		totalRequests: data.reduce((sum, point) => sum + point.requestCount, 0),
 		totalErrors: data.reduce((sum, point) => sum + point.errorCount, 0),
-		buckets: getWindowBucketTimestamps(window),
+		buckets: getWindowBucketTimestamps(window, new Date(), bucketUnit),
 		data,
 		organizations: organizations.map((row) => ({
 			organizationId: row.organizationId,
 			organizationName: row.organizationName,
 			cost: Number(row.cost),
 			requestCount: Number(row.requestCount),
+			...toErrorSplit(row),
 		})),
 		modelsSince: modelsSince.toISOString(),
 		models: models.map((row) => ({
@@ -1306,8 +1412,142 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 			usedProvider: row.usedProvider,
 			cost: Number(row.cost),
 			requestCount: Number(row.requestCount),
+			...toErrorSplit(row),
+			cacheCount: Number(row.cacheCount),
+			lengthLimitCount: Number(row.lengthLimitCount),
+			contentFilterCount: Number(row.contentFilterCount),
+			canceledCount: Number(row.canceledCount),
 			totalTokens: String(row.totalTokens),
 		})),
+	});
+});
+
+function toErrorSplit(row: z.infer<typeof errorSplitSchema>) {
+	return {
+		errorCount: Number(row.errorCount),
+		clientErrorCount: Number(row.clientErrorCount),
+		gatewayErrorCount: Number(row.gatewayErrorCount),
+		upstreamErrorCount: Number(row.upstreamErrorCount),
+	};
+}
+
+const providerKeyErrorTypesSchema = incidentErrorTypesSchema.extend({
+	timeline: errorTimelineSchema,
+});
+
+const getProviderKeyErrorTypes = createRoute({
+	method: "get",
+	path: "/provider-keys/{providerKeyId}/error-types",
+	request: {
+		params: z.object({ providerKeyId: z.string() }),
+		query: z.object({
+			window: providerKeyErrorWindowSchema.default("24h").optional(),
+			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerKeyErrorTypesSchema,
+				},
+			},
+			description:
+				"Top upstream and gateway error shapes served by one provider key, each with its per-model counts and timeline.",
+		},
+		404: {
+			description: "Provider key not found.",
+		},
+	},
+});
+
+/**
+ * Mappings to sample for one key's errors: those the key's own daily rollup
+ * recorded upstream or gateway errors on, plus the provider's hourly failing
+ * mappings, which cover the hours the slower key rollup has not reached yet.
+ * The provider-wide list alone would drop a key's failing mapping that is
+ * quiet provider-wide or outside its top 200.
+ */
+async function listKeyErrorMappings(
+	providerKeyId: string,
+	provider: string,
+	windowHours: number,
+) {
+	const windowMs = windowHours * HOUR_MS;
+	const since = new Date(Date.now() - windowMs);
+	since.setUTCHours(0, 0, 0, 0);
+	const stats = tables.globalProviderKeyModelStats;
+	const [keyRows, providerRows] = await Promise.all([
+		db
+			.select({ providerId: stats.usedProvider, usedModel: stats.usedModel })
+			.from(stats)
+			.where(
+				and(
+					eq(stats.providerKeyId, providerKeyId),
+					gte(stats.dayTimestamp, since),
+				),
+			)
+			.groupBy(stats.usedProvider, stats.usedModel)
+			.having(
+				sql`SUM(${stats.gatewayErrorCount}) + SUM(${stats.upstreamErrorCount}) > 0`,
+			),
+		queryIncidentMappings({
+			providerIds: [provider],
+			windowHours,
+			mapping: null,
+		}),
+	]);
+	const mappings = new Map<string, { providerId: string; usedModel: string }>();
+	for (const row of [...keyRows, ...providerRows]) {
+		mappings.set(`${row.providerId}/${row.usedModel}`, {
+			providerId: row.providerId,
+			usedModel: row.usedModel,
+		});
+	}
+	return [...mappings.values()];
+}
+
+/**
+ * What actually failed on one credential. Reads `log`: the rollups carry error
+ * counts but no status codes or response bodies. Each failing mapping is read
+ * separately on the partial error index, narrowed to this key.
+ */
+adminProviderCredentials.openapi(getProviderKeyErrorTypes, async (c) => {
+	const { providerKeyId } = c.req.valid("param");
+	const query = c.req.valid("query");
+
+	const key = await db.query.providerKey.findFirst({
+		where: { id: { eq: providerKeyId } },
+		columns: { provider: true },
+	});
+	if (!key) {
+		throw new HTTPException(404, { message: "Provider key not found" });
+	}
+
+	const {
+		hours: windowHours,
+		interval: windowInterval,
+		bucketSeconds,
+	} = resolveMappingErrorWindow(query.window, "24h");
+
+	const errorTypes = await queryIncidentErrorTypes({
+		mappings: await listKeyErrorMappings(
+			providerKeyId,
+			key.provider,
+			windowHours,
+		),
+		windowInterval,
+		bucketSeconds,
+		extraClauses: [
+			sql`AND ${tables.log.providerKeyId} = ${providerKeyId}`,
+			incidentErrorsClause,
+			query.includeRetried === "false" ? notRetriedClause : sql``,
+		],
+	});
+
+	return c.json({
+		...errorTypes,
+		timeline: buildErrorTimeline(windowHours, bucketSeconds),
 	});
 });
 

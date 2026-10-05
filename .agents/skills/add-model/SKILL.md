@@ -45,6 +45,7 @@ Apply these to every change in `packages/models`:
 - Write per-token prices (`inputPrice`, `outputPrice`, `cachedInputPrice`, …) in `e-6` notation so the coefficient reads as USD per million tokens (`"1.4e-6"`). `requestPrice` (flat USD per request) and `perSecondPrice` are exempt.
 - One model definition has at most one mapping per `providerId`; regional variants go in that mapping's `regions` array. Lookups key on `(providerId, region)`, so a second same-provider mapping silently resolves to the first and bills at its prices. A distinct upstream deployment (e.g. a priority router with its own `externalId` and pricing) gets its own model entry and `id`.
 - A mapping with both `peakPricing` and `regions` gives every region with its own rates its own full `peakPricing` block; flat overrides alone inherit the base peak tiers.
+- When the provider prices each context-length band by time of day, give every `pricingTiers` entry its own `peakPricing` (`peak`/`offPeak` rates); the schedule stays on the mapping or region. Don't model limited-time promotional discounts.
 - Identify models by `model.id`, scoped by `providerId` and optional `:region`. `externalId` is only the upstream API identifier: keep it out of URLs, selectors, billing and analytics keys, and lookups, including fallbacks.
 - Let metadata fields speak for themselves. Comment only behavior the metadata cannot express that a maintainer needs, such as the operational cause of `stability: "unstable"` or `test: "skip"`. Sources, verification, and pricing choices go in the PR body.
 
