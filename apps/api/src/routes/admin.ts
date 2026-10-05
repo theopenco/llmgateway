@@ -10735,6 +10735,7 @@ admin.openapi(getProviderDetail, async (c) => {
 
 	const providerRow = await db.query.provider.findFirst({
 		where: { id: { eq: providerId } },
+		columns: { streaming: false },
 	});
 
 	if (!providerRow) {
