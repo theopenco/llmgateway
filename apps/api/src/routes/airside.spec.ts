@@ -4154,6 +4154,58 @@ describe("airside provider portal", () => {
 		expect(remaining.map((k) => k.id)).toEqual([pending.id]);
 	});
 
+	it("lets an admin set or override a carrier's provider key", async () => {
+		const { company, claim } = await approvedCarrier();
+		stubCarrierUpstream(new Set(["sk-admin-set"]));
+		const create = async (token: string, carrierKey?: boolean) => {
+			const res = await app.request(
+				"/admin/provider-credentials",
+				json(cookie, { provider: "acme-sky", token, carrierKey }),
+			);
+			expect(res.status).toBe(201);
+			return (await res.json()).credential as {
+				id: string;
+				carrierKey: boolean;
+			};
+		};
+		const linkedKeyId = async () =>
+			(
+				await db.query.providerClaim.findFirst({
+					where: { id: { eq: claim.id } },
+				})
+			)?.providerKeyId;
+
+		// A carrier without a key gets the admin's credential linked.
+		const set = await create("sk-admin-set");
+		expect(set.carrierKey).toBe(true);
+		expect(await linkedKeyId()).toBe(set.id);
+		// The carrier no longer has to file one with its first model.
+		expect(
+			(await createModel(cookie, company.id, sky("sky-large"))).status,
+		).toBe(201);
+
+		// An extra key leaves the carrier's key alone.
+		const extra = await create("sk-admin-extra", false);
+		expect(extra.carrierKey).toBe(false);
+		expect(await linkedKeyId()).toBe(set.id);
+
+		// Overriding links the new key and retires the old one.
+		const override = await create("sk-admin-override", true);
+		expect(await linkedKeyId()).toBe(override.id);
+		const retired = await db.query.providerKey.findFirst({
+			where: { id: { eq: set.id } },
+		});
+		expect(retired?.status).toBe("deleted");
+
+		// Deleting the linked credential unlinks it.
+		const deleted = await app.request(
+			`/admin/provider-credentials/${override.id}`,
+			json(cookie, undefined, "DELETE"),
+		);
+		expect(deleted.status).toBe(200);
+		expect(await linkedKeyId()).toBeNull();
+	});
+
 	it("smoke-tests the serving key against every new listing", async () => {
 		const { company } = await approvedCarrier();
 		const workingKeys = new Set(["sk-acme-sky-serving-key"]);

@@ -34,6 +34,7 @@ export interface CredentialInput {
 	usageLimit?: string | null;
 	allowedModels?: string[] | null;
 	skipValidation?: boolean;
+	carrierKey?: boolean;
 }
 
 /**
