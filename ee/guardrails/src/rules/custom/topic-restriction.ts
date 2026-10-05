@@ -1,4 +1,4 @@
-import { createLiteralRegex } from "./literal-regex.js";
+import { createInflectedWordRegex } from "./literal-regex.js";
 
 import type {
 	TopicRestrictionRuleConfig,
@@ -95,17 +95,14 @@ export function checkTopicRestriction(
 		const keywords = TOPIC_KEYWORDS[topic.toLowerCase()];
 		if (keywords) {
 			for (const keyword of keywords) {
-				if (createLiteralRegex(keyword, false, true).test(contentLower)) {
+				if (createInflectedWordRegex(keyword).test(contentLower)) {
 					matches.push(`${topic}: ${keyword}`);
 					break; // One match per topic is enough
 				}
 			}
 		} else {
 			// Treat the topic itself as a keyword to search for
-			if (
-				topic.trim() &&
-				createLiteralRegex(topic, false, true).test(contentLower)
-			) {
+			if (topic.trim() && createInflectedWordRegex(topic).test(contentLower)) {
 				matches.push(topic);
 			}
 		}
