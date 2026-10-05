@@ -1,3 +1,5 @@
+import { isStopRequested } from "@/shutdown.js";
+
 import {
 	db,
 	provider,
@@ -1038,6 +1040,10 @@ export async function backfillHistoryIfNeeded() {
 					boundedStart.getTime(),
 				);
 	for (let time = start; time <= end.getTime(); time += ONE_MINUTE_MS) {
+		// Shutdown waits for this backfill; the next start resumes the gaps.
+		if (isStopRequested()) {
+			return;
+		}
 		if (mappingTimes.has(time) && modelTimes.has(time)) {
 			continue;
 		}
@@ -1510,7 +1516,8 @@ export async function backfillHourlyHistoryIfNeeded() {
 		let computed = 0;
 		while (
 			hour <= previousHourStart &&
-			scanned < HOURLY_BACKFILL_MAX_ITERATIONS
+			scanned < HOURLY_BACKFILL_MAX_ITERATIONS &&
+			!isStopRequested()
 		) {
 			const ms = hour.getTime();
 			// Routing telemetry shipped after the two history tables, so on the first

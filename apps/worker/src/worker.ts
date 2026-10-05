@@ -3386,6 +3386,10 @@ export async function startWorker() {
 			return backfillHourlyHistoryIfNeeded();
 		})
 		.then(() => {
+			// A backfill cut short by shutdown has not populated every rollup.
+			if (isStopRequested()) {
+				return;
+			}
 			logger.info("Hourly history backfill check completed");
 			// Hourly rollups are now populated, so minute-history pruning is safe.
 			hourlyBackfillComplete = true;
