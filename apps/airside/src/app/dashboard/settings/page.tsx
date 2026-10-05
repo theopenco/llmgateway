@@ -220,11 +220,11 @@ function ProviderKeyCard({ claim }: { claim: Claim }) {
 					· provider key
 				</CardTitle>
 				<CardDescription>
-					The key LLM Gateway serves your live traffic with. A replacement is
-					smoke-tested against one of your live listings when you submit it,
-					then takes over once our team approves it; until then the current key
-					keeps serving. Stored encrypted and only ever shown back to you
-					masked.
+					The key LLM Gateway serves your live traffic with — filed with your
+					first model. A replacement is smoke-tested against one of your
+					listings when you submit it, then takes over once our team approves
+					it; until then the current key keeps serving. Stored encrypted and
+					only ever shown back to you masked.
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-3">
@@ -244,7 +244,7 @@ function ProviderKeyCard({ claim }: { claim: Claim }) {
 						</>
 					) : (
 						<dd className="text-muted-foreground col-span-3">
-							No provider key is serving yet.
+							No provider key yet — file it with your first model.
 						</dd>
 					)}
 					{claim.pendingProviderKey ? (

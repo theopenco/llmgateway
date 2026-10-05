@@ -66,6 +66,27 @@ function useSavedVerificationKey(
 	return claim?.verificationKeyMasked ?? null;
 }
 
+/**
+ * A registered carrier with no provider key on file files one with its first
+ * model: the server smoke-tests it against that model and it goes live once
+ * the model is approved.
+ */
+function useNeedsFirstProviderKey(
+	providerCompanyId: string,
+	providerId: string,
+): boolean {
+	const { companies } = useCompany();
+	const claim = companies
+		.find((company) => company.id === providerCompanyId)
+		?.claims.find(
+			(candidate) =>
+				candidate.providerId === providerId && candidate.status === "active",
+		);
+	return (
+		claim?.kind === "custom" && !claim.providerKey && !claim.pendingProviderKey
+	);
+}
+
 function VerificationKeyHint({ savedKey }: { savedKey: string | null }) {
 	return savedKey ? (
 		<>
@@ -724,6 +745,11 @@ export function RegisterModelDialog({
 		providerCompanyId,
 		effectiveProviderId,
 	);
+	const needsProviderKey = useNeedsFirstProviderKey(
+		providerCompanyId,
+		effectiveProviderId,
+	);
+	const [providerKey, setProviderKey] = useState("");
 	const verificationQuery = api.useQuery(
 		"get",
 		"/airside/model-verifications/{id}",
@@ -782,6 +808,7 @@ export function RegisterModelDialog({
 			setRegionFares([]);
 			setNote("");
 			setApiKey("");
+			setProviderKey("");
 			setVerificationId("");
 		},
 		onError: (error) => {
@@ -865,6 +892,7 @@ export function RegisterModelDialog({
 						createModel.mutate({
 							body: {
 								verificationId: verification.id,
+								providerKey: needsProviderKey ? providerKey : undefined,
 								providerCompanyId,
 								providerId: effectiveProviderId,
 								modelName: modelName.trim(),
@@ -1301,6 +1329,27 @@ export function RegisterModelDialog({
 						</p>
 					</div>
 
+					{needsProviderKey ? (
+						<div className="border-border space-y-2 rounded-lg border p-3">
+							<Label htmlFor="first-provider-key">Provider key</Label>
+							<Input
+								id="first-provider-key"
+								data-testid="first-provider-key-input"
+								type="password"
+								autoComplete="off"
+								value={providerKey}
+								onChange={(event) => setProviderKey(event.target.value)}
+								placeholder="The key we serve your traffic with"
+							/>
+							<p className="text-muted-foreground text-xs">
+								Your first model brings the key LLM Gateway serves your live
+								traffic with. It must differ from the test key: we smoke-test it
+								against this model when you file, and it goes live once the
+								model is approved. Stored encrypted.
+							</p>
+						</div>
+					) : null}
+
 					{verification ? (
 						<VerificationResults verification={verification} />
 					) : null}
@@ -1315,7 +1364,10 @@ export function RegisterModelDialog({
 								!effectiveProviderId ||
 								(verification?.status !== "passed" &&
 									!apiKey.trim() &&
-									!savedVerificationKey)
+									!savedVerificationKey) ||
+								(verification?.status === "passed" &&
+									needsProviderKey &&
+									!providerKey.trim())
 							}
 							data-testid="register-model-submit"
 							className="font-semibold"

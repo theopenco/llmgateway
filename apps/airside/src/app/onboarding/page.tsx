@@ -143,8 +143,6 @@ function RegisterCarrierDialog({
 		description?: string;
 		logoUrl?: string;
 		iconUrl?: string;
-		providerKey: string;
-		testingKey: string;
 	}) => void;
 }) {
 	const [open, setOpen] = useState(false);
@@ -154,9 +152,6 @@ function RegisterCarrierDialog({
 	const [description, setDescription] = useState("");
 	const [logoUrl, setLogoUrl] = useState<string | undefined>(undefined);
 	const [iconUrl, setIconUrl] = useState<string | undefined>(undefined);
-	const [providerKey, setProviderKey] = useState("");
-	const [testingKey, setTestingKey] = useState("");
-	const keysMatch = providerKey.trim() !== "" && providerKey === testingKey;
 	const domainState = endpointDomainState(baseUrl, claimDomains);
 	const domainError =
 		domainState === "wrong-domain" || domainState === "endpoint-path";
@@ -205,8 +200,6 @@ function RegisterCarrierDialog({
 							description: description || undefined,
 							logoUrl,
 							iconUrl,
-							providerKey,
-							testingKey,
 						});
 						setOpen(false);
 					}}
@@ -280,60 +273,6 @@ function RegisterCarrierDialog({
 							)}
 						</p>
 					</div>
-					<div className="grid gap-4 sm:grid-cols-2">
-						<div className="space-y-2">
-							<Label htmlFor="carrier-provider-key">Provider key</Label>
-							<Input
-								id="carrier-provider-key"
-								data-testid="carrier-provider-key-input"
-								type="password"
-								autoComplete="off"
-								value={providerKey}
-								onChange={(e) => setProviderKey(e.target.value)}
-								placeholder="sk-…"
-								aria-describedby="carrier-provider-key-hint"
-								required
-							/>
-							<p
-								id="carrier-provider-key-hint"
-								className="text-muted-foreground text-xs"
-							>
-								Serves your LLM Gateway traffic once approved. Replacing it
-								later needs our approval too.
-							</p>
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="carrier-testing-key">Testing key</Label>
-							<Input
-								id="carrier-testing-key"
-								data-testid="carrier-testing-key-input"
-								type="password"
-								autoComplete="off"
-								value={testingKey}
-								onChange={(e) => setTestingKey(e.target.value)}
-								placeholder="sk-…"
-								aria-invalid={keysMatch || undefined}
-								aria-describedby="carrier-testing-key-hint"
-								required
-							/>
-							<p
-								id="carrier-testing-key-hint"
-								data-testid="carrier-testing-key-hint"
-								className={
-									keysMatch
-										? "text-destructive text-xs"
-										: "text-muted-foreground text-xs"
-								}
-							>
-								{keysMatch
-									? "Use a different key from the provider key."
-									: "A separate key for preflight checks and benchmarks, so test traffic bills apart from live traffic."}
-							</p>
-						</div>
-					</div>
-					<p className="text-muted-foreground text-xs">
-						Both keys are stored encrypted and only shown back to you masked.
-					</p>
 					<div className="space-y-2">
 						<Label htmlFor="carrier-description">Description</Label>
 						<Textarea
@@ -357,7 +296,7 @@ function RegisterCarrierDialog({
 						<Button
 							type="submit"
 							className="font-semibold"
-							disabled={pending || domainState !== "ok" || keysMatch}
+							disabled={pending || domainState !== "ok"}
 							data-testid="confirm-register-carrier"
 						>
 							{pending ? "Filing…" : "File the registration"}

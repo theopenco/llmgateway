@@ -760,9 +760,10 @@ export function AirsideFilingsClient() {
 					<CardHeader>
 						<CardTitle>Provider key changes</CardTitle>
 						<CardDescription>
-							Replacement keys for live custom carriers, already smoke-tested
-							against one of their live listings when submitted. Approving swaps
-							the key in and retires the old one.
+							Custom carriers&apos; provider keys, smoke-tested against one of
+							their listings when submitted. Approving swaps the key in and
+							retires the old one. A carrier&apos;s first key also goes live
+							when the model it was filed with is approved.
 						</CardDescription>
 					</CardHeader>
 					<CardContent>

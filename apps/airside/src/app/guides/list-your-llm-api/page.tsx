@@ -27,9 +27,7 @@ export default function ListingGuide() {
 					provider you want to claim. If your email and API domains differ, add
 					the API domain in onboarding and verify it over DNS. Existing
 					catalogue providers can be claimed; a new provider can register a
-					custom carrier with its base URL and two separate keys: a provider key
-					we serve its traffic with once approved, and a testing key for
-					preflight checks.
+					custom carrier.
 				</p>
 				<p className="mt-3">
 					Onboarding shows the applicable listing fee or invite-code option
@@ -72,6 +70,13 @@ export default function ListingGuide() {
 					is billed by your own platform and is not tracked in LLMGateway usage
 					or billing. Resolve failed checks before submitting the model.
 					Changing the verified mapping requires a new verification.
+				</p>
+				<p className="mt-3">
+					A registered carrier files its provider key — the separate key we
+					serve live traffic with — together with its first model. We smoke-test
+					it against that model when you file, and it goes live once the model
+					is approved. Replacing it later under Settings is smoke-tested the
+					same way and reviewed by our team.
 				</p>
 				<p className="mt-3">
 					Every preflight stays on the record. The Verify dialog lists past runs

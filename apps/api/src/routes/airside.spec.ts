@@ -5,7 +5,6 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import * as emailUtils from "@/utils/email.js";
 
 import {
-	decryptClaimVerificationKey,
 	encryptProviderKeyForStorage,
 	readProviderKey,
 } from "@llmgateway/actions";
@@ -3673,8 +3672,6 @@ describe("airside provider portal", () => {
 				providerId: "acme-sky",
 				name: "Acme Sky",
 				baseUrl: "https://api.acme-sky.ai",
-				providerKey: "sk-acme-sky-serving-key",
-				testingKey: "sk-acme-sky-testing-key",
 				...overrides,
 			}),
 		);
@@ -3893,31 +3890,106 @@ describe("airside provider portal", () => {
 		expect(dupe.status).toBe(409);
 	});
 
-	it("requires separate provider and testing keys and serves with the provider key once approved", async () => {
+	// Upstream for custom-carrier smoke tests: answers a basic completion for
+	// the keys in `workingKeys`, 401 for anything else.
+	function stubCarrierUpstream(workingKeys: Set<string>) {
+		const upstream = vi.fn(
+			async (_url: string | URL | Request, init?: RequestInit) => {
+				const token = new Headers(init?.headers).get("authorization");
+				return token && workingKeys.has(token.replace("Bearer ", ""))
+					? Response.json({
+							id: "chatcmpl-1",
+							object: "chat.completion",
+							model: "sky",
+							choices: [
+								{
+									index: 0,
+									message: { role: "assistant", content: "OK" },
+									finish_reason: "stop",
+								},
+							],
+						})
+					: Response.json(
+							{ error: { message: "Invalid API key" } },
+							{ status: 401 },
+						);
+			},
+		);
+		vi.stubGlobal("fetch", upstream);
+		return upstream;
+	}
+
+	async function approvedCarrier() {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@acme-sky.ai";
 		await setUserEmail("ops@acme-sky.ai");
 		const company = await createCompany(cookie, "Acme Sky");
-		for (const missing of ["providerKey", "testingKey"]) {
-			expect(
-				(await registerCarrier(cookie, company.id, { [missing]: undefined }))
-					.status,
-			).toBe(400);
-		}
-		const sameKeys = await registerCarrier(cookie, company.id, {
-			testingKey: "sk-acme-sky-serving-key",
-		});
-		expect(sameKeys.status).toBe(400);
-		expect((await sameKeys.json()).message).toContain("two different keys");
+		const { claim } = await (await registerCarrier(cookie, company.id)).json();
+		await app.request(
+			`/admin/airside/claims/${claim.id}/approve`,
+			json(cookie),
+		);
+		// The testing key preflight runs on, saved like any pasted one.
+		await app.request(
+			`/airside/claims/${claim.id}/verification-key`,
+			json(cookie, { apiKey: "sk-acme-sky-testing-key" }, "PUT"),
+		);
+		return { company, claim: claim as { id: string } };
+	}
 
-		const res = await registerCarrier(cookie, company.id);
-		expect(res.status).toBe(201);
-		const { claim } = await res.json();
+	const sky = (modelName: string, providerKey?: string) => ({
+		providerId: "acme-sky",
+		modelName,
+		...(providerKey ? { providerKey } : {}),
+	});
 
-		const keys = await db.query.providerKey.findMany({
+	it("files the provider key with the first model and serves it once approved", async () => {
+		const { company, claim } = await approvedCarrier();
+		// Registration and approval collect no provider key.
+		expect(
+			await db.query.providerKey.findMany({
+				where: { provider: { eq: "acme-sky" } },
+			}),
+		).toHaveLength(0);
+		const upstream = stubCarrierUpstream(new Set(["sk-acme-sky-serving-key"]));
+
+		const missing = await createModel(cookie, company.id, sky("sky-large"));
+		expect(missing.status).toBe(400);
+		expect((await missing.json()).message).toContain("Add your provider key");
+		const sameAsTesting = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-testing-key"),
+		);
+		expect(sameAsTesting.status).toBe(400);
+		expect((await sameAsTesting.json()).message).toContain(
+			"two different keys",
+		);
+		const broken = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-broken"),
+		);
+		expect(broken.status).toBe(400);
+		const brokenBody = await broken.json();
+		expect(brokenBody.message).toContain("smoke test against sky-large");
+		expect(brokenBody.message).not.toContain("sk-acme-sky-broken");
+		expect(
+			await db.query.providerKey.findMany({
+				where: { provider: { eq: "acme-sky" } },
+			}),
+		).toHaveLength(0);
+
+		const first = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-serving-key"),
+		);
+		expect(first.status).toBe(201);
+		const [url] = upstream.mock.calls.at(-1)!;
+		expect(String(url)).toBe("https://api.acme-sky.ai/v1/chat/completions");
+		const [key] = await db.query.providerKey.findMany({
 			where: { provider: { eq: "acme-sky" } },
 		});
-		expect(keys).toHaveLength(1);
-		const [key] = keys;
 		expect(key).toMatchObject({
 			managed: true,
 			organizationId: null,
@@ -3925,30 +3997,37 @@ describe("airside provider portal", () => {
 		});
 		expect(key.tokenCiphertext).not.toContain("sk-acme-sky-serving-key");
 		expect(readProviderKey(key)).toBe("sk-acme-sky-serving-key");
-		const savedClaim = await db.query.providerClaim.findFirst({
-			where: { id: { eq: claim.id } },
-		});
-		expect(savedClaim?.pendingProviderKeyId).toBe(key.id);
-		expect(
-			decryptClaimVerificationKey(
-				savedClaim!.verificationKeyCiphertext!,
-				claim.id,
-				company.id,
-			),
-		).toBe("sk-acme-sky-testing-key");
 
+		// Later models probe the key on file instead of taking another one.
+		const extraKey = await createModel(
+			cookie,
+			company.id,
+			sky("sky-small", "sk-acme-sky-other"),
+		);
+		expect(extraKey.status).toBe(400);
+		expect((await extraKey.json()).message).toContain("already on file");
+		expect(
+			(await createModel(cookie, company.id, sky("sky-small"))).status,
+		).toBe(201);
+
+		// Approving the first model puts its provider key into service.
+		const { model } = await first.json();
 		const approved = await app.request(
-			`/admin/airside/claims/${claim.id}/approve`,
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
 			json(cookie),
 		);
 		expect(approved.status).toBe(200);
-		expect((await approved.json()).claim.providerKey.masked).toBe(
-			key.tokenMasked,
-		);
-		const activated = await db.query.providerKey.findFirst({
+		const live = await db.query.providerKey.findFirst({
 			where: { id: { eq: key.id } },
 		});
-		expect(activated?.status).toBe("active");
+		expect(live?.status).toBe("active");
+		const liveClaim = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
+		});
+		expect(liveClaim).toMatchObject({
+			providerKeyId: key.id,
+			pendingProviderKeyId: null,
+		});
 
 		// Revoking the carrier retires its key.
 		const revoked = await app.request(
@@ -3962,38 +4041,29 @@ describe("airside provider portal", () => {
 		expect(retired?.status).toBe("deleted");
 	});
 
-	it("discards the provider key when the registration is rejected", async () => {
-		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@acme-sky.ai";
-		await setUserEmail("ops@acme-sky.ai");
-		const company = await createCompany(cookie, "Acme Sky");
-		const { claim } = await (await registerCarrier(cookie, company.id)).json();
-
-		const rejected = await app.request(
-			`/admin/airside/claims/${claim.id}/reject`,
-			json(cookie, {}),
-		);
-		expect(rejected.status).toBe(200);
-		const key = await db.query.providerKey.findFirst({
-			where: { provider: { eq: "acme-sky" } },
-		});
-		expect(key?.status).toBe("deleted");
-	});
-
-	it("replaces the provider key only after admin approval", async () => {
-		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@acme-sky.ai";
-		await setUserEmail("ops@acme-sky.ai");
-		const company = await createCompany(cookie, "Acme Sky");
-		const { claim } = await (await registerCarrier(cookie, company.id)).json();
+	it("replaces the provider key only after a smoke test and admin approval", async () => {
+		const { company, claim } = await approvedCarrier();
+		const workingKeys = new Set(["sk-acme-sky-serving-key"]);
+		stubCarrierUpstream(workingKeys);
 		const submit = async (apiKey: string) =>
 			await app.request(
 				`/airside/claims/${claim.id}/provider-key`,
 				json(cookie, { apiKey }, "PUT"),
 			);
 
-		// Nothing to replace before the registration is approved.
-		expect((await submit("sk-acme-sky-early")).status).toBe(409);
+		// Before any listing there is nothing to smoke-test against.
+		const early = await submit("sk-acme-sky-early");
+		expect(early.status).toBe(409);
+		expect((await early.json()).message).toContain("first model");
+
+		const first = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-serving-key"),
+		);
+		const { model } = await first.json();
 		await app.request(
-			`/admin/airside/claims/${claim.id}/approve`,
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
 			json(cookie),
 		);
 		const original = await db.query.providerKey.findFirst({
@@ -4009,16 +4079,22 @@ describe("airside provider portal", () => {
 			json(cookie, { apiKey: "sk-acme-sky-serving-key" }, "PUT"),
 		);
 		expect(sameTestingKey.status).toBe(400);
+		// A key that fails the smoke test never reaches review.
+		const broken = await submit("sk-acme-sky-broken");
+		expect(broken.status).toBe(400);
+		expect((await broken.json()).message).toContain("smoke test");
 
-		const first = await submit("sk-acme-sky-rotated-1");
-		expect(first.status).toBe(200);
+		for (const k of [1, 2, 3, 4].map((n) => `sk-acme-sky-rotated-${n}`)) {
+			workingKeys.add(k);
+		}
+		expect((await submit("sk-acme-sky-rotated-1")).status).toBe(200);
 		// A second submission replaces the first while it awaits review.
-		const second = await submit("sk-acme-sky-rotated-2");
-		expect(second.status).toBe(200);
+		expect((await submit("sk-acme-sky-rotated-2")).status).toBe(200);
 		const keys = await db.query.providerKey.findMany({
 			where: { provider: { eq: "acme-sky" } },
 		});
 		const byToken = new Map(keys.map((k) => [readProviderKey(k), k]));
+		expect(byToken.get("sk-acme-sky-broken")).toBeUndefined();
 		expect(byToken.get("sk-acme-sky-rotated-1")?.status).toBe("deleted");
 		const pending = byToken.get("sk-acme-sky-rotated-2")!;
 		expect(pending.status).toBe("inactive");
@@ -4042,7 +4118,7 @@ describe("airside provider portal", () => {
 
 		const approved = await app.request(
 			`/admin/airside/claims/${claim.id}/provider-key/approve`,
-			json(cookie, {}),
+			json(cookie),
 		);
 		expect(approved.status).toBe(200);
 		const approvedClaim = (await approved.json()).claim;
@@ -4072,90 +4148,38 @@ describe("airside provider portal", () => {
 			json(cookie, undefined, "DELETE"),
 		);
 		expect(withdrawn.status).toBe(200);
-		const live = await db.query.providerKey.findMany({
+		const remaining = await db.query.providerKey.findMany({
 			where: { provider: { eq: "acme-sky" }, status: { ne: "deleted" } },
 		});
-		expect(live.map((k) => k.id)).toEqual([pending.id]);
+		expect(remaining.map((k) => k.id)).toEqual([pending.id]);
 	});
 
-	it("smoke-tests a provider key against a live listing before review", async () => {
-		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@acme-sky.ai";
-		await setUserEmail("ops@acme-sky.ai");
-		const company = await createCompany(cookie, "Acme Sky");
-		const { claim } = await (await registerCarrier(cookie, company.id)).json();
+	it("smoke-tests the serving key against every new listing", async () => {
+		const { company } = await approvedCarrier();
+		const workingKeys = new Set(["sk-acme-sky-serving-key"]);
+		stubCarrierUpstream(workingKeys);
+		const first = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-serving-key"),
+		);
+		const { model } = await first.json();
 		await app.request(
-			`/admin/airside/claims/${claim.id}/approve`,
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
 			json(cookie),
 		);
 
-		const workingKeys = new Set<string>();
-		const upstream = vi.fn(
-			async (_url: string | URL | Request, init?: RequestInit) => {
-				const token = new Headers(init?.headers).get("authorization");
-				return token && workingKeys.has(token.replace("Bearer ", ""))
-					? Response.json({
-							id: "chatcmpl-1",
-							object: "chat.completion",
-							model: "sky-large-v1",
-							choices: [
-								{
-									index: 0,
-									message: { role: "assistant", content: "OK" },
-									finish_reason: "stop",
-								},
-							],
-						})
-					: Response.json(
-							{ error: { message: "Invalid API key" } },
-							{ status: 401 },
-						);
-			},
-		);
-		vi.stubGlobal("fetch", upstream);
-
-		// Preflight ran on the testing key; the serving key must reach a new
-		// model too before the listing goes to review.
-		const sky = { providerId: "acme-sky", modelName: "sky-small" };
-		const blocked = await createModel(cookie, company.id, sky);
+		// The account behind the serving key lost access upstream.
+		workingKeys.clear();
+		const blocked = await createModel(cookie, company.id, sky("sky-small"));
 		expect(blocked.status).toBe(400);
 		expect((await blocked.json()).message).toContain(
 			"smoke test against sky-small",
 		);
 		workingKeys.add("sk-acme-sky-serving-key");
-		expect((await createModel(cookie, company.id, sky)).status).toBe(201);
-
-		await db.insert(tables.providerDraftModel).values({
-			providerCompanyId: company.id,
-			providerId: "acme-sky",
-			modelName: "sky-large",
-			externalId: "sky-large-v1",
-			status: "active",
-		});
-		workingKeys.add("sk-acme-sky-good");
-		const submit = async (apiKey: string) =>
-			await app.request(
-				`/airside/claims/${claim.id}/provider-key`,
-				json(cookie, { apiKey }, "PUT"),
-			);
-
-		// A rejected key never reaches review.
-		const bad = await submit("sk-acme-sky-bad");
-		expect(bad.status).toBe(400);
-		const badBody = await bad.json();
-		expect(badBody.message).toContain("smoke test against sky-large");
-		expect(badBody.message).not.toContain("sk-acme-sky-bad");
 		expect(
-			(
-				await db.query.providerClaim.findFirst({
-					where: { id: { eq: claim.id } },
-				})
-			)?.pendingProviderKeyId,
-		).toBeNull();
-
-		const good = await submit("sk-acme-sky-good");
-		expect(good.status).toBe(200);
-		const [url] = upstream.mock.calls.at(-1)!;
-		expect(String(url)).toBe("https://api.acme-sky.ai/v1/chat/completions");
+			(await createModel(cookie, company.id, sky("sky-small"))).status,
+		).toBe(201);
 	});
 
 	it("records an email-matched domain without granting it to the company", async () => {

@@ -465,6 +465,24 @@ adminAirside.openapi(approveFiling, async (c) => {
 				.where(eq(tables.providerDraftModel.id, filing.draftModelId))
 				.returning();
 			await materializeAirsideModel(activated, filing, tx);
+			// A registered carrier's first provider key was filed with its first
+			// model and smoke-tested against it; approving the model approves it.
+			const [claim] = await tx
+				.select()
+				.from(tables.providerClaim)
+				.where(
+					and(
+						eq(tables.providerClaim.providerId, model.providerId),
+						eq(tables.providerClaim.providerCompanyId, model.providerCompanyId),
+						eq(tables.providerClaim.status, "active"),
+						eq(tables.providerClaim.kind, "custom"),
+					),
+				)
+				.limit(1)
+				.$withCache(false);
+			if (claim?.pendingProviderKeyId && !claim.providerKeyId) {
+				await promotePendingProviderKey(tx, claim, claim.pendingProviderKeyId);
+			}
 		} else if (filing.kind === "metadata") {
 			const [row] = await tx
 				.update(tables.providerDraftModel)
@@ -855,6 +873,41 @@ adminAirside.openapi(rejectBranding, async (c) => {
 	});
 });
 
+type CacheTransaction = Parameters<Parameters<typeof cdb.transaction>[0]>[0];
+
+/** Puts a carrier's approved provider key into service and retires the old one. */
+async function promotePendingProviderKey(
+	tx: CacheTransaction,
+	claim: typeof tables.providerClaim.$inferSelect,
+	pendingId: string,
+) {
+	const updated = await tx
+		.update(tables.providerClaim)
+		.set({ providerKeyId: pendingId, pendingProviderKeyId: null })
+		.where(
+			and(
+				eq(tables.providerClaim.id, claim.id),
+				eq(tables.providerClaim.pendingProviderKeyId, pendingId),
+			),
+		)
+		.returning({ id: tables.providerClaim.id });
+	if (updated.length === 0) {
+		throw new HTTPException(409, {
+			message: "The provider key changed in the meantime — reload.",
+		});
+	}
+	await tx
+		.update(tables.providerKey)
+		.set({ status: "active" })
+		.where(eq(tables.providerKey.id, pendingId));
+	if (claim.providerKeyId) {
+		await tx
+			.update(tables.providerKey)
+			.set({ status: "deleted" })
+			.where(eq(tables.providerKey.id, claim.providerKeyId));
+	}
+}
+
 /** Drops a carrier's provider key that never went live. */
 async function discardPendingProviderKey(claimId: string, keyId: string) {
 	// cdb: managed provider_key rows feed the gateway's credential cache.
@@ -907,13 +960,6 @@ adminAirside.openapi(approveClaim, async (c) => {
 				status: "active",
 				reviewedBy: user?.id ?? null,
 				reviewedAt: new Date(),
-				// The provider key filed with the registration starts serving.
-				...(claim.pendingProviderKeyId
-					? {
-							providerKeyId: claim.pendingProviderKeyId,
-							pendingProviderKeyId: null,
-						}
-					: {}),
 			})
 			.where(
 				and(
@@ -938,12 +984,6 @@ adminAirside.openapi(approveClaim, async (c) => {
 					description: claim.customDescription ?? "",
 				})
 				.onConflictDoNothing();
-			if (claim.pendingProviderKeyId) {
-				await tx
-					.update(tables.providerKey)
-					.set({ status: "active" })
-					.where(eq(tables.providerKey.id, claim.pendingProviderKeyId));
-			}
 		}
 		const [settings] = await tx
 			.select()
@@ -1021,31 +1061,7 @@ adminAirside.openapi(approveProviderKey, async (c) => {
 	const pendingId = claim.pendingProviderKeyId;
 	// cdb: managed provider_key rows feed the gateway's credential cache.
 	await cdb.transaction(async (tx) => {
-		const updated = await tx
-			.update(tables.providerClaim)
-			.set({ providerKeyId: pendingId, pendingProviderKeyId: null })
-			.where(
-				and(
-					eq(tables.providerClaim.id, id),
-					eq(tables.providerClaim.pendingProviderKeyId, pendingId),
-				),
-			)
-			.returning({ id: tables.providerClaim.id });
-		if (updated.length === 0) {
-			throw new HTTPException(409, {
-				message: "The provider key changed in the meantime — reload.",
-			});
-		}
-		await tx
-			.update(tables.providerKey)
-			.set({ status: "active" })
-			.where(eq(tables.providerKey.id, pendingId));
-		if (claim.providerKeyId) {
-			await tx
-				.update(tables.providerKey)
-				.set({ status: "deleted" })
-				.where(eq(tables.providerKey.id, claim.providerKeyId));
-		}
+		await promotePendingProviderKey(tx, claim, pendingId);
 	});
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
@@ -1114,7 +1130,7 @@ adminAirside.openapi(rejectClaim, async (c) => {
 	const user = c.get("user");
 	const { id } = c.req.valid("param");
 	const { reviewNote } = c.req.valid("json");
-	const claim = await getPendingClaim(id);
+	await getPendingClaim(id);
 	const guarded = await db
 		.update(tables.providerClaim)
 		.set({
@@ -1134,9 +1150,6 @@ adminAirside.openapi(rejectClaim, async (c) => {
 		throw new HTTPException(409, {
 			message: "This claim has already been reviewed.",
 		});
-	}
-	if (claim.pendingProviderKeyId) {
-		await discardPendingProviderKey(claim.id, claim.pendingProviderKeyId);
 	}
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },

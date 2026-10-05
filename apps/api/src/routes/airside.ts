@@ -5,11 +5,11 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
-	assertDistinctRegistrationKeys,
 	assertProviderKeyIsSeparate,
 	assertProviderKeyServes,
-	carrierProviderKeyValues,
-	latestActiveListing,
+	fileProviderKey,
+	latestListing,
+	pendingProviderKeyIs,
 } from "@/lib/airside-carrier-keys.js";
 import {
 	dematerializeAirsideModel,
@@ -53,7 +53,6 @@ import {
 } from "@/lib/mapping-error-shapes.js";
 import {
 	buildVerificationTarget,
-	claimVerificationKeyValues,
 	enqueueModelVerification,
 	modelVerificationSchema,
 	pendingFiledCapabilities,
@@ -85,8 +84,6 @@ import {
 	eq,
 	gte,
 	inArray,
-	isNull,
-	shortid,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -2069,10 +2066,6 @@ const registerCarrier = createRoute({
 						description: z.string().max(2000).optional(),
 						logoUrl: imageDataUrl(LOGO_MAX_BYTES).optional(),
 						iconUrl: imageDataUrl(ICON_MAX_BYTES).optional(),
-						// The key we serve the carrier's traffic with once approved.
-						providerKey: z.string().trim().min(1).max(20_000),
-						// A separate key for preflight runs, billed apart from traffic.
-						testingKey: z.string().trim().min(1).max(20_000),
 					}),
 				},
 			},
@@ -2144,7 +2137,6 @@ airside.openapi(registerCarrier, async (c) => {
 			message: PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
 		});
 	}
-	assertDistinctRegistrationKeys(body.providerKey, body.testingKey);
 	// The same anti-squatting rule as claiming: the registered endpoint must
 	// live on a domain the registrant proved — their verified email's domain,
 	// or one their company published our TXT token on. The SSRF guard keeps
@@ -2184,43 +2176,23 @@ airside.openapi(registerCarrier, async (c) => {
 		});
 	}
 
-	// The ids are generated up front because both ciphertexts bind to their row.
-	const claimId = shortid();
-	const providerKeyId = shortid();
 	let claim: ProviderClaimRow;
 	try {
-		// cdb: managed provider_key rows feed the gateway's credential cache.
-		claim = await cdb.transaction(async (tx) => {
-			// Serves the carrier's traffic once an admin approves the
-			// registration (see admin-airside approveClaim).
-			await tx.insert(tables.providerKey).values({
-				...carrierProviderKeyValues(body.providerKey, providerKeyId),
-				provider: providerId,
-			});
-			const [inserted] = await tx
-				.insert(tables.providerClaim)
-				.values({
-					id: claimId,
-					providerCompanyId: body.providerCompanyId,
-					providerId,
-					kind: "custom",
-					matchedDomain,
-					customName: body.name,
-					customBaseUrl: body.baseUrl,
-					customDescription: body.description ?? null,
-					logoUrl: body.logoUrl ?? null,
-					iconUrl: body.iconUrl ?? null,
-					claimedBy: user.id,
-					pendingProviderKeyId: providerKeyId,
-					...claimVerificationKeyValues(
-						body.testingKey,
-						claimId,
-						body.providerCompanyId,
-					),
-				})
-				.returning();
-			return inserted;
-		});
+		[claim] = await db
+			.insert(tables.providerClaim)
+			.values({
+				providerCompanyId: body.providerCompanyId,
+				providerId,
+				kind: "custom",
+				matchedDomain,
+				customName: body.name,
+				customBaseUrl: body.baseUrl,
+				customDescription: body.description ?? null,
+				logoUrl: body.logoUrl ?? null,
+				iconUrl: body.iconUrl ?? null,
+				claimedBy: user.id,
+			})
+			.returning();
 	} catch (err) {
 		if (isUniqueViolation(err)) {
 			throw new HTTPException(409, { message: "This carrier id is taken." });
@@ -2406,13 +2378,6 @@ const pendingProviderKeySchema = z.object({
 	pendingProviderKey: carrierKeySchema.nullable(),
 });
 
-/** Compare-and-set guard on the claim's pending provider key pointer. */
-function pendingProviderKeyIs(id: string | null) {
-	return id
-		? eq(tables.providerClaim.pendingProviderKeyId, id)
-		: isNull(tables.providerClaim.pendingProviderKeyId);
-}
-
 async function requireOwnedCustomClaim(userId: string, claimId: string) {
 	const claim = await db.query.providerClaim.findFirst({
 		where: { id: { eq: claimId } },
@@ -2463,62 +2428,29 @@ airside.openapi(submitProviderKey, async (c) => {
 	const { apiKey } = c.req.valid("json");
 	const claim = await requireOwnedCustomClaim(user.id, id);
 	await assertProviderKeyIsSeparate(claim, apiKey);
-	// A key that cannot serve a live listing never reaches review. Without one
-	// there is nothing to probe yet; the first listing proves the key instead.
-	const listing = await latestActiveListing(claim);
-	if (listing) {
-		await assertProviderKeyServes(
-			claim,
-			apiKey,
-			buildVerificationTarget({
-				providerId: claim.providerId,
-				modelName: listing.modelName,
-				externalId: listing.externalId,
-				apiFormat: listing.apiFormat,
-			}),
-		);
+	// Only a key smoke-tested against one of the carrier's listings reaches
+	// review; before the first listing, the key is filed with that model.
+	const listing = await latestListing(claim);
+	if (!listing) {
+		throw new HTTPException(409, {
+			message:
+				"Submit your provider key with your first model — we smoke-test it against that model.",
+		});
 	}
-	const providerKeyId = shortid();
-	// cdb: managed provider_key rows feed the gateway's credential cache.
-	const key = await cdb.transaction(async (tx) => {
-		const [inserted] = await tx
-			.insert(tables.providerKey)
-			.values({
-				...carrierProviderKeyValues(apiKey, providerKeyId),
-				provider: claim.providerId,
-			})
-			.returning();
-		// A new submission replaces one still awaiting review.
-		if (claim.pendingProviderKeyId) {
-			await tx
-				.update(tables.providerKey)
-				.set({ status: "deleted" })
-				.where(eq(tables.providerKey.id, claim.pendingProviderKeyId));
-		}
-		const updated = await tx
-			.update(tables.providerClaim)
-			.set({ pendingProviderKeyId: providerKeyId })
-			.where(
-				and(
-					eq(tables.providerClaim.id, claim.id),
-					pendingProviderKeyIs(claim.pendingProviderKeyId),
-				),
-			)
-			.returning({ id: tables.providerClaim.id });
-		if (updated.length === 0) {
-			throw new HTTPException(409, {
-				message:
-					"Your provider key changed in the meantime — reload and retry.",
-			});
-		}
-		return inserted;
-	});
-	return c.json({
-		pendingProviderKey: {
-			masked: key.tokenMasked ?? "",
-			submittedAt: key.createdAt.toISOString(),
-		},
-	});
+	await assertProviderKeyServes(
+		claim,
+		apiKey,
+		buildVerificationTarget({
+			providerId: claim.providerId,
+			modelName: listing.modelName,
+			externalId: listing.externalId,
+			apiFormat: listing.apiFormat,
+		}),
+	);
+	const pendingProviderKey = await cdb.transaction(
+		async (tx) => await fileProviderKey(tx, claim, apiKey),
+	);
+	return c.json({ pendingProviderKey });
 });
 
 const withdrawProviderKey = createRoute({
@@ -2960,6 +2892,9 @@ const createModel = createRoute({
 				"application/json": {
 					schema: z.object({
 						verificationId: z.string(),
+						// A registered carrier's first model carries the key we
+						// serve its traffic with, reviewed alongside the model.
+						providerKey: z.string().trim().min(1).max(20_000).optional(),
 						providerCompanyId: z.string(),
 						providerId: z.string(),
 						modelName: z.string().min(1).max(200),
@@ -3081,10 +3016,35 @@ airside.openapi(createModel, async (c) => {
 		});
 	}
 	// Preflight ran on the testing key; the key we serve traffic with must
-	// reach this model too, before the listing goes to review.
-	if (claim.providerKeyId) {
+	// reach this model too before the listing goes to review. A registered
+	// carrier's first model brings that key along.
+	const keyOnFile = claim.providerKeyId ?? claim.pendingProviderKeyId;
+	const firstProviderKey =
+		claim.kind === "custom" && !keyOnFile ? body.providerKey : undefined;
+	if (claim.kind === "custom" && !keyOnFile && !firstProviderKey) {
+		throw new HTTPException(400, {
+			message:
+				"Add your provider key — the key we serve your traffic with. It is smoke-tested against this model and reviewed with it.",
+		});
+	}
+	if (body.providerKey && !firstProviderKey) {
+		throw new HTTPException(400, {
+			message:
+				claim.kind === "custom"
+					? "A provider key is already on file — replace it under Settings."
+					: "Catalogue carriers are served with platform keys.",
+		});
+	}
+	if (firstProviderKey) {
+		await assertProviderKeyIsSeparate(claim, firstProviderKey);
+		await assertProviderKeyServes(
+			claim,
+			firstProviderKey,
+			verificationTarget(body),
+		);
+	} else if (claim.kind === "custom" && keyOnFile) {
 		const servingKey = await db.query.providerKey.findFirst({
-			where: { id: { eq: claim.providerKeyId } },
+			where: { id: { eq: keyOnFile } },
 		});
 		if (servingKey) {
 			await assertProviderKeyServes(
@@ -3147,6 +3107,9 @@ airside.openapi(createModel, async (c) => {
 					note: body.note ?? null,
 				})
 				.returning();
+			if (firstProviderKey) {
+				await fileProviderKey(tx, claim, firstProviderKey);
+			}
 			const submittedAt = new Date();
 			const consumed = await tx
 				.update(tables.providerModelVerification)

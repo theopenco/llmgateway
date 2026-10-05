@@ -7,12 +7,13 @@ import {
 	redactToken,
 	runProviderKeySmokeTest,
 } from "@llmgateway/actions";
-import { db } from "@llmgateway/db";
+import { and, db, eq, isNull, shortid, tables } from "@llmgateway/db";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
-import type { ProviderModelVerificationTarget, tables } from "@llmgateway/db";
+import type { cdb, ProviderModelVerificationTarget } from "@llmgateway/db";
 
 type ProviderClaimRow = typeof tables.providerClaim.$inferSelect;
+type CacheTransaction = Parameters<Parameters<typeof cdb.transaction>[0]>[0];
 
 // A custom carrier hands us two keys: the provider key we serve its traffic
 // with, and a testing key for preflight runs. Test traffic is neither logged
@@ -20,18 +21,64 @@ type ProviderClaimRow = typeof tables.providerClaim.$inferSelect;
 const SEPARATE_KEYS_MESSAGE =
 	"Use two different keys: the testing key runs preflight checks, the provider key serves your traffic.";
 
-/** Insert values for a carrier-submitted provider key, inactive until approved. */
-export function carrierProviderKeyValues(apiKey: string, id: string) {
+/** Compare-and-set guard on the claim's pending provider key pointer. */
+export function pendingProviderKeyIs(id: string | null) {
+	return id
+		? eq(tables.providerClaim.pendingProviderKeyId, id)
+		: isNull(tables.providerClaim.pendingProviderKeyId);
+}
+
+/**
+ * Files a carrier's provider key for admin approval: stored encrypted and
+ * inactive, replacing any submission still awaiting review. Callers must have
+ * smoke-tested it first. Run inside a cdb transaction — managed provider_key
+ * rows feed the gateway's credential cache.
+ */
+export async function fileProviderKey(
+	tx: CacheTransaction,
+	claim: ProviderClaimRow,
+	apiKey: string,
+) {
+	const id = shortid();
+	const [key] = await tx
+		.insert(tables.providerKey)
+		.values({
+			id,
+			provider: claim.providerId,
+			managed: true,
+			organizationId: null,
+			status: "inactive",
+			comment: "Submitted by the carrier in Airside",
+			...encryptProviderKeyForStorage(apiKey, id, null),
+			// Prefix and suffix, like the testing key, so a carrier and a
+			// reviewer can tell a replacement from the key it replaces.
+			tokenMasked: maskToken(apiKey, 6, 4),
+		})
+		.returning();
+	if (claim.pendingProviderKeyId) {
+		await tx
+			.update(tables.providerKey)
+			.set({ status: "deleted" })
+			.where(eq(tables.providerKey.id, claim.pendingProviderKeyId));
+	}
+	const updated = await tx
+		.update(tables.providerClaim)
+		.set({ pendingProviderKeyId: id })
+		.where(
+			and(
+				eq(tables.providerClaim.id, claim.id),
+				pendingProviderKeyIs(claim.pendingProviderKeyId),
+			),
+		)
+		.returning({ id: tables.providerClaim.id });
+	if (updated.length === 0) {
+		throw new HTTPException(409, {
+			message: "Your provider key changed in the meantime — reload and retry.",
+		});
+	}
 	return {
-		id,
-		managed: true,
-		organizationId: null,
-		status: "inactive" as const,
-		comment: "Submitted by the carrier in Airside",
-		...encryptProviderKeyForStorage(apiKey, id, null),
-		// Prefix and suffix, like the testing key, so a carrier and a reviewer
-		// can tell a replacement from the key it replaces.
-		tokenMasked: maskToken(apiKey, 6, 4),
+		masked: key.tokenMasked ?? "",
+		submittedAt: key.createdAt.toISOString(),
 	};
 }
 
@@ -80,15 +127,6 @@ export async function assertProviderKeyIsSeparate(
 	}
 }
 
-export function assertDistinctRegistrationKeys(
-	providerKey: string,
-	testingKey: string,
-): void {
-	if (providerKey === testingKey) {
-		throw new HTTPException(400, { message: SEPARATE_KEYS_MESSAGE });
-	}
-}
-
 /**
  * Proves a provider key can serve a listing: one basic completion against the
  * carrier's endpoint, in the listing's own API format. Run before anything
@@ -112,13 +150,16 @@ export async function assertProviderKeyServes(
 	}
 }
 
-/** The carrier's most recently listed live model, if any. */
-export async function latestActiveListing(claim: ProviderClaimRow) {
+/**
+ * The carrier's most recently submitted listing, live or in review — every
+ * one passed preflight, so its mapping is a fair smoke-test target.
+ */
+export async function latestListing(claim: ProviderClaimRow) {
 	return await db.query.providerDraftModel.findFirst({
 		where: {
 			providerCompanyId: { eq: claim.providerCompanyId },
 			providerId: { eq: claim.providerId },
-			status: { eq: "active" },
+			status: { ne: "delisted" },
 		},
 		columns: { modelName: true, externalId: true, apiFormat: true },
 		orderBy: { createdAt: "desc" },

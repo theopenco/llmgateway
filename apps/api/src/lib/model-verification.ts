@@ -188,36 +188,24 @@ export async function saveClaimVerificationKey(
 	apiKey: string,
 ): Promise<{ verificationKeyMasked: string; verificationKeySetAt: string }> {
 	await assertTestingKeyIsSeparate(claim, apiKey);
-	const values = claimVerificationKeyValues(
-		apiKey,
-		claim.id,
-		claim.providerCompanyId,
-	);
+	const verificationKeyMasked = maskToken(apiKey, 6, 4);
+	const verificationKeyUpdatedAt = new Date();
 	// cdb: claim rows feed the gateway's custom-carrier resolution cache.
 	await cdb
 		.update(tables.providerClaim)
-		.set(values)
+		.set({
+			verificationKeyCiphertext: encryptClaimVerificationKey(
+				apiKey,
+				claim.id,
+				claim.providerCompanyId,
+			),
+			verificationKeyMasked,
+			verificationKeyUpdatedAt,
+		})
 		.where(eq(tables.providerClaim.id, claim.id));
 	return {
-		verificationKeyMasked: values.verificationKeyMasked,
-		verificationKeySetAt: values.verificationKeyUpdatedAt.toISOString(),
-	};
-}
-
-/** Encrypted-at-rest claim columns for a carrier's verification key. */
-export function claimVerificationKeyValues(
-	apiKey: string,
-	claimId: string,
-	providerCompanyId: string,
-) {
-	return {
-		verificationKeyCiphertext: encryptClaimVerificationKey(
-			apiKey,
-			claimId,
-			providerCompanyId,
-		),
-		verificationKeyMasked: maskToken(apiKey, 6, 4),
-		verificationKeyUpdatedAt: new Date(),
+		verificationKeyMasked,
+		verificationKeySetAt: verificationKeyUpdatedAt.toISOString(),
 	};
 }
 
