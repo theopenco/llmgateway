@@ -3859,19 +3859,28 @@ devPlans.openapi(topUpCredits, async (c) => {
 		// DB-only inside the check anyway).
 		firstGateAttempt = true;
 	}
+	const clearGateMarker = async () => {
+		try {
+			await redisClient.del(gateMarkerKey);
+		} catch {
+			// Marker expires with its TTL; a stuck marker only skips re-gating.
+		}
+	};
 	if (firstGateAttempt) {
-		await assertTopUpVelocityAllowed(personalOrg, gateGrossUsd, { user });
+		try {
+			await assertTopUpVelocityAllowed(personalOrg, gateGrossUsd, { user });
+		} catch (err) {
+			// Rejected, so nothing is reserved: a retry of this id must re-gate.
+			await clearGateMarker();
+			throw err;
+		}
 	}
 	const releaseGate = async () => {
 		if (!firstGateAttempt) {
 			return;
 		}
 		await releaseTopUpReservation(personalOrg.id, gateGrossUsd);
-		try {
-			await redisClient.del(gateMarkerKey);
-		} catch {
-			// Marker expires with its TTL; a stuck marker only skips re-gating.
-		}
+		await clearGateMarker();
 	};
 
 	// A failure before the charge means no money moved — free the reservation.

@@ -31,6 +31,34 @@ interface PayAsYouGoCardProps {
 }
 
 const PRESET_AMOUNTS = [10, 25, 50, 100];
+const ATTEMPT_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
+
+// A stored attempt is retryable only while Stripe still remembers its
+// idempotency key; `null` means it is stale or unreadable.
+function parseStoredAttempt(
+	stored: string,
+): { id: string; createdAt: number } | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(stored);
+	} catch {
+		return null;
+	}
+	if (
+		!parsed ||
+		typeof parsed !== "object" ||
+		!("id" in parsed) ||
+		typeof parsed.id !== "string" ||
+		!("createdAt" in parsed) ||
+		typeof parsed.createdAt !== "number" ||
+		!Number.isFinite(parsed.createdAt) ||
+		Date.now() - parsed.createdAt >= ATTEMPT_RETRY_WINDOW_MS ||
+		parsed.createdAt > Date.now()
+	) {
+		return null;
+	}
+	return { id: parsed.id, createdAt: parsed.createdAt };
+}
 
 async function invalidateDevPlanStatus(
 	queryClient: ReturnType<typeof useQueryClient>,
@@ -95,8 +123,12 @@ export default function PayAsYouGoCard({
 					typeof failure.message === "string"
 						? failure.message
 						: "The payment result could not be confirmed.";
+				// Statuses the server only returns before any charge, so the next
+				// click must start a new attempt instead of replaying this id.
 				throw Object.assign(new Error(message), {
-					definitive: [400, 401, 402, 403, 404, 422].includes(response.status),
+					definitive: [400, 401, 402, 403, 404, 409, 422, 429].includes(
+						response.status,
+					),
 				});
 			}
 			return data;
@@ -145,23 +177,15 @@ export default function PayAsYouGoCard({
 			const stored = getCookie(purchaseCookie);
 			let attempt: { id: string; createdAt: number };
 			if (stored) {
-				const parsed: unknown = JSON.parse(stored);
-				if (
-					!parsed ||
-					typeof parsed !== "object" ||
-					!("id" in parsed) ||
-					typeof parsed.id !== "string" ||
-					!("createdAt" in parsed) ||
-					typeof parsed.createdAt !== "number" ||
-					!Number.isFinite(parsed.createdAt) ||
-					Date.now() - parsed.createdAt >= 23 * 60 * 60 * 1000 ||
-					parsed.createdAt > Date.now()
-				) {
+				const parsed = parseStoredAttempt(stored);
+				if (!parsed) {
+					// Warn once, then let the next click start a new attempt.
+					setCookie(purchaseCookie, "", -1);
 					throw new Error(
-						"This pending payment is too old to retry safely. Check your billing history or contact support before making a new attempt.",
+						"This pending payment can no longer be retried safely. Check your billing history, then try again to start a new payment.",
 					);
 				}
-				attempt = { id: parsed.id, createdAt: parsed.createdAt };
+				attempt = parsed;
 			} else {
 				attempt = { id: crypto.randomUUID(), createdAt: Date.now() };
 			}
@@ -197,7 +221,10 @@ export default function PayAsYouGoCard({
 			});
 			setCustomAmount("");
 		} catch (err) {
+			// A SyntaxError is an unparseable response body: the outcome is
+			// unknown, so it keeps the attempt and gets the generic copy.
 			const serverMessage =
+				!(err instanceof SyntaxError) &&
 				typeof (err as { message?: unknown })?.message === "string"
 					? (err as { message: string }).message
 					: undefined;
@@ -206,10 +233,8 @@ export default function PayAsYouGoCard({
 			}
 			toast.error("Top-up failed", {
 				description:
-					err instanceof SyntaxError
-						? "This pending payment could not be read safely. Check your billing history or contact support before making a new attempt."
-						: (serverMessage ??
-							"We couldn't confirm the payment. Check your connection and retry within 23 hours using the same amount."),
+					serverMessage ??
+					"We couldn't confirm the payment. Check your connection and retry within 23 hours using the same amount.",
 			});
 		}
 	};

@@ -508,6 +508,23 @@ describe("dev-plan PAYG top-up", () => {
 		).toBe(`dev-plan-topup:${ORG_ID}:attempt-def-456`);
 	});
 
+	it("re-gates a replayed purchaseId after a velocity rejection", async () => {
+		vi.stubEnv("GATEWAY_TOPUP_VELOCITY_ENABLED", "true");
+		vi.stubEnv("GATEWAY_SPEND_TIER_0_TOPUP_DAILY_CAP_USD", "20");
+		await insertOrg();
+
+		// A rejected attempt reserves nothing, so replaying its purchaseId must
+		// hit the velocity check again instead of skipping it.
+		for (let attempt = 0; attempt < 2; attempt++) {
+			const res = await topUpRequest(
+				{ amount: 25, purchaseId: "attempt-over-cap" },
+				token,
+			);
+			expect(res.status).toBe(429);
+		}
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+	});
+
 	it("rejects a top-up without a purchaseId", async () => {
 		await insertOrg();
 
