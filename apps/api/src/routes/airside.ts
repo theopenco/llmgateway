@@ -56,12 +56,14 @@ import {
 	enqueueModelVerification,
 	modelVerificationSchema,
 	pendingFiledCapabilities,
+	pickCapabilities,
 	resolveVerificationCredential,
 	saveClaimVerificationKey,
 	serializeVerification,
 	serializeVerificationHistoryEntry,
 	verificationActors,
 	verificationHistoryEntrySchema,
+	verificationTargetCovers,
 	verificationTargetsMatch,
 	type CapabilityOverrides,
 	type ModelVerificationRow,
@@ -2748,9 +2750,10 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 		throw new HTTPException(404, { message: "Model not found" });
 	}
 	await requireCompanyMembership(user.id, model.providerCompanyId);
-	if (model.status === "delisted") {
+	// Delisted models verify too: a passing run is what relisting requires.
+	if (model.status === "delisted" && proposed) {
 		throw new HTTPException(409, {
-			message: "Delisted mappings cannot be verified.",
+			message: "A delisted model is verified as it was listed.",
 		});
 	}
 	const claim = await db.query.providerClaim.findFirst({
@@ -3360,6 +3363,13 @@ airside.openapi(updateModel, async (c) => {
 	}
 	const changes = pickMetadataChanges(body);
 	const updates = diffMetadataChanges(model, changes);
+	// Claiming more than the listing does — a new capability, a higher
+	// limit, extra modes — needs a passing preflight of the edit. The review
+	// can rerun it; narrowing and non-capability edits need none.
+	const required = draftVerificationTarget(model, pickCapabilities(updates));
+	if (!verificationTargetCovers(draftVerificationTarget(model), required)) {
+		await requirePassingPreflight(model, required, null, "save");
+	}
 	if (model.status === "active") {
 		// Live listings only change through review: file the diff alongside
 		// the current prices so the filing row is self-describing.
@@ -3588,6 +3598,39 @@ airside.openapi(deleteModel, async (c) => {
 	return c.json({ status: "delisted" as const });
 });
 
+/**
+ * Gate for anything that puts claims about a model in front of us: the
+ * model's latest preflight must have passed and prove `required`. Only claims
+ * beyond what the listing already proved need this; narrowing never does.
+ */
+async function requirePassingPreflight(
+	model: DraftModelRow,
+	required: ProviderModelVerificationTarget,
+	since: Date | null,
+	action: string,
+) {
+	const latest = await db.query.providerModelVerification.findFirst({
+		where: {
+			draftModelId: { eq: model.id },
+			...(since ? { createdAt: { gte: since } } : {}),
+		},
+		orderBy: { createdAt: "desc" },
+	});
+	if (latest?.status === "queued" || latest?.status === "running") {
+		throw new HTTPException(409, {
+			message: `Preflight is still running — ${action} once it passes.`,
+		});
+	}
+	if (
+		latest?.status !== "passed" ||
+		!verificationTargetCovers(latest.target, required)
+	) {
+		throw new HTTPException(409, {
+			message: `Run preflight on this model as you are submitting it, and let it pass, before you ${action}.`,
+		});
+	}
+}
+
 const relistModel = createRoute({
 	method: "post",
 	path: "/models/{id}/relist",
@@ -3651,6 +3694,13 @@ airside.openapi(relistModel, async (c) => {
 					message: "Only delisted models can be relisted.",
 				});
 			}
+			// The endpoint may have changed while the model was off the board.
+			await requirePassingPreflight(
+				locked,
+				draftVerificationTarget(locked),
+				locked.delistedAt,
+				"relist",
+			);
 			const [current] = await tx
 				.select()
 				.from(tables.providerPriceFiling)

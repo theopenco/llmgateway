@@ -108,11 +108,16 @@ export async function pendingFiledCapabilities(
 			kind: { eq: "metadata" },
 		},
 	});
-	const metadata = (filing?.metadata ?? {}) as Record<string, unknown>;
+	return pickCapabilities(filing?.metadata ?? {});
+}
+
+/** The capability fields of a listing edit or filing, as target overrides. */
+export function pickCapabilities(metadata: object): CapabilityOverrides {
 	const overrides: Record<string, unknown> = {};
 	for (const key of CAPABILITY_KEYS) {
-		if (metadata[key] !== undefined) {
-			overrides[key] = metadata[key];
+		const value: unknown = (metadata as Record<string, unknown>)[key];
+		if (value !== undefined) {
+			overrides[key] = value;
 		}
 	}
 	return overrides as CapabilityOverrides;
@@ -169,6 +174,76 @@ export function verificationTargetsMatch(
 		left.webSearch === right.webSearch &&
 		(left.contextSize ?? null) === (right.contextSize ?? null) &&
 		(left.maxOutput ?? null) === (right.maxOutput ?? null)
+	);
+}
+
+const BOOLEAN_CAPABILITIES = [
+	"streaming",
+	"vision",
+	"audio",
+	"tools",
+	"jsonOutput",
+	"jsonOutputSchema",
+	"reasoning",
+	"reasoningMaxTokens",
+	"webSearch",
+] as const;
+
+/** Tool choices: null or empty declares every mode. */
+function toolChoicesCovered(
+	proven: readonly string[] | null | undefined,
+	required: readonly string[] | null | undefined,
+): boolean {
+	if (!proven?.length) {
+		return true;
+	}
+	return (
+		Boolean(required?.length) &&
+		(required ?? []).every((mode) => proven.includes(mode))
+	);
+}
+
+/** Reasoning efforts: null or empty declares no tiers. */
+function effortsCovered(
+	proven: readonly string[] | null | undefined,
+	required: readonly string[] | null | undefined,
+): boolean {
+	return (required ?? []).every((tier) => (proven ?? []).includes(tier));
+}
+
+/**
+ * Whether `proven` (a passed verification, or what a listing already claims)
+ * proves everything `required` claims, for the same mapping. Narrower claims
+ * are covered; any new capability, higher limit or extra mode is not.
+ */
+export function verificationTargetCovers(
+	proven: ProviderModelVerificationTarget,
+	required: ProviderModelVerificationTarget,
+): boolean {
+	const limitCovered = (
+		provenLimit: number | null | undefined,
+		requiredLimit: number | null | undefined,
+	) =>
+		requiredLimit === null ||
+		requiredLimit === undefined ||
+		(provenLimit !== null &&
+			provenLimit !== undefined &&
+			provenLimit >= requiredLimit);
+	return (
+		proven.providerId === required.providerId &&
+		proven.modelName === required.modelName &&
+		proven.externalId === required.externalId &&
+		(proven.apiFormat ?? "openai-chat-completions") ===
+			(required.apiFormat ?? "openai-chat-completions") &&
+		(proven.region ?? null) === (required.region ?? null) &&
+		BOOLEAN_CAPABILITIES.every((key) => proven[key] || !required[key]) &&
+		toolChoicesCovered(
+			proven.supportedToolChoices,
+			required.supportedToolChoices,
+		) &&
+		effortsCovered(proven.reasoningEfforts, required.reasoningEfforts) &&
+		limitCovered(proven.contextSize, required.contextSize) &&
+		limitCovered(proven.maxOutput, required.maxOutput)
 	);
 }
 

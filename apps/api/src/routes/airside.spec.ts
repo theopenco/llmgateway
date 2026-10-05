@@ -18,6 +18,7 @@ import {
 } from "@llmgateway/db";
 import {
 	models as catalogueModels,
+	REASONING_EFFORTS,
 	type ModelDefinition,
 	type ProviderApiFormat,
 	type ToolChoiceMode,
@@ -85,6 +86,42 @@ async function claimProvider(
 		providerId: string;
 		status: string;
 	};
+}
+
+// A passed preflight proving anything the model could claim, for tests that
+// edit or relist a listing but aren't about the preflight gate itself.
+async function passPreflight(modelId: string) {
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: modelId } },
+	});
+	await db.insert(tables.providerModelVerification).values({
+		id: `verification-${crypto.randomUUID()}`,
+		providerCompanyId: model!.providerCompanyId,
+		draftModelId: modelId,
+		requestedBy: "test-user-id",
+		target: {
+			providerId: model!.providerId,
+			modelName: model!.modelName,
+			externalId: model!.externalId,
+			apiFormat: model!.apiFormat ?? "openai-chat-completions",
+			streaming: true,
+			vision: true,
+			audio: true,
+			tools: true,
+			supportedToolChoices: null,
+			jsonOutput: true,
+			jsonOutputSchema: true,
+			reasoning: true,
+			reasoningMaxTokens: true,
+			reasoningEfforts: [...REASONING_EFFORTS],
+			webSearch: true,
+			contextSize: 100_000_000,
+			maxOutput: 100_000_000,
+		},
+		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+		status: "passed",
+		completedAt: new Date(),
+	});
 }
 
 // Fast-path activation for tests that aren't about the review flow itself —
@@ -762,6 +799,7 @@ describe("airside provider portal", () => {
 		expect(model.supportedToolChoices).toEqual(["auto", "none"]);
 
 		// A draft applies metadata in place, so the narrowing is editable.
+		await passPreflight(model.id);
 		const patched = await app.request(
 			`/airside/models/${model.id}`,
 			json(cookie, { supportedToolChoices: null }, "PATCH"),
@@ -788,6 +826,70 @@ describe("airside provider portal", () => {
 			tools: true,
 			modelName: "mistral-large-3",
 		});
+	});
+
+	it("requires a passing preflight to widen a listing or relist it", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const { model } = await (await createModel(cookie, company.id)).json();
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(
+				`/airside/models/${model.id}`,
+				json(cookie, body, "PATCH"),
+			);
+
+		// Claiming more than the listing proved needs a preflight first.
+		const widened = await patch({ vision: true });
+		expect(widened.status).toBe(409);
+		expect((await widened.json()).message).toContain("Run preflight");
+		expect((await patch({ contextSize: 512000 })).status).toBe(409);
+		// Narrowing and descriptive edits need none.
+		expect((await patch({ tools: false })).status).toBe(200);
+		expect((await patch({ displayName: "Mistral Large 3 Turbo" })).status).toBe(
+			200,
+		);
+
+		await passPreflight(model.id);
+		expect((await patch({ vision: true })).status).toBe(200);
+		// Only the latest run counts: a later failure blocks again.
+		await db.insert(tables.providerModelVerification).values({
+			id: `verification-${crypto.randomUUID()}`,
+			providerCompanyId: company.id,
+			draftModelId: model.id,
+			requestedBy: "test-user-id",
+			target: {
+				providerId: "mistral",
+				modelName: model.modelName,
+				externalId: model.modelName,
+				streaming: true,
+				vision: true,
+				audio: true,
+				tools: true,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				reasoningEfforts: null,
+				webSearch: false,
+			},
+			checks: [],
+			status: "failed",
+			completedAt: new Date(),
+		});
+		expect((await patch({ audio: true })).status).toBe(409);
+
+		// A delisted model relists only after a preflight run since delisting.
+		await db
+			.update(tables.providerDraftModel)
+			.set({ status: "delisted", delistedAt: new Date() })
+			.where(eq(tables.providerDraftModel.id, model.id));
+		const relist = async () =>
+			await app.request(`/airside/models/${model.id}/relist`, json(cookie));
+		const blocked = await relist();
+		expect(blocked.status).toBe(409);
+		expect((await blocked.json()).message).toContain("before you relist");
 	});
 
 	it("lists a listing's preflight history without naming our reviewers", async () => {
@@ -880,6 +982,7 @@ describe("airside provider portal", () => {
 
 		// A live listing keeps a capability edit in a filing until it is
 		// approved, so the row still says reasoning is off.
+		await passPreflight(model.id);
 		const filed = await app.request(
 			`/airside/models/${model.id}`,
 			json(cookie, { reasoning: true, reasoningEfforts: ["low"] }, "PATCH"),
@@ -1102,6 +1205,7 @@ describe("airside provider portal", () => {
 				family: "mistral",
 			})
 			.returning();
+		await passPreflight(model.id);
 		const blocked = await app.request(
 			`/airside/models/${model.id}/relist`,
 			json(cookie),
@@ -1801,6 +1905,7 @@ describe("airside provider portal", () => {
 		expect(Number(published.mappings[0].inputPrice)).toBeCloseTo(2e-6);
 
 		// Metadata edits on a live listing are filed, not applied.
+		await passPreflight(model.id);
 		const filed = await app.request(
 			`/airside/models/${model.id}`,
 			json(cookie, { contextSize: 128000, tools: false }, "PATCH"),
@@ -3053,6 +3158,7 @@ describe("airside provider portal", () => {
 		expect(model.reasoningEfforts).toEqual(["low", "medium", "high"]);
 
 		// Edits to the efforts persist.
+		await passPreflight(model.id);
 		const patch = await app.request(
 			`/airside/models/${model.id}`,
 			json(cookie, { reasoningEfforts: ["medium", "max"] }, "PATCH"),
@@ -3413,6 +3519,7 @@ describe("airside provider portal", () => {
 			unlistedProviderIds: ["mistral"],
 		});
 
+		await passPreflight(listing!.id);
 		const relisted = await app.request(
 			`/airside/models/${listing!.id}/relist`,
 			json(cookie),

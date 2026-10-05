@@ -572,7 +572,7 @@ export default function FleetPage() {
 															? "This listing receives no traffic until you resume it. Imported catalogue models fall back to the built-in catalogue entry meanwhile."
 															: delisted
 																? relistable
-																	? "Out of service. Relist it to route traffic again at its last approved fare."
+																	? "Out of service. Verify it, then relist it to route traffic again at its last approved fare."
 																	: providerIds.includes(model.providerId)
 																		? "Out of service. Another listing now uses this model id."
 																		: "Out of service. It can be relisted once your claim on this provider is active again."
@@ -708,7 +708,20 @@ export default function FleetPage() {
 											) : null}
 										</div>
 										<div className="flex items-center gap-1">
-											{relistable ? <RelistModelButton model={model} /> : null}
+											{relistable ? (
+												<>
+													<VerifyModelDialog model={model}>
+														<Button
+															size="sm"
+															variant="outline"
+															data-testid={`verify-${model.modelName}`}
+														>
+															<ShieldCheck className="size-3.5" /> Verify
+														</Button>
+													</VerifyModelDialog>
+													<RelistModelButton model={model} />
+												</>
+											) : null}
 											{!delisted ? (
 												<>
 													<VerifyModelDialog model={model}>

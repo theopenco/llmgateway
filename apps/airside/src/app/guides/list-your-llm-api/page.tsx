@@ -69,7 +69,9 @@ export default function ListingGuide() {
 					separate from the one behind your live integration: preflight traffic
 					is billed by your own platform and is not tracked in LLMGateway usage
 					or billing. Resolve failed checks before submitting the model.
-					Changing the verified mapping requires a new verification.
+					Changing the verified mapping requires a new verification, and so does
+					an edit that adds a capability or raises a limit — narrowing one never
+					does.
 				</p>
 				<p className="mt-3">
 					A registered carrier files its provider key — the separate key we

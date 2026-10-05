@@ -2025,8 +2025,8 @@ export function EditModelDialog({
 						/>
 						<p className="text-muted-foreground text-xs">
 							Runs the capabilities selected above against your endpoint before
-							you file them. A failed check reports what the endpoint refused;
-							it does not change the capability.{" "}
+							you file them. Required before saving when you add a capability or
+							raise a limit; a failed check reports what the endpoint refused.{" "}
 							<VerificationKeyHint savedKey={savedVerificationKey} />
 						</p>
 						<Button
