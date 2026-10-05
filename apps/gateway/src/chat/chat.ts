@@ -96,6 +96,7 @@ import {
 	resolvePreferredProvider,
 	setPreferredProvider,
 } from "@/lib/preferred-provider.js";
+import { applyPromptReference } from "@/lib/prompt-template.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import {
 	checkProviderRateLimit,
@@ -1553,6 +1554,18 @@ export const chat = new OpenAPIHono<ServerTypes>({
 	},
 });
 
+// A `prompt` reference supplies model and messages, so the route only
+// requires them without one. The handler re-validates the expanded body
+// against the full schema.
+const completionsRouteBodySchema = completionsRequestSchema
+	.partial({ model: true, messages: true })
+	.refine(
+		(body) =>
+			body.prompt !== undefined ||
+			(body.model !== undefined && body.messages !== undefined),
+		{ message: "model and messages are required unless prompt is set" },
+	);
+
 const completions = createRoute({
 	operationId: "v1_chat_completions",
 	summary: "Chat Completions",
@@ -1568,7 +1581,7 @@ const completions = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: completionsRequestSchema,
+					schema: completionsRouteBodySchema,
 				},
 			},
 		},
@@ -1773,6 +1786,19 @@ chat.openapi(completions, async (c) => {
 				},
 			},
 			400,
+		);
+	}
+
+	const promptExpansion = await applyPromptReference(
+		rawBody,
+		c.req.raw.headers,
+	);
+	rawBody = promptExpansion.body;
+	if (promptExpansion.applied) {
+		c.header("x-llmgateway-prompt-id", promptExpansion.applied.promptId);
+		c.header(
+			"x-llmgateway-prompt-version",
+			String(promptExpansion.applied.version),
 		);
 	}
 

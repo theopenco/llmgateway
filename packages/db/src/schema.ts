@@ -4359,6 +4359,12 @@ export const auditLogActions = [
 	"organization_skill.create",
 	"organization_skill.update",
 	"organization_skill.delete",
+	// Prompt management
+	"prompt.create",
+	"prompt.update",
+	"prompt.delete",
+	"prompt.version_create",
+	"prompt.deploy",
 	// Compliance alerts
 	"notification_channel.update",
 	"notification_channel.delete",
@@ -4455,6 +4461,7 @@ export const auditLogResourceTypes = [
 	"iam_rule",
 	"provider_key",
 	"custom_model",
+	"prompt",
 	"organization_skill",
 	"notification_channel",
 	"compliance_alert",
@@ -7204,4 +7211,65 @@ export const benchmarkRun = pgTable(
 		index("benchmark_run_queue_idx").on(table.status, table.createdAt),
 		index("benchmark_run_model_idx").on(table.modelId, table.createdAt),
 	],
+);
+
+export interface PromptMessage {
+	role: "system" | "user" | "assistant" | "developer";
+	content: string;
+}
+
+export interface PromptParameters {
+	temperature?: number;
+	top_p?: number;
+	max_tokens?: number;
+	frequency_penalty?: number;
+	presence_penalty?: number;
+	reasoning_effort?: string;
+}
+
+// Versioned prompt templates, referenced from requests by `prompt.id`.
+export const prompt = pgTable(
+	"prompt",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		description: text(),
+		// Version served when a request does not pin one. Null until deployed.
+		productionVersion: integer(),
+		latestVersion: integer().notNull().default(0),
+	},
+	(table) => [
+		index("prompt_project_id_idx").on(table.projectId),
+		unique().on(table.projectId, table.name),
+	],
+);
+
+export const promptVersion = pgTable(
+	"prompt_version",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		promptId: text()
+			.notNull()
+			.references(() => prompt.id, { onDelete: "cascade" }),
+		version: integer().notNull(),
+		messages: jsonb().$type<PromptMessage[]>().notNull(),
+		model: text(),
+		parameters: jsonb().$type<PromptParameters>().notNull().default({}),
+		variables: jsonb().$type<string[]>().notNull().default([]),
+		commitMessage: text(),
+		createdBy: text().references(() => user.id, { onDelete: "set null" }),
+	},
+	(table) => [unique().on(table.promptId, table.version)],
 );
