@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "f2e3261c-3c81-455a-b5a2-6351a918210b",
-  "prevId": "00113ac3-0955-4d96-8c43-45b7d85cdca4",
+  "id": "a52f6532-8f83-466c-836f-389f0bca2b7f",
+  "prevId": "cd785604-aa81-4b67-b78a-2d8c573fe841",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -12164,6 +12164,19 @@
       "generated": null,
       "identity": null,
       "name": "pricing_tier",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "pricing_period",
       "entityType": "columns",
       "schema": "public",
       "table": "log"

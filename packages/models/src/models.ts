@@ -126,6 +126,13 @@ export interface PricingTier {
 	 * fall back to `cacheWriteInputPrice` (the 5-minute rate).
 	 */
 	cacheWriteInputPrice1h?: Price;
+	/**
+	 * Peak/off-peak rates for this tier, for providers that price each
+	 * context-length band by time of day. The schedule comes from the
+	 * mapping's (or region's) `peakPricing`, which MUST be set; without this
+	 * block the tier bills its flat rates at every hour.
+	 */
+	peakPricing?: Pick<PeakPricing, "peak" | "offPeak">;
 }
 
 /**
