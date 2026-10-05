@@ -181,8 +181,11 @@ export default function PayAsYouGoCard({
 				if (!parsed) {
 					// Warn once, then let the next click start a new attempt.
 					setCookie(purchaseCookie, "", -1);
-					throw new Error(
-						"This pending payment can no longer be retried safely. Check your billing history, then try again to start a new payment.",
+					throw Object.assign(
+						new Error(
+							"This pending payment can no longer be retried safely. Check your billing history, then try again to start a new payment.",
+						),
+						{ definitive: true },
 					);
 				}
 				attempt = parsed;
@@ -192,8 +195,11 @@ export default function PayAsYouGoCard({
 			const serialized = JSON.stringify(attempt);
 			setCookie(purchaseCookie, serialized, 3650);
 			if (getCookie(purchaseCookie) !== serialized) {
-				throw new Error(
-					"Enable cookies before purchasing credits so payment retries can be recovered safely.",
+				throw Object.assign(
+					new Error(
+						"Enable cookies before purchasing credits so payment retries can be recovered safely.",
+					),
+					{ definitive: true },
 				);
 			}
 			const result = await topUpMutation.mutateAsync({
@@ -221,20 +227,19 @@ export default function PayAsYouGoCard({
 			});
 			setCustomAmount("");
 		} catch (err) {
-			// A SyntaxError is an unparseable response body: the outcome is
-			// unknown, so it keeps the attempt and gets the generic copy.
-			const serverMessage =
-				!(err instanceof SyntaxError) &&
-				typeof (err as { message?: unknown })?.message === "string"
-					? (err as { message: string }).message
-					: undefined;
-			if ((err as { definitive?: boolean })?.definitive === true) {
+			// Only a definitive failure (no charge) shows its own message and
+			// starts a new attempt. Anything else — network errors, 5xx, an
+			// unparseable body — may have charged, so it keeps the attempt and
+			// tells the user to retry the same amount, which cannot double-charge.
+			const definitive = (err as { definitive?: boolean })?.definitive === true;
+			if (definitive) {
 				setCookie(purchaseCookie, "", -1);
 			}
 			toast.error("Top-up failed", {
 				description:
-					serverMessage ??
-					"We couldn't confirm the payment. Check your connection and retry within 23 hours using the same amount.",
+					definitive && err instanceof Error
+						? err.message
+						: "We couldn't confirm the payment. Check your connection and retry within 23 hours using the same amount.",
 			});
 		}
 	};
