@@ -5,6 +5,11 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	ICON_MAX_BYTES,
+	imageDataUrl,
+	LOGO_MAX_BYTES,
+} from "@/lib/airside-branding.js";
+import {
 	dematerializeAirsideModel,
 	materializeAirsideModel,
 	setAirsideModelServing,
@@ -46,6 +51,7 @@ import {
 } from "@/lib/mapping-error-shapes.js";
 import {
 	buildVerificationTarget,
+	clearClaimVerificationKey,
 	enqueueModelVerification,
 	modelVerificationSchema,
 	pendingFiledCapabilities,
@@ -132,22 +138,6 @@ async function getListingFeeAmount(): Promise<number | null> {
 // Crew size cap: the owner plus invited teammates, pending invites included.
 export const AIRSIDE_CREW_MAX = 10;
 const INVITE_EMAIL_TIMEOUT_MS = 10_000;
-
-// Uploaded branding is stored inline as data URLs; keep them small. SVG only:
-// vector marks scale cleanly everywhere the branding renders (cards, hero,
-// OG images), and one accepted format keeps review simple.
-const LOGO_MAX_BYTES = 200 * 1024;
-const ICON_MAX_BYTES = 64 * 1024;
-const DATA_URL_PATTERN = /^data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+$/;
-
-function imageDataUrl(maxBytes: number) {
-	return z
-		.string()
-		.regex(DATA_URL_PATTERN, "Must be a base64 SVG data URL")
-		.refine((v) => v.length <= Math.ceil(maxBytes * 1.4), {
-			message: `Image must be smaller than ${Math.round(maxBytes / 1024)}KB`,
-		});
-}
 
 // Plain decimal or scientific notation only — Number("") and Number("0x1F")
 // would otherwise slip through as 0 / 31.
@@ -2305,15 +2295,7 @@ airside.openapi(deleteVerificationKey, async (c) => {
 	const user = requireVerifiedUser(c.get("user"));
 	const { id } = c.req.valid("param");
 	await requireOwnedActiveClaim(user.id, id);
-	// cdb: claim rows feed the gateway's custom-carrier resolution cache.
-	await cdb
-		.update(tables.providerClaim)
-		.set({
-			verificationKeyCiphertext: null,
-			verificationKeyMasked: null,
-			verificationKeyUpdatedAt: null,
-		})
-		.where(eq(tables.providerClaim.id, id));
+	await clearClaimVerificationKey(id);
 	return c.json({ verificationKeyMasked: null, verificationKeySetAt: null });
 });
 

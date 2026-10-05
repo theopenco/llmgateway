@@ -10703,6 +10703,7 @@ const providerDetailSchema = z.object({
 			settingsUpdatedAt: z.string(),
 			// Everything the carrier configured in the Airside portal.
 			settings: z.object({
+				claimId: z.string(),
 				matchedDomain: z.string(),
 				customName: z.string().nullable(),
 				customBaseUrl: z.string().nullable(),
@@ -10725,6 +10726,8 @@ const providerDetailSchema = z.object({
 						verifiedAt: z.string().nullable(),
 					}),
 				),
+				// Active listings, the models a fare override can target.
+				listedModels: z.array(z.string()),
 				modelOverrides: z.array(
 					z.object({
 						modelId: z.string(),
@@ -10865,6 +10868,7 @@ admin.openapi(getProviderDetail, async (c) => {
 		db
 			.select({
 				claim: {
+					id: tables.providerClaim.id,
 					matchedDomain: tables.providerClaim.matchedDomain,
 					customName: tables.providerClaim.customName,
 					customBaseUrl: tables.providerClaim.customBaseUrl,
@@ -10921,25 +10925,34 @@ admin.openapi(getProviderDetail, async (c) => {
 	// to the column defaults so a carrier still renders if it is missing.
 	const carrierDiscount = Number(carrier?.discountPercent ?? 0);
 	const carrierMargin = Number(carrier?.marginPercent ?? 0.2);
-	const [carrierDomains, carrierOverrides, carrierFilings] = carrier
-		? await Promise.all([
-				db.query.providerCompanyDomain.findMany({
-					where: { providerCompanyId: { eq: carrier.companyId } },
-					orderBy: { domain: "asc" },
-				}),
-				db.query.providerRoutingSettings.findMany({
-					where: {
-						providerId: { eq: providerId },
-						modelId: { isNotNull: true },
-					},
-					orderBy: { modelId: "asc" },
-				}),
-				db.query.providerRoutingFiling.findMany({
-					where: { providerId: { eq: providerId }, status: { eq: "pending" } },
-					orderBy: { createdAt: "asc" },
-				}),
-			])
-		: [[], [], []];
+	const [carrierDomains, carrierOverrides, carrierFilings, carrierModels] =
+		carrier
+			? await Promise.all([
+					db.query.providerCompanyDomain.findMany({
+						where: { providerCompanyId: { eq: carrier.companyId } },
+						orderBy: { domain: "asc" },
+					}),
+					db.query.providerRoutingSettings.findMany({
+						where: {
+							providerId: { eq: providerId },
+							modelId: { isNotNull: true },
+						},
+						orderBy: { modelId: "asc" },
+					}),
+					db.query.providerRoutingFiling.findMany({
+						where: {
+							providerId: { eq: providerId },
+							status: { eq: "pending" },
+						},
+						orderBy: { createdAt: "asc" },
+					}),
+					db.query.providerDraftModel.findMany({
+						where: { providerId: { eq: providerId }, status: { eq: "active" } },
+						columns: { modelName: true },
+						orderBy: { modelName: "asc" },
+					}),
+				])
+			: [[], [], [], []];
 	const fareFields = (row: {
 		discountPercent: string;
 		marginPercent: string;
@@ -11074,6 +11087,7 @@ admin.openapi(getProviderDetail, async (c) => {
 						carrier.settingsUpdatedAt ?? carrier.claimUpdatedAt
 					).toISOString(),
 					settings: {
+						claimId: carrier.claim.id,
 						matchedDomain: carrier.claim.matchedDomain,
 						customName: carrier.claim.customName,
 						customBaseUrl: carrier.claim.customBaseUrl,
@@ -11095,6 +11109,7 @@ admin.openapi(getProviderDetail, async (c) => {
 							verificationMethod: d.verificationMethod,
 							verifiedAt: d.verifiedAt?.toISOString() ?? null,
 						})),
+						listedModels: carrierModels.map((m) => m.modelName),
 						modelOverrides: carrierOverrides.flatMap((row) =>
 							row.modelId
 								? [

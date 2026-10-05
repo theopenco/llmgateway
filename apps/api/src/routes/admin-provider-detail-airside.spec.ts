@@ -12,6 +12,7 @@ const CLAIM_ID = "airside-detail-claim";
 const SETTINGS_ID = "airside-detail-settings";
 const OVERRIDE_ID = "airside-detail-override";
 const FILING_ID = "airside-detail-filing";
+const DRAFT_MODEL_ID = "airside-detail-draft";
 const MODEL_ID = "airside-detail-model";
 const MAPPING_ID = "airside-detail-mapping";
 
@@ -25,7 +26,11 @@ interface ProviderDetail {
 		routingAdjustment: number;
 		settingsUpdatedAt: string;
 		settings: {
+			customName: string | null;
 			customBaseUrl: string | null;
+			customDescription: string | null;
+			companyWebsite: string | null;
+			listedModels: string[];
 			verificationKeyMasked: string | null;
 			modelOverrides: { modelId: string; discountPercent: number }[];
 			pendingFilings: { id: string; modelId: string | null }[];
@@ -35,6 +40,9 @@ interface ProviderDetail {
 }
 
 async function clearFixtures() {
+	await db
+		.delete(tables.providerDraftModel)
+		.where(eq(tables.providerDraftModel.id, DRAFT_MODEL_ID));
 	await db
 		.delete(tables.modelProviderMapping)
 		.where(eq(tables.modelProviderMapping.id, MAPPING_ID));
@@ -157,6 +165,123 @@ describe("admin provider detail for airside carriers", () => {
 			verificationKeyMasked: "sk-...abcd",
 			modelOverrides: [{ modelId: MODEL_ID, discountPercent: 0.05 }],
 			pendingFilings: [{ id: FILING_ID, modelId: null }],
+		});
+	});
+
+	test("admins edit carrier settings directly", async () => {
+		const send = (method: string, path: string, body?: unknown) =>
+			app.request(path, {
+				method,
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				...(body ? { body: JSON.stringify(body) } : {}),
+			});
+		await db.insert(tables.providerDraftModel).values({
+			id: DRAFT_MODEL_ID,
+			providerCompanyId: COMPANY_ID,
+			providerId: CARRIER_ID,
+			modelName: MODEL_ID,
+			externalId: MODEL_ID,
+			status: "active",
+		});
+
+		expect(
+			(
+				await send("PATCH", `/admin/airside/claims/${CLAIM_ID}/settings`, {
+					name: "Renamed Carrier",
+					baseUrl: "https://api.airside-detail.example/v2",
+					description: null,
+				})
+			).status,
+		).toBe(200);
+		expect(
+			(
+				await send(
+					"PUT",
+					`/admin/airside/claims/${CLAIM_ID}/verification-key`,
+					{
+						apiKey: "sk-test-1234567890abcd",
+					},
+				)
+			).status,
+		).toBe(200);
+		expect(
+			(
+				await send("PATCH", `/admin/airside/companies/${COMPANY_ID}`, {
+					website: "https://airside-detail.example",
+				})
+			).status,
+		).toBe(200);
+		expect(
+			(
+				await send("PUT", `/admin/airside/routing-settings/${CARRIER_ID}`, {
+					discountPercent: 0.1,
+					marginPercent: 0.25,
+				})
+			).status,
+		).toBe(200);
+		expect(
+			(
+				await send("PUT", `/admin/airside/routing-settings/${CARRIER_ID}`, {
+					modelId: MODEL_ID,
+					discountPercent: 0.3,
+					marginPercent: 0.2,
+				})
+			).status,
+		).toBe(200);
+		// Overrides only target the carrier's active listings.
+		expect(
+			(
+				await send("PUT", `/admin/airside/routing-settings/${CARRIER_ID}`, {
+					modelId: "not-listed",
+					discountPercent: 0.3,
+					marginPercent: 0.2,
+				})
+			).status,
+		).toBe(404);
+
+		let detail = (await (
+			await app.request(`/admin/providers/${CARRIER_ID}`, {
+				headers: { Cookie: cookie },
+			})
+		).json()) as ProviderDetail;
+		expect(detail.airside).toMatchObject({
+			discountPercent: 0.1,
+			marginPercent: 0.25,
+			settings: {
+				customName: "Renamed Carrier",
+				customBaseUrl: "https://api.airside-detail.example/v2",
+				customDescription: null,
+				companyWebsite: "https://airside-detail.example",
+				listedModels: [MODEL_ID],
+				modelOverrides: [{ modelId: MODEL_ID, discountPercent: 0.3 }],
+			},
+		});
+		expect(detail.airside?.settings.verificationKeyMasked).toMatch(/abcd$/);
+
+		expect(
+			(
+				await send(
+					"DELETE",
+					`/admin/airside/routing-settings/${CARRIER_ID}/override?modelId=${MODEL_ID}`,
+				)
+			).status,
+		).toBe(200);
+		expect(
+			(
+				await send(
+					"DELETE",
+					`/admin/airside/claims/${CLAIM_ID}/verification-key`,
+				)
+			).status,
+		).toBe(200);
+		detail = (await (
+			await app.request(`/admin/providers/${CARRIER_ID}`, {
+				headers: { Cookie: cookie },
+			})
+		).json()) as ProviderDetail;
+		expect(detail.airside?.settings).toMatchObject({
+			verificationKeyMasked: null,
+			modelOverrides: [],
 		});
 	});
 
