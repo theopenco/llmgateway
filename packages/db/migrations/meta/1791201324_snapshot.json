@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "79bd11e2-9516-4eb1-9ab8-074a5d09a918",
-  "prevId": "65b336b1-65ad-4a10-b7f3-0cb4bc1d5799",
+  "id": "ddc301a8-7d72-4daf-8955-e6ba6282556a",
+  "prevId": "00113ac3-0955-4d96-8c43-45b7d85cdca4",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -34482,6 +34482,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "log_request_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "trace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "log_trace_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "log"

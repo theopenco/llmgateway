@@ -133,12 +133,8 @@ export function adaptProviderMapping(
 							start,
 							end,
 						]),
-						offPeakDays: p.peakPricing.offPeakDays
-							? {
-									daysOfWeek: [...p.peakPricing.offPeakDays.daysOfWeek],
-									utcOffsetMinutes: p.peakPricing.offPeakDays.utcOffsetMinutes,
-									timeZoneLabel: p.peakPricing.offPeakDays.timeZoneLabel,
-								}
+						offPeakDaysUtc: p.peakPricing.offPeakDaysUtc
+							? [...p.peakPricing.offPeakDaysUtc]
 							: null,
 					}
 				: null,
