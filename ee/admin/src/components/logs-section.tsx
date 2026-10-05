@@ -639,7 +639,7 @@ export function LogsSection({
 					<Loader2 className="h-4 w-4 animate-spin" />
 					Loading logs...
 				</div>
-			) : query.isError ? (
+			) : query.isError && logs.length === 0 ? (
 				<div
 					role="alert"
 					className="rounded-lg border p-8 text-center text-sm text-muted-foreground"
@@ -654,6 +654,13 @@ export function LogsSection({
 				</div>
 			) : (
 				<div className="space-y-2">
+					{query.isError && (
+						<p role="alert" className="text-sm text-muted-foreground">
+							{query.isFetchNextPageError
+								? "Unable to load more logs. Try again."
+								: "Unable to refresh logs. Showing the last loaded results."}
+						</p>
+					)}
 					{logs.map((log) => (
 						<LogCard key={log.id} log={log} />
 					))}

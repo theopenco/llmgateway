@@ -119,7 +119,7 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 					<div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
 						Loading...
 					</div>
-				) : isError ? (
+				) : isError && !data ? (
 					<div
 						role="alert"
 						className="flex h-[300px] items-center justify-center gap-2 text-sm text-muted-foreground"
