@@ -691,7 +691,6 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 		where: {
 			status: { eq: "active" },
 		},
-		columns: { streaming: false },
 		orderBy: {
 			createdAt: "desc",
 		},

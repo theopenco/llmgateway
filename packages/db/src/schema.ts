@@ -3512,7 +3512,6 @@ export const provider = pgTable(
 			.$onUpdate(() => new Date()),
 		name: text().notNull(),
 		description: text().notNull(),
-		streaming: boolean(),
 		cancellation: boolean(),
 		color: text(),
 		website: text(),
