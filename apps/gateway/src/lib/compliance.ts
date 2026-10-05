@@ -101,24 +101,33 @@ export function getRequestDataResidency(
 }
 
 /**
- * Whether a base URL replaces the catalogue endpoint of `providerId`. BYOK
- * keys, managed-credential config, `LLM_*_BASE_URL` env overrides and Airside
- * carriers all do this, and the catalogue verifies nothing about where such
- * an endpoint processes requests.
+ * Whether a base URL replaces the catalogue endpoint of `providerId` at
+ * `region`. BYOK keys, managed-credential config, `LLM_*_BASE_URL` env
+ * overrides and Airside carriers all do this, and the catalogue verifies
+ * nothing about where such an endpoint processes requests. Only the pinned
+ * region's own endpoints count as known: another region's endpoint is still a
+ * different processing location, even though it belongs to the same provider.
  */
 export function isBaseUrlOverride(
 	providerId: string,
 	baseUrl: string | null | undefined,
+	region?: string | null,
 ): boolean {
 	if (!baseUrl) {
 		return false;
 	}
-	const definition = getProviderDefinition(providerId);
+	const regionConfig = getProviderDefinition(providerId)?.regionConfig;
+	const regionId = region ?? regionConfig?.defaultRegion;
 	const known = new Set(
 		[
-			getProviderDefaultBaseUrl(providerId as ProviderId),
-			...Object.values(definition?.regionConfig?.endpointMap ?? {}),
-			...Object.values(definition?.regionConfig?.endpointFallbackMap ?? {}),
+			// The provider-wide default only describes the default region.
+			regionId === undefined || regionId === regionConfig?.defaultRegion
+				? getProviderDefaultBaseUrl(providerId as ProviderId)
+				: undefined,
+			regionId !== undefined ? regionConfig?.endpointMap[regionId] : undefined,
+			regionId !== undefined
+				? regionConfig?.endpointFallbackMap?.[regionId]
+				: undefined,
 		]
 			.filter((url): url is string => !!url)
 			.map((url) => url.replace(/\/+$/, "")),
@@ -140,9 +149,14 @@ export async function assertResidencyAllowsBaseUrl(
 		modelId: string;
 		apiKeyId?: string;
 		model?: string;
+		/** Regional endpoint the request is pinned to, if any. */
+		region?: string | null;
 	},
 ): Promise<void> {
-	if (!policy?.dataResidency || !isBaseUrlOverride(providerId, baseUrl)) {
+	if (
+		!policy?.dataResidency ||
+		!isBaseUrlOverride(providerId, baseUrl, context.region)
+	) {
 		return;
 	}
 	await logComplianceBlock(context.organizationId, {

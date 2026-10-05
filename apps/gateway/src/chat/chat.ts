@@ -7128,39 +7128,56 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
-	// The processing region the catalogue verified belongs to the catalogue
-	// endpoint. A base URL override (BYOK key, managed-credential config,
-	// LLM_*_BASE_URL env, Airside carrier) sends the request somewhere else, so
-	// residency fails closed on it. Reads the live credential state, so it runs
-	// again for every retry/fallback context applied below.
-	const assertResidencyForActiveCredential = async (): Promise<void> => {
+	// The processing region the catalogue verified belongs to the pinned
+	// region's catalogue endpoint. A base URL override (BYOK key,
+	// managed-credential config, LLM_*_BASE_URL env, Airside carrier) sends the
+	// request somewhere else, so residency fails closed on it. Checked for the
+	// initial credential here and for every retry/fallback credential in
+	// resolveProviderContextForRetry.
+	const assertResidencyForCredential = async (credential: {
+		usedProvider: string | undefined;
+		usedRegion: string | undefined;
+		providerKey: typeof providerKey;
+		managedKey: typeof managedKey;
+		configIndex: number;
+	}): Promise<void> => {
 		if (
-			usedProvider === undefined ||
-			usedProvider === "llmgateway" ||
-			usedProvider === "custom"
+			credential.usedProvider === undefined ||
+			credential.usedProvider === "llmgateway" ||
+			credential.usedProvider === "custom"
 		) {
 			return;
 		}
 		await assertResidencyAllowsBaseUrl(
 			compliancePolicy,
-			usedProvider,
+			credential.usedProvider,
 			airsideResolution?.customBaseUrl ??
-				providerKey?.baseUrl ??
+				credential.providerKey?.baseUrl ??
 				getCredentialSetting(
-					usedProvider,
+					credential.usedProvider as Provider,
 					"baseUrl",
-					{ providerKey, managedKey },
-					{ configIndex, variant: envVariant },
+					{
+						providerKey: credential.providerKey,
+						managedKey: credential.managedKey,
+					},
+					{ configIndex: credential.configIndex, variant: envVariant },
 				),
 			{
 				organizationId: project.organizationId,
 				modelId: modelInfo.id,
 				apiKeyId: apiKey.id,
 				model: requestedModel,
+				region: credential.usedRegion,
 			},
 		);
 	};
-	await assertResidencyForActiveCredential();
+	await assertResidencyForCredential({
+		usedProvider,
+		usedRegion,
+		providerKey,
+		managedKey,
+		configIndex,
+	});
 
 	try {
 		if (!usedProvider) {
@@ -8285,7 +8302,7 @@ chat.openapi(completions, async (c) => {
 		},
 		streamValue: boolean,
 	) {
-		return await resolveProviderContext(
+		const ctx = await resolveProviderContext(
 			providerMapping,
 			retryProjectContext,
 			retryOrganizationContext,
@@ -8333,6 +8350,18 @@ chat.openapi(completions, async (c) => {
 				verbosity,
 			},
 		);
+		// Every caller treats a throw here as "this candidate is unusable" (an
+		// alternate key is simply not used; a fallback provider is skipped), so a
+		// residency block on the retry credential is logged and never dispatched
+		// instead of surfacing mid-stream.
+		await assertResidencyForCredential({
+			usedProvider: ctx.usedProvider,
+			usedRegion: ctx.usedRegion,
+			providerKey: ctx.providerKey,
+			managedKey: ctx.managedKey,
+			configIndex: ctx.configIndex,
+		});
+		return ctx;
 	}
 
 	async function applyResolvedProviderContext(
@@ -8359,7 +8388,6 @@ chat.openapi(completions, async (c) => {
 		trackedKeyHealthId = ctx.trackedKeyHealthId;
 		configIndex = ctx.configIndex;
 		envVarName = ctx.envVarName;
-		await assertResidencyForActiveCredential();
 		url = ctx.url;
 		requestBody = ctx.requestBody;
 		useResponsesApi = ctx.useResponsesApi;

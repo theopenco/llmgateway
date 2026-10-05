@@ -480,6 +480,7 @@ async function runRealtimePreflightInner(
 			modelId: match.modelId,
 			apiKeyId: apiKey.id,
 			model: input.requestedModel,
+			region: match.mapping.region,
 		},
 	);
 

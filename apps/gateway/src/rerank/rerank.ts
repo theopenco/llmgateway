@@ -477,6 +477,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		modelId: modelDefId,
 		apiKeyId: apiKey.id,
 		model: requestedModel,
+		region: rerankMapping.region,
 	};
 
 	const failedKeys = createFailedKeyTracker();

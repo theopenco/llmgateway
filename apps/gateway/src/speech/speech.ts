@@ -664,6 +664,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		modelId: modelDefId,
 		apiKeyId: apiKey.id,
 		model: requestedModel,
+		region: mapping.region,
 	};
 
 	const finalLogId = shortid();

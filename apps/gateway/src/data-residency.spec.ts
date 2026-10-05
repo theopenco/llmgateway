@@ -281,14 +281,47 @@ describe("base URL overrides", () => {
 			isBaseUrlOverride(
 				"aws-bedrock",
 				"https://bedrock-runtime.eu-central-1.amazonaws.com",
+				"eu-central-1",
 			),
 		).toBe(false);
 		expect(
 			isBaseUrlOverride(
 				"alibaba",
 				"https://trial.eu-central-1.maas.aliyuncs.com",
+				"eu-frankfurt",
 			),
 		).toBe(false);
+	});
+	test("another region's catalogue endpoint is still an override", () => {
+		// A US regional endpoint must not satisfy an EU-pinned request.
+		expect(
+			isBaseUrlOverride(
+				"aws-bedrock",
+				"https://bedrock-runtime.us-east-1.amazonaws.com",
+				"eu-central-1",
+			),
+		).toBe(true);
+		expect(
+			isBaseUrlOverride(
+				"alibaba",
+				"https://dashscope-us.aliyuncs.com",
+				"eu-frankfurt",
+			),
+		).toBe(true);
+		expect(
+			isBaseUrlOverride(
+				"alibaba",
+				"https://dashscope-us.aliyuncs.com",
+				"us-virginia",
+			),
+		).toBe(false);
+		// Unpinned: only the default region's endpoints are known.
+		expect(
+			isBaseUrlOverride("alibaba", "https://dashscope-intl.aliyuncs.com"),
+		).toBe(false);
+		expect(
+			isBaseUrlOverride("alibaba", "https://dashscope-us.aliyuncs.com"),
+		).toBe(true);
 	});
 	test("only matters under a residency requirement", async () => {
 		const context = { organizationId: "org-id", modelId: "gpt-4o-mini" };

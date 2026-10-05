@@ -496,6 +496,7 @@ systemone.openapi(createSystemOne, async (c): Promise<any> => {
 		modelId: modelDefId,
 		apiKeyId: apiKey.id,
 		model: requestedModel,
+		region: decisionMapping.region,
 	};
 
 	const failedKeys = createFailedKeyTracker();

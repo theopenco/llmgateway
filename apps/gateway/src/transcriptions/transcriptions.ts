@@ -537,6 +537,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 		modelId: modelDefId,
 		apiKeyId: apiKey.id,
 		model: requestedModel,
+		region: mapping.region,
 	};
 
 	const finalLogId = shortid();

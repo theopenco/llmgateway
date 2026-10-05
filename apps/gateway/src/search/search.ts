@@ -535,6 +535,7 @@ search.openapi(createSearch, async (c): Promise<any> => {
 		modelId: modelDefId,
 		apiKeyId: apiKey.id,
 		model: requestedModel,
+		region: searchMapping.region,
 	};
 
 	const failedKeys = createFailedKeyTracker();
