@@ -142,4 +142,23 @@ describe("getGcpServiceAccountAccessToken", () => {
 
 		await expect(result).rejects.toBe(reason);
 	});
+
+	it("does not share a cached token between different keys for one account", async () => {
+		redisGetMock.mockResolvedValue(null);
+		redisSetMock.mockResolvedValue("OK");
+		vi.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(Response.json({ access_token: "token-key-a" }))
+			.mockResolvedValueOnce(Response.json({ access_token: "token-key-b" }));
+
+		const email = "shared-account@example.com";
+		await expect(
+			getGcpServiceAccountAccessToken(serviceAccount(email)),
+		).resolves.toBe("token-key-a");
+		await expect(
+			getGcpServiceAccountAccessToken(serviceAccount(email)),
+		).resolves.toBe("token-key-b");
+
+		const [keyA, keyB] = redisGetMock.mock.calls.map((call) => call[0]);
+		expect(keyA).not.toBe(keyB);
+	});
 });

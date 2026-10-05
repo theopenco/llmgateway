@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
+import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 
 import { fetchNoRedirect } from "./fetch-no-redirect.js";
 
@@ -12,7 +13,7 @@ interface ServiceAccountKey {
 	project_id: string;
 }
 
-const REDIS_KEY_PREFIX = "gcp:service-account:access_token";
+const REDIS_KEY_PREFIX = "gcp:service-account:access_token:v2";
 const TTL_SECONDS = 50 * 60;
 const TTL_MS = TTL_SECONDS * 1000;
 const TOKEN_URI = "https://oauth2.googleapis.com/token";
@@ -126,12 +127,13 @@ async function exchangeJwtForAccessToken(
 	return data.access_token;
 }
 
+// Keyed by the private key, not just the account name, so a token is only
+// served to a caller holding the credential that minted it.
 function cacheKey(sa: ServiceAccountKey): string {
 	const hash = crypto
-		.createHash("sha256")
-		.update(sa.client_email + "|" + sa.token_uri)
-		.digest("hex")
-		.slice(0, 16);
+		.createHmac("sha256", getApiKeyHashSecret())
+		.update(`gcp-sa-token\0${sa.client_email}\0${sa.private_key}`)
+		.digest("hex");
 	return `${REDIS_KEY_PREFIX}:${hash}`;
 }
 
