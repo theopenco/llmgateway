@@ -17,4 +17,20 @@ describe("LLM markdown export", () => {
 		expect(text).not.toContain('<Callout type="info">');
 		expect(text).toContain("```tsx\n<Callout>Example</Callout>\n```");
 	});
+
+	test("keeps component names written as inline code", async () => {
+		const page = {
+			url: "/features/embeddable-payments",
+			data: {
+				title: "Embeddable payments",
+				getText: async () =>
+					'Wrap your UI in `<LLMGatewayProvider>` and pass `mode="test"` to ``<Wallet />``.\n\n<Callout>Done.</Callout>',
+			},
+		} as Parameters<typeof getLLMText>[0];
+		const text = await getLLMText(page);
+		expect(text).toContain("Wrap your UI in `<LLMGatewayProvider>`");
+		expect(text).toContain("``<Wallet />``");
+		expect(text).toContain("Done.");
+		expect(text).not.toContain("<Callout>");
+	});
 });
