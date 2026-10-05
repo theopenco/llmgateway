@@ -282,40 +282,42 @@ function ProviderKeyCard({ claim }: { claim: Claim }) {
 						</>
 					) : null}
 				</dl>
-				<form
-					className="flex max-w-md gap-2"
-					onSubmit={(event) => {
-						event.preventDefault();
-						submitKey.mutate({
-							params: { path: { id: claim.id } },
-							body: { apiKey },
-						});
-					}}
-				>
-					<Label
-						htmlFor={`provider-key-input-${claim.providerId}`}
-						className="sr-only"
+				{claim.providerKey || claim.pendingProviderKey ? (
+					<form
+						className="flex max-w-md gap-2"
+						onSubmit={(event) => {
+							event.preventDefault();
+							submitKey.mutate({
+								params: { path: { id: claim.id } },
+								body: { apiKey },
+							});
+						}}
 					>
-						New provider key for {claim.providerName}
-					</Label>
-					<Input
-						id={`provider-key-input-${claim.providerId}`}
-						data-testid={`provider-key-input-${claim.providerId}`}
-						type="password"
-						autoComplete="off"
-						value={apiKey}
-						onChange={(event) => setApiKey(event.target.value)}
-						placeholder="Paste a new key to request a swap"
-					/>
-					<Button
-						type="submit"
-						className="font-semibold"
-						data-testid={`provider-key-submit-${claim.providerId}`}
-						disabled={!apiKey.trim() || submitKey.isPending}
-					>
-						{submitKey.isPending ? "Submitting…" : "Submit for review"}
-					</Button>
-				</form>
+						<Label
+							htmlFor={`provider-key-input-${claim.providerId}`}
+							className="sr-only"
+						>
+							New provider key for {claim.providerName}
+						</Label>
+						<Input
+							id={`provider-key-input-${claim.providerId}`}
+							data-testid={`provider-key-input-${claim.providerId}`}
+							type="password"
+							autoComplete="off"
+							value={apiKey}
+							onChange={(event) => setApiKey(event.target.value)}
+							placeholder="Paste a new key to request a swap"
+						/>
+						<Button
+							type="submit"
+							className="font-semibold"
+							data-testid={`provider-key-submit-${claim.providerId}`}
+							disabled={!apiKey.trim() || submitKey.isPending}
+						>
+							{submitKey.isPending ? "Submitting…" : "Submit for review"}
+						</Button>
+					</form>
+				) : null}
 			</CardContent>
 		</Card>
 	);
