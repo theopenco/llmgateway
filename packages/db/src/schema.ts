@@ -2311,6 +2311,9 @@ export const log = pgTable(
 		providerMarginPercent: real(),
 		providerDiscountPercent: real(),
 		pricingTier: text(),
+		// Time-based pricing period the request was billed at ("peak" /
+		// "off_peak"). Null when the mapping has no peak pricing.
+		pricingPeriod: text(),
 		// The processing tier the gateway requested upstream (e.g. "flex" /
 		// "priority"), which is also the tier that narrows routing to tier-capable
 		// mappings. Null when the request ran on the standard tier. This is NOT
@@ -2532,6 +2535,9 @@ export const log = pgTable(
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
 		index("log_request_id_idx").on(table.requestId),
+		// Not unique: fallback attempts and client-propagated trace context share
+		// a trace id. Build CONCURRENTLY out of band in prod before deploying.
+		index("log_trace_id_idx").on(table.traceId),
 		// Index for worker stats queries: WHERE createdAt >= ? AND createdAt < ? GROUP BY usedModel, usedProvider
 		index("log_created_at_used_model_used_provider_idx").on(
 			table.createdAt,

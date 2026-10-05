@@ -126,6 +126,13 @@ export interface PricingTier {
 	 * fall back to `cacheWriteInputPrice` (the 5-minute rate).
 	 */
 	cacheWriteInputPrice1h?: Price;
+	/**
+	 * Peak/off-peak rates for this tier, for providers that price each
+	 * context-length band by time of day. The schedule comes from the
+	 * mapping's (or region's) `peakPricing`, which MUST be set; without this
+	 * block the tier bills its flat rates at every hour.
+	 */
+	peakPricing?: Pick<PeakPricing, "peak" | "offPeak">;
 }
 
 /**
@@ -177,16 +184,10 @@ export interface PeakPricing {
 	 */
 	hoursUtc: readonly [start: number, end: number][];
 	/**
-	 * Local calendar days that are always billed off-peak. Days use
-	 * JavaScript's numbering (Sunday = 0, Saturday = 6), shifted from UTC by
-	 * `utcOffsetMinutes`.
+	 * UTC days of the week that are always billed off-peak, using JavaScript's
+	 * numbering (Sunday = 0, Saturday = 6).
 	 */
-	offPeakDays?: {
-		daysOfWeek: readonly number[];
-		utcOffsetMinutes: number;
-		/** Human-readable time zone used in pricing disclosures. */
-		timeZoneLabel: string;
-	};
+	offPeakDaysUtc?: readonly number[];
 }
 
 /**
@@ -442,8 +443,7 @@ export interface ProviderModelMapping {
 	/**
 	 * Peak/off-peak time-of-day pricing. When present, `peak` applies while the
 	 * current UTC hour falls inside `hoursUtc` and `offPeak` applies otherwise.
-	 * `offPeakDays` can override those windows for provider-defined local
-	 * calendar days.
+	 * `offPeakDaysUtc` makes whole UTC days off-peak.
 	 */
 	peakPricing?: PeakPricing;
 	/**
