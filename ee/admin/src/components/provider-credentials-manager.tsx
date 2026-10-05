@@ -88,6 +88,7 @@ import {
 } from "@/lib/provider-key-error-window";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { parseProviderModelList } from "@/lib/provider-model-list";
+import { runServerAction } from "@/lib/server-action";
 import { cn } from "@/lib/utils";
 
 import {
@@ -971,7 +972,10 @@ export function ProviderCredentialsManager({
 		}
 
 		setSavingProvider(provider);
-		const result = await onReorder(provider, ids);
+		const result = await runServerAction(
+			() => onReorder(provider, ids),
+			"Failed to save credential order",
+		);
 		if (!result.success) {
 			setOrder(snapshot);
 			toast.error(result.error ?? "Failed to save credential order");
@@ -988,7 +992,10 @@ export function ProviderCredentialsManager({
 		}
 		setDeleteLoading(true);
 		setDeleteError(null);
-		const result = await onDelete(deleting.id);
+		const result = await runServerAction(
+			() => onDelete(deleting.id),
+			"Failed to delete credential",
+		);
 		setDeleteLoading(false);
 		if (!result.success) {
 			setDeleteError(result.error ?? "Failed to delete credential");
@@ -1291,18 +1298,24 @@ export function ProviderCredentialsManager({
 					regionsInUse={regionsInUse}
 					onClose={() => setCreating(false)}
 					onSubmit={async (values) => {
-						const result = await onCreate({
-							provider: values.provider,
-							token: values.token,
-							comment: values.comment || undefined,
-							variant: values.variant,
-							region: values.region || undefined,
-							config: values.config,
-							usageLimit: values.usageLimit || undefined,
-							allowedModels:
-								values.allowedModels.length > 0 ? values.allowedModels : null,
-							skipValidation: values.skipValidation,
-						});
+						const result = await runServerAction(
+							() =>
+								onCreate({
+									provider: values.provider,
+									token: values.token,
+									comment: values.comment || undefined,
+									variant: values.variant,
+									region: values.region || undefined,
+									config: values.config,
+									usageLimit: values.usageLimit || undefined,
+									allowedModels:
+										values.allowedModels.length > 0
+											? values.allowedModels
+											: null,
+									skipValidation: values.skipValidation,
+								}),
+							"Failed to create credential",
+						);
 						if (result.success) {
 							setCreating(false);
 							router.refresh();
@@ -1321,19 +1334,25 @@ export function ProviderCredentialsManager({
 					regionsInUse={regionsInUse}
 					onClose={() => setEditing(null)}
 					onSubmit={async (values) => {
-						const result = await onUpdate(editing.id, {
-							...(values.token ? { token: values.token } : {}),
-							comment: values.comment || null,
-							variant: values.variant,
-							region: values.region || null,
-							status: values.status,
-							config: values.config,
-							usageLimit: values.usageLimit || null,
-							allowedModels:
-								values.allowedModels.length > 0 ? values.allowedModels : null,
-							allowedModelsBase: editing.allowedModels,
-							skipValidation: values.skipValidation,
-						});
+						const result = await runServerAction(
+							() =>
+								onUpdate(editing.id, {
+									...(values.token ? { token: values.token } : {}),
+									comment: values.comment || null,
+									variant: values.variant,
+									region: values.region || null,
+									status: values.status,
+									config: values.config,
+									usageLimit: values.usageLimit || null,
+									allowedModels:
+										values.allowedModels.length > 0
+											? values.allowedModels
+											: null,
+									allowedModelsBase: editing.allowedModels,
+									skipValidation: values.skipValidation,
+								}),
+							"Failed to update credential",
+						);
 						if (result.success) {
 							setEditing(null);
 							router.refresh();
