@@ -2310,6 +2310,9 @@ export const log = pgTable(
 		providerMarginPercent: real(),
 		providerDiscountPercent: real(),
 		pricingTier: text(),
+		// Time-based pricing period the request was billed at ("peak" /
+		// "off_peak"). Null when the mapping has no peak pricing.
+		pricingPeriod: text(),
 		// The processing tier the gateway requested upstream (e.g. "flex" /
 		// "priority"), which is also the tier that narrows routing to tier-capable
 		// mappings. Null when the request ran on the standard tier. This is NOT

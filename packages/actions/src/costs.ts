@@ -10,6 +10,7 @@ import {
 	type ToolCall,
 	expandAllProviderRegions,
 	getSupportedServiceTiers,
+	resolvePricingPeriod,
 	resolveTimeBasedPricing,
 } from "@llmgateway/models";
 import {
@@ -372,6 +373,7 @@ export async function calculateCosts(
 			estimatedCost: false,
 			discount: undefined,
 			pricingTier: undefined,
+			pricingPeriod: undefined,
 		};
 	}
 
@@ -503,6 +505,7 @@ export async function calculateCosts(
 			estimatedCost: isEstimated,
 			discount: undefined,
 			pricingTier: undefined,
+			pricingPeriod: undefined,
 		};
 	}
 
@@ -560,6 +563,7 @@ export async function calculateCosts(
 			estimatedCost: isEstimated,
 			discount: undefined,
 			pricingTier: undefined,
+			pricingPeriod: undefined,
 		};
 	}
 	calculatedPromptTokens = calculatedPromptTokens || 0;
@@ -570,7 +574,8 @@ export async function calculateCosts(
 	// current UTC hour is inside the mapping's peak window, the off-peak base
 	// rates otherwise. Tier selection below then overrides by token count for
 	// mappings that price by context length.
-	const timeBasedPricing = resolveTimeBasedPricing(providerInfo);
+	const pricedAt = new Date();
+	const timeBasedPricing = resolveTimeBasedPricing(providerInfo, pricedAt);
 	const pricing = getPricingForTokenCount(
 		providerInfo.pricingTiers,
 		timeBasedPricing.inputPrice,
@@ -962,6 +967,12 @@ export async function calculateCosts(
 		estimatedCost: isEstimated && !rejectionFeeOnly,
 		discount: Number(discount) !== 0 ? Number(discount) : undefined,
 		pricingTier: pricing.tierName,
+		// Token-count tiers replace the time-based rates, so a period is only
+		// billed when no tier matched.
+		pricingPeriod:
+			pricing.tierName === undefined
+				? resolvePricingPeriod(providerInfo, pricedAt)
+				: undefined,
 	};
 	if (rejectionFeeOnly) {
 		zeroInferenceCosts(costs);

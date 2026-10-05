@@ -7429,6 +7429,7 @@ chat.openapi(completions, async (c) => {
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount ?? null,
 					pricingTier: costs.pricingTier ?? null,
+					pricingPeriod: costs.pricingPeriod ?? null,
 					dataStorageCost: "0",
 					cached: true,
 					toolResults:
@@ -7759,6 +7760,7 @@ chat.openapi(completions, async (c) => {
 					estimatedCost: cachedCosts.estimatedCost,
 					discount: cachedCosts.discount ?? null,
 					pricingTier: cachedCosts.pricingTier ?? null,
+					pricingPeriod: cachedCosts.pricingPeriod ?? null,
 					dataStorageCost: "0",
 					cached: true,
 					toolResults: cachedResponse.choices?.[0]?.message?.tool_calls ?? null,
@@ -12349,6 +12351,7 @@ chat.openapi(completions, async (c) => {
 										estimatedCost: false,
 										discount: undefined,
 										pricingTier: undefined,
+										pricingPeriod: undefined,
 										dataStorageCost: null as number | null,
 									}
 								: await calculateCosts(
@@ -12701,6 +12704,7 @@ chat.openapi(completions, async (c) => {
 									estimatedCost: false,
 									discount: undefined,
 									pricingTier: undefined,
+									pricingPeriod: undefined,
 									dataStorageCost: null as number | null,
 								}
 							: await calculateCosts(
@@ -12989,6 +12993,7 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: costs.estimatedCost,
 						discount: costs.discount,
 						pricingTier: costs.pricingTier,
+						pricingPeriod: costs.pricingPeriod,
 						dataStorageCost: shouldIncludeTokensForBilling
 							? calculateDataStorageCost(
 									calculatedPromptTokens,
@@ -15428,6 +15433,7 @@ chat.openapi(completions, async (c) => {
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,
 		pricingTier: costs.pricingTier,
+		pricingPeriod: costs.pricingPeriod,
 		dataStorageCost: calculateDataStorageCost(
 			calculatedPromptTokens,
 			cachedTokens,

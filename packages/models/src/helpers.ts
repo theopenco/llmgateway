@@ -199,6 +199,32 @@ export function supportsOpenAIExplicitPromptCache(modelName: string): boolean {
 	return OPENAI_EXPLICIT_PROMPT_CACHE_MODELS.has(modelName);
 }
 
+export type PricingPeriod = "peak" | "off_peak";
+
+/**
+ * Which `peakPricing` period applies to a mapping at a given instant (UTC).
+ * A matching `offPeakDaysUtc` day overrides the hourly windows. Undefined when
+ * the mapping has no time-based pricing.
+ */
+export function resolvePricingPeriod(
+	mapping: Pick<ProviderModelMapping, "peakPricing">,
+	now: Date = new Date(),
+): PricingPeriod | undefined {
+	const peakPricing = mapping.peakPricing;
+	if (!peakPricing) {
+		return undefined;
+	}
+	if (peakPricing.offPeakDaysUtc?.includes(now.getUTCDay())) {
+		return "off_peak";
+	}
+	const hour = now.getUTCHours();
+	return peakPricing.hoursUtc.some(
+		([start, end]) => hour >= start && hour < end,
+	)
+		? "peak"
+		: "off_peak";
+}
+
 /**
  * Resolve the per-token rates that apply to a mapping at a given instant.
  * Without `peakPricing`, the mapping's base inputPrice/outputPrice/
@@ -218,20 +244,15 @@ export function resolveTimeBasedPricing(
 	cachedInputPrice: string | undefined;
 } {
 	const peakPricing = mapping.peakPricing;
-	if (!peakPricing) {
+	const period = resolvePricingPeriod(mapping, now);
+	if (!peakPricing || !period) {
 		return {
 			inputPrice: mapping.inputPrice ?? "0",
 			outputPrice: mapping.outputPrice ?? "0",
 			cachedInputPrice: mapping.cachedInputPrice,
 		};
 	}
-	const isOffPeakDay =
-		peakPricing.offPeakDaysUtc?.includes(now.getUTCDay()) ?? false;
-	const hour = now.getUTCHours();
-	const isPeak =
-		!isOffPeakDay &&
-		peakPricing.hoursUtc.some(([start, end]) => hour >= start && hour < end);
-	const tier = isPeak ? peakPricing.peak : peakPricing.offPeak;
+	const tier = period === "peak" ? peakPricing.peak : peakPricing.offPeak;
 	return {
 		inputPrice: tier.inputPrice,
 		outputPrice: tier.outputPrice,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveTimeBasedPricing } from "./helpers.js";
+import { resolvePricingPeriod, resolveTimeBasedPricing } from "./helpers.js";
 
 import type { ProviderModelMapping } from "./models.js";
 
@@ -160,5 +160,21 @@ describe("resolveTimeBasedPricing", () => {
 			outputPrice: "1.32e-6",
 			cachedInputPrice: undefined,
 		});
+	});
+});
+
+describe("resolvePricingPeriod", () => {
+	it("is undefined without peakPricing", () => {
+		expect(
+			resolvePricingPeriod({}, at("2026-08-17T02:00:00Z")),
+		).toBeUndefined();
+	});
+
+	it.each([
+		["peak", "weekday peak hour", "2026-08-17T02:00:00Z"],
+		["off_peak", "weekday off-peak hour", "2026-08-17T04:00:00Z"],
+		["off_peak", "off-peak day during peak hours", "2026-08-22T02:00:00Z"],
+	] as const)("returns %s for a %s", (period, _label, iso) => {
+		expect(resolvePricingPeriod(peakPricedMapping, at(iso))).toBe(period);
 	});
 });

@@ -240,6 +240,7 @@ describe("calculateCosts", () => {
 		expect(result.cacheWriteInputCost).toBeCloseTo(40 * 5e-6, 10);
 		expect(result.outputCost).toBeCloseTo(300 * 20e-6, 10);
 		expect(result.pricingTier).toBe("Up to 272K");
+		expect(result.pricingPeriod).toBeUndefined();
 	});
 
 	it("applies GPT-5.6 long-context pricing above 272K prompt tokens", async () => {
@@ -2756,6 +2757,7 @@ describe("peak / off-peak time-of-day pricing", () => {
 		expect(flash.inputCost).toBeCloseTo(0.22);
 		expect(flash.outputCost).toBeCloseTo(0.66);
 		expect(flash.cachedInputCost).toBeCloseTo(0.007);
+		expect(flash.pricingPeriod).toBe("off_peak");
 
 		const pro = await calculateCosts(
 			"deepseek-v4-pro",
@@ -2784,6 +2786,7 @@ describe("peak / off-peak time-of-day pricing", () => {
 		expect(flash.inputCost).toBeCloseTo(0.44);
 		expect(flash.outputCost).toBeCloseTo(1.32);
 		expect(flash.cachedInputCost).toBeCloseTo(0.014);
+		expect(flash.pricingPeriod).toBe("peak");
 
 		const pro = await calculateCosts(
 			"deepseek-v4-pro",
