@@ -149,23 +149,22 @@ describe("getGcpServiceAccountAccessToken", () => {
 		await expect(result).rejects.toBe(reason);
 	});
 
-	it("ignores a user-supplied token_uri", async () => {
+	it("does not share a cached token between different keys for one account", async () => {
 		redisGetMock.mockResolvedValue(null);
 		redisSetMock.mockResolvedValue("OK");
-		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-			new Response(JSON.stringify({ access_token: "access-token" }), {
-				status: 200,
-			}),
-		);
+		vi.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(Response.json({ access_token: "token-key-a" }))
+			.mockResolvedValueOnce(Response.json({ access_token: "token-key-b" }));
 
-		await getGcpServiceAccountAccessToken(
-			serviceAccount(
-				"token-uri@example.com",
-				"http://metadata.google.internal/computeMetadata/v1/token",
-			),
-		);
+		const email = "shared-account@example.com";
+		await expect(
+			getGcpServiceAccountAccessToken(serviceAccount(email)),
+		).resolves.toBe("token-key-a");
+		await expect(
+			getGcpServiceAccountAccessToken(serviceAccount(email)),
+		).resolves.toBe("token-key-b");
 
-		expect(fetchMock).toHaveBeenCalledOnce();
-		expect(fetchMock.mock.calls[0]?.[0]).toBe(GOOGLE_OAUTH_TOKEN_URI);
+		const [keyA, keyB] = redisGetMock.mock.calls.map((call) => call[0]);
+		expect(keyA).not.toBe(keyB);
 	});
 });
