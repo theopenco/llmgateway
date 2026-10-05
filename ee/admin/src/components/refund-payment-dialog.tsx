@@ -29,6 +29,8 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 type RefundReason = "requested_by_customer" | "duplicate" | "fraudulent";
 
@@ -49,6 +51,7 @@ const REFUND_INELIGIBLE_LABELS: Record<string, string> = {
 };
 
 interface RefundPaymentDialogProps {
+	orgId: string;
 	transactionId: string;
 	transactionLabel: string;
 	amount: string;
@@ -56,15 +59,10 @@ interface RefundPaymentDialogProps {
 	refundedAmount: string;
 	refundable: boolean;
 	refundIneligibleReason: string | null;
-	onRefund: (data: {
-		transactionId: string;
-		amount?: number;
-		reason: RefundReason;
-		comment?: string;
-	}) => Promise<{ success: boolean; message?: string; error?: string }>;
 }
 
 export function RefundPaymentDialog({
+	orgId,
 	transactionId,
 	transactionLabel,
 	amount,
@@ -72,16 +70,36 @@ export function RefundPaymentDialog({
 	refundedAmount,
 	refundable,
 	refundIneligibleReason,
-	onRefund,
 }: RefundPaymentDialogProps) {
 	const router = useRouter();
+	const $api = useApi();
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [validationError, setValidationError] = useState<string | null>(null);
 	const [partial, setPartial] = useState(false);
 	const [partialAmount, setPartialAmount] = useState(refundableAmount);
 	const [reason, setReason] = useState<RefundReason>("requested_by_customer");
 	const [comment, setComment] = useState("");
+
+	const refundMutation = $api.useMutation(
+		"post",
+		"/admin/devpass/{orgId}/refund",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
+				setOpen(false);
+				setPartial(false);
+				setPartialAmount(refundableAmount);
+				setComment("");
+				router.refresh();
+			},
+		},
+	);
+	const loading = refundMutation.isPending;
+	const error =
+		validationError ??
+		(refundMutation.isError
+			? apiErrorMessage(refundMutation.error, "Failed to refund payment")
+			: null);
 
 	if (!refundable) {
 		const label = refundIneligibleReason
@@ -108,7 +126,15 @@ export function RefundPaymentDialog({
 		);
 	}
 
-	const handleSubmit = async () => {
+	const handleOpenChange = (next: boolean) => {
+		if (next) {
+			refundMutation.reset();
+			setValidationError(null);
+		}
+		setOpen(next);
+	};
+
+	const handleSubmit = () => {
 		let requestedAmount: number | undefined;
 		if (partial) {
 			requestedAmount = parseFloat(partialAmount);
@@ -117,38 +143,27 @@ export function RefundPaymentDialog({
 				requestedAmount <= 0 ||
 				requestedAmount > parseFloat(refundableAmount)
 			) {
-				setError(
+				setValidationError(
 					`Amount must be between $0.01 and ${formatUsd(refundableAmount)}`,
 				);
 				return;
 			}
 		}
 
-		setLoading(true);
-		setError(null);
-
-		const result = await onRefund({
-			transactionId,
-			amount: requestedAmount,
-			reason,
-			comment: comment.trim() || undefined,
+		setValidationError(null);
+		refundMutation.mutate({
+			params: { path: { orgId } },
+			body: {
+				transactionId,
+				amount: requestedAmount,
+				reason,
+				comment: comment.trim() || undefined,
+			},
 		});
-
-		setLoading(false);
-
-		if (result.success) {
-			setOpen(false);
-			setPartial(false);
-			setPartialAmount(refundableAmount);
-			setComment("");
-			router.refresh();
-		} else {
-			setError(result.error ?? "Failed to refund payment");
-		}
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogTrigger asChild>
 				<Button variant="ghost" size="sm">
 					<Undo2 className="mr-1.5 h-4 w-4" />

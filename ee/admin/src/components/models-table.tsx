@@ -17,7 +17,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { getModelHistory } from "@/lib/admin-history";
+import { useHistoryClient } from "@/lib/history-client";
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
@@ -144,11 +144,12 @@ function ModelRow({
 	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
+	const history = useHistoryClient();
 	const fetchData = useCallback(
 		async (window: HistoryWindow) => {
-			return await getModelHistory(model.id, window, usageMode);
+			return await history.modelHistory(model.id, window, usageMode);
 		},
-		[model.id, usageMode],
+		[history, model.id, usageMode],
 	);
 
 	return (

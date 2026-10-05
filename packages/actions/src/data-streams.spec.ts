@@ -313,18 +313,30 @@ describe("data streams", () => {
 	test("pauses after repeated rejections and notifies admins", async () => {
 		const old = new Date(Date.now() - TEN_MINUTES_MS);
 		await seedAudit(["p1"], old);
+		// Earlier transient failures do not count towards the rejection limit.
 		const stream = await seedStream(new Date(old.getTime() - 1000), {
-			failureCount: DATA_STREAM_MAX_REJECTIONS - 1,
+			failureCount: DATA_STREAM_MAX_REJECTIONS + 4,
+			rejectionCount: DATA_STREAM_MAX_REJECTIONS - 2,
 			lastErrorAt: new Date(Date.now() - ONE_HOUR_MS),
 		});
 		status = 413;
 
-		const result = await runDataStream(stream);
+		const first = await runDataStream(stream);
+		expect(first.paused).toBe(false);
+		const rejectedOnce = await reload();
+		expect(rejectedOnce.enabled).toBe(true);
+		expect(rejectedOnce.rejectionCount).toBe(DATA_STREAM_MAX_REJECTIONS - 1);
+
+		const result = await runDataStream({
+			...rejectedOnce,
+			lastErrorAt: new Date(Date.now() - ONE_HOUR_MS),
+		});
 		expect(result.paused).toBe(true);
 		const paused = await reload();
 		expect(paused.enabled).toBe(false);
 		expect(paused.pausedReason).toContain("rejected");
-		expect(paused.failureCount).toBe(DATA_STREAM_MAX_REJECTIONS);
+		expect(paused.rejectionCount).toBe(DATA_STREAM_MAX_REJECTIONS);
+		expect(paused.failureCount).toBe(DATA_STREAM_MAX_REJECTIONS + 6);
 		expect(await loadActiveDataStream(STREAM_ID)).toBeNull();
 
 		const alerts = await db.query.organizationAlert.findMany({

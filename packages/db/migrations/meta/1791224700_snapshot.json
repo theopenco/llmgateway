@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "3207d675-40c2-4337-817d-8220937b5ec1",
+  "id": "9afd503a-681b-4dc3-9a7b-0945929f572c",
   "prevId": "cd785604-aa81-4b67-b78a-2d8c573fe841",
   "ddl": [
     {
@@ -7105,6 +7105,22 @@
       "generated": null,
       "identity": null,
       "name": "failure_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "data_stream"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "rejection_count",
       "entityType": "columns",
       "schema": "public",
       "table": "data_stream"

@@ -2,7 +2,7 @@
 
 import { Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 import { MODEL_ERROR_RATE_ALERTS_MAX_RULES } from "@llmgateway/shared";
 
@@ -32,39 +34,42 @@ const numericFields: Array<{ key: NumericField; label: string }> = [
 
 interface ModelErrorRateAlertsFormProps {
 	settings: ModelErrorRateAlertsSettings;
-	onSave: (
-		input: ModelErrorRateAlertsSettings,
-	) => Promise<{ ok: boolean; message: string | null }>;
 }
 
 export function ModelErrorRateAlertsForm({
 	settings,
-	onSave,
 }: ModelErrorRateAlertsFormProps) {
 	const router = useRouter();
 	const readOnly = !canWrite(useAdminRole());
-	const [pending, startTransition] = useTransition();
+	const $api = useApi();
 	const [enabled, setEnabled] = useState(settings.enabled);
 	const [rules, setRules] = useState(settings.rules);
-	const [error, setError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
+	const mutation = $api.useMutation(
+		"put",
+		"/admin/settings/model-error-rate-alerts",
+		{ meta: { inlineError: true } },
+	);
+	const pending = mutation.isPending;
+	const error = mutation.isError
+		? apiErrorMessage(mutation.error, "Failed to update the error-rate alerts.")
+		: null;
 
 	const save = (nextEnabled: boolean) => {
 		// `enabled` is still the pre-toggle value inside this closure.
 		const previousEnabled = enabled;
-		setError(null);
 		setSaved(false);
-		startTransition(async () => {
-			const result = await onSave({ enabled: nextEnabled, rules });
-			if (!result.ok) {
-				setEnabled(previousEnabled);
-				setError(result.message);
-				return;
-			}
-			setEnabled(nextEnabled);
-			setSaved(true);
-			router.refresh();
-		});
+		mutation.mutate(
+			{ body: { enabled: nextEnabled, rules } },
+			{
+				onSuccess: () => {
+					setEnabled(nextEnabled);
+					setSaved(true);
+					router.refresh();
+				},
+				onError: () => setEnabled(previousEnabled),
+			},
+		);
 	};
 
 	const updateRule = (id: string, patch: Partial<ModelErrorRateAlertRule>) => {

@@ -1,10 +1,16 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	MutationCache,
+	QueryClient,
+	QueryClientProvider,
+} from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { useMemo } from "react";
+import { toast } from "sonner";
 
 import { Toaster } from "@/components/ui/sonner";
+import { apiErrorMessage } from "@/lib/api-error";
 import { AppConfigProvider } from "@/lib/config";
 
 import type { AppConfig } from "@/lib/config-server";
@@ -19,6 +25,22 @@ export function Providers({ children, config }: ProvidersProps) {
 	const queryClient = useMemo(
 		() =>
 			new QueryClient({
+				// Every mutation failure surfaces, even where a call site forgets to
+				// handle it. Call sites that show the error themselves set
+				// `meta.inlineError` or their own `onError`.
+				mutationCache: new MutationCache({
+					onError: (error, _variables, _context, mutation) => {
+						if (mutation.options.onError || mutation.meta?.inlineError) {
+							return;
+						}
+						toast.error(
+							apiErrorMessage(
+								error,
+								mutation.meta?.errorMessage ?? "Request failed",
+							),
+						);
+					},
+				}),
 				defaultOptions: {
 					queries: {
 						refetchOnWindowFocus: false,

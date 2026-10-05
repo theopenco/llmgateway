@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	getModelStreamingSupport,
 	resolvePricingPeriod,
 	resolveTierTimeBasedPricing,
 	resolveTimeBasedPricing,
 } from "./helpers.js";
 import { models } from "./models.js";
+import { expandAllProviderRegions } from "./region-helpers.js";
 
 import type { ProviderModelMapping } from "./models.js";
 
@@ -249,5 +251,25 @@ describe("catalogue tier peak pricing", () => {
 			}
 		}
 		expect(violations).toEqual([]);
+	});
+});
+
+describe("getModelStreamingSupport", () => {
+	it("returns the streaming flag of the matching mapping", () => {
+		for (const model of models) {
+			for (const mapping of expandAllProviderRegions(model.providers)) {
+				expect(
+					getModelStreamingSupport(
+						model.id,
+						mapping.providerId,
+						mapping.region,
+					),
+				).toBe(mapping.streaming);
+			}
+		}
+	});
+
+	it("returns null for an unknown model", () => {
+		expect(getModelStreamingSupport("does-not-exist")).toBeNull();
 	});
 });

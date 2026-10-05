@@ -21,7 +21,8 @@ CREATE TABLE "data_stream" (
 	"last_delivered_at" timestamp,
 	"last_error" text,
 	"last_error_at" timestamp,
-	"failure_count" integer DEFAULT 0 NOT NULL
+	"failure_count" integer DEFAULT 0 NOT NULL,
+	"rejection_count" integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
 ALTER TABLE "organization" ADD COLUMN "data_streams_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint

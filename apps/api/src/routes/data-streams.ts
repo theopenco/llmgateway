@@ -391,6 +391,7 @@ dataStreams.openapi(updateStreamRoute, async (c) => {
 						lastError: null,
 						lastErrorAt: null,
 						failureCount: 0,
+						rejectionCount: 0,
 					}
 				: {}),
 			config,

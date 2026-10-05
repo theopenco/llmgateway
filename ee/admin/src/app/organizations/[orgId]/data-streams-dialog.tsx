@@ -16,48 +16,65 @@ import {
 	DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 interface DataStreamsDialogProps {
+	orgId: string;
 	orgName: string;
 	dataStreamsEnabled: boolean;
 	requestLogExportEnabled: boolean;
-	onSave: (data: {
-		dataStreamsEnabled: boolean;
-		requestLogExportEnabled: boolean;
-	}) => Promise<{ success: boolean; error?: string }>;
 }
 
 export function DataStreamsDialog({
+	orgId,
 	orgName,
 	dataStreamsEnabled,
 	requestLogExportEnabled,
-	onSave,
 }: DataStreamsDialogProps) {
 	const router = useRouter();
+	const $api = useApi();
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 	const [streams, setStreams] = useState(dataStreamsEnabled);
 	const [requestLogs, setRequestLogs] = useState(requestLogExportEnabled);
 
-	const handleSubmit = async () => {
-		setLoading(true);
-		setError(null);
-		const result = await onSave({
-			dataStreamsEnabled: streams,
-			requestLogExportEnabled: streams && requestLogs,
-		});
-		setLoading(false);
-		if (result.success) {
-			setOpen(false);
-			router.refresh();
-		} else {
-			setError(result.error ?? "Failed to update data stream access");
+	const saveMutation = $api.useMutation(
+		"patch",
+		"/admin/organizations/{orgId}/data-streams",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
+				setOpen(false);
+				router.refresh();
+			},
+		},
+	);
+	const loading = saveMutation.isPending;
+	const error = saveMutation.isError
+		? apiErrorMessage(saveMutation.error, "Failed to update data stream access")
+		: null;
+
+	const handleOpenChange = (next: boolean) => {
+		if (next) {
+			saveMutation.reset();
+			setStreams(dataStreamsEnabled);
+			setRequestLogs(requestLogExportEnabled);
 		}
+		setOpen(next);
+	};
+
+	const handleSubmit = () => {
+		saveMutation.mutate({
+			params: { path: { orgId } },
+			body: {
+				dataStreamsEnabled: streams,
+				requestLogExportEnabled: streams && requestLogs,
+			},
+		});
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogTrigger asChild>
 				<Button variant="outline" size="sm">
 					<RadioTower className="mr-1.5 h-4 w-4" />
@@ -86,7 +103,13 @@ export function DataStreamsDialog({
 						<Checkbox
 							id="dataStreamsEnabled"
 							checked={streams}
-							onCheckedChange={(checked) => setStreams(checked === true)}
+							onCheckedChange={(checked) => {
+								const next = checked === true;
+								setStreams(next);
+								if (!next) {
+									setRequestLogs(false);
+								}
+							}}
 						/>
 					</div>
 					<div className="flex items-center justify-between gap-4">

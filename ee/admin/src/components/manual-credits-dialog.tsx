@@ -24,6 +24,8 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 export type ManualPaymentMethod = "wire" | "crypto" | "paypal" | "other";
 
@@ -35,62 +37,75 @@ const PAYMENT_METHOD_LABELS: Record<ManualPaymentMethod, string> = {
 };
 
 interface ManualCreditsDialogProps {
+	orgId: string;
 	orgName: string;
-	onCredit: (data: {
-		creditAmount: number;
-		paymentMethod: ManualPaymentMethod;
-		externalReference?: string;
-		comment?: string;
-	}) => Promise<{ success: boolean; error?: string }>;
 }
 
 export function ManualCreditsDialog({
+	orgId,
 	orgName,
-	onCredit,
 }: ManualCreditsDialogProps) {
 	const router = useRouter();
+	const $api = useApi();
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [validationError, setValidationError] = useState<string | null>(null);
 	const [creditAmount, setCreditAmount] = useState("");
 	const [paymentMethod, setPaymentMethod] =
 		useState<ManualPaymentMethod>("wire");
 	const [externalReference, setExternalReference] = useState("");
 	const [comment, setComment] = useState("");
 
-	const handleSubmit = async () => {
+	const creditMutation = $api.useMutation(
+		"post",
+		"/admin/organizations/{orgId}/manual-credits",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
+				setOpen(false);
+				setCreditAmount("");
+				setPaymentMethod("wire");
+				setExternalReference("");
+				setComment("");
+				router.refresh();
+			},
+		},
+	);
+	const loading = creditMutation.isPending;
+	const error =
+		validationError ??
+		(creditMutation.isError
+			? apiErrorMessage(creditMutation.error, "Failed to add credits")
+			: null);
+
+	const handleOpenChange = (next: boolean) => {
+		if (next) {
+			creditMutation.reset();
+			setValidationError(null);
+		}
+		setOpen(next);
+	};
+
+	const handleSubmit = () => {
 		const amount = parseFloat(creditAmount);
 		if (isNaN(amount) || amount <= 0) {
-			setError("Credit amount must be a positive number");
+			setValidationError("Credit amount must be a positive number");
 			return;
 		}
 
-		setLoading(true);
-		setError(null);
-
-		const result = await onCredit({
-			creditAmount: amount,
-			paymentMethod,
-			externalReference: externalReference.trim() || undefined,
-			comment: comment.trim() || undefined,
+		setValidationError(null);
+		creditMutation.mutate({
+			params: { path: { orgId } },
+			body: {
+				creditAmount: amount,
+				paymentMethod,
+				externalReference: externalReference.trim() || undefined,
+				comment: comment.trim() || undefined,
+			},
 		});
-
-		setLoading(false);
-
-		if (result.success) {
-			setOpen(false);
-			setCreditAmount("");
-			setPaymentMethod("wire");
-			setExternalReference("");
-			setComment("");
-			router.refresh();
-		} else {
-			setError(result.error ?? "Failed to add credits");
-		}
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogTrigger asChild>
 				<Button variant="outline" size="sm">
 					<Banknote className="mr-1.5 h-4 w-4" />

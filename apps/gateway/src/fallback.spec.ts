@@ -85,7 +85,6 @@ describe("fallback and error status code handling", () => {
 					name: providerDefinition?.name ?? providerId,
 					description:
 						providerDefinition?.description ?? `${providerId} provider`,
-					streaming: providerDefinition?.streaming ?? true,
 					cancellation: providerDefinition?.cancellation ?? false,
 					color: providerDefinition?.color ?? "#000000",
 					website: providerDefinition?.website ?? `https://${providerId}.com`,

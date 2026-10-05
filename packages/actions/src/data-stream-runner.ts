@@ -40,9 +40,9 @@ const SETTLE_DELAY_MS: Record<"audit_logs" | "request_logs", number> = {
 
 const RETRY_BASE_MS = 60_000;
 const RETRY_MAX_MS = 3_600_000;
-/** Consecutive transient failures (5xx, timeouts) before the stream pauses. */
+/** Consecutive failures of any kind before the stream pauses. */
 export const DATA_STREAM_MAX_FAILURES = 20;
-/** Consecutive rejections (4xx) before the stream pauses. */
+/** Rejections (4xx) since the last accepted delivery before the stream pauses. */
 export const DATA_STREAM_MAX_REJECTIONS = 3;
 
 type DataStreamRow = InferSelectModel<typeof tables.dataStream>;
@@ -245,6 +245,7 @@ export async function runDataStream(
 									lastDeliveredAt: now,
 									lastError: null,
 									failureCount: 0,
+									rejectionCount: 0,
 								}
 							: {}),
 					})
@@ -289,6 +290,7 @@ export async function runDataStream(
 					lastDeliveredAt: now,
 					lastError: null,
 					failureCount: 0,
+					rejectionCount: 0,
 				})
 				.where(eq(tables.dataStream.id, stream.id))
 				.returning({ enabled: tables.dataStream.enabled });
@@ -309,18 +311,21 @@ export async function runDataStream(
 		const rejected =
 			error instanceof DataStreamDeliveryError && error.permanent;
 		const failureCount = stream.failureCount + 1;
+		const rejectionCount = stream.rejectionCount + (rejected ? 1 : 0);
 		const pause =
-			failureCount >=
-			(rejected ? DATA_STREAM_MAX_REJECTIONS : DATA_STREAM_MAX_FAILURES);
-		const pausedReason = rejected
-			? `Paused after ${failureCount} rejected deliveries`
-			: `Paused after ${failureCount} failed deliveries`;
+			rejectionCount >= DATA_STREAM_MAX_REJECTIONS ||
+			failureCount >= DATA_STREAM_MAX_FAILURES;
+		const pausedReason =
+			rejectionCount >= DATA_STREAM_MAX_REJECTIONS
+				? `Paused after ${rejectionCount} rejected deliveries`
+				: `Paused after ${failureCount} failed deliveries`;
 		const [updated] = await db
 			.update(tables.dataStream)
 			.set({
 				lastError: message.slice(0, 1000),
 				lastErrorAt: now,
 				failureCount,
+				rejectionCount,
 				...(pause ? { enabled: false, pausedReason } : {}),
 			})
 			.where(

@@ -4587,9 +4587,12 @@ export const dataStream = pgTable(
 		lastDeliveredAt: timestamp(),
 		lastError: text(),
 		lastErrorAt: timestamp(),
-		// Consecutive failed runs; drives the retry backoff and the automatic
-		// pause.
+		// Consecutive failed runs of any kind; drives the retry backoff and the
+		// automatic pause.
 		failureCount: integer().notNull().default(0),
+		// Rejections (4xx) since the last accepted delivery; these pause the
+		// stream much sooner because the destination will not accept the batch.
+		rejectionCount: integer().notNull().default(0),
 	},
 	(table) => [
 		index("data_stream_organization_id_idx").on(table.organizationId),

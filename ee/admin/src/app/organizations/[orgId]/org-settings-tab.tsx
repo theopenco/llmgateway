@@ -263,25 +263,17 @@ function RefBadgeList({ refs }: { refs: string[] | undefined }) {
 }
 
 export function OrgSettingsTab({
+	orgId,
 	settings,
 	paymentMethods,
 	devPlanCardFingerprints,
 	paymentMethodsLoadError,
-	onDeletePaymentMethod,
-	onReleaseDevPlanCardFingerprint,
 }: {
+	orgId: string;
 	settings: SettingsResponse;
 	paymentMethods: AdminPaymentMethod[] | null;
 	devPlanCardFingerprints: AdminDevPlanCardFingerprint[];
 	paymentMethodsLoadError: boolean;
-	onDeletePaymentMethod: (
-		paymentMethodId: string,
-		replacementPaymentMethodId?: string,
-		releaseDevPlanCardFingerprint?: boolean,
-	) => Promise<{ success: boolean; error?: string }>;
-	onReleaseDevPlanCardFingerprint: (
-		fingerprintId: string,
-	) => Promise<{ success: boolean; error?: string }>;
 }) {
 	const { organization: org, customProviders } = settings;
 	const policy =
@@ -594,12 +586,11 @@ export function OrgSettingsTab({
 					</div>
 
 					<PaymentMethodsList
+						orgId={orgId}
 						paymentMethods={paymentMethods}
 						devPlanCardFingerprints={devPlanCardFingerprints}
 						loadError={paymentMethodsLoadError}
 						autoTopUpEnabled={org.autoTopUpEnabled}
-						onDelete={onDeletePaymentMethod}
-						onReleaseFingerprint={onReleaseDevPlanCardFingerprint}
 					/>
 				</CardContent>
 			</Card>
