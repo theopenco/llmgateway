@@ -242,10 +242,25 @@ export function ProviderIncidentErrorTypes({
 				</p>
 			)}
 			<ul className="space-y-3">
-				{data.errors.map((error, i) => (
-					<ErrorTypeItem key={i} error={error} providerId={providerId} />
+				{data.errors.map((error) => (
+					<ErrorTypeItem
+						key={errorTypeKey(error)}
+						error={error}
+						providerId={providerId}
+					/>
 				))}
 			</ul>
 		</div>
 	);
+}
+// Stable per-shape key so a refetch that reorders shapes keeps each item's
+// expanded state with its own error.
+function errorTypeKey(error: ErrorType): string {
+	return JSON.stringify([
+		error.statusCode,
+		error.statusText,
+		error.classification,
+		error.cause,
+		error.responseText,
+	]);
 }
