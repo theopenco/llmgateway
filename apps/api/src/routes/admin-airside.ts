@@ -5,6 +5,11 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	ICON_MAX_BYTES,
+	imageDataUrl,
+	LOGO_MAX_BYTES,
+} from "@/lib/airside-branding.js";
+import {
 	dematerializeAirsideModel,
 	materializeAirsideModel,
 	syncAirsideModelMetadata,
@@ -27,10 +32,17 @@ import {
 	queryIncidentMappings,
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
+import {
+	clearClaimVerificationKey,
+	saveClaimVerificationKey,
+} from "@/lib/model-verification.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import {
 	AIRSIDE_BASELINE_MARGIN,
+	AIRSIDE_DISCOUNT_MAX,
+	AIRSIDE_MARGIN_MAX,
+	AIRSIDE_MARGIN_MIN,
 	and,
 	cdb,
 	computeAirsideAdjustment,
@@ -48,6 +60,11 @@ import {
 	providers as catalogueProviders,
 	PROVIDER_API_FORMATS,
 } from "@llmgateway/models";
+import {
+	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
+	providerBaseUrlHasEndpointPath,
+} from "@llmgateway/shared";
+import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -145,6 +162,8 @@ const adminRoutingFilingSchema = z.object({
 	providerId: z.string(),
 	modelId: z.string().nullable(),
 	status: z.enum(["pending", "approved", "rejected"]),
+	initiatedBy: z.enum(["carrier", "admin"]),
+	clearsOverride: z.boolean(),
 	discountPercent: z.number(),
 	marginPercent: z.number(),
 	routingAdjustment: z.number(),
@@ -177,6 +196,8 @@ function serializeAdminRoutingFiling(
 		providerId: row.providerId,
 		modelId: row.modelId,
 		status: row.status,
+		initiatedBy: row.initiatedBy,
+		clearsOverride: row.clearsOverride,
 		discountPercent,
 		marginPercent,
 		routingAdjustment: computeAirsideAdjustment(discountPercent, marginPercent),
@@ -1596,6 +1617,403 @@ adminAirside.openapi(rejectRoutingFiling, async (c) => {
 		});
 	}
 	return c.json({ filing: await serializeRoutingFilingWithCurrent(id) });
+});
+
+// ---------------------------------------------------------------------------
+// Direct carrier settings edits. Admin changes skip the filing and branding
+// review queues the carrier portal goes through.
+// ---------------------------------------------------------------------------
+
+async function getActiveClaim(id: string) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	if (claim.status !== "active") {
+		throw new HTTPException(409, {
+			message: "Only an active claim's settings can be edited.",
+		});
+	}
+	return claim as ClaimWithRelations;
+}
+
+const updateClaimSettings = createRoute({
+	method: "patch",
+	path: "/airside/claims/{id}/settings",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						name: z.string().trim().min(2).max(100).optional(),
+						// Custom carriers only.
+						baseUrl: z.string().url().max(500).optional(),
+						description: z.string().max(2000).nullable().optional(),
+						// null clears the image; omitted keeps the current one.
+						logoUrl: imageDataUrl(LOGO_MAX_BYTES).nullish(),
+						iconUrl: imageDataUrl(ICON_MAX_BYTES).nullish(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ claim: adminClaimSchema }) },
+			},
+			description: "The claim with the changes applied immediately.",
+		},
+	},
+});
+
+adminAirside.openapi(updateClaimSettings, async (c) => {
+	const { id } = c.req.valid("param");
+	const body = c.req.valid("json");
+	const claim = await getActiveClaim(id);
+	if (
+		claim.kind !== "custom" &&
+		(body.baseUrl !== undefined || body.description !== undefined)
+	) {
+		throw new HTTPException(400, {
+			message: "Only custom carriers have a base URL and description.",
+		});
+	}
+	if (body.baseUrl !== undefined) {
+		if (providerBaseUrlHasEndpointPath(body.baseUrl)) {
+			throw new HTTPException(400, {
+				message: PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
+			});
+		}
+		await assertSafeProviderUrl(body.baseUrl);
+	}
+	const changes = {
+		...(body.name !== undefined ? { customName: body.name } : {}),
+		...(body.baseUrl !== undefined ? { customBaseUrl: body.baseUrl } : {}),
+		...(body.description !== undefined
+			? { customDescription: body.description }
+			: {}),
+		...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}),
+		...(body.iconUrl !== undefined ? { iconUrl: body.iconUrl } : {}),
+	};
+	if (Object.keys(changes).length === 0) {
+		return c.json({ claim: await serializeAdminClaim(claim) });
+	}
+	// cdb: the gateway resolves custom carriers (base URL, branding) from
+	// cached claim rows.
+	const [updated] = await cdb
+		.update(tables.providerClaim)
+		.set(changes)
+		.where(eq(tables.providerClaim.id, id))
+		.returning();
+	return c.json({
+		claim: await serializeAdminClaim({
+			...updated,
+			providerCompany: claim.providerCompany,
+		}),
+	});
+});
+
+const adminVerificationKeySchema = z.object({
+	verificationKeyMasked: z.string().nullable(),
+	verificationKeySetAt: z.string().nullable(),
+});
+
+const setClaimVerificationKey = createRoute({
+	method: "put",
+	path: "/airside/claims/{id}/verification-key",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ apiKey: z.string().min(1).max(20_000) }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: { "application/json": { schema: adminVerificationKeySchema } },
+			description: "The saved verification key, masked.",
+		},
+	},
+});
+
+adminAirside.openapi(setClaimVerificationKey, async (c) => {
+	const { id } = c.req.valid("param");
+	const { apiKey } = c.req.valid("json");
+	const claim = await getActiveClaim(id);
+	return c.json(await saveClaimVerificationKey(claim, apiKey));
+});
+
+const deleteClaimVerificationKey = createRoute({
+	method: "delete",
+	path: "/airside/claims/{id}/verification-key",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: { "application/json": { schema: adminVerificationKeySchema } },
+			description: "The cleared verification key.",
+		},
+	},
+});
+
+adminAirside.openapi(deleteClaimVerificationKey, async (c) => {
+	const { id } = c.req.valid("param");
+	await getActiveClaim(id);
+	await clearClaimVerificationKey(id);
+	return c.json({ verificationKeyMasked: null, verificationKeySetAt: null });
+});
+
+const updateCompanySettings = createRoute({
+	method: "patch",
+	path: "/airside/companies/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						website: z.string().url().max(500).nullable(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						id: z.string(),
+						website: z.string().nullable(),
+					}),
+				},
+			},
+			description: "The updated company.",
+		},
+	},
+});
+
+adminAirside.openapi(updateCompanySettings, async (c) => {
+	const { id } = c.req.valid("param");
+	const { website } = c.req.valid("json");
+	const [updated] = await db
+		.update(tables.providerCompany)
+		.set({ website })
+		.where(eq(tables.providerCompany.id, id))
+		.returning({
+			id: tables.providerCompany.id,
+			website: tables.providerCompany.website,
+		});
+	if (!updated) {
+		throw new HTTPException(404, { message: "Company not found" });
+	}
+	return c.json(updated);
+});
+
+async function getActiveCarrierClaim(providerId: string) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { providerId: { eq: providerId }, status: { eq: "active" } },
+	});
+	if (!claim) {
+		throw new HTTPException(404, {
+			message: "This provider has no active carrier.",
+		});
+	}
+	return claim;
+}
+
+function routingScope(providerId: string, modelId: string | null) {
+	return and(
+		eq(tables.providerRoutingSettings.providerId, providerId),
+		modelId
+			? eq(tables.providerRoutingSettings.modelId, modelId)
+			: sql`${tables.providerRoutingSettings.modelId} IS NULL`,
+	);
+}
+
+// A carrier filing still pending for the scope would overwrite the admin's
+// fare (or recreate a removed override) once approved, so it is rejected.
+function rejectPendingFilings(
+	tx: Pick<typeof db, "update">,
+	providerId: string,
+	modelId: string | null,
+	userId: string | null,
+	reviewNote: string,
+) {
+	return tx
+		.update(tables.providerRoutingFiling)
+		.set({
+			status: "rejected",
+			reviewedBy: userId,
+			reviewNote,
+			reviewedAt: new Date(),
+		})
+		.where(
+			and(
+				eq(tables.providerRoutingFiling.providerId, providerId),
+				modelId
+					? eq(tables.providerRoutingFiling.modelId, modelId)
+					: sql`${tables.providerRoutingFiling.modelId} IS NULL`,
+				eq(tables.providerRoutingFiling.status, "pending"),
+			),
+		);
+}
+
+// Admin fare changes skip review, so their filing is born approved.
+function adminFilingFields(userId: string | null) {
+	return {
+		status: "approved" as const,
+		initiatedBy: "admin" as const,
+		requestedBy: userId,
+		reviewedBy: userId,
+		reviewedAt: new Date(),
+	};
+}
+
+const setRoutingSettings = createRoute({
+	method: "put",
+	path: "/airside/routing-settings/{providerId}",
+	request: {
+		params: z.object({ providerId: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						// null/omitted sets the carrier default.
+						modelId: z.string().min(1).max(200).nullable().optional(),
+						discountPercent: z.number().min(0).max(AIRSIDE_DISCOUNT_MAX),
+						marginPercent: z
+							.number()
+							.min(AIRSIDE_MARGIN_MIN)
+							.max(AIRSIDE_MARGIN_MAX),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ ok: z.boolean() }) },
+			},
+			description: "The fare is live immediately.",
+		},
+	},
+});
+
+adminAirside.openapi(setRoutingSettings, async (c) => {
+	const { providerId } = c.req.valid("param");
+	const body = c.req.valid("json");
+	const modelId = body.modelId ?? null;
+	const claim = await getActiveCarrierClaim(providerId);
+	if (modelId) {
+		const model = await db.query.providerDraftModel.findFirst({
+			where: {
+				providerId: { eq: providerId },
+				modelName: { eq: modelId },
+				status: { eq: "active" },
+			},
+			columns: { id: true },
+		});
+		if (!model) {
+			throw new HTTPException(404, { message: "Active model not found." });
+		}
+	}
+	const values = {
+		providerCompanyId: claim.providerCompanyId,
+		discountPercent: String(body.discountPercent),
+		marginPercent: String(body.marginPercent),
+	};
+	const userId = c.get("user")?.id ?? null;
+	// cdb: the gateway prices the routing election from provider_routing_settings.
+	await cdb.transaction(async (tx) => {
+		await rejectPendingFilings(
+			tx,
+			providerId,
+			modelId,
+			userId,
+			"Superseded by an admin fare change.",
+		);
+		const updated = await tx
+			.update(tables.providerRoutingSettings)
+			.set(values)
+			.where(routingScope(providerId, modelId))
+			.returning({ id: tables.providerRoutingSettings.id });
+		if (updated.length === 0) {
+			await tx
+				.insert(tables.providerRoutingSettings)
+				.values({ ...values, providerId, modelId });
+		}
+		await tx.insert(tables.providerRoutingFiling).values({
+			...values,
+			...adminFilingFields(userId),
+			providerId,
+			modelId,
+		});
+	});
+	return c.json({ ok: true });
+});
+
+const deleteRoutingOverride = createRoute({
+	method: "delete",
+	path: "/airside/routing-settings/{providerId}/override",
+	request: {
+		params: z.object({ providerId: z.string() }),
+		query: z.object({ modelId: z.string().min(1) }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ ok: z.boolean() }) },
+			},
+			description: "The model falls back to the carrier default fare.",
+		},
+	},
+});
+
+adminAirside.openapi(deleteRoutingOverride, async (c) => {
+	const { providerId } = c.req.valid("param");
+	const { modelId } = c.req.valid("query");
+	const userId = c.get("user")?.id ?? null;
+	await cdb.transaction(async (tx) => {
+		const deleted = await tx
+			.delete(tables.providerRoutingSettings)
+			.where(routingScope(providerId, modelId))
+			.returning();
+		if (deleted.length === 0) {
+			throw new HTTPException(404, { message: "Override not found" });
+		}
+		await rejectPendingFilings(
+			tx,
+			providerId,
+			modelId,
+			userId,
+			"Superseded by an admin override removal.",
+		);
+		const [fallback] = await tx
+			.select()
+			.from(tables.providerRoutingSettings)
+			.where(routingScope(providerId, null))
+			.limit(1);
+		// Record the default fare the model now inherits.
+		await tx.insert(tables.providerRoutingFiling).values({
+			...adminFilingFields(userId),
+			providerCompanyId: deleted[0].providerCompanyId,
+			providerId,
+			modelId,
+			discountPercent: fallback?.discountPercent ?? "0",
+			marginPercent: fallback?.marginPercent ?? String(AIRSIDE_BASELINE_MARGIN),
+			clearsOverride: true,
+		});
+	});
+	return c.json({ ok: true });
 });
 
 // ---------------------------------------------------------------------------

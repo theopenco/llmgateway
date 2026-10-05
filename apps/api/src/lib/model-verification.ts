@@ -206,6 +206,18 @@ export async function saveClaimVerificationKey(
 	};
 }
 
+export async function clearClaimVerificationKey(claimId: string) {
+	// cdb: claim rows feed the gateway's custom-carrier resolution cache.
+	await cdb
+		.update(tables.providerClaim)
+		.set({
+			verificationKeyCiphertext: null,
+			verificationKeyMasked: null,
+			verificationKeyUpdatedAt: null,
+		})
+		.where(eq(tables.providerClaim.id, claimId));
+}
+
 /**
  * Picks the credential the worker will run the checks with.
  *

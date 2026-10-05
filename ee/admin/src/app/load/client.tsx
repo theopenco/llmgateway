@@ -347,7 +347,8 @@ export function LoadClient() {
 	// The tenant rollups carry one blended latency sum with no per-mode split,
 	// and buckets aggregated before the latency columns existed have no samples
 	// at all — both surface as nulls, so say which one it is.
-	const modeBlended = mode !== "total" && data?.source === "project-stats";
+	const modeBlended =
+		mode !== "total" && data?.summarySource === "project-stats";
 	const latencyHint = modeBlended
 		? "Unavailable for a single billing mode"
 		: data?.summary.avgDurationMs === null

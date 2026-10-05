@@ -1008,6 +1008,11 @@ export function AirsideFilingsClient() {
 										</TableCell>
 										<TableCell className="font-mono text-xs">
 											{filing.modelId ?? "All models"}
+											{filing.clearsOverride ? (
+												<span className="text-muted-foreground block font-sans">
+													override removed
+												</span>
+											) : null}
 										</TableCell>
 										<TableCell className="font-mono text-xs">
 											{Math.round(filing.currentDiscountPercent * 100)}% →{" "}
@@ -1026,9 +1031,14 @@ export function AirsideFilingsClient() {
 											</TableCell>
 										)}
 										<TableCell>
-											<Badge variant={STATUS_BADGE[filing.status]}>
-												{filing.status}
-											</Badge>
+											<div className="flex items-center gap-1">
+												<Badge variant={STATUS_BADGE[filing.status]}>
+													{filing.status}
+												</Badge>
+												{filing.initiatedBy === "admin" ? (
+													<Badge variant="outline">by admin</Badge>
+												) : null}
+											</div>
 										</TableCell>
 										<TableCell className="text-right">
 											{filing.status === "pending" ? (
