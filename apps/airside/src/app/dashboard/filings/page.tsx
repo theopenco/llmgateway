@@ -124,14 +124,9 @@ export default function FilingsPage() {
 											{formatPerMillion(filing.outputPrice)}
 										</TableCell>
 										<TableCell>
-											<div className="flex items-center gap-1">
-												<Badge variant={STATUS_VARIANT[filing.status]}>
-													{filing.status}
-												</Badge>
-												{filing.initiatedBy === "admin" ? (
-													<Badge variant="outline">set by LLMGateway</Badge>
-												) : null}
-											</div>
+											<Badge variant={STATUS_VARIANT[filing.status]}>
+												{filing.status}
+											</Badge>
 										</TableCell>
 										<TableCell className="text-muted-foreground text-xs">
 											<RelativeDate date={filing.createdAt} />
@@ -194,9 +189,14 @@ export default function FilingsPage() {
 											{Math.round(filing.marginPercent * 100)}%
 										</TableCell>
 										<TableCell>
-											<Badge variant={STATUS_VARIANT[filing.status]}>
-												{filing.status}
-											</Badge>
+											<div className="flex items-center gap-1">
+												<Badge variant={STATUS_VARIANT[filing.status]}>
+													{filing.status}
+												</Badge>
+												{filing.initiatedBy === "admin" ? (
+													<Badge variant="outline">set by LLMGateway</Badge>
+												) : null}
+											</div>
 										</TableCell>
 										<TableCell className="text-muted-foreground text-xs">
 											<RelativeDate date={filing.createdAt} />
