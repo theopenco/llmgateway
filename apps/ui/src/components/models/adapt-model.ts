@@ -7,6 +7,7 @@ import type {
 } from "@/lib/fetch-models";
 import type {
 	ModelDefinition,
+	PeakPricing,
 	ProviderModelMapping,
 	ProviderDefinition,
 } from "@llmgateway/models";
@@ -28,6 +29,15 @@ const toStr = (v: string | undefined): string | null => v ?? null;
 const toStrRecord = (
 	v: Record<string, string> | undefined,
 ): Record<string, string> | null => v ?? null;
+
+const toTimeBasedPrices = (rates: PeakPricing["peak"]) => ({
+	inputPrice: String(rates.inputPrice),
+	outputPrice: String(rates.outputPrice),
+	cachedInputPrice:
+		rates.cachedInputPrice !== undefined
+			? String(rates.cachedInputPrice)
+			: null,
+});
 
 export function adaptProviderMapping(
 	p: ProviderWithInfo,
@@ -109,26 +119,18 @@ export function adaptProviderMapping(
 							t.cacheWriteInputPrice1h !== undefined
 								? String(t.cacheWriteInputPrice1h)
 								: null,
+						peakPricing: t.peakPricing
+							? {
+									peak: toTimeBasedPrices(t.peakPricing.peak),
+									offPeak: toTimeBasedPrices(t.peakPricing.offPeak),
+								}
+							: null,
 					}))
 				: null,
 			peakPricing: p.peakPricing
 				? {
-						peak: {
-							inputPrice: String(p.peakPricing.peak.inputPrice),
-							outputPrice: String(p.peakPricing.peak.outputPrice),
-							cachedInputPrice:
-								p.peakPricing.peak.cachedInputPrice !== undefined
-									? String(p.peakPricing.peak.cachedInputPrice)
-									: null,
-						},
-						offPeak: {
-							inputPrice: String(p.peakPricing.offPeak.inputPrice),
-							outputPrice: String(p.peakPricing.offPeak.outputPrice),
-							cachedInputPrice:
-								p.peakPricing.offPeak.cachedInputPrice !== undefined
-									? String(p.peakPricing.offPeak.cachedInputPrice)
-									: null,
-						},
+						peak: toTimeBasedPrices(p.peakPricing.peak),
+						offPeak: toTimeBasedPrices(p.peakPricing.offPeak),
 						hoursUtc: p.peakPricing.hoursUtc.map(([start, end]) => [
 							start,
 							end,
