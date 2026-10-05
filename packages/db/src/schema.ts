@@ -1281,6 +1281,11 @@ export const userProject = pgTable(
 	],
 );
 
+export const SEMANTIC_CACHE_MODES = ["off", "shadow", "on"] as const;
+export type SemanticCacheMode = (typeof SEMANTIC_CACHE_MODES)[number];
+export const SEMANTIC_CACHE_MIN_THRESHOLD = 0.9;
+export const SEMANTIC_CACHE_MAX_THRESHOLD = 0.999;
+
 export const project = pgTable(
 	"project",
 	{
@@ -1296,6 +1301,15 @@ export const project = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		cachingEnabled: boolean().notNull().default(false),
 		cacheDurationSeconds: integer().notNull().default(60),
+		// Reuse cached responses for prompts whose final user turn embeds at
+		// least `semanticCacheThreshold` cosine-similar to a cached one.
+		// "shadow" records would-be hits on the log row without serving them,
+		// so a threshold can be measured before it affects answers. Requires
+		// `cachingEnabled`.
+		semanticCacheMode: text({ enum: SEMANTIC_CACHE_MODES })
+			.notNull()
+			.default("off"),
+		semanticCacheThreshold: real().notNull().default(0.95),
 		// How provider-side prompt-cache markers are handled for this project.
 		// "passthrough" exists because a single key often serves both a coding
 		// agent that manages its own markers and traffic that must not pay the
@@ -2350,6 +2364,13 @@ export const log = pgTable(
 			selectedProvider?: string;
 			selectionReason?: string;
 			usedApiKeyHash?: string;
+			// Semantic-cache decision: similarity to the matched entry and
+			// whether it was served (false in shadow mode).
+			semanticCache?: {
+				similarity: number;
+				matchedCacheKey: string;
+				served: boolean;
+			};
 			// Whose credential served the request: the organization's own provider
 			// key (`byok`) or an LLM Gateway platform credential (`platform`).
 			// Always agrees with the row's billing mode (`usedMode`).

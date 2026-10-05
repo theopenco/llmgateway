@@ -168,9 +168,15 @@ aisdk.post("/language-model", async (c) => {
 		);
 	}
 
-	const innerCacheStatus = response.headers.get("x-llmgateway-cache");
-	if (innerCacheStatus) {
-		c.header("x-llmgateway-cache", innerCacheStatus);
+	for (const name of [
+		"x-llmgateway-cache",
+		"x-llmgateway-cache-match",
+		"x-llmgateway-cache-similarity",
+	]) {
+		const value = response.headers.get(name);
+		if (value) {
+			c.header(name, value);
+		}
 	}
 
 	return streamSSE(c, async (sseStream) => {

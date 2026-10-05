@@ -19,8 +19,17 @@ import {
 } from "@/utils/zdr-settings.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { cdb, db, eq, tables } from "@llmgateway/db";
+import {
+	cdb,
+	db,
+	eq,
+	SEMANTIC_CACHE_MAX_THRESHOLD,
+	SEMANTIC_CACHE_MIN_THRESHOLD,
+	SEMANTIC_CACHE_MODES,
+	tables,
+} from "@llmgateway/db";
 import { normalizeStatementDescriptorSuffix } from "@llmgateway/shared";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { canManageProject } from "@llmgateway/shared/organization-roles";
 import { isSmartRoutingAvailable } from "@llmgateway/shared/smart-routing";
 
@@ -43,6 +52,8 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
+	semanticCacheMode: z.enum(SEMANTIC_CACHE_MODES),
+	semanticCacheThreshold: z.number(),
 	providerCacheControlMode: providerCacheControlModeSchema,
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
@@ -72,6 +83,12 @@ const updateProjectSchema = z.object({
 	name: z.string().min(1).max(255).optional(),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(), // Min 10 seconds, max 1 year
+	semanticCacheMode: z.enum(SEMANTIC_CACHE_MODES).optional(),
+	semanticCacheThreshold: z
+		.number()
+		.min(SEMANTIC_CACHE_MIN_THRESHOLD)
+		.max(SEMANTIC_CACHE_MAX_THRESHOLD)
+		.optional(),
 	providerCacheControlMode: providerCacheControlModeSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
@@ -241,6 +258,8 @@ projects.openapi(updateProject, async (c) => {
 		name,
 		cachingEnabled,
 		cacheDurationSeconds,
+		semanticCacheMode,
+		semanticCacheThreshold,
 		mode,
 		defaultRoutingStrategy,
 		endUserEnabled,
@@ -337,6 +356,51 @@ projects.openapi(updateProject, async (c) => {
 
 	if (cacheDurationSeconds !== undefined) {
 		updateData.cacheDurationSeconds = cacheDurationSeconds;
+	}
+
+	const semanticCacheEntitled = hasOrganizationEnterpriseAccess(
+		projectUserOrg?.organization?.id,
+		projectUserOrg?.organization?.plan,
+	);
+	if (
+		((semanticCacheMode !== undefined && semanticCacheMode !== "off") ||
+			semanticCacheThreshold !== undefined) &&
+		!semanticCacheEntitled
+	) {
+		throw new HTTPException(403, {
+			message: "Semantic caching is available on the Enterprise plan.",
+		});
+	}
+	// The gateway never embeds prompts under an active compliance policy (the
+	// embedding provider is not vetted by it), so refuse a setting that would
+	// silently do nothing.
+	if (
+		semanticCacheMode !== undefined &&
+		semanticCacheMode !== "off" &&
+		semanticCacheMode !== project.semanticCacheMode &&
+		projectUserOrg?.organization?.providerCompliancePolicy?.enabled
+	) {
+		throw new HTTPException(409, {
+			message:
+				"Semantic caching cannot be enabled while a provider compliance policy is active.",
+		});
+	}
+
+	if (semanticCacheMode !== undefined) {
+		updateData.semanticCacheMode = semanticCacheMode;
+	}
+	// Semantic caching rides on request caching: whenever the resulting state
+	// has request caching off, semantic caching is off too, instead of staying
+	// armed for whenever caching comes back.
+	const resultingCachingEnabled = cachingEnabled ?? project.cachingEnabled;
+	const resultingSemanticCacheMode =
+		updateData.semanticCacheMode ?? project.semanticCacheMode;
+	if (!resultingCachingEnabled && resultingSemanticCacheMode !== "off") {
+		updateData.semanticCacheMode = "off";
+	}
+
+	if (semanticCacheThreshold !== undefined) {
+		updateData.semanticCacheThreshold = semanticCacheThreshold;
 	}
 
 	if (providerCacheControlMode !== undefined) {
@@ -473,6 +537,24 @@ projects.openapi(updateProject, async (c) => {
 		changes.cacheDurationSeconds = {
 			old: project.cacheDurationSeconds,
 			new: cacheDurationSeconds,
+		};
+	}
+	if (
+		updateData.semanticCacheMode !== undefined &&
+		updateData.semanticCacheMode !== project.semanticCacheMode
+	) {
+		changes.semanticCacheMode = {
+			old: project.semanticCacheMode,
+			new: updateData.semanticCacheMode,
+		};
+	}
+	if (
+		semanticCacheThreshold !== undefined &&
+		semanticCacheThreshold !== project.semanticCacheThreshold
+	) {
+		changes.semanticCacheThreshold = {
+			old: project.semanticCacheThreshold,
+			new: semanticCacheThreshold,
 		};
 	}
 	if (
