@@ -4,7 +4,6 @@ import { z } from "zod";
 
 import {
 	buildDataStreamTestEvent,
-	DATADOG_SITES,
 	DataStreamConfigError,
 	decryptDataStreamSecret,
 	deliverDataStreamBatch,
@@ -37,25 +36,15 @@ const DAY_MS = 86_400_000;
 const configSchema = z
 	.object({
 		url: z.string().url().max(2048).optional(),
-		site: z.enum(DATADOG_SITES).optional(),
-		service: z.string().trim().max(100).optional(),
-		index: z.string().trim().max(100).optional(),
-		sourcetype: z.string().trim().max(100).optional(),
-		bucket: z.string().trim().max(63).optional(),
-		region: z.string().trim().max(32).optional(),
-		prefix: z.string().trim().max(200).optional(),
-		endpoint: z.string().url().max(2048).optional(),
-		accessKeyId: z.string().trim().max(128).optional(),
-		includePayloads: z.boolean().optional(),
 	})
 	.strict();
 
 const secretSchema = z
 	.object({
-		token: z.string().min(1).max(4096).optional(),
-		apiKey: z.string().min(1).max(4096).optional(),
-		secretAccessKey: z.string().min(1).max(4096).optional(),
 		signingSecret: z.string().min(16).max(4096).optional(),
+		// null removes the token; the signing secret is required and can only
+		// be replaced.
+		token: z.string().min(1).max(4096).nullable().optional(),
 	})
 	.strict();
 
@@ -68,9 +57,10 @@ const streamSchema = z.object({
 	name: z.string(),
 	source: z.enum(dataStreamSources),
 	destination: z.enum(dataStreamDestinations),
-	config: configSchema.extend({ site: z.string().optional() }),
+	config: configSchema,
 	secretFields: z.array(z.string()),
 	enabled: z.boolean(),
+	pausedReason: z.string().nullable(),
 	cursorCreatedAt: z.date(),
 	replayFrom: z.date().nullable(),
 	replayTo: z.date().nullable(),
@@ -78,16 +68,25 @@ const streamSchema = z.object({
 	lastDeliveredAt: z.date().nullable(),
 	lastError: z.string().nullable(),
 	lastErrorAt: z.date().nullable(),
+	failureCount: z.number(),
 });
 
 type StreamRow = InferSelectModel<typeof tables.dataStream>;
+type OrganizationRow = InferSelectModel<typeof tables.organization>;
+
+function readSecret(row: StreamRow): DataStreamSecret {
+	try {
+		return decryptDataStreamSecret(row.secret, row.id, row.organizationId);
+	} catch {
+		// A secret that no longer decrypts (keyring rotation) must not take the
+		// whole list down; the stream shows no secret fields and fails to deliver
+		// with a clear error until it is rotated.
+		return {};
+	}
+}
 
 function serialize(row: StreamRow) {
-	const secret = decryptDataStreamSecret(
-		row.secret,
-		row.id,
-		row.organizationId,
-	);
+	const secret = readSecret(row);
 	return {
 		id: row.id,
 		createdAt: row.createdAt,
@@ -102,6 +101,7 @@ function serialize(row: StreamRow) {
 			(key) => secret[key as keyof DataStreamSecret],
 		),
 		enabled: row.enabled,
+		pausedReason: row.pausedReason,
 		// Stored as UTC Postgres text to keep microseconds.
 		cursorCreatedAt: new Date(`${row.cursorCreatedAt}Z`),
 		replayFrom: row.replayFrom,
@@ -110,13 +110,19 @@ function serialize(row: StreamRow) {
 		lastDeliveredAt: row.lastDeliveredAt,
 		lastError: row.lastError,
 		lastErrorAt: row.lastErrorAt,
+		failureCount: row.failureCount,
 	};
 }
 
+/**
+ * Owners and admins of an Enterprise organization that a platform admin has
+ * opened data streams for. Request-log export is a second, separate switch
+ * because it reads the request log table on a schedule.
+ */
 async function requireStreamAdmin(
 	userId: string | undefined,
 	organizationId: string,
-): Promise<void> {
+): Promise<OrganizationRow> {
 	if (!userId) {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
@@ -148,6 +154,25 @@ async function requireStreamAdmin(
 			message: "Data streams require an enterprise plan",
 		});
 	}
+	if (!membership.organization.dataStreamsEnabled) {
+		throw new HTTPException(403, {
+			message:
+				"Data streams are not enabled for this organization yet. Contact us to enable them.",
+		});
+	}
+	return membership.organization;
+}
+
+function requireSourceAllowed(
+	organization: OrganizationRow,
+	source: StreamRow["source"],
+) {
+	if (source === "request_logs" && !organization.requestLogExportEnabled) {
+		throw new HTTPException(403, {
+			message:
+				"Request log export is not enabled for this organization yet. Contact us to enable it.",
+		});
+	}
 }
 
 async function loadStream(userId: string | undefined, id: string) {
@@ -159,8 +184,8 @@ async function loadStream(userId: string | undefined, id: string) {
 	if (!row) {
 		throw new HTTPException(404, { message: "Data stream not found" });
 	}
-	await requireStreamAdmin(userId, row.organizationId);
-	return row;
+	const organization = await requireStreamAdmin(userId, row.organizationId);
+	return { row, organization };
 }
 
 function assertValid(
@@ -195,7 +220,10 @@ const listRoute = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({ streams: z.array(streamSchema) }),
+					schema: z.object({
+						streams: z.array(streamSchema),
+						requestLogExportEnabled: z.boolean(),
+					}),
 				},
 			},
 			description: "Data streams of the organization.",
@@ -205,13 +233,19 @@ const listRoute = createRoute({
 
 dataStreams.openapi(listRoute, async (c) => {
 	const { organizationId } = c.req.valid("query");
-	await requireStreamAdmin(c.get("user")?.id, organizationId);
+	const organization = await requireStreamAdmin(
+		c.get("user")?.id,
+		organizationId,
+	);
 	const rows = await db
 		.select()
 		.from(tables.dataStream)
 		.where(eq(tables.dataStream.organizationId, organizationId))
 		.orderBy(desc(tables.dataStream.createdAt));
-	return c.json({ streams: rows.map(serialize) });
+	return c.json({
+		streams: rows.map(serialize),
+		requestLogExportEnabled: organization.requestLogExportEnabled,
+	});
 });
 
 const createStreamRoute = createRoute({
@@ -240,7 +274,8 @@ const createStreamRoute = createRoute({
 dataStreams.openapi(createStreamRoute, async (c) => {
 	const user = c.get("user");
 	const body = c.req.valid("json");
-	await requireStreamAdmin(user?.id, body.organizationId);
+	const organization = await requireStreamAdmin(user?.id, body.organizationId);
+	requireSourceAllowed(organization, body.source);
 	if (body.projectId) {
 		if (body.source !== "request_logs") {
 			throw new HTTPException(400, {
@@ -266,7 +301,11 @@ dataStreams.openapi(createStreamRoute, async (c) => {
 			message: `Organizations can have at most ${MAX_STREAMS_PER_ORG} data streams`,
 		});
 	}
-	assertValid(body.destination, body.config, body.secret);
+	const secret: DataStreamSecret = {
+		signingSecret: body.secret.signingSecret,
+		...(body.secret.token ? { token: body.secret.token } : {}),
+	};
+	assertValid(body.destination, body.config, secret);
 	const id = shortid();
 	const [row] = await db
 		.insert(tables.dataStream)
@@ -278,7 +317,7 @@ dataStreams.openapi(createStreamRoute, async (c) => {
 			source: body.source,
 			destination: body.destination,
 			config: body.config,
-			secret: encryptDataStreamSecret(body.secret, id, body.organizationId),
+			secret: encryptDataStreamSecret(secret, id, body.organizationId),
 		})
 		.returning();
 	await logAuditEvent({
@@ -319,26 +358,40 @@ const updateStreamRoute = createRoute({
 
 dataStreams.openapi(updateStreamRoute, async (c) => {
 	const user = c.get("user");
-	const existing = await loadStream(user?.id, c.req.valid("param").id);
+	const { row: existing, organization } = await loadStream(
+		user?.id,
+		c.req.valid("param").id,
+	);
 	const body = c.req.valid("json");
-	const secret = {
-		...decryptDataStreamSecret(
-			existing.secret,
-			existing.id,
-			existing.organizationId,
-		),
-		...(body.secret ?? {}),
-	};
+	if (body.enabled) {
+		requireSourceAllowed(organization, existing.source);
+	}
+	const secret: DataStreamSecret = { ...readSecret(existing) };
+	if (body.secret?.signingSecret !== undefined) {
+		secret.signingSecret = body.secret.signingSecret;
+	}
+	if (body.secret?.token === null) {
+		delete secret.token;
+	} else if (body.secret?.token !== undefined) {
+		secret.token = body.secret.token;
+	}
 	// Fields left out keep their value, so a partial config cannot silently
-	// drop an optional field such as the S3 endpoint.
+	// drop one.
 	const config = { ...existing.config, ...body.config };
 	assertValid(existing.destination, config, secret);
 	const [row] = await db
 		.update(tables.dataStream)
 		.set({
 			...(body.name !== undefined ? { name: body.name } : {}),
+			// Resuming clears the failure state so delivery is retried at once.
 			...(body.enabled !== undefined
-				? { enabled: body.enabled, lastError: null, lastErrorAt: null }
+				? {
+						enabled: body.enabled,
+						pausedReason: null,
+						lastError: null,
+						lastErrorAt: null,
+						failureCount: 0,
+					}
 				: {}),
 			config,
 			secret: encryptDataStreamSecret(
@@ -382,7 +435,7 @@ const deleteStreamRoute = createRoute({
 
 dataStreams.openapi(deleteStreamRoute, async (c) => {
 	const user = c.get("user");
-	const existing = await loadStream(user?.id, c.req.valid("param").id);
+	const { row: existing } = await loadStream(user?.id, c.req.valid("param").id);
 	await db
 		.delete(tables.dataStream)
 		.where(eq(tables.dataStream.id, existing.id));
@@ -417,7 +470,10 @@ const testStreamRoute = createRoute({
 });
 
 dataStreams.openapi(testStreamRoute, async (c) => {
-	const existing = await loadStream(c.get("user")?.id, c.req.valid("param").id);
+	const { row: existing } = await loadStream(
+		c.get("user")?.id,
+		c.req.valid("param").id,
+	);
 	const secret = decryptDataStreamSecret(
 		existing.secret,
 		existing.id,
@@ -457,7 +513,11 @@ const replayStreamRoute = createRoute({
 
 dataStreams.openapi(replayStreamRoute, async (c) => {
 	const user = c.get("user");
-	const existing = await loadStream(user?.id, c.req.valid("param").id);
+	const { row: existing, organization } = await loadStream(
+		user?.id,
+		c.req.valid("param").id,
+	);
+	requireSourceAllowed(organization, existing.source);
 	const { from, to } = c.req.valid("json");
 	const now = new Date();
 	if (from >= to) {

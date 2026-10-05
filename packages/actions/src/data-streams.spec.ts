@@ -12,29 +12,37 @@ import {
 } from "vitest";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
-import { listActiveDataStreams, runDataStream } from "./data-stream-runner.js";
 import {
-	buildS3PutRequest,
+	DATA_STREAM_MAX_FAILURES,
+	DATA_STREAM_MAX_REJECTIONS,
+	dataStreamRetryAt,
+	listActiveDataStreams,
+	loadActiveDataStream,
+	runDataStream,
+} from "./data-stream-runner.js";
+import {
 	encryptDataStreamSecret,
 	formatRequestLogEvent,
 	signDataStreamPayload,
-	capDataStreamEvent,
-	chunkDataStreamEvents,
 	validateDataStreamConfig,
 	type RequestLogRow,
 } from "./data-streams.js";
 
 const ORG_ID = "data-stream-spec-org";
 const USER_ID = "data-stream-spec-user";
+const PROJECT_ID = "data-stream-spec-project";
+const API_KEY_ID = "data-stream-spec-key";
 const STREAM_ID = "data-stream-spec-stream";
 const TEN_MINUTES_MS = 600_000;
 const ONE_HOUR_MS = 3_600_000;
 const SIGNING_SECRET = ["whsec", "spec", "0123456789abcdef"].join("_");
 
 interface Received {
-	body: { events: { id: string; action?: string }[] };
+	body: { events: Record<string, unknown>[] };
 	signature: string;
+	authorization: string | undefined;
 	raw: string;
 }
 
@@ -55,6 +63,7 @@ describe("data streams", () => {
 					raw,
 					body: JSON.parse(raw),
 					signature: String(req.headers["x-llmgateway-signature"]),
+					authorization: req.headers.authorization,
 				});
 				res.statusCode = status;
 				res.end(status === 200 ? "ok" : "boom");
@@ -83,12 +92,33 @@ describe("data streams", () => {
 			id: USER_ID,
 			name: "Data Stream Spec",
 			email: "data-stream-spec@example.com",
+			emailVerified: true,
 		});
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
 			name: "Data Stream Spec Org",
 			billingEmail: "data-stream-spec@example.com",
 			plan: "enterprise",
+			dataStreamsEnabled: true,
+			requestLogExportEnabled: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			id: `${ORG_ID}-owner`,
+			userId: USER_ID,
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+		await db.insert(tables.project).values({
+			id: PROJECT_ID,
+			name: "Data Stream Spec Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values({
+			id: API_KEY_ID,
+			...hashApiKeyForStorage("data-stream-spec-token"),
+			projectId: PROJECT_ID,
+			description: "spec",
+			createdBy: USER_ID,
 		});
 	});
 
@@ -113,7 +143,10 @@ describe("data streams", () => {
 		);
 	}
 
-	async function seedStream(cursorCreatedAt: Date) {
+	async function seedStream(
+		cursorCreatedAt: Date,
+		overrides: Partial<typeof tables.dataStream.$inferInsert> = {},
+	) {
 		const [row] = await db
 			.insert(tables.dataStream)
 			.values({
@@ -124,11 +157,12 @@ describe("data streams", () => {
 				destination: "webhook",
 				config: { url },
 				secret: encryptDataStreamSecret(
-					{ signingSecret: SIGNING_SECRET },
+					{ signingSecret: SIGNING_SECRET, token: "bearer-spec" },
 					STREAM_ID,
 					ORG_ID,
 				),
 				cursorCreatedAt: cursorCreatedAt.toISOString(),
+				...overrides,
 			})
 			.returning();
 		return row;
@@ -155,6 +189,7 @@ describe("data streams", () => {
 			"a1",
 			"a2",
 		]);
+		expect(received[0].authorization).toBe("Bearer bearer-spec");
 		const [t, v1] = received[0].signature.split(",");
 		const expected = createHmac("sha256", SIGNING_SECRET)
 			.update(`${t.slice(2)}.${received[0].raw}`)
@@ -185,14 +220,56 @@ describe("data streams", () => {
 		const later = new Date(Date.now() + TEN_MINUTES_MS);
 		const stream = await seedStream(new Date(Date.now() - TEN_MINUTES_MS));
 
-		expect(await runDataStream(stream, later)).toEqual({ delivered: 2 });
-		expect(await runDataStream(await reload(), later)).toEqual({
+		expect(await runDataStream(stream, { now: later })).toEqual({
+			delivered: 2,
+		});
+		expect(await runDataStream(await reload(), { now: later })).toEqual({
 			delivered: 0,
 		});
 		expect(received).toHaveLength(1);
 	});
 
-	test("keeps the cursor and records the error when delivery fails", async () => {
+	test("exports request log metadata only, never prompts or completions", async () => {
+		const old = new Date(Date.now() - TEN_MINUTES_MS);
+		await db.insert(tables.log).values({
+			id: "log-spec-1",
+			requestId: "req-spec-1",
+			createdAt: old,
+			organizationId: ORG_ID,
+			projectId: PROJECT_ID,
+			apiKeyId: API_KEY_ID,
+			duration: 120,
+			requestedModel: "gpt-4o-mini",
+			requestedProvider: "openai",
+			usedModel: "openai/gpt-4o-mini",
+			usedProvider: "openai",
+			responseSize: 10,
+			messages: [{ role: "user", content: "secret prompt" }],
+			content: "secret answer",
+			promptTokens: "10",
+			completionTokens: "5",
+			totalTokens: "15",
+			cost: 0.0001,
+			finishReason: "stop",
+			mode: "api-keys",
+			usedMode: "api-keys",
+		});
+		const stream = await seedStream(new Date(old.getTime() - 1000), {
+			source: "request_logs",
+		});
+
+		expect(await runDataStream(stream)).toEqual({ delivered: 1 });
+		const [event] = received[0].body.events;
+		expect(event.type).toBe("request_log");
+		expect(event.usedModel).toBe("openai/gpt-4o-mini");
+		expect(event.totalTokens).toBe(15);
+		expect(received[0].raw).not.toContain("secret prompt");
+		expect(received[0].raw).not.toContain("secret answer");
+		expect(event).not.toHaveProperty("messages");
+		expect(event).not.toHaveProperty("content");
+	});
+
+	test("keeps the cursor and backs off when delivery fails", async () => {
 		const old = new Date(Date.now() - TEN_MINUTES_MS);
 		await seedAudit(["b1"], old);
 		const stream = await seedStream(new Date(old.getTime() - 1000));
@@ -200,13 +277,84 @@ describe("data streams", () => {
 
 		const result = await runDataStream(stream);
 		expect(result.error).toContain("500");
+		expect(result.paused).toBe(false);
 		const failed = await reload();
 		expect(failed.cursorId).toBe("");
 		expect(failed.lastError).toContain("500");
+		expect(failed.failureCount).toBe(1);
+		expect(failed.enabled).toBe(true);
+		expect((await listActiveDataStreams()).map((s) => s.id)).not.toContain(
+			STREAM_ID,
+		);
+		const retryAt = dataStreamRetryAt(failed)!;
+		expect((await listActiveDataStreams(retryAt)).map((s) => s.id)).toContain(
+			STREAM_ID,
+		);
 
 		status = 200;
 		expect(await runDataStream(failed)).toEqual({ delivered: 1 });
-		expect((await reload()).lastError).toBeNull();
+		const recovered = await reload();
+		expect(recovered.lastError).toBeNull();
+		expect(recovered.failureCount).toBe(0);
+	});
+
+	test("retry delay doubles per failure and is capped", () => {
+		const lastErrorAt = new Date("2026-01-01T00:00:00Z");
+		const delay = (failureCount: number) =>
+			dataStreamRetryAt({ lastErrorAt, failureCount })!.getTime() -
+			lastErrorAt.getTime();
+		expect(dataStreamRetryAt({ lastErrorAt, failureCount: 0 })).toBeNull();
+		expect(delay(1)).toBe(60_000);
+		expect(delay(2)).toBe(120_000);
+		expect(delay(4)).toBe(480_000);
+		expect(delay(20)).toBe(ONE_HOUR_MS);
+	});
+
+	test("pauses after repeated rejections and notifies admins", async () => {
+		const old = new Date(Date.now() - TEN_MINUTES_MS);
+		await seedAudit(["p1"], old);
+		const stream = await seedStream(new Date(old.getTime() - 1000), {
+			failureCount: DATA_STREAM_MAX_REJECTIONS - 1,
+			lastErrorAt: new Date(Date.now() - ONE_HOUR_MS),
+		});
+		status = 413;
+
+		const result = await runDataStream(stream);
+		expect(result.paused).toBe(true);
+		const paused = await reload();
+		expect(paused.enabled).toBe(false);
+		expect(paused.pausedReason).toContain("rejected");
+		expect(paused.failureCount).toBe(DATA_STREAM_MAX_REJECTIONS);
+		expect(await loadActiveDataStream(STREAM_ID)).toBeNull();
+
+		const alerts = await db.query.organizationAlert.findMany({
+			where: { organizationId: ORG_ID, type: "data_stream" },
+		});
+		expect(alerts).toHaveLength(1);
+		expect(alerts[0].href).toBe(`/dashboard/${ORG_ID}/org/data-streams`);
+		const notifications = await db.query.notification.findMany({
+			where: { userId: USER_ID, type: "data_stream" },
+		});
+		expect(notifications).toHaveLength(1);
+		expect(notifications[0].email).toBe(true);
+	});
+
+	test("transient failures take longer to pause than rejections", async () => {
+		const old = new Date(Date.now() - TEN_MINUTES_MS);
+		await seedAudit(["t1"], old);
+		const stream = await seedStream(new Date(old.getTime() - 1000), {
+			failureCount: DATA_STREAM_MAX_REJECTIONS,
+		});
+		status = 503;
+		expect((await runDataStream(stream)).paused).toBe(false);
+		expect((await reload()).enabled).toBe(true);
+
+		await db
+			.update(tables.dataStream)
+			.set({ failureCount: DATA_STREAM_MAX_FAILURES - 1 })
+			.where(eq(tables.dataStream.id, STREAM_ID));
+		expect((await runDataStream(await reload())).paused).toBe(true);
+		expect((await reload()).enabled).toBe(false);
 	});
 
 	test("records an undecryptable secret as a stream error instead of throwing", async () => {
@@ -220,25 +368,57 @@ describe("data streams", () => {
 		expect(after.lastErrorAt).not.toBeNull();
 	});
 
-	test("skips streams of organizations without Enterprise access", async () => {
+	test("stops after a batch when the stream was paused meanwhile", async () => {
+		const old = new Date(Date.now() - TEN_MINUTES_MS);
+		await seedAudit(["s1"], old);
+		const stream = await seedStream(new Date(old.getTime() - 1000));
+		await db
+			.update(tables.dataStream)
+			.set({ enabled: false })
+			.where(eq(tables.dataStream.id, STREAM_ID));
+		let progress = 0;
+		const result = await runDataStream(stream, {
+			onProgress: async () => {
+				progress++;
+			},
+		});
+		expect(result).toEqual({ delivered: 1 });
+		expect(progress).toBe(1);
+		const after = await reload();
+		expect(after.cursorId).toBe("s1");
+		expect(after.enabled).toBe(false);
+	});
+
+	test("only runs streams the organization may export", async () => {
 		await seedStream(new Date());
-		expect(
-			(await listActiveDataStreams()).some((s) => s.id === STREAM_ID),
-		).toBe(true);
+		const active = async () =>
+			(await listActiveDataStreams()).some((s) => s.id === STREAM_ID);
+		expect(await active()).toBe(true);
+		expect(await loadActiveDataStream(STREAM_ID)).not.toBeNull();
+
+		const setOrg = (values: Partial<typeof tables.organization.$inferInsert>) =>
+			db
+				.update(tables.organization)
+				.set(values)
+				.where(eq(tables.organization.id, ORG_ID));
+
+		await setOrg({ plan: "pro" });
+		expect(await active()).toBe(false);
+		await setOrg({ plan: "enterprise", dataStreamsEnabled: false });
+		expect(await active()).toBe(false);
+		expect(await loadActiveDataStream(STREAM_ID)).toBeNull();
+		await setOrg({ dataStreamsEnabled: true, status: "deleted" });
+		expect(await active()).toBe(false);
+
+		await setOrg({ status: "active", requestLogExportEnabled: false });
+		expect(await active()).toBe(true);
 		await db
-			.update(tables.organization)
-			.set({ plan: "pro" })
-			.where(eq(tables.organization.id, ORG_ID));
-		expect(
-			(await listActiveDataStreams()).some((s) => s.id === STREAM_ID),
-		).toBe(false);
-		await db
-			.update(tables.organization)
-			.set({ plan: "enterprise", status: "deleted" })
-			.where(eq(tables.organization.id, ORG_ID));
-		expect(
-			(await listActiveDataStreams()).some((s) => s.id === STREAM_ID),
-		).toBe(false);
+			.update(tables.dataStream)
+			.set({ source: "request_logs" })
+			.where(eq(tables.dataStream.id, STREAM_ID));
+		expect(await active()).toBe(false);
+		await setOrg({ requestLogExportEnabled: true });
+		expect(await active()).toBe(true);
 	});
 
 	test("replays a past window without moving the live cursor", async () => {
@@ -287,42 +467,13 @@ describe("data streams", () => {
 });
 
 describe("data stream formatting", () => {
-	test("caps oversized events and chunks by size", () => {
-		const big = {
-			id: "big",
-			type: "request_log" as const,
-			timestamp: "2026-01-01T00:00:00Z",
-			messages: "x".repeat(2_000_000),
-			content: "y".repeat(10),
-			usedModel: "m",
-		};
-		const capped = capDataStreamEvent(big);
-		expect(capped.truncated).toBe(true);
-		expect(capped).not.toHaveProperty("messages");
-		expect(capped.usedModel).toBe("m");
-		const small = { id: "s", type: "audit_log" as const, timestamp: "t" };
-		expect(capDataStreamEvent(small)).toBe(small);
-		const events = Array.from({ length: 10 }, (_, i) => ({
-			id: String(i),
-			type: "request_log" as const,
-			timestamp: "t",
-			content: "z".repeat(500_000),
-		}));
-		const chunks = chunkDataStreamEvents(events);
-		expect(chunks.length).toBeGreaterThan(1);
-		expect(chunks.flat()).toHaveLength(10);
-		for (const chunk of chunks) {
-			expect(Buffer.byteLength(JSON.stringify(chunk))).toBeLessThan(4_000_000);
-		}
-	});
-
 	test("signature has the platform webhook shape", () => {
 		expect(signDataStreamPayload("{}", "secret", 1700000000)).toMatch(
 			/^t=1700000000,v1=[0-9a-f]{64}$/,
 		);
 	});
 
-	test("request log events omit payloads unless opted in", () => {
+	test("request log events carry metadata only", () => {
 		const row = {
 			id: "log-1",
 			requestId: "req-1",
@@ -351,33 +502,11 @@ describe("data stream formatting", () => {
 			source: null,
 			apiOrigin: null,
 			sessionId: null,
-			messages: [{ role: "user", content: "secret prompt" }],
-			content: "secret answer",
 		} satisfies RequestLogRow;
-		const lean = formatRequestLogEvent(row, false);
-		expect(lean).not.toHaveProperty("messages");
-		expect(lean.totalTokens).toBe(15);
-		expect(formatRequestLogEvent(row, true).content).toBe("secret answer");
-	});
-
-	test("S3 requests are SigV4 signed for the bucket host", () => {
-		const request = buildS3PutRequest(
-			{
-				bucket: "logs-bucket",
-				region: "eu-central-1",
-				accessKeyId: ["AKIA", "SPECKEY"].join(""),
-			},
-			["spec", "secret"].join("-"),
-			"llmgateway/request_logs/2026-01-01/1.ndjson",
-			"{}",
-			new Date("2026-01-01T00:00:00Z"),
-		);
-		expect(request.url).toBe(
-			"https://logs-bucket.s3.eu-central-1.amazonaws.com/llmgateway/request_logs/2026-01-01/1.ndjson",
-		);
-		expect(request.headers.Authorization).toMatch(
-			/^AWS4-HMAC-SHA256 Credential=AKIASPECKEY\/20260101\/eu-central-1\/s3\/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=[0-9a-f]{64}$/,
-		);
+		const event = formatRequestLogEvent(row);
+		expect(event.totalTokens).toBe(15);
+		expect(Object.keys(event)).not.toContain("messages");
+		expect(Object.keys(event)).not.toContain("content");
 	});
 
 	test("validates destinations", () => {
@@ -386,27 +515,23 @@ describe("data stream formatting", () => {
 		try {
 			expect(() =>
 				validateDataStreamConfig(
-					"datadog",
-					{ site: "evil.example" },
-					{ apiKey: "k" },
-				),
-			).toThrow("Unsupported Datadog site");
-			expect(() =>
-				validateDataStreamConfig(
 					"webhook",
 					{ url: "http://x.example" },
-					{
-						signingSecret: SIGNING_SECRET,
-					},
+					{ signingSecret: SIGNING_SECRET },
 				),
 			).toThrow("https");
 			expect(() =>
 				validateDataStreamConfig(
-					"splunk",
-					{ url: "https://splunk.example" },
-					{
-						token: "t",
-					},
+					"webhook",
+					{ url: "https://x.example" },
+					{ signingSecret: "short" },
+				),
+			).toThrow("16 characters");
+			expect(() =>
+				validateDataStreamConfig(
+					"webhook",
+					{ url: "https://x.example" },
+					{ signingSecret: SIGNING_SECRET },
 				),
 			).not.toThrow();
 		} finally {

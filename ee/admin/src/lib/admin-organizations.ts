@@ -184,6 +184,29 @@ export async function updateReferralBonus(
 	return { success: true };
 }
 
+export async function updateDataStreamAccess(
+	orgId: string,
+	body: { dataStreamsEnabled: boolean; requestLogExportEnabled: boolean },
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PATCH(
+		"/admin/organizations/{orgId}/data-streams",
+		{
+			params: { path: { orgId } },
+			body,
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to update data stream access";
+		return { success: false, error: message };
+	}
+
+	return { success: true };
+}
+
 export async function manageOrganization(
 	orgId: string,
 	body: {

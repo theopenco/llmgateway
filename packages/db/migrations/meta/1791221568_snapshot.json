@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "a52f6532-8f83-466c-836f-389f0bca2b7f",
+  "id": "3207d675-40c2-4337-817d-8220937b5ec1",
   "prevId": "cd785604-aa81-4b67-b78a-2d8c573fe841",
   "ddl": [
     {
@@ -6942,6 +6942,19 @@
       "table": "data_stream"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "paused_reason",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "data_stream"
+    },
+    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -7076,6 +7089,22 @@
       "generated": null,
       "identity": null,
       "name": "last_error_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "data_stream"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "failure_count",
       "entityType": "columns",
       "schema": "public",
       "table": "data_stream"
@@ -18055,6 +18084,38 @@
       "generated": null,
       "identity": null,
       "name": "referral_bonus_percent",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "data_streams_enabled",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "request_log_export_enabled",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"

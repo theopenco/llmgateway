@@ -5,15 +5,16 @@ import {
 	eq,
 	gt,
 	inArray,
-	lt,
 	lte,
 	or,
 	sql,
 	tables,
 } from "@llmgateway/db";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import {
+	DataStreamDeliveryError,
 	decryptDataStreamSecret,
 	deliverDataStreamBatch,
 	formatAuditEvent,
@@ -25,6 +26,8 @@ import type { AnyColumn, InferSelectModel } from "@llmgateway/db";
 
 export const DATA_STREAM_BATCH_SIZE = 500;
 const MAX_BATCHES_PER_RUN = 10;
+/** A slow destination yields to the other streams after this long. */
+const MAX_RUN_MS = 20_000;
 /**
  * Rows younger than this are not exported yet: request logs are written
  * asynchronously, so a fresh row can land behind the cursor. Waiting closes
@@ -35,7 +38,26 @@ const SETTLE_DELAY_MS: Record<"audit_logs" | "request_logs", number> = {
 	request_logs: 120_000,
 };
 
+const RETRY_BASE_MS = 60_000;
+const RETRY_MAX_MS = 3_600_000;
+/** Consecutive transient failures (5xx, timeouts) before the stream pauses. */
+export const DATA_STREAM_MAX_FAILURES = 20;
+/** Consecutive rejections (4xx) before the stream pauses. */
+export const DATA_STREAM_MAX_REJECTIONS = 3;
+
 type DataStreamRow = InferSelectModel<typeof tables.dataStream>;
+
+/** When a failed stream is retried: 1, 2, 4 … minutes, capped at an hour. */
+export function dataStreamRetryAt(
+	stream: Pick<DataStreamRow, "lastErrorAt" | "failureCount">,
+): Date | null {
+	if (!stream.lastErrorAt || stream.failureCount === 0) {
+		return null;
+	}
+	const doublings = 2 ** (stream.failureCount - 1);
+	const delay = Math.min(RETRY_BASE_MS * doublings, RETRY_MAX_MS);
+	return new Date(stream.lastErrorAt.getTime() + delay);
+}
 
 interface Cursor {
 	/** `created_at` as Postgres text, keeping its microseconds. */
@@ -43,10 +65,18 @@ interface Cursor {
 	id: string;
 }
 
+/**
+ * Keyset condition. The explicit `>=` is what lets Postgres use the cursor as
+ * an index lower bound; the OR alone starts the scan at the beginning.
+ */
 function afterCursor(createdAt: AnyColumn, id: AnyColumn, cursor: Cursor) {
-	return or(
-		sql`${createdAt} > ${cursor.createdAt}::timestamp`,
-		and(sql`${createdAt} = ${cursor.createdAt}::timestamp`, gt(id, cursor.id)),
+	const at = sql`${cursor.createdAt}::timestamp`;
+	return and(
+		sql`${createdAt} >= ${at}`,
+		or(
+			sql`${createdAt} > ${at}`,
+			and(sql`${createdAt} = ${at}`, gt(id, cursor.id)),
+		),
 	);
 }
 
@@ -90,6 +120,8 @@ async function fetchBatch(
 	if (projectIds.length === 0) {
 		return { events: [] };
 	}
+	// Metadata columns only: prompts, completions, and tool payloads are never
+	// selected, so they cannot leave the platform.
 	const t = tables.log;
 	const rows = await db
 		.select({
@@ -120,8 +152,6 @@ async function fetchBatch(
 			source: t.source,
 			apiOrigin: t.apiOrigin,
 			sessionId: t.sessionId,
-			messages: stream.config.includePayloads ? t.messages : sql<null>`null`,
-			content: stream.config.includePayloads ? t.content : sql<null>`null`,
 			cursorAt: sql<string>`${t.createdAt}::text`,
 		})
 		.from(t)
@@ -136,9 +166,7 @@ async function fetchBatch(
 		.limit(DATA_STREAM_BATCH_SIZE);
 	const last = rows.at(-1);
 	return {
-		events: rows.map((row) =>
-			formatRequestLogEvent(row, stream.config.includePayloads === true),
-		),
+		events: rows.map((row) => formatRequestLogEvent(row)),
 		last: last ? { createdAt: last.cursorAt, id: last.id } : undefined,
 	};
 }
@@ -146,7 +174,17 @@ async function fetchBatch(
 export interface DataStreamRunResult {
 	delivered: number;
 	error?: string;
+	/** Set when this run paused the stream after repeated failures. */
+	paused?: boolean;
 }
+
+export interface DataStreamRunOptions {
+	now?: Date;
+	/** Called after every delivered batch, e.g. to keep a worker lock fresh. */
+	onProgress?: () => Promise<void>;
+}
+
+class StreamStopped extends Error {}
 
 /**
  * Delivers every settled event after the stream's cursor (and any pending
@@ -155,10 +193,13 @@ export interface DataStreamRunResult {
  */
 export async function runDataStream(
 	stream: DataStreamRow,
-	now: Date = new Date(),
+	options: DataStreamRunOptions = {},
 ): Promise<DataStreamRunResult> {
+	const now = options.now ?? new Date();
+	const started = Date.now();
 	const settled = new Date(now.getTime() - SETTLE_DELAY_MS[stream.source]);
 	let delivered = 0;
+	const outOfTime = () => Date.now() - started > MAX_RUN_MS;
 	try {
 		const secret = decryptDataStreamSecret(
 			stream.secret,
@@ -184,7 +225,7 @@ export async function runDataStream(
 				if (batch.last) {
 					cursor = batch.last;
 				}
-				const updated = await db
+				const [updated] = await db
 					.update(tables.dataStream)
 					.set({
 						...(done
@@ -203,6 +244,7 @@ export async function runDataStream(
 									deliveredCount: sql`${tables.dataStream.deliveredCount} + ${batch.events.length}`,
 									lastDeliveredAt: now,
 									lastError: null,
+									failureCount: 0,
 								}
 							: {}),
 					})
@@ -214,8 +256,12 @@ export async function runDataStream(
 							eq(tables.dataStream.replayTo, stream.replayTo),
 						),
 					)
-					.returning({ id: tables.dataStream.id });
-				if (done || updated.length === 0) {
+					.returning({ enabled: tables.dataStream.enabled });
+				await options.onProgress?.();
+				if (!updated || !updated.enabled) {
+					throw new StreamStopped();
+				}
+				if (done || outOfTime()) {
 					break;
 				}
 			}
@@ -224,7 +270,7 @@ export async function runDataStream(
 			createdAt: stream.cursorCreatedAt,
 			id: stream.cursorId,
 		};
-		for (let i = 0; i < MAX_BATCHES_PER_RUN; i++) {
+		for (let i = 0; i < MAX_BATCHES_PER_RUN && !outOfTime(); i++) {
 			const batch = await fetchBatch(stream, cursor, settled, projectIds);
 			if (!batch.last) {
 				break;
@@ -232,7 +278,9 @@ export async function runDataStream(
 			await deliverDataStreamBatch(stream, secret, batch.events, now);
 			delivered += batch.events.length;
 			cursor = batch.last;
-			await db
+			// The cursor always moves past a delivered batch; a pause that landed
+			// meanwhile only stops the loop.
+			const [updated] = await db
 				.update(tables.dataStream)
 				.set({
 					cursorCreatedAt: cursor.createdAt,
@@ -240,53 +288,179 @@ export async function runDataStream(
 					deliveredCount: sql`${tables.dataStream.deliveredCount} + ${batch.events.length}`,
 					lastDeliveredAt: now,
 					lastError: null,
+					failureCount: 0,
 				})
-				.where(eq(tables.dataStream.id, stream.id));
-			if (batch.events.length < DATA_STREAM_BATCH_SIZE) {
+				.where(eq(tables.dataStream.id, stream.id))
+				.returning({ enabled: tables.dataStream.enabled });
+			await options.onProgress?.();
+			if (!updated || !updated.enabled) {
+				throw new StreamStopped();
+			}
+			if (batch.events.length < DATA_STREAM_BATCH_SIZE || outOfTime()) {
 				break;
 			}
 		}
 		return { delivered };
 	} catch (error) {
+		if (error instanceof StreamStopped) {
+			return { delivered };
+		}
 		const message = error instanceof Error ? error.message : String(error);
-		await db
+		const rejected =
+			error instanceof DataStreamDeliveryError && error.permanent;
+		const failureCount = stream.failureCount + 1;
+		const pause =
+			failureCount >=
+			(rejected ? DATA_STREAM_MAX_REJECTIONS : DATA_STREAM_MAX_FAILURES);
+		const pausedReason = rejected
+			? `Paused after ${failureCount} rejected deliveries`
+			: `Paused after ${failureCount} failed deliveries`;
+		const [updated] = await db
 			.update(tables.dataStream)
-			.set({ lastError: message.slice(0, 1000), lastErrorAt: now })
-			.where(eq(tables.dataStream.id, stream.id));
-		return { delivered, error: message };
+			.set({
+				lastError: message.slice(0, 1000),
+				lastErrorAt: now,
+				failureCount,
+				...(pause ? { enabled: false, pausedReason } : {}),
+			})
+			.where(
+				and(
+					eq(tables.dataStream.id, stream.id),
+					eq(tables.dataStream.enabled, true),
+				),
+			)
+			.returning({ id: tables.dataStream.id });
+		if (pause && updated) {
+			await notifyDataStreamPaused(stream, pausedReason, message, now);
+		}
+		return { delivered, error: message, paused: pause && !!updated };
 	}
 }
 
-/** Streams the worker should run now. */
-export async function listActiveDataStreams(): Promise<DataStreamRow[]> {
-	const rows = await db
-		.select({
-			stream: tables.dataStream,
-			organizationId: tables.organization.id,
-			plan: tables.organization.plan,
-			status: tables.organization.status,
+/** Bell and email for the organization's owners and admins. */
+async function notifyDataStreamPaused(
+	stream: DataStreamRow,
+	reason: string,
+	lastError: string,
+	now: Date,
+): Promise<void> {
+	const eventKey = `${stream.organizationId}:data_stream:${stream.id}:${now.toISOString()}`;
+	const title = `Data stream "${stream.name}" paused`;
+	const message = `${reason}. Last error: ${lastError.slice(0, 200)}. Fix the destination, then resume the stream; delivery continues from where it stopped.`;
+	const href = `/dashboard/${stream.organizationId}/org/data-streams`;
+	const [alert] = await db
+		.insert(tables.organizationAlert)
+		.values({
+			organizationId: stream.organizationId,
+			type: "data_stream",
+			eventKey,
+			title,
+			message,
+			href,
 		})
+		.onConflictDoNothing()
+		.returning({ id: tables.organizationAlert.id });
+	if (!alert) {
+		return;
+	}
+	const members = await db.query.userOrganization.findMany({
+		where: { organizationId: { eq: stream.organizationId } },
+		columns: { userId: true, role: true },
+		with: { user: { columns: { status: true, emailVerified: true } } },
+	});
+	for (const member of members) {
+		if (member.user?.status !== "active" || !isOrganizationAdmin(member.role)) {
+			continue;
+		}
+		const preference = await db.query.notificationPreference.findFirst({
+			where: { userId: { eq: member.userId }, type: { eq: "data_stream" } },
+		});
+		const inApp = preference?.inApp ?? true;
+		const email =
+			(preference?.email ?? true) && member.user.emailVerified === true;
+		if (!inApp && !email) {
+			continue;
+		}
+		await db
+			.insert(tables.notification)
+			.values({
+				userId: member.userId,
+				organizationId: stream.organizationId,
+				type: "data_stream",
+				eventKey,
+				title,
+				message,
+				href,
+				inApp,
+				email,
+			})
+			.onConflictDoNothing();
+	}
+}
+
+function organizationAllows(
+	org: {
+		status: string | null;
+		plan: string;
+		id: string;
+		dataStreamsEnabled: boolean;
+		requestLogExportEnabled: boolean;
+	},
+	source: DataStreamRow["source"],
+): boolean {
+	return (
+		org.status !== "deleted" &&
+		org.dataStreamsEnabled &&
+		(source !== "request_logs" || org.requestLogExportEnabled) &&
+		hasOrganizationEnterpriseAccess(org.id, org.plan)
+	);
+}
+
+/** Enabled streams whose organization may export, and whose backoff has elapsed. */
+export async function listActiveDataStreams(
+	now: Date = new Date(),
+): Promise<DataStreamRow[]> {
+	const rows = await db
+		.select({ stream: tables.dataStream, organization: tables.organization })
+		.from(tables.dataStream)
+		.innerJoin(
+			tables.organization,
+			eq(tables.organization.id, tables.dataStream.organizationId),
+		)
+		.where(eq(tables.dataStream.enabled, true));
+	// Delivery stops as soon as the organization loses access; the API guard
+	// alone does not cover the worker path.
+	return rows
+		.filter(
+			({ stream, organization }) =>
+				organizationAllows(organization, stream.source) &&
+				(dataStreamRetryAt(stream)?.getTime() ?? 0) <= now.getTime(),
+		)
+		.map((row) => row.stream);
+}
+
+/**
+ * The stream as it is right now, or null once it was paused, deleted, or its
+ * organization lost access. The worker lists streams once per pass and
+ * re-reads each one just before running it, so a pause or credential rotation
+ * made during the pass takes effect immediately.
+ */
+export async function loadActiveDataStream(
+	id: string,
+): Promise<DataStreamRow | null> {
+	const [row] = await db
+		.select({ stream: tables.dataStream, organization: tables.organization })
 		.from(tables.dataStream)
 		.innerJoin(
 			tables.organization,
 			eq(tables.organization.id, tables.dataStream.organizationId),
 		)
 		.where(
-			and(
-				eq(tables.dataStream.enabled, true),
-				or(
-					sql`${tables.dataStream.lastErrorAt} IS NULL`,
-					lt(tables.dataStream.lastErrorAt, new Date(Date.now() - 60_000)),
-				),
-			),
-		);
-	// Delivery stops as soon as the organization loses Enterprise access or is
-	// deleted; the API guard alone does not cover the worker path.
-	return rows
-		.filter(
-			(row) =>
-				row.status !== "deleted" &&
-				hasOrganizationEnterpriseAccess(row.organizationId, row.plan),
+			and(eq(tables.dataStream.id, id), eq(tables.dataStream.enabled, true)),
 		)
-		.map((row) => row.stream);
+		.limit(1);
+	if (!row || !organizationAllows(row.organization, row.stream.source)) {
+		return null;
+	}
+	return row.stream;
 }

@@ -52,6 +52,7 @@ import {
 	manageOrganization,
 	releaseDevPlanCardFingerprint,
 	updateEnterpriseDeal,
+	updateDataStreamAccess,
 	updateReferralBonus,
 } from "@/lib/admin-organizations";
 import { canRefund, canWrite } from "@/lib/admin-role";
@@ -68,6 +69,7 @@ import { stripeSearchUrl, stripeTransactionUrl } from "@/lib/stripe-dashboard";
 
 import { ApiKeysTable } from "./api-keys-table";
 import { AuditLogsTab } from "./audit-logs-tab";
+import { DataStreamsDialog } from "./data-streams-dialog";
 import { GuardrailsTab } from "./guardrails-tab";
 import { ManageOrgDialog } from "./manage-org-dialog";
 import { MemberAccessTab } from "./member-access-tab";
@@ -632,6 +634,17 @@ export default async function OrganizationPage({
 											onSave={async (data) => {
 												"use server";
 												return await updateReferralBonus(orgId, data);
+											}}
+										/>
+										<DataStreamsDialog
+											orgName={org.name}
+											dataStreamsEnabled={org.dataStreamsEnabled ?? false}
+											requestLogExportEnabled={
+												org.requestLogExportEnabled ?? false
+											}
+											onSave={async (data) => {
+												"use server";
+												return await updateDataStreamAccess(orgId, data);
 											}}
 										/>
 									</div>
