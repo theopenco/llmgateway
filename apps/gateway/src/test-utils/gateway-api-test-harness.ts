@@ -147,7 +147,6 @@ async function ensureRoutingMetricMapping(modelId: string, providerId: string) {
 			name: providerDefinition?.name ?? providerId,
 			description:
 				providerDefinition?.description ?? `Test provider ${providerId}`,
-			streaming: providerDefinition?.streaming ?? null,
 			cancellation: providerDefinition?.cancellation ?? null,
 			color: providerDefinition?.color ?? null,
 			website: providerDefinition?.website ?? null,

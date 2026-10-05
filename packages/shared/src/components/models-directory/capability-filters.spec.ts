@@ -68,13 +68,12 @@ function makeMapping(
 	};
 }
 
-function makeProvider(id: string, streaming: boolean): ApiProvider {
+function makeProvider(id: string): ApiProvider {
 	return {
 		id,
 		createdAt: "2026-01-01T00:00:00.000Z",
 		name: id,
 		description: null,
-		streaming,
 		cancellation: null,
 		color: null,
 		website: null,
@@ -108,7 +107,7 @@ function makeModel(
 		mappings: providers,
 		providerDetails: providers.map((mapping) => ({
 			provider: mapping,
-			providerInfo: makeProvider(mapping.providerId, mapping.streaming),
+			providerInfo: makeProvider(mapping.providerId),
 		})),
 	};
 }
