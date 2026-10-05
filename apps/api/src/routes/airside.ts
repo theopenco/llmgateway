@@ -7,9 +7,9 @@ import { z } from "zod";
 import {
 	assertProviderKeyIsSeparate,
 	assertProviderKeyServes,
+	discardPendingProviderKey,
 	fileProviderKey,
 	latestListing,
-	pendingProviderKeyIs,
 } from "@/lib/airside-carrier-keys.js";
 import {
 	dematerializeAirsideModel,
@@ -2471,23 +2471,8 @@ airside.openapi(withdrawProviderKey, async (c) => {
 	const user = requireVerifiedUser(c.get("user"));
 	const { id } = c.req.valid("param");
 	const claim = await requireOwnedCustomClaim(user.id, id);
-	const pendingId = claim.pendingProviderKeyId;
-	if (pendingId) {
-		await cdb.transaction(async (tx) => {
-			await tx
-				.update(tables.providerKey)
-				.set({ status: "deleted" })
-				.where(eq(tables.providerKey.id, pendingId));
-			await tx
-				.update(tables.providerClaim)
-				.set({ pendingProviderKeyId: null })
-				.where(
-					and(
-						eq(tables.providerClaim.id, claim.id),
-						pendingProviderKeyIs(pendingId),
-					),
-				);
-		});
+	if (claim.pendingProviderKeyId) {
+		await discardPendingProviderKey(claim, claim.pendingProviderKeyId);
 	}
 	return c.json({ pendingProviderKey: null });
 });

@@ -174,6 +174,10 @@ function useInvalidateModels(providerCompanyId: string) {
 				params: { query: { providerCompanyId } },
 			}).queryKey,
 		});
+		// Claims carry the provider key a first model files.
+		await queryClient.invalidateQueries({
+			queryKey: api.queryOptions("get", "/airside/companies", {}).queryKey,
+		});
 	};
 }
 

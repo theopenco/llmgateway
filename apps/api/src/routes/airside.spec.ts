@@ -3998,6 +3998,24 @@ describe("airside provider portal", () => {
 		expect(key.tokenCiphertext).not.toContain("sk-acme-sky-serving-key");
 		expect(readProviderKey(key)).toBe("sk-acme-sky-serving-key");
 
+		// The first key is reviewed with the first model: it cannot be dropped.
+		expect(
+			(
+				await app.request(
+					`/airside/claims/${claim.id}/provider-key`,
+					json(cookie, undefined, "DELETE"),
+				)
+			).status,
+		).toBe(409);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/claims/${claim.id}/provider-key/reject`,
+					json(cookie),
+				)
+			).status,
+		).toBe(409);
+
 		// Later models probe the key on file instead of taking another one.
 		const extraKey = await createModel(
 			cookie,
@@ -4175,8 +4193,20 @@ describe("airside provider portal", () => {
 				})
 			)?.providerKeyId;
 
+		// The testing key never serves traffic, from admin either.
+		const reused = await app.request(
+			"/admin/provider-credentials",
+			json(cookie, { provider: "acme-sky", token: "sk-acme-sky-testing-key" }),
+		);
+		expect(reused.status).toBe(400);
+
 		// A carrier without a key gets the admin's credential linked.
 		const set = await create("sk-admin-set");
+		const rotatedToTesting = await app.request(
+			`/admin/provider-credentials/${set.id}`,
+			json(cookie, { token: "sk-acme-sky-testing-key" }, "PATCH"),
+		);
+		expect(rotatedToTesting.status).toBe(400);
 		expect(set.carrierKey).toBe(true);
 		expect(await linkedKeyId()).toBe(set.id);
 		// The carrier no longer has to file one with its first model.

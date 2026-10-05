@@ -3,6 +3,7 @@ import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { assertNotTestingKey } from "@/lib/airside-carrier-keys.js";
 import {
 	buildErrorTimeline,
 	errorTimelineSchema,
@@ -1970,6 +1971,10 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 		body.provider === "custom"
 			? undefined
 			: await findActiveCustomCarrier(body.provider);
+	// The carrier's testing key runs preflights; it never serves traffic.
+	if (carrier) {
+		assertNotTestingKey(carrier, body.token);
+	}
 	const created = await cdb.transaction(async (tx) => {
 		const [row] = await tx
 			.insert(tables.providerKey)
@@ -2079,6 +2084,12 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 
 	if (!existing) {
 		throw new HTTPException(404, { message: "Credential not found" });
+	}
+	if (body.token !== undefined && existing.provider !== "custom") {
+		const carrier = await findActiveCustomCarrier(existing.provider);
+		if (carrier) {
+			assertNotTestingKey(carrier, body.token);
+		}
 	}
 
 	const updates: Partial<typeof tables.providerKey.$inferInsert> = {};
