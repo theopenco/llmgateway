@@ -95,6 +95,21 @@ describe("guardrail regex engine", () => {
 		expect(matchGuardrailRegex("secret", "SECRET", true)).toEqual([]);
 	});
 
+	it.each(["\ud800", "\udc00", "😀\ud800"])(
+		"returns the original text when a match contains %j",
+		(unicode) => {
+			const secret = `SECRET:${unicode}value`;
+			expect(matchGuardrailRegex("SECRET:\\S+", `😀 ${secret} end`)).toEqual([
+				secret,
+			]);
+		},
+	);
+
+	it("does not turn lone surrogates into replacement-character matches", () => {
+		expect(matchGuardrailRegex("\uFFFD", "\ud800 \udc00")).toEqual([]);
+		expect(matchGuardrailRegex("\uFFFD", "\uFFFD")).toEqual(["\uFFFD"]);
+	});
+
 	it.each(["\\d*", "foo|", "(?=a)b", "(a)\\1", "x".repeat(1001)])(
 		"rejects %s at validation",
 		(pattern) => {

@@ -84,6 +84,42 @@ async function seedScope(options: ScopeOptions) {
 
 describe("guardrail scope resolution", () => {
 	it.each(["custom_regex", "blocked_terms"] as const)(
+		"redacts original Unicode content from %s rules",
+		async (type) => {
+			const { organizationId, projectId } = await seedScope({});
+			const pattern = "SECRET:\\S+";
+			await db
+				.update(tables.guardrailRule)
+				.set({
+					type,
+					action: "redact",
+					config:
+						type === "custom_regex"
+							? { type, pattern }
+							: {
+									type,
+									terms: [pattern],
+									matchType: "regex",
+									caseSensitive: false,
+								},
+				})
+				.where(eq(tables.guardrailRule.organizationId, organizationId));
+			const secret = "SECRET:😀\ud800value\udc00";
+			const messages = [{ role: "user", content: `😀 ${secret} end` }];
+			const result = await checkGuardrails({
+				organizationId,
+				projectId,
+				messages,
+			});
+			expect(result.blocked).toBe(false);
+			expect(result.redactions).toHaveLength(1);
+			expect(applyRedactions(messages, result.redactions)[0].content).toBe(
+				`😀 ${"*".repeat(secret.length)} end`,
+			);
+		},
+	);
+
+	it.each(["custom_regex", "blocked_terms"] as const)(
 		"redacts full long matches from %s rules",
 		async (type) => {
 			const { organizationId, projectId } = await seedScope({});

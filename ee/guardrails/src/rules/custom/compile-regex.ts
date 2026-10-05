@@ -8,9 +8,6 @@ type CompiledPattern = { regex: RE2JS } | { error: Error };
 
 const compiledPatterns = new Map<string, CompiledPattern>();
 
-const LONE_SURROGATE =
-	/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
-
 function getRegex(pattern: string, caseSensitive: boolean): RE2JS {
 	const key = `${caseSensitive ? "s" : "i"}:${pattern}`;
 	let compiled = compiledPatterns.get(key);
@@ -66,11 +63,10 @@ export function matchGuardrailRegex(
 	caseSensitive = false,
 ): string[] {
 	const regex = getRegex(pattern, caseSensitive);
-	const text = content.replace(LONE_SURROGATE, "\uFFFD");
 	const matches: string[] = [];
 	// Match the complete input so anchors, boundaries and unbounded matches
-	// retain their meaning, including the full span needed for redaction.
-	const matcher = regex.matcher(text);
+	// retain their meaning. Keep the original Unicode for literal redaction.
+	const matcher = regex.matcher(content);
 	while (matcher.find()) {
 		const value = matcher.group();
 		if (value) {
