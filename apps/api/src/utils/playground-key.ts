@@ -4,6 +4,7 @@ import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
 import {
 	and,
+	asc,
 	cdb,
 	db,
 	eq,
@@ -29,6 +30,10 @@ export { PLAYGROUND_KEY_COOKIE_MAX_AGE, PLAYGROUND_KEY_COOKIE_NAME };
 
 export const PLAYGROUND_KEY_DESCRIPTION = "Playground";
 const PLAYGROUND_KEY_TTL_MS = PLAYGROUND_KEY_COOKIE_MAX_AGE * 1000;
+// A member holds one key per device. The cookie is shared across projects and
+// the mobile client keeps tokens in memory, so misses are routine: past this
+// many keys a miss recycles the stalest row instead of minting another.
+export const MAX_PLAYGROUND_KEYS_PER_MEMBER = 5;
 
 interface PlaygroundApiKeyResult {
 	token: string;
@@ -47,17 +52,20 @@ export async function getOrCreatePlaygroundApiKey(
 			sql`SELECT ${tables.project.id} FROM ${tables.project} WHERE ${tables.project.id} = ${projectId} FOR UPDATE`,
 		);
 
-		const [key] = existingToken
+		const memberKeys = and(
+			eq(tables.apiKey.projectId, projectId),
+			eq(tables.apiKey.status, "active"),
+			eq(tables.apiKey.keyType, "user"),
+			eq(tables.apiKey.kind, "playground"),
+			eq(tables.apiKey.createdBy, userId),
+		);
+		const [presented] = existingToken
 			? await tx
 					.select()
 					.from(tables.apiKey)
 					.where(
 						and(
-							eq(tables.apiKey.projectId, projectId),
-							eq(tables.apiKey.status, "active"),
-							eq(tables.apiKey.keyType, "user"),
-							eq(tables.apiKey.kind, "playground"),
-							eq(tables.apiKey.createdBy, userId),
+							memberKeys,
 							inArray(
 								tables.apiKey.tokenHash,
 								getApiKeyFingerprints(existingToken),
@@ -68,6 +76,24 @@ export async function getOrCreatePlaygroundApiKey(
 			: [];
 
 		const now = Date.now();
+		let key = presented;
+		if (!key) {
+			// No usable key for this device: reuse an expired row, or the stalest
+			// one once the member is at the cap, so rows stay bounded.
+			const existing = await tx
+				.select()
+				.from(tables.apiKey)
+				.where(memberKeys)
+				.orderBy(asc(tables.apiKey.updatedAt), asc(tables.apiKey.createdAt));
+			key =
+				existing.find(
+					(candidate) =>
+						candidate.expiresAt && candidate.expiresAt.getTime() <= now,
+				) ??
+				(existing.length >= MAX_PLAYGROUND_KEYS_PER_MEMBER
+					? existing[0]
+					: undefined);
+		}
 		const tokenMatches =
 			key &&
 			existingToken &&
