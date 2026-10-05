@@ -178,6 +178,9 @@ export interface LogCardData {
 	requestId?: string | null;
 	traceId?: string | null;
 	sessionId?: string | null;
+	promptId?: string | null;
+	promptVersion?: number | null;
+	promptLabel?: string | null;
 	projectId?: string | null;
 	projectName?: string | null;
 	organizationId?: string | null;
@@ -1255,6 +1258,30 @@ export function LogCard({
 										/>
 									)}
 								</div>
+								{log.promptId && (
+									<>
+										<div className="text-muted-foreground">Prompt</div>
+										<div className="flex flex-wrap items-center gap-1 font-mono text-xs break-all">
+											<span>{log.promptId}</span>
+											{typeof log.promptVersion === "number" && (
+												<Badge variant="secondary" className="text-xs">
+													v{log.promptVersion}
+												</Badge>
+											)}
+											{log.promptLabel && (
+												<Badge variant="outline" className="text-xs">
+													{log.promptLabel}
+												</Badge>
+											)}
+											{showCopyButtons && (
+												<CopyMetadataButton
+													value={log.promptId}
+													label="Copy prompt ID"
+												/>
+											)}
+										</div>
+									</>
+								)}
 								{showLogId && (
 									<>
 										<div className="text-muted-foreground">Log ID</div>

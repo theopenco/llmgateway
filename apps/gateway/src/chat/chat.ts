@@ -96,6 +96,10 @@ import {
 	resolvePreferredProvider,
 	setPreferredProvider,
 } from "@/lib/preferred-provider.js";
+import {
+	applyPromptReference,
+	promptResponseHeaders,
+} from "@/lib/prompt-template.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import {
 	checkProviderRateLimit,
@@ -236,6 +240,7 @@ import {
 	graphUsesClassifier,
 	parseCustomDynamicRouteModelRef,
 } from "@llmgateway/shared/dynamic-route";
+import { parsePromptModelReference } from "@llmgateway/shared/prompt-template";
 import {
 	applyRoutingPreference,
 	type ResolvedRoutingConfig,
@@ -1557,6 +1562,22 @@ export const chat = new OpenAPIHono<ServerTypes>({
 	},
 });
 
+// A `prompt` reference supplies model and messages, so the route only
+// requires them without one. The handler re-validates the expanded body
+// against the full schema.
+const completionsRouteBodySchema = completionsRequestSchema
+	.partial({ model: true, messages: true })
+	.refine(
+		(body) =>
+			body.prompt !== undefined ||
+			parsePromptModelReference(body.model) !== undefined ||
+			(body.model !== undefined && body.messages !== undefined),
+		{
+			message:
+				"model and messages are required unless prompt is set or model references a prompt",
+		},
+	);
+
 const completions = createRoute({
 	operationId: "v1_chat_completions",
 	summary: "Chat Completions",
@@ -1572,7 +1593,7 @@ const completions = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: completionsRequestSchema,
+					schema: completionsRouteBodySchema,
 				},
 			},
 		},
@@ -1778,6 +1799,19 @@ chat.openapi(completions, async (c) => {
 			},
 			400,
 		);
+	}
+
+	const promptExpansion = await applyPromptReference(
+		rawBody,
+		c.req.raw.headers,
+	);
+	rawBody = promptExpansion.body;
+	if (promptExpansion.applied) {
+		for (const [name, value] of Object.entries(
+			promptResponseHeaders(promptExpansion.applied),
+		)) {
+			c.header(name, value);
+		}
 	}
 
 	// Validate against schema
@@ -6859,6 +6893,9 @@ chat.openapi(completions, async (c) => {
 				...logData,
 				sessionId: logData.sessionId ?? sessionId ?? null,
 				apiOrigin: logData.apiOrigin ?? apiOrigin,
+				promptId: promptExpansion.applied?.promptId ?? null,
+				promptVersion: promptExpansion.applied?.version ?? null,
+				promptLabel: promptExpansion.applied?.label ?? null,
 				internalContentFilter: contentFilter.tagged
 					? true
 					: logData.internalContentFilter,

@@ -98,6 +98,42 @@ describe("search", () => {
 		expect(log?.cost).toBe(0.001);
 	});
 
+	test("auto routes to the cheapest search model", async () => {
+		await seedKeys("real-token-search-auto", "token-id-search-auto");
+
+		const res = await searchRequest("real-token-search-auto", {
+			model: "auto",
+			query: "anything",
+		});
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.model).toBe("perplexity/perplexity-search-fast");
+		expect(json.mock_request.search_type).toBe("fast");
+
+		const logs = await waitForLogs(1);
+		const log = logs.find(
+			(l) => l.usedModel === "perplexity/perplexity-search-fast",
+		);
+		expect(log?.requestedModel).toBe("auto");
+		expect(log?.requestedProvider).toBe("llmgateway");
+		expect(log?.routingMetadata?.selectionReason).toBe("price-only");
+		expect(log?.cost).toBe(0.001);
+	});
+
+	test("auto honors search_type", async () => {
+		await seedKeys("real-token-search-auto-web", "token-id-search-auto-web");
+
+		const res = await searchRequest("real-token-search-auto-web", {
+			model: "llmgateway/auto",
+			query: "anything",
+			search_type: "web",
+		});
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.model).toBe("perplexity/perplexity-search");
+		expect(json.mock_request.search_type).toBe("web");
+	});
+
 	test("rejects unsupported and conflicting search types", async () => {
 		await seedKeys("real-token-search-400", "token-id-search-400");
 
