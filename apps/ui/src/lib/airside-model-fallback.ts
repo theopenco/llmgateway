@@ -120,7 +120,7 @@ function apiMappingToDefinition(
 						),
 					},
 					hoursUtc: mapping.peakPricing.hoursUtc,
-					offPeakDays: optional(mapping.peakPricing.offPeakDays),
+					offPeakDaysUtc: optional(mapping.peakPricing.offPeakDaysUtc),
 				}
 			: undefined,
 		serviceTiers: optional(
