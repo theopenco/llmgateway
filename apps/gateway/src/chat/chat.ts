@@ -260,7 +260,7 @@ import { chunkMayCompleteSseEvent } from "./tools/chunk-may-complete-sse-event.j
 import { clampTemperature } from "./tools/clamp-temperature.js";
 import { collapseImageGenSse } from "./tools/collapse-image-gen-sse.js";
 import {
-	isContentFilterClassifierCompliant,
+	contentFilterClassifierGate,
 	evaluateContentFilterWithClassifiers,
 	runContentFilterClassifier,
 	type ContentFilterCheckResult,
@@ -3249,8 +3249,8 @@ chat.openapi(completions, async (c) => {
 	// to the upstream provider API — derived from the chosen provider
 	// mapping after routing. Empty until routing resolves a mapping.
 	let usedExternalId: string = requestedModel;
-	// Parsed up front: the dynamic-route classifier runs before routing and must
-	// honour a request-level residency as well as the org policy.
+	// Parsed up front so an unsupported value is rejected with 400 before any
+	// work is done. It tightens routing of the model call only.
 	const requestDataResidency = getRequestDataResidency(
 		c.req.header(DATA_RESIDENCY_HEADER),
 	);
@@ -3302,7 +3302,6 @@ chat.openapi(completions, async (c) => {
 		if (graphUsesClassifier(publishedRoute.graph)) {
 			dynamicRouteClassification = await resolveDynamicRouteClassification({
 				organization,
-				dataResidency: requestDataResidency,
 				context: {
 					requestId,
 					project,
@@ -3552,10 +3551,18 @@ chat.openapi(completions, async (c) => {
 	// Enterprise provider compliance guardrails: drop providers that do not meet
 	// the org's required certifications/data policies, and block the request when
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
+	// Tightened by the request header for routing of the model call only. The
+	// content filter and routing classifiers gate on the organization's own
+	// policy (see contentFilterClassifierGate), so a header can never switch a
+	// guardrail off.
 	const compliancePolicy = withRequestDataResidency(
 		getActiveCompliancePolicy(organization),
 		requestDataResidency,
 	);
+	// Which third-party classifiers (smart routing, content filter) may see the
+	// prompt. Org policy only, by construction.
+	const contentFilterClassifierAllowed =
+		contentFilterClassifierGate(organization);
 
 	const complianceContextFor = (
 		provider: ProviderModelMapping,
@@ -4522,10 +4529,10 @@ chat.openapi(completions, async (c) => {
 			// The classifier sends prompt text to TypeSafe, so an org whose
 			// compliance policy disallows that provider must not have its prompts
 			// sent there — same fail-closed rule as the model-backed content
-			// filter below. Routing then falls back to the cheapest candidate.
-			classifierAllowed:
-				!compliancePolicy ||
-				isProviderIdCompliant("typesafe", compliancePolicy),
+			// filter below, and like it decided by the org's own policy, not the
+			// request's residency header. Routing then falls back to the cheapest
+			// candidate.
+			classifierAllowed: contentFilterClassifierAllowed("jev"),
 			sessionStore: smartRoutingSessionStore,
 			messages: (messages ?? []) as BaseMessage[],
 			toolNames: (tools ?? [])
@@ -5000,9 +5007,6 @@ chat.openapi(completions, async (c) => {
 	// A model-backed content filter sends prompts to its classifier's provider.
 	// When the org's compliance policy disallows that provider, skip it so prompt
 	// data never reaches a non-compliant one (fail closed on the data guarantee).
-	const contentFilterClassifierAllowed = (
-		classifier: ContentFilterClassifier,
-	) => isContentFilterClassifierCompliant(classifier, compliancePolicy);
 	// Text-only classifiers delegate image parts to OpenAI moderation, which is
 	// only permitted when OpenAI itself is compliant for this organization.
 	const openAiContentFilterAllowed = contentFilterClassifierAllowed("openai");

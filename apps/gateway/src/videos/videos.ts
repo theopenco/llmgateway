@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import {
-	isContentFilterClassifierCompliant,
+	contentFilterClassifierGate,
 	evaluateContentFilterWithClassifiers,
 } from "@/chat/tools/content-filter-classifier.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
@@ -125,7 +125,6 @@ import {
 } from "@llmgateway/models";
 import {
 	buildVideoUsage,
-	type ContentFilterClassifier,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
 	getVideoProxyRedisKey,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
@@ -4379,15 +4378,15 @@ async function evaluateVideoContentFilter(options: {
 	project: InferSelectModel<typeof tables.project>;
 	organization: InferSelectModel<typeof tables.organization>;
 	providerId: string;
-	compliancePolicy: ReturnType<typeof getActiveCompliancePolicy>;
+
 	images: Array<ProcessedVideoImageInput | null>;
 	signal: AbortSignal | undefined;
 }): Promise<GatewayContentFilterEvaluation | null> {
 	const { plan } = options;
 	// Prompts must never reach a classifier's provider when the org's compliance
-	// policy excludes it.
-	const classifierAllowed = (classifier: ContentFilterClassifier) =>
-		isContentFilterClassifierCompliant(classifier, options.compliancePolicy);
+	// policy excludes it. The org policy alone decides: a request-level
+	// residency header must not be able to switch a guardrail off.
+	const classifierAllowed = contentFilterClassifierGate(options.organization);
 	const tiered = await evaluateContentFilterWithClassifiers({
 		plan,
 		messages: buildVideoModerationMessages(
@@ -4707,6 +4706,8 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 
 	// Enterprise provider compliance policy: restrict video routing to providers
 	// that meet the org's policy, and block before dispatch if none qualify.
+	// Tightened by the request header for routing of the video job only; the
+	// content filter gates on the org's own policy (contentFilterClassifierGate).
 	const videoCompliancePolicy = withRequestDataResidency(
 		getActiveCompliancePolicy(organization),
 		getRequestDataResidency(c.req.header(DATA_RESIDENCY_HEADER)),
@@ -4850,7 +4851,6 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				project,
 				organization,
 				providerId: selectedProviderContext.providerId,
-				compliancePolicy: videoCompliancePolicy,
 				images: [
 					processedFirstFrame,
 					processedLastFrameInput,

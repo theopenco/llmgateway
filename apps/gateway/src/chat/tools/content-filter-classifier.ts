@@ -1,4 +1,7 @@
-import { isProviderIdCompliant } from "@/lib/compliance.js";
+import {
+	getActiveCompliancePolicy,
+	isProviderIdCompliant,
+} from "@/lib/compliance.js";
 
 import { logger } from "@llmgateway/logger";
 
@@ -47,6 +50,20 @@ const CONTENT_FILTER_CLASSIFIER_PROVIDERS: Record<
 	jev: "typesafe",
 	internal: null,
 };
+
+/**
+ * Which classifiers may see this organization's prompts. Derived from the
+ * organization's own compliance policy and nothing request-scoped: a
+ * per-request data-residency header tightens routing of the model call, but
+ * letting it exclude a classifier would hand any API key holder a one-header
+ * switch for the org's guardrails.
+ */
+export function contentFilterClassifierGate(
+	organization: Parameters<typeof getActiveCompliancePolicy>[0],
+): (classifier: ContentFilterClassifier) => boolean {
+	const policy = getActiveCompliancePolicy(organization);
+	return (classifier) => isContentFilterClassifierCompliant(classifier, policy);
+}
 
 /** Whether the organization's compliance policy lets this classifier run. */
 export function isContentFilterClassifierCompliant(

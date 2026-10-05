@@ -1046,13 +1046,16 @@ describe("data residency", () => {
 		expect(
 			getProviderComplianceFailures(bedrock, us, { region: "global" }),
 		).toEqual(["dataResidency"]);
+		// Alibaba's data scope is a workspace property the hostname cannot reveal,
+		// so its US and EU regions stay unverified and Singapore is global.
 		const alibaba = getProviderDefinition("alibaba")!;
 		expect(
 			getProviderComplianceFailures(alibaba, eu, { region: "eu-frankfurt" }),
-		).toEqual([]);
+		).toEqual(["dataResidency"]);
 		expect(
 			getProviderComplianceFailures(alibaba, us, { region: "us-virginia" }),
-		).toEqual([]);
+		).toEqual(["dataResidency"]);
+		expect(resolveProcessingRegion(alibaba, "singapore")).toBe("global");
 		expect(
 			getProviderComplianceFailures(alibaba, us, { region: "singapore" }),
 		).toEqual(["dataResidency"]);
@@ -1129,9 +1132,9 @@ describe("data residency", () => {
 	it("keeps other requirements when a region satisfies residency", () => {
 		expect(
 			getProviderComplianceFailures(
-				getProviderDefinition("alibaba")!,
-				{ ...eu, blockedProviders: ["alibaba"] },
-				{ region: "eu-frankfurt" },
+				getProviderDefinition("aws-bedrock")!,
+				{ ...eu, blockedProviders: ["aws-bedrock"] },
+				{ region: "eu-central-1" },
 			),
 		).toEqual(["blockedProviders"]);
 	});
@@ -1156,8 +1159,11 @@ describe("data residency", () => {
 
 	it("lists the regional endpoints that satisfy a residency", () => {
 		expect(
+			getResidencyRegions(getProviderDefinition("aws-bedrock")!, "eu"),
+		).toEqual(["eu-central-1", "eu-north-1", "eu-west-1", "eu-west-3"]);
+		expect(
 			getResidencyRegions(getProviderDefinition("alibaba")!, "eu"),
-		).toEqual(["eu-frankfurt"]);
+		).toEqual([]);
 		expect(
 			getResidencyRegions(getProviderDefinition("aws-mantle")!, "us"),
 		).toEqual(["us", "us-east-1", "us-east-2", "us-west-2"]);

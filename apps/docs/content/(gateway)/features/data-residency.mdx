@@ -28,24 +28,24 @@ Data residency restricts routing to upstream endpoints whose inference is **veri
 
 The catalogue records a processing region for an endpoint only after checking the provider's own documentation or data processing agreement. It can be recorded for a whole provider, for one of its regional endpoints, or for a single model mapping, and the most specific entry wins. A request qualifies when the endpoint it will actually reach resolves to the required residency.
 
-Verified today:
-
-| Residency | Endpoints                                                                                                                                                       |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `us`      | AWS Bedrock `:us`, `:us-east-1`, `:us-east-2`, `:us-west-2`; AWS Mantle `:us`, `:us-east-1`, `:us-east-2`, `:us-west-2`; Alibaba `:us-virginia`                 |
-| `eu`      | Mistral AI (La Plateforme hosts API data in the EU by default); AWS Bedrock `:eu-central-1`, `:eu-west-1`, `:eu-west-3`, `:eu-north-1`; Alibaba `:eu-frankfurt` |
+The set of verified endpoints changes as providers are checked, so it is not listed here. The **Provider Impact** preview on the Compliance page shows, for the residency you select, which providers qualify outright and which qualify only through a pinned regional endpoint (marked **regional**, with the qualifying `:region` ids), and the live [providers page](https://llmgateway.io/providers) carries each provider's current metadata.
 
 Everything else fails closed, including:
 
-- endpoints that route requests across regions, such as Vertex `global` and Bedrock's `global` profile, and providers whose API does so by default unless a region option is set, which the gateway does not send yet;
-- Bedrock's `eu` cross-region profile, which also spans London and Zurich;
+- endpoints that route requests across regions (global endpoints and cross-region inference profiles), and providers whose API does so by default unless a region option is set, which the gateway does not send yet;
+- cross-region profiles that span countries outside the jurisdiction, even when named after it;
+- regional hosts whose processing scope is chosen per account or workspace rather than by the host, until that scope can be verified for the credential in use;
 - providers headquartered in the US or the EU whose processing location has not been verified yet, even when their headquarters is in the jurisdiction;
-- an unpinned request to a multi-region provider, because the gateway may still pick any of its regions. Pin the endpoint, for example `alibaba/qwen-plus:eu-frankfurt`;
-- any base URL that replaces the catalogue endpoint: a provider key with a custom base URL, a managed credential's base URL, an `LLM_*_BASE_URL` environment override, or an Airside carrier endpoint;
+- an unpinned request to a multi-region provider, because the gateway may still pick any of its regions. Pin the endpoint with a `:region` suffix;
+- any base URL that replaces the pinned endpoint: a provider key with a custom base URL, a managed credential's base URL, an `LLM_*_BASE_URL` environment override, or an Airside carrier endpoint. Another region's endpoint of the same provider counts as a replacement too;
 - [custom providers](/features/custom-providers), because a self-attestation records an operating country, not where inference runs;
 - Airside listings, until the carrier's processing region has been recorded for that mapping.
 
-Everything else in your compliance policy still applies on top. The **Provider Impact** preview on the Compliance page marks providers that qualify only through a pinned regional endpoint as **regional** and lists the endpoints.
+Everything else in your compliance policy still applies on top.
+
+## Platform classifiers
+
+The gateway's own content filter and routing classifiers may send prompt text to a third-party classifier. Which classifiers may see your prompts is decided by the organization's compliance policy alone: an organization residency policy excludes classifiers without a verified processing region, while the per-request header never does. Otherwise any API key holder could switch a guardrail off with one header. A request that asks for residency the organization does not enforce is still moderated as the organization configured.
 
 ## Organization policy
 
@@ -60,7 +60,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "x-llmgateway-data-residency: us" \
   -H "Content-Type: application/json" \
-  -d '{ "model": "aws-bedrock/claude-sonnet-4.5:us", "messages": [{ "role": "user", "content": "Hello" }] }'
+  -d '{ "model": "<provider>/<model>:<region>", "messages": [{ "role": "user", "content": "Hello" }] }'
 ```
 
 A request can only add a restriction: an unknown value returns `400`, and a value that conflicts with the organization's residency returns `400`.

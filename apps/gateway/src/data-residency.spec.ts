@@ -107,24 +107,25 @@ describe("data residency", () => {
 		}
 	});
 
-	test("residency blocks a pinned qualifying endpoint behind a custom base URL", async () => {
+	test("residency blocks a qualifying provider behind a custom base URL", async () => {
 		await seedKeys();
-		// The harness key's baseUrl replaces Alibaba's Frankfurt endpoint.
+		// Mistral is verified EU, but the harness key's baseUrl replaces its
+		// endpoint, so the request would not reach the verified location.
 		await db.insert(tables.providerKey).values({
-			id: "alibaba-key-id",
+			id: "mistral-key-id",
 			...encryptProviderKeyForStorage(
 				"sk-test-key",
-				"alibaba-key-id",
+				"mistral-key-id",
 				"org-id",
 			),
-			provider: "alibaba",
+			provider: "mistral",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
 		});
 		const res = await chat(
 			{
-				model: "alibaba/qwen-plus:eu-frankfurt",
-				messages: [{ role: "user", content: "eu endpoint via custom url" }],
+				model: "mistral/mistral-large-latest",
+				messages: [{ role: "user", content: "eu provider via custom url" }],
 			},
 			{ "x-llmgateway-data-residency": "eu", "x-no-fallback": "true" },
 		);
@@ -213,15 +214,19 @@ describe("residency with regional endpoints", () => {
 	const us = { enabled: true, dataResidency: "us" as const };
 	test("qualifies on the verified processing region of the endpoint", () => {
 		expect(
-			isProviderIdCompliant("alibaba", eu, { region: "eu-frankfurt" }),
+			isProviderIdCompliant("aws-bedrock", eu, { region: "eu-central-1" }),
 		).toBe(true);
 		expect(
-			isProviderIdCompliant("alibaba", us, { region: "us-virginia" }),
+			isProviderIdCompliant("aws-bedrock", us, { region: "us-east-1" }),
 		).toBe(true);
 		expect(
-			isProviderIdCompliant("alibaba", eu, { region: "us-virginia" }),
+			isProviderIdCompliant("aws-bedrock", eu, { region: "us-east-1" }),
 		).toBe(false);
-		expect(isProviderIdCompliant("alibaba", eu)).toBe(false);
+		expect(isProviderIdCompliant("aws-bedrock", eu)).toBe(false);
+		// Alibaba's scope is a workspace property the host cannot reveal.
+		expect(
+			isProviderIdCompliant("alibaba", eu, { region: "eu-frankfurt" }),
+		).toBe(false);
 		expect(isProviderIdCompliant("mistral", eu)).toBe(true);
 		expect(isProviderIdCompliant("mistral", us)).toBe(false);
 	});
@@ -257,10 +262,16 @@ describe("residency with regional endpoints", () => {
 			}),
 		).toBe(false);
 	});
-	test("a request residency also blocks the dynamic-route classifier", async () => {
+	test("the org policy, not a request, decides whether a classifier may run", async () => {
+		// TypeSafe has no verified processing region, so an org residency policy
+		// keeps prompts away from the dynamic-route classifier. There is no
+		// request-level input to this decision by design.
 		const result = await resolveDynamicRouteClassification({
-			organization: { id: "org-id", plan: "enterprise" },
-			dataResidency: "eu",
+			organization: {
+				id: "org-id",
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, dataResidency: "eu" },
+			},
 			context: {} as never,
 			sessionStickyEnabled: false,
 			routingCfg: {} as never,

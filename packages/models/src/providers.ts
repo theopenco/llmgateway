@@ -919,16 +919,23 @@ export const providers: ProviderDefinition[] = [
 		regionConfig: {
 			optionsKey: "alibaba_region",
 			defaultRegion: "singapore",
-			// Model Studio regions are single-location deployments; see
+			// Model Studio's data scope is a property of the workspace, not of the
+			// regional host: Virginia serves both the Global and the US scope and
+			// Frankfurt both Global and EU, chosen per workspace. The hostname alone
+			// therefore does not say where inference runs, and the shared
+			// `dashscope-us` / trial Frankfurt endpoints and BYOK workspaces may be
+			// Global, so neither region records a processing region until the
+			// workspace scope can be verified per credential. Singapore is the
+			// "International" scope, scheduled worldwide outside mainland China. See
 			// https://www.alibabacloud.com/help/en/model-studio/regions.
 			regions: [
 				{
 					id: "singapore",
 					label: "Singapore (default)",
-					processingRegion: "apac",
+					processingRegion: "global",
 				},
-				{ id: "eu-frankfurt", label: "EU (Frankfurt)", processingRegion: "eu" },
-				{ id: "us-virginia", label: "US (Virginia)", processingRegion: "us" },
+				{ id: "eu-frankfurt", label: "EU (Frankfurt)" },
+				{ id: "us-virginia", label: "US (Virginia)" },
 				{ id: "cn-beijing", label: "China (Beijing)", processingRegion: "cn" },
 			],
 			endpointMap: {

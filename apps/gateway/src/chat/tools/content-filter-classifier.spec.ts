@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	contentFilterClassifierGate,
 	evaluateContentFilterWithClassifiers,
 	isContentFilterClassifierCompliant,
 	runContentFilterClassifier,
@@ -313,6 +314,29 @@ describe("internal classifier", () => {
 
 		expect(isContentFilterClassifierCompliant("jev", policy)).toBe(false);
 		expect(isContentFilterClassifierCompliant("internal", policy)).toBe(true);
+	});
+
+	it("gates on the organization's own policy, never on a request", () => {
+		// No classifier provider records a processing region, so if a request's
+		// data-residency header could reach this gate it would switch every
+		// third-party classifier off. The gate takes only the organization.
+		const open = contentFilterClassifierGate({
+			id: "org",
+			plan: "enterprise",
+			providerCompliancePolicy: null,
+		});
+		expect(open("openai")).toBe(true);
+		expect(open("jev")).toBe(true);
+		expect(open("internal")).toBe(true);
+
+		const restricted = contentFilterClassifierGate({
+			id: "org",
+			plan: "enterprise",
+			providerCompliancePolicy: { enabled: true, dataResidency: "us" },
+		});
+		expect(restricted("openai")).toBe(false);
+		expect(restricted("jev")).toBe(false);
+		expect(restricted("internal")).toBe(true);
 	});
 });
 
