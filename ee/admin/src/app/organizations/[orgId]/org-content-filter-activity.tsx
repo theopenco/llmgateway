@@ -77,9 +77,12 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 		isPending: loading,
 		isError,
 		refetch,
-	} = api.useQuery("get", "/admin/organizations/{orgId}/content-filter", {
-		params: { path: { orgId }, query: { window } },
-	});
+	} = api.useQuery(
+		"get",
+		"/admin/organizations/{orgId}/content-filter",
+		{ params: { path: { orgId }, query: { window } } },
+		{ staleTime: 0 },
+	);
 
 	const bucket = data?.bucket ?? "day";
 	const formatTimestamp = (ts: string) =>

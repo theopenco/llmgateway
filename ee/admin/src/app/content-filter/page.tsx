@@ -23,11 +23,7 @@ import {
 	getContentFilterFocusOrganizations,
 	getContentFilterViolations,
 } from "@/lib/admin-content-filter";
-import {
-	getContentFilterSettings,
-	updateContentFilterSettings,
-	type ContentFilterSettingsInput,
-} from "@/lib/admin-settings";
+import { getContentFilterSettings } from "@/lib/admin-settings";
 import {
 	MIN_SAMPLED_FOR_RATE,
 	type ContentFilterViolationsGroupBy,
@@ -205,13 +201,6 @@ export default async function ContentFilterPage({
 					} as RankingFocus,
 				}));
 
-	async function handleSave(input: ContentFilterSettingsInput) {
-		"use server";
-
-		const result = await updateContentFilterSettings(input);
-		return { ok: result.settings !== null, message: result.message };
-	}
-
 	return (
 		<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex items-center gap-3">
@@ -241,7 +230,7 @@ export default async function ContentFilterPage({
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					<ContentFilterSettingsForm settings={settings} onSave={handleSave} />
+					<ContentFilterSettingsForm settings={settings} />
 				</CardContent>
 			</Card>
 

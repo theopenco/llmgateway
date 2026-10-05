@@ -1,5 +1,3 @@
-"use server";
-
 import { apiErrorMessage } from "./api-error";
 import { MIN_SAMPLED_FOR_RATE } from "./content-filter-ranking";
 import { createServerApiClient } from "./server-api";
@@ -8,7 +6,6 @@ import type {
 	ContentFilterViolationsSort,
 	ContentFilterViolationsWindow,
 } from "./content-filter-ranking";
-import type { TokenWindow } from "./types";
 
 export async function getContentFilterViolations(
 	window: ContentFilterViolationsWindow,
@@ -46,23 +43,6 @@ export async function getContentFilterFocusOrganizations(
 		{
 			params: { query: { window, usedProvider, usedModel } },
 		},
-	);
-	if (!response.ok || !data) {
-		throw new Error(
-			apiErrorMessage(error, "Failed to load content filter data", response),
-		);
-	}
-	return data;
-}
-
-export async function getOrganizationContentFilterActivity(
-	orgId: string,
-	window: TokenWindow,
-) {
-	const $api = await createServerApiClient();
-	const { data, error, response } = await $api.GET(
-		"/admin/organizations/{orgId}/content-filter",
-		{ params: { path: { orgId }, query: { window } } },
 	);
 	if (!response.ok || !data) {
 		throw new Error(
