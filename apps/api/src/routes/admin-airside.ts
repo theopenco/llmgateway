@@ -38,6 +38,7 @@ import {
 	db,
 	eq,
 	inArray,
+	isNotNull,
 	ne,
 	sql,
 	tables,
@@ -658,6 +659,8 @@ const listClaims = createRoute({
 				.enum(["true", "false"])
 				.transform((value) => value === "true")
 				.optional(),
+			limit: z.coerce.number().min(1).max(100).default(100).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
 		}),
 	},
 	responses: {
@@ -666,11 +669,12 @@ const listClaims = createRoute({
 				"application/json": {
 					schema: z.object({
 						claims: z.array(adminClaimSchema),
+						total: z.number(),
 						pendingCount: z.number(),
 					}),
 				},
 			},
-			description: "Carrier claims, oldest pending first.",
+			description: "Carrier claims, newest first.",
 		},
 	},
 });
@@ -685,18 +689,30 @@ adminAirside.openapi(listClaims, async (c) => {
 				: {}),
 		},
 		with: { providerCompany: true },
-		orderBy: { createdAt: "asc" },
-		limit: 100,
+		orderBy: { createdAt: "desc", id: "desc" },
+		limit: query.limit ?? 100,
+		offset: query.offset ?? 0,
 	});
-	const pending = await db.query.providerClaim.findMany({
-		where: { status: { eq: "pending" } },
-		columns: { id: true },
-	});
+	const claimTable = tables.providerClaim;
+	const countClaims = async (where: Parameters<typeof and>) => {
+		const [row] = await db
+			.select({ count: count() })
+			.from(claimTable)
+			.where(and(...where));
+		return row?.count ?? 0;
+	};
+	const [total, pendingCount] = await Promise.all([
+		countClaims([
+			query.status ? eq(claimTable.status, query.status) : undefined,
+			query.pendingBranding ? isNotNull(claimTable.pendingBranding) : undefined,
+		]),
+		countClaims([eq(claimTable.status, "pending")]),
+	]);
 	const claims = [];
 	for (const row of rows) {
 		claims.push(await serializeAdminClaim(row as ClaimWithRelations));
 	}
-	return c.json({ claims, pendingCount: pending.length });
+	return c.json({ claims, total, pendingCount });
 });
 
 async function getPendingClaim(id: string) {
@@ -1629,11 +1645,20 @@ function serializeInviteCode(
 const listInviteCodes = createRoute({
 	method: "get",
 	path: "/airside/invite-codes",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().min(1).max(200).default(200).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({ codes: z.array(adminInviteCodeSchema) }),
+					schema: z.object({
+						codes: z.array(adminInviteCodeSchema),
+						total: z.number(),
+					}),
 				},
 			},
 			description: "Listing invite codes, newest first.",
@@ -1642,10 +1667,15 @@ const listInviteCodes = createRoute({
 });
 
 adminAirside.openapi(listInviteCodes, async (c) => {
+	const query = c.req.valid("query");
 	const rows = await db.query.airsideInviteCode.findMany({
-		orderBy: { createdAt: "desc" },
-		limit: 200,
+		orderBy: { createdAt: "desc", id: "desc" },
+		limit: query.limit ?? 200,
+		offset: query.offset ?? 0,
 	});
+	const [totalRow] = await db
+		.select({ count: count() })
+		.from(tables.airsideInviteCode);
 	const codes = rows.map((row) => row.code);
 	const redeemers = codes.length
 		? await db.query.providerCompany.findMany({
@@ -1662,6 +1692,7 @@ adminAirside.openapi(listInviteCodes, async (c) => {
 					.map((company) => ({ id: company.id, name: company.name })),
 			),
 		),
+		total: totalRow?.count ?? 0,
 	});
 });
 
