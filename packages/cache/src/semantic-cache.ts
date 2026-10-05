@@ -657,9 +657,9 @@ export interface SemanticCacheHit<T> extends SemanticCacheMatch {
 /**
  * The most similar match whose cached response still exists, loaded with
  * `load`. An entry can outlive its response, because each new entry refreshes
- * the list's expiry, so a stale best match falls through to the next one. The
- * served entry moves to the front of the list so repeated prompts are not
- * evicted by one-off traffic.
+ * the list's expiry, so a stale best match is pruned and the lookup falls
+ * through to the next one. The served entry moves to the front of the list so
+ * repeated prompts are not evicted by one-off traffic.
  */
 export async function findSemanticCacheHit<T>(
 	scopeKey: string,
@@ -687,6 +687,13 @@ export async function findSemanticCacheHit<T>(
 			return null;
 		}
 		if (response === null || response === undefined) {
+			// The list's expiry is refreshed on every write, so an entry can
+			// outlive its response. Drop it so it stops taking a probe slot.
+			void storageRedisClient
+				.lrem(scopeKey, 0, match.raw)
+				.catch((error: unknown) =>
+					logger.error("Error pruning semantic cache entry", error as Error),
+				);
 			continue;
 		}
 		void storageRedisClient

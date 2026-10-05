@@ -377,7 +377,7 @@ projects.openapi(updateProject, async (c) => {
 	if (
 		semanticCacheMode !== undefined &&
 		semanticCacheMode !== "off" &&
-		project.semanticCacheMode === "off" &&
+		semanticCacheMode !== project.semanticCacheMode &&
 		projectUserOrg?.organization?.providerCompliancePolicy?.enabled
 	) {
 		throw new HTTPException(409, {
@@ -389,9 +389,13 @@ projects.openapi(updateProject, async (c) => {
 	if (semanticCacheMode !== undefined) {
 		updateData.semanticCacheMode = semanticCacheMode;
 	}
-	// Semantic caching rides on request caching: turning that off turns this
-	// off too, instead of leaving it armed for whenever caching comes back.
-	if (cachingEnabled === false && project.semanticCacheMode !== "off") {
+	// Semantic caching rides on request caching: whenever the resulting state
+	// has request caching off, semantic caching is off too, instead of staying
+	// armed for whenever caching comes back.
+	const resultingCachingEnabled = cachingEnabled ?? project.cachingEnabled;
+	const resultingSemanticCacheMode =
+		updateData.semanticCacheMode ?? project.semanticCacheMode;
+	if (!resultingCachingEnabled && resultingSemanticCacheMode !== "off") {
 		updateData.semanticCacheMode = "off";
 	}
 

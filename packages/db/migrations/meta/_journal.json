@@ -2066,6 +2066,13 @@
       "when": 1791201251903,
       "tag": "1791201251_numerous_yellowjacket",
       "breakpoints": true
+    },
+    {
+      "idx": 295,
+      "version": "8",
+      "when": 1791224496703,
+      "tag": "1791224496_chubby_mandroid",
+      "breakpoints": true
     }
   ]
 }

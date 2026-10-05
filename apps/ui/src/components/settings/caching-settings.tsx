@@ -314,7 +314,7 @@ export function CachingSettings({
 														!isEnterprise ||
 														(compliancePolicyActive &&
 															option.value !== "off" &&
-															field.value === "off")
+															option.value !== field.value)
 													}
 												/>
 												<div className="space-y-1 leading-none">

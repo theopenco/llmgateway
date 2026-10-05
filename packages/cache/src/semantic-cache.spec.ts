@@ -375,8 +375,11 @@ describe("semantic cache", () => {
 		expect(hit?.cacheKey).toBe(live);
 		expect(hit?.response).toEqual({ id: "live" });
 		await new Promise((resolve) => setTimeout(resolve, 20));
-		const [front] = await storageRedisClient.lrange(scopeKey, 0, 0);
-		expect(decodeSemanticCacheEntry(front)?.cacheKey).toBe(live);
+		const remaining = (await storageRedisClient.lrange(scopeKey, 0, -1)).map(
+			(raw) => decodeSemanticCacheEntry(raw)?.cacheKey,
+		);
+		// The served entry is at the front and the stale one is pruned.
+		expect(remaining).toEqual([live, "spec-newest"]);
 		expect(
 			await findSemanticCacheHit(
 				scopeKey,

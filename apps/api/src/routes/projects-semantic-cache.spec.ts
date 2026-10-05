@@ -104,6 +104,18 @@ describe("semantic cache settings", () => {
 		});
 		expect(back.status).toBe(200);
 		expect((await stored()).semanticCacheMode).toBe("off");
+		// A mode sent alongside, or while, request caching is off never sticks.
+		const armed = await call("PATCH", `/projects/${PROJECT_ID}`, {
+			cachingEnabled: false,
+			semanticCacheMode: "on",
+		});
+		expect(armed.status).toBe(200);
+		expect((await stored()).semanticCacheMode).toBe("off");
+		const whileOff = await call("PATCH", `/projects/${PROJECT_ID}`, {
+			semanticCacheMode: "shadow",
+		});
+		expect(whileOff.status).toBe(200);
+		expect((await stored()).semanticCacheMode).toBe("off");
 	});
 
 	test("semantic caching rules: threshold needs enterprise, policy blocks enabling", async () => {
@@ -131,5 +143,19 @@ describe("semantic cache settings", () => {
 			semanticCacheMode: "off",
 		});
 		expect(disable.status).toBe(200);
+		// A project already in shadow cannot move to on under a policy either,
+		// but may stay where it is or turn off.
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true, semanticCacheMode: "shadow" })
+			.where(eq(tables.project.id, PROJECT_ID));
+		const escalate = await call("PATCH", `/projects/${PROJECT_ID}`, {
+			semanticCacheMode: "on",
+		});
+		expect(escalate.status).toBe(409);
+		const same = await call("PATCH", `/projects/${PROJECT_ID}`, {
+			semanticCacheMode: "shadow",
+		});
+		expect(same.status).toBe(200);
 	});
 });
