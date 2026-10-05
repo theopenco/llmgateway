@@ -3236,7 +3236,10 @@ admin.openapi(getOrganizations, async (c) => {
 
 	const orderFn = sortOrder === "asc" ? asc : desc;
 
-	// Subquery for all-time credits per org
+	// All-time pay-as-you-go credits per org: top-ups (incl. a DevPass org's
+	// PAYG top-ups) net of their refunds. Excludes DevPass/Chat Plan virtual
+	// credits, gifts, and end-user wallet rows. Refunds of non-top-up charges
+	// carry a zero creditAmount, so including every credit_refund is safe.
 	const allTimeCredits = db
 		.select({
 			organizationId: tables.transaction.organizationId,
@@ -3246,7 +3249,16 @@ admin.openapi(getOrganizations, async (c) => {
 				),
 		})
 		.from(tables.transaction)
-		.where(eq(tables.transaction.status, "completed"))
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, [
+					"credit_topup",
+					"credit_manual_payment",
+					"credit_refund",
+				]),
+			),
+		)
 		.groupBy(tables.transaction.organizationId)
 		.as("all_time_credits");
 
