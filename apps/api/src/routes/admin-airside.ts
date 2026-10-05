@@ -162,6 +162,8 @@ const adminRoutingFilingSchema = z.object({
 	providerId: z.string(),
 	modelId: z.string().nullable(),
 	status: z.enum(["pending", "approved", "rejected"]),
+	initiatedBy: z.enum(["carrier", "admin"]),
+	clearsOverride: z.boolean(),
 	discountPercent: z.number(),
 	marginPercent: z.number(),
 	routingAdjustment: z.number(),
@@ -194,6 +196,8 @@ function serializeAdminRoutingFiling(
 		providerId: row.providerId,
 		modelId: row.modelId,
 		status: row.status,
+		initiatedBy: row.initiatedBy,
+		clearsOverride: row.clearsOverride,
 		discountPercent,
 		marginPercent,
 		routingAdjustment: computeAirsideAdjustment(discountPercent, marginPercent),
@@ -1834,6 +1838,17 @@ function routingScope(providerId: string, modelId: string | null) {
 	);
 }
 
+// Admin fare changes skip review, so their filing is born approved.
+function adminFilingFields(userId: string | null) {
+	return {
+		status: "approved" as const,
+		initiatedBy: "admin" as const,
+		requestedBy: userId,
+		reviewedBy: userId,
+		reviewedAt: new Date(),
+	};
+}
+
 const setRoutingSettings = createRoute({
 	method: "put",
 	path: "/airside/routing-settings/{providerId}",
@@ -1888,6 +1903,7 @@ adminAirside.openapi(setRoutingSettings, async (c) => {
 		discountPercent: String(body.discountPercent),
 		marginPercent: String(body.marginPercent),
 	};
+	const userId = c.get("user")?.id ?? null;
 	// cdb: the gateway prices the routing election from provider_routing_settings.
 	await cdb.transaction(async (tx) => {
 		const updated = await tx
@@ -1900,6 +1916,12 @@ adminAirside.openapi(setRoutingSettings, async (c) => {
 				.insert(tables.providerRoutingSettings)
 				.values({ ...values, providerId, modelId });
 		}
+		await tx.insert(tables.providerRoutingFiling).values({
+			...values,
+			...adminFilingFields(userId),
+			providerId,
+			modelId,
+		});
 	});
 	return c.json({ ok: true });
 });
@@ -1924,13 +1946,31 @@ const deleteRoutingOverride = createRoute({
 adminAirside.openapi(deleteRoutingOverride, async (c) => {
 	const { providerId } = c.req.valid("param");
 	const { modelId } = c.req.valid("query");
-	const deleted = await cdb
-		.delete(tables.providerRoutingSettings)
-		.where(routingScope(providerId, modelId))
-		.returning({ id: tables.providerRoutingSettings.id });
-	if (deleted.length === 0) {
-		throw new HTTPException(404, { message: "Override not found" });
-	}
+	const userId = c.get("user")?.id ?? null;
+	await cdb.transaction(async (tx) => {
+		const deleted = await tx
+			.delete(tables.providerRoutingSettings)
+			.where(routingScope(providerId, modelId))
+			.returning();
+		if (deleted.length === 0) {
+			throw new HTTPException(404, { message: "Override not found" });
+		}
+		const [fallback] = await tx
+			.select()
+			.from(tables.providerRoutingSettings)
+			.where(routingScope(providerId, null))
+			.limit(1);
+		// Record the default fare the model now inherits.
+		await tx.insert(tables.providerRoutingFiling).values({
+			...adminFilingFields(userId),
+			providerCompanyId: deleted[0].providerCompanyId,
+			providerId,
+			modelId,
+			discountPercent: fallback?.discountPercent ?? "0",
+			marginPercent: fallback?.marginPercent ?? String(AIRSIDE_BASELINE_MARGIN),
+			clearsOverride: true,
+		});
+	});
 	return c.json({ ok: true });
 });
 

@@ -124,9 +124,14 @@ export default function FilingsPage() {
 											{formatPerMillion(filing.outputPrice)}
 										</TableCell>
 										<TableCell>
-											<Badge variant={STATUS_VARIANT[filing.status]}>
-												{filing.status}
-											</Badge>
+											<div className="flex items-center gap-1">
+												<Badge variant={STATUS_VARIANT[filing.status]}>
+													{filing.status}
+												</Badge>
+												{filing.initiatedBy === "admin" ? (
+													<Badge variant="outline">set by LLMGateway</Badge>
+												) : null}
+											</div>
 										</TableCell>
 										<TableCell className="text-muted-foreground text-xs">
 											<RelativeDate date={filing.createdAt} />
@@ -160,6 +165,7 @@ export default function FilingsPage() {
 							<TableHeader>
 								<TableRow>
 									<TableHead>Carrier</TableHead>
+									<TableHead>Scope</TableHead>
 									<TableHead className="text-right">Discount</TableHead>
 									<TableHead className="text-right">Landing fee</TableHead>
 									<TableHead>Status</TableHead>
@@ -172,6 +178,14 @@ export default function FilingsPage() {
 									<TableRow key={filing.id}>
 										<TableCell className="font-mono">
 											{filing.providerId}
+										</TableCell>
+										<TableCell className="font-mono text-xs">
+											{filing.modelId ?? "All models"}
+											{filing.clearsOverride ? (
+												<span className="text-muted-foreground block font-sans">
+													override removed
+												</span>
+											) : null}
 										</TableCell>
 										<TableCell className="text-right font-mono">
 											{Math.round(filing.discountPercent * 100)}%

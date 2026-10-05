@@ -49,7 +49,7 @@ async function clearFixtures() {
 	await db.delete(tables.model).where(eq(tables.model.id, MODEL_ID));
 	await db
 		.delete(tables.providerRoutingFiling)
-		.where(eq(tables.providerRoutingFiling.id, FILING_ID));
+		.where(eq(tables.providerRoutingFiling.providerId, CARRIER_ID));
 	await db
 		.delete(tables.providerRoutingSettings)
 		.where(eq(tables.providerRoutingSettings.providerId, CARRIER_ID));
@@ -283,6 +283,36 @@ describe("admin provider detail for airside carriers", () => {
 			verificationKeyMasked: null,
 			modelOverrides: [],
 		});
+
+		// Every admin fare change lands in the filing history, born approved.
+		const filings = await db.query.providerRoutingFiling.findMany({
+			where: { providerId: { eq: CARRIER_ID } },
+			orderBy: { createdAt: "asc" },
+		});
+		expect(filings).toMatchObject([
+			{
+				modelId: null,
+				discountPercent: "0.1",
+				status: "approved",
+				initiatedBy: "admin",
+				clearsOverride: false,
+			},
+			{
+				modelId: MODEL_ID,
+				discountPercent: "0.3",
+				status: "approved",
+				initiatedBy: "admin",
+				clearsOverride: false,
+			},
+			{
+				modelId: MODEL_ID,
+				discountPercent: "0.1",
+				marginPercent: "0.25",
+				status: "approved",
+				initiatedBy: "admin",
+				clearsOverride: true,
+			},
+		]);
 	});
 
 	test("falls back to the default margin when no routing row exists", async () => {

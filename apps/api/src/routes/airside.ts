@@ -382,6 +382,9 @@ const routingFilingSchema = z.object({
 	marginPercent: z.number(),
 	routingAdjustment: z.number(),
 	status: z.enum(["pending", "approved", "rejected"]),
+	// "admin" = set directly by LLMGateway, not filed by the carrier.
+	initiatedBy: z.enum(["carrier", "admin"]),
+	clearsOverride: z.boolean(),
 	reviewNote: z.string().nullable(),
 	reviewedAt: z.string().nullable(),
 	createdAt: z.string(),
@@ -427,6 +430,8 @@ function serializeRoutingFiling(row: RoutingFilingRow) {
 		marginPercent,
 		routingAdjustment: computeAirsideAdjustment(discountPercent, marginPercent),
 		status: row.status,
+		initiatedBy: row.initiatedBy,
+		clearsOverride: row.clearsOverride,
 		reviewNote: row.reviewNote,
 		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
 		createdAt: row.createdAt.toISOString(),
