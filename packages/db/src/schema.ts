@@ -5706,6 +5706,14 @@ export const providerRoutingFiling = pgTable(
 		status: text({ enum: ["pending", "approved", "rejected"] })
 			.notNull()
 			.default("pending"),
+		// "admin" filings record a fare an admin set directly; they are created
+		// already approved, so the history shows every change to the knobs.
+		initiatedBy: text({ enum: ["carrier", "admin"] })
+			.notNull()
+			.default("carrier"),
+		// Admin-only: the model override was removed and the model falls back to
+		// the default fare (recorded in the discount/margin columns).
+		clearsOverride: boolean().notNull().default(false),
 		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
 		reviewedBy: text(),
 		reviewNote: text(),

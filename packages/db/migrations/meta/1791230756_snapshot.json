@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "cb2ca3ab-b2f4-479b-b5e6-24b54b208609",
-  "prevId": "c9e58b12-1f8f-4a41-8565-3a1be94c8b35",
+  "id": "21cae6ba-6aa1-4d51-9028-11ac27721a35",
+  "prevId": "2bbc0fe7-1a8c-4c21-a13a-75ca02dfe1c4",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -27695,6 +27695,38 @@
       "generated": null,
       "identity": null,
       "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_routing_filing"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'carrier'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "initiated_by",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_routing_filing"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "clears_override",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_routing_filing"
