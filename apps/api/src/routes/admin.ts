@@ -8337,6 +8337,7 @@ admin.openapi(getModelDetail, async (c) => {
 			providerIds.length > 0
 				? await db.query.provider.findMany({
 						where: { id: { in: providerIds } },
+						columns: { id: true, name: true },
 					})
 				: [];
 		const providerNameMap = new Map(providerRows.map((p) => [p.id, p.name]));
@@ -8526,6 +8527,7 @@ admin.openapi(getModelDetail, async (c) => {
 		providerIds.length > 0
 			? await db.query.provider.findMany({
 					where: { id: { in: providerIds } },
+					columns: { id: true, name: true },
 				})
 			: [];
 
@@ -10733,6 +10735,7 @@ admin.openapi(getProviderDetail, async (c) => {
 
 	const providerRow = await db.query.provider.findFirst({
 		where: { id: { eq: providerId } },
+		columns: { streaming: false },
 	});
 
 	if (!providerRow) {
@@ -12495,6 +12498,7 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 		providerIds.length > 0
 			? await db.query.provider.findMany({
 					where: { id: { in: providerIds } },
+					columns: { id: true, name: true },
 				})
 			: [];
 	const providerNameMap = new Map(providerRows.map((p) => [p.id, p.name]));
@@ -13289,6 +13293,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		providerIds.length > 0
 			? await db.query.provider.findMany({
 					where: { id: { in: providerIds } },
+					columns: { id: true, name: true },
 				})
 			: [];
 	const providerNameMap = new Map(providerRows.map((p) => [p.id, p.name]));
