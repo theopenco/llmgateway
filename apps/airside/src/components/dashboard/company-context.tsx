@@ -28,7 +28,15 @@ const CompanyContext = createContext<CompanyContextValue | null>(null);
 
 export function CompanyProvider({ children }: { children: ReactNode }) {
 	const api = useApi();
-	const { data, isLoading, isError, isFetching, refetch } = api.useQuery(
+	// `isLoadingError`, not `isError`: a failed background poll keeps the loaded
+	// companies, so it must not swap the dashboard for the error state.
+	const {
+		data,
+		isLoading,
+		isLoadingError: isError,
+		isFetching,
+		refetch,
+	} = api.useQuery(
 		"get",
 		"/airside/companies",
 		{},

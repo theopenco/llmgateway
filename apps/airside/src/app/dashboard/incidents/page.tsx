@@ -99,7 +99,10 @@ function IncidentsContent() {
 
 	function setParam(name: string, next: string | null) {
 		const params = new URLSearchParams(searchParams.toString());
-		params.delete("model");
+		if (name === "mapping") {
+			// Picking or clearing a mapping replaces the all-regions model filter.
+			params.delete("model");
+		}
 		if (next) {
 			params.set(name, next);
 		} else {
@@ -282,7 +285,7 @@ function IncidentsContent() {
 								))}
 							</SelectContent>
 						</Select>
-						{mapping !== null || model !== null ? (
+						{mapping !== null || (model !== null && !groupByError) ? (
 							<button
 								type="button"
 								onClick={() => setMapping(null)}
