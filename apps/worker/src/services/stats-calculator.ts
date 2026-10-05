@@ -1,3 +1,5 @@
+import { isStopRequested } from "@/shutdown.js";
+
 import {
 	db,
 	provider,
@@ -1239,6 +1241,10 @@ export async function backfillHistoryIfNeeded() {
 					boundedStart.getTime(),
 				);
 	for (let time = start; time <= end.getTime(); time += ONE_MINUTE_MS) {
+		// Shutdown waits for this backfill; the next start resumes the gaps.
+		if (isStopRequested()) {
+			return;
+		}
 		if (mappingTimes.has(time) && modelTimes.has(time)) {
 			continue;
 		}
@@ -1847,16 +1853,95 @@ export async function backfillHourlyHistoryIfNeeded(
 					),
 				),
 			),
-	]);
-	const sources = [
-		mapping[0]?.timestamp,
-		models[0]?.timestamp,
-		...progress
-			.filter((row) => row.job === "minute-usage")
-			.map((row) => row.bucketTimestamp),
-	].filter((date): date is Date => date !== undefined);
-	if (!sources.length) {
-		return true;
+		);
+		const summarizedHours = (
+			table:
+				| typeof modelProviderMappingHistoryHourly
+				| typeof modelHistoryHourly
+				| typeof routingElectionHourly,
+		) =>
+			database.select({
+				hourTimestamp: sql<Date>`candidate.hour_timestamp`.mapWith(
+					table.hourTimestamp,
+				),
+			}).from(sql`generate_series(
+					${formatUTCTimestamp(startHour)}::timestamp,
+					${formatUTCTimestamp(lastScannedHour)}::timestamp,
+					interval '1 hour'
+				) as candidate(hour_timestamp)`).where(sql`exists (
+					select 1 from ${table}
+					where ${table.hourTimestamp} = candidate.hour_timestamp
+				)`);
+
+		const [mappingHours, modelHours, routingHours] = await Promise.all([
+			summarizedHours(modelProviderMappingHistoryHourly),
+			summarizedHours(modelHistoryHourly),
+			summarizedHours(routingElectionHourly),
+		]);
+
+		const mappingHourSet = new Set(
+			mappingHours.map((r) => r.hourTimestamp.getTime()),
+		);
+		const modelHourSet = new Set(
+			modelHours.map((r) => r.hourTimestamp.getTime()),
+		);
+		const routingHourSet = new Set(
+			routingHours.map((r) => r.hourTimestamp.getTime()),
+		);
+
+		logger.info(
+			`Backfilling missing hourly history from ${startHour.toISOString()} to ${previousHourStart.toISOString()}`,
+		);
+
+		let hour = startHour;
+		let scanned = 0;
+		let computed = 0;
+		while (
+			hour <= previousHourStart &&
+			scanned < HOURLY_BACKFILL_MAX_ITERATIONS &&
+			!isStopRequested()
+		) {
+			const ms = hour.getTime();
+			// Routing telemetry shipped after the two history tables, so on the first
+			// pass after deploy every historical hour is present in those two and
+			// absent from routing — checking only them would leave routing telemetry
+			// permanently unbackfilled.
+			const routingMissing =
+				earliestLogHourMs !== null &&
+				ms >= earliestLogHourMs &&
+				!routingHourSet.has(ms);
+			if (!mappingHourSet.has(ms) || !modelHourSet.has(ms) || routingMissing) {
+				const result = await calculateHistoryForHour(hour);
+				logger.info(
+					`Backfilled hourly history for ${hour.toISOString()}: ${result.mappingResult.totalMappings} mappings, ${result.modelResult.totalModels} models, ${result.routingResult?.electionRows ?? 0} routing elections`,
+				);
+				computed++;
+			}
+
+			const nextHour = roundToHourStart(new Date(hour.getTime() + ONE_HOUR_MS));
+			if (nextHour.getTime() <= hour.getTime()) {
+				logger.error(
+					`Loop safety break: Time calculation error at ${hour.toISOString()}`,
+				);
+				break;
+			}
+
+			hour = nextHour;
+			scanned++;
+		}
+
+		if (scanned >= HOURLY_BACKFILL_MAX_ITERATIONS) {
+			logger.warn(
+				`Hourly backfill stopped at iteration limit ${HOURLY_BACKFILL_MAX_ITERATIONS} to prevent runaway backfill`,
+			);
+		}
+
+		logger.info(
+			`Hourly backfill complete: scanned ${scanned} hour(s), computed ${computed} missing.`,
+		);
+	} catch (error) {
+		logger.error("Error during hourly history backfill:", error as Error);
+		throw error;
 	}
 	const start = roundToHourStart(
 		new Date(Math.min(...sources.map((date) => date.getTime()))),
