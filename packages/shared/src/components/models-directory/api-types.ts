@@ -11,7 +11,6 @@ export interface ApiProvider {
 	createdAt: string;
 	name: string | null;
 	description: string | null;
-	streaming: boolean | null;
 	cancellation: boolean | null;
 	color: string | null;
 	website: string | null;

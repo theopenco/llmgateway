@@ -153,7 +153,6 @@ export function adaptProviderMapping(
 			createdAt: "",
 			name: p.providerInfo?.name ?? null,
 			description: p.providerInfo?.description ?? null,
-			streaming: p.providerInfo?.streaming ?? null,
 			cancellation: null,
 			color: p.providerInfo?.color ?? null,
 			website: p.providerInfo?.website ?? null,

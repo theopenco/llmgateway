@@ -14,13 +14,13 @@ import {
 	Wallet,
 } from "lucide-react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { ChatPlansTimeseriesChart } from "@/components/chat-plans-timeseries-chart";
 import { ChatPlansUsage } from "@/components/chat-plans-usage";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { RenewalCell } from "@/components/renewal-cell";
+import { SearchForm } from "@/components/search-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,6 +43,8 @@ import { formatSubscriberStatus } from "@/lib/renewal-state";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
+
+import type { SearchFormParam } from "@/components/search-form";
 
 const SORT_BY_VALUES = [
 	"name",
@@ -414,53 +416,13 @@ export default async function ChatPlansPage({
 	queryParams.set("sortOrder", sortOrder);
 	const queryString = queryParams.toString();
 
-	async function handleSearch(formData: FormData) {
-		"use server";
-		const searchValue = formData.get("search") as string;
-		const sortByValue = formData.get("sortBy") as string;
-		const sortOrderValue = formData.get("sortOrder") as string;
-		const tierValue = formData.get("tier") as string;
-		const statusValue = formData.get("status") as string;
-		const utilValue = formData.get("utilization") as string;
-		const marginValue = formData.get("marginNegative") as string;
-		const churnValue = formData.get("showChurned") as string;
-		const rangeValue = formData.get("range") as string;
-		const fromValue = formData.get("from") as string;
-		const toValue = formData.get("to") as string;
-		const sp = new URLSearchParams();
-		if (searchValue) {
-			sp.set("search", searchValue);
+	const searchFormParams: SearchFormParam[] = [{ name: "search" }];
+	queryParams.forEach((value, name) => {
+		if (name !== "search") {
+			searchFormParams.push({ name, value });
 		}
-		if (tierValue) {
-			sp.set("tier", tierValue);
-		}
-		if (statusValue) {
-			sp.set("status", statusValue);
-		}
-		if (utilValue) {
-			sp.set("utilization", utilValue);
-		}
-		if (marginValue) {
-			sp.set("marginNegative", "true");
-		}
-		if (churnValue) {
-			sp.set("showChurned", "true");
-		}
-		if (rangeValue) {
-			sp.set("range", rangeValue);
-		} else {
-			if (fromValue) {
-				sp.set("from", fromValue);
-			}
-			if (toValue) {
-				sp.set("to", toValue);
-			}
-		}
-		sp.set("sortBy", sortByValue);
-		sp.set("sortOrder", sortOrderValue);
-		sp.set("page", "1");
-		redirect(`/chat-plans?${sp.toString()}`);
-	}
+	});
+	searchFormParams.push({ name: "page", value: "1" });
 
 	// The API strips the plan-wide KPIs for non-admin roles.
 	const kpis = data.kpis;
@@ -663,28 +625,12 @@ export default async function ChatPlansPage({
 				</>
 			)}
 
-			<form
-				action={handleSearch}
+			<SearchForm
+				pathname="/chat-plans"
+				params={searchFormParams}
+				encoding="form"
 				className="flex flex-col gap-3 rounded-lg border border-border/60 bg-card p-4"
 			>
-				<input type="hidden" name="sortBy" value={sortBy} />
-				<input type="hidden" name="sortOrder" value={sortOrder} />
-				<input type="hidden" name="tier" value={tier} />
-				<input type="hidden" name="status" value={status} />
-				<input type="hidden" name="utilization" value={utilization} />
-				<input
-					type="hidden"
-					name="marginNegative"
-					value={marginNegative ? "true" : ""}
-				/>
-				<input
-					type="hidden"
-					name="showChurned"
-					value={showChurned ? "true" : ""}
-				/>
-				<input type="hidden" name="range" value={range ?? ""} />
-				<input type="hidden" name="from" value={range ? "" : (from ?? "")} />
-				<input type="hidden" name="to" value={range ? "" : (to ?? "")} />
 				<div className="flex flex-col gap-2 sm:flex-row sm:items-center">
 					<div className="relative flex-1">
 						<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -813,7 +759,7 @@ export default async function ChatPlansPage({
 					{data.total} subscriber{data.total === 1 ? "" : "s"} match current
 					filters
 				</p>
-			</form>
+			</SearchForm>
 
 			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
 				<Table>

@@ -7,8 +7,8 @@ import {
 	Search,
 } from "lucide-react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
+import { SearchForm } from "@/components/search-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -185,26 +185,6 @@ export default async function ProviderListingRequestsPage({
 
 	const totalPages = Math.ceil(data.total / limit);
 
-	async function handleSearch(formData: FormData) {
-		"use server";
-		const searchValue = formData.get("search") as string;
-		const statusValue = formData.get("status") as string;
-		const sortByValue = formData.get("sortBy") as string;
-		const sortOrderValue = formData.get("sortOrder") as string;
-		const archivedValue = formData.get("archived") as string;
-		const searchParam = searchValue
-			? `&search=${encodeURIComponent(searchValue)}`
-			: "";
-		const statusParam = statusValue
-			? `&status=${encodeURIComponent(statusValue)}`
-			: "";
-		const sortParam = `&sortBy=${sortByValue}&sortOrder=${sortOrderValue}`;
-		const archivedParam = archivedValue === "true" ? "&archived=true" : "";
-		redirect(
-			`/provider-listing-requests?page=1${searchParam}${statusParam}${sortParam}${archivedParam}`,
-		);
-	}
-
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -216,17 +196,18 @@ export default async function ProviderListingRequestsPage({
 						{data.total} requests found
 					</p>
 				</div>
-				<form
-					action={handleSearch}
+				<SearchForm
+					pathname="/provider-listing-requests"
+					params={[
+						{ name: "page", value: "1" },
+						{ name: "search" },
+						{ name: "status" },
+						{ name: "sortBy", value: sortBy },
+						{ name: "sortOrder", value: sortOrder },
+						...(archived ? [{ name: "archived", value: "true" }] : []),
+					]}
 					className="flex w-full flex-wrap items-center gap-2 sm:w-auto"
 				>
-					<input type="hidden" name="sortBy" value={sortBy} />
-					<input type="hidden" name="sortOrder" value={sortOrder} />
-					<input
-						type="hidden"
-						name="archived"
-						value={archived ? "true" : "false"}
-					/>
 					<select
 						name="status"
 						defaultValue={status}
@@ -258,7 +239,7 @@ export default async function ProviderListingRequestsPage({
 							Archived
 						</Link>
 					</Button>
-				</form>
+				</SearchForm>
 			</header>
 
 			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">

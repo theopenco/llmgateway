@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "e7d4ffce-23f3-41ec-9109-f833d079d978",
-  "prevId": "cd785604-aa81-4b67-b78a-2d8c573fe841",
+  "id": "68170d42-f62e-4f2e-885c-97a7de318dac",
+  "prevId": "8ad3cd91-726f-4ff2-90a6-f36b102689c2",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -583,6 +583,12 @@
     {
       "isRlsEnabled": false,
       "name": "provider_key_hourly_stats",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "provider_listing_payment",
       "entityType": "tables",
       "schema": "public"
     },
@@ -26160,6 +26166,174 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "source",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider_company_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider_listing_request_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "amount",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'0'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "refunded_amount",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'USD'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "currency",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "stripe_checkout_session_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "stripe_payment_intent_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "paid_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "provider_listing_request"
     },
     {
@@ -37256,6 +37430,69 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "stripe_checkout_session_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "provider_listing_payment_checkout_session_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "stripe_payment_intent_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "provider_listing_payment_payment_intent_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "paid_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "provider_listing_payment_paid_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "created_at",
           "isExpression": false,
           "asc": true,
@@ -41185,6 +41422,40 @@
         "id"
       ],
       "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "provider_listing_payment_8dHnKwh19J1Z_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "provider_listing_request_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "provider_listing_request",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "provider_listing_payment_hCaNnJnGq0GN_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "provider_listing_payment"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "provider_company_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "provider_company",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "provider_model_verification_urLU4QwMtkGv_fkey",
       "entityType": "fks",
@@ -43179,6 +43450,16 @@
       "name": "provider_key_hourly_stats_pkey",
       "schema": "public",
       "table": "provider_key_hourly_stats",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "provider_listing_payment_pkey",
+      "schema": "public",
+      "table": "provider_listing_payment",
       "entityType": "pks"
     },
     {

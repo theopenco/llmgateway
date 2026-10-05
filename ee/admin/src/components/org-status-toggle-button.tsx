@@ -2,7 +2,6 @@
 
 import { Ban, CircleCheck, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -10,6 +9,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useApi } from "@/lib/fetch-client";
 
 interface OrgStatusToggleButtonProps {
 	orgId: string;
@@ -21,10 +21,6 @@ interface OrgStatusToggleButtonProps {
 	 * re-enabling an already-disabled organization is always allowed.
 	 */
 	disableBlockedReason?: string | null;
-	onToggle: (
-		orgId: string,
-		status: "active" | "deleted",
-	) => Promise<{ success: boolean; error?: string }>;
 }
 
 export function OrgStatusToggleButton({
@@ -32,10 +28,18 @@ export function OrgStatusToggleButton({
 	orgName,
 	currentStatus,
 	disableBlockedReason,
-	onToggle,
 }: OrgStatusToggleButtonProps) {
+	const $api = useApi();
 	const router = useRouter();
-	const [loading, setLoading] = useState(false);
+	const statusMutation = $api.useMutation(
+		"patch",
+		"/admin/organizations/{orgId}/status",
+		{
+			onSuccess: () => router.refresh(),
+			meta: { errorMessage: "Failed to update organization status" },
+		},
+	);
+	const loading = statusMutation.isPending;
 
 	const isDisabled = currentStatus === "deleted";
 	const nextStatus: "active" | "deleted" = isDisabled ? "active" : "deleted";
@@ -46,7 +50,7 @@ export function OrgStatusToggleButton({
 			? "Re-enable organization access only; member accounts and subscriptions are not restored"
 			: "Disable organization and cancel all subscriptions; member accounts stay active");
 
-	const handleClick = async () => {
+	const handleClick = () => {
 		const verb = isDisabled ? "re-enable" : "disable";
 		if (
 			!confirm(
@@ -60,15 +64,10 @@ export function OrgStatusToggleButton({
 			return;
 		}
 
-		setLoading(true);
-		const result = await onToggle(orgId, nextStatus);
-		setLoading(false);
-
-		if (result.success) {
-			router.refresh();
-		} else if (result.error) {
-			alert(result.error);
-		}
+		statusMutation.mutate({
+			params: { path: { orgId } },
+			body: { status: nextStatus },
+		});
 	};
 
 	return (

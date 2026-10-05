@@ -48,7 +48,6 @@ const providerSchema = z.object({
 	createdAt: z.coerce.date(),
 	name: z.string().nullable(),
 	description: z.string().nullable(),
-	streaming: z.boolean().nullable(),
 	cancellation: z.boolean().nullable(),
 	color: z.string().nullable(),
 	website: z.string().nullable(),
@@ -698,6 +697,7 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 		where: {
 			status: { eq: "active" },
 		},
+		columns: { streaming: false },
 		orderBy: {
 			createdAt: "desc",
 		},

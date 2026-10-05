@@ -215,7 +215,6 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			createdAt: new Date().toISOString(),
 			name: provider.name,
 			description: provider.description ?? null,
-			streaming: provider.streaming ?? null,
 			cancellation: provider.cancellation ?? null,
 			color: provider.color ?? null,
 			website: provider.website ?? null,

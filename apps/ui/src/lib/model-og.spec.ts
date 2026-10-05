@@ -34,7 +34,6 @@ const liveProvider: ApiProvider = {
 	name: "Approved provider",
 	createdAt: "2026-09-08T00:00:00Z",
 	description: null,
-	streaming: true,
 	cancellation: null,
 	color: null,
 	website: null,
