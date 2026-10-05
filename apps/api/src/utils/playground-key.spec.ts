@@ -6,6 +6,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import {
 	getOrCreatePlaygroundApiKey,
 	getGatewayUrl,
+	MAX_PLAYGROUND_KEYS_PER_MEMBER,
 	PLAYGROUND_KEY_COOKIE_NAME,
 	resolvePlaygroundToken,
 } from "@/utils/playground-key.js";
@@ -271,6 +272,26 @@ describe("resolvePlaygroundToken", () => {
 		expect(
 			await db.$count(tables.apiKey, eq(tables.apiKey.kind, "playground")),
 		).toBe(5);
+	});
+
+	test("recycles the stalest key once a member reaches the cap", async () => {
+		const tokens: string[] = [];
+		for (let index = 0; index < MAX_PLAYGROUND_KEYS_PER_MEMBER + 2; index++) {
+			const response = await resolver.request("/");
+			tokens.push((await response.json()).token);
+		}
+
+		const keys = await db.query.apiKey.findMany({
+			where: { kind: { eq: "playground" } },
+		});
+		const isLive = (token: string) =>
+			keys.some(
+				(key) =>
+					key.tokenHash && getApiKeyFingerprints(token).includes(key.tokenHash),
+			);
+		expect(keys).toHaveLength(MAX_PLAYGROUND_KEYS_PER_MEMBER);
+		expect(isLive(tokens[0])).toBe(false);
+		expect(isLive(tokens[tokens.length - 1])).toBe(true);
 	});
 
 	test("gives another member its own key instead of rotating", async () => {
