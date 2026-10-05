@@ -44,11 +44,11 @@ describe("formatPeakPricingSchedule", () => {
 
 describe("formatLocalPeakWindows", () => {
 	it.each([
-		[0, "Monday–Friday 01:00–04:00 and 06:00–10:00"],
-		[480, "Monday–Friday 09:00–12:00 and 14:00–18:00"],
-		[330, "Monday–Friday 06:30–09:30 and 11:30–15:30"],
-		[-480, "Sunday–Thursday 17:00–20:00 and 22:00–02:00"],
-		[-120, "Sunday–Thursday 23:00–02:00; Monday–Friday 04:00–08:00"],
+		[0, "Monday–Friday, 01:00–04:00 and 06:00–10:00"],
+		[480, "Monday–Friday, 09:00–12:00 and 14:00–18:00"],
+		[330, "Monday–Friday, 06:30–09:30 and 11:30–15:30"],
+		[-480, "Sunday–Thursday, 17:00–20:00 and 22:00–02:00 next day"],
+		[-120, "Sunday–Thursday, 23:00–02:00 next day; Monday–Friday, 04:00–08:00"],
 	])("shifts peak windows to UTC%i minutes", (offset, expected) => {
 		expect(formatLocalPeakWindows(deepSeekPeakPricing, offset)).toBe(expected);
 	});

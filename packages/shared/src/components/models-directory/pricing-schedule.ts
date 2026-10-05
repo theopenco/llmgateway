@@ -252,14 +252,30 @@ function shiftedMinutes(hourUtc: number, utcOffsetMinutes: number): number {
 	return utcMinutes + utcOffsetMinutes;
 }
 
-function formatTime(hourUtc: number, utcOffsetMinutes: number): string {
-	const localMinutes =
+function localMinuteOfDay(hourUtc: number, utcOffsetMinutes: number): number {
+	return (
 		((shiftedMinutes(hourUtc, utcOffsetMinutes) % minutesPerDay) +
 			minutesPerDay) %
-		minutesPerDay;
-	const hours = Math.floor(localMinutes / 60);
-	const minutes = localMinutes % 60;
+		minutesPerDay
+	);
+}
+
+function formatTime(minuteOfDay: number): string {
+	const hours = Math.floor(minuteOfDay / 60);
+	const minutes = minuteOfDay % 60;
 	return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+/** "HH:MM–HH:MM", flagging windows that end after local midnight. */
+function formatWindow(
+	start: number,
+	end: number,
+	utcOffsetMinutes: number,
+): string {
+	const localStart = localMinuteOfDay(start, utcOffsetMinutes);
+	const localEnd = localMinuteOfDay(end, utcOffsetMinutes);
+	const nextDay = localEnd > 0 && localEnd <= localStart ? " next day" : "";
+	return `${formatTime(localStart)}–${formatTime(localEnd)}${nextDay}`;
 }
 
 function peakDaysUtc(peakPricing: PeakPricing): number[] {
@@ -278,14 +294,14 @@ export function formatPeakPricingSchedule(peakPricing: PeakPricing): {
 		peakDays: formatDays(peakDaysUtc(peakPricing)),
 		offPeakDays: offPeakDays.length > 0 ? formatDays(offPeakDays) : null,
 		peakHours: peakPricing.hoursUtc
-			.map(([start, end]) => `${formatTime(start, 0)}–${formatTime(end, 0)}`)
+			.map(([start, end]) => formatWindow(start, end, 0))
 			.join(" and "),
 	};
 }
 
 /**
- * Peak windows shifted into a local time zone, e.g. "Sunday–Thursday
- * 17:00–20:00 and 22:00–02:00" at UTC-8. Windows whose local start lands on a
+ * Peak windows shifted into a local time zone, e.g. "Sunday–Thursday,
+ * 17:00–20:00 and 22:00–02:00 next day" at UTC-8. Windows whose local start lands on a
  * different day shift are listed as separate groups.
  */
 export function formatLocalPeakWindows(
@@ -299,15 +315,13 @@ export function formatLocalPeakWindows(
 			shiftedMinutes(start, utcOffsetMinutes) / minutesPerDay,
 		);
 		const windows = windowsByDayShift.get(dayShift) ?? [];
-		windows.push(
-			`${formatTime(start, utcOffsetMinutes)}–${formatTime(end, utcOffsetMinutes)}`,
-		);
+		windows.push(formatWindow(start, end, utcOffsetMinutes));
 		windowsByDayShift.set(dayShift, windows);
 	}
 	return Array.from(windowsByDayShift)
 		.map(
 			([dayShift, windows]) =>
-				`${formatDays(days.map((day) => (((day + dayShift) % 7) + 7) % 7))} ${windows.join(" and ")}`,
+				`${formatDays(days.map((day) => (((day + dayShift) % 7) + 7) % 7))}, ${windows.join(" and ")}`,
 		)
 		.join("; ");
 }
