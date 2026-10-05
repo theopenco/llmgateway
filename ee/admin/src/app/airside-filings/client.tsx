@@ -919,7 +919,7 @@ export function AirsideFilingsClient() {
 						<div className="flex h-32 items-center justify-center">
 							<Loader2 className="text-muted-foreground size-5 animate-spin" />
 						</div>
-					) : query.isError ? (
+					) : query.isError && !query.data ? (
 						<FilingQueryError onRetry={() => void query.refetch()} />
 					) : filings.length === 0 ? (
 						<p className="text-muted-foreground py-8 text-center text-sm">
@@ -1165,8 +1165,8 @@ export function AirsideFilingsClient() {
 				<CardContent>
 					{routingQuery.isLoading ? (
 						<Loader2 className="mx-auto size-5 animate-spin" />
-					) : routingQuery.isError ? (
-						<FilingQueryError onRetry={() => void routingQuery.refetch()} />
+					) : query.isError && !query.data ? (
+						<FilingQueryError onRetry={() => void query.refetch()} />
 					) : routingFilings.length === 0 ? (
 						<p className="text-muted-foreground py-8 text-center text-sm">
 							No {status === "all" ? "" : status} fare changes.
