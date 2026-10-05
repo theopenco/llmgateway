@@ -760,9 +760,9 @@ export function AirsideFilingsClient() {
 					<CardHeader>
 						<CardTitle>Provider key changes</CardTitle>
 						<CardDescription>
-							Replacement keys for live custom carriers. Approving smoke-tests
-							the key with one request against the carrier&apos;s first live
-							listing, then swaps it in and retires the old key.
+							Replacement keys for live custom carriers, already smoke-tested
+							against one of their live listings when submitted. Approving swaps
+							the key in and retires the old one.
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
@@ -810,26 +810,10 @@ export function AirsideFilingsClient() {
 														onClick={() =>
 															approveProviderKeyMutation.mutate({
 																params: { path: { id: claim.id } },
-																body: {},
 															})
 														}
 													>
 														<Check className="size-3.5" /> Approve
-													</Button>
-													<Button
-														size="sm"
-														variant="outline"
-														disabled={approveProviderKeyMutation.isPending}
-														title="Approve without the smoke test, e.g. while the carrier's endpoint is briefly down"
-														data-testid={`approve-provider-key-unchecked-${claim.providerId}`}
-														onClick={() =>
-															approveProviderKeyMutation.mutate({
-																params: { path: { id: claim.id } },
-																body: { skipValidation: true },
-															})
-														}
-													>
-														Skip test
 													</Button>
 													<Button
 														size="sm"

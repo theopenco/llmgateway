@@ -4,11 +4,13 @@ import {
 	decryptClaimVerificationKey,
 	encryptProviderKeyForStorage,
 	readProviderKey,
+	redactToken,
+	runProviderKeySmokeTest,
 } from "@llmgateway/actions";
 import { db } from "@llmgateway/db";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
-import type { tables } from "@llmgateway/db";
+import type { ProviderModelVerificationTarget, tables } from "@llmgateway/db";
 
 type ProviderClaimRow = typeof tables.providerClaim.$inferSelect;
 
@@ -85,4 +87,40 @@ export function assertDistinctRegistrationKeys(
 	if (providerKey === testingKey) {
 		throw new HTTPException(400, { message: SEPARATE_KEYS_MESSAGE });
 	}
+}
+
+/**
+ * Proves a provider key can serve a listing: one basic completion against the
+ * carrier's endpoint, in the listing's own API format. Run before anything
+ * reaches review, so a broken key never costs a review round trip.
+ */
+export async function assertProviderKeyServes(
+	claim: ProviderClaimRow,
+	apiKey: string,
+	target: ProviderModelVerificationTarget,
+): Promise<void> {
+	const failure = await runProviderKeySmokeTest({
+		target,
+		token: apiKey,
+		baseUrl: claim.customBaseUrl ?? undefined,
+		skipEnvVars: true,
+	});
+	if (failure) {
+		throw new HTTPException(400, {
+			message: `The provider key failed a smoke test against ${target.modelName}: ${redactToken(failure, apiKey)}`,
+		});
+	}
+}
+
+/** The carrier's most recently listed live model, if any. */
+export async function latestActiveListing(claim: ProviderClaimRow) {
+	return await db.query.providerDraftModel.findFirst({
+		where: {
+			providerCompanyId: { eq: claim.providerCompanyId },
+			providerId: { eq: claim.providerId },
+			status: { eq: "active" },
+		},
+		columns: { modelName: true, externalId: true, apiFormat: true },
+		orderBy: { createdAt: "desc" },
+	});
 }

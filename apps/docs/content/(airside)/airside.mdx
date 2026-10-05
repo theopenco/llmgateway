@@ -36,7 +36,7 @@ Create an account at [airside.llmgateway.io](https://airside.llmgateway.io). The
 
 ### Claim or register your carrier
 
-Claim an existing catalogue provider, or register a new one. Registering a new carrier takes its API base URL and two different API keys, both stored encrypted: a **provider key** that serves your traffic once approved, and a **testing key** for preflight checks and benchmarks, so test traffic bills apart from live traffic. Replacing the provider key later under **Settings** takes effect once the LLM Gateway team approves it and it passes a smoke test; until then the current key keeps serving. Every model must pass preflight before it can be submitted. The LLM Gateway team reviews every claim before the carrier goes live.
+Claim an existing catalogue provider, or register a new one. Registering a new carrier takes its API base URL and two different API keys, both stored encrypted: a **provider key** that serves your traffic once approved, and a **testing key** for preflight checks and benchmarks, so test traffic bills apart from live traffic. Replacing the provider key later under **Settings** smoke-tests the new key against one of your live models when you submit it, and it takes effect once the LLM Gateway team approves it; until then the current key keeps serving. Every model must pass preflight on the testing key, and a basic request on the provider key, before it can be submitted. The LLM Gateway team reviews every claim before the carrier goes live.
 
 </Step>
 <Step>

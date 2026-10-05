@@ -7,7 +7,9 @@ import { z } from "zod";
 import {
 	assertDistinctRegistrationKeys,
 	assertProviderKeyIsSeparate,
+	assertProviderKeyServes,
 	carrierProviderKeyValues,
+	latestActiveListing,
 } from "@/lib/airside-carrier-keys.js";
 import {
 	dematerializeAirsideModel,
@@ -68,6 +70,7 @@ import {
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
+import { readProviderKey } from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
 	AIRSIDE_DISCOUNT_MAX,
@@ -2460,6 +2463,21 @@ airside.openapi(submitProviderKey, async (c) => {
 	const { apiKey } = c.req.valid("json");
 	const claim = await requireOwnedCustomClaim(user.id, id);
 	await assertProviderKeyIsSeparate(claim, apiKey);
+	// A key that cannot serve a live listing never reaches review. Without one
+	// there is nothing to probe yet; the first listing proves the key instead.
+	const listing = await latestActiveListing(claim);
+	if (listing) {
+		await assertProviderKeyServes(
+			claim,
+			apiKey,
+			buildVerificationTarget({
+				providerId: claim.providerId,
+				modelName: listing.modelName,
+				externalId: listing.externalId,
+				apiFormat: listing.apiFormat,
+			}),
+		);
+	}
 	const providerKeyId = shortid();
 	// cdb: managed provider_key rows feed the gateway's credential cache.
 	const key = await cdb.transaction(async (tx) => {
@@ -3061,6 +3079,20 @@ airside.openapi(createModel, async (c) => {
 			message:
 				"The mapping changed after verification. Run verification again.",
 		});
+	}
+	// Preflight ran on the testing key; the key we serve traffic with must
+	// reach this model too, before the listing goes to review.
+	if (claim.providerKeyId) {
+		const servingKey = await db.query.providerKey.findFirst({
+			where: { id: { eq: claim.providerKeyId } },
+		});
+		if (servingKey) {
+			await assertProviderKeyServes(
+				claim,
+				readProviderKey(servingKey),
+				verificationTarget(body),
+			);
+		}
 	}
 
 	// cdb: the gateway caches airside model lookups; writes must invalidate.

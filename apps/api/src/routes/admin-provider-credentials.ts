@@ -506,7 +506,7 @@ async function validateManagedAllowedModels(
  * credentials the restriction exists for. When no allowed model can answer a
  * chat probe (image/embedding-only lists), the live check is skipped.
  */
-export async function validateCredentialToken(
+async function validateCredentialToken(
 	provider: string,
 	token: string,
 	config: Record<string, string>,

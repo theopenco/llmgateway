@@ -261,6 +261,7 @@ describe("airside provider portal", () => {
 
 	afterEach(async () => {
 		vi.restoreAllMocks();
+		vi.unstubAllGlobals();
 		if (originalAdminEmails === undefined) {
 			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
@@ -4075,6 +4076,86 @@ describe("airside provider portal", () => {
 			where: { provider: { eq: "acme-sky" }, status: { ne: "deleted" } },
 		});
 		expect(live.map((k) => k.id)).toEqual([pending.id]);
+	});
+
+	it("smoke-tests a provider key against a live listing before review", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@acme-sky.ai";
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		const { claim } = await (await registerCarrier(cookie, company.id)).json();
+		await app.request(
+			`/admin/airside/claims/${claim.id}/approve`,
+			json(cookie),
+		);
+
+		const workingKeys = new Set<string>();
+		const upstream = vi.fn(
+			async (_url: string | URL | Request, init?: RequestInit) => {
+				const token = new Headers(init?.headers).get("authorization");
+				return token && workingKeys.has(token.replace("Bearer ", ""))
+					? Response.json({
+							id: "chatcmpl-1",
+							object: "chat.completion",
+							model: "sky-large-v1",
+							choices: [
+								{
+									index: 0,
+									message: { role: "assistant", content: "OK" },
+									finish_reason: "stop",
+								},
+							],
+						})
+					: Response.json(
+							{ error: { message: "Invalid API key" } },
+							{ status: 401 },
+						);
+			},
+		);
+		vi.stubGlobal("fetch", upstream);
+
+		// Preflight ran on the testing key; the serving key must reach a new
+		// model too before the listing goes to review.
+		const sky = { providerId: "acme-sky", modelName: "sky-small" };
+		const blocked = await createModel(cookie, company.id, sky);
+		expect(blocked.status).toBe(400);
+		expect((await blocked.json()).message).toContain(
+			"smoke test against sky-small",
+		);
+		workingKeys.add("sk-acme-sky-serving-key");
+		expect((await createModel(cookie, company.id, sky)).status).toBe(201);
+
+		await db.insert(tables.providerDraftModel).values({
+			providerCompanyId: company.id,
+			providerId: "acme-sky",
+			modelName: "sky-large",
+			externalId: "sky-large-v1",
+			status: "active",
+		});
+		workingKeys.add("sk-acme-sky-good");
+		const submit = async (apiKey: string) =>
+			await app.request(
+				`/airside/claims/${claim.id}/provider-key`,
+				json(cookie, { apiKey }, "PUT"),
+			);
+
+		// A rejected key never reaches review.
+		const bad = await submit("sk-acme-sky-bad");
+		expect(bad.status).toBe(400);
+		const badBody = await bad.json();
+		expect(badBody.message).toContain("smoke test against sky-large");
+		expect(badBody.message).not.toContain("sk-acme-sky-bad");
+		expect(
+			(
+				await db.query.providerClaim.findFirst({
+					where: { id: { eq: claim.id } },
+				})
+			)?.pendingProviderKeyId,
+		).toBeNull();
+
+		const good = await submit("sk-acme-sky-good");
+		expect(good.status).toBe(200);
+		const [url] = upstream.mock.calls.at(-1)!;
+		expect(String(url)).toBe("https://api.acme-sky.ai/v1/chat/completions");
 	});
 
 	it("records an email-matched domain without granting it to the company", async () => {

@@ -220,65 +220,68 @@ function ProviderKeyCard({ claim }: { claim: Claim }) {
 					· provider key
 				</CardTitle>
 				<CardDescription>
-					The key LLM Gateway serves your live traffic with. A replacement takes
-					over once our team approves it and it passes a smoke test against one
-					of your listings; until then the current key keeps serving. Stored
-					encrypted and only ever shown back to you masked.
+					The key LLM Gateway serves your live traffic with. A replacement is
+					smoke-tested against one of your live listings when you submit it,
+					then takes over once our team approves it; until then the current key
+					keeps serving. Stored encrypted and only ever shown back to you
+					masked.
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-3">
-				<div className="flex items-center gap-3">
+				<dl className="grid grid-cols-[auto_auto_1fr_auto] items-center gap-x-4 gap-y-2 text-sm">
+					<dt className="text-muted-foreground text-xs">Serving</dt>
 					{claim.providerKey ? (
 						<>
-							<span
-								className="font-mono text-sm"
+							<dd
+								className="font-mono"
 								data-testid={`provider-key-masked-${claim.providerId}`}
 							>
 								{claim.providerKey.masked}
-							</span>
-							<span className="text-muted-foreground text-xs">
-								serving since{" "}
-								<RelativeDate date={claim.providerKey.submittedAt} />
-							</span>
+							</dd>
+							<dd className="text-muted-foreground col-span-2 text-xs">
+								since <RelativeDate date={claim.providerKey.submittedAt} />
+							</dd>
 						</>
 					) : (
-						<span className="text-muted-foreground text-sm">
+						<dd className="text-muted-foreground col-span-3">
 							No provider key is serving yet.
-						</span>
+						</dd>
 					)}
-				</div>
-				{claim.pendingProviderKey ? (
-					<div
-						className="bg-muted/50 flex items-center gap-3 rounded-md border px-3 py-2"
-						data-testid={`provider-key-pending-${claim.providerId}`}
-					>
-						<span className="font-mono text-sm">
-							{claim.pendingProviderKey.masked}
-						</span>
-						<span className="text-muted-foreground text-xs">
-							awaiting review · submitted{" "}
-							<RelativeDate date={claim.pendingProviderKey.submittedAt} />
-						</span>
-						<Button
-							type="button"
-							size="sm"
-							variant="outline"
-							className="ml-auto"
-							data-testid={`provider-key-withdraw-${claim.providerId}`}
-							disabled={withdrawKey.isPending}
-							onClick={() =>
-								withdrawKey.mutate({ params: { path: { id: claim.id } } })
-							}
-						>
-							{withdrawKey.isPending ? (
-								<Loader2 className="size-4 animate-spin" />
-							) : (
-								<Trash2 className="size-4" />
-							)}
-							Withdraw
-						</Button>
-					</div>
-				) : null}
+					{claim.pendingProviderKey ? (
+						<>
+							<dt className="text-muted-foreground text-xs">In review</dt>
+							<dd
+								className="font-mono"
+								data-testid={`provider-key-pending-${claim.providerId}`}
+							>
+								{claim.pendingProviderKey.masked}
+							</dd>
+							<dd className="text-muted-foreground text-xs">
+								submitted{" "}
+								<RelativeDate date={claim.pendingProviderKey.submittedAt} />
+							</dd>
+							<dd>
+								<Button
+									type="button"
+									size="sm"
+									variant="outline"
+									data-testid={`provider-key-withdraw-${claim.providerId}`}
+									disabled={withdrawKey.isPending}
+									onClick={() =>
+										withdrawKey.mutate({ params: { path: { id: claim.id } } })
+									}
+								>
+									{withdrawKey.isPending ? (
+										<Loader2 className="size-4 animate-spin" />
+									) : (
+										<Trash2 className="size-4" />
+									)}
+									Withdraw
+								</Button>
+							</dd>
+						</>
+					) : null}
+				</dl>
 				<form
 					className="flex max-w-md gap-2"
 					onSubmit={(event) => {

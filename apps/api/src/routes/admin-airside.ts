@@ -28,9 +28,7 @@ import {
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
 import { adminMiddleware } from "@/middleware/admin.js";
-import { validateCredentialToken } from "@/routes/admin-provider-credentials.js";
 
-import { readProviderKey } from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
 	and,
@@ -985,7 +983,7 @@ adminAirside.openapi(approveClaim, async (c) => {
 });
 
 // A carrier's replacement provider key only serves traffic once approved
-// here. Approval smoke-tests it against one of the carrier's live listings.
+// here. Airside smoke-tested it before filing it for review.
 async function getClaimWithPendingProviderKey(id: string) {
 	const claim = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
@@ -1005,20 +1003,7 @@ async function getClaimWithPendingProviderKey(id: string) {
 const approveProviderKey = createRoute({
 	method: "post",
 	path: "/airside/claims/{id}/provider-key/approve",
-	request: {
-		params: z.object({ id: z.string() }),
-		body: {
-			content: {
-				"application/json": {
-					schema: z.object({
-						// Approve without the live check, e.g. while the
-						// carrier's endpoint is briefly down.
-						skipValidation: z.boolean().optional(),
-					}),
-				},
-			},
-		},
-	},
+	request: { params: z.object({ id: z.string() }) },
 	responses: {
 		200: {
 			content: {
@@ -1032,25 +1017,8 @@ const approveProviderKey = createRoute({
 
 adminAirside.openapi(approveProviderKey, async (c) => {
 	const { id } = c.req.valid("param");
-	const { skipValidation } = c.req.valid("json");
 	const claim = await getClaimWithPendingProviderKey(id);
 	const pendingId = claim.pendingProviderKeyId;
-	const pendingKey = await db.query.providerKey.findFirst({
-		where: { id: { eq: pendingId } },
-	});
-	if (!pendingKey) {
-		throw new HTTPException(409, {
-			message: "This claim has no provider key awaiting review.",
-		});
-	}
-	if (!skipValidation) {
-		await validateCredentialToken(
-			claim.providerId,
-			readProviderKey(pendingKey),
-			{},
-			null,
-		);
-	}
 	// cdb: managed provider_key rows feed the gateway's credential cache.
 	await cdb.transaction(async (tx) => {
 		const updated = await tx
