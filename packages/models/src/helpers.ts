@@ -1,4 +1,8 @@
-import { models, type ProviderModelMapping } from "./models.js";
+import {
+	models,
+	type PricingTier,
+	type ProviderModelMapping,
+} from "./models.js";
 import { providers, type ServiceTier } from "./providers.js";
 import { expandAllProviderRegions } from "./region-helpers.js";
 
@@ -223,6 +227,41 @@ export function resolvePricingPeriod(
 	)
 		? "peak"
 		: "off_peak";
+}
+
+/**
+ * A context-length tier's per-token rates for a pricing period: its
+ * `peakPricing` rates for that period when it has them, its flat rates
+ * otherwise. `period` is undefined when no time-based pricing applies.
+ */
+export function resolveTierTimeBasedPricing(
+	tier: Pick<
+		PricingTier,
+		"inputPrice" | "outputPrice" | "cachedInputPrice" | "peakPricing"
+	>,
+	period: PricingPeriod | undefined,
+): {
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice: string | undefined;
+	pricingPeriod: PricingPeriod | undefined;
+} {
+	if (period && tier.peakPricing) {
+		const rates =
+			period === "peak" ? tier.peakPricing.peak : tier.peakPricing.offPeak;
+		return {
+			inputPrice: rates.inputPrice,
+			outputPrice: rates.outputPrice,
+			cachedInputPrice: rates.cachedInputPrice,
+			pricingPeriod: period,
+		};
+	}
+	return {
+		inputPrice: tier.inputPrice,
+		outputPrice: tier.outputPrice,
+		cachedInputPrice: tier.cachedInputPrice,
+		pricingPeriod: undefined,
+	};
 }
 
 /**
