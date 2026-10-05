@@ -34,10 +34,15 @@ export interface SemanticCacheInput {
 	/** The latest messages with their roles, embedded and matched by meaning. */
 	text: string;
 	/**
-	 * What the embedding leaves out: earlier messages and text past the size
-	 * limit. It goes into the scope key, so it must match exactly.
+	 * What the embedding leaves out: earlier messages, the embedded messages'
+	 * other fields (names, tool calls), and text past the size limit. It goes
+	 * into the scope key, so it must match exactly.
 	 */
-	context: { earlier: BaseMessage[]; truncated: string };
+	context: {
+		earlier: BaseMessage[];
+		recent: Partial<BaseMessage>[];
+		truncated: string;
+	};
 }
 
 /**
@@ -75,6 +80,7 @@ export function semanticCacheInput(
 		text: text.slice(-MAX_EMBEDDED_CHARS),
 		context: {
 			earlier: messages.slice(0, -MAX_EMBEDDED_MESSAGES),
+			recent: recent.map((message) => ({ ...message, content: undefined })),
 			truncated: text.slice(0, -MAX_EMBEDDED_CHARS),
 		},
 	};
@@ -145,6 +151,8 @@ export async function embedForSemanticCache(
 				Authorization: `Bearer ${config.apiKey}`,
 			},
 			body: JSON.stringify({ model: config.model, input: text }),
+			// A redirect would resend the prompt to wherever it points.
+			redirect: "error",
 			signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS),
 		});
 		if (!res.ok) {

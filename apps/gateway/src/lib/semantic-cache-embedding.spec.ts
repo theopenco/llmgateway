@@ -42,6 +42,17 @@ describe("semantic cache input", () => {
 		expect(long?.context.truncated).not.toBe("");
 	});
 
+	test("keeps message metadata out of the embedding but in the context", () => {
+		const alice = semanticCacheInput([
+			{ role: "user", name: "alice", content: "Summarise my notes." },
+		]);
+		const bob = semanticCacheInput([
+			{ role: "user", name: "bob", content: "Summarise my notes." },
+		]);
+		expect(alice?.text).toBe(bob?.text);
+		expect(alice?.context).not.toEqual(bob?.context);
+	});
+
 	test("skips requests with non-text content", () => {
 		expect(
 			semanticCacheInput([
@@ -74,6 +85,27 @@ describe("semantic cache embedding", () => {
 		try {
 			expect(await embedForSemanticCache("hello")).toBeNull();
 			expect(fetchSpy).not.toHaveBeenCalled();
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test("returns the model with the vector and refuses redirects", async () => {
+		vi.stubEnv("SEMANTIC_CACHE_EMBEDDING_API_KEY", ["sk", "spec"].join("-"));
+		vi.stubEnv(
+			"SEMANTIC_CACHE_EMBEDDING_BASE_URL",
+			"https://embeddings.example.com",
+		);
+		vi.stubEnv("SEMANTIC_CACHE_EMBEDDING_MODEL", "spec-embedding-model");
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(Response.json({ data: [{ embedding: [0.5, 0.25] }] }));
+		try {
+			expect(await embedForSemanticCache("hello")).toEqual({
+				vector: [0.5, 0.25],
+				model: "spec-embedding-model",
+			});
+			expect(fetchSpy.mock.calls[0]?.[1]?.redirect).toBe("error");
 		} finally {
 			fetchSpy.mockRestore();
 		}

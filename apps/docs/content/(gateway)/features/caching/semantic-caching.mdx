@@ -21,7 +21,7 @@ In the project's [**Preferences**](/learn/preferences), turn on **Enable request
 
 1. The exact cache is checked first.
 2. On a miss, the gateway embeds the latest text turns of the conversation (up to eight messages, with roles).
-3. It compares that embedding with recent cached requests that share the same model, provider, request parameters, and any earlier messages outside those turns. Only these entries are eligible, so a response is never reused under different settings or context.
+3. It compares that embedding with recent cached requests that share the same model, provider, request parameters, and any earlier messages outside those turns. Only these entries are eligible; the embedded turns themselves may differ in wording when they meet the threshold.
 4. The most similar entry at or above the threshold whose response is still cached is returned as a normal cached response.
 
 A semantic hit returns `x-llmgateway-cache: HIT` plus `x-llmgateway-cache-match: semantic` and `x-llmgateway-cache-similarity`. It is logged and billed as a cached request.
