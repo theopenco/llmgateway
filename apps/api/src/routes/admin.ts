@@ -566,6 +566,8 @@ const organizationSchema = z.object({
 	riskFlagged: z.boolean().optional(),
 	referralBonusEnabled: z.boolean().optional(),
 	referralBonusPercent: z.number().optional(),
+	dataStreamsEnabled: z.boolean().optional(),
+	requestLogExportEnabled: z.boolean().optional(),
 	ownerUserId: z.string().nullable().optional(),
 	ownerName: z.string().nullable().optional(),
 	ownerEmail: z.string().nullable().optional(),
@@ -3894,6 +3896,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			riskFlagged: org.riskFlagged,
 			referralBonusEnabled: org.referralBonusEnabled,
 			referralBonusPercent: parseReferralBonusPercent(org.referralBonusPercent),
+			dataStreamsEnabled: org.dataStreamsEnabled,
+			requestLogExportEnabled: org.requestLogExportEnabled,
 		},
 		transactions: transactions.map((t) => ({
 			id: t.id,
@@ -9213,6 +9217,105 @@ admin.openapi(updateReferralBonusRoute, async (c) => {
 		message: "Referral bonus updated successfully",
 		referralBonusEnabled: enabled,
 		referralBonusPercent: percent,
+	});
+});
+
+const updateDataStreamsRoute = createRoute({
+	method: "patch",
+	path: "/organizations/{orgId}/data-streams",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						dataStreamsEnabled: z.boolean(),
+						requestLogExportEnabled: z.boolean(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						dataStreamsEnabled: z.boolean(),
+						requestLogExportEnabled: z.boolean(),
+					}),
+				},
+			},
+			description: "Data stream access updated successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+// Data streams are opened per organization after a conversation with the
+// customer; request-log export is a separate switch because it reads the
+// request log table on a schedule. Disabling either stops the worker at once.
+admin.openapi(updateDataStreamsRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { dataStreamsEnabled, requestLogExportEnabled } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	await db
+		.update(tables.organization)
+		.set({
+			dataStreamsEnabled,
+			requestLogExportEnabled: dataStreamsEnabled && requestLogExportEnabled,
+		})
+		.where(eq(tables.organization.id, orgId));
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "data_stream.settings_update",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			changes: {
+				dataStreamsEnabled: {
+					old: org.dataStreamsEnabled,
+					new: dataStreamsEnabled,
+				},
+				requestLogExportEnabled: {
+					old: org.requestLogExportEnabled,
+					new: dataStreamsEnabled && requestLogExportEnabled,
+				},
+			},
+		},
+	});
+
+	return c.json({
+		message: "Data stream access updated successfully",
+		dataStreamsEnabled,
+		requestLogExportEnabled: dataStreamsEnabled && requestLogExportEnabled,
 	});
 });
 

@@ -11,10 +11,10 @@ import {
 	getSuppressedCategories,
 	inArray,
 	isNull,
-	ne,
 	notification,
 	notificationPreference,
 	notificationTypes,
+	notInArray,
 	or,
 	sql,
 	suppressEmailCategory,
@@ -58,7 +58,14 @@ const orgAlertTypes = new Set<string>([
 	"model_available",
 	"compliance_downgrade",
 	"org_limit",
+	"data_stream",
 ]);
+
+// Org alert types whose audience is always owners and admins.
+const adminAlertTypes: (typeof notificationTypes)[number][] = [
+	"org_limit",
+	"data_stream",
+];
 
 /**
  * Orgs whose alerts of `type` the user may still read: a member whose role is
@@ -85,8 +92,8 @@ async function alertOrganizationIds(
 }
 
 async function visibility(userId: string) {
-	// Compliance alert types share one audience; limit alerts have their own.
-	const [scope, complianceOrgIds, limitOrgIds] = await Promise.all([
+	// Compliance alert types share one audience; admin alerts have their own.
+	const [scope, complianceOrgIds, adminOrgIds] = await Promise.all([
 		getUserProjectIds(userId).then((ids) => getApiKeyScope(userId, ids)),
 		alertOrganizationIds(userId, "compliance_downgrade"),
 		alertOrganizationIds(userId, "org_limit"),
@@ -102,11 +109,11 @@ async function visibility(userId: string) {
 			),
 			and(
 				inArray(notification.organizationId, complianceOrgIds),
-				ne(notification.type, "org_limit"),
+				notInArray(notification.type, adminAlertTypes),
 			),
 			and(
-				inArray(notification.organizationId, limitOrgIds),
-				eq(notification.type, "org_limit"),
+				inArray(notification.organizationId, adminOrgIds),
+				inArray(notification.type, adminAlertTypes),
 			),
 		),
 	);
