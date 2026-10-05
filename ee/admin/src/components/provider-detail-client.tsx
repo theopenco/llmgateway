@@ -17,6 +17,7 @@ import { getProviderIcon } from "@llmgateway/shared";
 import type { HistoryWindow } from "@/components/history-chart";
 import type { ModelVerification } from "@/components/model-verification-dialog";
 import type { ProviderDetailResponse, ProviderModelStats } from "@/lib/types";
+import type { ReactNode } from "react";
 
 type ProviderInfo = ProviderDetailResponse["provider"];
 type AirsideCarrier = ProviderDetailResponse["airside"];
@@ -32,6 +33,23 @@ function parseHistoryWindow(value: string | null): HistoryWindow {
 
 function formatPercent(fraction: number): string {
 	return `${(fraction * 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
+}
+
+function FareBadge({ adjustment }: { adjustment: number }) {
+	return (
+		<Badge
+			variant={
+				adjustment < 0
+					? "secondary"
+					: adjustment > 0
+						? "destructive"
+						: "outline"
+			}
+		>
+			{adjustment > 0 ? "+" : ""}
+			{formatPercent(adjustment)}
+		</Badge>
+	);
 }
 
 function AirsideCarrierCard({
@@ -87,18 +105,7 @@ function AirsideCarrierCard({
 							Routing adjustment
 						</dt>
 						<dd className="text-sm">
-							<Badge
-								variant={
-									carrier.routingAdjustment < 0
-										? "secondary"
-										: carrier.routingAdjustment > 0
-											? "destructive"
-											: "outline"
-								}
-							>
-								{carrier.routingAdjustment > 0 ? "+" : ""}
-								{formatPercent(carrier.routingAdjustment)}
-							</Badge>
+							<FareBadge adjustment={carrier.routingAdjustment} />
 						</dd>
 					</div>
 				)}
@@ -109,6 +116,193 @@ function AirsideCarrierCard({
 					</dd>
 				</div>
 			</dl>
+		</section>
+	);
+}
+
+function formatDate(value: string | null): string {
+	return value ? new Date(value).toLocaleString() : "—";
+}
+
+function SettingRow({
+	label,
+	children,
+}: {
+	label: string;
+	children: ReactNode;
+}) {
+	return (
+		<div className="min-w-0">
+			<dt className="text-xs text-muted-foreground">{label}</dt>
+			<dd className="break-words text-sm">{children}</dd>
+		</div>
+	);
+}
+
+function AirsideSettingsSection({
+	settings,
+}: {
+	settings: NonNullable<AirsideCarrier>["settings"];
+}) {
+	return (
+		<section className="space-y-4" data-testid="provider-airside-settings">
+			<h2 className="text-xl font-semibold">Airside settings</h2>
+			<div className="space-y-6 rounded-lg border border-border/60 bg-card p-4">
+				<dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+					<SettingRow label="Display name">
+						{settings.customName ?? "—"}
+					</SettingRow>
+					<SettingRow label="Base URL">
+						<span className="font-mono text-xs">
+							{settings.customBaseUrl ?? "—"}
+						</span>
+					</SettingRow>
+					<SettingRow label="Matched domain">
+						{settings.matchedDomain}
+					</SettingRow>
+					<SettingRow label="Company website">
+						{settings.companyWebsite ?? "—"}
+					</SettingRow>
+					<SettingRow label="Test key">
+						{settings.verificationKeyMasked ? (
+							<>
+								<span className="font-mono text-xs">
+									{settings.verificationKeyMasked}
+								</span>
+								<span className="block text-xs text-muted-foreground">
+									saved {formatDate(settings.verificationKeyUpdatedAt)}
+								</span>
+							</>
+						) : (
+							"Not set"
+						)}
+					</SettingRow>
+					<SettingRow label="Listing fee">
+						<Badge
+							variant={
+								settings.paymentStatus === "paid" ? "secondary" : "outline"
+							}
+						>
+							{settings.paymentStatus}
+						</Badge>
+						{settings.listingInviteCode ? (
+							<span className="ml-2 text-xs text-muted-foreground">
+								waived via {settings.listingInviteCode}
+							</span>
+						) : settings.paidAt ? (
+							<span className="ml-2 text-xs text-muted-foreground">
+								{formatDate(settings.paidAt)}
+							</span>
+						) : null}
+					</SettingRow>
+					<SettingRow label="Claimed">
+						{formatDate(settings.claimedAt)}
+					</SettingRow>
+					<SettingRow label="Approved">
+						{formatDate(settings.approvedAt)}
+					</SettingRow>
+					<SettingRow label="Branding">
+						<div className="flex items-center gap-2">
+							{(["logoUrl", "iconUrl"] as const).map((field) =>
+								settings[field] ? (
+									<img
+										key={field}
+										src={settings[field] ?? undefined}
+										alt={field === "logoUrl" ? "Logo" : "Icon"}
+										className="h-8 max-w-24 rounded bg-white object-contain"
+									/>
+								) : null,
+							)}
+							{!settings.logoUrl && !settings.iconUrl ? "—" : null}
+							{settings.hasPendingBranding ? (
+								<Badge variant="outline">pending review</Badge>
+							) : null}
+						</div>
+					</SettingRow>
+					<SettingRow label="Domains">
+						{settings.domains.length === 0
+							? "—"
+							: settings.domains.map((d) => (
+									<span
+										key={`${d.domain}-${d.verificationMethod}`}
+										className="block"
+									>
+										{d.domain}{" "}
+										<span className="text-xs text-muted-foreground">
+											{d.verificationMethod} ·{" "}
+											{d.verifiedAt ? "verified" : "unverified"}
+										</span>
+									</span>
+								))}
+					</SettingRow>
+				</dl>
+				{settings.customDescription ? (
+					<SettingRow label="Description">
+						<p className="whitespace-pre-wrap">{settings.customDescription}</p>
+					</SettingRow>
+				) : null}
+				<div>
+					<h3 className="text-sm font-semibold">Per-model fare overrides</h3>
+					{settings.modelOverrides.length === 0 ? (
+						<p className="text-sm text-muted-foreground">
+							None — every model uses the default fare.
+						</p>
+					) : (
+						<table className="mt-2 w-full text-sm">
+							<thead className="text-left text-xs text-muted-foreground">
+								<tr>
+									<th className="py-1 font-normal">Model</th>
+									<th className="py-1 font-normal">Discount</th>
+									<th className="py-1 font-normal">Margin</th>
+									<th className="py-1 font-normal">Routing adjustment</th>
+									<th className="py-1 font-normal">Updated</th>
+								</tr>
+							</thead>
+							<tbody>
+								{settings.modelOverrides.map((o) => (
+									<tr key={o.modelId} className="border-t border-border/60">
+										<td className="py-1 font-mono text-xs">{o.modelId}</td>
+										<td className="py-1 tabular-nums">
+											{formatPercent(o.discountPercent)}
+										</td>
+										<td className="py-1 tabular-nums">
+											{formatPercent(o.marginPercent)}
+										</td>
+										<td className="py-1">
+											<FareBadge adjustment={o.routingAdjustment} />
+										</td>
+										<td className="py-1">{formatDate(o.updatedAt)}</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					)}
+				</div>
+				<div>
+					<h3 className="text-sm font-semibold">Pending fare filings</h3>
+					{settings.pendingFilings.length === 0 ? (
+						<p className="text-sm text-muted-foreground">None.</p>
+					) : (
+						<ul className="mt-2 space-y-1 text-sm">
+							{settings.pendingFilings.map((f) => (
+								<li key={f.id} className="flex flex-wrap items-center gap-2">
+									<span className="font-mono text-xs">
+										{f.modelId ?? "default"}
+									</span>
+									<span className="tabular-nums">
+										discount {formatPercent(f.discountPercent)} · margin{" "}
+										{formatPercent(f.marginPercent)}
+									</span>
+									<FareBadge adjustment={f.routingAdjustment} />
+									<span className="text-xs text-muted-foreground">
+										filed {formatDate(f.createdAt)}
+									</span>
+								</li>
+							))}
+						</ul>
+					)}
+				</div>
+			</div>
 		</section>
 	);
 }
@@ -245,6 +439,8 @@ export function ProviderDetailClient({
 					externalWindow={window}
 				/>
 			</section>
+
+			{airside ? <AirsideSettingsSection settings={airside.settings} /> : null}
 
 			<section className="space-y-4">
 				<h2 className="text-xl font-semibold">

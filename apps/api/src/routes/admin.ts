@@ -10701,6 +10701,50 @@ const providerDetailSchema = z.object({
 			// Signed routing-price adjustment (negative = boosted).
 			routingAdjustment: z.number(),
 			settingsUpdatedAt: z.string(),
+			// Everything the carrier configured in the Airside portal.
+			settings: z.object({
+				matchedDomain: z.string(),
+				customName: z.string().nullable(),
+				customBaseUrl: z.string().nullable(),
+				customDescription: z.string().nullable(),
+				logoUrl: z.string().nullable(),
+				iconUrl: z.string().nullable(),
+				hasPendingBranding: z.boolean(),
+				verificationKeyMasked: z.string().nullable(),
+				verificationKeyUpdatedAt: z.string().nullable(),
+				claimedAt: z.string(),
+				approvedAt: z.string().nullable(),
+				companyWebsite: z.string().nullable(),
+				paymentStatus: z.enum(["unpaid", "paid"]),
+				paidAt: z.string().nullable(),
+				listingInviteCode: z.string().nullable(),
+				domains: z.array(
+					z.object({
+						domain: z.string(),
+						verificationMethod: z.enum(["dns", "email"]),
+						verifiedAt: z.string().nullable(),
+					}),
+				),
+				modelOverrides: z.array(
+					z.object({
+						modelId: z.string(),
+						discountPercent: z.number(),
+						marginPercent: z.number(),
+						routingAdjustment: z.number(),
+						updatedAt: z.string(),
+					}),
+				),
+				pendingFilings: z.array(
+					z.object({
+						id: z.string(),
+						modelId: z.string().nullable(),
+						discountPercent: z.number(),
+						marginPercent: z.number(),
+						routingAdjustment: z.number(),
+						createdAt: z.string(),
+					}),
+				),
+			}),
 		})
 		.nullable(),
 	models: z.array(providerModelStatsSchema),
@@ -10820,10 +10864,28 @@ admin.openapi(getProviderDetail, async (c) => {
 			.groupBy(mph.modelId),
 		db
 			.select({
+				claim: {
+					matchedDomain: tables.providerClaim.matchedDomain,
+					customName: tables.providerClaim.customName,
+					customBaseUrl: tables.providerClaim.customBaseUrl,
+					customDescription: tables.providerClaim.customDescription,
+					logoUrl: tables.providerClaim.logoUrl,
+					iconUrl: tables.providerClaim.iconUrl,
+					pendingBranding: tables.providerClaim.pendingBranding,
+					verificationKeyMasked: tables.providerClaim.verificationKeyMasked,
+					verificationKeyUpdatedAt:
+						tables.providerClaim.verificationKeyUpdatedAt,
+					createdAt: tables.providerClaim.createdAt,
+					reviewedAt: tables.providerClaim.reviewedAt,
+				},
 				claimKind: tables.providerClaim.kind,
 				claimUpdatedAt: tables.providerClaim.updatedAt,
 				companyId: tables.providerCompany.id,
 				companyName: tables.providerCompany.name,
+				companyWebsite: tables.providerCompany.website,
+				paymentStatus: tables.providerCompany.paymentStatus,
+				paidAt: tables.providerCompany.paidAt,
+				listingInviteCode: tables.providerCompany.listingInviteCode,
 				discountPercent: tables.providerRoutingSettings.discountPercent,
 				marginPercent: tables.providerRoutingSettings.marginPercent,
 				settingsUpdatedAt: tables.providerRoutingSettings.updatedAt,
@@ -10859,6 +10921,40 @@ admin.openapi(getProviderDetail, async (c) => {
 	// to the column defaults so a carrier still renders if it is missing.
 	const carrierDiscount = Number(carrier?.discountPercent ?? 0);
 	const carrierMargin = Number(carrier?.marginPercent ?? 0.2);
+	const [carrierDomains, carrierOverrides, carrierFilings] = carrier
+		? await Promise.all([
+				db.query.providerCompanyDomain.findMany({
+					where: { providerCompanyId: { eq: carrier.companyId } },
+					orderBy: { domain: "asc" },
+				}),
+				db.query.providerRoutingSettings.findMany({
+					where: {
+						providerId: { eq: providerId },
+						modelId: { isNotNull: true },
+					},
+					orderBy: { modelId: "asc" },
+				}),
+				db.query.providerRoutingFiling.findMany({
+					where: { providerId: { eq: providerId }, status: { eq: "pending" } },
+					orderBy: { createdAt: "asc" },
+				}),
+			])
+		: [[], [], []];
+	const fareFields = (row: {
+		discountPercent: string;
+		marginPercent: string;
+	}) => {
+		const discountPercent = Number(row.discountPercent);
+		const marginPercent = Number(row.marginPercent);
+		return {
+			discountPercent,
+			marginPercent,
+			routingAdjustment: computeAirsideAdjustment(
+				discountPercent,
+				marginPercent,
+			),
+		};
+	};
 
 	const modelsOut = mappings.map((m) => {
 		const s = statsByModel.get(m.modelId);
@@ -10977,6 +11073,46 @@ admin.openapi(getProviderDetail, async (c) => {
 					settingsUpdatedAt: (
 						carrier.settingsUpdatedAt ?? carrier.claimUpdatedAt
 					).toISOString(),
+					settings: {
+						matchedDomain: carrier.claim.matchedDomain,
+						customName: carrier.claim.customName,
+						customBaseUrl: carrier.claim.customBaseUrl,
+						customDescription: carrier.claim.customDescription,
+						logoUrl: carrier.claim.logoUrl,
+						iconUrl: carrier.claim.iconUrl,
+						hasPendingBranding: carrier.claim.pendingBranding !== null,
+						verificationKeyMasked: carrier.claim.verificationKeyMasked,
+						verificationKeyUpdatedAt:
+							carrier.claim.verificationKeyUpdatedAt?.toISOString() ?? null,
+						claimedAt: carrier.claim.createdAt.toISOString(),
+						approvedAt: carrier.claim.reviewedAt?.toISOString() ?? null,
+						companyWebsite: carrier.companyWebsite,
+						paymentStatus: carrier.paymentStatus,
+						paidAt: carrier.paidAt?.toISOString() ?? null,
+						listingInviteCode: carrier.listingInviteCode,
+						domains: carrierDomains.map((d) => ({
+							domain: d.domain,
+							verificationMethod: d.verificationMethod,
+							verifiedAt: d.verifiedAt?.toISOString() ?? null,
+						})),
+						modelOverrides: carrierOverrides.flatMap((row) =>
+							row.modelId
+								? [
+										{
+											modelId: row.modelId,
+											...fareFields(row),
+											updatedAt: row.updatedAt.toISOString(),
+										},
+									]
+								: [],
+						),
+						pendingFilings: carrierFilings.map((row) => ({
+							id: row.id,
+							modelId: row.modelId,
+							...fareFields(row),
+							createdAt: row.createdAt.toISOString(),
+						})),
+					},
 				}
 			: null,
 		models: modelsOut,
