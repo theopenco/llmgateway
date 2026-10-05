@@ -154,7 +154,7 @@ describe("browser network errors", () => {
 			elapsedMs: 30_400,
 			reachability: "reachable",
 		});
-		expect(message).toContain("api.example.com is up");
+		expect(message).toContain("api.example.com still answers other requests");
 		expect(message).toContain(
 			"POST /admin/provider-credentials/self-test failed after 30.4 s",
 		);
@@ -178,7 +178,7 @@ describe("browser network errors", () => {
 				elapsedMs: 5,
 				reachability: "offline",
 			}),
-		).toContain("Your browser is offline");
+		).toContain("your browser is now offline");
 	});
 });
 

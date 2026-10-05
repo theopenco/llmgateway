@@ -149,11 +149,11 @@ export function describeBrowserNetworkError(
 	const raw = `browser reported "${cause.message}"`;
 	switch (request.reachability) {
 		case "offline":
-			return `Your browser is offline, so the request to ${host} never left it (${raw}).`;
+			return `POST ${pathname} to ${host} failed after ${elapsed} and your browser is now offline (${raw}). Check your connection, then reload before retrying.`;
 		case "unreachable":
 			return `Could not reach the API at ${host} after ${elapsed} (${raw}). It is down, blocked by the network, or rejecting this origin via CORS.`;
 		case "reachable":
-			return `The API at ${host} is up, but POST ${pathname} failed after ${elapsed} without a response the browser could read (${raw}). A proxy or load balancer most likely cut the request off or answered without CORS headers; check the API logs for this request.`;
+			return `POST ${pathname} failed after ${elapsed} without a response the browser could read (${raw}), although ${host} still answers other requests. A proxy or load balancer most likely cut the request off or answered without CORS headers; check the API logs for this request.`;
 	}
 }
 
