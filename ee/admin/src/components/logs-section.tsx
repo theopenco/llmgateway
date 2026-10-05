@@ -9,6 +9,7 @@ import {
 	useMemo,
 	useState,
 } from "react";
+import { toast } from "sonner";
 
 import { LogCard } from "@/components/log-card";
 import { Button } from "@/components/ui/button";
@@ -31,10 +32,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import {
-	loadOrganizationLogsAction,
-	loadProjectLogsAction,
-} from "@/lib/admin-organizations";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useFetchClient } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 import {
@@ -115,6 +114,7 @@ export function LogsSection({
 	const searchParams = useSearchParams();
 	const router = useRouter();
 	const pathname = usePathname();
+	const $fetch = useFetchClient();
 
 	const [logs, setLogs] = useState<ProjectLogEntry[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -217,9 +217,15 @@ export function LogsSection({
 			}
 
 			try {
-				const data = projectId
-					? await loadProjectLogsAction(orgId, projectId, cursor, getFilters())
-					: await loadOrganizationLogsAction(orgId, cursor, getFilters());
+				const query = { limit: 50, cursor, ...getFilters() };
+				const { data, error } = projectId
+					? await $fetch.GET(
+							"/admin/organizations/{orgId}/projects/{projectId}/logs",
+							{ params: { path: { orgId, projectId }, query } },
+						)
+					: await $fetch.GET("/admin/organizations/{orgId}/logs", {
+							params: { path: { orgId }, query },
+						});
 
 				if (data) {
 					if (cursor) {
@@ -228,16 +234,18 @@ export function LogsSection({
 						setLogs(data.logs);
 					}
 					setPagination(data.pagination);
+				} else {
+					toast.error(apiErrorMessage(error, "Failed to load logs"));
 				}
 			} catch (error) {
-				console.error("Failed to load logs:", error);
+				toast.error(apiErrorMessage(error, "Failed to load logs"));
 			} finally {
 				setLoading(false);
 				setLoadingMore(false);
 				setRefreshing(false);
 			}
 		},
-		[orgId, projectId, getFilters],
+		[$fetch, orgId, projectId, getFilters],
 	);
 
 	useEffect(() => {

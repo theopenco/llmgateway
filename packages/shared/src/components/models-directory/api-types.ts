@@ -1,11 +1,16 @@
 import { isPremiumModel } from "@/model-categories.js";
 
+export interface TimeBasedTokenPrices {
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice: string | null;
+}
+
 export interface ApiProvider {
 	id: string;
 	createdAt: string;
 	name: string | null;
 	description: string | null;
-	streaming: boolean | null;
 	cancellation: boolean | null;
 	color: string | null;
 	website: string | null;
@@ -84,18 +89,14 @@ export interface ApiModelProviderMapping {
 		cacheReadInputPrice: string | null;
 		cacheWriteInputPrice: string | null;
 		cacheWriteInputPrice1h: string | null;
+		peakPricing?: {
+			peak: TimeBasedTokenPrices;
+			offPeak: TimeBasedTokenPrices;
+		} | null;
 	}> | null;
 	peakPricing?: {
-		peak: {
-			inputPrice: string;
-			outputPrice: string;
-			cachedInputPrice: string | null;
-		};
-		offPeak: {
-			inputPrice: string;
-			outputPrice: string;
-			cachedInputPrice: string | null;
-		};
+		peak: TimeBasedTokenPrices;
+		offPeak: TimeBasedTokenPrices;
 		hoursUtc: Array<[number, number]>;
 		offPeakDaysUtc: number[] | null;
 	} | null;

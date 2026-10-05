@@ -2,48 +2,44 @@
 
 import { Archive, ArchiveRestore, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { useApi } from "@/lib/fetch-client";
 
 interface ArchiveFlaggedAccountButtonProps {
 	userId: string;
 	email: string;
 	archived: boolean;
-	onChange: (
-		userId: string,
-		archived: boolean,
-	) => Promise<{ success: boolean; error?: string }>;
 }
 
 export function ArchiveFlaggedAccountButton({
 	userId,
 	email,
 	archived,
-	onChange,
 }: ArchiveFlaggedAccountButtonProps) {
 	const router = useRouter();
-	const [loading, setLoading] = useState(false);
-
-	const handleClick = async () => {
-		setLoading(true);
-		try {
-			const result = await onChange(userId, !archived);
-			if (result.success) {
+	const $api = useApi();
+	const mutation = $api.useMutation(
+		"patch",
+		"/admin/flagged-accounts/{userId}/archive",
+		{
+			meta: {
+				errorMessage: `Failed to ${archived ? "restore" : "archive"} account`,
+			},
+			onSuccess: () => {
 				toast.success(`${email} ${archived ? "restored" : "archived"}`);
 				router.refresh();
-				return;
-			}
+			},
+		},
+	);
+	const loading = mutation.isPending;
 
-			toast.error(
-				result.error ?? `Failed to ${archived ? "restore" : "archive"} account`,
-			);
-		} catch {
-			toast.error(`Failed to ${archived ? "restore" : "archive"} account`);
-		} finally {
-			setLoading(false);
-		}
+	const handleClick = () => {
+		mutation.mutate({
+			params: { path: { userId } },
+			body: { archived: !archived },
+		});
 	};
 
 	const Icon = archived ? ArchiveRestore : Archive;

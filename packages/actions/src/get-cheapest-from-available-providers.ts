@@ -10,6 +10,8 @@ import {
 	type AvailableModelProvider,
 	type ModelWithPricing,
 	type ProviderModelMapping,
+	resolvePricingPeriod,
+	resolveTierTimeBasedPricing,
 	resolveTimeBasedPricing,
 	usesEncryptedReasoning,
 } from "@llmgateway/models";
@@ -476,12 +478,18 @@ export function getProviderSelectionPrice(
 	// long-context request would rank a tiered mapping (e.g. xAI over 128K) at
 	// its cheaper base rates and select a provider billing then charges more
 	// for.
-	const pricingTier =
+	const matchedTier =
 		promptTokens !== undefined && providerInfo?.pricingTiers?.length
 			? (providerInfo.pricingTiers.find(
 					(tier) => promptTokens <= tier.upToTokens,
 				) ?? providerInfo.pricingTiers[providerInfo.pricingTiers.length - 1])
 			: undefined;
+	const pricingTier = matchedTier
+		? resolveTierTimeBasedPricing(
+				matchedTier,
+				resolvePricingPeriod(providerInfo ?? {}, now),
+			)
+		: undefined;
 	const inputPrice =
 		pricingTier?.inputPrice ??
 		timeBasedPricing?.inputPrice ??

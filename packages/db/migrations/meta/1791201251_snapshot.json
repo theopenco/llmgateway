@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "80c26980-0aca-4b9e-981e-a30308835c9b",
+  "id": "cd785604-aa81-4b67-b78a-2d8c573fe841",
   "prevId": "00113ac3-0955-4d96-8c43-45b7d85cdca4",
   "ddl": [
     {
@@ -11876,6 +11876,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "pricing_period",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "requested_service_tier",
       "entityType": "columns",
       "schema": "public",
@@ -20688,38 +20701,6 @@
       "generated": null,
       "identity": null,
       "name": "cache_duration_seconds",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'off'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "semantic_cache_mode",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0.95",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "semantic_cache_threshold",
       "entityType": "columns",
       "schema": "public",
       "table": "project"

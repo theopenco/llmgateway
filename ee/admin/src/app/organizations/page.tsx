@@ -4,10 +4,8 @@ import {
 	ArrowUpDown,
 	ChevronLeft,
 	ChevronRight,
-	Search,
 } from "lucide-react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { BlockOrgButton } from "@/components/block-org-button";
 import { BulkBlockOrgsButton } from "@/components/bulk-block-orgs-button";
@@ -25,12 +23,6 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import {
-	blockOrganization,
-	bulkBlockOrganizations,
-	previewBulkBlockOrganizations,
-	setOrganizationStatus,
-} from "@/lib/admin-organizations";
 import { canWrite } from "@/lib/admin-role";
 import {
 	ORGANIZATIONS_DEFAULT_RANGE,
@@ -52,68 +44,11 @@ import {
 	formatCompactNumber,
 } from "@llmgateway/shared/number-format";
 
+import { buildOrganizationsHref } from "./organizations-href";
+import { OrganizationsSearchForm } from "./search-form";
+
+import type { DateRangeParams, SortBy, SortOrder } from "./organizations-href";
 import type { OrganizationFilters } from "@/lib/organization-filters";
-
-type SortBy =
-	| "name"
-	| "billingEmail"
-	| "kind"
-	| "plan"
-	| "devPlan"
-	| "credits"
-	| "createdAt"
-	| "status"
-	| "totalCreditsAllTime"
-	| "totalSpent"
-	| "totalRequests"
-	| "totalTokens";
-type SortOrder = "asc" | "desc";
-
-// The date-range picker writes `range` (relative preset) or `from`/`to`
-// (custom span) into the URL, so every link on this page has to carry them
-// along or navigating would silently reset the window to all time.
-interface DateRangeParams {
-	range?: string;
-	from?: string;
-	to?: string;
-}
-
-function buildOrganizationsHref({
-	page,
-	sortBy,
-	sortOrder,
-	search,
-	dateRange,
-	filters,
-}: {
-	page: number;
-	sortBy: SortBy;
-	sortOrder: SortOrder;
-	search: string;
-	dateRange: DateRangeParams;
-	filters: OrganizationFilters;
-}) {
-	const params = new URLSearchParams();
-	params.set("page", String(page));
-	params.set("sortBy", sortBy);
-	params.set("sortOrder", sortOrder);
-	if (search) {
-		params.set("search", search);
-	}
-	if (dateRange.range) {
-		params.set("range", dateRange.range);
-	}
-	if (dateRange.from && dateRange.to) {
-		params.set("from", dateRange.from);
-		params.set("to", dateRange.to);
-	}
-	for (const [key, value] of Object.entries(filters)) {
-		if (value) {
-			params.set(key, value);
-		}
-	}
-	return `/organizations?${params.toString()}`;
-}
 
 function SortableHeader({
 	label,
@@ -297,58 +232,6 @@ export default async function OrganizationsPage({
 	const totalPages = Math.ceil(data.total / limit);
 	const showActions = canWrite(await getSessionAdminRole());
 
-	async function handleSearch(formData: FormData) {
-		"use server";
-		const searchValue = formData.get("search") as string;
-		const sortByValue = formData.get("sortBy") as SortBy;
-		const sortOrderValue = formData.get("sortOrder") as SortOrder;
-		redirect(
-			buildOrganizationsHref({
-				page: 1,
-				sortBy: sortByValue,
-				sortOrder: sortOrderValue,
-				search: searchValue,
-				dateRange: {
-					range: (formData.get("range") as string) || undefined,
-					from: (formData.get("from") as string) || undefined,
-					to: (formData.get("to") as string) || undefined,
-				},
-				filters: parseOrganizationFilters({
-					kind: formData.get("kind") as string | null,
-					plan: formData.get("plan") as string | null,
-					minSpent: formData.get("minSpent") as string | null,
-				}),
-			}),
-		);
-	}
-
-	async function handleToggleOrgStatus(
-		orgId: string,
-		status: "active" | "deleted",
-	): Promise<{ success: boolean; error?: string }> {
-		"use server";
-
-		return await setOrganizationStatus(orgId, status);
-	}
-
-	async function handleBlockOrganization(orgId: string, reason?: string) {
-		"use server";
-
-		return await blockOrganization(orgId, reason);
-	}
-
-	async function handlePreviewBulkBlock(searchValue: string) {
-		"use server";
-
-		return await previewBulkBlockOrganizations(searchValue);
-	}
-
-	async function handleBulkBlock(searchValue: string, expectedCount: number) {
-		"use server";
-
-		return await bulkBlockOrganizations(searchValue, expectedCount);
-	}
-
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -367,43 +250,18 @@ export default async function OrganizationsPage({
 				<div className="flex w-full flex-wrap items-start gap-2 sm:w-auto sm:items-center">
 					<div className="flex min-w-0 flex-1 flex-col flex-wrap items-stretch gap-2 sm:flex-initial sm:flex-row sm:items-center">
 						<DateRangePicker defaultRange={ORGANIZATIONS_DEFAULT_RANGE} />
-						<form
-							action={handleSearch}
-							className="flex w-full items-center gap-2 sm:w-auto"
-						>
-							<input type="hidden" name="sortBy" value={sortBy} />
-							<input type="hidden" name="sortOrder" value={sortOrder} />
-							<input type="hidden" name="range" value={dateRange.range ?? ""} />
-							<input type="hidden" name="from" value={dateRange.from ?? ""} />
-							<input type="hidden" name="to" value={dateRange.to ?? ""} />
-							<input type="hidden" name="kind" value={filters.kind ?? ""} />
-							<input type="hidden" name="plan" value={filters.plan ?? ""} />
-							<input
-								type="hidden"
-								name="minSpent"
-								value={filters.minSpent ?? ""}
-							/>
-							<div className="relative min-w-0 flex-1 sm:max-w-64">
-								<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-								<input
-									type="text"
-									name="search"
-									placeholder="Search by name, email, member email, ID, or safety identifier..."
-									defaultValue={search}
-									className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-								/>
-							</div>
-							<Button type="submit" size="sm">
-								Search
-							</Button>
-						</form>
+						<OrganizationsSearchForm
+							search={search}
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							dateRange={dateRange}
+							filters={filters}
+						/>
 					</div>
 					{showActions ? (
 						<BulkBlockOrgsButton
 							search={search}
 							minSearchLength={MIN_BULK_BLOCK_SEARCH_LENGTH}
-							onPreview={handlePreviewBulkBlock}
-							onBulkBlock={handleBulkBlock}
 						/>
 					) : null}
 				</div>
@@ -666,7 +524,6 @@ export default async function OrganizationsPage({
 													disableBlockedReason={getOrgDeletionBlockedReason(
 														org.credits,
 													)}
-													onToggle={handleToggleOrgStatus}
 												/>
 												<BlockOrgButton
 													orgId={org.id}
@@ -678,7 +535,6 @@ export default async function OrganizationsPage({
 														getOrgDeletionBlockedReason(org.credits) ??
 														undefined
 													}
-													onBlock={handleBlockOrganization}
 												/>
 											</div>
 										</TableCell>

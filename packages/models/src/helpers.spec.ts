@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveTimeBasedPricing } from "./helpers.js";
+import {
+	getModelStreamingSupport,
+	resolvePricingPeriod,
+	resolveTierTimeBasedPricing,
+	resolveTimeBasedPricing,
+} from "./helpers.js";
+import { models } from "./models.js";
+import { expandAllProviderRegions } from "./region-helpers.js";
 
 import type { ProviderModelMapping } from "./models.js";
 
@@ -160,5 +167,109 @@ describe("resolveTimeBasedPricing", () => {
 			outputPrice: "1.32e-6",
 			cachedInputPrice: undefined,
 		});
+	});
+});
+
+describe("resolvePricingPeriod", () => {
+	it("is undefined without peakPricing", () => {
+		expect(
+			resolvePricingPeriod({}, at("2026-08-17T02:00:00Z")),
+		).toBeUndefined();
+	});
+
+	it.each([
+		["peak", "weekday peak hour", "2026-08-17T02:00:00Z"],
+		["off_peak", "weekday off-peak hour", "2026-08-17T04:00:00Z"],
+		["off_peak", "off-peak day during peak hours", "2026-08-22T02:00:00Z"],
+	] as const)("returns %s for a %s", (period, _label, iso) => {
+		expect(resolvePricingPeriod(peakPricedMapping, at(iso))).toBe(period);
+	});
+});
+
+describe("resolveTierTimeBasedPricing", () => {
+	const tier = {
+		inputPrice: "1.2e-6",
+		outputPrice: "4.8e-6",
+		cachedInputPrice: "0.24e-6",
+		peakPricing: {
+			peak: { inputPrice: "1.2e-6", outputPrice: "4.8e-6" },
+			offPeak: { inputPrice: "0.6e-6", outputPrice: "2.4e-6" },
+		},
+	};
+
+	it("uses the tier's rates for the period", () => {
+		expect(resolveTierTimeBasedPricing(tier, "off_peak")).toEqual({
+			inputPrice: "0.6e-6",
+			outputPrice: "2.4e-6",
+			cachedInputPrice: undefined,
+			pricingPeriod: "off_peak",
+		});
+	});
+
+	it("uses the flat tier rates without a period or tier peak rates", () => {
+		const flat = {
+			inputPrice: "1.2e-6",
+			outputPrice: "4.8e-6",
+			cachedInputPrice: "0.24e-6",
+			pricingPeriod: undefined,
+		};
+		expect(resolveTierTimeBasedPricing(tier, undefined)).toEqual(flat);
+		expect(
+			resolveTierTimeBasedPricing(
+				{ ...tier, peakPricing: undefined },
+				"off_peak",
+			),
+		).toEqual(flat);
+	});
+});
+
+describe("catalogue tier peak pricing", () => {
+	// A tier's peak/off-peak rates need a schedule, and a peak-priced mapping
+	// with tiers must time-price every tier or the long-context bands silently
+	// bill flat rates at every hour.
+	it("pairs tier peakPricing with a mapping or region schedule", () => {
+		const violations: string[] = [];
+		for (const model of models) {
+			for (const mapping of model.providers as readonly ProviderModelMapping[]) {
+				const scopes = [
+					{ id: "", ...mapping },
+					...(mapping.regions ?? []).map((region) => ({
+						...region,
+						peakPricing: region.peakPricing ?? mapping.peakPricing,
+						pricingTiers: region.pricingTiers ?? mapping.pricingTiers,
+					})),
+				];
+				for (const scope of scopes) {
+					for (const tier of scope.pricingTiers ?? []) {
+						if (!!tier.peakPricing !== !!scope.peakPricing) {
+							violations.push(
+								`${mapping.providerId}/${model.id}${scope.id ? `:${scope.id}` : ""} ${tier.name}`,
+							);
+						}
+					}
+				}
+			}
+		}
+		expect(violations).toEqual([]);
+	});
+});
+
+describe("getModelStreamingSupport", () => {
+	it("returns the streaming flag of the matching mapping", () => {
+		for (const model of models) {
+			for (const mapping of expandAllProviderRegions(model.providers)) {
+				expect(
+					getModelStreamingSupport(
+						model.id,
+						mapping.providerId,
+						mapping.region,
+					),
+				).toBe(mapping.streaming);
+			}
+		}
+	});
+
+	it("returns null for an unknown model", () => {
+		expect(getModelStreamingSupport("does-not-exist")).toBeNull();
 	});
 });

@@ -1405,7 +1405,9 @@ export function ProviderSection({
 						<div className="space-y-2">
 							{(() => {
 								const hasCached = activeMapping.pricingTiers!.some(
-									(t) => t.cachedInputPrice,
+									(t) =>
+										t.peakPricing?.[timeBasedPricingMode].cachedInputPrice ??
+										t.cachedInputPrice,
 								);
 								return (
 									<>
@@ -1417,7 +1419,11 @@ export function ProviderSection({
 											{hasCached && <div>CACHED</div>}
 											<div>OUT</div>
 										</div>
-										{activeMapping.pricingTiers!.map((tier, index) => {
+										{activeMapping.pricingTiers!.map((pricingTier, index) => {
+											const tier = {
+												...pricingTier,
+												...pricingTier.peakPricing?.[timeBasedPricingMode],
+											};
 											const discountNum = discountFraction(
 												activeMapping.discount,
 											);
