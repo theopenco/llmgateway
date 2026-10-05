@@ -1,6 +1,10 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
+import {
+	publicAirsideProfile,
+	publicAirsideProfileSchema,
+} from "@/lib/airside-profile.js";
 import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
 import { loadPublicDiscounts } from "@/lib/public-discounts.js";
 
@@ -53,6 +57,8 @@ const providerSchema = z.object({
 	// Branding uploaded by the Airside carrier that claimed this provider.
 	airsideLogoUrl: z.string().nullable(),
 	airsideIconUrl: z.string().nullable(),
+	// Self-declared public profile of a custom Airside carrier (display only).
+	airsideProfile: publicAirsideProfileSchema.nullable(),
 	status: z.enum(["active", "inactive"]),
 });
 
@@ -700,14 +706,32 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 		where: { status: { eq: "active" } },
 		columns: {
 			providerId: true,
+			kind: true,
 			customName: true,
 			logoUrl: true,
 			iconUrl: true,
+			website: true,
+			privacyPolicyUrl: true,
+			termsUrl: true,
+			statusPageUrl: true,
+			legalEntity: true,
+			headquarters: true,
+			apiTraining: true,
+			promptLogging: true,
+			retentionPeriod: true,
+			gdpr: true,
+			soc2: true,
+			iso27001: true,
 		},
 	});
 	const brandingByProvider = new Map(
 		activeClaims.map((claim) => [claim.providerId, claim]),
 	);
+	// Catalogue providers keep their reviewed static profile; only DB-only
+	// custom carriers publish what they declared.
+	const airsideProfileFor = (
+		claim: (typeof activeClaims)[number] | undefined,
+	) => (claim?.kind === "custom" ? publicAirsideProfile(claim) : null);
 
 	// modelCardBadge only exists in the catalogue, not the provider table
 	return c.json({
@@ -719,6 +743,7 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 				null,
 			airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
 			airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
+			airsideProfile: airsideProfileFor(brandingByProvider.get(provider.id)),
 		})),
 	});
 });

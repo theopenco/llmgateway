@@ -80,7 +80,11 @@ async function renderDynamicProviderPage(id: string) {
 				<Hero
 					providerId={id as (typeof providerDefinitions)[number]["id"]}
 					uploadedLogo={uploadedLogo}
-					dynamicProvider={{ name: providerName, description }}
+					dynamicProvider={{
+						name: providerName,
+						description,
+						profile: apiProvider.airsideProfile ?? null,
+					}}
 				/>
 				<ProviderStatsRow providerId={id} />
 				<section className="py-12 bg-background">

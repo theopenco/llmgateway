@@ -24,6 +24,7 @@ import {
 	CarrierMark,
 	providerLogoUrls,
 	RunwareWordmarkIcon,
+	type ApiAirsideProfile,
 } from "@llmgateway/shared/components";
 
 interface HeroProps {
@@ -36,6 +37,8 @@ interface HeroProps {
 		name: string;
 		description: string | null;
 		website?: string | null;
+		/** Self-declared Airside carrier profile. */
+		profile?: ApiAirsideProfile | null;
 	};
 }
 
@@ -78,18 +81,30 @@ function DataPolicyBadge({
 export function Hero({ providerId, uploadedLogo, dynamicProvider }: HeroProps) {
 	const config = getConfig();
 	const staticProvider = providerDefinitions.find((p) => p.id === providerId);
+	const profile = dynamicProvider?.profile ?? null;
 	const provider = staticProvider ?? {
 		id: providerId,
 		name: dynamicProvider?.name ?? providerId,
 		description: dynamicProvider?.description ?? "",
-		website: dynamicProvider?.website ?? null,
+		website: profile?.website ?? dynamicProvider?.website ?? null,
 		announcement: null,
-		statusPageUrl: null,
-		termsUrl: null,
-		privacyPolicyUrl: null,
-		headquarters: undefined,
+		statusPageUrl: profile?.statusPageUrl ?? null,
+		termsUrl: profile?.termsUrl ?? null,
+		privacyPolicyUrl: profile?.privacyPolicyUrl ?? null,
+		headquarters: profile?.headquarters ?? undefined,
 		forwardsSafetyIdentifier: false,
-		dataPolicy: undefined,
+		dataPolicy: profile
+			? {
+					...profile.dataPolicy,
+					// Catalogue semantics: null = not certified, undefined = hidden.
+					soc2:
+						profile.dataPolicy.soc2 === null
+							? undefined
+							: profile.dataPolicy.soc2 === 0
+								? null
+								: profile.dataPolicy.soc2,
+				}
+			: undefined,
 		additionalLinks: undefined,
 	};
 	const referenceLinks = [

@@ -5051,6 +5051,10 @@ export const providerCompany = pgTable("provider_company", {
 	// through Stripe — `paymentStatus` still flips to "paid" so every gate
 	// keeps working, and this records which code cleared it.
 	listingInviteCode: text(),
+	// Acceptance of the Airside Terms of Use (/legal/terms) and Privacy Notice
+	// (/legal/privacy).
+	termsAcceptedAt: timestamp(),
+	termsAcceptedBy: text().references(() => user.id, { onDelete: "set null" }),
 });
 
 // Domains a company has proven, and how. A verified `dns` row counts alongside
@@ -5215,6 +5219,23 @@ export const providerClaim = pgTable(
 		verificationKeyCiphertext: text(),
 		verificationKeyMasked: text(),
 		verificationKeyUpdatedAt: timestamp(),
+		// Self-declared public profile shown on the provider page. Display only:
+		// it never feeds compliance routing, which reads the static catalogue.
+		website: text(),
+		privacyPolicyUrl: text(),
+		termsUrl: text(),
+		statusPageUrl: text(),
+		legalEntity: text(),
+		// ISO 3166-1 alpha-2.
+		headquarters: text(),
+		apiTraining: boolean(),
+		promptLogging: boolean(),
+		retentionPeriod: text(),
+		gdpr: boolean(),
+		// 0 = none, 1 = Type I, 2 = Type II, null = not stated.
+		soc2: integer(),
+		iso27001: boolean(),
+		profileUpdatedAt: timestamp(),
 		claimedBy: text().references(() => user.id, { onDelete: "set null" }),
 		status: text({ enum: ["pending", "active", "rejected", "revoked"] })
 			.notNull()
