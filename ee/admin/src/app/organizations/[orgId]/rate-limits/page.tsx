@@ -17,8 +17,6 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import {
-	createOrganizationRateLimit,
-	deleteOrganizationRateLimit,
 	getOrganizationRateLimits,
 	getRateLimitOptions,
 } from "@/lib/admin-rate-limits";
@@ -99,54 +97,6 @@ export default async function OrganizationRateLimitsPage({
 	const rateLimits = rateLimitsData?.rateLimits ?? [];
 	const org = metrics.organization;
 
-	// Server action to create rate limit
-	async function handleCreateRateLimit(data: {
-		provider: string | null;
-		model: string | null;
-		limitType: "rpm" | "rpd";
-		maxRequests: number;
-		mode: "strict" | "soft";
-		reason: string | null;
-	}): Promise<{ success: boolean; error?: string }> {
-		"use server";
-
-		try {
-			const result = await createOrganizationRateLimit(orgId, {
-				provider: data.provider,
-				model: data.model,
-				limitType: data.limitType,
-				maxRequests: data.maxRequests,
-				mode: data.mode,
-				reason: data.reason,
-			});
-
-			if (!result) {
-				return {
-					success: false,
-					error: "Failed to create rate limit. It may already exist.",
-				};
-			}
-
-			return { success: true };
-		} catch (error) {
-			console.error("Error creating rate limit:", error);
-			return {
-				success: false,
-				error: "An error occurred while creating the rate limit",
-			};
-		}
-	}
-
-	// Server action to delete rate limit
-	async function handleDeleteRateLimit(
-		rateLimitId: string,
-	): Promise<{ success: boolean }> {
-		"use server";
-
-		const success = await deleteOrganizationRateLimit(orgId, rateLimitId);
-		return { success };
-	}
-
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<div className="flex items-center gap-2">
@@ -176,7 +126,7 @@ export default async function OrganizationRateLimitsPage({
 					<RateLimitForm
 						providers={options.providers}
 						mappings={options.mappings}
-						onSubmit={handleCreateRateLimit}
+						orgId={orgId}
 					/>
 				)}
 			</header>
@@ -252,7 +202,7 @@ export default async function OrganizationRateLimitsPage({
 										<TableCell>
 											<DeleteRateLimitButton
 												rateLimitId={rateLimit.id}
-												onDelete={handleDeleteRateLimit}
+												orgId={orgId}
 											/>
 										</TableCell>
 									) : null}

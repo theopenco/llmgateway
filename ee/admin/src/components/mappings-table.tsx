@@ -17,7 +17,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { getMappingHistory } from "@/lib/admin-history";
+import { useHistoryClient } from "@/lib/history-client";
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
@@ -134,9 +134,10 @@ function MappingRow({
 	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
+	const history = useHistoryClient();
 	const fetchData = useCallback(
 		async (window: HistoryWindow) => {
-			return await getMappingHistory(
+			return await history.mappingHistory(
 				mapping.providerId,
 				mapping.modelId,
 				window,
@@ -145,7 +146,7 @@ function MappingRow({
 				usageMode,
 			);
 		},
-		[mapping.providerId, mapping.modelId, usageMode],
+		[history, mapping.providerId, mapping.modelId, usageMode],
 	);
 
 	return (

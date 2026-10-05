@@ -15,39 +15,38 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
+import { useApi } from "@/lib/fetch-client";
 
 interface ActivateFlaggedAccountButtonProps {
 	userId: string;
 	email: string;
 	organizationCount: number;
-	onActivate: (userId: string) => Promise<{
-		success: boolean;
-		error?: string;
-	}>;
 }
 
 export function ActivateFlaggedAccountButton({
 	userId,
 	email,
 	organizationCount,
-	onActivate,
 }: ActivateFlaggedAccountButtonProps) {
 	const router = useRouter();
+	const $api = useApi();
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
+	const mutation = $api.useMutation(
+		"post",
+		"/admin/flagged-accounts/{userId}/approve",
+		{
+			meta: { errorMessage: "Failed to activate account" },
+			onSuccess: () => {
+				setOpen(false);
+				toast.success(`${email} activated`);
+				router.refresh();
+			},
+		},
+	);
+	const loading = mutation.isPending;
 
-	const handleConfirm = async () => {
-		setLoading(true);
-		const result = await onActivate(userId);
-		setLoading(false);
-
-		if (result.success) {
-			setOpen(false);
-			toast.success(`${email} activated`);
-			router.refresh();
-		} else {
-			toast.error(result.error ?? "Failed to activate account");
-		}
+	const handleConfirm = () => {
+		mutation.mutate({ params: { path: { userId } } });
 	};
 
 	return (
