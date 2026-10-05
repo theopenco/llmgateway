@@ -87,6 +87,10 @@ export function apiErrorMessage(
 	fallback: string,
 	response?: Response,
 ): string {
+	// TanStack mutations reject with the network error itself, not a body.
+	if (isBrowserNetworkError(error)) {
+		return `${fallback}: the API did not respond (browser reported "${error.message}"). Reload before retrying; the request may still have gone through.`;
+	}
 	const message = extract(error);
 	if (message) {
 		return message;

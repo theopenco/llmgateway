@@ -181,3 +181,16 @@ describe("browser network errors", () => {
 		).toContain("Your browser is offline");
 	});
 });
+
+describe("apiErrorMessage for a rejected mutation", () => {
+	test("explains a network error instead of echoing it", () => {
+		expect(
+			apiErrorMessage(
+				new TypeError("Failed to fetch"),
+				"Failed to create credential",
+			),
+		).toBe(
+			'Failed to create credential: the API did not respond (browser reported "Failed to fetch"). Reload before retrying; the request may still have gone through.',
+		);
+	});
+});
