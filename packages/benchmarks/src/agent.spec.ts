@@ -126,6 +126,25 @@ describe("executeAgentRequest", () => {
 		expect(second.messages[2].content).toBe("pong");
 	});
 
+	it("keeps generation timing when a turn only calls tools", async () => {
+		const responses = [
+			sse([toolCallChunk("ping", "{}")]),
+			sse([textChunk("DO"), textChunk("NE")]),
+		];
+		const outcome = await executeAgentRequest({
+			client: { url: "https://example.com/v1/chat/completions" },
+			request: { messages: [{ role: "user", content: "go" }] },
+			model: "m",
+			timeoutMs: 1000,
+			fetch: (async () => responses.shift()) as unknown as typeof fetch,
+			agent: { maxTurns: 5, createSession: () => session([]) },
+			context,
+		});
+
+		expect(outcome.response.agent?.turns[0].timing.generationMs).toBeNull();
+		expect(outcome.response.timing.generationMs).not.toBeNull();
+	});
+
 	it("sums usage across turns", async () => {
 		const responses = [
 			sse([toolCallChunk("ping", "{}")]),
