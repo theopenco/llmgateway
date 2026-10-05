@@ -254,15 +254,19 @@ export function resolveProcessingRegion(
 	region?: string | null,
 	mapping?: ProcessingRegionSource,
 ): ProcessingRegion | undefined {
+	const regionId = region?.toLowerCase();
+	const regionEntry = regionId
+		? mapping?.regions?.find((entry) => entry.id.toLowerCase() === regionId)
+		: undefined;
+	// A mapping's own region entry speaks for itself: a recorded value wins and
+	// an explicit null fails closed, before any mapping- or provider-level claim.
+	if (regionEntry && regionEntry.processingRegion !== undefined) {
+		return regionEntry.processingRegion ?? undefined;
+	}
 	if (mapping?.processingRegion === null) {
 		return undefined;
 	}
-	const regionId = region?.toLowerCase();
 	return (
-		(regionId
-			? mapping?.regions?.find((entry) => entry.id.toLowerCase() === regionId)
-					?.processingRegion
-			: undefined) ??
 		mapping?.processingRegion ??
 		(regionId
 			? provider.regionConfig?.regions.find(
