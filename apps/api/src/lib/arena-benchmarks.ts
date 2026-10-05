@@ -180,7 +180,7 @@ export function parseArenaLeaderboard(
 				return {
 					rank: row.rank,
 					model: row.modelDisplayName,
-					score: row.rating,
+					score: Math.round(row.rating),
 				};
 			});
 		}
@@ -218,9 +218,10 @@ async function fetchLeaderboard(
 	return parseArenaLeaderboard(await response.text(), category);
 }
 
-export async function getArenaBenchmarks(): Promise<ArenaBenchmarks> {
+/** `null` while Arena is unreachable and no earlier snapshot exists. */
+export async function getArenaBenchmarks(): Promise<ArenaBenchmarks | null> {
 	const now = Date.now();
-	if (cachedData && now < cacheExpiry) {
+	if (now < cacheExpiry) {
 		return cachedData;
 	}
 	try {
@@ -240,9 +241,8 @@ export async function getArenaBenchmarks(): Promise<ArenaBenchmarks> {
 			"Arena leaderboard refresh failed",
 			error instanceof Error ? error : new Error(String(error)),
 		);
-		if (!cachedData) {
-			throw error;
-		}
+		// Back off even without a snapshot, so a cold start during an Arena
+		// outage does not refetch both leaderboards on every request.
 		const retryMs = 5 * 60 * 1000;
 		cacheExpiry = now + retryMs;
 		return cachedData;
