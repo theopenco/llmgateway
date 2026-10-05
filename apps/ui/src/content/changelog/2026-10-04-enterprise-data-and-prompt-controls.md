@@ -34,7 +34,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
 - Prompts without variables can also be called through `model` from any OpenAI-compatible client: `@prompt/support-reply`, `@prompt/support-reply@staging` or `@prompt/support-reply@3`. The version's default model is used.
 - `/v1/responses` accepts the same `prompt` object, in the shape OpenAI's SDKs already use.
 - The rendered messages go before any `messages` you send. The prompt's model and parameters apply only to fields you leave unset.
-- Responses carry `x-llmgateway-prompt-id`, `x-llmgateway-prompt-version` and `x-llmgateway-prompt-label`, and request logs record the same values so you can compare versions.
+- Responses carry `x-llmgateway-prompt-id` and `x-llmgateway-prompt-version`, plus `x-llmgateway-prompt-label` when a label was followed. Request logs record the same values so you can compare versions.
 - A missing variable returns `400`; an unknown prompt or label returns `404`.
 
 Available on **every plan**.
@@ -73,7 +73,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
 
 Requests then route only to endpoints whose inference is verified, against the provider's own documentation, to run in that jurisdiction. A provider's headquarters never counts, and anything unverified is blocked. Pin a multi-region provider's endpoint with a `:region` suffix; the **Provider Impact** preview on the Compliance page shows which providers and regional endpoints qualify. A request with no qualifying endpoint is rejected with `403` before any data is sent. The header can add a restriction but never lift one your organization set, and it applies on every gateway endpoint.
 
-**Residency covers the model call.** The gateway, request logs and caches run in the US, so `us` residency is end to end today. `eu` keeps the model call in the EU/EEA, but prompts still pass through and are stored in the US.
+**Residency covers the model call.** The gateway, request logs and caches run in the US, so with `eu` the model call stays in the EU/EEA but prompts still pass through and are stored in the US. The per-request header restricts only the model call; the organization policy also limits the content filter and routing classifiers to verified regions.
 
 The organization policy is available on the **Enterprise plan**.
 
