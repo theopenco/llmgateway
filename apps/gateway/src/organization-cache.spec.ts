@@ -46,11 +46,9 @@ describe("credit debit cache eviction", () => {
 		).toBe("0");
 	});
 
-	it("evicts both gateway read paths before an outage can serve a spent balance", async () => {
-		for (const find of [
-			findOrganizationCachedById,
-			findOrganizationByIdFresh,
-		]) {
+	it("refreshes both gateway read paths' outage fallback after a debit", async () => {
+		const readPaths = [findOrganizationCachedById, findOrganizationByIdFresh];
+		for (const find of readPaths) {
 			expect(Number((await find("org-id"))?.credits)).toBe(100);
 		}
 		await waitForSwrMirrorWrites();
@@ -59,15 +57,31 @@ describe("credit debit cache eviction", () => {
 			.set({ credits: "0" })
 			.where(eq(tables.organization.id, "org-id"));
 		await invalidateOrganizationsCache(["org-id"]);
+		for (const find of readPaths) {
+			expect(Number((await find("org-id"))?.credits)).toBe(0);
+		}
+		await waitForSwrMirrorWrites();
 		vi.spyOn(cdb, "select").mockImplementation(() => {
 			throw new Error("database unavailable after debit");
 		});
-		for (const find of [
-			findOrganizationCachedById,
-			findOrganizationByIdFresh,
-		]) {
+		for (const find of readPaths) {
+			expect(Number((await find("org-id"))?.credits)).toBe(0);
+		}
+	});
+
+	it("drops both read paths' fallback when the old row must not be served", async () => {
+		const readPaths = [findOrganizationCachedById, findOrganizationByIdFresh];
+		for (const find of readPaths) {
+			await find("org-id");
+		}
+		await waitForSwrMirrorWrites();
+		await invalidateOrganizationsCache(["org-id"], { dropFallback: true });
+		vi.spyOn(cdb, "select").mockImplementation(() => {
+			throw new Error("database unavailable after block");
+		});
+		for (const find of readPaths) {
 			await expect(find("org-id")).rejects.toThrow(
-				"database unavailable after debit",
+				"database unavailable after block",
 			);
 		}
 	});
