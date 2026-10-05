@@ -24,6 +24,8 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 interface EnterpriseDeal {
 	id: string;
@@ -43,15 +45,9 @@ const PAYMENT_METHOD_LABELS: Record<EnterprisePaymentMethod, string> = {
 };
 
 interface EnterpriseDealDialogProps {
+	orgId: string;
 	orgName: string;
 	deal?: EnterpriseDeal;
-	onSave: (data: {
-		amount: number;
-		paymentMethod: EnterprisePaymentMethod;
-		transactionDate?: string;
-		externalReference?: string;
-		comment?: string;
-	}) => Promise<{ success: boolean; error?: string }>;
 }
 
 function toPaymentMethod(
@@ -63,15 +59,15 @@ function toPaymentMethod(
 }
 
 export function EnterpriseDealDialog({
+	orgId,
 	orgName,
 	deal,
-	onSave,
 }: EnterpriseDealDialogProps) {
 	const router = useRouter();
+	const $api = useApi();
 	const editing = Boolean(deal);
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [validationError, setValidationError] = useState<string | null>(null);
 	const [amount, setAmount] = useState(deal?.amount ?? "");
 	const [paymentMethod, setPaymentMethod] = useState<EnterprisePaymentMethod>(
 		toPaymentMethod(deal?.paymentMethod),
@@ -84,43 +80,70 @@ export function EnterpriseDealDialog({
 	);
 	const [comment, setComment] = useState(deal?.description ?? "");
 
-	const handleSubmit = async () => {
+	const onSuccess = () => {
+		setOpen(false);
+		if (!editing) {
+			setAmount("");
+			setPaymentMethod("wire");
+			setTransactionDate("");
+			setExternalReference("");
+			setComment("");
+		}
+		router.refresh();
+	};
+	const addMutation = $api.useMutation(
+		"post",
+		"/admin/organizations/{orgId}/enterprise-deals",
+		{ meta: { inlineError: true }, onSuccess },
+	);
+	const updateMutation = $api.useMutation(
+		"patch",
+		"/admin/organizations/{orgId}/enterprise-deals/{transactionId}",
+		{ meta: { inlineError: true }, onSuccess },
+	);
+	const mutation = editing ? updateMutation : addMutation;
+	const loading = mutation.isPending;
+	const error =
+		validationError ??
+		(mutation.isError
+			? apiErrorMessage(mutation.error, "Failed to save enterprise deal")
+			: null);
+
+	const handleOpenChange = (next: boolean) => {
+		if (next) {
+			mutation.reset();
+			setValidationError(null);
+		}
+		setOpen(next);
+	};
+
+	const handleSubmit = () => {
 		const parsedAmount = parseFloat(amount);
 		if (isNaN(parsedAmount) || parsedAmount <= 0) {
-			setError("Deal amount must be a positive number");
+			setValidationError("Deal amount must be a positive number");
 			return;
 		}
 
-		setLoading(true);
-		setError(null);
-
-		const result = await onSave({
+		setValidationError(null);
+		const body = {
 			amount: parsedAmount,
 			paymentMethod,
 			transactionDate: transactionDate || undefined,
 			externalReference: externalReference.trim() || undefined,
 			comment: comment.trim() || undefined,
-		});
-
-		setLoading(false);
-
-		if (result.success) {
-			setOpen(false);
-			if (!editing) {
-				setAmount("");
-				setPaymentMethod("wire");
-				setTransactionDate("");
-				setExternalReference("");
-				setComment("");
-			}
-			router.refresh();
+		};
+		if (deal) {
+			updateMutation.mutate({
+				params: { path: { orgId, transactionId: deal.id } },
+				body,
+			});
 		} else {
-			setError(result.error ?? "Failed to save enterprise deal");
+			addMutation.mutate({ params: { path: { orgId } }, body });
 		}
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogTrigger asChild>
 				{editing ? (
 					<Button

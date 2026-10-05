@@ -4,7 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 
 import { CostByModelChart } from "@/components/cost-by-model-chart";
-import { getOrgCostByModel } from "@/lib/admin-history";
+import { useHistoryClient } from "@/lib/history-client";
 
 import type {
 	GlobalStatsModelView,
@@ -59,6 +59,7 @@ export function OrgCostByModel({ orgId }: { orgId: string }) {
 	const groupBy = parseGroupBy(searchParams.get("breakdown"));
 	const modelView = parseModelView(searchParams.get("modelView"));
 	const breakdownNoun = breakdownNouns[groupBy];
+	const history = useHistoryClient();
 
 	const fetchData = useCallback(
 		async (
@@ -66,14 +67,14 @@ export function OrgCostByModel({ orgId }: { orgId: string }) {
 			view: GlobalStatsModelView,
 			group: OrganizationCostGroupBy,
 		) => {
-			return await getOrgCostByModel(
+			return await history.orgCostByModel(
 				orgId,
 				w,
 				view === "canonical" ? "canonical" : "mapping",
 				group,
 			);
 		},
-		[orgId],
+		[history, orgId],
 	);
 
 	const updateView = useCallback(

@@ -3,6 +3,7 @@
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +24,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 import { getProviderIcon } from "@llmgateway/shared";
 
@@ -47,26 +50,19 @@ interface RateLimitFormProps {
 	providers: RateLimitProviderOption[];
 	mappings: RateLimitModelMapping[];
 	showEnforcement?: boolean;
-	onSubmit: (data: {
-		provider: string | null;
-		model: string | null;
-		limitType: RateLimitType;
-		maxRequests: number;
-		enforcement?: RateLimitEnforcement;
-		mode: RateLimitMode;
-		reason: string | null;
-	}) => Promise<{ success: boolean; error?: string }>;
+	/** Creates an organization rate limit; omitted for a global rate limit. */
+	orgId?: string;
 }
 
 export function RateLimitForm({
 	providers,
 	mappings,
 	showEnforcement = false,
-	onSubmit,
+	orgId,
 }: RateLimitFormProps) {
+	const $api = useApi();
 	const router = useRouter();
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
 	const [provider, setProvider] = useState<string>("__all__");
@@ -77,6 +73,33 @@ export function RateLimitForm({
 	const [mode, setMode] = useState<RateLimitMode>("strict");
 	const [maxRequests, setMaxRequests] = useState("");
 	const [reason, setReason] = useState("");
+
+	const onSuccess = () => {
+		setOpen(false);
+		setProvider("__all__");
+		setModel("__all__");
+		setLimitType("rpm");
+		setEnforcement("per_org");
+		setMode("strict");
+		setMaxRequests("");
+		setReason("");
+		router.refresh();
+	};
+	const globalMutation = $api.useMutation("post", "/admin/rate-limits", {
+		meta: { inlineError: true },
+		onSuccess,
+	});
+	const orgMutation = $api.useMutation(
+		"post",
+		"/admin/organizations/{orgId}/rate-limits",
+		{ meta: { inlineError: true }, onSuccess },
+	);
+	const mutation = orgId ? orgMutation : globalMutation;
+	const shownError =
+		error ??
+		(mutation.isError
+			? apiErrorMessage(mutation.error, "Failed to create rate limit")
+			: null);
 
 	// Filter mappings by selected provider
 	const filteredMappings = useMemo(() => {
@@ -132,10 +155,10 @@ export function RateLimitForm({
 		setModel("__all__");
 	};
 
-	const handleSubmit = async (e: React.FormEvent) => {
+	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
 		setError(null);
-		setLoading(true);
+		mutation.reset();
 
 		const parsedLimit = Number(maxRequests);
 		const minimum = showEnforcement ? 0 : 1;
@@ -147,51 +170,49 @@ export function RateLimitForm({
 			setError(
 				`Max ${limitType.toUpperCase()} must be a whole number of at least ${minimum}`,
 			);
-			setLoading(false);
 			return;
 		}
 
 		if (mode === "soft" && parsedLimit === 0) {
 			setError("A limit of 0 blocks all requests and cannot be soft");
-			setLoading(false);
 			return;
 		}
 
 		if (provider === "__all__" && model === "__all__") {
 			setError("Please select at least a provider or a model");
-			setLoading(false);
 			return;
 		}
 
-		const result = await onSubmit({
+		const body = {
 			provider: provider === "__all__" ? null : provider,
 			model: model === "__all__" ? null : model,
 			limitType,
 			maxRequests: parsedLimit,
-			enforcement: showEnforcement ? enforcement : undefined,
 			mode,
 			reason: reason || null,
-		});
-
-		setLoading(false);
-
-		if (result.success) {
-			setOpen(false);
-			setProvider("__all__");
-			setModel("__all__");
-			setLimitType("rpm");
-			setEnforcement("per_org");
-			setMode("strict");
-			setMaxRequests("");
-			setReason("");
-			router.refresh();
+		};
+		if (orgId) {
+			orgMutation.mutate({ params: { path: { orgId } }, body });
 		} else {
-			setError(result.error ?? "Failed to create rate limit");
+			globalMutation.mutate({
+				body: {
+					...body,
+					enforcement: showEnforcement ? enforcement : undefined,
+				},
+			});
 		}
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog
+			open={open}
+			onOpenChange={(nextOpen) => {
+				setOpen(nextOpen);
+				if (nextOpen) {
+					mutation.reset();
+				}
+			}}
+		>
 			<DialogTrigger asChild>
 				<Button size="sm">
 					<Plus className="h-4 w-4" />
@@ -372,9 +393,9 @@ export function RateLimitForm({
 						/>
 					</div>
 
-					{error && (
+					{shownError && (
 						<div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-							{error}
+							{shownError}
 						</div>
 					)}
 
@@ -386,8 +407,10 @@ export function RateLimitForm({
 						>
 							Cancel
 						</Button>
-						<Button type="submit" disabled={loading}>
-							{loading && <Loader2 className="h-4 w-4 animate-spin" />}
+						<Button type="submit" disabled={mutation.isPending}>
+							{mutation.isPending && (
+								<Loader2 className="h-4 w-4 animate-spin" />
+							)}
 							Create Rate Limit
 						</Button>
 					</DialogFooter>
@@ -399,27 +422,45 @@ export function RateLimitForm({
 
 interface DeleteRateLimitButtonProps {
 	rateLimitId: string;
-	onDelete: (rateLimitId: string) => Promise<{ success: boolean }>;
+	/** Deletes an organization rate limit; omitted for a global rate limit. */
+	orgId?: string;
 }
 
 export function DeleteRateLimitButton({
 	rateLimitId,
-	onDelete,
+	orgId,
 }: DeleteRateLimitButtonProps) {
+	const $api = useApi();
 	const router = useRouter();
-	const [loading, setLoading] = useState(false);
+	const onSuccess = (data: { success: boolean }) => {
+		if (data.success) {
+			router.refresh();
+		} else {
+			toast.error("Failed to delete rate limit");
+		}
+	};
+	const meta = { errorMessage: "Failed to delete rate limit" };
+	const globalMutation = $api.useMutation(
+		"delete",
+		"/admin/rate-limits/{rateLimitId}",
+		{ meta, onSuccess },
+	);
+	const orgMutation = $api.useMutation(
+		"delete",
+		"/admin/organizations/{orgId}/rate-limits/{rateLimitId}",
+		{ meta, onSuccess },
+	);
+	const deleting = orgId ? orgMutation.isPending : globalMutation.isPending;
 
-	const handleDelete = async () => {
+	const handleDelete = () => {
 		if (!confirm("Are you sure you want to delete this rate limit?")) {
 			return;
 		}
 
-		setLoading(true);
-		const result = await onDelete(rateLimitId);
-		setLoading(false);
-
-		if (result.success) {
-			router.refresh();
+		if (orgId) {
+			orgMutation.mutate({ params: { path: { orgId, rateLimitId } } });
+		} else {
+			globalMutation.mutate({ params: { path: { rateLimitId } } });
 		}
 	};
 
@@ -428,10 +469,10 @@ export function DeleteRateLimitButton({
 			variant="ghost"
 			size="icon-sm"
 			onClick={handleDelete}
-			disabled={loading}
+			disabled={deleting}
 			className="text-destructive hover:text-destructive"
 		>
-			{loading ? (
+			{deleting ? (
 				<Loader2 className="h-4 w-4 animate-spin" />
 			) : (
 				<Trash2 className="h-4 w-4" />
