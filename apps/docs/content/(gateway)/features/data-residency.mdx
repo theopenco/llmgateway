@@ -1,0 +1,68 @@
+---
+title: Data Residency
+description: Restrict inference to endpoints verified to process requests inside the US or the EU
+icon: Globe
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+Data residency restricts routing to upstream endpoints whose inference is **verified to run inside a jurisdiction**: `us` (United States) or `eu` (EU and EEA). It is decided per endpoint from a processing region recorded in the catalogue, never from where a provider is headquartered. Endpoints without a recorded processing region never qualify.
+
+<Callout type="warn">
+	This restricts the **upstream inference hop only**. Every request still
+	terminates at the LLM Gateway control plane in the United States, where
+	request logs, payload previews, stored payloads and caches live. `us`
+	residency is therefore end-to-end today. `eu` residency keeps the model call
+	inside the EU/EEA but your prompt still transits, and is stored by,
+	infrastructure in the US; an EU gateway region is required before we can
+	describe it as EU data residency end to end.
+</Callout>
+
+<Callout type="info">
+	Organization-wide residency is part of the [compliance
+	policy](/features/compliance) and is available on the [**Enterprise
+	plan**](https://llmgateway.io/enterprise).
+</Callout>
+
+## What qualifies
+
+The catalogue records a processing region for an endpoint only after checking the provider's own documentation or data processing agreement. It can be recorded for a whole provider, for one of its regional endpoints, or for a single model mapping, and the most specific entry wins. A request qualifies when the endpoint it will actually reach resolves to the required residency.
+
+The set of verified endpoints changes as providers are checked, so it is not listed here. The **Provider Impact** preview on the Compliance page shows, for the residency you select, which providers qualify outright and which qualify only through a pinned regional endpoint (marked **regional**, with the qualifying `:region` ids), and the live [providers page](https://llmgateway.io/providers) carries each provider's current metadata.
+
+Everything else fails closed, including:
+
+- endpoints that route requests across regions (global endpoints and cross-region inference profiles), and providers whose API does so by default unless a region option is set, which the gateway does not send yet;
+- cross-region profiles that span countries outside the jurisdiction, even when named after it;
+- regional hosts whose processing scope is chosen per account or workspace rather than by the host, until that scope can be verified for the credential in use;
+- providers headquartered in the US or the EU whose processing location has not been verified yet, even when their headquarters is in the jurisdiction;
+- an unpinned request to a multi-region provider, because the gateway may still pick any of its regions. Pin the endpoint with a `:region` suffix;
+- any base URL that replaces the pinned endpoint: a provider key with a custom base URL, a managed credential's base URL, an `LLM_*_BASE_URL` environment override, or an Airside carrier endpoint. Another region's endpoint of the same provider counts as a replacement too;
+- [custom providers](/features/custom-providers), because a self-attestation records an operating country, not where inference runs;
+- Airside listings, until the carrier's processing region has been recorded for that mapping.
+
+Everything else in your compliance policy still applies on top.
+
+## Platform classifiers
+
+The gateway's own content filter and routing classifiers may send prompt text to a third-party classifier. Which classifiers may see your prompts is decided by the organization's compliance policy alone: an organization residency policy excludes classifiers without a verified processing region, while the per-request header never does. Otherwise any API key holder could switch a guardrail off with one header. A request that asks for residency the organization does not enforce is still moderated as the organization configured.
+
+## Organization policy
+
+On **Compliance**, enable the policy and choose **United States** or **European Union (EU/EEA)** under **Data Residency**. Every request from the organization is then restricted. A request with no qualifying endpoint is rejected with `403` before any data is sent, and the block is recorded as a security event.
+
+## Per-request opt-in
+
+Without an organization policy, a single request can ask for residency:
+
+```bash
+curl https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "x-llmgateway-data-residency: us" \
+  -H "Content-Type: application/json" \
+  -d '{ "model": "<provider>/<model>:<region>", "messages": [{ "role": "user", "content": "Hello" }] }'
+```
+
+A request can only add a restriction: an unknown value returns `400`, and a value that conflicts with the organization's residency returns `400`.
+
+The header is honoured on every gateway endpoint: chat completions, the Responses and Messages APIs, the AI SDK route, images, embeddings, rerank, speech, transcriptions, OCR, search, moderations, videos and realtime sessions. The organization policy applies to all of them as well.

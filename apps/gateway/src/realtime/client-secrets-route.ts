@@ -1,7 +1,10 @@
 import { OpenAPIHono, z } from "@hono/zod-openapi";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
-import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
+import {
+	DATA_RESIDENCY_HEADER,
+	isZeroDataRetentionEnabled,
+} from "@/lib/compliance.js";
 import { openAIErrorSchema } from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
@@ -229,6 +232,7 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 			intent:
 				body.session.type === "transcription" ? "transcription" : undefined,
 			clientIp: getClientIpFromRequest(c),
+			dataResidencyHeader: c.req.header(DATA_RESIDENCY_HEADER),
 		});
 	} catch (error) {
 		if (error instanceof RealtimeConnectError) {

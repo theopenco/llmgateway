@@ -151,6 +151,8 @@ export async function authorizeAccount(
 			modelId: match.modelId,
 			apiKeyId: freshKey.id,
 			model: input.requestedModel,
+			dataResidency: preflight.dataResidency,
+			mapping: match.mapping,
 		});
 	} catch (error) {
 		return {

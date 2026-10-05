@@ -9,14 +9,17 @@ import {
 	getProviderCountries,
 	getProviderDefinition,
 	getProviderRefPolicyListFailures,
+	getResidencyRegions,
 	isAttestationCompliant,
 	isLiveMapping,
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
+	isProcessingRegion,
 	isStealthProvider,
 	PROVIDER_COUNTRY_NAMES,
 	providers,
+	resolveProcessingRegion,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 	type ProviderDefinition,
@@ -983,5 +986,202 @@ describe("getCompliantProvidersForModel", () => {
 				now,
 			),
 		).toEqual([]);
+	});
+});
+
+describe("data residency", () => {
+	const base = getProviderDefinition("openai")!;
+	const inEu: ProviderDefinition = {
+		...base,
+		id: "eu-test",
+		headquarters: "US",
+		processingRegion: "eu",
+	};
+	const globalRouting: ProviderDefinition = {
+		...base,
+		id: "global-test",
+		headquarters: "FR",
+		processingRegion: "global",
+	};
+	const unverified: ProviderDefinition = {
+		...base,
+		id: "unverified-test",
+		headquarters: "FR",
+		processingRegion: undefined,
+	};
+	const eu: ProviderCompliancePolicy = { enabled: true, dataResidency: "eu" };
+	const us: ProviderCompliancePolicy = { enabled: true, dataResidency: "us" };
+
+	it("qualifies on verified processing region, never on headquarters", () => {
+		expect(getProviderComplianceFailures(inEu, eu)).toEqual([]);
+		expect(getProviderComplianceFailures(inEu, us)).toEqual(["dataResidency"]);
+		expect(getProviderComplianceFailures(globalRouting, eu)).toEqual([
+			"dataResidency",
+		]);
+		expect(getProviderComplianceFailures(unverified, eu)).toEqual([
+			"dataResidency",
+		]);
+	});
+
+	it("resolves a provider's regional endpoints", () => {
+		const bedrock = getProviderDefinition("aws-bedrock")!;
+		expect(getProviderComplianceFailures(bedrock, eu)).toEqual([
+			"dataResidency",
+		]);
+		expect(
+			getProviderComplianceFailures(bedrock, eu, { region: "eu-central-1" }),
+		).toEqual([]);
+		expect(
+			getProviderComplianceFailures(bedrock, eu, { region: "eu-west-2" }),
+		).toEqual(["dataResidency"]);
+		expect(
+			getProviderComplianceFailures(bedrock, eu, { region: "eu" }),
+		).toEqual(["dataResidency"]);
+		expect(
+			getProviderComplianceFailures(bedrock, us, { region: "us-east-1" }),
+		).toEqual([]);
+		expect(
+			getProviderComplianceFailures(bedrock, us, { region: "us" }),
+		).toEqual([]);
+		expect(
+			getProviderComplianceFailures(bedrock, us, { region: "global" }),
+		).toEqual(["dataResidency"]);
+		// Alibaba's data scope is a workspace property the hostname cannot reveal,
+		// so its US and EU regions stay unverified and Singapore is global.
+		const alibaba = getProviderDefinition("alibaba")!;
+		expect(
+			getProviderComplianceFailures(alibaba, eu, { region: "eu-frankfurt" }),
+		).toEqual(["dataResidency"]);
+		expect(
+			getProviderComplianceFailures(alibaba, us, { region: "us-virginia" }),
+		).toEqual(["dataResidency"]);
+		expect(resolveProcessingRegion(alibaba, "singapore")).toBe("global");
+		expect(
+			getProviderComplianceFailures(alibaba, us, { region: "singapore" }),
+		).toEqual(["dataResidency"]);
+	});
+
+	it("treats a null mapping region as unverified, blocking inheritance", () => {
+		const bedrock = getProviderDefinition("aws-bedrock")!;
+		expect(
+			resolveProcessingRegion(bedrock, "us-east-1", { processingRegion: null }),
+		).toBeUndefined();
+		expect(
+			getProviderComplianceFailures(bedrock, us, {
+				region: "us-east-1",
+				mapping: { processingRegion: null },
+			}),
+		).toEqual(["dataResidency"]);
+		expect(
+			getProviderComplianceFailures(getProviderDefinition("mistral")!, eu, {
+				mapping: { processingRegion: null },
+			}),
+		).toEqual(["dataResidency"]);
+	});
+
+	it("resolves a mapping's region entry before any inherited claim", () => {
+		const bedrock = getProviderDefinition("aws-bedrock")!;
+		expect(
+			resolveProcessingRegion(bedrock, "us-east-1", {
+				processingRegion: "us",
+				regions: [{ id: "us-east-1", processingRegion: null }],
+			}),
+		).toBeUndefined();
+		expect(
+			resolveProcessingRegion(bedrock, "us-east-1", {
+				processingRegion: null,
+				regions: [{ id: "us-east-1", processingRegion: "us" }],
+			}),
+		).toBe("us");
+		expect(
+			resolveProcessingRegion(bedrock, "us-west-2", {
+				processingRegion: "us",
+				regions: [{ id: "us-east-1", processingRegion: null }],
+			}),
+		).toBe("us");
+	});
+
+	it("lets a mapping override the provider and its regions", () => {
+		expect(
+			resolveProcessingRegion(
+				getProviderDefinition("aws-bedrock")!,
+				"us-east-1",
+				{
+					processingRegion: "global",
+				},
+			),
+		).toBe("global");
+		expect(
+			resolveProcessingRegion(unverified, "west", {
+				regions: [{ id: "west", processingRegion: "us" }],
+			}),
+		).toBe("us");
+		expect(
+			resolveProcessingRegion(unverified, undefined, {
+				regions: [{ id: "west", processingRegion: "us" }],
+			}),
+		).toBeUndefined();
+		expect(
+			getProviderComplianceFailures(unverified, us, {
+				region: "west",
+				mapping: { regions: [{ id: "west", processingRegion: "us" }] },
+			}),
+		).toEqual([]);
+	});
+
+	it("keeps other requirements when a region satisfies residency", () => {
+		expect(
+			getProviderComplianceFailures(
+				getProviderDefinition("aws-bedrock")!,
+				{ ...eu, blockedProviders: ["aws-bedrock"] },
+				{ region: "eu-central-1" },
+			),
+		).toEqual(["blockedProviders"]);
+	});
+
+	it("is ignored by a disabled policy", () => {
+		expect(
+			getProviderComplianceFailures(globalRouting, {
+				enabled: false,
+				dataResidency: "eu",
+			}),
+		).toEqual([]);
+	});
+
+	it("never accepts a self-attested custom deployment", () => {
+		expect(
+			getAttestationComplianceFailures(
+				{ headquarters: "DE", apiTraining: false },
+				eu,
+			),
+		).toEqual(["dataResidency"]);
+	});
+
+	it("lists the regional endpoints that satisfy a residency", () => {
+		expect(
+			getResidencyRegions(getProviderDefinition("aws-bedrock")!, "eu"),
+		).toEqual(["eu-central-1", "eu-north-1", "eu-west-1", "eu-west-3"]);
+		expect(
+			getResidencyRegions(getProviderDefinition("alibaba")!, "eu"),
+		).toEqual([]);
+		expect(
+			getResidencyRegions(getProviderDefinition("aws-mantle")!, "us"),
+		).toEqual(["us", "us-east-1", "us-east-2", "us-west-2"]);
+		expect(getResidencyRegions(getProviderDefinition("openai")!, "us")).toEqual(
+			[],
+		);
+	});
+
+	it("only records processing regions from the known vocabulary", () => {
+		for (const provider of providers) {
+			if (provider.processingRegion !== undefined) {
+				expect(isProcessingRegion(provider.processingRegion)).toBe(true);
+			}
+			for (const region of provider.regionConfig?.regions ?? []) {
+				if (region.processingRegion !== undefined) {
+					expect(isProcessingRegion(region.processingRegion)).toBe(true);
+				}
+			}
+		}
 	});
 });

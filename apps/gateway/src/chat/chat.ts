@@ -45,9 +45,13 @@ import {
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import {
+	assertResidencyAllowsBaseUrl,
 	complianceBlockMessage,
+	DATA_RESIDENCY_HEADER,
 	getActiveCompliancePolicy,
 	getComplianceFailureReasons,
+	getRequestDataResidency,
+	withRequestDataResidency,
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
@@ -256,7 +260,7 @@ import { chunkMayCompleteSseEvent } from "./tools/chunk-may-complete-sse-event.j
 import { clampTemperature } from "./tools/clamp-temperature.js";
 import { collapseImageGenSse } from "./tools/collapse-image-gen-sse.js";
 import {
-	isContentFilterClassifierCompliant,
+	contentFilterClassifierGate,
 	evaluateContentFilterWithClassifiers,
 	runContentFilterClassifier,
 	type ContentFilterCheckResult,
@@ -332,6 +336,7 @@ import {
 import { resolveDynamicRouteClassification } from "./tools/resolve-dynamic-route-classification.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import {
+	getCredentialSetting,
 	hasServiceTierEligiblePlatformCredential,
 	resolvePlatformCredential,
 } from "./tools/resolve-platform-credential.js";
@@ -3244,6 +3249,11 @@ chat.openapi(completions, async (c) => {
 	// to the upstream provider API — derived from the chosen provider
 	// mapping after routing. Empty until routing resolves a mapping.
 	let usedExternalId: string = requestedModel;
+	// Parsed up front so an unsupported value is rejected with 400 before any
+	// work is done. It tightens routing of the model call only.
+	const requestDataResidency = getRequestDataResidency(
+		c.req.header(DATA_RESIDENCY_HEADER),
+	);
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
 	// Verdict a dynamic route's classifier nodes branched on, recorded on the
@@ -3541,7 +3551,18 @@ chat.openapi(completions, async (c) => {
 	// Enterprise provider compliance guardrails: drop providers that do not meet
 	// the org's required certifications/data policies, and block the request when
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
-	const compliancePolicy = getActiveCompliancePolicy(organization);
+	// Tightened by the request header for routing of the model call only. The
+	// content filter and routing classifiers gate on the organization's own
+	// policy (see contentFilterClassifierGate), so a header can never switch a
+	// guardrail off.
+	const compliancePolicy = withRequestDataResidency(
+		getActiveCompliancePolicy(organization),
+		requestDataResidency,
+	);
+	// Which third-party classifiers (smart routing, content filter) may see the
+	// prompt. Org policy only, by construction.
+	const contentFilterClassifierAllowed =
+		contentFilterClassifierGate(organization);
 
 	const complianceContextFor = (
 		provider: ProviderModelMapping,
@@ -3553,7 +3574,26 @@ chat.openapi(completions, async (c) => {
 							?.complianceAttestation ?? null,
 					customProviderName: provider.customProviderName,
 				}
-			: complianceContext;
+			: {
+					...complianceContext,
+					// Only a concrete region counts. A mapping listed once with several
+					// regions resolves to its default region at request time, so it must
+					// not borrow residency from regions[0]. A pinned `:region` request
+					// routes to exactly that region.
+					region:
+						provider.region ??
+						(provider.providerId === usedProvider ? usedRegion : undefined),
+					mapping: provider,
+				};
+
+	/** The pinned provider's mapping, so its own processing-region claims apply. */
+	const pinnedMapping = (): ProviderModelMapping | undefined =>
+		allModelProviders.find(
+			(provider) =>
+				provider.providerId === usedProvider &&
+				(provider.region ?? undefined) === usedRegion,
+		) ??
+		allModelProviders.find((provider) => provider.providerId === usedProvider);
 
 	// Which policy rules a dropped mapping failed, recorded next to the coarse
 	// "compliance" code so the routing analytics can break the total down by rule
@@ -3609,7 +3649,11 @@ chat.openapi(completions, async (c) => {
 			usedProvider !== undefined &&
 			usedProvider !== "llmgateway" &&
 			usedProvider !== "custom" &&
-			!isProviderIdCompliant(usedProvider, compliancePolicy, complianceContext);
+			!isProviderIdCompliant(usedProvider, compliancePolicy, {
+				...complianceContext,
+				region: usedRegion,
+				mapping: pinnedMapping(),
+			});
 		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,
@@ -4485,10 +4529,10 @@ chat.openapi(completions, async (c) => {
 			// The classifier sends prompt text to TypeSafe, so an org whose
 			// compliance policy disallows that provider must not have its prompts
 			// sent there — same fail-closed rule as the model-backed content
-			// filter below. Routing then falls back to the cheapest candidate.
-			classifierAllowed:
-				!compliancePolicy ||
-				isProviderIdCompliant("typesafe", compliancePolicy),
+			// filter below, and like it decided by the org's own policy, not the
+			// request's residency header. Routing then falls back to the cheapest
+			// candidate.
+			classifierAllowed: contentFilterClassifierAllowed("jev"),
 			sessionStore: smartRoutingSessionStore,
 			messages: (messages ?? []) as BaseMessage[],
 			toolNames: (tools ?? [])
@@ -4963,9 +5007,6 @@ chat.openapi(completions, async (c) => {
 	// A model-backed content filter sends prompts to its classifier's provider.
 	// When the org's compliance policy disallows that provider, skip it so prompt
 	// data never reaches a non-compliant one (fail closed on the data guarantee).
-	const contentFilterClassifierAllowed = (
-		classifier: ContentFilterClassifier,
-	) => isContentFilterClassifierCompliant(classifier, compliancePolicy);
 	// Text-only classifiers delegate image parts to OpenAI moderation, which is
 	// only permitted when OpenAI itself is compliant for this organization.
 	const openAiContentFilterAllowed = contentFilterClassifierAllowed("openai");
@@ -7091,6 +7132,57 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
+	// The processing region the catalogue verified belongs to the pinned
+	// region's catalogue endpoint. A base URL override (BYOK key,
+	// managed-credential config, LLM_*_BASE_URL env, Airside carrier) sends the
+	// request somewhere else, so residency fails closed on it. Checked for the
+	// initial credential here and for every retry/fallback credential in
+	// resolveProviderContextForRetry.
+	const assertResidencyForCredential = async (credential: {
+		usedProvider: string | undefined;
+		usedRegion: string | undefined;
+		providerKey: typeof providerKey;
+		managedKey: typeof managedKey;
+		configIndex: number;
+	}): Promise<void> => {
+		if (
+			credential.usedProvider === undefined ||
+			credential.usedProvider === "llmgateway" ||
+			credential.usedProvider === "custom"
+		) {
+			return;
+		}
+		await assertResidencyAllowsBaseUrl(
+			compliancePolicy,
+			credential.usedProvider,
+			airsideResolution?.customBaseUrl ??
+				credential.providerKey?.baseUrl ??
+				getCredentialSetting(
+					credential.usedProvider as Provider,
+					"baseUrl",
+					{
+						providerKey: credential.providerKey,
+						managedKey: credential.managedKey,
+					},
+					{ configIndex: credential.configIndex, variant: envVariant },
+				),
+			{
+				organizationId: project.organizationId,
+				modelId: modelInfo.id,
+				apiKeyId: apiKey.id,
+				model: requestedModel,
+				region: credential.usedRegion,
+			},
+		);
+	};
+	await assertResidencyForCredential({
+		usedProvider,
+		usedRegion,
+		providerKey,
+		managedKey,
+		configIndex,
+	});
+
 	try {
 		if (!usedProvider) {
 			throw new HTTPException(400, {
@@ -8216,7 +8308,7 @@ chat.openapi(completions, async (c) => {
 		},
 		streamValue: boolean,
 	) {
-		return await resolveProviderContext(
+		const ctx = await resolveProviderContext(
 			providerMapping,
 			retryProjectContext,
 			retryOrganizationContext,
@@ -8264,6 +8356,18 @@ chat.openapi(completions, async (c) => {
 				verbosity,
 			},
 		);
+		// Every caller treats a throw here as "this candidate is unusable" (an
+		// alternate key is simply not used; a fallback provider is skipped), so a
+		// residency block on the retry credential is logged and never dispatched
+		// instead of surfacing mid-stream.
+		await assertResidencyForCredential({
+			usedProvider: ctx.usedProvider,
+			usedRegion: ctx.usedRegion,
+			providerKey: ctx.providerKey,
+			managedKey: ctx.managedKey,
+			configIndex: ctx.configIndex,
+		});
+		return ctx;
 	}
 
 	async function applyResolvedProviderContext(

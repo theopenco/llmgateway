@@ -37,8 +37,10 @@ import {
 	getProviderCountries,
 	getProviderRefPolicyListFailures,
 	getProviderRequirementFailures,
+	getResidencyRegions,
 	models,
 	providers,
+	type DataResidency,
 	type ProviderCompliancePolicy,
 	type ProviderDefinition,
 	type ProviderId,
@@ -55,6 +57,16 @@ import { ComplianceAlertsCard } from "./compliance-alerts-card";
 import { ContactSalesCard } from "./contact-sales-card";
 
 import type { ReactElement } from "react";
+
+const RESIDENCY_CHOICES: {
+	value: DataResidency | null;
+	label: string;
+	flag: string;
+}[] = [
+	{ value: null, label: "Anywhere", flag: "🌐" },
+	{ value: "us", label: "United States", flag: "🇺🇸" },
+	{ value: "eu", label: "European Union (EU/EEA)", flag: "🇪🇺" },
+];
 
 // Internal/virtual providers that should never appear in the impact preview.
 const HIDDEN_PROVIDER_IDS = new Set(["llmgateway", "custom"]);
@@ -92,14 +104,27 @@ function ProviderChip({
 	provider,
 	tone,
 	reasons = [],
+	regions = [],
 }: {
 	provider: ProviderDefinition;
 	tone: "allowed" | "blocked";
 	reasons?: string[];
+	/** Regional endpoints that qualify when the default endpoint does not. */
+	regions?: string[];
 }) {
 	const Logo = providerLogoUrls[provider.id as ProviderId];
 	return (
-		<BlockedReasonsTooltip reasons={reasons}>
+		<BlockedReasonsTooltip
+			reasons={
+				regions.length > 0
+					? [
+							`Only when a request pins one of: ${regions
+								.map((region) => `:${region}`)
+								.join(", ")}`,
+						]
+					: reasons
+			}
+		>
 			<div
 				className={cn(
 					"inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium",
@@ -110,6 +135,9 @@ function ProviderChip({
 			>
 				{Logo ? <Logo className="h-4 w-4 shrink-0" /> : null}
 				<span>{provider.name}</span>
+				{regions.length > 0 ? (
+					<span className="text-xs opacity-70">regional</span>
+				) : null}
 				{tone === "allowed" ? (
 					<Check className="h-3.5 w-3.5 shrink-0" />
 				) : (
@@ -271,16 +299,32 @@ export function ComplianceClient() {
 	]);
 
 	const { allowed, blocked } = useMemo(() => {
-		const allowedList: ProviderDefinition[] = [];
+		const allowedList: { provider: ProviderDefinition; regions: string[] }[] =
+			[];
 		const blockedList: { provider: ProviderDefinition; reasons: string[] }[] =
 			[];
 		for (const provider of providers) {
 			if (HIDDEN_PROVIDER_IDS.has(provider.id)) {
 				continue;
 			}
+			// A provider whose default endpoint fails residency can still serve
+			// requests pinned to one of its regional endpoints inside the
+			// jurisdiction, so evaluate it through that region when one exists.
+			const regions = policy.dataResidency
+				? getResidencyRegions(provider, policy.dataResidency)
+				: [];
 			const failures = getProviderComplianceFailures(provider, policy);
-			if (failures.length === 0) {
-				allowedList.push(provider);
+			const regionalFailures =
+				failures.includes("dataResidency") && regions.length > 0
+					? getProviderComplianceFailures(provider, policy, {
+							region: regions[0],
+						})
+					: failures;
+			if (regionalFailures.length === 0) {
+				allowedList.push({
+					provider,
+					regions: failures.length === 0 ? [] : regions,
+				});
 			} else {
 				blockedList.push({
 					provider,
@@ -692,6 +736,64 @@ export function ComplianceClient() {
 
 				<Card>
 					<CardHeader>
+						<CardTitle>Data Residency</CardTitle>
+						<CardDescription>
+							Route only to endpoints whose inference is verified to run inside
+							the jurisdiction. Endpoints without a verified processing region
+							are blocked, and headquarters do not count. Single requests can
+							opt in with the{" "}
+							<code className="text-xs">x-llmgateway-data-residency</code>{" "}
+							header. This covers the upstream inference hop only: the gateway
+							itself, its logs and caches run in the US.
+						</CardDescription>
+					</CardHeader>
+					<CardContent
+						className={
+							policy.enabled
+								? undefined
+								: "opacity-60 pointer-events-none select-none"
+						}
+					>
+						<div className="flex flex-wrap gap-2" role="radiogroup">
+							{RESIDENCY_CHOICES.map((choice) => {
+								const selected =
+									(policy.dataResidency ?? null) === choice.value;
+								return (
+									<button
+										key={choice.label}
+										type="button"
+										role="radio"
+										disabled={!policy.enabled}
+										aria-checked={selected}
+										onClick={() =>
+											setPolicy((p) => ({
+												...p,
+												dataResidency: choice.value ?? undefined,
+											}))
+										}
+										className={cn(
+											"inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+											selected
+												? "border-primary bg-primary/10 text-primary"
+												: "border-border text-muted-foreground hover:bg-muted",
+										)}
+									>
+										<span className="text-base leading-none">
+											{choice.flag}
+										</span>
+										<span>{choice.label}</span>
+										{selected ? (
+											<Check className="h-3.5 w-3.5 shrink-0" />
+										) : null}
+									</button>
+								);
+							})}
+						</div>
+					</CardContent>
+				</Card>
+
+				<Card>
+					<CardHeader>
 						<CardTitle>Provider Headquarters</CardTitle>
 						<CardDescription>
 							Restrict routing to providers headquartered in the selected
@@ -861,11 +963,12 @@ export function ComplianceClient() {
 								</Label>
 								{allowed.length > 0 ? (
 									<div className="flex flex-wrap gap-2">
-										{allowed.map((provider) => (
+										{allowed.map(({ provider, regions }) => (
 											<ProviderChip
 												key={provider.id}
 												provider={provider}
 												tone="allowed"
+												regions={regions}
 											/>
 										))}
 									</div>

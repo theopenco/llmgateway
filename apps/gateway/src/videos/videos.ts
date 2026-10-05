@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import {
-	isContentFilterClassifierCompliant,
+	contentFilterClassifierGate,
 	evaluateContentFilterWithClassifiers,
 } from "@/chat/tools/content-filter-classifier.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
@@ -40,14 +40,17 @@ import {
 	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
 import {
+	assertResidencyAllowsBaseUrl,
 	complianceBlockMessage,
-	filterCompliantProviders,
+	DATA_RESIDENCY_HEADER,
 	getActiveCompliancePolicy,
 	getEffectiveRetentionLevel,
+	getRequestDataResidency,
 	isModelIdCompliant,
 	isProviderIdCompliant,
 	isZeroDataRetentionEnabled,
 	logComplianceBlock,
+	withRequestDataResidency,
 } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
@@ -122,7 +125,6 @@ import {
 } from "@llmgateway/models";
 import {
 	buildVideoUsage,
-	type ContentFilterClassifier,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
 	getVideoProxyRedisKey,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
@@ -4376,15 +4378,15 @@ async function evaluateVideoContentFilter(options: {
 	project: InferSelectModel<typeof tables.project>;
 	organization: InferSelectModel<typeof tables.organization>;
 	providerId: string;
-	compliancePolicy: ReturnType<typeof getActiveCompliancePolicy>;
+
 	images: Array<ProcessedVideoImageInput | null>;
 	signal: AbortSignal | undefined;
 }): Promise<GatewayContentFilterEvaluation | null> {
 	const { plan } = options;
 	// Prompts must never reach a classifier's provider when the org's compliance
-	// policy excludes it.
-	const classifierAllowed = (classifier: ContentFilterClassifier) =>
-		isContentFilterClassifierCompliant(classifier, options.compliancePolicy);
+	// policy excludes it. The org policy alone decides: a request-level
+	// residency header must not be able to switch a guardrail off.
+	const classifierAllowed = contentFilterClassifierGate(options.organization);
 	const tiered = await evaluateContentFilterWithClassifiers({
 		plan,
 		messages: buildVideoModerationMessages(
@@ -4704,24 +4706,38 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 
 	// Enterprise provider compliance policy: restrict video routing to providers
 	// that meet the org's policy, and block before dispatch if none qualify.
-	const videoCompliancePolicy = getActiveCompliancePolicy(organization);
+	// Tightened by the request header for routing of the video job only; the
+	// content filter gates on the org's own policy (contentFilterClassifierGate).
+	const videoCompliancePolicy = withRequestDataResidency(
+		getActiveCompliancePolicy(organization),
+		getRequestDataResidency(c.req.header(DATA_RESIDENCY_HEADER)),
+	);
 	const retainVideoPayloads =
 		getEffectiveRetentionLevel(organization) === "retain";
 	let complianceModelInfo: ModelDefinition = modelInfo;
 	if (videoCompliancePolicy) {
+		const videoMappings = modelInfo.providers as ProviderModelMapping[];
 		// A pinned provider is dispatched directly, so block it explicitly even
 		// when the model has other compliant providers (mirrors the chat path).
+		const pinnedMapping = videoMappings.find(
+			(provider) => provider.providerId === requestedProvider,
+		);
 		const pinnedBlocked =
 			requestedProvider !== undefined &&
-			!isProviderIdCompliant(requestedProvider, videoCompliancePolicy);
+			!isProviderIdCompliant(requestedProvider, videoCompliancePolicy, {
+				region: pinnedMapping?.region,
+				mapping: pinnedMapping,
+			});
 		// The policy's model lists block the model outright.
 		const modelBlocked = !isModelIdCompliant(
 			modelInfo.id,
 			videoCompliancePolicy,
 		);
-		const compliantProviders = filterCompliantProviders(
-			modelInfo.providers as ProviderModelMapping[],
-			videoCompliancePolicy,
+		const compliantProviders = videoMappings.filter((provider) =>
+			isProviderIdCompliant(provider.providerId, videoCompliancePolicy, {
+				region: provider.region,
+				mapping: provider,
+			}),
 		);
 		if (pinnedBlocked || modelBlocked || compliantProviders.length === 0) {
 			await logComplianceBlock(project.organizationId, {
@@ -4758,6 +4774,27 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		xNoFallbackHeaderSet,
 		routingCfg,
 	);
+
+	// The verified processing region belongs to the catalogue endpoint; a BYOK,
+	// managed-credential or env base URL sends the job elsewhere, so residency
+	// fails closed on it, for the first provider and every fallback.
+	const assertVideoResidency = (
+		context: { providerId: Provider; baseUrl: string },
+		mapping: { region?: string | null },
+	): Promise<void> =>
+		assertResidencyAllowsBaseUrl(
+			videoCompliancePolicy,
+			context.providerId,
+			context.baseUrl,
+			{
+				organizationId: project.organizationId,
+				modelId: modelInfo.id,
+				apiKeyId: apiKey.id,
+				model: normalizedModel,
+				region: mapping.region,
+			},
+		);
+	await assertVideoResidency(providerContext, providerMapping);
 
 	const videoId = shortid();
 	let selectedProviderMapping = providerMapping;
@@ -4814,7 +4851,6 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				project,
 				organization,
 				providerId: selectedProviderContext.providerId,
-				compliancePolicy: videoCompliancePolicy,
 				images: [
 					processedFirstFrame,
 					processedLastFrameInput,
@@ -4978,6 +5014,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					requestId,
 					modelInfo.id,
 				);
+				await assertVideoResidency(selectedProviderContext, nextMapping);
 				// A hybrid project can fall back from a BYOK provider to a
 				// credits-billed one mid-loop; re-apply the spend-cap gate the
 				// pre-loop check only enforced for the initial provider.
@@ -5042,6 +5079,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					requestId,
 					modelInfo.id,
 				);
+				await assertVideoResidency(selectedProviderContext, nextMapping);
 				// A hybrid project can fall back from a BYOK provider to a
 				// credits-billed one mid-loop; re-apply the spend-cap gate the
 				// pre-loop check only enforced for the initial provider.
@@ -5171,6 +5209,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					requestId,
 					modelInfo.id,
 				);
+				await assertVideoResidency(selectedProviderContext, nextMapping);
 				// A hybrid project can fall back from a BYOK provider to a
 				// credits-billed one mid-loop; re-apply the spend-cap gate the
 				// pre-loop check only enforced for the initial provider.

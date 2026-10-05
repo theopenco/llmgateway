@@ -17,6 +17,8 @@ export const FAILURE_LABELS: Record<ComplianceFailureReason, string> = {
 	zeroDataRetention: "Does not support zero data retention",
 	blockStealthProviders: "Stealth provider",
 	allowedCountries: "Headquarters not in an allowed country",
+	dataResidency:
+		"No verified processing region inside the required data residency",
 	blockedProviders: "On the blocked-providers list",
 	allowedProviders: "Not on the allowed-providers list",
 	blockedModels: "On the blocked-models list",

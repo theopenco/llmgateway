@@ -19,6 +19,7 @@ import {
 	sql,
 	tables,
 } from "@llmgateway/db";
+import { DATA_RESIDENCY_OPTIONS } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -207,6 +208,7 @@ const compliancePolicySchema = z.object({
 	zeroDataRetention: z.boolean().optional(),
 	blockStealthProviders: z.boolean().optional(),
 	allowedCountries: z.array(z.string()).optional(),
+	dataResidency: z.enum(DATA_RESIDENCY_OPTIONS).optional(),
 	blockedProviders: z.array(z.string()).optional(),
 	allowedProviders: z.array(z.string()).optional(),
 	blockedModels: z.array(z.string()).optional(),

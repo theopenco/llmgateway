@@ -36,7 +36,10 @@ import {
 import { raceClientAbort } from "@/lib/client-abort.js";
 import {
 	assertProviderCompliant,
+	assertResidencyAllowsBaseUrl,
+	DATA_RESIDENCY_HEADER,
 	getEffectiveRetentionLevel,
+	getRequestDataResidency,
 } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
@@ -573,12 +576,27 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	// Enterprise provider compliance policy: embeddings resolve to a single
 	// provider, so block the request before any data is sent if that provider
 	// doesn't meet the org's required certifications/data policies.
-	await assertProviderCompliant(organization, providerId, {
+	const compliancePolicy = await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+			dataResidency: getRequestDataResidency(
+				c.req.header(DATA_RESIDENCY_HEADER),
+			),
+			mapping,
+		},
+	);
+	const residencyContext = {
 		organizationId: project.organizationId,
 		modelId: modelDefId,
 		apiKeyId: apiKey.id,
 		model: requestedModel,
-	});
+		region: mapping.region,
+	};
 
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();
@@ -778,6 +796,12 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				message: `No base URL set for provider: ${providerId}`,
 			});
 		}
+		await assertResidencyAllowsBaseUrl(
+			compliancePolicy,
+			providerId,
+			resolvedBaseUrl,
+			residencyContext,
+		);
 
 		let upstreamUrl: string;
 		let requestBody: Record<string, unknown>;
