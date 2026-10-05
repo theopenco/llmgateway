@@ -7116,6 +7116,27 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
+	// An EU regional endpoint can satisfy data residency for a provider
+	// headquartered elsewhere, but only if the request reaches it. A custom base
+	// URL replaces that endpoint, so fail closed when the region was the reason
+	// the provider qualified.
+	if (
+		compliancePolicy?.dataResidency &&
+		(airsideResolution?.customBaseUrl ?? credentialBaseUrl) &&
+		usedProvider !== undefined &&
+		usedProvider !== "llmgateway" &&
+		usedProvider !== "custom" &&
+		!isProviderIdCompliant(usedProvider, compliancePolicy, complianceContext)
+	) {
+		await logComplianceBlock(project.organizationId, {
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+		});
+		throw new HTTPException(403, {
+			message: complianceBlockMessage(modelInfo.id),
+		});
+	}
+
 	try {
 		if (!usedProvider) {
 			throw new HTTPException(400, {

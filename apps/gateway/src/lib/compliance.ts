@@ -82,7 +82,7 @@ export function getRequestDataResidency(
 	header: string | undefined,
 	host: string | undefined,
 ): DataResidency | undefined {
-	if (header) {
+	if (header !== undefined) {
 		const value = header.trim().toLowerCase();
 		if (!isDataResidency(value)) {
 			throw new HTTPException(400, {

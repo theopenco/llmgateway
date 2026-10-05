@@ -704,9 +704,9 @@ export function ComplianceClient() {
 					<CardHeader>
 						<CardTitle>Data Residency</CardTitle>
 						<CardDescription>
-							Keep requests inside a jurisdiction. Routing only uses providers
-							headquartered there, or regional endpoints located there. Single
-							requests can opt in with the{" "}
+							Route only to providers headquartered in a jurisdiction, or to
+							their regional endpoints located there. Single requests can opt in
+							with the{" "}
 							<code className="text-xs">x-llmgateway-data-residency: eu</code>{" "}
 							header.
 						</CardDescription>

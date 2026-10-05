@@ -6,7 +6,7 @@ icon: Globe
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-Data residency restricts routing to providers that keep requests in a jurisdiction. The `eu` residency covers the EU and EEA.
+Data residency restricts routing to providers headquartered in a jurisdiction, or to their regional endpoints located there. The `eu` residency covers the EU and EEA. It does not verify where a provider processes requests internally.
 
 <Callout type="info">
 	Organization-wide residency is part of the [compliance
@@ -19,7 +19,7 @@ Data residency restricts routing to providers that keep requests in a jurisdicti
 A provider mapping qualifies when either:
 
 - the provider is headquartered in the EU or EEA, or
-- the request pins one of the provider's regional endpoints located in an EU or EEA country, for example `alibaba/qwen-plus:eu-frankfurt`. London (`eu-west-2`), Zurich (`eu-central-2`), and multi-country profiles such as Bedrock's `eu` do not qualify. An unpinned request to a provider outside the EU does not qualify, because it would use the provider's default region.
+- the request pins one of the provider's regional endpoints located in an EU or EEA country, for example `alibaba/qwen-plus:eu-frankfurt`. London (`eu-west-2`), Zurich (`eu-central-2`), and multi-country profiles such as Bedrock's `eu` do not qualify. An unpinned request to a provider outside the EU does not qualify, because it would use the provider's default region. Neither does a pinned endpoint behind a provider key with a custom base URL, because the request would not reach it.
 
 Providers with unknown headquarters never qualify. Everything else in your compliance policy still applies on top. The live [providers page](https://llmgateway.io/providers) shows each provider's headquarters, and the **Provider Impact** preview on the Compliance page lists which providers remain eligible.
 

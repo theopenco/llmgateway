@@ -105,6 +105,30 @@ describe("data residency", () => {
 		}
 	});
 
+	test("EU residency blocks a pinned EU endpoint behind a custom base URL", async () => {
+		await seedKeys();
+		// The harness key's baseUrl replaces Alibaba's Frankfurt endpoint.
+		await db.insert(tables.providerKey).values({
+			id: "alibaba-key-id",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"alibaba-key-id",
+				"org-id",
+			),
+			provider: "alibaba",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+		const res = await chat(
+			{
+				model: "alibaba/qwen-plus:eu-frankfurt",
+				messages: [{ role: "user", content: "eu endpoint via custom url" }],
+			},
+			{ "x-llmgateway-data-residency": "eu", "x-no-fallback": "true" },
+		);
+		expect(res.status).toBe(403);
+	});
+
 	test("org EU residency policy blocks providers outside the EU", async () => {
 		await seedKeys();
 		await db.insert(tables.providerKey).values({
@@ -164,6 +188,7 @@ describe("request data residency", () => {
 			undefined,
 		);
 		expect(() => getRequestDataResidency("us", undefined)).toThrow();
+		expect(() => getRequestDataResidency("", undefined)).toThrow();
 	});
 
 	test("only tightens the org policy", () => {
