@@ -151,23 +151,47 @@ describe("semantic cache", () => {
 		expect(other.headers.get("x-llmgateway-cache")).toBeNull();
 	});
 
-	test("different numbers, codes or negations never match", async () => {
+	test("different numbers, codes, negations, polar words or names never match", async () => {
 		const tag = randomUUID();
-		await prime({
-			messages: [
-				{ role: "user", content: `Convert 100 EUR to USD for me (${tag})` },
+		const pairs: Array<[string, string[]]> = [
+			[
+				`Convert 100 EUR to USD for me (${tag})`,
+				[
+					`Convert 100 USD to EUR for me (${tag})`,
+					`Convert 200 EUR to USD for me (${tag})`,
+					`Do not convert 100 EUR to USD for me (${tag})`,
+				],
 			],
-		});
-		for (const content of [
-			`Convert 100 USD to EUR for me (${tag})`,
-			`Convert 200 EUR to USD for me (${tag})`,
-			`Do not convert 100 EUR to USD for me (${tag})`,
-		]) {
-			const res = await completions({
-				messages: [{ role: "user", content }],
-			});
-			expect(res.status).toBe(200);
-			expect(res.headers.get("x-llmgateway-cache")).toBeNull();
+			[
+				`Convert EUR→USD right now (${tag})`,
+				[`Convert USD→EUR right now (${tag})`],
+			],
+			[
+				`Sell my Tesla shares today (${tag})`,
+				[`Buy my Tesla shares today (${tag})`],
+			],
+			[
+				`Approve the pending request (${tag})`,
+				[`Reject the pending request (${tag})`],
+			],
+			[
+				`I didn't receive my refund (${tag})`,
+				[`I received my refund (${tag})`],
+			],
+			[
+				`What is the weather in Paris (${tag})`,
+				[`What is the weather in London (${tag})`],
+			],
+		];
+		for (const [primed, variants] of pairs) {
+			await prime({ messages: [{ role: "user", content: primed }] });
+			for (const content of variants) {
+				const res = await completions({
+					messages: [{ role: "user", content }],
+				});
+				expect(res.status).toBe(200);
+				expect(res.headers.get("x-llmgateway-cache"), content).toBeNull();
+			}
 		}
 	});
 

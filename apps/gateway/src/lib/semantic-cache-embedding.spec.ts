@@ -45,7 +45,7 @@ describe("semantic cache input", () => {
 			{ role: "user", content: "No, do not do it." },
 		]);
 		expect(withYes?.context).toEqual(withNo?.context);
-		expect(withYes?.anchors).toEqual([]);
+		expect(withYes?.anchors).toEqual(["yes"]);
 		expect(withNo?.anchors).toEqual(["no", "not"]);
 	});
 

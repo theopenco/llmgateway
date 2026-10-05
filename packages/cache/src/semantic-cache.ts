@@ -19,42 +19,194 @@ const NEGATIONS = new Set([
 	"never",
 	"none",
 	"nothing",
-	"dont",
-	"don't",
-	"doesnt",
-	"doesn't",
-	"cant",
-	"can't",
+	"nobody",
+	"nowhere",
+	"neither",
+	"nor",
 	"cannot",
-	"wont",
-	"won't",
 	"without",
-	"isnt",
-	"isn't",
-	"arent",
-	"aren't",
 ]);
 
 /**
- * Tokens an embedding blurs but an answer hinges on: anything with a digit
- * (amounts, dates, "2+3"), all-caps codes (EUR, USD, TSLA) and negations.
+ * Words whose swap flips the answer while the sentence stays almost
+ * identical, so an embedding scores the pair above any usable threshold:
+ * "sell Tesla" and "buy Tesla", "approve" and "reject". Matched on the base
+ * form, so "selling" and "sold" count as "sell".
+ */
+const POLAR_WORDS = new Set([
+	"buy",
+	"sell",
+	"sold",
+	"bought",
+	"approve",
+	"reject",
+	"deny",
+	"confirm",
+	"cancel",
+	"accept",
+	"decline",
+	"enable",
+	"disable",
+	"add",
+	"remove",
+	"delete",
+	"create",
+	"destroy",
+	"start",
+	"stop",
+	"pause",
+	"resume",
+	"open",
+	"close",
+	"increase",
+	"decrease",
+	"raise",
+	"lower",
+	"allow",
+	"block",
+	"grant",
+	"revoke",
+	"lock",
+	"unlock",
+	"include",
+	"exclude",
+	"enter",
+	"exit",
+	"import",
+	"export",
+	"upload",
+	"download",
+	"send",
+	"receive",
+	"give",
+	"take",
+	"win",
+	"lose",
+	"pass",
+	"fail",
+	"subscribe",
+	"unsubscribe",
+	"activate",
+	"deactivate",
+	"on",
+	"off",
+	"up",
+	"down",
+	"more",
+	"less",
+	"most",
+	"least",
+	"max",
+	"min",
+	"maximum",
+	"minimum",
+	"higher",
+	"highest",
+	"lowest",
+	"above",
+	"below",
+	"before",
+	"after",
+	"first",
+	"last",
+	"earliest",
+	"latest",
+	"oldest",
+	"newest",
+	"true",
+	"false",
+	"yes",
+	"always",
+	"left",
+	"right",
+	"long",
+	"short",
+	"ascending",
+	"descending",
+]);
+
+const IRREGULAR_POLAR: Record<string, string> = {
+	sold: "sell",
+	bought: "buy",
+	won: "win",
+	lost: "lose",
+	gave: "give",
+	given: "give",
+	took: "take",
+	taken: "take",
+	sent: "send",
+	ran: "run",
+};
+
+/** Base form of a polar word, or null when the word is not one. */
+function polarBase(word: string): string | null {
+	const lower = word.toLowerCase();
+	if (IRREGULAR_POLAR[lower]) {
+		return IRREGULAR_POLAR[lower];
+	}
+	const candidates = [lower];
+	for (const suffix of ["ing", "ed", "es", "s", "d"]) {
+		if (lower.length > suffix.length + 2 && lower.endsWith(suffix)) {
+			const stem = lower.slice(0, -suffix.length);
+			candidates.push(stem, `${stem}e`);
+			// "cancelled" -> "cancell" -> "cancel"
+			if (stem.length > 2 && stem[stem.length - 1] === stem[stem.length - 2]) {
+				candidates.push(stem.slice(0, -1));
+			}
+		}
+	}
+	return candidates.find((candidate) => POLAR_WORDS.has(candidate)) ?? null;
+}
+
+/**
+ * Tokens an embedding blurs but an answer hinges on, in order of appearance:
+ *
+ * - anything with a digit (amounts, dates, "2+3"), kept whole;
+ * - all-caps codes (EUR, USD, TSLA), even when joined by punctuation
+ *   ("EUR→USD", "EUR/USD");
+ * - negations, including every "n't" contraction, normalised to "not";
+ * - polar words whose swap flips the meaning (buy/sell, approve/reject);
+ * - capitalised names after the first word of a sentence (Paris, Tesla).
+ *
  * Two prompts only match when their anchors agree in order, so "EUR to USD"
- * never replays "USD to EUR" and "2+3" never replays "2+4".
+ * never replays "USD to EUR", "2+3" never replays "2+4", "sell Tesla" never
+ * replays "buy Tesla" and "didn't receive" never replays "received".
  */
 export function semanticAnchors(text: string): string[] {
 	const anchors: string[] = [];
+	let sentenceStart = true;
 	for (const raw of text.split(/\s+/)) {
-		const token = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
-		if (!token) {
+		if (!raw) {
 			continue;
 		}
-		if (/\p{N}/u.test(token)) {
-			anchors.push(token);
-		} else if (/^[A-Z]{2,}$/.test(token)) {
-			anchors.push(token);
-		} else if (NEGATIONS.has(token.toLowerCase())) {
-			anchors.push(token.toLowerCase());
+		const word = raw
+			.replace(/[\u2018\u2019\u02bc]/g, "'")
+			.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+		const atSentenceStart = sentenceStart;
+		sentenceStart = /[.!?;:]$/.test(raw);
+		if (!word) {
+			continue;
 		}
+		if (/\p{N}/u.test(word)) {
+			anchors.push(word);
+			continue;
+		}
+		const parts = word.split(/[^\p{L}']+/u).filter(Boolean);
+		parts.forEach((part, index) => {
+			const lower = part.toLowerCase();
+			if (/^[A-Z]{2,}$/.test(part)) {
+				anchors.push(part);
+			} else if (lower.endsWith("n't") || NEGATIONS.has(lower)) {
+				anchors.push(lower === "no" ? "no" : "not");
+			} else if (polarBase(part)) {
+				anchors.push(polarBase(part) as string);
+			} else if (
+				!(atSentenceStart && index === 0) &&
+				/^\p{Lu}\p{Ll}+$/u.test(part)
+			) {
+				anchors.push(part);
+			}
+		});
 	}
 	return anchors;
 }

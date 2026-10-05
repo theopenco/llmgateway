@@ -31,7 +31,7 @@ describe("semantic cache", () => {
 		expect(cosineSimilarity([0, 0], [1, 0])).toBe(0);
 	});
 
-	test("anchors keep numbers, codes and negations in order", () => {
+	test("anchors keep numbers, codes, negations, polar words and names in order", () => {
 		expect(semanticAnchors("What is 2+3?")).toEqual(["2+3"]);
 		expect(semanticAnchors("Convert 100 EUR to USD.")).toEqual([
 			"100",
@@ -41,11 +41,48 @@ describe("semantic cache", () => {
 		expect(semanticAnchors("Convert 100 USD to EUR.")).not.toEqual(
 			semanticAnchors("Convert 100 EUR to USD."),
 		);
-		expect(semanticAnchors("Please don't cancel my order")).toEqual(["don't"]);
+		// Codes joined by punctuation are still separate, ordered anchors.
+		expect(semanticAnchors("Convert EUR→USD")).toEqual(["EUR", "USD"]);
+		expect(semanticAnchors("Convert USD→EUR")).toEqual(["USD", "EUR"]);
+		expect(semanticAnchors("EUR/USD rate")).toEqual(["EUR", "USD"]);
+		expect(semanticAnchors("EUR-USD rate")).toEqual(["EUR", "USD"]);
+		// Every n't contraction, straight or curly, is a negation.
+		expect(semanticAnchors("Please don't cancel my order")).toEqual([
+			"not",
+			"cancel",
+		]);
+		expect(semanticAnchors("Please don\u2019t cancel my order")).toEqual([
+			"not",
+			"cancel",
+		]);
+		expect(semanticAnchors("I didn't receive my refund")).toEqual([
+			"not",
+			"receive",
+		]);
+		expect(semanticAnchors("I received my refund")).toEqual(["receive"]);
+		expect(semanticAnchors("I couldn't log in")).toEqual(["not"]);
+		// Polar verbs by base form.
+		expect(semanticAnchors("Sell Tesla")).toEqual(["sell", "Tesla"]);
+		expect(semanticAnchors("Buy Tesla")).toEqual(["buy", "Tesla"]);
+		expect(semanticAnchors("Selling my shares")).toEqual(["sell"]);
+		expect(semanticAnchors("I sold my shares")).toEqual(["sell"]);
+		expect(semanticAnchors("Approve the request")).toEqual(["approve"]);
+		expect(semanticAnchors("Reject the request")).toEqual(["reject"]);
+		expect(semanticAnchors("The cancelled orders")).toEqual(["cancel"]);
+		expect(semanticAnchors("Turn on dark mode")).toEqual(["on"]);
+		expect(semanticAnchors("Turn off dark mode")).toEqual(["off"]);
+		// Names after the first word of a sentence.
+		expect(semanticAnchors("Weather in Paris today")).toEqual(["Paris"]);
+		expect(semanticAnchors("Weather in London today")).toEqual(["London"]);
+		expect(semanticAnchors("Paris weather. Tell me more")).toEqual(["more"]);
+		// Rewordings of the same question carry no anchors.
 		expect(semanticAnchors("How do I reset my password?")).toEqual([]);
 		expect(
 			semanticAnchors("How can I reset the password for my account?"),
 		).toEqual([]);
+		expect(semanticAnchors("Explain LLM routing (3f2a-9b)")).toEqual(
+			semanticAnchors("Can you explain LLM routing? (3f2a-9b)"),
+		);
 	});
 
 	test("ranks entries at or above the threshold, most similar first", () => {
