@@ -2066,6 +2066,13 @@
       "when": 1791201251903,
       "tag": "1791201251_numerous_yellowjacket",
       "breakpoints": true
+    },
+    {
+      "idx": 295,
+      "version": "8",
+      "when": 1791217885968,
+      "tag": "1791217885_guardrail_legacy_image_types",
+      "breakpoints": true
     }
   ]
 }
