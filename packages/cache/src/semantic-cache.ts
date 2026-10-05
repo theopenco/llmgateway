@@ -138,6 +138,29 @@ const IRREGULAR_POLAR: Record<string, string> = {
 	ran: "run",
 };
 
+/** "Alice's" and "Alices'" name Alice. */
+function stripPossessive(word: string): string {
+	return word.replace(/'s$|'$/iu, "");
+}
+
+/**
+ * Object pronouns name a party that can be an operand ("from me to Alice"),
+ * unlike subject and possessive forms ("I reset my password"). They stay in
+ * the word-order check so a single party swapped with a name or an account
+ * is still a reordering.
+ */
+const OBJECT_PRONOUNS: Record<string, string> = {
+	me: "@me",
+	you: "@you",
+	him: "@him",
+	her: "@her",
+	them: "@them",
+	us: "@us",
+};
+
+/** Anchors kept per prompt; swaps past the cap are not checked. */
+const MAX_ANCHORS = 64;
+
 /**
  * Personal pronouns by party. Two parties in one prompt form a relation whose
  * direction the embedding blurs: "from me to him" scores the same as "from
@@ -232,7 +255,10 @@ export function semanticAnchors(text: string): string[] {
 			anchors.push(word);
 			continue;
 		}
-		const parts = word.split(/[^\p{L}']+/u).filter(Boolean);
+		const parts = word
+			.split(/[^\p{L}']+/u)
+			.map(stripPossessive)
+			.filter(Boolean);
 		parts.forEach((part, index) => {
 			const lower = part.toLowerCase();
 			if (/^[A-Z]{2,}$/.test(part)) {
@@ -252,9 +278,11 @@ export function semanticAnchors(text: string): string[] {
 			}
 		});
 	}
-	return parties.size >= 2
-		? anchors
-		: anchors.filter((anchor) => !anchor.startsWith("@"));
+	return (
+		parties.size >= 2
+			? anchors
+			: anchors.filter((anchor) => !anchor.startsWith("@"))
+	).slice(0, MAX_ANCHORS);
 }
 
 const STOP_WORDS = new Set([
@@ -262,26 +290,20 @@ const STOP_WORDS = new Set([
 	"an",
 	"the",
 	"i",
-	"me",
 	"my",
 	"mine",
-	"you",
 	"your",
 	"yours",
 	"we",
-	"us",
 	"our",
 	"ours",
 	"he",
-	"him",
 	"his",
 	"she",
-	"her",
 	"hers",
 	"it",
 	"its",
 	"they",
-	"them",
 	"their",
 	"theirs",
 	"this",
@@ -370,9 +392,10 @@ const STOP_WORDS = new Set([
 
 /**
  * The content words of a prompt, lowercased and in order, with stop words
- * removed. Used to catch operand reordering that anchors cannot see:
- * "transfer 500 from savings to checking" and "transfer 500 from checking
- * to savings" carry the same words in a different order.
+ * removed and object pronouns kept as party tokens. Used to catch operand
+ * reordering that anchors cannot see: "transfer 500 from savings to
+ * checking" and "transfer 500 from checking to savings" carry the same words
+ * in a different order, as do "from me to Alice" and "from Alice to me".
  */
 export function semanticWords(text: string): string[] {
 	const words: string[] = [];
@@ -381,17 +404,25 @@ export function semanticWords(text: string): string[] {
 			.replace(/[\u2018\u2019\u02bc]/g, "'")
 			.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")
 			.toLowerCase();
-		if (!word || STOP_WORDS.has(word) || word.endsWith("n't")) {
+		if (!word || word.endsWith("n't")) {
 			continue;
 		}
-		for (const part of /\p{N}/u.test(word)
+		const parts = /\p{N}/u.test(word)
 			? [word]
-			: word.split(/[^\p{L}']+/u).filter(Boolean)) {
-			words.push(
-				part.length > 3 && part.endsWith("s") && !part.endsWith("ss")
-					? part.slice(0, -1)
-					: part,
-			);
+			: word
+					.split(/[^\p{L}']+/u)
+					.map(stripPossessive)
+					.filter(Boolean);
+		for (const part of parts) {
+			if (OBJECT_PRONOUNS[part]) {
+				words.push(OBJECT_PRONOUNS[part]);
+			} else if (!STOP_WORDS.has(part)) {
+				words.push(
+					part.length > 3 && part.endsWith("s") && !part.endsWith("ss")
+						? part.slice(0, -1)
+						: part,
+				);
+			}
 		}
 	}
 	return words;
@@ -517,9 +548,6 @@ export function rankSemanticMatches<T extends SemanticCacheEntry>(
 		.sort((a, b) => b.similarity - a.similarity);
 }
 
-/** Anchors kept per entry. */
-const MAX_ANCHORS = 64;
-
 /**
  * Scales a vector so its largest component is ±127 and rounds to integers.
  * Cosine similarity is scale-invariant, so storing 8-bit components keeps
@@ -540,14 +568,15 @@ export function quantiseEmbedding(embedding: number[]): number[] {
 
 /**
  * One entry is about 1 KB with a 256-dimension vector (344 base64 chars),
- * at most 96 six-character word keys and a handful of anchors, so a full
- * scope of 512 entries reads about half a megabyte.
+ * at most 96 word keys and at most 64 anchors (both capped where they are
+ * produced, so query and entry are cut the same way), so a full scope of
+ * 512 entries reads about half a megabyte.
  */
 function encodeEntry(entry: SemanticCacheEntry): string {
 	return JSON.stringify({
 		k: entry.cacheKey,
-		a: entry.anchors.slice(0, MAX_ANCHORS),
-		w: entry.wordKeys.slice(0, MAX_WORD_KEYS).join(" "),
+		a: entry.anchors,
+		w: entry.wordKeys.join(" "),
 		e: Buffer.from(
 			new Int8Array(quantiseEmbedding(entry.embedding)).buffer,
 		).toString("base64"),

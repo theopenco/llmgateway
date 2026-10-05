@@ -152,57 +152,65 @@ describe("semantic cache", () => {
 	});
 
 	test("different numbers, codes, negations, polar words, names, pronoun parties or operand order never match", async () => {
-		const tag = randomUUID();
+		// The mock embedding endpoint returns one vector for every input, so
+		// each pair gets its own tag: without it, unrelated prompts in this
+		// list would "match" each other on the vector alone.
 		const pairs: Array<[string, string[]]> = [
 			[
-				`Convert 100 EUR to USD for me (${tag})`,
+				"Convert 100 EUR to USD for me ({T})",
 				[
-					`Convert 100 USD to EUR for me (${tag})`,
-					`Convert 200 EUR to USD for me (${tag})`,
-					`Do not convert 100 EUR to USD for me (${tag})`,
+					"Convert 100 USD to EUR for me ({T})",
+					"Convert 200 EUR to USD for me ({T})",
+					"Do not convert 100 EUR to USD for me ({T})",
 				],
 			],
+			["Convert EUR→USD right now ({T})", ["Convert USD→EUR right now ({T})"]],
+			["Sell my Tesla shares today ({T})", ["Buy my Tesla shares today ({T})"]],
 			[
-				`Convert EUR→USD right now (${tag})`,
-				[`Convert USD→EUR right now (${tag})`],
+				"Approve the pending request ({T})",
+				["Reject the pending request ({T})"],
+			],
+			["I didn't receive my refund ({T})", ["I received my refund ({T})"]],
+			[
+				"What is the weather in Paris ({T})",
+				["What is the weather in London ({T})"],
 			],
 			[
-				`Sell my Tesla shares today (${tag})`,
-				[`Buy my Tesla shares today (${tag})`],
+				"transfer 500 from savings to checking ({T})",
+				["transfer 500 from checking to savings ({T})"],
 			],
 			[
-				`Approve the pending request (${tag})`,
-				[`Reject the pending request (${tag})`],
+				"convert 100 eur to usd ({T})",
+				["convert 100 usd to eur ({T})", "change 100 usd to eur ({T})"],
 			],
 			[
-				`I didn't receive my refund (${tag})`,
-				[`I received my refund (${tag})`],
+				"is paris bigger than london ({T})",
+				["is london bigger than paris ({T})"],
 			],
 			[
-				`What is the weather in Paris (${tag})`,
-				[`What is the weather in London (${tag})`],
+				"transfer the money from me to him ({T})",
+				["transfer the money from him to me ({T})"],
+			],
+			["I sent it to them ({T})", ["They sent it to me ({T})"]],
+			[
+				"transfer the money from me to Alice ({T})",
+				["transfer the money from Alice to me ({T})"],
 			],
 			[
-				`transfer 500 from savings to checking (${tag})`,
-				[`transfer 500 from checking to savings (${tag})`],
+				"move 50 from me to savings ({T})",
+				["move 50 from savings to me ({T})"],
 			],
 			[
-				`convert 100 eur to usd (${tag})`,
-				[`convert 100 usd to eur (${tag})`, `change 100 usd to eur (${tag})`],
+				"What is Alice's current balance? ({T})",
+				["What is Bob's current balance? ({T})"],
 			],
-			[
-				`is paris bigger than london (${tag})`,
-				[`is london bigger than paris (${tag})`],
-			],
-			[
-				`transfer the money from me to him (${tag})`,
-				[`transfer the money from him to me (${tag})`],
-			],
-			[`I sent it to them (${tag})`, [`They sent it to me (${tag})`]],
 		];
-		for (const [primed, variants] of pairs) {
+		for (const [primedTemplate, variants] of pairs) {
+			const tag = randomUUID();
+			const primed = primedTemplate.replace("{T}", tag);
 			await prime({ messages: [{ role: "user", content: primed }] });
-			for (const content of variants) {
+			for (const variant of variants) {
+				const content = variant.replace("{T}", tag);
 				const res = await completions({
 					messages: [{ role: "user", content }],
 				});

@@ -101,6 +101,14 @@ describe("semantic cache", () => {
 		]);
 		expect(semanticAnchors("Summarise my notes please.")).toEqual([]);
 		expect(semanticAnchors("How do I reset my password?")).toEqual([]);
+		// Possessive names are still names.
+		expect(semanticAnchors("What is Alice's balance?")).toEqual(["Alice"]);
+		expect(semanticAnchors("What is Bob's balance?")).toEqual(["Bob"]);
+		expect(semanticAnchors("Show Alices' orders")).toEqual(["Alices"]);
+		// The cap applies where anchors are produced, so query and entry agree.
+		const many = Array.from({ length: 70 }, (_, i) => `${i + 1}`).join(" ");
+		expect(semanticAnchors(many)).toHaveLength(64);
+		expect(semanticAnchors(`${many} 999`)).toEqual(semanticAnchors(many));
 		// Rewordings of the same question carry no anchors.
 		expect(semanticAnchors("How do I reset my password?")).toEqual([]);
 		expect(
@@ -134,6 +142,26 @@ describe("semantic cache", () => {
 		expect(
 			swap("is paris bigger than london", "is london bigger than paris"),
 		).toBe(false);
+		// A single object pronoun is an operand too.
+		expect(words("transfer the money from me to Alice")).toEqual([
+			"transfer",
+			"money",
+			"@me",
+			"alice",
+		]);
+		expect(
+			swap(
+				"transfer the money from me to Alice",
+				"transfer the money from Alice to me",
+			),
+		).toBe(false);
+		expect(
+			swap("move 50 from me to savings", "move 50 from savings to me"),
+		).toBe(false);
+		expect(swap("Can you send me the invoice", "Send me the invoice")).toBe(
+			true,
+		);
+		expect(words("What is Alice's balance?")).toEqual(["alice", "balance"]);
 		// Rewordings add, drop or replace words without reordering shared ones.
 		expect(
 			swap(
