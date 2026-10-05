@@ -67,6 +67,31 @@ const PROFILE_KEYS: readonly CarrierProfileKey[] = [
 	...PROFILE_RECOMMENDED_KEYS,
 ];
 
+/** Links and identity every carrier maintains itself. */
+export const PROFILE_LINK_KEYS = [
+	"website",
+	"privacyPolicyUrl",
+	"termsUrl",
+	"statusPageUrl",
+	"legalEntity",
+	"headquarters",
+] as const satisfies readonly CarrierProfileKey[];
+
+/**
+ * Data-policy claims. Catalogue providers keep LLM Gateway's reviewed policy,
+ * which also drives compliance routing, so only custom carriers declare one.
+ */
+export const PROFILE_POLICY_KEYS = [
+	"apiTraining",
+	"promptLogging",
+	"retentionPeriod",
+	"gdpr",
+	"soc2",
+	"iso27001",
+] as const satisfies readonly CarrierProfileKey[];
+
+const LINK_KEYS: readonly CarrierProfileKey[] = PROFILE_LINK_KEYS;
+
 const PROFILE_LABELS: Record<CarrierProfileKey, string> = {
 	website: "website",
 	privacyPolicyUrl: "privacy policy URL",
@@ -217,25 +242,27 @@ function ownProfile(row: ProfileColumns): CarrierProfile {
 	};
 }
 
-function mergeProfiles(
-	own: CarrierProfile,
-	fallback: CarrierProfile,
-): CarrierProfile {
-	const merged = { ...EMPTY_PROFILE };
-	for (const key of PROFILE_KEYS) {
-		(merged as Record<string, unknown>)[key] = own[key] ?? fallback[key];
-	}
-	return merged;
-}
-
-/** Claim column, falling back to the static definition for catalogue claims. */
+/**
+ * Custom carriers show exactly what they declared. Catalogue claims always
+ * show the reviewed data policy; their links fall back to the catalogue until
+ * the carrier first saves a profile, after which the saved links stand alone
+ * so a cleared optional link stays cleared.
+ */
 export function effectiveCarrierProfile(
 	row: ClaimProfileColumns,
 ): CarrierProfile {
 	const own = ownProfile(row);
-	return row.kind === "catalogue"
-		? mergeProfiles(own, staticCarrierProfile(row.providerId))
-		: own;
+	if (row.kind !== "catalogue") {
+		return own;
+	}
+	const reviewed = staticCarrierProfile(row.providerId);
+	const profile: Record<string, unknown> = { ...reviewed };
+	for (const key of PROFILE_LINK_KEYS) {
+		profile[key] = row.profileUpdatedAt
+			? own[key]
+			: (own[key] ?? reviewed[key]);
+	}
+	return profile as CarrierProfile;
 }
 
 function missingKeys(
@@ -250,7 +277,12 @@ export function serializeClaimProfile(row: ClaimProfileColumns) {
 	return {
 		profile,
 		profileMissing: missingKeys(profile, PROFILE_REQUIRED_KEYS),
-		profileRecommendedMissing: missingKeys(profile, PROFILE_RECOMMENDED_KEYS),
+		profileRecommendedMissing: missingKeys(
+			profile,
+			row.kind === "catalogue"
+				? PROFILE_RECOMMENDED_KEYS.filter((key) => LINK_KEYS.includes(key))
+				: PROFILE_RECOMMENDED_KEYS,
+		),
 		profileUpdatedAt: row.profileUpdatedAt?.toISOString() ?? null,
 	};
 }
@@ -297,6 +329,37 @@ export function profileColumns(
 	return columns as Partial<Pick<ProviderClaimRow, CarrierProfileKey>>;
 }
 
+/** Rejects data-policy fields on catalogue claims; see PROFILE_POLICY_KEYS. */
+export function assertEditableProfile(
+	kind: ProviderClaimRow["kind"],
+	profile: Partial<Record<CarrierProfileKey, unknown>> | undefined,
+) {
+	if (
+		kind === "catalogue" &&
+		PROFILE_POLICY_KEYS.some((key) => profile?.[key] !== undefined)
+	) {
+		throw new HTTPException(400, {
+			message:
+				"Catalogue providers keep LLM Gateway's reviewed data policy. Contact us to change it.",
+		});
+	}
+}
+
+/**
+ * Every link column of a catalogue claim: `profile` over `base`. Writing the
+ * full set on each save snapshots the catalogue links the carrier was shown.
+ */
+export function catalogueLinkColumns(
+	base: CarrierProfile,
+	profile: Partial<Record<CarrierProfileKey, unknown>> | undefined,
+): Partial<Pick<ProviderClaimRow, CarrierProfileKey>> {
+	const columns: Record<string, unknown> = {};
+	for (const key of PROFILE_LINK_KEYS) {
+		columns[key] = profile?.[key] !== undefined ? profile[key] : base[key];
+	}
+	return columns as Partial<Pick<ProviderClaimRow, CarrierProfileKey>>;
+}
+
 /** Rejects a PATCH that clears one of the required fields. */
 export function assertNoRequiredCleared(
 	patch: Partial<Record<CarrierProfileKey, unknown>>,
@@ -310,21 +373,29 @@ export function assertNoRequiredCleared(
 }
 
 /**
- * The public profile for the provider page, from the active claim's own
- * columns. Null when the carrier declared nothing.
+ * The public profile for the provider page, from the live claim's own
+ * columns. Catalogue claims publish their links only once saved and keep the
+ * reviewed data policy (null here); custom carriers publish everything they
+ * declared. Null when there is nothing to publish.
  */
-export function publicAirsideProfile(row: ProfileColumns) {
+export function publicAirsideProfile(row: ClaimProfileColumns) {
 	const own = ownProfile(row);
-	if (PROFILE_KEYS.every((key) => own[key] === null)) {
-		return null;
-	}
-	return {
+	const links = {
 		website: own.website,
 		statusPageUrl: own.statusPageUrl,
 		termsUrl: own.termsUrl,
 		privacyPolicyUrl: own.privacyPolicyUrl,
 		legalEntity: own.legalEntity,
 		headquarters: own.headquarters,
+	};
+	if (row.kind === "catalogue") {
+		return row.profileUpdatedAt ? { ...links, dataPolicy: null } : null;
+	}
+	if (PROFILE_KEYS.every((key) => own[key] === null)) {
+		return null;
+	}
+	return {
+		...links,
 		dataPolicy: {
 			apiTraining: own.apiTraining,
 			promptLogging: own.promptLogging,
@@ -343,12 +414,14 @@ export const publicAirsideProfileSchema = z.object({
 	privacyPolicyUrl: z.string().nullable(),
 	legalEntity: z.string().nullable(),
 	headquarters: z.string().nullable(),
-	dataPolicy: z.object({
-		apiTraining: z.boolean().nullable(),
-		promptLogging: z.boolean().nullable(),
-		retentionPeriod: z.string().nullable(),
-		gdpr: z.boolean().nullable(),
-		soc2: z.union([z.literal(0), z.literal(1), z.literal(2)]).nullable(),
-		iso27001: z.boolean().nullable(),
-	}),
+	dataPolicy: z
+		.object({
+			apiTraining: z.boolean().nullable(),
+			promptLogging: z.boolean().nullable(),
+			retentionPeriod: z.string().nullable(),
+			gdpr: z.boolean().nullable(),
+			soc2: z.union([z.literal(0), z.literal(1), z.literal(2)]).nullable(),
+			iso27001: z.boolean().nullable(),
+		})
+		.nullable(),
 });

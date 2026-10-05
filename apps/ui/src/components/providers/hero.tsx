@@ -37,9 +37,10 @@ interface HeroProps {
 		name: string;
 		description: string | null;
 		website?: string | null;
-		/** Self-declared Airside carrier profile. */
-		profile?: ApiAirsideProfile | null;
 	};
+	/** The live Airside claim's saved profile. Its links replace the
+	 *  catalogue's; a null dataPolicy keeps the reviewed catalogue policy. */
+	airsideProfile?: ApiAirsideProfile | null;
 }
 
 function DataPolicyBadge({
@@ -78,35 +79,51 @@ function DataPolicyBadge({
 	);
 }
 
-export function Hero({ providerId, uploadedLogo, dynamicProvider }: HeroProps) {
+export function Hero({
+	providerId,
+	uploadedLogo,
+	dynamicProvider,
+	airsideProfile,
+}: HeroProps) {
 	const config = getConfig();
 	const staticProvider = providerDefinitions.find((p) => p.id === providerId);
-	const profile = dynamicProvider?.profile ?? null;
-	const provider = staticProvider ?? {
+	const baseProvider = staticProvider ?? {
 		id: providerId,
 		name: dynamicProvider?.name ?? providerId,
 		description: dynamicProvider?.description ?? "",
-		website: profile?.website ?? dynamicProvider?.website ?? null,
+		website: dynamicProvider?.website ?? null,
 		announcement: null,
-		statusPageUrl: profile?.statusPageUrl ?? null,
-		termsUrl: profile?.termsUrl ?? null,
-		privacyPolicyUrl: profile?.privacyPolicyUrl ?? null,
-		headquarters: profile?.headquarters ?? undefined,
+		statusPageUrl: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: undefined,
 		forwardsSafetyIdentifier: false,
-		dataPolicy: profile
-			? {
-					...profile.dataPolicy,
-					// Catalogue semantics: null = not certified, undefined = hidden.
-					soc2:
-						profile.dataPolicy.soc2 === null
-							? undefined
-							: profile.dataPolicy.soc2 === 0
-								? null
-								: profile.dataPolicy.soc2,
-				}
-			: undefined,
+		dataPolicy: undefined,
 		additionalLinks: undefined,
 	};
+	const declaredPolicy = airsideProfile?.dataPolicy;
+	const provider = airsideProfile
+		? {
+				...baseProvider,
+				website: airsideProfile.website,
+				statusPageUrl: airsideProfile.statusPageUrl,
+				termsUrl: airsideProfile.termsUrl,
+				privacyPolicyUrl: airsideProfile.privacyPolicyUrl,
+				headquarters: airsideProfile.headquarters ?? undefined,
+				dataPolicy: declaredPolicy
+					? {
+							...declaredPolicy,
+							// Catalogue semantics: null = not certified, undefined = hidden.
+							soc2:
+								declaredPolicy.soc2 === null
+									? undefined
+									: declaredPolicy.soc2 === 0
+										? null
+										: declaredPolicy.soc2,
+						}
+					: baseProvider.dataPolicy,
+			}
+		: baseProvider;
 	const referenceLinks = [
 		provider.statusPageUrl
 			? { label: "Status Page", href: provider.statusPageUrl }

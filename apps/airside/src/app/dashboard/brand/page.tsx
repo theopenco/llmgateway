@@ -123,6 +123,7 @@ function TextField({
 	setField,
 	hint,
 	maxLength,
+	disabled,
 }: {
 	field: ProfileKey;
 	label: string;
@@ -132,6 +133,7 @@ function TextField({
 	setField: (key: ProfileKey, value: string) => void;
 	hint?: string;
 	maxLength?: number;
+	disabled?: boolean;
 }) {
 	const id = `profile-${field}`;
 	const required = (REQUIRED_PROFILE_KEYS as readonly ProfileKey[]).includes(
@@ -152,6 +154,7 @@ function TextField({
 				value={draft[field]}
 				placeholder={placeholder}
 				maxLength={maxLength ?? 500}
+				disabled={disabled}
 				aria-invalid={error ? true : undefined}
 				aria-describedby={describedBy}
 				onChange={(event) => setField(field, event.target.value)}
@@ -176,6 +179,7 @@ function Segmented<T extends string>({
 	onChange,
 	name,
 	className,
+	disabled,
 }: {
 	label: string;
 	value: T;
@@ -183,6 +187,7 @@ function Segmented<T extends string>({
 	onChange: (value: T) => void;
 	name: string;
 	className?: string;
+	disabled?: boolean;
 }) {
 	return (
 		<div className={cn("space-y-1.5", className)}>
@@ -192,6 +197,7 @@ function Segmented<T extends string>({
 			<div
 				role="radiogroup"
 				aria-labelledby={`${name}-label`}
+				aria-disabled={disabled || undefined}
 				className="bg-muted inline-flex rounded-md p-0.5"
 			>
 				{options.map((option) => (
@@ -201,9 +207,10 @@ function Segmented<T extends string>({
 						role="radio"
 						aria-checked={value === option.value}
 						data-testid={`${name}-${option.value}`}
+						disabled={disabled}
 						onClick={() => onChange(option.value)}
 						className={cn(
-							"rounded px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors",
+							"rounded px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-60",
 							value === option.value
 								? "bg-background text-foreground shadow-sm"
 								: "text-muted-foreground hover:text-foreground",
@@ -290,6 +297,7 @@ function BrandEditor({
 		!(nameChanged && nameError) &&
 		blockingProfileErrors.length === 0;
 	const isLive = claim.status === "active";
+	const policyLocked = claim.kind === "catalogue";
 
 	function setField(key: ProfileKey, value: string) {
 		setProfile((current) => ({ ...current, [key]: value }));
@@ -527,8 +535,18 @@ function BrandEditor({
 						<p className="text-muted-foreground flex items-center gap-2 font-mono text-[0.65rem] tracking-[0.2em] uppercase sm:col-span-2">
 							<ShieldCheck className="size-3.5" aria-hidden /> Data policy
 						</p>
+						{policyLocked ? (
+							<p
+								className="text-muted-foreground -mt-2 text-xs sm:col-span-2"
+								data-testid="policy-locked-note"
+							>
+								Catalogue providers show the data policy LLM Gateway reviewed,
+								which also drives compliance routing. Contact us to change it.
+							</p>
+						) : null}
 						<Segmented
 							name="profile-apiTraining"
+							disabled={policyLocked}
 							label="Trains on API data"
 							value={profile.apiTraining}
 							options={TRI_OPTIONS}
@@ -536,6 +554,7 @@ function BrandEditor({
 						/>
 						<Segmented
 							name="profile-promptLogging"
+							disabled={policyLocked}
 							label="Logs prompts"
 							value={profile.promptLogging}
 							options={TRI_OPTIONS}
@@ -544,6 +563,7 @@ function BrandEditor({
 						<TextField
 							field="retentionPeriod"
 							label="Retention"
+							disabled={policyLocked}
 							placeholder="30 days"
 							draft={profile}
 							setField={setField}
@@ -552,6 +572,7 @@ function BrandEditor({
 						/>
 						<Segmented
 							name="profile-gdpr"
+							disabled={policyLocked}
 							label="GDPR compliant"
 							value={profile.gdpr}
 							options={TRI_OPTIONS}
@@ -559,6 +580,7 @@ function BrandEditor({
 						/>
 						<Segmented
 							name="profile-iso27001"
+							disabled={policyLocked}
 							label="ISO 27001 certified"
 							value={profile.iso27001}
 							options={TRI_OPTIONS}
@@ -566,6 +588,7 @@ function BrandEditor({
 						/>
 						<Segmented
 							name="profile-soc2"
+							disabled={policyLocked}
 							label="SOC 2"
 							value={profile.soc2}
 							options={SOC2_OPTIONS}

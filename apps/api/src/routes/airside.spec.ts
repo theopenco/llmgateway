@@ -411,6 +411,75 @@ describe("airside provider portal", () => {
 		});
 	});
 
+	it("keeps cleared catalogue links cleared and the reviewed data policy", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const created = await app.request(
+			"/airside/claims",
+			json(cookie, { providerCompanyId: company.id, providerId: "mistral" }),
+		);
+		expect(created.status).toBe(201);
+		const { claim } = await created.json();
+		const reviewed = claim.profile;
+		expect(reviewed).toMatchObject({
+			website: "https://mistral.ai",
+			statusPageUrl: "https://status.mistral.ai",
+			legalEntity: "Mistral AI",
+			headquarters: "FR",
+		});
+		for (const key of claim.profileRecommendedMissing) {
+			expect(["statusPageUrl", "legalEntity", "headquarters"]).toContain(key);
+		}
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(
+				`/airside/claims/${claim.id}/profile`,
+				json(cookie, body, "PATCH"),
+			);
+
+		expect((await patch({ apiTraining: false })).status).toBe(400);
+		expect((await patch({ retentionPeriod: null })).status).toBe(400);
+
+		const cleared = await patch({
+			statusPageUrl: null,
+			legalEntity: "Mistral AI SAS",
+		});
+		expect(cleared.status).toBe(200);
+		const saved = (await cleared.json()).claim;
+		expect(saved.profile).toEqual({
+			...reviewed,
+			statusPageUrl: null,
+			legalEntity: "Mistral AI SAS",
+		});
+		expect(saved.profileRecommendedMissing).toContain("statusPageUrl");
+
+		const listedCompany = (
+			await (
+				await app.request("/airside/companies", {
+					headers: { Cookie: cookie },
+				})
+			).json()
+		).companies[0];
+		expect(listedCompany.claims[0].profile.statusPageUrl).toBeNull();
+
+		await activateClaim();
+		await db
+			.insert(tables.provider)
+			.values({ id: "mistral", name: "Mistral", description: "" })
+			.onConflictDoNothing();
+		const listed = (
+			await (await app.request("/internal/providers")).json()
+		).providers.find((p: { id: string }) => p.id === "mistral");
+		expect(listed.airsideProfile).toEqual({
+			website: reviewed.website,
+			statusPageUrl: null,
+			termsUrl: reviewed.termsUrl,
+			privacyPolicyUrl: reviewed.privacyPolicyUrl,
+			legalEntity: "Mistral AI SAS",
+			headquarters: "FR",
+			dataPolicy: null,
+		});
+	});
+
 	it("rejects listings whose model id is not catalogue-style", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);

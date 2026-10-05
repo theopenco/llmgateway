@@ -722,16 +722,15 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 			gdpr: true,
 			soc2: true,
 			iso27001: true,
+			profileUpdatedAt: true,
 		},
 	});
 	const brandingByProvider = new Map(
 		activeClaims.map((claim) => [claim.providerId, claim]),
 	);
-	// Catalogue providers keep their reviewed static profile; only DB-only
-	// custom carriers publish what they declared.
 	const airsideProfileFor = (
 		claim: (typeof activeClaims)[number] | undefined,
-	) => (claim?.kind === "custom" ? publicAirsideProfile(claim) : null);
+	) => (claim ? publicAirsideProfile(claim) : null);
 
 	// modelCardBadge only exists in the catalogue, not the provider table
 	return c.json({

@@ -38,6 +38,7 @@ export interface ApiAirsideProfile {
 	privacyPolicyUrl: string | null;
 	legalEntity: string | null;
 	headquarters: string | null;
+	/** Null for catalogue providers, which keep the reviewed policy. */
 	dataPolicy: {
 		apiTraining: boolean | null;
 		promptLogging: boolean | null;
@@ -46,7 +47,7 @@ export interface ApiAirsideProfile {
 		/** 0 = none, 1 = Type I, 2 = Type II, null = not stated. */
 		soc2: 0 | 1 | 2 | null;
 		iso27001: boolean | null;
-	};
+	} | null;
 }
 
 export interface ApiModelProviderMapping {

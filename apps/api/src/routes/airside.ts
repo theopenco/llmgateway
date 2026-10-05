@@ -33,11 +33,14 @@ import {
 } from "@/lib/airside-metadata.js";
 import {
 	assertNoRequiredCleared,
+	assertEditableProfile,
 	assertRequiredProfile,
 	carrierProfileInputSchema,
 	carrierProfilePatchSchema,
 	carrierProfileRegistrationSchema,
 	carrierProfileSchema,
+	catalogueLinkColumns,
+	effectiveCarrierProfile,
 	profileColumns,
 	profileDefaults,
 	profileDefaultsSchema,
@@ -1991,6 +1994,7 @@ airside.openapi(createClaim, async (c) => {
 	const { providerCompanyId, providerId, logoUrl, iconUrl, profile } =
 		c.req.valid("json");
 	await requireCompanyMembership(user.id, providerCompanyId);
+	assertEditableProfile("catalogue", profile);
 	assertRequiredProfile(profile, staticCarrierProfile(providerId));
 
 	if (airsideListingFeeRequired()) {
@@ -2043,7 +2047,9 @@ airside.openapi(createClaim, async (c) => {
 				matchedDomain: match.matchedDomain,
 				logoUrl: logoUrl ?? null,
 				iconUrl: iconUrl ?? null,
-				...profileColumns(profile),
+				...(profile
+					? catalogueLinkColumns(staticCarrierProfile(providerId), profile)
+					: {}),
 				profileUpdatedAt: profile ? new Date() : null,
 				claimedBy: user.id,
 			})
@@ -2371,10 +2377,14 @@ airside.openapi(updateClaimProfile, async (c) => {
 		});
 	}
 	assertNoRequiredCleared(body);
-	const changes = profileColumns(body);
-	if (Object.keys(changes).length === 0) {
+	assertEditableProfile(claim.kind, body);
+	if (Object.keys(profileColumns(body)).length === 0) {
 		return c.json({ claim: serializeClaim(claim, providerNamesById) });
 	}
+	const changes =
+		claim.kind === "catalogue"
+			? catalogueLinkColumns(effectiveCarrierProfile(claim), body)
+			: profileColumns(body);
 	const [updated] = await db
 		.update(tables.providerClaim)
 		.set({ ...changes, profileUpdatedAt: new Date() })
