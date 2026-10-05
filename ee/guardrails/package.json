@@ -25,6 +25,6 @@
 		"@llmgateway/cache": "workspace:*",
 		"@llmgateway/db": "workspace:*",
 		"drizzle-orm": "1.0.0-beta.1",
-		"re2-wasm": "1.0.2"
+		"re2js": "2.8.6"
 	}
 }

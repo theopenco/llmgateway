@@ -1,27 +1,20 @@
-import { RE2 } from "re2-wasm";
+import { RE2JS } from "re2js";
 
 const MAX_PATTERN_LENGTH = 1000;
-// re2-wasm runs in a fixed 16 MB heap and never frees a compiled pattern (or
-// a failed compile) by itself, so compile each pattern once and free it on
-// eviction.
+// Bound retained patterns and validation errors; allocations are GC-managed.
 const MAX_CACHED_PATTERNS = 256;
-// Every exec copies its whole input into that heap: scan bounded windows. A
-// window overlaps the next one so a match crossing the boundary is still seen.
+// Overlap bounded windows to include matches that cross a boundary.
 const WINDOW_LENGTH = 65_536;
 const WINDOW_OVERLAP = 4096;
 
-type CompiledPattern = { regex: RE2 } | { error: Error };
+type CompiledPattern = { regex: RE2JS } | { error: Error };
 
 const compiledPatterns = new Map<string, CompiledPattern>();
 
 const LONE_SURROGATE =
 	/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 
-function freeRegex(regex: RE2): void {
-	(regex as unknown as { wrapper: { delete: () => void } }).wrapper.delete();
-}
-
-function getRegex(pattern: string, caseSensitive: boolean): RE2 {
+function getRegex(pattern: string, caseSensitive: boolean): RE2JS {
 	const key = `${caseSensitive ? "s" : "i"}:${pattern}`;
 	let compiled = compiledPatterns.get(key);
 	if (compiled) {
@@ -33,18 +26,20 @@ function getRegex(pattern: string, caseSensitive: boolean): RE2 {
 					`Guardrail regex patterns must not exceed ${MAX_PATTERN_LENGTH} characters`,
 				);
 			}
-			compiled = { regex: new RE2(pattern, caseSensitive ? "gu" : "giu") };
+			compiled = {
+				regex: RE2JS.compile(
+					RE2JS.translateRegExp(pattern),
+					caseSensitive ? 0 : RE2JS.CASE_INSENSITIVE,
+				),
+			};
 		} catch (error) {
 			compiled = {
 				error: error instanceof Error ? error : new Error(String(error)),
 			};
 		}
 		if (compiledPatterns.size >= MAX_CACHED_PATTERNS) {
-			const [oldestKey, oldest] = compiledPatterns.entries().next().value!;
+			const [oldestKey] = compiledPatterns.entries().next().value!;
 			compiledPatterns.delete(oldestKey);
-			if ("regex" in oldest) {
-				freeRegex(oldest.regex);
-			}
 		}
 	}
 	compiledPatterns.set(key, compiled);
@@ -65,22 +60,13 @@ function safeBoundary(content: string, index: number): number {
 		: index;
 }
 
-function codePointLength(value: string): number {
-	let length = 0;
-	for (const _ of value) {
-		length++;
-	}
-	return length;
-}
-
 /**
  * Rejects a pattern RE2 cannot compile or one that matches empty text, which
  * would flag every request.
  */
 export function validateGuardrailRegex(pattern: string): void {
 	const regex = getRegex(pattern, false);
-	regex.lastIndex = 0;
-	if (regex.test("")) {
+	if (regex.matcher("").find()) {
 		throw new Error("Guardrail regex patterns must not match empty text");
 	}
 }
@@ -88,9 +74,6 @@ export function validateGuardrailRegex(pattern: string): void {
 /**
  * Returns every non-empty match of `pattern` in `content`.
  *
- * re2-wasm reports indices in code points and drops lone surrogates
- * inconsistently, so the input is made well-formed and scanning advances by
- * code points.
  */
 export function matchGuardrailRegex(
 	pattern: string,
@@ -109,19 +92,12 @@ export function matchGuardrailRegex(
 			start,
 			safeBoundary(text, Math.min(text.length, end + WINDOW_OVERLAP)),
 		);
-		const ownCodePoints =
-			end < text.length ? codePointLength(text.slice(start, end)) : Infinity;
-		regex.lastIndex = 0;
-		for (
-			let match = regex.exec(window);
-			match !== null && match.index < ownCodePoints;
-			match = regex.exec(window)
-		) {
-			const value = match[0] ?? "";
+		const matcher = regex.matcher(window);
+		while (matcher.find() && matcher.start() < end - start) {
+			const value = matcher.group();
 			if (value) {
 				matches.push(value);
 			}
-			regex.lastIndex = match.index + Math.max(1, codePointLength(value));
 		}
 		start = end;
 	}
