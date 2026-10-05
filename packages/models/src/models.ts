@@ -303,9 +303,10 @@ export interface ProviderModelMapping {
 	/**
 	 * Where this mapping's inference runs, when verified and different from
 	 * what the provider or its regional endpoint declares (e.g. an Azure
-	 * DataZone deployment). Unset inherits; see `resolveProcessingRegion`.
+	 * DataZone deployment). Unset inherits; `null` is explicitly unverified
+	 * and never inherits. See `resolveProcessingRegion`.
 	 */
-	processingRegion?: ProcessingRegion;
+	processingRegion?: ProcessingRegion | null;
 	/**
 	 * Price per input token in USD
 	 */

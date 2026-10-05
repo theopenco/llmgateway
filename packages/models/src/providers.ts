@@ -229,9 +229,14 @@ export function isProcessingRegion(value: unknown): value is ProcessingRegion {
 	return PROCESSING_REGIONS.includes(value as ProcessingRegion);
 }
 
-/** The parts of a mapping that can pin where its inference runs. */
+/**
+ * The parts of a mapping that can pin where its inference runs. A `null`
+ * `processingRegion` means "explicitly unverified": the mapping neither
+ * claims a region nor inherits the provider's, so it always fails residency.
+ * Airside listings use it until a carrier's region has been recorded.
+ */
 export interface ProcessingRegionSource {
-	processingRegion?: ProcessingRegion;
+	processingRegion?: ProcessingRegion | null;
 	regions?: { id: string; processingRegion?: ProcessingRegion }[];
 }
 
@@ -248,6 +253,9 @@ export function resolveProcessingRegion(
 	region?: string | null,
 	mapping?: ProcessingRegionSource,
 ): ProcessingRegion | undefined {
+	if (mapping?.processingRegion === null) {
+		return undefined;
+	}
 	const regionId = region?.toLowerCase();
 	return (
 		(regionId

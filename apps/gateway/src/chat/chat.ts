@@ -216,7 +216,6 @@ import {
 	expandAllProviderRegions,
 	expandProviderRegions,
 	getProviderDefinition,
-	getProviderEnvValue,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
 	usesEncryptedReasoning,
@@ -337,6 +336,7 @@ import {
 import { resolveDynamicRouteClassification } from "./tools/resolve-dynamic-route-classification.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import {
+	getCredentialSetting,
 	hasServiceTierEligiblePlatformCredential,
 	resolvePlatformCredential,
 } from "./tools/resolve-platform-credential.js";
@@ -7129,27 +7129,29 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// The processing region the catalogue verified belongs to the catalogue
-	// endpoint. A base URL override (BYOK key, Airside carrier, LLM_*_BASE_URL
-	// env) sends the request somewhere else, so residency fails closed on it.
-	if (
-		usedProvider !== undefined &&
-		usedProvider !== "llmgateway" &&
-		usedProvider !== "custom"
-	) {
+	// endpoint. A base URL override (BYOK key, managed-credential config,
+	// LLM_*_BASE_URL env, Airside carrier) sends the request somewhere else, so
+	// residency fails closed on it. Reads the live credential state, so it runs
+	// again for every retry/fallback context applied below.
+	const assertResidencyForActiveCredential = async (): Promise<void> => {
+		if (
+			usedProvider === undefined ||
+			usedProvider === "llmgateway" ||
+			usedProvider === "custom"
+		) {
+			return;
+		}
 		await assertResidencyAllowsBaseUrl(
 			compliancePolicy,
 			usedProvider,
 			airsideResolution?.customBaseUrl ??
-				credentialBaseUrl ??
-				(usesDatabaseCredential
-					? undefined
-					: getProviderEnvValue(
-							usedProvider,
-							"baseUrl",
-							configIndex,
-							undefined,
-							envVariant,
-						)),
+				providerKey?.baseUrl ??
+				getCredentialSetting(
+					usedProvider,
+					"baseUrl",
+					{ providerKey, managedKey },
+					{ configIndex, variant: envVariant },
+				),
 			{
 				organizationId: project.organizationId,
 				modelId: modelInfo.id,
@@ -7157,7 +7159,8 @@ chat.openapi(completions, async (c) => {
 				model: requestedModel,
 			},
 		);
-	}
+	};
+	await assertResidencyForActiveCredential();
 
 	try {
 		if (!usedProvider) {
@@ -8356,6 +8359,7 @@ chat.openapi(completions, async (c) => {
 		trackedKeyHealthId = ctx.trackedKeyHealthId;
 		configIndex = ctx.configIndex;
 		envVarName = ctx.envVarName;
+		await assertResidencyForActiveCredential();
 		url = ctx.url;
 		requestBody = ctx.requestBody;
 		useResponsesApi = ctx.useResponsesApi;

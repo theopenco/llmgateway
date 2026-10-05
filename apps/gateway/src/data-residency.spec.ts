@@ -243,6 +243,20 @@ describe("residency with regional endpoints", () => {
 			}),
 		).toBe(false);
 	});
+	test("an Airside listing without a recorded region never inherits", () => {
+		// Mirrors what resolveAirsideModel synthesizes for an unrecorded listing.
+		expect(
+			isProviderIdCompliant("aws-bedrock", us, {
+				region: "us-east-1",
+				mapping: { processingRegion: null },
+			}),
+		).toBe(false);
+		expect(
+			isProviderIdCompliant("mistral", eu, {
+				mapping: { processingRegion: null },
+			}),
+		).toBe(false);
+	});
 	test("a request residency also blocks the dynamic-route classifier", async () => {
 		const result = await resolveDynamicRouteClassification({
 			organization: { id: "org-id", plan: "enterprise" },

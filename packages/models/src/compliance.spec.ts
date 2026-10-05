@@ -1058,6 +1058,24 @@ describe("data residency", () => {
 		).toEqual(["dataResidency"]);
 	});
 
+	it("treats a null mapping region as unverified, blocking inheritance", () => {
+		const bedrock = getProviderDefinition("aws-bedrock")!;
+		expect(
+			resolveProcessingRegion(bedrock, "us-east-1", { processingRegion: null }),
+		).toBeUndefined();
+		expect(
+			getProviderComplianceFailures(bedrock, us, {
+				region: "us-east-1",
+				mapping: { processingRegion: null },
+			}),
+		).toEqual(["dataResidency"]);
+		expect(
+			getProviderComplianceFailures(getProviderDefinition("mistral")!, eu, {
+				mapping: { processingRegion: null },
+			}),
+		).toEqual(["dataResidency"]);
+	});
+
 	it("lets a mapping override the provider and its regions", () => {
 		expect(
 			resolveProcessingRegion(

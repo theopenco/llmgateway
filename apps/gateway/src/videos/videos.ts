@@ -4774,19 +4774,25 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		routingCfg,
 	);
 
-	// The verified processing region belongs to the catalogue endpoint; a BYOK
-	// or env base URL sends the job elsewhere, so residency fails closed on it.
-	await assertResidencyAllowsBaseUrl(
-		videoCompliancePolicy,
-		providerContext.providerId,
-		providerContext.baseUrl,
-		{
-			organizationId: project.organizationId,
-			modelId: modelInfo.id,
-			apiKeyId: apiKey.id,
-			model: normalizedModel,
-		},
-	);
+	// The verified processing region belongs to the catalogue endpoint; a BYOK,
+	// managed-credential or env base URL sends the job elsewhere, so residency
+	// fails closed on it, for the first provider and every fallback.
+	const assertVideoResidency = (context: {
+		providerId: Provider;
+		baseUrl: string;
+	}): Promise<void> =>
+		assertResidencyAllowsBaseUrl(
+			videoCompliancePolicy,
+			context.providerId,
+			context.baseUrl,
+			{
+				organizationId: project.organizationId,
+				modelId: modelInfo.id,
+				apiKeyId: apiKey.id,
+				model: normalizedModel,
+			},
+		);
+	await assertVideoResidency(providerContext);
 
 	const videoId = shortid();
 	let selectedProviderMapping = providerMapping;
@@ -5007,6 +5013,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					requestId,
 					modelInfo.id,
 				);
+				await assertVideoResidency(selectedProviderContext);
 				// A hybrid project can fall back from a BYOK provider to a
 				// credits-billed one mid-loop; re-apply the spend-cap gate the
 				// pre-loop check only enforced for the initial provider.
@@ -5071,6 +5078,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					requestId,
 					modelInfo.id,
 				);
+				await assertVideoResidency(selectedProviderContext);
 				// A hybrid project can fall back from a BYOK provider to a
 				// credits-billed one mid-loop; re-apply the spend-cap gate the
 				// pre-loop check only enforced for the initial provider.
@@ -5200,6 +5208,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					requestId,
 					modelInfo.id,
 				);
+				await assertVideoResidency(selectedProviderContext);
 				// A hybrid project can fall back from a BYOK provider to a
 				// credits-billed one mid-loop; re-apply the spend-cap gate the
 				// pre-loop check only enforced for the initial provider.
