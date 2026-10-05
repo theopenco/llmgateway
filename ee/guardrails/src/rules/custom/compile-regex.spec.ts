@@ -9,7 +9,6 @@ import { checkCustomRegex } from "./regex.js";
 
 describe("guardrail regex engine", () => {
 	it("keeps working after thousands of distinct patterns", () => {
-		// Unfreed re2-wasm patterns exhaust its fixed heap after ~1-2k compiles.
 		for (let i = 0; i < 5000; i++) {
 			expect(matchGuardrailRegex(`token-${i}\\d+`, `x token-${i}42 y`)).toEqual(
 				[`token-${i}42`],
@@ -23,6 +22,16 @@ describe("guardrail regex engine", () => {
 			expect(() => matchGuardrailRegex("(?=a)b", "ab")).toThrow();
 		}
 		expect(matchGuardrailRegex("secret", "a secret")).toEqual(["secret"]);
+	});
+
+	it("keeps validation and matching working after distinct invalid patterns", () => {
+		for (let i = 0; i < 60_000; i++) {
+			expect(() => validateGuardrailRegex(`(?=a)b${i}`)).toThrow();
+		}
+		expect(() => validateGuardrailRegex("valid-pattern")).not.toThrow();
+		expect(matchGuardrailRegex("valid-pattern", "a valid-pattern")).toEqual([
+			"valid-pattern",
+		]);
 	});
 
 	it.each(["\\d*", "a*", "foo|"])(
