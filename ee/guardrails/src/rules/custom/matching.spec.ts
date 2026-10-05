@@ -50,6 +50,39 @@ describe("custom guardrail matching", () => {
 		).toBe(true);
 	});
 
+	it.each([
+		["bombs", "violence"],
+		["weapons", "violence"],
+		["stabbing", "violence"],
+		["elections", "politics"],
+		["voting", "politics"],
+		["hacking", "illegal_activities"],
+		["gambling", "gambling"],
+		["custom topics", "custom topic"],
+	])("matches the inflection %s for %s", (text, topic) => {
+		expect(
+			checkTopicRestriction(
+				`Tell me about ${text}.`,
+				{ type: "topic_restriction", blockedTopics: [topic] },
+				"block",
+			).passed,
+		).toBe(false);
+	});
+
+	it.each([
+		["between", "gambling"],
+		["goddess", "religion"],
+		["hackathon", "illegal_activities"],
+	])("does not match %s for %s", (text, topic) => {
+		expect(
+			checkTopicRestriction(
+				`Tell me about ${text}.`,
+				{ type: "topic_restriction", blockedTopics: [topic] },
+				"block",
+			).passed,
+		).toBe(true);
+	});
+
 	it("still matches whole topic keywords and multiword phrases", () => {
 		expect(
 			checkTopicRestriction(
