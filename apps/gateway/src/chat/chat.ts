@@ -2974,6 +2974,31 @@ chat.openapi(completions, async (c) => {
 		chatPlanExpiresAt: organization.chatPlanExpiresAt,
 	};
 
+	// Get image size limits from environment variables or use defaults
+	const freeLimitMB = imageSizeLimitMB(
+		process.env.IMAGE_SIZE_LIMIT_FREE_MB,
+		50,
+	);
+	const proLimitMB = imageSizeLimitMB(process.env.IMAGE_SIZE_LIMIT_PRO_MB, 100);
+	const enterpriseLimitMB = imageSizeLimitMB(
+		process.env.IMAGE_SIZE_LIMIT_ENTERPRISE_MB,
+		proLimitMB,
+	);
+
+	// Determine max image size based on plan. Enterprise is never capped below
+	// Pro — bucketing it with free rejected enterprise uploads at the free limit
+	// and then told them to contact us about raising their Enterprise limits.
+	const userPlan = getLicensedOrganizationPlan(
+		organization?.id,
+		organization?.plan,
+	);
+	const maxImageSizeMB =
+		userPlan === "enterprise"
+			? enterpriseLimitMB
+			: userPlan === "pro"
+				? proLimitMB
+				: freeLimitMB;
+
 	// Run guardrails check for enterprise organizations
 	let guardrailResult: Awaited<ReturnType<typeof checkGuardrails>> | undefined;
 	if (hasOrganizationEnterpriseAccess(organization.id, organization.plan)) {
@@ -3000,16 +3025,22 @@ chat.openapi(completions, async (c) => {
 						const image = await processImageUrl(
 							part.image_url.url,
 							false,
-							guardrailScope.config.maxFileSizeMb,
+							maxImageSizeMB,
+							userPlan,
 						);
 						part.image_url.url = `data:${image.mimeType};base64,${image.data}`;
 					} catch (error) {
-						throw new HTTPException(400, {
-							message:
-								error instanceof Error
-									? error.message
-									: "Unable to validate attachment",
+						const message =
+							error instanceof Error
+								? error.message
+								: "Unable to validate attachment";
+						await logGatewayRejection({
+							message,
+							statusCode: 400,
+							statusText: "Bad Request",
+							cause: "attachment_validation_failed",
 						});
+						throw new HTTPException(400, { message });
 					}
 				}
 			}
@@ -3407,31 +3438,6 @@ chat.openapi(completions, async (c) => {
 			usedRegion = requestedRegion;
 		}
 	}
-
-	// Get image size limits from environment variables or use defaults
-	const freeLimitMB = imageSizeLimitMB(
-		process.env.IMAGE_SIZE_LIMIT_FREE_MB,
-		50,
-	);
-	const proLimitMB = imageSizeLimitMB(process.env.IMAGE_SIZE_LIMIT_PRO_MB, 100);
-	const enterpriseLimitMB = imageSizeLimitMB(
-		process.env.IMAGE_SIZE_LIMIT_ENTERPRISE_MB,
-		proLimitMB,
-	);
-
-	// Determine max image size based on plan. Enterprise is never capped below
-	// Pro — bucketing it with free rejected enterprise uploads at the free limit
-	// and then told them to contact us about raising their Enterprise limits.
-	const userPlan = getLicensedOrganizationPlan(
-		organization?.id,
-		organization?.plan,
-	);
-	const maxImageSizeMB =
-		userPlan === "enterprise"
-			? enterpriseLimitMB
-			: userPlan === "pro"
-				? proLimitMB
-				: freeLimitMB;
 
 	// Validate IAM rules for model access
 	// Pass modelInfo (with deactivated providers already filtered) so IAM validation
