@@ -50,11 +50,14 @@ export function ModelErrorRateAlertsForm({
 	const [saved, setSaved] = useState(false);
 
 	const save = (nextEnabled: boolean) => {
+		// `enabled` is still the pre-toggle value inside this closure.
+		const previousEnabled = enabled;
 		setError(null);
 		setSaved(false);
 		startTransition(async () => {
 			const result = await onSave({ enabled: nextEnabled, rules });
 			if (!result.ok) {
+				setEnabled(previousEnabled);
 				setError(result.message);
 				return;
 			}
