@@ -245,6 +245,8 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
+	semanticCacheEnabled: z.boolean(),
+	semanticCacheThreshold: z.number(),
 	providerCacheControlMode: providerCacheControlModeSchema,
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),

@@ -1296,6 +1296,11 @@ export const project = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		cachingEnabled: boolean().notNull().default(false),
 		cacheDurationSeconds: integer().notNull().default(60),
+		// Serve cached responses for prompts whose embedding is at least
+		// `semanticCacheThreshold` cosine-similar to a cached one. Requires
+		// `cachingEnabled`.
+		semanticCacheEnabled: boolean().notNull().default(false),
+		semanticCacheThreshold: real().notNull().default(0.95),
 		// How provider-side prompt-cache markers are handled for this project.
 		// "passthrough" exists because a single key often serves both a coding
 		// agent that manages its own markers and traffic that must not pay the

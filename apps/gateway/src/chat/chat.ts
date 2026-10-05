@@ -109,6 +109,10 @@ import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import {
+	embedForSemanticCache,
+	semanticCacheText,
+} from "@/lib/semantic-cache-embedding.js";
+import {
 	createSmartRoutingSessionStore,
 	type SmartRoutingSessionStore,
 } from "@/lib/smart-routing-session.js";
@@ -167,7 +171,10 @@ import {
 	preserveGoogleResponseText,
 } from "@llmgateway/actions";
 import {
+	addSemanticCacheEntry,
+	findSemanticCacheMatch,
 	generateCacheKey,
+	generateSemanticCacheScopeKey,
 	generateStreamingCacheKey,
 	getCache,
 	getStreamingCache,
@@ -7166,6 +7173,8 @@ chat.openapi(completions, async (c) => {
 		enabled: projectCachingEnabled,
 		duration: cacheDuration,
 		providerCacheControlMode: configuredProviderCacheControlMode,
+		semanticCacheEnabled: projectSemanticCacheEnabled,
+		semanticCacheThreshold,
 	} = await isCachingEnabled(project.id);
 	const providerCacheControlMode = zeroDataRetentionEnabled
 		? "off"
@@ -7182,6 +7191,8 @@ chat.openapi(completions, async (c) => {
 
 	let cacheKey: string | null = null;
 	let streamingCacheKey: string | null = null;
+	let semanticCacheWrite: { scopeKey: string; embedding: number[] } | null =
+		null;
 
 	if (cachingEnabled) {
 		const cachePayload = {
@@ -7563,7 +7574,41 @@ chat.openapi(completions, async (c) => {
 			}
 		} else {
 			cacheKey = generateCacheKey(project.id, cachePayload);
-			const cachedResponse = cacheKey ? await getCache(cacheKey) : null;
+			let cachedResponse = cacheKey ? await getCache(cacheKey) : null;
+			// The embedding call sends prompt text to an embedding provider that the
+			// compliance policy does not vet, so any active policy disables it.
+			if (
+				!cachedResponse &&
+				projectSemanticCacheEnabled &&
+				!compliancePolicy &&
+				!tools?.length
+			) {
+				const semanticText = semanticCacheText(messages as BaseMessage[]);
+				const embedding = semanticText
+					? await embedForSemanticCache(semanticText)
+					: null;
+				if (embedding) {
+					const scopeKey = generateSemanticCacheScopeKey(project.id, {
+						...cachePayload,
+						messages: undefined,
+					});
+					const match = await findSemanticCacheMatch(
+						scopeKey,
+						embedding,
+						semanticCacheThreshold,
+					);
+					cachedResponse = match ? await getCache(match.cacheKey) : null;
+					if (match && cachedResponse) {
+						c.header("x-llmgateway-cache-match", "semantic");
+						c.header(
+							"x-llmgateway-cache-similarity",
+							match.similarity.toFixed(4),
+						);
+					} else {
+						semanticCacheWrite = { scopeKey, embedding };
+					}
+				}
+			}
 			if (cachedResponse) {
 				// Log the cached request
 				const duration = 0; // No processing time needed
@@ -15456,6 +15501,13 @@ chat.openapi(completions, async (c) => {
 			stripRequestScopedMetadataFromOpenAiResponse(transformedResponse),
 			cacheDuration,
 		);
+		if (semanticCacheWrite) {
+			await addSemanticCacheEntry(
+				semanticCacheWrite.scopeKey,
+				{ cacheKey, embedding: semanticCacheWrite.embedding },
+				cacheDuration,
+			);
+		}
 	}
 
 	// For image generation models with streaming requested, convert to SSE format

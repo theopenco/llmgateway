@@ -8,6 +8,8 @@ export interface CachingSettingsData {
 			cachingEnabled: boolean;
 			cacheDurationSeconds: number;
 			providerCacheControlMode: ProviderCacheControlMode;
+			semanticCacheEnabled: boolean;
+			semanticCacheThreshold: number;
 		};
 	};
 }

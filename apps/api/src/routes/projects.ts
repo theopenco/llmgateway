@@ -21,6 +21,7 @@ import {
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { normalizeStatementDescriptorSuffix } from "@llmgateway/shared";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { canManageProject } from "@llmgateway/shared/organization-roles";
 import { isSmartRoutingAvailable } from "@llmgateway/shared/smart-routing";
 
@@ -43,6 +44,8 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
+	semanticCacheEnabled: z.boolean(),
+	semanticCacheThreshold: z.number(),
 	providerCacheControlMode: providerCacheControlModeSchema,
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
@@ -72,6 +75,8 @@ const updateProjectSchema = z.object({
 	name: z.string().min(1).max(255).optional(),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(), // Min 10 seconds, max 1 year
+	semanticCacheEnabled: z.boolean().optional(),
+	semanticCacheThreshold: z.number().min(0.8).max(0.999).optional(),
 	providerCacheControlMode: providerCacheControlModeSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
@@ -241,6 +246,8 @@ projects.openapi(updateProject, async (c) => {
 		name,
 		cachingEnabled,
 		cacheDurationSeconds,
+		semanticCacheEnabled,
+		semanticCacheThreshold,
 		mode,
 		defaultRoutingStrategy,
 		endUserEnabled,
@@ -337,6 +344,40 @@ projects.openapi(updateProject, async (c) => {
 
 	if (cacheDurationSeconds !== undefined) {
 		updateData.cacheDurationSeconds = cacheDurationSeconds;
+	}
+
+	const semanticCacheEntitled = hasOrganizationEnterpriseAccess(
+		projectUserOrg?.organization?.id,
+		projectUserOrg?.organization?.plan,
+	);
+	if (
+		(semanticCacheEnabled === true || semanticCacheThreshold !== undefined) &&
+		!semanticCacheEntitled
+	) {
+		throw new HTTPException(403, {
+			message: "Semantic caching is available on the Enterprise plan.",
+		});
+	}
+	// The gateway never embeds prompts under an active compliance policy (the
+	// embedding provider is not vetted by it), so refuse a setting that would
+	// silently do nothing.
+	if (
+		semanticCacheEnabled === true &&
+		!project.semanticCacheEnabled &&
+		projectUserOrg?.organization?.providerCompliancePolicy?.enabled
+	) {
+		throw new HTTPException(409, {
+			message:
+				"Semantic caching cannot be enabled while a provider compliance policy is active.",
+		});
+	}
+
+	if (semanticCacheEnabled !== undefined) {
+		updateData.semanticCacheEnabled = semanticCacheEnabled;
+	}
+
+	if (semanticCacheThreshold !== undefined) {
+		updateData.semanticCacheThreshold = semanticCacheThreshold;
 	}
 
 	if (providerCacheControlMode !== undefined) {
@@ -473,6 +514,24 @@ projects.openapi(updateProject, async (c) => {
 		changes.cacheDurationSeconds = {
 			old: project.cacheDurationSeconds,
 			new: cacheDurationSeconds,
+		};
+	}
+	if (
+		semanticCacheEnabled !== undefined &&
+		semanticCacheEnabled !== project.semanticCacheEnabled
+	) {
+		changes.semanticCacheEnabled = {
+			old: project.semanticCacheEnabled,
+			new: semanticCacheEnabled,
+		};
+	}
+	if (
+		semanticCacheThreshold !== undefined &&
+		semanticCacheThreshold !== project.semanticCacheThreshold
+	) {
+		changes.semanticCacheThreshold = {
+			old: project.semanticCacheThreshold,
+			new: semanticCacheThreshold,
 		};
 	}
 	if (

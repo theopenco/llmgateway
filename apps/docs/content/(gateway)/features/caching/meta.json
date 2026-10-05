@@ -2,5 +2,5 @@
 	"title": "Caching",
 	"icon": "Zap",
 	"defaultOpen": true,
-	"pages": ["provider-cache-control", "gateway-caching"]
+	"pages": ["provider-cache-control", "gateway-caching", "semantic-caching"]
 }

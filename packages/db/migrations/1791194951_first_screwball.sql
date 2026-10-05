@@ -1,0 +1,2 @@
+ALTER TABLE "project" ADD COLUMN "semantic_cache_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "project" ADD COLUMN "semantic_cache_threshold" real DEFAULT 0.95 NOT NULL;
