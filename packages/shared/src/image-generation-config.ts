@@ -162,6 +162,9 @@ function getMaxInputImages(lowerModel: string): number {
 	if (lowerModel.includes("seedream")) {
 		return 10;
 	}
+	if (lowerModel.includes("qwen-image-2.1")) {
+		return 10;
+	}
 	if (lowerModel.includes("qwen-image-edit")) {
 		return 5;
 	}

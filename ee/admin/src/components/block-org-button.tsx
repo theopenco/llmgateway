@@ -21,6 +21,8 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 interface BlockOrgButtonProps {
 	orgId: string;
@@ -33,14 +35,6 @@ interface BlockOrgButtonProps {
 	 */
 	disabledReason?: string;
 	variant?: "icon" | "full";
-	onBlock: (
-		orgId: string,
-		reason?: string,
-	) => Promise<{
-		success: boolean;
-		error?: string;
-		cancelledSubscriptionIds?: string[];
-	}>;
 }
 
 export function BlockOrgButton({
@@ -49,34 +43,36 @@ export function BlockOrgButton({
 	disabled,
 	disabledReason,
 	variant = "icon",
-	onBlock,
 }: BlockOrgButtonProps) {
 	const router = useRouter();
+	const $api = useApi();
 	const [open, setOpen] = useState(false);
 	const [reason, setReason] = useState("");
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 	const actionTitle =
 		"Block organization, deactivate every member, and cancel all subscriptions";
 
-	const handleConfirm = async () => {
-		setLoading(true);
-		setError(null);
-		try {
-			const result = await onBlock(orgId, reason.trim() || undefined);
-			if (result.success) {
+	const blockMutation = $api.useMutation(
+		"post",
+		"/admin/organizations/{orgId}/block",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
 				setOpen(false);
+				setReason("");
 				router.refresh();
-			} else {
-				setError(result.error ?? "Failed to block organization");
-			}
-		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "Failed to block organization",
-			);
-		} finally {
-			setLoading(false);
-		}
+			},
+		},
+	);
+	const loading = blockMutation.isPending;
+	const error = blockMutation.isError
+		? apiErrorMessage(blockMutation.error, "Failed to block organization")
+		: null;
+
+	const handleConfirm = () => {
+		blockMutation.mutate({
+			params: { path: { orgId } },
+			body: { reason: reason.trim() || undefined },
+		});
 	};
 
 	return (
@@ -88,7 +84,7 @@ export function BlockOrgButton({
 				}
 				setOpen(next);
 				if (!next) {
-					setError(null);
+					blockMutation.reset();
 					setReason("");
 				}
 			}}

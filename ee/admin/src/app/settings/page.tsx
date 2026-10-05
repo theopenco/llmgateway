@@ -22,19 +22,7 @@ import {
 	getForceThreeDSecure,
 	getModelErrorRateAlerts,
 	getSystemBanner,
-	updateBlockedSignupCountries,
-	updateBlockedSignupEmailDomains,
-	updateCreditPurchaseBlock,
-	updateForceThreeDSecure,
-	updateModelErrorRateAlerts,
-	updateSystemBanner,
 } from "@/lib/admin-settings";
-
-import type {
-	ForceThreeDSecureMode,
-	SystemBannerSettingInput,
-} from "@/lib/admin-settings";
-import type { ModelErrorRateAlertsSettings } from "@llmgateway/shared";
 
 function SignInPrompt() {
 	return (
@@ -84,47 +72,6 @@ export default async function SettingsPage() {
 		return <SignInPrompt />;
 	}
 
-	async function handleToggle(blocked: boolean): Promise<{ success: boolean }> {
-		"use server";
-
-		const result = await updateCreditPurchaseBlock(blocked);
-		return { success: result !== null };
-	}
-
-	async function handleSaveCountries(countries: string[]) {
-		"use server";
-
-		return await updateBlockedSignupCountries(countries);
-	}
-
-	async function handleSaveEmailDomains(domains: string[]) {
-		"use server";
-		return await updateBlockedSignupEmailDomains(domains);
-	}
-
-	async function handleSaveBanner(input: SystemBannerSettingInput) {
-		"use server";
-
-		const result = await updateSystemBanner(input);
-		return { ok: result.banner !== null, message: result.message };
-	}
-
-	async function handleSaveErrorRateAlerts(
-		input: ModelErrorRateAlertsSettings,
-	) {
-		"use server";
-
-		const result = await updateModelErrorRateAlerts(input);
-		return { ok: result.settings !== null, message: result.message };
-	}
-
-	async function handleSaveThreeDSecure(mode: ForceThreeDSecureMode) {
-		"use server";
-
-		const result = await updateForceThreeDSecure(mode);
-		return { ok: result.state !== null, message: result.message };
-	}
-
 	return (
 		<div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex items-center gap-3">
@@ -149,7 +96,7 @@ export default async function SettingsPage() {
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					<SystemBannerForm banner={systemBanner} onSave={handleSaveBanner} />
+					<SystemBannerForm banner={systemBanner} />
 				</CardContent>
 			</Card>
 
@@ -164,10 +111,7 @@ export default async function SettingsPage() {
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					<ModelErrorRateAlertsForm
-						settings={modelErrorRateAlerts}
-						onSave={handleSaveErrorRateAlerts}
-					/>
+					<ModelErrorRateAlertsForm settings={modelErrorRateAlerts} />
 				</CardContent>
 			</Card>
 
@@ -185,7 +129,6 @@ export default async function SettingsPage() {
 					<CreditPurchaseBlockToggle
 						blocked={creditPurchaseBlock.blocked}
 						envForced={creditPurchaseBlock.envForced}
-						onToggle={handleToggle}
 					/>
 				</CardContent>
 			</Card>
@@ -203,7 +146,6 @@ export default async function SettingsPage() {
 				<CardContent>
 					<BlockedSignupCountriesForm
 						countries={blockedSignupCountries.countries}
-						onSave={handleSaveCountries}
 					/>
 				</CardContent>
 			</Card>
@@ -220,7 +162,6 @@ export default async function SettingsPage() {
 				<CardContent>
 					<BlockedSignupEmailDomainsForm
 						domains={blockedSignupEmailDomains.domains}
-						onSave={handleSaveEmailDomains}
 					/>
 				</CardContent>
 			</Card>
@@ -241,7 +182,6 @@ export default async function SettingsPage() {
 					<ForceThreeDSecureForm
 						mode={forceThreeDSecure.mode}
 						envOverride={forceThreeDSecure.envOverride}
-						onSave={handleSaveThreeDSecure}
 					/>
 				</CardContent>
 			</Card>

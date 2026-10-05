@@ -92,7 +92,7 @@ When creating a package in `packages/`, copy `package.json`, `tsconfig.json`, `.
 ## Code Standards
 
 - When proxying a request on a caller's behalf, including in-process `app.request()` calls, spread `forwardedIpHeaders(incomingHeaders)` from `@llmgateway/shared/client-ip` into the forwarded headers. Preserve only the configured client-IP header; never substitute another header or the proxy address. Cover the internal hop with an IP-rule regression test.
-- Always use the internal api (`apps/api/`) for backend operations, never Next.js API routes.
+- Always use the internal api (`apps/api/`) for backend operations, never Next.js API routes or server actions that wrap it. Mutate from the browser with the typed client (`$api.useMutation`); use a server API client only for SSR reads.
 - Never suppress errors with a silent `.catch(() => [])`, `.catch(() => ({}))`, or another empty/default fallback. Handle a deliberate recovery in the owning helper with explicit logging and last-known-good data when available; otherwise let the error propagate.
 - Do not use broad try/catch in API handlers unless to check for specific errors; let errors propagate to the global error handler.
 - Always use top-level `import`, never `require`. Dynamic imports are allowed only for the optional Jelly scene in `packages/shared/src/components/jelly/jelly-logo.tsx` and the DevPass card form in `apps/code/src/app/dashboard/components/DevPassPaymentMethod.tsx`.
