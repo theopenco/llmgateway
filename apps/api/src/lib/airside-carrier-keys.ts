@@ -7,10 +7,10 @@ import {
 	redactToken,
 	runProviderKeySmokeTest,
 } from "@llmgateway/actions";
-import { and, db, eq, isNull, shortid, tables } from "@llmgateway/db";
+import { and, cdb, db, eq, isNull, shortid, tables } from "@llmgateway/db";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
-import type { cdb, ProviderModelVerificationTarget } from "@llmgateway/db";
+import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 
 type ProviderClaimRow = typeof tables.providerClaim.$inferSelect;
 type CacheTransaction = Parameters<Parameters<typeof cdb.transaction>[0]>[0];
@@ -22,7 +22,7 @@ const SEPARATE_KEYS_MESSAGE =
 	"Use two different keys: the testing key runs preflight checks, the provider key serves your traffic.";
 
 /** Compare-and-set guard on the claim's pending provider key pointer. */
-export function pendingProviderKeyIs(id: string | null) {
+function pendingProviderKeyIs(id: string | null) {
 	return id
 		? eq(tables.providerClaim.pendingProviderKeyId, id)
 		: isNull(tables.providerClaim.pendingProviderKeyId);
@@ -82,6 +82,60 @@ export async function fileProviderKey(
 	};
 }
 
+/**
+ * Drops a carrier's provider key awaiting review. The pointer moves first:
+ * if approval promoted the key in the meantime, nothing is deleted.
+ */
+export async function discardPendingProviderKey(
+	claim: ProviderClaimRow,
+	keyId: string,
+): Promise<void> {
+	// A carrier's first key is reviewed with its first model; dropping it
+	// would let that model go live with nothing to serve it.
+	if (!claim.providerKeyId) {
+		throw new HTTPException(409, {
+			message:
+				"The first provider key is reviewed with the first model — replace it instead.",
+		});
+	}
+	// cdb: managed provider_key rows feed the gateway's credential cache.
+	await cdb.transaction(async (tx) => {
+		const cleared = await tx
+			.update(tables.providerClaim)
+			.set({ pendingProviderKeyId: null })
+			.where(
+				and(
+					eq(tables.providerClaim.id, claim.id),
+					eq(tables.providerClaim.pendingProviderKeyId, keyId),
+				),
+			)
+			.returning({ id: tables.providerClaim.id });
+		if (cleared.length === 0) {
+			throw new HTTPException(409, {
+				message: "The provider key changed in the meantime — reload.",
+			});
+		}
+		await tx
+			.update(tables.providerKey)
+			.set({ status: "deleted" })
+			.where(eq(tables.providerKey.id, keyId));
+	});
+}
+
+/** Rejects using the carrier's testing key to serve its traffic. */
+export function assertNotTestingKey(claim: ProviderClaimRow, token: string) {
+	const testingKey = claim.verificationKeyCiphertext
+		? decryptClaimVerificationKey(
+				claim.verificationKeyCiphertext,
+				claim.id,
+				claim.providerCompanyId,
+			)
+		: null;
+	if (token === testingKey) {
+		throw new HTTPException(400, { message: SEPARATE_KEYS_MESSAGE });
+	}
+}
+
 async function carrierProviderKeyTokens(
 	claim: ProviderClaimRow,
 ): Promise<string[]> {
@@ -110,16 +164,7 @@ export async function assertProviderKeyIsSeparate(
 	claim: ProviderClaimRow,
 	providerKey: string,
 ): Promise<void> {
-	const testingKey = claim.verificationKeyCiphertext
-		? decryptClaimVerificationKey(
-				claim.verificationKeyCiphertext,
-				claim.id,
-				claim.providerCompanyId,
-			)
-		: null;
-	if (providerKey === testingKey) {
-		throw new HTTPException(400, { message: SEPARATE_KEYS_MESSAGE });
-	}
+	assertNotTestingKey(claim, providerKey);
 	if ((await carrierProviderKeyTokens(claim)).includes(providerKey)) {
 		throw new HTTPException(400, {
 			message: "This key is already on file as your provider key.",

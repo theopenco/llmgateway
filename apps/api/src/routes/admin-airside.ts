@@ -4,6 +4,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { discardPendingProviderKey } from "@/lib/airside-carrier-keys.js";
 import {
 	dematerializeAirsideModel,
 	materializeAirsideModel,
@@ -908,26 +909,6 @@ async function promotePendingProviderKey(
 	}
 }
 
-/** Drops a carrier's provider key that never went live. */
-async function discardPendingProviderKey(claimId: string, keyId: string) {
-	// cdb: managed provider_key rows feed the gateway's credential cache.
-	await cdb.transaction(async (tx) => {
-		await tx
-			.update(tables.providerKey)
-			.set({ status: "deleted" })
-			.where(eq(tables.providerKey.id, keyId));
-		await tx
-			.update(tables.providerClaim)
-			.set({ pendingProviderKeyId: null })
-			.where(
-				and(
-					eq(tables.providerClaim.id, claimId),
-					eq(tables.providerClaim.pendingProviderKeyId, keyId),
-				),
-			);
-	});
-}
-
 const approveClaim = createRoute({
 	method: "post",
 	path: "/airside/claims/{id}/approve",
@@ -1089,7 +1070,7 @@ const rejectProviderKey = createRoute({
 adminAirside.openapi(rejectProviderKey, async (c) => {
 	const { id } = c.req.valid("param");
 	const claim = await getClaimWithPendingProviderKey(id);
-	await discardPendingProviderKey(id, claim.pendingProviderKeyId);
+	await discardPendingProviderKey(claim, claim.pendingProviderKeyId);
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
 		with: { providerCompany: true },

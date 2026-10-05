@@ -816,19 +816,28 @@ export function AirsideFilingsClient() {
 													>
 														<Check className="size-3.5" /> Approve
 													</Button>
-													<Button
-														size="sm"
-														variant="destructive"
-														disabled={rejectProviderKeyMutation.isPending}
-														data-testid={`reject-provider-key-${claim.providerId}`}
-														onClick={() =>
-															rejectProviderKeyMutation.mutate({
-																params: { path: { id: claim.id } },
-															})
-														}
-													>
-														<X className="size-3.5" /> Reject
-													</Button>
+													{claim.providerKey ? (
+														<Button
+															size="sm"
+															variant="destructive"
+															disabled={rejectProviderKeyMutation.isPending}
+															data-testid={`reject-provider-key-${claim.providerId}`}
+															onClick={() =>
+																rejectProviderKeyMutation.mutate({
+																	params: { path: { id: claim.id } },
+																})
+															}
+														>
+															<X className="size-3.5" /> Reject
+														</Button>
+													) : (
+														<span
+															className="text-muted-foreground self-center text-xs"
+															title="A carrier's first key is reviewed with its first model."
+														>
+															with first model
+														</span>
+													)}
 												</div>
 											</TableCell>
 										)}

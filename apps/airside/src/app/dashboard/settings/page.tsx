@@ -285,23 +285,27 @@ function ProviderKeySection({ claim }: { claim: Claim }) {
 						</>
 					}
 					action={
-						<Button
-							type="button"
-							size="sm"
-							variant="outline"
-							data-testid={`provider-key-withdraw-${claim.providerId}`}
-							disabled={withdrawKey.isPending}
-							onClick={() =>
-								withdrawKey.mutate({ params: { path: { id: claim.id } } })
-							}
-						>
-							{withdrawKey.isPending ? (
-								<Loader2 className="size-4 animate-spin" />
-							) : (
-								<Trash2 className="size-4" />
-							)}
-							Withdraw
-						</Button>
+						// A first key is reviewed with the first model; it can be
+						// replaced, not withdrawn.
+						claim.providerKey ? (
+							<Button
+								type="button"
+								size="sm"
+								variant="outline"
+								data-testid={`provider-key-withdraw-${claim.providerId}`}
+								disabled={withdrawKey.isPending}
+								onClick={() =>
+									withdrawKey.mutate({ params: { path: { id: claim.id } } })
+								}
+							>
+								{withdrawKey.isPending ? (
+									<Loader2 className="size-4 animate-spin" />
+								) : (
+									<Trash2 className="size-4" />
+								)}
+								Withdraw
+							</Button>
+						) : undefined
 					}
 				/>
 			) : null}
