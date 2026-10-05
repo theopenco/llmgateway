@@ -68,10 +68,10 @@ curl https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "x-llmgateway-data-residency: eu" \
   -H "Content-Type: application/json" \
-  -d '{ "model": "alibaba/qwen-plus:eu-frankfurt", "messages": [{ "role": "user", "content": "Hello" }] }'
+  -d '{ "model": "<provider>/<model>:<region>", "messages": [{ "role": "user", "content": "Hello" }] }'
 ```
 
-Requests then route only to endpoints whose inference is verified, against the provider's own documentation, to run in that jurisdiction. A provider's headquarters never counts, and anything unverified is blocked. A request with no qualifying endpoint is rejected with `403` before any data is sent. The header can add a restriction but never lift one your organization set, and it applies on every gateway endpoint. The [data residency docs](https://docs.llmgateway.io/features/data-residency) list the endpoints that qualify.
+Requests then route only to endpoints whose inference is verified, against the provider's own documentation, to run in that jurisdiction. A provider's headquarters never counts, and anything unverified is blocked. Pin a multi-region provider's endpoint with a `:region` suffix; the **Provider Impact** preview on the Compliance page shows which providers and regional endpoints qualify. A request with no qualifying endpoint is rejected with `403` before any data is sent. The header can add a restriction but never lift one your organization set, and it applies on every gateway endpoint.
 
 **Residency covers the model call.** The gateway, request logs and caches run in the US, so `us` residency is end to end today. `eu` keeps the model call in the EU/EEA, but prompts still pass through and are stored in the US.
 
