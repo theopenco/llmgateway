@@ -122,7 +122,8 @@ describe("image input token usage", () => {
 						.split("\n")
 						.filter((line) => line.startsWith("data: {"))
 						.map((line) => JSON.parse(line.slice(6)) as { usage?: Usage })
-						.findLast((chunk) => chunk.usage)?.usage
+						.filter((chunk) => chunk.usage)
+						.at(-1)?.usage
 				: (JSON.parse(body) as { usage: Usage }).usage;
 			expect(usage?.prompt_tokens_details?.image_tokens).toBe(258);
 		},
