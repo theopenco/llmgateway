@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "48e859ef-72e9-49cd-ae89-c6e1800489c1",
+  "id": "3dce1e9d-89f2-4f2a-9eeb-7db750481ae1",
   "prevId": "cd785604-aa81-4b67-b78a-2d8c573fe841",
   "ddl": [
     {
@@ -12034,6 +12034,45 @@
       "generated": null,
       "identity": null,
       "name": "session_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "prompt_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "prompt_version",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "prompt_label",
       "entityType": "columns",
       "schema": "public",
       "table": "log"

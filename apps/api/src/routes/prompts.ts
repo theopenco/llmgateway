@@ -57,7 +57,7 @@ const parametersSchema = z
 		frequency_penalty: z.number().min(-2).max(2).optional(),
 		presence_penalty: z.number().min(-2).max(2).optional(),
 		reasoning_effort: z
-			.enum(["minimal", "low", "medium", "high", "xhigh"])
+			.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
 			.optional(),
 	})
 	.strict();
@@ -623,7 +623,8 @@ const deleteLabel = createRoute({
 			content: {
 				"application/json": { schema: z.object({ prompt: promptSchema }) },
 			},
-			description: "Prompt without the label.",
+			description:
+				"Prompt without the label. `production` cannot be removed, only moved.",
 		},
 	},
 });
@@ -631,6 +632,12 @@ const deleteLabel = createRoute({
 prompts.openapi(deleteLabel, async (c) => {
 	const user = requireUser(c.get("user"));
 	const { id, label } = c.req.valid("param");
+	if (label === PROMPT_PRODUCTION_LABEL) {
+		throw new HTTPException(400, {
+			message:
+				"The production label serves every request that names no label; point it at another version instead of removing it",
+		});
+	}
 	const existing = await loadPrompt(user.id, id, true);
 	const removed = await db
 		.delete(tables.promptLabel)

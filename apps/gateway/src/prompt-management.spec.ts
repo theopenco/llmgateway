@@ -106,6 +106,9 @@ describe("prompt management", () => {
 			"You support LLM Gateway.",
 		);
 		expect(logs[0].temperature).toBe(0.2);
+		expect(logs[0].promptId).toBe("prompt-id");
+		expect(logs[0].promptVersion).toBe(1);
+		expect(logs[0].promptLabel).toBe("production");
 	});
 
 	test("pins a version and appends caller messages", async () => {
@@ -119,6 +122,8 @@ describe("prompt management", () => {
 		expect(res.headers.get("x-llmgateway-prompt-version")).toBe("2");
 		expect(res.headers.get("x-llmgateway-prompt-label")).toBeNull();
 		const logs = await waitForLogs(1);
+		expect(logs[0].promptVersion).toBe(2);
+		expect(logs[0].promptLabel).toBeNull();
 		const sent = JSON.stringify(logs[0].messages);
 		expect(sent.indexOf("Draft v2 about caching.")).toBeLessThan(
 			sent.indexOf("Then list three tips."),
@@ -262,6 +267,38 @@ describe("prompt management", () => {
 		const neither = await responses({ input: "hi", store: false });
 		expect(neither.status).toBe(400);
 		expect(await neither.text()).toContain("model");
+	});
+
+	test("a streamed Responses call names the prompt's model from the first event", async () => {
+		await seedKeys();
+		await seedPrompt();
+		const res = await app.request("/v1/responses", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				prompt: {
+					id: "support-reply",
+					variables: { product: "p", topic: "t" },
+				},
+				stream: true,
+				store: false,
+			}),
+		});
+		expect(res.status).toBe(200);
+		const body = await res.text();
+		const created = body
+			.split("\n")
+			.find(
+				(line) =>
+					line.startsWith("data: ") && line.includes("response.created"),
+			);
+		expect(created).toBeDefined();
+		expect(JSON.parse(created!.slice(6)).response.model).toBe(
+			"llmgateway/custom",
+		);
 	});
 
 	test("a caller's reasoning.effort overrides the prompt's reasoning_effort", async () => {

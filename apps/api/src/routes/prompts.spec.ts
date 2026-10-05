@@ -53,12 +53,16 @@ describe("prompts", () => {
 			name: "support-reply",
 			messages: [{ role: "user", content: "Answer {{question}} for {{plan}}" }],
 			model: "gpt-4o-mini",
-			parameters: { temperature: 0.3 },
+			parameters: { temperature: 0.3, reasoning_effort: "max" },
 		});
 		expect(created.status).toBe(200);
 		const { prompt, version } = await created.json();
 		expect(labelMap(prompt)).toEqual({ production: 1 });
 		expect(version.variables).toEqual(["question", "plan"]);
+		expect(version.parameters).toEqual({
+			temperature: 0.3,
+			reasoning_effort: "max",
+		});
 
 		const duplicate = await call("POST", "/prompts", {
 			projectId: PROJECT_ID,
@@ -104,6 +108,12 @@ describe("prompts", () => {
 			version: 1,
 		});
 		expect(numeric.status).toBe(400);
+
+		const keepProduction = await call(
+			"DELETE",
+			`/prompts/${prompt.id}/labels/production`,
+		);
+		expect(keepProduction.status).toBe(400);
 
 		const removed = await call(
 			"DELETE",

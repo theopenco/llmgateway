@@ -160,6 +160,9 @@ const logSchema = z.object({
 	apiOrigin: z.enum(API_ORIGINS).nullable(),
 	source: z.string().nullable(),
 	sessionId: z.string().nullable().optional(),
+	promptId: z.string().nullable().optional(),
+	promptVersion: z.number().nullable().optional(),
+	promptLabel: z.string().nullable().optional(),
 	routingMetadata: z
 		.object({
 			availableProviders: z.array(z.string()).optional(),
@@ -335,6 +338,14 @@ const querySchema = z.object({
 		description: "Filter logs by session ID",
 		example: "conversation-9f8e7d6c",
 	}),
+	promptId: z.string().optional().openapi({
+		description: "Filter logs by the managed prompt that served them",
+	}),
+	promptVersion: z.coerce.number().int().min(1).optional().openapi({
+		description:
+			"Filter logs by prompt version. Combine with promptId to compare versions",
+		example: 2,
+	}),
 	usedMode: z.enum(["all", "credits", "api-keys"]).optional().openapi({
 		description:
 			"Filter logs by billing mode: credits (billed against the organization balance) or api-keys (BYOK provider keys, not billed)",
@@ -422,6 +433,8 @@ logs.openapi(get, async (c) => {
 		customHeaderValue,
 		requestId,
 		sessionId,
+		promptId,
+		promptVersion,
 		usedMode,
 		errorType,
 	} = {
@@ -441,6 +454,7 @@ logs.openapi(get, async (c) => {
 		customHeaderValue: sanitize(query.customHeaderValue),
 		requestId: sanitize(query.requestId),
 		sessionId: sanitize(query.sessionId),
+		promptId: sanitize(query.promptId),
 		usedMode: sanitize(query.usedMode) as "credits" | "api-keys" | undefined,
 		errorType: sanitize(query.errorType) as LogErrorType | undefined,
 	};
@@ -681,6 +695,13 @@ logs.openapi(get, async (c) => {
 	// Add sessionId filter
 	if (sessionId) {
 		whereConditions.push(eq(tables.log.sessionId, sessionId));
+	}
+
+	if (promptId) {
+		whereConditions.push(eq(tables.log.promptId, promptId));
+	}
+	if (promptVersion !== undefined) {
+		whereConditions.push(eq(tables.log.promptVersion, promptVersion));
 	}
 
 	// Add cursor-based pagination conditions

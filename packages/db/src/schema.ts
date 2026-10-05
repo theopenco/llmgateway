@@ -2338,6 +2338,12 @@ export const log = pgTable(
 		apiOrigin: text({ enum: API_ORIGINS }),
 		source: text(),
 		sessionId: text(),
+		// The managed prompt that was expanded into this request, so versions can
+		// be compared. `promptLabel` is the label the request followed; null when
+		// it pinned a version.
+		promptId: text(),
+		promptVersion: integer(),
+		promptLabel: text(),
 		customHeaders: json().$type<{ [key: string]: string }>(),
 		routingMetadata: json().$type<{
 			availableProviders?: string[];

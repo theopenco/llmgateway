@@ -10,6 +10,12 @@ import {
 	promptDraftVariables,
 	type PromptMessageDraft,
 } from "@/components/prompts/prompt-messages-editor";
+import {
+	PromptParametersEditor,
+	promptDraftToParameters,
+	promptParametersToDraft,
+	type PromptParametersDraft,
+} from "@/components/prompts/prompt-parameters-editor";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -253,6 +259,9 @@ function PromptDetail({ promptId }: { promptId: string }) {
 	});
 	const [messages, setMessages] = useState<PromptMessageDraft[]>([]);
 	const [model, setModel] = useState("");
+	const [parameters, setParameters] = useState<PromptParametersDraft>(() =>
+		promptParametersToDraft(undefined),
+	);
 	const [commitMessage, setCommitMessage] = useState("");
 	const [deploy, setDeploy] = useState(true);
 	const [labelTarget, setLabelTarget] = useState<number | null>(null);
@@ -278,6 +287,7 @@ function PromptDetail({ promptId }: { promptId: string }) {
 			seededVersionId.current = base.id;
 			setMessages(base.messages);
 			setModel(base.model ?? "");
+			setParameters(promptParametersToDraft(base.parameters));
 		}
 	}, [production, versions]);
 
@@ -307,6 +317,7 @@ function PromptDetail({ promptId }: { promptId: string }) {
 				body: {
 					messages,
 					model: model || null,
+					parameters: promptDraftToParameters(parameters),
 					commitMessage: commitMessage || null,
 					labels: deploy ? [PRODUCTION] : [],
 				},
@@ -422,6 +433,17 @@ function PromptDetail({ promptId }: { promptId: string }) {
 								onChange={(event) => setCommitMessage(event.target.value)}
 							/>
 						</div>
+					</div>
+					<div className="space-y-2">
+						<Label>Parameters</Label>
+						<p className="text-xs text-muted-foreground">
+							Applied when the request leaves the field unset. Blank means the
+							prompt sets nothing.
+						</p>
+						<PromptParametersEditor
+							value={parameters}
+							onChange={setParameters}
+						/>
 					</div>
 					<div className="space-y-1">
 						<Label>Variables</Label>

@@ -34,6 +34,9 @@ CREATE TABLE "prompt_version" (
 	CONSTRAINT "prompt_version_prompt_id_version_unique" UNIQUE("prompt_id","version")
 );
 --> statement-breakpoint
+ALTER TABLE "log" ADD COLUMN "prompt_id" text;--> statement-breakpoint
+ALTER TABLE "log" ADD COLUMN "prompt_version" integer;--> statement-breakpoint
+ALTER TABLE "log" ADD COLUMN "prompt_label" text;--> statement-breakpoint
 CREATE INDEX "prompt_project_id_idx" ON "prompt" ("project_id");--> statement-breakpoint
 ALTER TABLE "prompt" ADD CONSTRAINT "prompt_organization_id_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "prompt" ADD CONSTRAINT "prompt_project_id_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "project"("id") ON DELETE CASCADE;--> statement-breakpoint

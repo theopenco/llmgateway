@@ -6889,6 +6889,9 @@ chat.openapi(completions, async (c) => {
 				...logData,
 				sessionId: logData.sessionId ?? sessionId ?? null,
 				apiOrigin: logData.apiOrigin ?? apiOrigin,
+				promptId: promptExpansion.applied?.promptId ?? null,
+				promptVersion: promptExpansion.applied?.version ?? null,
+				promptLabel: promptExpansion.applied?.label ?? null,
 				internalContentFilter: contentFilter.tagged
 					? true
 					: logData.internalContentFilter,

@@ -12,7 +12,7 @@ Manage prompts on the [**Prompts**](/learn/prompts) page of a project, or throug
 
 ## Templates and variables
 
-A version holds a list of messages, an optional default model, and optional parameters (`temperature`, `top_p`, `max_tokens`, `frequency_penalty`, `presence_penalty`, `reasoning_effort`). Write `{{name}}` anywhere in a message to declare a variable. Names start with a letter or underscore and may contain letters, digits, `_`, `.`, and `-`.
+A version holds a list of messages, an optional default model, and optional parameters (`temperature`, `top_p`, `max_tokens`, `frequency_penalty`, `presence_penalty`, `reasoning_effort` from `none` to `max`). Write `{{name}}` anywhere in a message to declare a variable. Names start with a letter or underscore and may contain letters, digits, `_`, `.`, and `-`.
 
 ## Labels and versions
 
@@ -22,7 +22,7 @@ Saving a change always creates a new version; existing versions never change. La
 - Any other label (`staging`, `canary`, a customer name) lets you run one version somewhere while `production` serves another.
 - `latest` always means the newest version. It is implicit and cannot be assigned.
 
-Deploying is moving `production`. Roll back by pointing it at an earlier version. Label names start with a letter and may contain letters, digits, `_`, `.`, and `-`.
+Deploying is moving `production`. Roll back by pointing it at an earlier version. `production` can be moved but not removed, so a request that names no label always resolves. Label names start with a letter and may contain letters, digits, `_`, `.`, and `-`.
 
 ## Calling a prompt
 
@@ -68,7 +68,7 @@ The gateway expands the reference before routing:
 - The version's model and parameters apply only to fields the request leaves unset, so a request can always override them.
 - Values are inserted verbatim. A value containing `{{x}}` is not expanded again.
 
-Responses carry `x-llmgateway-prompt-id`, `x-llmgateway-prompt-version` and, when a label was followed, `x-llmgateway-prompt-label`, so you can tell which version served a request.
+Responses carry `x-llmgateway-prompt-id`, `x-llmgateway-prompt-version` and, when a label was followed, `x-llmgateway-prompt-label`, so you can tell which version served a request. The same three values are stored on the request's log entry and shown on its log card; filter `GET /logs` by `promptId` and `promptVersion` to compare versions side by side.
 
 ### Responses API
 
@@ -79,6 +79,8 @@ client.responses.create(
     prompt={"id": "support-reply", "variables": {"product": "Acme Cloud", "question": "..."}},
 )
 ```
+
+As with OpenAI, `prompt` is not carried across turns: a request that continues a conversation through `previous_response_id` sends `prompt` again if it wants the template applied to that turn.
 
 <Callout type="warning">
 	A missing variable returns `400`, as does `model: "@prompt/..."` on a version

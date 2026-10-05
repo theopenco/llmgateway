@@ -63,24 +63,15 @@ export function promptResponseHeaders(
 }
 
 /**
- * Expands a prompt reference in a chat completions body into concrete fields:
- * the version's rendered messages go first, followed by any messages the
- * caller sent; the version's model and parameters fill only fields the caller
- * left unset. The reference is either the `prompt` object or a `model` of the
- * form `@prompt/<name>[@<label>|@<version>]`. Returns the body unchanged when
- * it carries neither.
+ * The prompt reference a body carries: the `prompt` object, or a `model` of
+ * the form `@prompt/<name>[@<label>|@<version>]`. Undefined when it has
+ * neither; 400 when it has both or the reference is malformed.
  */
-export async function applyPromptReference(
-	rawBody: unknown,
-	headers: Headers,
-): Promise<{ body: unknown; applied?: AppliedPrompt }> {
-	if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
-		return { body: rawBody };
-	}
-	const { prompt: reference, ...rest } = rawBody as Record<string, unknown>;
-	const modelReference = parsePromptModelReference(rest.model);
+function parsePromptReference(body: Record<string, unknown>) {
+	const reference = body.prompt;
+	const modelReference = parsePromptModelReference(body.model);
 	if (reference === undefined && modelReference === undefined) {
-		return { body: rawBody };
+		return undefined;
 	}
 	if (reference !== undefined && modelReference !== undefined) {
 		throw new HTTPException(400, {
@@ -95,6 +86,55 @@ export async function applyPromptReference(
 				"Invalid 'prompt': expected { id: string, version?: number, label?: string, variables?: object }",
 		});
 	}
+	return { ...parsed.data, viaModel: modelReference !== undefined };
+}
+
+/**
+ * The model a prompt-referencing body will run on once the chat handler
+ * expands it: the version's default model when the body names no model or
+ * references the prompt through `model`. Undefined when the body references
+ * no prompt, names its own model, or the lookup fails (the chat handler
+ * reports that error).
+ */
+export async function resolvePromptModel(
+	body: Record<string, unknown>,
+	projectId: string,
+): Promise<string | undefined> {
+	let reference: ReturnType<typeof parsePromptReference>;
+	try {
+		reference = parsePromptReference(body);
+	} catch {
+		return undefined;
+	}
+	if (!reference || (!reference.viaModel && body.model !== undefined)) {
+		return undefined;
+	}
+	const found = await findPromptVersion(projectId, reference.id, {
+		version: reference.version,
+		label: reference.label,
+	});
+	return found?.version.model ?? undefined;
+}
+
+/**
+ * Expands a prompt reference in a chat completions body into concrete fields:
+ * the version's rendered messages go first, followed by any messages the
+ * caller sent; the version's model and parameters fill only fields the caller
+ * left unset. Returns the body unchanged when it references no prompt.
+ */
+export async function applyPromptReference(
+	rawBody: unknown,
+	headers: Headers,
+): Promise<{ body: unknown; applied?: AppliedPrompt }> {
+	if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+		return { body: rawBody };
+	}
+	const parsed = parsePromptReference(rawBody as Record<string, unknown>);
+	if (!parsed) {
+		return { body: rawBody };
+	}
+	const { prompt: _reference, ...rest } = rawBody as Record<string, unknown>;
+	const modelReference = parsed.viaModel;
 	const token = requestToken(headers);
 	const apiKey = token ? await findApiKeyByToken(token) : undefined;
 	if (!apiKey || apiKey.status !== "active") {
@@ -102,26 +142,26 @@ export async function applyPromptReference(
 			message: "Unauthorized: a valid LLMGateway API key is required",
 		});
 	}
-	const found = await findPromptVersion(apiKey.projectId, parsed.data.id, {
-		version: parsed.data.version,
-		label: parsed.data.label,
+	const found = await findPromptVersion(apiKey.projectId, parsed.id, {
+		version: parsed.version,
+		label: parsed.label,
 	});
 	if (!found) {
 		const selector =
-			parsed.data.version !== undefined
-				? `version ${parsed.data.version}`
-				: `label '${parsed.data.label ?? PROMPT_PRODUCTION_LABEL}'`;
+			parsed.version !== undefined
+				? `version ${parsed.version}`
+				: `label '${parsed.label ?? PROMPT_PRODUCTION_LABEL}'`;
 		throw new HTTPException(404, {
-			message: `Prompt '${parsed.data.id}' ${selector} not found in this project`,
+			message: `Prompt '${parsed.id}' ${selector} not found in this project`,
 		});
 	}
 	if (modelReference && !found.version.model) {
 		throw new HTTPException(400, {
-			message: `Prompt '${parsed.data.id}' version ${found.version.version} has no default model. Set one on the version, or send 'prompt' together with 'model'`,
+			message: `Prompt '${parsed.id}' version ${found.version.version} has no default model. Set one on the version, or send 'prompt' together with 'model'`,
 		});
 	}
 	const variables = Object.fromEntries(
-		Object.entries(parsed.data.variables ?? {}).map(([name, value]) => [
+		Object.entries(parsed.variables ?? {}).map(([name, value]) => [
 			name,
 			String(value),
 		]),

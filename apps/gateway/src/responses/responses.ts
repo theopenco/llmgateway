@@ -21,7 +21,10 @@ import { logGatewayClientError } from "@/lib/client-error-log.js";
 import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import { streamSSE } from "@/lib/pending-work.js";
-import { PROMPT_RESPONSE_HEADERS } from "@/lib/prompt-template.js";
+import {
+	PROMPT_RESPONSE_HEADERS,
+	resolvePromptModel,
+} from "@/lib/prompt-template.js";
 import {
 	setResponsesContext,
 	deleteResponsesContext,
@@ -444,10 +447,16 @@ responses.post("/", async (c) => {
 		chatRequest.stream_options = { include_usage: true };
 	}
 
+	// The model the chat handler will run: a managed prompt's default model when
+	// the request leaves `model` to the prompt. Resolved here so the
+	// response.created event and the stored response name it from the start.
+	const responseModel =
+		(await resolvePromptModel(chatRequest, projectId)) ?? req.model ?? "";
+
 	// Generate log ID with resp_ prefix — this is both the log entry's primary key
 	// and the Responses API response ID
 	const logId = `resp_${shortid(24)}`;
-	const state = createStreamingState(req.model ?? "", logId, req, toolRegistry);
+	const state = createStreamingState(responseModel, logId, req, toolRegistry);
 
 	// Make internal request to the existing chat completions endpoint
 	const internalHeaders: Record<string, string> = {
@@ -700,7 +709,7 @@ responses.post("/", async (c) => {
 	const chatJson = await response.json();
 	const responsesResponse = convertChatResponseToResponses(
 		chatJson,
-		req.model ?? "",
+		responseModel,
 		logId,
 		req,
 		toolRegistry,
