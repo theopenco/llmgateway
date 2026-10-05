@@ -17,7 +17,8 @@ const MDX_COMPONENT_REPLACEMENTS: Record<string, string> = {
 
 // Raw MDX component tags mean nothing to LLM readers; swap known navigation
 // components for text pointers and drop the rest instead of leaking JSX.
-// Fenced code blocks are left untouched so JSX code samples survive.
+// Fenced code blocks and inline code spans are left untouched so JSX code
+// samples and component names survive.
 function replaceMdxComponents(text: string): string {
 	return text
 		.split(/(```[\s\S]*?```)/)
@@ -29,7 +30,10 @@ function replaceMdxComponents(text: string): string {
 							/^[ \t]*<([A-Z][A-Za-z0-9]*)(?:\s[^>]*)?\/>[ \t]*$/gm,
 							(_match, name: string) => MDX_COMPONENT_REPLACEMENTS[name] ?? "",
 						)
-						.replace(/<\/?[A-Z][A-Za-z0-9]*(?:\s[^>]*)?>/g, "")
+						.replace(
+							/(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)|<\/?[A-Z][A-Za-z0-9]*(?:\s[^>]*)?>/g,
+							(match) => (match.startsWith("`") ? match : ""),
+						)
 						.replace(/\n{3,}/g, "\n\n"),
 		)
 		.join("");
