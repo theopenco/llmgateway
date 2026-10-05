@@ -20,6 +20,7 @@ import {
 import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
+	type PeakPricing,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 import {
@@ -55,6 +56,12 @@ const providerSchema = z.object({
 	status: z.enum(["active", "inactive"]),
 });
 
+const timeBasedTokenPricesSchema = z.object({
+	inputPrice: z.string(),
+	outputPrice: z.string(),
+	cachedInputPrice: z.string().nullable(),
+});
+
 // Pricing tier schema
 const pricingTierSchema = z.object({
 	name: z.string(),
@@ -65,25 +72,33 @@ const pricingTierSchema = z.object({
 	cacheReadInputPrice: z.string().nullable(),
 	cacheWriteInputPrice: z.string().nullable(),
 	cacheWriteInputPrice1h: z.string().nullable(),
+	// Per-tier peak/off-peak rates; the schedule is the mapping's peakPricing.
+	peakPricing: z
+		.object({
+			peak: timeBasedTokenPricesSchema,
+			offPeak: timeBasedTokenPricesSchema,
+		})
+		.nullable(),
 });
 
-const timeBasedTokenPricesSchema = z.object({
-	inputPrice: z.string(),
-	outputPrice: z.string(),
-	cachedInputPrice: z.string().nullable(),
-});
+function serializeTimeBasedPrices(
+	rates: PeakPricing["peak"],
+): z.infer<typeof timeBasedTokenPricesSchema> {
+	return {
+		inputPrice: String(rates.inputPrice),
+		outputPrice: String(rates.outputPrice),
+		cachedInputPrice:
+			rates.cachedInputPrice !== undefined
+				? String(rates.cachedInputPrice)
+				: null,
+	};
+}
 
 const peakPricingSchema = z.object({
 	peak: timeBasedTokenPricesSchema,
 	offPeak: timeBasedTokenPricesSchema,
 	hoursUtc: z.array(z.tuple([z.number(), z.number()])),
-	offPeakDays: z
-		.object({
-			daysOfWeek: z.array(z.number()),
-			utcOffsetMinutes: z.number(),
-			timeZoneLabel: z.string(),
-		})
-		.nullable(),
+	offPeakDaysUtc: z.array(z.number()).nullable(),
 });
 
 // Model provider mapping schema
@@ -372,50 +387,26 @@ internalModels.openapi(getModelsRoute, async (c) => {
 							t.cacheWriteInputPrice1h !== undefined
 								? String(t.cacheWriteInputPrice1h)
 								: null,
+						peakPricing: t.peakPricing
+							? {
+									peak: serializeTimeBasedPrices(t.peakPricing.peak),
+									offPeak: serializeTimeBasedPrices(t.peakPricing.offPeak),
+								}
+							: null,
 					}));
 				})(),
 				peakPricing:
 					mapping.source !== "airside" && sharedMapping?.peakPricing
 						? {
-								peak: {
-									inputPrice: String(sharedMapping.peakPricing.peak.inputPrice),
-									outputPrice: String(
-										sharedMapping.peakPricing.peak.outputPrice,
-									),
-									cachedInputPrice:
-										sharedMapping.peakPricing.peak.cachedInputPrice !==
-										undefined
-											? String(sharedMapping.peakPricing.peak.cachedInputPrice)
-											: null,
-								},
-								offPeak: {
-									inputPrice: String(
-										sharedMapping.peakPricing.offPeak.inputPrice,
-									),
-									outputPrice: String(
-										sharedMapping.peakPricing.offPeak.outputPrice,
-									),
-									cachedInputPrice:
-										sharedMapping.peakPricing.offPeak.cachedInputPrice !==
-										undefined
-											? String(
-													sharedMapping.peakPricing.offPeak.cachedInputPrice,
-												)
-											: null,
-								},
+								peak: serializeTimeBasedPrices(sharedMapping.peakPricing.peak),
+								offPeak: serializeTimeBasedPrices(
+									sharedMapping.peakPricing.offPeak,
+								),
 								hoursUtc: sharedMapping.peakPricing.hoursUtc.map(
 									([start, end]) => [start, end] as [number, number],
 								),
-								offPeakDays: sharedMapping.peakPricing.offPeakDays
-									? {
-											daysOfWeek: [
-												...sharedMapping.peakPricing.offPeakDays.daysOfWeek,
-											],
-											utcOffsetMinutes:
-												sharedMapping.peakPricing.offPeakDays.utcOffsetMinutes,
-											timeZoneLabel:
-												sharedMapping.peakPricing.offPeakDays.timeZoneLabel,
-										}
+								offPeakDaysUtc: sharedMapping.peakPricing.offPeakDaysUtc
+									? [...sharedMapping.peakPricing.offPeakDaysUtc]
 									: null,
 							}
 						: null,

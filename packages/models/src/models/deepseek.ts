@@ -283,8 +283,8 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-v4-pro",
-				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
-				// rates below. All other hours and Beijing-time weekends bill at
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday-Friday) bill
+				// at the peak rates below. All other hours and UTC weekends bill at
 				// the off-peak rates.
 				inputPrice: "0.435e-6",
 				outputPrice: "0.87e-6",
@@ -304,11 +304,7 @@ export const deepseekModels = [
 						[1, 4],
 						[6, 10],
 					],
-					offPeakDays: {
-						daysOfWeek: [0, 6],
-						utcOffsetMinutes: 480,
-						timeZoneLabel: "Beijing time",
-					},
+					offPeakDaysUtc: [0, 6],
 				},
 				requestPrice: "0",
 				contextSize: 1050000,
@@ -607,8 +603,8 @@ export const deepseekModels = [
 				providerId: "deepseek",
 				externalId: "deepseek-v4-flash",
 				deactivatedAt: new Date("2026-09-10"),
-				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
-				// rates below. All other hours and Beijing-time weekends bill at
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday-Friday) bill
+				// at the peak rates below. All other hours and UTC weekends bill at
 				// the off-peak rates.
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
@@ -628,11 +624,7 @@ export const deepseekModels = [
 						[1, 4],
 						[6, 10],
 					],
-					offPeakDays: {
-						daysOfWeek: [0, 6],
-						utcOffsetMinutes: 480,
-						timeZoneLabel: "Beijing time",
-					},
+					offPeakDaysUtc: [0, 6],
 				},
 				requestPrice: "0",
 				contextSize: 1050000,
@@ -986,11 +978,7 @@ export const deepseekModels = [
 						[1, 4],
 						[6, 10],
 					],
-					offPeakDays: {
-						daysOfWeek: [0, 6],
-						utcOffsetMinutes: 480,
-						timeZoneLabel: "Beijing time",
-					},
+					offPeakDaysUtc: [0, 6],
 				},
 				requestPrice: "0",
 				contextSize: 1050000,
@@ -1031,8 +1019,8 @@ export const deepseekModels = [
 				// DeepSeek fetches remote image URLs itself and fails on hosts it
 				// cannot reach, while the same bytes inline as a data URL work.
 				requiresBase64Images: true,
-				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
-				// rates below. All other hours and Beijing-time weekends bill at
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday-Friday) bill
+				// at the peak rates below. All other hours and UTC weekends bill at
 				// the off-peak rates.
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
@@ -1052,11 +1040,7 @@ export const deepseekModels = [
 						[1, 4],
 						[6, 10],
 					],
-					offPeakDays: {
-						daysOfWeek: [0, 6],
-						utcOffsetMinutes: 480,
-						timeZoneLabel: "Beijing time",
-					},
+					offPeakDaysUtc: [0, 6],
 				},
 				requestPrice: "0",
 				contextSize: 1050000,

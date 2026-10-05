@@ -10,6 +10,8 @@ import {
 	zeroInferenceCosts,
 } from "./costs.js";
 
+import type { ProviderModelMapping } from "@llmgateway/models";
+
 const { mockGetEffectiveDiscount } = vi.hoisted(() => ({
 	mockGetEffectiveDiscount: vi.fn(),
 }));
@@ -240,6 +242,7 @@ describe("calculateCosts", () => {
 		expect(result.cacheWriteInputCost).toBeCloseTo(40 * 5e-6, 10);
 		expect(result.outputCost).toBeCloseTo(300 * 20e-6, 10);
 		expect(result.pricingTier).toBe("Up to 272K");
+		expect(result.pricingPeriod).toBeUndefined();
 	});
 
 	it("applies GPT-5.6 long-context pricing above 272K prompt tokens", async () => {
@@ -2782,6 +2785,7 @@ describe("peak / off-peak time-of-day pricing", () => {
 		expect(flash.inputCost).toBeCloseTo(0.22);
 		expect(flash.outputCost).toBeCloseTo(0.66);
 		expect(flash.cachedInputCost).toBeCloseTo(0.007);
+		expect(flash.pricingPeriod).toBe("off_peak");
 
 		const pro = await calculateCosts(
 			"deepseek-v4-pro",
@@ -2810,6 +2814,7 @@ describe("peak / off-peak time-of-day pricing", () => {
 		expect(flash.inputCost).toBeCloseTo(0.44);
 		expect(flash.outputCost).toBeCloseTo(1.32);
 		expect(flash.cachedInputCost).toBeCloseTo(0.014);
+		expect(flash.pricingPeriod).toBe("peak");
 
 		const pro = await calculateCosts(
 			"deepseek-v4-pro",
@@ -2878,6 +2883,81 @@ describe("peak / off-peak time-of-day pricing", () => {
 			null,
 		);
 		expect(flash.inputCost).toBeCloseTo(0.44);
+	});
+
+	describe("with context-length tiers", () => {
+		const tieredPeakPricing = {
+			providerId: "custom",
+			externalId: "tiered-peak",
+			inputPrice: "1e-6",
+			outputPrice: "2e-6",
+			streaming: true,
+			peakPricing: {
+				peak: { inputPrice: "1e-6", outputPrice: "2e-6" },
+				offPeak: { inputPrice: "0.5e-6", outputPrice: "1e-6" },
+				hoursUtc: [[1, 4]],
+			},
+			pricingTiers: [
+				{
+					name: "Up to 256K",
+					upToTokens: 256000,
+					inputPrice: "1e-6",
+					outputPrice: "2e-6",
+					peakPricing: {
+						peak: { inputPrice: "1e-6", outputPrice: "2e-6" },
+						offPeak: { inputPrice: "0.5e-6", outputPrice: "1e-6" },
+					},
+				},
+				{
+					name: "Over 256K",
+					upToTokens: Infinity,
+					inputPrice: "3e-6",
+					outputPrice: "6e-6",
+					peakPricing: {
+						peak: { inputPrice: "3e-6", outputPrice: "6e-6" },
+						offPeak: { inputPrice: "1.5e-6", outputPrice: "3e-6" },
+					},
+				},
+			],
+		} satisfies ProviderModelMapping;
+
+		const bill = (promptTokens: number) =>
+			calculateCosts(
+				"tiered-peak",
+				"custom",
+				null,
+				promptTokens,
+				1_000_000,
+				null,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ customPricing: tieredPeakPricing },
+			);
+
+		it.each([
+			["peak", "2026-08-17T02:00:00Z", 100_000, "Up to 256K", 0.1, 2],
+			["off_peak", "2026-08-17T12:00:00Z", 100_000, "Up to 256K", 0.05, 1],
+			["peak", "2026-08-17T02:00:00Z", 300_000, "Over 256K", 0.9, 6],
+			["off_peak", "2026-08-17T12:00:00Z", 300_000, "Over 256K", 0.45, 3],
+		] as const)(
+			"bills the tier's %s rates (%s, %d prompt tokens)",
+			async (period, iso, promptTokens, tierName, inputCost, outputCost) => {
+				setTime(iso);
+				const result = await bill(promptTokens);
+				expect(result.pricingTier).toBe(tierName);
+				expect(result.pricingPeriod).toBe(period);
+				expect(result.inputCost).toBeCloseTo(inputCost);
+				expect(result.outputCost).toBeCloseTo(outputCost);
+			},
+		);
 	});
 });
 

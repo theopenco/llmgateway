@@ -10,6 +10,9 @@ import {
 	type ToolCall,
 	expandAllProviderRegions,
 	getSupportedServiceTiers,
+	type PricingPeriod,
+	resolvePricingPeriod,
+	resolveTierTimeBasedPricing,
 	resolveTimeBasedPricing,
 } from "@llmgateway/models";
 import {
@@ -157,10 +160,12 @@ export function shouldBillCancelledRequests(): boolean {
 }
 
 /**
- * Get the appropriate pricing tier based on prompt token count
+ * Get the appropriate pricing tier based on prompt token count. A tier with
+ * its own peak/off-peak rates bills them for `period`.
  */
 function getPricingForTokenCount(
 	pricingTiers: PricingTier[] | undefined,
+	period: PricingPeriod | undefined,
 	baseInputPrice: string,
 	baseOutputPrice: string,
 	baseCachedInputPrice: string | undefined,
@@ -176,6 +181,7 @@ function getPricingForTokenCount(
 	cacheWriteInputPrice: string | undefined;
 	cacheWriteInputPrice1h: string | undefined;
 	tierName: string | undefined;
+	pricingPeriod: PricingPeriod | undefined;
 } {
 	if (!pricingTiers || pricingTiers.length === 0) {
 		return {
@@ -186,40 +192,26 @@ function getPricingForTokenCount(
 			cacheWriteInputPrice: baseCacheWriteInputPrice,
 			cacheWriteInputPrice1h: baseCacheWriteInputPrice1h,
 			tierName: undefined,
+			pricingPeriod: period,
 		};
 	}
 
-	// Find the appropriate tier based on prompt tokens
-	for (const tier of pricingTiers) {
-		if (promptTokens <= tier.upToTokens) {
-			return {
-				inputPrice: tier.inputPrice,
-				outputPrice: tier.outputPrice,
-				cachedInputPrice: tier.cachedInputPrice ?? baseCachedInputPrice,
-				cacheReadInputPrice:
-					tier.cacheReadInputPrice ?? baseCacheReadInputPrice,
-				cacheWriteInputPrice:
-					tier.cacheWriteInputPrice ?? baseCacheWriteInputPrice,
-				cacheWriteInputPrice1h:
-					tier.cacheWriteInputPrice1h ?? baseCacheWriteInputPrice1h,
-				tierName: tier.name,
-			};
-		}
-	}
-
-	// If no tier matched (shouldn't happen with Infinity), use the last tier
-	const lastTier = pricingTiers[pricingTiers.length - 1];
+	// Find the appropriate tier based on prompt tokens; fall back to the last
+	// tier if none matched (shouldn't happen with Infinity).
+	const tier =
+		pricingTiers.find((t) => promptTokens <= t.upToTokens) ??
+		pricingTiers[pricingTiers.length - 1];
+	const tierPricing = resolveTierTimeBasedPricing(tier, period);
 	return {
-		inputPrice: lastTier.inputPrice,
-		outputPrice: lastTier.outputPrice,
-		cachedInputPrice: lastTier.cachedInputPrice ?? baseCachedInputPrice,
-		cacheReadInputPrice:
-			lastTier.cacheReadInputPrice ?? baseCacheReadInputPrice,
-		cacheWriteInputPrice:
-			lastTier.cacheWriteInputPrice ?? baseCacheWriteInputPrice,
+		inputPrice: tierPricing.inputPrice,
+		outputPrice: tierPricing.outputPrice,
+		cachedInputPrice: tierPricing.cachedInputPrice ?? baseCachedInputPrice,
+		cacheReadInputPrice: tier.cacheReadInputPrice ?? baseCacheReadInputPrice,
+		cacheWriteInputPrice: tier.cacheWriteInputPrice ?? baseCacheWriteInputPrice,
 		cacheWriteInputPrice1h:
-			lastTier.cacheWriteInputPrice1h ?? baseCacheWriteInputPrice1h,
-		tierName: lastTier.name,
+			tier.cacheWriteInputPrice1h ?? baseCacheWriteInputPrice1h,
+		tierName: tier.name,
+		pricingPeriod: tierPricing.pricingPeriod,
 	};
 }
 
@@ -372,6 +364,7 @@ export async function calculateCosts(
 			estimatedCost: false,
 			discount: undefined,
 			pricingTier: undefined,
+			pricingPeriod: undefined,
 		};
 	}
 
@@ -503,6 +496,7 @@ export async function calculateCosts(
 			estimatedCost: isEstimated,
 			discount: undefined,
 			pricingTier: undefined,
+			pricingPeriod: undefined,
 		};
 	}
 
@@ -560,6 +554,7 @@ export async function calculateCosts(
 			estimatedCost: isEstimated,
 			discount: undefined,
 			pricingTier: undefined,
+			pricingPeriod: undefined,
 		};
 	}
 	calculatedPromptTokens = calculatedPromptTokens || 0;
@@ -569,10 +564,13 @@ export async function calculateCosts(
 	// Resolve peak/off-peak time-of-day pricing: use the peak rates while the
 	// current UTC hour is inside the mapping's peak window, the off-peak base
 	// rates otherwise. Tier selection below then overrides by token count for
-	// mappings that price by context length.
-	const timeBasedPricing = resolveTimeBasedPricing(providerInfo);
+	// mappings that price by context length, using the tier's own rates for
+	// the same period.
+	const pricedAt = new Date();
+	const timeBasedPricing = resolveTimeBasedPricing(providerInfo, pricedAt);
 	const pricing = getPricingForTokenCount(
 		providerInfo.pricingTiers,
+		resolvePricingPeriod(providerInfo, pricedAt),
 		timeBasedPricing.inputPrice,
 		timeBasedPricing.outputPrice,
 		timeBasedPricing.cachedInputPrice,
@@ -969,6 +967,7 @@ export async function calculateCosts(
 		estimatedCost: isEstimated && !rejectionFeeOnly,
 		discount: Number(discount) !== 0 ? Number(discount) : undefined,
 		pricingTier: pricing.tierName,
+		pricingPeriod: pricing.pricingPeriod,
 	};
 	if (rejectionFeeOnly) {
 		zeroInferenceCosts(costs);
