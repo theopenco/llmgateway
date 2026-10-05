@@ -315,6 +315,34 @@ describe("admin provider detail for airside carriers", () => {
 		]);
 	});
 
+	test("an admin fare change rejects the carrier's pending filing", async () => {
+		await db.insert(tables.providerRoutingFiling).values({
+			id: FILING_ID,
+			providerCompanyId: COMPANY_ID,
+			providerId: CARRIER_ID,
+			discountPercent: "0.2",
+			marginPercent: "0.2",
+		});
+
+		const response = await app.request(
+			`/admin/airside/routing-settings/${CARRIER_ID}`,
+			{
+				method: "PUT",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ discountPercent: 0.1, marginPercent: 0.2 }),
+			},
+		);
+		expect(response.status).toBe(200);
+
+		const pending = await db.query.providerRoutingFiling.findFirst({
+			where: { id: { eq: FILING_ID } },
+		});
+		expect(pending).toMatchObject({
+			status: "rejected",
+			reviewNote: "Superseded by an admin fare change.",
+		});
+	});
+
 	test("falls back to the default margin when no routing row exists", async () => {
 		const response = await app.request(`/admin/providers/${CARRIER_ID}`, {
 			headers: { Cookie: cookie },

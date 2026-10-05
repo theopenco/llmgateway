@@ -1838,6 +1838,34 @@ function routingScope(providerId: string, modelId: string | null) {
 	);
 }
 
+// A carrier filing still pending for the scope would overwrite the admin's
+// fare (or recreate a removed override) once approved, so it is rejected.
+function rejectPendingFilings(
+	tx: Pick<typeof db, "update">,
+	providerId: string,
+	modelId: string | null,
+	userId: string | null,
+	reviewNote: string,
+) {
+	return tx
+		.update(tables.providerRoutingFiling)
+		.set({
+			status: "rejected",
+			reviewedBy: userId,
+			reviewNote,
+			reviewedAt: new Date(),
+		})
+		.where(
+			and(
+				eq(tables.providerRoutingFiling.providerId, providerId),
+				modelId
+					? eq(tables.providerRoutingFiling.modelId, modelId)
+					: sql`${tables.providerRoutingFiling.modelId} IS NULL`,
+				eq(tables.providerRoutingFiling.status, "pending"),
+			),
+		);
+}
+
 // Admin fare changes skip review, so their filing is born approved.
 function adminFilingFields(userId: string | null) {
 	return {
@@ -1906,6 +1934,13 @@ adminAirside.openapi(setRoutingSettings, async (c) => {
 	const userId = c.get("user")?.id ?? null;
 	// cdb: the gateway prices the routing election from provider_routing_settings.
 	await cdb.transaction(async (tx) => {
+		await rejectPendingFilings(
+			tx,
+			providerId,
+			modelId,
+			userId,
+			"Superseded by an admin fare change.",
+		);
 		const updated = await tx
 			.update(tables.providerRoutingSettings)
 			.set(values)
@@ -1955,6 +1990,13 @@ adminAirside.openapi(deleteRoutingOverride, async (c) => {
 		if (deleted.length === 0) {
 			throw new HTTPException(404, { message: "Override not found" });
 		}
+		await rejectPendingFilings(
+			tx,
+			providerId,
+			modelId,
+			userId,
+			"Superseded by an admin override removal.",
+		);
 		const [fallback] = await tx
 			.select()
 			.from(tables.providerRoutingSettings)

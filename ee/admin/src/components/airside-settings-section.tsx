@@ -94,8 +94,21 @@ function readSvgDataUrl(file: File): Promise<string> {
 }
 
 // Percent inputs are edited as whole percentages and sent as fractions.
-function toFraction(value: string): number {
-	return Math.round(Number(value) * 100) / 10000;
+function toFraction(value: string): number | null {
+	const percent = Number(value);
+	if (value.trim() === "" || !Number.isFinite(percent)) {
+		return null;
+	}
+	return Math.round(percent * 100) / 10000;
+}
+
+// null while either input is empty or not a number.
+function parseFare(discount: string, margin: string) {
+	const discountPercent = toFraction(discount);
+	const marginPercent = toFraction(margin);
+	return discountPercent === null || marginPercent === null
+		? null
+		: { discountPercent, marginPercent };
 }
 
 function toPercentInput(fraction: number | undefined): string {
@@ -257,9 +270,14 @@ function EditDetailsDialog({
 										className="max-w-56"
 										onChange={async (e) => {
 											const file = e.target.files?.[0];
-											if (file) {
+											if (!file) {
+												return;
+											}
+											try {
 												const dataUrl = await readSvgDataUrl(file);
 												setImages((prev) => ({ ...prev, [field]: dataUrl }));
+											} catch {
+												toast.error("Could not read the image file.");
 											}
 										}}
 									/>
@@ -377,6 +395,7 @@ function FareRow({
 		"/admin/airside/routing-settings/{providerId}",
 		useRefreshOnSuccess("Fare updated."),
 	);
+	const fare = parseFare(discount, margin);
 	const removeOverride = $api.useMutation(
 		"delete",
 		"/admin/airside/routing-settings/{providerId}/override",
@@ -415,20 +434,18 @@ function FareRow({
 							<Button
 								size="sm"
 								className="h-7"
-								disabled={setFare.isPending}
-								onClick={() =>
-									setFare.mutate(
-										{
-											params: { path: { providerId } },
-											body: {
-												modelId,
-												discountPercent: toFraction(discount),
-												marginPercent: toFraction(margin),
+								disabled={!fare || setFare.isPending}
+								onClick={() => {
+									if (fare) {
+										setFare.mutate(
+											{
+												params: { path: { providerId } },
+												body: { modelId, ...fare },
 											},
-										},
-										{ onSuccess: () => setEditing(false) },
-									)
-								}
+											{ onSuccess: () => setEditing(false) },
+										);
+									}
+								}}
 							>
 								Save
 							</Button>
@@ -512,6 +529,7 @@ function AddOverrideForm({
 		"/admin/airside/routing-settings/{providerId}",
 		useRefreshOnSuccess("Override added."),
 	);
+	const fare = parseFare(discount, margin);
 
 	if (models.length === 0) {
 		return null;
@@ -521,17 +539,15 @@ function AddOverrideForm({
 			className="mt-3 flex flex-wrap items-end gap-2"
 			onSubmit={(e) => {
 				e.preventDefault();
-				setFare.mutate(
-					{
-						params: { path: { providerId } },
-						body: {
-							modelId,
-							discountPercent: toFraction(discount),
-							marginPercent: toFraction(margin),
+				if (fare) {
+					setFare.mutate(
+						{
+							params: { path: { providerId } },
+							body: { modelId, ...fare },
 						},
-					},
-					{ onSuccess: () => setModelId("") },
-				);
+						{ onSuccess: () => setModelId("") },
+					);
+				}
 			}}
 		>
 			<div className="space-y-1">
@@ -575,7 +591,11 @@ function AddOverrideForm({
 					onChange={(e) => setMargin(e.target.value)}
 				/>
 			</div>
-			<Button type="submit" size="sm" disabled={!modelId || setFare.isPending}>
+			<Button
+				type="submit"
+				size="sm"
+				disabled={!modelId || !fare || setFare.isPending}
+			>
 				Add override
 			</Button>
 		</form>
