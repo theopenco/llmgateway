@@ -303,7 +303,7 @@ export function CachingSettings({
 								<FormControl>
 									<Input
 										type="number"
-										step={0.01}
+										step={0.001}
 										min={0.8}
 										max={0.999}
 										className="w-32"

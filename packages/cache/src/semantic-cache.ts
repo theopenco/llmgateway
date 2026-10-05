@@ -52,20 +52,19 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 	return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-/** The most similar entry at or above `threshold`, or null. */
-export function findBestSemanticMatch(
+/** Entries at or above `threshold`, most similar first. */
+export function rankSemanticMatches(
 	embedding: number[],
 	entries: SemanticCacheEntry[],
 	threshold: number,
-): SemanticCacheMatch | null {
-	let best: SemanticCacheMatch | null = null;
-	for (const entry of entries) {
-		const similarity = cosineSimilarity(embedding, entry.embedding);
-		if (similarity >= threshold && (!best || similarity > best.similarity)) {
-			best = { cacheKey: entry.cacheKey, similarity };
-		}
-	}
-	return best;
+): SemanticCacheMatch[] {
+	return entries
+		.map((entry) => ({
+			cacheKey: entry.cacheKey,
+			similarity: cosineSimilarity(embedding, entry.embedding),
+		}))
+		.filter((match) => match.similarity >= threshold)
+		.sort((a, b) => b.similarity - a.similarity);
 }
 
 function encodeEntry(entry: SemanticCacheEntry): string {
@@ -105,11 +104,11 @@ export function decodeSemanticCacheEntry(
 	};
 }
 
-export async function findSemanticCacheMatch(
+export async function findSemanticCacheMatches(
 	scopeKey: string,
 	embedding: number[],
 	threshold: number,
-): Promise<SemanticCacheMatch | null> {
+): Promise<SemanticCacheMatch[]> {
 	try {
 		const raw = await storageRedisClient.lrange(
 			scopeKey,
@@ -119,11 +118,46 @@ export async function findSemanticCacheMatch(
 		const entries = raw
 			.map(decodeSemanticCacheEntry)
 			.filter((entry): entry is SemanticCacheEntry => entry !== null);
-		return findBestSemanticMatch(embedding, entries, threshold);
+		return rankSemanticMatches(embedding, entries, threshold);
 	} catch (error) {
 		logger.error("Error reading semantic cache", error as Error);
+		return [];
+	}
+}
+
+/**
+ * The most similar match whose cached response still exists, with that
+ * response. An entry can outlive its response, because each new entry
+ * refreshes the list's expiry, so a stale best match falls through to the
+ * next one.
+ */
+export async function findSemanticCacheHit(
+	scopeKey: string,
+	embedding: number[],
+	threshold: number,
+): Promise<(SemanticCacheMatch & { response: unknown }) | null> {
+	const matches = await findSemanticCacheMatches(
+		scopeKey,
+		embedding,
+		threshold,
+	);
+	if (matches.length === 0) {
 		return null;
 	}
+	try {
+		const values = await storageRedisClient.mget(
+			matches.map((match) => match.cacheKey),
+		);
+		for (let i = 0; i < matches.length; i++) {
+			const value = values[i];
+			if (value) {
+				return { ...matches[i], response: JSON.parse(value) };
+			}
+		}
+	} catch (error) {
+		logger.error("Error reading semantic cache responses", error as Error);
+	}
+	return null;
 }
 
 export async function addSemanticCacheEntry(

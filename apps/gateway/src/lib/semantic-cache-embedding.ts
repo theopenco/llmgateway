@@ -1,5 +1,6 @@
 import { trimSlashes } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
+import { isProviderUrlGuardEnabled } from "@llmgateway/shared";
 
 import type { BaseMessage } from "@llmgateway/models";
 
@@ -29,13 +30,25 @@ function messageText(content: unknown): string {
 	return "";
 }
 
+export interface SemanticCacheInput {
+	/** The latest messages with their roles, embedded and matched by meaning. */
+	text: string;
+	/**
+	 * What the embedding leaves out: earlier messages and text past the size
+	 * limit. It goes into the scope key, so it must match exactly.
+	 */
+	context: { earlier: BaseMessage[]; truncated: string };
+}
+
 /**
- * The text a semantic-cache lookup embeds: the latest messages with their
- * roles, so two conversations only match when their recent turns agree.
- * Null when a recent message carries non-text content (images, audio), which
- * the embedding cannot represent and must not be matched on.
+ * Splits a conversation for a semantic-cache lookup, so two conversations
+ * only match when their recent turns agree in meaning and everything else is
+ * identical. Null when a recent message carries non-text content (images,
+ * audio), which the embedding cannot represent and must not be matched on.
  */
-export function semanticCacheText(messages: BaseMessage[]): string | null {
+export function semanticCacheInput(
+	messages: BaseMessage[],
+): SemanticCacheInput | null {
 	const recent = messages.slice(-MAX_EMBEDDED_MESSAGES);
 	const lines: string[] = [];
 	for (const message of recent) {
@@ -55,7 +68,16 @@ export function semanticCacheText(messages: BaseMessage[]): string | null {
 		lines.push(`${message.role}: ${messageText(content)}`);
 	}
 	const text = lines.join("\n").trim();
-	return text ? text.slice(-MAX_EMBEDDED_CHARS) : null;
+	if (!text) {
+		return null;
+	}
+	return {
+		text: text.slice(-MAX_EMBEDDED_CHARS),
+		context: {
+			earlier: messages.slice(0, -MAX_EMBEDDED_MESSAGES),
+			truncated: text.slice(0, -MAX_EMBEDDED_CHARS),
+		},
+	};
 }
 
 function embeddingConfig(): {
@@ -87,6 +109,12 @@ function embeddingConfig(): {
 	};
 }
 
+export interface SemanticCacheEmbedding {
+	vector: number[];
+	/** Vectors from different models are not comparable. */
+	model: string;
+}
+
 /**
  * Embeds text for the semantic cache with the deployment's own embedding
  * credential. Returns null (a cache miss) when no credential is configured or
@@ -95,10 +123,18 @@ function embeddingConfig(): {
  */
 export async function embedForSemanticCache(
 	text: string,
-): Promise<number[] | null> {
+): Promise<SemanticCacheEmbedding | null> {
 	const config = embeddingConfig();
 	if (!config) {
 		logger.warn("Semantic cache enabled but no embedding credential is set");
+		return null;
+	}
+	// Prompt text and the bearer key must never cross the network in cleartext.
+	if (
+		isProviderUrlGuardEnabled() &&
+		!config.url.toLowerCase().startsWith("https://")
+	) {
+		logger.warn("Semantic cache embedding URL must use https");
 		return null;
 	}
 	try {
@@ -124,7 +160,7 @@ export async function embedForSemanticCache(
 		return Array.isArray(embedding) &&
 			embedding.length > 0 &&
 			embedding.every((value) => typeof value === "number")
-			? embedding
+			? { vector: embedding, model: config.model }
 			: null;
 	} catch (error) {
 		logger.warn("Semantic cache embedding request errored", {

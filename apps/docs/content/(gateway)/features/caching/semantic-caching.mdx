@@ -21,8 +21,8 @@ In the project's [**Preferences**](/learn/preferences), turn on **Enable request
 
 1. The exact cache is checked first.
 2. On a miss, the gateway embeds the latest text turns of the conversation (up to eight messages, with roles).
-3. It compares that embedding with recent cached requests that share the same model, provider, and request parameters. Only these entries are eligible, so a response is never reused under different settings.
-4. The most similar entry at or above the threshold is returned as a normal cached response.
+3. It compares that embedding with recent cached requests that share the same model, provider, request parameters, and any earlier messages outside those turns. Only these entries are eligible, so a response is never reused under different settings or context.
+4. The most similar entry at or above the threshold whose response is still cached is returned as a normal cached response.
 
 A semantic hit returns `x-llmgateway-cache: HIT` plus `x-llmgateway-cache-match: semantic` and `x-llmgateway-cache-similarity`. It is logged and billed as a cached request.
 
@@ -33,10 +33,11 @@ A semantic hit returns `x-llmgateway-cache: HIT` plus `x-llmgateway-cache-match:
 - Up to 256 recent entries are compared per model and parameter set.
 - `x-no-cache: true`, zero data retention, and DevPass organizations bypass it, as with request caching.
 - If the embedding call fails or times out (2 seconds), the request continues as a miss.
+- It stops when the organization leaves the Enterprise plan.
 - Requests under an active [compliance policy](/features/compliance) skip it, because the embedding call would send prompt text to a provider the policy does not vet. For the same reason it cannot be turned on while a policy is active, and turning off request caching turns it off too.
 
 Pick a higher threshold when small wording changes alter the answer (numbers, names, dates); lower it for FAQ-style traffic.
 
 ## Self-hosting
 
-The gateway embeds with `SEMANTIC_CACHE_EMBEDDING_MODEL` (default `text-embedding-3-small`) on an OpenAI-compatible endpoint. Set `SEMANTIC_CACHE_EMBEDDING_API_KEY` and `SEMANTIC_CACHE_EMBEDDING_BASE_URL`; they fall back to `LLM_OPENAI_API_KEY` and `LLM_OPENAI_BASE_URL`.
+The gateway embeds with `SEMANTIC_CACHE_EMBEDDING_MODEL` (default `text-embedding-3-small`) on an OpenAI-compatible endpoint. Set `SEMANTIC_CACHE_EMBEDDING_API_KEY` and `SEMANTIC_CACHE_EMBEDDING_BASE_URL`; they fall back to `LLM_OPENAI_API_KEY` and `LLM_OPENAI_BASE_URL`. The base URL must use HTTPS unless `ALLOW_INSECURE_PROVIDER_URLS=true`. Changing the model starts a fresh set of entries.

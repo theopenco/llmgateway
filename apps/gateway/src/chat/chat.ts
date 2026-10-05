@@ -110,7 +110,7 @@ import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import {
 	embedForSemanticCache,
-	semanticCacheText,
+	semanticCacheInput,
 } from "@/lib/semantic-cache-embedding.js";
 import {
 	createSmartRoutingSessionStore,
@@ -172,7 +172,7 @@ import {
 } from "@llmgateway/actions";
 import {
 	addSemanticCacheEntry,
-	findSemanticCacheMatch,
+	findSemanticCacheHit,
 	generateCacheKey,
 	generateSemanticCacheScopeKey,
 	generateStreamingCacheKey,
@@ -7576,36 +7576,43 @@ chat.openapi(completions, async (c) => {
 			cacheKey = generateCacheKey(project.id, cachePayload);
 			let cachedResponse = cacheKey ? await getCache(cacheKey) : null;
 			// The embedding call sends prompt text to an embedding provider that the
-			// compliance policy does not vet, so any active policy disables it.
+			// compliance policy does not vet, so any active policy disables it. The
+			// stored project setting outlives a lapsed Enterprise plan, so the
+			// entitlement is checked here too.
 			if (
 				!cachedResponse &&
 				projectSemanticCacheEnabled &&
+				hasOrganizationEnterpriseAccess(organization.id, organization.plan) &&
 				!compliancePolicy &&
 				!tools?.length
 			) {
-				const semanticText = semanticCacheText(messages as BaseMessage[]);
-				const embedding = semanticText
-					? await embedForSemanticCache(semanticText)
+				const semanticInput = semanticCacheInput(messages as BaseMessage[]);
+				const embedding = semanticInput
+					? await embedForSemanticCache(semanticInput.text)
 					: null;
-				if (embedding) {
+				if (semanticInput && embedding) {
+					// Everything except the embedded text must match exactly, including
+					// the context it leaves out and the model that produced the vector.
 					const scopeKey = generateSemanticCacheScopeKey(project.id, {
 						...cachePayload,
 						messages: undefined,
+						semanticContext: semanticInput.context,
+						embeddingModel: embedding.model,
 					});
-					const match = await findSemanticCacheMatch(
+					const hit = await findSemanticCacheHit(
 						scopeKey,
-						embedding,
+						embedding.vector,
 						semanticCacheThreshold,
 					);
-					cachedResponse = match ? await getCache(match.cacheKey) : null;
-					if (match && cachedResponse) {
+					if (hit) {
+						cachedResponse = hit.response;
 						c.header("x-llmgateway-cache-match", "semantic");
 						c.header(
 							"x-llmgateway-cache-similarity",
-							match.similarity.toFixed(4),
+							hit.similarity.toFixed(4),
 						);
 					} else {
-						semanticCacheWrite = { scopeKey, embedding };
+						semanticCacheWrite = { scopeKey, embedding: embedding.vector };
 					}
 				}
 			}
