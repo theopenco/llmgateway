@@ -204,8 +204,7 @@ export function supportsOpenAIExplicitPromptCache(modelName: string): boolean {
  * Without `peakPricing`, the mapping's base inputPrice/outputPrice/
  * cachedInputPrice are always returned. With `peakPricing`, the `peak` rates
  * apply while `now` (UTC) falls inside a peak window and the `offPeak` rates
- * otherwise. A matching `offPeakDays` calendar day overrides the hourly
- * windows.
+ * otherwise. A matching `offPeakDaysUtc` day overrides the hourly windows.
  */
 export function resolveTimeBasedPricing(
 	mapping: Pick<
@@ -226,13 +225,8 @@ export function resolveTimeBasedPricing(
 			cachedInputPrice: mapping.cachedInputPrice,
 		};
 	}
-	const offPeakDays = peakPricing.offPeakDays;
-	const utcOffsetMilliseconds = (offPeakDays?.utcOffsetMinutes ?? 0) * 60_000;
 	const isOffPeakDay =
-		offPeakDays !== undefined &&
-		offPeakDays.daysOfWeek.includes(
-			new Date(now.getTime() + utcOffsetMilliseconds).getUTCDay(),
-		);
+		peakPricing.offPeakDaysUtc?.includes(now.getUTCDay()) ?? false;
 	const hour = now.getUTCHours();
 	const isPeak =
 		!isOffPeakDay &&
