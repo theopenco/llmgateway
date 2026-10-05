@@ -97,11 +97,7 @@ export interface ApiModelProviderMapping {
 			cachedInputPrice: string | null;
 		};
 		hoursUtc: Array<[number, number]>;
-		offPeakDays: {
-			daysOfWeek: number[];
-			utcOffsetMinutes: number;
-			timeZoneLabel: string;
-		} | null;
+		offPeakDaysUtc: number[] | null;
 	} | null;
 	serviceTiers?: string[] | null;
 	discount: string | null;
