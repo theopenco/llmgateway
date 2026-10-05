@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "84334195-135c-41c6-bc93-e495f63f9421",
-  "prevId": "c9e58b12-1f8f-4a41-8565-3a1be94c8b35",
+  "id": "7f7d6090-f177-4b1e-83d0-2c8ce1c37c9e",
+  "prevId": "2bbc0fe7-1a8c-4c21-a13a-75ca02dfe1c4",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -145,12 +145,6 @@
     {
       "isRlsEnabled": false,
       "name": "custom_model",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "data_stream",
       "entityType": "tables",
       "schema": "public"
     },
@@ -6809,345 +6803,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "project_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "name",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "source",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "destination",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "type": "unknown",
-        "value": "'{}'"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "config",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "secret",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "true",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "enabled",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "paused_reason",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "cursor_created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "''",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "cursor_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "replay_from",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "replay_to",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "replay_cursor_created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "replay_cursor_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "delivered_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "last_delivered_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "last_error",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "last_error_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "failure_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "rejection_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "data_stream"
     },
     {
       "type": "text",
@@ -18168,38 +17823,6 @@
       "table": "organization"
     },
     {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "data_streams_enabled",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "request_log_export_enabled",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
       "type": "integer",
       "typeSchema": null,
       "notNull": true,
@@ -24695,19 +24318,6 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "streaming",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
       "name": "cancellation",
       "entityType": "columns",
       "schema": "public",
@@ -27877,6 +27487,38 @@
       "generated": null,
       "identity": null,
       "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_routing_filing"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'carrier'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "initiated_by",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_routing_filing"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "clears_override",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_routing_filing"
@@ -34276,27 +33918,6 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "custom_model"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "data_stream_organization_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "data_stream"
     },
     {
       "nameExplicit": true,
@@ -40714,40 +40335,6 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "data_stream_organization_id_organization_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "project_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "project",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "data_stream_project_id_project_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "data_stream"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organization",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
       "name": "dev_plan_cancellation_feedback_FlmxK90wrnKv_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -43439,16 +43026,6 @@
       "name": "custom_model_pkey",
       "schema": "public",
       "table": "custom_model",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "data_stream_pkey",
-      "schema": "public",
-      "table": "data_stream",
       "entityType": "pks"
     },
     {

@@ -3524,7 +3524,6 @@ export const provider = pgTable(
 			.$onUpdate(() => new Date()),
 		name: text().notNull(),
 		description: text().notNull(),
-		streaming: boolean(),
 		cancellation: boolean(),
 		color: text(),
 		website: text(),
@@ -5142,6 +5141,10 @@ export const providerCompany = pgTable("provider_company", {
 	// through Stripe — `paymentStatus` still flips to "paid" so every gate
 	// keeps working, and this records which code cleared it.
 	listingInviteCode: text(),
+	// Acceptance of the Airside Terms of Use (/legal/terms) and Privacy Notice
+	// (/legal/privacy).
+	termsAcceptedAt: timestamp(),
+	termsAcceptedBy: text().references(() => user.id, { onDelete: "set null" }),
 });
 
 // Money received for provider listing fees. Neither payer is an
@@ -5347,6 +5350,23 @@ export const providerClaim = pgTable(
 		verificationKeyCiphertext: text(),
 		verificationKeyMasked: text(),
 		verificationKeyUpdatedAt: timestamp(),
+		// Self-declared public profile shown on the provider page. Display only:
+		// it never feeds compliance routing, which reads the static catalogue.
+		website: text(),
+		privacyPolicyUrl: text(),
+		termsUrl: text(),
+		statusPageUrl: text(),
+		legalEntity: text(),
+		// ISO 3166-1 alpha-2.
+		headquarters: text(),
+		apiTraining: boolean(),
+		promptLogging: boolean(),
+		retentionPeriod: text(),
+		gdpr: boolean(),
+		// 0 = none, 1 = Type I, 2 = Type II, null = not stated.
+		soc2: integer(),
+		iso27001: boolean(),
+		profileUpdatedAt: timestamp(),
 		claimedBy: text().references(() => user.id, { onDelete: "set null" }),
 		status: text({ enum: ["pending", "active", "rejected", "revoked"] })
 			.notNull()
@@ -5762,6 +5782,14 @@ export const providerRoutingFiling = pgTable(
 		status: text({ enum: ["pending", "approved", "rejected"] })
 			.notNull()
 			.default("pending"),
+		// "admin" filings record a fare an admin set directly; they are created
+		// already approved, so the history shows every change to the knobs.
+		initiatedBy: text({ enum: ["carrier", "admin"] })
+			.notNull()
+			.default("carrier"),
+		// Admin-only: the model override was removed and the model falls back to
+		// the default fare (recorded in the discount/margin columns).
+		clearsOverride: boolean().notNull().default(false),
 		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
 		reviewedBy: text(),
 		reviewNote: text(),

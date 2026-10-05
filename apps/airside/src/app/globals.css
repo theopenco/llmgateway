@@ -35,6 +35,14 @@
 	--color-card-foreground: var(--card-foreground);
 	--color-card: var(--card);
 	--color-signal: var(--signal);
+	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-ring: var(--sidebar-ring);
 	--radius-sm: calc(var(--radius) - 4px);
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
@@ -68,6 +76,14 @@
 	--chart-3: oklch(0.62 0.15 150);
 	--chart-4: oklch(0.7 0.1 30);
 	--chart-5: oklch(0.5 0.05 280);
+	--sidebar: oklch(0.94 0.009 85);
+	--sidebar-foreground: oklch(0.23 0.028 255);
+	--sidebar-primary: oklch(0.66 0.13 65);
+	--sidebar-primary-foreground: oklch(0.16 0.02 250);
+	--sidebar-accent: oklch(0.895 0.022 80);
+	--sidebar-accent-foreground: oklch(0.2 0.03 255);
+	--sidebar-border: oklch(0.86 0.01 85);
+	--sidebar-ring: oklch(0.66 0.13 65);
 }
 
 /* Night ops — the signature theme */
@@ -96,6 +112,14 @@
 	--chart-3: oklch(0.75 0.16 155);
 	--chart-4: oklch(0.7 0.14 30);
 	--chart-5: oklch(0.6 0.06 280);
+	--sidebar: oklch(0.145 0.016 252);
+	--sidebar-foreground: oklch(0.93 0.012 85);
+	--sidebar-primary: oklch(0.8 0.15 78);
+	--sidebar-primary-foreground: oklch(0.17 0.018 252);
+	--sidebar-accent: oklch(0.24 0.026 252);
+	--sidebar-accent-foreground: oklch(0.96 0.012 85);
+	--sidebar-border: oklch(0.93 0.012 85 / 10%);
+	--sidebar-ring: oklch(0.8 0.15 78 / 60%);
 }
 
 @layer base {
