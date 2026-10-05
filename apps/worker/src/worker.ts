@@ -8,7 +8,9 @@ import { z } from "zod";
 import {
 	checkAndReserveTopUp,
 	flushLimitHits,
+	listActiveDataStreams,
 	releaseTopUpReservation,
+	runDataStream,
 } from "@llmgateway/actions";
 import {
 	closeRedisClient,
@@ -3298,6 +3300,76 @@ async function runModelErrorRateAlertsLoop() {
 	}
 }
 
+const DATA_STREAMS_LOCK_KEY = "data_streams";
+
+/** Forwards audit and request logs to each enabled data stream destination. */
+export async function processDataStreams(
+	onProgress?: () => Promise<void>,
+): Promise<void> {
+	const streams = await listActiveDataStreams();
+	for (const stream of streams) {
+		if (isStopRequested()) {
+			return;
+		}
+		// A pass can outlast the lock TTL with slow destinations; keep the lock
+		// fresh so a second worker never runs the same streams concurrently.
+		await onProgress?.();
+		// One broken stream must never hold up delivery for the others.
+		try {
+			const result = await runDataStream(stream);
+			if (result.error) {
+				logger.warn("Data stream delivery failed", {
+					streamId: stream.id,
+					destination: stream.destination,
+					error: result.error,
+				});
+			}
+		} catch (error) {
+			logger.error("Data stream run crashed", {
+				streamId: stream.id,
+				error: error instanceof Error ? error : new Error(String(error)),
+			});
+		}
+	}
+}
+
+async function runDataStreamsLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 30 : 10) * 1000;
+	logger.info(
+		`Starting data streams loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(DATA_STREAMS_LOCK_KEY)) {
+					try {
+						await processDataStreams(async () => {
+							await db
+								.update(tables.lock)
+								.set({ updatedAt: new Date() })
+								.where(eq(tables.lock.key, DATA_STREAMS_LOCK_KEY));
+						});
+					} finally {
+						await releaseLock(DATA_STREAMS_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in data streams loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Data streams loop stopped");
+	}
+}
+
 const PROVIDER_KEY_MODEL_SYNC_LOCK_KEY = "provider_key_model_sync";
 
 async function runProviderKeyModelSyncLoop() {
@@ -3474,6 +3546,7 @@ export async function startWorker() {
 	void runMarginPayoutLoop();
 	void runNotificationsLoop();
 	void runModelErrorRateAlertsLoop();
+	void runDataStreamsLoop();
 	void runProviderKeyModelSyncLoop();
 	void runFollowUpEmailsLoop({
 		shouldStop: isStopRequested,

@@ -4365,6 +4365,11 @@ export const auditLogActions = [
 	"compliance_alert.watch_create",
 	"compliance_alert.watch_delete",
 	"compliance_alert.settings_update",
+	// Data streams (SIEM forwarding and log export)
+	"data_stream.create",
+	"data_stream.update",
+	"data_stream.delete",
+	"data_stream.replay",
 	// Subscription
 	"subscription.create",
 	"subscription.cancel",
@@ -4458,6 +4463,7 @@ export const auditLogResourceTypes = [
 	"organization_skill",
 	"notification_channel",
 	"compliance_alert",
+	"data_stream",
 	"subscription",
 	"payment_method",
 	"payment",
@@ -4513,6 +4519,73 @@ export const auditLog = pgTable(
 		index("audit_log_user_id_idx").on(table.userId),
 		index("audit_log_action_idx").on(table.action),
 		index("audit_log_resource_type_idx").on(table.resourceType),
+	],
+);
+
+export const dataStreamSources = ["audit_logs", "request_logs"] as const;
+export type DataStreamSource = (typeof dataStreamSources)[number];
+
+export const dataStreamDestinations = [
+	"webhook",
+	"datadog",
+	"splunk",
+	"s3",
+] as const;
+export type DataStreamDestination = (typeof dataStreamDestinations)[number];
+
+/** Non-secret destination settings; secrets live encrypted in `secret`. */
+export interface DataStreamConfig {
+	url?: string;
+	site?: string;
+	service?: string;
+	index?: string;
+	sourcetype?: string;
+	bucket?: string;
+	region?: string;
+	prefix?: string;
+	endpoint?: string;
+	accessKeyId?: string;
+	includePayloads?: boolean;
+}
+
+// Continuous delivery of audit or request logs to an external destination
+// (SIEM, log platform, bucket). The worker advances the (createdAt, id)
+// cursor after each delivered batch; a replay re-sends a bounded window on a
+// separate cursor.
+export const dataStream = pgTable(
+	"data_stream",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		// Request-log streams may be narrowed to one project.
+		projectId: text().references(() => project.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		source: text({ enum: dataStreamSources }).notNull(),
+		destination: text({ enum: dataStreamDestinations }).notNull(),
+		config: jsonb().$type<DataStreamConfig>().notNull().default({}),
+		// Encrypted with the provider-key keyring (token, API key, secret key).
+		secret: text(),
+		enabled: boolean().notNull().default(true),
+		cursorCreatedAt: timestamp().notNull().defaultNow(),
+		cursorId: text().notNull().default(""),
+		replayFrom: timestamp(),
+		replayTo: timestamp(),
+		replayCursorCreatedAt: timestamp(),
+		replayCursorId: text(),
+		deliveredCount: bigint({ mode: "number" }).notNull().default(0),
+		lastDeliveredAt: timestamp(),
+		lastError: text(),
+		lastErrorAt: timestamp(),
+	},
+	(table) => [
+		index("data_stream_organization_id_idx").on(table.organizationId),
 	],
 );
 

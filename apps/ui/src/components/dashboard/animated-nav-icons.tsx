@@ -251,6 +251,41 @@ export function AnimatedShieldAlert({ isHovered }: AnimatedIconProps) {
 	);
 }
 
+// RadioTower — mast steady, waves pulse outward
+export function AnimatedRadioTower({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<path d="m8 22 4-10 4 10" />
+			<path d="M9.5 18h5" />
+			<circle cx="12" cy="9" r="2" />
+			{[
+				"M7.8 4.7a6.14 6.14 0 0 0-.8 7.5",
+				"M16.2 4.8c2 2 2.26 5.11.8 7.47",
+			].map((d, i) => (
+				<motion.path
+					key={d}
+					d={d}
+					initial={false}
+					animate={isHovered ? { opacity: [1, 0.2, 1] } : { opacity: 1 }}
+					transition={{ duration: 0.5, delay: i * 0.1 }}
+				/>
+			))}
+			{[
+				"M4.9 19.1C1 15.2 1 8.8 4.9 4.9",
+				"M19.1 4.9C23 8.8 23 15.1 19.1 19",
+			].map((d, i) => (
+				<motion.path
+					key={d}
+					d={d}
+					initial={false}
+					animate={isHovered ? { opacity: [1, 0.2, 1] } : { opacity: 1 }}
+					transition={{ duration: 0.5, delay: (i + 1.5) / 10 }}
+				/>
+			))}
+		</svg>
+	);
+}
+
 // BadgeCheck — badge steady, check draws itself
 export function AnimatedBadgeCheck({ isHovered }: AnimatedIconProps) {
 	return (

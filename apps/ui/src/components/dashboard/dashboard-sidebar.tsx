@@ -42,6 +42,7 @@ import {
 	AnimatedMessageSquare,
 	AnimatedSettings,
 	AnimatedPercent,
+	AnimatedRadioTower,
 	AnimatedShield,
 	AnimatedShieldAlert,
 	AnimatedTerminal,
@@ -247,6 +248,12 @@ const ORGANIZATION_NAVIGATION: readonly {
 		href: "org/security-events",
 		label: "Security Events",
 		icon: AnimatedShieldAlert,
+		enterpriseGated: true,
+	},
+	{
+		href: "org/data-streams",
+		label: "Data Streams",
+		icon: AnimatedRadioTower,
 		enterpriseGated: true,
 	},
 	{

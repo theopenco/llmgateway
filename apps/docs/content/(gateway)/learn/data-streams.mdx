@@ -1,0 +1,54 @@
+---
+title: Data Streams
+description: Forward audit logs to your SIEM and export request logs to S3, Datadog, Splunk, or a webhook
+icon: Radio
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
+
+The Data Streams page sends your organization's audit logs and request logs to external tools: a SIEM such as Splunk or Datadog, an S3 bucket, or your own HTTPS endpoint.
+
+<ThemedImage
+	alt="Data Streams"
+	basePath="/learn/data-streams"
+	width={1440}
+	height={900}
+/>
+
+<Callout type="info">
+	Data Streams are available on the [**Enterprise
+	plan**](https://llmgateway.io/enterprise) for organization owners and admins.
+</Callout>
+
+## Creating a stream
+
+Click **New stream** and fill in:
+
+| Field                               | Description                                                                              |
+| ----------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Name**                            | Label shown on the stream card                                                           |
+| **What to send**                    | **Audit logs (SIEM forwarding)** or **Request logs (log export)**                        |
+| **Projects**                        | Request logs only: all projects or one                                                   |
+| **Include prompts and completions** | Request logs only, off by default                                                        |
+| **Destination**                     | **Splunk HEC**, **Datadog Logs**, **Amazon S3 (or S3-compatible)**, or **HTTPS webhook** |
+
+Each destination then asks for its own settings, such as the HEC URL and token, the Datadog site and API key, the bucket, region, and access keys, or the webhook URL and signing secret. Secrets are encrypted and never shown again.
+
+<ThemedImage
+	alt="New data stream dialog"
+	basePath="/learn/data-streams-new"
+	width={1440}
+	height={900}
+/>
+
+## Stream cards
+
+Each card shows the status (**Active**, **Failing**, or **Paused**), the number of delivered events, the last delivery, and the last error if one occurred.
+
+- **Send test event** delivers one synthetic event and shows whether the destination accepted it.
+- **Replay** re-sends every event in a window of up to 30 days.
+- **Pause** / **Resume** stops and restarts delivery without losing your place.
+- The trash icon deletes the stream.
+
+New streams send events created after they were added. Delivery details, formats, and signatures are in [Data streams](/features/data-streams).
