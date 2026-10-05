@@ -221,6 +221,8 @@ export function LogsSection({
 			page.pagination.hasMore
 				? (page.pagination.nextCursor ?? undefined)
 				: undefined,
+		// Logs are live: refetch on every visit instead of the 5-minute default.
+		staleTime: 0,
 	});
 	const logs = query.data?.pages.flatMap((page) => page.logs) ?? [];
 	const loading = query.isPending;

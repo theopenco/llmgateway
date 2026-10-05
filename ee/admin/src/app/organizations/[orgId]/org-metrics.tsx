@@ -108,9 +108,13 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 		isPending: loading,
 		isError,
 		refetch,
-	} = api.useQuery("get", "/admin/organizations/{orgId}", {
-		params: { path: { orgId }, query: { window: window } },
-	});
+	} = api.useQuery(
+		"get",
+		"/admin/organizations/{orgId}",
+		{ params: { path: { orgId }, query: { window: window } } },
+		// Live usage: refetch on every visit instead of the 5-minute default.
+		{ staleTime: 0 },
+	);
 
 	if (loading) {
 		return (
