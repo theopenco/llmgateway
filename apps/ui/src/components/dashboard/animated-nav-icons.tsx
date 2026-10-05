@@ -301,6 +301,25 @@ export function AnimatedBadgeCheck({ isHovered }: AnimatedIconProps) {
 	);
 }
 
+// FileText — page steady, lines draw in
+export function AnimatedFileText({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+			<path d="M14 2v4a2 2 0 0 0 2 2h4" />
+			{["M10 9H8", "M16 13H8", "M16 17H8"].map((d, i) => (
+				<motion.path
+					key={d}
+					d={d}
+					initial={false}
+					animate={isHovered ? { pathLength: [0, 1] } : { pathLength: 1 }}
+					transition={{ duration: 0.3, delay: i * 0.08 }}
+				/>
+			))}
+		</svg>
+	);
+}
+
 // MessageSquare — bubble bounces
 export function AnimatedMessageSquare({ isHovered }: AnimatedIconProps) {
 	return (

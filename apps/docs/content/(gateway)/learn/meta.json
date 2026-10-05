@@ -10,6 +10,7 @@
 		"models",
 		"structured-outputs",
 		"preferences",
+		"prompts",
 		"guardrails",
 		"security-events",
 		"sdk-settings",

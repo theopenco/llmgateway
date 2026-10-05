@@ -150,6 +150,11 @@
 			"import": "./dist/url-safety-node.js",
 			"default": "./dist/url-safety-node.js"
 		},
+		"./prompt-template": {
+			"types": "./dist/prompt-template.d.ts",
+			"import": "./dist/prompt-template.js",
+			"default": "./dist/prompt-template.js"
+		},
 		"./client-ip": {
 			"types": "./dist/client-ip.d.ts",
 			"import": "./dist/client-ip.js",

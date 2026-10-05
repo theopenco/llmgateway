@@ -19,6 +19,7 @@ import {
 	gte,
 	inArray,
 	ne,
+	or,
 	sql,
 	cdb as db,
 	apiKey as apiKeyTable,
@@ -37,6 +38,9 @@ import {
 	providerKeyAllowsModel,
 	organization as organizationTable,
 	project as projectTable,
+	prompt as promptTable,
+	promptLabel as promptLabelTable,
+	promptVersion as promptVersionTable,
 	model as modelTable,
 	modelProviderMapping as modelProviderMappingTable,
 	providerClaim as providerClaimTable,
@@ -135,6 +139,9 @@ const organizationTeamProjectTableName = getTableName(
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
+const promptTableName = getTableName(promptTable);
+const promptVersionTableName = getTableName(promptVersionTable);
+const promptLabelTableName = getTableName(promptLabelTable);
 const modelTableName = getTableName(modelTable);
 const modelProviderMappingTableName = getTableName(modelProviderMappingTable);
 const providerClaimTableName = getTableName(providerClaimTable);
@@ -536,6 +543,79 @@ export async function findCustomProviderKey(
 				),
 	);
 	return selectProviderKeyWithFailover(results, selectionScope, excludedKeyIds);
+}
+
+/**
+ * A project's prompt by id or name, with the requested version (or the
+ * production version when none is pinned). Undefined when either is missing.
+ */
+export async function findPromptVersion(
+	projectId: string,
+	ref: string,
+	selector: { version?: number; label?: string },
+) {
+	const label = selector.label ?? "production";
+	const cacheKey =
+		selector.version !== undefined
+			? `prompt:${projectId}:${ref}:v${selector.version}`
+			: `prompt:${projectId}:${ref}:label:${label}`;
+	return await swrWrap(
+		cacheKey,
+		[promptTableName, promptVersionTableName, promptLabelTableName],
+		async () => {
+			const [prompt] = await db
+				.select()
+				.from(promptTable)
+				.where(
+					and(
+						eq(promptTable.projectId, projectId),
+						or(eq(promptTable.id, ref), eq(promptTable.name, ref)),
+					),
+				)
+				.limit(1);
+			if (!prompt) {
+				return undefined;
+			}
+			let resolved = selector.version;
+			if (resolved === undefined) {
+				if (label === "latest") {
+					resolved = prompt.latestVersion || undefined;
+				} else {
+					const [pointer] = await db
+						.select({ version: promptLabelTable.version })
+						.from(promptLabelTable)
+						.where(
+							and(
+								eq(promptLabelTable.promptId, prompt.id),
+								eq(promptLabelTable.label, label),
+							),
+						)
+						.limit(1);
+					resolved = pointer?.version;
+				}
+			}
+			if (resolved === undefined) {
+				return undefined;
+			}
+			const [row] = await db
+				.select()
+				.from(promptVersionTable)
+				.where(
+					and(
+						eq(promptVersionTable.promptId, prompt.id),
+						eq(promptVersionTable.version, resolved),
+					),
+				)
+				.limit(1);
+			return row
+				? {
+						prompt,
+						version: row,
+						label: selector.version === undefined ? label : undefined,
+					}
+				: undefined;
+		},
+	);
 }
 
 /**

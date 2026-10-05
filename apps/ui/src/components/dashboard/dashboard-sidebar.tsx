@@ -35,6 +35,7 @@ import {
 	AnimatedChartArea,
 	AnimatedChartColumnBig,
 	AnimatedExternalLink,
+	AnimatedFileText,
 	AnimatedKey,
 	AnimatedKeyRound,
 	AnimatedKeySquare,
@@ -145,6 +146,11 @@ const PROJECT_NAVIGATION: readonly {
 		href: "api-keys",
 		label: "API Keys",
 		icon: AnimatedKey,
+	},
+	{
+		href: "prompts",
+		label: "Prompts",
+		icon: AnimatedFileText,
 	},
 ];
 

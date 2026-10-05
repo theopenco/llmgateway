@@ -22,6 +22,10 @@ import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import { streamSSE } from "@/lib/pending-work.js";
 import {
+	PROMPT_RESPONSE_HEADERS,
+	resolvePromptModel,
+} from "@/lib/prompt-template.js";
+import {
 	setResponsesContext,
 	deleteResponsesContext,
 } from "@/lib/responses-context.js";
@@ -259,7 +263,7 @@ responses.post("/", async (c) => {
 	if (typeof req.input === "string") {
 		inputItems = [{ role: "user", content: req.input }];
 	} else {
-		inputItems = req.input;
+		inputItems = req.input ?? [];
 	}
 
 	// Handle previous_response_id for conversation chaining
@@ -308,7 +312,7 @@ responses.post("/", async (c) => {
 
 	// Convert Responses API input to chat completions messages
 	const messages = convertResponsesInputToMessages(
-		inputItems as typeof req.input,
+		inputItems as Parameters<typeof convertResponsesInputToMessages>[0],
 		req.instructions,
 	);
 
@@ -359,12 +363,25 @@ responses.post("/", async (c) => {
 		}
 	}
 
-	// Build chat completions request
+	// Build chat completions request. A managed prompt reference (`prompt`, or a
+	// `@prompt/...` model) is expanded by the chat handler; its rendered messages
+	// go ahead of the converted input and its model fills a missing `model`.
 	const chatRequest: Record<string, unknown> = {
-		model: req.model,
 		messages,
 		stream: req.stream,
 	};
+	if (req.model !== undefined) {
+		chatRequest.model = req.model;
+	}
+	if (req.prompt !== undefined) {
+		// OpenAI's SDKs send `version` as a string; the chat schema takes a number.
+		chatRequest.prompt = {
+			...req.prompt,
+			...(req.prompt.version !== undefined && {
+				version: Number(req.prompt.version),
+			}),
+		};
+	}
 
 	if (req.temperature !== undefined) {
 		chatRequest.temperature = req.temperature;
@@ -430,10 +447,16 @@ responses.post("/", async (c) => {
 		chatRequest.stream_options = { include_usage: true };
 	}
 
+	// The model the chat handler will run: a managed prompt's default model when
+	// the request leaves `model` to the prompt. Resolved here so the
+	// response.created event and the stored response name it from the start.
+	const responseModel =
+		(await resolvePromptModel(chatRequest, projectId)) ?? req.model ?? "";
+
 	// Generate log ID with resp_ prefix — this is both the log entry's primary key
 	// and the Responses API response ID
 	const logId = `resp_${shortid(24)}`;
-	const state = createStreamingState(req.model, logId, req, toolRegistry);
+	const state = createStreamingState(responseModel, logId, req, toolRegistry);
 
 	// Make internal request to the existing chat completions endpoint
 	const internalHeaders: Record<string, string> = {
@@ -470,6 +493,13 @@ responses.post("/", async (c) => {
 		});
 	} finally {
 		deleteResponsesContext(contextKey);
+	}
+
+	for (const name of PROMPT_RESPONSE_HEADERS) {
+		const value = response.headers.get(name);
+		if (value) {
+			c.header(name, value);
+		}
 	}
 
 	if (!response.ok) {
@@ -679,7 +709,7 @@ responses.post("/", async (c) => {
 	const chatJson = await response.json();
 	const responsesResponse = convertChatResponseToResponses(
 		chatJson,
-		req.model,
+		responseModel,
 		logId,
 		req,
 		toolRegistry,
