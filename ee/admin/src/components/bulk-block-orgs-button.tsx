@@ -27,80 +27,88 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi, useFetchClient } from "@/lib/fetch-client";
 
-import type { BulkBlockPreview } from "@/lib/admin-organizations";
+import type { paths } from "@/lib/api/v1";
 
-interface BulkBlockResult {
-	success: boolean;
-	error?: string;
-	blockedCount?: number;
-	failedCount?: number;
-	failed?: { id: string; name: string; error: string }[];
-}
+type BulkBlockPreview =
+	paths["/admin/organizations/bulk-block/preview"]["get"]["responses"]["200"]["content"]["application/json"];
 
 interface BulkBlockOrgsButtonProps {
 	search: string;
 	minSearchLength: number;
-	onPreview: (search: string) => Promise<{
-		success: boolean;
-		error?: string;
-		preview?: BulkBlockPreview;
-	}>;
-	onBulkBlock: (
-		search: string,
-		expectedCount: number,
-	) => Promise<BulkBlockResult>;
 }
+
+const PREVIEW_ERROR = "Failed to preview bulk block";
 
 export function BulkBlockOrgsButton({
 	search,
 	minSearchLength,
-	onPreview,
-	onBulkBlock,
 }: BulkBlockOrgsButtonProps) {
+	const $api = useApi();
+	const $fetch = useFetchClient();
 	const router = useRouter();
 	const [open, setOpen] = useState(false);
 	const [previewLoading, setPreviewLoading] = useState(false);
 	const [preview, setPreview] = useState<BulkBlockPreview | null>(null);
 	const [confirmation, setConfirmation] = useState("");
-	const [blocking, setBlocking] = useState(false);
 	// Preview and block failures are tracked separately: a failed block re-resolves
 	// the preview, and that reload must not clear the block error it accompanies.
 	const [previewError, setPreviewError] = useState<string | null>(null);
-	const [blockError, setBlockError] = useState<string | null>(null);
-	const [result, setResult] = useState<BulkBlockResult | null>(null);
 
 	const trimmedSearch = search.trim();
 	const searchTooShort = trimmedSearch.length < minSearchLength;
 
-	const resetState = () => {
-		setPreview(null);
-		setConfirmation("");
-		setPreviewError(null);
-		setBlockError(null);
-		setResult(null);
-		setPreviewLoading(false);
-	};
-
+	// Fetched imperatively rather than cached: every open and every failed block
+	// must re-resolve the set against current data.
 	const loadPreview = async () => {
 		setPreview(null);
 		setConfirmation("");
 		setPreviewError(null);
 		setPreviewLoading(true);
 		try {
-			const response = await onPreview(trimmedSearch);
-			if (response.success && response.preview) {
-				setPreview(response.preview);
+			const { data, error, response } = await $fetch.GET(
+				"/admin/organizations/bulk-block/preview",
+				{ params: { query: { search: trimmedSearch } } },
+			);
+			if (data) {
+				setPreview(data);
 			} else {
-				setPreviewError(response.error ?? "Failed to preview bulk block");
+				setPreviewError(apiErrorMessage(error, PREVIEW_ERROR, response));
 			}
 		} catch (err) {
-			setPreviewError(
-				err instanceof Error ? err.message : "Failed to preview bulk block",
-			);
+			setPreviewError(apiErrorMessage(err, PREVIEW_ERROR));
 		} finally {
 			setPreviewLoading(false);
 		}
+	};
+
+	const blockMutation = $api.useMutation(
+		"post",
+		"/admin/organizations/bulk-block",
+		{
+			onSuccess: () => router.refresh(),
+			// The dialog stays on the confirmation step instead of showing a
+			// summary, and re-resolving the set makes the admin confirm against
+			// current numbers rather than resubmitting a stale one. This also
+			// covers a dropped request: it may still have been applied server-side.
+			onError: () => void loadPreview(),
+			meta: { inlineError: true },
+		},
+	);
+	const blocking = blockMutation.isPending;
+	const result = blockMutation.isSuccess ? blockMutation.data : null;
+	const blockError = blockMutation.isError
+		? apiErrorMessage(blockMutation.error, "Failed to bulk block organizations")
+		: null;
+
+	const resetState = () => {
+		setPreview(null);
+		setConfirmation("");
+		setPreviewError(null);
+		blockMutation.reset();
+		setPreviewLoading(false);
 	};
 
 	const handleOpen = async () => {
@@ -109,35 +117,13 @@ export function BulkBlockOrgsButton({
 		await loadPreview();
 	};
 
-	const handleConfirm = async () => {
+	const handleConfirm = () => {
 		if (!preview) {
 			return;
 		}
-		setBlocking(true);
-		setBlockError(null);
-		try {
-			const response = await onBulkBlock(preview.search, preview.blockable);
-			if (response.success) {
-				setResult(response);
-				router.refresh();
-				return;
-			}
-			setBlockError(response.error ?? "Failed to bulk block organizations");
-		} catch (err) {
-			setBlockError(
-				err instanceof Error
-					? err.message
-					: "Failed to bulk block organizations",
-			);
-		} finally {
-			setBlocking(false);
-		}
-		// Only reached when the block failed — the success path returns above. The
-		// dialog stays on the confirmation step instead of showing a summary, and
-		// re-resolving the set makes the admin confirm against current numbers
-		// rather than resubmitting a stale one. This also covers a thrown request:
-		// it may still have been applied server-side before the connection failed.
-		await loadPreview();
+		blockMutation.mutate({
+			body: { search: preview.search, expectedCount: preview.blockable },
+		});
 	};
 
 	// The admin has to retype the exact number of organizations the server
@@ -278,7 +264,7 @@ export function BulkBlockOrgsButton({
 						</div>
 					)}
 
-					{result?.success && (
+					{result && (
 						<div className="space-y-2 text-sm">
 							<p>
 								Blocked <strong>{result.blockedCount}</strong> organization(s).
@@ -289,7 +275,7 @@ export function BulkBlockOrgsButton({
 										{result.failedCount} failed:
 									</p>
 									<ul className="mt-1 list-disc space-y-1 pl-5 text-muted-foreground">
-										{result.failed?.map((failure) => (
+										{result.failed.map((failure) => (
 											<li key={failure.id}>
 												{failure.name}: {failure.error}
 											</li>
@@ -317,9 +303,9 @@ export function BulkBlockOrgsButton({
 							onClick={() => setOpen(false)}
 							disabled={blocking}
 						>
-							{result?.success ? "Close" : "Cancel"}
+							{result ? "Close" : "Cancel"}
 						</Button>
-						{!result?.success && (
+						{!result && (
 							<Button
 								variant="destructive"
 								onClick={handleConfirm}
