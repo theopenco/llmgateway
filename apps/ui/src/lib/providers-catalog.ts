@@ -24,6 +24,18 @@ function getActiveModelCountsByProvider(): Record<string, number> {
 
 export const activeModelCounts = getActiveModelCountsByProvider();
 
+/** Providers with at least one active mapping that supports streaming. */
+export const streamingProviderIds = new Set(
+	(modelDefinitions as readonly ModelDefinition[]).flatMap((model) =>
+		model.providers
+			.filter(
+				(mapping) =>
+					!isMappingDeactivated(mapping) && mapping.streaming !== false,
+			)
+			.map((mapping) => mapping.providerId),
+	),
+);
+
 /**
  * Providers shown in the public directory: public catalogue entries with at
  * least one routable model mapping. Gateway, custom, and stealth providers are

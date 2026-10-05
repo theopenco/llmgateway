@@ -2338,6 +2338,12 @@ export const log = pgTable(
 		apiOrigin: text({ enum: API_ORIGINS }),
 		source: text(),
 		sessionId: text(),
+		// The managed prompt that was expanded into this request, so versions can
+		// be compared. `promptLabel` is the label the request followed; null when
+		// it pinned a version.
+		promptId: text(),
+		promptVersion: integer(),
+		promptLabel: text(),
 		customHeaders: json().$type<{ [key: string]: string }>(),
 		routingMetadata: json().$type<{
 			availableProviders?: string[];
@@ -4365,6 +4371,13 @@ export const auditLogActions = [
 	"organization_skill.create",
 	"organization_skill.update",
 	"organization_skill.delete",
+	// Prompt management
+	"prompt.create",
+	"prompt.update",
+	"prompt.delete",
+	"prompt.version_create",
+	"prompt.deploy",
+	"prompt.label_delete",
 	// Compliance alerts
 	"notification_channel.update",
 	"notification_channel.delete",
@@ -4461,6 +4474,7 @@ export const auditLogResourceTypes = [
 	"iam_rule",
 	"provider_key",
 	"custom_model",
+	"prompt",
 	"organization_skill",
 	"notification_channel",
 	"compliance_alert",
@@ -5052,6 +5066,47 @@ export const providerCompany = pgTable("provider_company", {
 	// keeps working, and this records which code cleared it.
 	listingInviteCode: text(),
 });
+
+// Money received for provider listing fees. Neither payer is an
+// `organization`, so these stay out of `transaction`. One row per paid Stripe
+// checkout session, so a duplicate charge awaiting refund is still counted.
+export const providerListingPayment = pgTable(
+	"provider_listing_payment",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// `airside`: the carrier listing fee. `listing_request`: the fee on the
+		// retired public listing-request form.
+		source: text({ enum: ["airside", "listing_request"] }).notNull(),
+		providerCompanyId: text().references(() => providerCompany.id, {
+			onDelete: "set null",
+		}),
+		providerListingRequestId: text().references(
+			() => providerListingRequest.id,
+			{ onDelete: "set null" },
+		),
+		amount: decimal().notNull(),
+		// Cumulative amount sent back to the payer.
+		refundedAmount: decimal().notNull().default("0"),
+		currency: text().notNull().default("USD"),
+		stripeCheckoutSessionId: text().notNull(),
+		stripePaymentIntentId: text(),
+		paidAt: timestamp().notNull(),
+	},
+	(table) => [
+		uniqueIndex("provider_listing_payment_checkout_session_unique").on(
+			table.stripeCheckoutSessionId,
+		),
+		index("provider_listing_payment_payment_intent_idx").on(
+			table.stripePaymentIntentId,
+		),
+		index("provider_listing_payment_paid_at_idx").on(table.paidAt),
+	],
+);
 
 // Domains a company has proven, and how. A verified `dns` row counts alongside
 // the verified email domain when matching carrier claims, so a company can
@@ -7210,4 +7265,83 @@ export const benchmarkRun = pgTable(
 		index("benchmark_run_queue_idx").on(table.status, table.createdAt),
 		index("benchmark_run_model_idx").on(table.modelId, table.createdAt),
 	],
+);
+
+export interface PromptMessage {
+	role: "system" | "user" | "assistant" | "developer";
+	content: string;
+}
+
+export interface PromptParameters {
+	temperature?: number;
+	top_p?: number;
+	max_tokens?: number;
+	frequency_penalty?: number;
+	presence_penalty?: number;
+	reasoning_effort?: string;
+}
+
+// Versioned prompt templates, referenced from requests by `prompt.id`.
+export const prompt = pgTable(
+	"prompt",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		description: text(),
+		latestVersion: integer().notNull().default(0),
+	},
+	(table) => [
+		index("prompt_project_id_idx").on(table.projectId),
+		unique().on(table.projectId, table.name),
+	],
+);
+
+export const promptVersion = pgTable(
+	"prompt_version",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		promptId: text()
+			.notNull()
+			.references(() => prompt.id, { onDelete: "cascade" }),
+		version: integer().notNull(),
+		messages: jsonb().$type<PromptMessage[]>().notNull(),
+		model: text(),
+		parameters: jsonb().$type<PromptParameters>().notNull().default({}),
+		variables: jsonb().$type<string[]>().notNull().default([]),
+		commitMessage: text(),
+		createdBy: text().references(() => user.id, { onDelete: "set null" }),
+	},
+	(table) => [unique().on(table.promptId, table.version)],
+);
+
+// Named pointers at a version (`production`, `staging`, ...). A request that
+// pins no version resolves one; `latest` is implicit and never stored.
+export const promptLabel = pgTable(
+	"prompt_label",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		promptId: text()
+			.notNull()
+			.references(() => prompt.id, { onDelete: "cascade" }),
+		label: text().notNull(),
+		version: integer().notNull(),
+	},
+	(table) => [unique().on(table.promptId, table.label)],
 );
