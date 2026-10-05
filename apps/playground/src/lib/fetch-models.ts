@@ -93,25 +93,40 @@ export interface ApiModel {
 const API_URL =
 	process.env.API_BACKEND_URL ?? process.env.API_URL ?? "http://localhost:4002";
 
+// Deliberate module-level cache, same rationale as fetchModelsFromApi in
+// @llmgateway/shared: the models payload exceeds Next's 2MB fetch-cache entry
+// limit, so `next: { revalidate }` can never refresh it. This memo gives the
+// catalogue 60s cross-request reuse and keeps serving the last good data
+// through an API blip. React's cache() stays as the per-request dedup layer.
+const MODELS_MEMO_TTL_MS = 60_000;
+let modelsMemo: { data: ApiModel[]; fetchedAt: number } | null = null;
+
 export const fetchModels = cache(async (): Promise<ApiModel[]> => {
+	if (modelsMemo && Date.now() - modelsMemo.fetchedAt < MODELS_MEMO_TTL_MS) {
+		return modelsMemo.data;
+	}
 	try {
 		const response = await fetchModelsResponseFromApi(API_URL);
 		if (!response.ok) {
 			console.error("Failed to fetch models:", response.statusText);
-			return [];
+			return modelsMemo?.data ?? [];
 		}
 		const data = await response.json();
-		return data.models ?? [];
+		const models = (data.models ?? []) as ApiModel[];
+		modelsMemo = { data: models, fetchedAt: Date.now() };
+		return models;
 	} catch (error) {
 		console.error("Error fetching models:", error);
-		return [];
+		return modelsMemo?.data ?? [];
 	}
 });
 
 export const fetchProviders = cache(async (): Promise<ApiProvider[]> => {
 	try {
+		// Small payload, so Next's data cache can hold it; 60s matches the
+		// shared fetchProvidersFromApi helper.
 		const response = await fetch(`${API_URL}/internal/providers`, {
-			cache: "no-store",
+			next: { revalidate: 60 },
 		});
 		if (!response.ok) {
 			console.error("Failed to fetch providers:", response.statusText);

@@ -12,7 +12,20 @@ API base URL: https://api.llmgateway.io/v1 · Docs: ${docsBaseUrl} · Site: http
 
 This file concatenates the full text of every documentation page below.`;
 
-export async function GET() {
+// The output depends only on build-time content, so it is assembled once per
+// server process instead of re-processing every page on each crawler hit. A
+// failed build resets the memo so the next request retries.
+let fullTextPromise: Promise<string> | undefined;
+
+function getFullText(): Promise<string> {
+	fullTextPromise ??= buildFullText().catch((error: unknown) => {
+		fullTextPromise = undefined;
+		throw error;
+	});
+	return fullTextPromise;
+}
+
+async function buildFullText(): Promise<string> {
 	const pages = source.getPages();
 	const contents = [
 		"## Contents",
@@ -25,7 +38,11 @@ export async function GET() {
 			),
 	].join("\n\n");
 	const scanned = await Promise.all(pages.map(getLLMText));
-	return new Response([HEADER, contents, ...scanned].join("\n\n"), {
+	return [HEADER, contents, ...scanned].join("\n\n");
+}
+
+export async function GET() {
+	return new Response(await getFullText(), {
 		headers: { "Content-Type": "text/plain; charset=utf-8" },
 	});
 }
