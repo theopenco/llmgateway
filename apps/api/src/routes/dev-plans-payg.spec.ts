@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { redisClient } from "@llmgateway/cache";
 import { db, tables } from "@llmgateway/db";
 
 const stripeMock = vi.hoisted(() => ({
@@ -522,6 +523,26 @@ describe("dev-plan PAYG top-up", () => {
 			);
 			expect(res.status).toBe(429);
 		}
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+	});
+
+	it("gates a concurrent duplicate whose first attempt was rejected", async () => {
+		vi.stubEnv("GATEWAY_TOPUP_VELOCITY_ENABLED", "true");
+		vi.stubEnv("GATEWAY_SPEND_TIER_0_TOPUP_DAILY_CAP_USD", "20");
+		await insertOrg();
+
+		// The first attempt is still inside the gate, then is rejected and
+		// clears its marker. The duplicate must gate itself, not charge.
+		const marker = `topup_velocity:devpass_gate:${ORG_ID}:attempt-racing`;
+		await redisClient.set(marker, "pending", "EX", 60);
+		const duplicate = topUpRequest(
+			{ amount: 25, purchaseId: "attempt-racing" },
+			token,
+		);
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		await redisClient.del(marker);
+
+		expect((await duplicate).status).toBe(429);
 		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
 	});
 
