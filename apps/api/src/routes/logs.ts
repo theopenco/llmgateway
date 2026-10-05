@@ -232,6 +232,8 @@ const logSchema = z.object({
 		.nullable()
 		.optional(),
 	discount: z.number().nullable().optional(),
+	pricingTier: z.string().nullable().optional(),
+	pricingPeriod: z.string().nullable().optional(),
 	routingBaselineModel: z.string().nullable().optional(),
 	routingBaselineCost: z.number().nullable().optional(),
 	requestedServiceTier: z.string().nullable().optional(),

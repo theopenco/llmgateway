@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "9c3e0b61-3cbb-4c8f-a902-a47419fc7b23",
+  "id": "cd785604-aa81-4b67-b78a-2d8c573fe841",
   "prevId": "00113ac3-0955-4d96-8c43-45b7d85cdca4",
   "ddl": [
     {
@@ -529,24 +529,6 @@
     {
       "isRlsEnabled": false,
       "name": "project_hourly_stats",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "prompt",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "prompt_label",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "prompt_version",
       "entityType": "tables",
       "schema": "public"
     },
@@ -11882,6 +11864,19 @@
       "generated": null,
       "identity": null,
       "name": "pricing_tier",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "pricing_period",
       "entityType": "columns",
       "schema": "public",
       "table": "log"
@@ -23844,342 +23839,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "project_hourly_stats"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "project_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "name",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "description",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "latest_version",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_label"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_label"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_label"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "prompt_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_label"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "label",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_label"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "version",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_label"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_version"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_version"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "prompt_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_version"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "version",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_version"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "messages",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_version"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "model",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_version"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "type": "unknown",
-        "value": "'{}'"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "parameters",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_version"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "type": "unknown",
-        "value": "'[]'"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "variables",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_version"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "commit_message",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_version"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "created_by",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "prompt_version"
     },
     {
       "type": "text",
@@ -36926,27 +36585,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "project_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "prompt_project_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "prompt"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "status",
           "isExpression": false,
           "asc": true,
@@ -41157,91 +40795,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "organization_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organization",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "prompt_organization_id_organization_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "prompt"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "project_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "project",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "prompt_project_id_project_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "prompt"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "prompt_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "prompt",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "prompt_label_prompt_id_prompt_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "prompt_label"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "prompt_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "prompt",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "prompt_version_prompt_id_prompt_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "prompt_version"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "created_by"
-      ],
-      "schemaTo": "public",
-      "tableTo": "user",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "prompt_version_created_by_user_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "prompt_version"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "provider_company_id"
       ],
       "schemaTo": "public",
@@ -43331,36 +42884,6 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "prompt_pkey",
-      "schema": "public",
-      "table": "prompt",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "prompt_label_pkey",
-      "schema": "public",
-      "table": "prompt_label",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "prompt_version_pkey",
-      "schema": "public",
-      "table": "prompt_version",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "provider_pkey",
       "schema": "public",
       "table": "provider",
@@ -44238,42 +43761,6 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "project_hourly_stats"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "project_id",
-        "name"
-      ],
-      "nullsNotDistinct": false,
-      "name": "prompt_project_id_name_unique",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "prompt"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "prompt_id",
-        "label"
-      ],
-      "nullsNotDistinct": false,
-      "name": "prompt_label_prompt_id_label_unique",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "prompt_label"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "prompt_id",
-        "version"
-      ],
-      "nullsNotDistinct": false,
-      "name": "prompt_version_prompt_id_version_unique",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "prompt_version"
     },
     {
       "nameExplicit": true,

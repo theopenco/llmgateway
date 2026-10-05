@@ -170,6 +170,7 @@ export interface LogCardData {
 	audioInputCost?: number | string | null;
 	discount?: number | null;
 	pricingTier?: string | null;
+	pricingPeriod?: string | null;
 	requestedServiceTier?: string | null;
 	usedServiceTier?: string | null;
 	dataStorageCost?: number | string | null;
@@ -1151,6 +1152,14 @@ export function LogCard({
 											<>
 												<div>Pricing Tier</div>
 												<div>{log.pricingTier}</div>
+											</>
+										)}
+										{log.pricingPeriod && (
+											<>
+												<div>Pricing Period</div>
+												<div>
+													{log.pricingPeriod === "peak" ? "Peak" : "Off-peak"}
+												</div>
 											</>
 										)}
 										{log.requestedServiceTier && (

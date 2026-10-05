@@ -103,6 +103,7 @@ When creating a package in `packages/`, copy `package.json`, `tsconfig.json`, `.
 - Hash or HMAC with an existing deployment secret — `getApiKeyHashSecret()` from `@llmgateway/shared/api-key-hash`, with a domain-separation prefix. New secrets come from required env vars with no default value.
 - Do all money math with `Decimal` from `decimal.js`.
 - NEVER query the `log` table from the gateway request path, and never fetch a user-supplied URL with a bare `fetch()` — see the `gateway` skill.
+- `log` can hold billions of rows of high-throughput, sensitive data (prompts and completions). Load the `database` skill before adding any `log` read.
 - Models and provider mappings on `origin/main` are never removed, only deactivated — see the `add-model` skill.
 
 ### Public repository
