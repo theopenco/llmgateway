@@ -237,7 +237,8 @@ export function isProcessingRegion(value: unknown): value is ProcessingRegion {
  */
 export interface ProcessingRegionSource {
 	processingRegion?: ProcessingRegion | null;
-	regions?: { id: string; processingRegion?: ProcessingRegion }[];
+	/** Per-region entries; the same `null` convention applies to each. */
+	regions?: { id: string; processingRegion?: ProcessingRegion | null }[];
 }
 
 /**

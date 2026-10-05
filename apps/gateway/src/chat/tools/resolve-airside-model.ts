@@ -342,6 +342,9 @@ export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 										outputPrice: row.outputPrice ?? undefined,
 										cachedInputPrice: row.cachedInputPrice ?? undefined,
 										requestPrice: row.requestPrice ?? undefined,
+										// Each filed region is its own endpoint: it carries its own
+										// recorded region and never inherits the canonical row's.
+										processingRegion: row.processingRegion ?? null,
 									},
 								]
 							: [],

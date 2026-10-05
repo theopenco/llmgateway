@@ -1076,6 +1076,28 @@ describe("data residency", () => {
 		).toEqual(["dataResidency"]);
 	});
 
+	it("resolves a mapping's region entry before any inherited claim", () => {
+		const bedrock = getProviderDefinition("aws-bedrock")!;
+		expect(
+			resolveProcessingRegion(bedrock, "us-east-1", {
+				processingRegion: "us",
+				regions: [{ id: "us-east-1", processingRegion: null }],
+			}),
+		).toBeUndefined();
+		expect(
+			resolveProcessingRegion(bedrock, "us-east-1", {
+				processingRegion: null,
+				regions: [{ id: "us-east-1", processingRegion: "us" }],
+			}),
+		).toBe("us");
+		expect(
+			resolveProcessingRegion(bedrock, "us-west-2", {
+				processingRegion: "us",
+				regions: [{ id: "us-east-1", processingRegion: null }],
+			}),
+		).toBe("us");
+	});
+
 	it("lets a mapping override the provider and its regions", () => {
 		expect(
 			resolveProcessingRegion(

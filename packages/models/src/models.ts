@@ -274,9 +274,10 @@ export interface ProviderRegion {
 	test?: "skip" | "only";
 	/**
 	 * Where this region's endpoint processes inference, when it differs from
-	 * the provider's regional endpoint entry. See `resolveProcessingRegion`.
+	 * the provider's regional endpoint entry. `null` is explicitly unverified
+	 * and never inherits. See `resolveProcessingRegion`.
 	 */
-	processingRegion?: ProcessingRegion;
+	processingRegion?: ProcessingRegion | null;
 }
 
 /**
