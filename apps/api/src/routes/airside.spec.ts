@@ -1133,6 +1133,43 @@ describe("airside provider portal", () => {
 		expect(relistAgain.status).toBe(409);
 	});
 
+	it("lists admin filings newest first with pagination", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const ids: string[] = [];
+		for (const modelName of ["mistral-a", "mistral-b", "mistral-c"]) {
+			const created = await createModel(cookie, company.id, { modelName });
+			const { model } = await created.json();
+			ids.push(model.pendingFiling.id as string);
+		}
+		for (const [index, id] of ids.entries()) {
+			await db
+				.update(tables.providerPriceFiling)
+				.set({ createdAt: new Date(Date.UTC(2026, 0, index + 1)) })
+				.where(eq(tables.providerPriceFiling.id, id));
+		}
+
+		const page = async (offset: number) => {
+			const res = await app.request(
+				`/admin/airside/filings?limit=2&offset=${offset}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			return await res.json();
+		};
+		const first = await page(0);
+		expect(first.total).toBe(3);
+		expect(first.filings.map((f: { id: string }) => f.id)).toEqual([
+			ids[2],
+			ids[1],
+		]);
+		const second = await page(2);
+		expect(second.filings.map((f: { id: string }) => f.id)).toEqual([ids[0]]);
+	});
+
 	it("rejects admin queue access for non-admins", async () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "someone-else@example.com";
 		const res = await app.request("/admin/airside/filings", {
