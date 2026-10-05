@@ -73,7 +73,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
-import { apiErrorMessage, thrownErrorMessage } from "@/lib/api-error";
+import {
+	apiErrorMessage,
+	browserRequestErrorMessage,
+	thrownErrorMessage,
+} from "@/lib/api-error";
+import { useAppConfig } from "@/lib/config";
 import { useFetchClient } from "@/lib/fetch-client";
 import {
 	DEFAULT_ERROR_WINDOW,
@@ -1620,6 +1625,7 @@ function CredentialDialog({
 	// is far shorter than the API's, so the round trip through it would be cut
 	// short with an opaque "upstream request timeout".
 	const $fetch = useFetchClient();
+	const { apiUrl } = useAppConfig();
 	const [selfTestLoading, setSelfTestLoading] = useState(false);
 	const [selfTestOutcome, setSelfTestOutcome] = useState<
 		SelfTestOutcome | undefined
@@ -1664,6 +1670,7 @@ function CredentialDialog({
 		selfTestRequestId.current = requestId;
 		setSelfTestLoading(true);
 		setSelfTestOutcome(undefined);
+		const startedAt = Date.now();
 		try {
 			const { data, error, response } = await $fetch.POST(
 				"/admin/provider-credentials/self-test",
@@ -1687,9 +1694,15 @@ function CredentialDialog({
 			if (selfTestRequestId.current !== requestId) {
 				return;
 			}
-			setSelfTestOutcome({
-				error: thrownErrorMessage(cause, "Failed to test credential"),
-			});
+			const message = await browserRequestErrorMessage(
+				cause,
+				{ url: `${apiUrl}/admin/provider-credentials/self-test`, startedAt },
+				"Failed to test credential",
+			);
+			if (selfTestRequestId.current !== requestId) {
+				return;
+			}
+			setSelfTestOutcome({ error: message });
 		} finally {
 			if (selfTestRequestId.current === requestId) {
 				setSelfTestLoading(false);
@@ -1703,6 +1716,7 @@ function CredentialDialog({
 			body: CredentialTestInput,
 			model: string,
 		): Promise<ModelVerificationEntry> => {
+			const startedAt = Date.now();
 			try {
 				const { data, error, response } = await $fetch.POST(
 					"/admin/provider-credentials/verify-models",
@@ -1724,11 +1738,18 @@ function CredentialDialog({
 					model,
 					inCatalog: true,
 					valid: false,
-					error: thrownErrorMessage(cause, "Failed to verify model"),
+					error: await browserRequestErrorMessage(
+						cause,
+						{
+							url: `${apiUrl}/admin/provider-credentials/verify-models`,
+							startedAt,
+						},
+						"Failed to verify model",
+					),
 				};
 			}
 		},
-		[$fetch],
+		[$fetch, apiUrl],
 	);
 
 	/**

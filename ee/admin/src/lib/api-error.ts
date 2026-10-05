@@ -11,6 +11,8 @@
  * - a bare string or a non-JSON body — proxies, gateways and infra errors.
  */
 
+import { formatDurationMs } from "./format-duration";
+
 const MAX_UNWRAP_DEPTH = 4;
 
 /** Long enough for a provider's rejection, short enough to stay one line-ish. */
@@ -111,4 +113,82 @@ export function thrownErrorMessage(cause: unknown, fallback: string): string {
 			? cause.cause.message.trim()
 			: undefined;
 	return detail && detail !== message ? `${message}: ${detail}` : message;
+}
+
+/**
+ * What the browser's fetch throws for any request that produced no readable
+ * response: Chrome "Failed to fetch", Safari "Load failed", Firefox
+ * "NetworkError when attempting to fetch resource.". It carries no cause —
+ * DNS, CORS, a dropped connection and a proxy timeout all look the same.
+ */
+const BROWSER_NETWORK_ERROR = /failed to fetch|load failed|networkerror/i;
+
+export function isBrowserNetworkError(cause: unknown): cause is TypeError {
+	return (
+		cause instanceof TypeError && BROWSER_NETWORK_ERROR.test(cause.message)
+	);
+}
+
+export type ApiReachability = "offline" | "reachable" | "unreachable";
+
+/**
+ * Spells out what a browser network error means for this request, since the
+ * error itself does not: whether the API answers at all, how long the request
+ * ran before it died, and where to look next.
+ */
+export function describeBrowserNetworkError(
+	cause: TypeError,
+	request: { url: string; elapsedMs: number; reachability: ApiReachability },
+): string {
+	const { host, pathname } = new URL(request.url);
+	const elapsed = formatDurationMs(request.elapsedMs);
+	const raw = `browser reported "${cause.message}"`;
+	switch (request.reachability) {
+		case "offline":
+			return `Your browser is offline, so the request to ${host} never left it (${raw}).`;
+		case "unreachable":
+			return `Could not reach the API at ${host} after ${elapsed} (${raw}). It is down, blocked by the network, or rejecting this origin via CORS.`;
+		case "reachable":
+			return `The API at ${host} is up, but POST ${pathname} failed after ${elapsed} without a response the browser could read (${raw}). A proxy or load balancer most likely cut the request off or answered without CORS headers; check the API logs for this request.`;
+	}
+}
+
+const REACHABILITY_TIMEOUT_MS = 10_000;
+
+/** Any answer from the API root — even a 503 — proves the host is reachable. */
+async function checkApiReachability(apiUrl: string): Promise<ApiReachability> {
+	if (typeof navigator !== "undefined" && !navigator.onLine) {
+		return "offline";
+	}
+	try {
+		await fetch(new URL("/", apiUrl), {
+			cache: "no-store",
+			credentials: "omit",
+			signal: AbortSignal.timeout(REACHABILITY_TIMEOUT_MS),
+		});
+		return "reachable";
+	} catch {
+		return "unreachable";
+	}
+}
+
+/**
+ * {@link thrownErrorMessage} for a request sent from the browser: a bare
+ * "Failed to fetch" is replaced with a diagnosis, which costs one extra
+ * request to the API root to tell "API down" from "this request was dropped".
+ */
+export async function browserRequestErrorMessage(
+	cause: unknown,
+	request: { url: string; startedAt: number },
+	fallback: string,
+): Promise<string> {
+	if (!isBrowserNetworkError(cause)) {
+		return thrownErrorMessage(cause, fallback);
+	}
+	const elapsedMs = Date.now() - request.startedAt;
+	return describeBrowserNetworkError(cause, {
+		url: request.url,
+		elapsedMs,
+		reachability: await checkApiReachability(request.url),
+	});
 }

@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 
-import { apiErrorMessage, thrownErrorMessage } from "./api-error";
+import {
+	apiErrorMessage,
+	describeBrowserNetworkError,
+	isBrowserNetworkError,
+	thrownErrorMessage,
+} from "./api-error";
 
 function jsonResponse(status: number): Response {
 	return new Response(null, { status });
@@ -124,5 +129,55 @@ describe("thrownErrorMessage", () => {
 	test("falls back for a thrown value with nothing to say", () => {
 		expect(thrownErrorMessage(new Error("  "), "fallback")).toBe("fallback");
 		expect(thrownErrorMessage(undefined, "fallback")).toBe("fallback");
+	});
+});
+
+describe("browser network errors", () => {
+	const url = "https://api.example.com/admin/provider-credentials/self-test";
+	const cause = new TypeError("Failed to fetch");
+
+	test("recognises each browser's wording, and nothing else", () => {
+		expect(isBrowserNetworkError(cause)).toBe(true);
+		expect(isBrowserNetworkError(new TypeError("Load failed"))).toBe(true);
+		expect(
+			isBrowserNetworkError(
+				new TypeError("NetworkError when attempting to fetch resource."),
+			),
+		).toBe(true);
+		expect(isBrowserNetworkError(new Error("Failed to fetch"))).toBe(false);
+		expect(isBrowserNetworkError(new TypeError("x is undefined"))).toBe(false);
+	});
+
+	test("points at a dropped request when the API itself answers", () => {
+		const message = describeBrowserNetworkError(cause, {
+			url,
+			elapsedMs: 30_400,
+			reachability: "reachable",
+		});
+		expect(message).toContain("api.example.com is up");
+		expect(message).toContain(
+			"POST /admin/provider-credentials/self-test failed after 30.4 s",
+		);
+		expect(message).toContain('browser reported "Failed to fetch"');
+	});
+
+	test("says so when the API cannot be reached at all", () => {
+		expect(
+			describeBrowserNetworkError(cause, {
+				url,
+				elapsedMs: 120,
+				reachability: "unreachable",
+			}),
+		).toContain("Could not reach the API at api.example.com after 120 ms");
+	});
+
+	test("blames the connection when the browser is offline", () => {
+		expect(
+			describeBrowserNetworkError(cause, {
+				url,
+				elapsedMs: 5,
+				reachability: "offline",
+			}),
+		).toContain("Your browser is offline");
 	});
 });
