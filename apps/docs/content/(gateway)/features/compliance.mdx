@@ -43,7 +43,7 @@ The settings page shows a live **Provider Impact** preview of which providers ar
 
 ## Data residency
 
-Choose **European Union (EU/EEA)** to route only to providers headquartered in the EU or EEA, or to their EU regional endpoints. Single requests can opt in with the `x-llmgateway-data-residency: eu` header. See [Data residency](/features/data-residency).
+Choose **United States** or **European Union (EU/EEA)** to route only to endpoints whose inference is verified to run inside that jurisdiction. Headquarters do not count, and endpoints without a verified processing region are blocked. Single requests can opt in with the `x-llmgateway-data-residency` header. This restricts the upstream inference hop only; the gateway, its logs and caches run in the US. See [Data residency](/features/data-residency).
 
 ## Provider headquarters
 

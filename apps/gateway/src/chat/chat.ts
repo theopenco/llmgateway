@@ -45,6 +45,7 @@ import {
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import {
+	assertResidencyAllowsBaseUrl,
 	complianceBlockMessage,
 	DATA_RESIDENCY_HEADER,
 	getActiveCompliancePolicy,
@@ -215,6 +216,7 @@ import {
 	expandAllProviderRegions,
 	expandProviderRegions,
 	getProviderDefinition,
+	getProviderEnvValue,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
 	usesEncryptedReasoning,
@@ -3251,7 +3253,6 @@ chat.openapi(completions, async (c) => {
 	// honour a request-level residency as well as the org policy.
 	const requestDataResidency = getRequestDataResidency(
 		c.req.header(DATA_RESIDENCY_HEADER),
-		c.req.header("host"),
 	);
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
@@ -3575,7 +3576,17 @@ chat.openapi(completions, async (c) => {
 					region:
 						provider.region ??
 						(provider.providerId === usedProvider ? usedRegion : undefined),
+					mapping: provider,
 				};
+
+	/** The pinned provider's mapping, so its own processing-region claims apply. */
+	const pinnedMapping = (): ProviderModelMapping | undefined =>
+		allModelProviders.find(
+			(provider) =>
+				provider.providerId === usedProvider &&
+				(provider.region ?? undefined) === usedRegion,
+		) ??
+		allModelProviders.find((provider) => provider.providerId === usedProvider);
 
 	// Which policy rules a dropped mapping failed, recorded next to the coarse
 	// "compliance" code so the routing analytics can break the total down by rule
@@ -3634,6 +3645,7 @@ chat.openapi(completions, async (c) => {
 			!isProviderIdCompliant(usedProvider, compliancePolicy, {
 				...complianceContext,
 				region: usedRegion,
+				mapping: pinnedMapping(),
 			});
 		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
 			await logComplianceBlock(project.organizationId, {
@@ -7116,25 +7128,35 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
-	// An EU regional endpoint can satisfy data residency for a provider
-	// headquartered elsewhere, but only if the request reaches it. A custom base
-	// URL replaces that endpoint, so fail closed when the region was the reason
-	// the provider qualified.
+	// The processing region the catalogue verified belongs to the catalogue
+	// endpoint. A base URL override (BYOK key, Airside carrier, LLM_*_BASE_URL
+	// env) sends the request somewhere else, so residency fails closed on it.
 	if (
-		compliancePolicy?.dataResidency &&
-		(airsideResolution?.customBaseUrl ?? credentialBaseUrl) &&
 		usedProvider !== undefined &&
 		usedProvider !== "llmgateway" &&
-		usedProvider !== "custom" &&
-		!isProviderIdCompliant(usedProvider, compliancePolicy, complianceContext)
+		usedProvider !== "custom"
 	) {
-		await logComplianceBlock(project.organizationId, {
-			apiKeyId: apiKey.id,
-			model: requestedModel,
-		});
-		throw new HTTPException(403, {
-			message: complianceBlockMessage(modelInfo.id),
-		});
+		await assertResidencyAllowsBaseUrl(
+			compliancePolicy,
+			usedProvider,
+			airsideResolution?.customBaseUrl ??
+				credentialBaseUrl ??
+				(usesDatabaseCredential
+					? undefined
+					: getProviderEnvValue(
+							usedProvider,
+							"baseUrl",
+							configIndex,
+							undefined,
+							envVariant,
+						)),
+			{
+				organizationId: project.organizationId,
+				modelId: modelInfo.id,
+				apiKeyId: apiKey.id,
+				model: requestedModel,
+			},
+		);
 	}
 
 	try {

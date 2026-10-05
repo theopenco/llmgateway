@@ -39,8 +39,12 @@ export interface ProviderRegionConfig {
 	optionsKey: string;
 	/** Region used when none is explicitly configured */
 	defaultRegion: string;
-	/** Ordered list of available regions for this provider, used to populate the UI dropdown */
-	regions: { id: string; label: string }[];
+	/**
+	 * Ordered list of available regions for this provider, used to populate the
+	 * UI dropdown. `processingRegion` records where that endpoint runs inference
+	 * when verified; see {@link resolveProcessingRegion}.
+	 */
+	regions: { id: string; label: string; processingRegion?: ProcessingRegion }[];
 	/** Maps region id to its base URL */
 	endpointMap: Record<string, string>;
 	/**
@@ -161,9 +165,10 @@ export interface ProviderCompliancePolicy {
 	 */
 	allowedCountries?: string[];
 	/**
-	 * Restrict routing to providers headquartered in the named jurisdiction
-	 * (see {@link DATA_RESIDENCY_COUNTRIES}). Combines with `allowedCountries`:
-	 * a provider must pass both. Fail-closed on unknown headquarters.
+	 * Restrict routing to endpoints whose inference is verified to run inside
+	 * the named jurisdiction (see {@link resolveProcessingRegion}). Headquarters
+	 * play no part: this is about where the request is processed. Fail-closed
+	 * when the catalogue does not record a processing region for the endpoint.
 	 */
 	dataResidency?: DataResidency;
 	/**
@@ -195,87 +200,80 @@ export interface ProviderCompliancePolicy {
 	allowedModels?: string[];
 }
 
-export const DATA_RESIDENCY_OPTIONS = ["eu"] as const;
+/** Jurisdictions an organization can require inference to stay inside. */
+export const DATA_RESIDENCY_OPTIONS = ["us", "eu"] as const;
 export type DataResidency = (typeof DATA_RESIDENCY_OPTIONS)[number];
 
-/** Headquarters countries (ISO 3166-1 alpha-2) that satisfy each residency. */
-export const DATA_RESIDENCY_COUNTRIES: Record<
-	DataResidency,
-	readonly string[]
-> = {
-	eu: [
-		"AT",
-		"BE",
-		"BG",
-		"HR",
-		"CY",
-		"CZ",
-		"DK",
-		"EE",
-		"FI",
-		"FR",
-		"DE",
-		"GR",
-		"HU",
-		"IE",
-		"IT",
-		"LV",
-		"LT",
-		"LU",
-		"MT",
-		"NL",
-		"PL",
-		"PT",
-		"RO",
-		"SK",
-		"SI",
-		"ES",
-		"SE",
-		"IS",
-		"LI",
-		"NO",
-	],
-};
-
 /**
- * Regional endpoint ids located inside each residency. An explicit allowlist,
- * not a prefix: cloud "eu-*" ids include London (eu-west-2) and Zurich
- * (eu-central-2), and multi-country inference profiles ("eu") can span them.
+ * Where an upstream endpoint processes inference, as verified against the
+ * provider's own documentation or DPA. `global` means the provider may route
+ * the request to any of its regions. Values beyond the residencies above
+ * exist so a verified non-US/EU location is recorded explicitly instead of
+ * looking like an unverified one.
  */
-const DATA_RESIDENCY_REGIONS: Record<DataResidency, ReadonlySet<string>> = {
-	eu: new Set([
-		"eu-frankfurt",
-		"eu-central-1",
-		"eu-west-1",
-		"eu-west-3",
-		"eu-north-1",
-		"eu-south-1",
-		"eu-south-2",
-		"europe-west1",
-		"europe-west3",
-		"europe-west4",
-		"europe-west8",
-		"europe-west9",
-		"europe-west10",
-		"europe-west12",
-		"europe-north1",
-		"europe-central2",
-		"europe-southwest1",
-	]),
-};
+export const PROCESSING_REGIONS = [
+	...DATA_RESIDENCY_OPTIONS,
+	"uk",
+	"ch",
+	"apac",
+	"cn",
+	"global",
+] as const;
+export type ProcessingRegion = (typeof PROCESSING_REGIONS)[number];
 
 export function isDataResidency(value: unknown): value is DataResidency {
 	return DATA_RESIDENCY_OPTIONS.includes(value as DataResidency);
 }
 
-/** Whether a regional endpoint id (e.g. "eu-frankfurt") is inside the residency. */
-export function isRegionInDataResidency(
-	region: string | null | undefined,
-	residency: DataResidency,
-): boolean {
+export function isProcessingRegion(value: unknown): value is ProcessingRegion {
+	return PROCESSING_REGIONS.includes(value as ProcessingRegion);
+}
+
+/** The parts of a mapping that can pin where its inference runs. */
+export interface ProcessingRegionSource {
+	processingRegion?: ProcessingRegion;
+	regions?: { id: string; processingRegion?: ProcessingRegion }[];
+}
+
+/**
+ * Where a request to `provider` at `region` is processed, or `undefined`
+ * when nothing in the catalogue verifies it (fail-closed). Resolution order,
+ * most specific first: the mapping's own region entry, the mapping, the
+ * provider's regional endpoint, the provider. A multi-region provider without
+ * a concrete region only resolves through a mapping- or provider-level claim,
+ * because the gateway may still pick any of its regions.
+ */
+export function resolveProcessingRegion(
+	provider: Pick<ProviderDefinition, "processingRegion" | "regionConfig">,
+	region?: string | null,
+	mapping?: ProcessingRegionSource,
+): ProcessingRegion | undefined {
+	const regionId = region?.toLowerCase();
 	return (
-		!!region && DATA_RESIDENCY_REGIONS[residency].has(region.toLowerCase())
+		(regionId
+			? mapping?.regions?.find((entry) => entry.id.toLowerCase() === regionId)
+					?.processingRegion
+			: undefined) ??
+		mapping?.processingRegion ??
+		(regionId
+			? provider.regionConfig?.regions.find(
+					(entry) => entry.id.toLowerCase() === regionId,
+				)?.processingRegion
+			: undefined) ??
+		provider.processingRegion
 	);
+}
+
+/** Regional endpoint ids of a provider whose processing stays inside `residency`. */
+export function getResidencyRegions(
+	provider: Pick<ProviderDefinition, "processingRegion" | "regionConfig">,
+	residency: DataResidency,
+): string[] {
+	return (provider.regionConfig?.regions ?? [])
+		.filter(
+			(entry) => resolveProcessingRegion(provider, entry.id) === residency,
+		)
+		.map((entry) => entry.id);
 }
 
 /** DevPass exposes only the no-API-training requirement. */
@@ -335,6 +333,13 @@ export interface ProviderDefinition {
 	maxTemperature?: number;
 	/** Region routing config - when set, provider supports multiple geographic endpoints */
 	regionConfig?: ProviderRegionConfig;
+	/**
+	 * Where this provider processes inference for every endpoint it exposes,
+	 * when verified against its documentation or DPA. Regional endpoints and
+	 * individual mappings can override it; see {@link resolveProcessingRegion}.
+	 * Unset means unverified, which fails any data-residency requirement.
+	 */
+	processingRegion?: ProcessingRegion;
 	/**
 	 * Selectable processing tiers (e.g. Flex / Priority) offered by this
 	 * provider. Chosen per-request via the `service_tier` field. When unset,
@@ -655,7 +660,9 @@ export const providers: ProviderDefinition[] = [
 		regionConfig: {
 			optionsKey: "vertex_openai_region",
 			defaultRegion: "global",
-			regions: [{ id: "global", label: "Global (default)" }],
+			regions: [
+				{ id: "global", label: "Global (default)", processingRegion: "global" },
+			],
 			endpointMap: {
 				global: "https://aiplatform.googleapis.com",
 			},
@@ -899,11 +906,17 @@ export const providers: ProviderDefinition[] = [
 		regionConfig: {
 			optionsKey: "alibaba_region",
 			defaultRegion: "singapore",
+			// Model Studio regions are single-location deployments; see
+			// https://www.alibabacloud.com/help/en/model-studio/regions.
 			regions: [
-				{ id: "singapore", label: "Singapore (default)" },
-				{ id: "eu-frankfurt", label: "EU (Frankfurt)" },
-				{ id: "us-virginia", label: "US (Virginia)" },
-				{ id: "cn-beijing", label: "China (Beijing)" },
+				{
+					id: "singapore",
+					label: "Singapore (default)",
+					processingRegion: "apac",
+				},
+				{ id: "eu-frankfurt", label: "EU (Frankfurt)", processingRegion: "eu" },
+				{ id: "us-virginia", label: "US (Virginia)", processingRegion: "us" },
+				{ id: "cn-beijing", label: "China (Beijing)", processingRegion: "cn" },
 			],
 			endpointMap: {
 				singapore: "https://dashscope-intl.aliyuncs.com",
@@ -1088,25 +1101,46 @@ export const providers: ProviderDefinition[] = [
 			sharedCredentialAcrossRegions: true,
 			regions: [
 				// Cross-region inference profile groups (spread inference across the
-				// pool — AWS picks the actual region per request).
-				{ id: "global", label: "Global (default)" },
-				{ id: "us", label: "US" },
+				// pool — AWS picks the actual region per request). The `us` profile
+				// only spans US regions. The `eu` profile also spans London and
+				// Zurich, which are outside the EU/EEA, so it carries no processing
+				// region and never satisfies an EU residency. See
+				// https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html
+				{ id: "global", label: "Global (default)", processingRegion: "global" },
+				{ id: "us", label: "US", processingRegion: "us" },
 				{ id: "eu", label: "EU" },
-				{ id: "apac", label: "Asia Pacific" },
-				{ id: "au", label: "Australia" },
-				{ id: "jp", label: "Japan" },
-				// Specific AWS regions for data-residency requirements.
-				{ id: "us-east-1", label: "US East (N. Virginia)" },
-				{ id: "us-east-2", label: "US East (Ohio)" },
-				{ id: "us-west-2", label: "US West (Oregon)" },
-				{ id: "eu-central-1", label: "EU (Frankfurt)" },
-				{ id: "eu-north-1", label: "EU (Stockholm)" },
-				{ id: "eu-west-1", label: "EU (Ireland)" },
-				{ id: "eu-west-2", label: "EU (London)" },
-				{ id: "eu-west-3", label: "EU (Paris)" },
-				{ id: "ap-northeast-1", label: "Asia Pacific (Tokyo)" },
-				{ id: "ap-northeast-2", label: "Asia Pacific (Seoul)" },
-				{ id: "ap-southeast-1", label: "Asia Pacific (Singapore)" },
+				{ id: "apac", label: "Asia Pacific", processingRegion: "apac" },
+				{ id: "au", label: "Australia", processingRegion: "apac" },
+				{ id: "jp", label: "Japan", processingRegion: "apac" },
+				// Specific AWS regions for data-residency requirements: Bedrock
+				// processes in-region unless a cross-region profile is used.
+				{
+					id: "us-east-1",
+					label: "US East (N. Virginia)",
+					processingRegion: "us",
+				},
+				{ id: "us-east-2", label: "US East (Ohio)", processingRegion: "us" },
+				{ id: "us-west-2", label: "US West (Oregon)", processingRegion: "us" },
+				{ id: "eu-central-1", label: "EU (Frankfurt)", processingRegion: "eu" },
+				{ id: "eu-north-1", label: "EU (Stockholm)", processingRegion: "eu" },
+				{ id: "eu-west-1", label: "EU (Ireland)", processingRegion: "eu" },
+				{ id: "eu-west-2", label: "EU (London)", processingRegion: "uk" },
+				{ id: "eu-west-3", label: "EU (Paris)", processingRegion: "eu" },
+				{
+					id: "ap-northeast-1",
+					label: "Asia Pacific (Tokyo)",
+					processingRegion: "apac",
+				},
+				{
+					id: "ap-northeast-2",
+					label: "Asia Pacific (Seoul)",
+					processingRegion: "apac",
+				},
+				{
+					id: "ap-southeast-1",
+					label: "Asia Pacific (Singapore)",
+					processingRegion: "apac",
+				},
 			],
 			endpointMap: {
 				global: "https://bedrock-runtime.us-east-1.amazonaws.com",
@@ -1190,11 +1224,15 @@ export const providers: ProviderDefinition[] = [
 			optionsKey: "aws_mantle_region",
 			defaultRegion: "us-east-1",
 			regions: [
-				{ id: "global", label: "Global" },
-				{ id: "us", label: "US cross-region" },
-				{ id: "us-east-1", label: "US East (N. Virginia)" },
-				{ id: "us-east-2", label: "US East (Ohio)" },
-				{ id: "us-west-2", label: "US West (Oregon)" },
+				{ id: "global", label: "Global", processingRegion: "global" },
+				{ id: "us", label: "US cross-region", processingRegion: "us" },
+				{
+					id: "us-east-1",
+					label: "US East (N. Virginia)",
+					processingRegion: "us",
+				},
+				{ id: "us-east-2", label: "US East (Ohio)", processingRegion: "us" },
+				{ id: "us-west-2", label: "US West (Oregon)", processingRegion: "us" },
 			],
 			endpointMap: {
 				global: "https://bedrock-runtime.us-east-1.amazonaws.com",
@@ -1543,6 +1581,10 @@ export const providers: ProviderDefinition[] = [
 		usagePolicyUrl: "https://legal.mistral.ai/terms/usage-policy",
 		legalEntity: "Mistral AI",
 		headquarters: "FR",
+		// La Plateforme hosts and processes API data in the EU by default; only
+		// the explicit US endpoint (not used here) moves it. See
+		// https://help.mistral.ai/en/articles/347629-where-do-you-store-my-data-or-my-organization-s-data
+		processingRegion: "eu",
 		dataPolicy: {
 			apiTraining: false,
 			promptLogging: true,
@@ -2542,13 +2584,6 @@ export function getDataPolicyComplianceFailures(
 	) {
 		failures.push("allowedCountries");
 	}
-	if (
-		policy.dataResidency &&
-		(!headquarters ||
-			!DATA_RESIDENCY_COUNTRIES[policy.dataResidency].includes(headquarters))
-	) {
-		failures.push("dataResidency");
-	}
 	return failures;
 }
 
@@ -2693,6 +2728,7 @@ export function isProviderCompliant(
 export function getProviderRequirementFailures(
 	provider: ProviderDefinition,
 	policy: ProviderCompliancePolicy,
+	location?: ProviderRequestLocation,
 ): ComplianceFailureReason[] {
 	const failures = getDataPolicyComplianceFailures(
 		provider.dataPolicy,
@@ -2706,7 +2742,23 @@ export function getProviderRequirementFailures(
 	) {
 		failures.push("blockStealthProviders");
 	}
+	if (
+		policy.enabled &&
+		policy.dataResidency &&
+		resolveProcessingRegion(provider, location?.region, location?.mapping) !==
+			policy.dataResidency
+	) {
+		failures.push("dataResidency");
+	}
 	return failures;
+}
+
+/** Which endpoint of a provider a request reaches, for residency checks. */
+export interface ProviderRequestLocation {
+	/** Regional endpoint id the request is pinned or expanded to. */
+	region?: string | null;
+	/** The mapping being evaluated, for its own processing-region claims. */
+	mapping?: ProcessingRegionSource;
 }
 
 /**
@@ -2717,16 +2769,12 @@ export function getProviderRequirementFailures(
 export function getProviderComplianceFailures(
 	provider: ProviderDefinition,
 	policy: ProviderCompliancePolicy,
-	region?: string | null,
+	location?: ProviderRequestLocation,
 ): ComplianceFailureReason[] {
-	const failures = [
+	return [
 		...getProviderRefPolicyListFailures(provider.id, policy),
-		...getProviderRequirementFailures(provider, policy),
+		...getProviderRequirementFailures(provider, policy, location),
 	];
-	return policy.dataResidency &&
-		isRegionInDataResidency(region, policy.dataResidency)
-		? failures.filter((failure) => failure !== "dataResidency")
-		: failures;
 }
 
 export interface ModelMappingAvailability {
@@ -2804,7 +2852,7 @@ export function getAttestationComplianceFailures(
 	if (!attestation) {
 		return ["noAttestation"];
 	}
-	return getDataPolicyComplianceFailures(
+	const failures = getDataPolicyComplianceFailures(
 		{
 			apiTraining: attestation.apiTraining ?? null,
 			promptLogging: attestation.promptLogging ?? null,
@@ -2816,6 +2864,12 @@ export function getAttestationComplianceFailures(
 		attestation.headquarters ?? null,
 		policy,
 	);
+	// An attestation records the operating country, not where inference runs,
+	// so a self-hosted deployment never satisfies a residency requirement.
+	if (policy.dataResidency) {
+		failures.push("dataResidency");
+	}
+	return failures;
 }
 
 export interface ProviderCountry {

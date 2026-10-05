@@ -35,7 +35,10 @@ import {
 } from "@/lib/cached-queries.js";
 import {
 	assertProviderCompliant,
+	assertResidencyAllowsBaseUrl,
+	DATA_RESIDENCY_HEADER,
 	getEffectiveRetentionLevel,
+	getRequestDataResidency,
 } from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import {
@@ -642,12 +645,26 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 
 	// Enterprise provider compliance policy: speech resolves to a single
 	// provider, so block before sending if it doesn't meet the org's policy.
-	await assertProviderCompliant(organization, providerId, {
+	const compliancePolicy = await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+			dataResidency: getRequestDataResidency(
+				c.req.header(DATA_RESIDENCY_HEADER),
+			),
+			mapping,
+		},
+	);
+	const residencyContext = {
 		organizationId: project.organizationId,
 		modelId: modelDefId,
 		apiKeyId: apiKey.id,
 		model: requestedModel,
-	});
+	};
 
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();
@@ -868,6 +885,12 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				message: `No base URL set for provider: ${providerId}`,
 			});
 		}
+		await assertResidencyAllowsBaseUrl(
+			compliancePolicy,
+			providerId,
+			resolvedBaseUrl,
+			residencyContext,
+		);
 
 		const elevenLabsOutputFormat =
 			ELEVENLABS_OUTPUT_FORMATS[responseFormat] ?? "mp3_44100_128";

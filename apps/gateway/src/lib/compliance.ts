@@ -1,5 +1,6 @@
 import { HTTPException } from "hono/http-exception";
 
+import { getProviderDefaultBaseUrl } from "@llmgateway/actions";
 import { logViolation } from "@llmgateway/guardrails";
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -10,12 +11,15 @@ import {
 	getProviderComplianceFailures,
 	getProviderDefinition,
 	getProviderRefPolicyListFailures,
+	DATA_RESIDENCY_OPTIONS,
 	isAttestationCompliant,
 	isModelAllowedByPolicy,
 	isDataResidency,
 	isProviderRefAllowedByPolicy,
 	type ComplianceFailureReason,
 	type DataResidency,
+	type ProcessingRegionSource,
+	type ProviderId,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -67,34 +71,87 @@ export interface ComplianceCheckContext {
 	customAttestation?: ProviderComplianceAttestation | null;
 	/** Routing-prefix name of the custom provider handling this request. */
 	customProviderName?: string;
-	/** Regional endpoint the mapping routes to; satisfies a matching residency. */
+	/** Regional endpoint the request routes to, when pinned or expanded. */
 	region?: string | null;
+	/** The mapping being evaluated, for its own processing-region claims. */
+	mapping?: ProcessingRegionSource;
 }
 
 export const DATA_RESIDENCY_HEADER = "x-llmgateway-data-residency";
 
 /**
- * Residency requested by the call itself: the `x-llmgateway-data-residency`
- * header, or a regional hostname such as `eu.api.llmgateway.io`. Throws 400
- * on an unknown header value so a typo never silently routes globally.
+ * Residency requested by the call itself through the
+ * `x-llmgateway-data-residency` header. Throws 400 on an unknown value so a
+ * typo never silently routes globally. Only the header counts: a regional
+ * hostname is not a signal until a gateway actually runs in that region.
  */
 export function getRequestDataResidency(
 	header: string | undefined,
-	host: string | undefined,
 ): DataResidency | undefined {
-	if (header !== undefined) {
-		const value = header.trim().toLowerCase();
-		if (!isDataResidency(value)) {
-			throw new HTTPException(400, {
-				message: `Unsupported ${DATA_RESIDENCY_HEADER} value '${header}'. Supported: eu.`,
-			});
-		}
-		return value;
+	if (header === undefined) {
+		return undefined;
 	}
-	const label = host?.split(".")[0]?.toLowerCase();
-	return label && host?.includes(".") && isDataResidency(label)
-		? label
-		: undefined;
+	const value = header.trim().toLowerCase();
+	if (!isDataResidency(value)) {
+		throw new HTTPException(400, {
+			message: `Unsupported ${DATA_RESIDENCY_HEADER} value '${header}'. Supported: ${DATA_RESIDENCY_OPTIONS.join(", ")}.`,
+		});
+	}
+	return value;
+}
+
+/**
+ * Whether a base URL replaces the catalogue endpoint of `providerId`. BYOK
+ * keys, managed-credential config, `LLM_*_BASE_URL` env overrides and Airside
+ * carriers all do this, and the catalogue verifies nothing about where such
+ * an endpoint processes requests.
+ */
+export function isBaseUrlOverride(
+	providerId: string,
+	baseUrl: string | null | undefined,
+): boolean {
+	if (!baseUrl) {
+		return false;
+	}
+	const definition = getProviderDefinition(providerId);
+	const known = new Set(
+		[
+			getProviderDefaultBaseUrl(providerId as ProviderId),
+			...Object.values(definition?.regionConfig?.endpointMap ?? {}),
+			...Object.values(definition?.regionConfig?.endpointFallbackMap ?? {}),
+		]
+			.filter((url): url is string => !!url)
+			.map((url) => url.replace(/\/+$/, "")),
+	);
+	return !known.has(baseUrl.replace(/\/+$/, ""));
+}
+
+/**
+ * Under a residency requirement, a request may only reach the endpoint whose
+ * processing region the catalogue verified. Throws 403 and records a security
+ * event when a base URL override would send it elsewhere.
+ */
+export async function assertResidencyAllowsBaseUrl(
+	policy: ProviderCompliancePolicy | undefined,
+	providerId: string,
+	baseUrl: string | null | undefined,
+	context: {
+		organizationId: string;
+		modelId: string;
+		apiKeyId?: string;
+		model?: string;
+	},
+): Promise<void> {
+	if (!policy?.dataResidency || !isBaseUrlOverride(providerId, baseUrl)) {
+		return;
+	}
+	await logComplianceBlock(context.organizationId, {
+		apiKeyId: context.apiKeyId,
+		model: context.model,
+	});
+	throw new HTTPException(403, {
+		message: complianceBlockMessage(context.modelId),
+	});
 }
 
 /**
@@ -136,8 +193,7 @@ export function isProviderIdCompliant(
 	}
 	const definition = getProviderDefinition(providerId);
 	return definition
-		? getProviderComplianceFailures(definition, policy, context?.region)
-				.length === 0
+		? getProviderComplianceFailures(definition, policy, context).length === 0
 		: false;
 }
 
@@ -183,7 +239,7 @@ export function getComplianceFailureReasons(
 		const definition = getProviderDefinition(providerId);
 		failures.push(
 			...(definition
-				? getProviderComplianceFailures(definition, policy, context?.region)
+				? getProviderComplianceFailures(definition, policy, context)
 				: ["unknownProvider" as const]),
 		);
 	}
@@ -239,10 +295,13 @@ export async function logComplianceBlock(
 }
 
 /**
- * Enforce the org's compliance policy for a single resolved provider (used by
- * endpoints that pick one provider rather than routing across many). Throws a
- * 403 and records a security event when the provider is non-compliant or the
- * model is excluded by the policy's fine-grained model lists.
+ * Enforce the org's compliance policy, tightened by any request-level
+ * residency, for a single resolved provider (used by endpoints that pick one
+ * provider rather than routing across many). Throws a 403 and records a
+ * security event when the provider is non-compliant or the model is excluded
+ * by the policy's fine-grained model lists. Returns the effective policy so
+ * the caller can run later checks (e.g. {@link assertResidencyAllowsBaseUrl})
+ * against the same rules.
  */
 export async function assertProviderCompliant(
 	organization: OrganizationLike,
@@ -252,15 +311,25 @@ export async function assertProviderCompliant(
 		modelId: string;
 		apiKeyId?: string;
 		model?: string;
+		/** Residency the request asked for via the header. */
+		dataResidency?: DataResidency;
+		/** The mapping the endpoint resolved to, for its region and claims. */
+		mapping?: ProcessingRegionSource & { region?: string | null };
 	},
-): Promise<void> {
-	const policy = getActiveCompliancePolicy(organization);
+): Promise<ProviderCompliancePolicy | undefined> {
+	const policy = withRequestDataResidency(
+		getActiveCompliancePolicy(organization),
+		context.dataResidency,
+	);
 	if (
 		!policy ||
-		(isProviderIdCompliant(providerId, policy) &&
+		(isProviderIdCompliant(providerId, policy, {
+			region: context.mapping?.region,
+			mapping: context.mapping,
+		}) &&
 			isModelIdCompliant(context.modelId, policy))
 	) {
-		return;
+		return policy;
 	}
 	await logComplianceBlock(context.organizationId, {
 		apiKeyId: context.apiKeyId,

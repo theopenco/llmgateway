@@ -30,7 +30,10 @@ import {
 } from "@/lib/cached-queries.js";
 import {
 	assertProviderCompliant,
+	assertResidencyAllowsBaseUrl,
+	DATA_RESIDENCY_HEADER,
 	getEffectiveRetentionLevel,
+	getRequestDataResidency,
 } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
@@ -481,12 +484,25 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 	// Enterprise provider compliance policy: moderation runs on OpenAI, so block
 	// before sending if the org's policy doesn't permit it.
-	await assertProviderCompliant(organization, "openai", {
+	const compliancePolicy = await assertProviderCompliant(
+		organization,
+		"openai",
+		{
+			organizationId: project.organizationId,
+			modelId: moderationModelId,
+			apiKeyId: apiKey.id,
+			model: upstreamModel,
+			dataResidency: getRequestDataResidency(
+				c.req.header(DATA_RESIDENCY_HEADER),
+			),
+		},
+	);
+	const residencyContext = {
 		organizationId: project.organizationId,
 		modelId: moderationModelId,
 		apiKeyId: apiKey.id,
 		model: upstreamModel,
-	});
+	};
 
 	const retentionLevel = getEffectiveRetentionLevel(organization);
 
@@ -574,7 +590,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 	// Resolved per attempt: a credential rotation below can switch to a
 	// managed key or env index with its own base URL.
-	const resolveUpstreamUrl = (): string => {
+	const resolveUpstreamUrl = async (): Promise<string> => {
 		const resolvedBaseUrl =
 			providerKey?.baseUrl ??
 			getCredentialSetting(
@@ -589,6 +605,12 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				message: "No base URL set for provider: openai",
 			});
 		}
+		await assertResidencyAllowsBaseUrl(
+			compliancePolicy,
+			"openai",
+			resolvedBaseUrl,
+			residencyContext,
+		);
 		return `${resolvedBaseUrl.replace(/\/+$/, "")}/v1/moderations`;
 	};
 	const requestBody = {
@@ -690,7 +712,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			try {
 				const fetchSignal = createCombinedSignal(controller);
 				upstreamResponse = await fetchProvider(
-					resolveUpstreamUrl(),
+					await resolveUpstreamUrl(),
 					{
 						method: "POST",
 						// SSRF: never follow redirects on an authenticated provider request. A

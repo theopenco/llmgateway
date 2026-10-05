@@ -349,6 +349,9 @@ export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 				: undefined,
 		providerId: listed.mapping.providerId as Provider,
 		externalId: listed.mapping.externalId,
+		// The carrier's filing, not the static mapping it replaces, is what was
+		// verified for this listing. Null fails any residency requirement.
+		processingRegion: listed.mapping.processingRegion ?? undefined,
 		apiFormat:
 			listed.mapping.apiFormat === "provider-native"
 				? undefined

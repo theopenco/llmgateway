@@ -32,7 +32,7 @@ import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
 
-import type { providers } from "./providers.js";
+import type { ProcessingRegion, providers } from "./providers.js";
 
 export type Provider = (typeof providers)[number]["id"];
 
@@ -272,6 +272,11 @@ export interface ProviderRegion {
 	 * When absent, falls back to the mapping-level test.
 	 */
 	test?: "skip" | "only";
+	/**
+	 * Where this region's endpoint processes inference, when it differs from
+	 * the provider's regional endpoint entry. See `resolveProcessingRegion`.
+	 */
+	processingRegion?: ProcessingRegion;
 }
 
 /**
@@ -295,6 +300,12 @@ export interface ProviderModelMapping {
 	 * human-readable display name.
 	 */
 	externalId: string;
+	/**
+	 * Where this mapping's inference runs, when verified and different from
+	 * what the provider or its regional endpoint declares (e.g. an Azure
+	 * DataZone deployment). Unset inherits; see `resolveProcessingRegion`.
+	 */
+	processingRegion?: ProcessingRegion;
 	/**
 	 * Price per input token in USD
 	 */

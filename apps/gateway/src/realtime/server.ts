@@ -6,6 +6,7 @@ import {
 	reportTrackedKeyError,
 	reportTrackedKeySuccess,
 } from "@/lib/api-key-health.js";
+import { DATA_RESIDENCY_HEADER } from "@/lib/compliance.js";
 
 import { logger } from "@llmgateway/logger";
 import { getClientIpFromNodeHeaders } from "@llmgateway/shared/client-ip";
@@ -196,6 +197,11 @@ function extractSource(req: IncomingMessage): string | null {
  * socket-address fallback: behind a load balancer that fallback is the balancer
  * itself, which must never be matched against a customer's CIDR allowlist.
  */
+function headerValue(req: IncomingMessage, name: string): string | undefined {
+	const raw = req.headers[name];
+	return Array.isArray(raw) ? raw[0] : raw;
+}
+
 function extractClientIp(req: IncomingMessage): string | undefined {
 	return getClientIpFromNodeHeaders(req.headers);
 }
@@ -379,6 +385,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					requestedModel,
 					intent,
 					clientIp: extractClientIp(req),
+					dataResidencyHeader: headerValue(req, DATA_RESIDENCY_HEADER),
 				});
 			} catch (error) {
 				if (error instanceof RealtimeConnectError) {

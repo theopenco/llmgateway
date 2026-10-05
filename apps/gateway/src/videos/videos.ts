@@ -40,14 +40,17 @@ import {
 	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
 import {
+	assertResidencyAllowsBaseUrl,
 	complianceBlockMessage,
-	filterCompliantProviders,
+	DATA_RESIDENCY_HEADER,
 	getActiveCompliancePolicy,
 	getEffectiveRetentionLevel,
+	getRequestDataResidency,
 	isModelIdCompliant,
 	isProviderIdCompliant,
 	isZeroDataRetentionEnabled,
 	logComplianceBlock,
+	withRequestDataResidency,
 } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
@@ -4704,24 +4707,36 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 
 	// Enterprise provider compliance policy: restrict video routing to providers
 	// that meet the org's policy, and block before dispatch if none qualify.
-	const videoCompliancePolicy = getActiveCompliancePolicy(organization);
+	const videoCompliancePolicy = withRequestDataResidency(
+		getActiveCompliancePolicy(organization),
+		getRequestDataResidency(c.req.header(DATA_RESIDENCY_HEADER)),
+	);
 	const retainVideoPayloads =
 		getEffectiveRetentionLevel(organization) === "retain";
 	let complianceModelInfo: ModelDefinition = modelInfo;
 	if (videoCompliancePolicy) {
+		const videoMappings = modelInfo.providers as ProviderModelMapping[];
 		// A pinned provider is dispatched directly, so block it explicitly even
 		// when the model has other compliant providers (mirrors the chat path).
+		const pinnedMapping = videoMappings.find(
+			(provider) => provider.providerId === requestedProvider,
+		);
 		const pinnedBlocked =
 			requestedProvider !== undefined &&
-			!isProviderIdCompliant(requestedProvider, videoCompliancePolicy);
+			!isProviderIdCompliant(requestedProvider, videoCompliancePolicy, {
+				region: pinnedMapping?.region,
+				mapping: pinnedMapping,
+			});
 		// The policy's model lists block the model outright.
 		const modelBlocked = !isModelIdCompliant(
 			modelInfo.id,
 			videoCompliancePolicy,
 		);
-		const compliantProviders = filterCompliantProviders(
-			modelInfo.providers as ProviderModelMapping[],
-			videoCompliancePolicy,
+		const compliantProviders = videoMappings.filter((provider) =>
+			isProviderIdCompliant(provider.providerId, videoCompliancePolicy, {
+				region: provider.region,
+				mapping: provider,
+			}),
 		);
 		if (pinnedBlocked || modelBlocked || compliantProviders.length === 0) {
 			await logComplianceBlock(project.organizationId, {
@@ -4757,6 +4772,20 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		noFallback,
 		xNoFallbackHeaderSet,
 		routingCfg,
+	);
+
+	// The verified processing region belongs to the catalogue endpoint; a BYOK
+	// or env base URL sends the job elsewhere, so residency fails closed on it.
+	await assertResidencyAllowsBaseUrl(
+		videoCompliancePolicy,
+		providerContext.providerId,
+		providerContext.baseUrl,
+		{
+			organizationId: project.organizationId,
+			modelId: modelInfo.id,
+			apiKeyId: apiKey.id,
+			model: normalizedModel,
+		},
 	);
 
 	const videoId = shortid();

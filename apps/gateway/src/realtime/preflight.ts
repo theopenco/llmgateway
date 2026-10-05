@@ -1,6 +1,9 @@
 import { HTTPException } from "hono/http-exception";
 
-import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
+import {
+	getCredentialSetting,
+	resolvePlatformCredential,
+} from "@/chat/tools/resolve-platform-credential.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
 	assertApiKeyWithinUsageLimits,
@@ -14,7 +17,11 @@ import {
 	findProviderKey,
 	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	assertProviderCompliant,
+	assertResidencyAllowsBaseUrl,
+	getRequestDataResidency,
+} from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
@@ -30,7 +37,11 @@ import {
 import { RealtimeConnectError } from "./errors.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
-import type { EnvVarVariant, Provider } from "@llmgateway/models";
+import type {
+	DataResidency,
+	EnvVarVariant,
+	Provider,
+} from "@llmgateway/models";
 
 type Organization = InferSelectModel<typeof tables.organization>;
 type Project = InferSelectModel<typeof tables.project>;
@@ -55,6 +66,8 @@ export interface RealtimePreflightInput {
 	 */
 	intent?: string;
 	clientIp?: string;
+	/** Raw `x-llmgateway-data-residency` header of the connection, if any. */
+	dataResidencyHeader?: string;
 }
 
 export interface RealtimePreflightResult {
@@ -99,6 +112,11 @@ export interface RealtimePreflightResult {
 	 * can re-evaluate IP-scoped IAM rules.
 	 */
 	clientIp: string | undefined;
+	/**
+	 * Residency the connection asked for, retained so per-generation gates
+	 * re-check the same tightened policy.
+	 */
+	dataResidency: DataResidency | undefined;
 	/**
 	 * Stable, privacy-preserving identifier forwarded upstream via the
 	 * OpenAI-Safety-Identifier header.
@@ -322,12 +340,19 @@ async function runRealtimePreflightInner(
 		);
 	}
 
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: match.modelId,
-		apiKeyId: apiKey.id,
-		model: input.requestedModel,
-	});
+	const dataResidency = getRequestDataResidency(input.dataResidencyHeader);
+	const compliancePolicy = await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: match.modelId,
+			apiKeyId: apiKey.id,
+			model: input.requestedModel,
+			dataResidency,
+			mapping: match.mapping,
+		},
+	);
 
 	// Input transcription bills a second model, so resolve up front which ASR
 	// mappings this key may actually use. Doing it here (rather than per
@@ -439,6 +464,25 @@ async function runRealtimePreflightInner(
 		throw new RealtimeConnectError(500, "no_token", "No token");
 	}
 
+	// A managed-credential or env base URL moves the session off the endpoint
+	// whose processing region the catalogue verified.
+	await assertResidencyAllowsBaseUrl(
+		compliancePolicy,
+		providerId,
+		getCredentialSetting(
+			providerId,
+			"baseUrl",
+			{ providerKey, managedKey },
+			{ configIndex, variant: envVariant },
+		),
+		{
+			organizationId: project.organizationId,
+			modelId: match.modelId,
+			apiKeyId: apiKey.id,
+			model: input.requestedModel,
+		},
+	);
+
 	return {
 		apiKey,
 		project,
@@ -458,6 +502,7 @@ async function runRealtimePreflightInner(
 		usedMode: providerKey ? "api-keys" : "credits",
 		allowedTranscriptionModelIds,
 		clientIp: input.clientIp,
+		dataResidency,
 		safetyIdentifier: organization.safetyIdentifier,
 	};
 }

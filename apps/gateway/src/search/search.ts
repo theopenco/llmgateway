@@ -36,7 +36,10 @@ import {
 import { raceClientAbort } from "@/lib/client-abort.js";
 import {
 	assertProviderCompliant,
+	assertResidencyAllowsBaseUrl,
+	DATA_RESIDENCY_HEADER,
 	getEffectiveRetentionLevel,
+	getRequestDataResidency,
 } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
@@ -513,12 +516,26 @@ search.openapi(createSearch, async (c): Promise<any> => {
 	}
 
 	// 5. Enterprise provider compliance
-	await assertProviderCompliant(organization, providerId, {
+	const compliancePolicy = await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+			dataResidency: getRequestDataResidency(
+				c.req.header(DATA_RESIDENCY_HEADER),
+			),
+			mapping: searchMapping,
+		},
+	);
+	const residencyContext = {
 		organizationId: project.organizationId,
 		modelId: modelDefId,
 		apiKeyId: apiKey.id,
 		model: requestedModel,
-	});
+	};
 
 	const failedKeys = createFailedKeyTracker();
 	const routingAttempts: RoutingAttempt[] = [];
@@ -680,6 +697,12 @@ search.openapi(createSearch, async (c): Promise<any> => {
 				message: `No base URL set for provider: ${providerId}`,
 			});
 		}
+		await assertResidencyAllowsBaseUrl(
+			compliancePolicy,
+			providerId,
+			resolvedBaseUrl,
+			residencyContext,
+		);
 
 		const upstreamUrl = `${resolvedBaseUrl}/search`;
 		const requestBody: Record<string, unknown> = {

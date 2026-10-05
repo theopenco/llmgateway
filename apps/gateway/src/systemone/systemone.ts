@@ -37,7 +37,10 @@ import {
 import { raceClientAbort } from "@/lib/client-abort.js";
 import {
 	assertProviderCompliant,
+	assertResidencyAllowsBaseUrl,
+	DATA_RESIDENCY_HEADER,
 	getEffectiveRetentionLevel,
+	getRequestDataResidency,
 } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
@@ -474,12 +477,26 @@ systemone.openapi(createSystemOne, async (c): Promise<any> => {
 		throwIamException(iamValidation.reason ?? "Model access denied");
 	}
 
-	await assertProviderCompliant(organization, providerId, {
+	const compliancePolicy = await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+			dataResidency: getRequestDataResidency(
+				c.req.header(DATA_RESIDENCY_HEADER),
+			),
+			mapping: decisionMapping,
+		},
+	);
+	const residencyContext = {
 		organizationId: project.organizationId,
 		modelId: modelDefId,
 		apiKeyId: apiKey.id,
 		model: requestedModel,
-	});
+	};
 
 	const failedKeys = createFailedKeyTracker();
 	const routingAttempts: RoutingAttempt[] = [];
@@ -623,6 +640,12 @@ systemone.openapi(createSystemOne, async (c): Promise<any> => {
 				message: `No base URL set for provider: ${providerId}`,
 			});
 		}
+		await assertResidencyAllowsBaseUrl(
+			compliancePolicy,
+			providerId,
+			resolvedBaseUrl,
+			residencyContext,
+		);
 
 		return {
 			providerKey: providerKeyInner,

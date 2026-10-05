@@ -1,12 +1,22 @@
 ---
 title: Data Residency
-description: Keep requests inside the EU with an organization policy or a per-request header
+description: Restrict inference to endpoints verified to process requests inside the US or the EU
 icon: Globe
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-Data residency restricts routing to providers headquartered in a jurisdiction, or to their regional endpoints located there. The `eu` residency covers the EU and EEA. It does not verify where a provider processes requests internally.
+Data residency restricts routing to upstream endpoints whose inference is **verified to run inside a jurisdiction**: `us` (United States) or `eu` (EU and EEA). It is decided per endpoint from a processing region recorded in the catalogue, never from where a provider is headquartered. Endpoints without a recorded processing region never qualify.
+
+<Callout type="warn">
+	This restricts the **upstream inference hop only**. Every request still
+	terminates at the LLM Gateway control plane in the United States, where
+	request logs, payload previews, stored payloads and caches live. `us`
+	residency is therefore end-to-end today. `eu` residency keeps the model call
+	inside the EU/EEA but your prompt still transits, and is stored by,
+	infrastructure in the US; an EU gateway region is required before we can
+	describe it as EU data residency end to end.
+</Callout>
 
 <Callout type="info">
 	Organization-wide residency is part of the [compliance
@@ -16,16 +26,30 @@ Data residency restricts routing to providers headquartered in a jurisdiction, o
 
 ## What qualifies
 
-A provider mapping qualifies when either:
+The catalogue records a processing region for an endpoint only after checking the provider's own documentation or data processing agreement. It can be recorded for a whole provider, for one of its regional endpoints, or for a single model mapping, and the most specific entry wins. A request qualifies when the endpoint it will actually reach resolves to the required residency.
 
-- the provider is headquartered in the EU or EEA, or
-- the request pins one of the provider's regional endpoints located in an EU or EEA country, for example `alibaba/qwen-plus:eu-frankfurt`. London (`eu-west-2`), Zurich (`eu-central-2`), and multi-country profiles such as Bedrock's `eu` do not qualify. An unpinned request to a provider outside the EU does not qualify, because it would use the provider's default region. Neither does a pinned endpoint behind a provider key with a custom base URL, because the request would not reach it.
+Verified today:
 
-Providers with unknown headquarters never qualify. Everything else in your compliance policy still applies on top. The live [providers page](https://llmgateway.io/providers) shows each provider's headquarters, and the **Provider Impact** preview on the Compliance page lists which providers remain eligible.
+| Residency | Endpoints                                                                                                                                                       |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `us`      | AWS Bedrock `:us`, `:us-east-1`, `:us-east-2`, `:us-west-2`; AWS Mantle `:us`, `:us-east-1`, `:us-east-2`, `:us-west-2`; Alibaba `:us-virginia`                 |
+| `eu`      | Mistral AI (La Plateforme hosts API data in the EU by default); AWS Bedrock `:eu-central-1`, `:eu-west-1`, `:eu-west-3`, `:eu-north-1`; Alibaba `:eu-frankfurt` |
+
+Everything else fails closed, including:
+
+- endpoints that route requests across regions, such as Vertex `global` and Bedrock's `global` profile, and providers whose API does so by default unless a region option is set, which the gateway does not send yet;
+- Bedrock's `eu` cross-region profile, which also spans London and Zurich;
+- providers headquartered in the US or the EU whose processing location has not been verified yet, even when their headquarters is in the jurisdiction;
+- an unpinned request to a multi-region provider, because the gateway may still pick any of its regions. Pin the endpoint, for example `alibaba/qwen-plus:eu-frankfurt`;
+- any base URL that replaces the catalogue endpoint: a provider key with a custom base URL, a managed credential's base URL, an `LLM_*_BASE_URL` environment override, or an Airside carrier endpoint;
+- [custom providers](/features/custom-providers), because a self-attestation records an operating country, not where inference runs;
+- Airside listings, until the carrier's processing region has been recorded for that mapping.
+
+Everything else in your compliance policy still applies on top. The **Provider Impact** preview on the Compliance page marks providers that qualify only through a pinned regional endpoint as **regional** and lists the endpoints.
 
 ## Organization policy
 
-On **Compliance**, enable the policy and choose **European Union (EU/EEA)** under **Data Residency**. Every request from the organization is then restricted. A request with no qualifying provider is rejected with `403` before any data is sent, and the block is recorded as a security event.
+On **Compliance**, enable the policy and choose **United States** or **European Union (EU/EEA)** under **Data Residency**. Every request from the organization is then restricted. A request with no qualifying endpoint is rejected with `403` before any data is sent, and the block is recorded as a security event.
 
 ## Per-request opt-in
 
@@ -34,11 +58,11 @@ Without an organization policy, a single request can ask for residency:
 ```bash
 curl https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
-  -H "x-llmgateway-data-residency: eu" \
+  -H "x-llmgateway-data-residency: us" \
   -H "Content-Type: application/json" \
-  -d '{ "model": "auto", "messages": [{ "role": "user", "content": "Hello" }] }'
+  -d '{ "model": "aws-bedrock/claude-sonnet-4.5:us", "messages": [{ "role": "user", "content": "Hello" }] }'
 ```
 
-A host name whose first label is `eu` (for example `eu.api.example.com` on a self-hosted deployment routed to the gateway) has the same effect. A request can only add a restriction: an unknown value returns `400`, and a value that conflicts with the organization's residency returns `400`.
+A request can only add a restriction: an unknown value returns `400`, and a value that conflicts with the organization's residency returns `400`.
 
-The organization policy applies to every routed request. The per-request header and host are read on `/v1/chat/completions`.
+The header is honoured on every gateway endpoint: chat completions, the Responses and Messages APIs, the AI SDK route, images, embeddings, rerank, speech, transcriptions, OCR, search, moderations, videos and realtime sessions. The organization policy applies to all of them as well.

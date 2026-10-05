@@ -24,6 +24,7 @@ import type {
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type {
 	Quantization,
+	ProcessingRegion,
 	ProviderApiFormat,
 	ToolChoiceMode,
 	ProviderComplianceAttestation,
@@ -3594,6 +3595,11 @@ export const modelProviderMapping = pgTable(
 			],
 		}).$type<ProviderApiFormat>(),
 		region: text(),
+		// Where this mapping's inference runs, verified against the carrier's
+		// documentation or DPA. Airside listings start null and never satisfy a
+		// data-residency requirement until an admin records it. Static-catalogue
+		// rows keep null; their value lives on the shared mapping definition.
+		processingRegion: text().$type<ProcessingRegion>(),
 		source: text({ enum: ["catalogue", "airside"] })
 			.notNull()
 			.default("catalogue"),
