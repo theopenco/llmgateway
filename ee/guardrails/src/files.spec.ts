@@ -89,6 +89,25 @@ describe("file guardrails", () => {
 		).toBe(false);
 	});
 
+	it("scans repeated data-URI-like text in linear time", () => {
+		const config = { enabled: true, action: "block" as const };
+		const text = "data:a/a;".repeat(12_000);
+		const start = performance.now();
+		expect(fileTypesRule.check(text, config, ["image/png"]).passed).toBe(true);
+		expect(performance.now() - start).toBeLessThan(200);
+	});
+
+	it("blocks a data URI however long its parameters are", () => {
+		const config = { enabled: true, action: "block" as const };
+		const result = fileTypesRule.check(
+			`data:application/x-evil;${"p".repeat(500)},YQ== data:application/x-evil,YQ==`,
+			config,
+			["image/png"],
+		);
+		expect(result.passed).toBe(false);
+		expect(result.matches).toEqual(["Blocked file type: application/x-evil"]);
+	});
+
 	describe("default attachment policy", () => {
 		async function checkWithDefaults(
 			content: MessageContent,
@@ -118,6 +137,14 @@ describe("file guardrails", () => {
 			const result = await checkWithDefaults({
 				type: "image_url",
 				image_url: { url: png(1024) },
+			});
+			expect(result.blocked).toBe(false);
+		});
+
+		it("allows an image labelled image/jpg", async () => {
+			const result = await checkWithDefaults({
+				type: "image_url",
+				image_url: { url: "data:image/jpg;base64,YQ==" },
 			});
 			expect(result.blocked).toBe(false);
 		});
@@ -181,6 +208,8 @@ describe("file guardrails", () => {
 		it("accepts MIME types, dotted extensions, and wildcards", () => {
 			expect(checkFileType("image/png", ["image/png"])).toBe(true);
 			expect(checkFileType("image/jpeg", [".JPG"])).toBe(true);
+			expect(checkFileType("image/jpg", ["image/jpeg"])).toBe(true);
+			expect(checkFileType("image/jpeg", ["image/jpg"])).toBe(true);
 			expect(checkFileType("image/webp", ["image/*"])).toBe(true);
 			expect(checkFileType("audio/wav", ["image/*"])).toBe(false);
 		});

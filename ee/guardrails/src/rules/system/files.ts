@@ -14,12 +14,21 @@ const EXTENSION_MIME_TYPES: Record<string, string[]> = {
 	wav: ["audio/wav", "audio/x-wav"],
 };
 
+// Non-standard spellings clients still send for a standard type.
+const MIME_TYPE_ALIASES: Record<string, string> = {
+	"image/jpg": "image/jpeg",
+};
+
+function normalizeMimeType(mimeType: string): string {
+	return MIME_TYPE_ALIASES[mimeType] ?? mimeType;
+}
+
 function allowsType(allowed: string, mimeType: string): boolean {
 	const entry = allowed.trim().toLowerCase().replace(/^\./, "");
 	if (entry.includes("/")) {
 		return entry.endsWith("/*")
 			? mimeType.startsWith(entry.slice(0, -1))
-			: entry === mimeType;
+			: normalizeMimeType(entry) === mimeType;
 	}
 	return (
 		EXTENSION_MIME_TYPES[entry]?.includes(mimeType) ??
@@ -31,7 +40,9 @@ export function checkFileType(
 	fileType: string,
 	allowedTypes: string[],
 ): boolean {
-	const mimeType = fileType.split(";")[0].trim().toLowerCase();
+	const mimeType = normalizeMimeType(
+		fileType.split(";")[0].trim().toLowerCase(),
+	);
 	return allowedTypes.some((allowed) => allowsType(allowed, mimeType));
 }
 
@@ -50,18 +61,39 @@ export const fileTypesRule: SystemRule = {
 			return { passed: true, matches: [] };
 		}
 
-		const matches: string[] = [];
+		const blocked = new Set<string>();
 
-		// Data URIs with a type/subtype; the lookbehind skips prose like "metadata:a,b".
+		// Data URIs with a type/subtype; the lookbehind skips prose like
+		// "metadata:a,b". A data URI's parameters run to a comma before any
+		// whitespace. Scanning them in the pattern backtracks quadratically on
+		// repeated "data:a/a;" text, so the comma is found with forward-only
+		// pointers instead: linear, and with no cap a long parameter list could
+		// use to slip past the check.
 		const dataUriPattern =
-			/(?<![\w-])data:([\w!#$&^.+-]+\/[\w!#$&^.+-]+)(?:;[^,\s]*)?,/gi;
+			/(?<![\w-])data:([\w!#$&^.+-]+\/[\w!#$&^.+-]+)(?=[;,])/gi;
+		const whitespace = /\s/g;
+		let nextComma = -1;
+		let nextWhitespace = -1;
 		let match;
 		while ((match = dataUriPattern.exec(content)) !== null) {
+			const end = dataUriPattern.lastIndex;
+			if (nextComma !== Infinity && nextComma < end) {
+				const index = content.indexOf(",", end);
+				nextComma = index === -1 ? Infinity : index;
+			}
+			if (nextWhitespace !== Infinity && nextWhitespace < end) {
+				whitespace.lastIndex = end;
+				nextWhitespace = whitespace.exec(content)?.index ?? Infinity;
+			}
+			if (nextComma === Infinity || nextComma > nextWhitespace) {
+				continue;
+			}
 			const mimeType = match[1];
 			if (!checkFileType(mimeType, allowedTypes)) {
-				matches.push(`Blocked file type: ${mimeType}`);
+				blocked.add(normalizeMimeType(mimeType.toLowerCase()));
 			}
 		}
+		const matches = [...blocked].map((type) => `Blocked file type: ${type}`);
 
 		return {
 			passed: matches.length === 0,
