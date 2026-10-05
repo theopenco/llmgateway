@@ -1,25 +1,10 @@
 import { logger } from "@llmgateway/logger";
+import { postDiscordWebhook } from "@llmgateway/shared";
+
+import type { DiscordWebhookPayload } from "@llmgateway/shared";
 
 const discordWebhookUrl = process.env.DISCORD_NOTIFICATION_URL;
 const DISCORD_ALERT_TIMEOUT_MS = 5_000;
-
-interface DiscordEmbed {
-	title: string;
-	url?: string;
-	description?: string;
-	color?: number;
-	fields?: Array<{
-		name: string;
-		value: string;
-		inline?: boolean;
-	}>;
-	timestamp?: string;
-}
-
-interface DiscordWebhookPayload {
-	content?: string;
-	embeds?: DiscordEmbed[];
-}
 
 async function sendDiscordNotification(
 	payload: DiscordWebhookPayload,
@@ -34,22 +19,7 @@ async function sendDiscordNotification(
 	}
 
 	try {
-		const response = await fetch(webhookUrl, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify(payload),
-			...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
-		});
-
-		if (!response.ok) {
-			const errorText = await response.text();
-			throw new Error(
-				`Discord webhook error: ${response.status} - ${errorText}`,
-			);
-		}
-
+		await postDiscordWebhook(webhookUrl, payload, { timeoutMs });
 		logger.debug("Discord notification sent successfully");
 	} catch (error) {
 		logger.error(

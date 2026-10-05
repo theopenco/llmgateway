@@ -43,6 +43,10 @@ import {
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
+import {
+	getModelErrorRateAlertsSettings,
+	setModelErrorRateAlertsSettings,
+} from "@/lib/model-error-rate-alerts.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
 	getBucketUnitForWindow,
@@ -150,6 +154,7 @@ import {
 	getPlanClass,
 	isValidSystemBannerLink,
 	LOG_ERROR_TYPES,
+	modelErrorRateAlertsSettingsSchema,
 	parseUsedModel,
 	resolveTrustTierOverride,
 	SYSTEM_BANNER_SEVERITIES,
@@ -6546,6 +6551,56 @@ admin.openapi(updateForceThreeDSecure, async (c) => {
 	await setForcedThreeDSecureMode(mode);
 
 	return c.json(await forceThreeDSecureState());
+});
+
+// --- Model error-rate Discord alerts ---
+
+const getModelErrorRateAlertsRoute = createRoute({
+	method: "get",
+	path: "/settings/model-error-rate-alerts",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+				},
+			},
+			description: "Model error-rate Discord alert rules.",
+		},
+	},
+});
+
+const updateModelErrorRateAlertsRoute = createRoute({
+	method: "put",
+	path: "/settings/model-error-rate-alerts",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+				},
+			},
+			description: "Updated model error-rate Discord alert rules.",
+		},
+	},
+});
+
+admin.openapi(getModelErrorRateAlertsRoute, async (c) => {
+	return c.json(await getModelErrorRateAlertsSettings());
+});
+
+admin.openapi(updateModelErrorRateAlertsRoute, async (c) => {
+	return c.json(await setModelErrorRateAlertsSettings(c.req.valid("json")));
 });
 
 // --- Announcement Banner ---
