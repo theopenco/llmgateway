@@ -64,7 +64,6 @@ describe("sync-models", () => {
 		const openaiProvider = providers.find((p) => p.id === "openai");
 		expect(openaiProvider).toBeTruthy();
 		expect(openaiProvider?.name).toBe("OpenAI");
-		expect(openaiProvider?.streaming).toBe(true);
 		expect(openaiProvider?.status).toBe("active");
 	});
 
@@ -119,7 +118,7 @@ describe("sync-models", () => {
 		beforeAll(async () => {
 			await db
 				.update(provider)
-				.set({ name: "Old OpenAI Name", streaming: false })
+				.set({ name: "Old OpenAI Name" })
 				.where(eq(provider.id, "openai"));
 
 			await db
@@ -210,7 +209,6 @@ describe("sync-models", () => {
 				.where(eq(provider.id, "openai"));
 
 			expect(openaiProvider!.name).toBe("OpenAI");
-			expect(openaiProvider!.streaming).toBe(true);
 			expect(openaiProvider!.updatedAt).not.toBeNull();
 		});
 
