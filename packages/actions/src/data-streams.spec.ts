@@ -128,7 +128,7 @@ describe("data streams", () => {
 					STREAM_ID,
 					ORG_ID,
 				),
-				cursorCreatedAt,
+				cursorCreatedAt: cursorCreatedAt.toISOString(),
 			})
 			.returning();
 		return row;
@@ -167,6 +167,28 @@ describe("data streams", () => {
 
 		const second = await runDataStream(advanced);
 		expect(second).toEqual({ delivered: 0 });
+		expect(received).toHaveLength(1);
+	});
+
+	test("does not redeliver rows whose created_at has microseconds", async () => {
+		// One statement, so both rows share the database's now() to the microsecond.
+		await db.insert(tables.auditLog).values(
+			["m1", "m2"].map((id) => ({
+				id,
+				organizationId: ORG_ID,
+				userId: USER_ID,
+				action: "project.create" as const,
+				resourceType: "project" as const,
+				resourceId: `resource-${id}`,
+			})),
+		);
+		const later = new Date(Date.now() + TEN_MINUTES_MS);
+		const stream = await seedStream(new Date(Date.now() - TEN_MINUTES_MS));
+
+		expect(await runDataStream(stream, later)).toEqual({ delivered: 2 });
+		expect(await runDataStream(await reload(), later)).toEqual({
+			delivered: 0,
+		});
 		expect(received).toHaveLength(1);
 	});
 
@@ -235,9 +257,32 @@ describe("data streams", () => {
 		expect(result.delivered).toBe(2);
 		const after = await reload();
 		expect(after.replayFrom).toBeNull();
-		expect(after.cursorCreatedAt.getTime()).toBe(
-			stream.cursorCreatedAt.getTime(),
-		);
+		expect(after.cursorCreatedAt).toBe(stream.cursorCreatedAt);
+	});
+
+	test("keeps a replay window scheduled while a run is in progress", async () => {
+		const old = new Date(Date.now() - ONE_HOUR_MS);
+		await seedAudit(["w1"], old);
+		await seedStream(new Date());
+		const next = {
+			replayFrom: new Date(old.getTime() - ONE_HOUR_MS),
+			replayTo: new Date(old.getTime() - TEN_MINUTES_MS),
+		};
+		await db
+			.update(tables.dataStream)
+			.set(next)
+			.where(eq(tables.dataStream.id, STREAM_ID));
+
+		// The run started from a snapshot holding the previous window.
+		const running = {
+			...(await reload()),
+			replayFrom: new Date(old.getTime() - 1000),
+			replayTo: new Date(old.getTime() + 1000),
+		};
+		expect((await runDataStream(running)).delivered).toBe(1);
+		const after = await reload();
+		expect(after.replayFrom).toEqual(next.replayFrom);
+		expect(after.replayTo).toEqual(next.replayTo);
 	});
 });
 

@@ -21,7 +21,7 @@ import {
 	type DataStreamEvent,
 } from "./data-streams.js";
 
-import type { InferSelectModel } from "@llmgateway/db";
+import type { AnyColumn, InferSelectModel } from "@llmgateway/db";
 
 export const DATA_STREAM_BATCH_SIZE = 500;
 const MAX_BATCHES_PER_RUN = 10;
@@ -38,8 +38,16 @@ const SETTLE_DELAY_MS: Record<"audit_logs" | "request_logs", number> = {
 type DataStreamRow = InferSelectModel<typeof tables.dataStream>;
 
 interface Cursor {
-	createdAt: Date;
+	/** `created_at` as Postgres text, keeping its microseconds. */
+	createdAt: string;
 	id: string;
+}
+
+function afterCursor(createdAt: AnyColumn, id: AnyColumn, cursor: Cursor) {
+	return or(
+		sql`${createdAt} > ${cursor.createdAt}::timestamp`,
+		and(sql`${createdAt} = ${cursor.createdAt}::timestamp`, gt(id, cursor.id)),
+	);
 }
 
 async function projectIdsFor(stream: DataStreamRow): Promise<string[]> {
@@ -62,15 +70,12 @@ async function fetchBatch(
 	if (stream.source === "audit_logs") {
 		const t = tables.auditLog;
 		const rows = await db
-			.select()
+			.select({ row: t, cursorAt: sql<string>`${t.createdAt}::text` })
 			.from(t)
 			.where(
 				and(
 					eq(t.organizationId, stream.organizationId),
-					or(
-						gt(t.createdAt, cursor.createdAt),
-						and(eq(t.createdAt, cursor.createdAt), gt(t.id, cursor.id)),
-					),
+					afterCursor(t.createdAt, t.id, cursor),
 					lte(t.createdAt, until),
 				),
 			)
@@ -78,8 +83,8 @@ async function fetchBatch(
 			.limit(DATA_STREAM_BATCH_SIZE);
 		const last = rows.at(-1);
 		return {
-			events: rows.map(formatAuditEvent),
-			last: last ? { createdAt: last.createdAt, id: last.id } : undefined,
+			events: rows.map(({ row }) => formatAuditEvent(row)),
+			last: last ? { createdAt: last.cursorAt, id: last.row.id } : undefined,
 		};
 	}
 	if (projectIds.length === 0) {
@@ -117,15 +122,13 @@ async function fetchBatch(
 			sessionId: t.sessionId,
 			messages: stream.config.includePayloads ? t.messages : sql<null>`null`,
 			content: stream.config.includePayloads ? t.content : sql<null>`null`,
+			cursorAt: sql<string>`${t.createdAt}::text`,
 		})
 		.from(t)
 		.where(
 			and(
 				inArray(t.projectId, projectIds),
-				or(
-					gt(t.createdAt, cursor.createdAt),
-					and(eq(t.createdAt, cursor.createdAt), gt(t.id, cursor.id)),
-				),
+				afterCursor(t.createdAt, t.id, cursor),
 				lte(t.createdAt, until),
 			),
 		)
@@ -136,7 +139,7 @@ async function fetchBatch(
 		events: rows.map((row) =>
 			formatRequestLogEvent(row, stream.config.includePayloads === true),
 		),
-		last: last ? { createdAt: last.createdAt, id: last.id } : undefined,
+		last: last ? { createdAt: last.cursorAt, id: last.id } : undefined,
 	};
 }
 
@@ -165,10 +168,10 @@ export async function runDataStream(
 		const projectIds =
 			stream.source === "request_logs" ? await projectIdsFor(stream) : [];
 		if (stream.replayFrom && stream.replayTo) {
+			// An empty id sorts before every row, so the window starts inclusive.
 			let cursor: Cursor = {
 				createdAt:
-					stream.replayCursorCreatedAt ??
-					new Date(stream.replayFrom.getTime() - 1),
+					stream.replayCursorCreatedAt ?? stream.replayFrom.toISOString(),
 				id: stream.replayCursorId ?? "",
 			};
 			const until = stream.replayTo < settled ? stream.replayTo : settled;
@@ -181,7 +184,7 @@ export async function runDataStream(
 				if (batch.last) {
 					cursor = batch.last;
 				}
-				await db
+				const updated = await db
 					.update(tables.dataStream)
 					.set({
 						...(done
@@ -203,8 +206,16 @@ export async function runDataStream(
 								}
 							: {}),
 					})
-					.where(eq(tables.dataStream.id, stream.id));
-				if (done) {
+					// A replay scheduled mid-run replaces this window; leave it alone.
+					.where(
+						and(
+							eq(tables.dataStream.id, stream.id),
+							eq(tables.dataStream.replayFrom, stream.replayFrom),
+							eq(tables.dataStream.replayTo, stream.replayTo),
+						),
+					)
+					.returning({ id: tables.dataStream.id });
+				if (done || updated.length === 0) {
 					break;
 				}
 			}

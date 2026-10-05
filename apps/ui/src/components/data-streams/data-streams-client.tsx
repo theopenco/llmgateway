@@ -602,6 +602,16 @@ export function DataStreamsClient() {
 					</Card>
 				) : list.isLoading ? (
 					<p className="text-sm text-muted-foreground">Loading streams...</p>
+				) : list.isError ? (
+					<Card>
+						<CardContent className="flex flex-col items-center gap-2 p-10 text-center">
+							<TriangleAlert className="h-8 w-8 text-destructive" />
+							<p className="font-medium">Could not load data streams</p>
+							<p className="max-w-md text-sm text-muted-foreground">
+								{errorMessage(list.error)}
+							</p>
+						</CardContent>
+					</Card>
 				) : streams.length === 0 ? (
 					<Card>
 						<CardContent className="flex flex-col items-center gap-2 p-10 text-center">
@@ -670,18 +680,26 @@ export function DataStreamsClient() {
 											size="sm"
 											disabled={test.isPending}
 											onClick={async () => {
-												const result = await test.mutateAsync({
-													params: { path: { id: stream.id } },
-												});
-												toast(
-													result.success
-														? { title: "Test event delivered" }
-														: {
-																title: "Test event failed",
-																description: result.error ?? undefined,
-																variant: "destructive",
-															},
-												);
+												try {
+													const result = await test.mutateAsync({
+														params: { path: { id: stream.id } },
+													});
+													toast(
+														result.success
+															? { title: "Test event delivered" }
+															: {
+																	title: "Test event failed",
+																	description: result.error ?? undefined,
+																	variant: "destructive",
+																},
+													);
+												} catch (error) {
+													toast({
+														title: "Could not send test event",
+														description: errorMessage(error),
+														variant: "destructive",
+													});
+												}
 											}}
 										>
 											<Send className="mr-1 h-4 w-4" />
@@ -692,11 +710,19 @@ export function DataStreamsClient() {
 											variant="outline"
 											size="sm"
 											onClick={async () => {
-												await update.mutateAsync({
-													params: { path: { id: stream.id } },
-													body: { enabled: !stream.enabled },
-												});
-												await refresh();
+												try {
+													await update.mutateAsync({
+														params: { path: { id: stream.id } },
+														body: { enabled: !stream.enabled },
+													});
+													await refresh();
+												} catch (error) {
+													toast({
+														title: "Could not update stream",
+														description: errorMessage(error),
+														variant: "destructive",
+													});
+												}
 											}}
 										>
 											{stream.enabled ? (
@@ -714,10 +740,18 @@ export function DataStreamsClient() {
 												if (!window.confirm(`Delete "${stream.name}"?`)) {
 													return;
 												}
-												await remove.mutateAsync({
-													params: { path: { id: stream.id } },
-												});
-												await refresh();
+												try {
+													await remove.mutateAsync({
+														params: { path: { id: stream.id } },
+													});
+													await refresh();
+												} catch (error) {
+													toast({
+														title: "Could not delete stream",
+														description: errorMessage(error),
+														variant: "destructive",
+													});
+												}
 											}}
 										>
 											<Trash2 className="h-4 w-4" />

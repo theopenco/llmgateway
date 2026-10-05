@@ -88,6 +88,34 @@ describe("data streams", () => {
 		expect((await paused.json()).stream.enabled).toBe(false);
 	});
 
+	test("a partial config update keeps the fields it leaves out", async () => {
+		const config = {
+			bucket: "logs",
+			region: "auto",
+			endpoint: "https://r2.example.com",
+			accessKeyId: "spec-access-key",
+		};
+		const created = await call("POST", "/data-streams", {
+			organizationId: ORG_ID,
+			name: "R2 export",
+			source: "request_logs",
+			destination: "s3",
+			config,
+			secret: { secretAccessKey: ["spec", "secret", "key"].join("-") },
+		});
+		expect(created.status).toBe(200);
+		const { stream } = await created.json();
+
+		const updated = await call("PATCH", `/data-streams/${stream.id}`, {
+			config: { includePayloads: true },
+		});
+		expect(updated.status).toBe(200);
+		expect((await updated.json()).stream.config).toEqual({
+			...config,
+			includePayloads: true,
+		});
+	});
+
 	test("data streams require enterprise", async () => {
 		await db
 			.update(tables.organization)

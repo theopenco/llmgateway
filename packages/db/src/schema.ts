@@ -4576,11 +4576,13 @@ export const dataStream = pgTable(
 		// Encrypted with the provider-key keyring (token, API key, secret key).
 		secret: text(),
 		enabled: boolean().notNull().default(true),
-		cursorCreatedAt: timestamp().notNull().defaultNow(),
+		// Strings keep Postgres' microseconds; a Date would truncate to
+		// milliseconds and re-select the last delivered row.
+		cursorCreatedAt: timestamp({ mode: "string" }).notNull().defaultNow(),
 		cursorId: text().notNull().default(""),
 		replayFrom: timestamp(),
 		replayTo: timestamp(),
-		replayCursorCreatedAt: timestamp(),
+		replayCursorCreatedAt: timestamp({ mode: "string" }),
 		replayCursorId: text(),
 		deliveredCount: bigint({ mode: "number" }).notNull().default(0),
 		lastDeliveredAt: timestamp(),

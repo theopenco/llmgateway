@@ -102,7 +102,8 @@ function serialize(row: StreamRow) {
 			(key) => secret[key as keyof DataStreamSecret],
 		),
 		enabled: row.enabled,
-		cursorCreatedAt: row.cursorCreatedAt,
+		// Stored as UTC Postgres text to keep microseconds.
+		cursorCreatedAt: new Date(`${row.cursorCreatedAt}Z`),
 		replayFrom: row.replayFrom,
 		replayTo: row.replayTo,
 		deliveredCount: row.deliveredCount,
@@ -328,7 +329,9 @@ dataStreams.openapi(updateStreamRoute, async (c) => {
 		),
 		...(body.secret ?? {}),
 	};
-	const config = body.config ?? existing.config;
+	// Fields left out keep their value, so a partial config cannot silently
+	// drop an optional field such as the S3 endpoint.
+	const config = { ...existing.config, ...body.config };
 	assertValid(existing.destination, config, secret);
 	const [row] = await db
 		.update(tables.dataStream)
