@@ -1229,7 +1229,9 @@ export function AllModels({
 					? haystack.includes(normalizedQuery)
 					: false;
 
-				if (!normalizedQuery || !(containsAllTokens || containsPhrase)) {
+				// A query with nothing searchable in it (only spaces or punctuation)
+				// filters nothing.
+				if (normalizedQuery && !(containsAllTokens || containsPhrase)) {
 					return false;
 				}
 			}
