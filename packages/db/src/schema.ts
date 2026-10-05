@@ -4368,6 +4368,7 @@ export const auditLogActions = [
 	"prompt.delete",
 	"prompt.version_create",
 	"prompt.deploy",
+	"prompt.label_delete",
 	// Compliance alerts
 	"notification_channel.update",
 	"notification_channel.delete",
@@ -7248,8 +7249,6 @@ export const prompt = pgTable(
 			.references(() => project.id, { onDelete: "cascade" }),
 		name: text().notNull(),
 		description: text(),
-		// Version served when a request does not pin one. Null until deployed.
-		productionVersion: integer(),
 		latestVersion: integer().notNull().default(0),
 	},
 	(table) => [
@@ -7275,4 +7274,24 @@ export const promptVersion = pgTable(
 		createdBy: text().references(() => user.id, { onDelete: "set null" }),
 	},
 	(table) => [unique().on(table.promptId, table.version)],
+);
+
+// Named pointers at a version (`production`, `staging`, ...). A request that
+// pins no version resolves one; `latest` is implicit and never stored.
+export const promptLabel = pgTable(
+	"prompt_label",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		promptId: text()
+			.notNull()
+			.references(() => prompt.id, { onDelete: "cascade" }),
+		label: text().notNull(),
+		version: integer().notNull(),
+	},
+	(table) => [unique().on(table.promptId, table.label)],
 );

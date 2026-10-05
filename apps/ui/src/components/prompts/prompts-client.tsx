@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, FileText, Rocket } from "lucide-react";
+import { Check, Copy, FileText, Rocket, Tag, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -43,6 +43,20 @@ const DEFAULT_MESSAGES: PromptMessageDraft[] = [
 	{ role: "user", content: "{{question}}" },
 ];
 
+const PRODUCTION = "production";
+const LABEL_PATTERN = /^[A-Za-z][\w.-]{0,49}$/;
+
+interface PromptLabel {
+	label: string;
+	version: number;
+}
+
+function labelSummary(labels: PromptLabel[]): string {
+	return labels.length === 0
+		? "Not deployed"
+		: labels.map((l) => `${l.label} v${l.version}`).join(" · ");
+}
+
 function errorMessage(error: unknown): string {
 	if (error && typeof error === "object" && "message" in error) {
 		return String((error as { message: unknown }).message);
@@ -73,13 +87,20 @@ function UsageSnippet({
 	variables: string[];
 }) {
 	const [copied, setCopied] = useState(false);
+	// Without variables the prompt fits in `model`, which any OpenAI-compatible
+	// client can set; variables need the `prompt` object.
 	const body = JSON.stringify(
-		{
-			prompt: {
-				id: name,
-				variables: Object.fromEntries(variables.map((v) => [v, "..."])),
-			},
-		},
+		variables.length === 0
+			? {
+					model: `@prompt/${name}`,
+					messages: [{ role: "user", content: "..." }],
+				}
+			: {
+					prompt: {
+						id: name,
+						variables: Object.fromEntries(variables.map((v) => [v, "..."])),
+					},
+				},
 		null,
 		2,
 	);
@@ -234,13 +255,18 @@ function PromptDetail({ promptId }: { promptId: string }) {
 	const [model, setModel] = useState("");
 	const [commitMessage, setCommitMessage] = useState("");
 	const [deploy, setDeploy] = useState(true);
+	const [labelTarget, setLabelTarget] = useState<number | null>(null);
+	const [newLabel, setNewLabel] = useState("");
 	const createVersion = api.useMutation("post", "/prompts/{id}/versions");
-	const deployVersion = api.useMutation("post", "/prompts/{id}/deploy");
+	const setLabel = api.useMutation("put", "/prompts/{id}/labels/{label}");
+	const removeLabel = api.useMutation("delete", "/prompts/{id}/labels/{label}");
 
 	const prompt = detail.data?.prompt;
 	const versions = useMemo(() => detail.data?.versions ?? [], [detail.data]);
+	const labels = useMemo(() => prompt?.labels ?? [], [prompt]);
+	const productionVersion = labels.find((l) => l.label === PRODUCTION)?.version;
 	const production = versions.find(
-		(version) => version.version === prompt?.productionVersion,
+		(version) => version.version === productionVersion,
 	);
 
 	// Seed the draft once per base version. Refetches (window focus) return a
@@ -282,7 +308,7 @@ function PromptDetail({ promptId }: { promptId: string }) {
 					messages,
 					model: model || null,
 					commitMessage: commitMessage || null,
-					deploy,
+					labels: deploy ? [PRODUCTION] : [],
 				},
 			});
 			setCommitMessage("");
@@ -300,32 +326,73 @@ function PromptDetail({ promptId }: { promptId: string }) {
 		}
 	};
 
-	const promote = async (version: number) => {
+	const pointLabel = async (label: string, version: number) => {
 		try {
-			await deployVersion.mutateAsync({
-				params: { path: { id: prompt.id } },
+			await setLabel.mutateAsync({
+				params: { path: { id: prompt.id, label } },
 				body: { version },
 			});
 			await refresh();
-			toast({ title: `Version ${version} deployed` });
+			toast({
+				title:
+					label === PRODUCTION
+						? `Version ${version} deployed`
+						: `${label} now points at v${version}`,
+			});
 		} catch (error) {
 			toast({
-				title: "Could not deploy version",
+				title: "Could not move label",
 				description: errorMessage(error),
 				variant: "destructive",
 			});
 		}
 	};
 
+	const dropLabel = async (label: string) => {
+		try {
+			await removeLabel.mutateAsync({
+				params: { path: { id: prompt.id, label } },
+			});
+			await refresh();
+			toast({ title: `Removed ${label}` });
+		} catch (error) {
+			toast({
+				title: "Could not remove label",
+				description: errorMessage(error),
+				variant: "destructive",
+			});
+		}
+	};
+
+	const submitLabel = async () => {
+		if (labelTarget === null) {
+			return;
+		}
+		const label = newLabel.trim();
+		setLabelTarget(null);
+		setNewLabel("");
+		await pointLabel(label, labelTarget);
+	};
+	const newLabelValid =
+		LABEL_PATTERN.test(newLabel.trim()) && newLabel.trim() !== "latest";
+	const otherLabels = labels
+		.map((l) => l.label)
+		.filter((label) => label !== PRODUCTION);
+
 	return (
 		<div className="space-y-4">
 			<Card>
 				<CardHeader>
-					<CardTitle className="flex items-center gap-2">
+					<CardTitle className="flex flex-wrap items-center gap-2">
 						<span className="font-mono">{prompt.name}</span>
-						{prompt.productionVersion ? (
-							<Badge>v{prompt.productionVersion} live</Badge>
-						) : null}
+						{labels.map((l) => (
+							<Badge
+								key={l.label}
+								variant={l.label === PRODUCTION ? "default" : "secondary"}
+							>
+								{l.label} v{l.version}
+							</Badge>
+						))}
 					</CardTitle>
 					{prompt.description ? (
 						<CardDescription>{prompt.description}</CardDescription>
@@ -385,14 +452,20 @@ function PromptDetail({ promptId }: { promptId: string }) {
 				<CardHeader>
 					<CardTitle>Versions</CardTitle>
 					<CardDescription>
-						Versions are immutable. Pin one with{" "}
-						<code className="text-xs">prompt.version</code> or deploy it to make
-						it the default.
+						Versions are immutable. Requests follow the{" "}
+						<code className="text-xs">production</code> label unless they pick
+						another label or pin a version. Move a label to roll out or roll
+						back.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-2">
 					{versions.map((version) => {
-						const live = version.version === prompt.productionVersion;
+						const live = version.version === productionVersion;
+						const versionLabels = labels.filter(
+							(l) => l.version === version.version,
+						);
+						const newest = version.version === prompt.latestVersion;
+						const busy = setLabel.isPending || removeLabel.isPending;
 						return (
 							<div
 								key={version.id}
@@ -402,9 +475,31 @@ function PromptDetail({ promptId }: { promptId: string }) {
 								)}
 							>
 								<div className="space-y-0.5">
-									<div className="flex items-center gap-2 font-medium">
+									<div className="flex flex-wrap items-center gap-2 font-medium">
 										v{version.version}
-										{live ? <Badge>Production</Badge> : null}
+										{versionLabels.map((l) =>
+											l.label === PRODUCTION ? (
+												<Badge key={l.label}>{l.label}</Badge>
+											) : (
+												<Badge
+													key={l.label}
+													variant="secondary"
+													className="gap-1 pr-1"
+												>
+													{l.label}
+													<button
+														type="button"
+														aria-label={`Remove ${l.label}`}
+														className="rounded-sm hover:bg-foreground/10"
+														disabled={busy}
+														onClick={() => dropLabel(l.label)}
+													>
+														<X className="h-3 w-3" />
+													</button>
+												</Badge>
+											),
+										)}
+										{newest ? <Badge variant="outline">latest</Badge> : null}
 										{version.model ? (
 											<Badge variant="outline" className="font-mono">
 												{version.model}
@@ -416,22 +511,94 @@ function PromptDetail({ promptId }: { promptId: string }) {
 										<Time date={version.createdAt} />
 									</div>
 								</div>
-								{live ? null : (
+								<div className="flex items-center gap-2">
 									<Button
-										variant="outline"
+										variant="ghost"
 										size="sm"
-										disabled={deployVersion.isPending}
-										onClick={() => promote(version.version)}
+										disabled={busy}
+										onClick={() => {
+											setNewLabel("");
+											setLabelTarget(version.version);
+										}}
 									>
-										<Rocket className="mr-1 h-4 w-4" />
-										Deploy
+										<Tag className="mr-1 h-4 w-4" />
+										Label
 									</Button>
-								)}
+									{live ? null : (
+										<Button
+											variant="outline"
+											size="sm"
+											disabled={busy}
+											onClick={() => pointLabel(PRODUCTION, version.version)}
+										>
+											<Rocket className="mr-1 h-4 w-4" />
+											Deploy
+										</Button>
+									)}
+								</div>
 							</div>
 						);
 					})}
 				</CardContent>
 			</Card>
+
+			<Dialog
+				open={labelTarget !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setLabelTarget(null);
+					}
+				}}
+			>
+				<DialogContent className="max-w-md">
+					<DialogHeader>
+						<DialogTitle>Label v{labelTarget}</DialogTitle>
+						<DialogDescription>
+							Requests pick a label with{" "}
+							<code className="text-xs">prompt.label</code> or{" "}
+							<code className="text-xs">
+								@prompt/{prompt.name}@&lt;label&gt;
+							</code>
+							. Pointing an existing label here moves it.
+						</DialogDescription>
+					</DialogHeader>
+					<form
+						className="space-y-3"
+						onSubmit={(event) => {
+							event.preventDefault();
+							if (newLabelValid) {
+								void submitLabel();
+							}
+						}}
+					>
+						<Input
+							autoFocus
+							value={newLabel}
+							placeholder="staging"
+							aria-label="Label name"
+							onChange={(event) => setNewLabel(event.target.value)}
+						/>
+						{otherLabels.length > 0 ? (
+							<div className="flex flex-wrap gap-1.5">
+								{otherLabels.map((label) => (
+									<button
+										key={label}
+										type="button"
+										onClick={() => setNewLabel(label)}
+									>
+										<Badge variant="secondary">{label}</Badge>
+									</button>
+								))}
+							</div>
+						) : null}
+						<DialogFooter>
+							<Button type="submit" disabled={!newLabelValid}>
+								Point label at v{labelTarget}
+							</Button>
+						</DialogFooter>
+					</form>
+				</DialogContent>
+			</Dialog>
 
 			<Card>
 				<CardHeader>
@@ -439,6 +606,11 @@ function PromptDetail({ promptId }: { promptId: string }) {
 					<CardDescription>
 						Rendered messages go before any messages you send. The prompt's
 						model and parameters apply only when the request leaves them unset.
+						Add <code className="text-xs">@staging</code> or{" "}
+						<code className="text-xs">@2</code> to the model reference, or set{" "}
+						<code className="text-xs">prompt.label</code> /{" "}
+						<code className="text-xs">prompt.version</code>, to call something
+						other than production.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -511,6 +683,8 @@ export function PromptsClient() {
 							<p className="font-medium">No prompts yet</p>
 							<p className="max-w-md text-sm text-muted-foreground">
 								Create a prompt, then call it with{" "}
+								<code className="text-xs">{'"model": "@prompt/<name>"'}</code>{" "}
+								or{" "}
 								<code className="text-xs">
 									{'"prompt": { "id": "<name>" }'}
 								</code>{" "}
@@ -535,10 +709,8 @@ export function PromptsClient() {
 										{prompt.name}
 									</div>
 									<div className="mt-1 text-xs text-muted-foreground">
-										{prompt.productionVersion
-											? `v${prompt.productionVersion} live`
-											: "Not deployed"}{" "}
-										· {prompt.latestVersion} version
+										{labelSummary(prompt.labels)} · {prompt.latestVersion}{" "}
+										version
 										{prompt.latestVersion === 1 ? "" : "s"}
 									</div>
 								</button>

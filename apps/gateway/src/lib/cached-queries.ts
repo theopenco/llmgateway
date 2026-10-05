@@ -39,6 +39,7 @@ import {
 	organization as organizationTable,
 	project as projectTable,
 	prompt as promptTable,
+	promptLabel as promptLabelTable,
 	promptVersion as promptVersionTable,
 	model as modelTable,
 	modelProviderMapping as modelProviderMappingTable,
@@ -140,6 +141,7 @@ const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
 const promptTableName = getTableName(promptTable);
 const promptVersionTableName = getTableName(promptVersionTable);
+const promptLabelTableName = getTableName(promptLabelTable);
 const modelTableName = getTableName(modelTable);
 const modelProviderMappingTableName = getTableName(modelProviderMappingTable);
 const providerClaimTableName = getTableName(providerClaimTable);
@@ -550,11 +552,16 @@ export async function findCustomProviderKey(
 export async function findPromptVersion(
 	projectId: string,
 	ref: string,
-	version: number | undefined,
+	selector: { version?: number; label?: string },
 ) {
+	const label = selector.label ?? "production";
+	const cacheKey =
+		selector.version !== undefined
+			? `prompt:${projectId}:${ref}:v${selector.version}`
+			: `prompt:${projectId}:${ref}:label:${label}`;
 	return await swrWrap(
-		`prompt:${projectId}:${ref}:${version ?? "production"}`,
-		[promptTableName, promptVersionTableName],
+		cacheKey,
+		[promptTableName, promptVersionTableName, promptLabelTableName],
 		async () => {
 			const [prompt] = await db
 				.select()
@@ -566,8 +573,28 @@ export async function findPromptVersion(
 					),
 				)
 				.limit(1);
-			const resolved = version ?? prompt?.productionVersion ?? undefined;
-			if (!prompt || resolved === undefined) {
+			if (!prompt) {
+				return undefined;
+			}
+			let resolved = selector.version;
+			if (resolved === undefined) {
+				if (label === "latest") {
+					resolved = prompt.latestVersion || undefined;
+				} else {
+					const [pointer] = await db
+						.select({ version: promptLabelTable.version })
+						.from(promptLabelTable)
+						.where(
+							and(
+								eq(promptLabelTable.promptId, prompt.id),
+								eq(promptLabelTable.label, label),
+							),
+						)
+						.limit(1);
+					resolved = pointer?.version;
+				}
+			}
+			if (resolved === undefined) {
 				return undefined;
 			}
 			const [row] = await db
@@ -580,7 +607,13 @@ export async function findPromptVersion(
 					),
 				)
 				.limit(1);
-			return row ? { prompt, version: row } : undefined;
+			return row
+				? {
+						prompt,
+						version: row,
+						label: selector.version === undefined ? label : undefined,
+					}
+				: undefined;
 		},
 	);
 }

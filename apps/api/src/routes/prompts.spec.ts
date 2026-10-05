@@ -43,7 +43,11 @@ describe("prompts", () => {
 		});
 	}
 
-	test("prompt lifecycle: create, version, deploy, audit", async () => {
+	function labelMap(prompt: { labels: { label: string; version: number }[] }) {
+		return Object.fromEntries(prompt.labels.map((l) => [l.label, l.version]));
+	}
+
+	test("prompt lifecycle: create, version, labels, audit", async () => {
 		const created = await call("POST", "/prompts", {
 			projectId: PROJECT_ID,
 			name: "support-reply",
@@ -53,7 +57,7 @@ describe("prompts", () => {
 		});
 		expect(created.status).toBe(200);
 		const { prompt, version } = await created.json();
-		expect(prompt.productionVersion).toBe(1);
+		expect(labelMap(prompt)).toEqual({ production: 1 });
 		expect(version.variables).toEqual(["question", "plan"]);
 
 		const duplicate = await call("POST", "/prompts", {
@@ -66,26 +70,60 @@ describe("prompts", () => {
 		const v2 = await call("POST", `/prompts/${prompt.id}/versions`, {
 			messages: [{ role: "user", content: "Short answer to {{question}}" }],
 			commitMessage: "shorter",
+			labels: ["staging"],
 		});
 		expect(v2.status).toBe(200);
 		const v2json = await v2.json();
 		expect(v2json.version.version).toBe(2);
-		expect(v2json.prompt.productionVersion).toBe(1);
+		expect(labelMap(v2json.prompt)).toEqual({ production: 1, staging: 2 });
 
-		const deployed = await call("POST", `/prompts/${prompt.id}/deploy`, {
-			version: 2,
+		const deployed = await call(
+			"PUT",
+			`/prompts/${prompt.id}/labels/production`,
+			{ version: 2 },
+		);
+		expect(deployed.status).toBe(200);
+		expect(labelMap((await deployed.json()).prompt)).toEqual({
+			production: 2,
+			staging: 2,
 		});
-		expect((await deployed.json()).prompt.productionVersion).toBe(2);
 
-		const missing = await call("POST", `/prompts/${prompt.id}/deploy`, {
-			version: 9,
-		});
+		const missing = await call(
+			"PUT",
+			`/prompts/${prompt.id}/labels/production`,
+			{ version: 9 },
+		);
 		expect(missing.status).toBe(404);
+
+		const reserved = await call("PUT", `/prompts/${prompt.id}/labels/latest`, {
+			version: 1,
+		});
+		expect(reserved.status).toBe(400);
+
+		const numeric = await call("PUT", `/prompts/${prompt.id}/labels/3`, {
+			version: 1,
+		});
+		expect(numeric.status).toBe(400);
+
+		const removed = await call(
+			"DELETE",
+			`/prompts/${prompt.id}/labels/staging`,
+		);
+		expect(labelMap((await removed.json()).prompt)).toEqual({ production: 2 });
+		expect(
+			(await call("DELETE", `/prompts/${prompt.id}/labels/staging`)).status,
+		).toBe(404);
 
 		const detail = await (await call("GET", `/prompts/${prompt.id}`)).json();
 		expect(detail.versions.map((v: { version: number }) => v.version)).toEqual([
 			2, 1,
 		]);
+		expect(labelMap(detail.prompt)).toEqual({ production: 2 });
+
+		const list = await (
+			await call("GET", `/prompts?projectId=${PROJECT_ID}`)
+		).json();
+		expect(labelMap(list.prompts[0])).toEqual({ production: 2 });
 
 		const audits = await db
 			.select({ action: tables.auditLog.action })
@@ -94,6 +132,7 @@ describe("prompts", () => {
 		expect(audits.map((a) => a.action).sort()).toEqual([
 			"prompt.create",
 			"prompt.deploy",
+			"prompt.label_delete",
 			"prompt.version_create",
 		]);
 

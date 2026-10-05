@@ -96,7 +96,10 @@ import {
 	resolvePreferredProvider,
 	setPreferredProvider,
 } from "@/lib/preferred-provider.js";
-import { applyPromptReference } from "@/lib/prompt-template.js";
+import {
+	applyPromptReference,
+	promptResponseHeaders,
+} from "@/lib/prompt-template.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import {
 	checkProviderRateLimit,
@@ -233,6 +236,7 @@ import {
 	graphUsesClassifier,
 	parseCustomDynamicRouteModelRef,
 } from "@llmgateway/shared/dynamic-route";
+import { parsePromptModelReference } from "@llmgateway/shared/prompt-template";
 import {
 	applyRoutingPreference,
 	type ResolvedRoutingConfig,
@@ -1562,8 +1566,12 @@ const completionsRouteBodySchema = completionsRequestSchema
 	.refine(
 		(body) =>
 			body.prompt !== undefined ||
+			parsePromptModelReference(body.model) !== undefined ||
 			(body.model !== undefined && body.messages !== undefined),
-		{ message: "model and messages are required unless prompt is set" },
+		{
+			message:
+				"model and messages are required unless prompt is set or model references a prompt",
+		},
 	);
 
 const completions = createRoute({
@@ -1795,11 +1803,11 @@ chat.openapi(completions, async (c) => {
 	);
 	rawBody = promptExpansion.body;
 	if (promptExpansion.applied) {
-		c.header("x-llmgateway-prompt-id", promptExpansion.applied.promptId);
-		c.header(
-			"x-llmgateway-prompt-version",
-			String(promptExpansion.applied.version),
-		);
+		for (const [name, value] of Object.entries(
+			promptResponseHeaders(promptExpansion.applied),
+		)) {
+			c.header(name, value);
+		}
 	}
 
 	// Validate against schema

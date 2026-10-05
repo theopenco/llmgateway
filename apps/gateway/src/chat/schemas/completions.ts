@@ -262,6 +262,7 @@ export const completionsRequestSchema = z.object({
 		.object({
 			id: z.string(),
 			version: z.number().int().min(1).optional(),
+			label: z.string().optional(),
 			variables: z
 				.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
 				.optional(),
@@ -269,7 +270,7 @@ export const completionsRequestSchema = z.object({
 		.optional()
 		.openapi({
 			description:
-				"Managed prompt to expand before routing, by id or name. Its rendered messages are prepended to `messages`, and its model and parameters fill fields you leave unset. Omit `version` to use the production version.",
+				"Managed prompt to expand before routing, by id or name. Its rendered messages are prepended to `messages`, and its model and parameters fill fields you leave unset. Pin a `version`, or pick a `label` (`production` by default; `latest` is the newest version). A prompt without variables can also be referenced through `model` as `@prompt/<name>`, `@prompt/<name>@<label>` or `@prompt/<name>@<version>`.",
 			example: { id: "support-reply", variables: { customer: "Ada" } },
 		}),
 	prompt_cache_key: z

@@ -12,16 +12,23 @@ import {
 	drizzleCache,
 	eq,
 	getTableName,
+	inArray,
 	tables,
 } from "@llmgateway/db";
 import { canManageProject } from "@llmgateway/shared/organization-roles";
-import { extractPromptVariables } from "@llmgateway/shared/prompt-template";
+import {
+	extractPromptVariables,
+	PROMPT_LABEL_PATTERN,
+	PROMPT_LATEST_LABEL,
+	PROMPT_PRODUCTION_LABEL,
+} from "@llmgateway/shared/prompt-template";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const prompts = new OpenAPIHono<ServerTypes>();
 
 const MAX_PROMPTS_PER_PROJECT = 500;
+const MAX_LABELS_PER_VERSION_INPUT = 20;
 
 /**
  * Writes go through the plain client, so evict the gateway's cached prompt
@@ -29,7 +36,11 @@ const MAX_PROMPTS_PER_PROJECT = 500;
  */
 async function invalidatePromptCache(): Promise<void> {
 	await drizzleCache.onMutate({
-		tables: [getTableName(tables.prompt), getTableName(tables.promptVersion)],
+		tables: [
+			getTableName(tables.prompt),
+			getTableName(tables.promptVersion),
+			getTableName(tables.promptLabel),
+		],
 	});
 }
 
@@ -51,11 +62,28 @@ const parametersSchema = z
 	})
 	.strict();
 
+const labelSchema = z
+	.string()
+	.trim()
+	.regex(
+		PROMPT_LABEL_PATTERN,
+		"Start with a letter; use letters, numbers, dots, dashes, and underscores",
+	)
+	.refine((label) => label !== PROMPT_LATEST_LABEL, {
+		message: `'${PROMPT_LATEST_LABEL}' always means the newest version and cannot be assigned`,
+	});
+
 const versionInputSchema = z.object({
 	messages: z.array(messageSchema).min(1).max(100),
 	model: z.string().trim().min(1).max(256).nullable().optional(),
 	parameters: parametersSchema.optional(),
 	commitMessage: z.string().trim().max(500).nullable().optional(),
+});
+
+const promptLabelSchema = z.object({
+	label: z.string(),
+	version: z.number(),
+	updatedAt: z.date(),
 });
 
 const promptSchema = z.object({
@@ -66,8 +94,8 @@ const promptSchema = z.object({
 	projectId: z.string(),
 	name: z.string(),
 	description: z.string().nullable(),
-	productionVersion: z.number().nullable(),
 	latestVersion: z.number(),
+	labels: z.array(promptLabelSchema),
 });
 
 const promptVersionSchema = z.object({
@@ -91,6 +119,54 @@ const nameSchema = z
 	.min(1)
 	.max(100)
 	.regex(/^[\w.-]+$/, "Use letters, numbers, dots, dashes, and underscores");
+
+const labelParamsSchema = z.object({ id: z.string(), label: labelSchema });
+
+type PromptRow = typeof tables.prompt.$inferSelect;
+type PromptLabelRow = typeof tables.promptLabel.$inferSelect;
+
+function labelView(row: PromptLabelRow) {
+	return { label: row.label, version: row.version, updatedAt: row.updatedAt };
+}
+
+/** Prompts with their labels, `production` first then alphabetical. */
+async function withLabels<T extends PromptRow>(rows: T[]) {
+	if (rows.length === 0) {
+		return [];
+	}
+	const labelRows = await db
+		.select()
+		.from(tables.promptLabel)
+		.where(
+			inArray(
+				tables.promptLabel.promptId,
+				rows.map((row) => row.id),
+			),
+		);
+	const byPrompt = new Map<string, PromptLabelRow[]>();
+	for (const row of labelRows) {
+		const list = byPrompt.get(row.promptId) ?? [];
+		list.push(row);
+		byPrompt.set(row.promptId, list);
+	}
+	return rows.map((row) => ({
+		...row,
+		labels: (byPrompt.get(row.id) ?? [])
+			.sort((a, b) =>
+				a.label === PROMPT_PRODUCTION_LABEL
+					? -1
+					: b.label === PROMPT_PRODUCTION_LABEL
+						? 1
+						: a.label.localeCompare(b.label),
+			)
+			.map(labelView),
+	}));
+}
+
+async function promptWithLabels(row: PromptRow) {
+	const [result] = await withLabels([row]);
+	return result;
+}
 
 async function requireProjectAccess(
 	userId: string,
@@ -150,6 +226,24 @@ function versionRow(input: z.infer<typeof versionInputSchema>) {
 	};
 }
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Points `label` at `version`, creating or moving it. */
+async function assignLabel(
+	tx: Tx,
+	promptId: string,
+	label: string,
+	version: number,
+) {
+	await tx
+		.insert(tables.promptLabel)
+		.values({ promptId, label, version })
+		.onConflictDoUpdate({
+			target: [tables.promptLabel.promptId, tables.promptLabel.label],
+			set: { version, updatedAt: new Date() },
+		});
+}
+
 const listPrompts = createRoute({
 	method: "get",
 	path: "/",
@@ -175,7 +269,7 @@ prompts.openapi(listPrompts, async (c) => {
 		.from(tables.prompt)
 		.where(eq(tables.prompt.projectId, projectId))
 		.orderBy(desc(tables.prompt.updatedAt));
-	return c.json({ prompts: rows });
+	return c.json({ prompts: await withLabels(rows) });
 });
 
 const createPrompt = createRoute({
@@ -204,7 +298,7 @@ const createPrompt = createRoute({
 					}),
 				},
 			},
-			description: "Created prompt with version 1 deployed to production.",
+			description: "Created prompt with version 1 labelled production.",
 		},
 	},
 });
@@ -235,7 +329,6 @@ prompts.openapi(createPrompt, async (c) => {
 				projectId: project.id,
 				name: body.name,
 				description: body.description ?? null,
-				productionVersion: 1,
 				latestVersion: 1,
 			})
 			.returning();
@@ -248,6 +341,7 @@ prompts.openapi(createPrompt, async (c) => {
 				...versionRow(body),
 			})
 			.returning();
+		await assignLabel(tx, prompt.id, PROMPT_PRODUCTION_LABEL, 1);
 		return { prompt, version };
 	});
 	await invalidatePromptCache();
@@ -259,7 +353,10 @@ prompts.openapi(createPrompt, async (c) => {
 		resourceId: result.prompt.id,
 		metadata: { resourceName: body.name, projectId: project.id },
 	});
-	return c.json(result);
+	return c.json({
+		prompt: await promptWithLabels(result.prompt),
+		version: result.version,
+	});
 });
 
 const getPrompt = createRoute({
@@ -276,7 +373,7 @@ const getPrompt = createRoute({
 					}),
 				},
 			},
-			description: "Prompt with its versions, newest first.",
+			description: "Prompt with its labels and versions, newest first.",
 		},
 	},
 });
@@ -289,7 +386,7 @@ prompts.openapi(getPrompt, async (c) => {
 		.from(tables.promptVersion)
 		.where(eq(tables.promptVersion.promptId, prompt.id))
 		.orderBy(desc(tables.promptVersion.version));
-	return c.json({ prompt, versions });
+	return c.json({ prompt: await promptWithLabels(prompt), versions });
 });
 
 const updatePrompt = createRoute({
@@ -358,7 +455,7 @@ prompts.openapi(updatePrompt, async (c) => {
 		resourceId: existing.id,
 		metadata: { resourceName: prompt.name },
 	});
-	return c.json({ prompt });
+	return c.json({ prompt: await promptWithLabels(prompt) });
 });
 
 const createVersion = createRoute({
@@ -370,7 +467,14 @@ const createVersion = createRoute({
 			content: {
 				"application/json": {
 					schema: versionInputSchema.extend({
-						deploy: z.boolean().optional(),
+						labels: z
+							.array(labelSchema)
+							.max(MAX_LABELS_PER_VERSION_INPUT)
+							.optional()
+							.openapi({
+								description:
+									"Labels to point at the new version, e.g. ['production'] to deploy it right away.",
+							}),
 					}),
 				},
 			},
@@ -395,6 +499,7 @@ prompts.openapi(createVersion, async (c) => {
 	const user = requireUser(c.get("user"));
 	const existing = await loadPrompt(user.id, c.req.valid("param").id, true);
 	const body = c.req.valid("json");
+	const labels = [...new Set(body.labels ?? [])];
 	const result = await db.transaction(async (tx) => {
 		const [locked] = await tx
 			.select({ latestVersion: tables.prompt.latestVersion })
@@ -413,12 +518,12 @@ prompts.openapi(createVersion, async (c) => {
 			.returning();
 		const [prompt] = await tx
 			.update(tables.prompt)
-			.set({
-				latestVersion: next,
-				...(body.deploy ? { productionVersion: next } : {}),
-			})
+			.set({ latestVersion: next })
 			.where(eq(tables.prompt.id, existing.id))
 			.returning();
+		for (const label of labels) {
+			await assignLabel(tx, existing.id, label, next);
+		}
 		return { prompt, version };
 	});
 	await invalidatePromptCache();
@@ -431,17 +536,20 @@ prompts.openapi(createVersion, async (c) => {
 		metadata: {
 			resourceName: existing.name,
 			version: result.version.version,
-			deployed: body.deploy === true,
+			labels,
 		},
 	});
-	return c.json(result);
+	return c.json({
+		prompt: await promptWithLabels(result.prompt),
+		version: result.version,
+	});
 });
 
-const deployVersion = createRoute({
-	method: "post",
-	path: "/{id}/deploy",
+const setLabel = createRoute({
+	method: "put",
+	path: "/{id}/labels/{label}",
 	request: {
-		params: z.object({ id: z.string() }),
+		params: labelParamsSchema,
 		body: {
 			content: {
 				"application/json": {
@@ -455,14 +563,16 @@ const deployVersion = createRoute({
 			content: {
 				"application/json": { schema: z.object({ prompt: promptSchema }) },
 			},
-			description: "Prompt with the new production version.",
+			description:
+				"Prompt after pointing the label at the version. Deploying is `production` → version.",
 		},
 	},
 });
 
-prompts.openapi(deployVersion, async (c) => {
+prompts.openapi(setLabel, async (c) => {
 	const user = requireUser(c.get("user"));
-	const existing = await loadPrompt(user.id, c.req.valid("param").id, true);
+	const { id, label } = c.req.valid("param");
+	const existing = await loadPrompt(user.id, id, true);
 	const { version } = c.req.valid("json");
 	const [found] = await db
 		.select({ id: tables.promptVersion.id })
@@ -477,11 +587,17 @@ prompts.openapi(deployVersion, async (c) => {
 	if (!found) {
 		throw new HTTPException(404, { message: `Version ${version} not found` });
 	}
-	const [prompt] = await db
-		.update(tables.prompt)
-		.set({ productionVersion: version })
-		.where(eq(tables.prompt.id, existing.id))
-		.returning();
+	const [previous] = await db
+		.select({ version: tables.promptLabel.version })
+		.from(tables.promptLabel)
+		.where(
+			and(
+				eq(tables.promptLabel.promptId, existing.id),
+				eq(tables.promptLabel.label, label),
+			),
+		)
+		.limit(1);
+	await db.transaction((tx) => assignLabel(tx, existing.id, label, version));
 	await invalidatePromptCache();
 	await logAuditEvent({
 		organizationId: existing.organizationId,
@@ -491,12 +607,57 @@ prompts.openapi(deployVersion, async (c) => {
 		resourceId: existing.id,
 		metadata: {
 			resourceName: existing.name,
-			changes: {
-				productionVersion: { old: existing.productionVersion, new: version },
-			},
+			label,
+			changes: { version: { old: previous?.version ?? null, new: version } },
 		},
 	});
-	return c.json({ prompt });
+	return c.json({ prompt: await promptWithLabels(existing) });
+});
+
+const deleteLabel = createRoute({
+	method: "delete",
+	path: "/{id}/labels/{label}",
+	request: { params: labelParamsSchema },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ prompt: promptSchema }) },
+			},
+			description: "Prompt without the label.",
+		},
+	},
+});
+
+prompts.openapi(deleteLabel, async (c) => {
+	const user = requireUser(c.get("user"));
+	const { id, label } = c.req.valid("param");
+	const existing = await loadPrompt(user.id, id, true);
+	const removed = await db
+		.delete(tables.promptLabel)
+		.where(
+			and(
+				eq(tables.promptLabel.promptId, existing.id),
+				eq(tables.promptLabel.label, label),
+			),
+		)
+		.returning({ version: tables.promptLabel.version });
+	if (removed.length === 0) {
+		throw new HTTPException(404, { message: `Label '${label}' not found` });
+	}
+	await invalidatePromptCache();
+	await logAuditEvent({
+		organizationId: existing.organizationId,
+		userId: user.id,
+		action: "prompt.label_delete",
+		resourceType: "prompt",
+		resourceId: existing.id,
+		metadata: {
+			resourceName: existing.name,
+			label,
+			changes: { version: { old: removed[0].version, new: null } },
+		},
+	});
+	return c.json({ prompt: await promptWithLabels(existing) });
 });
 
 const deletePrompt = createRoute({

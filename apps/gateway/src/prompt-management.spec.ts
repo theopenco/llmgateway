@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { db, drizzleCache, eq, getTableName, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -44,9 +44,12 @@ describe("prompt management", () => {
 			organizationId: "org-id",
 			projectId: "project-id",
 			name: "support-reply",
-			productionVersion: 1,
 			latestVersion: 2,
 		});
+		await db.insert(tables.promptLabel).values([
+			{ promptId: "prompt-id", label: "production", version: 1 },
+			{ promptId: "prompt-id", label: "staging", version: 2 },
+		]);
 		await db.insert(tables.promptVersion).values([
 			{
 				promptId: "prompt-id",
@@ -93,6 +96,7 @@ describe("prompt management", () => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get("x-llmgateway-prompt-id")).toBe("prompt-id");
 		expect(res.headers.get("x-llmgateway-prompt-version")).toBe("1");
+		expect(res.headers.get("x-llmgateway-prompt-label")).toBe("production");
 		const json = await res.json();
 		expect(json.choices[0].message.content).toMatch(
 			/Explain fallbacks briefly/,
@@ -113,11 +117,151 @@ describe("prompt management", () => {
 		});
 		expect(res.status).toBe(200);
 		expect(res.headers.get("x-llmgateway-prompt-version")).toBe("2");
+		expect(res.headers.get("x-llmgateway-prompt-label")).toBeNull();
 		const logs = await waitForLogs(1);
 		const sent = JSON.stringify(logs[0].messages);
 		expect(sent.indexOf("Draft v2 about caching.")).toBeLessThan(
 			sent.indexOf("Then list three tips."),
 		);
+	});
+
+	test("resolves labels, including the implicit latest", async () => {
+		await seedKeys();
+		await seedPrompt();
+		const staging = await chat({
+			prompt: {
+				id: "support-reply",
+				label: "staging",
+				variables: { topic: "x" },
+			},
+		});
+		expect(staging.status).toBe(200);
+		expect(staging.headers.get("x-llmgateway-prompt-version")).toBe("2");
+		expect(staging.headers.get("x-llmgateway-prompt-label")).toBe("staging");
+
+		const latest = await chat({
+			prompt: {
+				id: "support-reply",
+				label: "latest",
+				variables: { topic: "x" },
+			},
+		});
+		expect(latest.status).toBe(200);
+		expect(latest.headers.get("x-llmgateway-prompt-version")).toBe("2");
+		expect(latest.headers.get("x-llmgateway-prompt-label")).toBe("latest");
+
+		const unknown = await chat({
+			prompt: {
+				id: "support-reply",
+				label: "canary",
+				variables: { topic: "x" },
+			},
+		});
+		expect(unknown.status).toBe(404);
+		expect(await unknown.text()).toContain("label 'canary'");
+
+		const both = await chat({
+			prompt: { id: "support-reply", label: "staging", version: 1 },
+		});
+		expect(both.status).toBe(400);
+	});
+
+	test("references a prompt through model as @prompt/<name>", async () => {
+		await seedKeys();
+		await seedPrompt();
+		await db
+			.update(tables.promptVersion)
+			.set({ messages: [{ role: "user", content: "Say hi." }], variables: [] })
+			.where(eq(tables.promptVersion.version, 1));
+
+		const production = await chat({ model: "@prompt/support-reply" });
+		expect(production.status).toBe(200);
+		expect(production.headers.get("x-llmgateway-prompt-version")).toBe("1");
+		expect(production.headers.get("x-llmgateway-prompt-label")).toBe(
+			"production",
+		);
+		const logs = await waitForLogs(1);
+		expect(logs[0].temperature).toBe(0.2);
+		expect(JSON.stringify(logs[0].messages)).toContain("Say hi.");
+
+		const pinned = await chat({
+			model: "@prompt/support-reply@1",
+			messages: [{ role: "user", content: "And bye." }],
+		});
+		expect(pinned.status).toBe(200);
+		expect(pinned.headers.get("x-llmgateway-prompt-version")).toBe("1");
+		expect(pinned.headers.get("x-llmgateway-prompt-label")).toBeNull();
+
+		const labelled = await chat({ model: "@prompt/support-reply@staging" });
+		expect(labelled.status).toBe(400);
+		expect(await labelled.text()).toContain("Missing prompt variables");
+
+		const both = await chat({
+			model: "@prompt/support-reply",
+			prompt: { id: "support-reply" },
+		});
+		expect(both.status).toBe(400);
+
+		// Direct writes bypass the API's cache eviction, so evict by hand.
+		await db
+			.update(tables.promptVersion)
+			.set({ model: null })
+			.where(eq(tables.promptVersion.version, 1));
+		await drizzleCache.onMutate({
+			tables: [getTableName(tables.promptVersion)],
+		});
+		const noModel = await chat({ model: "@prompt/support-reply" });
+		expect(noModel.status).toBe(400);
+		expect(await noModel.text()).toContain("has no default model");
+	});
+
+	test("the Responses API accepts prompt and @prompt/ models", async () => {
+		await seedKeys();
+		await seedPrompt();
+		const responses = (body: unknown) =>
+			app.request("/v1/responses", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify(body),
+			});
+
+		const native = await responses({
+			prompt: {
+				id: "support-reply",
+				version: "2",
+				variables: { topic: "routing" },
+			},
+			input: "Keep it short.",
+			store: false,
+		});
+		expect(native.status).toBe(200);
+		expect(native.headers.get("x-llmgateway-prompt-id")).toBe("prompt-id");
+		expect(native.headers.get("x-llmgateway-prompt-version")).toBe("2");
+		const json = await native.json();
+		expect(json.model).toBe("llmgateway/custom");
+		const logs = await waitForLogs(1);
+		const sent = JSON.stringify(logs[0].messages);
+		expect(sent.indexOf("Draft v2 about routing.")).toBeLessThan(
+			sent.indexOf("Keep it short."),
+		);
+
+		await db
+			.update(tables.promptVersion)
+			.set({ messages: [{ role: "user", content: "Say hi." }], variables: [] })
+			.where(eq(tables.promptVersion.version, 1));
+		const viaModel = await responses({
+			model: "@prompt/support-reply",
+			store: false,
+		});
+		expect(viaModel.status).toBe(200);
+		expect(viaModel.headers.get("x-llmgateway-prompt-version")).toBe("1");
+
+		const neither = await responses({ input: "hi", store: false });
+		expect(neither.status).toBe(400);
+		expect(await neither.text()).toContain("model");
 	});
 
 	test("a caller's reasoning.effort overrides the prompt's reasoning_effort", async () => {
