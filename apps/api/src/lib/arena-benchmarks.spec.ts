@@ -17,11 +17,15 @@ function page(category: string) {
 		.join("");
 }
 
-test("reports unavailable live data without inventing a historical leaderboard", async () => {
-	vi.spyOn(globalThis, "fetch").mockResolvedValue(
-		new Response("unavailable", { status: 503 }),
-	);
-	await expect(getArenaBenchmarks()).rejects.toThrow("HTTP 503");
+test("reports unavailable live data without inventing a historical leaderboard, and backs off", async () => {
+	vi.setSystemTime(new Date("2026-09-20T12:00:00Z"));
+	const fetchMock = vi
+		.spyOn(globalThis, "fetch")
+		.mockResolvedValue(new Response("unavailable", { status: 503 }));
+	expect(await getArenaBenchmarks()).toBeNull();
+	expect(fetchMock).toHaveBeenCalledTimes(2);
+	expect(await getArenaBenchmarks()).toBeNull();
+	expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
 test("reads split Flight leaderboard records and preserves the last successful snapshot on failure", async () => {
@@ -31,10 +35,10 @@ test("reads split Flight leaderboard records and preserves the last successful s
 			new Response(page(String(url).endsWith("/code") ? "code" : "text")),
 	);
 	const current = await getArenaBenchmarks();
-	expect(current.text).toEqual([
-		{ rank: 1, model: "fixture-model", score: 1523.5 },
+	expect(current?.text).toEqual([
+		{ rank: 1, model: "fixture-model", score: 1524 },
 	]);
-	expect(current.code).toEqual(current.text);
+	expect(current?.code).toEqual(current?.text);
 	vi.setSystemTime(new Date("2026-09-28T12:00:00Z"));
 	vi.mocked(fetch).mockResolvedValue(
 		new Response("<html>changed markup</html>"),

@@ -756,7 +756,8 @@ const arenaBenchmarkSchema = z.object({
 	text: arenaScoreSchema.nullable(),
 	code: arenaScoreSchema.nullable(),
 	source: z.string(),
-	fetchedAt: z.string(),
+	// Null while Arena is unreachable and no earlier snapshot exists.
+	fetchedAt: z.string().nullable(),
 });
 
 const modelBenchmarksRoute = createRoute({
@@ -890,8 +891,12 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 	// Fetch Arena benchmarks
 	const arenaBenchmarks = await getArenaBenchmarks();
 
-	const textMatch = findArenaMatch(modelId, arenaBenchmarks.text);
-	const codeMatch = findArenaMatch(modelId, arenaBenchmarks.code);
+	const textMatch = arenaBenchmarks
+		? findArenaMatch(modelId, arenaBenchmarks.text)
+		: null;
+	const codeMatch = arenaBenchmarks
+		? findArenaMatch(modelId, arenaBenchmarks.code)
+		: null;
 
 	const arena = {
 		text: textMatch
@@ -909,7 +914,7 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 				}
 			: null,
 		source: "https://arena.ai/leaderboard",
-		fetchedAt: arenaBenchmarks.fetchedAt,
+		fetchedAt: arenaBenchmarks?.fetchedAt ?? null,
 	};
 
 	return c.json({ modelId, providers, arena });
