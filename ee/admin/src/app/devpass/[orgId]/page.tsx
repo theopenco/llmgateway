@@ -11,6 +11,7 @@ import { notFound } from "next/navigation";
 import { CopyableId } from "@/components/copyable-id";
 import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
 import { RefundPaymentDialog } from "@/components/refund-payment-dialog";
+import { RefundOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +29,9 @@ import {
 	refundDevpassPayment,
 } from "@/lib/admin-devpass";
 import { giftCreditsToOrganization } from "@/lib/admin-organizations";
+import { canWrite } from "@/lib/admin-role";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
+import { formatRenewalSummary } from "@/lib/renewal-state";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -237,6 +241,7 @@ export default async function DevpassDetailPage({
 	params: Promise<{ orgId: string }>;
 }) {
 	await requireSession();
+	const isAdmin = canWrite(await getSessionAdminRole());
 
 	const { orgId } = await params;
 
@@ -325,7 +330,7 @@ export default async function DevpassDetailPage({
 					</div>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
-					{sub.tier !== "none" && (
+					{isAdmin && sub.tier !== "none" && (
 						<CancelSubscriptionDialog
 							orgName={sub.name}
 							tier={sub.tier}
@@ -377,7 +382,7 @@ export default async function DevpassDetailPage({
 						{currencyFormatter.format(sub.mrr)}
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
-						Renews {formatDate(sub.expiresAt)}
+						{formatRenewalSummary(sub, formatDate)}
 					</div>
 					{sub.pendingTier && (
 						<div className="mt-1 text-xs text-amber-600">
@@ -432,14 +437,16 @@ export default async function DevpassDetailPage({
 						{sub.autoTopUpEnabled && (
 							<Badge variant="outline">auto-reload</Badge>
 						)}
-						<GiftCreditsDialog
-							orgId={orgId}
-							orgName={sub.name}
-							onGift={async (giftData) => {
-								"use server";
-								return await giftCreditsToOrganization(orgId, giftData);
-							}}
-						/>
+						{isAdmin && (
+							<GiftCreditsDialog
+								orgId={orgId}
+								orgName={sub.name}
+								onGift={async (giftData) => {
+									"use server";
+									return await giftCreditsToOrganization(orgId, giftData);
+								}}
+							/>
+						)}
 					</div>
 				}
 			>
@@ -472,14 +479,16 @@ export default async function DevpassDetailPage({
 				subtitle="Purchased and gifted passes are tier-bound; included passes renew each cycle"
 				columns={4}
 				actions={
-					<GiftResetPassesDialog
-						orgName={sub.name}
-						defaultTier={sub.tier === "none" ? "pro" : sub.tier}
-						onGift={async (giftData) => {
-							"use server";
-							return await giftResetPasses(orgId, giftData);
-						}}
-					/>
+					isAdmin && (
+						<GiftResetPassesDialog
+							orgName={sub.name}
+							defaultTier={sub.tier === "none" ? "pro" : sub.tier}
+							onGift={async (giftData) => {
+								"use server";
+								return await giftResetPasses(orgId, giftData);
+							}}
+						/>
+					)
 				}
 			>
 				<StatCell label="Lite passes" value={data.resetPasses.lite} />
@@ -622,22 +631,24 @@ export default async function DevpassDetailPage({
 															)}
 														</Badge>
 													)}
-													<RefundPaymentDialog
-														transactionId={t.id}
-														transactionLabel={formatTransactionType(t.type)}
-														amount={t.amount ?? "0"}
-														refundedAmount={t.refundedAmount}
-														refundableAmount={t.refundableAmount}
-														refundable={t.refundable}
-														refundIneligibleReason={t.refundIneligibleReason}
-														onRefund={async (refundData) => {
-															"use server";
-															return await refundDevpassPayment(
-																orgId,
-																refundData,
-															);
-														}}
-													/>
+													<RefundOnly>
+														<RefundPaymentDialog
+															transactionId={t.id}
+															transactionLabel={formatTransactionType(t.type)}
+															amount={t.amount ?? "0"}
+															refundedAmount={t.refundedAmount}
+															refundableAmount={t.refundableAmount}
+															refundable={t.refundable}
+															refundIneligibleReason={t.refundIneligibleReason}
+															onRefund={async (refundData) => {
+																"use server";
+																return await refundDevpassPayment(
+																	orgId,
+																	refundData,
+																);
+															}}
+														/>
+													</RefundOnly>
 												</div>
 											</TableCell>
 										</TableRow>

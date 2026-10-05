@@ -8,10 +8,9 @@ import {
 	getProviderCredentialCatalog,
 	getProviderCredentials,
 	reorderProviderCredentials,
-	selfTestProviderCredential,
 	updateProviderCredential,
-	verifyProviderCredentialModels,
 } from "@/lib/admin-provider-credentials";
+import { parseErrorWindow } from "@/lib/provider-key-error-window";
 
 function SignInPrompt() {
 	return (
@@ -33,9 +32,14 @@ function SignInPrompt() {
 	);
 }
 
-export default async function ProviderCredentialsPage() {
+export default async function ProviderCredentialsPage({
+	searchParams,
+}: {
+	searchParams: Promise<{ deleted?: string; errors?: string }>;
+}) {
+	const { deleted, errors } = await searchParams;
 	const [credentialsData, catalogData] = await Promise.all([
-		getProviderCredentials(),
+		getProviderCredentials(deleted === "1", parseErrorWindow(errors)),
 		getProviderCredentialCatalog(),
 	]);
 
@@ -67,8 +71,6 @@ export default async function ProviderCredentialsPage() {
 				onUpdate={updateProviderCredential}
 				onDelete={deleteProviderCredential}
 				onReorder={reorderProviderCredentials}
-				onSelfTest={selfTestProviderCredential}
-				onVerifyModels={verifyProviderCredentialModels}
 			/>
 		</div>
 	);

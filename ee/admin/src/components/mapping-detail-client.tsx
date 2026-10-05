@@ -1,6 +1,7 @@
 "use client";
 
-import { ShieldCheck } from "lucide-react";
+import { AlertTriangle, ExternalLink, ShieldCheck } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -10,10 +11,12 @@ import {
 	ModelVerificationDialog,
 	VerificationStatusBadge,
 } from "@/components/model-verification-dialog";
+import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getMappingDetail, getMappingHistory } from "@/lib/admin-history";
 import { useApi } from "@/lib/fetch-client";
+import { publicModelUrl } from "@/lib/public-urls";
 
 import { getProviderIcon } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -143,6 +146,24 @@ export function MappingDetailClient({
 						<VerificationStatusBadge verification={latestVerification} />
 					</div>
 				</div>
+				<Button asChild variant="outline" size="sm">
+					<a
+						href={publicModelUrl(mapping.modelId, mapping.providerId)}
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						<ExternalLink className="mr-1 h-4 w-4" />
+						Model card
+					</a>
+				</Button>
+				<Button asChild variant="outline" size="sm">
+					<Link
+						href={`/unstable-mappings?mapping=${encodeURIComponent(`${mapping.providerId}/${mapping.modelId}${mapping.region ? `:${mapping.region}` : ""}`)}`}
+					>
+						<AlertTriangle className="mr-1 h-4 w-4" />
+						Recent errors
+					</Link>
+				</Button>
 				<ModelVerificationDialog
 					title={`${mapping.providerId}/${mapping.modelId}${mapping.region ? `:${mapping.region}` : ""}`}
 					mappingId={mapping.id}
@@ -151,7 +172,7 @@ export function MappingDetailClient({
 				>
 					<Button variant="outline" size="sm" data-testid="verify-mapping">
 						<ShieldCheck className="mr-1 h-4 w-4" />
-						Verify
+						<AdminOnly fallback="Verification">Verify</AdminOnly>
 					</Button>
 				</ModelVerificationDialog>
 			</header>

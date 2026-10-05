@@ -14,6 +14,7 @@ import {
 	ONBOARDING_SPONSOR_HEADER,
 	getOnboardingSponsorSecret,
 } from "@llmgateway/shared";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -175,6 +176,7 @@ chat.openapi(completionRoute, async (c) => {
 		const response = await fetch(`${getGatewayUrl()}/chat/completions`, {
 			method: "POST",
 			headers: {
+				...forwardedIpHeaders(c.req.raw.headers),
 				"Content-Type": "application/json",
 				Authorization: `Bearer ${apiKey}`,
 				...(onboarding && { "x-source": "onboarding" }),

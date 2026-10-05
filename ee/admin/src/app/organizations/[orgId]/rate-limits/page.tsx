@@ -22,6 +22,8 @@ import {
 	getOrganizationRateLimits,
 	getRateLimitOptions,
 } from "@/lib/admin-rate-limits";
+import { canWrite } from "@/lib/admin-role";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { createServerApiClient } from "@/lib/server-api";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -69,6 +71,7 @@ export default async function OrganizationRateLimitsPage({
 }) {
 	const { orgId } = await params;
 
+	const isAdmin = canWrite(await getSessionAdminRole());
 	const $api = await createServerApiClient();
 	const [rateLimitsData, options, metricsRes, limitHitsRes] = await Promise.all(
 		[
@@ -102,6 +105,7 @@ export default async function OrganizationRateLimitsPage({
 		model: string | null;
 		limitType: "rpm" | "rpd";
 		maxRequests: number;
+		mode: "strict" | "soft";
 		reason: string | null;
 	}): Promise<{ success: boolean; error?: string }> {
 		"use server";
@@ -112,6 +116,7 @@ export default async function OrganizationRateLimitsPage({
 				model: data.model,
 				limitType: data.limitType,
 				maxRequests: data.maxRequests,
+				mode: data.mode,
 				reason: data.reason,
 			});
 
@@ -167,7 +172,7 @@ export default async function OrganizationRateLimitsPage({
 						</div>
 					</div>
 				</div>
-				{options && (
+				{isAdmin && options && (
 					<RateLimitForm
 						providers={options.providers}
 						mappings={options.mappings}
@@ -183,24 +188,27 @@ export default async function OrganizationRateLimitsPage({
 							<TableHead>Provider</TableHead>
 							<TableHead>Model</TableHead>
 							<TableHead>Limit</TableHead>
+							<TableHead>Mode</TableHead>
 							<TableHead>Reason</TableHead>
 							<TableHead>Created</TableHead>
-							<TableHead className="w-[50px]" />
+							{isAdmin ? <TableHead className="w-[50px]" /> : null}
 						</TableRow>
 					</TableHeader>
 					<TableBody>
 						{rateLimits.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={6}
+									colSpan={isAdmin ? 7 : 6}
 									className="h-24 text-center text-muted-foreground"
 								>
 									<div className="flex flex-col items-center gap-2">
 										<Tag className="h-8 w-8 text-muted-foreground/50" />
 										<p>No rate limits configured for this organization</p>
-										<p className="text-xs">
-											Add an RPM or RPD cap for this organization
-										</p>
+										{isAdmin ? (
+											<p className="text-xs">
+												Add an RPM or RPD cap for this organization
+											</p>
+										) : null}
 									</div>
 								</TableCell>
 							</TableRow>
@@ -227,18 +235,27 @@ export default async function OrganizationRateLimitsPage({
 											{rateLimit.limitType.toUpperCase()}
 										</span>
 									</TableCell>
+									<TableCell>
+										{rateLimit.mode === "soft" ? (
+											<Badge variant="secondary">Soft</Badge>
+										) : (
+											<Badge variant="outline">Strict</Badge>
+										)}
+									</TableCell>
 									<TableCell className="max-w-[200px] truncate text-muted-foreground">
 										{rateLimit.reason ?? "\u2014"}
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{formatDate(rateLimit.createdAt)}
 									</TableCell>
-									<TableCell>
-										<DeleteRateLimitButton
-											rateLimitId={rateLimit.id}
-											onDelete={handleDeleteRateLimit}
-										/>
-									</TableCell>
+									{isAdmin ? (
+										<TableCell>
+											<DeleteRateLimitButton
+												rateLimitId={rateLimit.id}
+												onDelete={handleDeleteRateLimit}
+											/>
+										</TableCell>
+									) : null}
 								</TableRow>
 							))
 						)}

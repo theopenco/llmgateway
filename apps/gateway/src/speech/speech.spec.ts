@@ -535,6 +535,8 @@ describe("speech", () => {
 		expect(log?.finishReason).toBe("stop");
 		// qwen-audio-3.0-tts-plus bills $20.00 / 1M input characters.
 		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 20e-6, 12);
+		// The org retains payloads, so the audio summary survives insertLog.
+		expect(log?.content).toBeTruthy();
 	});
 
 	test.each([403, 500, 200])(

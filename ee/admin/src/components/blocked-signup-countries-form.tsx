@@ -6,6 +6,8 @@ import { useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 
 const countryNames = new Intl.DisplayNames(["en"], { type: "region" });
 
@@ -29,6 +31,7 @@ export function BlockedSignupCountriesForm({
 	onSave,
 }: BlockedSignupCountriesFormProps) {
 	const router = useRouter();
+	const readOnly = !canWrite(useAdminRole());
 	const [pending, startTransition] = useTransition();
 	const [value, setValue] = useState(countries.join(", "));
 	const [error, setError] = useState<string | null>(null);
@@ -62,15 +65,22 @@ export function BlockedSignupCountriesForm({
 					aria-label="Blocked country codes"
 					placeholder="e.g. KP, SY"
 					value={value}
-					disabled={pending}
+					disabled={pending || readOnly}
+					autoComplete="off"
+					data-1p-ignore
+					data-lpignore="true"
+					data-bwignore
+					data-form-type="other"
 					onChange={(event) => {
 						setValue(event.target.value);
 						setSaved(false);
 					}}
 				/>
-				<Button type="submit" disabled={pending}>
-					{pending ? "Saving…" : "Save"}
-				</Button>
+				{!readOnly && (
+					<Button type="submit" disabled={pending}>
+						{pending ? "Saving…" : "Save"}
+					</Button>
+				)}
 			</div>
 			{countries.length > 0 ? (
 				<div className="flex flex-wrap gap-2">

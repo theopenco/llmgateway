@@ -283,8 +283,8 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-v4-pro",
-				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
-				// rates below. All other hours and Beijing-time weekends bill at
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday-Friday) bill
+				// at the peak rates below. All other hours and UTC weekends bill at
 				// the off-peak rates.
 				inputPrice: "0.435e-6",
 				outputPrice: "0.87e-6",
@@ -304,11 +304,7 @@ export const deepseekModels = [
 						[1, 4],
 						[6, 10],
 					],
-					offPeakDays: {
-						daysOfWeek: [0, 6],
-						utcOffsetMinutes: 480,
-						timeZoneLabel: "Beijing time",
-					},
+					offPeakDaysUtc: [0, 6],
 				},
 				requestPrice: "0",
 				contextSize: 1050000,
@@ -340,31 +336,6 @@ export const deepseekModels = [
 					"tools",
 					"reasoning_effort",
 				],
-			},
-			{
-				providerId: "runware",
-				externalId: "deepseek-v4-pro",
-				inputPrice: "0.961e-6",
-				outputPrice: "1.922e-6",
-				cachedInputPrice: "0.079e-6",
-				requestPrice: "0",
-				contextSize: 1048576,
-				maxOutput: 384000,
-				quantization: "fp8",
-				streaming: true,
-				reasoning: true,
-				// Runware maps reasoning_effort onto its thinkingLevel setting and
-				// 400s minimal/low/medium for this model.
-				reasoningEfforts: ["none", "high", "xhigh", "max"],
-				vision: false,
-				tools: true,
-				// Runware rejects json_object for this model ("Missing required
-				// parameter: 'jsonSchema'"); only schema-based output is supported.
-				jsonOutput: false,
-				jsonOutputSchema: true,
-				// Runware 400s ("a conversation cannot end on an assistant turn") when
-				// the last message is an assistant turn (verified 2026-07-28).
-				supportsAssistantPrefill: false,
 			},
 			{
 				providerId: "together-ai",
@@ -632,8 +603,8 @@ export const deepseekModels = [
 				providerId: "deepseek",
 				externalId: "deepseek-v4-flash",
 				deactivatedAt: new Date("2026-09-10"),
-				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
-				// rates below. All other hours and Beijing-time weekends bill at
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday-Friday) bill
+				// at the peak rates below. All other hours and UTC weekends bill at
 				// the off-peak rates.
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
@@ -653,11 +624,7 @@ export const deepseekModels = [
 						[1, 4],
 						[6, 10],
 					],
-					offPeakDays: {
-						daysOfWeek: [0, 6],
-						utcOffsetMinutes: 480,
-						timeZoneLabel: "Beijing time",
-					},
+					offPeakDaysUtc: [0, 6],
 				},
 				requestPrice: "0",
 				contextSize: 1050000,
@@ -685,31 +652,6 @@ export const deepseekModels = [
 					"tools",
 					"reasoning_effort",
 				],
-			},
-			{
-				providerId: "runware",
-				externalId: "deepseek-v4-flash",
-				inputPrice: "0.076e-6",
-				outputPrice: "0.153e-6",
-				cachedInputPrice: "0.014e-6",
-				requestPrice: "0",
-				contextSize: 1048576,
-				maxOutput: 384000,
-				quantization: "fp8",
-				streaming: true,
-				reasoning: true,
-				// Runware maps reasoning_effort onto its thinkingLevel setting and
-				// 400s minimal/low/medium for this model.
-				reasoningEfforts: ["none", "high", "xhigh", "max"],
-				vision: false,
-				tools: true,
-				// Runware rejects json_object for this model ("Missing required
-				// parameter: 'jsonSchema'"); only schema-based output is supported.
-				jsonOutput: false,
-				jsonOutputSchema: true,
-				// Runware 400s ("a conversation cannot end on an assistant turn") when
-				// the last message is an assistant turn (verified 2026-07-28).
-				supportsAssistantPrefill: false,
 			},
 			{
 				providerId: "novita",
@@ -843,9 +785,6 @@ export const deepseekModels = [
 			{
 				providerId: "together-ai",
 				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
-				// Together retires the serverless deployment; successor is
-				// deepseek-v4.1-flash on the same provider.
-				deactivatedAt: new Date("2026-09-29"),
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "0.28e-6",
@@ -944,40 +883,6 @@ export const deepseekModels = [
 				jsonOutput: true,
 			},
 			{
-				providerId: "gonka24",
-				externalId: "deepseek-v4-flash-0731",
-				inputPrice: "0.051e-6",
-				cachedInputPrice: "0.0097e-6",
-				outputPrice: "0.104e-6",
-				requestPrice: "0",
-				// The deployment shares one 390000-token window between prompt and
-				// completion, and stops generating at 16384 tokens with
-				// finish_reason "length" no matter how high max_tokens is.
-				contextSize: 390000,
-				maxOutput: 16384,
-				streaming: true,
-				reasoning: true,
-				// The provider's accepted enum; anything outside it is a hard 400.
-				// Thinking is off by default and is turned on by the binary `thinking`
-				// switch the gateway derives from the effort (see the gonka24 case in
-				// prepare-request-body), not by the effort itself.
-				reasoningEfforts: ["none", "low", "medium", "high"],
-				vision: false,
-				tools: true,
-				// tool_choice "required" is not enforced — the model keeps answering
-				// in plain text — so it coerces to "auto"; named-function choice is
-				// honoured.
-				supportedToolChoices: ["auto", "none", "function"],
-				// The gateway rejects the OpenAI-only `developer` role ("Invalid enum
-				// value. Expected 'system' | 'user' | 'assistant' | 'tool'").
-				supportsDeveloperRole: false,
-				jsonOutput: true,
-				// `json_schema` is only prompt-steered, not constrained-decoded: the
-				// deployment emits the right keys but never stops, running into the
-				// output cap and returning truncated, unparseable JSON.
-				jsonOutputSchema: false,
-			},
-			{
 				providerId: "baidu",
 				externalId: "deepseek-v4-flash-0731",
 				inputPrice: "0.44e-6",
@@ -1002,31 +907,6 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
-			},
-			{
-				providerId: "consensusprotocol",
-				externalId: "DeepSeek-V4-Flash",
-				inputPrice: "0.13e-6",
-				outputPrice: "0.27e-6",
-				cachedInputPrice: "0.02e-6",
-				requestPrice: "0",
-				contextSize: 524288,
-				maxOutput: 393216,
-				quantization: "int8",
-				streaming: true,
-				reasoning: true,
-				reasoningEfforts: ["none", "low", "high", "max"],
-				vision: false,
-				tools: true,
-				// tool_choice "none" leaks a raw <|DSML|tool_calls> template as
-				// assistant content instead of suppressing tools, so it downgrades to
-				// "auto" instead.
-				supportedToolChoices: ["auto", "required", "function"],
-				// An assistant prefill turn comes back with a stray "</think>"
-				// prefixed to the content, so the prefill is rewritten away instead.
-				supportsAssistantPrefill: false,
-				jsonOutput: true,
-				jsonOutputSchema: true,
 			},
 			{
 				providerId: "tencent",
@@ -1098,11 +978,7 @@ export const deepseekModels = [
 						[1, 4],
 						[6, 10],
 					],
-					offPeakDays: {
-						daysOfWeek: [0, 6],
-						utcOffsetMinutes: 480,
-						timeZoneLabel: "Beijing time",
-					},
+					offPeakDaysUtc: [0, 6],
 				},
 				requestPrice: "0",
 				contextSize: 1050000,
@@ -1143,8 +1019,8 @@ export const deepseekModels = [
 				// DeepSeek fetches remote image URLs itself and fails on hosts it
 				// cannot reach, while the same bytes inline as a data URL work.
 				requiresBase64Images: true,
-				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
-				// rates below. All other hours and Beijing-time weekends bill at
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday-Friday) bill
+				// at the peak rates below. All other hours and UTC weekends bill at
 				// the off-peak rates.
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
@@ -1164,11 +1040,7 @@ export const deepseekModels = [
 						[1, 4],
 						[6, 10],
 					],
-					offPeakDays: {
-						daysOfWeek: [0, 6],
-						utcOffsetMinutes: 480,
-						timeZoneLabel: "Beijing time",
-					},
+					offPeakDaysUtc: [0, 6],
 				},
 				requestPrice: "0",
 				contextSize: 1050000,

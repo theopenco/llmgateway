@@ -8,6 +8,7 @@ import {
 	FolderOpen,
 	Key,
 	KeyRound,
+	List,
 	Lock,
 	Receipt,
 	ScrollText,
@@ -21,6 +22,7 @@ import { notFound } from "next/navigation";
 import { BlockOrgButton } from "@/components/block-org-button";
 import { EnterpriseDealDialog } from "@/components/enterprise-deal-dialog";
 import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
+import { LogsSection } from "@/components/logs-section";
 import { ManualCreditsDialog } from "@/components/manual-credits-dialog";
 import { PlanTermBadge } from "@/components/plan-term-badge";
 import { RefundPaymentDialog } from "@/components/refund-payment-dialog";
@@ -39,7 +41,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabsContent, TabsList } from "@/components/ui/tabs";
 import { refundDevpassPayment } from "@/lib/admin-devpass";
 import {
 	addEnterpriseDealToOrganization,
@@ -52,7 +54,13 @@ import {
 	updateEnterpriseDeal,
 	updateReferralBonus,
 } from "@/lib/admin-organizations";
+import { canRefund, canWrite } from "@/lib/admin-role";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { KEY_STATUS_DEFAULT, parseKeyStatus } from "@/lib/key-status";
+import {
+	buildLogModelOptions,
+	buildLogProviderOptions,
+} from "@/lib/log-filter-options";
 import { getOrgDeletionBlockedReason } from "@/lib/org-deletion";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
@@ -68,7 +76,7 @@ import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
 import { OrgSettingsTab } from "./org-settings-tab";
-import { OrganizationTabs } from "./organization-tabs";
+import { OrganizationTabs, OrganizationTabTrigger } from "./organization-tabs";
 import { ProviderKeysTable } from "./provider-keys-table";
 import { ReferralBonusDialog } from "./referral-bonus-dialog";
 import { SsoTab } from "./sso-tab";
@@ -225,6 +233,10 @@ export default async function OrganizationPage({
 	const alLimit = 25;
 	const alOffset = (alPage - 1) * alLimit;
 
+	const role = await getSessionAdminRole();
+	const isAdmin = canWrite(role);
+	const mayRefund = canRefund(role);
+
 	const $api = await createServerApiClient();
 	const paymentMethodsRequest =
 		activeTab === "settings"
@@ -294,6 +306,9 @@ export default async function OrganizationPage({
 	const transactionsData = transactionsRes.data;
 	const trustTier = orgMetricsRes.data?.trustTier;
 	const contentFilterTier = orgMetricsRes.data?.contentFilterTier;
+	const allTimeTopUpsGross = orgMetricsRes.data?.allTimeTopUpsGross;
+	const allTimeTopUpsNet = orgMetricsRes.data?.allTimeTopUpsNet;
+	const allTimeGiftedCredits = orgMetricsRes.data?.allTimeGiftedCredits;
 	const projectsData = projectsRes.data;
 	const apiKeysData = apiKeysRes.data;
 	const providerKeysData = providerKeysRes.data;
@@ -327,6 +342,9 @@ export default async function OrganizationPage({
 	const providerKeys = providerKeysData?.providerKeys ?? [];
 	const pkCounts = providerKeysData?.counts ?? emptyKeyCounts;
 	const membersTotal = membersData?.total ?? 0;
+	const seatOptions = (membersData?.members ?? [])
+		.map((member) => ({ email: member.user.email, name: member.user.name }))
+		.toSorted((a, b) => a.email.localeCompare(b.email));
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
@@ -372,32 +390,34 @@ export default async function OrganizationPage({
 							</div>
 						</div>
 						<div className="flex shrink-0 items-center gap-2">
-							<ManageOrgDialog
-								orgName={org.name}
-								plan={org.plan}
-								seats={org.seats ?? null}
-								apiKeyLimit={org.apiKeyLimit ?? null}
-								projectLimit={org.projectLimit ?? null}
-								trustTierOverride={
-									trustTier?.overridden ? trustTier.tier : null
-								}
-								contentFilterTierOverride={
-									settingsData?.organization.contentFilterTierOverride
-								}
-								contentFilterLogOnly={
-									settingsData?.organization.contentFilterLogOnly
-								}
-								planExpiresAt={org.planExpiresAt ?? null}
-								planStartedAt={org.planStartedAt ?? null}
-								isTrialActive={org.isTrialActive ?? false}
-								trialStartDate={org.trialStartDate ?? null}
-								trialEndDate={org.trialEndDate ?? null}
-								primaryTrigger
-								onSave={async (data) => {
-									"use server";
-									return await manageOrganization(orgId, data);
-								}}
-							/>
+							{isAdmin ? (
+								<ManageOrgDialog
+									orgName={org.name}
+									plan={org.plan}
+									seats={org.seats ?? null}
+									apiKeyLimit={org.apiKeyLimit ?? null}
+									projectLimit={org.projectLimit ?? null}
+									trustTierOverride={
+										trustTier?.overridden ? trustTier.tier : null
+									}
+									contentFilterTierOverride={
+										settingsData?.organization.contentFilterTierOverride
+									}
+									contentFilterLogOnly={
+										settingsData?.organization.contentFilterLogOnly
+									}
+									planExpiresAt={org.planExpiresAt ?? null}
+									planStartedAt={org.planStartedAt ?? null}
+									isTrialActive={org.isTrialActive ?? false}
+									trialStartDate={org.trialStartDate ?? null}
+									trialEndDate={org.trialEndDate ?? null}
+									primaryTrigger
+									onSave={async (data) => {
+										"use server";
+										return await manageOrganization(orgId, data);
+									}}
+								/>
+							) : null}
 							<CollapsibleTrigger
 								aria-controls={actionsContentId}
 								className={buttonVariants({
@@ -452,13 +472,37 @@ export default async function OrganizationPage({
 								) : null}
 							</div>
 						</div>
-						<div className="border-b border-border/60 p-4 sm:border-r sm:border-b-0">
-							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-								Credits
-							</p>
-							<p className="mt-1.5 text-xl font-semibold tabular-nums">
-								{creditsFormatter.format(parseFloat(org.credits))}
-							</p>
+						<div className="flex gap-6 border-b border-border/60 p-4 sm:border-r sm:border-b-0">
+							<div>
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+									Credits
+								</p>
+								<p className="mt-1.5 text-xl font-semibold tabular-nums">
+									{creditsFormatter.format(parseFloat(org.credits))}
+								</p>
+								{allTimeGiftedCredits !== undefined ? (
+									<p className="mt-1 whitespace-nowrap text-xs text-muted-foreground tabular-nums">
+										{creditsFormatter.format(parseFloat(allTimeGiftedCredits))}{" "}
+										gifted
+									</p>
+								) : null}
+							</div>
+							<div title="All-time completed Stripe top-ups (incl. fees) and manual payments. Net subtracts their refunds.">
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+									Net top-ups
+								</p>
+								<p className="mt-1.5 text-xl font-semibold tabular-nums">
+									{allTimeTopUpsNet !== undefined
+										? creditsFormatter.format(parseFloat(allTimeTopUpsNet))
+										: "—"}
+								</p>
+								{allTimeTopUpsGross !== undefined ? (
+									<p className="mt-1 whitespace-nowrap text-xs text-muted-foreground tabular-nums">
+										{creditsFormatter.format(parseFloat(allTimeTopUpsGross))}{" "}
+										gross
+									</p>
+								) : null}
+							</div>
 						</div>
 						<div className="p-4">
 							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -538,51 +582,61 @@ export default async function OrganizationPage({
 
 					<CollapsibleContent id={actionsContentId}>
 						<div className="mt-4 grid gap-3 rounded-xl border border-border/60 bg-background p-4 md:grid-cols-2 xl:grid-cols-4">
-							<div>
-								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-									Credits
-								</p>
-								<div className="flex flex-wrap gap-2">
-									<GiftCreditsDialog
-										orgId={orgId}
-										orgName={org.name}
-										onGift={async (data) => {
-											"use server";
-											return await giftCreditsToOrganization(orgId, data);
-										}}
-									/>
-									<ManualCreditsDialog
-										orgName={org.name}
-										onCredit={async (data) => {
-											"use server";
-											return await addManualCreditsToOrganization(orgId, data);
-										}}
-									/>
+							{isAdmin ? (
+								<div>
+									<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+										Credits
+									</p>
+									<div className="flex flex-wrap gap-2">
+										<GiftCreditsDialog
+											orgId={orgId}
+											orgName={org.name}
+											onGift={async (data) => {
+												"use server";
+												return await giftCreditsToOrganization(orgId, data);
+											}}
+										/>
+										<ManualCreditsDialog
+											orgName={org.name}
+											onCredit={async (data) => {
+												"use server";
+												return await addManualCreditsToOrganization(
+													orgId,
+													data,
+												);
+											}}
+										/>
+									</div>
 								</div>
-							</div>
-							<div>
-								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-									Commercial
-								</p>
-								<div className="flex flex-wrap gap-2">
-									<EnterpriseDealDialog
-										orgName={org.name}
-										onSave={async (data) => {
-											"use server";
-											return await addEnterpriseDealToOrganization(orgId, data);
-										}}
-									/>
-									<ReferralBonusDialog
-										orgName={org.name}
-										enabled={org.referralBonusEnabled ?? false}
-										percent={org.referralBonusPercent ?? 50}
-										onSave={async (data) => {
-											"use server";
-											return await updateReferralBonus(orgId, data);
-										}}
-									/>
+							) : null}
+							{isAdmin ? (
+								<div>
+									<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+										Commercial
+									</p>
+									<div className="flex flex-wrap gap-2">
+										<EnterpriseDealDialog
+											orgName={org.name}
+											onSave={async (data) => {
+												"use server";
+												return await addEnterpriseDealToOrganization(
+													orgId,
+													data,
+												);
+											}}
+										/>
+										<ReferralBonusDialog
+											orgName={org.name}
+											enabled={org.referralBonusEnabled ?? false}
+											percent={org.referralBonusPercent ?? 50}
+											onSave={async (data) => {
+												"use server";
+												return await updateReferralBonus(orgId, data);
+											}}
+										/>
+									</div>
 								</div>
-							</div>
+							) : null}
 							<div>
 								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
 									Controls
@@ -605,24 +659,26 @@ export default async function OrganizationPage({
 									) : null}
 								</div>
 							</div>
-							<div>
-								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-destructive">
-									Account safety
-								</p>
-								<BlockOrgButton
-									orgId={orgId}
-									orgName={org.name}
-									variant="full"
-									disabled={getOrgDeletionBlockedReason(org.credits) !== null}
-									disabledReason={
-										getOrgDeletionBlockedReason(org.credits) ?? undefined
-									}
-									onBlock={async (id, reason) => {
-										"use server";
-										return await blockOrganization(id, reason);
-									}}
-								/>
-							</div>
+							{isAdmin ? (
+								<div>
+									<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-destructive">
+										Account safety
+									</p>
+									<BlockOrgButton
+										orgId={orgId}
+										orgName={org.name}
+										variant="full"
+										disabled={getOrgDeletionBlockedReason(org.credits) !== null}
+										disabledReason={
+											getOrgDeletionBlockedReason(org.credits) ?? undefined
+										}
+										onBlock={async (id, reason) => {
+											"use server";
+											return await blockOrganization(id, reason);
+										}}
+									/>
+								</div>
+							) : null}
 						</div>
 					</CollapsibleContent>
 				</Collapsible>
@@ -682,41 +738,48 @@ export default async function OrganizationPage({
 
 			<OrganizationTabs defaultValue={activeTab}>
 				<TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
-					<TabsTrigger value="transactions">
+					<OrganizationTabTrigger value="transactions">
 						<Receipt className="mr-1.5 h-4 w-4" />
 						Transactions ({txTotal})
-					</TabsTrigger>
-					<TabsTrigger value="api-keys" title="Active / total API keys">
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger
+						value="api-keys"
+						title="Active / total API keys"
+					>
 						<Key className="mr-1.5 h-4 w-4" />
 						API Keys ({akCounts.active}/{akCounts.all})
-					</TabsTrigger>
-					<TabsTrigger
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger
 						value="provider-keys"
 						title="Active / total provider keys"
 					>
 						<KeyRound className="mr-1.5 h-4 w-4" />
 						Provider Keys ({pkCounts.active}/{pkCounts.all})
-					</TabsTrigger>
-					<TabsTrigger value="members">
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="members">
 						<Users className="mr-1.5 h-4 w-4" />
 						Members ({membersTotal})
-					</TabsTrigger>
-					<TabsTrigger value="audit-logs">
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="logs">
+						<List className="mr-1.5 h-4 w-4" />
+						Request Logs
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="audit-logs">
 						<ScrollText className="mr-1.5 h-4 w-4" />
 						Audit Logs ({auditLogsData?.total ?? 0})
-					</TabsTrigger>
-					<TabsTrigger value="settings">
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="settings">
 						<Settings className="mr-1.5 h-4 w-4" />
 						Settings
-					</TabsTrigger>
-					<TabsTrigger value="guardrails">
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="guardrails">
 						<Shield className="mr-1.5 h-4 w-4" />
 						Guardrails
-					</TabsTrigger>
-					<TabsTrigger value="sso">
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="sso">
 						<Lock className="mr-1.5 h-4 w-4" />
 						SSO
-					</TabsTrigger>
+					</OrganizationTabTrigger>
 				</TabsList>
 
 				<TabsContent value="transactions">
@@ -827,35 +890,38 @@ export default async function OrganizationPage({
 																		)}
 																	</Badge>
 																)}
-																<RefundPaymentDialog
-																	transactionId={transaction.id}
-																	transactionLabel={formatTransactionType(
-																		transaction.type,
-																	)}
-																	amount={transaction.amount ?? "0"}
-																	refundedAmount={
-																		transaction.refundability.refundedAmount
-																	}
-																	refundableAmount={
-																		transaction.refundability.refundableAmount
-																	}
-																	refundable={
-																		transaction.refundability.refundable
-																	}
-																	refundIneligibleReason={
-																		transaction.refundability.reason
-																	}
-																	onRefund={async (refundData) => {
-																		"use server";
-																		return await refundDevpassPayment(
-																			orgId,
-																			refundData,
-																		);
-																	}}
-																/>
+																{mayRefund ? (
+																	<RefundPaymentDialog
+																		transactionId={transaction.id}
+																		transactionLabel={formatTransactionType(
+																			transaction.type,
+																		)}
+																		amount={transaction.amount ?? "0"}
+																		refundedAmount={
+																			transaction.refundability.refundedAmount
+																		}
+																		refundableAmount={
+																			transaction.refundability.refundableAmount
+																		}
+																		refundable={
+																			transaction.refundability.refundable
+																		}
+																		refundIneligibleReason={
+																			transaction.refundability.reason
+																		}
+																		onRefund={async (refundData) => {
+																			"use server";
+																			return await refundDevpassPayment(
+																				orgId,
+																				refundData,
+																			);
+																		}}
+																	/>
+																) : null}
 															</div>
 														)}
-														{transaction.type === "enterprise_license_fee" ? (
+														{isAdmin &&
+														transaction.type === "enterprise_license_fee" ? (
 															<EnterpriseDealDialog
 																orgName={org.name}
 																deal={transaction}
@@ -975,6 +1041,20 @@ export default async function OrganizationPage({
 							Failed to load members and teams
 						</p>
 					)}
+				</TabsContent>
+
+				<TabsContent value="logs">
+					<LogsSection
+						orgId={orgId}
+						providerOptions={buildLogProviderOptions()}
+						modelOptions={buildLogModelOptions()}
+						seatOptions={seatOptions}
+						projectOptions={projects.map((p) => ({
+							id: p.id,
+							name: p.name,
+						}))}
+						title="Requests across all projects"
+					/>
 				</TabsContent>
 
 				<TabsContent value="audit-logs">

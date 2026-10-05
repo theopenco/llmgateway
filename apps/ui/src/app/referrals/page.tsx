@@ -142,7 +142,7 @@ const migrationProviders = [
 export default function ReferralsPublicPage() {
 	return (
 		<div className="min-h-screen bg-background text-foreground">
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 
 			{/* Hero */}
 			<section className="relative overflow-hidden border-b bg-linear-to-b from-primary/5 via-background to-background">

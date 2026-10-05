@@ -5,7 +5,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import {
 	redisClient,
-	SWR_PREFIX,
+	swrMirrorKey,
 	swrWrap,
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
@@ -35,11 +35,11 @@ function setHashSecret(value: string | undefined) {
 async function primeSwrEntry<T>(key: string, table: string, value: T) {
 	await swrWrap(key, [table], async () => value);
 	await waitForSwrMirrorWrites();
-	expect(await redisClient.get(SWR_PREFIX + key)).not.toBeNull();
+	expect(await redisClient.get(swrMirrorKey(key))).not.toBeNull();
 }
 
 async function assertSwrCleared(key: string) {
-	expect(await redisClient.get(SWR_PREFIX + key)).toBeNull();
+	expect(await redisClient.get(swrMirrorKey(key))).toBeNull();
 }
 
 async function readActiveIamRules(apiKeyId: string) {

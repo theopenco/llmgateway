@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeApiModelDefinition } from "./airside-model-fallback";
+import {
+	mergeApiModelDefinition,
+	publicModelDefinition,
+} from "./airside-model-fallback";
 
 import type { ModelDefinition } from "@llmgateway/models";
 import type {
@@ -60,8 +63,12 @@ function mapping(
 	};
 }
 
-function apiModel(mappings: ApiModelProviderMapping[]): ApiModel {
+function apiModel(
+	mappings: ApiModelProviderMapping[],
+	unlistedProviderIds: string[] = [],
+): ApiModel {
 	return {
+		unlistedProviderIds,
 		id: "catalogue-model",
 		createdAt: "2026-09-02T00:00:00.000Z",
 		releasedAt: null,
@@ -174,5 +181,82 @@ describe("mergeApiModelDefinition", () => {
 			inputPrice: "5e-6",
 		});
 		expect(provider.deactivatedAt).toBeUndefined();
+	});
+
+	it("hides a provider whose listing is out of service until it is relisted", () => {
+		const staticModel = {
+			id: "catalogue-model",
+			name: "Catalogue Model",
+			family: "catalogue",
+			providers: [
+				{
+					providerId: "openai",
+					externalId: "catalogue-model",
+					inputPrice: "1e-6",
+					outputPrice: "3e-6",
+					streaming: true,
+				},
+				{
+					providerId: "mistral",
+					externalId: "catalogue-model",
+					inputPrice: "1e-6",
+					outputPrice: "3e-6",
+					streaming: true,
+					regions: [{ id: "regional" }],
+				},
+			],
+		} satisfies ModelDefinition;
+		const providerIds = (model: ApiModel) =>
+			mergeApiModelDefinition(model, staticModel).providers.map(
+				(provider) => provider.providerId,
+			);
+
+		// The API omits the paused or delisted mapping; the static mapping of
+		// the same pair, regional variants included, must not stand in for it.
+		expect(providerIds(apiModel([mapping()], ["mistral"]))).toEqual(["openai"]);
+		// Without the marker the static mapping is the DB-sync fallback.
+		expect(providerIds(apiModel([mapping()]))).toEqual([
+			"openai",
+			"mistral",
+			"mistral",
+		]);
+		// Relisted: the API serves the carrier's mapping again.
+		expect(
+			providerIds(
+				apiModel([
+					mapping(),
+					mapping({ id: "airside-mapping", providerId: "mistral" }),
+				]),
+			),
+		).toEqual(["openai", "mistral"]);
+	});
+
+	it("has no public model once its only provider is unlisted", () => {
+		const staticModel = {
+			id: "catalogue-model",
+			name: "Catalogue Model",
+			family: "catalogue",
+			providers: [
+				{
+					providerId: "mistral",
+					externalId: "catalogue-model",
+					inputPrice: "1e-6",
+					outputPrice: "3e-6",
+					streaming: true,
+				},
+			],
+		} satisfies ModelDefinition;
+
+		expect(publicModelDefinition(apiModel([], ["mistral"]), staticModel)).toBe(
+			null,
+		);
+		// A listing-only model whose listing is paused has no mappings at all.
+		expect(publicModelDefinition(apiModel([]))).toBe(null);
+		expect(
+			publicModelDefinition(
+				apiModel([mapping({ providerId: "mistral" })]),
+				staticModel,
+			)?.providers,
+		).toHaveLength(1);
 	});
 });

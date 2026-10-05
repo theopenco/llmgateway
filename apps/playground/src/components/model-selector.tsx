@@ -967,6 +967,7 @@ export function ModelSelector({
 			searchText: string;
 		}[] = [];
 		const now = new Date();
+		const providerById = new Map(providers.map((p) => [p.id, p]));
 
 		// Sort by public release date first so newly released models surface
 		// before older models that were added to LLM Gateway more recently.
@@ -1034,7 +1035,7 @@ export function ModelSelector({
 				const isDeactivated =
 					mp.deactivatedAt && new Date(mp.deactivatedAt) <= now;
 				if (!isDeactivated) {
-					const provider = providers.find((p) => p.id === mp.providerId);
+					const provider = providerById.get(mp.providerId);
 					const searchText = normalize(
 						[
 							m.name ?? "",

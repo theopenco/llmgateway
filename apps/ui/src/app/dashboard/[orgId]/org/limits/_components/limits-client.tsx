@@ -9,6 +9,7 @@ import {
 import Link from "next/link";
 
 import { currencyFormatter } from "@/components/analytics/chart-helpers";
+import { ContactSalesLink } from "@/components/contact-sales";
 import { Badge } from "@/lib/components/badge";
 import {
 	Card,
@@ -317,12 +318,9 @@ export function LimitsClient() {
 									Enterprise
 								</Link>{" "}
 								organizations have no rate limits or caps at all —{" "}
-								<a
-									href="mailto:contact@llmgateway.io"
-									className="text-foreground underline underline-offset-4"
-								>
+								<ContactSalesLink className="text-foreground underline underline-offset-4">
 									contact us
-								</a>{" "}
+								</ContactSalesLink>{" "}
 								to learn more.
 							</p>
 						</>

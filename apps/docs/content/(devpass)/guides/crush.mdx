@@ -1,0 +1,75 @@
+---
+title: Crush Integration
+description: Connect Crush to LLM Gateway, discover models, and verify a coding task.
+icon: Crush
+---
+
+[Crush](https://github.com/charmbracelet/crush) is a terminal coding agent. Connect its OpenAI-compatible provider to LLM Gateway with a pay-as-you-go or DevPass key.
+
+## Video walkthrough
+
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/hS7qDJVojRE"
+		title="Crush setup and coding demo with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
+
+## Install
+
+```bash
+pnpm add -g @charmland/crush
+crush --version
+```
+
+Other installation options are in the&nbsp;[Crush documentation](https://github.com/charmbracelet/crush#installation).
+
+## Connect LLM Gateway
+
+Create an API key in your&nbsp;[dashboard](https://llmgateway.io/dashboard), then export it in the terminal where you run Crush:
+
+```bash
+export LLMGATEWAY_API_KEY="your_api_key"
+```
+
+Add this provider to your project's `crush.json`, merging it with existing settings:
+
+```json
+{
+	"providers": {
+		"llmgateway": {
+			"name": "LLM Gateway",
+			"type": "openai",
+			"base_url": "https://api.llmgateway.io/v1",
+			"api_key": "$LLMGATEWAY_API_KEY"
+		}
+	}
+}
+```
+
+The key stays in your environment. Crush discovers the available models from the gateway when no explicit model list is configured.
+
+## Choose a model and code
+
+```bash
+cd your-project
+crush
+```
+
+Select **LLM Gateway** and a model with tool support from the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools). With DevPass, choose a canonical model ID supported by your plan, without an upstream provider prefix.
+
+Start with a small task that has a clear test. Review tool permission requests, inspect the changes, and run the tests. Check usage in the workspace that issued your API key.
+
+## Troubleshooting
+
+- **Authentication failed:** Check that `LLMGATEWAY_API_KEY` is exported in the same terminal and the key is active.
+- **Models missing:** Restart Crush after editing the provider configuration. Check the endpoint and key before adding a manual model list.
+- **Tool calls fail:** Confirm the selected model supports tools.
+- **Provider unavailable:** Gateway fallback can route requests to another eligible provider. See the&nbsp;[routing documentation](https://docs.llmgateway.io/features/routing) for pinning and fallback controls.
+
+See the&nbsp;[Crush configuration reference](https://github.com/charmbracelet/crush/tree/main/docs/config) for permissions and additional settings.

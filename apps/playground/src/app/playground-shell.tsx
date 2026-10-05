@@ -267,7 +267,8 @@ export async function renderPlaygroundShell({
 					(m) =>
 						!m.output?.includes("embedding") &&
 						!m.output?.includes("rerank") &&
-						!m.output?.includes("decision"),
+						!m.output?.includes("decision") &&
+						!m.output?.includes("search"),
 				)}
 				providers={providers}
 				organizations={organizations}

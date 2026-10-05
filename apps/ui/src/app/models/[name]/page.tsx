@@ -16,6 +16,7 @@ import {
 	Mic,
 	ListOrdered,
 	Globe,
+	Search,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -45,6 +46,7 @@ import {
 } from "@/lib/discount";
 import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
 import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
+import { getCheapestOgMapping } from "@/lib/model-og";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -155,6 +157,8 @@ export default async function ModelPage({ params }: PageProps) {
 	);
 	const visibleProviders =
 		activeProviders.length > 0 ? activeProviders : modelProviders;
+	// Search models bill per request only, so token and context stats are noise.
+	const isSearchModel = modelDef.output?.includes("search") ?? false;
 
 	const currentModelDiscount = getBestDiscount(
 		allDiscounts,
@@ -202,7 +206,8 @@ export default async function ModelPage({ params }: PageProps) {
 	const lowestInputPrice = Math.min(...providerPrices);
 	const highestInputPrice = Math.max(...providerPrices);
 
-	const primaryProviderId = modelDef.providers[0]?.providerId || "default";
+	const primaryProviderId =
+		getCheapestOgMapping(modelDef, allDiscounts)?.providerId ?? "default";
 	const productSchema = {
 		"@context": "https://schema.org",
 		"@type": "Product",
@@ -313,19 +318,23 @@ export default async function ModelPage({ params }: PageProps) {
 								className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
 							>
 								<Activity className="h-3.5 w-3.5" />
-								View uptime
+								Live uptime &amp; insights
 							</Link>
 
 							<ModelUsageStats modelId={decodedName} />
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
-							<div>
-								{formatNumber(
-									Math.max(...visibleProviders.map((p) => p.contextSize ?? 0)),
-								)}{" "}
-								context
-							</div>
+							{!isSearchModel && (
+								<div>
+									{formatNumber(
+										Math.max(
+											...visibleProviders.map((p) => p.contextSize ?? 0),
+										),
+									)}{" "}
+									context
+								</div>
+							)}
 							{modelDef.releasedAt && (
 								<div>
 									Released{" "}
@@ -337,7 +346,7 @@ export default async function ModelPage({ params }: PageProps) {
 									})}
 								</div>
 							)}
-							{visibleProviders.some((p) => p.inputPrice) && (
+							{!isSearchModel && visibleProviders.some((p) => p.inputPrice) && (
 								<div>
 									Starting at{" "}
 									{(() => {
@@ -369,38 +378,42 @@ export default async function ModelPage({ params }: PageProps) {
 									)}
 								</div>
 							)}
-							{visibleProviders.some((p) => p.outputPrice) && (
-								<div>
-									Starting at{" "}
-									{(() => {
-										const outputPrices = visibleProviders
-											.filter((p) => p.outputPrice)
-											.map((p) => ({
-												price: applyDiscount(
-													perMillion(p.outputPrice)!,
-													p.discount,
-												),
-												originalPrice: perMillion(p.outputPrice)!,
-												discount: p.discount,
-											}));
-										const minPrice = Math.min(
-											...outputPrices.map((p) => p.price),
-										);
-										const minPriceItem = outputPrices.find(
-											(p) => p.price === minPrice,
-										);
-										return Number(minPriceItem?.discount ?? "0") > 0
-											? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
-											: `$${minPrice.toFixed(2)}/M`;
-									})()}{" "}
-									output tokens
-									{visibleProviders.some(
-										(p) => (p.pricingTiers?.length ?? 0) > 1,
-									) && (
-										<span className="text-muted-foreground/70"> (tiered)</span>
-									)}
-								</div>
-							)}
+							{!isSearchModel &&
+								visibleProviders.some((p) => p.outputPrice) && (
+									<div>
+										Starting at{" "}
+										{(() => {
+											const outputPrices = visibleProviders
+												.filter((p) => p.outputPrice)
+												.map((p) => ({
+													price: applyDiscount(
+														perMillion(p.outputPrice)!,
+														p.discount,
+													),
+													originalPrice: perMillion(p.outputPrice)!,
+													discount: p.discount,
+												}));
+											const minPrice = Math.min(
+												...outputPrices.map((p) => p.price),
+											);
+											const minPriceItem = outputPrices.find(
+												(p) => p.price === minPrice,
+											);
+											return Number(minPriceItem?.discount ?? "0") > 0
+												? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
+												: `$${minPrice.toFixed(2)}/M`;
+										})()}{" "}
+										output tokens
+										{visibleProviders.some(
+											(p) => (p.pricingTiers?.length ?? 0) > 1,
+										) && (
+											<span className="text-muted-foreground/70">
+												{" "}
+												(tiered)
+											</span>
+										)}
+									</div>
+								)}
 							{visibleProviders.some(
 								(p) => p.imageOutputPrice !== undefined,
 							) && (
@@ -483,6 +496,19 @@ export default async function ModelPage({ params }: PageProps) {
 									image generation
 								</div>
 							)}
+							{isSearchModel && (
+								<div>
+									Starting at $
+									{(
+										Math.min(
+											...visibleProviders.map((p) =>
+												applyDiscount(Number(p.requestPrice ?? 0), p.discount),
+											),
+										) * 1000
+									).toFixed(2)}{" "}
+									per 1,000 searches
+								</div>
+							)}
 							{visibleProviders.some((p) => p.ocrPagePrice !== undefined) && (
 								<div>
 									Starting at{" "}
@@ -536,6 +562,9 @@ export default async function ModelPage({ params }: PageProps) {
 									: false;
 								const hasRerank = Array.isArray(modelDef.output)
 									? modelDef.output.includes("rerank")
+									: false;
+								const hasSearch = Array.isArray(modelDef.output)
+									? modelDef.output.includes("search")
 									: false;
 								const hasAudio = Array.isArray(modelDef.output)
 									? modelDef.output.includes("audio")
@@ -648,6 +677,14 @@ export default async function ModelPage({ params }: PageProps) {
 										color: "text-amber-500",
 									});
 								}
+								if (hasSearch) {
+									items.push({
+										key: "search",
+										icon: Search,
+										label: "Search API",
+										color: "text-sky-500",
+									});
+								}
 								if (hasWebSearch) {
 									items.push({
 										key: "webSearch",
@@ -737,7 +774,10 @@ export async function generateMetadata({
 }: PageProps): Promise<Metadata> {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
-	const model = await findPublicModelDefinition(decodedName);
+	const [model, discounts] = await Promise.all([
+		findPublicModelDefinition(decodedName),
+		fetchModelDiscounts(decodedName),
+	]);
 
 	if (!model) {
 		return {};
@@ -750,7 +790,8 @@ export async function generateMetadata({
 			? `${model.description} ${pitch}`
 			: (model.description ?? pitch);
 
-	const primaryProvider = model.providers[0]?.providerId || "default";
+	const primaryProvider =
+		getCheapestOgMapping(model, discounts)?.providerId ?? "default";
 	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 

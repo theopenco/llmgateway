@@ -1,11 +1,18 @@
+import { headers } from "next/headers";
+
 import { getConfig } from "@/lib/config-server";
 import { getSessionCookieHeader } from "@/lib/session-cookie";
+
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
+
+import type { AdminRole } from "@/lib/admin-role";
 
 export interface SessionUser {
 	id: string;
 	email: string;
 	name: string | null;
 	isAdmin: boolean;
+	adminRole: AdminRole | null;
 }
 
 export async function getUser(): Promise<SessionUser | null> {
@@ -14,6 +21,9 @@ export async function getUser(): Promise<SessionUser | null> {
 	const res = await fetch(`${config.apiBackendUrl}/user/me`, {
 		method: "GET",
 		headers: {
+			// Forward the visitor's address so the API's per-IP limits bucket
+			// them individually rather than behind this server's own address.
+			...forwardedIpHeaders(await headers()),
 			Cookie: await getSessionCookieHeader(),
 		},
 	});

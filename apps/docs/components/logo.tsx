@@ -1,4 +1,4 @@
-export type LogoProps = React.HTMLAttributes<SVGElement>;
+export type LogoProps = React.SVGProps<SVGSVGElement>;
 
 export const Logo = (props: LogoProps) => (
 	<svg

@@ -159,8 +159,8 @@ export const comparisons: Comparison[] = [
 				them: "Sora, on higher tiers",
 			},
 			{
-				label: "Compare models side by side",
-				us: "Yes — group chat, one prompt to many models",
+				label: "Multi-model council debates",
+				us: "Yes — models take turns debating a shared topic",
 				them: "No",
 				usWins: true,
 			},
@@ -188,7 +188,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				heading: "Features beyond chat",
-				us: "Image, video, and audio generation plus side-by-side group chat all sit in the same subscription and the same credit balance.",
+				us: "Image, video, and audio generation plus multi-model council debates all sit in the same subscription and the same credit balance.",
 				them: "ChatGPT has excellent native image generation, Advanced Voice, and Sora video on higher tiers — a genuinely strong, well-integrated suite.",
 				bottomLine:
 					"ChatGPT's native media is more polished; Lounge covers more providers under one balance.",
@@ -203,7 +203,7 @@ export const comparisons: Comparison[] = [
 			"You want GPT, Claude, Gemini, and Grok without three subscriptions",
 			"You switch models depending on the task",
 			"You'd rather pay provider rates with credits that go further",
-			"You want image, video, audio, and multi-model comparison in one place",
+			"You want image, video, audio, and multi-model debate in one place",
 		],
 		switchHeading: "Looking for a ChatGPT alternative?",
 		whySwitch: [
@@ -283,8 +283,8 @@ export const comparisons: Comparison[] = [
 				them: "Claude Code is excellent and deeply integrated",
 			},
 			{
-				label: "Compare models side by side",
-				us: "Yes — group chat across providers",
+				label: "Multi-model council debates",
+				us: "Yes — models from different providers debate together",
 				them: "No",
 				usWins: true,
 			},
@@ -406,8 +406,8 @@ export const comparisons: Comparison[] = [
 				them: "$4.99 AI Plus, $19.99 AI Pro, $100 / $200 Ultra",
 			},
 			{
-				label: "Compare models side by side",
-				us: "Yes — group chat across providers",
+				label: "Multi-model council debates",
+				us: "Yes — models from different providers debate together",
 				them: "No",
 				usWins: true,
 			},
@@ -528,8 +528,8 @@ export const comparisons: Comparison[] = [
 				them: "Image, video, and voice models (also priced in points)",
 			},
 			{
-				label: "Group chat / comparison",
-				us: "Yes — one prompt to many models",
+				label: "Multi-model group discussion",
+				us: "Yes — models take turns debating a topic",
 				them: "Yes — group chats across models and bots",
 			},
 			{
@@ -555,7 +555,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				heading: "Breadth and bots",
-				us: "The focus is direct, fast access to 200+ first-party models with image, video, and audio generation and side-by-side comparison.",
+				us: "The focus is direct, fast access to 200+ first-party models with image, video, and audio generation and council debates.",
 				them: "Poe's real edge is its ecosystem: millions of user-created bots, creator monetization, and large group chats. If that ecosystem is why you're there, it's a genuine strength.",
 				bottomLine:
 					"Want a bot marketplace? Poe wins. Want clean, predictable access to the models themselves? That's us.",
@@ -596,7 +596,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				q: "Can I do group chats like Poe?",
-				a: "Yes. Group chat sends one prompt to multiple models at once so you can compare answers side by side.",
+				a: "Yes. Group chat brings 2–5 models into one discussion. They take turns reading the conversation and challenging the previous argument, with five turns per round.",
 			},
 		],
 	},
@@ -637,8 +637,8 @@ export const comparisons: Comparison[] = [
 				usWins: true,
 			},
 			{
-				label: "Compare models side by side",
-				us: "Yes — group chat",
+				label: "Multi-model council debates",
+				us: "Yes — a council of models debating together",
 				them: "No",
 				usWins: true,
 			},
@@ -669,10 +669,10 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				heading: "Features beyond chat",
-				us: "Image, video, and audio generation and side-by-side group chat are built into the same subscription and balance.",
+				us: "Image, video, and audio generation and multi-model council debates are built into the same subscription and balance.",
 				them: "T3 is deliberately lean: no native mobile app, no voice mode, no persistent memory across chats, and image generation is limited. Those are conscious omissions, not bugs.",
 				bottomLine:
-					"If you want a media studio and model comparison, not just chat, that's the gap Lounge fills.",
+					"If you want a media studio and model debate, not just chat, that's the gap Lounge fills.",
 			},
 			{
 				heading: "How you pay",
@@ -705,7 +705,7 @@ export const comparisons: Comparison[] = [
 		faq: [
 			{
 				q: "Is Lounge worth more than T3 Chat's $8?",
-				a: "It depends on what you need. T3 is cheaper and faster for pure text chat. Lounge costs $19 on Plus but adds image, video, and audio generation, side-by-side group chat, persistent shareable conversations, and 200+ models with transparent credits.",
+				a: "It depends on what you need. T3 is cheaper and faster for pure text chat. Lounge costs $19 on Plus but adds image, video, and audio generation, multi-model council debates, persistent shareable conversations, and 200+ models with transparent credits.",
 			},
 			{
 				q: "Does it support bring-your-own-key like T3?",
@@ -774,8 +774,8 @@ export const comparisons: Comparison[] = [
 				them: "$20 Pro, $200 Max",
 			},
 			{
-				label: "Compare models side by side",
-				us: "Yes — group chat",
+				label: "Multi-model council debates",
+				us: "Yes — a council of models debating together",
 				them: "Model Council on Max synthesizes several",
 			},
 		],
@@ -889,8 +889,8 @@ export const comparisons: Comparison[] = [
 				usWins: true,
 			},
 			{
-				label: "Group / side-by-side",
-				us: "Yes — group chat",
+				label: "Multi-model group discussion",
+				us: "Yes — a council of models debating together",
 				them: "Compare models in the chatroom",
 			},
 			{

@@ -1,13 +1,18 @@
-import { Search } from "lucide-react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
+import { CatalogFiltersBar } from "@/components/catalog-filters";
+import { CatalogSearch } from "@/components/catalog-search";
 import { MappingsTable } from "@/components/mappings-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import { UsageModeSelector } from "@/components/usage-mode-selector";
+import {
+	catalogExactQuery,
+	catalogFilterQuery,
+	parseCatalogFilters,
+} from "@/lib/catalog-filters";
 import {
 	CATALOG_PAGE_WINDOW_DEFAULT,
 	pageWindowOptionsWithMinutes,
@@ -30,6 +35,7 @@ type MappingSortBy =
 	| "upstreamErrorsCount"
 	| "cost"
 	| "avgTimeToFirstToken"
+	| "throughput"
 	| "updatedAt";
 
 type SortOrder = "asc" | "desc";
@@ -43,13 +49,7 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 export default async function ModelProviderMappingsPage({
 	searchParams,
 }: {
-	searchParams?: Promise<{
-		search?: string;
-		sortBy?: string;
-		sortOrder?: string;
-		window?: string;
-		mode?: string;
-	}>;
+	searchParams?: Promise<Partial<Record<string, string>>>;
 }) {
 	await requireSession();
 
@@ -63,12 +63,22 @@ export default async function ModelProviderMappingsPage({
 	);
 	const usageMode = parseUsageMode(params?.mode);
 	const { from, to } = windowToFromTo(pageWindow);
+	const filters = parseCatalogFilters(params);
+	const selection = {
+		search,
+		providerId: params?.providerId,
+		modelId: params?.modelId,
+	};
+	const filterQuery =
+		catalogFilterQuery(filters) + catalogExactQuery(selection);
 
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/model-provider-mappings", {
 		params: {
 			query: {
 				search,
+				providerId: selection.providerId,
+				modelId: selection.modelId,
 				sortBy,
 				sortOrder,
 				limit: 500,
@@ -76,6 +86,7 @@ export default async function ModelProviderMappingsPage({
 				from,
 				to,
 				mode: usageMode,
+				...filters,
 			},
 		},
 	});
@@ -102,21 +113,6 @@ export default async function ModelProviderMappingsPage({
 	const totalCost = data.totalCost;
 	const totalRequests = data.totalRequests;
 
-	async function handleSearch(formData: FormData) {
-		"use server";
-		const searchValue = formData.get("search") as string;
-		const windowValue = formData.get("window") as string;
-		const modeValue = formData.get("mode") as string;
-		const searchParam = searchValue
-			? `&search=${encodeURIComponent(searchValue)}`
-			: "";
-		const windowParam = windowValue ? `&window=${windowValue}` : "";
-		const modeParam = modeValue === "total" ? "" : `&mode=${modeValue}`;
-		redirect(
-			`/model-provider-mappings?sortBy=${sortBy}&sortOrder=${sortOrder}${searchParam}${windowParam}${modeParam}`,
-		);
-	}
-
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 overflow-hidden px-4 py-8 md:px-8">
 			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -128,28 +124,9 @@ export default async function ModelProviderMappingsPage({
 						{data.total} mappings — all models available per provider
 					</p>
 				</div>
-				<form
-					action={handleSearch}
-					className="flex w-full items-center gap-2 sm:w-auto"
-				>
-					<input type="hidden" name="sortBy" value={sortBy} />
-					<input type="hidden" name="sortOrder" value={sortOrder} />
-					<input type="hidden" name="window" value={pageWindow} />
-					<input type="hidden" name="mode" value={usageMode} />
-					<div className="relative min-w-0 flex-1 sm:max-w-64">
-						<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-						<input
-							type="text"
-							name="search"
-							placeholder="Search by model or provider..."
-							defaultValue={search}
-							className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-						/>
-					</div>
-					<Button type="submit" size="sm">
-						Search
-					</Button>
-				</form>
+				<Suspense>
+					<CatalogSearch scope="mappings" selection={selection} />
+				</Suspense>
 			</header>
 
 			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -185,6 +162,10 @@ export default async function ModelProviderMappingsPage({
 				</Suspense>
 			</div>
 
+			<Suspense>
+				<CatalogFiltersBar filters={filters} />
+			</Suspense>
+
 			<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
 				<MappingsTable
 					mappings={data.mappings}
@@ -193,6 +174,7 @@ export default async function ModelProviderMappingsPage({
 					search={search}
 					pageWindow={pageWindow}
 					usageMode={usageMode}
+					filterQuery={filterQuery}
 				/>
 			</div>
 		</div>

@@ -4,6 +4,7 @@ slug: "claude-foundry-model-status"
 date: "2026-08-28"
 title: "Claude on Foundry, Model Status & More"
 summary: "Claude now routes through Microsoft Foundry under a new azure-anthropic provider. The models directory gained lifecycle status filters, model pages sort providers by price, speed, or context, and API key lists flag the keys that are near or at their limit."
+tags: ["llmgateway", "devpass"]
 image:
   src: "/changelog/claude-foundry-model-status.png"
   alt: "Product roundup: a cloud chip routing to a central gateway chip beside sortable model cards and a key gauge on a circuit board"

@@ -56,7 +56,7 @@ describe("admin — credits vs BYOK mode split", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 
 		await db.insert(tables.organization).values([
@@ -80,6 +80,13 @@ describe("admin — credits vs BYOK mode split", () => {
 				type: "credit_topup",
 				amount: "105",
 				creditAmount: "100",
+				status: "completed",
+			},
+			// $20 gifted on top.
+			{
+				organizationId: ORG_ID,
+				type: "credit_gift",
+				creditAmount: "20",
 				status: "completed",
 			},
 			// A plan transaction so the DevPass org's usage is excluded from the
@@ -176,7 +183,11 @@ describe("admin — credits vs BYOK mode split", () => {
 			totalSpent: number;
 			totalCreditsSpent: number;
 			totalApiKeysSpent: number;
+			totalDebitedSpend: number;
+			totalToppedUp: number;
+			totalToppedUpGifted: number;
 			unusedCredits: number;
+			unusedCreditsExcludingGifts: number;
 			overage: number;
 		};
 
@@ -184,9 +195,14 @@ describe("admin — credits vs BYOK mode split", () => {
 		expect(body.totalSpent).toBeCloseTo(50, 3);
 		expect(body.totalCreditsSpent).toBeCloseTo(10, 3);
 		expect(body.totalApiKeysSpent).toBeCloseTo(40, 3);
+		expect(body.totalToppedUp).toBeCloseTo(120, 3);
+		expect(body.totalToppedUpGifted).toBeCloseTo(20, 3);
+		expect(body.totalDebitedSpend).toBeCloseTo(10.5, 3);
 		// Only debited spend counts against topped-up credits:
-		// 100 - (10 credits + 0.5 BYOK storage) = 89.5 — NOT 100 - 50.5.
-		expect(body.unusedCredits).toBeCloseTo(89.5, 3);
+		// 120 - (10 credits + 0.5 BYOK storage) = 109.5 — NOT 120 - 50.5.
+		expect(body.unusedCredits).toBeCloseTo(109.5, 3);
+		// Without the $20 gift.
+		expect(body.unusedCreditsExcludingGifts).toBeCloseTo(89.5, 3);
 		expect(body.overage).toBe(0);
 	});
 

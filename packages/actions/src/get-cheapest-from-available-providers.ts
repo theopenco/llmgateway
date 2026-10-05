@@ -10,7 +10,10 @@ import {
 	type AvailableModelProvider,
 	type ModelWithPricing,
 	type ProviderModelMapping,
+	resolvePricingPeriod,
+	resolveTierTimeBasedPricing,
 	resolveTimeBasedPricing,
+	usesEncryptedReasoning,
 } from "@llmgateway/models";
 import { randomFloat, randomInt } from "@llmgateway/shared/random";
 import {
@@ -23,10 +26,18 @@ import {
 	getEffectiveScoringWeights,
 } from "./compute-provider-scores.js";
 
+import type { DynamicRouteClassifierKind } from "@llmgateway/shared/dynamic-route";
 import type {
 	RoutingCredentialSource,
 	RoutingExclusionReason,
 } from "@llmgateway/shared/routing-telemetry";
+import type {
+	SmartRoutingClassifier,
+	SmartRoutingClassifierSkipReason,
+	SmartRoutingDifficulty,
+	SmartRoutingEffort,
+	SmartRoutingWorkChange,
+} from "@llmgateway/shared/smart-routing";
 
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
@@ -177,7 +188,83 @@ export interface RoutingMetadata {
 		version: number;
 		// Node ids traversed during graph evaluation
 		path: string[];
+		// Verdict the route's classifier nodes branched on. Absent when the
+		// graph has none, or when the classifier produced no verdict and those
+		// nodes took their `else` branch.
+		classifier?: {
+			kind: DynamicRouteClassifierKind;
+			difficulty?: SmartRoutingDifficulty;
+			difficultyScore?: number;
+			task?: string;
+			outputType?: string;
+		};
 	};
+	// How an "auto" request resolved to a concrete model when the organization
+	// configured smart routing. Absent for the built-in default candidate set.
+	smartRouting?: {
+		classifier: SmartRoutingClassifier;
+		rubricVersion?: number;
+		// Models the configuration allowed, before availability filtering.
+		eligibleModels: string[];
+		// Models that survived filtering and were ranked, cheapest first.
+		candidateModels: string[];
+		difficulty?: SmartRoutingDifficulty;
+		difficultyScore?: number;
+		difficultyProbabilities?: Partial<Record<SmartRoutingDifficulty, number>>;
+		task?: string;
+		outputType?: string;
+		bestModel?: string;
+		bestModelConfidence?: number;
+		// The classifier's top candidates by probability, highest first.
+		bestModelProbabilities?: Record<string, number>;
+		band?: SmartRoutingDifficulty;
+		selectedModel: string;
+		// Latency of the classifier call this request made; absent when it made
+		// none.
+		classifierLatencyMs?: number;
+		// USD billed for the classifier call this request made, on its own log
+		// row. Absent when it made none — a reused session verdict is not
+		// re-billed.
+		classifierCost?: number;
+		// True when a classifier call was attempted and produced no verdict, so
+		// the selection fell back to the cheapest candidate. A classifier that is
+		// never consulted at all — no credential, a blocking compliance policy, a
+		// single candidate — leaves this false.
+		classifierFailed: boolean;
+		// Why a configured classifier was not consulted at all.
+		classifierSkipped?: SmartRoutingClassifierSkipReason;
+		// True when the configured fallback model served a verdict-less request.
+		usedFallback?: boolean;
+		// True when the verdict served came from another turn of the same sticky
+		// session rather than from this request.
+		classifierReused?: boolean;
+		// Why a sticky session's choice was (re)considered on this request.
+		trigger?: SmartRoutingTrigger;
+		// Effort tier applied when the caller set none; the concrete value is
+		// clamped to the served mapping.
+		effort?: SmartRoutingEffort;
+		effortSource?: "classifier" | "caller";
+		// The recheck's view of how the work moved since the current choice.
+		workChange?: SmartRoutingWorkChange;
+		// Why a recheck kept the current choice.
+		keptReason?: string;
+		// Present on the request where the model or effort changed.
+		switch?: SmartRoutingSwitch;
+	};
+}
+
+export type SmartRoutingTrigger =
+	"initial" | "reused" | "mid-turn" | "cache-expired" | "scan";
+
+export interface SmartRoutingSwitch {
+	fromModel: string;
+	toModel: string;
+	fromEffort?: SmartRoutingEffort;
+	toEffort?: SmartRoutingEffort;
+	direction?: "upgrade" | "downgrade" | "lateral";
+	reason: string;
+	estimatedStayUsd?: number;
+	estimatedSwitchUsd?: number;
 }
 
 export interface ProviderSelectionResult<T extends AvailableModelProvider> {
@@ -383,12 +470,18 @@ export function getProviderSelectionPrice(
 	// long-context request would rank a tiered mapping (e.g. xAI over 128K) at
 	// its cheaper base rates and select a provider billing then charges more
 	// for.
-	const pricingTier =
+	const matchedTier =
 		promptTokens !== undefined && providerInfo?.pricingTiers?.length
 			? (providerInfo.pricingTiers.find(
 					(tier) => promptTokens <= tier.upToTokens,
 				) ?? providerInfo.pricingTiers[providerInfo.pricingTiers.length - 1])
 			: undefined;
+	const pricingTier = matchedTier
+		? resolveTierTimeBasedPricing(
+				matchedTier,
+				resolvePricingPeriod(providerInfo ?? {}, now),
+			)
+		: undefined;
 	const inputPrice =
 		pricingTier?.inputPrice ??
 		timeBasedPricing?.inputPrice ??
@@ -616,14 +709,16 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
  * healthy (uptime at or above the session threshold), reuse it so the upstream
  * prompt cache stays warm. Otherwise persist the just-scored best provider so
  * subsequent requests in this session reuse it. The pin only moves when its
- * provider leaves the candidate list or its uptime drops too low.
+ * provider leaves the candidate list or its uptime drops too low. Sessions on
+ * an encrypted-reasoning mapping keep an eligible pin regardless of uptime,
+ * since another provider rejects the conversation's reasoning payloads.
  */
 async function applySessionSticky<T extends AvailableModelProvider>(
 	naturalResult: ProviderSelectionResult<T>,
 	candidates: T[],
 	store: SessionProviderStore,
 	cfg: ResolvedRoutingConfig,
-	modelId: string,
+	modelWithPricing: ModelWithPricing & { id: string },
 	metricsMap: Map<string, ProviderMetrics> | undefined,
 ): Promise<ProviderSelectionResult<T>> {
 	const saved = await store.get();
@@ -635,9 +730,17 @@ async function applySessionSticky<T extends AvailableModelProvider>(
 		);
 		if (candidate) {
 			const uptime = metricsMap?.get(
-				metricsKey(modelId, candidate.providerId, candidate.region),
+				metricsKey(modelWithPricing.id, candidate.providerId, candidate.region),
 			)?.uptime;
-			if (uptime === undefined || uptime >= cfg.session.uptimeThreshold) {
+			// An uptime dip must not move a live conversation to a provider that
+			// rejects its encrypted reasoning.
+			if (
+				usesEncryptedReasoning(
+					findProviderMapping(modelWithPricing.providers, candidate),
+				) ||
+				uptime === undefined ||
+				uptime >= cfg.session.uptimeThreshold
+			) {
 				// Re-persist so the pin's TTL keeps refreshing while the session
 				// stays active.
 				await store.set(candidate.providerId, candidate.region);
@@ -755,10 +858,17 @@ export async function getCheapestFromAvailableProviders<
 
 	// Epsilon-greedy exploration: randomly select a provider some % of the time
 	// (configurable per project via thresholds.explorationRate). Skip during tests
-	// to keep behavior deterministic, and for sticky sessions where we want the
-	// scored best provider to be the one we pin.
+	// to keep behavior deterministic, for sticky sessions where we want the
+	// scored best provider to be the one we pin, and for encrypted-reasoning
+	// models, whose conversations fail when a turn lands on another provider.
+	const encryptedReasoning = stableProviders.some((provider) =>
+		usesEncryptedReasoning(
+			findProviderMapping(modelWithPricing.providers, provider),
+		),
+	);
 	if (
 		!sessionSticky &&
+		!encryptedReasoning &&
 		!isTestProcess() &&
 		randomFloat() < getExplorationRate(cfg)
 	) {
@@ -823,7 +933,7 @@ export async function getCheapestFromAvailableProviders<
 					stableProviders,
 					sessionStore,
 					cfg,
-					modelWithPricing.id,
+					modelWithPricing,
 					metricsMap,
 				)
 			: priceOnlyResult;
@@ -847,7 +957,7 @@ export async function getCheapestFromAvailableProviders<
 					stableProviders,
 					sessionStore,
 					cfg,
-					modelWithPricing.id,
+					modelWithPricing,
 					metricsMap,
 				)
 			: priceOnlyResult;
@@ -952,7 +1062,7 @@ export async function getCheapestFromAvailableProviders<
 				stableProviders,
 				sessionStore,
 				cfg,
-				modelWithPricing.id,
+				modelWithPricing,
 				metricsMap,
 			)
 		: weightedResult;

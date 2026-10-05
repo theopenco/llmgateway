@@ -19,6 +19,14 @@ export class ImageSizeLimitError extends RequestError {
 }
 
 /**
+ * Host only: the path and query of a user-supplied URL can carry a signed
+ * token, and a truncated prefix still contains a short one in full.
+ */
+function urlHostForLog(url: string): string {
+	return URL.canParse(url) ? new URL(url).host : "invalid";
+}
+
+/**
  * Generates a user-friendly error message for image size limits
  */
 function getImageSizeErrorMessage(
@@ -181,7 +189,7 @@ export async function processImageUrl(
 	// Validate HTTPS URLs only in production environment
 	if (!url.startsWith("https://") && isProd) {
 		logger.warn("Non-HTTPS URL provided for image fetch in production", {
-			url: url.substring(0, 20) + "...",
+			host: urlHostForLog(url),
 		});
 		throw new RequestError("Image URLs must use HTTPS protocol in production");
 	}
@@ -195,7 +203,7 @@ export async function processImageUrl(
 
 		if (!response.ok) {
 			logger.warn(`Failed to fetch image from URL (${response.status})`, {
-				url: url.substring(0, 50) + "...",
+				host: urlHostForLog(url),
 			});
 			throw new RequestError(`Failed to fetch image: HTTP ${response.status}`);
 		}
@@ -210,7 +218,7 @@ export async function processImageUrl(
 		if (!contentType || !contentType.startsWith("image/")) {
 			logger.warn("Invalid content type for image URL", {
 				contentType,
-				url: url.substring(0, 50) + "...",
+				host: urlHostForLog(url),
 			});
 			throw new RequestError("URL does not point to a valid image");
 		}
@@ -252,7 +260,7 @@ export async function processImageUrl(
 		// Log the full error internally but sanitize the thrown error
 		logger.error("Error processing image URL", {
 			err: error instanceof Error ? error : new Error(String(error)),
-			url: url.substring(0, 50) + "...",
+			host: urlHostForLog(url),
 		});
 
 		// Generic error for all other cases

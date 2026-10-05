@@ -73,6 +73,9 @@ data:
   {{- if .Values.realtime.enabled }}
   {{- with .Values.realtime.config }}
   REALTIME_MAX_SESSION_SECONDS: {{ .maxSessionSeconds | default 3600 | quote }}
+  # Let live calls run to the session cap on shutdown; the gateway's
+  # terminationGracePeriodSeconds scales with it (cap + 120s).
+  REALTIME_SHUTDOWN_GRACE_PERIOD_MS: {{ mul (add (int (.maxSessionSeconds | default 3600)) 60) 1000 | quote }}
   REALTIME_MAX_SESSION_SPEND_USD: {{ .maxSessionSpendUsd | default "10" | quote }}
   REALTIME_MAX_SESSIONS_PER_ORG: {{ .maxSessionsPerOrg | default 20 | quote }}
   REALTIME_MAX_SESSIONS_PER_KEY: {{ .maxSessionsPerKey | default 10 | quote }}

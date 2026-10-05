@@ -1,55 +1,49 @@
 import dynamic from "next/dynamic";
 
+import { ControlPlane } from "@/components/home/control-plane";
+import { HomeHero } from "@/components/home/home-hero";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
-const Features = dynamic(() => import("@/components/landing/features"));
+import { allMigrations } from "content-collections";
+
 const TrustBar = dynamic(() =>
 	import("@/components/enterprise/trust-bar").then(
 		(mod) => mod.TrustBarEnterprise,
 	),
 );
-const Uptime = dynamic(() =>
-	import("@/components/enterprise/uptime").then(
-		(mod) => mod.UptimeVisualization,
-	),
+const ProductFamily = dynamic(() =>
+	import("@/components/home/product-family").then((mod) => mod.ProductFamily),
 );
-const PricingStrip = dynamic(() =>
-	import("@/components/landing/pricing-strip").then((mod) => mod.PricingStrip),
-);
-const Testimonials = dynamic(() =>
-	import("@/components/landing/testimonials").then((mod) => mod.Testimonials),
-);
-const Graph = dynamic(() =>
-	import("@/components/landing/graph").then((mod) => mod.Graph),
-);
-const CodeExample = dynamic(() =>
-	import("@/components/landing/code-example").then((mod) => mod.CodeExample),
+const DeveloperLane = dynamic(() =>
+	import("@/components/home/developer-lane").then((mod) => mod.DeveloperLane),
 );
 const Faq = dynamic(() =>
 	import("@/components/landing/faq").then((mod) => mod.Faq),
 );
-const EnterpriseCTA = dynamic(() =>
-	import("@/components/landing/enterprise-cta").then(
-		(mod) => mod.EnterpriseCTA,
-	),
+const Closing = dynamic(() =>
+	import("@/components/home/closing").then((mod) => mod.Closing),
 );
-const CallToAction = dynamic(() => import("@/components/landing/cta"));
 const Footer = dynamic(() => import("@/components/landing/footer"));
 
+const HIDDEN_MIGRATIONS = new Set(["vercel-ai-gateway", "portkey"]);
+
 export default function Home() {
+	const migrations = allMigrations
+		.filter((m) => !HIDDEN_MIGRATIONS.has(m.slug))
+		.map((m) => ({ slug: m.slug, fromProvider: m.fromProvider }));
+
 	return (
 		<>
-			<HeroRSC />
-			<TrustBar />
-			<Features />
-			<Graph />
-			<CodeExample />
-			<Uptime />
-			<Testimonials />
-			<PricingStrip />
-			<Faq />
-			<EnterpriseCTA />
-			<CallToAction />
+			<HeroRSC pilotCta />
+			<main>
+				<HomeHero />
+				<TrustBar />
+				<ControlPlane />
+				<ProductFamily />
+				<DeveloperLane migrations={migrations} />
+				<Faq />
+				<Closing />
+			</main>
 			<Footer />
 		</>
 	);

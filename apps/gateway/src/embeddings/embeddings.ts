@@ -34,7 +34,6 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { raceClientAbort } from "@/lib/client-abort.js";
-import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	assertProviderCompliant,
 	getEffectiveRetentionLevel,
@@ -78,6 +77,7 @@ import {
 	resolveVertexTokenType,
 	type VertexTokenType,
 } from "@llmgateway/models";
+import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { openAIErrorSchema } from "@/lib/error-schemas.js";
@@ -640,6 +640,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		configIndex: number;
 		envVarName: string | undefined;
 		upstreamUrl: string;
+		tenantBaseUrl: string | null;
 		requestBody: Record<string, unknown>;
 		vertexTokenType?: VertexTokenType;
 	}
@@ -918,6 +919,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				configIndex,
 				envVarName,
 				upstreamUrl,
+				tenantBaseUrl: providerKey?.baseUrl ?? null,
 				requestBody,
 				vertexTokenType,
 			},
@@ -1011,22 +1013,26 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			let fetchError: Error | null = null;
 			try {
 				const fetchSignal = createCombinedSignal(controller);
-				upstreamResponse = await fetchProvider(attempt.upstreamUrl, {
-					method: "POST",
-					// SSRF: never follow redirects on an authenticated provider request. A
-					// tenant-supplied baseUrl could 3xx to an internal host at request
-					// time, and a redirect would also leak the upstream token.
-					redirect: "error",
-					headers: {
-						"Content-Type": "application/json",
-						...getProviderHeaders(providerId, attempt.usedToken, {
-							requestId,
-							tokenType: attempt.vertexTokenType,
-						}),
+				upstreamResponse = await fetchProvider(
+					attempt.upstreamUrl,
+					{
+						method: "POST",
+						// SSRF: never follow redirects on an authenticated provider request. A
+						// tenant-supplied baseUrl could 3xx to an internal host at request
+						// time, and a redirect would also leak the upstream token.
+						redirect: "error",
+						headers: {
+							"Content-Type": "application/json",
+							...getProviderHeaders(providerId, attempt.usedToken, {
+								requestId,
+								tokenType: attempt.vertexTokenType,
+							}),
+						},
+						body: JSON.stringify(attempt.requestBody),
+						signal: fetchSignal,
 					},
-					body: JSON.stringify(attempt.requestBody),
-					signal: fetchSignal,
-				});
+					attempt.tenantBaseUrl,
+				);
 				// Settle the body read immediately on a client disconnect instead of
 				// relying on the fetch AbortSignal to propagate into undici's
 				// in-flight body machinery, where a late abort can be missed.

@@ -3,12 +3,17 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { apiKeyScopeFilter } from "@/lib/api-key-scope-filter.js";
+import { resolveDateRange } from "@/lib/date-range.js";
 import {
 	mapModeSplit,
 	modeSplitFields,
 	modeSplitSchema,
 } from "@/lib/mode-split.js";
 import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
+import {
+	getRoutingSavings,
+	routingSavingsSchema,
+} from "@/lib/routing-savings.js";
 import { getUserUsageBreakdown } from "@/lib/user-usage-breakdown.js";
 import {
 	getApiKeyScope,
@@ -20,6 +25,7 @@ import {
 	bucketDate,
 	generateTimeSlots,
 	isValidTimeZone,
+	timezoneQueryField,
 	zonedTimeToUtc,
 } from "@/utils/timezone.js";
 
@@ -36,6 +42,7 @@ import {
 	projectHourlyStats,
 	projectHourlyModelStats,
 	projectHourlySourceStats,
+	projectHourlySourceModelStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
 } from "@llmgateway/db";
@@ -1147,6 +1154,18 @@ const sourceUsageSchema = z.object({
 	lastUsedAt: z.string().nullable(),
 });
 
+// Per-source usage of one root model (provider and region stripped).
+const sourceModelUsageSchema = z.object({
+	source: z.string(),
+	model: z.string(),
+	requestCount: z.number(),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	totalTokens: z.number(),
+	cost: z.number(),
+	...modeSplitSchema,
+});
+
 // Aggregated source usage for a single project, read from the per-project
 // hourly source rollup. Powers the agents dashboard. Supports 1h/4h/24h/7d/30d
 // ranges.
@@ -1175,6 +1194,7 @@ const getSourceActivity = createRoute({
 				"application/json": {
 					schema: z.object({
 						sources: z.array(sourceUsageSchema),
+						sourceModels: z.array(sourceModelUsageSchema),
 					}),
 				},
 			},
@@ -1236,51 +1256,106 @@ activity.openapi(getSourceActivity, async (c) => {
 		});
 	}
 
-	const rows = await db
-		.select({
-			source: projectHourlySourceStats.source,
-			requestCount:
-				sql<number>`COALESCE(SUM(${projectHourlySourceStats.requestCount}), 0)`.as(
-					"requestCount",
+	// Strip only the provider prefix so nested model paths survive; must match
+	// the /logs `model` filter, which the agent detail view uses.
+	const rootModel = sql<string>`split_part(regexp_replace(${projectHourlySourceModelStats.usedModel}, '^[^/]*/', ''), ':', 1)`;
+
+	const [rows, modelRows] = await Promise.all([
+		db
+			.select({
+				source: projectHourlySourceStats.source,
+				requestCount:
+					sql<number>`COALESCE(SUM(${projectHourlySourceStats.requestCount}), 0)`.as(
+						"requestCount",
+					),
+				inputTokens:
+					sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.inputTokens} AS NUMERIC)), 0)`.as(
+						"inputTokens",
+					),
+				outputTokens:
+					sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.outputTokens} AS NUMERIC)), 0)`.as(
+						"outputTokens",
+					),
+				totalTokens:
+					sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"totalTokens",
+					),
+				cost: sql<number>`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`.as(
+					"cost",
 				),
-			inputTokens:
-				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.inputTokens} AS NUMERIC)), 0)`.as(
-					"inputTokens",
+				...modeSplitFields(projectHourlySourceStats),
+				lastUsedAt: sql<
+					string | null
+				>`to_char(MAX(${projectHourlySourceStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
+					"lastUsedAt",
 				),
-			outputTokens:
-				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.outputTokens} AS NUMERIC)), 0)`.as(
-					"outputTokens",
+			})
+			.from(projectHourlySourceStats)
+			.where(
+				and(
+					eq(projectHourlySourceStats.projectId, projectId),
+					gte(projectHourlySourceStats.hourTimestamp, startDate),
+					lte(projectHourlySourceStats.hourTimestamp, endDate),
 				),
-			totalTokens:
-				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC)), 0)`.as(
-					"totalTokens",
+			)
+			.groupBy(projectHourlySourceStats.source)
+			.orderBy(
+				desc(
+					sql`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`,
 				),
-			cost: sql<number>`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`.as(
-				"cost",
 			),
-			...modeSplitFields(projectHourlySourceStats),
-			lastUsedAt: sql<
-				string | null
-			>`to_char(MAX(${projectHourlySourceStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-				"lastUsedAt",
+		db
+			.select({
+				source: projectHourlySourceModelStats.source,
+				model: rootModel.as("model"),
+				requestCount:
+					sql<number>`COALESCE(SUM(${projectHourlySourceModelStats.requestCount}), 0)`.as(
+						"requestCount",
+					),
+				inputTokens:
+					sql<number>`COALESCE(SUM(${projectHourlySourceModelStats.inputTokens}), 0)`.as(
+						"inputTokens",
+					),
+				outputTokens:
+					sql<number>`COALESCE(SUM(${projectHourlySourceModelStats.outputTokens}), 0)`.as(
+						"outputTokens",
+					),
+				totalTokens:
+					sql<number>`COALESCE(SUM(${projectHourlySourceModelStats.totalTokens}), 0)`.as(
+						"totalTokens",
+					),
+				cost: sql<number>`COALESCE(SUM(cast(${projectHourlySourceModelStats.cost} as double precision)), 0)`.as(
+					"cost",
+				),
+				...modeSplitFields(projectHourlySourceModelStats),
+			})
+			.from(projectHourlySourceModelStats)
+			.where(
+				and(
+					eq(projectHourlySourceModelStats.projectId, projectId),
+					gte(projectHourlySourceModelStats.hourTimestamp, startDate),
+					lte(projectHourlySourceModelStats.hourTimestamp, endDate),
+				),
+			)
+			.groupBy(projectHourlySourceModelStats.source, rootModel)
+			.orderBy(
+				desc(
+					sql`COALESCE(SUM(cast(${projectHourlySourceModelStats.cost} as double precision)), 0)`,
+				),
 			),
-		})
-		.from(projectHourlySourceStats)
-		.where(
-			and(
-				eq(projectHourlySourceStats.projectId, projectId),
-				gte(projectHourlySourceStats.hourTimestamp, startDate),
-				lte(projectHourlySourceStats.hourTimestamp, endDate),
-			),
-		)
-		.groupBy(projectHourlySourceStats.source)
-		.orderBy(
-			desc(
-				sql`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`,
-			),
-		);
+	]);
 
 	return c.json({
+		sourceModels: modelRows.map((r) => ({
+			source: r.source,
+			model: r.model,
+			requestCount: Number(r.requestCount),
+			inputTokens: Number(r.inputTokens),
+			outputTokens: Number(r.outputTokens),
+			totalTokens: Number(r.totalTokens),
+			cost: Number(r.cost),
+			...mapModeSplit(r),
+		})),
 		sources: rows.map((r) => ({
 			source: r.source,
 			requestCount: Number(r.requestCount),
@@ -1294,4 +1369,59 @@ activity.openapi(getSourceActivity, async (c) => {
 				: null,
 		})),
 	});
+});
+
+const getRoutingSavingsActivity = createRoute({
+	method: "get",
+	path: "/routing-savings",
+	request: {
+		query: z.object({
+			projectId: z.string(),
+			from: z.string().optional(),
+			to: z.string().optional(),
+			timezone: timezoneQueryField,
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: routingSavingsSchema,
+				},
+			},
+			description:
+				"Spend of auto, smart and dynamic route requests vs. the priciest model the router could have picked",
+		},
+	},
+});
+
+activity.openapi(getRoutingSavingsActivity, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { projectId, from, to, timezone } = c.req.valid("query");
+	if (!(await userHasProjectAccess(user.id, projectId))) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this project",
+		});
+	}
+	// Like project sources, the routing rollup has no apiKeyId column, so a
+	// key-scoped developer would see teammates' traffic.
+	if (isKeyScoped(await getApiKeyScope(user.id, [projectId]))) {
+		throw new HTTPException(403, {
+			message:
+				"Only organization owners and admins can view project routing savings",
+		});
+	}
+
+	const timeZone = timezone ?? "UTC";
+	return c.json(
+		await getRoutingSavings({
+			projectIds: [projectId],
+			timeZone,
+			...resolveDateRange(from, to, timeZone),
+		}),
+	);
 });

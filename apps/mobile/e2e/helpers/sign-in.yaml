@@ -13,5 +13,5 @@ appId: io.llmgateway.lounge
 - tapOn: "Done typing"
 - tapOn: "Enter the Lounge"
 - extendedWaitUntil:
-    visible: "Start a conversation"
+    visible: "New conversation"
     timeout: 20000

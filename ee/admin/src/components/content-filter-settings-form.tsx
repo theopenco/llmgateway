@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,8 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 
 import { MultiProviderSelector } from "@llmgateway/shared/components";
 
@@ -27,11 +30,18 @@ interface ContentFilterProvider {
 }
 
 type Classifier = ContentFilterSettingsInput["classifier"];
-type ShadowClassifier = ContentFilterSettingsInput["shadowClassifier"];
 
 const CLASSIFIER_LABELS: Record<Classifier, string> = {
 	openai: "OpenAI moderation",
 	jev: "Jev (TypeSafe)",
+	internal: "Internal classifier",
+};
+
+type InternalScope = ContentFilterSettingsInput["internalScope"];
+
+const INTERNAL_SCOPE_LABELS: Record<InternalScope, string> = {
+	full: "Whole conversation",
+	latest_turn: "Latest turn only",
 };
 
 interface ContentFilterSettingsFormProps {
@@ -41,7 +51,8 @@ interface ContentFilterSettingsFormProps {
 		enforce: boolean;
 		enforceEnterprise: boolean;
 		classifier: Classifier;
-		shadowClassifier: ShadowClassifier;
+		internalScope: InternalScope;
+		moderateImages: boolean;
 		providers: ContentFilterProvider[];
 	};
 	onSave: (
@@ -54,6 +65,7 @@ export function ContentFilterSettingsForm({
 	onSave,
 }: ContentFilterSettingsFormProps) {
 	const router = useRouter();
+	const readOnly = !canWrite(useAdminRole());
 	const [pending, startTransition] = useTransition();
 	const [enabled, setEnabled] = useState(settings.enabled);
 	const [sampleRate, setSampleRate] = useState(
@@ -64,9 +76,10 @@ export function ContentFilterSettingsForm({
 		settings.enforceEnterprise,
 	);
 	const [classifier, setClassifier] = useState<Classifier>(settings.classifier);
-	const [shadowClassifier, setShadowClassifier] = useState<ShadowClassifier>(
-		settings.shadowClassifier,
+	const [internalScope, setInternalScope] = useState<InternalScope>(
+		settings.internalScope,
 	);
+	const [moderateImages, setModerateImages] = useState(settings.moderateImages);
 	const [providerIds, setProviderIds] = useState<string[]>(() =>
 		settings.providers.filter((p) => p.enabled).map((p) => p.id),
 	);
@@ -93,7 +106,8 @@ export function ContentFilterSettingsForm({
 				enforce,
 				enforceEnterprise: savedEnforceEnterprise,
 				classifier,
-				shadowClassifier,
+				internalScope,
+				moderateImages,
 				providerIds,
 			});
 			if (!result.ok) {
@@ -112,7 +126,7 @@ export function ContentFilterSettingsForm({
 				<Switch
 					id="content-filter-enabled"
 					checked={enabled}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onCheckedChange={(checked) => {
 						setSaved(false);
 						setEnabled(checked);
@@ -139,7 +153,7 @@ export function ContentFilterSettingsForm({
 					step={1}
 					className="w-32"
 					value={sampleRate}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onChange={(event) => {
 						setSaved(false);
 						setSampleRate(event.target.value);
@@ -155,7 +169,7 @@ export function ContentFilterSettingsForm({
 				<Switch
 					id="content-filter-enforce"
 					checked={enforce}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onCheckedChange={(checked) => {
 						setSaved(false);
 						setEnforce(checked);
@@ -169,6 +183,8 @@ export function ContentFilterSettingsForm({
 						Off records violations as metadata only. On returns the gateway
 						content filter response for requests over their tier&apos;s
 						thresholds. Organizations marked log-only are never blocked.
+						Requests that cannot be blocked are classified in the background and
+						add no latency; only blocking checks run before the provider call.
 					</p>
 				</div>
 			</div>
@@ -177,7 +193,7 @@ export function ContentFilterSettingsForm({
 				<Switch
 					id="content-filter-enforce-enterprise"
 					checked={enforce && enforceEnterprise}
-					disabled={pending || !enforce}
+					disabled={pending || readOnly || !enforce}
 					onCheckedChange={(checked) => {
 						setSaved(false);
 						setEnforceEnterprise(checked);
@@ -198,14 +214,10 @@ export function ContentFilterSettingsForm({
 				<Label htmlFor="content-filter-classifier">Classifier</Label>
 				<Select
 					value={classifier}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onValueChange={(value) => {
 						setSaved(false);
 						setClassifier(value as Classifier);
-						// A classifier never shadows itself.
-						if (shadowClassifier === value) {
-							setShadowClassifier("none");
-						}
 					}}
 				>
 					<SelectTrigger id="content-filter-classifier" className="w-64">
@@ -220,82 +232,127 @@ export function ContentFilterSettingsForm({
 					</SelectContent>
 				</Select>
 				<p className="text-xs text-muted-foreground">
-					Model that scores sampled requests and decides the outcome. Jev is
-					text-only: image parts are still moderated by OpenAI. Thresholds are
-					per classifier, so re-measure before switching an enforcing filter.
+					Model that scores sampled requests and decides the outcome. Jev and
+					the internal classifier are text-only. The internal classifier runs in
+					our own infrastructure and blocks only on its own verdict; its topic
+					tags are recorded, never enforced. Thresholds are per classifier, so
+					re-measure before switching an enforcing filter.
 				</p>
 			</div>
 
-			<div className="space-y-2">
-				<Label htmlFor="content-filter-shadow-classifier">
-					Shadow classifier
-				</Label>
-				<Select
-					value={shadowClassifier}
-					disabled={pending}
-					onValueChange={(value) => {
-						setSaved(false);
-						setShadowClassifier(value as ShadowClassifier);
-					}}
-				>
-					<SelectTrigger id="content-filter-shadow-classifier" className="w-64">
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="none">None</SelectItem>
-						{(Object.keys(CLASSIFIER_LABELS) as Classifier[])
-							.filter((option) => option !== classifier)
-							.map((option) => (
-								<SelectItem key={option} value={option}>
-									{CLASSIFIER_LABELS[option]}
-								</SelectItem>
-							))}
-					</SelectContent>
-				</Select>
-				<p className="text-xs text-muted-foreground">
-					Runs on the same sampled requests for comparison and is recorded on
-					the request log, including whether it disagreed. It never blocks, and
-					it doubles the moderation cost of a sampled request.
-				</p>
-			</div>
+			{classifier === "internal" && (
+				<div className="space-y-2">
+					<Label htmlFor="content-filter-internal-scope">
+						Internal classifier input
+					</Label>
+					<Select
+						value={internalScope}
+						disabled={pending || readOnly}
+						onValueChange={(value) => {
+							setSaved(false);
+							setInternalScope(value as InternalScope);
+						}}
+					>
+						<SelectTrigger id="content-filter-internal-scope" className="w-64">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{(Object.keys(INTERNAL_SCOPE_LABELS) as InternalScope[]).map(
+								(option) => (
+									<SelectItem key={option} value={option}>
+										{INTERNAL_SCOPE_LABELS[option]}
+									</SelectItem>
+								),
+							)}
+						</SelectContent>
+					</Select>
+					<p className="text-xs text-muted-foreground">
+						Whole conversation classifies every message, in as many requests as
+						its size needs; long agent histories can take seconds, which only
+						delays requests when blocking is on. Latest turn only sends the
+						system prompt plus the messages after the last assistant reply, in
+						one request.
+					</p>
+				</div>
+			)}
+
+			{classifier !== "openai" && (
+				<div className="flex items-center gap-3">
+					<Switch
+						id="content-filter-moderate-images"
+						checked={moderateImages}
+						disabled={pending || readOnly}
+						onCheckedChange={(checked) => {
+							setSaved(false);
+							setModerateImages(checked);
+						}}
+					/>
+					<div className="space-y-0.5">
+						<Label htmlFor="content-filter-moderate-images">
+							Moderate images with OpenAI
+						</Label>
+						<p className="text-xs text-muted-foreground">
+							{CLASSIFIER_LABELS[classifier]} is text-only. On sends image parts
+							to OpenAI moderation and merges the verdicts; off moderates text
+							only and leaves images unchecked.
+						</p>
+					</div>
+				</div>
+			)}
 
 			<div className="space-y-2">
 				<div className="flex items-center justify-between gap-3">
 					<p className="text-sm font-medium">Providers</p>
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						disabled={pending || settings.providers.length === 0}
-						onClick={() => {
-							setSaved(false);
-							setProviderIds(
-								allSelected ? [] : settings.providers.map((p) => p.id),
-							);
-						}}
-					>
-						{allSelected ? "Unselect all" : "Select all"}
-					</Button>
+					{!readOnly && (
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							disabled={pending || settings.providers.length === 0}
+							onClick={() => {
+								setSaved(false);
+								setProviderIds(
+									allSelected ? [] : settings.providers.map((p) => p.id),
+								);
+							}}
+						>
+							{allSelected ? "Unselect all" : "Select all"}
+						</Button>
+					)}
 				</div>
 				<p className="text-xs text-muted-foreground">
 					Only requests routed to an enabled provider are moderated.{" "}
 					{providerIds.length} of {settings.providers.length} selected.
 				</p>
-				<MultiProviderSelector
-					providers={settings.providers}
-					selectedProviders={providerIds}
-					onProvidersChange={(next) => {
-						setSaved(false);
-						setProviderIds(next);
-					}}
-					placeholder="Search and select providers..."
-				/>
+				{readOnly ? (
+					<div className="flex flex-wrap gap-2">
+						{settings.providers
+							.filter((p) => p.enabled)
+							.map((p) => (
+								<Badge key={p.id} variant="secondary">
+									{p.name}
+								</Badge>
+							))}
+					</div>
+				) : (
+					<MultiProviderSelector
+						providers={settings.providers}
+						selectedProviders={providerIds}
+						onProvidersChange={(next) => {
+							setSaved(false);
+							setProviderIds(next);
+						}}
+						placeholder="Search and select providers..."
+					/>
+				)}
 			</div>
 
 			<div className="flex items-center gap-3">
-				<Button type="submit" disabled={pending}>
-					{pending ? "Saving…" : "Save"}
-				</Button>
+				{!readOnly && (
+					<Button type="submit" disabled={pending}>
+						{pending ? "Saving…" : "Save"}
+					</Button>
+				)}
 				{error && <p className="text-sm text-destructive">{error}</p>}
 				{saved && !error && (
 					<p className="text-sm text-muted-foreground">Saved.</p>

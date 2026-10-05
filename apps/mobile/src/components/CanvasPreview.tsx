@@ -103,7 +103,7 @@ export const CanvasPreview = function CanvasPreview({
 			testID="canvas-preview"
 			originWhitelist={["*"]}
 			source={source}
-			style={{ flex: 1, backgroundColor: dark ? "#101412" : "#ffffff" }}
+			style={{ flex: 1, backgroundColor: dark ? "#151515" : "#ffffff" }}
 			incognito
 			sharedCookiesEnabled={false}
 			allowFileAccess={false}

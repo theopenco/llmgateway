@@ -5,7 +5,7 @@ const CHARS_PER_TOKEN = 4;
 /**
  * Fallback per-image token count when a model has no
  * `imageInputTokensByResolution` table. Mirrors `LEGACY_TOKENS_PER_INPUT_IMAGE`
- * in apps/gateway/src/lib/costs.ts so the estimate and the cost calculation
+ * in packages/actions/src/costs.ts so the estimate and the cost calculation
  * agree on the same default.
  */
 const DEFAULT_TOKENS_PER_IMAGE = 560;

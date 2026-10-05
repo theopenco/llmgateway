@@ -1,4 +1,8 @@
-import { models, type ProviderModelMapping } from "./models.js";
+import {
+	models,
+	type PricingTier,
+	type ProviderModelMapping,
+} from "./models.js";
 import { providers, type ServiceTier } from "./providers.js";
 import { expandAllProviderRegions } from "./region-helpers.js";
 
@@ -190,10 +194,74 @@ const OPENAI_EXPLICIT_PROMPT_CACHE_MODELS = new Set<string>([
 	"gpt-5.6-terra",
 	"gpt-5.6-luna",
 	"gpt-6-astra",
+	"gpt-6-sol",
+	"gpt-6.1-sol",
+	"gpt-6-luna",
 ]);
 
 export function supportsOpenAIExplicitPromptCache(modelName: string): boolean {
 	return OPENAI_EXPLICIT_PROMPT_CACHE_MODELS.has(modelName);
+}
+
+export type PricingPeriod = "peak" | "off_peak";
+
+/**
+ * Which `peakPricing` period applies to a mapping at a given instant (UTC).
+ * A matching `offPeakDaysUtc` day overrides the hourly windows. Undefined when
+ * the mapping has no time-based pricing.
+ */
+export function resolvePricingPeriod(
+	mapping: Pick<ProviderModelMapping, "peakPricing">,
+	now: Date = new Date(),
+): PricingPeriod | undefined {
+	const peakPricing = mapping.peakPricing;
+	if (!peakPricing) {
+		return undefined;
+	}
+	if (peakPricing.offPeakDaysUtc?.includes(now.getUTCDay())) {
+		return "off_peak";
+	}
+	const hour = now.getUTCHours();
+	return peakPricing.hoursUtc.some(
+		([start, end]) => hour >= start && hour < end,
+	)
+		? "peak"
+		: "off_peak";
+}
+
+/**
+ * A context-length tier's per-token rates for a pricing period: its
+ * `peakPricing` rates for that period when it has them, its flat rates
+ * otherwise. `period` is undefined when no time-based pricing applies.
+ */
+export function resolveTierTimeBasedPricing(
+	tier: Pick<
+		PricingTier,
+		"inputPrice" | "outputPrice" | "cachedInputPrice" | "peakPricing"
+	>,
+	period: PricingPeriod | undefined,
+): {
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice: string | undefined;
+	pricingPeriod: PricingPeriod | undefined;
+} {
+	if (period && tier.peakPricing) {
+		const rates =
+			period === "peak" ? tier.peakPricing.peak : tier.peakPricing.offPeak;
+		return {
+			inputPrice: rates.inputPrice,
+			outputPrice: rates.outputPrice,
+			cachedInputPrice: rates.cachedInputPrice,
+			pricingPeriod: period,
+		};
+	}
+	return {
+		inputPrice: tier.inputPrice,
+		outputPrice: tier.outputPrice,
+		cachedInputPrice: tier.cachedInputPrice,
+		pricingPeriod: undefined,
+	};
 }
 
 /**
@@ -201,8 +269,7 @@ export function supportsOpenAIExplicitPromptCache(modelName: string): boolean {
  * Without `peakPricing`, the mapping's base inputPrice/outputPrice/
  * cachedInputPrice are always returned. With `peakPricing`, the `peak` rates
  * apply while `now` (UTC) falls inside a peak window and the `offPeak` rates
- * otherwise. A matching `offPeakDays` calendar day overrides the hourly
- * windows.
+ * otherwise. A matching `offPeakDaysUtc` day overrides the hourly windows.
  */
 export function resolveTimeBasedPricing(
 	mapping: Pick<
@@ -216,25 +283,15 @@ export function resolveTimeBasedPricing(
 	cachedInputPrice: string | undefined;
 } {
 	const peakPricing = mapping.peakPricing;
-	if (!peakPricing) {
+	const period = resolvePricingPeriod(mapping, now);
+	if (!peakPricing || !period) {
 		return {
 			inputPrice: mapping.inputPrice ?? "0",
 			outputPrice: mapping.outputPrice ?? "0",
 			cachedInputPrice: mapping.cachedInputPrice,
 		};
 	}
-	const offPeakDays = peakPricing.offPeakDays;
-	const utcOffsetMilliseconds = (offPeakDays?.utcOffsetMinutes ?? 0) * 60_000;
-	const isOffPeakDay =
-		offPeakDays !== undefined &&
-		offPeakDays.daysOfWeek.includes(
-			new Date(now.getTime() + utcOffsetMilliseconds).getUTCDay(),
-		);
-	const hour = now.getUTCHours();
-	const isPeak =
-		!isOffPeakDay &&
-		peakPricing.hoursUtc.some(([start, end]) => hour >= start && hour < end);
-	const tier = isPeak ? peakPricing.peak : peakPricing.offPeak;
+	const tier = period === "peak" ? peakPricing.peak : peakPricing.offPeak;
 	return {
 		inputPrice: tier.inputPrice,
 		outputPrice: tier.outputPrice,

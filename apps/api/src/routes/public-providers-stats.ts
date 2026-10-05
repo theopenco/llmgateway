@@ -10,9 +10,11 @@ import {
 	and,
 	cdb,
 	effectiveTtftTotals,
+	eq,
 	excludeRegionalMappingRows,
 	gte,
 	sql,
+	tables,
 } from "@llmgateway/db";
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 
@@ -122,9 +124,18 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 			updatedAt: sql<Date | null>`MAX(${mphTs})`,
 		})
 		.from(mph)
+		.innerJoin(tables.provider, eq(mph.providerId, tables.provider.id))
 		// Grouped per provider, so the regional rows have to be dropped: the
 		// region-less root row of a mapping already includes their traffic.
-		.where(and(gte(mphTs, startDate), excludeRegionalMappingRows(mph)))
+		// Platform-credential traffic only; BYOK failures reflect the customer's
+		// key, not the provider.
+		.where(
+			and(
+				gte(mphTs, startDate),
+				eq(mph.usedMode, "credits"),
+				excludeRegionalMappingRows(mph),
+			),
+		)
 		.groupBy(mph.providerId)
 		// Pin a stable, window-scoped cache tag. Without it Drizzle keys the
 		// cache on the rendered SQL + params, and `startDate` is derived from
@@ -133,9 +144,9 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		// so the result expires on the TTL alone rather than being busted by the
 		// worker's continuous minute-row inserts.
 		.$withCache({
-			// The version prefix is bumped whenever the selected columns change so
+			// The version prefix is bumped whenever the selected rows change so
 			// a rolling deploy doesn't serve rows cached in the previous shape.
-			tag: `publicProviderStats:v7:${window}`,
+			tag: `publicProviderStats:v9:${window}`,
 			autoInvalidate: false,
 			config: { ex: STATS_CACHE_TTL_SECONDS },
 		});

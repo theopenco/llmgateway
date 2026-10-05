@@ -4,6 +4,7 @@ import { apiErrorMessage, thrownErrorMessage } from "./api-error";
 import { createServerApiClient } from "./server-api";
 
 import type { paths } from "./api/v1";
+import type { ErrorWindow } from "./provider-key-error-window";
 
 export type ProviderCredential =
 	paths["/admin/provider-credentials"]["get"]["responses"]["200"]["content"]["application/json"]["credentials"][number];
@@ -11,6 +12,12 @@ export type ProviderCredential =
 export type ProviderCredentialCatalogEntry =
 	paths["/admin/provider-credentials/catalog"]["get"]["responses"]["200"]["content"]["application/json"]["providers"][number];
 
+/**
+ * Self-test and verify-models have no server action: a probe can run for
+ * minutes, which outlives the admin app's own request budget, so the
+ * credentials dialog calls them straight from the browser with the typed
+ * fetch client. Their response types are still needed here.
+ */
 export type ProviderCredentialSelfTestResult =
 	paths["/admin/provider-credentials/self-test"]["post"]["responses"]["200"]["content"]["application/json"];
 
@@ -81,9 +88,19 @@ async function request<T>(
 	return { success: true, result: data };
 }
 
-export async function getProviderCredentials() {
+export async function getProviderCredentials(
+	includeDeleted = false,
+	errorWindow?: ErrorWindow,
+) {
 	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/provider-credentials");
+	const { data } = await $api.GET("/admin/provider-credentials", {
+		params: {
+			query: {
+				...(includeDeleted ? { includeDeleted: "true" as const } : {}),
+				...(errorWindow ? { errorWindow } : {}),
+			},
+		},
+	});
 	return data ?? null;
 }
 
@@ -114,6 +131,7 @@ export async function updateProviderCredential(
 		config?: Record<string, string>;
 		usageLimit?: string | null;
 		allowedModels?: string[] | null;
+		allowedModelsBase?: string[] | null;
 		skipValidation?: boolean;
 	},
 ): Promise<MutationResult> {
@@ -140,32 +158,6 @@ export async function deleteProviderCredential(
 		(data) => data.success,
 	);
 	return { success, error };
-}
-
-/**
- * Sends one minimal completion through a credential — stored or still in the
- * dialog — and reports the outcome without storing anything.
- */
-export async function selfTestProviderCredential(
-	body: CredentialTestInput,
-): Promise<MutationResult & { result?: ProviderCredentialSelfTestResult }> {
-	const $api = await createServerApiClient();
-	return await request("Failed to test credential", () =>
-		$api.POST("/admin/provider-credentials/self-test", { body }),
-	);
-}
-
-/**
- * Probes each listed model through a credential and returns the per-model
- * report, so an admin can confirm the account has the models before saving.
- */
-export async function verifyProviderCredentialModels(
-	body: CredentialTestInput & { models: string[] },
-): Promise<MutationResult & { result?: ProviderCredentialModelVerification }> {
-	const $api = await createServerApiClient();
-	return await request("Failed to verify models", () =>
-		$api.POST("/admin/provider-credentials/verify-models", { body }),
-	);
 }
 
 /**

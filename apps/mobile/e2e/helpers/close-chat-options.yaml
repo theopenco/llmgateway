@@ -1,0 +1,7 @@
+appId: io.llmgateway.lounge
+---
+- runFlow:
+    when:
+      visible: "Close conversation options"
+    commands:
+      - tapOn: "Close conversation options"

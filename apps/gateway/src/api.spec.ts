@@ -9,6 +9,7 @@ import { logger } from "@llmgateway/logger";
 import { GATEWAY_CONTENT_FILTER_MESSAGE } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
+import { lowerMidConversationBlocks } from "./anthropic/content-blocks.js";
 import { app } from "./app.js";
 import {
 	getTrackedKeyMetrics,
@@ -274,6 +275,155 @@ describe("api", () => {
 		// Before the fix this returned 400 with a Zod invalid_union error
 		// because `thinking` blocks weren't whitelisted in the content schema.
 		expect(res.status).toBe(200);
+	});
+
+	test("/v1/messages lowers mid-conversation tool changes and unknown blocks", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: any = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			// The shape Claude Code sends when an MCP server connects after the
+			// first turn (mid-conversation-tool-changes beta).
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					max_tokens: 1024,
+					tools: [
+						{
+							name: "mcp__late__lookup",
+							input_schema: { type: "object", properties: {} },
+						},
+					],
+					messages: [
+						{ role: "user", content: "Continue." },
+						{
+							role: "system",
+							content: [
+								{ type: "text", text: "An MCP server connected." },
+								{
+									type: "tool_addition",
+									tool: { type: "tool_reference", name: "mcp__late__lookup" },
+								},
+								{
+									type: "tool_addition",
+									tool: {
+										type: "tool_definition",
+										definition: {
+											name: "mcp__late__inline",
+											description: "Defined inline",
+											input_schema: { type: "object", properties: {} },
+										},
+									},
+								},
+								{
+									type: "tool_removal",
+									tool: { type: "tool_reference", name: "mcp__gone__tool" },
+								},
+								{ type: "some_future_block", payload: { a: 1 } },
+							],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const lowered = JSON.stringify(upstreamBody.messages);
+			expect(lowered).toContain("Tool now available: mcp__late__lookup");
+			expect(lowered).toContain("Tool now available: mcp__late__inline");
+			expect(lowered).toContain("Tool no longer available: mcp__gone__tool");
+			expect(lowered).not.toContain("tool_addition");
+			expect(lowered).not.toContain("some_future_block");
+			expect(
+				upstreamBody.tools.map(
+					(tool: { function: { name: string } }) => tool.function.name,
+				),
+			).toEqual(["mcp__late__lookup", "mcp__late__inline"]);
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test("/v1/messages still rejects a malformed known block", async () => {
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				messages: [{ role: "user", content: [{ type: "text" }] }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+	});
+
+	test("lowerMidConversationBlocks tracks surfaced and removed tools", () => {
+		const reference = (name: string) => ({
+			type: "tool_reference" as const,
+			name,
+		});
+		const { surfacedToolNames } = lowerMidConversationBlocks([
+			{
+				role: "system",
+				content: [
+					{ type: "tool_addition", tool: reference("kept") },
+					{ type: "tool_addition", tool: reference("dropped") },
+				],
+			},
+			{
+				role: "system",
+				content: [{ type: "tool_removal", tool: reference("dropped") }],
+			},
+		]);
+
+		expect([...surfacedToolNames]).toEqual(["kept"]);
 	});
 
 	test("/v1/messages pairs a legacy id-less function_call with its function result", async () => {
@@ -3214,6 +3364,151 @@ describe("api", () => {
 		expect(logs[0].usedServiceTier).toBe("priority");
 	});
 
+	test("/v1/chat/completions forwards the Azure priority service tier", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-azure-service-tier",
+			...hashApiKeyForStorage("real-token-azure-service-tier"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-azure-service-tier",
+			...encryptProviderKeyForStorage(
+				"sk-azure-test-key",
+				"provider-key-id-azure-service-tier",
+				"org-id",
+			),
+			provider: "azure",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+			// Pin the v1 surface so a developer's LLM_AZURE_DEPLOYMENT_TYPE can't
+			// reroute the request off the mock server's /openai/v1/* aliases.
+			options: { azure_deployment_type: "ai-foundry" },
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-azure-service-tier",
+			},
+			body: JSON.stringify({
+				model: "azure/gpt-5.1",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.used_provider).toBe("azure");
+		expect(json.metadata?.requested_service_tier).toBe("priority");
+		expect(json.metadata?.used_service_tier).toBe("priority");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].requestedServiceTier).toBe("priority");
+		expect(logs[0].usedServiceTier).toBe("priority");
+	});
+
+	test("/v1/chat/completions forwards the tier on a legacy Azure deployment key", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-azure-legacy-service-tier",
+			...hashApiKeyForStorage("real-token-azure-legacy-service-tier"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-azure-legacy-service-tier",
+			...encryptProviderKeyForStorage(
+				"sk-azure-test-key",
+				"provider-key-id-azure-legacy-service-tier",
+				"org-id",
+			),
+			provider: "azure",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+			// The deployment-based api-version accepts and reports `service_tier`
+			// too, so the tier travels on the chat-completions path as well.
+			options: { azure_deployment_type: "openai" },
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-azure-legacy-service-tier",
+			},
+			body: JSON.stringify({
+				model: "azure/gpt-5.1",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.used_provider).toBe("azure");
+		expect(json.metadata?.used_service_tier).toBe("priority");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].usedServiceTier).toBe("priority");
+	});
+
+	test("/v1/chat/completions bills an Azure tier downgrade at standard", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-azure-tier-downgrade",
+			...hashApiKeyForStorage("real-token-azure-tier-downgrade"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-azure-tier-downgrade",
+			...encryptProviderKeyForStorage(
+				"sk-azure-test-key",
+				"provider-key-id-azure-tier-downgrade",
+				"org-id",
+			),
+			provider: "azure",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+			options: { azure_deployment_type: "ai-foundry" },
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-azure-tier-downgrade",
+			},
+			body: JSON.stringify({
+				model: "azure/gpt-5.1",
+				service_tier: "priority",
+				// Azure silently serves standard when the subscription lacks the
+				// entitlement, at peak, or on ramp-rate limits, echoing
+				// `service_tier: "default"`. Billing must follow the served tier.
+				messages: [{ role: "user", content: "TRIGGER_SERVICE_TIER_DOWNGRADE" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.requested_service_tier).toBe("priority");
+		expect(json.metadata?.used_service_tier).toBeNull();
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].requestedServiceTier).toBe("priority");
+		expect(logs[0].usedServiceTier).toBeNull();
+	});
+
 	test("/v1/chat/completions omits service tier metadata without a tier request", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-no-service-tier-meta",
@@ -3877,10 +4172,39 @@ describe("api", () => {
 		expect(successLog?.usedServiceTier).toBe("flex");
 	});
 
+	async function insertTierFallbackKeys(prefix: string) {
+		await db.insert(tables.providerKey).values([
+			{
+				id: `provider-key-${prefix}-openai`,
+				...encryptProviderKeyForStorage(
+					"sk-openai-test-key",
+					`provider-key-${prefix}-openai`,
+					"org-id",
+				),
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			},
+			{
+				id: `provider-key-${prefix}-azure`,
+				...encryptProviderKeyForStorage(
+					"azure-test-key",
+					`provider-key-${prefix}-azure`,
+					"org-id",
+				),
+				provider: "azure",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+				options: { azure_deployment_type: "ai-foundry" },
+			},
+		]);
+	}
+
 	test("/v1/chat/completions never routes a tier request to a provider without it", async () => {
-		// gpt-5.6-sol is served by openai (flex/priority), azure and aws-mantle.
-		// A flex request must stay on openai for every attempt — falling back to a
-		// provider with no premium tier would serve, and bill, standard silently.
+		// gpt-4.1 is served by azure (priority) and openai (no premium tier). A
+		// priority request must stay on azure for every attempt — falling back to
+		// a provider with no premium tier would serve, and bill, standard silently.
+		// The model has no encrypted reasoning, which would pin it on its own.
 		await db.insert(tables.apiKey).values({
 			id: "token-id-tier-no-downgrade-fallback",
 			...hashApiKeyForStorage("real-token-tier-no-downgrade-fallback"),
@@ -3889,31 +4213,7 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
-		await db.insert(tables.providerKey).values([
-			{
-				id: "provider-key-tier-fallback-openai",
-				...encryptProviderKeyForStorage(
-					"sk-openai-test-key",
-					"provider-key-tier-fallback-openai",
-					"org-id",
-				),
-				provider: "openai",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			},
-			{
-				id: "provider-key-tier-fallback-azure",
-				...encryptProviderKeyForStorage(
-					"azure-test-key",
-					"provider-key-tier-fallback-azure",
-					"org-id",
-				),
-				provider: "azure",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			},
-		]);
-
+		await insertTierFallbackKeys("tier-fallback");
 		resetFailOnceCounter();
 
 		const res = await app.request("/v1/chat/completions", {
@@ -3924,29 +4224,29 @@ describe("api", () => {
 			},
 			body: JSON.stringify({
 				// No provider prefix: routing is free to pick any mapping.
-				model: "gpt-5.6-sol",
-				service_tier: "flex",
+				model: "gpt-4.1",
+				service_tier: "priority",
 				messages: [{ role: "user", content: "TRIGGER_ERROR" }],
 			}),
 		});
 
-		// openai is the only flex-capable mapping, so the upstream failure is
-		// returned instead of being retried on azure at the standard tier.
+		// azure is the only priority-capable mapping, so the upstream failure is
+		// returned instead of being retried on openai at the standard tier.
 		expect(res.status).not.toBe(200);
 
 		const logs = await waitForLogs(1);
 		expect(logs.length).toBeGreaterThanOrEqual(1);
 		for (const log of logs) {
-			expect(log.usedProvider).toBe("openai");
-			expect(log.requestedServiceTier).toBe("flex");
+			expect(log.usedProvider).toBe("azure");
+			expect(log.requestedServiceTier).toBe("priority");
 			expect(log.usedServiceTier).toBeNull();
 		}
 	});
 
 	test("/v1/chat/completions still falls back across providers without a tier", async () => {
 		// The control for the test above: the same failure without service_tier
-		// does reach azure, so the tier — not some unrelated routing constraint —
-		// is what keeps the request on openai.
+		// reaches both providers, so the tier — not some unrelated routing
+		// constraint — is what keeps the request on azure.
 		await db.insert(tables.apiKey).values({
 			id: "token-id-tier-fallback-control",
 			...hashApiKeyForStorage("real-token-tier-fallback-control"),
@@ -3955,31 +4255,7 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
-		await db.insert(tables.providerKey).values([
-			{
-				id: "provider-key-tier-control-openai",
-				...encryptProviderKeyForStorage(
-					"sk-openai-test-key",
-					"provider-key-tier-control-openai",
-					"org-id",
-				),
-				provider: "openai",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			},
-			{
-				id: "provider-key-tier-control-azure",
-				...encryptProviderKeyForStorage(
-					"azure-test-key",
-					"provider-key-tier-control-azure",
-					"org-id",
-				),
-				provider: "azure",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			},
-		]);
-
+		await insertTierFallbackKeys("tier-control");
 		resetFailOnceCounter();
 
 		const res = await app.request("/v1/chat/completions", {
@@ -3989,7 +4265,7 @@ describe("api", () => {
 				Authorization: "Bearer real-token-tier-fallback-control",
 			},
 			body: JSON.stringify({
-				model: "gpt-5.6-sol",
+				model: "gpt-4.1",
 				messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 			}),
 		});
@@ -3997,10 +4273,10 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(
-			json.metadata.routing.map(
-				(attempt: { provider: string }) => attempt.provider,
-			),
-		).toContain("azure");
+			json.metadata.routing
+				.map((attempt: { provider: string }) => attempt.provider)
+				.sort(),
+		).toEqual(["azure", "openai"]);
 	});
 
 	test("/v1/chat/completions forwards generated request id upstream", async () => {
@@ -9204,6 +9480,58 @@ describe("api", () => {
 			expect(logs[0].unifiedFinishReason).toBe("completed");
 			expect(logs[0].hasError).toBe(false);
 		});
+
+		test.each([false, true])(
+			"upstream abort finish reason records error details (stream: %s)",
+			async (stream) => {
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					...hashApiKeyForStorage("real-token"),
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+
+				await db.insert(tables.providerKey).values({
+					id: "provider-key-id",
+					...encryptProviderKeyForStorage(
+						"sk-test-key",
+						"provider-key-id",
+						"org-id",
+					),
+					provider: "llmgateway",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: "llmgateway/custom",
+						messages: [{ role: "user", content: "TRIGGER_FINISH_ABORT" }],
+						stream,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				await res.text();
+
+				const logs = await waitForLogs(1);
+				expect(logs.length).toBe(1);
+				expect(logs[0].unifiedFinishReason).toBe("upstream_error");
+				expect(logs[0].hasError).toBe(true);
+				expect(logs[0].errorDetails).toEqual({
+					statusCode: 200,
+					statusText: "finish_reason: abort",
+					responseText:
+						'The provider answered 200 but ended the response early with finish_reason "abort".',
+				});
+			},
+		);
 
 		test("streaming OpenAI Responses API closes cleanly after done events", async () => {
 			await db.insert(tables.apiKey).values({

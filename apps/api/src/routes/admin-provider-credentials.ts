@@ -4,6 +4,17 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	buildErrorTimeline,
+	errorTimelineSchema,
+	incidentErrorsClause,
+	incidentErrorTypesSchema,
+	notRetriedClause,
+	providerKeyErrorWindowSchema,
+	queryIncidentErrorTypes,
+	queryIncidentMappings,
+	resolveMappingErrorWindow,
+} from "@/lib/mapping-error-shapes.js";
+import {
 	allowedModelsSchema,
 	normalizeAllowedModels,
 	pickAllowedValidationModel,
@@ -13,6 +24,8 @@ import {
 	getBucketUnitForWindow,
 	getTokenWindowStartDate,
 	getWindowBucketTimestamps,
+	getWindowRange,
+	spendWindowSchema,
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
@@ -24,9 +37,10 @@ import {
 	encryptProviderKey,
 	getManagedCredentialConfigKeys,
 	getMissingManagedCredentialKeys,
-	getPinnedValidationModel,
 	getUnknownManagedCredentialKeys,
 	managedCredentialValidationOptions,
+	MODEL_PROBE_TIMEOUT_MS,
+	probeProviderKeyModel,
 	providerKeyEncryptionScope,
 	readProviderEnvInventory,
 	readProviderKey,
@@ -41,6 +55,7 @@ import {
 	eq,
 	gte,
 	inArray,
+	lt,
 	ne,
 	shortid,
 	sql,
@@ -80,8 +95,8 @@ const PROVIDER_KEY_VARIANTS = [
 const variantSchema = z.enum(PROVIDER_KEY_VARIANTS);
 const statusSchema = z.enum(["active", "inactive"]);
 
-const DEFAULT_MODEL_PROBE_TIMEOUT_MS = 30_000;
-const MEDIA_MODEL_PROBE_TIMEOUT_MS = 90_000;
+// One probe gating a write: a save must not hang, so it keeps a short budget.
+const SAVE_VALIDATION_TIMEOUT_MS = 30_000;
 
 const credentialSchema = z.object({
 	id: z.string(),
@@ -119,7 +134,8 @@ const credentialSchema = z.object({
 const credentialRecentStatsSchema = z.object({
 	requestCount: z.number(),
 	errorCount: z.number(),
-	/** Subset of `errorCount`: failures the provider itself returned. */
+	clientErrorCount: z.number(),
+	gatewayErrorCount: z.number(),
 	upstreamErrorCount: z.number(),
 });
 
@@ -134,7 +150,22 @@ const credentialDailyPointSchema = z.object({
 	cost: z.number(),
 	requestCount: z.number(),
 	errorCount: z.number(),
+	clientErrorCount: z.number(),
+	gatewayErrorCount: z.number(),
+	upstreamErrorCount: z.number(),
 });
+
+/** Windows the credentials table can show its error rate over. */
+const errorWindowSchema = z.enum(["4h", "1d", "7d"]);
+
+type ErrorWindow = z.infer<typeof errorWindowSchema>;
+
+/** One bucket of the error-rate window; `date` is the bucket start, ISO-8601. */
+const credentialErrorPointSchema = credentialDailyPointSchema.omit({
+	cost: true,
+});
+
+type CredentialErrorPoint = z.infer<typeof credentialErrorPointSchema>;
 
 /** List view only — the mutation responses do not compute the rollup. */
 const listedCredentialSchema = credentialSchema.extend({
@@ -144,6 +175,11 @@ const listedCredentialSchema = credentialSchema.extend({
 	 * day in progress, so its cost is partial by construction.
 	 */
 	last7dDaily: z.array(credentialDailyPointSchema),
+	/**
+	 * The requested `errorWindow`, zero-filled and oldest first: per hour for 4h
+	 * and 1d, per UTC day for 7d. The final bucket is still in progress.
+	 */
+	errorSeries: z.array(credentialErrorPointSchema),
 });
 
 const configKeySchema = z.object({
@@ -226,6 +262,7 @@ const catalogEntrySchema = z.object({
 		ocr: z.array(z.string()),
 		embedding: z.array(z.string()),
 		video: z.array(z.string()),
+		decision: z.array(z.string()),
 	}),
 });
 
@@ -522,7 +559,7 @@ async function validateCredentialToken(
 		false,
 		validationOptions,
 		pinnedModelId,
-		AbortSignal.timeout(DEFAULT_MODEL_PROBE_TIMEOUT_MS),
+		AbortSignal.timeout(SAVE_VALIDATION_TIMEOUT_MS),
 	);
 
 	if (result.valid) {
@@ -683,6 +720,13 @@ const listCredentials = createRoute({
 	request: {
 		query: z.object({
 			provider: z.string().optional(),
+			/**
+			 * Also list soft-deleted credentials. Deleting only flips the status,
+			 * so their lifetime usage and rollup history are still there.
+			 */
+			includeDeleted: z.enum(["true", "false"]).optional(),
+			/** Window `errorSeries` covers; defaults to 1d. */
+			errorWindow: errorWindowSchema.optional(),
 		}),
 	},
 	responses: {
@@ -700,12 +744,13 @@ const listCredentials = createRoute({
 });
 
 adminProviderCredentials.openapi(listCredentials, async (c) => {
-	const { provider } = c.req.valid("query");
+	const { provider, includeDeleted } = c.req.valid("query");
+	const errorWindow = c.req.valid("query").errorWindow ?? "1d";
 
 	const rows = await db.query.providerKey.findMany({
 		where: {
 			managed: { eq: true },
-			status: { ne: "deleted" },
+			...(includeDeleted === "true" ? {} : { status: { ne: "deleted" } }),
 			...(provider ? { provider: { eq: provider } } : {}),
 		},
 		orderBy: {
@@ -720,25 +765,56 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 	});
 
 	const credentialIds = rows.map((row) => row.id);
-	const [recent, daily] = await Promise.all([
+	const [recent, daily, bucketed] = await Promise.all([
 		getRecentCredentialStats(credentialIds),
 		getDailyCredentialStats(credentialIds),
+		// The 7d window is the daily series the spend sparkline already loads.
+		errorWindow === "7d"
+			? null
+			: getBucketedCredentialErrorSeries(credentialIds, errorWindow),
 	]);
 
 	return c.json({
-		credentials: rows.map((row) => ({
-			...toCredential(row),
-			last24h: recent.get(row.id) ?? NO_RECENT_STATS,
-			last7dDaily: daily.get(row.id) ?? buildEmptyDailySeries(),
-		})),
+		credentials: rows.map((row) => {
+			const last7dDaily = daily.get(row.id) ?? buildEmptyDailySeries();
+			return {
+				...toCredential(row),
+				last24h: recent.get(row.id) ?? NO_RECENT_STATS,
+				last7dDaily,
+				errorSeries:
+					bucketed?.get(row.id) ??
+					last7dDaily.map(({ cost: _cost, ...point }) => point),
+			};
+		}),
 	});
 });
 
 const NO_RECENT_STATS = {
 	requestCount: 0,
 	errorCount: 0,
+	clientErrorCount: 0,
+	gatewayErrorCount: 0,
 	upstreamErrorCount: 0,
 };
+
+/** Error split by unified finish reason, for `deriveStabilityMetrics`. */
+function hourlyErrorSplitFields() {
+	const stats = tables.providerKeyHourlyStats;
+	return {
+		clientErrorCount:
+			sql<number>`COALESCE(SUM(${stats.clientErrorCount}), 0)`.as(
+				"client_error_count",
+			),
+		gatewayErrorCount:
+			sql<number>`COALESCE(SUM(${stats.gatewayErrorCount}), 0)`.as(
+				"gateway_error_count",
+			),
+		upstreamErrorCount:
+			sql<number>`COALESCE(SUM(${stats.upstreamErrorCount}), 0)`.as(
+				"upstream_error_count",
+			),
+	};
+}
 
 /**
  * Rolling 24h request/error counts per credential, so the table can show how
@@ -766,10 +842,7 @@ async function getRecentCredentialStats(providerKeyIds: string[]) {
 				sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.errorCount}), 0)`.as(
 					"error_count",
 				),
-			upstreamErrorCount:
-				sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.upstreamErrorCount}), 0)`.as(
-					"upstream_error_count",
-				),
+			...hourlyErrorSplitFields(),
 		})
 		.from(tables.providerKeyHourlyStats)
 		.where(
@@ -787,6 +860,8 @@ async function getRecentCredentialStats(providerKeyIds: string[]) {
 		stats.set(row.providerKeyId, {
 			requestCount: Number(row.requestCount),
 			errorCount: Number(row.errorCount),
+			clientErrorCount: Number(row.clientErrorCount),
+			gatewayErrorCount: Number(row.gatewayErrorCount),
 			upstreamErrorCount: Number(row.upstreamErrorCount),
 		});
 	}
@@ -821,6 +896,9 @@ function buildEmptyDailySeries(now?: Date) {
 		cost: 0,
 		requestCount: 0,
 		errorCount: 0,
+		clientErrorCount: 0,
+		gatewayErrorCount: 0,
+		upstreamErrorCount: 0,
 	}));
 }
 
@@ -856,6 +934,7 @@ async function getDailyCredentialStats(providerKeyIds: string[]) {
 				sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.errorCount}), 0)`.as(
 					"error_count",
 				),
+			...hourlyErrorSplitFields(),
 		})
 		.from(tables.providerKeyHourlyStats)
 		.where(
@@ -882,6 +961,89 @@ async function getDailyCredentialStats(providerKeyIds: string[]) {
 					cost: Number(row?.cost ?? 0),
 					requestCount: Number(row?.requestCount ?? 0),
 					errorCount: Number(row?.errorCount ?? 0),
+					clientErrorCount: Number(row?.clientErrorCount ?? 0),
+					gatewayErrorCount: Number(row?.gatewayErrorCount ?? 0),
+					upstreamErrorCount: Number(row?.upstreamErrorCount ?? 0),
+				};
+			}),
+		);
+	}
+	return series;
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Hour starts for a sub-week error window, oldest first, ending with the hour
+ * in progress. Epoch-aligned, which matches the UTC `hourTimestamp` buckets.
+ */
+function getErrorSeriesBuckets(
+	window: Exclude<ErrorWindow, "7d">,
+	now: Date = new Date(),
+): Date[] {
+	const count = window === "4h" ? 4 : 24;
+	const end = Math.floor(now.getTime() / HOUR_MS) * HOUR_MS;
+	return Array.from({ length: count }, (_, index) => {
+		const offsetMs = (count - 1 - index) * HOUR_MS;
+		return new Date(end - offsetMs);
+	});
+}
+
+/**
+ * Hourly request/error counts per credential for the sub-week error windows,
+ * from the hourly rollup. One grouped query for every credential, like the
+ * daily series. The rollup's grain is the hour, so nothing shorter is offered.
+ */
+async function getBucketedCredentialErrorSeries(
+	providerKeyIds: string[],
+	window: Exclude<ErrorWindow, "7d">,
+) {
+	const series = new Map<string, CredentialErrorPoint[]>();
+	if (providerKeyIds.length === 0) {
+		return series;
+	}
+
+	const buckets = getErrorSeriesBuckets(window);
+	const stats = tables.providerKeyHourlyStats;
+	const rows = await db
+		.select({
+			providerKeyId: stats.providerKeyId,
+			bucket: bucketLabel(sql<Date>`${stats.hourTimestamp}`).as("bucket"),
+			requestCount: sql<number>`COALESCE(SUM(${stats.requestCount}), 0)`.as(
+				"request_count",
+			),
+			errorCount: sql<number>`COALESCE(SUM(${stats.errorCount}), 0)`.as(
+				"error_count",
+			),
+			...hourlyErrorSplitFields(),
+		})
+		.from(stats)
+		.where(
+			and(
+				inArray(stats.providerKeyId, providerKeyIds),
+				gte(stats.hourTimestamp, buckets[0]),
+			),
+		)
+		.groupBy(stats.providerKeyId, stats.hourTimestamp);
+
+	const byKeyAndBucket = new Map<string, (typeof rows)[number]>();
+	for (const row of rows) {
+		byKeyAndBucket.set(`${row.providerKeyId}:${row.bucket}`, row);
+	}
+
+	for (const providerKeyId of providerKeyIds) {
+		series.set(
+			providerKeyId,
+			buckets.map((bucket) => {
+				const date = bucket.toISOString();
+				const row = byKeyAndBucket.get(`${providerKeyId}:${date}`);
+				return {
+					date,
+					requestCount: Number(row?.requestCount ?? 0),
+					errorCount: Number(row?.errorCount ?? 0),
+					clientErrorCount: Number(row?.clientErrorCount ?? 0),
+					gatewayErrorCount: Number(row?.gatewayErrorCount ?? 0),
+					upstreamErrorCount: Number(row?.upstreamErrorCount ?? 0),
 				};
 			}),
 		);
@@ -897,29 +1059,73 @@ function bucketLabel(bucketExpr: SQL<Date>) {
 	return sql<string>`to_char(${bucketExpr}, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 }
 
-const spendPointSchema = z.object({
+/** Error split by unified finish reason; `errorCount` covers all three. */
+const errorSplitSchema = z.object({
+	errorCount: z.number(),
+	clientErrorCount: z.number(),
+	gatewayErrorCount: z.number(),
+	upstreamErrorCount: z.number(),
+});
+
+const spendPointSchema = errorSplitSchema.extend({
 	timestamp: z.string(),
 	cost: z.number(),
 	requestCount: z.number(),
-	errorCount: z.number(),
-	upstreamErrorCount: z.number(),
+	cacheCount: z.number(),
+	inputTokens: z.string(),
+	outputTokens: z.string(),
 	totalTokens: z.string(),
 });
 
-const spendByOrganizationSchema = z.object({
+const spendByOrganizationSchema = errorSplitSchema.extend({
 	organizationId: z.string(),
 	organizationName: z.string().nullable(),
 	cost: z.number(),
 	requestCount: z.number(),
 });
 
+const spendByModelSchema = errorSplitSchema.extend({
+	/** Display id as stored in the rollup: `provider/model[:region]`. */
+	usedModel: z.string(),
+	usedProvider: z.string(),
+	cost: z.number(),
+	requestCount: z.number(),
+	cacheCount: z.number(),
+	/** Non-error finish reasons worth watching next to the error split. */
+	lengthLimitCount: z.number(),
+	contentFilterCount: z.number(),
+	canceledCount: z.number(),
+	totalTokens: z.string(),
+});
+
+/** Windows longer than this stay day-grained: hourly would be 2000+ points. */
+const HOURLY_BUCKET_WINDOWS: readonly string[] = [
+	"1h",
+	"4h",
+	"12h",
+	"1d",
+	"7d",
+	"30d",
+	"month",
+	"last_month",
+];
+
+/** Rows returned in the per-model split; the long tail is dropped. */
+const SPEND_MODEL_ROW_LIMIT = 50;
+const SPEND_ORGANIZATION_ROW_LIMIT = 50;
+
 const providerKeySpendSchema = z.object({
-	window: tokenWindowSchema,
+	window: spendWindowSchema,
 	bucket: z.enum(["hour", "day"]),
 	key: z.object({
 		id: z.string(),
 		provider: z.string(),
 		name: z.string().nullable(),
+		/** Operator note (managed) or customer description (BYOK). */
+		comment: z.string().nullable(),
+		maskedToken: z.string(),
+		variant: variantSchema,
+		region: z.string().nullable(),
 		managed: z.boolean(),
 		status: z.string().nullable(),
 		organizationId: z.string().nullable(),
@@ -943,6 +1149,14 @@ const providerKeySpendSchema = z.object({
 	 * across tenants.
 	 */
 	organizations: z.array(spendByOrganizationSchema),
+	/**
+	 * Spend split by model, highest first. Read from the day-grained
+	 * `global_provider_key_model_stats` (the only per-credential rollup with a
+	 * model dimension), so it covers whole UTC days from `modelsSince` and lags
+	 * the hourly totals above.
+	 */
+	modelsSince: z.string(),
+	models: z.array(spendByModelSchema),
 });
 
 const getProviderKeySpend = createRoute({
@@ -951,7 +1165,12 @@ const getProviderKeySpend = createRoute({
 	request: {
 		params: z.object({ providerKeyId: z.string() }),
 		query: z.object({
-			window: tokenWindowSchema.default("7d").optional(),
+			window: spendWindowSchema.default("7d").optional(),
+			/**
+			 * Overrides the window's default grain. `hour` is ignored past a
+			 * month, where the rollup would return thousands of points.
+			 */
+			bucket: z.enum(["hour", "day"]).optional(),
 		}),
 	},
 	responses: {
@@ -973,8 +1192,12 @@ const getProviderKeySpend = createRoute({
 adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 	const { providerKeyId } = c.req.valid("param");
 	const window = c.req.valid("query").window ?? "7d";
-	const startDate = getTokenWindowStartDate(window);
-	const bucketUnit = getBucketUnitForWindow(window);
+	const requestedBucket = c.req.valid("query").bucket;
+	const { start: startDate, end: endDate } = getWindowRange(window);
+	const bucketUnit =
+		requestedBucket === "hour" && !HOURLY_BUCKET_WINDOWS.includes(window)
+			? "day"
+			: (requestedBucket ?? getBucketUnitForWindow(window));
 
 	const key = await db.query.providerKey.findFirst({
 		where: { id: { eq: providerKeyId } },
@@ -998,9 +1221,17 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 	const baseFilter = and(
 		eq(tables.providerKeyHourlyStats.providerKeyId, providerKeyId),
 		gte(tables.providerKeyHourlyStats.hourTimestamp, startDate),
+		endDate
+			? lt(tables.providerKeyHourlyStats.hourTimestamp, endDate)
+			: undefined,
 	);
 
-	const [points, organizations] = await Promise.all([
+	const modelsSince = new Date(startDate);
+	modelsSince.setUTCHours(0, 0, 0, 0);
+	const modelStats = tables.globalProviderKeyModelStats;
+	const modelCost = sql<number>`COALESCE(SUM(cast(${modelStats.cost} as double precision)), 0)`;
+
+	const [points, organizations, models] = await Promise.all([
 		db
 			.select({
 				timestamp: bucketLabelExpr.as("bucket"),
@@ -1015,9 +1246,18 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.errorCount}), 0)`.as(
 						"error_count",
 					),
-				upstreamErrorCount:
-					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.upstreamErrorCount}), 0)`.as(
-						"upstream_error_count",
+				...hourlyErrorSplitFields(),
+				cacheCount:
+					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.cacheCount}), 0)`.as(
+						"cache_count",
+					),
+				inputTokens:
+					sql<string>`COALESCE(SUM(CAST(${tables.providerKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
+						"input_tokens",
+					),
+				outputTokens:
+					sql<string>`COALESCE(SUM(CAST(${tables.providerKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
+						"output_tokens",
 					),
 				totalTokens:
 					sql<string>`COALESCE(SUM(CAST(${tables.providerKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
@@ -1042,6 +1282,11 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.requestCount}), 0)`.as(
 						"request_count",
 					),
+				errorCount:
+					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.errorCount}), 0)`.as(
+						"error_count",
+					),
+				...hourlyErrorSplitFields(),
 			})
 			.from(tables.providerKeyHourlyStats)
 			.innerJoin(
@@ -1058,16 +1303,75 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 				desc(
 					sql`SUM(cast(${tables.providerKeyHourlyStats.cost} as double precision))`,
 				),
+				desc(sql`SUM(${tables.providerKeyHourlyStats.requestCount})`),
 			)
-			.limit(20),
+			.limit(SPEND_ORGANIZATION_ROW_LIMIT),
+		db
+			.select({
+				usedModel: modelStats.usedModel,
+				usedProvider: modelStats.usedProvider,
+				cost: modelCost.as("cost"),
+				requestCount:
+					sql<number>`COALESCE(SUM(${modelStats.requestCount}), 0)`.as(
+						"request_count",
+					),
+				errorCount: sql<number>`COALESCE(SUM(${modelStats.errorCount}), 0)`.as(
+					"error_count",
+				),
+				clientErrorCount:
+					sql<number>`COALESCE(SUM(${modelStats.clientErrorCount}), 0)`.as(
+						"client_error_count",
+					),
+				gatewayErrorCount:
+					sql<number>`COALESCE(SUM(${modelStats.gatewayErrorCount}), 0)`.as(
+						"gateway_error_count",
+					),
+				upstreamErrorCount:
+					sql<number>`COALESCE(SUM(${modelStats.upstreamErrorCount}), 0)`.as(
+						"upstream_error_count",
+					),
+				cacheCount: sql<number>`COALESCE(SUM(${modelStats.cacheCount}), 0)`.as(
+					"cache_count",
+				),
+				lengthLimitCount:
+					sql<number>`COALESCE(SUM(${modelStats.lengthLimitCount}), 0)`.as(
+						"length_limit_count",
+					),
+				contentFilterCount:
+					sql<number>`COALESCE(SUM(${modelStats.contentFilterCount}), 0)`.as(
+						"content_filter_count",
+					),
+				canceledCount:
+					sql<number>`COALESCE(SUM(${modelStats.canceledCount}), 0)`.as(
+						"canceled_count",
+					),
+				totalTokens:
+					sql<string>`COALESCE(SUM(CAST(${modelStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"total_tokens",
+					),
+			})
+			.from(modelStats)
+			.where(
+				and(
+					eq(modelStats.providerKeyId, providerKeyId),
+					gte(modelStats.dayTimestamp, modelsSince),
+					endDate ? lt(modelStats.dayTimestamp, endDate) : undefined,
+				),
+			)
+			.groupBy(modelStats.usedModel, modelStats.usedProvider)
+			.having(sql`SUM(${modelStats.requestCount}) > 0`)
+			.orderBy(desc(modelCost), desc(sql`SUM(${modelStats.requestCount})`))
+			.limit(SPEND_MODEL_ROW_LIMIT),
 	]);
 
 	const data = points.map((point) => ({
 		timestamp: point.timestamp,
 		cost: Number(point.cost),
 		requestCount: Number(point.requestCount),
-		errorCount: Number(point.errorCount),
-		upstreamErrorCount: Number(point.upstreamErrorCount),
+		...toErrorSplit(point),
+		cacheCount: Number(point.cacheCount),
+		inputTokens: String(point.inputTokens),
+		outputTokens: String(point.outputTokens),
 		totalTokens: String(point.totalTokens),
 	}));
 
@@ -1078,6 +1382,12 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 			id: key.id,
 			provider: key.provider,
 			name: key.name,
+			comment: key.managed ? key.comment : key.description,
+			maskedToken: key.managed
+				? maskToken(readProviderKey(key), 6, 4)
+				: key.tokenMasked,
+			variant: key.variant,
+			region: key.region,
 			managed: key.managed,
 			status: key.status,
 			organizationId: key.organizationId,
@@ -1087,14 +1397,157 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 		totalCost: data.reduce((sum, point) => sum + point.cost, 0),
 		totalRequests: data.reduce((sum, point) => sum + point.requestCount, 0),
 		totalErrors: data.reduce((sum, point) => sum + point.errorCount, 0),
-		buckets: getWindowBucketTimestamps(window),
+		buckets: getWindowBucketTimestamps(window, new Date(), bucketUnit),
 		data,
 		organizations: organizations.map((row) => ({
 			organizationId: row.organizationId,
 			organizationName: row.organizationName,
 			cost: Number(row.cost),
 			requestCount: Number(row.requestCount),
+			...toErrorSplit(row),
 		})),
+		modelsSince: modelsSince.toISOString(),
+		models: models.map((row) => ({
+			usedModel: row.usedModel,
+			usedProvider: row.usedProvider,
+			cost: Number(row.cost),
+			requestCount: Number(row.requestCount),
+			...toErrorSplit(row),
+			cacheCount: Number(row.cacheCount),
+			lengthLimitCount: Number(row.lengthLimitCount),
+			contentFilterCount: Number(row.contentFilterCount),
+			canceledCount: Number(row.canceledCount),
+			totalTokens: String(row.totalTokens),
+		})),
+	});
+});
+
+function toErrorSplit(row: z.infer<typeof errorSplitSchema>) {
+	return {
+		errorCount: Number(row.errorCount),
+		clientErrorCount: Number(row.clientErrorCount),
+		gatewayErrorCount: Number(row.gatewayErrorCount),
+		upstreamErrorCount: Number(row.upstreamErrorCount),
+	};
+}
+
+const providerKeyErrorTypesSchema = incidentErrorTypesSchema.extend({
+	timeline: errorTimelineSchema,
+});
+
+const getProviderKeyErrorTypes = createRoute({
+	method: "get",
+	path: "/provider-keys/{providerKeyId}/error-types",
+	request: {
+		params: z.object({ providerKeyId: z.string() }),
+		query: z.object({
+			window: providerKeyErrorWindowSchema.default("24h").optional(),
+			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerKeyErrorTypesSchema,
+				},
+			},
+			description:
+				"Top upstream and gateway error shapes served by one provider key, each with its per-model counts and timeline.",
+		},
+		404: {
+			description: "Provider key not found.",
+		},
+	},
+});
+
+/**
+ * Mappings to sample for one key's errors: those the key's own daily rollup
+ * recorded upstream or gateway errors on, plus the provider's hourly failing
+ * mappings, which cover the hours the slower key rollup has not reached yet.
+ * The provider-wide list alone would drop a key's failing mapping that is
+ * quiet provider-wide or outside its top 200.
+ */
+async function listKeyErrorMappings(
+	providerKeyId: string,
+	provider: string,
+	windowHours: number,
+) {
+	const windowMs = windowHours * HOUR_MS;
+	const since = new Date(Date.now() - windowMs);
+	since.setUTCHours(0, 0, 0, 0);
+	const stats = tables.globalProviderKeyModelStats;
+	const [keyRows, providerRows] = await Promise.all([
+		db
+			.select({ providerId: stats.usedProvider, usedModel: stats.usedModel })
+			.from(stats)
+			.where(
+				and(
+					eq(stats.providerKeyId, providerKeyId),
+					gte(stats.dayTimestamp, since),
+				),
+			)
+			.groupBy(stats.usedProvider, stats.usedModel)
+			.having(
+				sql`SUM(${stats.gatewayErrorCount}) + SUM(${stats.upstreamErrorCount}) > 0`,
+			),
+		queryIncidentMappings({
+			providerIds: [provider],
+			windowHours,
+			mapping: null,
+		}),
+	]);
+	const mappings = new Map<string, { providerId: string; usedModel: string }>();
+	for (const row of [...keyRows, ...providerRows]) {
+		mappings.set(`${row.providerId}/${row.usedModel}`, {
+			providerId: row.providerId,
+			usedModel: row.usedModel,
+		});
+	}
+	return [...mappings.values()];
+}
+
+/**
+ * What actually failed on one credential. Reads `log`: the rollups carry error
+ * counts but no status codes or response bodies. Each failing mapping is read
+ * separately on the partial error index, narrowed to this key.
+ */
+adminProviderCredentials.openapi(getProviderKeyErrorTypes, async (c) => {
+	const { providerKeyId } = c.req.valid("param");
+	const query = c.req.valid("query");
+
+	const key = await db.query.providerKey.findFirst({
+		where: { id: { eq: providerKeyId } },
+		columns: { provider: true },
+	});
+	if (!key) {
+		throw new HTTPException(404, { message: "Provider key not found" });
+	}
+
+	const {
+		hours: windowHours,
+		interval: windowInterval,
+		bucketSeconds,
+	} = resolveMappingErrorWindow(query.window, "24h");
+
+	const errorTypes = await queryIncidentErrorTypes({
+		mappings: await listKeyErrorMappings(
+			providerKeyId,
+			key.provider,
+			windowHours,
+		),
+		windowInterval,
+		bucketSeconds,
+		extraClauses: [
+			sql`AND ${tables.log.providerKeyId} = ${providerKeyId}`,
+			incidentErrorsClause,
+			query.includeRetried === "false" ? notRetriedClause : sql``,
+		],
+	});
+
+	return c.json({
+		...errorTypes,
+		timeline: buildErrorTimeline(windowHours, bucketSeconds),
 	});
 });
 
@@ -1111,7 +1564,8 @@ const credentialModelErrorRowSchema = z.object({
 	usedProvider: z.string(),
 	requestCount: z.number(),
 	errorCount: z.number(),
-	/** Subset of `errorCount`: failures the provider itself returned. */
+	clientErrorCount: z.number(),
+	gatewayErrorCount: z.number(),
 	upstreamErrorCount: z.number(),
 });
 
@@ -1125,6 +1579,8 @@ const credentialModelErrorBreakdownSchema = z.object({
 			modelCount: z.number(),
 			requestCount: z.number(),
 			errorCount: z.number(),
+			clientErrorCount: z.number(),
+			gatewayErrorCount: z.number(),
 			upstreamErrorCount: z.number(),
 		})
 		.nullable(),
@@ -1177,8 +1633,9 @@ adminProviderCredentials.openapi(getProviderKeyModelErrors, async (c) => {
 	// Ordering key: the rate itself, not the raw error count, so a model that
 	// fails every call still surfaces above a high-volume model with a few
 	// failures. Ties break on volume, which keeps the noisy one-request models
-	// below their busier neighbours.
-	const errorRate = sql<number>`COALESCE(SUM(${stats.errorCount})::float8 / NULLIF(SUM(${stats.requestCount}), 0), 0)`;
+	// below their busier neighbours. Same definition as deriveStabilityMetrics:
+	// gateway + upstream errors over non-client-error requests.
+	const errorRate = sql<number>`COALESCE((SUM(${stats.gatewayErrorCount}) + SUM(${stats.upstreamErrorCount}))::float8 / NULLIF(SUM(${stats.requestCount}) - SUM(${stats.clientErrorCount}), 0), 0)`;
 
 	const rows = await db
 		.select({
@@ -1186,6 +1643,14 @@ adminProviderCredentials.openapi(getProviderKeyModelErrors, async (c) => {
 			usedProvider: stats.usedProvider,
 			requestCount: requestCount.as("request_count"),
 			errorCount: errorCount.as("error_count"),
+			clientErrorCount:
+				sql<number>`COALESCE(SUM(${stats.clientErrorCount}), 0)`.as(
+					"client_error_count",
+				),
+			gatewayErrorCount:
+				sql<number>`COALESCE(SUM(${stats.gatewayErrorCount}), 0)`.as(
+					"gateway_error_count",
+				),
 			upstreamErrorCount:
 				sql<number>`COALESCE(SUM(${stats.upstreamErrorCount}), 0)`.as(
 					"upstream_error_count",
@@ -1207,6 +1672,8 @@ adminProviderCredentials.openapi(getProviderKeyModelErrors, async (c) => {
 		usedProvider: row.usedProvider,
 		requestCount: Number(row.requestCount),
 		errorCount: Number(row.errorCount),
+		clientErrorCount: Number(row.clientErrorCount),
+		gatewayErrorCount: Number(row.gatewayErrorCount),
 		upstreamErrorCount: Number(row.upstreamErrorCount),
 	}));
 
@@ -1221,6 +1688,14 @@ adminProviderCredentials.openapi(getProviderKeyModelErrors, async (c) => {
 					modelCount: tail.length,
 					requestCount: tail.reduce((sum, row) => sum + row.requestCount, 0),
 					errorCount: tail.reduce((sum, row) => sum + row.errorCount, 0),
+					clientErrorCount: tail.reduce(
+						(sum, row) => sum + row.clientErrorCount,
+						0,
+					),
+					gatewayErrorCount: tail.reduce(
+						(sum, row) => sum + row.gatewayErrorCount,
+						0,
+					),
 					upstreamErrorCount: tail.reduce(
 						(sum, row) => sum + row.upstreamErrorCount,
 						0,
@@ -1515,6 +1990,11 @@ const updateCredential = createRoute({
 						config: z.record(z.string(), z.string()).optional(),
 						usageLimit: createNullableLimitSchema("Usage limit").optional(),
 						allowedModels: allowedModelsSchema,
+						/**
+						 * The `allowedModels` the editor loaded. Models the daily sync
+						 * enabled since then are kept instead of read as removals.
+						 */
+						allowedModelsBase: allowedModelsSchema,
 						skipValidation: z.boolean().optional(),
 					}),
 				},
@@ -1563,7 +2043,19 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 
 	if (body.allowedModels !== undefined) {
-		const allowedModels = normalizeAllowedModels(body.allowedModels);
+		const submitted = normalizeAllowedModels(body.allowedModels);
+		const current = existing.allowedModels ?? [];
+		// A stale editor never saw the models the daily sync enabled after it
+		// loaded, so its list omitting them is not a removal.
+		const base =
+			body.allowedModelsBase === undefined
+				? current
+				: (normalizeAllowedModels(body.allowedModelsBase) ?? []);
+		const syncedSince =
+			base.length > 0 ? current.filter((id) => !base.includes(id)) : [];
+		const allowedModels = submitted
+			? [...new Set([...submitted, ...syncedSince])]
+			: null;
 		// Checked against the config/region this PATCH leaves in effect, so an
 		// edit that also moves the region validates against the right mapping.
 		await validateManagedAllowedModels(
@@ -1576,6 +2068,15 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			),
 		);
 		updates.allowedModels = allowedModels;
+		// Remember removed models so the daily sync does not re-enable them;
+		// re-adding one, or clearing the restriction, forgets the exclusion.
+		const removed = base.filter((modelId) => !allowedModels?.includes(modelId));
+		const excluded = allowedModels
+			? [
+					...new Set([...(existing.modelSyncExcluded ?? []), ...removed]),
+				].filter((modelId) => !allowedModels.includes(modelId))
+			: [];
+		updates.modelSyncExcluded = excluded.length > 0 ? excluded : null;
 	}
 
 	// A new token, a changed config and a changed region all alter what the
@@ -1840,7 +2341,7 @@ adminProviderCredentials.openapi(selfTestCredential, async (c) => {
 			target.region,
 		),
 		customCarrierModel?.[1],
-		AbortSignal.timeout(DEFAULT_MODEL_PROBE_TIMEOUT_MS),
+		AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
 	);
 
 	return c.json({
@@ -1945,7 +2446,7 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 				false,
 				undefined,
 				externalId,
-				AbortSignal.timeout(DEFAULT_MODEL_PROBE_TIMEOUT_MS),
+				AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
 			);
 			return {
 				model: modelId,
@@ -1957,58 +2458,14 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 					: undefined,
 			};
 		}
-		const pinned = getPinnedValidationModel(
-			target.provider as ProviderId,
+		return await probeProviderKeyModel({
+			provider: target.provider,
+			token: target.token,
 			modelId,
 			validationOptions,
-		);
-		if (!pinned) {
-			return {
-				model: modelId,
-				inCatalog: false,
-				valid: null,
-				error: `Not available from ${target.provider} per the catalogue`,
-			};
-		}
-		if (pinned.kind === "video") {
-			return {
-				model: modelId,
-				inCatalog: true,
-				valid: null,
-				error: "Not live-tested: video generation is intentionally skipped",
-			};
-		}
-		if (!pinned.kind) {
-			return {
-				model: modelId,
-				inCatalog: true,
-				valid: null,
-				error: "Cannot be live-tested: this model type is not supported yet",
-			};
-		}
-		if (isCredentialTestEnv()) {
-			return { model: modelId, inCatalog: true, valid: true };
-		}
-		const result = await validateProviderKey(
-			target.provider as ProviderId,
-			target.token,
-			undefined,
-			false,
-			validationOptions,
-			modelId,
-			AbortSignal.timeout(
-				pinned.kind === "image" || pinned.kind === "ocr"
-					? MEDIA_MODEL_PROBE_TIMEOUT_MS
-					: DEFAULT_MODEL_PROBE_TIMEOUT_MS,
-			),
-		);
-		return {
-			model: modelId,
-			inCatalog: true,
-			valid: result.valid,
-			statusCode: result.statusCode,
-			error: result.error ? redactToken(result.error, target.token) : undefined,
-		};
+			skipLiveProbe: isCredentialTestEnv(),
+			validate: validateProviderKey,
+		});
 	};
 
 	// Small batches: enough parallelism that a long list stays responsive,
@@ -2027,6 +2484,69 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 		allValid: results.every(
 			(result) => result.inCatalog && result.valid !== false,
 		),
+	});
+});
+
+const modelSyncHistory = createRoute({
+	method: "get",
+	path: "/provider-credentials/{id}/model-sync-history",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						entries: z.array(
+							z.object({
+								id: z.string(),
+								createdAt: z.date(),
+								probed: z.number(),
+								skipped: z.number(),
+								added: z.array(z.string()),
+								failed: z.array(
+									z.object({
+										model: z.string(),
+										statusCode: z.number().optional(),
+										error: z.string().optional(),
+									}),
+								),
+							}),
+						),
+					}),
+				},
+			},
+			description:
+				"Most recent daily model sync runs for a managed credential.",
+		},
+	},
+});
+
+adminProviderCredentials.openapi(modelSyncHistory, async (c) => {
+	const { id } = c.req.valid("param");
+	const rows = await db
+		.select()
+		.from(tables.platformAuditLog)
+		.where(
+			and(
+				eq(tables.platformAuditLog.action, "provider_key.models_synced"),
+				eq(tables.platformAuditLog.resourceType, "provider_key"),
+				eq(tables.platformAuditLog.resourceId, id),
+			),
+		)
+		.orderBy(desc(tables.platformAuditLog.createdAt))
+		.limit(60);
+
+	return c.json({
+		entries: rows.map((row) => ({
+			id: row.id,
+			createdAt: row.createdAt,
+			probed: row.metadata?.probed ?? 0,
+			skipped: row.metadata?.skipped ?? 0,
+			added: row.metadata?.added ?? [],
+			failed: row.metadata?.failed ?? [],
+		})),
 	});
 });
 

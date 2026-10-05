@@ -54,6 +54,7 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	// retry-time rate limits may still annotate providerScores. Content filters also
 	// retain their summary field for compatibility. The hourly rollup reads all forms.
 	rate_limited: "provider is rate limited",
+	low_uptime: "custom provider uptime is below the fallback threshold",
 	content_filter: "excluded by content-filter routing",
 	compliance: "excluded by the organization's compliance policy",
 	// Which compliance rule fired. These are details of `compliance`, not
@@ -121,6 +122,7 @@ export const ROUTING_EXCLUSION_REASON_LABELS: Record<
 	locked_region: "Locked region",
 	deprecated: "Deprecated",
 	rate_limited: "Rate limited",
+	low_uptime: "Low uptime",
 	content_filter: "Content filter",
 	compliance: "Compliance",
 	compliance_soc2: "SOC 2",

@@ -4,6 +4,7 @@ slug: "org-trust-tiers-limits"
 date: "2026-08-17"
 title: "Trust Tiers: Limits That Grow With Your Account"
 summary: "Every organization now has transparent per-endpoint rate limits, daily/monthly spend caps, and top-up allowances that scale automatically with account age or lifetime usage — all visible on the new Settings → Limits page. Enterprise organizations have no limits at all."
+tags: ["llmgateway"]
 image:
   src: "/changelog/org-trust-tiers-limits.png"
   alt: "The new Settings → Limits page showing an organization's trust tier, spend caps, top-up allowance, and what it takes to reach the next tier"

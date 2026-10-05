@@ -6,10 +6,10 @@ env:
 - evalScript: ${output.stoppedTitle = "NATIVE_CONNECTOR_STOP " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Connectors"
-    direction: DOWN
-- tapOn: "Connectors"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Connectors"
 - tapOn:
     id: "field-search-connectors"
 - inputText: "Gmail"
@@ -32,9 +32,11 @@ env:
 - evalScript: ${output.callsBefore = JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls}
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
+- tapOn: "New conversation"
 - runFlow: helpers/chat-model.yaml
+- runFlow: helpers/chat-options.yaml
 - tapOn: "Temporary conversation"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${output.temporaryTitle}
 - tapOn: "Send message"
@@ -48,7 +50,10 @@ env:
 - assertTrue: ${JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls === output.callsBefore}
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
 - tapOn:
     id: "field-search-conversations"
 - inputText: ${output.temporaryTitle}
@@ -56,8 +61,9 @@ env:
 - assertVisible: "No matching conversations."
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
+- tapOn: "New conversation"
 - runFlow: helpers/chat-model.yaml
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${output.stoppedTitle}
 - tapOn: "Send message"
@@ -75,7 +81,10 @@ env:
     timeout: 15000
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
 - tapOn:
     id: "field-search-conversations"
 - inputText: ${output.stoppedTitle}

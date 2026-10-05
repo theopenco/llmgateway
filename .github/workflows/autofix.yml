@@ -4,6 +4,7 @@ on: pull_request
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   autofix:
@@ -12,6 +13,14 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
 
     steps:
+      - name: Set up Turborepo Remote Cache
+        # Fork PRs get no OIDC token; they fall back to building cold.
+        if: vars.TURBO_TEAM != ''
+        continue-on-error: true
+        uses: vercel/setup-turborepo-remote-cache-action@v1.1.0
+        with:
+          team: ${{ vars.TURBO_TEAM }}
+
       - name: Autofix
         uses: steebchen/actions/autofix@v0.17.0
         with:

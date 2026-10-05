@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	notifyChatSupportEscalation,
 	notifyHighRiskAccount,
+	notifyOrgLimitReached,
 	notifyTopUpVelocityLimit,
 } from "./discord.js";
 
@@ -117,6 +118,39 @@ describe("top-up velocity Discord notifications", () => {
 
 		expect(fetchMock).toHaveBeenCalledWith(
 			topUpWebhookUrl,
+			expect.objectContaining({ body: expect.any(String) }),
+		);
+	});
+});
+
+describe("organization limit Discord notifications", () => {
+	const orgLimitWebhookUrl = "https://discord.test/org-limit-webhook";
+	const fetchMock = vi.fn(
+		async (_url: string | URL | Request, _init?: RequestInit) =>
+			new Response(null, { status: 204 }),
+	);
+
+	beforeEach(() => {
+		process.env.DISCORD_ORG_LIMIT_NOTIFICATION_URL = orgLimitWebhookUrl;
+		vi.stubGlobal("fetch", fetchMock);
+	});
+
+	afterEach(() => {
+		delete process.env.DISCORD_ORG_LIMIT_NOTIFICATION_URL;
+		vi.unstubAllGlobals();
+		fetchMock.mockClear();
+	});
+
+	it("uses the dedicated organization limit channel", async () => {
+		await notifyOrgLimitReached({
+			organizationId: "organization-123",
+			organizationName: "Test Organization",
+			title: "API key limit reached",
+			detail: "5 active API keys",
+		});
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			orgLimitWebhookUrl,
 			expect.objectContaining({ body: expect.any(String) }),
 		);
 	});

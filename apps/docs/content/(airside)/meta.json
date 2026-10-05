@@ -1,0 +1,16 @@
+{
+	"title": "Airside",
+	"description": "The console for model providers",
+	"icon": "PlaneTakeoff",
+	"root": true,
+	"pages": [
+		"---Get started---",
+		"airside",
+		"---Features---",
+		"...features",
+		"---Knowledge base---",
+		"...learn",
+		"---Developer tools---",
+		"[Pricing summary (Markdown)](https://airside.llmgateway.io/pricing.md)"
+	]
+}

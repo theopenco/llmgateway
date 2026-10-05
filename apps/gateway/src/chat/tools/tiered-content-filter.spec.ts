@@ -69,24 +69,13 @@ describe("resolveTieredContentFilterPlan", () => {
 		).toBeNull();
 	});
 
-	test("carries the configured classifier and drops a self-shadow", async () => {
+	test("carries the configured classifier", async () => {
 		expect(
 			await resolveTieredContentFilterPlan(org(), "openai", {
 				...enabledSettings,
 				classifier: "jev",
-				shadowClassifier: "openai",
 			}),
-		).toMatchObject({ classifier: "jev", shadowClassifier: "openai" });
-		expect(
-			await resolveTieredContentFilterPlan(org(), "openai", {
-				...enabledSettings,
-				classifier: "jev",
-				shadowClassifier: "jev",
-			}),
-		).toMatchObject({ classifier: "jev", shadowClassifier: null });
-		expect(
-			await resolveTieredContentFilterPlan(org(), "openai", enabledSettings),
-		).toMatchObject({ classifier: "openai", shadowClassifier: null });
+		).toMatchObject({ classifier: "jev" });
 	});
 
 	test("is log-only by default and reports the inherited tier", async () => {
@@ -100,7 +89,8 @@ describe("resolveTieredContentFilterPlan", () => {
 			enforce: false,
 			exemptReason: "global_log_only",
 			classifier: "openai",
-			shadowClassifier: null,
+			internalScope: "full",
+			moderateImages: true,
 		});
 	});
 
@@ -258,7 +248,8 @@ describe("buildGatewayContentFilterEvaluation", () => {
 		level: "strict" as const,
 		enforce: true,
 		classifier: "openai" as const,
-		shadowClassifier: null,
+		internalScope: "full" as const,
+		moderateImages: true,
 	};
 	const violation = {
 		violation: true,
@@ -267,24 +258,40 @@ describe("buildGatewayContentFilterEvaluation", () => {
 		categoryScores: { violence: 0.9 },
 	};
 
+	test("records the internal classifier's input scope", () => {
+		expect(
+			buildGatewayContentFilterEvaluation(
+				{
+					...plan,
+					classifier: "internal",
+					internalScope: "latest_turn",
+				},
+				violation,
+				false,
+				5,
+			),
+		).toMatchObject({ classifier: "internal", internalScope: "latest_turn" });
+	});
+
 	test("marks enforced violations as blocked", () => {
-		expect(buildGatewayContentFilterEvaluation(plan, violation, false)).toEqual(
-			{
-				sampled: true,
-				classifier: "openai",
-				provider: "openai",
-				tier: 1,
-				overridden: false,
-				level: "strict",
-				violation: true,
-				action: "blocked",
-				enforced: true,
-				flagged: true,
-				matchedCategories: ["violence"],
-				categoryScores: { violence: 0.9 },
-				moderationFailed: false,
-			},
-		);
+		expect(
+			buildGatewayContentFilterEvaluation(plan, violation, false, 42),
+		).toEqual({
+			sampled: true,
+			classifier: "openai",
+			provider: "openai",
+			tier: 1,
+			overridden: false,
+			level: "strict",
+			violation: true,
+			action: "blocked",
+			enforced: true,
+			flagged: true,
+			matchedCategories: ["violence"],
+			categoryScores: { violence: 0.9 },
+			moderationFailed: false,
+			durationMs: 42,
+		});
 	});
 
 	test("marks log-only violations as logged and clean requests as passed", () => {
@@ -293,6 +300,7 @@ describe("buildGatewayContentFilterEvaluation", () => {
 				{ ...plan, enforce: false, exemptReason: "global_log_only" },
 				violation,
 				false,
+				10,
 			),
 		).toMatchObject({ action: "logged", exemptReason: "global_log_only" });
 		expect(
@@ -300,31 +308,8 @@ describe("buildGatewayContentFilterEvaluation", () => {
 				plan,
 				{ ...violation, violation: false, matchedCategories: [] },
 				true,
+				10,
 			),
 		).toMatchObject({ action: "passed", moderationFailed: true });
-	});
-
-	test("records a shadow classifier's verdict without changing the action", () => {
-		const evaluation = buildGatewayContentFilterEvaluation(
-			{ ...plan, shadowClassifier: "jev" },
-			{ ...violation, violation: false, matchedCategories: [] },
-			false,
-			{
-				classifier: "jev",
-				evaluation: violation,
-				moderationFailed: false,
-			},
-		);
-
-		expect(evaluation.action).toBe("passed");
-		expect(evaluation.shadow).toEqual({
-			classifier: "jev",
-			violation: true,
-			flagged: true,
-			matchedCategories: ["violence"],
-			categoryScores: { violence: 0.9 },
-			moderationFailed: false,
-			disagreed: true,
-		});
 	});
 });

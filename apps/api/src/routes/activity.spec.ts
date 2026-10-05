@@ -192,6 +192,115 @@ describe("activity endpoint", () => {
 		await deleteAll();
 	});
 
+	test("provider deletion preserves logs and usage after log retention", async () => {
+		const providerId = "deleted-usage-provider";
+		const modelId = "shared-usage-model";
+		const mappingId = "deleted-usage-mapping";
+		try {
+			await db.insert(tables.provider).values({
+				id: providerId,
+				name: "Retired provider",
+				description: "Test provider",
+			});
+			await db.insert(tables.model).values({ id: modelId, family: "test" });
+			await db
+				.insert(tables.modelProviderMapping)
+				.values({ id: mappingId, providerId, modelId, externalId: modelId });
+			await db
+				.update(tables.providerKey)
+				.set({ provider: providerId })
+				.where(eq(tables.providerKey.id, "test-provider-key-id"));
+			await db
+				.update(tables.log)
+				.set({
+					usedModel: `${providerId}/${modelId}`,
+					usedProvider: providerId,
+					usedModelMapping: mappingId,
+					cost: 0.25,
+				})
+				.where(eq(tables.log.id, "log-1"));
+			await aggregateLogsForTesting();
+			const logBefore = await db.query.log.findFirst({
+				where: { id: { eq: "log-1" } },
+			});
+			const headers = { Cookie: token };
+			const paths = [
+				"/activity?projectId=test-project-id&days=7",
+				"/activity?apiKeyId=test-api-key-id&days=7",
+			];
+			const before = [];
+			for (const path of paths) {
+				const response = await app.request(path, { headers });
+				expect(response.status).toBe(200);
+				before.push(await response.json());
+			}
+
+			await db
+				.delete(tables.provider)
+				.where(eq(tables.provider.id, providerId));
+
+			expect(
+				await db.query.modelProviderMapping.findFirst({
+					where: { id: { eq: mappingId } },
+				}),
+			).toBeUndefined();
+			expect(
+				await db.query.model.findFirst({ where: { id: { eq: modelId } } }),
+			).toBeDefined();
+			expect(
+				await db.query.providerKey.findFirst({
+					where: { id: { eq: "test-provider-key-id" } },
+				}),
+			).toMatchObject({ provider: providerId });
+			expect(
+				await db.query.log.findFirst({ where: { id: { eq: "log-1" } } }),
+			).toEqual(logBefore);
+			const logs = await app.request(
+				`/logs?projectId=test-project-id&provider=${providerId}`,
+				{ headers },
+			);
+			expect(logs.status).toBe(200);
+			expect((await logs.json()).logs).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						id: "log-1",
+						usedProvider: providerId,
+						cost: 0.25,
+					}),
+				]),
+			);
+
+			// Retention can prune the request without removing aggregated usage.
+			await db.delete(tables.log).where(eq(tables.log.id, "log-1"));
+			for (const [index, path] of paths.entries()) {
+				const response = await app.request(path, { headers });
+				expect(response.status).toBe(200);
+				const after = await response.json();
+				expect(after).toEqual(before[index]);
+				expect(after.activity).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							modelBreakdown: expect.arrayContaining([
+								expect.objectContaining({
+									id: `${providerId}/${modelId}`,
+									provider: providerId,
+									requestCount: 1,
+									totalTokens: 30,
+									cost: 0.25,
+								}),
+							]),
+						}),
+					]),
+				);
+			}
+		} finally {
+			await db
+				.delete(tables.provider)
+				.where(eq(tables.provider.id, providerId));
+			await db.delete(tables.model).where(eq(tables.model.id, modelId));
+		}
+	});
+
 	test("GET /activity should return activity data grouped by day", async () => {
 		// Mock authentication
 		const res = await app.request("/activity?days=7", {
@@ -1926,6 +2035,88 @@ describe("activity endpoint", () => {
 
 	// A developer may only ever see traffic from the api keys they created, even
 	// inside a project they were granted. Project access is not key access.
+	describe("GET /activity/routing-savings", () => {
+		test("sums routed spend against the baseline per route and day", async () => {
+			const hour = new Date();
+			hour.setUTCMinutes(0, 0, 0);
+			await db.insert(tables.projectHourlyRoutingStats).values([
+				{
+					projectId: "test-project-id",
+					hourTimestamp: hour,
+					routeKey: "auto",
+					requestCount: 3,
+					cost: 0.25,
+					baselineCost: 1,
+				},
+				{
+					projectId: "test-project-id",
+					hourTimestamp: hour,
+					routeKey: "dynamic/support",
+					requestCount: 1,
+					cost: 0.5,
+					baselineCost: 0.5,
+				},
+				{
+					projectId: "test-project-id-2",
+					hourTimestamp: hour,
+					routeKey: "auto",
+					requestCount: 9,
+					cost: 9,
+					baselineCost: 90,
+				},
+			]);
+
+			const res = await app.request(
+				"/activity/routing-savings?projectId=test-project-id",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const body = await res.json();
+			expect(body.totals).toEqual({
+				requestCount: 4,
+				cost: 0.75,
+				baselineCost: 1.5,
+				savings: 0.75,
+			});
+			expect(
+				body.routes.map((route: { routeKey: string; savings: number }) => [
+					route.routeKey,
+					route.savings,
+				]),
+			).toEqual([
+				["auto", 0.75],
+				["dynamic/support", 0],
+			]);
+			expect(body.daily).toHaveLength(8);
+			expect(
+				body.daily.reduce(
+					(sum: number, day: { baselineCost: number }) =>
+						sum + day.baselineCost,
+					0,
+				),
+			).toBeCloseTo(1.5);
+		});
+
+		test("rejects a project the user cannot access", async () => {
+			await db.insert(tables.organization).values({
+				id: "other-org-id",
+				name: "Other Organization",
+				billingEmail: "other@example.com",
+			});
+			await db.insert(tables.project).values({
+				id: "other-project-id",
+				name: "Other Project",
+				organizationId: "other-org-id",
+			});
+
+			const res = await app.request(
+				"/activity/routing-savings?projectId=other-project-id",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(403);
+		});
+	});
+
 	describe("developer key scoping", () => {
 		const OTHER_KEY = "teammate-key";
 
@@ -2053,6 +2244,14 @@ describe("activity endpoint", () => {
 		test("rejects the project sources breakdown", async () => {
 			const res = await app.request(
 				"/activity/sources?projectId=test-project-id",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(403);
+		});
+
+		test("rejects the project routing savings", async () => {
+			const res = await app.request(
+				"/activity/routing-savings?projectId=test-project-id",
 				{ headers: { Cookie: token } },
 			);
 			expect(res.status).toBe(403);
@@ -2480,6 +2679,119 @@ describe("activity endpoint", () => {
 			expect(cursor.totalTokens).toBe(300);
 			expect(cursor.cost).toBeCloseTo(5, 5);
 			expect(typeof cursor.lastUsedAt).toBe("string");
+		});
+
+		test("should break sources down by root model", async () => {
+			const now = new Date();
+			const twoDaysMs = 48 * 60 * 60 * 1000;
+			await db.insert(tables.projectHourlySourceModelStats).values([
+				{
+					projectId: "test-project-id",
+					hourTimestamp: now,
+					source: "opencode",
+					usedModel: "anthropic/claude-sonnet-4-5",
+					usedProvider: "anthropic",
+					requestCount: 2,
+					totalTokens: "20",
+					cost: 1,
+					creditsRequestCount: 2,
+					creditsCost: 1,
+				},
+				{
+					projectId: "test-project-id",
+					hourTimestamp: now,
+					source: "opencode",
+					usedModel: "aws-bedrock/claude-sonnet-4-5:us-east-1",
+					usedProvider: "aws-bedrock",
+					requestCount: 3,
+					totalTokens: "30",
+					cost: 2,
+					apiKeysRequestCount: 3,
+					apiKeysCost: 2,
+				},
+				{
+					projectId: "test-project-id",
+					hourTimestamp: now,
+					source: "opencode",
+					usedModel: "openai/gpt-4o",
+					usedProvider: "openai",
+					requestCount: 1,
+					totalTokens: "5",
+					cost: 0.5,
+				},
+				{
+					projectId: "test-project-id",
+					hourTimestamp: now,
+					source: "cursor",
+					usedModel: "custom/meta-llama/llama-4:eu",
+					usedProvider: "custom",
+					requestCount: 1,
+					totalTokens: "1",
+					cost: 0.1,
+				},
+				{
+					projectId: "test-project-id",
+					hourTimestamp: new Date(now.getTime() - twoDaysMs),
+					source: "opencode",
+					usedModel: "openai/gpt-4o",
+					usedProvider: "openai",
+					requestCount: 100,
+					cost: 100,
+				},
+			]);
+
+			const res = await app.request(
+				"/activity/sources?projectId=test-project-id&timeRange=24h",
+				{
+					headers: {
+						Cookie: token,
+					},
+				},
+			);
+
+			expect(res.status).toBe(200);
+			const data = await res.json();
+			expect(data.sourceModels).toEqual([
+				{
+					source: "opencode",
+					model: "claude-sonnet-4-5",
+					requestCount: 5,
+					inputTokens: 0,
+					outputTokens: 0,
+					totalTokens: 50,
+					cost: 3,
+					creditsRequestCount: 2,
+					apiKeysRequestCount: 3,
+					creditsCost: 1,
+					apiKeysCost: 2,
+				},
+				{
+					source: "opencode",
+					model: "gpt-4o",
+					requestCount: 1,
+					inputTokens: 0,
+					outputTokens: 0,
+					totalTokens: 5,
+					cost: 0.5,
+					creditsRequestCount: 0,
+					apiKeysRequestCount: 0,
+					creditsCost: 0,
+					apiKeysCost: 0,
+				},
+				{
+					source: "cursor",
+					model: "meta-llama/llama-4",
+					requestCount: 1,
+					inputTokens: 0,
+					outputTokens: 0,
+					totalTokens: 1,
+					cost: expect.closeTo(0.1, 5),
+					creditsRequestCount: 0,
+					apiKeysRequestCount: 0,
+					creditsCost: 0,
+					apiKeysCost: 0,
+				},
+			]);
 		});
 
 		test("should reject an invalid timeRange", async () => {

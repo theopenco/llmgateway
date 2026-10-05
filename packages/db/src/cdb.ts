@@ -1,10 +1,15 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 
-import { redisClient } from "@llmgateway/cache";
+import { redisClient, setSwrSchemaVersion } from "@llmgateway/cache";
 
 import { pool } from "./db.js";
 import { RedisCache } from "./redis-cache.js";
 import { relations } from "./relations.js";
+import { SCHEMA_CACHE_VERSION } from "./schema-cache-version.js";
+
+// Stamp the column layout on the SWR mirrors too, so a fallback row serialized
+// under a different schema is discarded instead of served with missing fields.
+setSwrSchemaVersion(SCHEMA_CACHE_VERSION);
 
 // Exported so writers that bypass this client (the worker debits credits via
 // the plain `db` client inside a transaction) can still evict tagged entries.

@@ -1,7 +1,9 @@
-import { Inter, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
+import localFont from "next/font/local";
 
 import { AdminShell } from "@/components/admin-shell";
+import { AdminRoleProvider } from "@/lib/admin-role-context";
 import { getConfig } from "@/lib/config-server";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { Providers } from "@/lib/providers";
 import { hasSessionCookie } from "@/lib/session-cookie";
 
@@ -10,25 +12,27 @@ import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
-const inter = Inter({
+const inter = localFont({
 	variable: "--font-inter",
-	subsets: ["latin"],
+	src: "../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2",
+	weight: "100 900",
 	display: "swap",
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
 	// globals.css maps the Tailwind token: --font-mono: var(--font-geist-mono).
 	// Registering the font under --font-mono directly would leave that theme
 	// mapping dangling and every `font-mono` element falls back to sans.
 	variable: "--font-geist-mono",
-	subsets: ["latin"],
+	src: "../../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2",
+	weight: "100 900",
 	display: "swap",
 });
 
-const plusJakarta = Plus_Jakarta_Sans({
+const plusJakarta = localFont({
 	variable: "--font-display",
-	subsets: ["latin"],
-	weight: ["500", "600", "700", "800"],
+	src: "../../node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2",
+	weight: "200 800",
 	display: "swap",
 });
 
@@ -54,6 +58,7 @@ export default async function RootLayout({
 }) {
 	const config = getConfig();
 	const signedIn = await hasSessionCookie();
+	const adminRole = signedIn ? await getSessionAdminRole() : null;
 
 	return (
 		<html
@@ -63,7 +68,9 @@ export default async function RootLayout({
 		>
 			<body className="antialiased">
 				<Providers config={config}>
-					<AdminShell signedIn={signedIn}>{children}</AdminShell>
+					<AdminRoleProvider role={adminRole}>
+						<AdminShell signedIn={signedIn}>{children}</AdminShell>
+					</AdminRoleProvider>
 				</Providers>
 			</body>
 		</html>

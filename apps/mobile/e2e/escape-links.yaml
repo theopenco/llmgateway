@@ -1,11 +1,10 @@
 appId: io.llmgateway.lounge
 ---
 - launchApp
-- scrollUntilVisible:
-    element: "Sandbox Escape"
-    direction: DOWN
-    timeout: 20000
-- tapOn: "Sandbox Escape"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Sandbox Escape"
 - tapOn: "Saved runs"
 - tapOn:
     id: field-escape-replay-link
@@ -14,11 +13,10 @@ appId: io.llmgateway.lounge
 - tapOn: "Open replay link"
 - assertVisible: "Paste a Lounge Escape replay link."
 - launchApp
-- scrollUntilVisible:
-    element: "Sandbox Escape"
-    direction: DOWN
-    timeout: 20000
-- tapOn: "Sandbox Escape"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Sandbox Escape"
 - tapOn: "Saved runs"
 - tapOn:
     id: field-escape-replay-link

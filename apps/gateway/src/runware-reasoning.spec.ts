@@ -6,6 +6,7 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
+import { clearCache } from "./test-utils/test-helpers.js";
 
 describe("Runware GLM-5.2 reasoning", () => {
 	const harness = createGatewayApiTestHarness();
@@ -31,6 +32,41 @@ describe("Runware GLM-5.2 reasoning", () => {
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,
 		});
+		// Runware serves GLM-5.2 as an Airside listing only.
+		await db
+			.insert(tables.provider)
+			.values({ id: "runware", name: "Runware", description: "" })
+			.onConflictDoNothing();
+		await db
+			.insert(tables.model)
+			.values({ id: "glm-5.2", name: "GLM-5.2", family: "glm" })
+			.onConflictDoNothing();
+		await db.insert(tables.modelProviderMapping).values({
+			modelId: "glm-5.2",
+			providerId: "runware",
+			externalId: "zai-glm-5-2",
+			source: "airside",
+			inputPrice: "0.8e-6",
+			outputPrice: "2.55e-6",
+			cachedInputPrice: "0.16e-6",
+			contextSize: 1024000,
+			maxOutput: 128000,
+			streaming: true,
+			reasoning: true,
+			reasoningEfforts: [
+				"none",
+				"minimal",
+				"low",
+				"medium",
+				"high",
+				"xhigh",
+				"max",
+			],
+			tools: true,
+			jsonOutput: true,
+			status: "active",
+		});
+		await clearCache();
 
 		const originalFetch = globalThis.fetch;
 		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {

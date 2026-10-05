@@ -4,6 +4,7 @@ slug: "claude-sonnet-4-5-support"
 date: "2025-09-29"
 title: "Claude Sonnet 4.5 Model Support"
 summary: "Added support for Anthropic's Claude Sonnet 4.5"
+tags: ["llmgateway"]
 image:
   src: "/changelog/sonnet-4.5.png"
   alt: "Claude Sonnet models available via Anthropic provider on LLM Gateway"

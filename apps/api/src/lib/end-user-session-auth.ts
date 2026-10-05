@@ -24,6 +24,10 @@ export interface AuthenticatedSession {
 	bonusPercent: number;
 	/** Origins allowed to call with this session (CORS), from the project. */
 	allowedOrigins: string[] | null;
+	/** Developer's brand, shown on the end-user's receipt. Falls back to the project name. */
+	brandName: string;
+	/** Appended to our statement-descriptor prefix on the top-up charge. */
+	statementDescriptorSuffix: string | null;
 }
 
 declare module "hono" {
@@ -117,6 +121,12 @@ export async function endUserSessionAuth(c: Context, next: Next) {
 		markupPercent: Number.isFinite(markupPercent) ? markupPercent : 0,
 		bonusPercent: Number.isFinite(bonusPercent) ? bonusPercent : 0,
 		allowedOrigins: session.wallet.project?.allowedOrigins ?? null,
+		brandName:
+			session.wallet.project?.endUserBrandName ??
+			session.wallet.project?.name ??
+			"LLM Gateway",
+		statementDescriptorSuffix:
+			session.wallet.project?.endUserStatementDescriptorSuffix ?? null,
 	});
 
 	await next();

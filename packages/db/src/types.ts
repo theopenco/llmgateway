@@ -193,12 +193,15 @@ type SerializedOrganizationBase = Omit<
 	| "paymentFailureCount"
 	| "lastPaymentFailureAt"
 	| "paymentFailureStartedAt"
+	| "subscriptionPaymentStatus"
 	// Admin-only trust-tier pin; the dashboard reads the resolved tier from
 	// GET /orgs/{id}/limits instead.
 	| "trustTierOverride"
 	// Admin-only content filter pin and enforcement override.
 	| "contentFilterTierOverride"
 	| "contentFilterLogOnly"
+	// Served by GET /orgs/{id}/compliance-alerts.
+	| "complianceAlertSettings"
 	| "devPlanBillingCycleStart"
 	| "devPlanPremiumWeekStart"
 	| "devPlanStripeSubscriptionId"
@@ -206,8 +209,6 @@ type SerializedOrganizationBase = Omit<
 	| "devPlanExpiresAt"
 	| "devPlanPendingTier"
 	| "devPlanCardFingerprint"
-	| "devPlanCreditsFrozen"
-	| "devPlanCreditsLimitBeforeFreeze"
 	| "devPlanTierChangeClaimedAt"
 	| "chatPlanBillingCycleStart"
 	| "chatPlanStripeSubscriptionId"

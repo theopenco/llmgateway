@@ -1,4 +1,6 @@
 import {
+	APICallError,
+	StreamProviderError,
 	streamText,
 	convertToModelMessages,
 	createUIMessageStream,
@@ -13,15 +15,22 @@ import { z } from "zod";
 import { redisClient } from "@/auth/config.js";
 import {
 	fetchKnowledgePage,
+	getCatalogueSummary,
 	getKnowledgeOverviews,
+	getKnowledgeReferenceDocs,
 	getKnowledgeUrls,
+	type CatalogueSummary,
 } from "@/utils/chat-support-knowledge.js";
 import { notifyChatSupportEscalation } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
+import { consumeRateLimit } from "@/utils/public-rate-limit.js";
+import { isUpstreamError } from "@/utils/upstream-error.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { and, db, desc, eq, isNull, tables } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
+import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 import { replyToEmail } from "@llmgateway/shared/email";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
@@ -37,6 +46,25 @@ function escapeHtml(text: string): string {
 	};
 	return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
 }
+
+function getStreamErrorDetails(error: unknown): {
+	statusCode?: number;
+	code?: string | number;
+	type?: string;
+} {
+	if (StreamProviderError.isInstance(error)) {
+		return { statusCode: error.statusCode, code: error.code, type: error.type };
+	}
+	if (APICallError.isInstance(error)) {
+		return { statusCode: error.statusCode };
+	}
+	return {};
+}
+
+// Upstream messages can name internal deployments and regions, so the client
+// only ever sees this fixed message.
+const STREAM_ERROR_MESSAGE =
+	"The assistant could not answer right now. Please try again.";
 
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
@@ -84,15 +112,56 @@ When answering:
 3. Use the \`fetchPage\` tool for exact or uncertain details and ground the answer in the fetched page.
 4. If the question is unrelated to LLM Gateway, politely decline and invite a product question.
 5. Never invent features or capabilities. If the docs do not answer the question, link to ${DOCS_BASE_URL} or suggest contact@llmgateway.io.
-6. Keep responses under 200 words when possible.`;
+6. Keep responses under 200 words when possible.
+
+Model and provider counts:
+- Quote the exact numbers from the "Live catalogue" section below. They come from the production database and override any count in your training data, marketing copy, blog posts, comparison pages, or fetched pages ("200+ models", "40+ providers", and similar round figures are floors, not the current total).
+- For a specific provider, check the live provider list, then link to https://llmgateway.io/providers for details and pricing.
+- For a specific model, the live catalogue has no model names: use \`fetchPage\` on its model page from the "Available pages" list when one exists, otherwise link to https://llmgateway.io/models. Never claim a model is or is not supported without checking a page.
+
+Billing, refunds, and invoices:
+- Answer from the "Billing reference" docs below. Quote refund windows, usage thresholds, and eligibility rules exactly as written there, and say which product (AI Gateway credits, DevPass, Lounge, Reset Pass) the rule applies to.
+- Before saying a purchase can be refunded, check every condition for that product against what the visitor said: convert the time since purchase to days and compare it with the window (3 weeks is 21 days, which is past a 14-day window), and compare usage with the threshold. If any condition fails, say plainly that it cannot be self-refunded and which rule blocks it. If a condition is unknown, state it as a requirement instead of assuming it is met.
+- You cannot see accounts, payments, or balances, and you cannot issue refunds, change invoices, or make exceptions. Never promise a refund or an outcome. Point to the self-service steps instead.
+- When a request falls outside the documented rules (a charge older than the window, a disputed or duplicate charge, a missing invoice, a billing error), tell the visitor to ask for a human in this chat so the support team can review it, or to email contact@llmgateway.io.`;
+
+function formatCatalogueSummary(summary: CatalogueSummary): string {
+	const outputs = Object.entries(summary.outputCounts)
+		.sort(([, a], [, b]) => b - a)
+		.map(([output, count]) => `${count} with ${output} output`)
+		.join(", ");
+	return `Live catalogue (from the production database, as of ${summary.generatedAt}):
+- ${summary.modelCount} models are available across ${summary.providerCount} providers.
+- Free models: ${summary.freeModelCount}.${outputs ? `\n- By output type: ${outputs}.` : ""}
+- Providers: ${summary.providers.join(", ")}.`;
+}
 
 async function buildSystemPrompt(): Promise<string> {
-	const [urls, overviews] = await Promise.all([
+	const [urls, overviews, referenceDocs, catalogue] = await Promise.all([
 		getKnowledgeUrls(),
 		getKnowledgeOverviews(),
+		getKnowledgeReferenceDocs(),
+		getCatalogueSummary(),
 	]);
 
-	let prompt = BASE_SYSTEM_PROMPT;
+	let prompt = `${BASE_SYSTEM_PROMPT}
+
+Today's date: ${new Date().toISOString().slice(0, 10)}.`;
+
+	if (catalogue) {
+		prompt += `\n\n${formatCatalogueSummary(catalogue)}`;
+	}
+
+	if (referenceDocs.length > 0) {
+		const docSections = referenceDocs
+			.map((doc) => `--- ${doc.url} ---\n${doc.content}`)
+			.join("\n\n");
+		prompt += `
+
+Billing reference (live documentation — authoritative on billing, transactions, invoices, credit notes, refunds, Reset Passes, pay-as-you-go overflow, and Lounge memberships):
+
+${docSections}`;
+	}
 
 	// Inline each product's llms.txt overview so scope and plan questions are
 	// answerable without a tool call.
@@ -118,37 +187,17 @@ ${urlList}`;
 	return prompt;
 }
 
-function extractClientIP(c: {
-	req: { header: (name: string) => string | undefined };
-}): string | null {
-	const cfConnectingIP = c.req.header("CF-Connecting-IP");
-	if (cfConnectingIP) {
-		return cfConnectingIP;
-	}
-	const xForwardedFor = c.req.header("X-Forwarded-For");
-	if (xForwardedFor) {
-		return xForwardedFor.split(",")[0]?.trim() ?? null;
-	}
-	return c.req.header("X-Real-IP") ?? null;
-}
-
 async function checkRateLimit(
 	identifier: string,
 	bucket: string,
 	max: number,
 	windowSeconds: number,
 ): Promise<boolean> {
-	const key = `chat_support_rate_limit:${bucket}:${identifier}`;
-	try {
-		const count = await redisClient.incr(key);
-		if (count === 1) {
-			await redisClient.expire(key, windowSeconds);
-		}
-		return count <= max;
-	} catch (error) {
-		logger.error("Chat support rate limit check failed", toError(error));
-		return true;
-	}
+	return await consumeRateLimit(
+		`chat_support_rate_limit:${bucket}:${identifier}`,
+		max,
+		windowSeconds,
+	);
 }
 
 // Enforces the burst, hourly and daily windows per IP and per clientId, then
@@ -436,7 +485,7 @@ const chatSupportRequestSchema = z.object({
 export const publicChatSupport = new Hono<ServerTypes>();
 
 publicChatSupport.post("/", async (c) => {
-	const ipAddress = extractClientIP(c) ?? "unknown";
+	const ipAddress = getClientIpFromContext(c) ?? "unknown";
 
 	const parsed = chatSupportRequestSchema.safeParse(
 		await c.req.json().catch(() => null),
@@ -529,6 +578,7 @@ publicChatSupport.post("/", async (c) => {
 		apiKey: supportApiKey,
 		baseURL: getGatewayApiBaseUrl(),
 		headers: {
+			...forwardedIpHeaders(c.req.raw.headers),
 			"x-source": "support-chat",
 		},
 	});
@@ -536,7 +586,7 @@ publicChatSupport.post("/", async (c) => {
 	const system = await buildSystemPrompt();
 
 	const result = streamText({
-		model: llmgateway.chat("auto"),
+		model: llmgateway.chat("smart"),
 		instructions: system,
 		messages: await convertToModelMessages(contextMessages),
 		maxOutputTokens: 1024,
@@ -553,6 +603,17 @@ publicChatSupport.post("/", async (c) => {
 				execute: async ({ url }) => await fetchKnowledgePage(url),
 			}),
 		},
+		// Without this the AI SDK console.error()s the error, which emits one
+		// log entry per line of its inspected output. Upstream failures reach the
+		// visitor below, so they are warnings.
+		onError: ({ error }) => {
+			const level = isUpstreamError(error) ? "warn" : "error";
+			logger[level](
+				"Chat support streaming error",
+				toError(error),
+				getStreamErrorDetails(error),
+			);
+		},
 		async onEnd({ text }) {
 			await persistMessage(conversationId, "assistant", text);
 		},
@@ -563,10 +624,7 @@ publicChatSupport.post("/", async (c) => {
 	// intermediate proxies, which tend to buffer `text/plain` responses and
 	// surface as "Load failed" errors on iOS.
 	const uiStream = result.toUIMessageStream({
-		onError: (error) => {
-			logger.error("Chat support streaming error", toError(error));
-			return "Something went wrong. Please try again.";
-		},
+		onError: () => STREAM_ERROR_MESSAGE,
 	});
 	const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
 
@@ -622,7 +680,7 @@ publicChatSupport.post("/", async (c) => {
 // can restore history across reloads and surface admin replies. Archived
 // conversations resolve to an empty result — they are hidden from the visitor.
 publicChatSupport.get("/conversation", async (c) => {
-	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+	if (!(await checkMetaRateLimit(getClientIpFromContext(c) ?? "unknown"))) {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
@@ -689,7 +747,7 @@ publicChatSupport.get("/conversation", async (c) => {
 
 // Records a thumbs up/down on a specific assistant message.
 publicChatSupport.post("/reaction", async (c) => {
-	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+	if (!(await checkMetaRateLimit(getClientIpFromContext(c) ?? "unknown"))) {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
@@ -737,7 +795,7 @@ publicChatSupport.post("/reaction", async (c) => {
 
 // Lets the visitor resolve their conversation and rate it from 0 to 5 stars.
 publicChatSupport.post("/resolve", async (c) => {
-	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+	if (!(await checkMetaRateLimit(getClientIpFromContext(c) ?? "unknown"))) {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
@@ -774,7 +832,7 @@ publicChatSupport.post("/resolve", async (c) => {
 });
 
 publicChatSupport.post("/escalate", async (c) => {
-	const ipAddress = extractClientIP(c) ?? "unknown";
+	const ipAddress = getClientIpFromContext(c) ?? "unknown";
 	// Throttle escalation on its own buckets — never the message buckets — so a
 	// visitor who has used up their hourly message quota can still reach a human.
 	const hourOk = await checkRateLimit(

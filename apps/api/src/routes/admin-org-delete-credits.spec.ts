@@ -19,7 +19,7 @@ vi.mock("@/routes/payments.js", async (importOriginal) => {
 	};
 });
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 async function insertOrg(id: string, credits: string) {
 	await db.insert(tables.organization).values({
@@ -60,7 +60,7 @@ describe("admin organization deletion credit guard", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		stripeMock.subscriptions.cancel.mockReset();
 		stripeMock.subscriptions.cancel.mockResolvedValue({ status: "canceled" });
@@ -68,9 +68,9 @@ describe("admin organization deletion credit guard", () => {
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		await deleteAll();
 	});

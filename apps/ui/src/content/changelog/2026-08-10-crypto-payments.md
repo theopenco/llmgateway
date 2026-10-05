@@ -4,6 +4,7 @@ slug: "crypto-payments"
 date: "2026-08-10"
 title: "Pay For Credits With Crypto"
 summary: "You can now top up your credits balance with crypto. Open the top-up dialog, take the checkout option below the amount, and pick crypto on the Stripe Checkout page — the credits land on your account exactly like a card payment."
+tags: ["llmgateway"]
 image:
   src: "/changelog/crypto-payments.png"
   alt: "A circuit board with a glowing crypto coin on the central chip, representing crypto payments for LLM Gateway credits"

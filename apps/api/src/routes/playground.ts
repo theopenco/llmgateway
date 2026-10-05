@@ -16,6 +16,7 @@ import {
 } from "@/utils/playground-key.js";
 
 import { db, tables, desc, eq, and, sql } from "@llmgateway/db";
+import { mergeVideoModelResults } from "@llmgateway/shared/video-generation-config";
 
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
@@ -1102,7 +1103,9 @@ playground.openapi(saveVideoHistory, async (c) => {
 			createdAt: tables.playgroundVideoHistory.createdAt,
 		});
 
-	if (body.models.some((m) => !m.error)) {
+	// Items are saved at submission with pending models; points land on the
+	// PATCH that records the first finished video.
+	if (body.models.some((m) => m.videoUrl)) {
 		await awardLoungePoints(user.id, "video_generation");
 	}
 
@@ -1167,7 +1170,7 @@ playground.openapi(deleteVideoHistory, async (c) => {
 
 // ── PATCH /video-history/:id ─────────────────────────────────────────────────
 
-const renameVideoHistory = createRoute({
+const updateVideoHistory = createRoute({
 	method: "patch",
 	path: "/video-history/{id}",
 	request: {
@@ -1175,7 +1178,17 @@ const renameVideoHistory = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({ prompt: z.string().min(1) }),
+					schema: z
+						.object({
+							prompt: z.string().min(1).optional(),
+							// Full replacement of the item's model results, sent as jobs
+							// finish or fail after the item was saved at submission.
+							models: z.array(videoModelResultSchema).min(1).optional(),
+						})
+						.refine(
+							(body) => body.prompt !== undefined || body.models !== undefined,
+							{ message: "prompt or models is required" },
+						),
 				},
 			},
 		},
@@ -1198,32 +1211,65 @@ const renameVideoHistory = createRoute({
 	},
 });
 
-playground.openapi(renameVideoHistory, async (c) => {
+playground.openapi(updateVideoHistory, async (c) => {
 	const user = c.get("user");
 	if (!user) {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
 	const { id } = c.req.valid("param");
-	const { prompt } = c.req.valid("json");
+	const { prompt, models } = c.req.valid("json");
 
-	const [row] = await db
-		.update(tables.playgroundVideoHistory)
-		.set({ prompt })
-		.where(
-			and(
-				eq(tables.playgroundVideoHistory.id, id),
-				eq(tables.playgroundVideoHistory.userId, user.id),
-			),
-		)
-		.returning({
-			id: tables.playgroundVideoHistory.id,
-			prompt: tables.playgroundVideoHistory.prompt,
-			createdAt: tables.playgroundVideoHistory.createdAt,
-		});
+	// Live and resumed pollers each send whole snapshots and can race, so the
+	// row is locked while its snapshot is merged: a settled result is never
+	// overwritten by a stale pending one.
+	const { row, firstFinishedVideo } = await db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(tables.playgroundVideoHistory)
+			.where(
+				and(
+					eq(tables.playgroundVideoHistory.id, id),
+					eq(tables.playgroundVideoHistory.userId, user.id),
+				),
+			)
+			.for("update")
+			.limit(1);
+		if (!existing) {
+			throw new HTTPException(404, { message: "Not found" });
+		}
+
+		const mergedModels = models
+			? mergeVideoModelResults(existing.models, models)
+			: undefined;
+		const [updated] = await tx
+			.update(tables.playgroundVideoHistory)
+			.set({
+				...(prompt !== undefined && { prompt }),
+				...(mergedModels && { models: mergedModels }),
+			})
+			.where(eq(tables.playgroundVideoHistory.id, id))
+			.returning({
+				id: tables.playgroundVideoHistory.id,
+				prompt: tables.playgroundVideoHistory.prompt,
+				createdAt: tables.playgroundVideoHistory.createdAt,
+			});
+		return {
+			row: updated,
+			// Awarded once per item, when its first finished video is recorded.
+			firstFinishedVideo:
+				mergedModels !== undefined &&
+				!existing.models.some((m) => m.videoUrl) &&
+				mergedModels.some((m) => m.videoUrl),
+		};
+	});
 
 	if (!row) {
 		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	if (firstFinishedVideo) {
+		await awardLoungePoints(user.id, "video_generation");
 	}
 
 	return c.json({

@@ -1,5 +1,11 @@
 import { isPremiumModel } from "@/model-categories.js";
 
+export interface TimeBasedTokenPrices {
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice: string | null;
+}
+
 export interface ApiProvider {
 	id: string;
 	createdAt: string;
@@ -84,24 +90,16 @@ export interface ApiModelProviderMapping {
 		cacheReadInputPrice: string | null;
 		cacheWriteInputPrice: string | null;
 		cacheWriteInputPrice1h: string | null;
+		peakPricing?: {
+			peak: TimeBasedTokenPrices;
+			offPeak: TimeBasedTokenPrices;
+		} | null;
 	}> | null;
 	peakPricing?: {
-		peak: {
-			inputPrice: string;
-			outputPrice: string;
-			cachedInputPrice: string | null;
-		};
-		offPeak: {
-			inputPrice: string;
-			outputPrice: string;
-			cachedInputPrice: string | null;
-		};
+		peak: TimeBasedTokenPrices;
+		offPeak: TimeBasedTokenPrices;
 		hoursUtc: Array<[number, number]>;
-		offPeakDays: {
-			daysOfWeek: number[];
-			utcOffsetMinutes: number;
-			timeZoneLabel: string;
-		} | null;
+		offPeakDaysUtc: number[] | null;
 	} | null;
 	serviceTiers?: string[] | null;
 	discount: string | null;
@@ -132,6 +130,11 @@ export interface ApiModel {
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	status: "active" | "inactive";
 	mappings: ApiModelProviderMapping[];
+	/**
+	 * Providers whose Airside listing of this model is paused or delisted. A
+	 * static catalogue mapping of the same pair must not be shown either.
+	 */
+	unlistedProviderIds?: string[];
 	/**
 	 * Whether the model falls under the premium fair-use category
 	 * ($5+/M input or $15+/M output). Computed server-side with the same

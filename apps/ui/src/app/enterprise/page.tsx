@@ -46,7 +46,10 @@ interface PublicAppsResponse {
 	totalRequests: number;
 }
 
-export default async function EnterprisePage() {
+// Awaiting the stats inside a child keeps the page component synchronous, so
+// the sibling sections' GitHub and tweet fetches start in parallel with this
+// one instead of queueing behind it.
+async function HeroEnterpriseWithStats() {
 	const stats = await fetchServerData<PublicAppsResponse>(
 		"GET",
 		"/public/apps",
@@ -54,12 +57,18 @@ export default async function EnterprisePage() {
 	);
 
 	return (
+		<HeroEnterprise
+			totalTokens={stats?.totalTokens}
+			totalRequests={stats?.totalRequests}
+		/>
+	);
+}
+
+export default function EnterprisePage() {
+	return (
 		<div>
-			<HeroRSC navbarOnly />
-			<HeroEnterprise
-				totalTokens={stats?.totalTokens}
-				totalRequests={stats?.totalRequests}
-			/>
+			<HeroRSC />
+			<HeroEnterpriseWithStats />
 			<TrustBarEnterprise />
 			<SecurityEnterprise />
 			<SupportEnterprise />

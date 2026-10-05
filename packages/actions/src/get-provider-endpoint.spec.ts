@@ -168,6 +168,21 @@ describe("getProviderEndpoint", () => {
 		);
 	}
 
+	it("keeps a custom base URL that already ends in /chat/completions", () => {
+		const fullEndpoint =
+			"https://carrier.example/v2/ai/openai/chat/completions";
+
+		expect(getProviderEndpoint("custom", fullEndpoint, "custom")).toBe(
+			fullEndpoint,
+		);
+		expect(getProviderEndpoint("custom", `${fullEndpoint}/`, "custom")).toBe(
+			`${fullEndpoint}/`,
+		);
+		expect(
+			getProviderEndpoint("custom", `${fullEndpoint}?region=eu`, "custom"),
+		).toBe(`${fullEndpoint}?region=eu`);
+	});
+
 	it("honors an explicit OpenAI Chat Completions format", () => {
 		expect(getCustomEndpoint("openai-chat-completions")).toBe(
 			"https://carrier.example/api/v1/chat/completions",
@@ -1143,6 +1158,50 @@ describe("getProviderEndpoint", () => {
 			},
 		);
 
+		it.each([
+			{
+				region: undefined,
+				endpoint:
+					"https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions",
+			},
+			{
+				region: "global",
+				endpoint:
+					"https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions",
+			},
+			{
+				region: "us",
+				endpoint:
+					"https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions",
+			},
+			{
+				region: "us-west-2",
+				endpoint:
+					"https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions",
+			},
+		])(
+			"routes Grok 4.6 cross-region profiles through Bedrock Runtime for $region",
+			({ region, endpoint: expectedEndpoint }) => {
+				const endpoint = getProviderEndpoint(
+					"aws-bedrock",
+					undefined,
+					"grok-4-6",
+					undefined,
+					false,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					region,
+					true,
+					"grok-4-6",
+				);
+
+				expect(endpoint).toBe(expectedEndpoint);
+			},
+		);
+
 		it("keeps a custom Grok 4.3 Bedrock Mantle base URL", () => {
 			const endpoint = getProviderEndpoint(
 				"aws-bedrock",
@@ -1460,6 +1519,25 @@ describe("getProviderEndpoint", () => {
 			expect(endpoint).toBe(
 				"https://mantle-proxy.internal/openai/v1/responses",
 			);
+		});
+	});
+	describe("perplexity", () => {
+		it("routes the Agent API mapping to /v1/agent", () => {
+			expect(
+				getProviderEndpoint("perplexity", undefined, "sonar", undefined, false),
+			).toBe("https://api.perplexity.ai/v1/agent");
+		});
+
+		it("keeps mappings still on Sonar chat/completions", () => {
+			expect(
+				getProviderEndpoint(
+					"perplexity",
+					undefined,
+					"sonar-pro",
+					undefined,
+					false,
+				),
+			).toBe("https://api.perplexity.ai/chat/completions");
 		});
 	});
 });

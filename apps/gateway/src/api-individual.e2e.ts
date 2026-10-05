@@ -21,15 +21,15 @@ import {
 } from "./test-utils/test-helpers.js";
 
 describe("e2e individual tests", () => {
-	const autoRoutingModelIds = new Set([
+	const smartRoutingModelIds = new Set([
 		"claude-opus-4-6",
 		"claude-sonnet-4-6",
 		"claude-haiku-4-5",
 	]);
-	const autoRoutingProviderIds = [
+	const smartRoutingProviderIds = [
 		...new Set(
 			models
-				.filter((model) => autoRoutingModelIds.has(model.id))
+				.filter((model) => smartRoutingModelIds.has(model.id))
 				.flatMap((model) =>
 					model.providers.map((provider) => provider.providerId),
 				),
@@ -42,7 +42,7 @@ describe("e2e individual tests", () => {
 	}
 
 	function hasAutoRoutingProviderEnv() {
-		return autoRoutingProviderIds.some((providerId) =>
+		return smartRoutingProviderIds.some((providerId) =>
 			hasProviderEnvVar(providerId),
 		);
 	}

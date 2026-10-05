@@ -11,9 +11,10 @@ import {
 	Globe,
 	ListOrdered,
 	ImagePlus,
+	Search,
 } from "lucide-react";
 import Link from "next/link";
-import { notFound, permanentRedirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
@@ -53,6 +54,15 @@ interface PageProps {
 	params: Promise<{ name: string; provider: string }>;
 }
 
+/** Start before awaiting the model lookup so both round-trips run in parallel. */
+async function findProviderInfo(providerId: string) {
+	return (
+		providerDefinitions.find((p) => p.id === providerId) ??
+		((await fetchProviders()).find((p) => p.id === providerId) as unknown as
+			(typeof providerDefinitions)[number] | undefined)
+	);
+}
+
 export default async function ModelProviderPage({ params }: PageProps) {
 	const { name, provider } = await params;
 	const decodedName = decodeURIComponent(name);
@@ -69,6 +79,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 			params: { query: { modelId: decodedName } },
 		}),
 	]);
+	const providerInfoPromise = findProviderInfo(decodedProvider);
 	const modelDef = await findPublicModelDefinition(decodedName);
 
 	if (!modelDef) {
@@ -82,18 +93,15 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	);
 
 	if (providerMappings.length === 0) {
-		// The model exists but this provider mapping was removed; send crawlers
-		// and old links to the model page instead of a 404.
-		permanentRedirect(`/models/${encodeURIComponent(decodedName)}`);
+		// The provider does not offer this model, or its carrier paused or
+		// delisted the listing. A relist brings the page back, so this is a 404
+		// and never a (browser-cached) permanent redirect.
+		notFound();
 	}
 
 	const staticProviderMapping = getDefaultProviderMapping(providerMappings);
 
-	const providerInfo =
-		providerDefinitions.find((p) => p.id === decodedProvider) ??
-		((await fetchProviders()).find(
-			(provider) => provider.id === decodedProvider,
-		) as unknown as (typeof providerDefinitions)[number] | undefined);
+	const providerInfo = await providerInfoPromise;
 	const [discountData, ratingsData] = await modelDataPromise;
 	const discounts = discountData?.discounts ?? [];
 	// A provider whose mappings are all deactivated still renders this page, but
@@ -377,6 +385,17 @@ export default async function ModelProviderPage({ params }: PageProps) {
 										color: "text-pink-500",
 									});
 								}
+								if (
+									Array.isArray(modelDef.output) &&
+									modelDef.output.includes("search")
+								) {
+									items.push({
+										key: "search",
+										icon: Search,
+										label: "Search API",
+										color: "text-sky-500",
+									});
+								}
 								if (providerMapping.rerank) {
 									items.push({
 										key: "rerank",
@@ -493,17 +512,14 @@ export async function generateMetadata({
 	const decodedName = decodeURIComponent(name);
 	const decodedProvider = decodeURIComponent(provider);
 
+	const providerInfoPromise = findProviderInfo(decodedProvider);
 	const model = await findPublicModelDefinition(decodedName);
 
 	if (!model) {
 		return {};
 	}
 
-	const providerInfo =
-		providerDefinitions.find((p) => p.id === decodedProvider) ??
-		((await fetchProviders()).find(
-			(candidate) => candidate.id === decodedProvider,
-		) as unknown as (typeof providerDefinitions)[number] | undefined);
+	const providerInfo = await providerInfoPromise;
 	const providerName = providerInfo?.name ?? decodedProvider;
 
 	const title = `${model.name ?? model.id} on ${providerName}`;

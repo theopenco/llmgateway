@@ -1,0 +1,234 @@
+---
+title: Docker Compose
+description: Run LLM Gateway with Docker Compose — each service in its own container for more control.
+icon: Layers
+---
+
+Docker Compose runs each service in its own container, giving you more control over scaling and configuration than the [single Docker image](/self-host/docker). It's a good fit for a single production host. For multi-node, high-availability deployments, use [Kubernetes](/self-host/kubernetes).
+
+## Prerequisites
+
+- Latest Docker with Compose
+- API keys for the LLM providers you want to use (OpenAI, Anthropic, etc.)
+
+## Option A: Unified image with Compose
+
+Run the all-in-one image under Compose for easy lifecycle management:
+
+```bash
+# Download the compose file
+curl -O https://raw.githubusercontent.com/theopenco/llmgateway/main/infra/docker-compose.unified.yml
+curl -O https://raw.githubusercontent.com/theopenco/llmgateway/main/.env.unified.example
+
+# Configure environment
+cp .env.unified.example .env
+# Edit .env with your configuration
+
+# Start the service
+docker compose -f docker-compose.unified.yml up -d
+```
+
+## Option B: Separate services
+
+Run each service in its own container for the most flexibility:
+
+```bash
+# Clone the repository
+git clone https://github.com/theopenco/llmgateway.git
+cd llmgateway
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your configuration
+
+# Start the services
+docker compose -f infra/docker-compose.split.yml up -d
+```
+
+Pin to a specific version by replacing the `latest` image tags with the [latest release](https://github.com/theopenco/llmgateway/releases). To build the images from source, use the `*.local.yml` compose files in the `infra` directory.
+
+## Accessing your instance
+
+- **Web Interface**: http://localhost:3002
+- **Chat Playground**: http://localhost:3003
+- **Documentation**: http://localhost:3005
+- **Provider Portal (Airside)**: http://localhost:3007
+- **API Endpoint**: http://localhost:4002
+- **Gateway Endpoint**: http://localhost:4001
+
+## Required configuration
+
+At minimum, set these environment variables:
+
+```bash
+# Database (change the password!)
+POSTGRES_PASSWORD=your_secure_password_here
+
+# Authentication
+AUTH_SECRET=your-secret-key-here
+GATEWAY_API_KEY_HASH_SECRET=your-api-key-hash-secret-here
+
+# LLM Provider API Keys (add the ones you need)
+LLM_OPENAI_API_KEY=sk-...
+LLM_ANTHROPIC_API_KEY=sk-ant-...
+```
+
+## Enterprise license
+
+Add the signed license supplied with your Enterprise agreement to `.env`:
+
+```bash
+LLMGATEWAY_ENTERPRISE_LICENSE=your-signed-license
+```
+
+Restart the API and gateway containers after changing it. Every replica may use
+the same license. The token is verified offline against a public key included in
+the images; it is never sent to LLM Gateway. Core features continue working when
+the key is missing or invalid. A standard Enterprise license is bound to one
+organization. A white-label license permits multiple Enterprise organizations
+and unlocks the multi-organization admin dashboard. Expired licenses receive a
+seven-day grace period.
+
+After restart, a signed-in administrator can check `GET /admin/license` for the
+state, expiry, scope, seat cap, and current distinct-seat usage. For signing-key
+rotation, upgrade the API and gateway images so they contain the new public key
+before installing a token with the new key ID. Old public keys remain in the
+image during the rotation window.
+
+See [Enterprise licensing](/self-host/enterprise-license) for license types,
+installation, verification, expiry behavior, and key rotation.
+
+The admin organization page prefetches its tabs in the background for faster
+switching, preserving pagination and filters.
+
+## Management commands
+
+```bash
+# View logs
+docker compose -f infra/docker-compose.split.yml logs -f
+
+# Restart services
+docker compose -f infra/docker-compose.split.yml restart
+
+# Stop services
+docker compose -f infra/docker-compose.split.yml down
+```
+
+## Managing provider credentials from the admin dashboard
+
+Provider credentials can also live in the database instead of the environment.
+The admin dashboard's **Provider Credentials** page lets you add, edit and remove
+them without redeploying, and each credential carries every setting the provider
+needs — API key, base URL, project, region, resource, API version — plus a free-form
+note so several keys for the same provider stay tellable apart.
+
+Resolution is per provider: as soon as a provider has at least one managed
+credential, credits-mode requests to it use those credentials and its `LLM_*`
+environment variables are ignored entirely. Providers with no managed credential
+keep reading the environment, so you can migrate one provider at a time.
+
+Managed credentials cover the same axes as the environment variables they replace:
+
+- Several credentials per provider, selected with the same health-aware routing
+  as the comma-separated env lists.
+- A per-credential audience (all organizations / enterprise plans / DevPass and
+  Chat plans), mirroring the `__ENTERPRISE` and `__PLANS` suffixes below.
+- An optional region, mirroring the `{ENV_VAR}__{REGION}` overrides.
+- An optional list of allowed models, for accounts that only have part of the
+  provider's catalogue enabled. For providers where models are deployed per
+  account (Azure and AWS Bedrock), the worker tests the remaining testable models once a
+  day and enables the ones that started working; it never removes a model, and it
+  leaves out models you removed from the list yourself. Models without a live
+  test, such as video generation, stay manual. Each
+  run is listed under the credential's sync history.
+
+A request that resolves no region is served from the provider's default region,
+so it is served by a region-agnostic credential or by one pinned to that default
+region. Providers whose keys are region-scoped — those with no global region, so
+every credential belongs to exactly one region — are therefore fully covered by
+one credential per region, with no region-agnostic credential needed. Providers
+whose key works across every region (AWS Bedrock) are stricter: a region on the
+credential scopes it to that region only, and a request for another region fails
+rather than borrowing it.
+
+Video generation pins the credential that created a job onto the job itself, so
+polling and content retrieval hours later go back through the same credential
+rather than re-selecting one.
+
+Provider credential tokens are encrypted at rest with AES-256-GCM because the
+gateway must recover them for upstream requests. New and rolled gateway API
+keys are stored only as keyed HMAC-SHA-256 fingerprints; incoming secrets are
+fingerprinted and compared during authentication. Both protections derive from
+`GATEWAY_API_KEY_HASH_SECRET`, so there is no extra variable to set. Give it a
+strong random value (`openssl rand -base64 32`) and configure that same value
+on every service.
+
+For rotation, prepend the same new secret to the comma-separated keyring on
+every service and retain the old entries while credentials and hashes still use
+them. Authentication checks every retained entry, while new hashes use the
+first entry. Removing an old entry makes its provider credentials undecryptable
+and its remaining hashes unusable.
+
+## Multiple API keys and load balancing
+
+LLM Gateway supports multiple API keys per provider for load balancing and increased availability. Provide comma-separated values:
+
+```bash
+# Multiple OpenAI keys for load balancing
+LLM_OPENAI_API_KEY=sk-key1,sk-key2,sk-key3
+
+# Multiple Anthropic keys
+LLM_ANTHROPIC_API_KEY=sk-ant-key1,sk-ant-key2
+```
+
+### Health-aware routing
+
+The gateway tracks the health of each API key and routes requests to healthy keys. If a key returns consecutive errors, it's temporarily skipped. Keys that return authentication errors (401/403) are blacklisted until restart.
+
+### Related configuration values
+
+For providers that require additional configuration (like Google Vertex), specify multiple values that correspond to each API key. The gateway uses the matching index:
+
+```bash
+# Multiple Google Vertex configurations
+LLM_GOOGLE_VERTEX_API_KEY=key1,key2,key3
+LLM_GOOGLE_CLOUD_PROJECT=project-a,project-b,project-c
+LLM_GOOGLE_VERTEX_REGION=us-central1,europe-west1,asia-east1
+```
+
+When the gateway selects `key2`, it automatically uses `project-b` and `europe-west1`. If you have fewer configuration values than keys, the last value is reused for the remaining keys.
+
+`LLM_GOOGLE_CLOUD_PROJECT` is optional for Google Vertex API-key chat, embedding, and speech requests, which use the projectless publisher-model endpoint when it is unset. Set it for OAuth authentication, video generation, or project-scoped Vertex URLs.
+
+## Enterprise and plan provider env overrides
+
+Any provider env var — API keys, base URLs, regions, Google Cloud projects, Azure resources, and other provider-specific settings — supports optional per-audience overrides:
+
+- `__ENTERPRISE` suffix: used instead of the base var for organizations on the enterprise plan
+- `__PLANS` suffix: used instead of the base var for plan-based (non-PAYG) organizations — DevPass coding plans and Chat plans
+
+```bash
+# Shared key for all organizations
+LLM_OPENAI_API_KEY=sk-shared-key
+
+# Used instead of the shared key, but only for enterprise-plan organizations
+LLM_OPENAI_API_KEY__ENTERPRISE=sk-enterprise-key
+
+# Used instead of the shared key, but only for plan-based (DevPass/Chat plan)
+# organizations
+LLM_OPENAI_API_KEY__PLANS=sk-plans-key
+
+# Companion settings can be overridden the same way, e.g. a dedicated
+# Google Cloud project and base URL per audience
+LLM_GOOGLE_CLOUD_PROJECT__ENTERPRISE=enterprise-gcp-project
+LLM_OPENAI_BASE_URL__PLANS=https://plans-proxy.internal
+```
+
+Notes:
+
+- Overrides are optional — matching organizations fall back to the base var when an override is unset. All other organizations never read the override vars.
+- The base API key is still what makes a provider available for routing, so set it even when you route all enterprise or plan traffic through dedicated keys.
+- Comma-separated values, load balancing, and health-aware routing work exactly like the base key; each override key list gets its own independent health tracking.
+- A set override replaces the base var wholesale, including its comma-separated list. Indexed companion values (like `LLM_GOOGLE_CLOUD_PROJECT`) resolve at the selected key index from the override list when one is set, otherwise from the base list — so keep an override key list index-compatible with its companion lists (or use single values).
+- Region-specific overrides compose with the variant suffix. For matching organizations the API-key lookup order is `{BASE}__ENTERPRISE__{REGION}` → `{BASE}__{REGION}` → `{BASE}__ENTERPRISE` → `{BASE}` (same pattern with `__PLANS`).
+- If an organization is both on the enterprise plan and a plan-based org, the enterprise overrides win.

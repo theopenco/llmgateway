@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { apiKeyScopeFilter } from "@/lib/api-key-scope-filter.js";
+import { buildLogErrorFilter } from "@/lib/log-error-filter.js";
 import {
 	getActiveUserOrganizationIds,
 	getApiKeyScope,
@@ -19,6 +20,7 @@ import {
 	desc,
 	eq,
 	errorDetails,
+	LOG_ERROR_CATEGORIES,
 	gatewayContentFilterResponseSchema,
 	getTableColumns,
 	gt,
@@ -34,9 +36,11 @@ import {
 	toolResults,
 	tools,
 } from "@llmgateway/db";
+import { LOG_ERROR_TYPES } from "@llmgateway/shared";
 import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
 
 import type { ServerTypes } from "@/vars.js";
+import type { LogErrorType } from "@llmgateway/shared";
 
 export const logs = new OpenAPIHono<ServerTypes>();
 
@@ -126,6 +130,7 @@ const logSchema = z.object({
 	toolResults: toolResults.nullable(),
 	hasError: z.boolean().nullable(),
 	errorDetails: errorDetails.nullable(),
+	errorCategory: z.enum(LOG_ERROR_CATEGORIES).nullable(),
 	cost: z.number().nullable(),
 	inputCost: z.number().nullable(),
 	outputCost: z.number().nullable(),
@@ -227,6 +232,10 @@ const logSchema = z.object({
 		.nullable()
 		.optional(),
 	discount: z.number().nullable().optional(),
+	pricingTier: z.string().nullable().optional(),
+	pricingPeriod: z.string().nullable().optional(),
+	routingBaselineModel: z.string().nullable().optional(),
+	routingBaselineCost: z.number().nullable().optional(),
 	requestedServiceTier: z.string().nullable().optional(),
 	usedServiceTier: z.string().nullable().optional(),
 	retried: z.boolean().nullable().optional(),
@@ -331,6 +340,11 @@ const querySchema = z.object({
 			"Filter logs by billing mode: credits (billed against the organization balance) or api-keys (BYOK provider keys, not billed)",
 		example: "credits",
 	}),
+	errorType: z.enum(LOG_ERROR_TYPES).optional().openapi({
+		description:
+			"Filter logs by error class: any (all errored requests), client_error, gateway_error or upstream_error",
+		example: "any",
+	}),
 });
 
 const get = createRoute({
@@ -409,6 +423,7 @@ logs.openapi(get, async (c) => {
 		requestId,
 		sessionId,
 		usedMode,
+		errorType,
 	} = {
 		...query,
 		apiKeyId: sanitize(query.apiKeyId),
@@ -427,6 +442,7 @@ logs.openapi(get, async (c) => {
 		requestId: sanitize(query.requestId),
 		sessionId: sanitize(query.sessionId),
 		usedMode: sanitize(query.usedMode) as "credits" | "api-keys" | undefined,
+		errorType: sanitize(query.errorType) as LogErrorType | undefined,
 	};
 
 	// Set default limit if not provided or enforce max limit
@@ -588,15 +604,13 @@ logs.openapi(get, async (c) => {
 		whereConditions.push(lte(tables.log.createdAt, new Date(endDate)));
 	}
 
-	// Add model filter - match the model id part after the slash and before any
-	// `:region` suffix (usedModel is stored as `provider/modelId[:region]`),
-	// or the full value if there's no slash (seed data / legacy format)
+	// Add model filter - match the model id after the provider prefix and before
+	// any `:region` suffix (usedModel is stored as `provider/modelId[:region]`;
+	// model ids may themselves contain slashes), or the full value if there's no
+	// slash (seed data / legacy format)
 	if (model) {
 		whereConditions.push(
-			sql`CASE WHEN ${tables.log.usedModel} LIKE '%/%'
-				THEN SPLIT_PART(SPLIT_PART(${tables.log.usedModel}, '/', 2), ':', 1)
-				ELSE SPLIT_PART(${tables.log.usedModel}, ':', 1)
-			END = ${model}`,
+			sql`SPLIT_PART(REGEXP_REPLACE(${tables.log.usedModel}, '^[^/]*/', ''), ':', 1) = ${model}`,
 		);
 	}
 
@@ -615,6 +629,12 @@ logs.openapi(get, async (c) => {
 		whereConditions.push(
 			eq(tables.log.unifiedFinishReason, unifiedFinishReason),
 		);
+	}
+
+	// Add error class filter
+	const errorFilter = buildLogErrorFilter(errorType);
+	if (errorFilter) {
+		whereConditions.push(errorFilter);
 	}
 
 	// Add billing mode filter

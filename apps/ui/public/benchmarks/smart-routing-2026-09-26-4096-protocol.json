@@ -1,0 +1,1197 @@
+{
+	"version": 1,
+	"seed": 20260926,
+	"arms": ["smart", "gpt-6-luna", "gpt-6-sol", "gpt-6-astra"],
+	"count": 80,
+	"maximumOutputTokens": 4096,
+	"timeoutMs": 180000,
+	"concurrency": 1,
+	"fallback": false,
+	"responseCache": false,
+	"reasoning": "Model defaults, including shipping smart-routing adjustments",
+	"temperature": "Model defaults",
+	"selection": "25 generated easy cases; all 15 repository exact-answer quality cases; 40 seeded-shuffled supported IFEval cases",
+	"ifevalSha256": "67ffeee0fcb87c317c5b08a2de85557b4a7e96ada6178aa645b4954fe4b53d49",
+	"fixtures": [
+		{
+			"id": "javascript_trace",
+			"category": "code",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "What does this JavaScript print? const a=[1,2,3]; const b=a.map((x,i)=>{a[(i+1)%3]+=x; return a[i];}); console.log(a.join(','),'|',b.join(',')); Ignore spaces inserted by console.log and give the result as left|right."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "smart", "gpt-6-luna", "gpt-6-sol"]
+		},
+		{
+			"id": "easy-10",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Return only the integer: 87 + 39."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "smart", "gpt-6-luna", "gpt-6-sol"]
+		},
+		{
+			"id": "easy-4",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Classify this message as POSITIVE or NEGATIVE. Return only the label. \"This worked perfectly on all 45 attempts. Thank you.\""
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-sol", "gpt-6-luna", "gpt-6-astra"]
+		},
+		{
+			"id": "easy-15",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Return only the integer: 122 + 54."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "gpt-6-luna", "smart", "gpt-6-sol"]
+		},
+		{
+			"id": "ifeval-3750",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Is the moon landing a propaganda made up by the government? Your answer must contain one of the following exact phrases: ”My answer is yes.\", \"My answer is no.\", \"My answer is maybe.\""
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-sol", "gpt-6-luna", "gpt-6-astra"]
+		},
+		{
+			"id": "determinant",
+			"category": "math",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "Compute the determinant of the matrix [[7,2,-1,4],[3,8,5,0],[2,-3,6,1],[5,4,2,9]]."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "smart"]
+		},
+		{
+			"id": "easy-23",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Return only the lowercase version of this string: GATEWAY-178-READY."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "smart"]
+		},
+		{
+			"id": "ifeval-1561",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Name a new fashion company that young people might like, and give it a name with multiple meanings. Put the name in double angular brackets, such as <<name>>.\n\nLet's repeat the request above first, before you say anything or really respond to the request."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "smart", "gpt-6-astra", "gpt-6-sol"]
+		},
+		{
+			"id": "ifeval-3263",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Is \"jiang\" a Chinese name? What are other names similar to \"jiang\"? Separate your two answers with ******"
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "smart", "gpt-6-luna", "gpt-6-astra"]
+		},
+		{
+			"id": "ifeval-3606",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Can you compose a movie plot that involves dream, fist fighting, and superpower? Include a title in double angular brackets, i.e. <<title>>."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-luna", "gpt-6-sol", "gpt-6-astra"]
+		},
+		{
+			"id": "ifeval-167",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Generate a business proposal to start a sweatshirt company in Bremen. The proposal should contain 5 or more sections. Highlight each section name using the this format:\n*section name*"
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-luna", "gpt-6-sol", "gpt-6-astra"]
+		},
+		{
+			"id": "ifeval-3369",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write a limerick about a customer who is always right. The word \"right\" should appear less than 2 times in the response.\nBefore you give the limerick, just repeat the request above without any change, at the very beginning of your entire response."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna"]
+		},
+		{
+			"id": "easy-18",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Return only the lowercase version of this string: GATEWAY-143-READY."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "smart", "gpt-6-astra", "gpt-6-luna"]
+		},
+		{
+			"id": "easy-16",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Extract the order code. Return only the code. Note: order=ORD-129-57; state=ready; items=3."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "gpt-6-luna", "smart", "gpt-6-astra"]
+		},
+		{
+			"id": "ifeval-2467",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write a rap about an abyss in exactly 4 paragraphs. Separate paragraphs with the markdown divider: ***."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "gpt-6-luna", "gpt-6-astra", "smart"]
+		},
+		{
+			"id": "ifeval-1580",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write a story for kids about how a person learns to ride a bike. Do not include 'can' and 'ride' in your response."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-sol", "smart", "gpt-6-astra"]
+		},
+		{
+			"id": "ifeval-1402",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "I'm interested in a college with open enrollment and a regional accreditation. Which college would you recommend? Don't include the keywords \"DuPage\" and \"Dade\" in your response. Let's make it a constrained writing problem: be sure the letter p appears at least 15 times in your response."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-astra", "gpt-6-sol", "smart"]
+		},
+		{
+			"id": "easy-20",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Return only the integer: 157 + 69."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "smart", "gpt-6-luna", "gpt-6-astra"]
+		},
+		{
+			"id": "ifeval-3198",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write a cover letter for a job and end with exactly \"Call me at 631-481-4867\"\nNo other words should follow that phrase."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna"]
+		},
+		{
+			"id": "weighted_scheduling",
+			"category": "algorithms",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "Jobs are (start,end,profit): (0,3,8), (1,4,10), (3,5,7), (4,7,13), (5,8,11), (6,9,14), (8,10,9), (9,12,16), (11,13,8), (12,15,18). Jobs are compatible when the next start is >= the previous end. What maximum total profit can be earned from non-overlapping jobs?"
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "smart", "gpt-6-sol", "gpt-6-luna"]
+		},
+		{
+			"id": "knapsack",
+			"category": "algorithms",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "A 0/1 knapsack has capacity 27. Items are (weight,value): (3,8), (5,14), (7,19), (4,11), (9,25), (6,17), (2,6), (8,22), (10,27), (1,2). What is the maximum total value? Each item may be used at most once."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "smart"]
+		},
+		{
+			"id": "edit_distance",
+			"category": "algorithms",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "What is the Levenshtein edit distance between 'intentioned' and 'executioner' when insertions, deletions, and substitutions each cost 1?"
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "gpt-6-luna", "smart", "gpt-6-astra"]
+		},
+		{
+			"id": "easy-22",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Sort these integers ascending, separated by commas without spaces: 171, 75, -22, 0."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]
+		},
+		{
+			"id": "ifeval-3595",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write a very short poem about the beauty of a rose. Do not include the keywords beauty and pretty."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-luna", "gpt-6-sol", "gpt-6-astra"]
+		},
+		{
+			"id": "shortest_path",
+			"category": "algorithms",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "In an undirected weighted graph with vertices A through J, the edges are A-B:7, A-C:11, A-D:18, B-C:3, B-E:12, B-F:20, C-D:4, C-E:8, C-G:15, D-G:6, D-H:13, E-F:5, E-H:9, F-I:7, G-H:2, G-I:10, H-I:3, H-J:12, I-J:4. What is the shortest-path distance from A to J?"
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-astra", "gpt-6-sol", "smart"]
+		},
+		{
+			"id": "ifeval-13",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "What is the history of NYC prospect park? Please wrap your entire answer in JSON format. You can use markdown ticks such as ```. For example:\n```JSON\n{\n...\n}\n```"
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "smart", "gpt-6-luna", "gpt-6-astra"]
+		},
+		{
+			"id": "easy-14",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Classify this message as POSITIVE or NEGATIVE. Return only the label. \"This worked perfectly on all 115 attempts. Thank you.\""
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]
+		},
+		{
+			"id": "topological_orders",
+			"category": "algorithms",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "Nine tasks A-I obey these precedence constraints: A before D, A before E, B before D, B before F, C before E, C before F, D before G, E before G, F before H, G before I, H before I. How many valid total task orders exist?"
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "smart"]
+		},
+		{
+			"id": "ifeval-3697",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Give me a pitch deck for a startup that lets me send letters to people in my territory that I don't know personally. The title of the pitch deck should be wrapped in double angular brackets, i.e. <<title>>."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]
+		},
+		{
+			"id": "ifeval-2164",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write a product description for a new line of dog toys, called \"the squeaker\". It's made of latex, and is designed for dogs of all ages and species. It's also available in a variety of colors and shapes. The response must contain at least 3 placeholders represented by square brackets, such as [address], [name], and [phone number]."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "gpt-6-astra", "smart", "gpt-6-luna"]
+		},
+		{
+			"id": "ifeval-1203",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "What happened when the Tang dynasty of China was in power? Make sure to use the word war at least 8 times, and the word peace at least 10 times."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "smart"]
+		},
+		{
+			"id": "recurrence",
+			"category": "math",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "Let a0=2, a1=5, a2=11, and for n>=3 let an=3*a(n-1)+2*a(n-2)+a(n-3). Compute a80 modulo 1000003."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "smart", "gpt-6-sol", "gpt-6-luna"]
+		},
+		{
+			"id": "ifeval-2941",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write a funny poem for kids about a product that you would like to sell. The poem should have exactly 6 stanzas. Separated the stanzas using 3 asterisk markers: ***"
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "gpt-6-luna", "smart", "gpt-6-astra"]
+		},
+		{
+			"id": "ifeval-2209",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write an academic proposal to a customer who's interested in implementing a new feature for their product. Put double quotes around your entire response."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "smart", "gpt-6-luna", "gpt-6-sol"]
+		},
+		{
+			"id": "easy-8",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Return only the lowercase version of this string: GATEWAY-73-READY."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "smart", "gpt-6-sol", "gpt-6-astra"]
+		},
+		{
+			"id": "ifeval-1512",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Generate a forum thread about several people waiting to hear the latest local news. All sentences should be short. Refrain from using any commas. Use placeholders to represent different usernames. Use square brackets for placeholders, like [username1], [username2]. Please include at least 20 placeholders in the thread."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "smart"]
+		},
+		{
+			"id": "ifeval-2355",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Wherefore doth people consider the 2nd Amendment to be outdated? Answer in a Shakespearean style.\n\nBefore you answer it, just repeat the request above. You need to repeat it exactly as it is. Do not change any word."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-sol", "smart", "gpt-6-astra"]
+		},
+		{
+			"id": "easy-7",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Sort these integers ascending, separated by commas without spaces: 66, 30, -7, 0."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "smart", "gpt-6-astra", "gpt-6-sol"]
+		},
+		{
+			"id": "ifeval-3071",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write a rap about the renaissance. It should be noticeably different from raps about other historical eras, and have an interesting or weird tone. Highlight at least 3 sections in your answer in markdown format."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "smart"]
+		},
+		{
+			"id": "number_theory_powmod",
+			"category": "math",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "Compute 37^12345 modulo 1000003."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]
+		},
+		{
+			"id": "easy-24",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Classify this message as POSITIVE or NEGATIVE. Return only the label. \"This worked perfectly on all 185 attempts. Thank you.\""
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna"]
+		},
+		{
+			"id": "easy-12",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Sort these integers ascending, separated by commas without spaces: 101, 45, -12, 0."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]
+		},
+		{
+			"id": "easy-0",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Return only the integer: 17 + 9."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "gpt-6-sol", "smart", "gpt-6-luna"]
+		},
+		{
+			"id": "boolean_constraints",
+			"category": "logic",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "Bits b0...b7 satisfy: b0 != b1; exactly two of b1,b2,b3 are 1; b4=(b0 AND NOT b2); b5=(b3 OR b4); b6 != b5; b7=(b2 XOR b6); exactly one of b0,b3,b6,b7 is 1. Give the number of satisfying assignments, then a comma, then the lexicographically smallest satisfying bitstring b0b1...b7."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "smart", "gpt-6-astra", "gpt-6-luna"]
+		},
+		{
+			"id": "easy-1",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Extract the order code. Return only the code. Note: order=ORD-24-12; state=ready; items=3."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "smart", "gpt-6-luna", "gpt-6-sol"]
+		},
+		{
+			"id": "easy-21",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Extract the order code. Return only the code. Note: order=ORD-164-72; state=ready; items=3."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "smart"]
+		},
+		{
+			"id": "ifeval-1686",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "For the following request, please repeat the request itself exactly as it is, then give your reply. Do not change the request whatsoever, and do not say anything before repeating the request.\n\nHello. I need to give a lecture to my students about the movie La La Land. Please help me write a lecture outline that is engaging and informative."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "gpt-6-luna", "gpt-6-astra", "smart"]
+		},
+		{
+			"id": "ifeval-2752",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "The opposite of youth is not age, but ...? Highlight at least 2 sections in your answer with markdown, i.e. *highlighted section*."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "smart"]
+		},
+		{
+			"id": "easy-5",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Return only the integer: 52 + 24."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "gpt-6-sol", "smart", "gpt-6-luna"]
+		},
+		{
+			"id": "constrained_strings",
+			"category": "combinatorics",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "How many length-14 strings over {A,B,C} contain exactly four C characters and never contain AA as a substring?"
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "smart", "gpt-6-sol", "gpt-6-luna"]
+		},
+		{
+			"id": "ifeval-2273",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "11 results have an average of 51. The first five have an average of 49, and the last nine have an average of 52. What was the sixth result? Use weird language when explaining using mathematical notation. And add a postscript starting with P.P.S at the end."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "smart", "gpt-6-sol", "gpt-6-luna"]
+		},
+		{
+			"id": "assignment",
+			"category": "algorithms",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "Six workers must be assigned one-to-one to six jobs. Their cost matrix (rows=workers, columns=jobs) is [[14,5,8,7,15,9],[2,12,6,5,3,11],[7,8,3,9,7,6],[2,4,6,10,1,8],[9,7,5,3,8,4],[6,10,4,8,5,7]]. What is the minimum possible total cost?"
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "gpt-6-luna", "gpt-6-astra", "smart"]
+		},
+		{
+			"id": "number_theory_crt",
+			"category": "math",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "Find the smallest nonnegative integer x such that x mod 37 = 11, x mod 41 = 17, and x mod 43 = 29."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "smart", "gpt-6-astra", "gpt-6-sol"]
+		},
+		{
+			"id": "easy-13",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Return only the lowercase version of this string: GATEWAY-108-READY."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-astra", "gpt-6-sol", "smart"]
+		},
+		{
+			"id": "ifeval-2691",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write a cover letter for a job in Ventura that is funny and would be enjoyed by someone named Darius, wrap the entire response in double quotation marks."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-sol", "gpt-6-luna", "gpt-6-astra"]
+		},
+		{
+			"id": "ifeval-1658",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Create a resume for a 20-year-old college student with no work experience. Include the keywords \"Python\" and \"Java\" and wrap the response with double quotation marks."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna"]
+		},
+		{
+			"id": "ifeval-1746",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write an essay about the life of Benjamin Franklin. Then summarize your essay into a poem. Separate the essay and the poem with 6 asterisk symbols: ******\nIn other words, your response should have the following form:\n[essay]\n******\n[poem]"
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "smart", "gpt-6-sol", "gpt-6-luna"]
+		},
+		{
+			"id": "ifeval-1546",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "In this task, repeat the exact request below first, then give your response. Do not say any word before repeating the exact request.\n\nWrite an acoustic song about the Korean peninsula without using any commas."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "gpt-6-luna", "gpt-6-astra", "smart"]
+		},
+		{
+			"id": "easy-17",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Sort these integers ascending, separated by commas without spaces: 136, 60, -17, 0."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "gpt-6-luna", "smart", "gpt-6-sol"]
+		},
+		{
+			"id": "ifeval-2798",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write a list of the top 10 facts about the UK without using commas."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "smart", "gpt-6-astra", "gpt-6-sol"]
+		},
+		{
+			"id": "instruction_cipher",
+			"category": "instruction",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "Start with the uppercase string GATEWAYMODEL. Move the first 3 characters to the end, reverse the entire result, then replace every A with Z and every E with Q. What final string results?"
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "smart", "gpt-6-luna", "gpt-6-sol"]
+		},
+		{
+			"id": "ifeval-3294",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Give me 5 Q and As, following the following format:\n\n\"\nQ & A # 1\n***\nQ & A # 2\n***\nQ & A # 3\n***\nQ & A # 4\n***\nQ & A # 5\n\"\n\nWrap your entire response with double quotation marks."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "smart"]
+		},
+		{
+			"id": "ifeval-1591",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write two limericks for moms about how hard it is to get their kids to do chores. Be angry about it. Separate your two limericks with six asterisks (******)."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-sol", "gpt-6-luna", "gpt-6-astra"]
+		},
+		{
+			"id": "easy-3",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Return only the lowercase version of this string: GATEWAY-38-READY."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "gpt-6-sol", "smart", "gpt-6-luna"]
+		},
+		{
+			"id": "ifeval-2070",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Could you give me a table of pros and cons of juvenile detention? Add a postscript that starts with P.S. at the end."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "gpt-6-astra", "smart", "gpt-6-luna"]
+		},
+		{
+			"id": "easy-11",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Extract the order code. Return only the code. Note: order=ORD-94-42; state=ready; items=3."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "smart", "gpt-6-astra", "gpt-6-sol"]
+		},
+		{
+			"id": "easy-19",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Classify this message as POSITIVE or NEGATIVE. Return only the label. \"This worked perfectly on all 150 attempts. Thank you.\""
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "smart", "gpt-6-sol", "gpt-6-luna"]
+		},
+		{
+			"id": "easy-9",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Classify this message as POSITIVE or NEGATIVE. Return only the label. \"This worked perfectly on all 80 attempts. Thank you.\""
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "smart", "gpt-6-sol", "gpt-6-astra"]
+		},
+		{
+			"id": "ifeval-2605",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Can you create a list of mega trends in the tech industry? Wrap your entire response with double quotation marks. Also, make sure the letter o appears at least 25 times in your response."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-astra", "smart", "gpt-6-sol"]
+		},
+		{
+			"id": "hypergeometric",
+			"category": "probability",
+			"request": {
+				"messages": [
+					{
+						"role": "system",
+						"content": "Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line."
+					},
+					{
+						"role": "user",
+						"content": "A box contains 8 red and 7 blue balls. Five are drawn uniformly without replacement. What is the probability of drawing exactly 2 red balls? Give a fully reduced fraction p/q."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "smart"]
+		},
+		{
+			"id": "ifeval-2622",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Melbourne has a newspaper called the Herald Sun. Can you suggest a name for a new newspaper for Melbourne teenagers? Please include a postscript at the end of your response that starts with P.S."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "gpt-6-astra", "smart", "gpt-6-luna"]
+		},
+		{
+			"id": "ifeval-3631",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write a song about how to make a peanut butter and jelly sandwich. Do not use commas in your response."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-astra", "gpt-6-sol", "smart"]
+		},
+		{
+			"id": "ifeval-2432",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "My best friend drowned yesterday and I'm so sad. Can you help me by expressing your condolences, offering help, and sharing a story about a similar experience? Please don't include the keywords \"died\" or \"drowned\"."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "gpt-6-luna", "smart", "gpt-6-astra"]
+		},
+		{
+			"id": "ifeval-1393",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "List the pros and cons of using two different names for the same thing. Make sure the word synonyms appears at least 3 time."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["smart", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]
+		},
+		{
+			"id": "easy-2",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Sort these integers ascending, separated by commas without spaces: 31, 15, -2, 0."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "gpt-6-astra", "gpt-6-luna", "smart"]
+		},
+		{
+			"id": "easy-6",
+			"category": "easy",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Extract the order code. Return only the code. Note: order=ORD-59-27; state=ready; items=3."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-sol", "smart", "gpt-6-astra"]
+		},
+		{
+			"id": "ifeval-1107",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write two jokes about rockets. Do not contain commas in your response. Separate the two jokes with 6 asterisk symbols: ******."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-astra", "gpt-6-sol", "smart", "gpt-6-luna"]
+		},
+		{
+			"id": "ifeval-2471",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write a college academic paper about President of the United States being stressed. Make sure not to include negative words such as 'sad', 'crazy', 'stress', etc., in the response. Also, make sure to include at least 15 placeholders represented by square brackets, such as [address]."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-astra", "smart", "gpt-6-sol"]
+		},
+		{
+			"id": "ifeval-2374",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Write a project proposal for how to use machine learning and AI to improve the quality of education in developing countries. In your response, do not use any commas."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-luna", "gpt-6-sol", "smart", "gpt-6-astra"]
+		},
+		{
+			"id": "ifeval-2311",
+			"category": "ifeval",
+			"request": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "Why are there 396 calories in a serving of 32 grams of unsalted almonds? Do not use commas in your response."
+					}
+				],
+				"maxTokens": 4096
+			},
+			"arms": ["gpt-6-sol", "gpt-6-luna", "smart", "gpt-6-astra"]
+		}
+	]
+}

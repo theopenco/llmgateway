@@ -6,6 +6,8 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 
 interface BlockedSignupEmailDomainsFormProps {
 	domains: string[];
@@ -19,6 +21,7 @@ export function BlockedSignupEmailDomainsForm({
 	onSave,
 }: BlockedSignupEmailDomainsFormProps) {
 	const router = useRouter();
+	const readOnly = !canWrite(useAdminRole());
 	const [pending, startTransition] = useTransition();
 	const [value, setValue] = useState(domains.join("\n"));
 	const [error, setError] = useState<string | null>(null);
@@ -55,9 +58,15 @@ export function BlockedSignupEmailDomainsForm({
 					rows={7}
 					placeholder="example.com"
 					value={value}
-					disabled={pending}
+					disabled={pending || readOnly}
 					spellCheck={false}
 					autoCapitalize="none"
+					autoComplete="off"
+					// The "email" in the id makes password managers offer autofill.
+					data-1p-ignore
+					data-lpignore="true"
+					data-bwignore
+					data-form-type="other"
 					onChange={(event) => {
 						setValue(event.target.value);
 						setSaved(false);
@@ -72,9 +81,11 @@ export function BlockedSignupEmailDomainsForm({
 					clear all custom blocks.
 				</p>
 			</div>
-			<Button className="self-start" type="submit" disabled={pending}>
-				{pending ? "Saving…" : "Save domains"}
-			</Button>
+			{!readOnly && (
+				<Button className="self-start" type="submit" disabled={pending}>
+					{pending ? "Saving…" : "Save domains"}
+				</Button>
+			)}
 			{error && (
 				<p role="alert" className="text-sm text-destructive">
 					{error}

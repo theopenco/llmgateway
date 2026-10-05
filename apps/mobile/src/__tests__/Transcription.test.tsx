@@ -164,6 +164,23 @@ test("selects capable providers, uses manual turns, and copies final text", asyn
 	expect(screen.queryByText("Welcome to the Lounge.")).toBeNull();
 	expect(stop).toHaveBeenCalledTimes(1);
 });
+test("Stop now explicitly cancels waiting for the final transcript", async () => {
+	await setup();
+	await fireEvent(screen.getByRole("switch"), "valueChange", false);
+	await start();
+	await act(() => audio("AQACAA==", 0.5));
+	await fireEvent.press(
+		screen.getByRole("button", { name: "Stop transcription" }),
+	);
+	expect(socket.close).not.toHaveBeenCalled();
+	await fireEvent.press(screen.getByRole("button", { name: "Stop now" }));
+	expect(socket.close).toHaveBeenCalledTimes(1);
+	expect(stop).toHaveBeenCalledTimes(1);
+	expect(
+		screen.getByRole("button", { name: "Start transcription" }),
+	).toBeEnabled();
+});
+
 test("backgrounding ends recording without automatically resuming it", async () => {
 	await setup();
 	await start();

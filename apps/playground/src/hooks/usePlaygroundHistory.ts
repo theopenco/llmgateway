@@ -254,7 +254,7 @@ export function useSaveVideoHistory() {
 	});
 }
 
-export function useRenameVideoHistory() {
+export function useUpdateVideoHistory() {
 	const queryClient = useQueryClient();
 	const api = useApi();
 	return api.useMutation("patch", "/playground/video-history/{id}", {

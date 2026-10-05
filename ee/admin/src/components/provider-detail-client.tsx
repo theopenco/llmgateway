@@ -35,8 +35,10 @@ function formatPercent(fraction: number): string {
 }
 
 function AirsideCarrierCard({
+	providerId,
 	carrier,
 }: {
+	providerId: string;
 	carrier: NonNullable<AirsideCarrier>;
 }) {
 	return (
@@ -51,9 +53,18 @@ function AirsideCarrierCard({
 						Operated by {carrier.company.name} · {carrier.claimKind} claim
 					</p>
 				</div>
-				<Button variant="outline" size="sm" asChild>
-					<Link href="/airside-carriers">All carriers</Link>
-				</Button>
+				<div className="flex gap-2">
+					<Button variant="outline" size="sm" asChild>
+						<Link
+							href={`/providers/${encodeURIComponent(providerId)}/incidents`}
+						>
+							Incidents
+						</Link>
+					</Button>
+					<Button variant="outline" size="sm" asChild>
+						<Link href="/airside-carriers">All carriers</Link>
+					</Button>
+				</div>
 			</div>
 			<dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
 				<div>
@@ -62,29 +73,35 @@ function AirsideCarrierCard({
 						{formatPercent(carrier.discountPercent)}
 					</dd>
 				</div>
-				<div>
-					<dt className="text-xs text-muted-foreground">Margin</dt>
-					<dd className="text-sm tabular-nums">
-						{formatPercent(carrier.marginPercent)}
-					</dd>
-				</div>
-				<div>
-					<dt className="text-xs text-muted-foreground">Routing adjustment</dt>
-					<dd className="text-sm">
-						<Badge
-							variant={
-								carrier.routingAdjustment < 0
-									? "secondary"
-									: carrier.routingAdjustment > 0
-										? "destructive"
-										: "outline"
-							}
-						>
-							{carrier.routingAdjustment > 0 ? "+" : ""}
-							{formatPercent(carrier.routingAdjustment)}
-						</Badge>
-					</dd>
-				</div>
+				{carrier.marginPercent !== undefined && (
+					<div>
+						<dt className="text-xs text-muted-foreground">Margin</dt>
+						<dd className="text-sm tabular-nums">
+							{formatPercent(carrier.marginPercent)}
+						</dd>
+					</div>
+				)}
+				{carrier.routingAdjustment !== undefined && (
+					<div>
+						<dt className="text-xs text-muted-foreground">
+							Routing adjustment
+						</dt>
+						<dd className="text-sm">
+							<Badge
+								variant={
+									carrier.routingAdjustment < 0
+										? "secondary"
+										: carrier.routingAdjustment > 0
+											? "destructive"
+											: "outline"
+								}
+							>
+								{carrier.routingAdjustment > 0 ? "+" : ""}
+								{formatPercent(carrier.routingAdjustment)}
+							</Badge>
+						</dd>
+					</div>
+				)}
 				<div>
 					<dt className="text-xs text-muted-foreground">Settings updated</dt>
 					<dd className="text-sm">
@@ -194,7 +211,9 @@ export function ProviderDetailClient({
 				</div>
 			</header>
 
-			{airside ? <AirsideCarrierCard carrier={airside} /> : null}
+			{airside ? (
+				<AirsideCarrierCard providerId={providerId} carrier={airside} />
+			) : null}
 
 			<div className="flex flex-wrap items-center gap-1">
 				{windowOptions.map((opt) => (

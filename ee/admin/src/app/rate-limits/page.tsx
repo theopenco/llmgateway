@@ -5,6 +5,7 @@ import {
 	DeleteRateLimitButton,
 	RateLimitForm,
 } from "@/components/rate-limit-form";
+import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,6 +72,7 @@ export default async function GlobalRateLimitsPage() {
 		limitType: "rpm" | "rpd";
 		maxRequests: number;
 		enforcement?: "per_org" | "global";
+		mode: "strict" | "soft";
 		reason: string | null;
 	}): Promise<{ success: boolean; error?: string }> {
 		"use server";
@@ -82,6 +84,7 @@ export default async function GlobalRateLimitsPage() {
 				limitType: data.limitType,
 				maxRequests: data.maxRequests,
 				enforcement: data.enforcement,
+				mode: data.mode,
 				reason: data.reason,
 			});
 
@@ -131,12 +134,14 @@ export default async function GlobalRateLimitsPage() {
 					</div>
 				</div>
 				{options && (
-					<RateLimitForm
-						providers={options.providers}
-						mappings={options.mappings}
-						showEnforcement
-						onSubmit={handleCreateRateLimit}
-					/>
+					<AdminOnly>
+						<RateLimitForm
+							providers={options.providers}
+							mappings={options.mappings}
+							showEnforcement
+							onSubmit={handleCreateRateLimit}
+						/>
+					</AdminOnly>
 				)}
 			</header>
 
@@ -148,6 +153,7 @@ export default async function GlobalRateLimitsPage() {
 							<TableHead>Model</TableHead>
 							<TableHead>Limit</TableHead>
 							<TableHead>Enforcement</TableHead>
+							<TableHead>Mode</TableHead>
 							<TableHead>Reason</TableHead>
 							<TableHead>Created</TableHead>
 							<TableHead className="w-[50px]" />
@@ -157,7 +163,7 @@ export default async function GlobalRateLimitsPage() {
 						{rateLimits.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={7}
+									colSpan={8}
 									className="h-24 text-center text-muted-foreground"
 								>
 									<div className="flex flex-col items-center gap-2">
@@ -200,6 +206,13 @@ export default async function GlobalRateLimitsPage() {
 											<Badge variant="outline">Per-org</Badge>
 										)}
 									</TableCell>
+									<TableCell>
+										{rateLimit.mode === "soft" ? (
+											<Badge variant="secondary">Soft</Badge>
+										) : (
+											<Badge variant="outline">Strict</Badge>
+										)}
+									</TableCell>
 									<TableCell className="max-w-[200px] truncate text-muted-foreground">
 										{rateLimit.reason ?? "\u2014"}
 									</TableCell>
@@ -207,10 +220,12 @@ export default async function GlobalRateLimitsPage() {
 										{formatDate(rateLimit.createdAt)}
 									</TableCell>
 									<TableCell>
-										<DeleteRateLimitButton
-											rateLimitId={rateLimit.id}
-											onDelete={handleDeleteRateLimit}
-										/>
+										<AdminOnly>
+											<DeleteRateLimitButton
+												rateLimitId={rateLimit.id}
+												onDelete={handleDeleteRateLimit}
+											/>
+										</AdminOnly>
 									</TableCell>
 								</TableRow>
 							))
@@ -240,6 +255,10 @@ export default async function GlobalRateLimitsPage() {
 					</li>
 					<li>
 						Caps can be defined as requests per minute (RPM) or per day (RPD)
+					</li>
+					<li>
+						<strong>Soft</strong> limits let a session already pinned to the
+						capped provider keep using it; new sessions are routed away
 					</li>
 					<li>
 						When a cap is hit, the gateway prefers other eligible providers

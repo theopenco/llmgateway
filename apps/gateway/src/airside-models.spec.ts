@@ -3,7 +3,8 @@ import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { and, db, eq, tables } from "@llmgateway/db";
+import { models } from "@llmgateway/models";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -275,7 +276,7 @@ describe("airside-listed models", () => {
 
 	test("resolves an Airside listing registered under a static alias", async () => {
 		await materializeTestMapping({
-			providerId: "iceberg",
+			providerId: "glacier",
 			modelId: "nano banana pro",
 			externalId: "gemini-3-pro-image-carrier",
 			inputPrice: "2e-6",
@@ -287,11 +288,11 @@ describe("airside-listed models", () => {
 		expect(resolution).toBeTruthy();
 		expect(resolution?.parseResult).toMatchObject({
 			requestedModel: "nano banana pro",
-			requestedProvider: "iceberg",
+			requestedProvider: "glacier",
 		});
 		expect(resolution?.pricingMappings).toHaveLength(1);
 		expect(resolution?.pricingMappings[0]).toMatchObject({
-			providerId: "iceberg",
+			providerId: "glacier",
 			externalId: "gemini-3-pro-image-carrier",
 		});
 	});
@@ -432,6 +433,45 @@ describe("airside-listed models", () => {
 		expect(Number(log!.inputCost)).toBeCloseTo(0.002, 6);
 		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
 		expect(Number(log!.cost)).toBeCloseTo(0.007, 6);
+	});
+
+	test("shapes requests from the listing's own catalogue metadata", async () => {
+		// No static entry exists for this listing, so these fields can only
+		// come from its DB row.
+		await setup("airside-metadata-token", { modelName: "carrier-metadata" });
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ supportsDeveloperRole: false, maxTemperature: 0.7 })
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, "carrier-metadata"),
+					eq(tables.modelProviderMapping.providerId, "mistral"),
+				),
+			);
+		await clearCache();
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-metadata-token",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "mistral/carrier-metadata",
+				temperature: 1.5,
+				messages: [
+					{ role: "developer", content: "Be brief." },
+					{ role: "user", content: "Say hi" },
+				],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(captured).toHaveLength(1);
+		const messages = captured[0].body.messages as { role: string }[];
+		expect(messages.map((message) => message.role)).toEqual(["system", "user"]);
+		expect(captured[0].body.temperature).toBe(0.7);
 	});
 
 	test("routes a region-pinned listing and bills its regional fare", async () => {
@@ -626,6 +666,134 @@ describe("airside-listed models", () => {
 		expect(log).toBeTruthy();
 		expect(Number(log!.inputCost)).toBeCloseTo(0.002, 6);
 		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
+	});
+
+	/** Mirror the API's pause/delist (inactive) and resume/relist (active). */
+	async function setListingServing(
+		providerId: string,
+		modelId: string,
+		serving: boolean,
+	) {
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ status: serving ? "active" : "inactive" })
+			.where(
+				and(
+					eq(tables.modelProviderMapping.providerId, providerId),
+					eq(tables.modelProviderMapping.modelId, modelId),
+					eq(tables.modelProviderMapping.source, "airside"),
+				),
+			);
+		await clearCache();
+	}
+
+	async function mappedModelIds(): Promise<string[]> {
+		const res = await app.request("/v1/models?mapped=true");
+		const { data } = (await res.json()) as { data: { id: string }[] };
+		return data.map((model) => model.id);
+	}
+
+	test("an unlisted listing is not served by its static catalogue mapping", async () => {
+		// mistral-small-2506 is also a static catalogue mapping. Once the carrier
+		// owns the pair, taking the listing out of service must not hand the
+		// traffic back to the hardcoded mapping.
+		const token = "airside-unlisted-token";
+		await setup(token, { modelName: "mistral-small-2506" });
+		const request = async (model: string) =>
+			await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model,
+					messages: [{ role: "user", content: `Say hi to ${model}` }],
+				}),
+			});
+		expect(await mappedModelIds()).toContain("mistral/mistral-small-2506");
+
+		await setListingServing("mistral", "mistral-small-2506", false);
+		captured = [];
+
+		const pinned = await request("mistral/mistral-small-2506");
+		expect(pinned.status).toBe(400);
+		const bare = await request("mistral-small-2506");
+		expect(bare.status).toBe(400);
+		expect(captured).toHaveLength(0);
+		expect(await findAirsideModel("mistral", "mistral-small-2506")).toBe(
+			undefined,
+		);
+		expect(await mappedModelIds()).not.toContain("mistral/mistral-small-2506");
+		const listRes = await app.request("/v1/models");
+		const list = (await listRes.json()) as { data: { id: string }[] };
+		expect(list.data.some((m) => m.id === "mistral-small-2506")).toBe(false);
+
+		// Relisting puts the pair back in service.
+		await setListingServing("mistral", "mistral-small-2506", true);
+		const relisted = await request("mistral/mistral-small-2506");
+		expect(relisted.status).toBe(200);
+		expect(captured).toHaveLength(1);
+		expect(await mappedModelIds()).toContain("mistral/mistral-small-2506");
+	});
+
+	test("an unlisted listing drops only its own provider from the model", async () => {
+		const staticProviderIds = models
+			.find((model) => model.id === "deepseek-v4-flash")!
+			.providers.map((mapping) => mapping.providerId);
+		expect(staticProviderIds).toContain("novita");
+		try {
+			await materializeTestMapping({
+				providerId: "novita",
+				modelId: "deepseek-v4-flash",
+				inputPrice: "1e-6",
+				outputPrice: "2e-6",
+			});
+			const routedProviderIds = async () =>
+				(
+					await resolveAirsideModel("deepseek-v4-flash")
+				)?.modelInfoResult.modelInfo.providers.map(
+					(mapping) => mapping.providerId,
+				);
+			expect(await routedProviderIds()).toContain("novita");
+
+			await setListingServing("novita", "deepseek-v4-flash", false);
+
+			const unlisted = await routedProviderIds();
+			expect(unlisted).not.toContain("novita");
+			expect(unlisted).toContain("deepinfra");
+			await expect(
+				resolveAirsideModel("novita/deepseek-v4-flash"),
+			).rejects.toThrow("Provider novita does not support model");
+			// Pinning another provider must not fall back onto the unlisted one.
+			const sibling = await resolveAirsideModel("deepinfra/deepseek-v4-flash");
+			expect(sibling?.parseResult.requestedProvider).toBe("deepinfra");
+			expect(
+				sibling?.modelInfoResult.allModelProviders.map(
+					(mapping) => mapping.providerId,
+				),
+			).not.toContain("novita");
+			const mapped = await mappedModelIds();
+			expect(mapped).not.toContain("novita/deepseek-v4-flash");
+			expect(mapped).toContain("deepinfra/deepseek-v4-flash");
+
+			await setListingServing("novita", "deepseek-v4-flash", true);
+			expect(await routedProviderIds()).toContain("novita");
+			expect(await mappedModelIds()).toContain("novita/deepseek-v4-flash");
+		} finally {
+			// The catalogue tables outlive the harness reset.
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(
+					and(
+						eq(tables.modelProviderMapping.providerId, "novita"),
+						eq(tables.modelProviderMapping.modelId, "deepseek-v4-flash"),
+						eq(tables.modelProviderMapping.source, "airside"),
+					),
+				);
+			await clearCache();
+		}
 	});
 
 	test("downgrades a tool_choice the listing does not accept", async () => {

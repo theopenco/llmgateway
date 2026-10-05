@@ -1,4 +1,4 @@
-import { Bricolage_Grotesque, Inter, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 
 import { GoogleTag } from "@/components/google-tag";
 import { Providers } from "@/components/providers";
@@ -13,21 +13,24 @@ import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
-const inter = Inter({
+const inter = localFont({
 	variable: "--font-inter",
-	subsets: ["latin"],
+	src: "../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2",
+	weight: "100 900",
 	display: "swap",
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
 	variable: "--font-mono",
-	subsets: ["latin"],
+	src: "../../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2",
+	weight: "100 900",
 	display: "swap",
 });
 
-const bricolage = Bricolage_Grotesque({
+const bricolage = localFont({
 	variable: "--font-bricolage",
-	subsets: ["latin"],
+	src: "../../node_modules/@fontsource-variable/bricolage-grotesque/files/bricolage-grotesque-latin-wght-normal.woff2",
+	weight: "200 800",
 	display: "swap",
 });
 
@@ -40,7 +43,7 @@ export const metadata: Metadata = {
 		template: "%s | DevPass by LLM Gateway",
 	},
 	description:
-		"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, Cline, and any OpenAI-compatible tool. 200+ models, one API key.",
+		"One subscription for AI coding. Fixed-price dev plans for Claude Code, Cursor, Cline, and any OpenAI-compatible tool. Live model catalog, a single API key.",
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},

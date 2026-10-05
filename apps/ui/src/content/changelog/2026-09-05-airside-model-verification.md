@@ -4,6 +4,7 @@ slug: "airside-model-verification"
 date: "2026-09-05"
 title: "Airside: Model Verification and Crew Invites"
 summary: "Airside now runs a preflight against your endpoint before a model can be filed: every capability you declare is probed live, and the results become the capability badges developers see. Carriers can also pick the upstream API format per model, invite crew by email, file per-model fares, and rename their carrier under review."
+tags: ["airside"]
 image:
   src: "/changelog/airside-model-verification.png"
   alt: "A glowing airport control tower beside an inspection clipboard with lit checkmarks on a circuit board, surrounded by paper planes, an envelope, and a price tag"

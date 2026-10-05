@@ -21,6 +21,9 @@ export interface DailyCredentialPoint {
 	cost: number;
 	requestCount: number;
 	errorCount: number;
+	clientErrorCount: number;
+	gatewayErrorCount: number;
+	upstreamErrorCount: number;
 }
 
 /** Share of the cap at which the UI starts warning. */

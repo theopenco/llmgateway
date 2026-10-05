@@ -170,6 +170,7 @@ export interface LogCardData {
 	audioInputCost?: number | string | null;
 	discount?: number | null;
 	pricingTier?: string | null;
+	pricingPeriod?: string | null;
 	requestedServiceTier?: string | null;
 	usedServiceTier?: string | null;
 	dataStorageCost?: number | string | null;
@@ -183,6 +184,8 @@ export interface LogCardData {
 	organizationName?: string | null;
 	apiKeyId?: string | null;
 	apiKeyName?: string | null;
+	/** Email of the user who created the API key that served the request. */
+	apiKeyUserEmail?: string | null;
 	source?: string | null;
 	apiOrigin?: string | null;
 	mode?: string | null;
@@ -199,6 +202,7 @@ export interface LogCardData {
 	effort?: string | null;
 	plugins?: string[] | null;
 	routingMetadata?: unknown;
+	errorCategory?: string | null;
 	errorDetails?: unknown;
 	pluginResults?: unknown;
 	toolResults?: unknown;
@@ -256,6 +260,7 @@ export const API_ORIGIN_LABELS: Record<string, string> = {
 	transcriptions: "Transcriptions",
 	rerank: "Rerank",
 	systemone: "System One",
+	search: "Search",
 };
 
 function formatDuration(ms: number) {
@@ -1009,6 +1014,12 @@ export function LogCard({
 									Unified Finish Reason
 								</div>
 								<div>{log.unifiedFinishReason}</div>
+								{log.errorCategory && (
+									<>
+										<div className="text-muted-foreground">Error Category</div>
+										<div>{log.errorCategory}</div>
+									</>
+								)}
 								<div className="text-muted-foreground">Streamed</div>
 								<div className="flex items-center gap-1">
 									{log.streamed ? (
@@ -1141,6 +1152,14 @@ export function LogCard({
 											<>
 												<div>Pricing Tier</div>
 												<div>{log.pricingTier}</div>
+											</>
+										)}
+										{log.pricingPeriod && (
+											<>
+												<div>Pricing Period</div>
+												<div>
+													{log.pricingPeriod === "peak" ? "Peak" : "Off-peak"}
+												</div>
 											</>
 										)}
 										{log.requestedServiceTier && (
@@ -1283,6 +1302,14 @@ export function LogCard({
 									copyLabel="Copy API key ID"
 									showCopyButton={showCopyButtons}
 								/>
+								{log.apiKeyUserEmail && (
+									<>
+										<div className="text-muted-foreground">Key Owner</div>
+										<div className="font-mono text-xs break-all">
+											{log.apiKeyUserEmail}
+										</div>
+									</>
+								)}
 								<div className="text-muted-foreground">API Origin</div>
 								<div>
 									{log.apiOrigin

@@ -1,25 +1,10 @@
 import { logger } from "@llmgateway/logger";
+import { postDiscordWebhook } from "@llmgateway/shared";
+
+import type { DiscordWebhookPayload } from "@llmgateway/shared";
 
 const discordWebhookUrl = process.env.DISCORD_NOTIFICATION_URL;
 const DISCORD_ALERT_TIMEOUT_MS = 5_000;
-
-interface DiscordEmbed {
-	title: string;
-	url?: string;
-	description?: string;
-	color?: number;
-	fields?: Array<{
-		name: string;
-		value: string;
-		inline?: boolean;
-	}>;
-	timestamp?: string;
-}
-
-interface DiscordWebhookPayload {
-	content?: string;
-	embeds?: DiscordEmbed[];
-}
 
 async function sendDiscordNotification(
 	payload: DiscordWebhookPayload,
@@ -34,22 +19,7 @@ async function sendDiscordNotification(
 	}
 
 	try {
-		const response = await fetch(webhookUrl, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify(payload),
-			...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
-		});
-
-		if (!response.ok) {
-			const errorText = await response.text();
-			throw new Error(
-				`Discord webhook error: ${response.status} - ${errorText}`,
-			);
-		}
-
+		await postDiscordWebhook(webhookUrl, payload, { timeoutMs });
 		logger.debug("Discord notification sent successfully");
 	} catch (error) {
 		logger.error(
@@ -563,8 +533,9 @@ export async function notifyAirsideCrewInvite(args: {
 	email: string;
 	website?: string | null;
 	carriers: string[];
+	listingFee: string;
 }): Promise<void> {
-	const { companyName, email, website, carriers } = args;
+	const { companyName, email, website, carriers, listingFee } = args;
 
 	await sendDiscordNotification(
 		{
@@ -579,6 +550,7 @@ export async function notifyAirsideCrewInvite(args: {
 						...(website
 							? [{ name: "Website", value: website, inline: false }]
 							: []),
+						{ name: "Listing fee", value: listingFee, inline: true },
 						{
 							name: "Carriers",
 							value: carriers.length > 0 ? carriers.join("\n") : "None yet",
@@ -813,4 +785,36 @@ export async function notifyUserAccountDeleted(
 			},
 		],
 	});
+}
+
+export async function notifyOrgLimitReached(args: {
+	organizationId: string;
+	organizationName: string;
+	title: string;
+	detail: string;
+}): Promise<void> {
+	const { organizationId, organizationName, title, detail } = args;
+
+	await sendDiscordNotification(
+		{
+			embeds: [
+				{
+					title,
+					color: 0xf59e0b, // Amber
+					fields: [
+						{
+							name: "Organization",
+							value: `${organizationName} (${organizationId})`,
+							inline: false,
+						},
+						{ name: "Detail", value: detail, inline: false },
+					],
+					timestamp: new Date().toISOString(),
+				},
+			],
+		},
+		process.env.DISCORD_ORG_LIMIT_NOTIFICATION_URL ??
+			process.env.DISCORD_NOTIFICATION_URL,
+		DISCORD_ALERT_TIMEOUT_MS,
+	);
 }

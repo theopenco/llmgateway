@@ -2,13 +2,11 @@ appId: io.llmgateway.lounge
 ---
 - setOrientation: PORTRAIT
 - launchApp
-- scrollUntilVisible:
-    element: Start a conversation
-    direction: DOWN
-- tapOn: Start a conversation
+- tapOn: New conversation
 - scrollUntilVisible:
     element: "Model: Auto"
     direction: UP
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: Auto"
 - scrollUntilVisible:
     element:
@@ -34,19 +32,21 @@ appId: io.llmgateway.lounge
     direction: UP
 - assertVisible: "Model: openai/gpt-4o-mini"
 - takeScreenshot: lounge-ipad-large-chat
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: "Large text draft stays visible"
 - assertVisible: "Large text draft stays visible"
 - takeScreenshot: lounge-ipad-large-keyboard
-- tapOn: Hide keyboard
+- tapOn: Dismiss keyboard
 - setOrientation: LANDSCAPE_LEFT
 - assertVisible: Send message
 - takeScreenshot: lounge-ipad-large-landscape
 - assertVisible: "Large text draft stays visible"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: " after rotation"
 - assertVisible: ".*after rotation.*"
 - assertVisible: Send message
 - takeScreenshot: lounge-ipad-large-landscape-keyboard
 - setOrientation: PORTRAIT
-- tapOn: Hide keyboard
+- tapOn: Dismiss keyboard

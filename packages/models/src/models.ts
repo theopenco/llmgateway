@@ -8,6 +8,7 @@ import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
+import { ibmModels } from "./models/ibm.js";
 import { inclusionaiModels } from "./models/inclusionai.js";
 import { kinfraModels } from "./models/kinfra.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
@@ -23,7 +24,9 @@ import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
+import { stepfunModels } from "./models/stepfun.js";
 import { tencentModels } from "./models/tencent.js";
+import { thinkingmachinesModels } from "./models/thinkingmachines.js";
 import { typesafeModels } from "./models/typesafe.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
@@ -47,8 +50,17 @@ export type Price = string;
  * in ascending order of effort. Which subset a given provider mapping
  * actually supports is declared per mapping via `reasoningEfforts`.
  */
-export type ReasoningEffort =
-	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export const REASONING_EFFORTS = [
+	"none",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 /**
  * Execution strategy accepted by the unified `reasoning.mode` parameter.
@@ -114,6 +126,13 @@ export interface PricingTier {
 	 * fall back to `cacheWriteInputPrice` (the 5-minute rate).
 	 */
 	cacheWriteInputPrice1h?: Price;
+	/**
+	 * Peak/off-peak rates for this tier, for providers that price each
+	 * context-length band by time of day. The schedule comes from the
+	 * mapping's (or region's) `peakPricing`, which MUST be set; without this
+	 * block the tier bills its flat rates at every hour.
+	 */
+	peakPricing?: Pick<PeakPricing, "peak" | "offPeak">;
 }
 
 /**
@@ -165,16 +184,10 @@ export interface PeakPricing {
 	 */
 	hoursUtc: readonly [start: number, end: number][];
 	/**
-	 * Local calendar days that are always billed off-peak. Days use
-	 * JavaScript's numbering (Sunday = 0, Saturday = 6), shifted from UTC by
-	 * `utcOffsetMinutes`.
+	 * UTC days of the week that are always billed off-peak, using JavaScript's
+	 * numbering (Sunday = 0, Saturday = 6).
 	 */
-	offPeakDays?: {
-		daysOfWeek: readonly number[];
-		utcOffsetMinutes: number;
-		/** Human-readable time zone used in pricing disclosures. */
-		timeZoneLabel: string;
-	};
+	offPeakDaysUtc?: readonly number[];
 }
 
 /**
@@ -417,8 +430,7 @@ export interface ProviderModelMapping {
 	/**
 	 * Peak/off-peak time-of-day pricing. When present, `peak` applies while the
 	 * current UTC hour falls inside `hoursUtc` and `offPeak` applies otherwise.
-	 * `offPeakDays` can override those windows for provider-defined local
-	 * calendar days.
+	 * `offPeakDaysUtc` makes whole UTC days off-peak.
 	 */
 	peakPricing?: PeakPricing;
 	/**
@@ -530,6 +542,20 @@ export interface ProviderModelMapping {
 	 * surfaces for different models. Defaults to the provider's native format.
 	 */
 	apiFormat?: ProviderApiFormat;
+	/**
+	 * AWS Bedrock OpenAI-format mappings only: the cross-region regions
+	 * (`global`, `us`, …) are real inference profiles, served by
+	 * bedrock-runtime under the region-prefixed model id. Without it every
+	 * region is served in-region by Mantle under the bare id.
+	 */
+	crossRegionProfiles?: boolean;
+	/**
+	 * Route this Perplexity mapping to the Agent API (`POST /v1/agent`,
+	 * Responses-shaped) instead of Sonar's chat/completions, which Perplexity
+	 * retires on 2026-09-27. Per mapping rather than per provider so the
+	 * mappings still on Sonar keep working until that date.
+	 */
+	usesPerplexityAgentApi?: boolean;
 	/**
 	 * Provider service tier IDs supported by this specific model mapping.
 	 * Provider definitions own the tier metadata and default multipliers;
@@ -807,6 +833,12 @@ export interface ProviderModelMapping {
 	 */
 	decisions?: boolean;
 	/**
+	 * Whether this model uses a dedicated web search API that returns ranked
+	 * results instead of generated text. When true, requests are routed to the
+	 * gateway's /v1/search endpoint and billed per request via requestPrice.
+	 */
+	search?: boolean;
+	/**
 	 * Prebuilt voices supported for speech generation models. The first entry is
 	 * used as the default when the caller does not specify a `voice`.
 	 */
@@ -910,6 +942,7 @@ export interface ModelDefinition {
 		| "transcription"
 		| "rerank"
 		| "decision"
+		| "search"
 	)[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
@@ -972,4 +1005,7 @@ export const models = [
 	...zaiModels,
 	...elevenlabsModels,
 	...typesafeModels,
+	...thinkingmachinesModels,
+	...stepfunModels,
+	...ibmModels,
 ] as const satisfies ModelDefinition[];

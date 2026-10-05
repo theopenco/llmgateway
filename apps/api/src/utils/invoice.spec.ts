@@ -1,6 +1,4 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
-
+import { extractText, getDocumentProxy } from "unpdf";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -24,6 +22,12 @@ vi.mock("@llmgateway/logger", () => ({
 	},
 }));
 
+async function pdfText(pdf: Buffer): Promise<string> {
+	const doc = await getDocumentProxy(new Uint8Array(pdf));
+	const { text } = await extractText(doc, { mergePages: true });
+	return text;
+}
+
 describe("generateInvoicePDF", () => {
 	const baseInvoiceData: InvoiceData = {
 		invoiceNumber: "INV-2025-001",
@@ -38,8 +42,8 @@ describe("generateInvoicePDF", () => {
 		currency: "USD",
 	};
 
-	it("generates a PDF buffer with valid invoice data", () => {
-		const pdfBuffer = generateInvoicePDF(baseInvoiceData);
+	it("generates a PDF buffer with valid invoice data", async () => {
+		const pdfBuffer = await generateInvoicePDF(baseInvoiceData);
 
 		expect(pdfBuffer).toBeInstanceOf(Buffer);
 		expect(pdfBuffer.length).toBeGreaterThan(0);
@@ -48,7 +52,7 @@ describe("generateInvoicePDF", () => {
 		expect(pdfSignature).toBe("%PDF");
 	});
 
-	it("includes all optional billing information when provided", () => {
+	it("includes all optional billing information when provided", async () => {
 		const dataWithOptionalFields: InvoiceData = {
 			...baseInvoiceData,
 			billingCompany: "Example Corp",
@@ -57,19 +61,15 @@ describe("generateInvoicePDF", () => {
 			billingNotes: "Custom notes go here.",
 		};
 
-		const pdfBuffer = generateInvoicePDF(dataWithOptionalFields);
-		const pdfContent = pdfBuffer.toString("latin1");
+		const pdfBuffer = await generateInvoicePDF(dataWithOptionalFields);
+		const pdfContent = await pdfText(pdfBuffer);
 
 		expect(pdfContent).toContain("Example Corp");
 		expect(pdfContent).toContain("TAX-123456");
-		expect(pdfContent).toContain("Notes:");
-
-		const outputPath = path.join(process.cwd(), "example-invoice.pdf");
-		fs.writeFileSync(outputPath, pdfBuffer);
-		console.log(`Example PDF saved to: ${outputPath}`);
+		expect(pdfContent).toContain("NOTES Custom notes go here.");
 	});
 
-	it("calculates total correctly from multiple line items", () => {
+	it("calculates total correctly from multiple line items", async () => {
 		const dataWithMultipleItems: InvoiceData = {
 			...baseInvoiceData,
 			lineItems: [
@@ -79,38 +79,38 @@ describe("generateInvoicePDF", () => {
 			],
 		};
 
-		const pdfBuffer = generateInvoicePDF(dataWithMultipleItems);
-		const pdfContent = pdfBuffer.toString("latin1");
+		const pdfBuffer = await generateInvoicePDF(dataWithMultipleItems);
+		const pdfContent = await pdfText(pdfBuffer);
 
-		expect(pdfContent).toContain("61.50");
+		expect(pdfContent).toContain("Total USD 61.50");
 	});
 
-	it("handles single line item", () => {
+	it("handles single line item", async () => {
 		const dataWithSingleItem: InvoiceData = {
 			...baseInvoiceData,
 			lineItems: [{ description: "Single Service", amount: 99.99 }],
 		};
 
-		const pdfBuffer = generateInvoicePDF(dataWithSingleItem);
-		const pdfContent = pdfBuffer.toString("latin1");
+		const pdfBuffer = await generateInvoicePDF(dataWithSingleItem);
+		const pdfContent = await pdfText(pdfBuffer);
 
 		expect(pdfContent).toContain("Single Service");
 		expect(pdfContent).toContain("99.99");
 	});
 
-	it("handles different currencies", () => {
+	it("handles different currencies", async () => {
 		const eurInvoice: InvoiceData = {
 			...baseInvoiceData,
 			currency: "EUR",
 		};
 
-		const pdfBuffer = generateInvoicePDF(eurInvoice);
-		const pdfContent = pdfBuffer.toString("latin1");
+		const pdfBuffer = await generateInvoicePDF(eurInvoice);
+		const pdfContent = await pdfText(pdfBuffer);
 
 		expect(pdfContent).toContain("EUR");
 	});
 
-	it("formats amounts with two decimal places", () => {
+	it("formats amounts with two decimal places", async () => {
 		const dataWithDecimals: InvoiceData = {
 			...baseInvoiceData,
 			lineItems: [
@@ -119,61 +119,61 @@ describe("generateInvoicePDF", () => {
 			],
 		};
 
-		const pdfBuffer = generateInvoicePDF(dataWithDecimals);
-		const pdfContent = pdfBuffer.toString("latin1");
+		const pdfBuffer = await generateInvoicePDF(dataWithDecimals);
+		const pdfContent = await pdfText(pdfBuffer);
 
 		expect(pdfContent).toContain("10.10");
 		expect(pdfContent).toContain("20.00");
-		expect(pdfContent).toContain("30.10");
+		expect(pdfContent).toContain("Total USD 30.10");
 	});
 
-	it("handles multiline addresses correctly", () => {
+	it("handles multiline addresses correctly", async () => {
 		const dataWithMultilineAddress: InvoiceData = {
 			...baseInvoiceData,
 			billingAddress: "Line 1\nLine 2\nLine 3\nLine 4",
 		};
 
-		const pdfBuffer = generateInvoicePDF(dataWithMultilineAddress);
+		const pdfBuffer = await generateInvoicePDF(dataWithMultilineAddress);
 
 		expect(pdfBuffer).toBeInstanceOf(Buffer);
 		expect(pdfBuffer.length).toBeGreaterThan(0);
 	});
 
-	it("handles multiline notes correctly", () => {
+	it("handles multiline notes correctly", async () => {
 		const dataWithMultilineNotes: InvoiceData = {
 			...baseInvoiceData,
 			billingNotes: "Note line 1\nNote line 2\nNote line 3",
 		};
 
-		const pdfBuffer = generateInvoicePDF(dataWithMultilineNotes);
+		const pdfBuffer = await generateInvoicePDF(dataWithMultilineNotes);
 
 		expect(pdfBuffer).toBeInstanceOf(Buffer);
 		expect(pdfBuffer.length).toBeGreaterThan(0);
 	});
 
-	it("throws error when lineItems array is empty", () => {
+	it("throws error when lineItems array is empty", async () => {
 		const invalidData: InvoiceData = {
 			...baseInvoiceData,
 			lineItems: [],
 		};
 
-		expect(() => generateInvoicePDF(invalidData)).toThrow(
+		await expect(generateInvoicePDF(invalidData)).rejects.toThrow(
 			"Invoice must contain at least one line item",
 		);
 	});
 
-	it("throws error when lineItems is missing", () => {
+	it("throws error when lineItems is missing", async () => {
 		const invalidData = {
 			...baseInvoiceData,
 			lineItems: undefined,
 		} as unknown as InvoiceData;
 
-		expect(() => generateInvoicePDF(invalidData)).toThrow(
+		await expect(generateInvoicePDF(invalidData)).rejects.toThrow(
 			"Invoice must contain at least one line item",
 		);
 	});
 
-	it("throws error when line item has negative amount", () => {
+	it("throws error when line item has negative amount", async () => {
 		const invalidData: InvoiceData = {
 			...baseInvoiceData,
 			lineItems: [
@@ -182,12 +182,12 @@ describe("generateInvoicePDF", () => {
 			],
 		};
 
-		expect(() => generateInvoicePDF(invalidData)).toThrow(
+		await expect(generateInvoicePDF(invalidData)).rejects.toThrow(
 			"Line item amounts must be non-negative",
 		);
 	});
 
-	it("accepts zero amount line items", () => {
+	it("accepts zero amount line items", async () => {
 		const dataWithZeroAmount: InvoiceData = {
 			...baseInvoiceData,
 			lineItems: [
@@ -196,14 +196,14 @@ describe("generateInvoicePDF", () => {
 			],
 		};
 
-		const pdfBuffer = generateInvoicePDF(dataWithZeroAmount);
-		const pdfContent = pdfBuffer.toString("latin1");
+		const pdfBuffer = await generateInvoicePDF(dataWithZeroAmount);
+		const pdfContent = await pdfText(pdfBuffer);
 
 		expect(pdfContent).toContain("0.00");
 		expect(pdfContent).toContain("50.00");
 	});
 
-	it("handles missing optional fields gracefully", () => {
+	it("handles missing optional fields gracefully", async () => {
 		const minimalData: InvoiceData = {
 			invoiceNumber: "INV-MIN-001",
 			invoiceDate: new Date("2025-01-01"),
@@ -214,13 +214,13 @@ describe("generateInvoicePDF", () => {
 			currency: "USD",
 		};
 
-		const pdfBuffer = generateInvoicePDF(minimalData);
+		const pdfBuffer = await generateInvoicePDF(minimalData);
 
 		expect(pdfBuffer).toBeInstanceOf(Buffer);
 		expect(pdfBuffer.length).toBeGreaterThan(0);
 	});
 
-	it("handles empty string optional fields", () => {
+	it("handles empty string optional fields", async () => {
 		const dataWithEmptyStrings: InvoiceData = {
 			...baseInvoiceData,
 			billingCompany: "",
@@ -229,27 +229,27 @@ describe("generateInvoicePDF", () => {
 			billingNotes: "",
 		};
 
-		const pdfBuffer = generateInvoicePDF(dataWithEmptyStrings);
+		const pdfBuffer = await generateInvoicePDF(dataWithEmptyStrings);
 
 		expect(pdfBuffer).toBeInstanceOf(Buffer);
 		expect(pdfBuffer.length).toBeGreaterThan(0);
 	});
 
-	it("formats invoice date correctly", () => {
+	it("formats invoice date correctly", async () => {
 		const dataWithSpecificDate: InvoiceData = {
 			...baseInvoiceData,
 			invoiceDate: new Date("2025-03-15"),
 		};
 
-		const pdfBuffer = generateInvoicePDF(dataWithSpecificDate);
-		const pdfContent = pdfBuffer.toString("latin1");
+		const pdfBuffer = await generateInvoicePDF(dataWithSpecificDate);
+		const pdfContent = await pdfText(pdfBuffer);
 
 		expect(pdfContent).toContain("March 15, 2025");
 	});
 
-	it("includes invoice header information", () => {
-		const pdfBuffer = generateInvoicePDF(baseInvoiceData);
-		const pdfContent = pdfBuffer.toString("latin1");
+	it("includes invoice header information", async () => {
+		const pdfBuffer = await generateInvoicePDF(baseInvoiceData);
+		const pdfContent = await pdfText(pdfBuffer);
 
 		expect(pdfContent).toContain("INVOICE");
 		expect(pdfContent).toContain("INV-2025-001");
@@ -257,27 +257,57 @@ describe("generateInvoicePDF", () => {
 		expect(pdfContent).toContain("billing@example.com");
 	});
 
-	it("includes FROM section with default company information", () => {
-		const pdfBuffer = generateInvoicePDF(baseInvoiceData);
-		const pdfContent = pdfBuffer.toString("latin1");
+	it("includes FROM section with default company information", async () => {
+		const pdfBuffer = await generateInvoicePDF(baseInvoiceData);
+		const pdfContent = await pdfText(pdfBuffer);
 
-		expect(pdfContent).toContain("FROM:");
+		expect(pdfContent).toContain("FROM Fake Company United States");
 		expect(pdfContent).toContain("Fake Company");
 		expect(pdfContent).toContain("United States");
 	});
 
-	it("includes VAT reverse charge note", () => {
-		const pdfBuffer = generateInvoicePDF(baseInvoiceData);
-		const pdfContent = pdfBuffer.toString("latin1");
+	it("names the merchant brand and support email under FROM when supplied", async () => {
+		const pdfBuffer = await generateInvoicePDF({
+			...baseInvoiceData,
+			merchantBrandName: "Acme AI",
+			merchantSupportEmail: "support@acme.test",
+		});
+		const pdfContent = await pdfText(pdfBuffer);
+
+		// We stay the seller; the brand line only tells the payer whose product
+		// they bought.
+		expect(pdfContent).toContain("Fake Company");
+		expect(pdfContent).toContain("On behalf of: Acme AI");
+		expect(pdfContent).toContain("Support: support@acme.test");
+	});
+
+	it("omits the merchant lines when no brand is supplied", async () => {
+		const pdfBuffer = await generateInvoicePDF(baseInvoiceData);
+		const pdfContent = await pdfText(pdfBuffer);
+
+		expect(pdfContent).not.toContain("On behalf of:");
+		expect(pdfContent).not.toContain("Support:");
+	});
+
+	it("renders without an organizationId (receipt to a non-member payer)", async () => {
+		const { organizationId: _omitted, ...withoutOrg } = baseInvoiceData;
+		const pdfBuffer = await generateInvoicePDF(withoutOrg);
+
+		expect(pdfBuffer.toString("ascii", 0, 4)).toBe("%PDF");
+	});
+
+	it("includes VAT reverse charge note", async () => {
+		const pdfBuffer = await generateInvoicePDF(baseInvoiceData);
+		const pdfContent = await pdfText(pdfBuffer);
 
 		expect(pdfContent).toContain(
 			"If applicable, customer should account for the respective VAT reverse charge.",
 		);
 	});
 
-	it("includes line item descriptions and amounts", () => {
-		const pdfBuffer = generateInvoicePDF(baseInvoiceData);
-		const pdfContent = pdfBuffer.toString("latin1");
+	it("includes line item descriptions and amounts", async () => {
+		const pdfBuffer = await generateInvoicePDF(baseInvoiceData);
+		const pdfContent = await pdfText(pdfBuffer);
 
 		expect(pdfContent).toContain("API Usage - January 2025");
 		expect(pdfContent).toContain("Premium Features");
@@ -285,15 +315,14 @@ describe("generateInvoicePDF", () => {
 		expect(pdfContent).toContain("50.00");
 	});
 
-	it("includes total amount", () => {
-		const pdfBuffer = generateInvoicePDF(baseInvoiceData);
-		const pdfContent = pdfBuffer.toString("latin1");
+	it("includes total amount", async () => {
+		const pdfBuffer = await generateInvoicePDF(baseInvoiceData);
+		const pdfContent = await pdfText(pdfBuffer);
 
-		expect(pdfContent).toContain("TOTAL");
-		expect(pdfContent).toContain("150.50");
+		expect(pdfContent).toContain("Total USD 150.50");
 	});
 
-	it("handles very long descriptions", () => {
+	it("handles very long descriptions", async () => {
 		const dataWithLongDescription: InvoiceData = {
 			...baseInvoiceData,
 			lineItems: [
@@ -305,13 +334,13 @@ describe("generateInvoicePDF", () => {
 			],
 		};
 
-		const pdfBuffer = generateInvoicePDF(dataWithLongDescription);
+		const pdfBuffer = await generateInvoicePDF(dataWithLongDescription);
 
 		expect(pdfBuffer).toBeInstanceOf(Buffer);
 		expect(pdfBuffer.length).toBeGreaterThan(0);
 	});
 
-	it("handles large amounts correctly", () => {
+	it("handles large amounts correctly", async () => {
 		const dataWithLargeAmounts: InvoiceData = {
 			...baseInvoiceData,
 			lineItems: [
@@ -320,14 +349,14 @@ describe("generateInvoicePDF", () => {
 			],
 		};
 
-		const pdfBuffer = generateInvoicePDF(dataWithLargeAmounts);
-		const pdfContent = pdfBuffer.toString("latin1");
+		const pdfBuffer = await generateInvoicePDF(dataWithLargeAmounts);
+		const pdfContent = await pdfText(pdfBuffer);
 
 		expect(pdfContent).toContain("999999.99");
 		expect(pdfContent).toContain("1000000.00");
 	});
 
-	it("handles many line items", () => {
+	it("handles many line items", async () => {
 		const manyItems = Array.from({ length: 20 }, (_, i) => ({
 			description: `Item ${i + 1}`,
 			amount: (i + 1) * 10,
@@ -338,10 +367,42 @@ describe("generateInvoicePDF", () => {
 			lineItems: manyItems,
 		};
 
-		const pdfBuffer = generateInvoicePDF(dataWithManyItems);
+		const pdfBuffer = await generateInvoicePDF(dataWithManyItems);
 
 		expect(pdfBuffer).toBeInstanceOf(Buffer);
 		expect(pdfBuffer.length).toBeGreaterThan(0);
+	});
+
+	it("paginates overflowing line items, repeating the table header", async () => {
+		const pdfBuffer = await generateInvoicePDF({
+			...baseInvoiceData,
+			lineItems: Array.from({ length: 80 }, (_, i) => ({
+				description: `Item ${i + 1}`,
+				amount: 1,
+			})),
+		});
+		const doc = await getDocumentProxy(new Uint8Array(pdfBuffer));
+
+		const pdfContent = await pdfText(pdfBuffer);
+
+		expect(doc.numPages).toBeGreaterThan(1);
+		expect(pdfContent).toContain("Item 80 USD 1.00");
+		expect(pdfContent.match(/DESCRIPTION AMOUNT/g)).toHaveLength(doc.numPages);
+		expect(pdfContent).toContain(`Page ${doc.numPages} of ${doc.numPages}`);
+	});
+
+	it("renders accented billing details", async () => {
+		const pdfContent = await pdfText(
+			await generateInvoicePDF({
+				...baseInvoiceData,
+				organizationName: "Müller Gräfin",
+				billingAddress: "Łódź, Polska\nZürich, Schweiz",
+			}),
+		);
+
+		expect(pdfContent).toContain("Müller Gräfin");
+		expect(pdfContent).toContain("Łódź, Polska");
+		expect(pdfContent).toContain("Zürich, Schweiz");
 	});
 });
 
@@ -408,13 +469,13 @@ describe("generateAndEmailInvoice", () => {
 });
 
 describe("isInvoiceableTransaction", () => {
-	it("returns true for a completed, positive-amount charge", () => {
+	it("returns true for a completed, positive-amount charge", async () => {
 		expect(
 			isInvoiceableTransaction({ status: "completed", amount: "19.00" }),
 		).toBe(true);
 	});
 
-	it("returns false for non-completed transactions", () => {
+	it("returns false for non-completed transactions", async () => {
 		expect(
 			isInvoiceableTransaction({ status: "pending", amount: "19.00" }),
 		).toBe(false);
@@ -423,7 +484,7 @@ describe("isInvoiceableTransaction", () => {
 		).toBe(false);
 	});
 
-	it("returns false when there is no positive amount", () => {
+	it("returns false when there is no positive amount", async () => {
 		expect(
 			isInvoiceableTransaction({ status: "completed", amount: null }),
 		).toBe(false);
@@ -447,7 +508,7 @@ describe("buildInvoiceDataForTransaction", () => {
 		billingNotes: "note",
 	};
 
-	it("uses the transaction id and date as invoice identity", () => {
+	it("uses the transaction id and date as invoice identity", async () => {
 		const data = buildInvoiceDataForTransaction(
 			{
 				id: "tx-1",
@@ -475,7 +536,7 @@ describe("buildInvoiceDataForTransaction", () => {
 		expect(data.documentType).toBe("invoice");
 	});
 
-	it("marks refunds as a credit note with a negative net total and original context", () => {
+	it("marks refunds as a credit note with a negative net total and original context", async () => {
 		const data = buildInvoiceDataForTransaction(
 			{
 				id: "tx-refund",
@@ -499,7 +560,7 @@ describe("buildInvoiceDataForTransaction", () => {
 		]);
 	});
 
-	it("falls back to the refund description when the original is unknown", () => {
+	it("falls back to the refund description when the original is unknown", async () => {
 		const data = buildInvoiceDataForTransaction(
 			{
 				id: "tx-refund-2",
@@ -521,7 +582,7 @@ describe("buildInvoiceDataForTransaction", () => {
 		]);
 	});
 
-	it("falls back to a type label when the transaction has no description", () => {
+	it("falls back to a type label when the transaction has no description", async () => {
 		const data = buildInvoiceDataForTransaction(
 			{
 				id: "tx-2",
@@ -540,7 +601,7 @@ describe("buildInvoiceDataForTransaction", () => {
 		]);
 	});
 
-	it("produces a renderable PDF", () => {
+	it("produces a renderable PDF", async () => {
 		const data = buildInvoiceDataForTransaction(
 			{
 				id: "tx-3",
@@ -554,12 +615,12 @@ describe("buildInvoiceDataForTransaction", () => {
 			org,
 		);
 
-		const pdf = generateInvoicePDF(data);
+		const pdf = await generateInvoicePDF(data);
 		expect(pdf).toBeInstanceOf(Buffer);
 		expect(pdf.length).toBeGreaterThan(0);
 	});
 
-	it("renders a refund as a credit note with original amount and negative total", () => {
+	it("renders a refund as a credit note with original amount and negative total", async () => {
 		const data = buildInvoiceDataForTransaction(
 			{
 				id: "tx-refund-pdf",
@@ -575,17 +636,16 @@ describe("buildInvoiceDataForTransaction", () => {
 			{ amount: "200.00", description: "Credit Top-up" },
 		);
 
-		const pdfContent = generateInvoicePDF(data).toString("latin1");
+		const pdfContent = await pdfText(await generateInvoicePDF(data));
 		expect(pdfContent).toContain("CREDIT NOTE");
-		expect(pdfContent).toContain("Credit Note Number: tx-refund-pdf");
-		expect(pdfContent).toContain("Original amount: USD 200.00");
-		expect(pdfContent).toContain("Refunded: 25.0% of original purchase");
-		// negative net total
-		expect(pdfContent).toContain("USD -50.00");
+		expect(pdfContent).toContain("Credit Note Number tx-refund-pdf");
+		expect(pdfContent).toContain("Original amount USD 200.00");
+		expect(pdfContent).toContain("Refunded 25.0% of original purchase");
+		expect(pdfContent).toContain("Total USD -50.00");
 	});
 
-	it("allows negative line item amounts for credit notes", () => {
-		expect(() =>
+	it("allows negative line item amounts for credit notes", async () => {
+		await expect(
 			generateInvoicePDF({
 				invoiceNumber: "cn-1",
 				invoiceDate: new Date("2026-05-01"),
@@ -596,17 +656,17 @@ describe("buildInvoiceDataForTransaction", () => {
 				currency: "USD",
 				documentType: "credit_note",
 			}),
-		).not.toThrow();
+		).resolves.toBeInstanceOf(Buffer);
 	});
 });
 
 describe("isRefundTransaction", () => {
-	it("is true for refund transaction types", () => {
+	it("is true for refund transaction types", async () => {
 		expect(isRefundTransaction("credit_refund")).toBe(true);
 		expect(isRefundTransaction("end_user_refund")).toBe(true);
 	});
 
-	it("is false for charge transaction types", () => {
+	it("is false for charge transaction types", async () => {
 		expect(isRefundTransaction("credit_topup")).toBe(false);
 		expect(isRefundTransaction("chat_plan_start")).toBe(false);
 		expect(isRefundTransaction("dev_plan_start")).toBe(false);

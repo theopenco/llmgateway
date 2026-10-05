@@ -5,6 +5,7 @@ import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getEscapeReasoningEffort } from "@llmgateway/shared/escape-reasoning";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
@@ -114,7 +115,7 @@ export async function POST(req: Request) {
 	const llmgateway = createLLMGateway({
 		apiKey,
 		baseURL: getGatewayApiBaseUrl(),
-		headers: { "x-source": LOUNGE_SOURCE },
+		headers: { ...forwardedIpHeaders(req.headers), "x-source": LOUNGE_SOURCE },
 		// Keep turns short without sending unsupported reasoning parameters.
 		extraBody: { reasoning_effort: getEscapeReasoningEffort(model) },
 	});

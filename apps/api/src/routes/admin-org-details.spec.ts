@@ -6,7 +6,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 const ORG_ID = "org-details-test";
 
@@ -39,16 +39,16 @@ describe("admin organization details endpoints", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await insertOrg();
 	});
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		await deleteAll();
 	});
@@ -64,7 +64,7 @@ describe("admin organization details endpoints", () => {
 			expect((await get(path)).status).toBe(401);
 		}
 
-		process.env.ADMIN_EMAILS = "someone-else@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "someone-else@example.com";
 		for (const path of [
 			"/members",
 			"/audit-logs",
@@ -447,5 +447,87 @@ describe("admin organization details endpoints", () => {
 		expect(json.scimGroups).toEqual([
 			expect.objectContaining({ displayName: "Engineering", memberCount: 1 }),
 		]);
+	});
+});
+
+describe("admin organization metrics all-time top-ups", () => {
+	let cookie: string;
+
+	beforeEach(async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
+		cookie = await createTestUser();
+		await insertOrg();
+	});
+
+	afterEach(async () => {
+		if (originalAdminEmails === undefined) {
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
+		} else {
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
+		}
+		await deleteAll();
+	});
+
+	it("sums gross and net top-ups and gifted credits separately", async () => {
+		await db.insert(tables.transaction).values([
+			{
+				id: "org-details-topup",
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "105.50",
+				creditAmount: "100",
+				status: "completed",
+			},
+			{
+				organizationId: ORG_ID,
+				type: "credit_manual_payment",
+				amount: "50",
+				creditAmount: "50",
+				status: "completed",
+			},
+			{
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "20",
+				creditAmount: "20",
+				status: "pending",
+			},
+			{
+				organizationId: ORG_ID,
+				type: "credit_gift",
+				amount: "0",
+				creditAmount: "25",
+				status: "completed",
+			},
+		]);
+		await db.insert(tables.transaction).values([
+			{
+				organizationId: ORG_ID,
+				type: "credit_refund",
+				amount: "30",
+				creditAmount: "-28.44",
+				status: "completed",
+				relatedTransactionId: "org-details-topup",
+			},
+			// Unlinked refunds are not netted against top-ups.
+			{
+				organizationId: ORG_ID,
+				type: "credit_refund",
+				amount: "10",
+				creditAmount: "-10",
+				status: "completed",
+			},
+		]);
+
+		const res = await get("", cookie);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			allTimeTopUpsGross: string;
+			allTimeTopUpsNet: string;
+			allTimeGiftedCredits: string;
+		};
+		expect(body.allTimeTopUpsGross).toBe("155.5");
+		expect(body.allTimeTopUpsNet).toBe("125.5");
+		expect(body.allTimeGiftedCredits).toBe("25");
 	});
 });

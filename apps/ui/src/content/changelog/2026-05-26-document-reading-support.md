@@ -4,6 +4,7 @@ slug: "document-reading-support"
 date: "2026-05-26"
 title: "Document Reading (PDFs & more)"
 summary: "Send PDFs and text-family documents to Gemini models via the OpenAI-compatible `file` content block."
+tags: ["llmgateway", "lounge"]
 image:
   src: "/changelog/document-reading.png"
   alt: "LLM Gateway now supports document attachments on chat completions"

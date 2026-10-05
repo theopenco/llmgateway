@@ -2,10 +2,10 @@ appId: io.llmgateway.lounge
 ---
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Audio Studio"
-    direction: DOWN
-- tapOn: "Audio Studio"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Audio Studio"
 - tapOn: "Audio model 1: Choose"
 - tapOn:
     id: "field-search-models"

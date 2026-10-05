@@ -1780,7 +1780,7 @@ describe("prepareRequestBody - OpenAI explicit prompt caching", () => {
 		{ role: "user", content: "dynamic input" },
 	];
 
-	test.each(["gpt-5.6-sol", "gpt-6-astra"])(
+	test.each(["gpt-5.6-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"])(
 		"forwards prompt_cache_options and breakpoints for %s",
 		async (model) => {
 			const requestBody = (await prepareOpenAITextRequest({
@@ -1933,10 +1933,39 @@ describe("prepareRequestBody - OpenAI service tiers", () => {
 		expect(requestBody.service_tier).toBeUndefined();
 	});
 
-	test("should not forward service_tier to Azure", async () => {
+	test("should forward service_tier to Azure chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			serviceTier: "priority",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("should forward service_tier to the Azure Responses API", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			useResponsesApi: true,
+			serviceTier: "priority",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("should not forward flex to Azure, which only sells priority", async () => {
 		const requestBody = (await prepareOpenAITextRequest({
 			provider: "azure",
 			serviceTier: "flex",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("should not forward service_tier to unsupported Azure models", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			model: "gpt-4o",
+			serviceTier: "priority",
 		})) as { service_tier?: string };
 
 		expect(requestBody.service_tier).toBeUndefined();
@@ -2156,11 +2185,72 @@ describe("prepareRequestBody - verbosity", () => {
 	});
 });
 
+describe("prepareRequestBody - AWS Bedrock service tier", () => {
+	const bedrockMapping = (modelId: string) =>
+		models
+			.find((m) => m.id === modelId)
+			?.providers.find((p) => p.providerId === "aws-bedrock") as
+			ProviderModelMapping | undefined;
+
+	async function prepare(modelId: string, externalId: string) {
+		return (await prepareRequestBody(
+			"openai",
+			modelId,
+			"global",
+			externalId,
+			[{ role: "user", content: "Hello!" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"flex",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			bedrockMapping(modelId),
+		)) as any;
+	}
+
+	test("forwards flex for a mapping that declares it", async () => {
+		const requestBody = await prepare("kimi-k3", "global.moonshotai.kimi-k3");
+		expect(requestBody.service_tier).toBe("flex");
+	});
+
+	test("drops flex for a mapping that does not declare it", async () => {
+		const requestBody = await prepare("grok-4-7", "global.xai.grok-4.7");
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+});
+
 describe("prepareRequestBody - reasoning_effort none", () => {
 	async function prepare(options: {
 		provider: Parameters<typeof prepareRequestBody>[0];
 		model: string;
 		useResponsesApi?: boolean;
+		resolvedProviderMapping?: ProviderModelMapping;
 	}) {
 		return (await prepareRequestBody(
 			options.provider,
@@ -2189,6 +2279,17 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 			undefined,
 			undefined,
 			options.useResponsesApi ?? false,
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			undefined, // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			options.resolvedProviderMapping,
 		)) as any;
 	}
 
@@ -2229,10 +2330,7 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		["deepinfra", "deepseek-v4-pro"],
 		["deepinfra", "hy3"],
 		["novita", "hy3"],
-		["runware", "deepseek-v4-flash"],
 		["canopywave", "kimi-k3"],
-		["runware", "deepseek-v4-pro"],
-		["runware", "gemma-4-31b-it"],
 	])(
 		"forwards none to %s when the mapping declares it",
 		async (provider, model) => {
@@ -2240,6 +2338,24 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 			// their catalog entries also publish `none` — both paths must
 			// agree so a mapping-declared opt-in is never stripped (#3423).
 			const requestBody = await prepare({ provider, model });
+			expect(requestBody.reasoning_effort).toBe("none");
+		},
+	);
+
+	test.each(["deepseek-v4-flash", "deepseek-v4-pro", "gemma-4-31b-it"])(
+		"forwards none to a runware Airside listing of %s that declares it",
+		async (model) => {
+			const requestBody = await prepare({
+				provider: "runware",
+				model,
+				resolvedProviderMapping: {
+					providerId: "runware",
+					externalId: model,
+					streaming: true,
+					reasoning: true,
+					reasoningEfforts: ["none", "low", "medium", "high"],
+				},
+			});
 			expect(requestBody.reasoning_effort).toBe("none");
 		},
 	);
@@ -4976,8 +5092,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			max_completion_tokens: 128,
 			top_p: 0.9,
 			response_format: { type: "json_object" },
-			reasoning: { effort: "high" },
+			reasoning_effort: "high",
 		});
+		expect(requestBody.reasoning).toBeUndefined();
 		expect(requestBody.inferenceConfig).toBeUndefined();
 		expect(requestBody.system).toBeUndefined();
 	});
@@ -5006,7 +5123,7 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		expect(requestBody).toMatchObject({
 			model: "xai.grok-4.6",
 			max_completion_tokens: 128,
-			reasoning: { effort: "xhigh" },
+			reasoning_effort: "xhigh",
 		});
 	});
 
@@ -6366,6 +6483,54 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				"Kept — a caller-supplied field we pass through.",
 			);
 		});
+
+		test("strips reasoning and reasoning_content on mistral", async () => {
+			const requestBody = (await prepareRequestBody(
+				"mistral",
+				"zai-glm-5-3",
+				null,
+				"glm-5.3",
+				[
+					{ role: "user", content: "My name is Ada." },
+					{
+						role: "assistant",
+						content: "Got it, Ada!",
+						reasoning: "Dropped — Mistral rejects this field.",
+						reasoning_content: "Dropped — Mistral rejects this one too.",
+					},
+					{ role: "user", content: "What is my name?" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				requestBody.messages.every(
+					(m: any) =>
+						m.reasoning === undefined && m.reasoning_content === undefined,
+				),
+			).toBe(true);
+			expect(requestBody.messages[1].content).toBe("Got it, Ada!");
+		});
 	});
 
 	describe("azure-ai-foundry", () => {
@@ -7309,12 +7474,12 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 	});
 
 	describe("perplexity", () => {
-		test("forwards caller-supplied max_tokens verbatim", async () => {
+		test("forwards caller-supplied max_tokens verbatim on the legacy Sonar path", async () => {
 			const requestBody = (await prepareRequestBody(
 				"perplexity",
-				"sonar",
+				"sonar-pro",
 				null,
-				"sonar",
+				"sonar-pro",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7331,14 +7496,17 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			)) as any;
 
 			expect(requestBody.max_tokens).toBe(32000);
+			expect(requestBody.messages).toEqual([
+				{ role: "user", content: "Hello!" },
+			]);
 		});
 
 		test("leaves max_tokens unset when caller omits", async () => {
 			const requestBody = (await prepareRequestBody(
 				"perplexity",
-				"sonar",
+				"sonar-pro",
 				null,
-				"sonar",
+				"sonar-pro",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7355,6 +7523,181 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			)) as any;
 
 			expect(requestBody.max_tokens).toBeUndefined();
+		});
+
+		test("builds an Agent API body for sonar", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				null,
+				"perplexity/sonar",
+				[
+					{ role: "system", content: "Be brief." },
+					{ role: "user", content: "Hello!" },
+				],
+				true,
+				0.3,
+				32000,
+				0.9,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.model).toBe("perplexity/sonar");
+			expect(requestBody.messages).toBeUndefined();
+			expect(requestBody.input).toEqual([
+				{
+					role: "system",
+					content: [{ type: "input_text", text: "Be brief." }],
+				},
+				{
+					role: "user",
+					content: [{ type: "input_text", text: "Hello!" }],
+				},
+			]);
+			// Sonar always searched; the Agent API only does when forced.
+			expect(requestBody.tools).toEqual([{ type: "web_search" }]);
+			expect(requestBody.tool_choice).toBe("required");
+			expect(requestBody.stream).toBe(true);
+			expect(requestBody.temperature).toBe(0.3);
+			expect(requestBody.top_p).toBe(0.9);
+			expect(requestBody.max_output_tokens).toBe(32000);
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+
+		test("maps web search options onto the Agent web_search tool", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				null,
+				"perplexity/sonar",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{
+					type: "web_search",
+					max_uses: 7,
+					search_context_size: "high",
+					allowed_domains: ["nasa.gov"],
+					blocked_domains: ["example.com"],
+				},
+			)) as any;
+
+			expect(requestBody.tools).toEqual([
+				{
+					type: "web_search",
+					max_results: 7,
+					search_context_size: "high",
+					filters: {
+						search_domain_filter: ["nasa.gov", "-example.com"],
+					},
+				},
+			]);
+		});
+
+		test("drops empty text parts and the messages left empty", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				null,
+				"perplexity/sonar",
+				[
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "describe this" },
+							{ type: "text", text: "" },
+						],
+					},
+					{ role: "assistant", content: "   " },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			// Perplexity 400s on an empty text part where chat/completions did not.
+			expect(requestBody.input).toEqual([
+				{
+					role: "user",
+					content: [{ type: "input_text", text: "describe this" }],
+				},
+			]);
+		});
+
+		test("maps json_schema response_format to text.format", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				null,
+				"perplexity/sonar",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{
+					type: "json_schema",
+					json_schema: {
+						name: "answer",
+						strict: true,
+						schema: {
+							type: "object",
+							properties: { answer: { type: "string" } },
+						},
+					},
+				},
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.response_format).toBeUndefined();
+			expect(requestBody.text).toEqual({
+				format: {
+					type: "json_schema",
+					name: "answer",
+					schema: {
+						type: "object",
+						properties: { answer: { type: "string" } },
+					},
+				},
+			});
 		});
 	});
 
@@ -7931,15 +8274,6 @@ describe("prepareRequestBody - developer role normalization", () => {
 		)) as any;
 	}
 
-	test("rewrites developer to system for a mapping with supportsDeveloperRole: false (granite/glm-5.2)", async () => {
-		const requestBody = await prepare("granite", "glm-5.2");
-		expect(requestBody.messages[0].role).toBe("system");
-		expect(requestBody.messages[0].content).toBe(
-			"You are a helpful assistant.",
-		);
-		expect(requestBody.messages[1].role).toBe("user");
-	});
-
 	test("rewrites developer to system for alibaba/glm-5.2 (supportsDeveloperRole: false)", async () => {
 		const requestBody = await prepare("alibaba", "glm-5.2");
 		expect(requestBody.messages[0].role).toBe("system");
@@ -8389,4 +8723,40 @@ describe("prepareRequestBody - alibaba forced tool use", () => {
 			expect(requestBody.enable_thinking).toBe(false);
 		},
 	);
+});
+
+describe("prepareRequestBody - bytedance prompt caching", () => {
+	async function prepare(provider: "bytedance" | "deepinfra", model: string) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "Hello!" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+		)) as any;
+	}
+
+	test("opts in on a bytedance mapping that prices cached input", async () => {
+		const requestBody = await prepare("bytedance", "seed-2-0-lite-260428");
+		expect(requestBody.caching).toEqual({ type: "enabled" });
+	});
+
+	test("leaves other providers untouched", async () => {
+		const requestBody = await prepare("deepinfra", "granite-4.2-8b");
+		expect(requestBody.caching).toBeUndefined();
+	});
 });

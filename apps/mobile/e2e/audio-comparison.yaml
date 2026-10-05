@@ -3,10 +3,10 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.audioPrompt = "Native audio comparison " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Audio Studio"
-    direction: DOWN
-- tapOn: "Audio Studio"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Audio Studio"
 - tapOn: "Audio model 1: Choose"
 - tapOn:
     id: "field-search-models"
@@ -66,10 +66,10 @@ appId: io.llmgateway.lounge
     timeout: 15000
 - launchApp
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Audio Studio"
-    direction: DOWN
-- tapOn: "Audio Studio"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Audio Studio"
 - scrollUntilVisible:
     element:
       id: "field-search-audio"

@@ -7,6 +7,7 @@ import { createVideo } from "@/api/videos";
 import { Choice } from "@/components/Choice";
 import { ModelPicker } from "@/components/ModelPicker";
 import {
+	colors,
 	Button,
 	ErrorNotice,
 	Field,
@@ -239,7 +240,6 @@ export function VideoStudio({
 		},
 	});
 	const busy = generate.isPending || save.isPending;
-	const display = selected ?? generation;
 	return (
 		<Screen>
 			<Text style={styles.title}>Video Studio</Text>
@@ -403,6 +403,7 @@ export function VideoStudio({
 			<View style={styles.row}>
 				<Text style={styles.muted}>Generate audio</Text>
 				<Switch
+					trackColor={{ false: colors.subtle, true: colors.accent }}
 					accessibilityLabel="Generate audio"
 					value={includeAudio}
 					onValueChange={setAudio}
@@ -431,10 +432,10 @@ export function VideoStudio({
 					onPress={() => save.mutate(generation)}
 				/>
 			)}
-			{display && (
+			{generation && !selected && (
 				<View style={{ gap: 12 }}>
-					<Text style={styles.heading}>{display.prompt}</Text>
-					{display.models.map((result, index) => (
+					<Text style={styles.heading}>{generation.prompt}</Text>
+					{generation.models.map((result, index) => (
 						<VideoResult
 							key={`${result.jobId ?? result.modelId}-${index}`}
 							result={result}
@@ -455,12 +456,23 @@ export function VideoStudio({
 						<Button
 							title={item.prompt}
 							secondary
-							onPress={() => setSelected(item)}
+							onPress={() =>
+								setSelected((current) =>
+									current?.id === item.id ? undefined : item,
+								)
+							}
 						/>
 						<Text style={styles.muted}>
 							{new Date(item.createdAt).toLocaleString()} · {item.models.length}{" "}
 							models
 						</Text>
+						{selected?.id === item.id &&
+							item.models.map((result, index) => (
+								<VideoResult
+									key={`${result.jobId ?? result.modelId}-${index}`}
+									result={result}
+								/>
+							))}
 						<View style={styles.row}>
 							<Button
 								title="Rename video"

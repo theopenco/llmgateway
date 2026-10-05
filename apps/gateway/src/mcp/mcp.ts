@@ -25,7 +25,7 @@ import {
 } from "@/lib/cached-queries.js";
 import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
-import { assertMcpHttpsUrl } from "@/mcp/request-url.js";
+import { getMcpGatewayUrl } from "@/mcp/request-url.js";
 import { registerUsageTools } from "@/mcp/usage-tools.js";
 import { isAllowedOrigin, parseAllowedOrigins } from "@/middleware/cors.js";
 
@@ -36,6 +36,7 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ServerTypes } from "@/vars.js";
@@ -166,7 +167,7 @@ function createMcpServer(
 		name: "llmgateway",
 		version: "1.0.0",
 	});
-	registerUsageTools(server, apiKey);
+	registerUsageTools(server, apiKey, clientHeaders);
 	const generationHeaders = {
 		...clientHeaders,
 		"Content-Type": "application/json",
@@ -193,13 +194,7 @@ function createMcpServer(
 			try {
 				await assertGenerationAllowed();
 				// Call the internal chat completions endpoint
-				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ??
-					process.env.GATEWAY_URL ??
-					(process.env.NODE_ENV === "production"
-						? "https://api.llmgateway.io"
-						: "http://localhost:4001");
-				assertMcpHttpsUrl(gatewayUrl);
+				const gatewayUrl = getMcpGatewayUrl();
 
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
 					method: "POST",
@@ -460,13 +455,7 @@ function createMcpServer(
 		async (input: GenerateImageInput) => {
 			try {
 				await assertGenerationAllowed();
-				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ??
-					process.env.GATEWAY_URL ??
-					(process.env.NODE_ENV === "production"
-						? "https://api.llmgateway.io"
-						: "http://localhost:4001");
-				assertMcpHttpsUrl(gatewayUrl);
+				const gatewayUrl = getMcpGatewayUrl();
 
 				// Call the chat completions endpoint with image generation model
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
@@ -601,13 +590,7 @@ function createMcpServer(
 		async (input: GenerateNanoBananaInput) => {
 			try {
 				await assertGenerationAllowed();
-				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ??
-					process.env.GATEWAY_URL ??
-					(process.env.NODE_ENV === "production"
-						? "https://api.llmgateway.io"
-						: "http://localhost:4001");
-				assertMcpHttpsUrl(gatewayUrl);
+				const gatewayUrl = getMcpGatewayUrl();
 
 				const body: Record<string, unknown> = {
 					model: "gemini-3-pro-image",
@@ -1321,7 +1304,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				405,
 			);
 		}
-		const clientHeaders: Record<string, string> = {};
+		const clientHeaders = forwardedIpHeaders(c.req.raw.headers);
 		for (const header of [
 			"x-source",
 			"user-agent",
@@ -1450,7 +1433,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	if (method === "POST") {
-		const clientHeaders: Record<string, string> = {};
+		const clientHeaders = forwardedIpHeaders(c.req.raw.headers);
 		for (const header of [
 			"x-source",
 			"user-agent",

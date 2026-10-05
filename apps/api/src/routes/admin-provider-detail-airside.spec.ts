@@ -5,7 +5,7 @@ import { createTestUser } from "@/testing.js";
 
 import { computeAirsideAdjustment, db, eq, tables } from "@llmgateway/db";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 const CARRIER_ID = "airside-detail-carrier";
 const COMPANY_ID = "airside-detail-company";
 const CLAIM_ID = "airside-detail-claim";
@@ -47,7 +47,7 @@ describe("admin provider detail for airside carriers", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await clearFixtures();
 
@@ -86,7 +86,7 @@ describe("admin provider detail for airside carriers", () => {
 
 	afterEach(async () => {
 		await clearFixtures();
-		process.env.ADMIN_EMAILS = originalAdminEmails;
+		process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 	});
 
 	test("exposes the carrier's routing settings alongside its mappings", async () => {

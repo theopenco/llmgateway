@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftIcon, Boxes, Mail, Sparkles } from "lucide-react";
+import { ArrowLeftIcon, Boxes, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
@@ -8,6 +8,7 @@ import { useEffect } from "react";
 import { currencyFormatter } from "@/components/analytics/chart-helpers";
 import { CostByModelCard } from "@/components/analytics/cost-by-model-card";
 import { CostByModelOverTimeCard } from "@/components/analytics/cost-by-model-over-time-card";
+import { EnterpriseFeatureCard } from "@/components/contact-sales";
 import { DateRangePicker } from "@/components/date-range-picker";
 import {
 	UsageModeSelector,
@@ -17,7 +18,6 @@ import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
 import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
-import { Button } from "@/lib/components/button";
 import {
 	Card,
 	CardContent,
@@ -321,27 +321,11 @@ export function MemberDetailClient() {
 				)}
 
 				{!isEnterprise ? (
-					<Card className="max-w-2xl">
-						<CardHeader>
-							<CardTitle>Enterprise Feature</CardTitle>
-							<CardDescription>
-								Per-member usage analytics are available on the Enterprise plan
-							</CardDescription>
-						</CardHeader>
-						<CardContent className="space-y-4">
-							<p className="text-muted-foreground text-sm">
-								Upgrade to Enterprise to see this member's cost, tokens,
-								requests, and the models, providers, and apps they use most —
-								over any time period.
-							</p>
-							<Button asChild>
-								<a href="mailto:contact@llmgateway.io">
-									<Mail className="mr-2 h-4 w-4" />
-									Contact Sales
-								</a>
-							</Button>
-						</CardContent>
-					</Card>
+					<EnterpriseFeatureCard description="Per-member usage analytics are available on the Enterprise plan">
+						Upgrade to Enterprise to see this member's cost, tokens, requests,
+						and the models, providers, and apps they use most — over any time
+						period.
+					</EnterpriseFeatureCard>
 				) : !isAdmin ? (
 					<Card className="max-w-2xl">
 						<CardHeader>

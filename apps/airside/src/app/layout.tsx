@@ -1,4 +1,4 @@
-import { Archivo, Geist_Mono, Inter } from "next/font/google";
+import localFont from "next/font/local";
 
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
@@ -10,20 +10,23 @@ import "./globals.css";
 
 import type { Metadata } from "next";
 
-const archivo = Archivo({
-	subsets: ["latin"],
+const archivo = localFont({
 	variable: "--font-archivo",
+	src: "../../node_modules/@fontsource-variable/archivo/files/archivo-latin-wght-normal.woff2",
+	weight: "100 900",
 });
 
-const inter = Inter({
-	subsets: ["latin"],
+const inter = localFont({
 	variable: "--font-inter",
+	src: "../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2",
+	weight: "100 900",
 	display: "swap",
 });
 
-const geistMono = Geist_Mono({
-	subsets: ["latin"],
+const geistMono = localFont({
 	variable: "--font-geist-mono",
+	src: "../../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2",
+	weight: "100 900",
 	display: "swap",
 });
 

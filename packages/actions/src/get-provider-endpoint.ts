@@ -18,6 +18,8 @@ import {
 	REGION_WORKSPACE_ID_PLACEHOLDER,
 } from "@llmgateway/models";
 
+import { getBedrockProfilePrefix } from "./provider-api-format.js";
+
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
 function appendPath(url: string, path: string): string {
@@ -32,6 +34,14 @@ function appendPath(url: string, path: string): string {
 	}
 
 	return `${url.slice(0, urlEnd)}/${path.slice(pathStart)}`;
+}
+
+function isChatCompletionsUrl(url: string): boolean {
+	const { pathname } = new URL(url);
+	return (
+		pathname.endsWith("/chat/completions") ||
+		pathname.endsWith("/chat/completions/")
+	);
 }
 
 function getBedrockMantleBaseUrl(url: string, region?: string): string {
@@ -369,42 +379,6 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
-			case "iceberg":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"iceberg",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Iceberg provider requires LLM_ICEBERG_BASE_URL environment variable",
-					);
-				}
-				break;
-			case "granite":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"granite",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Granite provider requires LLM_GRANITE_BASE_URL environment variable",
-					);
-				}
-				break;
 			case "vertex-openai": {
 				const vertexOpenaiDefaultHost =
 					regionBaseUrl ?? "https://aiplatform.googleapis.com";
@@ -658,10 +632,25 @@ export function getProviderEndpoint(
 			((!apiFormat || apiFormat === "provider-native") &&
 				providerMapping?.apiFormat === "openai-chat-completions"))
 	) {
+		if (getBedrockProfilePrefix(providerMapping, region)) {
+			return appendPath(
+				url.includes("/openai/v1") ? url : appendPath(url, "/openai/v1"),
+				"/chat/completions",
+			);
+		}
 		return appendPath(
 			getBedrockMantleBaseUrl(url, region),
 			"/chat/completions",
 		);
+	}
+
+	if (
+		provider === "custom" &&
+		apiFormat !== "openai-responses" &&
+		apiFormat !== "google-vertex" &&
+		isChatCompletionsUrl(url)
+	) {
+		return url;
 	}
 
 	if (apiFormat === "openai-chat-completions") {
@@ -704,8 +693,7 @@ export function getProviderEndpoint(
 				? `${baseEndpoint}?${queryParams.join("&")}`
 				: baseEndpoint;
 		}
-		case "glacier":
-		case "iceberg": {
+		case "glacier": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = externalId
 				? `${url}/v1beta/models/${externalId}:${endpoint}`
@@ -834,7 +822,9 @@ export function getProviderEndpoint(
 			return `${url}/v1/projects/${vaProjectId}/locations/${vaRegion}/publishers/anthropic/models/${vaModel}:${vaEndpoint}`;
 		}
 		case "perplexity":
-			return `${url}/chat/completions`;
+			return providerMapping?.usesPerplexityAgentApi
+				? `${url}/v1/agent`
+				: `${url}/chat/completions`;
 		case "novita":
 			return `${url}/chat/completions`;
 		case "runpod":

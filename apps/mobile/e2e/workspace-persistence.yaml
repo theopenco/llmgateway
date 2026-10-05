@@ -2,13 +2,20 @@ appId: io.llmgateway.lounge
 ---
 - evalScript: ${output.chatTitle = "Workspace restore " + Date.now()}
 - runFlow: helpers/sign-in.yaml
-- assertVisible: "Current workspace: Personal Lounge"
+- runFlow: helpers/open-sidebar.yaml
+- assertVisible: ".*Current workspace: Personal Lounge"
+- tapOn: "Close sidebar"
 - runFlow: helpers/organization.yaml
-- assertVisible: "Current workspace: Test Organization"
+- runFlow: helpers/open-sidebar.yaml
+- assertVisible: ".*Current workspace: Test Organization"
+- tapOn: "Close sidebar"
 - launchApp
-- assertVisible: "Current workspace: Test Organization"
-- tapOn: "Start a conversation"
+- runFlow: helpers/open-sidebar.yaml
+- assertVisible: ".*Current workspace: Test Organization"
+- tapOn: "Close sidebar"
+- tapOn: "New conversation"
 - runFlow: helpers/chat-model.yaml
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${output.chatTitle}
 - tapOn: "Send message"
@@ -16,8 +23,13 @@ appId: io.llmgateway.lounge
     visible: ".*This is a mock response from the test server.*"
     timeout: 30000
 - launchApp
-- assertVisible: "Current workspace: Test Organization"
-- tapOn: "Conversations"
+- runFlow: helpers/open-sidebar.yaml
+- assertVisible: ".*Current workspace: Test Organization"
+- tapOn: "Close sidebar"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
 - tapOn:
     id: "field-search-conversations"
 - inputText: ${output.chatTitle}
@@ -25,22 +37,26 @@ appId: io.llmgateway.lounge
 - tapOn: ".*2 messages"
 - assertVisible: ".*This is a mock response from the test server.*"
 - launchApp
-- scrollUntilVisible:
-    element: "Switch workspace"
-    direction: DOWN
-- tapOn: "Switch workspace"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Switch workspace.*"
 - scrollUntilVisible:
     element: "Use Personal Lounge"
     direction: DOWN
 - tapOn: "Use Personal Lounge"
-- assertVisible: "Current workspace: Personal Lounge"
+- runFlow: helpers/open-sidebar.yaml
+- assertVisible: ".*Current workspace: Personal Lounge"
+- tapOn: "Close sidebar"
 - launchApp
-- assertVisible: "Current workspace: Personal Lounge"
+- runFlow: helpers/open-sidebar.yaml
+- assertVisible: ".*Current workspace: Personal Lounge"
+- tapOn: "Close sidebar"
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Your profile"
-    direction: DOWN
-- tapOn: "Your profile"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
 - scrollUntilVisible:
     element: "Sign out"
     direction: DOWN
@@ -59,9 +75,13 @@ appId: io.llmgateway.lounge
 - inputText: "admin@example.com"
 - tapOn: "Done typing"
 - tapOn: "Enter the Lounge"
+- runFlow: helpers/open-sidebar.yaml
 - extendedWaitUntil:
-    visible: "Current workspace: Personal Lounge"
+    visible: ".*Current workspace: Personal Lounge"
     timeout: 20000
+- tapOn: "Close sidebar"
 - runFlow: helpers/organization.yaml
 - launchApp
-- assertVisible: "Current workspace: Test Organization"
+- runFlow: helpers/open-sidebar.yaml
+- assertVisible: ".*Current workspace: Test Organization"
+- tapOn: "Close sidebar"

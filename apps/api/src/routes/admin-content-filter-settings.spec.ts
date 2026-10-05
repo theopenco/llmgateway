@@ -6,21 +6,21 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import { providers } from "@llmgateway/models";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 describe("admin content filter settings", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 	});
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		await deleteAll();
 	});
@@ -78,7 +78,8 @@ describe("admin content filter settings", () => {
 			enforce: true,
 			enforceEnterprise: false,
 			classifier: "openai",
-			shadowClassifier: "none",
+			internalScope: "full",
+			moderateImages: true,
 		});
 	});
 

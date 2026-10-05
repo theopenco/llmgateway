@@ -1,8 +1,23 @@
 import { subDays, format } from "date-fns";
 
-import { randomFloatBetween, randomInt } from "@llmgateway/shared/random";
+// Seeded PRNG (mulberry32): the demos render this data on statically
+// generated pages, so every render — build-time SSR and client hydration —
+// must produce identical numbers or the whole subtree hydration-mismatches.
+function createRng(seed: number) {
+	return () => {
+		seed = (seed + 0x6d2b79f5) | 0;
+		let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
 
 export const generateMockActivityData = () => {
+	const random = createRng(0x11a0);
+	const randomInt = (minInclusive: number, maxExclusive: number) =>
+		minInclusive + Math.floor(random() * (maxExclusive - minInclusive));
+	const randomFloatBetween = (min: number, max: number) =>
+		min + random() * (max - min); // eslint-disable-line no-mixed-operators
 	const today = new Date();
 	const days = 7;
 	const activity = [];

@@ -33,7 +33,7 @@ describe("admin — organizations list sort stability", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 
 		// No usage rows, so every org ties at 0 requests and 0 tokens.

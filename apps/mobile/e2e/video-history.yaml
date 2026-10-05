@@ -3,10 +3,10 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.renamedVideo = "Renamed video " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Video Studio"
-    direction: DOWN
-- tapOn: "Video Studio"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Videos"
 - scrollUntilVisible:
     element:
       id: "field-search-videos"
@@ -28,9 +28,6 @@ appId: io.llmgateway.lounge
     below:
       id: "field-search-videos"
     index: 0
-- scrollUntilVisible:
-    element: "Generate video"
-    direction: UP
 - scrollUntilVisible:
     element:
       text: "Share video"

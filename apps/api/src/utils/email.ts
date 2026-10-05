@@ -1,10 +1,22 @@
-import { isOrgOwnerEmailVerified } from "@llmgateway/db";
+import { isEmailSuppressed, isOrgOwnerEmailVerified } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	fromEmail,
 	getResendClient,
 	replyToEmail,
 } from "@llmgateway/shared/email";
+import {
+	buildUnsubscribeHeaders,
+	renderFooterHtml,
+	signUnsubscribeToken,
+} from "@llmgateway/shared/email-unsubscribe";
+
+import {
+	getBillingPageUrl,
+	type BillingOrganizationKind,
+} from "./billing-url.js";
+
+import type { EmailCategory } from "@llmgateway/shared/email-unsubscribe";
 
 /**
  * Escapes HTML special characters to prevent XSS attacks
@@ -58,6 +70,13 @@ export interface TransactionalEmailOptions {
 	 * caller holding a transaction open is not pinned by a slow provider.
 	 */
 	timeoutMs?: number;
+	/**
+	 * Email category. Defaults to "transactional": mandatory account mail that
+	 * carries no unsubscribe link. Any other value marks the send as optional,
+	 * which checks the recipient's suppression state first and attaches RFC
+	 * 8058 one-click unsubscribe headers.
+	 */
+	category?: "transactional" | EmailCategory;
 }
 
 function withTimeout<T>(
@@ -104,6 +123,7 @@ export async function sendTransactionalEmail({
 	logSafe = false,
 	organizationId,
 	timeoutMs,
+	category = "transactional",
 }: TransactionalEmailOptions): Promise<void> {
 	if (process.env.NODE_ENV === "production" && isReservedEmailAddress(to)) {
 		logger.info("Skipping transactional email to reserved domain", {
@@ -120,6 +140,21 @@ export async function sendTransactionalEmail({
 			"Skipping transactional email: organization owner email not verified",
 			{ to, subject, organizationId },
 		);
+		return;
+	}
+
+	// Optional mail is gated on the recipient's suppression list. Transactional
+	// mail bypasses it by design.
+	const unsubscribeToken =
+		category === "transactional"
+			? null
+			: signUnsubscribeToken({ email: to, category });
+
+	if (category !== "transactional" && (await isEmailSuppressed(to, category))) {
+		logger.info("Skipping email: recipient opted out of category", {
+			subject,
+			category,
+		});
 		return;
 	}
 
@@ -165,6 +200,9 @@ export async function sendTransactionalEmail({
 				content: att.content,
 				contentType: att.contentType,
 			})),
+			...(unsubscribeToken
+				? { headers: buildUnsubscribeHeaders(unsubscribeToken) }
+				: {}),
 		};
 
 		const send = client.emails.send(
@@ -205,14 +243,34 @@ export interface PaymentFailureDetails {
 	declineCode?: string;
 	amount?: number;
 	currency?: string;
+	/** Stripe hosted invoice page, set when the bank requires authentication. */
+	payInvoiceUrl?: string;
+}
+
+export interface EmailOrganization {
+	id: string;
+	name: string;
+	kind: BillingOrganizationKind;
 }
 
 export function generatePaymentFailureEmailHtml(
-	organizationName: string,
+	organization: EmailOrganization,
 	details: PaymentFailureDetails,
 ): string {
-	const escapedOrgName = escapeHtml(organizationName);
+	const escapedOrgName = escapeHtml(organization.name);
 	const escapedErrorMessage = escapeHtml(details.errorMessage);
+	const billingUrl = getBillingPageUrl(organization);
+	const requiresAuthentication =
+		details.errorCode === "authentication_required" ||
+		details.declineCode === "authentication_required";
+	// The hosted invoice is the only place a cardholder can answer the bank's
+	// authentication request for an off-session renewal.
+	const ctaUrl =
+		requiresAuthentication && details.payInvoiceUrl
+			? details.payInvoiceUrl
+			: billingUrl;
+	const ctaLabel =
+		ctaUrl === billingUrl ? "Update Payment Method" : "Complete Payment";
 
 	// Escape currency and handle zero amount case properly
 	const escapedCurrency = details.currency
@@ -224,7 +282,10 @@ export function generatePaymentFailureEmailHtml(
 			: null;
 
 	let actionMessage = "Please update your payment method and try again.";
-	if (details.declineCode === "insufficient_funds") {
+	if (requiresAuthentication) {
+		actionMessage =
+			"Your bank asked to verify this payment, which can't happen automatically for a renewal. Please confirm the payment with your bank to keep your plan active.";
+	} else if (details.declineCode === "insufficient_funds") {
 		actionMessage =
 			"Please ensure your card has sufficient funds or use a different payment method.";
 	} else if (
@@ -293,7 +354,11 @@ export function generatePaymentFailureEmailHtml(
 								</p>
 
 								<p style="margin: 0 0 30px 0; font-size: 16px; line-height: 1.6; color: #333333;">
-									To ensure uninterrupted service, please update your payment information as soon as possible.
+									${
+										ctaUrl === billingUrl
+											? "To ensure uninterrupted service, please update your payment information as soon as possible."
+											: `To ensure uninterrupted service, please complete the payment as soon as possible. You can also <a href="${billingUrl}" style="color: #000000;">update your payment method</a> first.`
+									}
 								</p>
 
 								<!-- CTA Button -->
@@ -301,9 +366,9 @@ export function generatePaymentFailureEmailHtml(
 									<tr>
 										<td align="center" style="padding: 10px 0;">
 											<a
-												href="https://llmgateway.io/dashboard/settings/org/billing"
+												href="${ctaUrl}"
 												style="display: inline-block; background-color: #000000; color: #ffffff; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 16px;"
-											>Update Payment Method</a>
+											>${ctaLabel}</a>
 										</td>
 									</tr>
 								</table>
@@ -315,21 +380,7 @@ export function generatePaymentFailureEmailHtml(
 							</td>
 						</tr>
 
-						<!-- Footer -->
-						<tr>
-							<td
-								style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;"
-							>
-								<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
-									Need help? Check out our <a
-									href="https://docs.llmgateway.io" style="color: #000000; text-decoration: none;"
-								>documentation</a> or reply to this email for any questions.
-								</p>
-								<p style="margin: 0; color: #999999; font-size: 12px;">
-									© 2025 LLM Gateway. All rights reserved. This is a transactional email and it can't be unsubscribed from.
-								</p>
-							</td>
-						</tr>
+						${renderFooterHtml("transactional")}
 					</table>
 				</td>
 			</tr>
@@ -405,21 +456,7 @@ export function generateAutoJoinEmailHtml(
 							</td>
 						</tr>
 
-						<!-- Footer -->
-						<tr>
-							<td
-								style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;"
-							>
-								<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
-									Need help? Check out our <a
-									href="https://docs.llmgateway.io" style="color: #000000; text-decoration: none;"
-								>documentation</a> or reply to this email for any questions.
-								</p>
-								<p style="margin: 0; color: #999999; font-size: 12px;">
-									© 2025 LLM Gateway. All rights reserved. This is a transactional email and it can't be unsubscribed from.
-								</p>
-							</td>
-						</tr>
+						${renderFooterHtml("transactional")}
 					</table>
 				</td>
 			</tr>
@@ -490,20 +527,7 @@ export function generateDevPlanDuplicateCardEmailHtml(
 							</td>
 						</tr>
 
-						<tr>
-							<td
-								style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;"
-							>
-								<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
-									Need help? Check out our <a
-									href="https://docs.llmgateway.io" style="color: #000000; text-decoration: none;"
-								>documentation</a> or reply to this email for any questions.
-								</p>
-								<p style="margin: 0; color: #999999; font-size: 12px;">
-									© 2025 LLM Gateway. All rights reserved. This is a transactional email and it can't be unsubscribed from.
-								</p>
-							</td>
-						</tr>
+						${renderFooterHtml("transactional")}
 					</table>
 				</td>
 			</tr>
@@ -513,7 +537,9 @@ export function generateDevPlanDuplicateCardEmailHtml(
 	`.trim();
 }
 
-export function generateDevPlanCancellationFeedbackEmailHtml(): string {
+export function generateDevPlanCancellationFeedbackEmailHtml(
+	recipientEmail: string,
+): string {
 	const codeUrl = process.env.CODE_URL ?? "https://code.llmgateway.io";
 	const feedbackUrl = `${codeUrl}/dashboard/feedback/dev-plan-cancellation`;
 
@@ -566,20 +592,13 @@ export function generateDevPlanCancellationFeedbackEmailHtml(): string {
 								</div>
 							</td>
 						</tr>
-						<tr>
-							<td
-								style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;"
-							>
-								<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
-									Need help? Check out our <a
-									href="https://docs.llmgateway.io" style="color: #000000; text-decoration: none;"
-								>documentation</a> or reply to this email for any questions.
-								</p>
-								<p style="margin: 0; color: #999999; font-size: 12px;">
-									© 2025 LLM Gateway. All rights reserved. This is a transactional email and it can't be unsubscribed from.
-								</p>
-							</td>
-						</tr>
+						${renderFooterHtml(
+							"marketing",
+							signUnsubscribeToken({
+								email: recipientEmail,
+								category: "marketing",
+							}),
+						)}
 					</table>
 				</td>
 			</tr>
@@ -589,9 +608,41 @@ export function generateDevPlanCancellationFeedbackEmailHtml(): string {
 	`.trim();
 }
 
+const cancelledCopy: Record<
+	BillingOrganizationKind,
+	{ title: string; cancelled: string; next: string; cta: string }
+> = {
+	default: {
+		title: "Your Subscription Has Been Cancelled",
+		cancelled:
+			"Your Pro subscription for <strong>{org}</strong> has been cancelled and your organization has been downgraded to the free plan.",
+		next: "You can continue using LLMGateway with our free plan features, or you can resubscribe to Pro at any time from your dashboard.",
+		cta: "Manage Subscription",
+	},
+	devpass: {
+		title: "Your DevPass Has Been Cancelled",
+		cancelled:
+			"Your DevPass plan for <strong>{org}</strong> has been cancelled.",
+		next: "You can subscribe again at any time from your DevPass dashboard.",
+		cta: "Manage DevPass",
+	},
+	chat: {
+		title: "Your Lounge Membership Has Been Cancelled",
+		cancelled:
+			"Your Lounge membership for <strong>{org}</strong> has been cancelled.",
+		next: "You can rejoin at any time from the Lounge pricing page.",
+		cta: "Manage Membership",
+	},
+};
+
 export function generateSubscriptionCancelledEmailHtml(
-	organizationName: string,
+	organization: EmailOrganization,
 ): string {
+	const copy = cancelledCopy[organization.kind];
+	const cancelled = copy.cancelled.replace("{org}", () =>
+		escapeHtml(organization.name),
+	);
+	const billingUrl = getBillingPageUrl(organization);
 	return `
 <!DOCTYPE html>
 <html lang="en">
@@ -612,30 +663,26 @@ export function generateSubscriptionCancelledEmailHtml(
 						<tr>
 							<td style="padding: 0;">
 								<div style="background-color: #f8f9fa; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
-									<h1 style="color: #dc2626; margin-top: 0; font-size: 24px; font-weight: 600;">Your Subscription Has
-										Been Cancelled</h1>
+									<h1 style="color: #dc2626; margin-top: 0; font-size: 24px; font-weight: 600;">${copy.title}</h1>
 
 									<p style="font-size: 16px; margin-bottom: 20px; color: #333; line-height: 1.5;">
 										Hi there,
 									</p>
 
 									<p style="font-size: 16px; margin-bottom: 20px; color: #333; line-height: 1.5;">
-										We're sorry to see you go. Your Pro subscription for
-										<strong>${escapeHtml(organizationName)}</strong> has been cancelled and your organization has been
-										downgraded to the free plan.
+										We're sorry to see you go. ${cancelled}
 									</p>
 
 									<p style="font-size: 16px; margin-bottom: 20px; color: #333; line-height: 1.5;">
-										You can continue using LLMGateway with our free plan features, or you can resubscribe to Pro at any
-										time from your dashboard.
+										${copy.next}
 									</p>
 
 									<!-- CTA Button -->
 									<div style="text-align: center; margin: 30px 0;">
 										<a
-											href="https://llmgateway.io/dashboard/settings/org/billing"
+											href="${billingUrl}"
 											style="display: inline-block; background-color: #000000; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 16px;"
-										>Manage Subscription</a>
+										>${copy.cta}</a>
 									</div>
 
 									<p style="font-size: 14px; color: #646464; margin-top: 30px; margin-bottom: 0; line-height: 1.5;">
@@ -644,21 +691,7 @@ export function generateSubscriptionCancelledEmailHtml(
 									</p>
 								</div>
 
-								<!-- Footer -->
-								<tr>
-									<td
-										style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;"
-									>
-										<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
-											Need help getting started? Check out our <a
-											href="https://docs.llmgateway.io" style="color: #000000; text-decoration: none;"
-										>documentation</a> or reply to this email for any questions.
-										</p>
-										<p style="margin: 0; color: #999999; font-size: 12px;">
-											© 2025 LLM Gateway. All rights reserved. This is a transactional email and it can't be unsubscribed from.
-										</p>
-									</td>
-								</tr>
+								${renderFooterHtml("transactional")}
 							</td>
 						</tr>
 					</table>

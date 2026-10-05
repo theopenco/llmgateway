@@ -3,10 +3,10 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.videoPrompt = "Native video comparison " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Video Studio"
-    direction: DOWN
-- tapOn: "Video Studio"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Videos"
 - tapOn: "Video model 1: Choose"
 - tapOn:
     id: "field-search-models"
@@ -97,10 +97,10 @@ appId: io.llmgateway.lounge
     timeout: 15000
 - launchApp
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Video Studio"
-    direction: DOWN
-- tapOn: "Video Studio"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Videos"
 - scrollUntilVisible:
     element:
       id: "field-search-videos"
@@ -120,9 +120,6 @@ appId: io.llmgateway.lounge
     text: ${output.videoPrompt}
     below:
       id: "field-search-videos"
-- scrollUntilVisible:
-    element: "Generate video"
-    direction: UP
 - scrollUntilVisible:
     element:
       text: "Play"

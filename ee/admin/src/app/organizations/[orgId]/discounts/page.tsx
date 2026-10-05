@@ -19,6 +19,8 @@ import {
 	getDiscountOptions,
 	getOrganizationDiscounts,
 } from "@/lib/admin-discounts";
+import { canWrite } from "@/lib/admin-role";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
@@ -64,6 +66,7 @@ export default async function OrganizationDiscountsPage({
 
 	const { orgId } = await params;
 
+	const isAdmin = canWrite(await getSessionAdminRole());
 	const $api = await createServerApiClient();
 	const [discountsData, options, metricsRes] = await Promise.all([
 		getOrganizationDiscounts(orgId),
@@ -156,7 +159,7 @@ export default async function OrganizationDiscountsPage({
 						</div>
 					</div>
 				</div>
-				{options && (
+				{isAdmin && options && (
 					<DiscountForm
 						providers={options.providers}
 						mappings={options.mappings}
@@ -175,22 +178,24 @@ export default async function OrganizationDiscountsPage({
 							<TableHead>Reason</TableHead>
 							<TableHead>Expires</TableHead>
 							<TableHead>Created</TableHead>
-							<TableHead className="w-[50px]" />
+							{isAdmin ? <TableHead className="w-[50px]" /> : null}
 						</TableRow>
 					</TableHeader>
 					<TableBody>
 						{discounts.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={7}
+									colSpan={isAdmin ? 7 : 6}
 									className="h-24 text-center text-muted-foreground"
 								>
 									<div className="flex flex-col items-center gap-2">
 										<Tag className="h-8 w-8 text-muted-foreground/50" />
 										<p>No discounts configured for this organization</p>
-										<p className="text-xs">
-											Add a discount to give this organization special pricing
-										</p>
+										{isAdmin ? (
+											<p className="text-xs">
+												Add a discount to give this organization special pricing
+											</p>
+										) : null}
 									</div>
 								</TableCell>
 							</TableRow>
@@ -237,12 +242,14 @@ export default async function OrganizationDiscountsPage({
 									<TableCell className="text-muted-foreground">
 										{formatDate(discount.createdAt)}
 									</TableCell>
-									<TableCell>
-										<DeleteDiscountButton
-											discountId={discount.id}
-											onDelete={handleDeleteDiscount}
-										/>
-									</TableCell>
+									{isAdmin ? (
+										<TableCell>
+											<DeleteDiscountButton
+												discountId={discount.id}
+												onDelete={handleDeleteDiscount}
+											/>
+										</TableCell>
+									) : null}
 								</TableRow>
 							))
 						)}

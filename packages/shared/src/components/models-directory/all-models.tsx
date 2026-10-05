@@ -355,6 +355,13 @@ function computeCapabilities(
 			color: "text-teal-500",
 		});
 	}
+	if (model?.output?.includes("search")) {
+		capabilities.push({
+			icon: Search,
+			label: "Search API",
+			color: "text-sky-500",
+		});
+	}
 	if (provider.webSearch) {
 		capabilities.push({
 			icon: Globe,

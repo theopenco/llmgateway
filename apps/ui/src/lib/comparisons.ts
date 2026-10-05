@@ -1,29 +1,16 @@
-/**
- * Single source of truth for the /compare hub. Each entry mirrors the
- * positioning already published on its own /compare/[slug] page, so the hub and
- * the detail pages never drift apart. Keep competitor claims conservative and
- * verifiable — evaluators land here mid-comparison and will check them.
- */
-
 export type ComparisonCategory =
 	"AI gateways & routers" | "Cloud model platforms" | "Coding assistants";
 
 export interface Comparison {
+	sources: { label: string; href: string }[];
 	slug: string;
-	/** Competitor name as they brand themselves. */
 	competitor: string;
 	category: ComparisonCategory;
-	/** What the competitor is, in their own terms. Never a strawman. */
 	positioning: string;
-	/** What the competitor ships under an open-source licence, if anything. */
 	openSource: string;
-	/** Whether the competitor's stack can run on your own infrastructure. */
 	selfHostable: string;
-	/** The single dimension that actually separates the two products. */
 	keyDifference: string;
-	/** Honest "pick them instead" guidance. */
 	betterForThem: string;
-	/** Matching guide under /migration, when one exists. */
 	migrationSlug?: string;
 }
 
@@ -33,96 +20,196 @@ export const comparisons: Comparison[] = [
 		competitor: "OpenRouter",
 		category: "AI gateways & routers",
 		positioning:
-			"A hosted marketplace that puts 400+ models behind one OpenAI-compatible endpoint, with its own credit system on top. Stripe announced its acquisition of OpenRouter in August 2026.",
+			"A hosted model marketplace with routing, analytics, workspaces and prepaid credits. Standard and Business have different fees and regional controls.",
 		openSource: "No",
 		selfHostable: "No",
 		keyDifference:
-			"LLM Gateway is open source, independent, and self-hostable, so the routing layer can run inside your own infrastructure instead of only as someone else's service.",
+			"LLM Gateway offers a self-hostable core and no BYOK platform fee; OpenRouter offers a managed marketplace with plan-dependent BYOK allowances.",
 		betterForThem:
-			"You want the widest possible catalogue of niche and community models and have no interest in running any infrastructure yourself.",
+			"You want a hosted marketplace, its routing tools and regional controls, with no gateway infrastructure to operate.",
 		migrationSlug: "openrouter",
+		sources: [
+			{ label: "Pricing and plans", href: "https://openrouter.ai/pricing" },
+			{
+				label: "BYOK fees and policies",
+				href: "https://openrouter.ai/docs/guides/overview/auth/byok",
+			},
+			{ label: "Product announcements", href: "https://openrouter.ai/blog/" },
+		],
 	},
 	{
 		slug: "portkey",
 		competitor: "Portkey",
 		category: "AI gateways & routers",
 		positioning:
-			"An AI gateway paired with a broader LLMOps suite covering prompt management, evaluations, and observability. Acquired by Palo Alto Networks in May 2026 and now sold as the Prisma AIRS AI Gateway.",
-		openSource: "Gateway + platform (MIT)",
-		selfHostable: "Most components",
+			"An AI gateway and operations platform with prompt management, tracing, guardrails and MCP governance. Palo Alto Networks acquired Portkey in May 2026.",
+		openSource: "Gateway (MIT)",
+		selfHostable: "OSS gateway; enterprise private deployments",
 		keyDifference:
-			"The entire LLM Gateway platform ships under AGPLv3, where Portkey's gateway is open source but the surrounding platform is a proprietary hosted product.",
+			"Both can be self-hosted. Compare licensing, deployment scope, prompt operations and log-volume pricing against LLM Gateway's credit or BYOK model.",
 		betterForThem:
-			"You want prompt management and evaluation tooling bundled with the gateway, and you are happy on a hosted platform.",
+			"You want prompt operations, semantic caching and agent governance alongside routing, with hosted or enterprise private deployment options.",
 		migrationSlug: "portkey",
+		sources: [
+			{ label: "Hosted pricing", href: "https://portkey.ai/pricing" },
+			{
+				label: "Open-source gateway",
+				href: "https://github.com/Portkey-AI/gateway",
+			},
+			{
+				label: "MCP gateway",
+				href: "https://portkey.ai/blog/introducing-the-mcp-gateway/",
+			},
+			{
+				label: "Acquisition announcement",
+				href: "https://www.paloaltonetworks.com/company/press/2026/palo-alto-networks-completes-acquisition-of-portkey-to-secure-ai-agents",
+			},
+		],
 	},
 	{
 		slug: "litellm",
 		competitor: "LiteLLM",
 		category: "AI gateways & routers",
 		positioning:
-			"A widely used open-source Python proxy and SDK that normalises calls across providers, run, patched, and operated by you.",
-		openSource: "Yes (MIT)",
+			"An open-source Python SDK and gateway with an Admin UI, virtual keys, budgets, a playground and observability integrations.",
+		openSource: "Core (MIT); commercial Enterprise",
 		selfHostable: "Yes",
 		keyDifference:
-			"LLM Gateway is a managed, production-ready service — dashboard, analytics, worker, and gateway in one deploy — rather than a proxy you host, monitor, and upgrade yourself.",
+			"LLM Gateway offers managed hosting and prepaid inference; LiteLLM gives you a Python SDK and a gateway you operate with your own providers.",
 		betterForThem:
-			"You already run Python infrastructure, want library-level control, and would rather own the operational burden than pay a platform fee.",
+			"Your team wants Python-level extensibility and can operate the gateway, database, monitoring and upgrades.",
 		migrationSlug: "litellm",
+		sources: [
+			{ label: "Pricing and editions", href: "https://www.litellm.ai/pricing" },
+			{
+				label: "Enterprise controls",
+				href: "https://docs.litellm.ai/docs/enterprise",
+			},
+			{
+				label: "Admin UI quickstart",
+				href: "https://docs.litellm.ai/docs/proxy/docker_quick_start",
+			},
+			{
+				label: "Model playground",
+				href: "https://docs.litellm.ai/docs/proxy/model_compare_ui",
+			},
+		],
 	},
 	{
 		slug: "vercel-ai-gateway",
 		competitor: "Vercel AI Gateway",
 		category: "AI gateways & routers",
 		positioning:
-			"A managed routing service built around the Vercel AI SDK, with zero token markup, BYOK on the paid tier, and metered add-ons for reporting, allowlists, and zero data retention.",
-		openSource: "No",
+			"A managed gateway with AI SDK and standard API support, media generation, budgets, zero inference markup and separately metered add-ons.",
+		openSource: "AI SDK is open source; gateway is managed",
 		selfHostable: "No",
 		keyDifference:
-			"LLM Gateway is open source and self-hostable with zero token markup, and it is not tied to a Vercel team account or one SDK.",
+			"Both work across application hosts. LLM Gateway adds a self-hostable core; Vercel offers a managed gateway integrated with its developer platform.",
 		betterForThem:
-			"Your team already lives on Vercel and you want routing that is one configuration line away inside the AI SDK.",
+			"You want AI SDK integration, managed routing and Vercel observability without operating a gateway.",
 		migrationSlug: "vercel-ai-gateway",
+		sources: [
+			{
+				label: "Pricing and add-ons",
+				href: "https://vercel.com/docs/ai-gateway/pricing",
+			},
+			{ label: "API and media support", href: "https://vercel.com/ai-gateway" },
+			{
+				label: "Budgets",
+				href: "https://vercel.com/docs/ai-gateway/observability-and-spend/budgets",
+			},
+		],
 	},
 	{
 		slug: "aws-bedrock",
 		competitor: "AWS Bedrock",
 		category: "Cloud model platforms",
 		positioning:
-			"Amazon's managed service for the models AWS hosts, billed and governed through your existing AWS account.",
+			"Amazon's managed model and agent platform, with AWS billing, IAM, OpenAI-compatible APIs on supported models, and regional inference options.",
 		openSource: "No",
 		selfHostable: "No",
 		keyDifference:
-			"LLM Gateway reaches every major lab and cloud — Bedrock included — behind one API, so a model AWS does not host is still one string change away.",
+			"LLM Gateway routes across independent providers, including supported Bedrock mappings. Bedrock combines inference with AWS-native agents and governance.",
 		betterForThem:
-			"Everything must stay inside AWS billing and IAM, and the models you need are all available in Bedrock.",
+			"AWS billing, IAM and private networking are central requirements and its supported models and services cover your workload.",
+		sources: [
+			{ label: "Pricing", href: "https://aws.amazon.com/bedrock/pricing/" },
+			{
+				label: "API compatibility",
+				href: "https://docs.aws.amazon.com/bedrock/latest/userguide/models-api-compatibility.html",
+			},
+			{
+				label: "Prompt routing",
+				href: "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-routing.html",
+			},
+			{
+				label: "Latest changes",
+				href: "https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-ug-doc-history.html",
+			},
+		],
 	},
 	{
 		slug: "azure-ai-foundry",
 		competitor: "Microsoft Foundry",
 		category: "Cloud model platforms",
 		positioning:
-			"Microsoft's managed platform for the models Azure hosts (renamed from Azure AI Foundry in late 2025), reached after you create resources, deployments, and quota.",
+			"Microsoft's model and agent platform, with Azure governance, deployment options and a model router with fallback and preview session affinity.",
 		openSource: "No",
 		selfHostable: "No",
 		keyDifference:
-			"LLM Gateway needs no per-model provisioning: one key reaches every provider, and Azure can stay in the mix as one of them.",
+			"LLM Gateway provides a common API across providers. Foundry integrates model deployments, agents and governance with Azure; BYOK still follows Azure quotas.",
 		betterForThem:
-			"Azure is your mandated cloud and the provisioning workflow is already part of how your team ships.",
+			"Your team needs Azure identity, networking, managed agent services and integrated governance.",
+		sources: [
+			{
+				label: "Pricing",
+				href: "https://azure.microsoft.com/en-us/pricing/details/microsoft-foundry/",
+			},
+			{
+				label: "Model router updates",
+				href: "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/whats-new-model-router",
+			},
+			{
+				label: "Model deployment options",
+				href: "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure",
+			},
+		],
 	},
 	{
 		slug: "github-copilot",
 		competitor: "GitHub Copilot",
 		category: "Coding assistants",
 		positioning:
-			"GitHub's coding assistant, which since June 2026 bills chat and agent usage through usage-based AI Credits; Business and Enterprise enable paid additional usage by default and only an admin disabling that policy or a budget with hard stop on caps it, while individual plans stop until the user sets a budget.",
-		openSource: "No",
-		selfHostable: "No",
+			"A coding assistant across editors, GitHub, CLI and agents, with included AI credits, cached-token pricing, spend controls and client-dependent BYOK.",
+		openSource: "Selected clients and SDKs; hosted service is proprietary",
+		selfHostable: "Hosted service: no; local BYOK varies by client",
 		keyDifference:
-			"LLM Gateway charges zero token markup and enforces hard budget caps at organization, project, and key scope.",
+			"Copilot provides the coding experience. LLM Gateway provides model routing and usage controls for compatible tools, including supported Copilot BYOK clients.",
 		betterForThem:
-			"You want a single vendor for editor, repository, and assistant, and one per-seat bill matters more than per-project and per-key cost attribution.",
+			"You value integrated completions, next-edit suggestions, repository context and GitHub workflows.",
 		migrationSlug: "github-copilot",
+		sources: [
+			{
+				label: "Plans and allowances",
+				href: "https://docs.github.com/en/copilot/get-started/plans",
+			},
+			{
+				label: "Organization billing and budgets",
+				href: "https://docs.github.com/en/copilot/concepts/billing-and-usage/organizations-and-enterprises/billing",
+			},
+			{
+				label: "Individual billing",
+				href: "https://docs.github.com/en/copilot/concepts/billing-and-usage/individuals/billing",
+			},
+			{
+				label: "BYOK support",
+				href: "https://docs.github.com/en/copilot/concepts/models/bring-your-own-key",
+			},
+			{
+				label: "Caching and usage",
+				href: "https://docs.github.com/en/copilot/tutorials/optimize-ai-usage",
+			},
+		],
 	},
 ];
 

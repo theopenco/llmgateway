@@ -115,7 +115,7 @@ export default function TokenCostCalculatorPage() {
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
 			/>
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<TokenCostCalculatorClient />
 			<TokenCostCalculatorContent />
 			<Footer />

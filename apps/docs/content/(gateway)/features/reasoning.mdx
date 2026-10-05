@@ -1,0 +1,522 @@
+---
+title: Reasoning
+description: Learn how to use reasoning-capable models that show their step-by-step thought process.
+icon: Brain
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+LLMGateway supports reasoning-capable models that can show their step-by-step thought process before providing a final answer. This feature is particularly useful for complex problem-solving tasks, mathematical calculations, and logical reasoning.
+
+## Reasoning-Enabled Models
+
+You can find all reasoning-enabled models on our [models page with reasoning filter](https://llmgateway.io/models?filters=1&reasoning=true). These models include:
+
+- OpenAI's GPT-5 series (e.g., `gpt-5`, `gpt-5-mini`)
+  - Note: GPT-5 models use reasoning but currently do not return the reasoning content in the response.
+- Anthropic's Claude 3.7 Sonnet
+- Google's Gemini 2.0 Flash Thinking and Gemini 2.5 Pro
+- GPT OSS models such as `gpt-oss-120b` and `gpt-oss-20b`
+- Z.AI's reasoning models
+
+<Callout type="info">
+	Some models may reason internally even if the `reasoning_effort` parameter is
+	not specified.
+</Callout>
+
+## Using the Reasoning Parameter
+
+There are two ways to control reasoning effort:
+
+### Option 1: Top-level `reasoning_effort`
+
+Add the `reasoning_effort` parameter directly to your request:
+
+- `none` - Disable reasoning. Supported by OpenAI's newer reasoning models (e.g. `gpt-5.4-mini` and later, which accept `none` instead of `minimal`). For other providers this turns reasoning off.
+- `minimal` - Fastest reasoning with minimal thought process (only for GPT-5 models)
+- `low` - Light reasoning for simpler tasks
+- `medium` - Balanced reasoning for most tasks
+- `high` - Deep reasoning for complex problems
+- `xhigh` - Very deep reasoning for the most complex problems
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google, Alibaba) have each tier translated to a native budget
+
+<Callout type="info">
+	OpenAI's reasoning models do not all accept the same effort values. The
+	original GPT-5 models support `minimal`, while newer models (e.g.
+	`gpt-5.4-mini` and later) replace it with `none`. If you send an effort value
+	the target model doesn't support, OpenAI returns an `unsupported_value` error.
+	The exact values each provider mapping accepts are exposed as
+	`reasoning_efforts` on the [`/v1/models`](https://api.llmgateway.io/v1/models)
+	endpoint.
+</Callout>
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-oss-120b",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 2/3 + 1/4 + 5/6?"
+      }
+    ],
+    "reasoning_effort": "medium"
+  }'
+```
+
+### Option 2: Using the `reasoning` object
+
+Use the unified `reasoning` configuration object with an `effort` field:
+
+- `none` - Disable reasoning
+- `minimal` - Fastest reasoning with minimal thought process
+- `low` - Light reasoning for simpler tasks
+- `medium` - Balanced reasoning for most tasks
+- `high` - Deep reasoning for complex problems
+- `xhigh` - Very deep reasoning for the most complex problems
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google, Alibaba) have each tier translated to a native budget
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 2/3 + 1/4 + 5/6?"
+      }
+    ],
+    "reasoning": {
+      "effort": "medium"
+    }
+  }'
+```
+
+<Callout type="warning">
+	You cannot use both `reasoning_effort` and `reasoning.effort` in the same
+	request. Choose one approach. However, you can combine `reasoning_effort` or
+	`reasoning.effort` with `reasoning.max_tokens` — when `max_tokens` is
+	specified, it takes priority over the effort level.
+</Callout>
+
+### Example Response
+
+The response will include a `reasoning` field in the message object containing the model's step-by-step thought process:
+
+```json
+{
+	"id": "chatcmpl-abc123",
+	"object": "chat.completion",
+	"created": 1234567890,
+	"model": "gpt-oss-120b",
+	"choices": [
+		{
+			"index": 0,
+			"message": {
+				"role": "assistant",
+				"content": "The answer is 1.75 or 7/4.",
+				"reasoning": "First, I need to find a common denominator for 2/3, 1/4, and 5/6. The LCD is 12. Converting: 2/3 = 8/12, 1/4 = 3/12, 5/6 = 10/12. Adding: 8/12 + 3/12 + 10/12 = 21/12 = 1.75 or 7/4."
+			},
+			"finish_reason": "stop"
+		}
+	],
+	"usage": {
+		"prompt_tokens": 20,
+		"completion_tokens": 45,
+		"reasoning_tokens": 35,
+		"total_tokens": 65
+	}
+}
+```
+
+## Specifying Reasoning Token Budget
+
+For models that support it, you can specify an exact token budget for reasoning using the `reasoning` object with `max_tokens`. This gives you precise control over how many tokens the model allocates to its thinking process.
+
+<Callout type="info">
+	When `reasoning.max_tokens` is specified, it overrides `reasoning.effort` and
+	`reasoning_effort`. Supported by Anthropic Claude and Google Gemini thinking
+	models, plus Alibaba-hosted thinking models (forwarded as DashScope's
+	`thinking_budget`).
+</Callout>
+
+### Example Request
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "anthropic/claude-sonnet-4-20250514",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Explain the P vs NP problem and why it matters."
+      }
+    ],
+    "reasoning": {
+      "max_tokens": 8000
+    }
+  }'
+```
+
+### Supported Models
+
+The `reasoning.max_tokens` parameter is supported by:
+
+- **Anthropic Claude**: Claude 3.7 Sonnet, Claude Sonnet 4, Claude Opus 4, Claude Opus 4.5
+- **Google Gemini**: Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 3 Pro Preview
+
+When using auto-routing or canonical models with `reasoning.max_tokens`, only providers that support this feature will be considered.
+
+### Provider-Specific Constraints
+
+- **Anthropic**: Reasoning budget must be between 1,024 and 128,000 tokens. Values outside this range are automatically clamped.
+- **Google**: No specific constraints on the reasoning budget.
+
+### Error Handling
+
+If you specify `reasoning.max_tokens` for a model that doesn't support it, you'll receive an error:
+
+```json
+{
+	"error": {
+		"message": "Model gpt-4o does not support reasoning.max_tokens. Remove the reasoning parameter or use a model that supports explicit reasoning token budgets.",
+		"type": "invalid_request_error",
+		"code": "model_not_supported"
+	}
+}
+```
+
+## Reasoning Mode
+
+OpenAI's GPT-5.6 and GPT-6 models accept a `reasoning.mode` of `standard` (the default) or `pro`. Pro mode spends additional model work on difficult tasks at higher latency and token usage. It is independent of effort: `mode` selects standard or pro execution, `effort` controls how much reasoning happens within that mode.
+
+```json
+{
+	"model": "gpt-5.6-sol",
+	"messages": [
+		{
+			"role": "user",
+			"content": "Review this migration plan for failure modes."
+		}
+	],
+	"reasoning": {
+		"mode": "pro",
+		"effort": "medium"
+	}
+}
+```
+
+The same `reasoning.mode` field works on the `/v1/responses` endpoint. Each mapping lists the values it accepts as `reasoning_modes` on [`/v1/models`](https://api.llmgateway.io/v1/models); auto-routing only considers mappings that list the requested mode, and a request for a model that does not list it is rejected with a 400 rather than silently run in standard mode:
+
+```json
+{
+	"error": {
+		"message": "Model gpt-4o does not support reasoning.mode \"pro\". Remove the reasoning.mode parameter or use a model whose reasoning_modes on /v1/models include it.",
+		"type": "invalid_request_error",
+		"code": "model_not_supported"
+	}
+}
+```
+
+## Controlling Response Verbosity
+
+For OpenAI GPT-5 and later models, you can control how detailed the model's final answer is with the top-level `verbosity` parameter. This is independent of `reasoning_effort`: `reasoning_effort` controls how much the model thinks, while `verbosity` controls how much it writes in its response.
+
+Accepted values:
+
+- `low` - Concise responses with minimal elaboration
+- `medium` - Balanced level of detail
+- `high` - Detailed, thorough responses
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Explain how a hash map works."
+      }
+    ],
+    "verbosity": "low"
+  }'
+```
+
+<Callout type="info">
+	`verbosity` is only supported by OpenAI GPT-5 and later models. You can check
+	which model mappings accept it via the
+	[`/v1/models`](https://api.llmgateway.io/v1/models) endpoint. It can be
+	combined freely with `reasoning_effort` or the `reasoning` object.
+</Callout>
+
+### Error Handling
+
+If you specify `verbosity` for a model that doesn't support it, you'll receive a `400` error:
+
+```json
+{
+	"error": {
+		"message": "Model gpt-4o does not support the verbosity parameter. Remove the verbosity parameter or use a model that supports it (OpenAI GPT-5 and later).",
+		"type": "invalid_request_error",
+		"code": "model_not_supported"
+	}
+}
+```
+
+## Streaming Reasoning Content
+
+When streaming is enabled, reasoning content will be streamed as part of the response chunks:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-oss-120b",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Solve this logic puzzle: If all roses are flowers and some flowers fade quickly, can we conclude that some roses fade quickly?"
+      }
+    ],
+    "reasoning_effort": "high",
+    "stream": true
+  }'
+```
+
+The reasoning content will appear in the stream chunks before the final answer, allowing you to display the model's thought process in real-time.
+
+Example:
+
+```
+data: {
+	"id": "chatcmpl-fb266880-1016-4797-9a70-f21a538edaf6",
+	"object": "chat.completion.chunk",
+	"created": 1761048126,
+	"model": "openai/gpt-oss-20b",
+	"choices": [
+		{
+			"index": 0,
+			"delta": {
+				"reasoning": "It's ",
+				"role": "assistant"
+			},
+			"finish_reason": null
+		}
+	]
+}
+```
+
+## Preserving Reasoning Across Calls
+
+Agents work over many turns: the model reasons, calls a tool, and the tool result arrives in the next request. Reasoning models are trained to continue from the reasoning they produced on earlier turns, so dropping it mid-task degrades tool-calling and multi-turn performance.
+
+LLMGateway preserves reasoning the same way OpenAI's Responses API does. The model returns an opaque **encrypted reasoning** payload, and you send it back unchanged along with the rest of the conversation on the next call. The payload is issued and verified by the provider — the gateway passes it through without inspecting or rewriting it.
+
+<Callout type="info">
+	Readable reasoning summaries and opaque replay data are separate. Summaries
+	remain available when the model provides them; the gateway cannot decrypt
+	provider-issued reasoning payloads or Gemini thought signatures.
+</Callout>
+
+### Responses API
+
+Ask for the payloads with `include: ["reasoning.encrypted_content"]`, and send `store: false` if you want the turn to stay stateless:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/responses" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5.4-nano",
+    "input": [{ "role": "user", "content": "What is the weather in Paris? Use the tool." }],
+    "tools": [
+      {
+        "type": "function",
+        "name": "get_weather",
+        "parameters": {
+          "type": "object",
+          "properties": { "city": { "type": "string" } },
+          "required": ["city"]
+        }
+      }
+    ],
+    "store": false,
+    "include": ["reasoning.encrypted_content"],
+    "reasoning": { "effort": "high" }
+  }'
+```
+
+Reasoning items in `output` then carry `encrypted_content`:
+
+```json
+{
+	"type": "reasoning",
+	"id": "rs_057d93d1ba22357e01...",
+	"summary": [],
+	"encrypted_content": "gAAAAABqfkEO3uEFtXeGSNE9..."
+}
+```
+
+On the next turn, replay the previous `output` items unchanged — reasoning items included — followed by your tool results:
+
+```json
+{
+	"model": "gpt-5.4-nano",
+	"input": [
+		{
+			"role": "user",
+			"content": "What is the weather in Paris? Use the tool."
+		},
+		{
+			"type": "reasoning",
+			"id": "rs_057d93d1ba22357e01...",
+			"summary": [],
+			"encrypted_content": "gAAAAABqfkEO3uEFtXeGSNE9..."
+		},
+		{
+			"type": "function_call",
+			"call_id": "call_923JIrDbCvIHnGqfvDbPeaLh",
+			"name": "get_weather",
+			"arguments": "{\"city\":\"Paris\"}"
+		},
+		{
+			"type": "function_call_output",
+			"call_id": "call_923JIrDbCvIHnGqfvDbPeaLh",
+			"output": "18C sunny"
+		}
+	],
+	"store": false,
+	"include": ["reasoning.encrypted_content"],
+	"reasoning": { "effort": "high" }
+}
+```
+
+Without the `include` value, reasoning items come back without `encrypted_content` and there is nothing to replay. When streaming, the payload arrives on the reasoning item's `response.output_item.done` event.
+
+#### Stateful Alternative
+
+If you would rather not carry the payloads yourself, leave `store` at its default (`true`) and chain turns with `previous_response_id`. The gateway keeps the stored response — encrypted reasoning included — for [30 days](/features/data-retention#retention-periods) and replays the reasoning for you, so `include` is not needed on that path.
+
+### Chat Completions
+
+The Chat Completions format has no reasoning items, so the gateway carries the same payloads on the assistant message as `reasoning_details`:
+
+```json
+{
+	"role": "assistant",
+	"content": null,
+	"tool_calls": [
+		{
+			"id": "call_923JIrDbCvIHnGqfvDbPeaLh",
+			"type": "function",
+			"function": { "name": "get_weather", "arguments": "{\"city\":\"Paris\"}" }
+		}
+	],
+	"reasoning_details": [
+		{
+			"type": "reasoning.encrypted",
+			"data": "gAAAAABqfkEO3uEFtXeGSNE9...",
+			"id": "rs_057d93d1ba22357e01...",
+			"format": "openai-responses-v1",
+			"index": 0
+		}
+	]
+}
+```
+
+To preserve the reasoning, append the assistant message back into `messages` exactly as you received it (with `reasoning_details` intact) before the matching `tool` result. No opt-in parameter is required — the field is always present when the model produced one. When streaming, the entries arrive as a `delta.reasoning_details` chunk.
+
+The gateway converts supported `reasoning_details` formats to native provider fields and strips these entries from other upstream requests.
+
+### Gemini Thought Signatures
+
+Gemini text turns carry signatures in `reasoning_details` entries with `type: "reasoning.text"` and `format: "google-gemini-v1"`. Replay the entire assistant message, including these entries. Preserve each entry's `google_part` metadata: it lets the gateway restore the original signed text boundaries. Streaming clients must collect `delta.reasoning_details`, including entries arriving with empty text.
+
+When the gateway repairs JSON, clients receive the repaired answer. The entries also carry `google_response` metadata so replay can restore the original signed text. Editing the returned answer prevents that restoration.
+
+On the Responses API, replay the complete `output`: assistant message items carry `reasoning_details`, while function call items carry `extra_content.google.thought_signature`. These fields are returned without an `include` opt-in. Stored conversations using `previous_response_id` preserve them automatically. Gemini signatures are not converted into OpenAI `encrypted_content`.
+
+For Chat Completions, `content[]` text parts and `tool_calls[]` also accept `extra_content.google.thought_signature`. Streaming tool calls have distinct `index` values across chunks; accumulate calls by index and keep each signature with its original call. The tool-call signature cache remains a fallback, but replaying the metadata also works when signatures are not cached. Only replay signatures with the original content and the model/provider that issued them.
+
+### Error Handling
+
+Payloads are verified by the provider that issued them. A modified, truncated, or foreign payload is rejected upstream and the error is forwarded unchanged:
+
+```json
+{
+	"error": {
+		"message": "The encrypted content for item rs_057d93d1ba22357e01... could not be verified. Reason: Encrypted content could not be decrypted or parsed.",
+		"type": "invalid_request_error",
+		"code": "invalid_encrypted_content"
+	}
+}
+```
+
+Only replay payloads against the model and provider that produced them.
+
+## Usage Tracking
+
+### Response Payload
+
+The `usage` object in the response includes reasoning-specific token counts:
+
+- `reasoning_tokens` - Number of tokens used for the reasoning process
+- `completion_tokens` - Number of tokens in the final answer
+- `prompt_tokens` - Number of tokens in the input
+- `total_tokens` - Sum of all token counts
+
+### Logs and Analytics
+
+All requests using the `reasoning_effort` parameter are tracked in your dashboard logs with:
+
+- The `reasoningContent` field containing the full reasoning text
+- Separate token counts for reasoning vs. completion
+- Performance metrics for reasoning-enabled requests
+
+You can view detailed logs for each request in the [dashboard](https://llmgateway.io/dashboard) to analyze how models are reasoning through problems.
+
+## Auto-Routing with Reasoning
+
+When using auto routing (`"model": "auto"`), if the selected model supports reasoning, you did not set a reasoning effort yourself, and the request has no web search tool (web search is incompatible with `minimal` effort), LLMGateway will:
+
+1. Automatically set `reasoning_effort` to `minimal` for GPT-5 models
+2. Set `reasoning_effort` to `low` for other auto-routed reasoning models
+3. Only route to providers that support reasoning when `reasoning_effort` is specified
+
+This ensures optimal performance and cost when using auto-routing with reasoning-capable models.
+
+## Model-Specific Behavior
+
+Not all reasoning models return reasoning content in the same way. Some models (like OpenAI models) may reason internally but not expose the reasoning content in the response. LLMGateway makes sure the response is unified across different providers, but the depth and format of reasoning may vary.
+
+## Best Practices
+
+1. **Choose appropriate reasoning effort**: Use `low` or `minimal` for simple tasks, `medium` for most tasks, and `high` only for complex problems that require deep reasoning
+2. **Monitor token usage**: Reasoning can significantly increase token consumption - monitor your `reasoning_tokens` in the usage object
+3. **Stream for better UX**: When building user-facing applications, enable streaming to show the reasoning process in real-time
+4. **Check logs**: Review the `reasoningContent` in your dashboard logs to understand how models are solving problems
+
+## Error Handling
+
+If you specify `reasoning_effort` for a model that doesn't support reasoning, you'll receive an error:
+
+```json
+{
+	"error": {
+		"message": "Model gpt-4o does not support reasoning. Remove the reasoning_effort parameter or use a reasoning-capable model.",
+		"type": "invalid_request_error",
+		"code": "model_not_supported"
+	}
+}
+```
+
+To avoid this error, only use the `reasoning_effort` parameter with [reasoning-enabled models](https://llmgateway.io/models?filters=1&reasoning=true).

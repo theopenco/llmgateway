@@ -41,6 +41,7 @@ function AirsideBadge() {
 
 type RateLimitType = "rpm" | "rpd";
 type RateLimitEnforcement = "per_org" | "global";
+type RateLimitMode = "strict" | "soft";
 
 interface RateLimitFormProps {
 	providers: RateLimitProviderOption[];
@@ -52,6 +53,7 @@ interface RateLimitFormProps {
 		limitType: RateLimitType;
 		maxRequests: number;
 		enforcement?: RateLimitEnforcement;
+		mode: RateLimitMode;
 		reason: string | null;
 	}) => Promise<{ success: boolean; error?: string }>;
 }
@@ -72,6 +74,7 @@ export function RateLimitForm({
 	const [limitType, setLimitType] = useState<RateLimitType>("rpm");
 	const [enforcement, setEnforcement] =
 		useState<RateLimitEnforcement>("per_org");
+	const [mode, setMode] = useState<RateLimitMode>("strict");
 	const [maxRequests, setMaxRequests] = useState("");
 	const [reason, setReason] = useState("");
 
@@ -148,6 +151,12 @@ export function RateLimitForm({
 			return;
 		}
 
+		if (mode === "soft" && parsedLimit === 0) {
+			setError("A limit of 0 blocks all requests and cannot be soft");
+			setLoading(false);
+			return;
+		}
+
 		if (provider === "__all__" && model === "__all__") {
 			setError("Please select at least a provider or a model");
 			setLoading(false);
@@ -160,6 +169,7 @@ export function RateLimitForm({
 			limitType,
 			maxRequests: parsedLimit,
 			enforcement: showEnforcement ? enforcement : undefined,
+			mode,
 			reason: reason || null,
 		});
 
@@ -171,6 +181,7 @@ export function RateLimitForm({
 			setModel("__all__");
 			setLimitType("rpm");
 			setEnforcement("per_org");
+			setMode("strict");
 			setMaxRequests("");
 			setReason("");
 			router.refresh();
@@ -238,6 +249,27 @@ export function RateLimitForm({
 							</p>
 						</div>
 					)}
+
+					<div className="space-y-2">
+						<Label htmlFor="mode">Mode</Label>
+						<Select
+							value={mode}
+							onValueChange={(value) => setMode(value as RateLimitMode)}
+						>
+							<SelectTrigger className="w-full">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="strict">Strict</SelectItem>
+								<SelectItem value="soft">Soft</SelectItem>
+							</SelectContent>
+						</Select>
+						<p className="text-xs text-muted-foreground">
+							{mode === "strict"
+								? "All traffic is routed away once the limit is reached"
+								: "Sessions already pinned to the provider keep using it past the limit; new sessions are routed away"}
+						</p>
+					</div>
 
 					<div className="space-y-2">
 						<Label htmlFor="provider">Provider</Label>

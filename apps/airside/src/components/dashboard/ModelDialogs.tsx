@@ -10,6 +10,7 @@ import {
 	X,
 	XCircle,
 } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -18,6 +19,7 @@ import {
 	FamilyField,
 	useCatalogue,
 } from "@/components/dashboard/CatalogueFields";
+import { useCompany } from "@/components/dashboard/company-context";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -44,6 +46,49 @@ import { perMillionToPerToken, perTokenToPerMillion } from "@/lib/format";
 
 import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
+
+/**
+ * The key a carrier saved in settings for this provider, masked. When one
+ * exists preflight no longer needs the key pasted — the server reads it off
+ * the claim.
+ */
+function useSavedVerificationKey(
+	providerCompanyId: string,
+	providerId: string,
+): string | null {
+	const { companies } = useCompany();
+	const claim = companies
+		.find((company) => company.id === providerCompanyId)
+		?.claims.find(
+			(candidate) =>
+				candidate.providerId === providerId && candidate.status === "active",
+		);
+	return claim?.verificationKeyMasked ?? null;
+}
+
+function VerificationKeyHint({ savedKey }: { savedKey: string | null }) {
+	return savedKey ? (
+		<>
+			Leave blank to use the encrypted test key saved in{" "}
+			<Link href="/dashboard/settings" className="underline">
+				settings
+			</Link>{" "}
+			(<span className="font-mono">{savedKey}</span>). A key pasted here
+			replaces it.
+		</>
+	) : (
+		<>
+			The preflight calls your endpoint with this key. We store it encrypted as
+			this carrier's test key so later runs reuse it — replace or remove it any
+			time in{" "}
+			<Link href="/dashboard/settings" className="underline">
+				settings
+			</Link>
+			. Use a key separate from your live integration: this traffic is billed by
+			your own platform and is not tracked in LLMGateway usage or billing.
+		</>
+	);
+}
 
 function QuantizationField({
 	id,
@@ -124,6 +169,46 @@ const CAPABILITIES = [
 ] as const;
 
 type Verification = NonNullable<AirsideModel["latestVerification"]>;
+type VerificationProbe = NonNullable<Verification["checks"][number]["probes"]>;
+
+/**
+ * The individual requests a check sent. A tool or reasoning check walks a
+ * ladder of variants, so the list is what tells a carrier which ones the
+ * deployment served and which it refused.
+ */
+function VerificationProbes({ probes }: { probes?: VerificationProbe }) {
+	if (!probes?.length) {
+		return null;
+	}
+	return (
+		<ul className="mt-1 space-y-0.5" data-testid="verification-probes">
+			{probes.map((probe) => (
+				<li key={probe.label} className="flex items-start gap-1.5">
+					{probe.status === "passed" ? (
+						<CheckCircle2
+							className="text-signal mt-0.5 size-3 shrink-0"
+							aria-hidden="true"
+						/>
+					) : (
+						<XCircle
+							className="text-destructive mt-0.5 size-3 shrink-0"
+							aria-hidden="true"
+						/>
+					)}
+					<span className="min-w-0">
+						<span className="sr-only">
+							{probe.status === "passed" ? "Passed" : "Failed"}:{" "}
+						</span>
+						<span className="font-mono">{probe.label}</span>
+						{probe.feedback ? (
+							<span className="text-muted-foreground"> — {probe.feedback}</span>
+						) : null}
+					</span>
+				</li>
+			))}
+		</ul>
+	);
+}
 
 function VerificationResults({ verification }: { verification: Verification }) {
 	const statusLabel =
@@ -161,11 +246,12 @@ function VerificationResults({ verification }: { verification: Verification }) {
 						) : (
 							<Clock3 className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
 						)}
-						<div>
+						<div className="min-w-0">
 							<p className="font-medium">{check.label}</p>
 							{check.feedback ? (
 								<p className="text-muted-foreground mt-0.5">{check.feedback}</p>
 							) : null}
+							<VerificationProbes probes={check.probes} />
 						</div>
 					</li>
 				))}
@@ -173,6 +259,89 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			{verification.summary ? (
 				<p className="text-muted-foreground text-xs">{verification.summary}</p>
 			) : null}
+			{verification.status === "failed" ? (
+				<p
+					className="text-muted-foreground text-xs"
+					data-testid="verification-unchanged"
+				>
+					This run left the listing unchanged. Fix the endpoint and verify
+					again, or switch the capability off yourself if it is not something
+					this deployment does.
+				</p>
+			) : null}
+		</div>
+	);
+}
+
+interface VerificationHistoryEntry extends Verification {
+	initiatedBy: "carrier" | "admin";
+	actorName: string | null;
+}
+
+/** UTC, so a run reads the same for every crew member's time zone. */
+function formatRunTime(value: string): string {
+	const [date, time] = new Date(value).toISOString().split("T");
+	return `${date} ${time.slice(0, 5)} UTC`;
+}
+
+/**
+ * Past preflights for one listing, so a capability that broke and was later
+ * fixed stays on the record instead of being replaced by the newest run.
+ * Runs we started show as "LLM Gateway" — the crew sees which side ran it.
+ */
+function VerificationHistory({
+	entries,
+	selectedId,
+	onSelect,
+}: {
+	entries: VerificationHistoryEntry[];
+	selectedId: string;
+	onSelect: (id: string) => void;
+}) {
+	if (entries.length === 0) {
+		return null;
+	}
+	return (
+		<div className="space-y-2" data-testid="verification-history">
+			<p className="text-muted-foreground text-xs font-semibold">Run history</p>
+			<ul className="divide-border border-border divide-y rounded-lg border">
+				{entries.map((entry) => {
+					const passed = entry.checks.filter(
+						(check) => check.status === "passed",
+					).length;
+					return (
+						<li key={entry.id}>
+							<button
+								type="button"
+								onClick={() => onSelect(entry.id)}
+								aria-current={entry.id === selectedId}
+								className={`hover:bg-muted/50 flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs ${
+									entry.id === selectedId ? "bg-muted/60" : ""
+								}`}
+							>
+								<span className="min-w-0">
+									<span className="block font-medium">
+										{formatRunTime(entry.createdAt)}
+									</span>
+									<span className="text-muted-foreground block truncate">
+										{entry.initiatedBy === "admin"
+											? "LLM Gateway"
+											: (entry.actorName ?? "Crew")}
+									</span>
+								</span>
+								<span className="flex shrink-0 items-center gap-2">
+									<span className="text-muted-foreground">
+										{passed}/{entry.checks.length}
+									</span>
+									<span className="font-mono text-[0.65rem] tracking-wider uppercase">
+										{entry.status}
+									</span>
+								</span>
+							</button>
+						</li>
+					);
+				})}
+			</ul>
 		</div>
 	);
 }
@@ -394,6 +563,7 @@ function toolChoicePayload(
 type CapabilityKey = (typeof CAPABILITIES)[number]["key"];
 
 type RateLimitScope = "global" | "per_org";
+type RateLimitMode = "strict" | "soft";
 
 const API_FORMATS: Array<{
 	value: AirsideModel["apiFormat"];
@@ -448,6 +618,43 @@ function RateLimitScopeField({
 	);
 }
 
+function RateLimitModeField({
+	id,
+	value,
+	onChange,
+}: {
+	id: string;
+	value: RateLimitMode;
+	onChange: (value: RateLimitMode) => void;
+}) {
+	return (
+		<div className="space-y-2 sm:col-span-2">
+			<Label htmlFor={id}>When the cap is reached</Label>
+			<Select
+				value={value}
+				onValueChange={(next) => onChange(next as RateLimitMode)}
+			>
+				<SelectTrigger id={id} data-testid={id}>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="strict">
+						Strict (route all traffic elsewhere)
+					</SelectItem>
+					<SelectItem value="soft">
+						Soft (keep ongoing sessions, route new ones elsewhere)
+					</SelectItem>
+				</SelectContent>
+			</Select>
+			<p className="text-muted-foreground text-xs">
+				{value === "strict"
+					? "Sessions in progress move to another provider and lose their warm prompt cache."
+					: "Sessions already on your deployment stay on it, so traffic can exceed the cap until they finish."}
+			</p>
+		</div>
+	);
+}
+
 export function RegisterModelDialog({
 	providerCompanyId,
 	providerIds,
@@ -488,6 +695,7 @@ export function RegisterModelDialog({
 	const [maxRpd, setMaxRpd] = useState("");
 	const [rateLimitScope, setRateLimitScope] =
 		useState<RateLimitScope>("global");
+	const [rateLimitMode, setRateLimitMode] = useState<RateLimitMode>("strict");
 	const [capabilities, setCapabilities] = useState<
 		Record<CapabilityKey, boolean>
 	>({
@@ -512,6 +720,10 @@ export function RegisterModelDialog({
 	const effectiveProviderId = sortedProviderIds.includes(providerId)
 		? providerId
 		: (sortedProviderIds[0] ?? "");
+	const savedVerificationKey = useSavedVerificationKey(
+		providerCompanyId,
+		effectiveProviderId,
+	);
 	const verificationQuery = api.useQuery(
 		"get",
 		"/airside/model-verifications/{id}",
@@ -588,6 +800,8 @@ export function RegisterModelDialog({
 		modelName: modelName.trim(),
 		externalId: externalId || undefined,
 		apiFormat,
+		contextSize: Number(contextSize) || undefined,
+		maxOutput: Number(maxOutput) || undefined,
 		...capabilities,
 		supportedToolChoices: capabilities.tools
 			? toolChoicePayload(toolChoices)
@@ -677,6 +891,7 @@ export function RegisterModelDialog({
 								maxRpm: Number(maxRpm) || undefined,
 								maxRpd: Number(maxRpd) || undefined,
 								rateLimitScope,
+								rateLimitMode,
 								pricing: {
 									inputPrice: perMillionToPerToken(inputPrice),
 									outputPrice: perMillionToPerToken(outputPrice),
@@ -791,7 +1006,11 @@ export function RegisterModelDialog({
 							<Input
 								id="model-context"
 								value={contextSize}
-								onChange={(e) => setContextSize(e.target.value)}
+								onChange={(e) => {
+									setContextSize(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 							/>
@@ -801,7 +1020,11 @@ export function RegisterModelDialog({
 							<Input
 								id="model-max-output"
 								value={maxOutput}
-								onChange={(e) => setMaxOutput(e.target.value)}
+								onChange={(e) => {
+									setMaxOutput(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 								placeholder="optional"
@@ -959,11 +1182,21 @@ export function RegisterModelDialog({
 								placeholder="e.g. 20000"
 							/>
 						</div>
-						<RateLimitScopeField
-							id="model-rate-limit-scope"
-							value={rateLimitScope}
-							onChange={setRateLimitScope}
-						/>
+						{/* Scope and mode only mean something once a cap is set. */}
+						{maxRpm || maxRpd ? (
+							<>
+								<RateLimitScopeField
+									id="model-rate-limit-scope"
+									value={rateLimitScope}
+									onChange={setRateLimitScope}
+								/>
+								<RateLimitModeField
+									id="model-rate-limit-mode"
+									value={rateLimitMode}
+									onChange={setRateLimitMode}
+								/>
+							</>
+						) : null}
 					</div>
 
 					<div className="border-primary/40 bg-primary/5 space-y-4 rounded-lg border border-dashed p-4">
@@ -1049,20 +1282,22 @@ export function RegisterModelDialog({
 					</div>
 
 					<div className="border-border space-y-2 rounded-lg border p-3">
-						<Label htmlFor="verification-api-key">Provider API key</Label>
+						<Label htmlFor="verification-api-key">Provider test key</Label>
 						<Input
 							id="verification-api-key"
 							type="password"
 							autoComplete="off"
-							required
 							value={apiKey}
 							onChange={(event) => setApiKey(event.target.value)}
-							placeholder="A key that can call this model"
+							placeholder={
+								savedVerificationKey
+									? "Paste a key to replace the saved one"
+									: "A key that can call this model"
+							}
 							disabled={verificationInProgress}
 						/>
 						<p className="text-muted-foreground text-xs">
-							The preflight calls your endpoint with this key. It is used only
-							by that run and erased when it finishes.
+							<VerificationKeyHint savedKey={savedVerificationKey} />
 						</p>
 					</div>
 
@@ -1078,7 +1313,9 @@ export function RegisterModelDialog({
 								queueVerification.isPending ||
 								verificationInProgress ||
 								!effectiveProviderId ||
-								(verification?.status !== "passed" && !apiKey.trim())
+								(verification?.status !== "passed" &&
+									!apiKey.trim() &&
+									!savedVerificationKey)
 							}
 							data-testid="register-model-submit"
 							className="font-semibold"
@@ -1109,6 +1346,10 @@ export function VerifyModelDialog({
 }) {
 	const api = useApi();
 	const invalidate = useInvalidateModels(model.providerCompanyId);
+	const savedVerificationKey = useSavedVerificationKey(
+		model.providerCompanyId,
+		model.providerId,
+	);
 	const [open, setOpen] = useState(false);
 	const [apiKey, setApiKey] = useState("");
 	const [verificationId, setVerificationId] = useState(
@@ -1127,6 +1368,22 @@ export function VerifyModelDialog({
 		},
 	);
 	const verification = verificationQuery.data?.verification;
+	const historyQuery = api.useQuery(
+		"get",
+		"/airside/models/{id}/verifications",
+		{ params: { path: { id: model.id }, query: {} } },
+		{
+			enabled: open,
+			refetchInterval: (query) =>
+				query.state.data?.verifications.some(
+					(entry) => entry.status === "queued" || entry.status === "running",
+				)
+					? 2_000
+					: false,
+		},
+	);
+	const history = (historyQuery.data?.verifications ??
+		[]) as VerificationHistoryEntry[];
 	const queueVerification = api.useMutation(
 		"post",
 		"/airside/models/{id}/verifications",
@@ -1135,6 +1392,7 @@ export function VerifyModelDialog({
 				setVerificationId(data.verification.id);
 				setApiKey("");
 				await invalidate();
+				void historyQuery.refetch();
 				toast.success("Mapping verification queued.");
 			},
 			onError: (error) => {
@@ -1166,40 +1424,52 @@ export function VerifyModelDialog({
 					</DialogTitle>
 					<DialogDescription>
 						Run the declared capabilities against the upstream model. Checks run
-						in the background, and a failed one drops the capability it
-						disproved from the listing.
+						in the background and report what your endpoint answered; the
+						listing itself is left as you declared it.
+						{model.pendingFiling?.kind === "metadata"
+							? " Capabilities awaiting review are included, so a filed change is verified before it goes live."
+							: ""}
 					</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-4">
 					<div className="space-y-2">
 						<Label htmlFor={`verify-api-key-${model.id}`}>
-							Provider API key
+							Provider test key
 						</Label>
 						<Input
 							id={`verify-api-key-${model.id}`}
 							type="password"
 							autoComplete="off"
-							required
 							value={apiKey}
 							onChange={(event) => setApiKey(event.target.value)}
-							placeholder="A key that can call this model"
+							placeholder={
+								savedVerificationKey
+									? "Paste a key to replace the saved one"
+									: "A key that can call this model"
+							}
 						/>
 						<p className="text-muted-foreground text-xs">
-							The key is scoped to this run and erased at completion.
+							<VerificationKeyHint savedKey={savedVerificationKey} />
 						</p>
 					</div>
 					{verification ? (
 						<VerificationResults verification={verification} />
-					) : model.latestVerification ? (
+					) : verificationId === (model.latestVerification?.id ?? "") &&
+					  model.latestVerification ? (
 						<VerificationResults verification={model.latestVerification} />
 					) : null}
+					<VerificationHistory
+						entries={history}
+						selectedId={verificationId}
+						onSelect={setVerificationId}
+					/>
 				</div>
 				<DialogFooter>
 					<Button
 						type="button"
 						disabled={
 							queueVerification.isPending ||
-							!apiKey.trim() ||
+							(!apiKey.trim() && !savedVerificationKey) ||
 							verification?.status === "queued" ||
 							verification?.status === "running"
 						}
@@ -1228,6 +1498,10 @@ export function EditModelDialog({
 }) {
 	const api = useApi();
 	const invalidate = useInvalidateModels(model.providerCompanyId);
+	const savedVerificationKey = useSavedVerificationKey(
+		model.providerCompanyId,
+		model.providerId,
+	);
 	const [open, setOpen] = useState(false);
 	// A pending change is what the listing becomes once approved, so the form
 	// starts from it; saving replaces that filing.
@@ -1278,6 +1552,9 @@ export function EditModelDialog({
 	const [rateLimitScope, setRateLimitScope] = useState<RateLimitScope>(
 		proposed.rateLimitScope,
 	);
+	const [rateLimitMode, setRateLimitMode] = useState<RateLimitMode>(
+		proposed.rateLimitMode,
+	);
 
 	function resetFromModel() {
 		setDisplayName(proposed.displayName ?? "");
@@ -1304,11 +1581,14 @@ export function EditModelDialog({
 		setMaxRpm(proposed.maxRpm ? String(proposed.maxRpm) : "");
 		setMaxRpd(proposed.maxRpd ? String(proposed.maxRpd) : "");
 		setRateLimitScope(proposed.rateLimitScope);
+		setRateLimitMode(proposed.rateLimitMode);
 	}
 
 	// The proposed capabilities, preflighted before they are filed. The pair
 	// itself never changes here, so the server takes it from the saved row.
 	const proposedCapabilities = {
+		contextSize: contextSize ? Number(contextSize) : null,
+		maxOutput: maxOutput ? Number(maxOutput) : null,
 		...capabilities,
 		supportedToolChoices: capabilities.tools
 			? toolChoicePayload(toolChoices)
@@ -1450,6 +1730,7 @@ export function EditModelDialog({
 								maxRpm: maxRpm ? Number(maxRpm) : null,
 								maxRpd: maxRpd ? Number(maxRpd) : null,
 								rateLimitScope,
+								rateLimitMode,
 							},
 						});
 					}}
@@ -1484,7 +1765,11 @@ export function EditModelDialog({
 							<Input
 								id="edit-context"
 								value={contextSize}
-								onChange={(e) => setContextSize(e.target.value)}
+								onChange={(e) => {
+									setContextSize(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 							/>
@@ -1494,7 +1779,11 @@ export function EditModelDialog({
 							<Input
 								id="edit-max-output"
 								value={maxOutput}
-								onChange={(e) => setMaxOutput(e.target.value)}
+								onChange={(e) => {
+									setMaxOutput(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 							/>
@@ -1648,11 +1937,21 @@ export function EditModelDialog({
 								placeholder="unlimited"
 							/>
 						</div>
-						<RateLimitScopeField
-							id="edit-rate-limit-scope"
-							value={rateLimitScope}
-							onChange={setRateLimitScope}
-						/>
+						{/* Scope and mode only mean something once a cap is set. */}
+						{maxRpm || maxRpd ? (
+							<>
+								<RateLimitScopeField
+									id="edit-rate-limit-scope"
+									value={rateLimitScope}
+									onChange={setRateLimitScope}
+								/>
+								<RateLimitModeField
+									id="edit-rate-limit-mode"
+									value={rateLimitMode}
+									onChange={setRateLimitMode}
+								/>
+							</>
+						) : null}
 					</div>
 					<div className="border-border space-y-2 rounded-lg border p-3">
 						<Label htmlFor={`edit-verify-api-key-${model.id}`}>
@@ -1665,12 +1964,18 @@ export function EditModelDialog({
 							autoComplete="off"
 							value={apiKey}
 							onChange={(event) => setApiKey(event.target.value)}
-							placeholder="A key that can call this model"
+							placeholder={
+								savedVerificationKey
+									? "Paste a key to replace the saved one"
+									: "A key that can call this model"
+							}
 							disabled={verificationInProgress}
 						/>
 						<p className="text-muted-foreground text-xs">
 							Runs the capabilities selected above against your endpoint before
-							you file them. A failed check drops the capability it disproved.
+							you file them. A failed check reports what the endpoint refused;
+							it does not change the capability.{" "}
+							<VerificationKeyHint savedKey={savedVerificationKey} />
 						</p>
 						<Button
 							type="button"
@@ -1680,12 +1985,15 @@ export function EditModelDialog({
 							disabled={
 								queueVerification.isPending ||
 								verificationInProgress ||
-								!apiKey.trim()
+								(!apiKey.trim() && !savedVerificationKey)
 							}
 							onClick={() =>
 								queueVerification.mutate({
 									params: { path: { id: model.id } },
-									body: { apiKey, proposed: proposedCapabilities },
+									body: {
+										apiKey: apiKey || undefined,
+										proposed: proposedCapabilities,
+									},
 								})
 							}
 						>

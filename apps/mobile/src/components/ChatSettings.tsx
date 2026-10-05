@@ -2,7 +2,14 @@ import { useState } from "react";
 import { Modal, Switch, Text, View } from "react-native";
 
 import { Choice } from "@/components/Choice";
-import { Button, ErrorNotice, Field, Screen, styles } from "@/components/ui";
+import {
+	colors,
+	Button,
+	ErrorNotice,
+	Field,
+	Screen,
+	styles,
+} from "@/components/ui";
 import {
 	chatSettingsFromFields,
 	defaultChatSettings,
@@ -82,6 +89,7 @@ function SettingsForm({ onClose, webSearch, onSaved }: SettingsProps) {
 			<View style={styles.row}>
 				<Text style={[styles.body, { flex: 1 }]}>Search the web</Text>
 				<Switch
+					trackColor={{ false: colors.subtle, true: colors.accent }}
 					testID="web-search-switch"
 					accessibilityLabel="Search the web"
 					value={draft.webSearch}

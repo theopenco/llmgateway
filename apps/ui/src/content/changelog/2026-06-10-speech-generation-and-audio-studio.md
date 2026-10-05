@@ -4,6 +4,7 @@ slug: "speech-generation-and-audio-studio"
 date: "2026-06-10"
 title: "Speech Generation + Audio Studio"
 summary: "Text-to-speech is live: nine models from ElevenLabs, OpenAI, and Gemini behind the OpenAI-compatible /v1/audio/speech endpoint, plus a new Audio Studio in the Playground to compare voices side by side."
+tags: ["llmgateway", "lounge"]
 image:
   src: "/changelog/speech-generation-and-audio-studio.png"
   alt: "Speech generation and Audio Studio on LLM Gateway"

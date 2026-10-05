@@ -1,5 +1,3 @@
-import { zip } from "fflate";
-
 import type { GalleryImage, GeneratedImage } from "@/lib/image-gen";
 
 export function base64ToBlob(base64: string, mediaType: string): Blob {
@@ -100,9 +98,13 @@ export function zipEntryName(
 // Bundles every image of a gallery item into one archive. Generated images
 // are already compressed, so entries are stored rather than deflated.
 export async function downloadImagesAsZip(entries: ZipEntry[], stem: string) {
-	const blobs = await Promise.all(
-		entries.map((entry) => loadImageBlob(entry.image)),
-	);
+	// fflate is only needed for this click-triggered path, so load it on
+	// demand in parallel with the image bytes instead of shipping it in the
+	// image page's initial bundle.
+	const [{ zip }, blobs] = await Promise.all([
+		import("fflate"),
+		Promise.all(entries.map((entry) => loadImageBlob(entry.image))),
+	]);
 	const files: Record<string, [Uint8Array, { level: 0 }]> = {};
 	for (let index = 0; index < blobs.length; index++) {
 		const blob = blobs[index]!;

@@ -27,6 +27,9 @@ export const storageRedisClient = new Redis({
 	password: hasStorageRedisConfig
 		? process.env.STORAGE_REDIS_PASSWORD
 		: process.env.REDIS_PASSWORD,
+	db: hasStorageRedisConfig
+		? Number(process.env.STORAGE_REDIS_DB) || 0
+		: Number(process.env.REDIS_DB) || 0,
 	enableAutoPipelining: true,
 	// Connect on first command. Many consumers of @llmgateway/cache (seed
 	// script, one-off scripts, the API) never touch storage functions; an

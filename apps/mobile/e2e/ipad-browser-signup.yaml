@@ -66,15 +66,15 @@ env:
 - launchApp:
     stopApp: false
 - extendedWaitUntil:
-    visible: "Start a conversation"
+    visible: "New conversation"
     timeout: 30000
 - stopApp
 - launchApp
-- assertVisible: "Start a conversation"
-- scrollUntilVisible:
-    element: "Your profile"
-    direction: DOWN
-- tapOn: "Your profile"
+- assertVisible: "New conversation"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
 - scrollUntilVisible:
     element: "Delete account"
     direction: DOWN

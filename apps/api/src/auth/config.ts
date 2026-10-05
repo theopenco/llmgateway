@@ -15,7 +15,6 @@ import { serializedPasswordReset } from "@/auth/password-reset.js";
 import { verificationCallback } from "@/auth/verification-callback.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
-import { getClientIpFromHeaders } from "@/lib/client-ip.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
 import {
 	getBlockedSignupCountries,
@@ -38,6 +37,10 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { accountBlockMessage } from "@llmgateway/shared/account-block";
+import {
+	getClientIpFromHeaders,
+	getClientIpHeaderName,
+} from "@llmgateway/shared/client-ip";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
@@ -148,6 +151,10 @@ export const redisClient = new Redis({
 	host: process.env.REDIS_HOST ?? "localhost",
 	port: Number(process.env.REDIS_PORT) || 6379,
 	password: process.env.REDIS_PASSWORD,
+	// Must honour the same logical database as @llmgateway/cache: session and
+	// rate-limit keys are named after fixed user ids, so without this every
+	// parallel test worker shares them on database 0.
+	db: Number(process.env.REDIS_DB) || 0,
 });
 
 redisClient.on("error", (err: unknown) =>
@@ -635,9 +642,12 @@ export function isClientJsonError(message: string, args: unknown[]): boolean {
  * is emitted every time someone uses social sign-in on a login page with an
  * email that has no account yet — expected, because both social providers run
  * with `disableImplicitSignUp: true` — and the UI turns it into a "sign up
- * instead?" prompt. Logging it at error severity only trips production alerting.
+ * instead?" prompt. `account_not_linked` is emitted when an OAuth or SSO email
+ * matches an existing user that cannot be implicitly linked; the UI shows a
+ * "sign in with your original method" message. Logging either at error
+ * severity only trips production alerting.
  */
-const clientAuthErrorCodes = new Set(["signup_disabled"]);
+const clientAuthErrorCodes = new Set(["signup_disabled", "account_not_linked"]);
 
 export function isClientAuthError(message: string): boolean {
 	return clientAuthErrorCodes.has(message.trim());
@@ -683,6 +693,12 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				},
 			},
 			advanced: {
+				// Better Auth defaults to X-Forwarded-For and rejects a multi-hop
+				// chain, which is what an appending load balancer always sends:
+				// session IPs came out null and its rate limiter shared one bucket.
+				ipAddress: {
+					ipAddressHeaders: [getClientIpHeaderName()],
+				},
 				crossSubDomainCookies: {
 					enabled: true,
 					domain: cookieDomain,

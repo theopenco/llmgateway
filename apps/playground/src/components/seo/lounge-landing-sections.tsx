@@ -27,7 +27,7 @@ const STUDIOS = [
 		href: "/group",
 		name: "Group chat",
 		description:
-			"One prompt, several models answering side by side — compare quality, speed, and cost in real time.",
+			"A council of models taking turns, challenging arguments, and exploring your topic together.",
 	},
 	{
 		href: "/image",
@@ -78,9 +78,9 @@ const USE_CASES = [
 			"Turn on web search and get sourced answers on current events instead of a model's memory alone.",
 	},
 	{
-		name: "Choosing a model",
+		name: "Pressure-testing an idea",
 		description:
-			"Run the same prompt through several models in a group chat and see which one earns a place in your workflow.",
+			"Bring an idea to a group chat and let a council of models debate its strengths, tradeoffs, and blind spots.",
 	},
 ];
 
@@ -116,7 +116,7 @@ const PLANS = [
 const FAQ_ITEMS = [
 	{
 		question: "What is Lounge?",
-		answer: `Lounge is the members' AI chat by LLM Gateway. One membership covers chat with ${MARKETING_STATS.models} AI models — including GPT, Claude, Gemini, and Grok — plus image, video, and audio generation, side-by-side group chats, and a canvas studio, all from a single credit balance.`,
+		answer: `Lounge is the members' AI chat by LLM Gateway. One membership covers chat with ${MARKETING_STATS.models} AI models — including GPT, Claude, Gemini, and Grok — plus image, video, and audio generation, multi-model council debates, and a canvas studio, all from a single credit balance.`,
 	},
 	{
 		question: "Which AI models can I chat with?",
@@ -129,7 +129,7 @@ const FAQ_ITEMS = [
 	{
 		question: "Do I still need ChatGPT Plus, Claude Pro, or Gemini Advanced?",
 		answer:
-			"No. One Lounge membership replaces separate ChatGPT Plus, Claude Pro, and Gemini Advanced subscriptions — every frontier flagship lives in the same lounge, and you can put them side by side in a group chat before trusting any one of them.",
+			"No. One Lounge membership replaces separate ChatGPT Plus, Claude Pro, and Gemini Advanced subscriptions — every frontier flagship lives in the same lounge, and you can invite them into a group chat to challenge each other’s arguments.",
 	},
 	{
 		question: "Can Lounge generate images, video, and audio?",
@@ -201,7 +201,7 @@ export function LoungeLandingSections() {
 							LLM Gateway
 						</a>
 						. One membership covers GPT, Claude, Gemini, Grok, and{" "}
-						{MARKETING_STATS.models} models in total — chat, side-by-side group
+						{MARKETING_STATS.models} models in total — chat, multi-model council
 						chats, and image, video, and audio studios, drawing on a single
 						credit balance instead of a stack of per-provider subscriptions.
 					</p>

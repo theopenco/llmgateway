@@ -168,6 +168,42 @@ describe("managed provider credentials", () => {
 		expect(captured[0].authorization).toBe("Bearer sk-managed-only");
 	});
 
+	test("serves a flex request from a managed credential with no env var set", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-openai-flex",
+			provider: "openai",
+			token: "sk-managed-flex",
+		});
+
+		const previousEnvKey = process.env.LLM_OPENAI_API_KEY;
+		delete process.env.LLM_OPENAI_API_KEY;
+		const captured = captureUpstream(chatCompletion);
+
+		try {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					Authorization: "Bearer real-token",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "gpt-5.1",
+					service_tier: "flex",
+					messages: [{ role: "user", content: "Hi" }],
+				}),
+			});
+			expect(res.status).toBe(200);
+		} finally {
+			if (previousEnvKey !== undefined) {
+				process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+			}
+		}
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].authorization).toBe("Bearer sk-managed-flex");
+	});
+
 	test("falls back to the env var for providers with no managed credential", async () => {
 		await seedApiKey();
 		await seedManagedCredential({

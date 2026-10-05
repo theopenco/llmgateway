@@ -7,6 +7,7 @@ import { usePostHog } from "posthog-js/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { OrganizationCreditsNotice } from "@/components/pricing/organization-credits-notice";
 import { Button } from "@/components/ui/button";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 import { formatCredits } from "@/lib/format-credits";
@@ -202,12 +203,16 @@ export function ChatPricingPlans({
 		}
 		setPendingAction("cancel");
 		try {
-			const { error } = await fetchClient.POST("/chat-plans/cancel", {});
+			const { data, error } = await fetchClient.POST("/chat-plans/cancel", {});
 			if (error) {
 				toast.error("Cancellation failed");
 				return;
 			}
-			toast.success("Membership cancelled — access continues until period end");
+			toast.success(
+				data.immediate
+					? "Membership cancelled — your renewal payment had failed, so no further charges will be attempted"
+					: "Membership cancelled — access continues until period end",
+			);
 			await refresh();
 		} finally {
 			setPendingAction(null);
@@ -231,6 +236,7 @@ export function ChatPricingPlans({
 
 	return (
 		<div>
+			{isAuthenticated && <OrganizationCreditsNotice />}
 			{activeTier && status && (
 				<div className="mx-auto mb-8 max-w-2xl rounded-xl border bg-card p-5 shadow-sm">
 					<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

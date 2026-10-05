@@ -5,7 +5,6 @@ import {
 	findActiveTeamIamRules,
 	findActiveUserIamRules,
 } from "@/lib/cached-queries.js";
-import { anyCidrMatches } from "@/lib/client-ip.js";
 import { validateEndUserSessionModelAccess } from "@/lib/end-user-session.js";
 
 import {
@@ -15,6 +14,7 @@ import {
 	type ModelDefinition,
 	type ProviderId,
 } from "@llmgateway/models";
+import { anyCidrMatches } from "@llmgateway/shared/client-ip";
 
 import type { GatewayApiKey } from "@/lib/cached-queries.js";
 
@@ -278,7 +278,7 @@ export async function validateRequestModelAccess(params: {
 	customProviderName?: string;
 	activeModelInfo?: ModelDefinition;
 	clientIp?: string;
-	autoRouting?: boolean;
+	smartRouting?: boolean;
 	// When set, only rules of these types are evaluated (member and key level).
 	// Used by endpoints running a fixed pseudo-model outside the catalogue
 	// (moderations): model/pricing allowlists can never name that model, so
@@ -294,7 +294,7 @@ export async function validateRequestModelAccess(params: {
 		customProviderName,
 		activeModelInfo,
 		clientIp,
-		autoRouting,
+		smartRouting,
 		applicableRuleTypes,
 		iamRules,
 	} = params;
@@ -308,7 +308,7 @@ export async function validateRequestModelAccess(params: {
 		apiKey,
 		requestedModel,
 		activeModelInfo,
-		{ autoRouting },
+		{ smartRouting },
 	);
 	if (sessionValidation) {
 		if (

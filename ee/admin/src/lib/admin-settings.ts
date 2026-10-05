@@ -2,7 +2,10 @@
 
 import { createServerApiClient } from "./server-api";
 
-import type { SystemBannerSeverity } from "@llmgateway/shared";
+import type {
+	ModelErrorRateAlertsSettings,
+	SystemBannerSeverity,
+} from "@llmgateway/shared";
 
 export async function getCreditPurchaseBlock() {
 	const $api = await createServerApiClient();
@@ -85,8 +88,9 @@ export interface ContentFilterSettingsInput {
 	sampleRatePercent: number;
 	enforce: boolean;
 	enforceEnterprise: boolean;
-	classifier: "openai" | "jev";
-	shadowClassifier: "openai" | "jev" | "none";
+	classifier: "openai" | "jev" | "internal";
+	internalScope: "full" | "latest_turn";
+	moderateImages: boolean;
 }
 
 export async function getContentFilterSettings() {
@@ -151,4 +155,29 @@ export async function updateBlockedSignupEmailDomains(domains: string[]) {
 			? null
 			: "Could not save. Use valid domains without email addresses, URLs or wildcards (maximum 10,000 entries).",
 	};
+}
+
+export async function getModelErrorRateAlerts() {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/settings/model-error-rate-alerts");
+	return data ?? null;
+}
+
+export async function updateModelErrorRateAlerts(
+	input: ModelErrorRateAlertsSettings,
+) {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PUT(
+		"/admin/settings/model-error-rate-alerts",
+		{ body: input },
+	);
+	if (!data) {
+		return {
+			settings: null,
+			message:
+				(error as { message?: string } | undefined)?.message ??
+				"Failed to update the error-rate alerts.",
+		};
+	}
+	return { settings: data, message: null };
 }

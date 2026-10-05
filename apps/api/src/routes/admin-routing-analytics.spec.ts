@@ -6,7 +6,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { cdb, db, tables } from "@llmgateway/db";
 import { models, type ProviderModelMapping } from "@llmgateway/models";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 // Routable *and* paid, so the price factor and the discount assertions below
 // operate on a non-zero selection price.
@@ -90,15 +90,15 @@ describe("admin routing analytics endpoint", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 	});
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		// None of these tables hang off a cascade root that deleteAll() clears, so
 		// the fixtures inserted here have to be removed explicitly or the next run
@@ -109,13 +109,14 @@ describe("admin routing analytics endpoint", () => {
 		await db.delete(tables.routingExclusionHourly);
 		await db.delete(tables.modelProviderMapping);
 		await cdb.delete(tables.discount);
+		await cdb.delete(tables.routingScoreMultiplier);
 		await deleteAll();
 	});
 
 	it("rejects unauthenticated and non-admin requests", async () => {
 		expect((await get(`?modelId=${testModel.id}`)).status).toBe(401);
 
-		process.env.ADMIN_EMAILS = "someone-else@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "someone-else@example.com";
 		expect((await get(`?modelId=${testModel.id}`, cookie)).status).toBe(403);
 	});
 
@@ -487,6 +488,35 @@ describe("admin routing analytics endpoint", () => {
 		]);
 	});
 
+	it("breaks down exclusions on provider ids outside the catalogue", async () => {
+		const hour = currentHourStart();
+		await db.insert(tables.routingExclusionHourly).values([
+			{
+				id: "routing-exclusion-custom-json",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: "custom",
+				reason: "json_output",
+				excludedCount: 4,
+				candidateCount: 8,
+				excludedDecisionCount: 4,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+		expect(body.exclusions).toEqual([
+			{ reason: "json_output", excludedCount: 4, details: [] },
+		]);
+		const eligibilityCustom = body.eligibility.find(
+			(e: { providerId: string }) => e.providerId === "custom",
+		);
+		expect(eligibilityCustom.exclusionRate).toBe(0.5);
+		expect(eligibilityCustom.exclusions).toEqual([
+			{ reason: "json_output", excludedCount: 4, details: [] },
+		]);
+	});
+
 	it("nests compliance rules under the compliance total", async () => {
 		const hour = currentHourStart();
 		// The gateway records the coarse code plus every rule that fired, so the
@@ -644,6 +674,50 @@ describe("admin routing analytics endpoint", () => {
 		expect(summaryA.score).toBeLessThanOrEqual(baselineSummaryA.score);
 		expect(summaryA.breakdown.priceContribution).toBeLessThanOrEqual(
 			baselineSummaryA.breakdown.priceContribution,
+		);
+	});
+
+	it("scores the routing score multiplier", async () => {
+		const before = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const baseline = await before.json();
+		const [cheapest, other] = (
+			baseline.mappings as {
+				providerId: string;
+				price: number;
+				routable: boolean;
+			}[]
+		)
+			.filter((mapping) => mapping.routable && mapping.price > 0)
+			.sort((a, b) => a.price - b.price);
+		if (!cheapest || !other) {
+			throw new Error("Expected two paid, routable mappings");
+		}
+		const baselineSummaryB = baseline.summary.find(
+			(s: { providerId: string }) => s.providerId === other.providerId,
+		);
+
+		await cdb.insert(tables.routingScoreMultiplier).values({
+			id: "routing-analytics-multiplier",
+			provider: cheapest.providerId,
+			model: testModel.id,
+			scoreMultiplier: "-0.5",
+		});
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+		const mappingA = body.mappings.find(
+			(m: { providerId: string }) => m.providerId === cheapest.providerId,
+		);
+		const summaryB = body.summary.find(
+			(s: { providerId: string }) => s.providerId === other.providerId,
+		);
+
+		// The multiplier only steers routing; the price shown is still billed.
+		expect(mappingA.routingAdjustment).toBe(-0.5);
+		expect(mappingA.discount).toBe(0);
+		// Boosting the cheapest mapping makes the others relatively more expensive.
+		expect(summaryB.breakdown.priceContribution).toBeGreaterThan(
+			baselineSummaryB.breakdown.priceContribution,
 		);
 	});
 });

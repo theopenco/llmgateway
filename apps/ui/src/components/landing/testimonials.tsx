@@ -1,62 +1,27 @@
 import { TweetCard } from "@/lib/components/tweet-card";
-
-import { MarqueeContainer } from "./marquee-container";
-
-const row1Ids = [
-	"2082200259560702374",
-	"1970126770205757516",
-	"1967955025315106997",
-	"1952967806871605594",
-	"1958630967700079065",
-];
-
-const row2Ids = [
-	"1963180228991164808",
-	"1969173545419767811",
-	"1951594045824024934",
-	"1958469139632464022",
-];
+import { TESTIMONIAL_TWEET_IDS } from "@/lib/testimonials";
 
 export const Testimonials = async () => {
 	return (
-		<section className="relative overflow-hidden py-24 md:py-32 bg-surface-elevated">
-			{/* Noise texture */}
+		<section className="relative overflow-hidden bg-surface-elevated py-24 md:py-32">
 			<div className="absolute inset-0 bg-noise" />
 
-			<div className="relative">
-				<div className="mx-auto max-w-7xl px-6 lg:px-8 mb-16">
-					<p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4">
-						Community
-					</p>
-					<h2 className="font-display text-4xl md:text-5xl font-bold tracking-tight text-foreground">
-						Trusted by developers worldwide
-					</h2>
-				</div>
+			<div className="relative mx-auto max-w-7xl px-4 sm:px-6">
+				<p className="mb-4 font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+					Community
+				</p>
+				<h2 className="font-display text-4xl font-bold tracking-tight text-foreground md:text-5xl">
+					What developers say
+				</h2>
 
-				<div className="space-y-6">
-					{/* Row 1: scrolling left */}
-					<MarqueeContainer>
-						{row1Ids.map((tweetId) => (
-							<div key={tweetId} className="shrink-0 w-80">
-								<TweetCard
-									id={tweetId}
-									className="w-full rounded-2xl border-border/50 shadow-sm hover:shadow-md transition-shadow"
-								/>
-							</div>
-						))}
-					</MarqueeContainer>
-
-					{/* Row 2: scrolling right */}
-					<MarqueeContainer reverse>
-						{row2Ids.map((tweetId) => (
-							<div key={tweetId} className="shrink-0 w-80">
-								<TweetCard
-									id={tweetId}
-									className="w-full rounded-2xl border-border/50 shadow-sm hover:shadow-md transition-shadow"
-								/>
-							</div>
-						))}
-					</MarqueeContainer>
+				<div className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+					{TESTIMONIAL_TWEET_IDS.map((tweetId) => (
+						<TweetCard
+							key={tweetId}
+							id={tweetId}
+							className="w-full rounded-2xl border-border/50 shadow-sm transition-shadow hover:shadow-md"
+						/>
+					))}
 				</div>
 			</div>
 		</section>

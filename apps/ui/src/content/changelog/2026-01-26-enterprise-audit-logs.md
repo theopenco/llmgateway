@@ -4,6 +4,7 @@ slug: "enterprise-audit-logs"
 date: "2026-01-26"
 title: "Enterprise Audit Logs"
 summary: "Track all organization activity with comprehensive audit logs. See who did what, when, and to which resource — available for Enterprise customers."
+tags: ["llmgateway"]
 image:
   src: "/changelog/audit-logs.png"
   alt: "Audit logs dashboard showing organization activity"

@@ -5,6 +5,6 @@ appId: io.llmgateway.lounge
 - extendedWaitUntil:
     visible: "Try again"
     timeout: 20000
-- assertNotVisible: "Start a conversation"
-- assertNotVisible: "Current workspace: Personal Lounge"
+- assertNotVisible: "New conversation"
+- assertNotVisible: ".*Current workspace: Personal Lounge"
 - assertVisible: "Choose workspace"

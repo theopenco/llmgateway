@@ -7,6 +7,7 @@ import {
 	BarChart3,
 	Building2,
 	Cpu,
+	Eye,
 	FlaskConical,
 	Gauge,
 	GitMerge,
@@ -26,6 +27,8 @@ import {
 	ShieldAlert,
 	ShieldCheck,
 	Sparkles,
+	Wallet,
+	Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -50,6 +53,8 @@ import {
 } from "@/components/ui/sidebar";
 import { WhiteLabelSeatWarning } from "@/components/white-label-seat-warning";
 import { useUser } from "@/hooks/useUser";
+import { isStaffHiddenPage } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 import { useAuth } from "@/lib/auth-client";
 
 import {
@@ -88,10 +93,17 @@ const navItems: NavItem[] = [
 		icon: MessageSquare,
 		match: "prefix",
 	},
+	{ href: "/sdk", label: "LLM SDK", icon: Wallet, match: "prefix" },
 	{
 		href: "/global-stats",
 		label: "Global Stats",
 		icon: BarChart3,
+		match: "prefix",
+	},
+	{
+		href: "/load",
+		label: "Gateway Load",
+		icon: Zap,
 		match: "prefix",
 	},
 	{ href: "/discounts", label: "Discounts", icon: Percent, match: "exact" },
@@ -256,11 +268,16 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 	const { signOut } = useAuth();
 	const queryClient = useQueryClient();
 	const { user, isLoading, error, data } = useUser();
+	const adminRole = useAdminRole();
+	const visibleNavItems =
+		adminRole === "admin"
+			? navItems
+			: navItems.filter((item) => !isStaffHiddenPage(item.href));
 
 	// Visitors without an admin session never see the navigation: the section
 	// list would suggest there is something reachable behind it, and a sign out
 	// button makes no sense when nobody is signed in.
-	const showNav = user ? user.isAdmin : isLoading && !error && signedIn;
+	const showNav = user ? !!user.adminRole : isLoading && !error && signedIn;
 	const license = data?.enterpriseLicense;
 	const licenseTerm = getEnterpriseLicenseTerm(license?.expiresAt);
 	const whiteLabelExpiryTerm =
@@ -318,7 +335,7 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 					<SidebarGroup>
 						<SidebarGroupLabel>Main</SidebarGroupLabel>
 						<SidebarMenu>
-							{navItems.map((item) => {
+							{visibleNavItems.map((item) => {
 								const Icon = item.icon;
 								return (
 									<SidebarMenuItem key={item.href}>
@@ -354,6 +371,19 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 			</Sidebar>
 			<SidebarInset>
 				<MobileHeader />
+				{adminRole && adminRole !== "admin" && (
+					<Alert className="rounded-none border-x-0 border-t-0 border-sky-500/40 bg-sky-500/10 px-6 text-sky-950 dark:text-sky-100">
+						<Eye />
+						<AlertTitle>
+							{adminRole === "support" ? "Support access" : "Read-only access"}
+						</AlertTitle>
+						<AlertDescription className="text-current/90">
+							{adminRole === "support"
+								? "You can view everything and issue refunds. Other changes need an administrator."
+								: "You can view everything. Changes need an administrator."}
+						</AlertDescription>
+					</Alert>
+				)}
 				{user?.isAdmin && license?.kind === "white_label" && (
 					<WhiteLabelSeatWarning />
 				)}

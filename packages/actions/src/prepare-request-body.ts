@@ -16,6 +16,7 @@ import {
 	type OpenAIRequestBody,
 	type OpenAIResponsesRequestBody,
 	type OpenAIToolInput,
+	type PerplexityAgentRequestBody,
 	type PromptCacheOptions,
 	type PromptCacheRetention,
 	type ProviderCacheControlMode,
@@ -160,14 +161,14 @@ function stripSchemaDefaults(
 }
 
 function getProviderMapping(
-	modelDef: ModelDefinition | undefined,
+	mappings: ProviderModelMapping[] | undefined,
 	usedProvider: ProviderId,
 	usedRegion: string | null,
 ): ProviderModelMapping | undefined {
-	if (!modelDef) {
+	if (!mappings) {
 		return undefined;
 	}
-	const providerMappings = expandAllProviderRegions(modelDef.providers);
+	const providerMappings = expandAllProviderRegions(mappings);
 	return (
 		providerMappings.find(
 			(p) =>
@@ -1359,8 +1360,8 @@ export async function prepareRequestBody(
 	safety_identifier?: string,
 	/**
 	 * The mapping routing actually selected. Only Airside-listed pairs differ
-	 * from the static catalogue lookup below — their capabilities live in the
-	 * carrier's row — and only the `tool_choice` resolution reads it so far.
+	 * from the static catalogue lookup — their fields live in the carrier's
+	 * row, and the static entry may be gone — so request shaping reads it.
 	 */
 	resolvedProviderMapping?: ProviderModelMapping,
 	reasoning_mode?: ReasoningMode,
@@ -1382,8 +1383,12 @@ export async function prepareRequestBody(
 		messages = stripAnthropicNativeBlocks(messages);
 	}
 	const modelDef = models.find((m) => m.id === usedInternalModel);
+	// Org custom models keep the static lookup: their DB mapping was never
+	// used for request shaping.
 	const providerMappingForOptions = getProviderMapping(
-		modelDef,
+		resolvedProviderMapping && usedProvider !== "custom"
+			? [resolvedProviderMapping]
+			: modelDef?.providers,
 		usedProvider,
 		usedRegion,
 	);
@@ -1414,7 +1419,6 @@ export async function prepareRequestBody(
 		usedProvider === "aws-mantle" ||
 		usedProvider === "google-ai-studio" ||
 		usedProvider === "glacier" ||
-		usedProvider === "iceberg" ||
 		usedProvider === "google-vertex" ||
 		usedProvider === "quartz" ||
 		usedProvider === "moonshot" ||
@@ -1802,12 +1806,7 @@ export async function prepareRequestBody(
 	// not one of ['system', 'assistant', 'user', 'tool', 'function']"). Mappings
 	// default to accepting `developer`, so this only rewrites where explicitly
 	// opted out.
-	const developerRoleMapping = getProviderMapping(
-		modelDef,
-		usedProvider,
-		usedRegion,
-	);
-	if (developerRoleMapping?.supportsDeveloperRole === false) {
+	if (providerMappingForOptions?.supportsDeveloperRole === false) {
 		processedMessages = transformDeveloperRole(processedMessages);
 	}
 
@@ -2018,7 +2017,11 @@ export async function prepareRequestBody(
 	// `processImageUrl` with the SSRF guard left on (its default): the guard is
 	// what enforces https-only and refuses internal hosts, so an `http://` URL
 	// is rejected rather than quietly forwarded to the provider to fetch.
-	if (providerMappingForOptions?.requiresBase64Images) {
+	// `resolvedProviderMapping` covers mappings shaped under another transport
+	// (AWS Bedrock's OpenAI format), which the provider-keyed lookup misses.
+	if (
+		(providerMappingForOptions ?? resolvedProviderMapping)?.requiresBase64Images
+	) {
 		processedMessages = await Promise.all(
 			processedMessages.map(async (m) => {
 				if (!Array.isArray(m.content)) {
@@ -2142,6 +2145,22 @@ export async function prepareRequestBody(
 		});
 	}
 
+	// Mistral validates the message schema just as strictly and rejects both
+	// `reasoning` and `reasoning_content` with "Extra inputs are not permitted".
+	if (usedProvider === "mistral") {
+		processedMessages = processedMessages.map((m) => {
+			if (m.reasoning === undefined && m.reasoning_content === undefined) {
+				return m;
+			}
+			const {
+				reasoning: _reasoning,
+				reasoning_content: _reasoningContent,
+				...rest
+			} = m;
+			return rest;
+		});
+	}
+
 	// Start with a base structure that can be modified for each provider
 	const requestBody: any = {
 		model: usedExternalId,
@@ -2175,13 +2194,7 @@ export async function prepareRequestBody(
 
 	let resolvedToolChoice = isWebSearchToolChoice ? undefined : tool_choice;
 	if (tool_choice && !isWebSearchToolChoice) {
-		const mapping =
-			resolvedProviderMapping ??
-			(modelDef?.providers.find(
-				(p) =>
-					p.providerId === usedProvider &&
-					((p as ProviderModelMapping).region ?? null) === usedRegion,
-			) as ProviderModelMapping | undefined);
+		const mapping = providerMappingForOptions;
 
 		// `reasoning_effort` is already normalized above, so "none" here means the
 		// mapping really turns thinking off upstream — which some mappings require
@@ -2242,12 +2255,8 @@ export async function prepareRequestBody(
 			if (useResponsesApi !== undefined) {
 				shouldUseResponsesApi = useResponsesApi;
 			} else {
-				const providerMapping = modelDef?.providers.find(
-					(p) => p.providerId === usedProvider,
-				);
 				shouldUseResponsesApi =
-					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
-					true;
+					providerMappingForOptions?.supportsResponsesApi === true;
 			}
 
 			if (shouldUseResponsesApi) {
@@ -2343,9 +2352,8 @@ export async function prepareRequestBody(
 				// Run stateless upstream and ask for encrypted reasoning payloads so
 				// reasoning can be replayed on later turns (the gateway never uses
 				// upstream response storage — conversations are always resent in
-				// full). Only OpenAI and Azure document store/include on their
-				// Responses API surface.
-				if (usedProvider === "openai" || usedProvider === "azure") {
+				// full).
+				if (getProviderDefinition(usedProvider)?.encryptedReasoning) {
 					responsesBody.store = false;
 					responsesBody.include = ["reasoning.encrypted_content"];
 				}
@@ -2365,10 +2373,13 @@ export async function prepareRequestBody(
 					}
 				}
 
-				if (usedProvider === "openai") {
+				if (usedProvider === "openai" || usedProvider === "azure") {
 					if (supportedServiceTier) {
 						responsesBody.service_tier = supportedServiceTier;
 					}
+				}
+
+				if (usedProvider === "openai") {
 					if (
 						allowProviderCacheWrites &&
 						prompt_cache_retention !== undefined &&
@@ -2566,13 +2577,28 @@ export async function prepareRequestBody(
 					}
 				}
 
-				if (usedProvider === "openai") {
+				if (usedProvider === "openai" || usedProvider === "azure") {
 					if (supportedServiceTier) {
 						requestBody.service_tier = supportedServiceTier;
 					}
-					// Azure is intentionally excluded on this path: chat completions
-					// may hit a legacy deployment-based api-version that rejects
-					// unknown body fields, and the deployment type isn't known here.
+				}
+
+				// AWS Bedrock's OpenAI format is shaped under this transport, so
+				// its tier support is keyed on the resolved mapping's provider.
+				if (
+					resolvedProviderMapping?.providerId === "aws-bedrock" &&
+					(service_tier === "flex" || service_tier === "priority") &&
+					supportsServiceTier(
+						usedInternalModel,
+						"aws-bedrock",
+						service_tier,
+						usedRegion,
+					)
+				) {
+					requestBody.service_tier = service_tier;
+				}
+
+				if (usedProvider === "openai") {
 					if (allowProviderCacheWrites) {
 						const upstreamCacheKey =
 							(prompt_cache_key !== undefined
@@ -3054,10 +3080,7 @@ export async function prepareRequestBody(
 			// maxOutput (e.g. 128000 for Opus 4.7) rather than Anthropic's
 			// historical 1024 default — that default silently truncates large
 			// responses and mid-emission tool calls, breaking agent loops.
-			const anthropicProviderMapping = modelDef?.providers.find(
-				(p) => p.providerId === usedProvider,
-			) as ProviderModelMapping | undefined;
-			const modelMaxOutput = anthropicProviderMapping?.maxOutput;
+			const modelMaxOutput = providerMappingForOptions?.maxOutput;
 			const fallbackMaxTokens = Math.max(
 				modelMaxOutput ?? 4096,
 				thinkingBudget + 1000,
@@ -3155,10 +3178,8 @@ export async function prepareRequestBody(
 			let systemCacheControlCount = toolMarkersKeptSoFar;
 
 			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
-			const providerMapping = modelDef?.providers.find(
-				(p) => p.providerId === usedProvider,
-			) as ProviderModelMapping | undefined;
-			const minCacheableTokens = providerMapping?.minCacheableTokens ?? 1024;
+			const minCacheableTokens =
+				providerMappingForOptions?.minCacheableTokens ?? 1024;
 			// Approximate 4 characters per token
 			const minCacheableChars = minCacheableTokens * 4;
 
@@ -3358,7 +3379,7 @@ export async function prepareRequestBody(
 
 			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort or reasoning_max_tokens is specified
 			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
-				if (providerMapping?.reasoningMode === "adaptive") {
+				if (providerMappingForOptions?.reasoningMode === "adaptive") {
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
 					// The model decides whether to engage thinking based on prompt complexity.
@@ -3490,11 +3511,10 @@ export async function prepareRequestBody(
 					requestBody.top_p = top_p;
 				}
 				if (reasoning_effort !== undefined) {
-					const reasoningEffort =
+					// Bedrock's chat completions surface ignores the nested
+					// `reasoning.effort` form; only the top-level field is applied.
+					requestBody.reasoning_effort =
 						reasoning_effort === "minimal" ? "low" : reasoning_effort;
-					requestBody.reasoning = {
-						effort: reasoningEffort,
-					};
 				}
 				if (n !== undefined && n > 1) {
 					requestBody.n = n;
@@ -4082,7 +4102,6 @@ export async function prepareRequestBody(
 		}
 		case "google-ai-studio":
 		case "glacier":
-		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			delete requestBody.model; // Not used in body
@@ -4412,6 +4431,99 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "perplexity": {
+			// Perplexity retires Sonar's chat/completions on 2026-09-27. Mappings
+			// flagged for the Agent API send a Responses-shaped body to
+			// `/v1/agent` instead; the rest keep the legacy path below until then.
+			if (providerMappingForOptions?.usesPerplexityAgentApi) {
+				// Perplexity rejects an empty text part outright ("content part N:
+				// text cannot be empty") where the chat-completions upstreams
+				// tolerated it, so drop the empties and any message left with
+				// nothing to say. Both carry no information, so nothing is lost.
+				const agentInput = transformMessagesForResponsesApi(
+					messagesWithReasoningDetails,
+				)
+					.map((item) => {
+						if (!Array.isArray(item?.content)) {
+							return item;
+						}
+						return {
+							...item,
+							content: item.content.filter(
+								(part: { text?: unknown }) =>
+									typeof part?.text !== "string" || part.text.trim() !== "",
+							),
+						};
+					})
+					.filter(
+						(item) => !Array.isArray(item?.content) || item.content.length > 0,
+					);
+
+				const agentBody: PerplexityAgentRequestBody = {
+					model: usedExternalId,
+					input: agentInput,
+				};
+
+				// Sonar searched on every call. The Agent API leaves the decision to
+				// the model unless the search is forced, so force it here to keep
+				// these model ids grounded the way callers already rely on. Verified
+				// live: without a forced tool_choice the same prompt comes back with
+				// no search_results item and no search charge.
+				const webSearch: NonNullable<
+					PerplexityAgentRequestBody["tools"]
+				>[number] = { type: "web_search" };
+				if (webSearchTool?.max_uses !== undefined) {
+					webSearch.max_results = webSearchTool.max_uses;
+				}
+				if (webSearchTool?.user_location) {
+					webSearch.user_location = webSearchTool.user_location;
+				}
+				if (webSearchTool?.search_context_size) {
+					webSearch.search_context_size = webSearchTool.search_context_size;
+				}
+				// Only `allowed_domains` maps cleanly: Perplexity's
+				// `search_domain_filter` takes a "-example.com" entry to exclude, so
+				// blocked domains go through with the documented minus prefix.
+				const domainFilter = [
+					...(webSearchTool?.allowed_domains ?? []),
+					...(webSearchTool?.blocked_domains ?? []).map((d) => `-${d}`),
+				];
+				if (domainFilter.length > 0) {
+					webSearch.filters = { search_domain_filter: domainFilter };
+				}
+				agentBody.tools = [webSearch];
+				agentBody.tool_choice = "required";
+
+				if (stream) {
+					agentBody.stream = true;
+				}
+				if (temperature !== undefined) {
+					agentBody.temperature = temperature;
+				}
+				if (top_p !== undefined) {
+					agentBody.top_p = top_p;
+				}
+				if (max_tokens !== undefined) {
+					agentBody.max_output_tokens = max_tokens;
+				}
+				if (response_format?.type === "json_schema") {
+					if (response_format.json_schema) {
+						agentBody.text = {
+							format: {
+								type: "json_schema",
+								name: response_format.json_schema.name ?? "response",
+								schema: response_format.json_schema.schema as Record<
+									string,
+									unknown
+								>,
+							},
+						};
+					}
+				} else if (response_format?.type === "json_object") {
+					agentBody.text = { format: { type: "json_object" } };
+				}
+
+				return agentBody;
+			}
 			if (stream) {
 				requestBody.stream_options = {
 					include_usage: true,
@@ -4691,6 +4803,15 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+	}
+
+	// BytePlus only caches a prompt prefix when the request opts in; without the
+	// flag it always reports zero cached tokens, whatever the prompt length.
+	if (
+		usedProvider === "bytedance" &&
+		providerMappingForOptions?.cachedInputPrice
+	) {
+		requestBody.caching = { type: "enabled" };
 	}
 
 	// vLLM chat-template thinking flags are handled after the provider switch so

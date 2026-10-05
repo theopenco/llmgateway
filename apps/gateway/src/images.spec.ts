@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -193,6 +194,13 @@ describe("image generation upstream streaming", () => {
 		expect(log.hasError).toBe(false);
 		expect(Number(log.promptTokens)).toBe(usage.input_tokens);
 		expect(Number(log.completionTokens)).toBe(usage.output_tokens);
+		expect(json.usage).toMatchObject({
+			input_tokens: usage.input_tokens,
+			output_tokens: usage.output_tokens,
+			output_tokens_details: { image_tokens: 400, text_tokens: 0 },
+		});
+		expect(json.usage.cost).toBeGreaterThan(0);
+		expect(json.usage.cost).toBeCloseTo(Number(log.cost), 6);
 	}
 
 	describe.each(["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
@@ -373,9 +381,11 @@ describe("image generation upstream streaming", () => {
 describe("image service tiers", () => {
 	const harness = createGatewayApiTestHarness();
 	const upstreamBodies: Array<Record<string, unknown>> = [];
+	let textOnly = false;
 
 	beforeEach(async () => {
 		upstreamBodies.length = 0;
+		textOnly = false;
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			...hashApiKeyForStorage("test-token"),
@@ -408,14 +418,16 @@ describe("image service tiers", () => {
 					candidates: [
 						{
 							content: {
-								parts: [
-									{
-										inlineData: {
-											mimeType: "image/png",
-											data: Buffer.from("image").toString("base64"),
-										},
-									},
-								],
+								parts: textOnly
+									? [{ text: "I cannot draw that." }]
+									: [
+											{
+												inlineData: {
+													mimeType: "image/png",
+													data: Buffer.from("image").toString("base64"),
+												},
+											},
+										],
 								role: "model",
 							},
 							finishReason: "STOP",
@@ -477,6 +489,21 @@ describe("image service tiers", () => {
 			expect(log.hasError).toBe(false);
 			expect(log.requestedServiceTier).toBe("flex");
 			expect(log.usedServiceTier).toBe("flex");
+		});
+
+		test("returns 500 when the model replies without an image", async () => {
+			textOnly = true;
+			const errorSpy = vi.spyOn(logger, "error");
+			const res = await requestImages(
+				"google-ai-studio/gemini-3-pro-image",
+				"flex",
+			);
+			const json = await res.json();
+			expect(res.status, JSON.stringify(json)).toBe(500);
+			expect(JSON.stringify(json)).toContain(
+				"The model did not generate any images",
+			);
+			expect(errorSpy).not.toHaveBeenCalled();
 		});
 
 		test("rejects a tier the pinned mapping does not offer", async () => {

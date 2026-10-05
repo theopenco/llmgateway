@@ -1,4 +1,3 @@
-"use client";
 import { Check, X } from "lucide-react";
 import Link from "next/link";
 
@@ -18,21 +17,22 @@ const comparisonData = [
 			},
 			{
 				title: "Self-host the platform",
-				description: "Run the entire stack on your own infrastructure",
+				description:
+					"Run the core on your infrastructure; Enterprise terms differ",
 				llmgateway: "AGPLv3",
 				vercel: false,
 			},
 			{
 				title: "Open-source license",
 				description: "What ships under an open-source license",
-				llmgateway: "Full platform (AGPLv3)",
+				llmgateway: "Core (AGPLv3); Enterprise commercial",
 				vercel: false,
 			},
 			{
-				title: "No ecosystem lock-in",
+				title: "Works across application hosts",
 				description: "Use it without committing to one host or framework",
 				llmgateway: true,
-				vercel: "Requires a Vercel team account",
+				vercel: "Yes; Vercel account required",
 			},
 		],
 	},
@@ -100,8 +100,8 @@ const comparisonData = [
 			{
 				title: "Model coverage",
 				description: "Models and providers available through one API",
-				llmgateway: "200+ models, 40+ providers",
-				vercel: "300+ models",
+				llmgateway: "See live model catalog",
+				vercel: "See Vercel catalog",
 			},
 			{
 				title: "Image & video generation",
@@ -110,10 +110,10 @@ const comparisonData = [
 				vercel: true,
 			},
 			{
-				title: "Guardrails",
-				description: "Prompt injection, PII, jailbreak, and secret detection",
-				llmgateway: true,
-				vercel: "Allowlists & ZDR only (metered)",
+				title: "Content guardrails",
+				description: "Content checks; coverage and pricing vary by product",
+				llmgateway: "Enterprise",
+				vercel: "Not documented as a gateway feature",
 			},
 			{
 				title: "AI SDK integration",
@@ -131,7 +131,7 @@ const comparisonData = [
 				title: "OpenTelemetry trace export",
 				description: "Forward traces into an existing observability stack",
 				llmgateway: false,
-				vercel: "Trace Drains ($0.05 per 1k)",
+				vercel: "Trace Drains: events + egress",
 			},
 		],
 	},
@@ -172,22 +172,22 @@ export function ComparisonVercel() {
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>Fully open source</strong> — self-host the entire
-								platform, not just call a managed API
+								<strong>Open-source core</strong> — self-host the gateway,
+								dashboard and worker
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>No ecosystem lock-in</strong> — not tied to a Vercel
-								team account
+								<strong>Self-hosting option</strong> — operate the gateway
+								inside your own infrastructure
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>Image &amp; video generation</strong> and guardrails
-								built in
+								<strong>Image &amp; video generation</strong> with Enterprise
+								content guardrails
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
@@ -213,7 +213,7 @@ export function ComparisonVercel() {
 								</p>
 								<p className="text-2xl font-bold text-primary">From $0</p>
 								<p className="text-xs text-muted-foreground mt-1">
-									Self-host free forever
+									Free core; hosting costs separate
 								</p>
 							</div>
 						</div>
@@ -277,7 +277,7 @@ export function ComparisonVercel() {
 					</div>
 					<p className="text-sm text-muted-foreground mt-3">
 						No credit card required • Self-host option available • Enterprise
-						support included
+						support available
 					</p>
 				</div>
 			</div>

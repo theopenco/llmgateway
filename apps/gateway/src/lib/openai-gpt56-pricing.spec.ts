@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
 	expandProviderRegions,
+	getSupportedServiceTiers,
 	models,
 	providers,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 
-// OpenAI GPT-5.6 pricing invariants per
+// OpenAI GPT-5.6 and GPT-6 pricing invariants per
 // https://developers.openai.com/api/docs/pricing and
 // https://developers.openai.com/api/docs/guides/prompt-caching:
 // - cache writes bill at 1.25x the uncached input rate (single 30m TTL)
@@ -34,9 +35,9 @@ function expectRatio(
 	).toBeLessThan(Math.max(expected * 1e-9, 1e-15));
 }
 
-describe("OpenAI GPT-5.6 family pricing", () => {
+describe("OpenAI GPT-5.6 and GPT-6 family pricing", () => {
 	const gpt56Entries = models.flatMap((model) =>
-		model.id.startsWith("gpt-5.6")
+		model.id.startsWith("gpt-5.6") || model.id.startsWith("gpt-6-")
 			? model.providers
 					.filter((provider) => provider.providerId === "openai")
 					.map((provider) => ({
@@ -46,11 +47,14 @@ describe("OpenAI GPT-5.6 family pricing", () => {
 			: [],
 	);
 
-	it("has the three gpt-5.6 mappings to validate", () => {
+	it("has the gpt-5.6 and gpt-6 mappings to validate", () => {
 		expect(gpt56Entries.map((e) => e.modelId).sort()).toEqual([
 			"gpt-5.6-luna",
 			"gpt-5.6-sol",
 			"gpt-5.6-terra",
+			"gpt-6-astra",
+			"gpt-6-luna",
+			"gpt-6-sol",
 		]);
 	});
 
@@ -124,16 +128,18 @@ describe("OpenAI GPT-5.6 family pricing", () => {
 	);
 });
 
-// Azure resells GPT-5.6 at OpenAI's own rates on Standard Global deployments,
+// Azure resells these at OpenAI's own rates on Standard Global deployments,
 // Sol's promotional rates included — Azure runs that promo on its own window
 // (2026-09-01 through at least 2026-11-30). The rates come from the
-// `5.6 <model> … Std Gl` meters in the Azure retail prices API, which bill
-// lower than the pricing page still publishes. Data Zone (+10%) and Priority
-// Processing (2x) are separate deployment types that the catalogue does not
-// map, so nothing here should track them.
-describe("GPT-5.6 on Azure", () => {
+// `5.6 <model> … Std Gl` / `6-<model> … Std Gl` meters in the Azure retail
+// prices API, which bill
+// lower than the pricing page still publishes. Data Zone (+10%) is a separate
+// deployment type the catalogue does not map, so nothing here should track it;
+// Priority Processing is mapped as a service tier at a flat 2x premium (the
+// `… PP Gl` meters), which the standard rates below must stay independent of.
+describe("GPT-5.6 and GPT-6 on Azure", () => {
 	const azureEntries = models.flatMap((model) =>
-		model.id.startsWith("gpt-5.6")
+		model.id.startsWith("gpt-5.6") || model.id.startsWith("gpt-6-")
 			? model.providers
 					.filter((provider) => provider.providerId === "azure")
 					.map((provider) => ({
@@ -146,13 +152,35 @@ describe("GPT-5.6 on Azure", () => {
 			: [],
 	);
 
-	it("has the three azure mappings to validate", () => {
+	it("has the azure mappings to validate", () => {
 		expect(azureEntries.map((e) => e.modelId).sort()).toEqual([
 			"gpt-5.6-luna",
 			"gpt-5.6-sol",
 			"gpt-5.6-terra",
+			"gpt-6-astra",
+			"gpt-6-luna",
+			"gpt-6-sol",
 		]);
 	});
+
+	it.each(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-sol"])(
+		"%s sells Priority processing at 2x the standard rate",
+		(modelId) => {
+			const tiers = getSupportedServiceTiers(modelId, "azure");
+			expect(tiers.map((tier) => tier.id)).toEqual(["priority"]);
+			expect(tiers[0].multiplier).toBe(2);
+		},
+	);
+
+	// The `… PP …` meters only exist for the models Microsoft's
+	// priority-processing docs list. The rest downgrade a priority request to
+	// standard, so their mappings must stay tier-less.
+	it.each(["gpt-5.6-luna", "gpt-6-luna", "gpt-6-astra"])(
+		"%s sells no service tier on azure",
+		(modelId) => {
+			expect(getSupportedServiceTiers(modelId, "azure")).toEqual([]);
+		},
+	);
 
 	it.each(azureEntries)(
 		"$modelId bills Standard Global at the first-party rate",

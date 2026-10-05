@@ -4,6 +4,7 @@ slug: "cli-launch-coding-agents"
 date: "2026-07-23"
 title: "Launch Any Coding Agent from the CLI"
 summary: "The LLM Gateway CLI can now start any supported coding agent pre-wired to the gateway — Claude Code, OpenCode, Codex CLI, DevPass Code, and eight more. One command, one API key, 200+ models, and every request tracked in your dashboard."
+tags: ["llmgateway", "devpass"]
 image:
   src: "/changelog/cli-launch-coding-agents.png"
   alt: "A glowing terminal on a circuit board launching a fleet of coding agents, representing the LLM Gateway CLI's new launch command"

@@ -1,14 +1,16 @@
-"use client";
 import { GithubIcon } from "lucide-react";
 import Link from "next/link";
 
 import Newsletter from "@/components/landing/newsletter";
-import { useAppConfig } from "@/lib/config";
+import { getConfig } from "@/lib/config-server";
 import { XIcon } from "@/lib/icons/XIcon";
 import { listedProviders } from "@/lib/providers-catalog";
 
+// Server component on purpose: the provider directory below pulls the full
+// model catalogue via providers-catalog, which must stay out of the client
+// bundle of every marketing page that renders the footer.
 export default function Footer() {
-	const config = useAppConfig();
+	const config = getConfig();
 
 	return (
 		<footer className="relative py-12 bg-background">
@@ -57,11 +59,7 @@ export default function Footer() {
 							rel="noopener noreferrer"
 							className="mt-6 inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/40 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
 						>
-							<span className="relative flex h-2 w-2">
-								<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-								<span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
-							</span>
-							All systems operational
+							System status
 						</a>
 						<div className="mt-6 flex items-center gap-3">
 							{/* Per AICPA guidelines the SOC logo must link to aicpa.org/soc4so */}
@@ -100,7 +98,7 @@ export default function Footer() {
 							<ul className="space-y-2">
 								<li>
 									<a
-										href="#features"
+										href="/#features"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										Features
@@ -561,6 +559,24 @@ export default function Footer() {
 										prefetch={true}
 									>
 										Vercel AI Gateway
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/blog/openrouter-alternatives"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										OpenRouter Alternatives
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/blog/litellm-alternatives"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										LiteLLM Alternatives
 									</Link>
 								</li>
 								<li>

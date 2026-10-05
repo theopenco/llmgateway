@@ -33,6 +33,7 @@
 		"lib/**/*.ts",
 		"lib/**/*.tsx",
 		"scripts/**/*.ts",
+		"e2e/**/*.ts",
 		".next/types/**/*.ts",
 		"out/types/**/*.ts"
 	],

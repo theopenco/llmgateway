@@ -2,6 +2,8 @@ import dynamic from "next/dynamic";
 
 import { BlogCta } from "@/components/blog/blog-cta";
 
+import type { ChangelogTag } from "@/lib/changelog";
+
 // Defer the prism-based highlighter chunk until a markdown document actually
 // renders a fenced code block.
 const SyntaxHighlightedPre = dynamic(() =>
@@ -14,6 +16,7 @@ export interface ChangelogFrontmatter {
 	date: string;
 	title: string;
 	summary: string;
+	tags: ChangelogTag[];
 	image: {
 		src: string;
 		alt: string;

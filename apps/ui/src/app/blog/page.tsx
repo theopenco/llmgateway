@@ -70,7 +70,7 @@ export default async function BlogPage() {
 	return (
 		<div>
 			<JsonLd data={[collectionSchema, itemListSchema, breadcrumbSchema]} />
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<BlogList
 				entries={sortedEntries}
 				heading="Blog"
@@ -81,8 +81,19 @@ export default async function BlogPage() {
 }
 
 export async function generateMetadata() {
+	const { allBlogs } = await import("content-collections");
+	const authors = Array.from(
+		new Map(
+			allBlogs.flatMap((entry) =>
+				entry.draft || !entry.author
+					? []
+					: [[entry.author.name, entry.author] as const],
+			),
+		).values(),
+	);
 	return {
 		title: "Blog — News, Tutorials, and Deep-Dives",
+		authors: authors.length ? authors : undefined,
 		description:
 			"News, tutorials, and deep-dives from the LLM Gateway team on AI gateways, model routing, LLM costs, model comparisons, and shipping production AI apps.",
 		alternates: { canonical: "/blog" },

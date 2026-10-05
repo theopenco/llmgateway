@@ -1,11 +1,27 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/index.js";
+import {
+	EnterpriseSeatLimitError,
+	withEnterpriseSeatForOrganization,
+} from "@/lib/enterprise-seats.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+
+import type * as EnterpriseSeats from "@/lib/enterprise-seats.js";
+
+vi.mock("@/lib/enterprise-seats.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof EnterpriseSeats>();
+	return {
+		...actual,
+		withEnterpriseSeatForOrganization: vi.fn(
+			actual.withEnterpriseSeatForOrganization,
+		),
+	};
+});
 
 const SCIM_TOKEN = "scim_test_token_abcdef0123456789";
 const ORG_ID = "scim-test-org";
@@ -99,6 +115,7 @@ describe("scim audit logging", () => {
 			columns: {
 				id: true,
 				role: true,
+				roleAssignmentSource: true,
 				teamId: true,
 				teamAssignmentSource: true,
 			},
@@ -333,6 +350,109 @@ describe("scim audit logging", () => {
 		expect(logs[0]?.metadata?.targetUserId).toBe(id);
 	});
 
+	async function getProvisionFailures() {
+		return await db.query.auditLog.findMany({
+			where: {
+				organizationId: { eq: ORG_ID },
+				action: { eq: "scim.user.provision_failed" },
+			},
+		});
+	}
+
+	test("POST /Users at the seat limit logs scim.user.provision_failed", async () => {
+		vi.mocked(withEnterpriseSeatForOrganization).mockRejectedValueOnce(
+			new EnterpriseSeatLimitError(2, 2),
+		);
+
+		const response = await app.request("/scim/v2/Users", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				userName: "full@example.com",
+				emails: [{ value: "full@example.com", primary: true }],
+				active: true,
+			}),
+		});
+
+		expect(response.status).toBe(409);
+		expect(((await response.json()) as { scimType: string }).scimType).toBe(
+			"tooMany",
+		);
+
+		const logs = await getProvisionFailures();
+		expect(logs).toHaveLength(1);
+		expect(logs[0]?.userId).toBe("test-user-id");
+		expect(logs[0]?.resourceType).toBe("scim_user");
+		expect(logs[0]?.metadata).toMatchObject({
+			source: "scim",
+			targetUserEmail: "full@example.com",
+			operation: "create",
+			reason: "seat_limit",
+		});
+		// Deployment-wide seat counts must not leak into an org's audit log.
+		expect(logs[0]?.metadata).not.toHaveProperty("maxSeats");
+		expect(logs[0]?.metadata).not.toHaveProperty("seatsUsed");
+
+		// Owners and admins get an org limit alert.
+		const alerts = await db.query.notification.findMany({
+			where: { userId: { eq: "test-user-id" }, type: { eq: "org_limit" } },
+		});
+		expect(alerts).toHaveLength(1);
+		expect(alerts[0]?.organizationId).toBe(ORG_ID);
+	});
+
+	test("POST /Users for an existing member logs scim.user.provision_failed", async () => {
+		const id = await provisionUser("dupe@example.com");
+
+		const response = await app.request("/scim/v2/Users", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				userName: "dupe@example.com",
+				emails: [{ value: "dupe@example.com", primary: true }],
+				active: true,
+			}),
+		});
+
+		expect(response.status).toBe(409);
+
+		const logs = await getProvisionFailures();
+		expect(logs).toHaveLength(1);
+		expect(logs[0]?.resourceId).toBe(id);
+		expect(logs[0]?.metadata).toMatchObject({
+			operation: "create",
+			reason: "already_provisioned",
+		});
+	});
+
+	test("PATCH /Users activation at the seat limit logs scim.user.provision_failed", async () => {
+		const id = await provisionUser("react@example.com");
+		const patch = async (active: boolean) =>
+			await app.request(`/scim/v2/Users/${id}`, {
+				method: "PATCH",
+				headers: scimHeaders(),
+				body: JSON.stringify({
+					schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+					Operations: [{ op: "replace", path: "active", value: active }],
+				}),
+			});
+		expect((await patch(false)).status).toBe(200);
+
+		vi.mocked(withEnterpriseSeatForOrganization).mockRejectedValueOnce(
+			new EnterpriseSeatLimitError(2, 2),
+		);
+		expect((await patch(true)).status).toBe(409);
+		expect(await getMembership(id)).toBeUndefined();
+
+		const logs = await getProvisionFailures();
+		expect(logs).toHaveLength(1);
+		expect(logs[0]?.metadata).toMatchObject({
+			targetUserId: id,
+			operation: "activate",
+			reason: "seat_limit",
+		});
+	});
+
 	test("POST /Groups logs scim.group.create", async () => {
 		const response = await app.request("/scim/v2/Groups", {
 			method: "POST",
@@ -405,6 +525,161 @@ describe("scim audit logging", () => {
 			columns: { role: true },
 		});
 		expect(membership?.role).toBe("admin");
+	});
+
+	test("manual roles survive a SCIM update without role mappings", async () => {
+		const userId = await provisionUser("manual-admin@example.com");
+		const membership = await getMembership(userId);
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "admin" })
+			.where(eq(tables.userOrganization.id, membership!.id));
+
+		const response = await app.request(`/scim/v2/Users/${userId}`, {
+			method: "PUT",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				userName: "manual-admin@example.com",
+				active: true,
+			}),
+		});
+		expect(response.status).toBe(200);
+		expect(await getMembership(userId)).toMatchObject({
+			role: "admin",
+			roleAssignmentSource: "manual",
+		});
+		expect(
+			await db.query.auditLog.findMany({
+				where: {
+					organizationId: { eq: ORG_ID },
+					action: { eq: "scim.user.role_change" },
+				},
+			}),
+		).toHaveLength(0);
+	});
+
+	test("manual roles are not lowered by a lower group mapping", async () => {
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Leads",
+			role: "project_admin",
+		});
+		const userId = await provisionUser("manual-lead@example.com");
+		const membership = await getMembership(userId);
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "admin" })
+			.where(eq(tables.userOrganization.id, membership!.id));
+
+		const response = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Leads",
+				members: [{ value: userId }],
+			}),
+		});
+		expect(response.status).toBe(201);
+		expect(await getMembership(userId)).toMatchObject({
+			role: "admin",
+			roleAssignmentSource: "manual",
+		});
+	});
+
+	test("mapped roles are revoked when the member leaves the group", async () => {
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Admins",
+			role: "admin",
+		});
+		const userId = await provisionUser("mapped-admin@example.com");
+
+		const created = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Admins",
+				members: [{ value: userId }],
+			}),
+		});
+		expect(created.status).toBe(201);
+		const { id: groupId } = (await created.json()) as { id: string };
+		expect(await getMembership(userId)).toMatchObject({
+			role: "admin",
+			roleAssignmentSource: "sso",
+		});
+
+		const removed = await app.request(`/scim/v2/Groups/${groupId}`, {
+			method: "DELETE",
+			headers: scimHeaders(),
+		});
+		expect(removed.status).toBe(204);
+		expect(await getMembership(userId)).toMatchObject({
+			role: "developer",
+			roleAssignmentSource: "manual",
+		});
+	});
+
+	test("a mapped promotion falls back to the manual role", async () => {
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Admins",
+			role: "admin",
+		});
+		const userId = await provisionUser("manual-project-admin@example.com");
+		const membership = await getMembership(userId);
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "project_admin" })
+			.where(eq(tables.userOrganization.id, membership!.id));
+
+		const created = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Admins",
+				members: [{ value: userId }],
+			}),
+		});
+		expect(created.status).toBe(201);
+		const { id: groupId } = (await created.json()) as { id: string };
+		expect(await getMembership(userId)).toMatchObject({
+			role: "admin",
+			roleAssignmentSource: "sso",
+		});
+
+		const removed = await app.request(`/scim/v2/Groups/${groupId}`, {
+			method: "DELETE",
+			headers: scimHeaders(),
+		});
+		expect(removed.status).toBe(204);
+		expect(await getMembership(userId)).toMatchObject({
+			role: "project_admin",
+			roleAssignmentSource: "manual",
+		});
+	});
+
+	test("a mapping that does not raise the role is not marked sso", async () => {
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Engineers",
+			role: "developer",
+		});
+		const userId = await provisionUser("mapped-developer@example.com");
+
+		const created = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Engineers",
+				members: [{ value: userId }],
+			}),
+		});
+		expect(created.status).toBe(201);
+		expect(await getMembership(userId)).toMatchObject({
+			role: "developer",
+			roleAssignmentSource: "manual",
+		});
 	});
 
 	test("group team mapping follows membership and logs changes", async () => {

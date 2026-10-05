@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	evaluateContentFilterWithClassifiers,
+	isContentFilterClassifierCompliant,
 	runContentFilterClassifier,
 } from "./content-filter-classifier.js";
 
@@ -11,12 +12,18 @@ import type { BaseMessage } from "@llmgateway/models";
 
 const checkJev = vi.hoisted(() => vi.fn());
 const hasJevCredential = vi.hoisted(() => vi.fn());
+const checkInternal = vi.hoisted(() => vi.fn());
 const checkOpenAI = vi.hoisted(() => vi.fn());
 const hasOpenAICredential = vi.hoisted(() => vi.fn());
 
 vi.mock("./jev-content-filter.js", () => ({
 	checkJevContentFilter: checkJev,
 	hasJevContentFilterCredential: hasJevCredential,
+}));
+
+vi.mock("./internal-content-filter.js", () => ({
+	checkInternalContentFilter: checkInternal,
+	hasInternalContentFilterCredential: () => true,
 }));
 
 vi.mock("./openai-content-filter.js", async (importOriginal) => ({
@@ -57,6 +64,11 @@ function result(
 	};
 }
 
+const sleep = (ms: number) =>
+	new Promise<void>((resolve) => {
+		setTimeout(resolve, ms);
+	});
+
 const PLAN: TieredContentFilterPlan = {
 	provider: "openai",
 	tier: 1,
@@ -64,7 +76,8 @@ const PLAN: TieredContentFilterPlan = {
 	level: "strict",
 	enforce: true,
 	classifier: "jev",
-	shadowClassifier: null,
+	internalScope: "full",
+	moderateImages: true,
 };
 
 describe("runContentFilterClassifier", () => {
@@ -112,6 +125,72 @@ describe("runContentFilterClassifier", () => {
 		expect(checked.flagged).toBe(true);
 		expect(checked.results).toHaveLength(2);
 		expect(checked.model).toBe("jev-1.13.0");
+	});
+
+	it("times the text check and the image delegation together", async () => {
+		checkJev.mockImplementation(async () => {
+			await sleep(40);
+			return result(false, { violence: 0.1 }, "jev-1.13.0");
+		});
+		checkOpenAI.mockImplementation(async () => {
+			await sleep(40);
+			return result(false, { violence: 0.1 }, "omni-moderation-latest");
+		});
+
+		const checked = await runContentFilterClassifier(
+			"jev",
+			IMAGE_MESSAGES,
+			CONTEXT,
+			undefined,
+			{ imagesAllowed: true },
+		);
+
+		expect(checked.durationMs).toBeGreaterThanOrEqual(75);
+	});
+
+	it("times the text check and the image delegation separately", async () => {
+		checkInternal.mockImplementation(async () => {
+			await sleep(40);
+			return {
+				...result(false, {}, "internal-classifier"),
+				requestCount: 3,
+			};
+		});
+		checkOpenAI.mockImplementation(async () => {
+			await sleep(120);
+			return result(false, { violence: 0.1 }, "omni-moderation-latest");
+		});
+
+		const evaluated = await evaluateContentFilterWithClassifiers({
+			plan: { ...PLAN, classifier: "internal", internalScope: "latest_turn" },
+			messages: IMAGE_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: () => true,
+		});
+
+		const evaluation = evaluated?.evaluation;
+		expect(evaluation?.internalScope).toBe("latest_turn");
+		expect(evaluation?.classifierRequests).toBe(3);
+		expect(evaluation?.classifierDurationMs).toBeGreaterThanOrEqual(35);
+		expect(evaluation?.classifierDurationMs).toBeLessThan(110);
+		expect(evaluation?.imageDurationMs).toBeGreaterThanOrEqual(110);
+	});
+
+	it("records no image duration for a text-only request", async () => {
+		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
+
+		const checked = await runContentFilterClassifier(
+			"jev",
+			TEXT_MESSAGES,
+			CONTEXT,
+			undefined,
+			{ imagesAllowed: true },
+		);
+
+		expect(checked.classifierDurationMs).toBeGreaterThanOrEqual(0);
+		expect(checked.classifierRequests).toBeUndefined();
+		expect(checked.imageDurationMs).toBeUndefined();
 	});
 
 	it("marks a failed image delegation without changing the text verdict", async () => {
@@ -179,6 +258,64 @@ describe("runContentFilterClassifier", () => {
 	});
 });
 
+describe("internal classifier", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		hasOpenAICredential.mockResolvedValue(true);
+	});
+
+	it("scores text with the internal classifier and delegates images", async () => {
+		checkInternal.mockResolvedValue(
+			result(true, { child_exploitation: 1 }, "internal-classifier"),
+		);
+		checkOpenAI.mockResolvedValue(
+			result(false, { violence: 0.1 }, "omni-moderation-latest"),
+		);
+
+		const checked = await runContentFilterClassifier(
+			"internal",
+			IMAGE_MESSAGES,
+			CONTEXT,
+			undefined,
+			{ imagesAllowed: true },
+		);
+
+		expect(checkJev).not.toHaveBeenCalled();
+		expect(checked.classifier).toBe("internal");
+		expect(checked.flagged).toBe(true);
+		expect(checked.model).toBe("internal-classifier");
+		expect(checked.results).toHaveLength(2);
+	});
+
+	it("carries a partially failed text check through image delegation", async () => {
+		checkInternal.mockResolvedValue({
+			...result(false, {}, "internal-classifier"),
+			partialModerationFailed: true,
+		});
+		checkOpenAI.mockResolvedValue(
+			result(false, { violence: 0.1 }, "omni-moderation-latest"),
+		);
+
+		const checked = await runContentFilterClassifier(
+			"internal",
+			IMAGE_MESSAGES,
+			CONTEXT,
+			undefined,
+			{ imagesAllowed: true },
+		);
+
+		expect(checked.partialModerationFailed).toBe(true);
+	});
+
+	it("is never excluded by a compliance policy", () => {
+		// TypeSafe publishes no SOC 2 attestation, so this policy excludes Jev.
+		const policy = { enabled: true, requireSoc2Type2: true };
+
+		expect(isContentFilterClassifierCompliant("jev", policy)).toBe(false);
+		expect(isContentFilterClassifierCompliant("internal", policy)).toBe(true);
+	});
+});
+
 describe("evaluateContentFilterWithClassifiers", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -190,6 +327,7 @@ describe("evaluateContentFilterWithClassifiers", () => {
 		const existing = {
 			...result(false, { violence: 0.1 }, "jev-1.13.0"),
 			classifier: "jev" as const,
+			durationMs: 87,
 		};
 
 		const evaluated = await evaluateContentFilterWithClassifiers({
@@ -204,97 +342,26 @@ describe("evaluateContentFilterWithClassifiers", () => {
 		expect(checkJev).not.toHaveBeenCalled();
 		expect(evaluated?.evaluation.classifier).toBe("jev");
 		expect(evaluated?.evaluation.action).toBe("passed");
+		// The reused check's own timing, not the near-zero cost of reusing it.
+		expect(evaluated?.evaluation.durationMs).toBe(87);
 	});
 
-	it("records the shadow classifier's disagreement without blocking on it", async () => {
-		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
-		checkOpenAI.mockResolvedValue(
-			result(true, { violence: 0.95 }, "omni-moderation-latest"),
-		);
+	it("records the classifier's duration", async () => {
+		checkJev.mockImplementation(async () => {
+			await sleep(40);
+			return result(false, { violence: 0.1 }, "jev-1.13.0");
+		});
 
 		const evaluated = await evaluateContentFilterWithClassifiers({
-			plan: { ...PLAN, shadowClassifier: "openai" },
+			plan: PLAN,
 			messages: TEXT_MESSAGES,
 			context: CONTEXT,
 			imagesAllowed: true,
 			classifierAllowed: () => true,
 		});
 
-		expect(evaluated?.evaluation.action).toBe("passed");
-		expect(evaluated?.evaluation.shadow).toMatchObject({
-			classifier: "openai",
-			violation: true,
-			disagreed: true,
-		});
-		expect(evaluated?.results).toHaveLength(2);
-	});
-
-	it("runs the deciding and shadow classifiers concurrently", async () => {
-		// Both calls block on the same gate: they can only both be in flight if
-		// the second one started without waiting for the first to finish.
-		let release: () => void = () => {};
-		const gate = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		const started: string[] = [];
-		const blockUntilReleased = (name: string) => async () => {
-			started.push(name);
-			await gate;
-			return result(false, { violence: 0.1 }, name);
-		};
-		checkJev.mockImplementation(blockUntilReleased("jev"));
-		checkOpenAI.mockImplementation(blockUntilReleased("openai"));
-
-		const evaluating = evaluateContentFilterWithClassifiers({
-			plan: { ...PLAN, shadowClassifier: "openai" },
-			messages: TEXT_MESSAGES,
-			context: CONTEXT,
-			imagesAllowed: true,
-			classifierAllowed: () => true,
-		});
-
-		await vi.waitFor(() => expect(started).toHaveLength(2));
-		release();
-
-		expect((await evaluating)?.results).toHaveLength(2);
-	});
-
-	it("propagates a cancellation seen only by the shadow classifier", async () => {
-		const abortError = new DOMException(
-			"The operation was aborted.",
-			"AbortError",
-		);
-		const controller = new AbortController();
-		controller.abort(abortError);
-		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
-		checkOpenAI.mockRejectedValue(abortError);
-
-		await expect(
-			evaluateContentFilterWithClassifiers({
-				plan: { ...PLAN, shadowClassifier: "openai" },
-				messages: TEXT_MESSAGES,
-				context: CONTEXT,
-				signal: controller.signal,
-				imagesAllowed: true,
-				classifierAllowed: () => true,
-			}),
-		).rejects.toThrowError(abortError);
-	});
-
-	it("keeps a shadow classifier's own failure out of the request", async () => {
-		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
-		checkOpenAI.mockRejectedValue(new Error("moderation exploded"));
-
-		const evaluated = await evaluateContentFilterWithClassifiers({
-			plan: { ...PLAN, shadowClassifier: "openai" },
-			messages: TEXT_MESSAGES,
-			context: CONTEXT,
-			imagesAllowed: true,
-			classifierAllowed: () => true,
-		});
-
-		expect(evaluated?.evaluation.action).toBe("passed");
-		expect(evaluated?.evaluation.shadow).toBeUndefined();
+		expect(evaluated?.evaluation.durationMs).toBeGreaterThanOrEqual(35);
+		expect(evaluated?.results).toHaveLength(1);
 	});
 
 	it("reports a failed image delegation as a failed moderation", async () => {
@@ -320,7 +387,23 @@ describe("evaluateContentFilterWithClassifiers", () => {
 		expect(evaluated?.evaluation.action).toBe("passed");
 	});
 
-	it("skips entirely when the deciding classifier is not permitted", async () => {
+	it("leaves images unmoderated when image moderation is off", async () => {
+		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
+
+		const evaluated = await evaluateContentFilterWithClassifiers({
+			plan: { ...PLAN, moderateImages: false },
+			messages: IMAGE_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: () => true,
+		});
+
+		expect(checkOpenAI).not.toHaveBeenCalled();
+		expect(evaluated?.evaluation.moderationFailed).toBe(false);
+		expect(evaluated?.results[0]?.results).toHaveLength(1);
+	});
+
+	it("skips entirely when the classifier is not permitted", async () => {
 		expect(
 			await evaluateContentFilterWithClassifiers({
 				plan: PLAN,
@@ -333,19 +416,18 @@ describe("evaluateContentFilterWithClassifiers", () => {
 		expect(checkJev).not.toHaveBeenCalled();
 	});
 
-	it("drops a shadow classifier that has no credential", async () => {
-		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
-		hasOpenAICredential.mockResolvedValue(false);
+	it("skips entirely when the classifier has no credential", async () => {
+		hasJevCredential.mockResolvedValue(false);
 
-		const evaluated = await evaluateContentFilterWithClassifiers({
-			plan: { ...PLAN, shadowClassifier: "openai" },
-			messages: TEXT_MESSAGES,
-			context: CONTEXT,
-			imagesAllowed: true,
-			classifierAllowed: () => true,
-		});
-
-		expect(evaluated?.evaluation.shadow).toBeUndefined();
-		expect(checkOpenAI).not.toHaveBeenCalled();
+		expect(
+			await evaluateContentFilterWithClassifiers({
+				plan: PLAN,
+				messages: TEXT_MESSAGES,
+				context: CONTEXT,
+				imagesAllowed: true,
+				classifierAllowed: () => true,
+			}),
+		).toBeNull();
+		expect(checkJev).not.toHaveBeenCalled();
 	});
 });

@@ -775,6 +775,87 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect(store.value).toEqual({ providerId: "openai", region: undefined });
 		});
 
+		function encryptedReasoningFixture(
+			providerIds: [string, string],
+			reasoning: boolean,
+		) {
+			const model = {
+				id: "encrypted-reasoning-session-test",
+				providers: providerIds.map((providerId) => ({
+					providerId,
+					externalId: "encrypted-reasoning-session-test",
+					inputPrice: "1e-6",
+					outputPrice: "2e-6",
+					reasoning,
+				})),
+			};
+			const metricsMap = new Map(
+				model.providers.map((provider) => [
+					metricsKey(model.id, provider.providerId, undefined),
+					{
+						modelId: model.id,
+						providerId: provider.providerId,
+						uptime: provider.providerId === providerIds[1] ? 50 : 100,
+						averageLatency: 200,
+						throughput: 100,
+						totalRequests: 100,
+					},
+				]),
+			);
+			return { model, metricsMap };
+		}
+
+		it.each([
+			[["google-ai-studio", "google-vertex"]],
+			[["openai", "azure"]],
+		] as Array<[[string, string]]>)(
+			"keeps an encrypted-reasoning session on %j despite low uptime",
+			async (providerIds) => {
+				const { model, metricsMap } = encryptedReasoningFixture(
+					providerIds,
+					true,
+				);
+				const natural = await getCheapestFromAvailableProviders(
+					model.providers,
+					model,
+					{ metricsMap },
+				);
+				expect(natural?.provider.providerId).toBe(providerIds[0]);
+
+				const store = createMemoryStore({ providerId: providerIds[1] });
+				const result = await getCheapestFromAvailableProviders(
+					model.providers,
+					model,
+					{
+						metricsMap,
+						sessionProviderStore: store,
+					},
+				);
+				expect(result?.provider.providerId).toBe(providerIds[1]);
+				expect(result?.metadata.selectionReason).toBe("session-sticky");
+				expect(store.setCalls).toEqual([
+					{ providerId: providerIds[1], region: undefined },
+				]);
+			},
+		);
+
+		it("re-pins a low-uptime session when the mapping has no reasoning", async () => {
+			const { model, metricsMap } = encryptedReasoningFixture(
+				["openai", "azure"],
+				false,
+			);
+			const store = createMemoryStore({ providerId: "azure" });
+			const result = await getCheapestFromAvailableProviders(
+				model.providers,
+				model,
+				{
+					metricsMap,
+					sessionProviderStore: store,
+				},
+			);
+			expect(result?.provider.providerId).toBe("openai");
+		});
+
 		it("keeps the pin when uptime is exactly at the threshold", async () => {
 			const store = createMemoryStore({ providerId: "deepseek" });
 			const result = await getCheapestFromAvailableProviders(
@@ -1109,6 +1190,60 @@ describe("getCheapestFromAvailableProviders", () => {
 		}
 	});
 
+	it.each([
+		{ reasoning: true, explores: false },
+		{ reasoning: false, explores: true },
+	])(
+		"skips random exploration for encrypted reasoning ($reasoning)",
+		async ({ reasoning, explores }) => {
+			const originalExplorationRate = process.env.EXPLORATION_RATE;
+			const originalArgv = process.argv;
+			const originalNodeEnv = process.env.NODE_ENV;
+			const originalVitest = process.env.VITEST;
+			process.env.EXPLORATION_RATE = "1";
+			delete process.env.NODE_ENV;
+			delete process.env.VITEST;
+			process.argv = ["node", "/tmp/not-a-test-run.mjs"];
+
+			try {
+				const model = {
+					id: "encrypted-reasoning-exploration-test",
+					providers: ["openai", "azure"].map((providerId) => ({
+						providerId,
+						externalId: "encrypted-reasoning-exploration-test",
+						inputPrice: "1e-6",
+						outputPrice: "2e-6",
+						reasoning,
+					})),
+				};
+				const result = await getCheapestFromAvailableProviders(
+					model.providers,
+					model,
+				);
+				expect(result?.metadata.selectionReason === "random-exploration").toBe(
+					explores,
+				);
+			} finally {
+				process.argv = originalArgv;
+				if (originalNodeEnv !== undefined) {
+					process.env.NODE_ENV = originalNodeEnv;
+				} else {
+					delete process.env.NODE_ENV;
+				}
+				if (originalVitest !== undefined) {
+					process.env.VITEST = originalVitest;
+				} else {
+					delete process.env.VITEST;
+				}
+				if (originalExplorationRate === undefined) {
+					delete process.env.EXPLORATION_RATE;
+				} else {
+					process.env.EXPLORATION_RATE = originalExplorationRate;
+				}
+			}
+		},
+	);
+
 	it("should prefer request pricing over zero token placeholders", () => {
 		expect(
 			getProviderSelectionPrice({
@@ -1162,11 +1297,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					[1, 4],
 					[6, 10],
 				] as [number, number][],
-				offPeakDays: {
-					daysOfWeek: [0, 6] as const,
-					utcOffsetMinutes: 480,
-					timeZoneLabel: "Beijing time",
-				},
+				offPeakDaysUtc: [0, 6] as const,
 			},
 		};
 
@@ -1472,6 +1603,41 @@ describe("getCheapestFromAvailableProviders", () => {
 			).toBe(1.5e-6);
 		});
 
+		it("ranks a tier with its own peak/off-peak rates by time of day", () => {
+			const peakTieredMapping = {
+				...tieredMapping,
+				peakPricing: {
+					peak: { inputPrice: "3.0e-6", outputPrice: "15.0e-6" },
+					offPeak: { inputPrice: "1.5e-6", outputPrice: "7.5e-6" },
+					hoursUtc: [[1, 4]] as [number, number][],
+				},
+				pricingTiers: tieredMapping.pricingTiers.map((tier) => ({
+					...tier,
+					peakPricing: {
+						peak: {
+							inputPrice: tier.inputPrice,
+							outputPrice: tier.outputPrice,
+						},
+						offPeak: {
+							inputPrice: String(Number(tier.inputPrice) / 2),
+							outputPrice: String(Number(tier.outputPrice) / 2),
+						},
+					},
+				})),
+			};
+			const priceAt = (iso: string) =>
+				getProviderSelectionPrice(
+					peakTieredMapping,
+					undefined,
+					new Date(iso),
+					undefined,
+					200_000,
+				).toNumber();
+
+			expect(priceAt("2026-08-17T02:00:00Z")).toBe((6.0e-6 + 30.0e-6) / 2);
+			expect(priceAt("2026-08-17T12:00:00Z")).toBe((3.0e-6 + 15.0e-6) / 2);
+		});
+
 		it("re-ranks long-context requests through full provider selection", async () => {
 			const tieredModel = {
 				id: "tiered-model",
@@ -1698,15 +1864,17 @@ describe("getCheapestFromAvailableProviders", () => {
 				).toBe(true);
 			});
 
-			it("reports cache support for a runware mapping with a cached price", () => {
-				const runwareMapping = models
-					.find((model) => model.id === "deepseek-v4-flash")
-					?.providers.find(
-						(provider) => provider.providerId === "runware",
-					) as ProviderModelMapping;
+			it("reports cache support for an Airside listing with a cached price", () => {
+				const listingMapping: ProviderModelMapping = {
+					providerId: "runware",
+					externalId: "deepseek-v4-flash",
+					inputPrice: "0.14e-6",
+					outputPrice: "0.28e-6",
+					cachedInputPrice: "0.028e-6",
+					streaming: true,
+				};
 
-				expect(runwareMapping.cachedInputPrice).toBeDefined();
-				expect(providerSupportsCaching(runwareMapping)).toBe(true);
+				expect(providerSupportsCaching(listingMapping)).toBe(true);
 			});
 		});
 	});
