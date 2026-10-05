@@ -15,7 +15,15 @@ import {
 	recordProviderListingPayment,
 } from "@/utils/provider-listing-payment.js";
 
-import { and, db, eq, isNull, notInArray, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	eq,
+	isNotNull,
+	isNull,
+	notInArray,
+	tables,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 const dryRun = process.argv.includes("--dry-run");
@@ -90,7 +98,13 @@ async function backfill() {
 	const recorded = db
 		.select({ id: tables.providerListingPayment.providerCompanyId })
 		.from(tables.providerListingPayment)
-		.where(eq(tables.providerListingPayment.source, "airside"));
+		// A NULL in a NOT IN list makes every comparison NULL.
+		.where(
+			and(
+				eq(tables.providerListingPayment.source, "airside"),
+				isNotNull(tables.providerListingPayment.providerCompanyId),
+			),
+		);
 	const unmatched = await db
 		.select({ id: tables.providerCompany.id })
 		.from(tables.providerCompany)
