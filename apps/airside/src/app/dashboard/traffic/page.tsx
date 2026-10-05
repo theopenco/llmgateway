@@ -81,7 +81,8 @@ export default function TrafficPage() {
 		);
 	}
 
-	if (statsQuery.isError) {
+	// Only a failed first load; a failed poll keeps the charts on screen.
+	if (statsQuery.isLoadingError) {
 		return (
 			<QueryError
 				message="Could not load traffic."
