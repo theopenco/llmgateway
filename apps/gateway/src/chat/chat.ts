@@ -12541,7 +12541,8 @@ chat.openapi(completions, async (c) => {
 										cachedTokens,
 										cacheCreationTokens,
 										reasoningTokens: calculatedReasoningTokens,
-										imageInputTokens: streamingCostsEarly.imageInputTokens,
+										imageInputTokens:
+											imageInputTokens ?? streamingCostsEarly.imageInputTokens,
 										audioInputTokens,
 									});
 									return earlyUsage;
@@ -15249,7 +15250,7 @@ chat.openapi(completions, async (c) => {
 		requestId,
 		usedRegion,
 		cacheCreationTokens,
-		imageInputTokens,
+		imageInputTokens ?? costs.imageInputTokens,
 		imageOutputTokens,
 		cacheCreation5mTokens,
 		cacheCreation1hTokens,
