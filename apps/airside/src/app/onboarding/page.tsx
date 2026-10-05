@@ -143,6 +143,7 @@ function RegisterCarrierDialog({
 		description?: string;
 		logoUrl?: string;
 		iconUrl?: string;
+		apiKey: string;
 	}) => void;
 }) {
 	const [open, setOpen] = useState(false);
@@ -152,6 +153,7 @@ function RegisterCarrierDialog({
 	const [description, setDescription] = useState("");
 	const [logoUrl, setLogoUrl] = useState<string | undefined>(undefined);
 	const [iconUrl, setIconUrl] = useState<string | undefined>(undefined);
+	const [apiKey, setApiKey] = useState("");
 	const domainState = endpointDomainState(baseUrl, claimDomains);
 	const domainError =
 		domainState === "wrong-domain" || domainState === "endpoint-path";
@@ -200,6 +202,7 @@ function RegisterCarrierDialog({
 							description: description || undefined,
 							logoUrl,
 							iconUrl,
+							apiKey,
 						});
 						setOpen(false);
 					}}
@@ -271,6 +274,27 @@ function RegisterCarrierDialog({
 									.
 								</>
 							)}
+						</p>
+					</div>
+					<div className="space-y-2">
+						<Label htmlFor="carrier-api-key">API key</Label>
+						<Input
+							id="carrier-api-key"
+							data-testid="carrier-api-key-input"
+							type="password"
+							autoComplete="off"
+							value={apiKey}
+							onChange={(e) => setApiKey(e.target.value)}
+							placeholder="sk-…"
+							aria-describedby="carrier-api-key-hint"
+							required
+						/>
+						<p
+							id="carrier-api-key-hint"
+							className="text-muted-foreground text-xs"
+						>
+							We route your traffic with this key once the registration is
+							approved, and run preflight checks with it. Stored encrypted.
 						</p>
 					</div>
 					<div className="space-y-2">

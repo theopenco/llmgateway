@@ -27,7 +27,8 @@ export default function ListingGuide() {
 					provider you want to claim. If your email and API domains differ, add
 					the API domain in onboarding and verify it over DNS. Existing
 					catalogue providers can be claimed; a new provider can register a
-					custom carrier.
+					custom carrier with its base URL and an API key we route its traffic
+					with once approved.
 				</p>
 				<p className="mt-3">
 					Onboarding shows the applicable listing fee or invite-code option

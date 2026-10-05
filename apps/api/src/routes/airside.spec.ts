@@ -4,7 +4,10 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as emailUtils from "@/utils/email.js";
 
-import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import {
+	encryptProviderKeyForStorage,
+	readProviderKey,
+} from "@llmgateway/actions";
 import {
 	db,
 	eq,
@@ -3668,6 +3671,7 @@ describe("airside provider portal", () => {
 				providerId: "acme-sky",
 				name: "Acme Sky",
 				baseUrl: "https://api.acme-sky.ai",
+				apiKey: "sk-acme-sky-serving-key",
 				...overrides,
 			}),
 		);
@@ -3884,6 +3888,75 @@ describe("airside provider portal", () => {
 		// Pending registration blocks the id for everyone.
 		const dupe = await registerCarrier(cookie, company.id);
 		expect(dupe.status).toBe(409);
+	});
+
+	it("requires the carrier's API key and serves with it once approved", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@acme-sky.ai";
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		expect(
+			(await registerCarrier(cookie, company.id, { apiKey: undefined })).status,
+		).toBe(400);
+
+		const res = await registerCarrier(cookie, company.id);
+		expect(res.status).toBe(201);
+		const { claim } = await res.json();
+
+		const keys = await db.query.providerKey.findMany({
+			where: { provider: { eq: "acme-sky" } },
+		});
+		expect(keys).toHaveLength(1);
+		const [key] = keys;
+		expect(key).toMatchObject({
+			managed: true,
+			organizationId: null,
+			status: "inactive",
+		});
+		expect(key.tokenCiphertext).not.toContain("sk-acme-sky-serving-key");
+		expect(readProviderKey(key)).toBe("sk-acme-sky-serving-key");
+		// The same key runs the carrier's preflight checks.
+		const savedClaim = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
+		});
+		expect(savedClaim?.verificationKeyCiphertext).toMatch(/^llmgw:v2:/);
+
+		const approved = await app.request(
+			`/admin/airside/claims/${claim.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		const activated = await db.query.providerKey.findFirst({
+			where: { id: { eq: key.id } },
+		});
+		expect(activated?.status).toBe("active");
+
+		// Revoking the carrier retires its key.
+		const revoked = await app.request(
+			`/admin/airside/claims/${claim.id}/revoke`,
+			json(cookie, {}),
+		);
+		expect(revoked.status).toBe(200);
+		const retired = await db.query.providerKey.findFirst({
+			where: { id: { eq: key.id } },
+		});
+		expect(retired?.status).toBe("deleted");
+	});
+
+	it("discards the carrier's API key when the registration is rejected", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@acme-sky.ai";
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		const { claim } = await (await registerCarrier(cookie, company.id)).json();
+
+		const rejected = await app.request(
+			`/admin/airside/claims/${claim.id}/reject`,
+			json(cookie, {}),
+		);
+		expect(rejected.status).toBe(200);
+		const key = await db.query.providerKey.findFirst({
+			where: { provider: { eq: "acme-sky" } },
+		});
+		expect(key?.status).toBe("deleted");
 	});
 
 	it("records an email-matched domain without granting it to the company", async () => {

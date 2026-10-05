@@ -46,6 +46,7 @@ import {
 } from "@/lib/mapping-error-shapes.js";
 import {
 	buildVerificationTarget,
+	claimVerificationKeyValues,
 	enqueueModelVerification,
 	modelVerificationSchema,
 	pendingFiledCapabilities,
@@ -62,6 +63,7 @@ import {
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
 	AIRSIDE_DISCOUNT_MAX,
@@ -76,6 +78,7 @@ import {
 	eq,
 	gte,
 	inArray,
+	shortid,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -2011,6 +2014,8 @@ const registerCarrier = createRoute({
 						description: z.string().max(2000).optional(),
 						logoUrl: imageDataUrl(LOGO_MAX_BYTES).optional(),
 						iconUrl: imageDataUrl(ICON_MAX_BYTES).optional(),
+						// The key we serve the carrier's traffic with once approved.
+						apiKey: z.string().trim().min(1).max(20_000),
 					}),
 				},
 			},
@@ -2121,23 +2126,48 @@ airside.openapi(registerCarrier, async (c) => {
 		});
 	}
 
+	// The ids are generated up front because both ciphertexts bind to their row.
+	const claimId = shortid();
+	const providerKeyId = shortid();
 	let claim: ProviderClaimRow;
 	try {
-		[claim] = await db
-			.insert(tables.providerClaim)
-			.values({
-				providerCompanyId: body.providerCompanyId,
-				providerId,
-				kind: "custom",
-				matchedDomain,
-				customName: body.name,
-				customBaseUrl: body.baseUrl,
-				customDescription: body.description ?? null,
-				logoUrl: body.logoUrl ?? null,
-				iconUrl: body.iconUrl ?? null,
-				claimedBy: user.id,
-			})
-			.returning();
+		// cdb: managed provider_key rows feed the gateway's credential cache.
+		claim = await cdb.transaction(async (tx) => {
+			const [inserted] = await tx
+				.insert(tables.providerClaim)
+				.values({
+					id: claimId,
+					providerCompanyId: body.providerCompanyId,
+					providerId,
+					kind: "custom",
+					matchedDomain,
+					customName: body.name,
+					customBaseUrl: body.baseUrl,
+					customDescription: body.description ?? null,
+					logoUrl: body.logoUrl ?? null,
+					iconUrl: body.iconUrl ?? null,
+					claimedBy: user.id,
+					// The same key runs the carrier's preflight checks.
+					...claimVerificationKeyValues(
+						body.apiKey,
+						claimId,
+						body.providerCompanyId,
+					),
+				})
+				.returning();
+			// Serves the carrier's traffic: inactive until an admin approves
+			// the registration (see admin-airside approveClaim).
+			await tx.insert(tables.providerKey).values({
+				id: providerKeyId,
+				managed: true,
+				organizationId: null,
+				provider: providerId,
+				status: "inactive",
+				comment: "Filed with the Airside carrier registration",
+				...encryptProviderKeyForStorage(body.apiKey, providerKeyId, null),
+			});
+			return inserted;
+		});
 	} catch (err) {
 		if (isUniqueViolation(err)) {
 			throw new HTTPException(409, { message: "This carrier id is taken." });

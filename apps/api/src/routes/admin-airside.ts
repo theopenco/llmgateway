@@ -50,6 +50,7 @@ import {
 } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
+import type { SQL } from "@llmgateway/db";
 
 /**
  * Admin review queue for Airside price filings. Approving an `initial` filing
@@ -814,6 +815,20 @@ adminAirside.openapi(rejectBranding, async (c) => {
 	});
 });
 
+/** A custom carrier's managed credentials, by default every non-deleted one. */
+function carrierManagedKeys(
+	providerId: string,
+	status?: "active" | "inactive",
+): SQL | undefined {
+	return and(
+		eq(tables.providerKey.provider, providerId),
+		eq(tables.providerKey.managed, true),
+		status
+			? eq(tables.providerKey.status, status)
+			: ne(tables.providerKey.status, "deleted"),
+	);
+}
+
 const approveClaim = createRoute({
 	method: "post",
 	path: "/airside/claims/{id}/approve",
@@ -870,6 +885,11 @@ adminAirside.openapi(approveClaim, async (c) => {
 					description: claim.customDescription ?? "",
 				})
 				.onConflictDoNothing();
+			// The key filed with the registration starts serving traffic.
+			await tx
+				.update(tables.providerKey)
+				.set({ status: "active" })
+				.where(carrierManagedKeys(claim.providerId, "inactive"));
 		}
 		const [settings] = await tx
 			.select()
@@ -939,7 +959,7 @@ adminAirside.openapi(rejectClaim, async (c) => {
 	const user = c.get("user");
 	const { id } = c.req.valid("param");
 	const { reviewNote } = c.req.valid("json");
-	await getPendingClaim(id);
+	const claim = await getPendingClaim(id);
 	const guarded = await db
 		.update(tables.providerClaim)
 		.set({
@@ -959,6 +979,13 @@ adminAirside.openapi(rejectClaim, async (c) => {
 		throw new HTTPException(409, {
 			message: "This claim has already been reviewed.",
 		});
+	}
+	if (claim.kind === "custom") {
+		// cdb: managed provider_key rows feed the gateway's credential cache.
+		await cdb
+			.update(tables.providerKey)
+			.set({ status: "deleted" })
+			.where(carrierManagedKeys(claim.providerId, "inactive"));
 	}
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
@@ -1046,6 +1073,13 @@ adminAirside.openapi(revokeClaim, async (c) => {
 		await tx
 			.delete(tables.providerRoutingSettings)
 			.where(eq(tables.providerRoutingSettings.providerId, claim.providerId));
+		// A custom carrier's credentials are the carrier's own keys.
+		if (claim.kind === "custom") {
+			await tx
+				.update(tables.providerKey)
+				.set({ status: "deleted" })
+				.where(carrierManagedKeys(claim.providerId));
+		}
 		// A pending fare change would otherwise survive as a zombie and block
 		// the provider's next owner (one pending filing per provider).
 		await tx
