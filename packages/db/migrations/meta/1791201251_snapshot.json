@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "193a6c2f-b5e8-4588-b31f-0423b91e0c24",
+  "id": "cd785604-aa81-4b67-b78a-2d8c573fe841",
   "prevId": "00113ac3-0955-4d96-8c43-45b7d85cdca4",
   "ddl": [
     {
@@ -11864,6 +11864,19 @@
       "generated": null,
       "identity": null,
       "name": "pricing_tier",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "pricing_period",
       "entityType": "columns",
       "schema": "public",
       "table": "log"
@@ -24327,32 +24340,6 @@
       "generated": null,
       "identity": null,
       "name": "verification_key_updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_claim"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "provider_key_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_claim"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "pending_provider_key_id",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_claim"
@@ -40818,40 +40805,6 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "provider_claim_provider_company_id_provider_company_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "provider_claim"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "provider_key_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "provider_key",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "provider_claim_provider_key_id_provider_key_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "provider_claim"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "pending_provider_key_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "provider_key",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "provider_claim_pending_provider_key_id_provider_key_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "provider_claim"
