@@ -23,13 +23,16 @@ export function createLiteralRegex(
 export function createInflectedWordRegex(value: string): RegExp {
 	const word = value.trim();
 	const escaped = escapeLiteral(word);
-	const variants = [`${escaped}(?:s|es|d|ed|ing|er|ers)?`];
+	const variants = [`${escaped}(?:s|es|d|ed|ing|ings|er|ers)?`];
 	const last = word.at(-1)?.toLowerCase();
+	// Doubled final consonant ("stabbing"); not before "-er", so "bet" does not
+	// match "better".
 	if (last && "bdgklmnprt".includes(last)) {
-		variants.push(`${escaped}${escapeLiteral(last)}(?:ing|ed)`);
+		variants.push(`${escaped}${escapeLiteral(last)}(?:ing|ings|ed)`);
 	}
+	// Dropped final "e" ("voting", "voters", "gambler").
 	if (last === "e" && word.length > 2) {
-		variants.push(`${escapeLiteral(word.slice(0, -1))}ing`);
+		variants.push(`${escapeLiteral(word.slice(0, -1))}(?:ing|ings|er|ers|ed)`);
 	}
 	return new RegExp(`${WORD_START}(?:${variants.join("|")})${WORD_END}`, "giu");
 }
