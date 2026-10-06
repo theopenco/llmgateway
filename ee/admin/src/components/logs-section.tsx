@@ -1,6 +1,6 @@
 "use client";
 
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Loader2, RefreshCw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useDeferredValue, useMemo, useState } from "react";
@@ -188,8 +188,10 @@ export function LogsSection({
 	]);
 
 	const client = useFetchClient();
+	const queryClient = useQueryClient();
+	const queryKey = ["admin-logs", orgId, projectId, filters];
 	const query = useInfiniteQuery({
-		queryKey: ["admin-logs", orgId, projectId, filters],
+		queryKey,
 		initialPageParam: undefined as string | undefined,
 		queryFn: async ({ pageParam: cursor, signal }) => {
 			const result = projectId
@@ -221,9 +223,24 @@ export function LogsSection({
 			page.pagination.hasMore
 				? (page.pagination.nextCursor ?? undefined)
 				: undefined,
-		// Logs are live: refetch on every visit instead of the 5-minute default.
+		// Logs are live, but a refetch would rerun every loaded page. Refresh
+		// reloads only the first page (below), and leaving the section drops the
+		// cache so a revisit starts from page one.
 		staleTime: 0,
+		gcTime: 0,
+		refetchOnWindowFocus: false,
 	});
+	const refresh = () => {
+		queryClient.setQueryData<typeof query.data>(queryKey, (data) =>
+			data
+				? {
+						pages: data.pages.slice(0, 1),
+						pageParams: data.pageParams.slice(0, 1),
+					}
+				: data,
+		);
+		void query.refetch();
+	};
 	const logs = query.data?.pages.flatMap((page) => page.logs) ?? [];
 	const loading = query.isPending;
 	const loadingMore = query.isFetchingNextPage;
@@ -626,7 +643,7 @@ export function LogsSection({
 					variant="outline"
 					size="sm"
 					disabled={loading || loadingMore || refreshing}
-					onClick={() => void query.refetch()}
+					onClick={refresh}
 					className="gap-2"
 				>
 					<RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
