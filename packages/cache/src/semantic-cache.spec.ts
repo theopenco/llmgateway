@@ -33,7 +33,8 @@ describe("normalizedPromptKey", () => {
 		],
 		["Can you help me please?", "Can you help me"],
 		["Where can I find my invoice", "Where do I find my invoice!"],
-		["Don't  delete   it", "Do not delete it."],
+		["Don't delete it", "Do not delete it."],
+		["  How do I reset my router?\n", "How can I reset my router"],
 		["I'm locked out", "i am locked out"],
 	])("matches %j and %j", (a, b) => {
 		expect(matches(a, b)).toBe(true);
@@ -53,6 +54,15 @@ describe("normalizedPromptKey", () => {
 		[
 			"Fix this:\n```python\nif x:\n    y()\nz()",
 			"Fix this:\n```python\nif x:\n    y()\n    z()",
+		],
+		[
+			"Fix this python:\nif x:\n    y()\nz()",
+			"Fix this python:\nif x:\n    y()\n    z()",
+		],
+		['How many spaces are in "a  b"', 'How many spaces are in "a b"'],
+		[
+			"Format as a poem:\nroses are red\nviolets are blue",
+			"Format as a poem:\nroses are red violets are blue",
 		],
 		["Is it legal?", "Is it illegal?"],
 		["What does CSS stand for", "What does css stand for"],

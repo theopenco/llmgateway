@@ -45,7 +45,13 @@ const FRAMES = Object.entries(FRAME_EQUIVALENTS).map(([from, to]) => ({
  */
 const CODE = /(```[\s\S]*?(?:```|$)|`[^`]*`)/;
 
-const PROSE_TOKEN = /\p{L}+(?:'\p{L}+)*|\p{N}+(?:[.,]\p{N}+)*|\S/gu;
+const PROSE_TOKEN = /\p{L}+(?:'\p{L}+)*|\p{N}+(?:[.,]\p{N}+)*|\s+|\S/gu;
+
+/**
+ * Only a single space between tokens is ignorable. Line breaks, indentation
+ * and repeated spaces shape unfenced code, poems and quoted strings.
+ */
+const IGNORABLE_WHITESPACE = " ";
 
 /** Lowercase or "Paris"-style words fold; "mW", "CSS" and "iPhone" keep their case. */
 const FOLDABLE_CASE = /^\p{Lu}?\p{Ll}*(?:'\p{Ll}+)*$/u;
@@ -53,6 +59,9 @@ const FOLDABLE_CASE = /^\p{Lu}?\p{Ll}*(?:'\p{Ll}+)*$/u;
 function proseTokens(prose: string): string[] {
 	const tokens: string[] = [];
 	for (const raw of prose.match(PROSE_TOKEN) ?? []) {
+		if (raw === IGNORABLE_WHITESPACE) {
+			continue;
+		}
 		const token = FOLDABLE_CASE.test(raw) ? raw.toLowerCase() : raw;
 		const expanded = CONTRACTIONS[token];
 		if (expanded) {
@@ -68,6 +77,7 @@ function proseTokens(prose: string): string[] {
 
 function tokenize(text: string): string[] {
 	const normalized = text
+		.trim()
 		.normalize("NFKC")
 		.replace(/[‘’ʼ]/g, "'")
 		.replace(/[“”]/g, '"');
@@ -97,7 +107,8 @@ function replaceFrames(tokens: string[]): string[] {
  * Key of a final user turn for the semantic cache. Two turns match only when
  * their keys are equal, so this is exact comparison that ignores a short,
  * explicit list of differences: Unicode compatibility forms, curly quotes,
- * the case of plain words, whitespace outside code, contractions, trailing
+ * the case of plain words, leading and trailing whitespace, a single space
+ * between tokens outside code, contractions, trailing
  * "?", "." and "!", "please", "how/where can I" for "how/where do I", and a
  * leading "which" for "what". Every other word, number, symbol and code
  * character must be identical.

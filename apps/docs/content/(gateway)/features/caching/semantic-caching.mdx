@@ -30,7 +30,8 @@ Everything except the final user message must be identical: model, provider, req
 | Ignored difference                                         | Example                                                          |
 | ---------------------------------------------------------- | ---------------------------------------------------------------- |
 | Case of a lowercase or capitalised word                    | "weather in paris" / "Weather in Paris"                          |
-| Spacing between words, outside code                        | "Explain closures" / "Explain closures"                          |
+| A single space between symbols, outside code               | "2 + 3" / "2+3"                                                  |
+| Whitespace at the start or end of the message              | "Track my order\n" / "Track my order"                            |
 | Curly or straight quotes, full-width characters            | "didn’t" / "didn't", "１２" / "12"                               |
 | Contractions                                               | "What's the capital" / "What is the capital", "don't" / "do not" |
 | Trailing `?`, `.` and `!`                                  | "Track my order?" / "Track my order"                             |
@@ -46,6 +47,7 @@ Any other difference is a miss, because it can change the answer:
 - a different number, symbol or bracket: "1200" / "1500", "(2+3)\*4" / "2+3\*4";
 - the same words in a different order: "from me to you" / "from you to me";
 - the case of any other word: "CSS" / "css", "mW" / "MW";
+- line breaks, indentation or repeated spaces, which shape unfenced code, poems and quoted strings;
 - code in backticks or fences that differs in any character, whitespace included;
 - a quoted "please": "Translate 'please' to French" never matches "Translate '' to French".
 
