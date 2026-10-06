@@ -92,7 +92,8 @@ export const inclusionaiModels = [
 				providerId: "novita",
 				externalId: "inclusionai/ling-3.1-flash",
 				inputPrice: "0",
-				cachedInputPrice: "0",
+				// Cache hits are reported only intermittently, so caching is left
+				// undeclared; the rate would be 0 either way.
 				outputPrice: "0",
 				requestPrice: "0",
 				contextSize: 262144,
