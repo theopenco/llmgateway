@@ -198,6 +198,14 @@ The selection reason in routing metadata will show `stable-preferred` when a req
 
 In a project in **hybrid** mode, routing first narrows the candidates to providers you have your own [provider key](/learn/provider-keys) for, and the weighted score picks among those. LLM Gateway's own credentials are used when none of your keys can serve the requested model, as fallback when attempts on your keys fail, or when your current keyed provider's uptime is degraded and no keyed candidate is healthier — escaping the degraded provider takes priority over staying on your key. Projects in API-keys or credits mode are unaffected.
 
+[Dynamic routes](/features/dynamic-routes) can specify provider preference order.
+After eligibility checks and hybrid-mode key preference, that order controls the
+initial provider and cross-provider fallback on non-sticky requests. A healthy
+session pin still wins; if it becomes unavailable, the next request selects a
+replacement using the order. Sticky requests still skip cross-provider retries.
+Regional selection within a provider still uses scores. These requests skip
+random exploration and record `provider-order` when the order decides selection.
+
 **Routing Metadata**:
 
 Every request includes detailed routing metadata in the logs, showing:
@@ -301,7 +309,7 @@ For the Anthropic Messages endpoint (`/v1/messages`), the session key is derived
 
 #### How pinning works
 
-On a session's **first** request the provider is chosen by the normal weighted smart-routing score — the same price-, priority-, uptime-, and throughput-aware algorithm used for non-sticky requests. That choice is then **persisted for the session** and reused on every subsequent request, so the upstream prompt cache stays warm without bouncing the conversation between providers.
+On a session's **first** request, a dynamic route with explicit provider order chooses the first eligible provider and scores its regions. Otherwise, the normal weighted smart-routing score chooses the provider using price, priority, uptime, and throughput. That choice is then **persisted for the session** and reused on every subsequent request, so the upstream prompt cache stays warm without bouncing the conversation between providers.
 
 The first selection uses the expected cache-hit rate and output/input mix even if the opening prompt is short. Routing uses observed project/model usage when sufficiently sampled, otherwise the workload defaults above. New usage observations affect future provider selections; a healthy existing pin stays in place as described below.
 
@@ -311,14 +319,14 @@ Request compatibility takes precedence over the saved pin. The gateway first fil
 
 #### Falling back when a provider is down
 
-An established pin yields only when its provider can no longer serve the session well. A session is re-scored and re-pinned to the current weighted-best provider when its provider:
+An established pin yields only when its provider can no longer serve the session well. A session selects and pins a replacement when its provider:
 
 - Drops below the session uptime threshold (default 85%), except for sessions on models with provider-bound reasoning, or
 - Is filtered out of the candidate set (health or compatibility filtering).
 
 Sticky requests never enter the cross-provider [automatic retry & fallback](#automatic-retry--fallback) loop — a transient failure is retried against the pinned provider only, on another configured key when several exist, or on the same platform key when only one is configured. The failure still degrades that provider's uptime metrics, which is what triggers re-pinning on a subsequent request once the uptime threshold is crossed.
 
-Re-pinning runs the same weighted algorithm again, so the replacement is the best currently available provider — not an arbitrary one.
+Re-pinning follows the same selection rules as the first request: explicit dynamic-route order chooses the provider and scores choose its region; otherwise weighted scoring chooses the provider.
 
 Sessions on models with provider-bound reasoning keep their eligible provider through uptime dips, because OpenAI encrypted reasoning and Gemini thought signatures cannot be replayed on another provider. If a pin expires or the provider becomes ineligible, moving a conversation with its old signatures can produce `Corrupted thought signature` or `Invalid thought signature`. On the pay-as-you-go API, keep a Gemini conversation on one provider with a provider-prefixed model and `X-No-Fallback: true` from its first request. For an affected conversation, resume with the provider that issued its signatures or start a new conversation. See&nbsp;[reasoning replay](/features/reasoning#gemini-thought-signatures).
 

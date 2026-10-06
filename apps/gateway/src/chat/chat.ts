@@ -654,6 +654,7 @@ async function collapseProvidersToBestRegionPerProvider(
 	},
 	options: {
 		metricsMap: Map<string, ProviderMetrics>;
+		providerOrder?: readonly string[];
 		isStreaming: boolean;
 		promptTokens?: number;
 		session?: boolean;
@@ -4594,6 +4595,7 @@ chat.openapi(completions, async (c) => {
 					selectedModel,
 					{
 						metricsMap,
+						providerOrder: dynamicRouteSelection?.providers,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
 						session: sessionStickyEnabled,
@@ -4610,6 +4612,7 @@ chat.openapi(completions, async (c) => {
 					isStreaming: stream,
 					promptTokens: routingPromptTokens,
 					sessionProviderStore: createSessionStore(selectedModel.id),
+					providerOrder: dynamicRouteSelection?.providers,
 					routingConfig: routingCfg,
 					organizationId: project.organizationId,
 					providerDiscountResolver,
@@ -8860,6 +8863,7 @@ chat.openapi(completions, async (c) => {
 							routingMetadata?.providerScores ?? [],
 							failedProviderIds,
 							iamFilteredModelProviders,
+							dynamicRouteSelection?.providers,
 						);
 						if (!nextProvider) {
 							break;
@@ -13330,6 +13334,7 @@ chat.openapi(completions, async (c) => {
 				routingMetadata?.providerScores ?? [],
 				failedProviderIds,
 				iamFilteredModelProviders,
+				dynamicRouteSelection?.providers,
 			);
 			if (!nextProvider) {
 				break;
