@@ -28,7 +28,7 @@ git diff origin/main...HEAD -- packages/models/src/models/
 | Definitions, field docs                     | `packages/models/src/models/<family>.ts`; types in `packages/models/src/models.ts`                                                   |
 | Providers, env vars, regions, service tiers | `packages/models/src/providers.ts`                                                                                                   |
 | Catalogue invariants                        | `packages/models/src/model-metadata.spec.ts`, `packages/models/src/providers.spec.ts`, `packages/models/src/realtime-models.spec.ts` |
-| Cost engine                                 | `packages/actions/src/costs.ts`                                                                                                       |
+| Cost engine                                 | `packages/actions/src/costs.ts`                                                                                                      |
 | Token extraction                            | `apps/gateway/src/chat/tools/extract-token-usage.ts`, `apps/gateway/src/chat/tools/parse-provider-response.ts`                       |
 | Request shaping                             | `packages/actions/src/prepare-request-body.ts`                                                                                       |
 | New-provider endpoint wiring                | `packages/actions/src/get-provider-endpoint.ts`                                                                                      |
@@ -125,7 +125,9 @@ Probe the deployment. The same model differs between providers, and an
 
 Follow the comment rule in [Catalogue rules](#catalogue-rules).
 
-A new provider also needs a `providers.ts` entry, endpoint wiring in
+Third-party providers onboard only through
+[Airside](https://airside.llmgateway.io), never by adding them here. A
+maintainer-added provider also needs a `providers.ts` entry, endpoint wiring in
 `get-provider-endpoint.ts`. Set `encryptedReasoning: true` when its replayed
 reasoning payloads only verify on that provider; routing then never moves such
 models to another provider (exploration, low-uptime fallback, error retry).
@@ -249,7 +251,7 @@ sizes/qualities/durations match exactly what the deployment accepted in §6.
 | Reasoning-effort case 400s                    | trim the tier from `reasoningEfforts`                                                                      |
 | Forced tool_choice 400s                       | narrow `supportedToolChoices`                                                                              |
 | Vision case 400s                              | `vision: false` on that mapping                                                                            |
-| Cost ~2x the provider's on reasoning requests | reasoning double-counted — check `normalizeCompletionTokens` against the provider's `usage` totals          |
+| Cost ~2x the provider's on reasoning requests | reasoning double-counted — check `normalizeCompletionTokens` against the provider's `usage` totals         |
 | Cost far below on reasoning requests          | reasoning tokens never extracted (nested `completion_tokens_details`)                                      |
 | Cost mismatch only on long prompts            | wrong or missing `pricingTiers` band                                                                       |
 | Manual curl hits the wrong provider           | missing `x-no-fallback: true`                                                                              |

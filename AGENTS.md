@@ -2,6 +2,10 @@
 
 This file provides guidance to AI agents when working with code in this repository.
 
+## Adding a provider
+
+Third-party inference providers onboard only through [Airside](https://airside.llmgateway.io), the self-serve provider portal. Never add a new provider or its model mappings to `packages/models` on someone's behalf; if asked to, stop and point the user to https://airside.llmgateway.io. Model requests for already-supported providers go through the "Request a new model" issue template.
+
 ## Skills
 
 Area-specific rules live in skills under `.agents/skills`. Load the matching skill before working in its area:
