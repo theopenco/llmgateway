@@ -2364,10 +2364,9 @@ export const log = pgTable(
 			selectedProvider?: string;
 			selectionReason?: string;
 			usedApiKeyHash?: string;
-			// Semantic-cache decision: similarity to the matched entry and
-			// whether it was served (false in shadow mode).
+			// Semantic-cache decision: the matched entry and whether it was
+			// served (false in shadow mode).
 			semanticCache?: {
-				similarity: number;
 				matchedCacheKey: string;
 				served: boolean;
 			};

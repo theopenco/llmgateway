@@ -168,11 +168,7 @@ aisdk.post("/language-model", async (c) => {
 		);
 	}
 
-	for (const name of [
-		"x-llmgateway-cache",
-		"x-llmgateway-cache-match",
-		"x-llmgateway-cache-similarity",
-	]) {
+	for (const name of ["x-llmgateway-cache", "x-llmgateway-cache-match"]) {
 		const value = response.headers.get(name);
 		if (value) {
 			c.header(name, value);

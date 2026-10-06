@@ -29,7 +29,6 @@ export * from "./model-verification.js";
 export * from "./provider-api-format.js";
 
 export { fetchNoRedirect, RedirectError } from "./fetch-no-redirect.js";
-export { trimSlashes } from "./trim-slashes.js";
 
 export * from "./notification-access.js";
 export * from "./compliance-alerts.js";

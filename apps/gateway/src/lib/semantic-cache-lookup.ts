@@ -1,12 +1,7 @@
 import {
-	embedForSemanticCache,
-	semanticCacheInput,
-} from "@/lib/semantic-cache-embedding.js";
-
-import {
-	addSemanticCacheEntry,
-	findSemanticCacheHit,
-	generateSemanticCacheScopeKey,
+	getSemanticCachePointer,
+	normalizedPromptKey,
+	semanticCachePointerKey,
 } from "@llmgateway/cache";
 
 import type { SemanticCacheMode } from "@llmgateway/db";
@@ -14,82 +9,76 @@ import type { BaseMessage } from "@llmgateway/models";
 
 /** Written to the log row so every semantic decision can be audited later. */
 export interface SemanticCacheAudit {
-	similarity: number;
 	matchedCacheKey: string;
 	/** False in shadow mode: the match was recorded but the request went upstream. */
 	served: boolean;
 }
 
-export interface SemanticCacheLookup<T> {
-	/** Only set in "on" mode: the response to replay. */
-	hit: { response: T; audit: SemanticCacheAudit } | null;
-	/** Set in shadow mode when a match existed but was not served. */
-	audit: SemanticCacheAudit | null;
-	/** Call once the upstream response is cached under `cacheKey`. */
-	remember: (cacheKey: string, expirationSeconds: number) => Promise<void>;
+/** The final user turn's text, or null when it is not text-only. */
+function finalUserText(last: BaseMessage | undefined): string | null {
+	if (!last || last.role !== "user") {
+		return null;
+	}
+	const { content } = last as { content?: unknown };
+	if (typeof content === "string") {
+		return content;
+	}
+	if (!Array.isArray(content)) {
+		return null;
+	}
+	const texts: string[] = [];
+	for (const part of content) {
+		if (
+			!part ||
+			typeof part !== "object" ||
+			!("type" in part) ||
+			part.type !== "text" ||
+			!("text" in part) ||
+			typeof part.text !== "string"
+		) {
+			return null;
+		}
+		texts.push(part.text);
+	}
+	return texts.join("\n");
 }
 
-const noLookup: SemanticCacheLookup<never> = {
-	hit: null,
-	audit: null,
-	remember: async () => {},
-};
-
 /**
- * One semantic-cache round trip for an exact-cache miss. `scope` is every
- * request field except the messages; the final user turn is embedded and
- * everything else is folded into the scope so it must match exactly.
+ * Pointer key for a request, or null when its final turn is not a text-only
+ * user message. `payload` is the exact-cache payload: everything in it must
+ * match exactly except the final user turn's text, which matches by
+ * `normalizedPromptKey`.
  */
-export async function semanticCacheLookup<T>(options: {
+export function semanticCachePointerFor(options: {
 	projectId: string;
-	mode: SemanticCacheMode;
-	threshold: number;
-	messages: BaseMessage[];
-	scope: Record<string, unknown>;
-	load: (cacheKey: string) => Promise<T | null>;
-}): Promise<SemanticCacheLookup<T>> {
-	if (options.mode === "off") {
-		return noLookup;
+	payload: { messages: BaseMessage[] } & Record<string, unknown>;
+	stream: boolean;
+}): string | null {
+	const { messages, ...rest } = options.payload;
+	const last = messages[messages.length - 1];
+	const text = finalUserText(last);
+	if (text === null) {
+		return null;
 	}
-	const input = semanticCacheInput(options.messages);
-	if (!input) {
-		return noLookup;
-	}
-	const embedding = await embedForSemanticCache(input.text, {
-		projectId: options.projectId,
+	return semanticCachePointerKey(options.projectId, {
+		...rest,
+		stream: options.stream,
+		context: messages.slice(0, -1),
+		last: { ...last, content: undefined },
+		prompt: normalizedPromptKey(text),
 	});
-	if (!embedding) {
-		return noLookup;
+}
+
+/** The cached response a pointer names, if it still exists. */
+export async function findSemanticCacheMatch<T>(
+	pointerKey: string,
+	mode: Exclude<SemanticCacheMode, "off">,
+	load: (cacheKey: string) => Promise<T | null>,
+): Promise<{ response: T; audit: SemanticCacheAudit } | null> {
+	const matchedCacheKey = await getSemanticCachePointer(pointerKey);
+	const response = matchedCacheKey ? await load(matchedCacheKey) : null;
+	if (!matchedCacheKey || response === null) {
+		return null;
 	}
-	const scopeKey = generateSemanticCacheScopeKey(options.projectId, {
-		...options.scope,
-		messages: undefined,
-		semanticContext: input.context,
-		embeddingModel: embedding.model,
-	});
-	const query = {
-		embedding: embedding.vector,
-		anchors: input.anchors,
-		wordKeys: input.wordKeys,
-	};
-	const remember = (cacheKey: string, expirationSeconds: number) =>
-		addSemanticCacheEntry(scopeKey, { cacheKey, ...query }, expirationSeconds);
-	const match = await findSemanticCacheHit(
-		scopeKey,
-		query,
-		options.threshold,
-		options.load,
-	);
-	if (!match) {
-		return { hit: null, audit: null, remember };
-	}
-	const served = options.mode === "on";
-	const audit: SemanticCacheAudit = {
-		similarity: Number(match.similarity.toFixed(4)),
-		matchedCacheKey: match.cacheKey,
-		served,
-	};
-	return served
-		? { hit: { response: match.response, audit }, audit, remember }
-		: { hit: null, audit, remember };
+	return { response, audit: { matchedCacheKey, served: mode === "on" } };
 }
