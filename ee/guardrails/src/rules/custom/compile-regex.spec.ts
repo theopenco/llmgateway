@@ -34,6 +34,23 @@ describe("guardrail regex engine", () => {
 		]);
 	});
 
+	it.each(["(?<n>a)\\k<n>", "\\k<n>", "x\\\\\\k<n>"])(
+		"rejects the named backreference in %s",
+		(pattern) => {
+			expect(() => validateGuardrailRegex(pattern)).toThrow(/backreferences/);
+		},
+	);
+
+	it("still accepts an escaped backslash before a literal k", () => {
+		expect(matchGuardrailRegex("a\\\\k<n>", "a\\k<n>")).toEqual(["a\\k<n>"]);
+	});
+
+	it("rejects oversized patterns", () => {
+		expect(() => validateGuardrailRegex("a".repeat(1001))).toThrow(
+			/must not exceed 1000 characters/,
+		);
+	});
+
 	it.each(["\\d*", "a*", "foo|"])(
 		"returns only non-empty matches for %s without hanging",
 		(pattern) => {
