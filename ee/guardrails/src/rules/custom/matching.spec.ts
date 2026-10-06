@@ -58,6 +58,10 @@ describe("custom guardrail matching", () => {
 		["voting", "politics"],
 		["hacking", "illegal_activities"],
 		["gambling", "gambling"],
+		["killings", "violence"],
+		["bombings", "violence"],
+		["voters", "politics"],
+		["a gambler", "gambling"],
 		["custom topics", "custom topic"],
 	])("matches the inflection %s for %s", (text, topic) => {
 		expect(
