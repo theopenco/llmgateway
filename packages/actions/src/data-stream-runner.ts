@@ -217,6 +217,8 @@ export interface DataStreamRunOptions {
 }
 
 class StreamStopped extends Error {}
+/** The caller's callback failed; that says nothing about the destination. */
+class ProgressFailed extends Error {}
 
 /**
  * Delivers every settled event after the stream's cursor (and any pending
@@ -241,6 +243,15 @@ export async function runDataStream(
 		: undefined;
 	const stillActive = async () =>
 		(await loadActiveDataStream(stream.id)) !== null;
+	const progress = async () => {
+		try {
+			await options.onProgress?.();
+		} catch (cause) {
+			throw new ProgressFailed("Data stream progress callback failed", {
+				cause,
+			});
+		}
+	};
 	try {
 		const secret = decryptDataStreamSecret(
 			stream.secret,
@@ -303,7 +314,7 @@ export async function runDataStream(
 						),
 					)
 					.returning({ id: tables.dataStream.id });
-				await options.onProgress?.();
+				await progress();
 				if (!updated || !(await stillActive())) {
 					throw new StreamStopped();
 				}
@@ -339,7 +350,7 @@ export async function runDataStream(
 				})
 				.where(and(eq(tables.dataStream.id, stream.id), owned))
 				.returning({ id: tables.dataStream.id });
-			await options.onProgress?.();
+			await progress();
 			if (!updated || !(await stillActive())) {
 				throw new StreamStopped();
 			}
@@ -351,6 +362,9 @@ export async function runDataStream(
 	} catch (error) {
 		if (error instanceof StreamStopped) {
 			return { delivered };
+		}
+		if (error instanceof ProgressFailed) {
+			throw error.cause;
 		}
 		const message = error instanceof Error ? error.message : String(error);
 		const rejected =

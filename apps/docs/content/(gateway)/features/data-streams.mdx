@@ -39,7 +39,7 @@ Respond with any `2xx` status to accept the batch.
 
 - Events are delivered in order, in batches of up to 500.
 - A stream keeps a cursor and advances it only after your endpoint accepts a batch. A failed batch is retried, so delivery is at least once; deduplicate on the event `id`.
-- Events are sent on the next delivery pass, about every 30 seconds. Delivery waits for writes still in progress, so late writes are not skipped.
+- Events are usually sent within 30 seconds. Delivery waits for database writes still in progress, so late writes are never skipped; while a long write runs, events can arrive a few minutes later.
 - New streams start with events created after they were added. Use replay to backfill.
 - Failed deliveries are retried with backoff, from 1 minute up to 1 hour. A stream pauses itself after 20 failed deliveries in a row, or after 3 deliveries your endpoint rejected with a `4xx` status since the last one it accepted. Owners and admins are notified; resume the stream once the endpoint is fixed and delivery continues from where it stopped.
 - Delivery stops while the organization is not on the Enterprise plan or data streams are switched off for it.

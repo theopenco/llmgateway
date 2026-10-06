@@ -404,6 +404,25 @@ describe("data streams", () => {
 		expect(after.enabled).toBe(false);
 	});
 
+	test("a failing progress callback is not recorded as a delivery failure", async () => {
+		const old = new Date(Date.now() - TEN_MINUTES_MS);
+		await seedAudit(["g1"], old);
+		const stream = await seedStream(new Date(old.getTime() - 1000));
+
+		await expect(
+			runDataStream(stream, {
+				onProgress: async () => {
+					throw new Error("lease check failed");
+				},
+			}),
+		).rejects.toThrow("lease check failed");
+		const after = await reload();
+		expect(after.cursorId).toBe("g1");
+		expect(after.failureCount).toBe(0);
+		expect(after.lastError).toBeNull();
+		expect(after.lastErrorAt).toBeNull();
+	});
+
 	test("only runs streams the organization may export", async () => {
 		await seedStream(new Date());
 		const active = async () =>

@@ -3308,6 +3308,8 @@ async function runModelErrorRateAlertsLoop() {
 
 const DATA_STREAMS_LOCK_KEY = "data_streams";
 
+class DataStreamLeaseLost extends Error {}
+
 /** Keeps the lease fresh; false once it expired and another worker took it. */
 export async function touchLease(id: string): Promise<boolean> {
 	const touched = await db
@@ -3333,7 +3335,9 @@ export async function releaseLease(id: string): Promise<void> {
 export async function processDataStreams(leaseId: string): Promise<void> {
 	const onProgress = async () => {
 		if (!(await touchLease(leaseId))) {
-			throw new Error("Data streams lease lost to another worker");
+			throw new DataStreamLeaseLost(
+				"Data streams lease lost to another worker",
+			);
 		}
 	};
 	const streams = await listActiveDataStreams();
@@ -3364,6 +3368,9 @@ export async function processDataStreams(leaseId: string): Promise<void> {
 				});
 			}
 		} catch (error) {
+			if (error instanceof DataStreamLeaseLost) {
+				throw error;
+			}
 			logger.error("Data stream run crashed", {
 				streamId: stream.id,
 				error: error instanceof Error ? error : new Error(String(error)),
