@@ -1203,6 +1203,7 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				externalId: "gemini-3.6-flash",
+				deactivatedAt: new Date("2026-11-19"),
 				serviceTiers: ["flex", "priority"],
 				serviceTierRegions: ["global"],
 				// Introductory pricing through 2026-12-31; reverts to 1.5/7.5/0.15 on 2027-01-01.
@@ -1264,6 +1265,7 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				externalId: "gemini-3.7-flash",
+				deactivatedAt: new Date("2027-01-28"),
 				serviceTiers: ["flex", "priority"],
 				serviceTierRegions: ["global"],
 				// introductory pricing until 2026-12-31; $1.50/$7.50 from 2027-01-01

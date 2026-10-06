@@ -32,140 +32,327 @@ function useInvalidateCompanies() {
 		});
 }
 
-function VerificationKeyCard({ claim }: { claim: Claim }) {
+function KeySection({
+	title,
+	description,
+	testId,
+	children,
+}: {
+	title: string;
+	description: string;
+	testId: string;
+	children: React.ReactNode;
+}) {
+	return (
+		<section
+			className="grid gap-4 py-5 first:pt-0 last:pb-0 md:grid-cols-[14rem_1fr] md:gap-8"
+			data-testid={testId}
+		>
+			<div className="space-y-1">
+				<h3 className="text-sm font-semibold">{title}</h3>
+				<p className="text-muted-foreground text-xs leading-relaxed">
+					{description}
+				</p>
+			</div>
+			<div className="max-w-xl space-y-3">{children}</div>
+		</section>
+	);
+}
+
+/** One row of a key's status: label, masked key, when, optional action. */
+function KeyStatusRow({
+	label,
+	masked,
+	maskedTestId,
+	meta,
+	action,
+}: {
+	label: string;
+	masked: string;
+	maskedTestId: string;
+	meta: React.ReactNode;
+	action?: React.ReactNode;
+}) {
+	return (
+		<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+			<span className="text-muted-foreground w-16 text-xs">{label}</span>
+			<span className="font-mono" data-testid={maskedTestId}>
+				{masked}
+			</span>
+			<span className="text-muted-foreground text-xs">{meta}</span>
+			{action ? <span className="ml-auto">{action}</span> : null}
+		</div>
+	);
+}
+
+function KeyForm({
+	inputId,
+	label,
+	placeholder,
+	submitLabel,
+	pending,
+	onSubmit,
+}: {
+	inputId: string;
+	label: string;
+	placeholder: string;
+	submitLabel: string;
+	pending: boolean;
+	onSubmit: (apiKey: string, reset: () => void) => void;
+}) {
+	const [apiKey, setApiKey] = useState("");
+	return (
+		<form
+			className="flex gap-2"
+			onSubmit={(event) => {
+				event.preventDefault();
+				onSubmit(apiKey, () => setApiKey(""));
+			}}
+		>
+			<Label htmlFor={inputId} className="sr-only">
+				{label}
+			</Label>
+			<Input
+				id={inputId}
+				data-testid={inputId}
+				type="password"
+				autoComplete="off"
+				value={apiKey}
+				onChange={(event) => setApiKey(event.target.value)}
+				placeholder={placeholder}
+			/>
+			<Button
+				type="submit"
+				className="shrink-0 font-semibold"
+				data-testid={inputId.replace("-input-", "-save-")}
+				disabled={!apiKey.trim() || pending}
+			>
+				{submitLabel}
+			</Button>
+		</form>
+	);
+}
+
+function TestingKeySection({ claim }: { claim: Claim }) {
 	const api = useApi();
 	const invalidate = useInvalidateCompanies();
-	const [apiKey, setApiKey] = useState("");
-
+	const onError = (fallback: string) => (error: unknown) => {
+		toast.error((error as { message?: string })?.message ?? fallback);
+	};
 	const saveKey = api.useMutation(
 		"put",
 		"/airside/claims/{id}/verification-key",
 		{
 			onSuccess: async () => {
-				setApiKey("");
 				await invalidate();
-				toast.success("Test key saved.");
+				toast.success("Testing key saved.");
 			},
-			onError: (error) => {
-				toast.error(
-					(error as { message?: string })?.message ?? "Failed to save the key",
-				);
-			},
+			onError: onError("Failed to save the key"),
 		},
 	);
-
 	const removeKey = api.useMutation(
 		"delete",
 		"/airside/claims/{id}/verification-key",
 		{
 			onSuccess: async () => {
 				await invalidate();
-				toast.success("Test key removed.");
+				toast.success("Testing key removed.");
 			},
-			onError: (error) => {
-				toast.error(
-					(error as { message?: string })?.message ??
-						"Failed to remove the key",
-				);
-			},
+			onError: onError("Failed to remove the key"),
 		},
 	);
 
 	return (
-		<Card data-testid={`verification-key-${claim.providerId}`}>
-			<CardHeader>
-				<CardTitle className="font-display flex items-center gap-2">
-					<KeyRound className="text-primary size-4" /> {claim.providerName}
-				</CardTitle>
-				<CardDescription>
-					Used only by preflight and verification runs — the ones you start in
-					Fleet, and the ones LLMGateway runs against your listings. Stored
-					encrypted and only ever shown back to you masked. Use a key separate
-					from the one behind your live LLMGateway integration: this traffic is
-					billed to you by your own platform and is not tracked in LLMGateway
-					usage or billing.
-				</CardDescription>
-			</CardHeader>
-			<CardContent className="space-y-3">
-				<div className="flex items-center gap-3">
-					{claim.verificationKeyMasked ? (
+		<KeySection
+			title="Testing key"
+			description="Runs preflight and verification — yours from Fleet and ours against your listings. Billed by your own platform; not tracked in LLM Gateway usage."
+			testId={`verification-key-${claim.providerId}`}
+		>
+			{claim.verificationKeyMasked ? (
+				<KeyStatusRow
+					label="Saved"
+					masked={claim.verificationKeyMasked}
+					maskedTestId={`verification-key-masked-${claim.providerId}`}
+					meta={<RelativeDate date={claim.verificationKeySetAt} />}
+					action={
+						<Button
+							type="button"
+							size="sm"
+							variant="outline"
+							data-testid={`verification-key-remove-${claim.providerId}`}
+							disabled={removeKey.isPending}
+							onClick={() =>
+								removeKey.mutate({ params: { path: { id: claim.id } } })
+							}
+						>
+							{removeKey.isPending ? (
+								<Loader2 className="size-4 animate-spin" />
+							) : (
+								<Trash2 className="size-4" />
+							)}
+							Remove
+						</Button>
+					}
+				/>
+			) : (
+				<p className="text-muted-foreground text-sm">
+					No test key saved — preflight asks for one on every run.
+				</p>
+			)}
+			<KeyForm
+				inputId={`verification-key-input-${claim.providerId}`}
+				label={`Testing key for ${claim.providerName}`}
+				placeholder={
+					claim.verificationKeyMasked
+						? "Paste a new key to replace it"
+						: "A key that can call your models"
+				}
+				submitLabel={
+					saveKey.isPending
+						? "Saving…"
+						: claim.verificationKeyMasked
+							? "Replace"
+							: "Save"
+				}
+				pending={saveKey.isPending}
+				onSubmit={(apiKey, reset) =>
+					saveKey.mutate(
+						{ params: { path: { id: claim.id } }, body: { apiKey } },
+						{ onSuccess: reset },
+					)
+				}
+			/>
+		</KeySection>
+	);
+}
+
+function ProviderKeySection({ claim }: { claim: Claim }) {
+	const api = useApi();
+	const invalidate = useInvalidateCompanies();
+	const onError = (fallback: string) => (error: unknown) => {
+		toast.error((error as { message?: string })?.message ?? fallback);
+	};
+	const submitKey = api.useMutation(
+		"put",
+		"/airside/claims/{id}/provider-key",
+		{
+			onSuccess: async () => {
+				await invalidate();
+				toast.success("Provider key submitted for review.");
+			},
+			onError: onError("Failed to submit the key"),
+		},
+	);
+	const withdrawKey = api.useMutation(
+		"delete",
+		"/airside/claims/{id}/provider-key",
+		{
+			onSuccess: async () => {
+				await invalidate();
+				toast.success("Replacement withdrawn.");
+			},
+			onError: onError("Failed to withdraw the key"),
+		},
+	);
+
+	return (
+		<KeySection
+			title="Provider key"
+			description="Serves your live LLM Gateway traffic. Filed with your first model; a replacement is smoke-tested against one of your listings and takes over once we approve it."
+			testId={`provider-key-${claim.providerId}`}
+		>
+			{claim.providerKey ? (
+				<KeyStatusRow
+					label="Serving"
+					masked={claim.providerKey.masked}
+					maskedTestId={`provider-key-masked-${claim.providerId}`}
+					meta={
 						<>
-							<span
-								className="font-mono text-sm"
-								data-testid={`verification-key-masked-${claim.providerId}`}
-							>
-								{claim.verificationKeyMasked}
-							</span>
-							<span className="text-muted-foreground text-xs">
-								saved <RelativeDate date={claim.verificationKeySetAt} />
-							</span>
+							since <RelativeDate date={claim.providerKey.submittedAt} />
+						</>
+					}
+				/>
+			) : null}
+			{claim.pendingProviderKey ? (
+				<KeyStatusRow
+					label="In review"
+					masked={claim.pendingProviderKey.masked}
+					maskedTestId={`provider-key-pending-${claim.providerId}`}
+					meta={
+						<>
+							submitted{" "}
+							<RelativeDate date={claim.pendingProviderKey.submittedAt} />
+						</>
+					}
+					action={
+						// A first key is reviewed with the first model; it can be
+						// replaced, not withdrawn.
+						claim.providerKey ? (
 							<Button
 								type="button"
 								size="sm"
 								variant="outline"
-								className="ml-auto"
-								data-testid={`verification-key-remove-${claim.providerId}`}
-								disabled={removeKey.isPending}
+								data-testid={`provider-key-withdraw-${claim.providerId}`}
+								disabled={withdrawKey.isPending}
 								onClick={() =>
-									removeKey.mutate({ params: { path: { id: claim.id } } })
+									withdrawKey.mutate({ params: { path: { id: claim.id } } })
 								}
 							>
-								{removeKey.isPending ? (
+								{withdrawKey.isPending ? (
 									<Loader2 className="size-4 animate-spin" />
 								) : (
 									<Trash2 className="size-4" />
 								)}
-								Remove
+								Withdraw
 							</Button>
-						</>
-					) : (
-						<span className="text-muted-foreground text-sm">
-							No test key saved — preflight asks for one on every run.
-						</span>
-					)}
-				</div>
-				<form
-					className="flex max-w-md gap-2"
-					onSubmit={(event) => {
-						event.preventDefault();
-						saveKey.mutate({
-							params: { path: { id: claim.id } },
-							body: { apiKey },
-						});
-					}}
-				>
-					<Label
-						htmlFor={`verification-key-input-${claim.providerId}`}
-						className="sr-only"
-					>
-						Provider test key for {claim.providerName}
-					</Label>
-					<Input
-						id={`verification-key-input-${claim.providerId}`}
-						data-testid={`verification-key-input-${claim.providerId}`}
-						type="password"
-						autoComplete="off"
-						value={apiKey}
-						onChange={(event) => setApiKey(event.target.value)}
-						placeholder={
-							claim.verificationKeyMasked
-								? "Paste a new key to replace it"
-								: "A key that can call your models"
-						}
-					/>
-					<Button
-						type="submit"
-						className="font-semibold"
-						data-testid={`verification-key-save-${claim.providerId}`}
-						disabled={!apiKey.trim() || saveKey.isPending}
-					>
-						{saveKey.isPending
-							? "Saving…"
-							: claim.verificationKeyMasked
-								? "Replace"
-								: "Save"}
-					</Button>
-				</form>
+						) : undefined
+					}
+				/>
+			) : null}
+			{claim.providerKey || claim.pendingProviderKey ? (
+				<KeyForm
+					inputId={`provider-key-input-${claim.providerId}`}
+					label={`New provider key for ${claim.providerName}`}
+					placeholder="Paste a new key to request a swap"
+					submitLabel={
+						submitKey.isPending ? "Submitting…" : "Submit for review"
+					}
+					pending={submitKey.isPending}
+					onSubmit={(apiKey, reset) =>
+						submitKey.mutate(
+							{ params: { path: { id: claim.id } }, body: { apiKey } },
+							{ onSuccess: reset },
+						)
+					}
+				/>
+			) : (
+				<p className="text-muted-foreground text-sm">
+					No provider key yet — file it with your first model in Fleet.
+				</p>
+			)}
+		</KeySection>
+	);
+}
+
+function CarrierKeysCard({ claim }: { claim: Claim }) {
+	return (
+		<Card data-testid={`carrier-keys-${claim.providerId}`}>
+			<CardHeader>
+				<CardTitle className="font-display flex items-center gap-2">
+					<KeyRound className="text-primary size-4" /> {claim.providerName}
+					<span className="text-muted-foreground font-mono text-xs font-normal">
+						{claim.providerId}
+					</span>
+				</CardTitle>
+				<CardDescription>
+					{claim.kind === "custom"
+						? "Two separate keys, so test traffic bills apart from live traffic. Both are stored encrypted and only ever shown back to you masked."
+						: "We serve this carrier's traffic with our own credentials; you only supply the key preflight runs on. Stored encrypted and only ever shown back to you masked."}
+				</CardDescription>
+			</CardHeader>
+			<CardContent className="divide-border divide-y">
+				{claim.kind === "custom" ? <ProviderKeySection claim={claim} /> : null}
+				<TestingKeySection claim={claim} />
 			</CardContent>
 		</Card>
 	);
@@ -193,20 +380,20 @@ export default function SettingsPage() {
 					Carrier settings
 				</p>
 				<h1 className="font-display text-3xl font-black tracking-tight">
-					Test keys
+					Keys
 				</h1>
 			</div>
 
 			{activeClaims.length === 0 ? (
 				<Card>
 					<CardContent className="text-muted-foreground py-8 text-center text-sm">
-						No active carrier yet. Once a claim is approved you can save the key
-						its preflight runs use.
+						No active carrier yet. Once a claim is approved you can manage its
+						keys here.
 					</CardContent>
 				</Card>
 			) : (
 				activeClaims.map((claim) => (
-					<VerificationKeyCard key={claim.id} claim={claim} />
+					<CarrierKeysCard key={claim.id} claim={claim} />
 				))
 			)}
 		</div>

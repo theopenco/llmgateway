@@ -5350,6 +5350,15 @@ export const providerClaim = snakeCase.table(
 		verificationKeyCiphertext: text(),
 		verificationKeyMasked: text(),
 		verificationKeyUpdatedAt: timestamp(),
+		// Custom carriers only: the managed credential we serve the carrier's
+		// traffic with, and a replacement awaiting admin approval. Kept apart
+		// from the verification key so test traffic bills a different account.
+		providerKeyId: text().references(() => providerKey.id, {
+			onDelete: "set null",
+		}),
+		pendingProviderKeyId: text().references(() => providerKey.id, {
+			onDelete: "set null",
+		}),
 		// Self-declared public profile shown on the provider page. Display only:
 		// it never feeds compliance routing, which reads the static catalogue.
 		website: text(),
