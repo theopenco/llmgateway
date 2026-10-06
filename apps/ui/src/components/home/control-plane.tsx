@@ -27,7 +27,7 @@ function Panel({
 	return (
 		<article
 			className={cn(
-				"group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card p-6 transition-colors hover:border-amber-500/40 md:p-7",
+				"group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card p-6 transition-colors hover:border-blue-500/40 md:p-7",
 				className,
 			)}
 		>
@@ -38,7 +38,7 @@ function Panel({
 					className={cn(
 						"rounded-full px-2 py-0.5 text-[10px] tracking-[0.12em]",
 						plan === "Enterprise"
-							? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+							? "bg-blue-500/15 text-blue-700 dark:text-blue-300"
 							: "bg-muted text-muted-foreground",
 					)}
 				>
@@ -60,7 +60,7 @@ const ROLES = [
 	{
 		who: "maya@acme.com",
 		role: "Owner",
-		tone: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+		tone: "bg-blue-500/15 text-blue-700 dark:text-blue-300",
 	},
 	{
 		who: "sam@acme.com",
@@ -201,7 +201,7 @@ export function ControlPlane() {
 										<div
 											className={cn(
 												"h-full rounded-full",
-												b.used > 90 ? "bg-rose-500" : "bg-amber-400",
+												b.used > 90 ? "bg-rose-500" : "bg-blue-500",
 											)}
 											style={{ width: `${b.used}%` }}
 										/>
@@ -282,7 +282,7 @@ export function ControlPlane() {
 										{t}
 									</span>
 									<span className="shrink-0">{who}</span>
-									<span className="truncate text-amber-700 dark:text-amber-300">
+									<span className="truncate text-blue-700 dark:text-blue-300">
 										{action}
 									</span>
 								</div>
@@ -290,21 +290,21 @@ export function ControlPlane() {
 						</div>
 					</Panel>
 
-					<article className="relative isolate overflow-hidden rounded-2xl border border-black/10 bg-[#f4f1e8] p-7 text-[#111113] md:col-span-6 md:p-10 dark:border-white/10 dark:bg-[#0d0d10] dark:text-[#f4f1e8]">
+					<article className="relative isolate overflow-hidden rounded-2xl border border-border bg-card p-7 text-card-foreground md:col-span-6 md:p-10">
 						<div aria-hidden className={styles.grain} />
 						<div
 							aria-hidden
-							className="absolute -right-32 -top-40 -z-10 size-[520px] rounded-full bg-[radial-gradient(circle,rgba(245,184,61,0.16),transparent_65%)]"
+							className="absolute -right-32 -top-40 -z-10 size-[520px] rounded-full bg-[radial-gradient(circle,rgba(59,130,246,0.16),transparent_65%)]"
 						/>
 						<div className="grid gap-10 md:grid-cols-12 md:items-center">
 							<div className="md:col-span-5">
-								<p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#111113]/55 dark:text-[#f4f1e8]/60">
+								<p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
 									06 / Deployment
 								</p>
 								<h3 className="mt-4 font-display text-3xl font-bold tracking-tight md:text-4xl">
 									Run it where your data lives.
 								</h3>
-								<p className="mt-3 text-[#111113]/70 dark:text-[#f4f1e8]/70">
+								<p className="mt-3 text-muted-foreground">
 									Same gateway and dashboard, in our cloud or yours. The core is
 									open source under AGPLv3 and the enterprise code is
 									source-available, so nothing is a black box.
@@ -316,11 +316,11 @@ export function ControlPlane() {
 										key={d.name}
 										className="rounded-xl border border-black/10 bg-white/70 p-5 dark:border-white/15 dark:bg-white/[0.03]"
 									>
-										<span className="font-mono text-[11px] text-[#111113]/45 dark:text-[#f4f1e8]/50">
+										<span className="font-mono text-[11px] text-muted-foreground">
 											0{i + 1}
 										</span>
 										<p className="mt-2 font-semibold">{d.name}</p>
-										<p className="mt-1 text-sm text-[#111113]/65 dark:text-[#f4f1e8]/65">
+										<p className="mt-1 text-sm text-muted-foreground">
 											{d.body}
 										</p>
 									</li>
@@ -332,12 +332,13 @@ export function ControlPlane() {
 
 				<div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-4">
 					<TrackedLink
-						href="/enterprise#contact"
+						href="/signup"
+						auth
 						location="home_control_plane"
-						cta="start_pilot"
-						className="group inline-flex items-center gap-2 rounded-full bg-amber-300 px-6 py-3 text-sm font-semibold text-[#09090b] transition-colors hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+						cta="get_api_key"
+						className="group inline-flex items-center gap-2 rounded-full bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
 					>
-						Start your 30-day pilot
+						Get started
 						<ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
 					</TrackedLink>
 					<TrackedLink

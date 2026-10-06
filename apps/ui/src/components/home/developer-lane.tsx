@@ -64,7 +64,7 @@ const PLANS = [
 	{
 		name: "Enterprise",
 		price: "Custom",
-		note: "SSO, audit logs, guardrails and a 99.9% SLA on Enterprise Cloud. Starts with a 30-day pilot.",
+		note: "SSO, audit logs, guardrails and a 99.9% SLA on Enterprise Cloud.",
 	},
 ];
 
@@ -127,16 +127,16 @@ export function DeveloperLane({ migrations }: { migrations: MigrationLink[] }) {
 							<TrackedLink
 								href="/enterprise#contact"
 								location="home_developers"
-								cta="start_pilot"
-								className="text-sm font-medium text-amber-700 underline-offset-4 hover:underline dark:text-amber-300"
+								cta="contact_sales"
+								className="text-sm font-medium text-blue-600 underline-offset-4 hover:underline dark:text-blue-400"
 							>
-								Rolling out company-wide? Start a pilot
+								Rolling out company-wide? Talk to sales
 							</TrackedLink>
 						</div>
 					</div>
 
 					<div className="min-w-0 lg:col-span-7">
-						<div className="overflow-hidden rounded-2xl border border-black/10 bg-[#fffdf7] text-[#1f1f24] shadow-[0_30px_80px_-40px_rgba(17,17,19,0.35)] dark:border-white/10 dark:bg-[#0b0b0e] dark:text-[#e8e6df] dark:shadow-2xl">
+						<div className="overflow-hidden rounded-2xl border border-black/10 bg-white text-[#1f1f24] shadow-[0_30px_80px_-40px_rgba(17,17,19,0.35)] dark:border-white/10 dark:bg-[#0b0b0e] dark:text-[#e8e6df] dark:shadow-2xl">
 							<div className="flex items-center gap-2 border-b border-black/10 px-5 py-3 font-mono text-[11px] text-black/45 dark:border-white/10 dark:text-white/45">
 								<span className="size-2.5 rounded-full bg-black/15 dark:bg-white/15" />
 								<span className="size-2.5 rounded-full bg-black/15 dark:bg-white/15" />
@@ -162,16 +162,16 @@ export function DeveloperLane({ migrations }: { migrations: MigrationLink[] }) {
 									<span className="text-sky-700 dark:text-sky-300">OpenAI</span>
 									({"{"}
 									{"\n"}
-									<span className="-mx-6 block border-l-2 border-amber-500 bg-amber-400/15 px-6 dark:border-amber-300 dark:bg-amber-300/10">
+									<span className="-mx-6 block border-l-2 border-blue-500 bg-blue-500/10 px-6 dark:border-blue-400 dark:bg-blue-400/10">
 										{"  "}baseURL:{" "}
 										<span className="text-emerald-700 dark:text-emerald-300">
 											&quot;https://api.llmgateway.io/v1&quot;
 										</span>
 										,
 									</span>
-									<span className="-mx-6 block border-l-2 border-amber-500 bg-amber-400/15 px-6 dark:border-amber-300 dark:bg-amber-300/10">
+									<span className="-mx-6 block border-l-2 border-blue-500 bg-blue-500/10 px-6 dark:border-blue-400 dark:bg-blue-400/10">
 										{"  "}apiKey: process.env.
-										<span className="text-amber-700 dark:text-amber-200">
+										<span className="text-blue-700 dark:text-blue-200">
 											LLM_GATEWAY_API_KEY
 										</span>
 										,
