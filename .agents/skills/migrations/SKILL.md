@@ -9,7 +9,7 @@ Use this workflow for database schema changes and migration conflicts.
 
 ## Default: use generated SQL
 
-Assume Drizzle applies migrations cleanly, in order, and tracks which have run.
+Assume Drizzle applies migrations cleanly and tracks which have run.
 Generate, review, and commit the migration without adapting its SQL by default.
 
 Do not add `IF NOT EXISTS`, `IF EXISTS`, existence probes, or duplicate-object
@@ -18,69 +18,53 @@ Regenerating an unmerged migration after syncing with `main` does not justify
 compatibility with its earlier branch version. A speculative review warning is
 not evidence that a migration ran outside the normal workflow.
 
+## How Drizzle tracks migrations
+
+- Each migration is a folder `packages/db/migrations/<YYYYMMDDHHMMSS>_<name>/` holding `migration.sql` and `snapshot.json`.
+- The migrator records each applied folder name in `drizzle.__drizzle_migrations.name` and applies every local folder whose name is missing, regardless of timestamp. A branch migration older than migrations already on `main` still runs after merge.
+- The folder name is the tracking key: never rename or delete a merged migration folder. A renamed folder runs again.
+- Each `snapshot.json` lists its parents in `prevIds`. `drizzle-kit` follows that graph, and an open leaf merges into the next generated diff, so a snapshot with a wrong parent makes `pnpm migrations` emit destructive DROPs.
+
 ## Generate migrations
 
 - Run all commands from the repository root.
-- Make schema changes in `packages/db/src/schema.ts`.
-- Generate Drizzle migration artifacts with `pnpm migrations`.
-- Review the generated diff under `packages/db/migrations/`.
-- Drizzle may generate:
-  - `packages/db/migrations/<timestamp>_<name>.sql`
-  - `packages/db/migrations/meta/<timestamp>_snapshot.json`
-  - `packages/db/migrations/meta/_journal.json`
+- Make schema changes in `packages/db/src/schema.ts`. Tables use `snakeCase.table`, which maps camelCase fields to snake_case columns.
+- Generate the migration with `pnpm migrations`. It also runs the commutativity check below.
+- Review the new `packages/db/migrations/<timestamp>_<name>/` folder.
 
 ## Editing generated migrations
 
 - Do not write a migration by hand from scratch. Generate it first with `pnpm migrations`.
 - The operational exception is avoiding locks on huge tables, especially when creating indexes. Treat all history tables as large when reviewing locking behavior.
-- If that requires adaptation, edit only the generated `.sql` file.
-- Never manually edit any `*_snapshot.json` file.
-- Never manually edit `packages/db/migrations/meta/_journal.json`.
-- If the TypeScript schema is wrong, fix `packages/db/src/schema.ts` and regenerate instead of patching snapshot or journal metadata.
-- Use snake_case column names in SQL because Drizzle maps camelCase TypeScript fields to snake_case database columns.
+- If that requires adaptation, edit only the generated `migration.sql`.
+- Never manually edit any `snapshot.json`.
+- If the TypeScript schema is wrong, fix `packages/db/src/schema.ts` and regenerate instead of patching snapshots.
+- Use snake_case column names in SQL.
 
 For a large-table index change, a staged rollout may require splitting the
 change into two generated migrations and running `CREATE INDEX CONCURRENTLY`
 manually between them, outside a transaction. Document the required order in
-the SQL. Keep the generated snapshot and journal exactly as Drizzle wrote them.
+the SQL. Keep the generated snapshots exactly as Drizzle wrote them.
 
-## Conflict resolution
+## Syncing with main
 
-Never resolve merge conflicts in migration SQL, snapshot JSON, or journal files manually.
-
-When merging with `main` and migration conflicts appear:
-
-0. The reset in step 1 rewrites `packages/db/migrations/` from `origin/main`, and it acts on **tracked files only**. Two consequences:
-
-- An untracked `.sql` (one you just generated but have not committed) survives the reset and then collides with what step 2 regenerates. It is also invisible to `git diff`, so the capture below would miss it.
-- Any necessary locking adaptation of a generated `.sql` is reverted, and `pnpm migrations` emits vanilla SQL from the schema diff, so it will **not** come back on its own.
-
-Commit (or delete) everything under the directory first, so nothing is untracked and the capture sees all of it:
+Migration folders from different branches do not conflict in git. After merging `main`, run:
 
 ```bash
-git status --porcelain packages/db/migrations/   # must print nothing before continuing
-git diff origin/main -- packages/db/migrations/ > /tmp/migration-adaptations.patch
+pnpm migrations:check
 ```
 
-Keep that patch as your reference and re-apply the adaptations by hand in step 3. Do not use `git stash` for this — lint-staged inserts its own backup stashes at position 0 in this repo, so a bare `git stash pop` can restore the wrong entry.
+It reports non-commutative migrations: branch migrations that touch the same objects as migrations merged to `main` since the branch point. If it passes, keep the branch migration as-is. If it fails, regenerate the branch migration on top of `main`:
 
-1. Reset migrations to `origin/main`:
+1. Note any locking adaptation in your branch's `migration.sql`; regeneration emits vanilla SQL and drops it.
+2. Delete your branch's migration folder, then run `pnpm migrations`.
+3. Re-apply only still-required locking adaptations. Do not carry speculative fallbacks forward.
 
-```bash
-git restore --source=origin/main packages/db/migrations/
-```
-
-2. Re-run generation from the repository root:
-
-```bash
-pnpm migrations
-```
-
-3. Review the regenerated SQL, then re-apply only still-required locking adaptations captured in step 0. Do not carry speculative fallbacks forward. Adapt only the generated `.sql` file.
+Never resolve conflicts in migration SQL or snapshot JSON by hand.
 
 ## Validation
 
 - Inspect `git diff packages/db/src/schema.ts packages/db/migrations/`.
-- Confirm any snapshot JSON and journal changes came from `pnpm migrations`, not manual edits.
+- Confirm snapshot changes came from `pnpm migrations`, not manual edits.
 - Run `pnpm format` after changes.
 - Run `pnpm build` after schema or migration changes.
