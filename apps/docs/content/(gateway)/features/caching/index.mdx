@@ -26,6 +26,8 @@ LLM Gateway performs the caching. When a request is **identical** to a previous 
 
 This is most useful for deterministic API workloads — classification, batch jobs, FAQ lookups, retries — rather than free-form chat, because chat prompts almost always differ on the latest turn.
 
+On the Enterprise plan, [Semantic Caching](/features/caching/semantic-caching) also serves a request whose final user message differs only in ways that cannot change the answer, such as letter case or trailing punctuation.
+
 → **[Read the Gateway Caching docs](/features/caching/gateway-caching)**
 
 ## Which one do I want?
