@@ -439,6 +439,7 @@ interface MappingInfo {
 
 type AnalyticsMapping = Pick<
 	ProviderModelMapping,
+	| "externalId"
 	| "inputPrice"
 	| "outputPrice"
 	| "cachedInputPrice"
@@ -472,6 +473,7 @@ async function buildMappingInfos(model: {
 		),
 		...listings.map((row) => ({
 			providerId: row.providerId,
+			externalId: row.externalId,
 			providerName: row.provider?.name,
 			status: row.status,
 			inputPrice: row.inputPrice ?? undefined,
