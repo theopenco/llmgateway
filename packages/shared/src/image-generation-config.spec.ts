@@ -39,4 +39,14 @@ describe("getModelImageConfig", () => {
 		expect(gemini.availableModerations).toEqual([]);
 		expect(gemini.defaultModeration).toBeUndefined();
 	});
+
+	it("offers 1K–4K and Gemini reference limits for Nano Banana 2.1", () => {
+		const config = getModelImageConfig(
+			"google-ai-studio/gemini-nano-banana-2.1",
+		);
+
+		expect(config.availableSizes).toEqual(["1K", "2K", "4K"]);
+		expect(config.defaultSize).toBe("1K");
+		expect(config.maxInputImages).toBe(3);
+	});
 });

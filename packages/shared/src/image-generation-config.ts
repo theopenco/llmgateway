@@ -155,7 +155,7 @@ function getMaxInputImages(lowerModel: string): number {
 	}
 	if (
 		lowerModel.includes("gemini") &&
-		(lowerModel.includes("-image") || lowerModel.includes("flash-image"))
+		(lowerModel.includes("-image") || lowerModel.includes("nano-banana"))
 	) {
 		return 3;
 	}
