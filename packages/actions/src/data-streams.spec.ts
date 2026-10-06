@@ -11,7 +11,7 @@ import {
 	test,
 } from "vitest";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, sql, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import {
@@ -186,7 +186,7 @@ describe("data streams", () => {
 	test("delivers settled audit events once, signed, and advances the cursor", async () => {
 		const old = new Date(Date.now() - TEN_MINUTES_MS);
 		await seedAudit(["a1", "a2"], old);
-		await seedAudit(["fresh"], new Date());
+		await seedAudit(["fresh"], new Date(Date.now() + TEN_MINUTES_MS));
 		const stream = await seedStream(new Date(old.getTime() - 1000));
 
 		const first = await runDataStream(stream);
@@ -222,17 +222,13 @@ describe("data streams", () => {
 				action: "project.create" as const,
 				resourceType: "project" as const,
 				resourceId: `resource-${id}`,
+				createdAt: sql`now() - interval '1 minute'`,
 			})),
 		);
-		const later = new Date(Date.now() + TEN_MINUTES_MS);
 		const stream = await seedStream(new Date(Date.now() - TEN_MINUTES_MS));
 
-		expect(await runDataStream(stream, { now: later })).toEqual({
-			delivered: 2,
-		});
-		expect(await runDataStream(await reload(), { now: later })).toEqual({
-			delivered: 0,
-		});
+		expect(await runDataStream(stream)).toEqual({ delivered: 2 });
+		expect(await runDataStream(await reload())).toEqual({ delivered: 0 });
 		expect(received).toHaveLength(1);
 	});
 
@@ -537,6 +533,7 @@ describe("data streams", () => {
 		await runDataStream(stream, { now: later });
 		commit();
 		await open;
+		await new Promise((resolve) => setTimeout(resolve, 1100));
 		await runDataStream(await reload(), { now: later });
 
 		const delivered = received.flatMap((r) => r.body.events.map((e) => e.id));
