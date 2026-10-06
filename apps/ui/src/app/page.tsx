@@ -60,7 +60,7 @@ export default function Home() {
 				<ProductFamily />
 				<Graph />
 				<DeveloperLane migrations={migrations} />
-				<Uptime />
+				<Uptime showEyebrow={false} />
 				<Testimonials />
 				<Faq />
 				<EnterpriseCTA />
