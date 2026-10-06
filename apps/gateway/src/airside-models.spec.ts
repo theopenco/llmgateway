@@ -55,6 +55,13 @@ describe("airside-listed models", () => {
 					headers: req.headers,
 					body: parsed,
 				});
+				if (req.url?.startsWith("/fail/")) {
+					res.writeHead(503, { "content-type": "application/json" });
+					res.end(
+						JSON.stringify({ error: { message: "Service unavailable" } }),
+					);
+					return;
+				}
 				if (req.url?.startsWith("/v1/responses")) {
 					if (parsed.stream === true) {
 						const response = {
@@ -145,6 +152,34 @@ describe("airside-listed models", () => {
 							},
 						}),
 					);
+					return;
+				}
+				if (parsed.stream === true) {
+					res.writeHead(200, { "content-type": "text/event-stream" });
+					for (const chunk of [
+						{
+							choices: [
+								{
+									index: 0,
+									delta: { role: "assistant", content: "Hello from Luna" },
+									finish_reason: null,
+								},
+							],
+						},
+						{
+							choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+							usage: {
+								prompt_tokens: 1000,
+								completion_tokens: 500,
+								total_tokens: 1500,
+							},
+						},
+					]) {
+						res.write(
+							`data: ${JSON.stringify({ id: "chatcmpl-test", object: "chat.completion.chunk", model: parsed.model, ...chunk })}\n\n`,
+						);
+					}
+					res.end("data: [DONE]\n\n");
 					return;
 				}
 				res.writeHead(200, { "content-type": "application/json" });
@@ -288,7 +323,7 @@ describe("airside-listed models", () => {
 		expect(resolution).toBeTruthy();
 		expect(resolution?.parseResult).toMatchObject({
 			requestedModel: "nano banana pro",
-			requestedProvider: "glacier",
+			requestedProvider: undefined,
 		});
 		expect(resolution?.pricingMappings).toHaveLength(1);
 		expect(resolution?.pricingMappings[0]).toMatchObject({
@@ -864,7 +899,11 @@ describe("airside-listed models", () => {
 		expect(captured).toHaveLength(0);
 	});
 
-	async function createDynamicRoute(token: string) {
+	async function createDynamicRoute(
+		token: string,
+		model = "mistral-small-2506",
+		provider = "mistral",
+	) {
 		await db
 			.update(tables.organization)
 			.set({ plan: "enterprise" })
@@ -875,8 +914,8 @@ describe("airside-listed models", () => {
 				{
 					id: "m",
 					type: "model" as const,
-					model: "mistral-small-2506",
-					providers: ["mistral"],
+					model,
+					providers: [provider],
 				},
 			],
 		} as DynamicRouteGraph;
@@ -1103,9 +1142,12 @@ describe("airside-listed models", () => {
 			managedCredential?: boolean;
 			apiFormat?: ProviderApiFormat;
 			modelId?: string;
+			providerId?: string;
+			basePath?: string;
 		} = {},
 	) {
 		const modelId = options.modelId ?? "sky-large";
+		const providerId = options.providerId ?? "acme-sky";
 		captured = [];
 		await clearCache();
 		await db.insert(tables.apiKey).values({
@@ -1128,17 +1170,17 @@ describe("airside-listed models", () => {
 		await db.insert(tables.providerClaim).values({
 			id: `${token}-claim`,
 			providerCompanyId: `${token}-company`,
-			providerId: "acme-sky",
+			providerId,
 			kind: "custom",
 			matchedDomain: "acme-sky.ai",
 			customName: "Acme Sky",
-			customBaseUrl: upstreamUrl,
+			customBaseUrl: upstreamUrl + (options.basePath ?? ""),
 			status: "active",
 		});
 		await db.insert(tables.providerDraftModel).values({
 			id: `${token}-model`,
 			providerCompanyId: `${token}-company`,
-			providerId: "acme-sky",
+			providerId,
 			modelName: modelId,
 			externalId: modelId,
 			apiFormat: options.apiFormat ?? "openai-chat-completions",
@@ -1157,7 +1199,7 @@ describe("airside-listed models", () => {
 			status: "approved",
 		});
 		await materializeTestMapping({
-			providerId: "acme-sky",
+			providerId,
 			modelId,
 			apiFormat: options.apiFormat ?? "openai-chat-completions",
 			inputPrice: "3e-6",
@@ -1171,15 +1213,300 @@ describe("airside-listed models", () => {
 				id: `${token}-managed-key`,
 				managed: true,
 				organizationId: null,
-				provider: "acme-sky",
+				provider: providerId,
 				...encryptProviderKeyForStorage(
-					"mock-acme-key",
+					`mock-${providerId}-key`,
 					`${token}-managed-key`,
 					null,
 				),
 			});
 		}
 	}
+
+	async function restrictCarriers(token: string, providerIds: string[]) {
+		await db.insert(tables.apiKeyIamRule).values({
+			apiKeyId: `${token}-id`,
+			ruleType: "allow_providers",
+			ruleValue: { providers: providerIds },
+			status: "active",
+		});
+		await clearCache();
+	}
+
+	async function carrierRequest(
+		token: string,
+		model: string,
+		options: { stream?: boolean; noFallback?: boolean; session?: string } = {},
+	) {
+		return await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-request-id": `${token}-request`,
+				...(options.noFallback ? { "x-no-fallback": "true" } : {}),
+				...(options.session ? { "x-session-id": options.session } : {}),
+			},
+			body: JSON.stringify({
+				model,
+				stream: options.stream ?? false,
+				messages: [{ role: "user", content: "Say hi" }],
+			}),
+		});
+	}
+
+	test.each(["bare", "auto", "smart", "dynamic"])(
+		"selects a database-only carrier through %s routing",
+		async (mode) => {
+			const token = `airside-routing-${mode}`;
+			const model = "claude-haiku-4-5";
+			await setupCustomCarrier(token, { modelId: model });
+			await restrictCarriers(token, ["acme-sky", "llmgateway"]);
+			if (mode === "smart") {
+				await db
+					.update(tables.project)
+					.set({ smartRoutingConfig: { classifier: "none", models: [model] } })
+					.where(eq(tables.project.id, "project-id"));
+			}
+			if (mode === "dynamic") {
+				await createDynamicRoute(token, model, "acme-sky");
+			}
+			await clearCache();
+			const res = await carrierRequest(
+				token,
+				mode === "bare"
+					? model
+					: mode === "dynamic"
+						? "dynamic/airside-owned"
+						: mode,
+			);
+			expect(res.status, await res.text()).toBe(200);
+			expect(captured).toHaveLength(1);
+			expect(
+				captured[0].headers.authorization === "Bearer mock-acme-sky-key",
+			).toBe(true);
+			const log = await waitForLogByRequestId(`${token}-request`);
+			expect(log?.usedProvider).toBe("acme-sky");
+			expect(Number(log?.inputCost)).toBeCloseTo(0.003, 6);
+			expect(log?.routingMetadata?.selectionReason).not.toBe(
+				"direct-provider-specified",
+			);
+		},
+	);
+
+	test("scores multiple carriers for a database-only model and retains its session", async () => {
+		const token = "airside-multiple";
+		await setupCustomCarrier(token);
+		await setupCustomCarrier("airside-second", { providerId: "acme-cloud" });
+		await materializeTestMapping({
+			providerId: "acme-cloud",
+			modelId: "sky-large",
+			apiFormat: "openai-chat-completions",
+			inputPrice: "30e-6",
+			outputPrice: "90e-6",
+			contextSize: 64000,
+		});
+		await setRoutingUptime("sky-large", "acme-sky", 100);
+		await setRoutingUptime("sky-large", "acme-cloud", 100);
+		await clearCache();
+		const first = await carrierRequest(token, "sky-large", {
+			session: "airside-session",
+		});
+		expect(first.status, await first.text()).toBe(200);
+		const firstLog = await waitForLogByRequestId(`${token}-request`);
+		expect(
+			firstLog?.routingMetadata?.providerScores
+				?.map((score) => score.providerId)
+				.sort(),
+		).toEqual(["acme-cloud", "acme-sky"]);
+		expect(firstLog?.usedProvider).toBe("acme-sky");
+		const second = await carrierRequest("airside-second", "sky-large", {
+			session: "airside-session",
+		});
+		expect(second.status, await second.text()).toBe(200);
+		const secondLog = await waitForLogByRequestId("airside-second-request");
+		expect(secondLog?.usedProvider).toBe("acme-sky");
+		expect(secondLog?.routingMetadata?.selectionReason).toBe("session-sticky");
+	});
+
+	test.each([false, true])(
+		"fallback switches Airside endpoints and credentials (stream=%s)",
+		async (stream) => {
+			const token = `airside-failover-${stream}`;
+			await setupCustomCarrier(token, { basePath: "/fail" });
+			await setupCustomCarrier(`airside-next-${stream}`, {
+				providerId: "acme-cloud",
+				basePath: "/second",
+			});
+			await materializeTestMapping({
+				providerId: "acme-cloud",
+				modelId: "sky-large",
+				apiFormat: "openai-chat-completions",
+				inputPrice: "30e-6",
+				outputPrice: "90e-6",
+				contextSize: 64000,
+			});
+			await setRoutingUptime("sky-large", "acme-sky", 100);
+			await setRoutingUptime("sky-large", "acme-cloud", 100);
+			await clearCache();
+			const res = await carrierRequest(token, "sky-large", { stream });
+			expect(res.status).toBe(200);
+			expect(await res.text()).toContain("Hello from Luna");
+			expect(
+				captured.some(
+					(request) =>
+						request.url.startsWith("/fail/") &&
+						request.headers.authorization === "Bearer mock-acme-sky-key",
+				),
+			).toBe(true);
+			expect(
+				captured.some(
+					(request) =>
+						request.url.startsWith("/second/") &&
+						request.headers.authorization === "Bearer mock-acme-cloud-key",
+				),
+			).toBe(true);
+			expect(
+				captured.every(
+					(request) =>
+						request.headers.authorization ===
+						(request.url.startsWith("/fail/")
+							? "Bearer mock-acme-sky-key"
+							: "Bearer mock-acme-cloud-key"),
+				),
+			).toBe(true);
+		},
+	);
+
+	test.each(["pin", "no-fallback"])(
+		"keeps the chosen Airside carrier for %s requests",
+		async (restriction) => {
+			const token = `airside-fixed-${restriction}`;
+			await setupCustomCarrier(token, { basePath: "/fail" });
+			await setupCustomCarrier(`airside-fixed-next-${restriction}`, {
+				providerId: "acme-cloud",
+				basePath: "/second",
+			});
+			await materializeTestMapping({
+				providerId: "acme-cloud",
+				modelId: "sky-large",
+				apiFormat: "openai-chat-completions",
+				inputPrice: "30e-6",
+				outputPrice: "90e-6",
+				contextSize: 64000,
+			});
+			const res = await carrierRequest(
+				token,
+				restriction === "pin" ? "acme-sky/sky-large" : "sky-large",
+				{ noFallback: restriction === "no-fallback" },
+			);
+			expect(res.status).toBeGreaterThanOrEqual(400);
+			expect(captured.length).toBeGreaterThan(0);
+			expect(
+				captured.every((request) => request.url.startsWith("/fail/")),
+			).toBe(true);
+		},
+	);
+
+	test.each([
+		{ fromAirside: true, stream: false },
+		{ fromAirside: false, stream: false },
+		{ fromAirside: true, stream: true },
+		{ fromAirside: false, stream: true },
+	])(
+		"fallback crosses catalogue and Airside providers ($fromAirside, stream=$stream)",
+		async ({ fromAirside, stream }) => {
+			const token = `airside-catalogue-${fromAirside}-${stream}`;
+			const modelId = "gpt-5.6-luna";
+			await setupCustomCarrier(token, {
+				modelId,
+				basePath: fromAirside ? "/fail" : "/carrier",
+			});
+			await materializeTestMapping({
+				providerId: "openai",
+				modelId,
+				apiFormat: "openai-chat-completions",
+				inputPrice: fromAirside ? "30e-6" : "0.3e-6",
+				outputPrice: fromAirside ? "90e-6" : "0.9e-6",
+				contextSize: 64000,
+			});
+			await db.insert(tables.providerKey).values({
+				id: `${token}-openai`,
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+				config: {
+					baseUrl: upstreamUrl + (fromAirside ? "/catalogue" : "/fail"),
+				},
+				...encryptProviderKeyForStorage(
+					"mock-catalogue-key",
+					`${token}-openai`,
+					null,
+				),
+			});
+			await restrictCarriers(token, ["acme-sky", "openai"]);
+			await setRoutingUptime(modelId, "acme-sky", 100);
+			await setRoutingUptime(modelId, "openai", 100);
+			await clearCache();
+			const res = await carrierRequest(token, modelId, { stream });
+			expect(res.status).toBe(200);
+			expect(await res.text()).toContain("Hello from Luna");
+			expect(captured.some((request) => request.url.startsWith("/fail/"))).toBe(
+				true,
+			);
+			expect(
+				captured.some((request) =>
+					request.url.startsWith(fromAirside ? "/catalogue/" : "/carrier/"),
+				),
+			).toBe(true);
+			expect(
+				captured.every(
+					(request) =>
+						request.headers.authorization ===
+						((request.url.startsWith("/fail/") ? fromAirside : !fromAirside)
+							? "Bearer mock-acme-sky-key"
+							: "Bearer mock-catalogue-key"),
+				),
+			).toBe(true);
+		},
+	);
+
+	test.each(["revoked", "inactive", "credential", "capability", "iam"])(
+		"excludes a custom carrier with %s restrictions",
+		async (restriction) => {
+			const token = `airside-exclusion-${restriction}`;
+			await setupCustomCarrier(token, {
+				managedCredential: restriction !== "credential",
+			});
+			if (restriction === "revoked") {
+				await db
+					.update(tables.providerClaim)
+					.set({ status: "revoked" })
+					.where(eq(tables.providerClaim.providerId, "acme-sky"));
+			}
+			if (restriction === "inactive") {
+				await db
+					.update(tables.modelProviderMapping)
+					.set({ status: "inactive" })
+					.where(eq(tables.modelProviderMapping.providerId, "acme-sky"));
+			}
+			if (restriction === "capability") {
+				await db
+					.update(tables.modelProviderMapping)
+					.set({ streaming: false })
+					.where(eq(tables.modelProviderMapping.providerId, "acme-sky"));
+			}
+			if (restriction === "iam") {
+				await restrictCarriers(token, ["openai"]);
+			}
+			await clearCache();
+			const res = await carrierRequest(token, "sky-large", {
+				stream: restriction === "capability",
+			});
+			expect(res.status).toBeGreaterThanOrEqual(400);
+			expect(captured).toHaveLength(0);
+		},
+	);
 
 	test("routes a streaming Airside model through OpenAI Responses", async () => {
 		await setupCustomCarrier("airside-responses-token", {
@@ -1244,7 +1571,7 @@ describe("airside-listed models", () => {
 		expect(body.choices[0].finish_reason).toBe("stop");
 		expect(captured).toHaveLength(1);
 		expect(captured[0].url).toBe(
-			"/v1/publishers/google/models/gpt-5.6-luna:generateContent?key=mock-acme-key",
+			"/v1/publishers/google/models/gpt-5.6-luna:generateContent?key=mock-acme-sky-key",
 		);
 		expect(captured[0].body).toMatchObject({
 			contents: expect.any(Array),
@@ -1284,7 +1611,7 @@ describe("airside-listed models", () => {
 		expect(captured).toHaveLength(1);
 		expect(captured[0].url).toBe("/v1/chat/completions");
 		expect(captured[0].body.model).toBe("sky-large");
-		expect(captured[0].headers.authorization).toBe("Bearer mock-acme-key");
+		expect(captured[0].headers.authorization).toBe("Bearer mock-acme-sky-key");
 
 		const log = await waitForLogByRequestId(requestId);
 		expect(log).toBeTruthy();

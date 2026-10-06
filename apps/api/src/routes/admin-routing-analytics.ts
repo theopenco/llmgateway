@@ -484,10 +484,17 @@ async function buildMappingInfos(model: {
 			deactivatedAt: row.deactivatedAt ?? undefined,
 		})),
 	];
-	const isStaticModel = models.some((entry) => entry.id === model.id);
-	const activeListingCount = listings.filter(
-		(row) => row.status === "active",
-	).length;
+	const activeCarriers = await db.query.providerClaim.findMany({
+		where: {
+			kind: "custom",
+			status: "active",
+			customBaseUrl: { isNotNull: true },
+		},
+		columns: { providerId: true },
+	});
+	const activeCarrierIds = new Set(
+		activeCarriers.map((carrier) => carrier.providerId),
+	);
 	return await Promise.all(
 		mappings.map(async (mapping) => {
 			const providerDef = getProviderDefinition(mapping.providerId);
@@ -501,8 +508,8 @@ async function buildMappingInfos(model: {
 			if (mapping.status && mapping.status !== "active") {
 				excludedReasons.push("listing inactive");
 			}
-			if (isStaticModel ? !providerDef : activeListingCount !== 1) {
-				excludedReasons.push("provider pin required");
+			if (!providerDef && !activeCarrierIds.has(mapping.providerId)) {
+				excludedReasons.push("carrier inactive or unapproved");
 			}
 			// Only a deactivation date that has actually passed excludes a mapping.
 			// Routing itself compares against the date, so a scheduled (future)
