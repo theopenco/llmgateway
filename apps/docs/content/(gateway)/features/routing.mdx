@@ -27,6 +27,10 @@ that `auto` may choose. Dynamic-route provider lists include active Airside
 carriers; availability is checked when saving, publishing, rolling back, and
 executing a route.
 
+Scores use the default routing config. They are computed on the router's live
+metrics window and on hourly averages, for each request shape that changes the
+weights: streaming, cached prompts, sessions, and `routing` preferences.
+
 ## Global Provider Rate Limits
 
 Administrators can set a global RPM or RPD limit to `0` to block matching
