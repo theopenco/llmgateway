@@ -72,7 +72,7 @@
 		"fflate": "0.8.3",
 		"html-to-image": "^1.11.13",
 		"jspdf": "^4.2.1",
-		"katex": "0.16.28",
+		"katex": "0.18.2",
 		"lucide-react": "0.548.0",
 		"motion": "12.23.24",
 		"nanoid": "5.1.16",
