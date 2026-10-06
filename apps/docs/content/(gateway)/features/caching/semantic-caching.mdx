@@ -1,12 +1,12 @@
 ---
 title: Semantic Caching
-description: Serve cached responses for prompts that differ only in ways that cannot change the answer
+description: Serve cached responses for prompts that differ only in a few fixed rewordings
 icon: Sparkles
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-[Gateway caching](/features/caching/gateway-caching) replays a response only for a byte-identical request. Semantic caching also replays it when the final user message differs from a cached one only in a short, fixed list of ways that cannot change the answer, so "How can I change my email address" reuses the answer to "How do I change my email address?".
+[Gateway caching](/features/caching/gateway-caching) replays a response only for a byte-identical request. Semantic caching also replays it when the final user message differs from a cached one only in a short, fixed list of rewordings, so "How can I change my email address" reuses the answer to "How do I change my email address?".
 
 <Callout type="info">
 	Semantic caching is available on the [**Enterprise
@@ -25,33 +25,21 @@ Matches expire with the cache duration you set for request caching. Turning requ
 
 ## What matches
 
-Everything except the final user message must be identical: model, provider, request parameters, the system prompt and every earlier message. The final user message is then compared word by word, and only these differences are ignored:
+Everything except the final user message must be identical: model, provider, request parameters, the system prompt and every earlier message. The final user message must then be identical too, except for these differences:
 
-| Ignored difference                                         | Example                                                          |
-| ---------------------------------------------------------- | ---------------------------------------------------------------- |
-| Case of a lowercase or capitalised word                    | "weather in paris" / "Weather in Paris"                          |
-| A single space between symbols, outside code               | "2 + 3" / "2+3"                                                  |
-| Whitespace at the start or end of the message              | "Track my order\n" / "Track my order"                            |
-| Curly or straight quotes, full-width characters            | "didn’t" / "didn't", "１２" / "12"                               |
-| Contractions                                               | "What's the capital" / "What is the capital", "don't" / "do not" |
-| Trailing `?`, `.` and `!`                                  | "Track my order?" / "Track my order"                             |
-| "please", unless it sits next to a quote                   | "Please summarise this" / "Summarise this"                       |
-| "how can I" and "where can I" for "how do I", "where do I" | "How can I export my data" / "How do I export my data"           |
-| A leading "which" for "what"                               | "Which plans do you offer" / "What plans do you offer"           |
+| Ignored difference                                              | Example                                                                |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| "How can I" or "Where can I" at the start, for "How/Where do I" | "How can I export my data" / "How do I export my data"                 |
+| "Which" at the start, for "What"                                | "Which plans do you offer" / "What plans do you offer"                 |
+| "What's" at the start, for "What is"                            | "What's the capital of Australia" / "What is the capital of Australia" |
+| The case of a question word at the start                        | "how do I reset my router" / "How do I reset my router"                |
+| Trailing `?` and `.`                                            | "Track my order?" / "Track my order"                                   |
+| Whitespace at the start or end                                  | "Track my order\n" / "Track my order"                                  |
+| Curly apostrophes outside code                                  | "didn’t" / "didn't"                                                    |
 
-## What never matches
+The rewordings and the case rule apply only at the start of the message. Anywhere else, the same words can be quoted or mentioned text, as in "Translate to French: how can I help you".
 
-Any other difference is a miss, because it can change the answer:
-
-- a different word, even a near-synonym or a single letter: "legal" / "illegal", "news" / "new", "Does a landlord raise rent" / "Can a landlord raise rent";
-- a different number, symbol or bracket: "1200" / "1500", "(2+3)\*4" / "2+3\*4";
-- the same words in a different order: "from me to you" / "from you to me";
-- the case of any other word: "CSS" / "css", "mW" / "MW";
-- line breaks, indentation or repeated spaces, which shape unfenced code, poems and quoted strings;
-- code in backticks or fences that differs in any character, whitespace included;
-- a quoted "please": "Translate 'please' to French" never matches "Translate '' to French".
-
-There is no similarity threshold and no embedding: two messages match only when they are equal after the differences above are removed.
+Any other difference is a miss: another word or letter, a different case anywhere but a leading question word, numbers, symbols, word order, "please", contractions, spacing and line breaks. Code in backticks or fences is compared exactly. There is no similarity threshold and no embedding.
 
 ## Headers and auditing
 
@@ -63,6 +51,6 @@ Every match, served or not, writes `routingMetadata.semanticCache` on the reques
 
 - Requests with `tools` and image generation models are skipped.
 - The final message must be from the user and contain only text.
-- `x-no-cache: true`, zero data retention and DevPass organizations bypass it, as with request caching.
+- `x-no-cache: true`, zero data retention and DevPass organizations bypass it, as with request caching. `/v1/responses` does not forward `x-no-cache`.
 - If the lookup fails or takes longer than 250 ms, the request continues as a miss.
 - It stops when the organization leaves the Enterprise plan.
