@@ -350,9 +350,12 @@ export function RoutingAnalyticsClient() {
 	);
 	const selectableModels = useMemo(
 		() =>
-			(catalogue?.models ?? []).filter(
-				(model) => !EXCLUDED_MODEL_IDS.has(model.id),
-			),
+			(catalogue?.models ?? [])
+				.filter((model) => !EXCLUDED_MODEL_IDS.has(model.id))
+				.map((model) => ({
+					...model,
+					mappings: model.mappings.filter((mapping) => !mapping.region),
+				})),
 		[catalogue],
 	);
 
