@@ -1473,6 +1473,8 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				tools: false,
+				webSearch: true,
+				webSearchPrice: "0.014",
 				jsonOutput: false,
 				jsonOutputSchema: false,
 			},

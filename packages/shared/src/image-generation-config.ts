@@ -153,6 +153,9 @@ function getMaxInputImages(lowerModel: string): number {
 	if (lowerModel.includes("grok-imagine")) {
 		return 1;
 	}
+	if (lowerModel.includes("gemini-nano-banana-2.1")) {
+		return 14;
+	}
 	if (
 		lowerModel.includes("gemini") &&
 		(lowerModel.includes("-image") || lowerModel.includes("nano-banana"))
