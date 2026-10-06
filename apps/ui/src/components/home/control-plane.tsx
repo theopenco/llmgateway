@@ -2,7 +2,6 @@ import { ArrowRight, ArrowUpRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-import { editorial } from "./fonts";
 import styles from "./home.module.css";
 import { TrackedLink } from "./tracked-link";
 
@@ -118,29 +117,19 @@ function Redacted({ children }: { children: ReactNode }) {
 
 export function ControlPlane() {
 	return (
-		<section id="features" className="relative scroll-mt-24 py-24 md:py-32">
+		<section id="controls" className="relative scroll-mt-24 py-24 md:py-32">
 			<div className="mx-auto max-w-7xl px-4 sm:px-6">
 				<div className="grid gap-8 lg:grid-cols-12 lg:items-end">
 					<div className="lg:col-span-7">
-						<p className="font-mono text-[11px] uppercase tracking-[0.2em] text-amber-700 dark:text-amber-300">
-							Enterprise control plane
-						</p>
-						<h2 className="mt-4 font-display text-4xl font-bold leading-[1.08] tracking-[-0.03em] md:text-6xl">
-							Built for the security review.{" "}
-							<span
-								className={cn(
-									editorial.className,
-									"font-normal italic text-muted-foreground",
-								)}
-							>
-								Easy on the budget.
-							</span>
+						<h2 className="text-balance font-display text-4xl font-bold leading-[1.08] tracking-[-0.03em] md:text-5xl">
+							Ship to production.{" "}
+							<span className="text-muted-foreground">Keep control.</span>
 						</h2>
 					</div>
 					<p className="text-lg leading-relaxed text-muted-foreground lg:col-span-5">
-						Give every team the models they need without handing out provider
-						keys. Identity, data rules, spend and reliability live in one place,
-						with admin changes recorded in an audit log on Enterprise.
+						Scoped keys, spend caps, failover and guardrails live in the
+						gateway, not in your app code. Add SSO and audit logs on Enterprise
+						when the rest of the company joins in.
 					</p>
 				</div>
 

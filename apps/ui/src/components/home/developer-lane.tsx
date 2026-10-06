@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
 
-import { editorial } from "./fonts";
 import { TrackedLink } from "./tracked-link";
 
 const CARRIERS: { id: keyof typeof dimensions; name: string }[] = [
@@ -80,19 +79,9 @@ export function DeveloperLane({ migrations }: { migrations: MigrationLink[] }) {
 			<div className="mx-auto max-w-7xl px-4 sm:px-6">
 				<div className="grid grid-cols-1 gap-12 lg:grid-cols-12">
 					<div className="min-w-0 lg:col-span-5">
-						<p className="font-mono text-[11px] uppercase tracking-[0.2em] text-sky-600 dark:text-sky-300">
-							For developers
-						</p>
-						<h2 className="mt-4 font-display text-4xl font-bold leading-[1.08] tracking-[-0.03em] md:text-5xl">
+						<h2 className="text-balance font-display text-4xl font-bold leading-[1.08] tracking-[-0.03em] md:text-5xl">
 							Change two lines.{" "}
-							<span
-								className={cn(
-									editorial.className,
-									"block font-normal italic text-muted-foreground",
-								)}
-							>
-								Keep your SDK.
-							</span>
+							<span className="text-muted-foreground">Keep your SDK.</span>
 						</h2>
 						<p className="mt-5 text-lg text-muted-foreground">
 							Point any OpenAI SDK at LLM Gateway and switch models by changing
