@@ -45,7 +45,7 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
-import { models, providers } from "@llmgateway/models";
+import { providers } from "@llmgateway/models";
 import { ModelMappingSelector } from "@llmgateway/shared/components";
 import { isDeactivationScheduledSoon } from "@llmgateway/shared/deactivation";
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
@@ -344,9 +344,19 @@ export function RoutingAnalyticsClient() {
 		[updateParams],
 	);
 
+	const { data: catalogue, isError: catalogueError } = $api.useQuery(
+		"get",
+		"/internal/models",
+	);
 	const selectableModels = useMemo(
-		() => models.filter((model) => !EXCLUDED_MODEL_IDS.has(model.id)),
-		[],
+		() =>
+			(catalogue?.models ?? [])
+				.filter((model) => !EXCLUDED_MODEL_IDS.has(model.id))
+				.map((model) => ({
+					...model,
+					mappings: model.mappings.filter((mapping) => !mapping.region),
+				})),
+		[catalogue],
 	);
 
 	const { data, isLoading, isError } = $api.useQuery(
@@ -645,7 +655,9 @@ export function RoutingAnalyticsClient() {
 				</div>
 			</header>
 
-			{!modelId ? (
+			{catalogueError && !modelId ? (
+				<EmptyState>Failed to load the model catalogue.</EmptyState>
+			) : !modelId ? (
 				<EmptyState>
 					Select a model to inspect how the gateway routes it.
 				</EmptyState>
