@@ -4,6 +4,11 @@ import { Suspense } from "react";
 
 import { CatalogFiltersBar } from "@/components/catalog-filters";
 import { CatalogSearch } from "@/components/catalog-search";
+import {
+	FilterLink,
+	FilterNavigationProvider,
+	FilterNavigationResults,
+} from "@/components/filter-navigation";
 import { ModelsTable } from "@/components/models-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
@@ -114,110 +119,118 @@ export default async function ModelsPage({
 	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
 
 	return (
-		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 overflow-hidden px-4 py-8 md:px-8">
-			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-				<div>
-					<h1 className="text-3xl font-semibold tracking-tight">Models</h1>
-					<p className="mt-1 text-sm text-muted-foreground">
-						{data.total} models found — click a row to view details
-					</p>
-				</div>
-				<div className="flex w-full items-center gap-3 sm:w-auto">
+		<FilterNavigationProvider>
+			<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 overflow-hidden px-4 py-8 md:px-8">
+				<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+					<div>
+						<h1 className="text-3xl font-semibold tracking-tight">Models</h1>
+						<p className="mt-1 text-sm text-muted-foreground">
+							{data.total} models found — click a row to view details
+						</p>
+					</div>
+					<div className="flex w-full items-center gap-3 sm:w-auto">
+						<Suspense>
+							<CatalogSearch scope="models" selection={selection} />
+						</Suspense>
+					</div>
+				</header>
+
+				<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+					<FilterNavigationResults message={null}>
+						<div className="flex flex-wrap items-center gap-6 text-sm">
+							<div>
+								<span className="text-muted-foreground">
+									Requests on this page
+								</span>
+								<p className="text-xl font-semibold tabular-nums">
+									{formatCompactNumber(
+										data.models.reduce((s, m) => s + m.logsCount, 0),
+									)}
+								</p>
+							</div>
+							<div>
+								<span className="text-muted-foreground">Total Tokens</span>
+								<p className="text-xl font-semibold tabular-nums">
+									{formatCompactNumber(data.totalTokens)}
+								</p>
+								<TokenBreakdown breakdown={data} short className="mt-0.5" />
+							</div>
+							<div>
+								<span className="text-muted-foreground">Total Cost</span>
+								<p className="text-xl font-semibold tabular-nums">
+									{currencyFormatter.format(data.totalCost)}
+								</p>
+							</div>
+						</div>
+					</FilterNavigationResults>
 					<Suspense>
-						<CatalogSearch scope="models" selection={selection} />
+						<div className="flex flex-wrap items-center gap-2">
+							<UsageModeSelector compact extraParams={{ page: null }} />
+							<TimeWindowSelector
+								current={pageWindow}
+								options={pageWindowOptionsWithMinutes}
+							/>
+						</div>
 					</Suspense>
 				</div>
-			</header>
 
-			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-				<div className="flex flex-wrap items-center gap-6 text-sm">
-					<div>
-						<span className="text-muted-foreground">Requests on this page</span>
-						<p className="text-xl font-semibold tabular-nums">
-							{formatCompactNumber(
-								data.models.reduce((s, m) => s + m.logsCount, 0),
-							)}
-						</p>
-					</div>
-					<div>
-						<span className="text-muted-foreground">Total Tokens</span>
-						<p className="text-xl font-semibold tabular-nums">
-							{formatCompactNumber(data.totalTokens)}
-						</p>
-						<TokenBreakdown breakdown={data} short className="mt-0.5" />
-					</div>
-					<div>
-						<span className="text-muted-foreground">Total Cost</span>
-						<p className="text-xl font-semibold tabular-nums">
-							{currencyFormatter.format(data.totalCost)}
-						</p>
-					</div>
-				</div>
 				<Suspense>
-					<div className="flex flex-wrap items-center gap-2">
-						<UsageModeSelector compact extraParams={{ page: null }} />
-						<TimeWindowSelector
-							current={pageWindow}
-							options={pageWindowOptionsWithMinutes}
+					<CatalogFiltersBar filters={filters} />
+				</Suspense>
+
+				<FilterNavigationResults>
+					<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
+						<ModelsTable
+							models={data.models}
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							search={search}
+							pageWindow={pageWindow}
+							usageMode={usageMode}
+							filterQuery={filterQuery}
 						/>
 					</div>
-				</Suspense>
-			</div>
+				</FilterNavigationResults>
 
-			<Suspense>
-				<CatalogFiltersBar filters={filters} />
-			</Suspense>
-
-			<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
-				<ModelsTable
-					models={data.models}
-					sortBy={sortBy}
-					sortOrder={sortOrder}
-					search={search}
-					pageWindow={pageWindow}
-					usageMode={usageMode}
-					filterQuery={filterQuery}
-				/>
-			</div>
-
-			{totalPages > 1 && (
-				<div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-					<p className="text-sm text-muted-foreground">
-						Showing {offset + 1} to {Math.min(offset + limit, data.total)} of{" "}
-						{data.total}
-					</p>
-					<div className="flex items-center gap-2">
-						<Button variant="outline" size="sm" asChild disabled={page <= 1}>
-							<Link
-								href={`/models?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${modeParam}${filterQuery}`}
-								className={page <= 1 ? "pointer-events-none opacity-50" : ""}
+				{totalPages > 1 && (
+					<div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+						<p className="text-sm text-muted-foreground">
+							Showing {offset + 1} to {Math.min(offset + limit, data.total)} of{" "}
+							{data.total}
+						</p>
+						<div className="flex items-center gap-2">
+							<Button variant="outline" size="sm" asChild disabled={page <= 1}>
+								<FilterLink
+									href={`/models?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${modeParam}${filterQuery}`}
+									className={page <= 1 ? "pointer-events-none opacity-50" : ""}
+								>
+									<ChevronLeft className="h-4 w-4" />
+									Previous
+								</FilterLink>
+							</Button>
+							<span className="text-sm text-muted-foreground">
+								Page {page} of {totalPages}
+							</span>
+							<Button
+								variant="outline"
+								size="sm"
+								asChild
+								disabled={page >= totalPages}
 							>
-								<ChevronLeft className="h-4 w-4" />
-								Previous
-							</Link>
-						</Button>
-						<span className="text-sm text-muted-foreground">
-							Page {page} of {totalPages}
-						</span>
-						<Button
-							variant="outline"
-							size="sm"
-							asChild
-							disabled={page >= totalPages}
-						>
-							<Link
-								href={`/models?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${modeParam}${filterQuery}`}
-								className={
-									page >= totalPages ? "pointer-events-none opacity-50" : ""
-								}
-							>
-								Next
-								<ChevronRight className="h-4 w-4" />
-							</Link>
-						</Button>
+								<FilterLink
+									href={`/models?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${modeParam}${filterQuery}`}
+									className={
+										page >= totalPages ? "pointer-events-none opacity-50" : ""
+									}
+								>
+									Next
+									<ChevronRight className="h-4 w-4" />
+								</FilterLink>
+							</Button>
+						</div>
 					</div>
-				</div>
-			)}
-		</div>
+				)}
+			</div>
+		</FilterNavigationProvider>
 	);
 }

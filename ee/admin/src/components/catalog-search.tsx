@@ -1,9 +1,12 @@
 "use client";
 
 import { ChevronsUpDown, Search, X } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import {
+	FilterPendingSpinner,
+	useFilterNavigation,
+} from "@/components/filter-navigation";
 import { Button } from "@/components/ui/button";
 import {
 	Command,
@@ -34,6 +37,7 @@ interface Suggestion {
 
 const SELECTION_PARAMS = ["search", "providerId", "modelId"] as const;
 const MAX_SUGGESTIONS = 50;
+const PENDING_KEY = "catalog-search";
 
 function matches(term: string, ...fields: string[]) {
 	return fields.some((field) => field.toLowerCase().includes(term));
@@ -63,9 +67,7 @@ export function CatalogSearch({
 	scope: "models" | "mappings";
 	selection: CatalogSelection;
 }) {
-	const router = useRouter();
-	const pathname = usePathname();
-	const searchParams = useSearchParams();
+	const { isPending, pendingKey, navigate } = useFilterNavigation();
 	const [open, setOpen] = useState(false);
 	const [input, setInput] = useState("");
 	const $api = useApi();
@@ -136,20 +138,21 @@ export function CatalogSearch({
 	}, [data, scope, term]);
 
 	const apply = (next: CatalogSelection) => {
-		const params = new URLSearchParams(searchParams.toString());
-		params.delete("page");
-		for (const key of SELECTION_PARAMS) {
-			const value = next[key];
-			if (value) {
-				params.set(key, value);
-			} else {
-				params.delete(key);
-			}
-		}
-		const query = params.toString();
-		router.replace(query ? `${pathname}?${query}` : pathname, {
-			scroll: false,
-		});
+		navigate(
+			PENDING_KEY,
+			(params) => {
+				params.delete("page");
+				for (const key of SELECTION_PARAMS) {
+					const value = next[key];
+					if (value) {
+						params.set(key, value);
+					} else {
+						params.delete(key);
+					}
+				}
+			},
+			{ replace: true },
+		);
 		setOpen(false);
 		setInput("");
 	};
@@ -174,12 +177,17 @@ export function CatalogSearch({
 						role="combobox"
 						aria-expanded={open}
 						aria-label={placeholder}
+						disabled={isPending}
 						className="h-9 min-w-0 flex-1 justify-start gap-2 px-3 font-normal sm:w-72 sm:flex-none"
 					>
-						<Search
-							className="h-4 w-4 shrink-0 text-muted-foreground"
-							aria-hidden
-						/>
+						{pendingKey === PENDING_KEY ? (
+							<FilterPendingSpinner className="shrink-0 text-muted-foreground" />
+						) : (
+							<Search
+								className="h-4 w-4 shrink-0 text-muted-foreground"
+								aria-hidden
+							/>
+						)}
 						{exact ? (
 							<span className="truncate font-mono text-xs">{exact}</span>
 						) : selection.search ? (
@@ -267,6 +275,7 @@ export function CatalogSearch({
 					variant="ghost"
 					size="sm"
 					aria-label="Clear search"
+					disabled={isPending}
 					className="h-9 px-2"
 					onClick={() => apply({})}
 				>
