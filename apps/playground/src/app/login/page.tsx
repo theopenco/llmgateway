@@ -32,27 +32,14 @@ import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAuthErrorToast } from "@/lib/auth-errors";
 
+import { getSafeRedirectPath } from "@llmgateway/shared/safe-redirect";
+
 const formSchema = z.object({
 	email: z.string().email({ message: "Please enter a valid email address" }),
 	password: z
 		.string()
 		.min(8, { message: "Password must be at least 8 characters" }),
 });
-
-function getSafeRedirectUrl(url: string | null): string {
-	if (!url?.startsWith("/")) {
-		return "/";
-	}
-	try {
-		const origin = "https://playground.invalid";
-		const target = new URL(url, origin);
-		return target.origin === origin
-			? `${target.pathname}${target.search}${target.hash}`
-			: "/";
-	} catch {
-		return "/";
-	}
-}
 
 export default function LoginPage() {
 	return (
@@ -69,7 +56,7 @@ function Login() {
 	const posthog = usePostHog();
 	const [isLoading, setIsLoading] = useState(false);
 	const { signIn } = useAuth();
-	const returnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
+	const returnUrl = getSafeRedirectPath(searchParams.get("returnUrl"));
 	const didAttemptPasskeyAutofillRef = useRef(false);
 
 	useUser({
