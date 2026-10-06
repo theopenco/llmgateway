@@ -728,6 +728,99 @@ function containsWebSearchEvidence(value: unknown): boolean {
 	});
 }
 
+const REASONING_TEXT_KEYS = new Set([
+	"reasoning",
+	"reasoning_content",
+	"reasoning_details",
+	"reasoningContent",
+]);
+const REASONING_TOKEN_KEYS = new Set([
+	"reasoning_tokens",
+	"reasoning_output_tokens",
+	"thinking_tokens",
+	"thoughtsTokenCount",
+]);
+const REASONING_BLOCK_TYPES = new Set([
+	"reasoning",
+	"thinking",
+	"redacted_thinking",
+]);
+
+/**
+ * Whether a response shows the model reasoned: reasoning text, a reasoning or
+ * thinking block, or a positive reasoning token count. An endpoint that accepts
+ * `reasoning_effort` but ignores it answers without any of these.
+ */
+function containsReasoningEvidence(value: unknown): boolean {
+	if (Array.isArray(value)) {
+		return value.some(containsReasoningEvidence);
+	}
+	if (!isRecord(value)) {
+		return false;
+	}
+	if (
+		(typeof value.type === "string" && REASONING_BLOCK_TYPES.has(value.type)) ||
+		value.thought === true
+	) {
+		return true;
+	}
+	return Object.entries(value).some(([key, entry]) => {
+		if (REASONING_TOKEN_KEYS.has(key)) {
+			return typeof entry === "number" && entry > 0;
+		}
+		// An object under `reasoning` is the Responses request echo
+		// ({effort, summary}), not output — except Bedrock's reasoningContent.
+		if (
+			REASONING_TEXT_KEYS.has(key) &&
+			((typeof entry === "string" && entry.trim()) ||
+				(Array.isArray(entry) && entry.length > 0) ||
+				(key === "reasoningContent" && isRecord(entry)))
+		) {
+			return true;
+		}
+		if (key === "content" && typeof entry === "string") {
+			return entry.includes("<think>");
+		}
+		return containsReasoningEvidence(entry);
+	});
+}
+
+/**
+ * Protocol defects in an otherwise served response that no other probe variant
+ * would fix: the gateway passes them straight through to developers, or bills
+ * from them.
+ */
+function responseDefect(
+	id: ModelVerificationCheckId,
+	body: unknown,
+	request: ModelVerificationRequest,
+): string | null {
+	const choice = atPath(body, ["choices", "0"]);
+	const chatCompletion = isRecord(body) && isRecord(choice);
+	if (id === "basic") {
+		if (chatCompletion && typeof body.id !== "string") {
+			return "The response has no id. Chat Completions responses must include id, object and created.";
+		}
+		return usageDefect(reportedUsage(body), "The response");
+	}
+	// A named tool_choice legitimately finishes with "stop" on OpenAI itself.
+	if (
+		id === "tools" &&
+		chatCompletion &&
+		typeof request.tool_choice !== "object"
+	) {
+		const toolCalls = atPath(choice, ["message", "tool_calls"]);
+		if (
+			Array.isArray(toolCalls) &&
+			toolCalls.length > 0 &&
+			choice.finish_reason !== "tool_calls"
+		) {
+			return `The response contains tool_calls but finish_reason is ${JSON.stringify(choice.finish_reason ?? null)}. It must be "tool_calls", or clients stop instead of running the tool.`;
+		}
+	}
+	return null;
+}
+
 function parseJsonOutput(text: string): unknown {
 	const trimmed = text
 		.trim()
@@ -750,33 +843,150 @@ function tokenCount(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function optionalCount(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value)
+		? value
+		: undefined;
+}
+
+/** Token counts the gateway bills from; a field is undefined when unreported. */
+interface ReportedUsage {
+	/** Every processed input token, cached ones included. */
+	input?: number;
+	/** Every generated token, reasoning included where reported separately. */
+	output?: number;
+	cached?: number;
+}
+
 /**
- * Input tokens the upstream says it processed, cached ones included, across the
- * usage shapes of the supported protocols. Undefined when none is reported.
+ * The usage a response body or stream event reports, across the usage shapes
+ * of the supported protocols.
  */
-function reportedInputTokens(body: unknown): number | undefined {
-	const usage = atPath(body, ["usage"]);
-	if (isRecord(usage)) {
-		if (typeof usage.prompt_tokens === "number") {
-			return usage.prompt_tokens;
-		}
-		if (typeof usage.input_tokens === "number") {
-			return (
-				usage.input_tokens +
-				tokenCount(usage.cache_read_input_tokens) +
-				tokenCount(usage.cache_creation_input_tokens)
-			);
-		}
-		if (typeof usage.inputTokens === "number") {
-			return (
-				usage.inputTokens +
-				tokenCount(usage.cacheReadInputTokens) +
-				tokenCount(usage.cacheWriteInputTokens)
-			);
-		}
+function reportedUsage(body: unknown): ReportedUsage {
+	const google = atPath(body, ["usageMetadata"]);
+	if (isRecord(google)) {
+		const candidates = optionalCount(google.candidatesTokenCount);
+		return {
+			input: optionalCount(google.promptTokenCount),
+			output:
+				candidates === undefined
+					? undefined
+					: candidates + tokenCount(google.thoughtsTokenCount),
+			cached: optionalCount(google.cachedContentTokenCount),
+		};
 	}
-	const google = atPath(body, ["usageMetadata", "promptTokenCount"]);
-	return typeof google === "number" ? google : undefined;
+	// Responses stream events nest it under `response`, Anthropic's
+	// message_start under `message`.
+	const usage =
+		atPath(body, ["usage"]) ??
+		atPath(body, ["response", "usage"]) ??
+		atPath(body, ["message", "usage"]);
+	if (!isRecord(usage)) {
+		return {};
+	}
+	if (
+		usage.prompt_tokens !== undefined ||
+		usage.completion_tokens !== undefined
+	) {
+		return {
+			input: optionalCount(usage.prompt_tokens),
+			output: optionalCount(usage.completion_tokens),
+			cached: optionalCount(
+				atPath(usage, ["prompt_tokens_details", "cached_tokens"]),
+			),
+		};
+	}
+	if (usage.inputTokens !== undefined || usage.outputTokens !== undefined) {
+		const input = optionalCount(usage.inputTokens);
+		return {
+			input:
+				input === undefined
+					? undefined
+					: input +
+						tokenCount(usage.cacheReadInputTokens) +
+						tokenCount(usage.cacheWriteInputTokens),
+			output: optionalCount(usage.outputTokens),
+			cached: optionalCount(usage.cacheReadInputTokens),
+		};
+	}
+	// Anthropic Messages and OpenAI Responses. Only Anthropic reports cache
+	// reads and writes outside input_tokens.
+	const input = optionalCount(usage.input_tokens);
+	return {
+		input:
+			input === undefined
+				? undefined
+				: input +
+					tokenCount(usage.cache_read_input_tokens) +
+					tokenCount(usage.cache_creation_input_tokens),
+		output: optionalCount(usage.output_tokens),
+		cached: optionalCount(
+			usage.cache_read_input_tokens ??
+				atPath(usage, ["input_tokens_details", "cached_tokens"]),
+		),
+	};
+}
+
+/**
+ * The usage the gateway bills a stream at: like the gateway, the last value a
+ * stream reports for a field replaces every earlier one.
+ */
+function mergeStreamUsage(events: unknown[]): ReportedUsage {
+	const merged: ReportedUsage = {};
+	for (const event of events) {
+		const usage = reportedUsage(event);
+		merged.input = usage.input ?? merged.input;
+		merged.output = usage.output ?? merged.output;
+		merged.cached = usage.cached ?? merged.cached;
+	}
+	return merged;
+}
+
+/**
+ * Why the reported usage cannot be billed, or null. Every listing is billed
+ * from these counts, so a response without them is a failed check rather than
+ * something the gateway papers over with an estimate.
+ */
+function usageDefect(usage: ReportedUsage, source: string): string | null {
+	if (usage.input === undefined && usage.output === undefined) {
+		return `${source} did not report token usage. Input and output token counts are required for billing.`;
+	}
+	if (!usage.input || usage.input <= 0) {
+		return `${source} reported ${usage.input ?? "no"} input tokens. A positive input token count is required for billing.`;
+	}
+	if (!usage.output || usage.output <= 0) {
+		return `${source} reported ${usage.output ?? "no"} output tokens. A positive output token count is required for billing.`;
+	}
+	if (usage.cached !== undefined && usage.cached > usage.input) {
+		return `${source} reported ${usage.cached} cached input tokens out of ${usage.input} input tokens. Cached tokens must be counted within the input tokens.`;
+	}
+	return null;
+}
+
+// The streaming and basic checks send the same prompt, so their input counts
+// should agree; the slack only absorbs serving-stack differences.
+const STREAM_INPUT_TOLERANCE_RATIO = 0.25;
+const STREAM_INPUT_TOLERANCE_TOKENS = 4;
+
+function streamInputMismatch(
+	streamed: number,
+	basic: number | undefined,
+): string | null {
+	if (basic === undefined) {
+		return null;
+	}
+	const tolerance = Math.max(
+		STREAM_INPUT_TOLERANCE_TOKENS,
+		basic * STREAM_INPUT_TOLERANCE_RATIO,
+	);
+	return Math.abs(streamed - basic) > tolerance
+		? `The stream reported ${streamed} input tokens for the prompt the non-streaming request reported ${basic} input tokens for. A stream must report the same totals; usage sent per chunk as increments is billed at its last value.`
+		: null;
+}
+
+/** Input tokens the upstream says it processed, cached ones included. */
+function reportedInputTokens(body: unknown): number | undefined {
+	return reportedUsage(body).input;
 }
 
 function validateContextSize(
@@ -841,6 +1051,14 @@ function validateResponse(
 			} catch {
 				return "The structured response was not valid JSON.";
 			}
+		case "reasoning":
+		case "reasoning_budget":
+			if (!assistantText) {
+				return "The provider returned no assistant content.";
+			}
+			return containsReasoningEvidence(body)
+				? null
+				: "The response showed no reasoning: no reasoning content and no reasoning tokens in usage. reasoning_effort must turn reasoning on.";
 		case "web_search":
 			if (!assistantText) {
 				return "The provider returned no assistant content.";
@@ -855,16 +1073,84 @@ function validateResponse(
 	}
 }
 
-function validateStream(body: string): string | null {
-	const events = body
+function parseStreamEvents(body: string): unknown[] | null {
+	const data = body
 		.split(/\r?\n/)
 		.map((line) => line.trim())
 		.filter((line) => line.startsWith("data:"))
 		.map((line) => line.slice("data:".length).trim())
-		.filter((data) => data && data !== "[DONE]");
-	return events.length > 0
-		? null
-		: "The response did not contain any streaming events.";
+		.filter((value) => value && value !== "[DONE]");
+	if (data.length === 0) {
+		return null;
+	}
+	return data.flatMap((value) => {
+		try {
+			return [JSON.parse(value) as unknown];
+		} catch {
+			return [];
+		}
+	});
+}
+
+/** Visible text one stream event adds, across the supported protocols. */
+function streamEventText(event: unknown): string {
+	if (!isRecord(event)) {
+		return "";
+	}
+	if (event.type === "response.output_text.delta") {
+		return typeof event.delta === "string" ? event.delta : "";
+	}
+	if (event.type === "content_block_delta") {
+		return textFromContent([event.delta]);
+	}
+	return (
+		textFromContent(atPath(event, ["choices", "0", "delta", "content"])) ||
+		textFromContent(atPath(event, ["candidates", "0", "content", "parts"]))
+	);
+}
+
+function isStreamEnd(event: unknown): boolean {
+	if (!isRecord(event)) {
+		return false;
+	}
+	if (event.type === "response.completed" || event.type === "message_stop") {
+		return true;
+	}
+	return Boolean(
+		atPath(event, ["delta", "stop_reason"]) ||
+		atPath(event, ["candidates", "0", "finishReason"]) ||
+		(Array.isArray(event.choices) &&
+			event.choices.some((choice) => isRecord(choice) && choice.finish_reason)),
+	);
+}
+
+/**
+ * A stream is billed from the usage it reports, so the check holds it to what
+ * the gateway needs: text, a finish reason, and complete usage that agrees
+ * with the non-streaming request for the same prompt.
+ */
+function validateStream(
+	body: string,
+	basicUsage: ReportedUsage | undefined,
+): string | null {
+	const events = parseStreamEvents(body);
+	if (!events) {
+		return "The response did not contain any streaming events.";
+	}
+	if (!events.some((event) => streamEventText(event).trim())) {
+		return "The stream did not contain any assistant text.";
+	}
+	if (!events.some(isStreamEnd)) {
+		return "The stream ended without a finish reason.";
+	}
+	const usage = mergeStreamUsage(events);
+	const defect = usageDefect(usage, "The stream");
+	if (defect) {
+		return usage.input === undefined && usage.output === undefined
+			? `${defect} OpenAI-compatible streams must honour stream_options.include_usage with a final usage chunk.`
+			: defect;
+	}
+	return streamInputMismatch(usage.input ?? 0, basicUsage?.input);
 }
 
 function upstreamErrorMessage(body: string, status: number): string {
@@ -933,15 +1219,28 @@ interface CheckFailure {
 	 * a transport error says nothing and must never narrow a listing.
 	 */
 	rejected: boolean;
+	/**
+	 * The response was served but carries a protocol defect no other probe
+	 * variant would fix, so a ladder stops instead of narrowing the listing.
+	 */
+	conclusive?: boolean;
+}
+
+interface CheckContext {
+	secrets: Set<string>;
+	/** What the basic completion reported, for the streaming check to match. */
+	basicUsage?: ReportedUsage;
+	/** A key smoke test proves the key works; billing data is preflight's. */
+	keyOnly?: boolean;
 }
 
 async function attemptCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
-	secrets: Set<string>,
+	context: CheckContext,
 ): Promise<CheckFailure | null> {
 	try {
-		return await executeCheck(definition, options, secrets);
+		return await executeCheck(definition, options, context);
 	} catch (error) {
 		return {
 			message: redactSecrets(
@@ -949,7 +1248,7 @@ async function attemptCheck(
 					? error.message
 					: "Verification request failed."
 				).slice(0, 500),
-				secrets,
+				context.secrets,
 			),
 			rejected: false,
 		};
@@ -1000,7 +1299,7 @@ function probeResult(
 async function runReasoningCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
-	secrets: Set<string>,
+	context: CheckContext,
 	knownUnsupported: ReasoningEffort[],
 	reportProbes: ProbeReporter,
 ): Promise<CheckOutcome> {
@@ -1031,7 +1330,7 @@ async function runReasoningCheck(
 				request: { ...definition.request, reasoning_effort: effort },
 			},
 			options,
-			secrets,
+			context,
 		);
 		probes.push(probeResult(`reasoning_effort: ${effort}`, failure));
 		await reportProbes(probes);
@@ -1096,7 +1395,7 @@ function explainLimitRefusal(
 async function runCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
-	secrets: Set<string>,
+	context: CheckContext,
 	knownUnsupportedReasoningEfforts: ReasoningEffort[],
 	reportProbes: ProbeReporter,
 ): Promise<CheckOutcome> {
@@ -1104,7 +1403,7 @@ async function runCheck(
 		return await runReasoningCheck(
 			definition,
 			options,
-			secrets,
+			context,
 			knownUnsupportedReasoningEfforts,
 			reportProbes,
 		);
@@ -1114,7 +1413,7 @@ async function runCheck(
 			failure: explainLimitRefusal(
 				definition.id,
 				options.target,
-				await attemptCheck(definition, options, secrets),
+				await attemptCheck(definition, options, context),
 			),
 		};
 	}
@@ -1136,12 +1435,15 @@ async function runCheck(
 				},
 			},
 			options,
-			secrets,
+			context,
 		);
 		probes.push(probeResult(`tool_choice: ${mode}`, failure));
 		await reportProbes(probes);
 		if (!failure) {
 			return { failure: null, unsupportedToolChoices, probes };
+		}
+		if (failure.conclusive) {
+			break;
 		}
 		unsupportedToolChoices.push(mode);
 	}
@@ -1151,7 +1453,7 @@ async function runCheck(
 async function executeCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
-	secrets: Set<string>,
+	context: CheckContext,
 ): Promise<CheckFailure | null> {
 	const knownProvider = providers.some(
 		(provider) => provider.id === options.target.providerId,
@@ -1180,7 +1482,7 @@ async function executeCheck(
 	) {
 		requestToken = await getGcpServiceAccountAccessToken(options.token);
 	}
-	secrets.add(requestToken);
+	context.secrets.add(requestToken);
 	const endpoint = getProviderEndpoint(
 		provider,
 		options.baseUrl,
@@ -1288,29 +1590,35 @@ async function executeCheck(
 		return {
 			message: redactSecrets(
 				upstreamErrorMessage(bodyText, response.status),
-				secrets,
+				context.secrets,
 			),
 			rejected: response.status >= 400 && response.status < 500,
 		};
 	}
-	const served = definition.request.stream
-		? validateStream(bodyText)
-		: validateServedResponse(definition.id, bodyText, options.target);
-	return served ? { message: served, rejected: false } : null;
-}
-
-function validateServedResponse(
-	id: ModelVerificationCheckId,
-	bodyText: string,
-	target: ProviderModelVerificationTarget,
-): string | null {
+	if (definition.request.stream) {
+		const streamed = validateStream(bodyText, context.basicUsage);
+		return streamed ? { message: streamed, rejected: false } : null;
+	}
 	let body: unknown;
 	try {
 		body = JSON.parse(bodyText) as unknown;
 	} catch {
-		return "The provider returned a non-JSON response.";
+		return {
+			message: "The provider returned a non-JSON response.",
+			rejected: false,
+		};
 	}
-	return validateResponse(id, body, target);
+	if (definition.id === "basic") {
+		context.basicUsage = reportedUsage(body);
+	}
+	const defect = context.keyOnly
+		? null
+		: responseDefect(definition.id, body, definition.request);
+	if (defect) {
+		return { message: defect, rejected: false, conclusive: true };
+	}
+	const invalid = validateResponse(definition.id, body, options.target);
+	return invalid ? { message: invalid, rejected: false } : null;
 }
 
 export async function runProviderModelVerification(
@@ -1318,7 +1626,7 @@ export async function runProviderModelVerification(
 ): Promise<ModelVerificationRunResult> {
 	const definitions = verificationDefinitions(options.target);
 	const checks = createQueuedModelVerificationChecks(options.target);
-	const secrets = new Set([options.token]);
+	const context: CheckContext = { secrets: new Set([options.token]) };
 	let unsupportedToolChoices: ToolChoiceMode[] | undefined;
 	let unsupportedReasoningEfforts: ReasoningEffort[] | undefined;
 	for (let index = 0; index < definitions.length; index++) {
@@ -1333,7 +1641,7 @@ export async function runProviderModelVerification(
 		const outcome = await runCheck(
 			definition,
 			options,
-			secrets,
+			context,
 			unsupportedReasoningEfforts ?? [],
 			async (probes) => {
 				const progress: ProviderModelVerificationCheck = {
@@ -1416,7 +1724,7 @@ export async function runProviderKeySmokeTest(
 			request: createBasicVerificationRequest(options.target.modelName),
 		},
 		options,
-		new Set([options.token]),
+		{ secrets: new Set([options.token]), keyOnly: true },
 		[],
 		() => undefined,
 	);
