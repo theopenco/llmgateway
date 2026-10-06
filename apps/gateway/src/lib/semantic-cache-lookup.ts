@@ -57,7 +57,8 @@ export function semanticCachePointerFor(options: {
 	const { messages, ...rest } = options.payload;
 	const last = messages[messages.length - 1];
 	const text = finalUserText(last);
-	if (text === null) {
+	const prompt = text === null ? null : normalizedPromptKey(text);
+	if (prompt === null) {
 		return null;
 	}
 	return semanticCachePointerKey(options.projectId, {
@@ -65,7 +66,7 @@ export function semanticCachePointerFor(options: {
 		stream: options.stream,
 		context: messages.slice(0, -1),
 		last: { ...last, content: undefined },
-		prompt: normalizedPromptKey(text),
+		prompt,
 	});
 }
 

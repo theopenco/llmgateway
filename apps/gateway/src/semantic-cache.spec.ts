@@ -128,6 +128,12 @@ describe("semantic cache", () => {
 			["Convert 1 mW to watts", "Convert 1 MW to watts"],
 			["Send 100 from me to you", "Send 100 from you to me"],
 			["Is it legal to record a call?", "Is it illegal to record a call?"],
+			["What is 7² exactly?", "What is 72 exactly?"],
+			["What is 5! exactly?", "What is 5 exactly?"],
+			[
+				"Translate to French: how can I help you",
+				"Translate to French: how do I help you",
+			],
 		];
 		for (const [primed, variant] of pairs) {
 			const tag = ` (${randomUUID()})`;
@@ -181,11 +187,11 @@ describe("semantic cache", () => {
 		};
 		await prime({
 			tools: [tool],
-			messages: [{ role: "user", content: `Look up order ${tag} please` }],
+			messages: [{ role: "user", content: `How do I look up order ${tag}?` }],
 		});
 		const withTools = await completions({
 			tools: [tool],
-			messages: [{ role: "user", content: `Look up order ${tag}` }],
+			messages: [{ role: "user", content: `How can I look up order ${tag}` }],
 		});
 		expect(withTools.headers.get("x-llmgateway-cache")).toBeNull();
 	});
@@ -218,10 +224,10 @@ describe("semantic cache", () => {
 		const tag = randomUUID();
 		await prime({
 			stream: true,
-			messages: [{ role: "user", content: `Tell me about caching ${tag}` }],
+			messages: [{ role: "user", content: `How do I enable caching ${tag}?` }],
 		});
 
-		const hit = await ask(`Tell me about caching ${tag} please!`, {
+		const hit = await ask(`How can I enable caching ${tag}`, {
 			stream: true,
 		});
 		expect(hit.status).toBe(200);
@@ -235,13 +241,17 @@ describe("semantic cache", () => {
 	test("/v1/messages forwards the semantic match header", async () => {
 		const tag = randomUUID();
 		await prime(
-			{ messages: [{ role: "user", content: `Summarise caching ${tag}` }] },
+			{
+				messages: [
+					{ role: "user", content: `How do I summarise caching ${tag}?` },
+				],
+			},
 			"/v1/messages",
 		);
 		const hit = await completions(
 			{
 				messages: [
-					{ role: "user", content: `Please summarise caching ${tag}.` },
+					{ role: "user", content: `How can I summarise caching ${tag}` },
 				],
 			},
 			"/v1/messages",
@@ -254,13 +264,15 @@ describe("semantic cache", () => {
 	test("a lapsed enterprise plan disables lookups", async () => {
 		const tag = randomUUID();
 		await prime({
-			messages: [{ role: "user", content: `Describe the gateway ${tag}` }],
+			messages: [
+				{ role: "user", content: `How do I describe the gateway ${tag}?` },
+			],
 		});
 		await harness.setOrganizationPlan("pro");
 		// The gateway caches the organization row; a real plan change is
 		// invalidated by the API, so mirror that here.
 		await clearCache();
-		const res = await ask(`Please describe the gateway ${tag}`);
+		const res = await ask(`How can I describe the gateway ${tag}`);
 		expect(res.status).toBe(200);
 		expect(res.headers.get("x-llmgateway-cache")).toBeNull();
 	});

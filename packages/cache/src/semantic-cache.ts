@@ -4,131 +4,76 @@ import { logger } from "@llmgateway/logger";
 
 import { storageRedisClient } from "./storage-redis.js";
 
-const CONTRACTIONS: Record<string, string[]> = {
-	"what's": ["what", "is"],
-	"where's": ["where", "is"],
-	"how's": ["how", "is"],
-	"who's": ["who", "is"],
-	"it's": ["it", "is"],
-	"that's": ["that", "is"],
-	"there's": ["there", "is"],
-	"i'm": ["i", "am"],
-	"won't": ["will", "not"],
-	"can't": ["can", "not"],
-	cannot: ["can", "not"],
-};
-
-/** Dropped unless it sits next to a quote, where it is the subject: "Translate 'please'". */
-const IGNORED_WORDS = new Set(["please"]);
-
-const QUOTES = new Set(["'", '"']);
-
-const TERMINATORS = new Set(["?", ".", "!"]);
-
-const FRAME_EQUIVALENTS: Record<string, string> = {
-	"how can i": "how do i",
-	"where can i": "where do i",
-};
-
-const FIRST_TOKEN_EQUIVALENTS: Record<string, string> = {
-	which: "what",
-};
-
-const FRAMES = Object.entries(FRAME_EQUIVALENTS).map(([from, to]) => ({
-	from: from.split(" "),
-	to: to.split(" "),
-}));
-
 /**
- * Fenced code, closed or running to the end of the text, then inline code.
- * Both are compared verbatim, whitespace included.
+ * Bumped whenever `normalizedPromptKey` changes, so pointers written under an
+ * older rule are never served.
  */
+const PROMPT_RULE_VERSION = 2;
+
+/** Fenced code, closed or running to the end of the text, then inline code. */
 const CODE = /(```[\s\S]*?(?:```|$)|`[^`]*`)/;
 
-const PROSE_TOKEN = /\p{L}+(?:'\p{L}+)*|\p{N}+(?:[.,]\p{N}+)*|\s+|\S/gu;
+/**
+ * Question openers whose capitalisation never changes the answer. Only the
+ * message's first word is folded, and only when it is one of these.
+ */
+const OPENERS = new Set([
+	"how",
+	"what",
+	"what's",
+	"which",
+	"where",
+	"when",
+	"why",
+	"who",
+	"can",
+	"could",
+	"do",
+	"does",
+	"is",
+	"are",
+]);
 
 /**
- * Only a single space between tokens is ignorable. Line breaks, indentation
- * and repeated spaces shape unfenced code, poems and quoted strings.
+ * Rewordings that carry nearly all hits. They apply only at the start of the
+ * message: anywhere else the same words can be quoted or mentioned text.
  */
-const IGNORABLE_WHITESPACE = " ";
+const OPENING_EQUIVALENTS: [RegExp, string][] = [
+	[/^(how|where) (?:can|do) [iI]\b/, "$1 do I"],
+	[/^what's\b/, "what is"],
+	[/^which\b/, "what"],
+];
 
-/** Lowercase or "Paris"-style words fold; "mW", "CSS" and "iPhone" keep their case. */
-const FOLDABLE_CASE = /^\p{Lu}?\p{Ll}*(?:'\p{Ll}+)*$/u;
-
-function proseTokens(prose: string): string[] {
-	const tokens: string[] = [];
-	for (const raw of prose.match(PROSE_TOKEN) ?? []) {
-		if (raw === IGNORABLE_WHITESPACE) {
-			continue;
-		}
-		const token = FOLDABLE_CASE.test(raw) ? raw.toLowerCase() : raw;
-		const expanded = CONTRACTIONS[token];
-		if (expanded) {
-			tokens.push(...expanded);
-		} else if (token.endsWith("n't")) {
-			tokens.push(token.slice(0, -3), "not");
-		} else {
-			tokens.push(token);
-		}
-	}
-	return tokens;
-}
-
-function tokenize(text: string): string[] {
-	const normalized = text
-		.trim()
-		.normalize("NFKC")
-		.replace(/[‘’ʼ]/g, "'")
-		.replace(/[“”]/g, '"');
-	// Splitting on a capturing pattern puts the code spans at odd indexes.
-	return normalized
-		.split(CODE)
-		.flatMap((part, i) => (i % 2 === 1 ? [part] : proseTokens(part)));
-}
-
-function replaceFrames(tokens: string[]): string[] {
-	const out: string[] = [];
-	for (let i = 0; i < tokens.length; i++) {
-		const frame = FRAMES.find(({ from }) =>
-			from.every((word, offset) => tokens[i + offset] === word),
-		);
-		if (frame) {
-			out.push(...frame.to);
-			i += frame.from.length - 1;
-		} else {
-			out.push(tokens[i]);
-		}
-	}
-	return out;
-}
-
-/**
- * Key of a final user turn for the semantic cache. Two turns match only when
- * their keys are equal, so this is exact comparison that ignores a short,
- * explicit list of differences: Unicode compatibility forms, curly quotes,
- * the case of plain words, leading and trailing whitespace, a single space
- * between tokens outside code, contractions, trailing
- * "?", "." and "!", "please", "how/where can I" for "how/where do I", and a
- * leading "which" for "what". Every other word, number, symbol and code
- * character must be identical.
- */
-export function normalizedPromptKey(text: string): string {
-	const tokens = tokenize(text);
-	const kept = tokens.filter(
-		(token, i) =>
-			!IGNORED_WORDS.has(token) ||
-			QUOTES.has(tokens[i - 1]) ||
-			QUOTES.has(tokens[i + 1]),
+function normalizeOpening(prose: string): string {
+	const folded = prose.replace(/^\p{L}+(?:'\p{L}+)?/u, (word) =>
+		OPENERS.has(word.toLowerCase()) ? word.toLowerCase() : word,
 	);
-	while (kept.length > 0 && TERMINATORS.has(kept[kept.length - 1])) {
-		kept.pop();
+	return OPENING_EQUIVALENTS.reduce(
+		(text, [pattern, replacement]) => text.replace(pattern, replacement),
+		folded,
+	);
+}
+
+/**
+ * Key of a final user turn for the semantic cache, or null when nothing is
+ * left to compare. Two turns match only when their keys are equal, so this is
+ * exact comparison that ignores only: whitespace at either end, curly
+ * apostrophes outside code, the case of a leading question word, "how/where
+ * can I" for "how/where do I", a leading "which" for "what" and "what's" for
+ * "what is", and a trailing "?" or ".". Code is compared verbatim.
+ */
+export function normalizedPromptKey(text: string): string | null {
+	// Splitting on a capturing pattern puts the code spans at odd indexes.
+	const parts = text
+		.trim()
+		.split(CODE)
+		.map((part, i) => (i % 2 === 1 ? part : part.replace(/[‘’ʼ]/g, "'")));
+	parts[0] = normalizeOpening(parts[0]);
+	const last = parts.length - 1;
+	if (last % 2 === 0) {
+		parts[last] = parts[last].replace(/\s*[?.]+$/, "");
 	}
-	const framed = replaceFrames(kept);
-	if (framed.length > 0 && FIRST_TOKEN_EQUIVALENTS[framed[0]]) {
-		framed[0] = FIRST_TOKEN_EQUIVALENTS[framed[0]];
-	}
-	return JSON.stringify(framed);
+	return parts.join("") === "" ? null : JSON.stringify(parts);
 }
 
 /** JSON with object keys sorted, so key order in a request never splits the cache. */
@@ -155,7 +100,7 @@ export function semanticCachePointerKey(
 		.createHash("sha256")
 		.update(stableJson(scope))
 		.digest("hex");
-	return `semcache:${projectId}:${hash}`;
+	return `semcache:v${PROMPT_RULE_VERSION}:${projectId}:${hash}`;
 }
 
 const POINTER_READ_TIMEOUT_MS = 250;

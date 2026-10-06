@@ -26,19 +26,23 @@ describe("normalizedPromptKey", () => {
 			"Which payment methods do you accept?",
 		],
 		["What is the capital of Australia?", "What's the capital of Australia?"],
-		["weather in paris tomorrow", "Weather in Paris tomorrow?"],
 		[
 			"Why didn\u2019t my payment go through",
 			"Why didn't my payment go through",
 		],
-		["Can you help me please?", "Can you help me"],
-		["Where can I find my invoice", "Where do I find my invoice!"],
-		["Don't delete it", "Do not delete it."],
-		["  How do I reset my router?\n", "How can I reset my router"],
-		["I'm locked out", "i am locked out"],
+		["Where can I find my invoice", "Where do I find my invoice."],
+		["  How do I reset my router?\n", "how can i reset my router"],
+		["Is the store open on Sunday?", "is the store open on Sunday"],
 	])("matches %j and %j", (a, b) => {
 		expect(matches(a, b)).toBe(true);
 	});
+
+	test.each(["", "   ", ".", "?", "\n?\n"])(
+		"has no key for %j, so empty turns never share one",
+		(text) => {
+			expect(normalizedPromptKey(text)).toBeNull();
+		},
+	);
 
 	test.each([
 		["Does a landlord raise rent?", "Can a landlord raise rent?"],
@@ -68,6 +72,25 @@ describe("normalizedPromptKey", () => {
 		["What does CSS stand for", "What does css stand for"],
 		["Tell me which one is faster", "Tell me what one is faster"],
 		["How could I reset it", "How do I reset it"],
+		["What is 7²?", "What is 72?"],
+		["Is x in ℝ?", "Is x in R?"],
+		["What is 5!", "What is 5"],
+		["Convert 5 Mm to km", "Convert 5 mm to km"],
+		["Let N = 5 and n = 3. What is N?", "Let N = 5 and n = 3. What is n?"],
+		["Reply with exactly Yes", "Reply with exactly yes"],
+		["Is Turkey safe to visit", "Is turkey safe to visit"],
+		['Count chars in "a, b"', 'Count chars in "a,b"'],
+		["Solve x2 = 4", "Solve x 2 = 4"],
+		["Run `print('²')`", "Run `print('2')`"],
+		["Run `echo “hi”`", 'Run `echo "hi"`'],
+		[
+			"Translate to French: how can I help you",
+			"Translate to French: how do I help you",
+		],
+		["How do you say please in Spanish?", "How do you say in Spanish?"],
+		["Translate 'Don't' to French", "Translate 'Do not' to French"],
+		["Don't delete it", "Do not delete it"],
+		["weather in paris tomorrow", "weather in Paris tomorrow"],
 	])("does not match %j and %j", (a, b) => {
 		expect(matches(a, b)).toBe(false);
 	});
@@ -91,7 +114,7 @@ describe("semantic cache pointer", () => {
 	test("is scoped to the project and every scope field, not key order", () => {
 		const scope = { model: "a", temperature: 0, context: [{ role: "system" }] };
 		const key = semanticCachePointerKey("project-a", scope);
-		expect(key).toMatch(/^semcache:project-a:[0-9a-f]{64}$/);
+		expect(key).toMatch(/^semcache:v\d+:project-a:[0-9a-f]{64}$/);
 		expect(
 			semanticCachePointerKey("project-a", {
 				context: [{ role: "system" }],
