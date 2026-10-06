@@ -44,6 +44,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { useApi } from "@/lib/fetch-client";
 import { perMillionToPerToken, perTokenToPerMillion } from "@/lib/format";
 
+import {
+	isValidModelId,
+	modelIdProblem,
+	suggestModelId,
+} from "@llmgateway/models";
+
 import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
 
@@ -669,9 +675,24 @@ export function RegisterModelDialog({
 	const [open, setOpen] = useState(false);
 	const catalogue = useCatalogue(open);
 	const [modelName, setModelName] = useState("");
+	const trimmedModelName = modelName.trim();
 	const canonicalModel = catalogue.data?.models.find(
-		(entry) => entry.id === modelName.trim(),
+		(entry) => entry.id === trimmedModelName,
 	);
+	const modelIdValid = isValidModelId(trimmedModelName);
+	const modelIdError =
+		trimmedModelName && !modelIdValid
+			? (modelIdProblem(trimmedModelName) ?? "").replace(
+					/ Did you mean ".*"\?$/,
+					"",
+				)
+			: null;
+	const modelIdSuggestion = modelIdError
+		? suggestModelId(
+				trimmedModelName,
+				catalogue.data?.models.map((entry) => entry.id),
+			)
+		: null;
 
 	const [externalId, setExternalId] = useState("");
 	const [apiFormat, setApiFormat] =
@@ -849,6 +870,9 @@ export function RegisterModelDialog({
 					className="space-y-4"
 					onSubmit={(e) => {
 						e.preventDefault();
+						if (!modelIdValid) {
+							return;
+						}
 						if (!catalogue.isSuccess) {
 							toast.error("Load the catalogue before saving.");
 							return;
@@ -942,8 +966,66 @@ export function RegisterModelDialog({
 								}}
 								disabled={verificationInProgress}
 								placeholder="acme-large-2"
+								autoCapitalize="none"
+								autoCorrect="off"
+								spellCheck={false}
+								aria-invalid={modelIdError ? true : undefined}
+								aria-describedby="model-name-feedback"
 								required
 							/>
+							<div id="model-name-feedback" aria-live="polite">
+								{modelIdError ? (
+									<div className="space-y-1.5">
+										<p
+											className="text-destructive text-xs"
+											data-testid="model-name-error"
+										>
+											{modelIdError}
+										</p>
+										{modelIdSuggestion ? (
+											<Button
+												type="button"
+												size="sm"
+												variant="outline"
+												className="h-7 font-mono text-xs"
+												data-testid="model-id-suggestion"
+												disabled={verificationInProgress}
+												onClick={() => {
+													if (
+														!externalId.trim() &&
+														!/\s/.test(trimmedModelName)
+													) {
+														setExternalId(trimmedModelName);
+													}
+													setModelName(modelIdSuggestion);
+													resetVerification();
+												}}
+											>
+												Use {modelIdSuggestion}
+											</Button>
+										) : null}
+									</div>
+								) : canonicalModel ? (
+									<p
+										className="flex items-start gap-1 text-xs text-emerald-600 dark:text-emerald-400"
+										data-testid="model-name-match"
+									>
+										<CheckCircle2
+											className="mt-px size-3.5 shrink-0"
+											aria-hidden
+										/>
+										<span>
+											Matches catalogue model{" "}
+											<span className="font-mono">{canonicalModel.id}</span>
+										</span>
+									</p>
+								) : (
+									<p className="text-muted-foreground text-xs">
+										Lowercase letters, digits, dots and hyphens — no provider
+										prefix.
+									</p>
+								)}
+							</div>
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="model-external-id">Upstream model ID</Label>
@@ -1316,6 +1398,7 @@ export function RegisterModelDialog({
 								queueVerification.isPending ||
 								verificationInProgress ||
 								!effectiveProviderId ||
+								!modelIdValid ||
 								(verification?.status !== "passed" &&
 									!apiKey.trim() &&
 									!savedVerificationKey)

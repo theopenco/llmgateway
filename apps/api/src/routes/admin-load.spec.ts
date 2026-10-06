@@ -29,6 +29,7 @@ interface LoadOverview {
 	window: string;
 	bucket: "minute" | "hour" | "day";
 	source: "mapping-history" | "project-stats";
+	summarySource: "mapping-history" | "project-stats";
 	groupBy: string;
 	summary: {
 		currentRps: number;
@@ -479,7 +480,7 @@ describe("admin — gateway load", () => {
 	);
 
 	test.each([
-		{ groupBy: "organization" },
+		{ groupBy: "organization", organizationId: ORG_A },
 		{ groupBy: "project", projectId: PROJECT_A },
 		{ groupBy: "api-key", apiKeyId: API_KEY_A },
 		{ groupBy: "model", organizationId: ORG_A },
@@ -503,6 +504,30 @@ describe("admin — gateway load", () => {
 			weekly.breakdown.map((row) => row.peakRps),
 		);
 		expect(monthly.summary.totalRequests).toBe(weekly.summary.totalRequests);
+	});
+
+	test.each<Record<string, string>>([
+		{ window: "1h" },
+		{ window: "1d" },
+		{ window: "1d", organizationId: ORG_A },
+	])("reports the same summary under every grouping: %j", async (filter) => {
+		const groupings = [
+			"model",
+			"provider",
+			"organization",
+			"project",
+			"api-key",
+		];
+		const bodies = await Promise.all(
+			groupings.map((groupBy) => fetchLoad(cookie, { ...filter, groupBy })),
+		);
+		const expected = filter.organizationId
+			? "project-stats"
+			: "mapping-history";
+		for (const body of bodies) {
+			expect(body.summarySource).toBe(expected);
+			expect(body.summary).toEqual(bodies[0].summary);
+		}
 	});
 
 	test("counts the bucket the window opens in", async () => {
@@ -547,13 +572,15 @@ describe("admin — gateway load", () => {
 		const total = await fetchLoad(cookie, {
 			window: "1d",
 			groupBy: "organization",
+			organizationId: ORG_A,
 		});
-		expect(total.summary.errorRate).toBeCloseTo(60 / (9000 - 12), 6);
-		expect(total.summary.clientErrorRate).toBeCloseTo(12 / 9000, 6);
+		expect(total.summary.errorRate).toBeCloseTo(60 / (7200 - 12), 6);
+		expect(total.summary.clientErrorRate).toBeCloseTo(12 / 7200, 6);
 
 		const credits = await fetchLoad(cookie, {
 			window: "1d",
 			groupBy: "organization",
+			organizationId: ORG_A,
 			mode: "credits",
 		});
 		// The per-mode request columns have no matching error split.
@@ -674,16 +701,13 @@ describe("admin — gateway load", () => {
 		const orgB = body.breakdown.find((row) => row.key === ORG_B);
 		expect(orgB?.avgDurationMs).toBeNull();
 		expect(orgB?.avgTimeToFirstTokenMs).toBeNull();
-
-		// The summary is count-weighted across both orgs, so it is org A's
-		// samples alone rather than the mean of 1500 and nothing.
-		expect(body.summary.avgDurationMs).toBeCloseTo(1500, 6);
 	});
 
 	test("withholds latency when a mode narrows the tenant rollup", async () => {
 		const body = await fetchLoad(cookie, {
 			window: "1d",
 			groupBy: "organization",
+			organizationId: ORG_A,
 			mode: "credits",
 		});
 

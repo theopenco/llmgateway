@@ -1404,6 +1404,62 @@ describe("keys route", () => {
 		);
 	});
 
+	test("POST /keys/api rejects extra keys on a DevPass org", async () => {
+		await db
+			.update(tables.organization)
+			.set({ kind: "devpass" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Second DevPass Key",
+				projectId: "test-project-id",
+				usageLimit: null,
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const activeKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: "test-project-id" },
+				status: { eq: "active" },
+				kind: { ne: "playground" },
+			},
+		});
+		expect(activeKeys).toHaveLength(1);
+	});
+
+	test("PATCH /keys/api/{id} cannot reactivate a DevPass key", async () => {
+		await db
+			.update(tables.organization)
+			.set({ kind: "devpass" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db
+			.update(tables.apiKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.apiKey.id, "test-api-key-id"));
+
+		const res = await app.request("/keys/api/test-api-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ status: "active" }),
+		});
+
+		expect(res.status).toBe(403);
+		const key = await db.query.apiKey.findFirst({
+			where: { id: { eq: "test-api-key-id" } },
+		});
+		expect(key?.status).toBe("inactive");
+	});
+
 	test("POST /keys/api respects the admin apiKeyLimit override", async () => {
 		await db
 			.update(tables.organization)

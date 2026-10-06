@@ -26,6 +26,7 @@
 		"org-analytics",
 		"member-analytics",
 		"audit-logs",
+		"data-streams",
 		"---Account & Billing---",
 		"billing",
 		"transactions",

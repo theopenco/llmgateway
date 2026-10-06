@@ -566,6 +566,8 @@ const organizationSchema = z.object({
 	riskFlagged: z.boolean().optional(),
 	referralBonusEnabled: z.boolean().optional(),
 	referralBonusPercent: z.number().optional(),
+	dataStreamsEnabled: z.boolean().optional(),
+	requestLogExportEnabled: z.boolean().optional(),
 	ownerUserId: z.string().nullable().optional(),
 	ownerName: z.string().nullable().optional(),
 	ownerEmail: z.string().nullable().optional(),
@@ -3894,6 +3896,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			riskFlagged: org.riskFlagged,
 			referralBonusEnabled: org.referralBonusEnabled,
 			referralBonusPercent: parseReferralBonusPercent(org.referralBonusPercent),
+			dataStreamsEnabled: org.dataStreamsEnabled,
+			requestLogExportEnabled: org.requestLogExportEnabled,
 		},
 		transactions: transactions.map((t) => ({
 			id: t.id,
@@ -9216,6 +9220,105 @@ admin.openapi(updateReferralBonusRoute, async (c) => {
 	});
 });
 
+const updateDataStreamsRoute = createRoute({
+	method: "patch",
+	path: "/organizations/{orgId}/data-streams",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						dataStreamsEnabled: z.boolean(),
+						requestLogExportEnabled: z.boolean(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						dataStreamsEnabled: z.boolean(),
+						requestLogExportEnabled: z.boolean(),
+					}),
+				},
+			},
+			description: "Data stream access updated successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+// Data streams are opened per organization after a conversation with the
+// customer; request-log export is a separate switch because it reads the
+// request log table on a schedule. Disabling either stops the worker at once.
+admin.openapi(updateDataStreamsRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { dataStreamsEnabled, requestLogExportEnabled } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	await db
+		.update(tables.organization)
+		.set({
+			dataStreamsEnabled,
+			requestLogExportEnabled: dataStreamsEnabled && requestLogExportEnabled,
+		})
+		.where(eq(tables.organization.id, orgId));
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "data_stream.settings_update",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			changes: {
+				dataStreamsEnabled: {
+					old: org.dataStreamsEnabled,
+					new: dataStreamsEnabled,
+				},
+				requestLogExportEnabled: {
+					old: org.requestLogExportEnabled,
+					new: dataStreamsEnabled && requestLogExportEnabled,
+				},
+			},
+		},
+	});
+
+	return c.json({
+		message: "Data stream access updated successfully",
+		dataStreamsEnabled,
+		requestLogExportEnabled: dataStreamsEnabled && requestLogExportEnabled,
+	});
+});
+
 /**
  * Plan term dates are entered as plain calendar days (YYYY-MM-DD) because an
  * enterprise contract renews on a date, not at a wall-clock instant. They are
@@ -10734,6 +10837,53 @@ const providerDetailSchema = z.object({
 			// Signed routing-price adjustment (negative = boosted).
 			routingAdjustment: z.number(),
 			settingsUpdatedAt: z.string(),
+			// Everything the carrier configured in the Airside portal.
+			settings: z.object({
+				claimId: z.string(),
+				matchedDomain: z.string(),
+				customName: z.string().nullable(),
+				customBaseUrl: z.string().nullable(),
+				customDescription: z.string().nullable(),
+				logoUrl: z.string().nullable(),
+				iconUrl: z.string().nullable(),
+				hasPendingBranding: z.boolean(),
+				verificationKeyMasked: z.string().nullable(),
+				verificationKeyUpdatedAt: z.string().nullable(),
+				claimedAt: z.string(),
+				approvedAt: z.string().nullable(),
+				companyWebsite: z.string().nullable(),
+				paymentStatus: z.enum(["unpaid", "paid"]),
+				paidAt: z.string().nullable(),
+				listingInviteCode: z.string().nullable(),
+				domains: z.array(
+					z.object({
+						domain: z.string(),
+						verificationMethod: z.enum(["dns", "email"]),
+						verifiedAt: z.string().nullable(),
+					}),
+				),
+				// Active listings, the models a fare override can target.
+				listedModels: z.array(z.string()),
+				modelOverrides: z.array(
+					z.object({
+						modelId: z.string(),
+						discountPercent: z.number(),
+						marginPercent: z.number(),
+						routingAdjustment: z.number(),
+						updatedAt: z.string(),
+					}),
+				),
+				pendingFilings: z.array(
+					z.object({
+						id: z.string(),
+						modelId: z.string().nullable(),
+						discountPercent: z.number(),
+						marginPercent: z.number(),
+						routingAdjustment: z.number(),
+						createdAt: z.string(),
+					}),
+				),
+			}),
 		})
 		.nullable(),
 	models: z.array(providerModelStatsSchema),
@@ -10766,7 +10916,6 @@ admin.openapi(getProviderDetail, async (c) => {
 
 	const providerRow = await db.query.provider.findFirst({
 		where: { id: { eq: providerId } },
-		columns: { streaming: false },
 	});
 
 	if (!providerRow) {
@@ -10854,10 +11003,29 @@ admin.openapi(getProviderDetail, async (c) => {
 			.groupBy(mph.modelId),
 		db
 			.select({
+				claim: {
+					id: tables.providerClaim.id,
+					matchedDomain: tables.providerClaim.matchedDomain,
+					customName: tables.providerClaim.customName,
+					customBaseUrl: tables.providerClaim.customBaseUrl,
+					customDescription: tables.providerClaim.customDescription,
+					logoUrl: tables.providerClaim.logoUrl,
+					iconUrl: tables.providerClaim.iconUrl,
+					pendingBranding: tables.providerClaim.pendingBranding,
+					verificationKeyMasked: tables.providerClaim.verificationKeyMasked,
+					verificationKeyUpdatedAt:
+						tables.providerClaim.verificationKeyUpdatedAt,
+					createdAt: tables.providerClaim.createdAt,
+					reviewedAt: tables.providerClaim.reviewedAt,
+				},
 				claimKind: tables.providerClaim.kind,
 				claimUpdatedAt: tables.providerClaim.updatedAt,
 				companyId: tables.providerCompany.id,
 				companyName: tables.providerCompany.name,
+				companyWebsite: tables.providerCompany.website,
+				paymentStatus: tables.providerCompany.paymentStatus,
+				paidAt: tables.providerCompany.paidAt,
+				listingInviteCode: tables.providerCompany.listingInviteCode,
 				discountPercent: tables.providerRoutingSettings.discountPercent,
 				marginPercent: tables.providerRoutingSettings.marginPercent,
 				settingsUpdatedAt: tables.providerRoutingSettings.updatedAt,
@@ -10893,6 +11061,49 @@ admin.openapi(getProviderDetail, async (c) => {
 	// to the column defaults so a carrier still renders if it is missing.
 	const carrierDiscount = Number(carrier?.discountPercent ?? 0);
 	const carrierMargin = Number(carrier?.marginPercent ?? 0.2);
+	const [carrierDomains, carrierOverrides, carrierFilings, carrierModels] =
+		carrier
+			? await Promise.all([
+					db.query.providerCompanyDomain.findMany({
+						where: { providerCompanyId: { eq: carrier.companyId } },
+						orderBy: { domain: "asc" },
+					}),
+					db.query.providerRoutingSettings.findMany({
+						where: {
+							providerId: { eq: providerId },
+							modelId: { isNotNull: true },
+						},
+						orderBy: { modelId: "asc" },
+					}),
+					db.query.providerRoutingFiling.findMany({
+						where: {
+							providerId: { eq: providerId },
+							status: { eq: "pending" },
+						},
+						orderBy: { createdAt: "asc" },
+					}),
+					db.query.providerDraftModel.findMany({
+						where: { providerId: { eq: providerId }, status: { eq: "active" } },
+						columns: { modelName: true },
+						orderBy: { modelName: "asc" },
+					}),
+				])
+			: [[], [], [], []];
+	const fareFields = (row: {
+		discountPercent: string;
+		marginPercent: string;
+	}) => {
+		const discountPercent = Number(row.discountPercent);
+		const marginPercent = Number(row.marginPercent);
+		return {
+			discountPercent,
+			marginPercent,
+			routingAdjustment: computeAirsideAdjustment(
+				discountPercent,
+				marginPercent,
+			),
+		};
+	};
 
 	const modelsOut = mappings.map((m) => {
 		const s = statsByModel.get(m.modelId);
@@ -11011,6 +11222,48 @@ admin.openapi(getProviderDetail, async (c) => {
 					settingsUpdatedAt: (
 						carrier.settingsUpdatedAt ?? carrier.claimUpdatedAt
 					).toISOString(),
+					settings: {
+						claimId: carrier.claim.id,
+						matchedDomain: carrier.claim.matchedDomain,
+						customName: carrier.claim.customName,
+						customBaseUrl: carrier.claim.customBaseUrl,
+						customDescription: carrier.claim.customDescription,
+						logoUrl: carrier.claim.logoUrl,
+						iconUrl: carrier.claim.iconUrl,
+						hasPendingBranding: carrier.claim.pendingBranding !== null,
+						verificationKeyMasked: carrier.claim.verificationKeyMasked,
+						verificationKeyUpdatedAt:
+							carrier.claim.verificationKeyUpdatedAt?.toISOString() ?? null,
+						claimedAt: carrier.claim.createdAt.toISOString(),
+						approvedAt: carrier.claim.reviewedAt?.toISOString() ?? null,
+						companyWebsite: carrier.companyWebsite,
+						paymentStatus: carrier.paymentStatus,
+						paidAt: carrier.paidAt?.toISOString() ?? null,
+						listingInviteCode: carrier.listingInviteCode,
+						domains: carrierDomains.map((d) => ({
+							domain: d.domain,
+							verificationMethod: d.verificationMethod,
+							verifiedAt: d.verifiedAt?.toISOString() ?? null,
+						})),
+						listedModels: carrierModels.map((m) => m.modelName),
+						modelOverrides: carrierOverrides.flatMap((row) =>
+							row.modelId
+								? [
+										{
+											modelId: row.modelId,
+											...fareFields(row),
+											updatedAt: row.updatedAt.toISOString(),
+										},
+									]
+								: [],
+						),
+						pendingFilings: carrierFilings.map((row) => ({
+							id: row.id,
+							modelId: row.modelId,
+							...fareFields(row),
+							createdAt: row.createdAt.toISOString(),
+						})),
+					},
 				}
 			: null,
 		models: modelsOut,

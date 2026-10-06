@@ -8,7 +8,10 @@ import { z } from "zod";
 import {
 	checkAndReserveTopUp,
 	flushLimitHits,
+	listActiveDataStreams,
+	loadActiveDataStream,
 	releaseTopUpReservation,
+	runDataStream,
 } from "@llmgateway/actions";
 import {
 	closeRedisClient,
@@ -33,6 +36,7 @@ import {
 	log,
 	type LogInsertData,
 	lt,
+	lte,
 	organization,
 	resolveVerifiedOrgRecipient,
 	shortid,
@@ -3300,6 +3304,110 @@ async function runModelErrorRateAlertsLoop() {
 	}
 }
 
+const DATA_STREAMS_LOCK_KEY = "data_streams";
+
+/** Marks the lock as still in use and returns the stamp written. */
+async function touchLock(key: string): Promise<Date> {
+	const at = new Date();
+	await db
+		.update(tables.lock)
+		.set({ updatedAt: at })
+		.where(eq(tables.lock.key, key));
+	return at;
+}
+
+/**
+ * Releases the lock unless another worker took it over: a lock acquired after
+ * ours expired carries a newer stamp than our last touch, and deleting it
+ * would let a third worker in alongside.
+ */
+async function releaseLockIfOwned(key: string, lastTouch: Date): Promise<void> {
+	await db
+		.delete(tables.lock)
+		.where(
+			and(eq(tables.lock.key, key), lte(tables.lock.updatedAt, lastTouch)),
+		);
+}
+
+/**
+ * Forwards audit and request log metadata to each enabled data stream. Each
+ * stream is re-read right before it runs, so a pause, credential rotation, or
+ * revoked access made during the pass is honored by the rest of it.
+ */
+export async function processDataStreams(
+	onProgress?: () => Promise<void>,
+): Promise<void> {
+	const streams = await listActiveDataStreams();
+	for (const listed of streams) {
+		if (isStopRequested()) {
+			return;
+		}
+		const stream = await loadActiveDataStream(listed.id);
+		if (!stream) {
+			continue;
+		}
+		// A pass can outlast the lock TTL with slow destinations; keep the lock
+		// fresh so a second worker never runs the same streams concurrently.
+		await onProgress?.();
+		// One broken stream must never hold up delivery for the others.
+		try {
+			const result = await runDataStream(stream, { onProgress });
+			if (result.paused) {
+				logger.warn("Data stream paused after repeated failures", {
+					streamId: stream.id,
+					error: result.error,
+				});
+			} else if (result.error) {
+				logger.warn("Data stream delivery failed", {
+					streamId: stream.id,
+					failureCount: stream.failureCount + 1,
+					error: result.error,
+				});
+			}
+		} catch (error) {
+			logger.error("Data stream run crashed", {
+				streamId: stream.id,
+				error: error instanceof Error ? error : new Error(String(error)),
+			});
+		}
+	}
+}
+
+async function runDataStreamsLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 30 : 10) * 1000;
+	logger.info(
+		`Starting data streams loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(DATA_STREAMS_LOCK_KEY)) {
+					let lastTouch = await touchLock(DATA_STREAMS_LOCK_KEY);
+					try {
+						await processDataStreams(async () => {
+							lastTouch = await touchLock(DATA_STREAMS_LOCK_KEY);
+						});
+					} finally {
+						await releaseLockIfOwned(DATA_STREAMS_LOCK_KEY, lastTouch);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in data streams loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Data streams loop stopped");
+	}
+}
+
 const PROVIDER_KEY_MODEL_SYNC_LOCK_KEY = "provider_key_model_sync";
 
 async function runProviderKeyModelSyncLoop() {
@@ -3484,6 +3592,7 @@ export async function startWorker() {
 	void runMarginPayoutLoop();
 	void runNotificationsLoop();
 	void runModelErrorRateAlertsLoop();
+	void runDataStreamsLoop();
 	void runProviderKeyModelSyncLoop();
 	void runFollowUpEmailsLoop({
 		shouldStop: isStopRequested,

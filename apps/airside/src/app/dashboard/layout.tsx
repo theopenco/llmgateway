@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { CompanyProvider } from "@/components/dashboard/company-context";
@@ -20,10 +21,15 @@ export default async function DashboardLayout({
 	if (!me?.user) {
 		redirect("/login?returnUrl=/dashboard");
 	}
+	const cookieStore = await cookies();
+	const sidebarOpen =
+		cookieStore.get("airside_sidebar_state")?.value !== "false";
 
 	return (
 		<CompanyProvider>
-			<DashboardShell>{children}</DashboardShell>
+			<DashboardShell defaultSidebarOpen={sidebarOpen}>
+				{children}
+			</DashboardShell>
 		</CompanyProvider>
 	);
 }
