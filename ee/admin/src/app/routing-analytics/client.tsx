@@ -655,7 +655,7 @@ export function RoutingAnalyticsClient() {
 				</div>
 			</header>
 
-			{catalogueError ? (
+			{catalogueError && !modelId ? (
 				<EmptyState>Failed to load the model catalogue.</EmptyState>
 			) : !modelId ? (
 				<EmptyState>

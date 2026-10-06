@@ -88,26 +88,34 @@ async function get(query: string, token?: string): Promise<Response> {
 
 describe("admin routing analytics endpoint", () => {
 	let cookie: string;
+	let createdTestModel = false;
+	let createdProviderA = false;
 
 	beforeEach(async () => {
+		createdTestModel = false;
+		createdProviderA = false;
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
-		await db
+		const insertedModels = await db
 			.insert(tables.model)
 			.values({
 				id: testModel.id,
 				name: testModel.name,
 				family: testModel.family,
 			})
-			.onConflictDoNothing();
-		await db
+			.onConflictDoNothing()
+			.returning({ id: tables.model.id });
+		createdTestModel = insertedModels.length > 0;
+		const insertedProviders = await db
 			.insert(tables.provider)
 			.values({
 				id: providerA,
 				name: providerA,
 				description: "test",
 			})
-			.onConflictDoNothing();
+			.onConflictDoNothing()
+			.returning({ id: tables.provider.id });
+		createdProviderA = insertedProviders.length > 0;
 	});
 
 	afterEach(async () => {
@@ -133,8 +141,12 @@ describe("admin routing analytics endpoint", () => {
 			.delete(tables.provider)
 			.where(eq(tables.provider.id, "routing-airside-carrier"));
 		await deleteAll();
-		await db.delete(tables.model).where(eq(tables.model.id, testModel.id));
-		await db.delete(tables.provider).where(eq(tables.provider.id, providerA));
+		if (createdTestModel) {
+			await db.delete(tables.model).where(eq(tables.model.id, testModel.id));
+		}
+		if (createdProviderA) {
+			await db.delete(tables.provider).where(eq(tables.provider.id, providerA));
+		}
 	});
 
 	it("rejects unauthenticated and non-admin requests", async () => {
