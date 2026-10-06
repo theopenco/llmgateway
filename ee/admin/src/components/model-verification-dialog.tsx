@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	AlertTriangle,
 	CheckCircle2,
 	Clock3,
 	Loader2,
@@ -37,6 +38,7 @@ export interface ModelVerification {
 		label: string;
 		status: "queued" | "running" | "passed" | "failed" | "skipped";
 		feedback?: string;
+		warning?: string;
 		probes?: {
 			label: string;
 			status: "passed" | "failed";
@@ -154,7 +156,9 @@ function VerificationResults({
 			<ul className="divide-y divide-border">
 				{verification.checks.map((check) => (
 					<li key={check.id} className="flex items-start gap-2 py-2 text-xs">
-						{check.status === "passed" ? (
+						{check.status === "passed" && check.warning ? (
+							<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+						) : check.status === "passed" ? (
 							<CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
 						) : check.status === "failed" ? (
 							<XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
@@ -167,6 +171,14 @@ function VerificationResults({
 							<p className="font-medium">{check.label}</p>
 							{check.feedback ? (
 								<p className="mt-0.5 text-muted-foreground">{check.feedback}</p>
+							) : null}
+							{check.warning ? (
+								<p
+									className="mt-0.5 text-amber-600"
+									data-testid="admin-verification-warning"
+								>
+									{check.warning}
+								</p>
 							) : null}
 							<VerificationProbeList probes={check.probes} />
 						</div>

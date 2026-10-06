@@ -1155,6 +1155,93 @@ describe("model verification", () => {
 		expect(result.checks[0]).toMatchObject({ status: "failed" });
 	});
 
+	describe("timeouts", () => {
+		const basicOnly: ProviderModelVerificationTarget = {
+			...target,
+			streaming: false,
+			vision: false,
+			audio: false,
+			tools: false,
+			jsonOutput: false,
+			jsonOutputSchema: false,
+			reasoning: false,
+			reasoningMaxTokens: false,
+			webSearch: false,
+		};
+		const timeout = () =>
+			new DOMException(
+				"The operation was aborted due to timeout",
+				"TimeoutError",
+			);
+
+		it("passes with a warning when a retry succeeds", async () => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockRejectedValueOnce(timeout())
+				.mockRejectedValueOnce(timeout())
+				.mockResolvedValue(
+					Response.json({ choices: [{ message: { content: "OK" } }] }),
+				);
+			const onCheck = vi.fn();
+			const result = await runProviderModelVerification({
+				target: basicOnly,
+				token: "provider-key",
+				fetchImplementation,
+				onCheck,
+			});
+			expect(fetchImplementation).toHaveBeenCalledTimes(3);
+			expect(result.passed).toBe(true);
+			expect(result.checks[0]).toMatchObject({
+				status: "passed",
+				warning: expect.stringContaining("2 timed-out requests"),
+			});
+			expect(result.summary).toBe(
+				"1 verification check passed (1 with a warning).",
+			);
+			expect(onCheck).toHaveBeenCalledWith(
+				expect.objectContaining({
+					status: "running",
+					warning: expect.stringContaining("attempt 3 of 3"),
+				}),
+			);
+		});
+
+		it("fails after three timed-out attempts", async () => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockImplementation(() => Promise.reject(timeout()));
+			const result = await runProviderModelVerification({
+				target: basicOnly,
+				token: "provider-key",
+				fetchImplementation,
+			});
+			expect(fetchImplementation).toHaveBeenCalledTimes(3);
+			expect(result.passed).toBe(false);
+			expect(result.checks[0]).toMatchObject({
+				status: "failed",
+				feedback:
+					"The operation was aborted due to timeout (timed out on all 3 attempts)",
+			});
+			expect(result.checks[0]).not.toHaveProperty("warning");
+		});
+
+		it("does not retry other transport errors", async () => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockRejectedValue(new TypeError("fetch failed"));
+			const result = await runProviderModelVerification({
+				target: basicOnly,
+				token: "provider-key",
+				fetchImplementation,
+			});
+			expect(fetchImplementation).toHaveBeenCalledOnce();
+			expect(result.checks[0]).toMatchObject({
+				status: "failed",
+				feedback: "fetch failed",
+			});
+		});
+	});
+
 	it("binds supplied credentials to one verification and company", () => {
 		const ciphertext = encryptModelVerificationCredential(
 			"provider-key",

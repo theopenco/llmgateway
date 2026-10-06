@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	AlertTriangle,
 	CheckCircle2,
 	Clock3,
 	Loader2,
@@ -268,7 +269,9 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			<ul className="divide-border divide-y">
 				{verification.checks.map((check) => (
 					<li key={check.id} className="flex items-start gap-2 py-2 text-xs">
-						{check.status === "passed" ? (
+						{check.status === "passed" && check.warning ? (
+							<AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+						) : check.status === "passed" ? (
 							<CheckCircle2 className="text-signal mt-0.5 size-3.5 shrink-0" />
 						) : check.status === "failed" ? (
 							<XCircle className="text-destructive mt-0.5 size-3.5 shrink-0" />
@@ -281,6 +284,14 @@ function VerificationResults({ verification }: { verification: Verification }) {
 							<p className="font-medium">{check.label}</p>
 							{check.feedback ? (
 								<p className="text-muted-foreground mt-0.5">{check.feedback}</p>
+							) : null}
+							{check.warning ? (
+								<p
+									className="mt-0.5 text-amber-600 dark:text-amber-400"
+									data-testid="verification-warning"
+								>
+									{check.warning}
+								</p>
 							) : null}
 							<VerificationProbes probes={check.probes} />
 						</div>

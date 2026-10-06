@@ -935,24 +935,48 @@ interface CheckFailure {
 	rejected: boolean;
 }
 
+/**
+ * Tries a request that timed out gets. A slow response says nothing about what
+ * the deployment supports, so it is retried rather than failing the check.
+ */
+const CHECK_TIMEOUT_ATTEMPTS = 3;
+
+/** Called before a timed-out request is retried, with the attempt that failed. */
+type TimeoutReporter = (attempt: number) => Promise<void> | void;
+
+function isTimeoutError(error: unknown): boolean {
+	return error instanceof Error && error.name === "TimeoutError";
+}
+
 async function attemptCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
 	secrets: Set<string>,
+	onTimeout?: TimeoutReporter,
 ): Promise<CheckFailure | null> {
-	try {
-		return await executeCheck(definition, options, secrets);
-	} catch (error) {
-		return {
-			message: redactSecrets(
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return await executeCheck(definition, options, secrets);
+		} catch (error) {
+			const timedOut = isTimeoutError(error);
+			if (timedOut && attempt < CHECK_TIMEOUT_ATTEMPTS) {
+				await onTimeout?.(attempt);
+				continue;
+			}
+			const message = redactSecrets(
 				(error instanceof Error
 					? error.message
 					: "Verification request failed."
 				).slice(0, 500),
 				secrets,
-			),
-			rejected: false,
-		};
+			);
+			return {
+				message: timedOut
+					? `${message} (timed out on all ${CHECK_TIMEOUT_ATTEMPTS} attempts)`
+					: message,
+				rejected: false,
+			};
+		}
 	}
 }
 
@@ -1003,6 +1027,7 @@ async function runReasoningCheck(
 	secrets: Set<string>,
 	knownUnsupported: ReasoningEffort[],
 	reportProbes: ProbeReporter,
+	onTimeout: TimeoutReporter,
 ): Promise<CheckOutcome> {
 	const efforts = reasoningVerificationEfforts(options.target).filter(
 		(effort) => !knownUnsupported.includes(effort),
@@ -1032,6 +1057,7 @@ async function runReasoningCheck(
 			},
 			options,
 			secrets,
+			onTimeout,
 		);
 		probes.push(probeResult(`reasoning_effort: ${effort}`, failure));
 		await reportProbes(probes);
@@ -1099,6 +1125,7 @@ async function runCheck(
 	secrets: Set<string>,
 	knownUnsupportedReasoningEfforts: ReasoningEffort[],
 	reportProbes: ProbeReporter,
+	onTimeout: TimeoutReporter,
 ): Promise<CheckOutcome> {
 	if (definition.id === "reasoning" || definition.id === "reasoning_budget") {
 		return await runReasoningCheck(
@@ -1107,6 +1134,7 @@ async function runCheck(
 			secrets,
 			knownUnsupportedReasoningEfforts,
 			reportProbes,
+			onTimeout,
 		);
 	}
 	if (definition.id !== "tools") {
@@ -1114,7 +1142,7 @@ async function runCheck(
 			failure: explainLimitRefusal(
 				definition.id,
 				options.target,
-				await attemptCheck(definition, options, secrets),
+				await attemptCheck(definition, options, secrets, onTimeout),
 			),
 		};
 	}
@@ -1137,6 +1165,7 @@ async function runCheck(
 			},
 			options,
 			secrets,
+			onTimeout,
 		);
 		probes.push(probeResult(`tool_choice: ${mode}`, failure));
 		await reportProbes(probes);
@@ -1330,18 +1359,24 @@ export async function runProviderModelVerification(
 		};
 		checks[index] = running;
 		await options.onCheck?.(running);
+		let progress = running;
+		const report = async (update: Partial<ProviderModelVerificationCheck>) => {
+			progress = { ...progress, ...update };
+			checks[index] = progress;
+			await options.onCheck?.(progress);
+		};
+		let timeouts = 0;
 		const outcome = await runCheck(
 			definition,
 			options,
 			secrets,
 			unsupportedReasoningEfforts ?? [],
-			async (probes) => {
-				const progress: ProviderModelVerificationCheck = {
-					...running,
-					probes: [...probes],
-				};
-				checks[index] = progress;
-				await options.onCheck?.(progress);
+			async (probes) => await report({ probes: [...probes] }),
+			async (attempt) => {
+				timeouts++;
+				await report({
+					warning: `Timed out; retrying (attempt ${attempt + 1} of ${CHECK_TIMEOUT_ATTEMPTS}).`,
+				});
 			},
 		);
 		const failure = outcome.failure;
@@ -1369,6 +1404,11 @@ export async function runProviderModelVerification(
 					label: definition.label,
 					status: "passed",
 					feedback: outcome.feedback ?? "Passed",
+					...(timeouts > 0
+						? {
+								warning: `Passed after ${timeouts} timed-out ${timeouts === 1 ? "request" : "requests"}; the endpoint may be slow or overloaded.`,
+							}
+						: {}),
 					...(outcome.probes?.length ? { probes: outcome.probes } : {}),
 				};
 		checks[index] = completed;
@@ -1389,6 +1429,9 @@ export async function runProviderModelVerification(
 	}
 	const failed = checks.filter((check) => check.status === "failed").length;
 	const passed = checks.filter((check) => check.status === "passed").length;
+	const warned = checks.filter(
+		(check) => check.status === "passed" && check.warning,
+	).length;
 	return {
 		passed: failed === 0 && passed === checks.length,
 		checks,
@@ -1396,7 +1439,7 @@ export async function runProviderModelVerification(
 		unsupportedReasoningEfforts,
 		summary:
 			failed === 0 && passed === checks.length
-				? `${passed} verification check${passed === 1 ? "" : "s"} passed.`
+				? `${passed} verification check${passed === 1 ? "" : "s"} passed${warned ? ` (${warned} with a warning)` : ""}.`
 				: `${failed} of ${checks.length} verification checks failed.`,
 	};
 }
@@ -1418,6 +1461,7 @@ export async function runProviderKeySmokeTest(
 		options,
 		new Set([options.token]),
 		[],
+		() => undefined,
 		() => undefined,
 	);
 	return outcome.failure?.message ?? null;
