@@ -350,6 +350,11 @@ export const organization = snakeCase.table(
 		referralBonusEnabled: boolean().notNull().default(false),
 		// Percentage bonus applied to the referred org's first top-up (e.g. 50 = 50%).
 		referralBonusPercent: decimal().notNull().default("50"),
+		// Data streams (SIEM forwarding and log export) are opened per
+		// organization by a platform admin, and request-log export separately:
+		// it reads the `log` table on a schedule, so each org is sized first.
+		dataStreamsEnabled: boolean().notNull().default(false),
+		requestLogExportEnabled: boolean().notNull().default(false),
 		paymentFailureCount: integer().notNull().default(0),
 		lastPaymentFailureAt: timestamp(),
 		paymentFailureStartedAt: timestamp(),
@@ -940,6 +945,7 @@ export const notificationTypes = [
 	"model_available",
 	"compliance_downgrade",
 	"org_limit",
+	"data_stream",
 ] as const;
 
 const emailCategories = [
@@ -3518,7 +3524,6 @@ export const provider = snakeCase.table(
 			.$onUpdate(() => new Date()),
 		name: text().notNull(),
 		description: text().notNull(),
-		streaming: boolean(),
 		cancellation: boolean(),
 		color: text(),
 		website: text(),
@@ -4384,6 +4389,12 @@ export const auditLogActions = [
 	"compliance_alert.watch_create",
 	"compliance_alert.watch_delete",
 	"compliance_alert.settings_update",
+	// Data streams (SIEM forwarding and log export)
+	"data_stream.create",
+	"data_stream.update",
+	"data_stream.delete",
+	"data_stream.replay",
+	"data_stream.settings_update",
 	// Subscription
 	"subscription.create",
 	"subscription.cancel",
@@ -4478,6 +4489,7 @@ export const auditLogResourceTypes = [
 	"organization_skill",
 	"notification_channel",
 	"compliance_alert",
+	"data_stream",
 	"subscription",
 	"payment_method",
 	"payment",
@@ -4533,6 +4545,70 @@ export const auditLog = snakeCase.table(
 		index("audit_log_user_id_idx").on(table.userId),
 		index("audit_log_action_idx").on(table.action),
 		index("audit_log_resource_type_idx").on(table.resourceType),
+	],
+);
+
+export const dataStreamSources = ["audit_logs", "request_logs"] as const;
+export type DataStreamSource = (typeof dataStreamSources)[number];
+
+// Only HTTPS webhooks for now; further exporters are added one at a time.
+export const dataStreamDestinations = ["webhook"] as const;
+export type DataStreamDestination = (typeof dataStreamDestinations)[number];
+
+/** Non-secret destination settings; secrets live encrypted in `secret`. */
+export interface DataStreamConfig {
+	url?: string;
+}
+
+// Continuous delivery of audit or request log metadata to an external HTTPS
+// endpoint. Events never carry prompts, completions, or tool payloads. The
+// worker advances the (createdAt, id) cursor after each delivered batch; a
+// replay re-sends a bounded window on a separate cursor.
+export const dataStream = snakeCase.table(
+	"data_stream",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		// Request-log streams may be narrowed to one project.
+		projectId: text().references(() => project.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		source: text({ enum: dataStreamSources }).notNull(),
+		destination: text({ enum: dataStreamDestinations }).notNull(),
+		config: jsonb().$type<DataStreamConfig>().notNull().default({}),
+		// Encrypted with the provider-key keyring (signing secret, bearer token).
+		secret: text(),
+		enabled: boolean().notNull().default(true),
+		// Set when the worker paused the stream after repeated failures; cleared
+		// when an admin resumes it.
+		pausedReason: text(),
+		// Strings keep Postgres' microseconds; a Date would truncate to
+		// milliseconds and re-select the last delivered row.
+		cursorCreatedAt: timestamp({ mode: "string" }).notNull().defaultNow(),
+		cursorId: text().notNull().default(""),
+		replayFrom: timestamp(),
+		replayTo: timestamp(),
+		replayCursorCreatedAt: timestamp({ mode: "string" }),
+		replayCursorId: text(),
+		deliveredCount: bigint({ mode: "number" }).notNull().default(0),
+		lastDeliveredAt: timestamp(),
+		lastError: text(),
+		lastErrorAt: timestamp(),
+		// Consecutive failed runs of any kind; drives the retry backoff and the
+		// automatic pause.
+		failureCount: integer().notNull().default(0),
+		// Rejections (4xx) since the last accepted delivery; these pause the
+		// stream much sooner because the destination will not accept the batch.
+		rejectionCount: integer().notNull().default(0),
+	},
+	(table) => [
+		index("data_stream_organization_id_idx").on(table.organizationId),
 	],
 );
 
@@ -5065,6 +5141,10 @@ export const providerCompany = snakeCase.table("provider_company", {
 	// through Stripe — `paymentStatus` still flips to "paid" so every gate
 	// keeps working, and this records which code cleared it.
 	listingInviteCode: text(),
+	// Acceptance of the Airside Terms of Use (/legal/terms) and Privacy Notice
+	// (/legal/privacy).
+	termsAcceptedAt: timestamp(),
+	termsAcceptedBy: text().references(() => user.id, { onDelete: "set null" }),
 });
 
 // Money received for provider listing fees. Neither payer is an
@@ -5270,6 +5350,23 @@ export const providerClaim = snakeCase.table(
 		verificationKeyCiphertext: text(),
 		verificationKeyMasked: text(),
 		verificationKeyUpdatedAt: timestamp(),
+		// Self-declared public profile shown on the provider page. Display only:
+		// it never feeds compliance routing, which reads the static catalogue.
+		website: text(),
+		privacyPolicyUrl: text(),
+		termsUrl: text(),
+		statusPageUrl: text(),
+		legalEntity: text(),
+		// ISO 3166-1 alpha-2.
+		headquarters: text(),
+		apiTraining: boolean(),
+		promptLogging: boolean(),
+		retentionPeriod: text(),
+		gdpr: boolean(),
+		// 0 = none, 1 = Type I, 2 = Type II, null = not stated.
+		soc2: integer(),
+		iso27001: boolean(),
+		profileUpdatedAt: timestamp(),
 		claimedBy: text().references(() => user.id, { onDelete: "set null" }),
 		status: text({ enum: ["pending", "active", "rejected", "revoked"] })
 			.notNull()

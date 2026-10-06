@@ -5,6 +5,7 @@ import {
 	Download,
 	KeyRound,
 	Loader2,
+	Palette,
 	Pause,
 	Pencil,
 	Play,
@@ -20,6 +21,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { brandHref } from "@/components/dashboard/CarrierProfileReminder";
 import { useCompany } from "@/components/dashboard/company-context";
 import {
 	EditModelDialog,
@@ -395,6 +397,9 @@ export default function FleetPage() {
 	);
 	// An approved carrier we hold no key for cannot serve a request, however
 	// healthy its listings look.
+	const brandClaim = company.claims.find(
+		(claim) => claim.status === "active" || claim.status === "pending",
+	);
 	const uncredentialedCarriers = company.claims.filter(
 		(claim) => claim.status === "active" && !claim.hasManagedCredential,
 	);
@@ -410,7 +415,18 @@ export default function FleetPage() {
 						Your aircraft
 					</h1>
 				</div>
-				<div className="flex items-center gap-2">
+				<div className="flex flex-wrap items-center gap-2">
+					{brandClaim ? (
+						<Button asChild variant="outline" className="font-semibold">
+							<Link
+								href={brandHref(brandClaim.providerId)}
+								data-testid="fleet-edit-branding"
+							>
+								<Palette className="size-4" aria-hidden />
+								Edit branding
+							</Link>
+						</Button>
+					) : null}
 					{catalogueProviderIds.length > 0 ? (
 						<Button
 							variant="outline"

@@ -56,6 +56,7 @@ import { stripeSearchUrl, stripeTransactionUrl } from "@/lib/stripe-dashboard";
 
 import { ApiKeysTable } from "./api-keys-table";
 import { AuditLogsTab } from "./audit-logs-tab";
+import { DataStreamsDialog } from "./data-streams-dialog";
 import { GuardrailsTab } from "./guardrails-tab";
 import { ManageOrgDialog } from "./manage-org-dialog";
 import { MemberAccessTab } from "./member-access-tab";
@@ -590,6 +591,14 @@ export default async function OrganizationPage({
 											orgName={org.name}
 											enabled={org.referralBonusEnabled ?? false}
 											percent={org.referralBonusPercent ?? 50}
+										/>
+										<DataStreamsDialog
+											orgId={orgId}
+											orgName={org.name}
+											dataStreamsEnabled={org.dataStreamsEnabled ?? false}
+											requestLogExportEnabled={
+												org.requestLogExportEnabled ?? false
+											}
 										/>
 									</div>
 								</div>
