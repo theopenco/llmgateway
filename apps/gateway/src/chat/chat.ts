@@ -7260,6 +7260,14 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			n,
 			service_tier,
+			effort,
+			verbosity,
+			reasoning_mode,
+			reasoning_context,
+			plugins,
+			sensitive_word_check,
+			no_reasoning,
+			image_config,
 		};
 
 		const pointerKey =

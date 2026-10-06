@@ -156,6 +156,23 @@ describe("semantic cache", () => {
 		expect(other.headers.get("x-llmgateway-cache")).toBeNull();
 	});
 
+	test("a different verbosity misses both caches", async () => {
+		const prompt = `Explain caching ${randomUUID()}`;
+		await prime({
+			verbosity: "low",
+			messages: [{ role: "user", content: prompt }],
+		});
+		const same = await ask(prompt, { verbosity: "low" });
+		expect(same.headers.get("x-llmgateway-cache")).toBe("HIT");
+
+		const exact = await ask(prompt, { verbosity: "high" });
+		expect(exact.status).toBe(200);
+		expect(exact.headers.get("x-llmgateway-cache")).toBeNull();
+		const reworded = await ask(`${prompt}?`, { verbosity: "high" });
+		expect(reworded.status).toBe(200);
+		expect(reworded.headers.get("x-llmgateway-cache")).toBeNull();
+	});
+
 	test("tool requests are never matched", async () => {
 		const tag = randomUUID();
 		const tool = {
