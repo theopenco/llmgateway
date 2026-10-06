@@ -2,7 +2,7 @@ import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
 import { utils, write } from "xlsx";
 
-import { extractFileText } from "./file-extract.js";
+import { ExtractedTextTooLongError, extractFileText } from "./file-extract.js";
 
 async function buildXlsx(
 	sheetName: string,
@@ -80,6 +80,42 @@ describe("extractFileText", () => {
 		);
 		expect(text).toContain('# Places\nname,value\n"Lund, Skåne",42');
 		expect(text).toContain("# Notes\nsecond sheet");
+	});
+
+	it("ignores a forged XLS sheet range", async () => {
+		const sheet = utils.aoa_to_sheet([["name"], ["Ada"]]);
+		sheet["!ref"] = "A1:IU4294967295";
+		const workbook = utils.book_new();
+		utils.book_append_sheet(workbook, sheet, "Forged");
+		const buffer: Buffer = write(workbook, {
+			type: "buffer",
+			bookType: "biff8",
+		});
+
+		const start = performance.now();
+		const text = await extractFileText(
+			"forged.xls",
+			"application/vnd.ms-excel",
+			buffer,
+		);
+		expect(performance.now() - start).toBeLessThan(2000);
+		expect(text).toBe("# Forged\nname\nAda");
+	});
+
+	it("stops a sparse sheet at the text cap instead of padding it", async () => {
+		const sheet = utils.aoa_to_sheet([["first"]]);
+		sheet.IU60000 = { t: "s", v: "far away" };
+		sheet["!ref"] = "A1:IU60000";
+		const workbook = utils.book_new();
+		utils.book_append_sheet(workbook, sheet, "Sparse");
+		const buffer: Buffer = write(workbook, {
+			type: "buffer",
+			bookType: "biff8",
+		});
+
+		await expect(
+			extractFileText("sparse.xls", "application/vnd.ms-excel", buffer, 1000),
+		).rejects.toThrow(ExtractedTextTooLongError);
 	});
 
 	it("rejects unreadable spreadsheet data", async () => {
