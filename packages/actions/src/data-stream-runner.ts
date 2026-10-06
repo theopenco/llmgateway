@@ -11,6 +11,7 @@ import {
 	sql,
 	tables,
 } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
@@ -29,6 +30,7 @@ export const DATA_STREAM_BATCH_SIZE = 500;
 const MAX_BATCHES_PER_RUN = 10;
 /** A slow destination yields to the other streams after this long. */
 const MAX_RUN_MS = 20_000;
+const CUTOFF_LAG_WARN_MS = 300_000;
 
 const RETRY_BASE_MS = 60_000;
 const RETRY_MAX_MS = 3_600_000;
@@ -77,14 +79,19 @@ function afterCursor(createdAt: AnyColumn, id: AnyColumn, cursor: Cursor) {
  * still uncommitted is never older than the oldest open transaction. Exporting
  * only below that bound keeps a late commit from landing behind the cursor.
  * The one-second margin covers a transaction that started but has not yet
- * published its start time. Sessions of another role hide their start time
- * and backend type; while any exist, fall back to a fixed delay.
+ * published its start time. Every log and audit writer writes first, so a
+ * transaction still without an xid after two minutes is a reader and does not
+ * hold exports back. Sessions of another role hide their start time and
+ * backend type; while any exist, fall back to a fixed delay.
  */
 async function exportCutoff(): Promise<Date> {
-	const result = await db.execute<{ cutoff: Date }>(sql`
-		select least(
+	const result = await db.execute<{ cutoff: Date; now: Date }>(sql`
+		select now(), least(
 			now() - interval '1 second',
-			min(xact_start),
+			min(xact_start) filter (
+				where backend_xid is not null
+					or xact_start > now() - interval '2 minutes'
+			),
 			case when bool_or(query = '<insufficient privilege>')
 				then now() - interval '2 minutes' end
 		) - interval '1 millisecond' as cutoff
@@ -93,7 +100,14 @@ async function exportCutoff(): Promise<Date> {
 			and coalesce(backend_type, 'client backend') = 'client backend'
 			and pid <> pg_backend_pid()
 	`);
-	return new Date(result.rows[0].cutoff);
+	const cutoff = new Date(result.rows[0].cutoff);
+	const lagMs = new Date(result.rows[0].now).getTime() - cutoff.getTime();
+	if (lagMs > CUTOFF_LAG_WARN_MS) {
+		logger.warn("Data stream export held back by a long transaction", {
+			lagMs,
+		});
+	}
+	return cutoff;
 }
 
 async function projectIdsFor(stream: DataStreamRow): Promise<string[]> {

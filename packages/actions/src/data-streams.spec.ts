@@ -527,12 +527,14 @@ describe("data streams", () => {
 			await held;
 		});
 		await inserted;
-		await db.insert(tables.auditLog).values(row("committed-first"));
 		const later = new Date(Date.now() + TEN_MINUTES_MS);
-
-		await runDataStream(stream, { now: later });
-		commit();
-		await open;
+		try {
+			await db.insert(tables.auditLog).values(row("committed-first"));
+			await runDataStream(stream, { now: later });
+		} finally {
+			commit();
+			await open;
+		}
 		await new Promise((resolve) => setTimeout(resolve, 1100));
 		await runDataStream(await reload(), { now: later });
 
