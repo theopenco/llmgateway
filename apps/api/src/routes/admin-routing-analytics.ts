@@ -678,6 +678,14 @@ async function buildMappingInfos(model: {
 
 type ScoreBreakdown = z.infer<typeof scoreBreakdownSchema>;
 
+interface ScoredEntry {
+	/** Rounded for display. */
+	score: number;
+	/** Unrounded, so near-ties still rank the way routing does. */
+	rawScore: Decimal;
+	breakdown: ScoreBreakdown;
+}
+
 // The common case: a streaming text request with a prompt below the cache
 // threshold, matching how most chat traffic is elected.
 const STREAMING_FLAGS = { isStreaming: true, cacheRelevant: false } as const;
@@ -689,7 +697,7 @@ function scoreEntries(
 	flags: ScoringFlags,
 	/** Pre-adjustment selection prices; defaults to each mapping's price. */
 	prices?: Map<string, Decimal>,
-): Map<string, { score: number; breakdown: ScoreBreakdown }> {
+): Map<string, ScoredEntry> {
 	const candidates: CandidateScoreInput[] = routableMappings.map((mapping) => {
 		const metrics = metricsByProvider.get(mapping.providerId);
 		const price = prices?.get(mapping.providerId) ?? new Decimal(mapping.price);
@@ -703,14 +711,12 @@ function scoreEntries(
 		};
 	});
 	const breakdowns = computeWeightedProviderScores(candidates, cfg, flags);
-	const result = new Map<
-		string,
-		{ score: number; breakdown: ScoreBreakdown }
-	>();
+	const result = new Map<string, ScoredEntry>();
 	for (const [index, mapping] of routableMappings.entries()) {
 		const b = breakdowns[index];
 		result.set(mapping.providerId, {
 			score: b.score.toDecimalPlaces(3).toNumber(),
+			rawScore: b.score,
 			breakdown: {
 				priceScore: round(b.priceScore.toNumber(), 4),
 				uptimeScore: round(b.uptimeScore.toNumber(), 4),
@@ -833,7 +839,7 @@ function rankScenario(
 		flags,
 		prices,
 	);
-	const providers = routableMappings
+	const ranked = routableMappings
 		.map((mapping) => {
 			const scored = scores.get(mapping.providerId)!;
 			const price = (
@@ -844,15 +850,24 @@ function rankScenario(
 				price: price.toNumber(),
 				score: scored.score,
 				breakdown: scored.breakdown,
+				rawScore: scored.rawScore,
 			};
 		})
-		.sort((a, b) => a.score - b.score);
-	const [winner, runnerUp] = providers;
+		.sort((a, b) => a.rawScore.comparedTo(b.rawScore));
+	const [winner, runnerUp] = ranked;
 	return {
-		providers,
+		providers: ranked.map(({ providerId, price, score, breakdown }) => ({
+			providerId,
+			price,
+			score,
+			breakdown,
+		})),
 		winnerProviderId: winner?.providerId ?? null,
 		runnerUpProviderId: runnerUp?.providerId ?? null,
-		margin: winner && runnerUp ? round(runnerUp.score - winner.score, 3) : null,
+		margin:
+			winner && runnerUp
+				? runnerUp.rawScore.minus(winner.rawScore).toDecimalPlaces(3).toNumber()
+				: null,
 	};
 }
 
