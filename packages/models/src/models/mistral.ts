@@ -308,4 +308,29 @@ export const mistralModels = [
 			},
 		],
 	},
+	{
+		id: "mistral-large-4",
+		name: "Mistral Large 4",
+		description:
+			"Mistral's open-weight multimodal flagship: a granular Mixture-of-Experts model with 49B active and 1.05T total parameters, plus a 1.6B vision encoder.",
+		family: "mistral",
+		releasedAt: new Date("2026-10-06"),
+		providers: [
+			{
+				providerId: "mistral",
+				externalId: "mistral-large-4-0",
+				inputPrice: "1.36e-6",
+				outputPrice: "4.18e-6",
+				cachedInputPrice: "0.14e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];
