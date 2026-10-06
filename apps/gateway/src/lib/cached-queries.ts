@@ -52,7 +52,7 @@ import {
 	userProject as userProjectTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
-import { getRegionScopedDefaultRegion } from "@llmgateway/models";
+import { getRegionScopedDefaultRegion, providers } from "@llmgateway/models";
 import {
 	CONTENT_FILTER_SETTING_ID,
 	parseContentFilterSettings,
@@ -656,6 +656,11 @@ function groupAirsideRows(
 	rows: {
 		model: InferSelectModel<typeof modelTable>;
 		mapping: InferSelectModel<typeof modelProviderMappingTable>;
+		carrier: {
+			status: string;
+			kind: string;
+			customBaseUrl: string | null;
+		} | null;
 	}[],
 ): AirsideOwnedPairs {
 	const listings: AirsideListedModel[] = [];
@@ -665,14 +670,26 @@ function groupAirsideRows(
 		if (row.mapping.region !== null) {
 			continue;
 		}
-		if (row.mapping.status !== "active") {
+		if (
+			row.mapping.status !== "active" ||
+			(!providers.some((provider) => provider.id === row.mapping.providerId) &&
+				!(
+					row.carrier?.status === "active" &&
+					row.carrier.kind === "custom" &&
+					row.carrier.customBaseUrl
+				))
+		) {
 			unlisted.push({
 				modelId: row.mapping.modelId,
 				providerId: row.mapping.providerId,
 			});
 			continue;
 		}
-		const listing: AirsideListedModel = { ...row, regionMappings: [] };
+		const listing: AirsideListedModel = {
+			model: row.model,
+			mapping: row.mapping,
+			regionMappings: [],
+		};
 		byPair.set(`${row.mapping.modelId}:${row.mapping.providerId}`, listing);
 		listings.push(listing);
 	}
@@ -693,11 +710,26 @@ async function selectAirsideRows(...conditions: SQL[]) {
 			.select({
 				model: modelTable,
 				mapping: modelProviderMappingTable,
+				carrier: {
+					status: providerClaimTable.status,
+					kind: providerClaimTable.kind,
+					customBaseUrl: providerClaimTable.customBaseUrl,
+				},
 			})
 			.from(modelProviderMappingTable)
 			.innerJoin(
 				modelTable,
 				eq(modelTable.id, modelProviderMappingTable.modelId),
+			)
+			.leftJoin(
+				providerClaimTable,
+				and(
+					eq(
+						providerClaimTable.providerId,
+						modelProviderMappingTable.providerId,
+					),
+					eq(providerClaimTable.status, "active"),
+				),
 			)
 			.where(
 				and(eq(modelProviderMappingTable.source, "airside"), ...conditions),
@@ -712,7 +744,7 @@ export async function findAirsideModel(
 ): Promise<AirsideListedModel | undefined> {
 	const owned = await swrWrap(
 		`airsidePair:${providerId}:${modelName}`,
-		[modelTableName, modelProviderMappingTableName],
+		[modelTableName, modelProviderMappingTableName, providerClaimTableName],
 		async () =>
 			await selectAirsideRows(
 				eq(modelProviderMappingTable.status, "active"),
@@ -774,7 +806,7 @@ export async function findAirsidePairsByBareName(
 ): Promise<AirsideOwnedPairs> {
 	return await swrWrap(
 		`airsidePairsByName:${modelName}`,
-		[modelTableName, modelProviderMappingTableName],
+		[modelTableName, modelProviderMappingTableName, providerClaimTableName],
 		async () =>
 			await selectAirsideRows(eq(modelProviderMappingTable.modelId, modelName)),
 	);
@@ -784,7 +816,7 @@ export async function findAirsidePairsByBareName(
 export async function listAirsidePairs(): Promise<AirsideOwnedPairs> {
 	return await swrWrap(
 		"airsidePairs:all",
-		[modelTableName, modelProviderMappingTableName],
+		[modelTableName, modelProviderMappingTableName, providerClaimTableName],
 		async () => await selectAirsideRows(),
 	);
 }

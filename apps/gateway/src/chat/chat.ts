@@ -334,6 +334,7 @@ import {
 	airsideListingToModelDefinition,
 	mergeAirsideListingsIntoModel,
 	resolveAirsideModel,
+	resolveAirsideProviderBaseUrl,
 } from "./tools/resolve-airside-model.js";
 import { resolveDynamicRouteClassification } from "./tools/resolve-dynamic-route-classification.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
@@ -650,6 +651,7 @@ async function collapseProvidersToBestRegionPerProvider(
 	},
 	options: {
 		metricsMap: Map<string, ProviderMetrics>;
+		providerOrder?: readonly string[];
 		isStreaming: boolean;
 		promptTokens?: number;
 		session?: boolean;
@@ -4025,9 +4027,6 @@ chat.openapi(completions, async (c) => {
 		// key or managed credential restricted via allowedModels only counts as
 		// available for the models it lists.
 		const providerKeys = await findActiveProviderKeys(project.organizationId);
-		const supportedProviderIds = providers
-			.filter((provider) => provider.id !== "llmgateway")
-			.map((provider) => provider.id);
 		// Region locks from DB provider keys, so auto-routing honors an org's
 		// configured region (e.g. aws_bedrock_region: "eu") instead of being
 		// collapsed to the pinned default by applyPinnedDefaultRegions.
@@ -4054,13 +4053,6 @@ chat.openapi(completions, async (c) => {
 			airsidePairs.unlisted.map((pair) => pair.modelId),
 		);
 		for (const listing of airsidePairs.listings) {
-			if (
-				!providers.some(
-					(provider) => provider.id === listing.mapping.providerId,
-				)
-			) {
-				continue;
-			}
 			const listings = airsideListingsByModel.get(listing.model.id) ?? [];
 			listings.push(listing);
 			airsideListingsByModel.set(listing.model.id, listings);
@@ -4264,7 +4256,7 @@ chat.openapi(completions, async (c) => {
 					providerKeys.filter((key) =>
 						providerKeyAllowsModel(key.allowedModels, modelDef.id),
 					),
-					supportedProviderIds,
+					activeMappings.map((mapping) => mapping.providerId),
 					await findManagedProviderAvailability(envVariant, modelDef.id),
 					envVariant,
 				);
@@ -4642,6 +4634,7 @@ chat.openapi(completions, async (c) => {
 					selectedModel,
 					{
 						metricsMap,
+						providerOrder: dynamicRouteSelection?.providers,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
 						session: sessionStickyEnabled,
@@ -4658,6 +4651,7 @@ chat.openapi(completions, async (c) => {
 					isStreaming: stream,
 					promptTokens: routingPromptTokens,
 					sessionProviderStore: createSessionStore(selectedModel.id),
+					providerOrder: dynamicRouteSelection?.providers,
 					routingConfig: routingCfg,
 					organizationId: project.organizationId,
 					providerDiscountResolver,
@@ -5190,7 +5184,7 @@ chat.openapi(completions, async (c) => {
 				);
 
 				if (preferredCandidatesForRouting.length > 0) {
-					const rawModelForFallback = models.find((m) => m.id === baseModelId);
+					const rawModelForFallback = modelInfo;
 					const modelWithPricing = rawModelForFallback
 						? {
 								...rawModelForFallback,
@@ -5379,7 +5373,7 @@ chat.openapi(completions, async (c) => {
 				);
 
 				if (uptimeFallbackCandidates.length > 0) {
-					const rawModelForFallback = models.find((m) => m.id === baseModelId);
+					const rawModelForFallback = modelInfo;
 					const modelWithPricing = rawModelForFallback
 						? {
 								...rawModelForFallback,
@@ -5746,11 +5740,7 @@ chat.openapi(completions, async (c) => {
 			// Airside-only models have no static entry; their synthesized
 			// definition carries the filed (regional) prices so selection can
 			// still score candidates instead of taking the first one.
-			const rawModelWithPricing =
-				models.find((m) => m.id === usedInternalModel) ??
-				(airsideResolution?.parseResult.requestedModel === usedInternalModel
-					? airsideResolution.modelInfoResult.modelInfo
-					: undefined);
+			const rawModelWithPricing = modelInfo;
 			const modelWithPricing = rawModelWithPricing
 				? {
 						...rawModelWithPricing,
@@ -6183,11 +6173,7 @@ chat.openapi(completions, async (c) => {
 			],
 		};
 	} else {
-		const rawFinalModelInfo = models.find(
-			(m) =>
-				m.id === usedInternalModel &&
-				m.providers.some((p) => p.providerId === usedProvider),
-		);
+		const rawFinalModelInfo = modelInfo;
 		if (rawFinalModelInfo) {
 			finalModelInfo = {
 				...rawFinalModelInfo,
@@ -6215,6 +6201,7 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 	const imageGenProviderMapping = getUsedProviderMapping();
+	let airsideCustomBaseUrl = await resolveAirsideProviderBaseUrl(usedProvider);
 	let transportProvider = getProviderApiTransport(
 		usedProvider,
 		imageGenProviderMapping?.apiFormat,
@@ -7181,8 +7168,8 @@ chat.openapi(completions, async (c) => {
 		// it like a BYOK custom provider, to the OpenAI-compatible base URL
 		// registered on its approved claim.
 		url = getProviderEndpoint(
-			airsideResolution?.customBaseUrl ? "custom" : usedProvider,
-			airsideResolution?.customBaseUrl ?? credentialBaseUrl,
+			airsideCustomBaseUrl ? "custom" : usedProvider,
+			airsideCustomBaseUrl ?? credentialBaseUrl,
 			upstreamModelName,
 			usesGoogleQueryToken(transportProvider) ? usedToken : undefined,
 			stream,
@@ -8308,7 +8295,6 @@ chat.openapi(completions, async (c) => {
 				// credential, so the waiver has to travel with the retry or the
 				// sponsored call 402s the moment the first provider misbehaves.
 				sponsoredOnboarding,
-				airsideCustomBaseUrl: airsideResolution?.customBaseUrl,
 				stream: streamValue,
 				effectiveStream,
 				messages: messages as BaseMessage[],
@@ -8350,6 +8336,7 @@ chat.openapi(completions, async (c) => {
 		ctx: Awaited<ReturnType<typeof resolveProviderContext>>,
 	): Promise<void> {
 		usedProvider = ctx.usedProvider;
+		airsideCustomBaseUrl = ctx.airsideCustomBaseUrl;
 		transportProvider = ctx.transportProvider;
 		usedRegion = ctx.usedRegion;
 		usedInternalModel = ctx.usedInternalModel;
@@ -8919,6 +8906,7 @@ chat.openapi(completions, async (c) => {
 							routingMetadata?.providerScores ?? [],
 							failedProviderIds,
 							iamFilteredModelProviders,
+							dynamicRouteSelection?.providers,
 						);
 						if (!nextProvider) {
 							break;
@@ -9036,7 +9024,7 @@ chat.openapi(completions, async (c) => {
 								body: JSON.stringify(requestBody),
 								signal: fetchSignal,
 							},
-							airsideResolution?.customBaseUrl ?? providerKey?.baseUrl,
+							airsideCustomBaseUrl ?? providerKey?.baseUrl,
 						);
 
 						logServiceTierRequest(usedProvider, forwardedServiceTier, res);
@@ -13377,6 +13365,7 @@ chat.openapi(completions, async (c) => {
 				routingMetadata?.providerScores ?? [],
 				failedProviderIds,
 				iamFilteredModelProviders,
+				dynamicRouteSelection?.providers,
 			);
 			if (!nextProvider) {
 				break;
@@ -13505,7 +13494,7 @@ chat.openapi(completions, async (c) => {
 							: JSON.stringify(requestBody),
 					signal: fetchSignal,
 				},
-				airsideResolution?.customBaseUrl ?? providerKey?.baseUrl,
+				airsideCustomBaseUrl ?? providerKey?.baseUrl,
 			);
 
 			logServiceTierRequest(usedProvider, forwardedServiceTier, res);

@@ -294,166 +294,184 @@ export function getDynamicRouteModelNodes(
 	);
 }
 
-export const dynamicRouteGraphSchema = z
-	.object({
-		entry: nodeIdSchema,
-		nodes: z.array(nodeSchema).min(1).max(DYNAMIC_ROUTE_MAX_NODES),
-	})
-	.superRefine((graph, ctx) => {
-		const ids = new Set<string>();
-		for (let index = 0; index < graph.nodes.length; index++) {
-			const node = graph.nodes[index];
-			if (ids.has(node.id)) {
-				ctx.addIssue({
-					code: z.ZodIssueCode.custom,
-					message: `Duplicate node id "${node.id}"`,
-					path: ["nodes", index, "id"],
-				});
-			}
-			ids.add(node.id);
-		}
-		if (!ids.has(graph.entry)) {
-			ctx.addIssue({
-				code: z.ZodIssueCode.custom,
-				message: `Entry node "${graph.entry}" does not exist`,
-				path: ["entry"],
-			});
-		}
-		for (let index = 0; index < graph.nodes.length; index++) {
-			const node = graph.nodes[index];
-			for (const ref of collectNodeReferences(node)) {
-				if (!ids.has(ref)) {
+/** null defers provider availability to the server's live catalogue check. */
+export function createDynamicRouteGraphSchema(
+	providerIdsByModel?: ReadonlyMap<string, ReadonlySet<string>> | null,
+) {
+	const knownProviders: ReadonlySet<string> = providerIdsByModel
+		? new Set(
+				Array.from(providerIdsByModel.values()).flatMap((ids) =>
+					Array.from(ids),
+				),
+			)
+		: new Set(providers.map((provider) => provider.id));
+	return z
+		.object({
+			entry: nodeIdSchema,
+			nodes: z.array(nodeSchema).min(1).max(DYNAMIC_ROUTE_MAX_NODES),
+		})
+		.superRefine((graph, ctx) => {
+			const ids = new Set<string>();
+			for (let index = 0; index < graph.nodes.length; index++) {
+				const node = graph.nodes[index];
+				if (ids.has(node.id)) {
 					ctx.addIssue({
 						code: z.ZodIssueCode.custom,
-						message: `Node "${node.id}" references unknown node "${ref}"`,
+						message: `Duplicate node id "${node.id}"`,
+						path: ["nodes", index, "id"],
+					});
+				}
+				ids.add(node.id);
+			}
+			if (!ids.has(graph.entry)) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					message: `Entry node "${graph.entry}" does not exist`,
+					path: ["entry"],
+				});
+			}
+			for (let index = 0; index < graph.nodes.length; index++) {
+				const node = graph.nodes[index];
+				for (const ref of collectNodeReferences(node)) {
+					if (!ids.has(ref)) {
+						ctx.addIssue({
+							code: z.ZodIssueCode.custom,
+							message: `Node "${node.id}" references unknown node "${ref}"`,
+							path: ["nodes", index],
+						});
+					}
+				}
+				if (node.type === "classifier") {
+					const allowed = DYNAMIC_ROUTE_CLASSIFIER_FIELDS[
+						node.on
+					] as readonly string[];
+					const seen = new Set<string>();
+					for (let c = 0; c < node.cases.length; c++) {
+						const value = node.cases[c].value;
+						if (!allowed.includes(value)) {
+							ctx.addIssue({
+								code: z.ZodIssueCode.custom,
+								message: `Node "${node.id}": "${value}" is not a valid ${node.on} value (${allowed.join(", ")})`,
+								path: ["nodes", index, "cases", c, "value"],
+							});
+						}
+						if (seen.has(value)) {
+							ctx.addIssue({
+								code: z.ZodIssueCode.custom,
+								message: `Node "${node.id}": duplicate case "${value}"`,
+								path: ["nodes", index, "cases", c, "value"],
+							});
+						}
+						seen.add(value);
+					}
+				}
+				if (node.type === "model") {
+					const modelDef = models.find((m) => m.id === node.model);
+					if (!modelDef) {
+						if (!parseCustomDynamicRouteModelRef(node.model)) {
+							ctx.addIssue({
+								code: z.ZodIssueCode.custom,
+								message: `Node "${node.id}": unknown model "${node.model}"`,
+								path: ["nodes", index, "model"],
+							});
+						} else if (node.providers) {
+							ctx.addIssue({
+								code: z.ZodIssueCode.custom,
+								message: `Node "${node.id}": custom model "${node.model}" already fixes its provider`,
+								path: ["nodes", index, "providers"],
+							});
+						}
+						continue;
+					}
+					for (const providerId of providerIdsByModel === null
+						? []
+						: (node.providers ?? [])) {
+						if (!knownProviders.has(providerId)) {
+							ctx.addIssue({
+								code: z.ZodIssueCode.custom,
+								message: `Node "${node.id}": unknown provider "${providerId}"`,
+								path: ["nodes", index, "providers"],
+							});
+						} else if (
+							!(providerIdsByModel
+								? providerIdsByModel.get(node.model)?.has(providerId)
+								: modelDef.providers.some((p) => p.providerId === providerId))
+						) {
+							ctx.addIssue({
+								code: z.ZodIssueCode.custom,
+								message: `Node "${node.id}": provider "${providerId}" does not serve model "${node.model}"`,
+								path: ["nodes", index, "providers"],
+							});
+						}
+					}
+				}
+			}
+			// Every node must be reachable from the entry so stale branches cannot
+			// silently linger in a published graph.
+			const nodesById = new Map(graph.nodes.map((n) => [n.id, n]));
+			const reachable = new Set<string>();
+			const queue = [graph.entry];
+			while (queue.length > 0) {
+				const id = queue.pop()!;
+				if (reachable.has(id)) {
+					continue;
+				}
+				reachable.add(id);
+				const node = nodesById.get(id);
+				if (node) {
+					queue.push(...collectNodeReferences(node));
+				}
+			}
+			for (let index = 0; index < graph.nodes.length; index++) {
+				const node = graph.nodes[index];
+				if (!reachable.has(node.id)) {
+					ctx.addIssue({
+						code: z.ZodIssueCode.custom,
+						message: `Node "${node.id}" is not reachable from the entry node`,
 						path: ["nodes", index],
 					});
 				}
 			}
-			if (node.type === "classifier") {
-				const allowed = DYNAMIC_ROUTE_CLASSIFIER_FIELDS[
-					node.on
-				] as readonly string[];
-				const seen = new Set<string>();
-				for (let c = 0; c < node.cases.length; c++) {
-					const value = node.cases[c].value;
-					if (!allowed.includes(value)) {
-						ctx.addIssue({
-							code: z.ZodIssueCode.custom,
-							message: `Node "${node.id}": "${value}" is not a valid ${node.on} value (${allowed.join(", ")})`,
-							path: ["nodes", index, "cases", c, "value"],
-						});
-					}
-					if (seen.has(value)) {
-						ctx.addIssue({
-							code: z.ZodIssueCode.custom,
-							message: `Node "${node.id}": duplicate case "${value}"`,
-							path: ["nodes", index, "cases", c, "value"],
-						});
-					}
-					seen.add(value);
+			// Reject cycles outright: evaluation is deterministic per request (a
+			// revisited conditional or percentage node always takes the same branch
+			// again), so any cycle would spin until the hop bound and 400 at request
+			// time. Fail at save/publish time instead.
+			const visiting = new Set<string>();
+			const done = new Set<string>();
+			const detectCycle = (id: string): string | undefined => {
+				if (done.has(id)) {
+					return undefined;
 				}
-			}
-			if (node.type === "model") {
-				const modelDef = models.find((m) => m.id === node.model);
-				if (!modelDef) {
-					if (!parseCustomDynamicRouteModelRef(node.model)) {
-						ctx.addIssue({
-							code: z.ZodIssueCode.custom,
-							message: `Node "${node.id}": unknown model "${node.model}"`,
-							path: ["nodes", index, "model"],
-						});
-					} else if (node.providers) {
-						ctx.addIssue({
-							code: z.ZodIssueCode.custom,
-							message: `Node "${node.id}": custom model "${node.model}" already fixes its provider`,
-							path: ["nodes", index, "providers"],
-						});
-					}
-					continue;
+				if (visiting.has(id)) {
+					return id;
 				}
-				for (const providerId of node.providers ?? []) {
-					if (!providers.some((p) => p.id === providerId)) {
-						ctx.addIssue({
-							code: z.ZodIssueCode.custom,
-							message: `Node "${node.id}": unknown provider "${providerId}"`,
-							path: ["nodes", index, "providers"],
-						});
-					} else if (
-						!modelDef.providers.some((p) => p.providerId === providerId)
-					) {
-						ctx.addIssue({
-							code: z.ZodIssueCode.custom,
-							message: `Node "${node.id}": provider "${providerId}" does not serve model "${node.model}"`,
-							path: ["nodes", index, "providers"],
-						});
+				visiting.add(id);
+				const node = nodesById.get(id);
+				if (node) {
+					for (const ref of collectNodeReferences(node)) {
+						const cycleNode = detectCycle(ref);
+						if (cycleNode !== undefined) {
+							return cycleNode;
+						}
 					}
 				}
-			}
-		}
-		// Every node must be reachable from the entry so stale branches cannot
-		// silently linger in a published graph.
-		const nodesById = new Map(graph.nodes.map((n) => [n.id, n]));
-		const reachable = new Set<string>();
-		const queue = [graph.entry];
-		while (queue.length > 0) {
-			const id = queue.pop()!;
-			if (reachable.has(id)) {
-				continue;
-			}
-			reachable.add(id);
-			const node = nodesById.get(id);
-			if (node) {
-				queue.push(...collectNodeReferences(node));
-			}
-		}
-		for (let index = 0; index < graph.nodes.length; index++) {
-			const node = graph.nodes[index];
-			if (!reachable.has(node.id)) {
+				visiting.delete(id);
+				done.add(id);
+				return undefined;
+			};
+			const cycleNode = detectCycle(graph.entry);
+			if (cycleNode !== undefined) {
 				ctx.addIssue({
 					code: z.ZodIssueCode.custom,
-					message: `Node "${node.id}" is not reachable from the entry node`,
-					path: ["nodes", index],
+					message: `Graph contains a cycle through node "${cycleNode}"`,
+					path: ["nodes"],
 				});
 			}
-		}
-		// Reject cycles outright: evaluation is deterministic per request (a
-		// revisited conditional or percentage node always takes the same branch
-		// again), so any cycle would spin until the hop bound and 400 at request
-		// time. Fail at save/publish time instead.
-		const visiting = new Set<string>();
-		const done = new Set<string>();
-		const detectCycle = (id: string): string | undefined => {
-			if (done.has(id)) {
-				return undefined;
-			}
-			if (visiting.has(id)) {
-				return id;
-			}
-			visiting.add(id);
-			const node = nodesById.get(id);
-			if (node) {
-				for (const ref of collectNodeReferences(node)) {
-					const cycleNode = detectCycle(ref);
-					if (cycleNode !== undefined) {
-						return cycleNode;
-					}
-				}
-			}
-			visiting.delete(id);
-			done.add(id);
-			return undefined;
-		};
-		const cycleNode = detectCycle(graph.entry);
-		if (cycleNode !== undefined) {
-			ctx.addIssue({
-				code: z.ZodIssueCode.custom,
-				message: `Graph contains a cycle through node "${cycleNode}"`,
-				path: ["nodes"],
-			});
-		}
-	});
+		});
+}
 
+export const dynamicRouteGraphSchema = createDynamicRouteGraphSchema();
+export const dynamicRouteGraphInputSchema = createDynamicRouteGraphSchema(null);
 export type DynamicRouteGraph = z.infer<typeof dynamicRouteGraphSchema>;
 
 /**
