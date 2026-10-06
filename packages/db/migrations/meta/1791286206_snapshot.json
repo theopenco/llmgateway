@@ -1,8 +1,8 @@
 {
-  "id": "348946ce-8798-4b25-a83b-0c9b70389833",
-  "prevId": "52b82efb-5552-41e2-a750-b816ba78a391",
   "version": "8",
   "dialect": "postgres",
+  "id": "272c3024-eba2-4abb-892f-dabd04dc7d6c",
+  "prevId": "52b82efb-5552-41e2-a750-b816ba78a391",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -26664,6 +26664,22 @@
       "generated": null,
       "identity": null,
       "name": "model_sync_excluded",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "true",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "model_sync_enabled",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_key"
