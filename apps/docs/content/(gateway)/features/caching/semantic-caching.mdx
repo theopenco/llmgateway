@@ -1,66 +1,56 @@
 ---
 title: Semantic Caching
-description: Serve cached responses for prompts that mean the same thing
+description: Serve cached responses for prompts that differ only in a few fixed rewordings
 icon: Sparkles
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-[Gateway caching](/features/caching/gateway-caching) replays a response only for a byte-identical request. Semantic caching also replays it when the final user message is close enough in meaning, so "How do I reset my password?" can reuse the answer to "How can I reset the password for my account?".
+[Gateway caching](/features/caching/gateway-caching) replays a response only for a byte-identical request. Semantic caching also replays it when the final user message differs from a cached one only in a short, fixed list of rewordings, so "How can I change my email address" reuses the answer to "How do I change my email address?".
 
 <Callout type="info">
 	Semantic caching is available on the [**Enterprise
 	plan**](https://llmgateway.io/enterprise).
 </Callout>
 
-<Callout type="warn">
-	An embedding cannot tell every pair of prompts apart. Start in **Shadow**
-	mode, review the logged matches, and only then switch to **On**.
-</Callout>
-
 ## Enable it
 
-In the project's [**Preferences**](/learn/preferences), turn on **Enable request caching**, then pick a **Semantic caching** mode and a **Similarity threshold** between 0.90 and 0.999.
+In the project's [**Preferences**](/learn/preferences), turn on **Enable request caching**, then pick a **Semantic caching** mode:
 
 - **Off**: only byte-identical requests are served from the cache.
-- **Shadow**: lookups run and matches are recorded on the request log, but every request still goes to the provider. Use it to check a threshold before it affects answers.
-- **On**: a matching prompt is served the cached response.
+- **Shadow**: matches are recorded on the request log, but every request still goes to the provider.
+- **On**: a matching request is served the cached response.
 
 Matches expire with the cache duration you set for request caching. Turning request caching off sets semantic caching to **Off**; it does not come back when request caching is re-enabled.
 
-## How a lookup works
+## What matches
 
-1. The exact cache is checked first.
-2. On a miss, the gateway embeds the **final user message** only.
-3. It compares that embedding with recent cached requests whose everything else is identical: model, request parameters, the system prompt, every earlier message, and the final message's other fields. Only the wording of the final user message may differ. For auto-routed requests the pool is shared across providers.
-4. Candidates must carry the same **anchor tokens** in the same order: numbers and anything containing a digit (`2+3`, `2024-05-01`, `$120`); all-caps codes (`EUR`, `USD`, `TSLA`), also when joined by punctuation (`EUR→USD`, `EUR/USD`); negations, including every `n't` contraction; polar words whose swap flips the meaning (buy/sell, approve/reject, confirm/cancel, enable/disable, on/off, before/after, …) matched on their base form; capitalised names after the first word of a sentence, possessive or not (Paris, Tesla, Alice's); and the parties of personal pronouns when two or more differ ("from me to him", "I sent it to them"). "Convert EUR→USD" never replays "Convert USD→EUR", "sell Tesla" never replays "buy Tesla", "I didn't receive it" never replays "I received it", "from me to him" never replays "from him to me".
-5. The words both prompts share must appear in the same order. A rewording may add, drop or replace words; moving shared words around each other is an operand swap, so "transfer 500 from savings to checking" never replays "transfer 500 from checking to savings" and "convert 100 eur to usd" never replays "convert 100 usd to eur". Object pronouns count as words here, so "from me to Alice" never replays "from Alice to me".
-6. The most similar entry at or above the threshold whose response is still cached is the match. In **On** mode it is returned as a normal cached response; in **Shadow** mode it is only recorded on the log.
+Everything except the final user message must be identical: model, provider, request parameters, the system prompt and every earlier message. The final user message must then be identical too, except for these differences:
 
-A served hit returns `x-llmgateway-cache: HIT` plus `x-llmgateway-cache-match: semantic` and `x-llmgateway-cache-similarity`, on `/v1/chat/completions`, `/v1/messages` and the AI SDK endpoint. It is logged and billed as a cached request.
+| Ignored difference                                              | Example                                                                |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| "How can I" or "Where can I" at the start, for "How/Where do I" | "How can I export my data" / "How do I export my data"                 |
+| "Which" at the start, for "What"                                | "Which plans do you offer" / "What plans do you offer"                 |
+| "What's" at the start, for "What is"                            | "What's the capital of Australia" / "What is the capital of Australia" |
+| The case of a question word at the start                        | "how do I reset my router" / "How do I reset my router"                |
+| Trailing `?` and `.`                                            | "Track my order?" / "Track my order"                                   |
+| Whitespace at the start or end                                  | "Track my order\n" / "Track my order"                                  |
+| Curly apostrophes outside code                                  | "didn’t" / "didn't"                                                    |
 
-## Auditing matches
+The rewordings and the case rule apply only at the start of the message. Anywhere else, the same words can be quoted or mentioned text, as in "Translate to French: how can I help you".
 
-Every lookup that found a match, served or not, writes `routingMetadata.semanticCache` on the request log: the similarity, the cache key it matched and `served` (`false` in shadow mode). Filter logs on it to find false matches and tune the threshold.
+Any other difference is a miss: another word or letter, a different case anywhere but a leading question word, numbers, symbols, word order, "please", contractions, spacing and line breaks. Code in backticks or fences is compared exactly. There is no similarity threshold and no embedding.
+
+## Headers and auditing
+
+A served hit returns `x-llmgateway-cache: HIT` and `x-llmgateway-cache-match: semantic` on `/v1/chat/completions`, `/v1/messages` and the AI SDK endpoint. It is logged and billed as a cached request.
+
+Every match, served or not, writes `routingMetadata.semanticCache` on the request log: the cache key it matched and `served` (`false` in shadow mode).
 
 ## Limits
 
-- Requests without `tools` only; image generation models are skipped.
-- The final message must be from the user, text only, and at least 16 characters: shorter turns ("yes", "cancel") are too close to their opposites to separate.
-- Requests with images, audio, or other non-text parts are skipped.
-- Up to 512 entries are compared per scope; a served entry moves back to the front, so repeated prompts outlive one-off traffic. An entry stores an 8-bit vector, short word keys and its anchors, about 1 KB, so a full scope reads about half a megabyte.
-- `x-no-cache: true`, zero data retention, and DevPass organizations bypass it, as with request caching.
-- If the embedding call fails or times out (2 seconds), the request continues as a miss. After three consecutive failures the gateway stops embedding for 30 seconds.
+- Requests with `tools` and image generation models are skipped.
+- The final message must be from the user and contain only text.
+- `x-no-cache: true`, zero data retention and DevPass organizations bypass it, as with request caching. `/v1/responses` does not forward `x-no-cache`.
+- If the lookup fails or takes longer than 250 ms, the request continues as a miss.
 - It stops when the organization leaves the Enterprise plan.
-- Requests under an active [compliance policy](/features/compliance) skip it, because the embedding call would send prompt text to a provider the policy does not vet. For the same reason it cannot be turned on while a policy is active.
-- The embedding call goes to the configured embedding endpoint regardless of data residency settings; self-host an embedding endpoint in-region if that matters.
-
-Pick a higher threshold when small wording changes alter the answer (names, dates, instructions); lower it for FAQ-style traffic. Rewordings of the same question typically score 0.90 to 0.95 with `text-embedding-3-small`.
-
-## Self-hosting
-
-The gateway embeds with `SEMANTIC_CACHE_EMBEDDING_MODEL` (default `text-embedding-3-small`) on an OpenAI-compatible endpoint. Set `SEMANTIC_CACHE_EMBEDDING_API_KEY` and `SEMANTIC_CACHE_EMBEDDING_BASE_URL`; they fall back to `LLM_OPENAI_API_KEY` and `LLM_OPENAI_BASE_URL`. The base URL must use HTTPS unless `ALLOW_INSECURE_PROVIDER_URLS=true`.
-
-`SEMANTIC_CACHE_EMBEDDING_DIMENSIONS` shortens the vector (default 256 for `text-embedding-3-*` models, full length otherwise). Changing the model or dimensions starts a fresh set of entries.
-
-Each embedding call is logged with its project id and token usage (`Semantic cache embedding`), so the platform's embedding spend can be attributed.

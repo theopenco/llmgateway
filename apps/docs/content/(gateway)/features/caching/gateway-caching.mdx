@@ -75,7 +75,8 @@ The cache key is scoped to your **project** and includes the **resolved provider
 - Frequency and presence penalty
 - Response format
 - Tools/functions, tool choice, and the web search tool
-- Reasoning effort and reasoning max tokens
+- Reasoning effort, reasoning max tokens, reasoning mode and context, `effort` and `no_reasoning`
+- `verbosity`, `plugins`, `sensitive_word_check` and `image_config`
 - `prompt_cache_key`, `prompt_cache_retention`, `prompt_cache_options`
 - `n` and `service_tier`
 - The response mode — streaming and non-streaming entries are kept separate, so an otherwise identical `stream: true` request never shares an entry with a non-streaming one
@@ -122,7 +123,7 @@ The default cache duration is 60 seconds. Adjust this based on your use case—l
 
 A cache hit replays the stored completion — same `id`, same content, same token counts. The `metadata` envelope is rebuilt for the current request (fresh `log_id`, and a fresh `request_id` on non-streaming responses) and all cost fields are zeroed, so the body is not byte-for-byte identical to the original response. Two markers tell you it was a replay:
 
-- the `x-llmgateway-cache: HIT` response header — set on `/v1/chat/completions`, `/v1/messages` (which has no metadata envelope), and streaming AI SDK requests; it is not surfaced on `/v1/responses` or on non-streaming AI SDK responses
+- the `x-llmgateway-cache: HIT` response header — set on `/v1/chat/completions`, `/v1/messages` (which has no metadata envelope), and the AI SDK endpoint; it is not surfaced on `/v1/responses`
 - `metadata.cached: true` on the response body (and on the final metadata chunk of a streamed replay)
 
 All cost fields are zeroed on a replay, because no upstream call was made:

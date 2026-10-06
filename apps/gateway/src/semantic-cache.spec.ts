@@ -1,31 +1,25 @@
 import { randomUUID } from "node:crypto";
 
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
-import { resetSemanticCacheEmbeddingBreaker } from "./lib/semantic-cache-embedding.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 import { clearCache, waitForLogs } from "./test-utils/test-helpers.js";
 
 import type { SemanticCacheMode } from "@llmgateway/db";
 
 /**
- * Drives the real chat route against the mock provider. The mock embedding
- * endpoint returns the same vector for every input, so similarity is always
- * 1.0; what these tests prove is the wiring around it: which requests are
- * eligible, what must match exactly, what is served, and what is logged.
+ * Drives the real chat route against the mock provider. Response-cache
+ * entries outlive a test, so every prompt carries its own tag.
  */
 describe("semantic cache", () => {
 	const harness = createGatewayApiTestHarness();
 
 	beforeEach(async () => {
-		vi.stubEnv("SEMANTIC_CACHE_EMBEDDING_BASE_URL", harness.mockServerUrl);
-		vi.stubEnv("SEMANTIC_CACHE_EMBEDDING_API_KEY", "sk-embed-spec");
-		resetSemanticCacheEmbeddingBreaker();
 		await harness.setOrganizationPlan("enterprise");
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -46,10 +40,6 @@ describe("semantic cache", () => {
 			baseUrl: harness.mockServerUrl,
 		});
 		await setMode("on");
-	});
-
-	afterEach(() => {
-		vi.unstubAllEnvs();
 	});
 
 	async function setMode(semanticCacheMode: SemanticCacheMode) {
@@ -77,6 +67,10 @@ describe("semantic cache", () => {
 		});
 	}
 
+	function ask(content: string, extra: Record<string, unknown> = {}) {
+		return completions({ messages: [{ role: "user", content }], ...extra });
+	}
+
 	// Cache writes are disabled under NODE_ENV=test, so the priming request
 	// runs as production would. The body is drained before the flag flips
 	// back: a streaming response is only cached once it has been read to the
@@ -97,158 +91,107 @@ describe("semantic cache", () => {
 	}
 
 	test("serves a reworded final user turn and audits the match", async () => {
-		const system = `Customer: Alice ${randomUUID()}. Balance 120 EUR.`;
+		const tag = randomUUID();
+		const system = `Customer: Alice ${tag}. Balance 120 EUR.`;
 		await prime({
 			messages: [
 				{ role: "system", content: system },
-				{ role: "user", content: "How do I reset my password?" },
+				{ role: "user", content: "How do I change my email address?" },
 			],
 		});
 
 		const hit = await completions({
 			messages: [
 				{ role: "system", content: system },
-				{
-					role: "user",
-					content: "How can I reset the password for my account?",
-				},
+				{ role: "user", content: "How can I change my email address" },
 			],
 		});
 		expect(hit.status).toBe(200);
 		expect(hit.headers.get("x-llmgateway-cache")).toBe("HIT");
 		expect(hit.headers.get("x-llmgateway-cache-match")).toBe("semantic");
-		expect(hit.headers.get("x-llmgateway-cache-similarity")).toBe("1.0000");
+		expect(hit.headers.get("x-llmgateway-cache-similarity")).toBeNull();
 		const json = await hit.json();
 		expect(json.metadata.cached).toBe(true);
 		expect(json.usage.cost).toBe(0);
 
 		const logs = await waitForLogs(2);
 		const cached = logs.find((log) => log.cached);
-		expect(cached?.routingMetadata?.semanticCache).toMatchObject({
-			similarity: 1,
+		expect(cached?.routingMetadata?.semanticCache).toEqual({
+			matchedCacheKey: expect.stringMatching(/^project-id:/),
 			served: true,
 		});
-		expect(typeof cached?.routingMetadata?.semanticCache?.matchedCacheKey).toBe(
-			"string",
-		);
+	});
+
+	test("prompts that differ in a word, case or order never match", async () => {
+		const pairs: Array<[string, string]> = [
+			["Does a landlord raise rent?", "Can a landlord raise rent?"],
+			["Convert 1 mW to watts", "Convert 1 MW to watts"],
+			["Send 100 from me to you", "Send 100 from you to me"],
+			["Is it legal to record a call?", "Is it illegal to record a call?"],
+			["What is 7² exactly?", "What is 72 exactly?"],
+			["What is 5! exactly?", "What is 5 exactly?"],
+			[
+				"Translate to French: how can I help you",
+				"Translate to French: how do I help you",
+			],
+		];
+		for (const [primed, variant] of pairs) {
+			const tag = ` (${randomUUID()})`;
+			await prime({ messages: [{ role: "user", content: primed + tag }] });
+			const res = await ask(variant + tag);
+			expect(res.status).toBe(200);
+			expect(res.headers.get("x-llmgateway-cache"), variant).toBeNull();
+		}
 	});
 
 	test("another customer's system prompt never matches", async () => {
-		const question = "What is my current account balance?";
+		const question = `What is my current account balance? ${randomUUID()}`;
 		await prime({
 			messages: [
-				{ role: "system", content: `Customer: Alice ${randomUUID()}` },
+				{ role: "system", content: "Customer: Alice" },
 				{ role: "user", content: question },
 			],
 		});
 		const other = await completions({
 			messages: [
-				{ role: "system", content: `Customer: Bob ${randomUUID()}` },
-				{ role: "user", content: question },
+				{ role: "system", content: "Customer: Bob" },
+				{ role: "user", content: `${question}?` },
 			],
 		});
 		expect(other.status).toBe(200);
 		expect(other.headers.get("x-llmgateway-cache")).toBeNull();
 	});
 
-	test("different numbers, codes, negations, polar words, names, pronoun parties or operand order never match", async () => {
-		// The mock embedding endpoint returns one vector for every input, so
-		// each pair gets its own tag: without it, unrelated prompts in this
-		// list would "match" each other on the vector alone.
-		const pairs: Array<[string, string[]]> = [
-			[
-				"Convert 100 EUR to USD for me ({T})",
-				[
-					"Convert 100 USD to EUR for me ({T})",
-					"Convert 200 EUR to USD for me ({T})",
-					"Do not convert 100 EUR to USD for me ({T})",
-				],
-			],
-			["Convert EUR→USD right now ({T})", ["Convert USD→EUR right now ({T})"]],
-			["Sell my Tesla shares today ({T})", ["Buy my Tesla shares today ({T})"]],
-			[
-				"Approve the pending request ({T})",
-				["Reject the pending request ({T})"],
-			],
-			["I didn't receive my refund ({T})", ["I received my refund ({T})"]],
-			[
-				"What is the weather in Paris ({T})",
-				["What is the weather in London ({T})"],
-			],
-			[
-				"transfer 500 from savings to checking ({T})",
-				["transfer 500 from checking to savings ({T})"],
-			],
-			[
-				"convert 100 eur to usd ({T})",
-				["convert 100 usd to eur ({T})", "change 100 usd to eur ({T})"],
-			],
-			[
-				"is paris bigger than london ({T})",
-				["is london bigger than paris ({T})"],
-			],
-			[
-				"transfer the money from me to him ({T})",
-				["transfer the money from him to me ({T})"],
-			],
-			["I sent it to them ({T})", ["They sent it to me ({T})"]],
-			[
-				"transfer the money from me to Alice ({T})",
-				["transfer the money from Alice to me ({T})"],
-			],
-			[
-				"move 50 from me to savings ({T})",
-				["move 50 from savings to me ({T})"],
-			],
-			[
-				"What is Alice's current balance? ({T})",
-				["What is Bob's current balance? ({T})"],
-			],
-		];
-		for (const [primedTemplate, variants] of pairs) {
-			const tag = randomUUID();
-			const primed = primedTemplate.replace("{T}", tag);
-			await prime({ messages: [{ role: "user", content: primed }] });
-			for (const variant of variants) {
-				const content = variant.replace("{T}", tag);
-				const res = await completions({
-					messages: [{ role: "user", content }],
-				});
-				expect(res.status).toBe(200);
-				expect(res.headers.get("x-llmgateway-cache"), content).toBeNull();
-			}
-		}
+	test("a different verbosity misses both caches", async () => {
+		const prompt = `Explain caching ${randomUUID()}`;
+		await prime({
+			verbosity: "low",
+			messages: [{ role: "user", content: prompt }],
+		});
+		const same = await ask(prompt, { verbosity: "low" });
+		expect(same.headers.get("x-llmgateway-cache")).toBe("HIT");
+
+		const exact = await ask(prompt, { verbosity: "high" });
+		expect(exact.status).toBe(200);
+		expect(exact.headers.get("x-llmgateway-cache")).toBeNull();
+		const reworded = await ask(`${prompt}?`, { verbosity: "high" });
+		expect(reworded.status).toBe(200);
+		expect(reworded.headers.get("x-llmgateway-cache")).toBeNull();
 	});
 
-	test("short final turns and tool requests are never matched", async () => {
+	test("tool requests are never matched", async () => {
 		const tag = randomUUID();
-		await prime({
-			messages: [
-				{ role: "user", content: `Shall I proceed with the order ${tag}?` },
-				{ role: "assistant", content: "Please confirm." },
-				{ role: "user", content: "yes" },
-			],
-		});
-		const opposite = await completions({
-			messages: [
-				{ role: "user", content: `Shall I proceed with the order ${tag}?` },
-				{ role: "assistant", content: "Please confirm." },
-				{ role: "user", content: "no!" },
-			],
-		});
-		expect(opposite.headers.get("x-llmgateway-cache")).toBeNull();
-
 		const tool = {
 			type: "function",
 			function: { name: "lookup", parameters: { type: "object" } },
 		};
 		await prime({
 			tools: [tool],
-			messages: [{ role: "user", content: `Look up order ${tag} please` }],
+			messages: [{ role: "user", content: `How do I look up order ${tag}?` }],
 		});
 		const withTools = await completions({
 			tools: [tool],
-			messages: [{ role: "user", content: `Please look up order ${tag}` }],
+			messages: [{ role: "user", content: `How can I look up order ${tag}` }],
 		});
 		expect(withTools.headers.get("x-llmgateway-cache")).toBeNull();
 	});
@@ -257,13 +200,9 @@ describe("semantic cache", () => {
 		await setMode("shadow");
 		const tag = randomUUID();
 		await prime({
-			messages: [{ role: "user", content: `Explain LLM routing (${tag})` }],
+			messages: [{ role: "user", content: `How do I enable routing ${tag}?` }],
 		});
-		const res = await completions({
-			messages: [
-				{ role: "user", content: `Can you explain LLM routing? (${tag})` },
-			],
-		});
+		const res = await ask(`How can I enable routing ${tag}`);
 		expect(res.status).toBe(200);
 		expect(res.headers.get("x-llmgateway-cache")).toBeNull();
 		expect(res.headers.get("x-llmgateway-cache-match")).toBeNull();
@@ -275,8 +214,8 @@ describe("semantic cache", () => {
 			(log) => log.routingMetadata?.semanticCache !== undefined,
 		);
 		expect(shadowed?.cached).toBe(false);
-		expect(shadowed?.routingMetadata?.semanticCache).toMatchObject({
-			similarity: 1,
+		expect(shadowed?.routingMetadata?.semanticCache).toEqual({
+			matchedCacheKey: expect.stringMatching(/^project-id:/),
 			served: false,
 		});
 	});
@@ -285,14 +224,11 @@ describe("semantic cache", () => {
 		const tag = randomUUID();
 		await prime({
 			stream: true,
-			messages: [{ role: "user", content: `Tell me about caching (${tag})` }],
+			messages: [{ role: "user", content: `How do I enable caching ${tag}?` }],
 		});
 
-		const hit = await completions({
+		const hit = await ask(`How can I enable caching ${tag}`, {
 			stream: true,
-			messages: [
-				{ role: "user", content: `Tell me all about caching (${tag})` },
-			],
 		});
 		expect(hit.status).toBe(200);
 		expect(hit.headers.get("x-llmgateway-cache")).toBe("HIT");
@@ -302,16 +238,20 @@ describe("semantic cache", () => {
 		expect(body).toContain("[DONE]");
 	});
 
-	test("/v1/messages forwards the semantic match headers", async () => {
+	test("/v1/messages forwards the semantic match header", async () => {
 		const tag = randomUUID();
 		await prime(
-			{ messages: [{ role: "user", content: `Summarise caching (${tag})` }] },
+			{
+				messages: [
+					{ role: "user", content: `How do I summarise caching ${tag}?` },
+				],
+			},
 			"/v1/messages",
 		);
 		const hit = await completions(
 			{
 				messages: [
-					{ role: "user", content: `Please summarise caching (${tag})` },
+					{ role: "user", content: `How can I summarise caching ${tag}` },
 				],
 			},
 			"/v1/messages",
@@ -319,23 +259,20 @@ describe("semantic cache", () => {
 		expect(hit.status).toBe(200);
 		expect(hit.headers.get("x-llmgateway-cache")).toBe("HIT");
 		expect(hit.headers.get("x-llmgateway-cache-match")).toBe("semantic");
-		expect(hit.headers.get("x-llmgateway-cache-similarity")).toBe("1.0000");
 	});
 
 	test("a lapsed enterprise plan disables lookups", async () => {
 		const tag = randomUUID();
 		await prime({
-			messages: [{ role: "user", content: `Describe the gateway (${tag})` }],
+			messages: [
+				{ role: "user", content: `How do I describe the gateway ${tag}?` },
+			],
 		});
 		await harness.setOrganizationPlan("pro");
 		// The gateway caches the organization row; a real plan change is
 		// invalidated by the API, so mirror that here.
 		await clearCache();
-		const res = await completions({
-			messages: [
-				{ role: "user", content: `Please describe the gateway (${tag})` },
-			],
-		});
+		const res = await ask(`How can I describe the gateway ${tag}`);
 		expect(res.status).toBe(200);
 		expect(res.headers.get("x-llmgateway-cache")).toBeNull();
 	});

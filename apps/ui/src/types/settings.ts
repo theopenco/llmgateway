@@ -9,7 +9,6 @@ export interface CachingSettingsData {
 			cacheDurationSeconds: number;
 			providerCacheControlMode: ProviderCacheControlMode;
 			semanticCacheMode: "off" | "shadow" | "on";
-			semanticCacheThreshold: number;
 		};
 	};
 }

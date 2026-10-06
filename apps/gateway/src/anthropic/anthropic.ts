@@ -1109,11 +1109,7 @@ anthropic.openapi(messages, async (c) => {
 
 	// Surface gateway response-cache replays to native Anthropic clients, who
 	// usually ignore the non-Anthropic `metadata` field carrying `cached`.
-	for (const name of [
-		"x-llmgateway-cache",
-		"x-llmgateway-cache-match",
-		"x-llmgateway-cache-similarity",
-	]) {
+	for (const name of ["x-llmgateway-cache", "x-llmgateway-cache-match"]) {
 		const value = response.headers.get(name);
 		if (value) {
 			c.header(name, value);

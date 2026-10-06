@@ -30,7 +30,7 @@ Enable or configure response caching for API requests. When enabled, identical r
 
 Response caching must be disabled for every project before the organization can enable [zero data retention](/features/compliance). While ZDR is active, response caching cannot be enabled and provider prompt-cache markers are stripped.
 
-On the Enterprise plan, **Semantic caching** also reuses a cached response when the final user message is similar enough in meaning, with the rest of the conversation identical. Set how close it must be with **Similarity threshold** (0.90 to 0.999), and start in **Shadow** mode to review matches before they are served. See [Semantic caching](/features/caching/semantic-caching).
+On the Enterprise plan, **Semantic caching** also reuses a cached response when the final user message differs only in a few fixed rewordings, such as "How can I" for "How do I" or a trailing question mark, with the rest of the conversation identical. **Shadow** mode records matches without serving them. See [Semantic caching](/features/caching/semantic-caching).
 
 Learn more about caching in the [Caching feature docs](/features/caching).
 
