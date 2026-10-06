@@ -127,6 +127,8 @@ const credentialSchema = z.object({
 	 * catalogue.
 	 */
 	allowedModels: z.array(z.string()).nullable(),
+	/** Whether the daily model sync may append newly served models. */
+	modelSyncEnabled: z.boolean(),
 });
 
 /**
@@ -298,6 +300,7 @@ function toCredential(row: CredentialRow, carrierKeyIds: Set<string>) {
 		carrierKey: carrierKeyIds.has(row.id),
 		tokenHash: row.tokenHash,
 		allowedModels: row.allowedModels,
+		modelSyncEnabled: row.modelSyncEnabled,
 	};
 }
 
@@ -1916,6 +1919,7 @@ const createCredential = createRoute({
 						config: z.record(z.string(), z.string()).optional(),
 						usageLimit: createNullableLimitSchema("Usage limit").optional(),
 						allowedModels: allowedModelsSchema,
+						modelSyncEnabled: z.boolean().optional(),
 						skipValidation: z.boolean().optional(),
 						/**
 						 * Custom carriers only: serve the carrier with this key,
@@ -1996,6 +2000,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 				config,
 				usageLimit: body.usageLimit ?? null,
 				allowedModels,
+				modelSyncEnabled: body.modelSyncEnabled ?? true,
 			})
 			.returning();
 		// A custom carrier is served by the key its claim points at: an admin
@@ -2051,6 +2056,7 @@ const updateCredential = createRoute({
 						 * enabled since then are kept instead of read as removals.
 						 */
 						allowedModelsBase: allowedModelsSchema,
+						modelSyncEnabled: z.boolean().optional(),
 						skipValidation: z.boolean().optional(),
 					}),
 				},
@@ -2190,6 +2196,9 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 	if (body.usageLimit !== undefined) {
 		updates.usageLimit = body.usageLimit;
+	}
+	if (body.modelSyncEnabled !== undefined) {
+		updates.modelSyncEnabled = body.modelSyncEnabled;
 	}
 
 	// Reactivating an over-limit credential without raising or clearing the
