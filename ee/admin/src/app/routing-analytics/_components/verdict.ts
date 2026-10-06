@@ -2,6 +2,7 @@ import type {
 	EffectiveWeights,
 	MetricInputs,
 	ScenarioProvider,
+	ScenarioResult,
 	ScoreBreakdown,
 } from "./types";
 
@@ -63,7 +64,12 @@ export interface VerdictContext {
 	rows: ScenarioProvider[];
 	weights: EffectiveWeights;
 	metricsByProvider: Map<string, MetricInputs>;
+	method: ScenarioResult["method"];
+	/** False for sessions, which pin per session instead. */
+	hysteresis: boolean;
 	stickyScoreMargin: number;
+	/** An incumbent below this uptime is switched away from regardless. */
+	stickyUptimeThreshold: number;
 	uptimePenaltyThreshold: number;
 	providerName: (providerId: string) => string;
 }
@@ -83,6 +89,7 @@ function factorDetail(
 	best: ScenarioProvider,
 	metrics: MetricInputs | undefined,
 	bestMetrics: MetricInputs | undefined,
+	delta: number,
 ): string | null {
 	switch (factor.key) {
 		case "price": {
@@ -104,8 +111,29 @@ function factorDetail(
 		case "cache":
 			return entry.breakdown.cacheScore > 0 ? "no prompt caching" : null;
 		case "priority":
-			return "lower provider priority";
+			return delta > 0 ? "lower provider priority" : "higher provider priority";
 	}
+}
+
+/**
+ * Whether an organization already routed to this provider keeps it: the
+ * gateway's hysteresis holds while the gap is within the margin and the
+ * incumbent's uptime (when known) is above the sticky threshold.
+ */
+function keepsIncumbent(
+	gap: number,
+	metrics: MetricInputs | undefined,
+	context: VerdictContext,
+): boolean {
+	if (!context.hysteresis || gap > context.stickyScoreMargin) {
+		return false;
+	}
+	const uptime = metrics?.uptime;
+	return (
+		uptime === null ||
+		uptime === undefined ||
+		uptime >= context.stickyUptimeThreshold
+	);
 }
 
 function formatMetric(
@@ -139,6 +167,21 @@ export function describeVerdict(
 	const best = rows[0];
 	const notes: string[] = [];
 	const metrics = metricsByProvider.get(entry.providerId);
+	if (context.method === "price-only") {
+		if (entry.providerId === best.providerId) {
+			return {
+				headline:
+					rows.length > 1
+						? "Lowest price after priority."
+						: "Only candidate mapping.",
+				notes,
+			};
+		}
+		return {
+			headline: `${(entry.score * 100).toFixed(1)}% dearer after priority (${context.providerName(best.providerId)} is cheapest).`,
+			notes,
+		};
+	}
 	if (
 		!metrics ||
 		(metrics.uptime === null &&
@@ -160,20 +203,28 @@ export function describeVerdict(
 		if (others.length === 0) {
 			return { headline: "Only routable mapping.", notes };
 		}
-		const leads = FACTORS.filter(
-			(factor) =>
+		// A lead means no one does better on the factor and someone does worse;
+		// priority can go negative, so "near zero" is not enough.
+		const leads = FACTORS.filter((factor) => {
+			const own = entry.breakdown[factor.contribution];
+			return (
 				factorWeight(factor, weights) > 0 &&
-				entry.breakdown[factor.contribution] <= MIN_FACTOR_DELTA &&
+				others.every((other) => other.breakdown[factor.contribution] >= own) &&
 				others.some(
 					(other) =>
-						other.breakdown[factor.contribution] -
-							entry.breakdown[factor.contribution] >
-						MIN_FACTOR_DELTA,
-				),
-		).map((factor) => factor.leadPhrase);
+						other.breakdown[factor.contribution] - own > MIN_FACTOR_DELTA,
+				)
+			);
+		}).map((factor) => factor.leadPhrase);
 		const runnerUp = others[0];
 		const margin = runnerUp.score - entry.score;
-		if (margin <= context.stickyScoreMargin) {
+		if (
+			keepsIncumbent(
+				margin,
+				metricsByProvider.get(runnerUp.providerId),
+				context,
+			)
+		) {
 			notes.push(
 				`${context.providerName(runnerUp.providerId)} is within the ${context.stickyScoreMargin} sticky margin: an organization already pinned there keeps its traffic.`,
 			);
@@ -195,7 +246,14 @@ export function describeVerdict(
 			best.breakdown[factor.contribution],
 	}));
 	const describe = ({ factor, delta }: (typeof deltas)[number]) => {
-		const detail = factorDetail(factor, entry, best, metrics, bestMetrics);
+		const detail = factorDetail(
+			factor,
+			entry,
+			best,
+			metrics,
+			bestMetrics,
+			delta,
+		);
 		return `${factor.label} ${signed(delta)}${detail ? ` (${detail})` : ""}`;
 	};
 	const behind = deltas
@@ -222,7 +280,7 @@ export function describeVerdict(
 	if (ahead.length > 0) {
 		parts.push(`ahead on ${ahead.join(", ")}`);
 	}
-	if (gap <= context.stickyScoreMargin) {
+	if (keepsIncumbent(gap, metrics, context)) {
 		notes.push(
 			`Within the ${context.stickyScoreMargin} sticky margin: an organization already pinned here keeps its traffic.`,
 		);

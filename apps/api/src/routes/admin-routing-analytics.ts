@@ -36,7 +36,10 @@ import {
 	type ProviderModelMapping,
 	type ModelDefinition,
 } from "@llmgateway/models";
-import { deriveStabilityMetrics } from "@llmgateway/shared";
+import {
+	deriveStabilityMetrics,
+	providerSupportsCachedInput,
+} from "@llmgateway/shared";
 import { isMappingDeactivated } from "@llmgateway/shared/deactivation";
 import {
 	applyRoutingPreference,
@@ -309,6 +312,11 @@ const scenarioResultSchema = z
 		runnerUpProviderId: z.string().nullable(),
 		/** Runner-up score minus winner score, null with fewer than two mappings. */
 		margin: z.number().nullable(),
+		/**
+		 * `price-only` when no candidate has metrics: routing then ranks by
+		 * price / priority, and `score` is the premium over the cheapest.
+		 */
+		method: z.enum(["weighted", "price-only"]),
 	})
 	.openapi({});
 
@@ -326,6 +334,10 @@ const routingScenarioSchema = z
 		cachePricing: z
 			.object({ hitRate: z.number(), outputRatio: z.number() })
 			.nullable(),
+		/** Whether an organization's incumbent provider is kept within the sticky margin. */
+		hysteresis: z.boolean(),
+		/** Routable mappings this request shape never considers. */
+		excludedProviderIds: z.array(z.string()),
 		/** Scored on the window's plain hourly averages. */
 		window: scenarioResultSchema,
 		/** Scored on the router's own tier-weighted recent window. */
@@ -744,13 +756,23 @@ interface ScenarioDefinition {
 	cfg: ResolvedRoutingConfig;
 	isStreaming: boolean;
 	cacheRelevant: boolean;
+	/** Sessions pin per session instead of using org-level hysteresis. */
+	session: boolean;
+	/** Coding plans only route to mappings with a cached input price. */
+	cachedInputOnly: boolean;
 }
+
+const BASE_SCENARIO = {
+	...STREAMING_FLAGS,
+	session: false,
+	cachedInputOnly: false,
+} as const;
 
 /**
  * The request shapes the router scores differently, all under default routing
- * config. Image models never price cache reads, so they skip those shapes.
+ * config.
  */
-function buildScenarios(isImageModel: boolean): ScenarioDefinition[] {
+function buildScenarios(): ScenarioDefinition[] {
 	const cfg = getDefaultRoutingConfig();
 	const scenarios: ScenarioDefinition[] = [
 		{
@@ -759,7 +781,7 @@ function buildScenarios(isImageModel: boolean): ScenarioDefinition[] {
 			description:
 				"Streaming request with a prompt below the cache threshold, on default weights.",
 			cfg,
-			...STREAMING_FLAGS,
+			...BASE_SCENARIO,
 		},
 		{
 			id: "non-streaming",
@@ -767,46 +789,45 @@ function buildScenarios(isImageModel: boolean): ScenarioDefinition[] {
 			description:
 				"Latency is only measured on streams, so its weight drops out.",
 			cfg,
+			...BASE_SCENARIO,
 			isStreaming: false,
-			cacheRelevant: false,
+		},
+		{
+			id: "cached-api",
+			label: "Large prompt",
+			description: `Prompt of ${cfg.thresholds.cachePromptTokens}+ tokens: cached input reads are priced in.`,
+			cfg,
+			...BASE_SCENARIO,
+			cacheRelevant: true,
+		},
+		{
+			id: "coding-session",
+			label: "DevPass session",
+			description:
+				"Coding-plan session: only mappings with a cached input price, mostly cached input, little output.",
+			cfg: getDefaultRoutingConfig("devpass"),
+			...BASE_SCENARIO,
+			cacheRelevant: true,
+			session: true,
+			cachedInputOnly: true,
+		},
+		{
+			id: "chat-session",
+			label: "Chat session",
+			description: "Session on the chat cache profile.",
+			cfg: getDefaultRoutingConfig("chat"),
+			...BASE_SCENARIO,
+			cacheRelevant: true,
+			session: true,
 		},
 	];
-	if (!isImageModel) {
-		scenarios.push(
-			{
-				id: "cached-api",
-				label: "Large prompt",
-				description: `Prompt of ${cfg.thresholds.cachePromptTokens}+ tokens: cached input reads are priced in.`,
-				cfg,
-				isStreaming: true,
-				cacheRelevant: true,
-			},
-			{
-				id: "coding-session",
-				label: "Coding session",
-				description:
-					"Session from a coding client (DevPass cache profile): mostly cached input, little output.",
-				cfg: getDefaultRoutingConfig("devpass"),
-				isStreaming: true,
-				cacheRelevant: true,
-			},
-			{
-				id: "chat-session",
-				label: "Chat session",
-				description: "Session on the chat cache profile.",
-				cfg: getDefaultRoutingConfig("chat"),
-				isStreaming: true,
-				cacheRelevant: true,
-			},
-		);
-	}
 	for (const preference of ["price", "throughput", "latency"] as const) {
 		scenarios.push({
 			id: preference,
 			label: `routing: ${preference}`,
 			description: `Request with routing: "${preference}": ${preference} weighted 90%, uptime 10%.`,
 			cfg: applyRoutingPreference(cfg, preference),
-			...STREAMING_FLAGS,
+			...BASE_SCENARIO,
 		});
 	}
 	return scenarios;
@@ -825,29 +846,98 @@ function scenarioCachePricing(
 	};
 }
 
+function hasMetrics(metrics: DerivedMetrics | undefined): boolean {
+	return (
+		metrics !== undefined &&
+		(metrics.uptime !== null ||
+			metrics.latency !== null ||
+			metrics.throughput !== null)
+	);
+}
+
+function priceOnlyEntries(
+	candidates: MappingInfo[],
+	routingPrices: Map<string, Decimal>,
+): Map<string, ScoredEntry> {
+	// Mirrors selectByPriceOnly: routing price divided by priority.
+	const effective = new Map(
+		candidates.map((mapping) => {
+			const price = routingPrices.get(mapping.providerId)!;
+			return [
+				mapping.providerId,
+				mapping.priority > 0 ? price.div(mapping.priority) : price,
+			] as const;
+		}),
+	);
+	const values = Array.from(effective.values());
+	const min = Decimal.min(...values);
+	const positive = values.filter((value) => value.gt(0));
+	const minPositive = positive.length > 0 ? Decimal.min(...positive) : null;
+	const result = new Map<string, ScoredEntry>();
+	for (const [providerId, value] of effective) {
+		// Expressed as the premium over the cheapest, like the price factor.
+		const premium = min.gt(0)
+			? value.div(min).minus(1)
+			: value.gt(0) && minPositive
+				? value.div(minPositive)
+				: new Decimal(0);
+		const rounded = round(premium.toNumber(), 4);
+		result.set(providerId, {
+			score: premium.toDecimalPlaces(3).toNumber(),
+			// Rank on the effective price itself so ties resolve as routing does.
+			rawScore: value,
+			breakdown: {
+				priceScore: rounded,
+				uptimeScore: 0,
+				throughputScore: 0,
+				latencyScore: 0,
+				cacheScore: 0,
+				priceContribution: rounded,
+				uptimeContribution: 0,
+				throughputContribution: 0,
+				latencyContribution: 0,
+				cacheContribution: 0,
+				priorityPenalty: 0,
+				uptimePenalty: 0,
+				baseScore: rounded,
+			},
+		});
+	}
+	return result;
+}
+
 function rankScenario(
-	routableMappings: MappingInfo[],
+	candidates: MappingInfo[],
 	metricsByProvider: Map<string, DerivedMetrics>,
 	cfg: ResolvedRoutingConfig,
 	flags: ScoringFlags,
 	prices: Map<string, Decimal>,
+	/** Live routing falls back to price-only when no candidate has metrics. */
+	priceOnlyWithoutMetrics: boolean,
 ): z.infer<typeof scenarioResultSchema> {
-	const scores = scoreEntries(
-		routableMappings,
-		metricsByProvider,
-		cfg,
-		flags,
-		prices,
+	const routingPrices = new Map(
+		candidates.map((mapping) => [
+			mapping.providerId,
+			(prices.get(mapping.providerId) ?? new Decimal(mapping.price)).times(
+				1 + mapping.routingAdjustment,
+			),
+		]),
 	);
-	const ranked = routableMappings
+	const priceOnly =
+		priceOnlyWithoutMetrics &&
+		candidates.length > 0 &&
+		!candidates.some((mapping) =>
+			hasMetrics(metricsByProvider.get(mapping.providerId)),
+		);
+	const scores = priceOnly
+		? priceOnlyEntries(candidates, routingPrices)
+		: scoreEntries(candidates, metricsByProvider, cfg, flags, prices);
+	const ranked = candidates
 		.map((mapping) => {
 			const scored = scores.get(mapping.providerId)!;
-			const price = (
-				prices.get(mapping.providerId) ?? new Decimal(mapping.price)
-			).times(1 + mapping.routingAdjustment);
 			return {
 				providerId: mapping.providerId,
-				price: price.toNumber(),
+				price: routingPrices.get(mapping.providerId)!.toNumber(),
 				score: scored.score,
 				breakdown: scored.breakdown,
 				rawScore: scored.rawScore,
@@ -866,8 +956,14 @@ function rankScenario(
 		runnerUpProviderId: runnerUp?.providerId ?? null,
 		margin:
 			winner && runnerUp
-				? runnerUp.rawScore.minus(winner.rawScore).toDecimalPlaces(3).toNumber()
+				? priceOnly
+					? round(runnerUp.score - winner.score, 3)
+					: runnerUp.rawScore
+							.minus(winner.rawScore)
+							.toDecimalPlaces(3)
+							.toNumber()
 				: null,
+		method: priceOnly ? "price-only" : "weighted",
 	};
 }
 
@@ -1203,7 +1299,12 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		});
 	}
 
-	const scenarios = buildScenarios(isImageModel).map((scenario) => {
+	const cachedInputProviders = new Set(
+		resolvedMappings
+			.filter(({ source }) => providerSupportsCachedInput(source))
+			.map(({ info }) => info.providerId),
+	);
+	const scenarios = buildScenarios().map((scenario) => {
 		const cachePricing = scenarioCachePricing(scenario);
 		// Without cache pricing the selection price is the mapping's discounted
 		// price; with it the cached-input blend and output ratio reshape it.
@@ -1226,25 +1327,37 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 			isImageModel,
 			cacheRelevant: scenario.cacheRelevant,
 		};
+		const candidates = scenario.cachedInputOnly
+			? routableMappings.filter((mapping) =>
+					cachedInputProviders.has(mapping.providerId),
+				)
+			: routableMappings;
 		return {
 			id: scenario.id,
 			label: scenario.label,
 			description: scenario.description,
 			effectiveWeights: getEffectiveScoringWeights(scenario.cfg, flags),
 			cachePricing,
+			hysteresis: !scenario.session && scenario.cfg.sticky.enabled,
+			excludedProviderIds: routableMappings
+				.filter((mapping) => !candidates.includes(mapping))
+				.map((mapping) => mapping.providerId),
+			// The window is smoothed history, scored like the hourly charts.
 			window: rankScenario(
-				routableMappings,
+				candidates,
 				windowMetricsByProvider,
 				scenario.cfg,
 				flags,
 				prices,
+				false,
 			),
 			live: rankScenario(
-				routableMappings,
+				candidates,
 				liveMetricsByProvider,
 				scenario.cfg,
 				flags,
 				prices,
+				true,
 			),
 		};
 	});

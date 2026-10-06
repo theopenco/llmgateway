@@ -387,8 +387,6 @@ export function RoutingAnalyticsClient() {
 	);
 	const livePick = defaultScenario?.live;
 	const windowPick = defaultScenario?.window;
-	const hasLiveTraffic =
-		data?.live.providers.some((entry) => entry.sampleRequests > 0) ?? false;
 	const stickyScoreMargin = data?.config.sticky.scoreMargin ?? 0;
 	const routableCount =
 		data?.mappings.filter((mapping) => mapping.routable).length ?? 0;
@@ -591,8 +589,8 @@ export function RoutingAnalyticsClient() {
 								)
 							}
 							hint={
-								!hasLiveTraffic
-									? `no traffic in the last ${data.live.windowMinutes} min, scored on defaults`
+								livePick?.method === "price-only"
+									? `no metrics in the last ${data.live.windowMinutes} min: lowest price after priority`
 									: livePick?.margin === null || livePick?.margin === undefined
 										? "live metrics, streaming request"
 										: `${livePick.margin <= stickyScoreMargin ? `inside the ${stickyScoreMargin} sticky margin` : "clear winner"}: ${livePick.margin.toFixed(3)} ahead of ${providerName(livePick.runnerUpProviderId!)}`

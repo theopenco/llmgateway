@@ -10,7 +10,10 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 
-import { ContributionLegend } from "./contribution-bar";
+import {
+	ContributionLegend,
+	positiveContributionTotal,
+} from "./contribution-bar";
 import { ExcludedMappingRow, ProviderVerdictRow } from "./provider-verdict-row";
 import { ScenarioMatrix } from "./scenario-matrix";
 import { describeVerdict } from "./verdict";
@@ -94,19 +97,25 @@ export function RankingCard({
 	const scale = Math.max(
 		0,
 		...result.providers.map((entry) =>
-			Math.max(entry.score, entry.breakdown.baseScore),
+			positiveContributionTotal(entry.breakdown),
 		),
 	);
 	const electionsByProvider = new Map(
 		data.elections.byProvider.map((entry) => [entry.providerId, entry]),
 	);
 	const excluded = data.mappings.filter((mapping) => !mapping.routable);
+	const notCandidates = data.mappings.filter((mapping) =>
+		scenario.excludedProviderIds.includes(mapping.providerId),
+	);
 	const best = result.providers[0];
 	const verdictContext = {
 		rows: result.providers,
 		weights: scenario.effectiveWeights,
 		metricsByProvider: metrics,
+		method: result.method,
+		hysteresis: scenario.hysteresis,
 		stickyScoreMargin: data.config.sticky.scoreMargin,
+		stickyUptimeThreshold: data.config.sticky.uptimeThreshold,
 		uptimePenaltyThreshold: data.config.thresholds.uptimePenalty,
 		providerName,
 	};
@@ -118,13 +127,13 @@ export function RankingCard({
 					<div>
 						<CardTitle>Why each mapping ranks where it does</CardTitle>
 						<CardDescription className="max-w-3xl">
-							Every routable mapping scored with the router&apos;s own formula,
-							ranked best first. The bar is the score split into its parts on a
-							scale shared by all rows (hover for numbers); the sentence names
-							the factors behind the gap to the winner. The right column is how
-							the mapping&apos;s traffic actually arrived in the {data.window}{" "}
-							window: only <strong>score-decided</strong> traffic follows this
-							ranking.
+							Every candidate mapping scored with the router&apos;s own formula,
+							ranked best first. The bar stacks the score&apos;s positive parts
+							on a scale shared by all rows (hover for numbers); the sentence
+							names the factors behind the gap to the winner. The right column
+							is how the mapping&apos;s traffic actually arrived in the{" "}
+							{data.window} window: only <strong>score-decided</strong> traffic
+							follows this ranking.
 						</CardDescription>
 					</div>
 					<div className="flex flex-col gap-2">
@@ -151,12 +160,21 @@ export function RankingCard({
 					<p className="text-xs text-muted-foreground">
 						{scenario.description}
 					</p>
-					<WeightBadges scenario={scenario} />
+					{result.method === "price-only" ? (
+						<p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+							No candidate has metrics in the last {data.live.windowMinutes}{" "}
+							min, so the router ranks by price divided by provider priority
+							instead of the weighted score. Every candidate then ties for
+							hysteresis, so an organization keeps its previous provider.
+						</p>
+					) : (
+						<WeightBadges scenario={scenario} />
+					)}
 				</CardHeader>
 				<CardContent className="p-0">
-					{best ? (
-						<div className="divide-y">
-							{result.providers.map((entry, index) => (
+					<div className="divide-y">
+						{best ? (
+							result.providers.map((entry, index) => (
 								<ProviderVerdictRow
 									key={entry.providerId}
 									rank={index + 1}
@@ -170,24 +188,37 @@ export function RankingCard({
 									elections={electionsByProvider.get(entry.providerId)}
 									totalElections={data.elections.requestCount}
 								/>
-							))}
-							{excluded.map((mapping) => (
-								<ExcludedMappingRow
-									key={mapping.providerId}
-									providerName={mapping.providerName}
-									providerId={mapping.providerId}
-									color={providerColor(mapping.providerId)}
-									excludedReasons={mapping.excludedReasons}
-									elections={electionsByProvider.get(mapping.providerId)}
-									totalElections={data.elections.requestCount}
-								/>
-							))}
-						</div>
-					) : (
-						<p className="p-6 text-sm text-muted-foreground">
-							No routable mapping to score.
-						</p>
-					)}
+							))
+						) : (
+							<p className="p-6 text-sm text-muted-foreground">
+								No candidate mapping to score.
+							</p>
+						)}
+						{notCandidates.map((mapping) => (
+							<ExcludedMappingRow
+								key={mapping.providerId}
+								label="Not a candidate here:"
+								providerName={mapping.providerName}
+								providerId={mapping.providerId}
+								color={providerColor(mapping.providerId)}
+								excludedReasons={["no cached input price"]}
+								elections={electionsByProvider.get(mapping.providerId)}
+								totalElections={data.elections.requestCount}
+							/>
+						))}
+						{excluded.map((mapping) => (
+							<ExcludedMappingRow
+								key={mapping.providerId}
+								label="Never scored:"
+								providerName={mapping.providerName}
+								providerId={mapping.providerId}
+								color={providerColor(mapping.providerId)}
+								excludedReasons={mapping.excludedReasons}
+								elections={electionsByProvider.get(mapping.providerId)}
+								totalElections={data.elections.requestCount}
+							/>
+						))}
+					</div>
 					<div className="space-y-2 border-t p-4 text-xs text-muted-foreground sm:px-6">
 						<ContributionLegend />
 						<p>

@@ -58,10 +58,18 @@ export function ContributionLegend() {
 	);
 }
 
+/** Sum of the parts drawn as segments; the shared bar scale is its max. */
+export function positiveContributionTotal(breakdown: ScoreBreakdown): number {
+	return CONTRIBUTION_SEGMENTS.reduce(
+		(sum, segment) => sum + Math.max(breakdown[segment.key], 0),
+		0,
+	);
+}
+
 /**
- * The score as stacked parts, on a scale shared across rows so bar length
- * compares scores directly. A priority bonus (negative penalty) has no
- * segment; the tooltip lists it.
+ * The score's positive parts stacked on a scale shared across rows. A
+ * priority bonus (negative penalty) has no segment, so bar length is the
+ * score only without one; the row and tooltip state the bonus.
  */
 export function ContributionBar({
 	breakdown,

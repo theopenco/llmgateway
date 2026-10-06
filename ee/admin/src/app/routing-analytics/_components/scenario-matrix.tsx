@@ -49,6 +49,11 @@ export function ScenarioMatrix({
 						const moved =
 							result.winnerProviderId !== null &&
 							result.winnerProviderId !== defaultWinner;
+						const insideMargin =
+							scenario.hysteresis &&
+							result.method === "weighted" &&
+							result.margin !== null &&
+							result.margin <= stickyScoreMargin;
 						return (
 							<TableRow
 								key={scenario.id}
@@ -62,7 +67,17 @@ export function ScenarioMatrix({
 								onClick={() => onSelect(scenario.id)}
 							>
 								<TableCell>
-									<div className="font-medium">{scenario.label}</div>
+									<button
+										type="button"
+										aria-pressed={scenario.id === selectedScenarioId}
+										className="font-medium hover:underline"
+										onClick={(event) => {
+											event.stopPropagation();
+											onSelect(scenario.id);
+										}}
+									>
+										{scenario.label}
+									</button>
 									<div className="max-w-md text-xs text-muted-foreground">
 										{scenario.description}
 									</div>
@@ -85,17 +100,15 @@ export function ScenarioMatrix({
 								<TableCell className="text-right font-mono text-xs">
 									{result.margin !== null ? (
 										<span
-											className={cn(
-												result.margin <= stickyScoreMargin &&
-													"text-muted-foreground",
-											)}
+											className={cn(insideMargin && "text-muted-foreground")}
 											title={
-												result.margin <= stickyScoreMargin
+												insideMargin
 													? "Inside the sticky margin: incumbents keep their traffic"
 													: undefined
 											}
 										>
 											+{result.margin.toFixed(3)}
+											{result.method === "price-only" ? " price" : ""}
 										</span>
 									) : (
 										"—"

@@ -3,9 +3,25 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import {
+	getCheapestFromAvailableProviders,
+	type ProviderSelectionOptions,
+} from "@llmgateway/actions";
 import { redisClient, waitForSwrMirrorWrites } from "@llmgateway/cache";
-import { cdb, db, eq, tables } from "@llmgateway/db";
+import {
+	cdb,
+	db,
+	eq,
+	getEffectiveDiscount,
+	getProviderMetricsFromHistory,
+	getRoutingScoreAdjustment,
+	tables,
+} from "@llmgateway/db";
 import { models, type ProviderModelMapping } from "@llmgateway/models";
+import {
+	applyRoutingPreference,
+	getDefaultRoutingConfig,
+} from "@llmgateway/shared/routing-config";
 
 const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
@@ -23,10 +39,19 @@ function isRoutableMapping(mapping: ProviderModelMapping): boolean {
 
 // A catalogue model with at least two routable provider mappings, so the
 // weighted-score path (rather than single-provider selection) is exercised.
+function isStableTextModel(model: (typeof models)[number]): boolean {
+	return (
+		!("stability" in model && (model.stability as string) !== "stable") &&
+		!(
+			"output" in model &&
+			(model.output as string[] | undefined)?.includes("image")
+		)
+	);
+}
+
 const testModel = models.find(
 	(m) =>
-		!("stability" in m && (m.stability as string) !== "stable") &&
-		m.providers.filter(isRoutableMapping).length >= 2,
+		isStableTextModel(m) && m.providers.filter(isRoutableMapping).length >= 2,
 );
 if (!testModel) {
 	throw new Error(
@@ -81,12 +106,16 @@ function pricesCachedInput(mapping: ProviderModelMapping): boolean {
 	);
 }
 
-// A text model with a routable mapping that prices cached input, so the cache
-// scenarios have an input-side blend to apply.
+// A text model with routable mappings both with and without a cached input
+// price: the cache scenarios get an input-side blend, and the DevPass shape
+// has a mapping to drop.
 const cacheModel = models.find(
 	(m) =>
-		!("output" in m && (m.output as string[] | undefined)?.includes("image")) &&
-		(m.providers as ProviderModelMapping[]).some(pricesCachedInput),
+		isStableTextModel(m) &&
+		(m.providers as ProviderModelMapping[]).some(pricesCachedInput) &&
+		(m.providers as ProviderModelMapping[]).some(
+			(p) => isRoutableMapping(p) && !p.cachedInputPrice,
+		),
 );
 const imageModel = models.find(
 	(m) =>
@@ -100,12 +129,15 @@ interface ScenarioResultBody {
 	winnerProviderId: string | null;
 	runnerUpProviderId: string | null;
 	margin: number | null;
+	method: "weighted" | "price-only";
 }
 
 interface ScenarioBody {
 	id: string;
 	effectiveWeights: Record<string, number>;
 	cachePricing: { hitRate: number; outputRatio: number } | null;
+	hysteresis: boolean;
+	excludedProviderIds: string[];
 	window: ScenarioResultBody;
 	live: ScenarioResultBody;
 }
@@ -1122,9 +1154,15 @@ describe("admin routing analytics endpoint", () => {
 			for (const result of [s.window, s.live]) {
 				const scores = result.providers.map((p) => p.score);
 				expect(scores).toEqual([...scores].sort((a, b) => a - b));
-				expect(result.winnerProviderId).toBe(result.providers[0].providerId);
-				expect(result.runnerUpProviderId).toBe(result.providers[1].providerId);
-				expect(result.margin).toBeGreaterThanOrEqual(0);
+				expect(result.winnerProviderId).toBe(
+					result.providers[0]?.providerId ?? null,
+				);
+				expect(result.runnerUpProviderId).toBe(
+					result.providers[1]?.providerId ?? null,
+				);
+				if (result.margin !== null) {
+					expect(result.margin).toBeGreaterThanOrEqual(0);
+				}
 			}
 		}
 		// The default shape on window averages is the summary score.
@@ -1153,7 +1191,7 @@ describe("admin routing analytics endpoint", () => {
 		expect(priceIn("coding-session")).toBeLessThan(priceIn("streaming"));
 	});
 
-	it("skips cache scenarios for image models", async () => {
+	it("scores image models on the image price weight", async () => {
 		if (!imageModel) {
 			throw new Error(
 				"No routable image model in the catalogue; update this fixture.",
@@ -1163,10 +1201,166 @@ describe("admin routing analytics endpoint", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 
-		const ids = body.scenarios.map((s: ScenarioBody) => s.id);
-		expect(ids).not.toContain("cached-api");
-		expect(ids).not.toContain("coding-session");
-		expect(ids).not.toContain("chat-session");
-		expect(ids).toContain("streaming");
+		// Large prompts and sessions price cache reads for image models too.
+		expect(body.scenarios.map((s: ScenarioBody) => s.id)).toContain(
+			"cached-api",
+		);
+		const weights = scenario(body, "streaming").effectiveWeights;
+		expect(weights.price).toBe(body.config.weights.imagePrice);
+	});
+
+	it("drops mappings without a cached input price from the DevPass shape", async () => {
+		if (!cacheModel) {
+			throw new Error(
+				"No catalogue model mixes cached and uncached mappings; update this fixture.",
+			);
+		}
+		const res = await get(`?modelId=${cacheModel.id}&window=24h`, cookie);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+
+		const uncached = (cacheModel.providers as ProviderModelMapping[]).find(
+			(p) => isRoutableMapping(p) && !p.cachedInputPrice,
+		)!.providerId;
+		const devpass = scenario(body, "coding-session");
+		expect(devpass.excludedProviderIds).toContain(uncached);
+		expect(devpass.live.providers.map((p) => p.providerId)).not.toContain(
+			uncached,
+		);
+		expect(scenario(body, "streaming").excludedProviderIds).toEqual([]);
+
+		// Sessions pin per session, so org-level hysteresis does not apply.
+		expect(devpass.hysteresis).toBe(false);
+		expect(scenario(body, "chat-session").hysteresis).toBe(false);
+		expect(scenario(body, "streaming").hysteresis).toBe(true);
+	});
+
+	it("names the provider the gateway elects for every request shape", async () => {
+		if (!cacheModel) {
+			throw new Error(
+				"No catalogue model mixes cached and uncached mappings; update this fixture.",
+			);
+		}
+		const routable = (cacheModel.providers as ProviderModelMapping[]).filter(
+			isRoutableMapping,
+		);
+
+		async function assertParity(expectedMethod: "weighted" | "price-only") {
+			await redisClient.flushdb();
+			const res = await get(`?modelId=${cacheModel!.id}&window=24h`, cookie);
+			expect(res.status).toBe(200);
+			const body = await res.json();
+			const routableIds = new Set(
+				(body.mappings as { providerId: string; routable: boolean }[])
+					.filter((m) => m.routable)
+					.map((m) => m.providerId),
+			);
+			const candidates = routable
+				.filter((p) => routableIds.has(p.providerId))
+				.map((p) => ({ providerId: p.providerId, externalId: p.externalId }));
+			const defaults = getDefaultRoutingConfig();
+			const metricsMap = await getProviderMetricsFromHistory(
+				candidates.map((p) => ({
+					modelId: cacheModel!.id,
+					providerId: p.providerId,
+				})),
+				defaults.history,
+			);
+			const shared: ProviderSelectionOptions = {
+				metricsMap,
+				providerDiscountResolver: async (provider, modelId) =>
+					(await getEffectiveDiscount(null, provider.providerId, modelId))
+						.discount,
+				providerRoutingScoreMultiplierResolver: async (provider, modelId) =>
+					await getRoutingScoreAdjustment(provider.providerId, modelId),
+			};
+			const shapes: Record<
+				string,
+				{ options: ProviderSelectionOptions; cachedOnly?: boolean }
+			> = {
+				streaming: { options: { isStreaming: true } },
+				"non-streaming": { options: { isStreaming: false } },
+				"cached-api": { options: { isStreaming: true, promptTokens: 10_000 } },
+				"chat-session": {
+					options: {
+						isStreaming: true,
+						session: true,
+						routingConfig: getDefaultRoutingConfig("chat"),
+					},
+				},
+				"coding-session": {
+					cachedOnly: true,
+					options: {
+						isStreaming: true,
+						session: true,
+						routingConfig: getDefaultRoutingConfig("devpass"),
+					},
+				},
+				price: {
+					options: {
+						isStreaming: true,
+						routingConfig: applyRoutingPreference(defaults, "price"),
+					},
+				},
+				throughput: {
+					options: {
+						isStreaming: true,
+						routingConfig: applyRoutingPreference(defaults, "throughput"),
+					},
+				},
+				latency: {
+					options: {
+						isStreaming: true,
+						routingConfig: applyRoutingPreference(defaults, "latency"),
+					},
+				},
+			};
+			for (const [id, shape] of Object.entries(shapes)) {
+				const shapeCandidates = shape.cachedOnly
+					? candidates.filter((p) =>
+							routable.some(
+								(m) => m.providerId === p.providerId && m.cachedInputPrice,
+							),
+						)
+					: candidates;
+				const selected = await getCheapestFromAvailableProviders(
+					shapeCandidates,
+					cacheModel!,
+					{ ...shared, ...shape.options },
+				);
+				const live = scenario(body, id).live;
+				expect(live.method, id).toBe(expectedMethod);
+				expect(live.winnerProviderId, id).toBe(
+					selected?.provider.providerId ?? null,
+				);
+			}
+		}
+
+		await assertParity("price-only");
+
+		const threeMinutesMs = 3 * 60_000;
+		const minute = new Date(Date.now() - threeMinutesMs);
+		minute.setUTCSeconds(0, 0);
+		await db.insert(tables.modelProviderMappingHistory).values(
+			routable.map((p, index) => {
+				const ttftStepMs = 150 * index;
+				const ttftMs = 300 + ttftStepMs;
+				return {
+					modelId: cacheModel.id,
+					providerId: p.providerId,
+					modelProviderMappingId: `${cacheModel.id}-${p.providerId}`,
+					usedMode: "credits" as const,
+					minuteTimestamp: minute,
+					logsCount: 20,
+					// Spread uptime, speed and TTFT so the factors pull different ways.
+					upstreamErrorsCount: index % 3,
+					totalOutputTokens: 4000 * (index + 1),
+					totalDuration: 20_000,
+					totalTimeToFirstToken: 20 * ttftMs,
+					timeToFirstTokenCount: 20,
+				};
+			}),
+		);
+		await assertParity("weighted");
 	});
 });

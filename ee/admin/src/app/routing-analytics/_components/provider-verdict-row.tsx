@@ -125,6 +125,11 @@ export function ProviderVerdictRow({
 							{formatSelectionPrice(entry.price, isImageModel)}
 						</span>
 					</div>
+					{entry.breakdown.priorityPenalty < 0 ? (
+						<p className="font-mono text-[11px] text-muted-foreground">
+							priority bonus {entry.breakdown.priorityPenalty.toFixed(3)}
+						</p>
+					) : null}
 				</div>
 			</div>
 			<div className="min-w-0 space-y-2">
@@ -146,6 +151,7 @@ export function ProviderVerdictRow({
 }
 
 export function ExcludedMappingRow({
+	label,
 	providerName,
 	providerId,
 	color,
@@ -153,6 +159,7 @@ export function ExcludedMappingRow({
 	elections,
 	totalElections,
 }: {
+	label: string;
 	providerName: string;
 	providerId: string;
 	color: string | undefined;
@@ -170,9 +177,7 @@ export function ExcludedMappingRow({
 				/>
 			</div>
 			<div className="flex flex-wrap items-center gap-1">
-				<span className="mr-1 text-xs text-muted-foreground">
-					Never scored:
-				</span>
+				<span className="mr-1 text-xs text-muted-foreground">{label}</span>
 				{excludedReasons.map((reason) => (
 					<Badge key={reason} variant="destructive" className="text-xs">
 						{reason}
