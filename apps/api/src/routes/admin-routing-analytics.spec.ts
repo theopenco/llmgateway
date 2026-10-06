@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { redisClient, waitForSwrMirrorWrites } from "@llmgateway/cache";
 import { cdb, db, tables } from "@llmgateway/db";
 import { models, type ProviderModelMapping } from "@llmgateway/models";
 
@@ -74,6 +75,49 @@ function findModelsWithDeactivatedMappings(): string[] {
 
 const deactivationModelIds = findModelsWithDeactivatedMappings();
 
+function pricesCachedInput(mapping: ProviderModelMapping): boolean {
+	return (
+		isRoutableMapping(mapping) && Number(mapping.cachedInputPrice ?? 0) > 0
+	);
+}
+
+// A text model with a routable mapping that prices cached input, so the cache
+// scenarios have an input-side blend to apply.
+const cacheModel = models.find(
+	(m) =>
+		!("output" in m && (m.output as string[] | undefined)?.includes("image")) &&
+		(m.providers as ProviderModelMapping[]).some(pricesCachedInput),
+);
+const imageModel = models.find(
+	(m) =>
+		"output" in m &&
+		(m.output as string[] | undefined)?.includes("image") &&
+		m.providers.some(isRoutableMapping),
+);
+
+interface ScenarioResultBody {
+	providers: { providerId: string; price: number; score: number }[];
+	winnerProviderId: string | null;
+	runnerUpProviderId: string | null;
+	margin: number | null;
+}
+
+interface ScenarioBody {
+	id: string;
+	effectiveWeights: Record<string, number>;
+	cachePricing: { hitRate: number; outputRatio: number } | null;
+	window: ScenarioResultBody;
+	live: ScenarioResultBody;
+}
+
+function scenario(body: { scenarios: ScenarioBody[] }, id: string) {
+	const found = body.scenarios.find((s) => s.id === id);
+	if (!found) {
+		throw new Error(`Missing scenario ${id}`);
+	}
+	return found;
+}
+
 function currentHourStart(): Date {
 	const hour = new Date();
 	hour.setUTCMinutes(0, 0, 0);
@@ -92,6 +136,9 @@ describe("admin routing analytics endpoint", () => {
 	beforeEach(async () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
+		// Live metrics are SWR-cached by model id, so an earlier run's entry
+		// would outlive the history rows it was built from.
+		await redisClient.flushdb();
 	});
 
 	afterEach(async () => {
@@ -107,6 +154,8 @@ describe("admin routing analytics endpoint", () => {
 		await db.delete(tables.modelProviderMappingHistoryHourly);
 		await db.delete(tables.routingElectionHourly);
 		await db.delete(tables.routingExclusionHourly);
+		await waitForSwrMirrorWrites();
+		await db.delete(tables.modelProviderMappingHistory);
 		await db.delete(tables.modelProviderMapping);
 		await cdb.delete(tables.discount);
 		await cdb.delete(tables.routingScoreMultiplier);
@@ -719,5 +768,245 @@ describe("admin routing analytics endpoint", () => {
 		expect(summaryB.breakdown.priceContribution).toBeGreaterThan(
 			baselineSummaryB.breakdown.priceContribution,
 		);
+	});
+	it("splits election paths per provider", async () => {
+		const hour = currentHourStart();
+		await db.insert(tables.routingElectionHourly).values([
+			{
+				id: "routing-election-provider-a-scored",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerA,
+				selectionReason: "weighted-score",
+				requestCount: 2,
+				candidateCount: 4,
+			},
+			{
+				id: "routing-election-provider-a-sticky",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerA,
+				selectionReason: "session-sticky",
+				requestCount: 8,
+				candidateCount: 16,
+			},
+			{
+				id: "routing-election-provider-b-scored",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerB,
+				selectionReason: "weighted-score",
+				requestCount: 5,
+				candidateCount: 10,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+
+		expect(body.elections.byProvider).toEqual([
+			{
+				providerId: providerA,
+				requestCount: 10,
+				byKind: [
+					{ kind: "sticky", requestCount: 8 },
+					{ kind: "scored", requestCount: 2 },
+				],
+				byReason: [
+					{
+						selectionReason: "session-sticky",
+						kind: "sticky",
+						requestCount: 8,
+					},
+					{
+						selectionReason: "weighted-score",
+						kind: "scored",
+						requestCount: 2,
+					},
+				],
+			},
+			{
+				providerId: providerB,
+				requestCount: 5,
+				byKind: [{ kind: "scored", requestCount: 5 }],
+				byReason: [
+					{
+						selectionReason: "weighted-score",
+						kind: "scored",
+						requestCount: 5,
+					},
+				],
+			},
+		]);
+
+		// The per-provider split partitions the model-wide totals.
+		const byProvider = body.elections.byProvider as {
+			requestCount: number;
+			byKind: { kind: string; requestCount: number }[];
+		}[];
+		expect(byProvider.reduce((sum, p) => sum + p.requestCount, 0)).toBe(
+			body.elections.requestCount,
+		);
+		for (const { kind, requestCount } of body.elections.byKind as {
+			kind: string;
+			requestCount: number;
+		}[]) {
+			const perProvider = byProvider
+				.flatMap((p) => p.byKind)
+				.filter((entry) => entry.kind === kind)
+				.reduce((sum, entry) => sum + entry.requestCount, 0);
+			expect(perProvider).toBe(requestCount);
+		}
+	});
+
+	it("reads live metrics from credit-funded minute history only", async () => {
+		const tenMinutesMs = 10 * 60_000;
+		const minute = new Date(Date.now() - tenMinutesMs);
+		minute.setUTCSeconds(0, 0);
+		await db.insert(tables.modelProviderMappingHistory).values([
+			{
+				modelId: testModel.id,
+				providerId: providerA,
+				modelProviderMappingId: `${testModel.id}-${providerA}`,
+				usedMode: "credits",
+				minuteTimestamp: minute,
+				logsCount: 10,
+				errorsCount: 2,
+				upstreamErrorsCount: 2,
+				totalOutputTokens: 4000,
+				totalDuration: 8000,
+				totalTimeToFirstToken: 3000,
+				timeToFirstTokenCount: 10,
+			},
+			// BYOK traffic does not represent the credentials routing selects.
+			{
+				modelId: testModel.id,
+				providerId: providerB,
+				modelProviderMappingId: `${testModel.id}-${providerB}`,
+				usedMode: "api-keys",
+				minuteTimestamp: minute,
+				logsCount: 10,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+
+		expect(body.live.windowMinutes).toBe(body.config.history.windowMinutes);
+		const liveA = body.live.providers.find(
+			(p: { providerId: string }) => p.providerId === providerA,
+		);
+		expect(liveA.sampleRequests).toBe(10);
+		expect(liveA.uptime).toBeCloseTo(80, 2);
+		expect(liveA.latency).toBe(300);
+		expect(liveA.throughput).toBe(500);
+
+		const liveB = body.live.providers.find(
+			(p: { providerId: string }) => p.providerId === providerB,
+		);
+		expect(liveB).toEqual({
+			providerId: providerB,
+			uptime: null,
+			latency: null,
+			throughput: null,
+			sampleRequests: 0,
+		});
+
+		// The live source scores those inputs: A carries the uptime penalty.
+		const live = scenario(body, "streaming").live;
+		const scoredA = live.providers.find((p) => p.providerId === providerA)!;
+		const window = scenario(body, "streaming").window;
+		const windowA = window.providers.find((p) => p.providerId === providerA)!;
+		expect(scoredA.score).toBeGreaterThan(windowA.score);
+	});
+
+	it("scores every request shape the router distinguishes", async () => {
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+
+		expect(body.config.sticky.scoreMargin).toBeGreaterThan(0);
+		expect(body.scenarios.map((s: ScenarioBody) => s.id)).toEqual([
+			"streaming",
+			"non-streaming",
+			"cached-api",
+			"coding-session",
+			"chat-session",
+			"price",
+			"throughput",
+			"latency",
+		]);
+
+		expect(scenario(body, "non-streaming").effectiveWeights.latency).toBe(0);
+		expect(
+			scenario(body, "streaming").effectiveWeights.latency,
+		).toBeGreaterThan(0);
+		const price = scenario(body, "price").effectiveWeights;
+		expect(price.price / price.total).toBeCloseTo(0.9, 6);
+		expect(price.uptime / price.total).toBeCloseTo(0.1, 6);
+		expect(scenario(body, "streaming").cachePricing).toBeNull();
+		expect(scenario(body, "coding-session").cachePricing).toEqual({
+			hitRate: 0.9,
+			outputRatio: 0.02,
+		});
+
+		const streaming = scenario(body, "streaming");
+		const summaryScores = new Map(
+			(body.summary as { providerId: string; score: number | null }[]).map(
+				(s) => [s.providerId, s.score],
+			),
+		);
+		for (const s of body.scenarios as ScenarioBody[]) {
+			for (const result of [s.window, s.live]) {
+				const scores = result.providers.map((p) => p.score);
+				expect(scores).toEqual([...scores].sort((a, b) => a - b));
+				expect(result.winnerProviderId).toBe(result.providers[0].providerId);
+				expect(result.runnerUpProviderId).toBe(result.providers[1].providerId);
+				expect(result.margin).toBeGreaterThanOrEqual(0);
+			}
+		}
+		// The default shape on window averages is the summary score.
+		for (const entry of streaming.window.providers) {
+			expect(entry.score).toBe(summaryScores.get(entry.providerId));
+		}
+	});
+
+	it("prices cached input into the cache scenarios", async () => {
+		if (!cacheModel) {
+			throw new Error(
+				"No catalogue model prices cached input; update this fixture.",
+			);
+		}
+		const res = await get(`?modelId=${cacheModel.id}&window=24h`, cookie);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+
+		const cachedProvider = (
+			cacheModel.providers as ProviderModelMapping[]
+		).find(pricesCachedInput)!.providerId;
+		const priceIn = (id: string) =>
+			scenario(body, id).window.providers.find(
+				(p) => p.providerId === cachedProvider,
+			)!.price;
+		expect(priceIn("coding-session")).toBeLessThan(priceIn("streaming"));
+	});
+
+	it("skips cache scenarios for image models", async () => {
+		if (!imageModel) {
+			throw new Error(
+				"No routable image model in the catalogue; update this fixture.",
+			);
+		}
+		const res = await get(`?modelId=${imageModel.id}&window=24h`, cookie);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+
+		const ids = body.scenarios.map((s: ScenarioBody) => s.id);
+		expect(ids).not.toContain("cached-api");
+		expect(ids).not.toContain("coding-session");
+		expect(ids).not.toContain("chat-session");
+		expect(ids).toContain("streaming");
 	});
 });
