@@ -81,6 +81,7 @@ async function renderDynamicProviderPage(id: string) {
 					providerId={id as (typeof providerDefinitions)[number]["id"]}
 					uploadedLogo={uploadedLogo}
 					dynamicProvider={{ name: providerName, description }}
+					airsideProfile={apiProvider.airsideProfile ?? null}
 				/>
 				<ProviderStatsRow providerId={id} />
 				<section className="py-12 bg-background">
@@ -214,7 +215,6 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			createdAt: new Date().toISOString(),
 			name: provider.name,
 			description: provider.description ?? null,
-			streaming: provider.streaming ?? null,
 			cancellation: provider.cancellation ?? null,
 			color: provider.color ?? null,
 			website: provider.website ?? null,
@@ -324,7 +324,11 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			<JsonLd data={[organizationSchema, itemListSchema, breadcrumbSchema]} />
 			<main>
 				<Navbar />
-				<Hero providerId={provider.id} uploadedLogo={uploadedLogo} />
+				<Hero
+					providerId={provider.id}
+					uploadedLogo={uploadedLogo}
+					airsideProfile={apiProvider?.airsideProfile ?? null}
+				/>
 
 				<ProviderStatsRow providerId={provider.id} />
 

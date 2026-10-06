@@ -11,7 +11,6 @@ export interface ApiProvider {
 	createdAt: string;
 	name: string | null;
 	description: string | null;
-	streaming: boolean | null;
 	cancellation: boolean | null;
 	color: string | null;
 	website: string | null;
@@ -26,7 +25,28 @@ export interface ApiProvider {
 	/** Branding uploaded by the Airside carrier that claimed this provider. */
 	airsideLogoUrl?: string | null;
 	airsideIconUrl?: string | null;
+	/** Self-declared public profile of a custom Airside carrier. */
+	airsideProfile?: ApiAirsideProfile | null;
 	status: "active" | "inactive";
+}
+
+export interface ApiAirsideProfile {
+	website: string | null;
+	statusPageUrl: string | null;
+	termsUrl: string | null;
+	privacyPolicyUrl: string | null;
+	legalEntity: string | null;
+	headquarters: string | null;
+	/** Null for catalogue providers, which keep the reviewed policy. */
+	dataPolicy: {
+		apiTraining: boolean | null;
+		promptLogging: boolean | null;
+		retentionPeriod: string | null;
+		gdpr: boolean | null;
+		/** 0 = none, 1 = Type I, 2 = Type II, null = not stated. */
+		soc2: 0 | 1 | 2 | null;
+		iso27001: boolean | null;
+	} | null;
 }
 
 export interface ApiModelProviderMapping {

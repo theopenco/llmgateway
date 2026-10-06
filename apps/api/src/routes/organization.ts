@@ -196,6 +196,8 @@ const organizationSchema = z
 		referralEarnings: z.string(),
 		referralBonusEnabled: z.boolean(),
 		referralBonusPercent: z.string(),
+		dataStreamsEnabled: z.boolean(),
+		requestLogExportEnabled: z.boolean(),
 		// Organization kind: "default" (regular dashboard org), "devpass" (per-user
 		// Dev Plans org), or "chat" (per-user lounge.llmgateway.io org).
 		kind: z.enum(["default", "chat", "devpass"]),

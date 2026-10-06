@@ -5,6 +5,11 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	ICON_MAX_BYTES,
+	imageDataUrl,
+	LOGO_MAX_BYTES,
+} from "@/lib/airside-branding.js";
+import {
 	assertProviderKeyIsSeparate,
 	assertProviderKeyServes,
 	discardPendingProviderKey,
@@ -39,6 +44,22 @@ import {
 	supportedToolChoicesValue,
 } from "@/lib/airside-metadata.js";
 import {
+	assertNoRequiredCleared,
+	assertEditableProfile,
+	assertRequiredProfile,
+	carrierProfileInputSchema,
+	carrierProfilePatchSchema,
+	carrierProfileRegistrationSchema,
+	carrierProfileSchema,
+	catalogueLinkColumns,
+	effectiveCarrierProfile,
+	profileColumns,
+	profileDefaults,
+	profileDefaultsSchema,
+	serializeClaimProfile,
+	staticCarrierProfile,
+} from "@/lib/airside-profile.js";
+import {
 	incidentErrorTypesSchema,
 	incidentsResponseSchema,
 	incidentsWindowSchema,
@@ -53,6 +74,7 @@ import {
 } from "@/lib/mapping-error-shapes.js";
 import {
 	buildVerificationTarget,
+	clearClaimVerificationKey,
 	enqueueModelVerification,
 	modelVerificationSchema,
 	pendingFiledCapabilities,
@@ -91,6 +113,7 @@ import {
 } from "@llmgateway/db";
 import {
 	models as catalogueModels,
+	modelIdProblem,
 	PROVIDER_API_FORMATS,
 	providers as catalogueProviders,
 } from "@llmgateway/models";
@@ -142,22 +165,6 @@ async function getListingFeeAmount(): Promise<number | null> {
 // Crew size cap: the owner plus invited teammates, pending invites included.
 export const AIRSIDE_CREW_MAX = 10;
 const INVITE_EMAIL_TIMEOUT_MS = 10_000;
-
-// Uploaded branding is stored inline as data URLs; keep them small. SVG only:
-// vector marks scale cleanly everywhere the branding renders (cards, hero,
-// OG images), and one accepted format keeps review simple.
-const LOGO_MAX_BYTES = 200 * 1024;
-const ICON_MAX_BYTES = 64 * 1024;
-const DATA_URL_PATTERN = /^data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+$/;
-
-function imageDataUrl(maxBytes: number) {
-	return z
-		.string()
-		.regex(DATA_URL_PATTERN, "Must be a base64 SVG data URL")
-		.refine((v) => v.length <= Math.ceil(maxBytes * 1.4), {
-			message: `Image must be smaller than ${Math.round(maxBytes / 1024)}KB`,
-		});
-}
 
 // Plain decimal or scientific notation only — Number("") and Number("0x1F")
 // would otherwise slip through as 0 / 31.
@@ -291,6 +298,13 @@ const claimSchema = z.object({
 	// replacement awaiting admin approval. Resolved on the companies listing.
 	providerKey: carrierKeySchema.nullable(),
 	pendingProviderKey: carrierKeySchema.nullable(),
+	// Self-declared public profile; catalogue claims fall back to the static
+	// catalogue values for anything they have not set.
+	profile: carrierProfileSchema,
+	// Required profile fields still unset (website, privacyPolicyUrl, termsUrl).
+	profileMissing: z.array(z.string()),
+	profileRecommendedMissing: z.array(z.string()),
+	profileUpdatedAt: z.string().nullable(),
 	createdAt: z.string(),
 });
 
@@ -309,6 +323,8 @@ const companySchema = z.object({
 	listingFeeAmount: z.number().nullable(),
 	// True when the fee was waived with an invite code rather than paid.
 	listingInviteCodeUsed: z.boolean(),
+	// When the Airside Terms of Use and Privacy Notice were accepted.
+	termsAcceptedAt: z.string().nullable(),
 	createdAt: z.string(),
 	claims: z.array(claimSchema),
 });
@@ -411,6 +427,9 @@ const routingFilingSchema = z.object({
 	marginPercent: z.number(),
 	routingAdjustment: z.number(),
 	status: z.enum(["pending", "approved", "rejected"]),
+	// "admin" = set directly by LLMGateway, not filed by the carrier.
+	initiatedBy: z.enum(["carrier", "admin"]),
+	clearsOverride: z.boolean(),
 	reviewNote: z.string().nullable(),
 	reviewedAt: z.string().nullable(),
 	createdAt: z.string(),
@@ -456,6 +475,8 @@ function serializeRoutingFiling(row: RoutingFilingRow) {
 		marginPercent,
 		routingAdjustment: computeAirsideAdjustment(discountPercent, marginPercent),
 		status: row.status,
+		initiatedBy: row.initiatedBy,
+		clearsOverride: row.clearsOverride,
 		reviewNote: row.reviewNote,
 		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
 		createdAt: row.createdAt.toISOString(),
@@ -499,6 +520,7 @@ function serializeClaim(
 		pendingProviderKey: row.pendingProviderKeyId
 			? (carrierKeys?.get(row.pendingProviderKeyId) ?? null)
 			: null,
+		...serializeClaimProfile(row),
 		createdAt: row.createdAt.toISOString(),
 	};
 }
@@ -716,6 +738,14 @@ function requireVerifiedUser(user: SessionUserLike | null): SessionUserLike {
 	return resolved;
 }
 
+/** New listings must use a catalogue-style model id (see MODEL_ID_PATTERN). */
+function assertModelId(modelName: string) {
+	const problem = modelIdProblem(modelName);
+	if (problem) {
+		throw new HTTPException(400, { message: problem });
+	}
+}
+
 /** Postgres unique-constraint violation (used to detect insert races). */
 function isUniqueViolation(err: unknown): boolean {
 	const code =
@@ -923,6 +953,7 @@ airside.openapi(listCompanies, async (c) => {
 					listingFeeAmount:
 						company.paymentStatus === "unpaid" ? feeAmount : null,
 					listingInviteCodeUsed: Boolean(company.listingInviteCode),
+					termsAcceptedAt: company.termsAcceptedAt?.toISOString() ?? null,
 					createdAt: company.createdAt.toISOString(),
 					claims: company.claims
 						// Rejected claims stay visible so the carrier sees the
@@ -947,6 +978,14 @@ const createCompany = createRoute({
 					schema: z.object({
 						name: z.string().min(2).max(100),
 						website: z.string().url().optional(),
+						// Accepts the Airside Terms of Use (/legal/terms) and Privacy
+						// Notice (/legal/privacy).
+						acceptTerms: z.literal(true, {
+							errorMap: () => ({
+								message:
+									"Accept the Airside Terms of Use and Privacy Notice to create a company.",
+							}),
+						}),
 					}),
 				},
 			},
@@ -970,7 +1009,12 @@ airside.openapi(createCompany, async (c) => {
 	const company = await db.transaction(async (tx) => {
 		const [created] = await tx
 			.insert(tables.providerCompany)
-			.values({ name, website: website ?? null })
+			.values({
+				name,
+				website: website ?? null,
+				termsAcceptedAt: new Date(),
+				termsAcceptedBy: user.id,
+			})
 			.returning();
 		await tx.insert(tables.providerCompanyMember).values({
 			providerCompanyId: created.id,
@@ -1000,12 +1044,53 @@ airside.openapi(createCompany, async (c) => {
 					? await getListingFeeAmount()
 					: null,
 				listingInviteCodeUsed: false,
+				termsAcceptedAt: company.termsAcceptedAt?.toISOString() ?? null,
 				createdAt: company.createdAt.toISOString(),
 				claims: [],
 			},
 		},
 		201,
 	);
+});
+
+const acceptCompanyTerms = createRoute({
+	method: "post",
+	path: "/companies/{id}/accept-terms",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ termsAcceptedAt: z.string() }),
+				},
+			},
+			description:
+				"Records that the company accepted the Airside Terms of Use and Privacy Notice.",
+		},
+	},
+});
+
+airside.openapi(acceptCompanyTerms, async (c) => {
+	const user = requireUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	await requireCompanyMembership(user.id, id);
+	// The first acceptance is the record: repeat calls keep its time and user.
+	const [updated] = await db
+		.update(tables.providerCompany)
+		.set({ termsAcceptedAt: new Date(), termsAcceptedBy: user.id })
+		.where(
+			and(
+				eq(tables.providerCompany.id, id),
+				sql`${tables.providerCompany.termsAcceptedAt} IS NULL`,
+			),
+		)
+		.returning({ termsAcceptedAt: tables.providerCompany.termsAcceptedAt });
+	const termsAcceptedAt =
+		updated?.termsAcceptedAt ?? (await requireCompany(id)).termsAcceptedAt;
+	if (!termsAcceptedAt) {
+		throw new HTTPException(404, { message: "Provider company not found" });
+	}
+	return c.json({ termsAcceptedAt: termsAcceptedAt.toISOString() });
 });
 
 // ---------------------------------------------------------------------------
@@ -1873,6 +1958,8 @@ const listClaimable = createRoute({
 								myClaimStatus: z
 									.enum(["pending", "active", "rejected", "revoked"])
 									.nullable(),
+								// The catalogue's own links, to prefill the claim's profile.
+								profileDefaults: profileDefaultsSchema,
 							}),
 						),
 					}),
@@ -1923,6 +2010,7 @@ airside.openapi(listClaimable, async (c) => {
 				claimed: !!existing,
 				claimedByMyCompany: mine,
 				myClaimStatus: mine && existing ? existing.status : null,
+				profileDefaults: profileDefaults(m.providerId),
 			};
 		}),
 	});
@@ -1940,6 +2028,9 @@ const createClaim = createRoute({
 						providerId: z.string(),
 						logoUrl: imageDataUrl(LOGO_MAX_BYTES).optional(),
 						iconUrl: imageDataUrl(ICON_MAX_BYTES).optional(),
+						// Overrides for the catalogue's public profile. The required
+						// fields must be set here or in the catalogue.
+						profile: carrierProfileInputSchema.optional(),
 					}),
 				},
 			},
@@ -1959,9 +2050,11 @@ const createClaim = createRoute({
 
 airside.openapi(createClaim, async (c) => {
 	const user = requireVerifiedUser(c.get("user"));
-	const { providerCompanyId, providerId, logoUrl, iconUrl } =
+	const { providerCompanyId, providerId, logoUrl, iconUrl, profile } =
 		c.req.valid("json");
 	await requireCompanyMembership(user.id, providerCompanyId);
+	assertEditableProfile("catalogue", profile);
+	assertRequiredProfile(profile, staticCarrierProfile(providerId));
 
 	if (airsideListingFeeRequired()) {
 		const company = await db.query.providerCompany.findFirst({
@@ -2013,6 +2106,10 @@ airside.openapi(createClaim, async (c) => {
 				matchedDomain: match.matchedDomain,
 				logoUrl: logoUrl ?? null,
 				iconUrl: iconUrl ?? null,
+				...(profile
+					? catalogueLinkColumns(staticCarrierProfile(providerId), profile)
+					: {}),
+				profileUpdatedAt: profile ? new Date() : null,
 				claimedBy: user.id,
 			})
 			.returning();
@@ -2068,6 +2165,9 @@ const registerCarrier = createRoute({
 						description: z.string().max(2000).optional(),
 						logoUrl: imageDataUrl(LOGO_MAX_BYTES).optional(),
 						iconUrl: imageDataUrl(ICON_MAX_BYTES).optional(),
+						// Public profile; website, privacyPolicyUrl and termsUrl are
+						// required.
+						profile: carrierProfileRegistrationSchema,
 					}),
 				},
 			},
@@ -2192,6 +2292,8 @@ airside.openapi(registerCarrier, async (c) => {
 				customDescription: body.description ?? null,
 				logoUrl: body.logoUrl ?? null,
 				iconUrl: body.iconUrl ?? null,
+				...profileColumns(body.profile),
+				profileUpdatedAt: new Date(),
 				claimedBy: user.id,
 			})
 			.returning();
@@ -2292,6 +2394,67 @@ airside.openapi(updateClaimBranding, async (c) => {
 	return c.json({ claim: serializeClaim(updated, providerNamesById) });
 });
 
+// Profile edits apply immediately: they are self-declared display info, not
+// branding, and never feed compliance routing.
+const updateClaimProfile = createRoute({
+	method: "patch",
+	path: "/claims/{id}/profile",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": { schema: carrierProfilePatchSchema },
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ claim: claimSchema }),
+				},
+			},
+			description: "The claim with its updated public profile.",
+		},
+	},
+});
+
+airside.openapi(updateClaimProfile, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const body = c.req.valid("json");
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	await requireCompanyMembership(user.id, claim.providerCompanyId);
+	if (claim.status !== "pending" && claim.status !== "active") {
+		throw new HTTPException(409, {
+			message: "Only pending or active claims can change their profile.",
+		});
+	}
+	assertNoRequiredCleared(body);
+	assertEditableProfile(claim.kind, body);
+	if (Object.keys(profileColumns(body)).length === 0) {
+		return c.json({ claim: serializeClaim(claim, providerNamesById) });
+	}
+	const changes =
+		claim.kind === "catalogue"
+			? catalogueLinkColumns(effectiveCarrierProfile(claim), body)
+			: profileColumns(body);
+	const [updated] = await db
+		.update(tables.providerClaim)
+		.set({ ...changes, profileUpdatedAt: new Date() })
+		.where(eq(tables.providerClaim.id, id))
+		.returning();
+	if (!updated) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	return c.json({ claim: serializeClaim(updated, providerNamesById) });
+});
+
 const verificationKeySchema = z.object({
 	verificationKeyMasked: z.string().nullable(),
 	verificationKeySetAt: z.string().nullable(),
@@ -2362,15 +2525,7 @@ airside.openapi(deleteVerificationKey, async (c) => {
 	const user = requireVerifiedUser(c.get("user"));
 	const { id } = c.req.valid("param");
 	await requireOwnedActiveClaim(user.id, id);
-	// cdb: claim rows feed the gateway's custom-carrier resolution cache.
-	await cdb
-		.update(tables.providerClaim)
-		.set({
-			verificationKeyCiphertext: null,
-			verificationKeyMasked: null,
-			verificationKeyUpdatedAt: null,
-		})
-		.where(eq(tables.providerClaim.id, id));
+	await clearClaimVerificationKey(id);
 	return c.json({ verificationKeyMasked: null, verificationKeySetAt: null });
 });
 
@@ -2572,6 +2727,7 @@ const queueNewModelVerification = createRoute({
 airside.openapi(queueNewModelVerification, async (c) => {
 	const user = requireVerifiedUser(c.get("user"));
 	const body = c.req.valid("json");
+	assertModelId(body.modelName);
 	await requireCompanyMembership(user.id, body.providerCompanyId);
 	const claim = await db.query.providerClaim.findFirst({
 		where: {
@@ -2933,6 +3089,7 @@ const createModel = createRoute({
 airside.openapi(createModel, async (c) => {
 	const user = requireVerifiedUser(c.get("user"));
 	const body = c.req.valid("json");
+	assertModelId(body.modelName);
 	await requireCompanyMembership(user.id, body.providerCompanyId);
 
 	const claim = await db.query.providerClaim.findFirst({

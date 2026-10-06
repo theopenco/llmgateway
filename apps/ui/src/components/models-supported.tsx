@@ -197,7 +197,6 @@ const convertToApiModel = (
 					createdAt: new Date().toISOString(),
 					name: provider.name ?? null,
 					description: provider.description ?? null,
-					streaming: provider.streaming ?? null,
 					cancellation: provider.cancellation ?? null,
 					color: provider.color ?? null,
 					website: provider.website ?? null,
