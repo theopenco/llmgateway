@@ -54,6 +54,25 @@ describe("hybrid-provider-routing", () => {
 		}
 	});
 
+	it("admits managed Airside provider ids without a static definition", () => {
+		const managed = managedAvailability({
+			configured: ["acme-sky"],
+			usable: ["acme-sky"],
+		});
+		expect(
+			getAvailableProvidersForProjectMode(
+				"credits",
+				[],
+				["acme-sky", "unknown"],
+				managed,
+			).availableProviders,
+		).toEqual(["acme-sky"]);
+		expect(
+			getAvailableProvidersForProjectMode("api-keys", [], ["acme-sky"], managed)
+				.availableProviders,
+		).toEqual([]);
+	});
+
 	it("returns only provider keys in api-keys mode", () => {
 		process.env.LLM_OPENAI_API_KEY = "sk-openai";
 
@@ -163,7 +182,7 @@ describe("hybrid-provider-routing", () => {
 			managedAvailability({ configured: ["openai"], usable: ["openai"] }),
 		);
 
-		expect(result.availableProviders).toEqual(["openai", "google-vertex"]);
+		expect(result.availableProviders).toEqual(["google-vertex", "openai"]);
 	});
 
 	it("reports region coverage from managed credentials only, once configured", () => {

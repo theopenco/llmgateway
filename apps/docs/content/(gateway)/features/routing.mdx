@@ -15,8 +15,15 @@ LLMGateway also includes **automatic retry and fallback** — if a provider fail
 Admin routing analytics includes static catalogue mappings and Airside listings,
 including mappings with no traffic in the selected window. Airside listings use
 their filed prices. Inactive listings remain visible but are excluded from scoring.
-Custom carriers that require a provider prefix are marked **provider pin required**;
-their traffic is shown without a score for automatic provider election.
+Approved, active Airside carriers participate in automatic provider selection and
+fallback using their filed prices and capabilities, including carriers defined
+entirely in Airside. Inactive or unapproved carriers remain visible but are
+excluded from scoring. A provider prefix is optional, including when multiple
+carriers list a model that is absent from the static catalogue.
+
+Airside carriers follow the same credential, capability, policy, rate-limit, and
+session rules as other providers. Adding a carrier does not expand the models
+that `auto` may choose.
 
 ## Global Provider Rate Limits
 
