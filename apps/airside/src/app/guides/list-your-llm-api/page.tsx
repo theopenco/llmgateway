@@ -69,7 +69,16 @@ export default function ListingGuide() {
 					separate from the one behind your live integration: preflight traffic
 					is billed by your own platform and is not tracked in LLMGateway usage
 					or billing. Resolve failed checks before submitting the model.
-					Changing the verified mapping requires a new verification.
+					Changing the verified mapping requires a new verification, and so does
+					an edit that adds a capability or raises a limit — narrowing one never
+					does.
+				</p>
+				<p className="mt-3">
+					A registered carrier files its provider key — the separate key we
+					serve live traffic with — together with its first model. We smoke-test
+					it against that model when you file, and it goes live once the model
+					is approved. Replacing it later under Settings is smoke-tested the
+					same way and reviewed by our team.
 				</p>
 				<p className="mt-3">
 					Every preflight stays on the record. The Verify dialog lists past runs

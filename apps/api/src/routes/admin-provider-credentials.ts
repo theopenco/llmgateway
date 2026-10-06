@@ -3,6 +3,7 @@ import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { assertNotTestingKey } from "@/lib/airside-carrier-keys.js";
 import {
 	buildErrorTimeline,
 	errorTimelineSchema,
@@ -113,6 +114,8 @@ const credentialSchema = z.object({
 	/** Cumulative upstream spend (USD) attributed by the billing worker. */
 	usage: z.string(),
 	maskedToken: z.string(),
+	/** The provider key a custom Airside carrier's claim points at. */
+	carrierKey: z.boolean(),
 	/**
 	 * HMAC fingerprint of the token, identical to `log.usedApiKeyHash` on the
 	 * requests this credential served. The token itself is never returned.
@@ -210,6 +213,8 @@ const envCredentialSchema = z.object({
 const catalogEntrySchema = z.object({
 	id: z.string(),
 	name: z.string(),
+	/** A custom Airside carrier; its credential can serve as the carrier's provider key. */
+	carrier: z.boolean(),
 	/** Env var carrying the API key, shown so admins can find what to migrate. */
 	apiKeyEnvVar: z.string().nullable(),
 	/** Whether that env var is set wherever the reported keys were read from. */
@@ -276,7 +281,7 @@ type CredentialRow = typeof tables.providerKey.$inferSelect;
  * its mask, its note, and `tokenHash`, which matches `log.usedApiKeyHash` on
  * the requests it served.
  */
-function toCredential(row: CredentialRow) {
+function toCredential(row: CredentialRow, carrierKeyIds: Set<string>) {
 	return {
 		id: row.id,
 		createdAt: row.createdAt,
@@ -290,6 +295,7 @@ function toCredential(row: CredentialRow) {
 		usageLimit: row.usageLimit,
 		usage: row.usage,
 		maskedToken: maskToken(readProviderKey(row), 6, 4),
+		carrierKey: carrierKeyIds.has(row.id),
 		tokenHash: row.tokenHash,
 		allowedModels: row.allowedModels,
 	};
@@ -435,6 +441,19 @@ async function findActiveCustomCarrier(providerId: string) {
 			status: { eq: "active" },
 		},
 	});
+}
+
+/** Credentials currently linked as a custom carrier's provider key. */
+async function linkedCarrierKeyIds(): Promise<Set<string>> {
+	const claims = await db.query.providerClaim.findMany({
+		where: { kind: { eq: "custom" }, providerKeyId: { isNotNull: true } },
+		columns: { providerKeyId: true },
+	});
+	return new Set(
+		claims.flatMap((claim) =>
+			claim.providerKeyId ? [claim.providerKeyId] : [],
+		),
+	);
 }
 
 interface CustomCarrierTarget {
@@ -654,6 +673,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 			return {
 				id: provider.id,
 				name: provider.name,
+				carrier: false,
 				apiKeyEnvVar,
 				apiKeyEnvConfigured: apiKeyEnvCounts.default > 0,
 				regions,
@@ -691,6 +711,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 		return {
 			id: cl.providerId,
 			name: cl.customName ?? cl.providerId,
+			carrier: true,
 			apiKeyEnvVar: null,
 			apiKeyEnvConfigured: false,
 			regions: [],
@@ -765,20 +786,21 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 	});
 
 	const credentialIds = rows.map((row) => row.id);
-	const [recent, daily, bucketed] = await Promise.all([
+	const [recent, daily, bucketed, carrierKeyIds] = await Promise.all([
 		getRecentCredentialStats(credentialIds),
 		getDailyCredentialStats(credentialIds),
 		// The 7d window is the daily series the spend sparkline already loads.
 		errorWindow === "7d"
 			? null
 			: getBucketedCredentialErrorSeries(credentialIds, errorWindow),
+		linkedCarrierKeyIds(),
 	]);
 
 	return c.json({
 		credentials: rows.map((row) => {
 			const last7dDaily = daily.get(row.id) ?? buildEmptyDailySeries();
 			return {
-				...toCredential(row),
+				...toCredential(row, carrierKeyIds),
 				last24h: recent.get(row.id) ?? NO_RECENT_STATS,
 				last7dDaily,
 				errorSeries:
@@ -1895,6 +1917,12 @@ const createCredential = createRoute({
 						usageLimit: createNullableLimitSchema("Usage limit").optional(),
 						allowedModels: allowedModelsSchema,
 						skipValidation: z.boolean().optional(),
+						/**
+						 * Custom carriers only: serve the carrier with this key,
+						 * retiring its current provider key. A carrier without one
+						 * always gets the new credential linked.
+						 */
+						carrierKey: z.boolean().optional(),
 					}),
 				},
 			},
@@ -1939,28 +1967,53 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 	// Generate the id up front so the AAD — which binds the ciphertext to the
 	// row id and the managed scope — can be computed before the INSERT.
 	const id = shortid();
-	const [created] = await cdb
-		.insert(tables.providerKey)
-		.values({
-			id,
-			managed: true,
-			organizationId: null,
-			provider: body.provider,
-			tokenCiphertext: encryptProviderKey(
-				body.token,
+	const carrier =
+		body.provider === "custom"
+			? undefined
+			: await findActiveCustomCarrier(body.provider);
+	// The carrier's testing key runs preflights; it never serves traffic.
+	if (carrier) {
+		assertNotTestingKey(carrier, body.token);
+	}
+	const created = await cdb.transaction(async (tx) => {
+		const [row] = await tx
+			.insert(tables.providerKey)
+			.values({
 				id,
-				providerKeyEncryptionScope(null),
-			),
-			tokenMasked: maskToken(body.token),
-			tokenHash: getApiKeyFingerprint(body.token),
-			comment: body.comment?.trim() || null,
-			variant: body.variant ?? "default",
-			region: body.region?.trim() || null,
-			config,
-			usageLimit: body.usageLimit ?? null,
-			allowedModels,
-		})
-		.returning();
+				managed: true,
+				organizationId: null,
+				provider: body.provider,
+				tokenCiphertext: encryptProviderKey(
+					body.token,
+					id,
+					providerKeyEncryptionScope(null),
+				),
+				tokenMasked: maskToken(body.token),
+				tokenHash: getApiKeyFingerprint(body.token),
+				comment: body.comment?.trim() || null,
+				variant: body.variant ?? "default",
+				region: body.region?.trim() || null,
+				config,
+				usageLimit: body.usageLimit ?? null,
+				allowedModels,
+			})
+			.returning();
+		// A custom carrier is served by the key its claim points at: an admin
+		// can set that key here, or override the one the carrier filed.
+		if (carrier && (body.carrierKey || !carrier.providerKeyId)) {
+			await tx
+				.update(tables.providerClaim)
+				.set({ providerKeyId: id })
+				.where(eq(tables.providerClaim.id, carrier.id));
+			if (carrier.providerKeyId) {
+				await tx
+					.update(tables.providerKey)
+					.set({ status: "deleted" })
+					.where(eq(tables.providerKey.id, carrier.providerKeyId));
+			}
+		}
+		return row;
+	});
 
 	logger.info("Managed provider credential created", {
 		credentialId: created.id,
@@ -1970,7 +2023,10 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 		userId: user.id,
 	});
 
-	return c.json({ credential: toCredential(created) }, 201);
+	return c.json(
+		{ credential: toCredential(created, await linkedCarrierKeyIds()) },
+		201,
+	);
 });
 
 const updateCredential = createRoute({
@@ -2028,6 +2084,12 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 
 	if (!existing) {
 		throw new HTTPException(404, { message: "Credential not found" });
+	}
+	if (body.token !== undefined && existing.provider !== "custom") {
+		const carrier = await findActiveCustomCarrier(existing.provider);
+		if (carrier) {
+			assertNotTestingKey(carrier, body.token);
+		}
 	}
 
 	const updates: Partial<typeof tables.providerKey.$inferInsert> = {};
@@ -2149,7 +2211,9 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 
 	if (Object.keys(updates).length === 0) {
-		return c.json({ credential: toCredential(existing) });
+		return c.json({
+			credential: toCredential(existing, await linkedCarrierKeyIds()),
+		});
 	}
 
 	// status <> 'deleted' repeats the read's predicate so a concurrent delete
@@ -2178,7 +2242,9 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		userId: user.id,
 	});
 
-	return c.json({ credential: toCredential(updated) });
+	return c.json({
+		credential: toCredential(updated, await linkedCarrierKeyIds()),
+	});
 });
 
 /**
@@ -2591,6 +2657,16 @@ adminProviderCredentials.openapi(deleteCredential, async (c) => {
 	if (!deleted) {
 		throw new HTTPException(404, { message: "Credential not found" });
 	}
+	// A carrier left without a linked key files a new one with its next
+	// model (or an admin sets one here).
+	await cdb
+		.update(tables.providerClaim)
+		.set({ providerKeyId: null })
+		.where(eq(tables.providerClaim.providerKeyId, id));
+	await cdb
+		.update(tables.providerClaim)
+		.set({ pendingProviderKeyId: null })
+		.where(eq(tables.providerClaim.pendingProviderKeyId, id));
 
 	logger.info("Managed provider credential deleted", {
 		credentialId: deleted.id,
@@ -2700,11 +2776,12 @@ adminProviderCredentials.openapi(reorderCredentials, async (c) => {
 	});
 
 	const byId = new Map(updated.map((row) => [row.id, row]));
+	const carrierKeyIds = await linkedCarrierKeyIds();
 	return c.json({
 		credentials: credentialIds
 			.map((id) => byId.get(id))
 			.filter((row): row is (typeof updated)[number] => row !== undefined)
-			.map(toCredential),
+			.map((row) => toCredential(row, carrierKeyIds)),
 	});
 });
 

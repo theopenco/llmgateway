@@ -159,6 +159,7 @@ export function AirsideFilingsClient() {
 	const [claimsPage, setClaimsPage] = useState(1);
 	const [activeClaimsPage, setActiveClaimsPage] = useState(1);
 	const [brandingPage, setBrandingPage] = useState(1);
+	const [providerKeyPage, setProviderKeyPage] = useState(1);
 	const [codesPage, setCodesPage] = useState(1);
 	const pageQuery = (page: number) => ({
 		limit: PAGE_SIZE,
@@ -267,6 +268,38 @@ export function AirsideFilingsClient() {
 		{
 			onSuccess: () => {
 				toast.success("Branding change rejected.");
+				invalidate();
+			},
+			onError: (error) => {
+				toast.error(apiErrorMessage(error, "The review action failed"));
+			},
+		},
+	);
+
+	const providerKeyQuery = $api.useQuery("get", "/admin/airside/claims", {
+		params: {
+			query: { pendingProviderKey: "true", ...pageQuery(providerKeyPage) },
+		},
+	});
+	const approveProviderKeyMutation = $api.useMutation(
+		"post",
+		"/admin/airside/claims/{id}/provider-key/approve",
+		{
+			onSuccess: () => {
+				toast.success("Provider key approved — it now serves traffic.");
+				invalidate();
+			},
+			onError: (error) => {
+				toast.error(apiErrorMessage(error, "The review action failed"));
+			},
+		},
+	);
+	const rejectProviderKeyMutation = $api.useMutation(
+		"post",
+		"/admin/airside/claims/{id}/provider-key/reject",
+		{
+			onSuccess: () => {
+				toast.success("Provider key rejected.");
 				invalidate();
 			},
 			onError: (error) => {
@@ -483,6 +516,11 @@ export function AirsideFilingsClient() {
 													<div className="text-muted-foreground mt-0.5 text-xs">
 														{claim.customName} · {claim.customBaseUrl}
 													</div>
+													{claim.pendingProviderKey ? (
+														<div className="text-muted-foreground text-xs">
+															provider key {claim.pendingProviderKey.masked}
+														</div>
+													) : null}
 												</>
 											) : claim.customName ? (
 												<div className="text-muted-foreground mt-0.5 text-xs">
@@ -726,6 +764,106 @@ export function AirsideFilingsClient() {
 							total={brandingQuery.data?.total ?? 0}
 							onPageChange={setBrandingPage}
 							testId="branding-pager"
+						/>
+					</CardContent>
+				</Card>
+			) : null}
+
+			{(providerKeyQuery.data?.total ?? 0) > 0 ? (
+				<Card>
+					<CardHeader>
+						<CardTitle>Provider key changes</CardTitle>
+						<CardDescription>
+							Custom carriers&apos; provider keys, smoke-tested against one of
+							their listings when submitted. Approving swaps the key in and
+							retires the old one. A carrier&apos;s first key also goes live
+							when the model it was filed with is approved.
+						</CardDescription>
+					</CardHeader>
+					<CardContent>
+						<Table>
+							<TableHeader>
+								<TableRow>
+									<TableHead>Company</TableHead>
+									<TableHead>Provider</TableHead>
+									<TableHead>Current key</TableHead>
+									<TableHead>Proposed key</TableHead>
+									{isAdmin && (
+										<TableHead className="text-right">Actions</TableHead>
+									)}
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{(providerKeyQuery.data?.claims ?? []).map((claim) => (
+									<TableRow
+										key={claim.id}
+										data-testid={`provider-key-${claim.id}`}
+									>
+										<TableCell className="font-medium">
+											{claim.company.name}
+										</TableCell>
+										<TableCell className="font-mono text-sm">
+											{claim.providerId}
+										</TableCell>
+										<TableCell className="font-mono text-sm">
+											{claim.providerKey?.masked ?? (
+												<span className="text-muted-foreground text-xs">
+													none
+												</span>
+											)}
+										</TableCell>
+										<TableCell className="font-mono text-sm">
+											{claim.pendingProviderKey?.masked}
+										</TableCell>
+										{isAdmin && (
+											<TableCell className="text-right">
+												<div className="flex justify-end gap-1">
+													<Button
+														size="sm"
+														disabled={approveProviderKeyMutation.isPending}
+														data-testid={`approve-provider-key-${claim.providerId}`}
+														onClick={() =>
+															approveProviderKeyMutation.mutate({
+																params: { path: { id: claim.id } },
+															})
+														}
+													>
+														<Check className="size-3.5" /> Approve
+													</Button>
+													{claim.providerKey ? (
+														<Button
+															size="sm"
+															variant="destructive"
+															disabled={rejectProviderKeyMutation.isPending}
+															data-testid={`reject-provider-key-${claim.providerId}`}
+															onClick={() =>
+																rejectProviderKeyMutation.mutate({
+																	params: { path: { id: claim.id } },
+																})
+															}
+														>
+															<X className="size-3.5" /> Reject
+														</Button>
+													) : (
+														<span
+															className="text-muted-foreground self-center text-xs"
+															title="A carrier's first key is reviewed with its first model."
+														>
+															with first model
+														</span>
+													)}
+												</div>
+											</TableCell>
+										)}
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+						<Pager
+							page={providerKeyPage}
+							total={providerKeyQuery.data?.total ?? 0}
+							onPageChange={setProviderKeyPage}
+							testId="provider-key-pager"
 						/>
 					</CardContent>
 				</Card>

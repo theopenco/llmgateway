@@ -1407,6 +1407,28 @@ export async function runProviderModelVerification(
 	};
 }
 
+/**
+ * One basic completion through the listing's own API format — enough to prove
+ * a key authenticates and can call the model, without a full preflight.
+ * Resolves to the failure message, or null when the key works.
+ */
+export async function runProviderKeySmokeTest(
+	options: Omit<RunModelVerificationOptions, "onCheck">,
+): Promise<string | null> {
+	const outcome = await runCheck(
+		{
+			id: "basic",
+			label: "Basic completion",
+			request: createBasicVerificationRequest(options.target.modelName),
+		},
+		options,
+		new Set([options.token]),
+		[],
+		() => undefined,
+	);
+	return outcome.failure?.message ?? null;
+}
+
 function verificationCredentialRowId(id: string): string {
 	return `model-verification:${id}`;
 }

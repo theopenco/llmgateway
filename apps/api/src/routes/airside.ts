@@ -10,6 +10,13 @@ import {
 	LOGO_MAX_BYTES,
 } from "@/lib/airside-branding.js";
 import {
+	assertProviderKeyIsSeparate,
+	assertProviderKeyServes,
+	discardPendingProviderKey,
+	fileProviderKey,
+	latestListing,
+} from "@/lib/airside-carrier-keys.js";
+import {
 	dematerializeAirsideModel,
 	materializeAirsideModel,
 	setAirsideModelServing,
@@ -71,12 +78,14 @@ import {
 	enqueueModelVerification,
 	modelVerificationSchema,
 	pendingFiledCapabilities,
+	pickCapabilities,
 	resolveVerificationCredential,
 	saveClaimVerificationKey,
 	serializeVerification,
 	serializeVerificationHistoryEntry,
 	verificationActors,
 	verificationHistoryEntrySchema,
+	verificationTargetCovers,
 	verificationTargetsMatch,
 	type CapabilityOverrides,
 	type ModelVerificationRow,
@@ -84,6 +93,7 @@ import {
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
+import { readProviderKey } from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
 	AIRSIDE_DISCOUNT_MAX,
@@ -255,6 +265,11 @@ const queueVerificationSchema = verificationMappingSchema.extend({
 	apiKey: z.string().min(1).max(20_000).optional(),
 });
 
+const carrierKeySchema = z.object({
+	masked: z.string(),
+	submittedAt: z.string(),
+});
+
 const claimSchema = z.object({
 	id: z.string(),
 	providerCompanyId: z.string(),
@@ -279,6 +294,10 @@ const claimSchema = z.object({
 	// provider runs on it unless the carrier pastes another one.
 	verificationKeyMasked: z.string().nullable(),
 	verificationKeySetAt: z.string().nullable(),
+	// Custom carriers only: the provider key we serve traffic with, and a
+	// replacement awaiting admin approval. Resolved on the companies listing.
+	providerKey: carrierKeySchema.nullable(),
+	pendingProviderKey: carrierKeySchema.nullable(),
 	// Self-declared public profile; catalogue claims fall back to the static
 	// catalogue values for anything they have not set.
 	profile: carrierProfileSchema,
@@ -468,10 +487,13 @@ type ProviderClaimRow = typeof tables.providerClaim.$inferSelect;
 type PriceFilingRow = typeof tables.providerPriceFiling.$inferSelect;
 type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
 
+type CarrierKeySummary = z.infer<typeof carrierKeySchema>;
+
 function serializeClaim(
 	row: ProviderClaimRow,
 	providerNames: Map<string, string>,
 	credentialedProviders?: Set<string>,
+	carrierKeys?: Map<string, CarrierKeySummary>,
 ) {
 	return {
 		id: row.id,
@@ -492,9 +514,42 @@ function serializeClaim(
 		hasManagedCredential: credentialedProviders?.has(row.providerId) ?? true,
 		verificationKeyMasked: row.verificationKeyMasked,
 		verificationKeySetAt: row.verificationKeyUpdatedAt?.toISOString() ?? null,
+		providerKey: row.providerKeyId
+			? (carrierKeys?.get(row.providerKeyId) ?? null)
+			: null,
+		pendingProviderKey: row.pendingProviderKeyId
+			? (carrierKeys?.get(row.pendingProviderKeyId) ?? null)
+			: null,
 		...serializeClaimProfile(row),
 		createdAt: row.createdAt.toISOString(),
 	};
+}
+
+/** Masked summaries of the provider keys the given claims point at. */
+async function carrierKeySummaries(
+	claims: ProviderClaimRow[],
+): Promise<Map<string, CarrierKeySummary>> {
+	const ids = claims.flatMap((claim) =>
+		[claim.providerKeyId, claim.pendingProviderKeyId].filter(
+			(id): id is string => id !== null,
+		),
+	);
+	if (ids.length === 0) {
+		return new Map();
+	}
+	const keys = await db.query.providerKey.findMany({
+		where: { id: { in: ids }, status: { ne: "deleted" } },
+		columns: { id: true, tokenMasked: true, createdAt: true },
+	});
+	return new Map(
+		keys.map((key) => [
+			key.id,
+			{
+				masked: key.tokenMasked ?? "",
+				submittedAt: key.createdAt.toISOString(),
+			},
+		]),
+	);
 }
 
 /**
@@ -866,12 +921,12 @@ airside.openapi(listCompanies, async (c) => {
 		orderBy: { createdAt: "asc" },
 	});
 	const providerNames = providerNamesById;
-	const credentialed = await credentialedProviderIds([
-		...new Set(
-			memberships.flatMap(
-				(m) => m.providerCompany?.claims.map((claim) => claim.providerId) ?? [],
-			),
-		),
+	const allClaims = memberships.flatMap((m) => m.providerCompany?.claims ?? []);
+	const [credentialed, carrierKeys] = await Promise.all([
+		credentialedProviderIds([
+			...new Set(allClaims.map((claim) => claim.providerId)),
+		]),
+		carrierKeySummaries(allClaims),
 	]);
 	// Only fetch the Stripe amount while someone still has the fee ahead of
 	// them — the paid state never renders it.
@@ -904,7 +959,9 @@ airside.openapi(listCompanies, async (c) => {
 						// Rejected claims stay visible so the carrier sees the
 						// review note; only revoked ones disappear.
 						.filter((claim) => claim.status !== "revoked")
-						.map((claim) => serializeClaim(claim, providerNames, credentialed)),
+						.map((claim) =>
+							serializeClaim(claim, providerNames, credentialed, carrierKeys),
+						),
 				},
 			];
 		}),
@@ -2472,6 +2529,111 @@ airside.openapi(deleteVerificationKey, async (c) => {
 	return c.json({ verificationKeyMasked: null, verificationKeySetAt: null });
 });
 
+// A custom carrier's provider key serves live traffic, so a replacement only
+// takes over once an admin approves it (admin-airside provider-key/approve).
+const pendingProviderKeySchema = z.object({
+	pendingProviderKey: carrierKeySchema.nullable(),
+});
+
+async function requireOwnedCustomClaim(userId: string, claimId: string) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: claimId } },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	await requireCompanyMembership(userId, claim.providerCompanyId);
+	if (claim.kind !== "custom") {
+		throw new HTTPException(409, {
+			message: "Only registered carriers supply their own provider key.",
+		});
+	}
+	if (claim.status !== "active") {
+		throw new HTTPException(409, {
+			message: "Only an active carrier can replace its provider key.",
+		});
+	}
+	return claim;
+}
+
+const submitProviderKey = createRoute({
+	method: "put",
+	path: "/claims/{id}/provider-key",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ apiKey: z.string().trim().min(1).max(20_000) }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: pendingProviderKeySchema },
+			},
+			description: "The replacement key, masked and awaiting approval.",
+		},
+	},
+});
+
+airside.openapi(submitProviderKey, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const { apiKey } = c.req.valid("json");
+	const claim = await requireOwnedCustomClaim(user.id, id);
+	await assertProviderKeyIsSeparate(claim, apiKey);
+	// Only a key smoke-tested against one of the carrier's listings reaches
+	// review; before the first listing, the key is filed with that model.
+	const listing = await latestListing(claim);
+	if (!listing) {
+		throw new HTTPException(409, {
+			message:
+				"Submit your provider key with your first model — we smoke-test it against that model.",
+		});
+	}
+	await assertProviderKeyServes(
+		claim,
+		apiKey,
+		buildVerificationTarget({
+			providerId: claim.providerId,
+			modelName: listing.modelName,
+			externalId: listing.externalId,
+			apiFormat: listing.apiFormat,
+		}),
+	);
+	const pendingProviderKey = await cdb.transaction(
+		async (tx) => await fileProviderKey(tx, claim, apiKey),
+	);
+	return c.json({ pendingProviderKey });
+});
+
+const withdrawProviderKey = createRoute({
+	method: "delete",
+	path: "/claims/{id}/provider-key",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: pendingProviderKeySchema },
+			},
+			description: "The replacement awaiting approval was withdrawn.",
+		},
+	},
+});
+
+airside.openapi(withdrawProviderKey, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const claim = await requireOwnedCustomClaim(user.id, id);
+	if (claim.pendingProviderKeyId) {
+		await discardPendingProviderKey(claim, claim.pendingProviderKeyId);
+	}
+	return c.json({ pendingProviderKey: null });
+});
+
 // ---------------------------------------------------------------------------
 // Models (fleet)
 // ---------------------------------------------------------------------------
@@ -2729,9 +2891,10 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 		throw new HTTPException(404, { message: "Model not found" });
 	}
 	await requireCompanyMembership(user.id, model.providerCompanyId);
-	if (model.status === "delisted") {
+	// Delisted models verify too: a passing run is what relisting requires.
+	if (model.status === "delisted" && proposed) {
 		throw new HTTPException(409, {
-			message: "Delisted mappings cannot be verified.",
+			message: "A delisted model is verified as it was listed.",
 		});
 	}
 	const claim = await db.query.providerClaim.findFirst({
@@ -2873,6 +3036,9 @@ const createModel = createRoute({
 				"application/json": {
 					schema: z.object({
 						verificationId: z.string(),
+						// A registered carrier's first model carries the key we
+						// serve its traffic with, reviewed alongside the model.
+						providerKey: z.string().trim().min(1).max(20_000).optional(),
 						providerCompanyId: z.string(),
 						providerId: z.string(),
 						modelName: z.string().min(1).max(200),
@@ -2994,6 +3160,45 @@ airside.openapi(createModel, async (c) => {
 				"The mapping changed after verification. Run verification again.",
 		});
 	}
+	// Preflight ran on the testing key; the key we serve traffic with must
+	// reach this model too before the listing goes to review. A registered
+	// carrier's first model brings that key along.
+	const keyOnFile = claim.providerKeyId ?? claim.pendingProviderKeyId;
+	const firstProviderKey =
+		claim.kind === "custom" && !keyOnFile ? body.providerKey : undefined;
+	if (claim.kind === "custom" && !keyOnFile && !firstProviderKey) {
+		throw new HTTPException(400, {
+			message:
+				"Add your provider key — the key we serve your traffic with. It is smoke-tested against this model and reviewed with it.",
+		});
+	}
+	if (body.providerKey && !firstProviderKey) {
+		throw new HTTPException(400, {
+			message:
+				claim.kind === "custom"
+					? "A provider key is already on file — replace it under Settings."
+					: "Catalogue carriers are served with platform keys.",
+		});
+	}
+	if (firstProviderKey) {
+		await assertProviderKeyIsSeparate(claim, firstProviderKey);
+		await assertProviderKeyServes(
+			claim,
+			firstProviderKey,
+			verificationTarget(body),
+		);
+	} else if (claim.kind === "custom" && keyOnFile) {
+		const servingKey = await db.query.providerKey.findFirst({
+			where: { id: { eq: keyOnFile } },
+		});
+		if (servingKey) {
+			await assertProviderKeyServes(
+				claim,
+				readProviderKey(servingKey),
+				verificationTarget(body),
+			);
+		}
+	}
 
 	// cdb: the gateway caches airside model lookups; writes must invalidate.
 	const created = await cdb
@@ -3047,6 +3252,9 @@ airside.openapi(createModel, async (c) => {
 					note: body.note ?? null,
 				})
 				.returning();
+			if (firstProviderKey) {
+				await fileProviderKey(tx, claim, firstProviderKey);
+			}
 			const submittedAt = new Date();
 			const consumed = await tx
 				.update(tables.providerModelVerification)
@@ -3297,6 +3505,13 @@ airside.openapi(updateModel, async (c) => {
 	}
 	const changes = pickMetadataChanges(body);
 	const updates = diffMetadataChanges(model, changes);
+	// Claiming more than the listing does — a new capability, a higher
+	// limit, extra modes — needs a passing preflight of the edit. The review
+	// can rerun it; narrowing and non-capability edits need none.
+	const required = draftVerificationTarget(model, pickCapabilities(updates));
+	if (!verificationTargetCovers(draftVerificationTarget(model), required)) {
+		await requirePassingPreflight(model, required, null, "save");
+	}
 	if (model.status === "active") {
 		// Live listings only change through review: file the diff alongside
 		// the current prices so the filing row is self-describing.
@@ -3525,6 +3740,39 @@ airside.openapi(deleteModel, async (c) => {
 	return c.json({ status: "delisted" as const });
 });
 
+/**
+ * Gate for anything that puts claims about a model in front of us: the
+ * model's latest preflight must have passed and prove `required`. Only claims
+ * beyond what the listing already proved need this; narrowing never does.
+ */
+async function requirePassingPreflight(
+	model: DraftModelRow,
+	required: ProviderModelVerificationTarget,
+	since: Date | null,
+	action: string,
+) {
+	const latest = await db.query.providerModelVerification.findFirst({
+		where: {
+			draftModelId: { eq: model.id },
+			...(since ? { createdAt: { gte: since } } : {}),
+		},
+		orderBy: { createdAt: "desc" },
+	});
+	if (latest?.status === "queued" || latest?.status === "running") {
+		throw new HTTPException(409, {
+			message: `Preflight is still running — ${action} once it passes.`,
+		});
+	}
+	if (
+		latest?.status !== "passed" ||
+		!verificationTargetCovers(latest.target, required)
+	) {
+		throw new HTTPException(409, {
+			message: `Run preflight on this model as you are submitting it, and let it pass, before you ${action}.`,
+		});
+	}
+}
+
 const relistModel = createRoute({
 	method: "post",
 	path: "/models/{id}/relist",
@@ -3588,6 +3836,13 @@ airside.openapi(relistModel, async (c) => {
 					message: "Only delisted models can be relisted.",
 				});
 			}
+			// The endpoint may have changed while the model was off the board.
+			await requirePassingPreflight(
+				locked,
+				draftVerificationTarget(locked),
+				locked.delistedAt,
+				"relist",
+			);
 			const [current] = await tx
 				.select()
 				.from(tables.providerPriceFiling)

@@ -14,7 +14,7 @@ Area-specific rules live in skills under `.agents/skills`. Load the matching ski
 | `database`         | Schema, Drizzle and raw SQL, analytics queries, aggregation tables                               |
 | `migrations`       | Generating, editing, and resolving conflicts in migrations                                       |
 | `gateway`          | `apps/gateway` request path, routing, error classification, logging, user-supplied URLs          |
-| `add-model`        | Everything in `packages/models`: mappings, pricing, capabilities, deactivation                   |
+| `add-model`        | Everything in `packages/models`: mappings, pricing, capabilities, deactivation, new providers    |
 | `billing`          | Org kinds, plans, Stripe, DevPass, credits, cost math, audit log, org emails                     |
 | `frontend`         | Next.js apps: API client, data fetching, navigation, dashboard routes, formatting                |
 | `infrastructure`   | Production hosting and hostnames, deploy ordering, client IP and country                         |

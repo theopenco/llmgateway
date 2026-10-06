@@ -4,7 +4,10 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as emailUtils from "@/utils/email.js";
 
-import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import {
+	encryptProviderKeyForStorage,
+	readProviderKey,
+} from "@llmgateway/actions";
 import {
 	db,
 	eq,
@@ -15,6 +18,7 @@ import {
 } from "@llmgateway/db";
 import {
 	models as catalogueModels,
+	REASONING_EFFORTS,
 	type ModelDefinition,
 	type ProviderApiFormat,
 	type ToolChoiceMode,
@@ -88,6 +92,42 @@ async function claimProvider(
 		providerId: string;
 		status: string;
 	};
+}
+
+// A passed preflight proving anything the model could claim, for tests that
+// edit or relist a listing but aren't about the preflight gate itself.
+async function passPreflight(modelId: string) {
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: modelId } },
+	});
+	await db.insert(tables.providerModelVerification).values({
+		id: `verification-${crypto.randomUUID()}`,
+		providerCompanyId: model!.providerCompanyId,
+		draftModelId: modelId,
+		requestedBy: "test-user-id",
+		target: {
+			providerId: model!.providerId,
+			modelName: model!.modelName,
+			externalId: model!.externalId,
+			apiFormat: model!.apiFormat ?? "openai-chat-completions",
+			streaming: true,
+			vision: true,
+			audio: true,
+			tools: true,
+			supportedToolChoices: null,
+			jsonOutput: true,
+			jsonOutputSchema: true,
+			reasoning: true,
+			reasoningMaxTokens: true,
+			reasoningEfforts: [...REASONING_EFFORTS],
+			webSearch: true,
+			contextSize: 100_000_000,
+			maxOutput: 100_000_000,
+		},
+		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+		status: "passed",
+		completedAt: new Date(),
+	});
 }
 
 // Fast-path activation for tests that aren't about the review flow itself —
@@ -263,6 +303,7 @@ describe("airside provider portal", () => {
 
 	afterEach(async () => {
 		vi.restoreAllMocks();
+		vi.unstubAllGlobals();
 		if (originalAdminEmails === undefined) {
 			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
@@ -963,6 +1004,7 @@ describe("airside provider portal", () => {
 		expect(model.supportedToolChoices).toEqual(["auto", "none"]);
 
 		// A draft applies metadata in place, so the narrowing is editable.
+		await passPreflight(model.id);
 		const patched = await app.request(
 			`/airside/models/${model.id}`,
 			json(cookie, { supportedToolChoices: null }, "PATCH"),
@@ -989,6 +1031,70 @@ describe("airside provider portal", () => {
 			tools: true,
 			modelName: "mistral-large-3",
 		});
+	});
+
+	it("requires a passing preflight to widen a listing or relist it", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const { model } = await (await createModel(cookie, company.id)).json();
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(
+				`/airside/models/${model.id}`,
+				json(cookie, body, "PATCH"),
+			);
+
+		// Claiming more than the listing proved needs a preflight first.
+		const widened = await patch({ vision: true });
+		expect(widened.status).toBe(409);
+		expect((await widened.json()).message).toContain("Run preflight");
+		expect((await patch({ contextSize: 512000 })).status).toBe(409);
+		// Narrowing and descriptive edits need none.
+		expect((await patch({ tools: false })).status).toBe(200);
+		expect((await patch({ displayName: "Mistral Large 3 Turbo" })).status).toBe(
+			200,
+		);
+
+		await passPreflight(model.id);
+		expect((await patch({ vision: true })).status).toBe(200);
+		// Only the latest run counts: a later failure blocks again.
+		await db.insert(tables.providerModelVerification).values({
+			id: `verification-${crypto.randomUUID()}`,
+			providerCompanyId: company.id,
+			draftModelId: model.id,
+			requestedBy: "test-user-id",
+			target: {
+				providerId: "mistral",
+				modelName: model.modelName,
+				externalId: model.modelName,
+				streaming: true,
+				vision: true,
+				audio: true,
+				tools: true,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				reasoningEfforts: null,
+				webSearch: false,
+			},
+			checks: [],
+			status: "failed",
+			completedAt: new Date(),
+		});
+		expect((await patch({ audio: true })).status).toBe(409);
+
+		// A delisted model relists only after a preflight run since delisting.
+		await db
+			.update(tables.providerDraftModel)
+			.set({ status: "delisted", delistedAt: new Date() })
+			.where(eq(tables.providerDraftModel.id, model.id));
+		const relist = async () =>
+			await app.request(`/airside/models/${model.id}/relist`, json(cookie));
+		const blocked = await relist();
+		expect(blocked.status).toBe(409);
+		expect((await blocked.json()).message).toContain("before you relist");
 	});
 
 	it("lists a listing's preflight history without naming our reviewers", async () => {
@@ -1081,6 +1187,7 @@ describe("airside provider portal", () => {
 
 		// A live listing keeps a capability edit in a filing until it is
 		// approved, so the row still says reasoning is off.
+		await passPreflight(model.id);
 		const filed = await app.request(
 			`/airside/models/${model.id}`,
 			json(cookie, { reasoning: true, reasoningEfforts: ["low"] }, "PATCH"),
@@ -1303,6 +1410,7 @@ describe("airside provider portal", () => {
 				family: "mistral",
 			})
 			.returning();
+		await passPreflight(model.id);
 		const blocked = await app.request(
 			`/airside/models/${model.id}/relist`,
 			json(cookie),
@@ -2040,6 +2148,7 @@ describe("airside provider portal", () => {
 		expect(Number(published.mappings[0].inputPrice)).toBeCloseTo(2e-6);
 
 		// Metadata edits on a live listing are filed, not applied.
+		await passPreflight(model.id);
 		const filed = await app.request(
 			`/airside/models/${model.id}`,
 			json(cookie, { contextSize: 128000, tools: false }, "PATCH"),
@@ -3292,6 +3401,7 @@ describe("airside provider portal", () => {
 		expect(model.reasoningEfforts).toEqual(["low", "medium", "high"]);
 
 		// Edits to the efforts persist.
+		await passPreflight(model.id);
 		const patch = await app.request(
 			`/airside/models/${model.id}`,
 			json(cookie, { reasoningEfforts: ["medium", "max"] }, "PATCH"),
@@ -3652,6 +3762,7 @@ describe("airside provider portal", () => {
 			unlistedProviderIds: ["mistral"],
 		});
 
+		await passPreflight(listing!.id);
 		const relisted = await app.request(
 			`/airside/models/${listing!.id}/relist`,
 			json(cookie),
@@ -4300,6 +4411,380 @@ describe("airside provider portal", () => {
 		// Pending registration blocks the id for everyone.
 		const dupe = await registerCarrier(cookie, company.id);
 		expect(dupe.status).toBe(409);
+	});
+
+	// Upstream for custom-carrier smoke tests: answers a basic completion for
+	// the keys in `workingKeys`, 401 for anything else.
+	function stubCarrierUpstream(workingKeys: Set<string>) {
+		const upstream = vi.fn(
+			async (_url: string | URL | Request, init?: RequestInit) => {
+				const token = new Headers(init?.headers).get("authorization");
+				return token && workingKeys.has(token.replace("Bearer ", ""))
+					? Response.json({
+							id: "chatcmpl-1",
+							object: "chat.completion",
+							model: "sky",
+							choices: [
+								{
+									index: 0,
+									message: { role: "assistant", content: "OK" },
+									finish_reason: "stop",
+								},
+							],
+						})
+					: Response.json(
+							{ error: { message: "Invalid API key" } },
+							{ status: 401 },
+						);
+			},
+		);
+		vi.stubGlobal("fetch", upstream);
+		return upstream;
+	}
+
+	async function approvedCarrier() {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@acme-sky.ai";
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		const { claim } = await (await registerCarrier(cookie, company.id)).json();
+		await app.request(
+			`/admin/airside/claims/${claim.id}/approve`,
+			json(cookie),
+		);
+		// The testing key preflight runs on, saved like any pasted one.
+		await app.request(
+			`/airside/claims/${claim.id}/verification-key`,
+			json(cookie, { apiKey: "sk-acme-sky-testing-key" }, "PUT"),
+		);
+		return { company, claim: claim as { id: string } };
+	}
+
+	const sky = (modelName: string, providerKey?: string) => ({
+		providerId: "acme-sky",
+		modelName,
+		...(providerKey ? { providerKey } : {}),
+	});
+
+	it("files the provider key with the first model and serves it once approved", async () => {
+		const { company, claim } = await approvedCarrier();
+		// Registration and approval collect no provider key.
+		expect(
+			await db.query.providerKey.findMany({
+				where: { provider: { eq: "acme-sky" } },
+			}),
+		).toHaveLength(0);
+		const upstream = stubCarrierUpstream(new Set(["sk-acme-sky-serving-key"]));
+
+		const missing = await createModel(cookie, company.id, sky("sky-large"));
+		expect(missing.status).toBe(400);
+		expect((await missing.json()).message).toContain("Add your provider key");
+		const sameAsTesting = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-testing-key"),
+		);
+		expect(sameAsTesting.status).toBe(400);
+		expect((await sameAsTesting.json()).message).toContain(
+			"two different keys",
+		);
+		const broken = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-broken"),
+		);
+		expect(broken.status).toBe(400);
+		const brokenBody = await broken.json();
+		expect(brokenBody.message).toContain("smoke test against sky-large");
+		expect(brokenBody.message).not.toContain("sk-acme-sky-broken");
+		expect(
+			await db.query.providerKey.findMany({
+				where: { provider: { eq: "acme-sky" } },
+			}),
+		).toHaveLength(0);
+
+		const first = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-serving-key"),
+		);
+		expect(first.status).toBe(201);
+		const [url] = upstream.mock.calls.at(-1)!;
+		expect(String(url)).toBe("https://api.acme-sky.ai/v1/chat/completions");
+		const [key] = await db.query.providerKey.findMany({
+			where: { provider: { eq: "acme-sky" } },
+		});
+		expect(key).toMatchObject({
+			managed: true,
+			organizationId: null,
+			status: "inactive",
+		});
+		expect(key.tokenCiphertext).not.toContain("sk-acme-sky-serving-key");
+		expect(readProviderKey(key)).toBe("sk-acme-sky-serving-key");
+
+		// The first key is reviewed with the first model: it cannot be dropped.
+		expect(
+			(
+				await app.request(
+					`/airside/claims/${claim.id}/provider-key`,
+					json(cookie, undefined, "DELETE"),
+				)
+			).status,
+		).toBe(409);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/claims/${claim.id}/provider-key/reject`,
+					json(cookie),
+				)
+			).status,
+		).toBe(409);
+
+		// Later models probe the key on file instead of taking another one.
+		const extraKey = await createModel(
+			cookie,
+			company.id,
+			sky("sky-small", "sk-acme-sky-other"),
+		);
+		expect(extraKey.status).toBe(400);
+		expect((await extraKey.json()).message).toContain("already on file");
+		expect(
+			(await createModel(cookie, company.id, sky("sky-small"))).status,
+		).toBe(201);
+
+		// Approving the first model puts its provider key into service.
+		const { model } = await first.json();
+		const approved = await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		const live = await db.query.providerKey.findFirst({
+			where: { id: { eq: key.id } },
+		});
+		expect(live?.status).toBe("active");
+		const liveClaim = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
+		});
+		expect(liveClaim).toMatchObject({
+			providerKeyId: key.id,
+			pendingProviderKeyId: null,
+		});
+
+		// Revoking the carrier retires its key.
+		const revoked = await app.request(
+			`/admin/airside/claims/${claim.id}/revoke`,
+			json(cookie, {}),
+		);
+		expect(revoked.status).toBe(200);
+		const retired = await db.query.providerKey.findFirst({
+			where: { id: { eq: key.id } },
+		});
+		expect(retired?.status).toBe("deleted");
+	});
+
+	it("replaces the provider key only after a smoke test and admin approval", async () => {
+		const { company, claim } = await approvedCarrier();
+		const workingKeys = new Set(["sk-acme-sky-serving-key"]);
+		stubCarrierUpstream(workingKeys);
+		const submit = async (apiKey: string) =>
+			await app.request(
+				`/airside/claims/${claim.id}/provider-key`,
+				json(cookie, { apiKey }, "PUT"),
+			);
+
+		// Before any listing there is nothing to smoke-test against.
+		const early = await submit("sk-acme-sky-early");
+		expect(early.status).toBe(409);
+		expect((await early.json()).message).toContain("first model");
+
+		const first = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-serving-key"),
+		);
+		const { model } = await first.json();
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		const original = await db.query.providerKey.findFirst({
+			where: { provider: { eq: "acme-sky" } },
+		});
+
+		// The testing key and the live key are not valid replacements.
+		expect((await submit("sk-acme-sky-testing-key")).status).toBe(400);
+		expect((await submit("sk-acme-sky-serving-key")).status).toBe(400);
+		// Nor can the testing key become the provider key the other way round.
+		const sameTestingKey = await app.request(
+			`/airside/claims/${claim.id}/verification-key`,
+			json(cookie, { apiKey: "sk-acme-sky-serving-key" }, "PUT"),
+		);
+		expect(sameTestingKey.status).toBe(400);
+		// A key that fails the smoke test never reaches review.
+		const broken = await submit("sk-acme-sky-broken");
+		expect(broken.status).toBe(400);
+		expect((await broken.json()).message).toContain("smoke test");
+
+		for (const k of [1, 2, 3, 4].map((n) => `sk-acme-sky-rotated-${n}`)) {
+			workingKeys.add(k);
+		}
+		expect((await submit("sk-acme-sky-rotated-1")).status).toBe(200);
+		// A second submission replaces the first while it awaits review.
+		expect((await submit("sk-acme-sky-rotated-2")).status).toBe(200);
+		const keys = await db.query.providerKey.findMany({
+			where: { provider: { eq: "acme-sky" } },
+		});
+		const byToken = new Map(keys.map((k) => [readProviderKey(k), k]));
+		expect(byToken.get("sk-acme-sky-broken")).toBeUndefined();
+		expect(byToken.get("sk-acme-sky-rotated-1")?.status).toBe("deleted");
+		const pending = byToken.get("sk-acme-sky-rotated-2")!;
+		expect(pending.status).toBe("inactive");
+		// The live key keeps serving until the replacement is approved.
+		expect(byToken.get("sk-acme-sky-serving-key")?.status).toBe("active");
+
+		const listed = await (
+			await app.request("/airside/companies", { headers: { Cookie: cookie } })
+		).json();
+		expect(listed.companies[0].claims[0]).toMatchObject({
+			providerKey: { masked: original!.tokenMasked },
+			pendingProviderKey: { masked: pending.tokenMasked },
+		});
+
+		const queue = await (
+			await app.request("/admin/airside/claims?pendingProviderKey=true", {
+				headers: { Cookie: cookie },
+			})
+		).json();
+		expect(queue.claims.map((c: { id: string }) => c.id)).toEqual([claim.id]);
+
+		const approved = await app.request(
+			`/admin/airside/claims/${claim.id}/provider-key/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		const approvedClaim = (await approved.json()).claim;
+		expect(approvedClaim.providerKey.masked).toBe(pending.tokenMasked);
+		expect(approvedClaim.pendingProviderKey).toBeNull();
+		const after = await db.query.providerKey.findMany({
+			where: { provider: { eq: "acme-sky" }, status: { eq: "active" } },
+		});
+		expect(after.map((k) => k.id)).toEqual([pending.id]);
+
+		// A rejected replacement never serves; the live key stays.
+		expect((await submit("sk-acme-sky-rotated-3")).status).toBe(200);
+		const rejected = await app.request(
+			`/admin/airside/claims/${claim.id}/provider-key/reject`,
+			json(cookie),
+		);
+		expect(rejected.status).toBe(200);
+		expect((await rejected.json()).claim).toMatchObject({
+			providerKey: { masked: pending.tokenMasked },
+			pendingProviderKey: null,
+		});
+
+		// The carrier can withdraw a replacement itself.
+		expect((await submit("sk-acme-sky-rotated-4")).status).toBe(200);
+		const withdrawn = await app.request(
+			`/airside/claims/${claim.id}/provider-key`,
+			json(cookie, undefined, "DELETE"),
+		);
+		expect(withdrawn.status).toBe(200);
+		const remaining = await db.query.providerKey.findMany({
+			where: { provider: { eq: "acme-sky" }, status: { ne: "deleted" } },
+		});
+		expect(remaining.map((k) => k.id)).toEqual([pending.id]);
+	});
+
+	it("lets an admin set or override a carrier's provider key", async () => {
+		const { company, claim } = await approvedCarrier();
+		stubCarrierUpstream(new Set(["sk-admin-set"]));
+		const create = async (token: string, carrierKey?: boolean) => {
+			const res = await app.request(
+				"/admin/provider-credentials",
+				json(cookie, { provider: "acme-sky", token, carrierKey }),
+			);
+			expect(res.status).toBe(201);
+			return (await res.json()).credential as {
+				id: string;
+				carrierKey: boolean;
+			};
+		};
+		const linkedKeyId = async () =>
+			(
+				await db.query.providerClaim.findFirst({
+					where: { id: { eq: claim.id } },
+				})
+			)?.providerKeyId;
+
+		// The testing key never serves traffic, from admin either.
+		const reused = await app.request(
+			"/admin/provider-credentials",
+			json(cookie, { provider: "acme-sky", token: "sk-acme-sky-testing-key" }),
+		);
+		expect(reused.status).toBe(400);
+
+		// A carrier without a key gets the admin's credential linked.
+		const set = await create("sk-admin-set");
+		const rotatedToTesting = await app.request(
+			`/admin/provider-credentials/${set.id}`,
+			json(cookie, { token: "sk-acme-sky-testing-key" }, "PATCH"),
+		);
+		expect(rotatedToTesting.status).toBe(400);
+		expect(set.carrierKey).toBe(true);
+		expect(await linkedKeyId()).toBe(set.id);
+		// The carrier no longer has to file one with its first model.
+		expect(
+			(await createModel(cookie, company.id, sky("sky-large"))).status,
+		).toBe(201);
+
+		// An extra key leaves the carrier's key alone.
+		const extra = await create("sk-admin-extra", false);
+		expect(extra.carrierKey).toBe(false);
+		expect(await linkedKeyId()).toBe(set.id);
+
+		// Overriding links the new key and retires the old one.
+		const override = await create("sk-admin-override", true);
+		expect(await linkedKeyId()).toBe(override.id);
+		const retired = await db.query.providerKey.findFirst({
+			where: { id: { eq: set.id } },
+		});
+		expect(retired?.status).toBe("deleted");
+
+		// Deleting the linked credential unlinks it.
+		const deleted = await app.request(
+			`/admin/provider-credentials/${override.id}`,
+			json(cookie, undefined, "DELETE"),
+		);
+		expect(deleted.status).toBe(200);
+		expect(await linkedKeyId()).toBeNull();
+	});
+
+	it("smoke-tests the serving key against every new listing", async () => {
+		const { company } = await approvedCarrier();
+		const workingKeys = new Set(["sk-acme-sky-serving-key"]);
+		stubCarrierUpstream(workingKeys);
+		const first = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-serving-key"),
+		);
+		const { model } = await first.json();
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+
+		// The account behind the serving key lost access upstream.
+		workingKeys.clear();
+		const blocked = await createModel(cookie, company.id, sky("sky-small"));
+		expect(blocked.status).toBe(400);
+		expect((await blocked.json()).message).toContain(
+			"smoke test against sky-small",
+		);
+		workingKeys.add("sk-acme-sky-serving-key");
+		expect(
+			(await createModel(cookie, company.id, sky("sky-small"))).status,
+		).toBe(201);
 	});
 
 	it("records an email-matched domain without granting it to the company", async () => {

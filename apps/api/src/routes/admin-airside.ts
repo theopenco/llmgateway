@@ -9,6 +9,7 @@ import {
 	imageDataUrl,
 	LOGO_MAX_BYTES,
 } from "@/lib/airside-branding.js";
+import { discardPendingProviderKey } from "@/lib/airside-carrier-keys.js";
 import {
 	dematerializeAirsideModel,
 	materializeAirsideModel,
@@ -486,6 +487,24 @@ adminAirside.openapi(approveFiling, async (c) => {
 				.where(eq(tables.providerDraftModel.id, filing.draftModelId))
 				.returning();
 			await materializeAirsideModel(activated, filing, tx);
+			// A registered carrier's first provider key was filed with its first
+			// model and smoke-tested against it; approving the model approves it.
+			const [claim] = await tx
+				.select()
+				.from(tables.providerClaim)
+				.where(
+					and(
+						eq(tables.providerClaim.providerId, model.providerId),
+						eq(tables.providerClaim.providerCompanyId, model.providerCompanyId),
+						eq(tables.providerClaim.status, "active"),
+						eq(tables.providerClaim.kind, "custom"),
+					),
+				)
+				.limit(1)
+				.$withCache(false);
+			if (claim?.pendingProviderKeyId && !claim.providerKeyId) {
+				await promotePendingProviderKey(tx, claim, claim.pendingProviderKeyId);
+			}
 		} else if (filing.kind === "metadata") {
 			const [row] = await tx
 				.update(tables.providerDraftModel)
@@ -586,6 +605,11 @@ adminAirside.openapi(rejectFiling, async (c) => {
 // Carrier claims — new carriers only go live once approved here.
 // ---------------------------------------------------------------------------
 
+const carrierKeySchema = z.object({
+	masked: z.string(),
+	submittedAt: z.string(),
+});
+
 const adminClaimSchema = z.object({
 	id: z.string(),
 	providerId: z.string(),
@@ -609,6 +633,10 @@ const adminClaimSchema = z.object({
 			iconUrl: z.string().nullable().optional(),
 		})
 		.nullable(),
+	// Custom carriers only: the provider key serving traffic, and a
+	// replacement awaiting approval here.
+	providerKey: carrierKeySchema.nullable(),
+	pendingProviderKey: carrierKeySchema.nullable(),
 	company: z.object({
 		id: z.string(),
 		name: z.string(),
@@ -636,6 +664,25 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 		where: { providerCompanyId: { eq: row.providerCompanyId } },
 		orderBy: { createdAt: "asc" },
 	});
+	const keyIds = [row.providerKeyId, row.pendingProviderKeyId].filter(
+		(keyId): keyId is string => keyId !== null,
+	);
+	const keys =
+		keyIds.length > 0
+			? await db.query.providerKey.findMany({
+					where: { id: { in: keyIds }, status: { ne: "deleted" } },
+					columns: { id: true, tokenMasked: true, createdAt: true },
+				})
+			: [];
+	const keySummary = (keyId: string | null) => {
+		const key = keys.find((k) => k.id === keyId);
+		return key
+			? {
+					masked: key.tokenMasked ?? "",
+					submittedAt: key.createdAt.toISOString(),
+				}
+			: null;
+	};
 	return {
 		id: row.id,
 		providerId: row.providerId,
@@ -656,6 +703,8 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 		logoUrl: row.logoUrl,
 		iconUrl: row.iconUrl,
 		pendingBranding: row.pendingBranding ?? null,
+		providerKey: keySummary(row.providerKeyId),
+		pendingProviderKey: keySummary(row.pendingProviderKeyId),
 		company: {
 			id: row.providerCompany.id,
 			name: row.providerCompany.name,
@@ -677,6 +726,11 @@ const listClaims = createRoute({
 			status: z.enum(["pending", "active", "rejected", "revoked"]).optional(),
 			// Only claims with a branding change awaiting review.
 			pendingBranding: z
+				.enum(["true", "false"])
+				.transform((value) => value === "true")
+				.optional(),
+			// Only claims with a provider key replacement awaiting review.
+			pendingProviderKey: z
 				.enum(["true", "false"])
 				.transform((value) => value === "true")
 				.optional(),
@@ -708,6 +762,9 @@ adminAirside.openapi(listClaims, async (c) => {
 			...(query.pendingBranding
 				? { pendingBranding: { isNotNull: true } }
 				: {}),
+			...(query.pendingProviderKey
+				? { pendingProviderKeyId: { isNotNull: true } }
+				: {}),
 		},
 		with: { providerCompany: true },
 		orderBy: { createdAt: "desc", id: "desc" },
@@ -726,6 +783,9 @@ adminAirside.openapi(listClaims, async (c) => {
 		countClaims([
 			query.status ? eq(claimTable.status, query.status) : undefined,
 			query.pendingBranding ? isNotNull(claimTable.pendingBranding) : undefined,
+			query.pendingProviderKey
+				? isNotNull(claimTable.pendingProviderKeyId)
+				: undefined,
 		]),
 		countClaims([eq(claimTable.status, "pending")]),
 	]);
@@ -835,6 +895,41 @@ adminAirside.openapi(rejectBranding, async (c) => {
 	});
 });
 
+type CacheTransaction = Parameters<Parameters<typeof cdb.transaction>[0]>[0];
+
+/** Puts a carrier's approved provider key into service and retires the old one. */
+async function promotePendingProviderKey(
+	tx: CacheTransaction,
+	claim: typeof tables.providerClaim.$inferSelect,
+	pendingId: string,
+) {
+	const updated = await tx
+		.update(tables.providerClaim)
+		.set({ providerKeyId: pendingId, pendingProviderKeyId: null })
+		.where(
+			and(
+				eq(tables.providerClaim.id, claim.id),
+				eq(tables.providerClaim.pendingProviderKeyId, pendingId),
+			),
+		)
+		.returning({ id: tables.providerClaim.id });
+	if (updated.length === 0) {
+		throw new HTTPException(409, {
+			message: "The provider key changed in the meantime — reload.",
+		});
+	}
+	await tx
+		.update(tables.providerKey)
+		.set({ status: "active" })
+		.where(eq(tables.providerKey.id, pendingId));
+	if (claim.providerKeyId) {
+		await tx
+			.update(tables.providerKey)
+			.set({ status: "deleted" })
+			.where(eq(tables.providerKey.id, claim.providerKeyId));
+	}
+}
+
 const approveClaim = createRoute({
 	method: "post",
 	path: "/airside/claims/{id}/approve",
@@ -920,6 +1015,83 @@ adminAirside.openapi(approveClaim, async (c) => {
 				.where(eq(tables.providerRoutingSettings.id, settings.id));
 		}
 	});
+	const updated = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	return c.json({
+		claim: await serializeAdminClaim(updated as ClaimWithRelations),
+	});
+});
+
+// A carrier's replacement provider key only serves traffic once approved
+// here. Airside smoke-tested it before filing it for review.
+async function getClaimWithPendingProviderKey(id: string) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	if (claim.status !== "active" || !claim.pendingProviderKeyId) {
+		throw new HTTPException(409, {
+			message: "This claim has no provider key awaiting review.",
+		});
+	}
+	return claim as ClaimWithRelations & { pendingProviderKeyId: string };
+}
+
+const approveProviderKey = createRoute({
+	method: "post",
+	path: "/airside/claims/{id}/provider-key/approve",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ claim: adminClaimSchema }) },
+			},
+			description:
+				"The claim with the new provider key serving and the old one retired.",
+		},
+	},
+});
+
+adminAirside.openapi(approveProviderKey, async (c) => {
+	const { id } = c.req.valid("param");
+	const claim = await getClaimWithPendingProviderKey(id);
+	const pendingId = claim.pendingProviderKeyId;
+	// cdb: managed provider_key rows feed the gateway's credential cache.
+	await cdb.transaction(async (tx) => {
+		await promotePendingProviderKey(tx, claim, pendingId);
+	});
+	const updated = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	return c.json({
+		claim: await serializeAdminClaim(updated as ClaimWithRelations),
+	});
+});
+
+const rejectProviderKey = createRoute({
+	method: "post",
+	path: "/airside/claims/{id}/provider-key/reject",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ claim: adminClaimSchema }) },
+			},
+			description: "The claim with the replacement discarded.",
+		},
+	},
+});
+
+adminAirside.openapi(rejectProviderKey, async (c) => {
+	const { id } = c.req.valid("param");
+	const claim = await getClaimWithPendingProviderKey(id);
+	await discardPendingProviderKey(claim, claim.pendingProviderKeyId);
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
 		with: { providerCompany: true },
@@ -1067,6 +1239,22 @@ adminAirside.openapi(revokeClaim, async (c) => {
 		await tx
 			.delete(tables.providerRoutingSettings)
 			.where(eq(tables.providerRoutingSettings.providerId, claim.providerId));
+		// A custom carrier's credentials are the carrier's own keys.
+		if (claim.kind === "custom") {
+			await tx
+				.update(tables.providerKey)
+				.set({ status: "deleted" })
+				.where(
+					and(
+						eq(tables.providerKey.provider, claim.providerId),
+						eq(tables.providerKey.managed, true),
+					),
+				);
+			await tx
+				.update(tables.providerClaim)
+				.set({ providerKeyId: null, pendingProviderKeyId: null })
+				.where(eq(tables.providerClaim.id, id));
+		}
 		// A pending fare change would otherwise survive as a zombie and block
 		// the provider's next owner (one pending filing per provider).
 		await tx
