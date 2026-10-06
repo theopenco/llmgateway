@@ -134,6 +134,20 @@ describe("project guardrails API", () => {
 		expect(body.inheritOrganization).toBe(true);
 	});
 
+	test("rejects allow-list entries that can never match", async () => {
+		const rejected = await authed("/guardrails/config/test-org-id", {
+			method: "PUT",
+			body: JSON.stringify({ allowedFileTypes: ["pdf", "pfd"] }),
+		});
+		expect(rejected.status).toBe(400);
+
+		const saved = await authed("/guardrails/config/test-org-id", {
+			method: "PUT",
+			body: JSON.stringify({ allowedFileTypes: ["docx", "image/*"] }),
+		});
+		expect(saved.status).toBe(200);
+	});
+
 	test("organization and project configs are stored separately", async () => {
 		await authed("/guardrails/config/test-org-id", {
 			method: "PUT",

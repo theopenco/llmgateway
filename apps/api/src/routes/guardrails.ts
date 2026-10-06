@@ -23,6 +23,7 @@ import {
 	validateGuardrailRegex,
 } from "@llmgateway/guardrails";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { isRecognizedFileTypeEntry } from "@llmgateway/shared/file-types";
 import {
 	canManageProject,
 	isOrganizationAdmin,
@@ -333,7 +334,14 @@ const updateConfigBodySchema = z.object({
 	enabled: z.boolean().optional(),
 	systemRules: systemRulesConfigSchema.optional(),
 	maxFileSizeMb: z.number().optional(),
-	allowedFileTypes: z.array(z.string()).optional(),
+	allowedFileTypes: z
+		.array(
+			z.string().refine(isRecognizedFileTypeEntry, {
+				message:
+					"Unknown file type. Use a MIME type such as application/pdf or image/*, or a common extension such as pdf or docx.",
+			}),
+		)
+		.optional(),
 	piiAction: z.enum(["block", "redact", "warn", "allow"]).optional(),
 });
 

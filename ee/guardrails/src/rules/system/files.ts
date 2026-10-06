@@ -1,40 +1,10 @@
 import { defaultAllowedFileTypes } from "@llmgateway/db";
+import {
+	allowsFileType,
+	normalizeMimeType,
+} from "@llmgateway/shared/file-types";
 
 import type { SystemRule } from "@/types.js";
-
-// The dashboard stores extensions ("pdf"); the API default stores MIME types.
-// Extensions whose MIME subtype differs from the extension itself:
-const EXTENSION_MIME_TYPES: Record<string, string[]> = {
-	jpg: ["image/jpeg"],
-	txt: ["text/plain"],
-	md: ["text/markdown", "text/x-markdown"],
-	xml: ["application/xml", "text/xml"],
-	mp3: ["audio/mpeg"],
-	m4a: ["audio/mp4"],
-	wav: ["audio/wav", "audio/x-wav"],
-};
-
-// Non-standard spellings clients still send for a standard type.
-const MIME_TYPE_ALIASES: Record<string, string> = {
-	"image/jpg": "image/jpeg",
-};
-
-function normalizeMimeType(mimeType: string): string {
-	return MIME_TYPE_ALIASES[mimeType] ?? mimeType;
-}
-
-function allowsType(allowed: string, mimeType: string): boolean {
-	const entry = allowed.trim().toLowerCase().replace(/^\./, "");
-	if (entry.includes("/")) {
-		return entry.endsWith("/*")
-			? mimeType.startsWith(entry.slice(0, -1))
-			: normalizeMimeType(entry) === mimeType;
-	}
-	return (
-		EXTENSION_MIME_TYPES[entry]?.includes(mimeType) ??
-		mimeType.split("/")[1] === entry
-	);
-}
 
 export function checkFileType(
 	fileType: string,
@@ -43,7 +13,7 @@ export function checkFileType(
 	const mimeType = normalizeMimeType(
 		fileType.split(";")[0].trim().toLowerCase(),
 	);
-	return allowedTypes.some((allowed) => allowsType(allowed, mimeType));
+	return allowedTypes.some((allowed) => allowsFileType(allowed, mimeType));
 }
 
 export function checkFileSize(sizeMb: number, maxSizeMb: number): boolean {
