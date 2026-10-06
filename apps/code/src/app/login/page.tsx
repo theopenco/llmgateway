@@ -36,22 +36,14 @@ import { useAuth } from "@/lib/auth-client";
 import { useAuthErrorToast } from "@/lib/auth-errors";
 import { useAppConfig } from "@/lib/config";
 
+import { getSafeRedirectPath } from "@llmgateway/shared/safe-redirect";
+
 const formSchema = z.object({
 	email: z.string().email({ message: "Please enter a valid email address" }),
 	password: z
 		.string()
 		.min(8, { message: "Password must be at least 8 characters" }),
 });
-
-function getSafeRedirectUrl(url: string | null): string {
-	if (!url) {
-		return "/dashboard";
-	}
-	if (url.startsWith("/") && !url.startsWith("//")) {
-		return url;
-	}
-	return "/dashboard";
-}
 
 function LoginForm() {
 	const queryClient = useQueryClient();
@@ -61,7 +53,10 @@ function LoginForm() {
 	const { posthogKey } = useAppConfig();
 	const [isLoading, setIsLoading] = useState(false);
 	const { signIn } = useAuth();
-	const returnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
+	const returnUrl = getSafeRedirectPath(
+		searchParams.get("returnUrl"),
+		"/dashboard",
+	);
 
 	useUser({
 		redirectTo: returnUrl,

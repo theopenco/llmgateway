@@ -155,6 +155,11 @@
 			"import": "./dist/prompt-template.js",
 			"default": "./dist/prompt-template.js"
 		},
+		"./safe-redirect": {
+			"types": "./dist/safe-redirect.d.ts",
+			"import": "./dist/safe-redirect.js",
+			"default": "./dist/safe-redirect.js"
+		},
 		"./client-ip": {
 			"types": "./dist/client-ip.d.ts",
 			"import": "./dist/client-ip.js",
