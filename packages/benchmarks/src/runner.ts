@@ -13,6 +13,7 @@ import type {
 	BenchmarkCase,
 	BenchmarkCaseSummary,
 	BenchmarkEfficiencySummary,
+	BenchmarkError,
 	BenchmarkEvaluation,
 	BenchmarkFingerprintSummary,
 	BenchmarkLoadSummary,
@@ -69,9 +70,14 @@ function mergeRequest(
 	};
 }
 
+function redactError(error: BenchmarkError | null): BenchmarkError | null {
+	return error ? { ...error, message: "Request failed" } : null;
+}
+
 function stripResponse(response: BenchmarkResponse): BenchmarkResponse {
 	return {
 		...response,
+		error: redactError(response.error),
 		content: "",
 		reasoning: "",
 		toolCalls: [],
@@ -88,9 +94,7 @@ function stripResponse(response: BenchmarkResponse): BenchmarkResponse {
 					turns: response.agent.turns.map((turn) => ({
 						...turn,
 						usage: { ...turn.usage, raw: null },
-						error: turn.error
-							? { ...turn.error, message: "Request failed" }
-							: null,
+						error: redactError(turn.error),
 					})),
 				}
 			: null,

@@ -70,6 +70,45 @@ describe("runBenchmark", () => {
 		expect(serialized).not.toContain("private-final");
 		expect(result.trials[0].response.agent?.toolCallCount).toBe(1);
 	});
+	it("omits upstream error details from private agent trials", async () => {
+		let turn = 0;
+		const result = await runBenchmark({
+			client: { url: "https://example.com/v1/chat/completions" },
+			targets: [{ id: "t", model: "m" }],
+			runs: 1,
+			warmupRuns: 0,
+			includeResponses: false,
+			cases: [
+				{
+					id: "agent",
+					name: "agent",
+					kind: "agentic",
+					request: { messages: [{ role: "user", content: "start" }] },
+					agent: {
+						maxTurns: 2,
+						createSession: () => ({
+							tools: [],
+							callTool: () => ({ content: "ok" }),
+							evaluate: () => ({ passed: false }),
+						}),
+					},
+				},
+			],
+			fetch: async () =>
+				++turn === 1
+					? new Response(
+							`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call", function: { name: "echo", arguments: "{}" } }] }, finish_reason: "tool_calls" }], usage: { prompt_tokens: 1, completion_tokens: 1 } })}\n\ndata: [DONE]\n\n`,
+						)
+					: new Response(
+							JSON.stringify({ error: { message: "private-upstream-error" } }),
+							{ status: 500 },
+						),
+		});
+		expect(result.trials[0].response.error).not.toBeNull();
+		expect(JSON.stringify(result.trials)).not.toContain(
+			"private-upstream-error",
+		);
+	});
 	it("returns serializable trials, summaries, and answer agreement", async () => {
 		const targets: BenchmarkTarget[] = [
 			{ id: "reference/model", model: "reference/model" },
