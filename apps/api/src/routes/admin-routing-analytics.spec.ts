@@ -4,7 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { redisClient, waitForSwrMirrorWrites } from "@llmgateway/cache";
-import { cdb, db, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { models, type ProviderModelMapping } from "@llmgateway/models";
 
 const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
@@ -132,13 +132,37 @@ async function get(query: string, token?: string): Promise<Response> {
 
 describe("admin routing analytics endpoint", () => {
 	let cookie: string;
+	let createdTestModel = false;
+	let createdProviderA = false;
 
 	beforeEach(async () => {
+		createdTestModel = false;
+		createdProviderA = false;
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		// Live metrics are SWR-cached by model id, so an earlier run's entry
 		// would outlive the history rows it was built from.
 		await redisClient.flushdb();
+		const insertedModels = await db
+			.insert(tables.model)
+			.values({
+				id: testModel.id,
+				name: testModel.name,
+				family: testModel.family,
+			})
+			.onConflictDoNothing()
+			.returning({ id: tables.model.id });
+		createdTestModel = insertedModels.length > 0;
+		const insertedProviders = await db
+			.insert(tables.provider)
+			.values({
+				id: providerA,
+				name: providerA,
+				description: "test",
+			})
+			.onConflictDoNothing()
+			.returning({ id: tables.provider.id });
+		createdProviderA = insertedProviders.length > 0;
 	});
 
 	afterEach(async () => {
@@ -159,7 +183,19 @@ describe("admin routing analytics endpoint", () => {
 		await db.delete(tables.modelProviderMapping);
 		await cdb.delete(tables.discount);
 		await cdb.delete(tables.routingScoreMultiplier);
+		await db
+			.delete(tables.model)
+			.where(eq(tables.model.id, "routing-airside-model"));
+		await db
+			.delete(tables.provider)
+			.where(eq(tables.provider.id, "routing-airside-carrier"));
 		await deleteAll();
+		if (createdTestModel) {
+			await db.delete(tables.model).where(eq(tables.model.id, testModel.id));
+		}
+		if (createdProviderA) {
+			await db.delete(tables.provider).where(eq(tables.provider.id, providerA));
+		}
 	});
 
 	it("rejects unauthenticated and non-admin requests", async () => {
@@ -172,6 +208,130 @@ describe("admin routing analytics endpoint", () => {
 	it("returns 404 for an unknown model", async () => {
 		const res = await get("?modelId=does-not-exist", cookie);
 		expect(res.status).toBe(404);
+	});
+
+	it("includes custom Airside traffic without electing a pinned-only carrier", async () => {
+		await db.insert(tables.provider).values({
+			id: "routing-airside-carrier",
+			name: "Test Airside Carrier",
+			description: "test",
+		});
+		await db.insert(tables.modelProviderMapping).values({
+			id: "routing-airside-mapping",
+			modelId: testModel.id,
+			providerId: "routing-airside-carrier",
+			externalId: "upstream-model",
+			source: "airside",
+			inputPrice: "1e-6",
+			outputPrice: "3e-6",
+			cachedInputPrice: "0.1e-6",
+		});
+		await db.insert(tables.modelProviderMappingHistoryHourly).values({
+			id: "routing-airside-hour",
+			modelId: testModel.id,
+			providerId: "routing-airside-carrier",
+			modelProviderMappingId: "routing-airside-mapping",
+			hourTimestamp: currentHourStart(),
+			logsCount: 7,
+		});
+		const response = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.mappings).toContainEqual(
+			expect.objectContaining({
+				providerId: "routing-airside-carrier",
+				providerName: "Test Airside Carrier",
+				listPrice: 2e-6,
+				cacheSupported: true,
+				routable: false,
+				excludedReasons: ["provider pin required"],
+			}),
+		);
+		expect(body.summary).toContainEqual(
+			expect.objectContaining({
+				providerId: "routing-airside-carrier",
+				requestCount: 7,
+				score: null,
+			}),
+		);
+		expect(body.hourly.at(-1).providers).toContainEqual(
+			expect.objectContaining({
+				providerId: "routing-airside-carrier",
+				requestCount: 7,
+			}),
+		);
+	});
+
+	it("uses Airside prices instead of a duplicate static mapping, even without traffic", async () => {
+		await db.insert(tables.modelProviderMapping).values({
+			id: "routing-airside-override",
+			modelId: testModel.id,
+			providerId: providerA,
+			externalId: "upstream-model",
+			source: "airside",
+			inputPrice: "1e-6",
+			outputPrice: "3e-6",
+		});
+		let response = await get(`?modelId=${testModel.id}`, cookie);
+		expect(response.status).toBe(200);
+		let body = await response.json();
+		expect(
+			body.mappings.filter(
+				(mapping: { providerId: string }) => mapping.providerId === providerA,
+			),
+		).toEqual([expect.objectContaining({ listPrice: 2e-6, routable: true })]);
+		expect(body.summary).toContainEqual(
+			expect.objectContaining({
+				providerId: providerA,
+				requestCount: 0,
+				score: expect.any(Number),
+			}),
+		);
+
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ status: "inactive" })
+			.where(eq(tables.modelProviderMapping.id, "routing-airside-override"));
+		response = await get(`?modelId=${testModel.id}`, cookie);
+		expect(response.status).toBe(200);
+		body = await response.json();
+		expect(
+			body.mappings.filter(
+				(mapping: { providerId: string }) => mapping.providerId === providerA,
+			),
+		).toEqual([
+			expect.objectContaining({
+				routable: false,
+				excludedReasons: ["listing inactive"],
+			}),
+		]);
+	});
+
+	it("supports a model that exists only in Airside", async () => {
+		await db.insert(tables.model).values({
+			id: "routing-airside-model",
+			name: "Test Airside Model",
+			family: "test",
+		});
+		await db.insert(tables.modelProviderMapping).values({
+			id: "routing-airside-only",
+			modelId: "routing-airside-model",
+			providerId: providerA,
+			externalId: "upstream-model",
+			source: "airside",
+			inputPrice: "1e-6",
+			outputPrice: "3e-6",
+		});
+		const response = await get("?modelId=routing-airside-model", cookie);
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.model).toMatchObject({
+			id: "routing-airside-model",
+			family: "test",
+		});
+		expect(body.mappings).toEqual([
+			expect.objectContaining({ providerId: providerA, routable: true }),
+		]);
 	});
 
 	it("derives hourly metrics and scores from mapping history", async () => {
