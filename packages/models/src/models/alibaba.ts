@@ -2147,6 +2147,7 @@ export const alibabaModels = [
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				deactivatedAt: new Date("2026-10-12"),
 			},
 			{
 				providerId: "novita",

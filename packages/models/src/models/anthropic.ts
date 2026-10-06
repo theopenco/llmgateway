@@ -498,6 +498,7 @@ export const anthropicModels = [
 				test: "skip",
 				providerId: "vertex-anthropic",
 				externalId: "claude-sonnet-4-5",
+				deactivatedAt: new Date("2026-11-30"),
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
