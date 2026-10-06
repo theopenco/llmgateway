@@ -8,17 +8,25 @@ type CompiledPattern = { regex: RE2JS } | { error: Error };
 
 const compiledPatterns = new Map<string, CompiledPattern>();
 
+// An unescaped `\k<name>`: RE2JS's translation drops the backslash and would
+// match the literal text instead of rejecting the backreference.
+const NAMED_BACKREFERENCE = /(?:^|[^\\])(?:\\\\)*\\k</;
+
 function getRegex(pattern: string, caseSensitive: boolean): RE2JS {
+	// Checked before the cache so oversized input is never retained.
+	if (pattern.length > MAX_PATTERN_LENGTH) {
+		throw new Error(
+			`Guardrail regex patterns must not exceed ${MAX_PATTERN_LENGTH} characters`,
+		);
+	}
 	const key = `${caseSensitive ? "s" : "i"}:${pattern}`;
 	let compiled = compiledPatterns.get(key);
 	if (compiled) {
 		compiledPatterns.delete(key);
 	} else {
 		try {
-			if (pattern.length > MAX_PATTERN_LENGTH) {
-				throw new Error(
-					`Guardrail regex patterns must not exceed ${MAX_PATTERN_LENGTH} characters`,
-				);
+			if (NAMED_BACKREFERENCE.test(pattern)) {
+				throw new Error("Guardrail regex patterns must not use backreferences");
 			}
 			compiled = {
 				regex: RE2JS.compile(
