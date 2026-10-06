@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { and, db, eq, tables } from "@llmgateway/db";
@@ -582,6 +582,45 @@ describe("airside-listed models", () => {
 		expect(log!.usedProvider).toBe("mistral");
 		expect(Number(log!.inputCost)).toBeCloseTo(0.004, 6);
 		expect(Number(log!.outputCost)).toBeCloseTo(0.01, 6);
+	});
+
+	test("expires Airside regions while the listing cache is warm", async () => {
+		await setup("airside-expiring-region-token");
+		const expiresAt = new Date(Date.now() + 60_000);
+		await db.insert(tables.modelProviderMapping).values({
+			modelId: "gpt-5.6-luna",
+			providerId: "mistral",
+			region: "au",
+			externalId: "gpt-5.6-luna",
+			source: "airside",
+			status: "active",
+			deactivatedAt: expiresAt,
+		});
+		await clearCache();
+		const active = await resolveAirsideModel("mistral/gpt-5.6-luna:au");
+		expect(
+			active?.pricingMappings.some((mapping) => mapping.region === "au"),
+		).toBe(true);
+
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			vi.setSystemTime(expiresAt);
+			await expect(
+				resolveAirsideModel("mistral/gpt-5.6-luna:au"),
+			).rejects.toThrow("Region 'au' is not available");
+			const bare = await resolveAirsideModel("gpt-5.6-luna");
+			expect(
+				bare?.pricingMappings.some((mapping) => mapping.region === "au"),
+			).toBe(false);
+			expect(
+				bare?.pricingMappings.some(
+					(mapping) =>
+						mapping.providerId === "mistral" && mapping.region === undefined,
+				),
+			).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	test.each(["missing", "inactive"])(

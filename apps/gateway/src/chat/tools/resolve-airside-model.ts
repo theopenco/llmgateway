@@ -157,7 +157,7 @@ export async function resolveAirsideModel(
 	}
 	if (
 		requestedRegion &&
-		!(listed.regionMappings ?? []).some(
+		!activeAirsideRegions(listed).some(
 			(regionRow) => regionRow.region === requestedRegion,
 		)
 	) {
@@ -287,6 +287,13 @@ export function mergeAirsideListingsIntoModel(
 
 /** Build the synthetic catalogue entry a listing represents — shared by the
  *  chat resolver and the /v1/models catalogue. */
+function activeAirsideRegions(listed: AirsideListedModel) {
+	const now = new Date();
+	return (listed.regionMappings ?? []).filter(
+		(row) => !row.deactivatedAt || row.deactivatedAt > now,
+	);
+}
+
 export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 	mapping: ProviderModelMapping;
 	modelInfo: ModelDefinition;
@@ -306,7 +313,7 @@ export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 					candidate.region === undefined,
 			)
 		: undefined;
-	const regionRows = listed.regionMappings ?? [];
+	const regionRows = activeAirsideRegions(listed);
 	const mapping: ProviderModelMapping = {
 		...staticMapping,
 		// A filing carries one flat price pair; inherited context-length tiers

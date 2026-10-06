@@ -374,7 +374,8 @@ Some providers expose the same model in multiple regions. In that case, LLMGatew
 - `provider/model:region` pins the request to one exact region
 
 When Airside owns a provider/model pair, its active regional listings replace
-the catalogue regions. A pin to an unlisted or inactive region is rejected.
+the catalogue regions. A pin to an unlisted, inactive, or expired region is rejected. Scheduled regional
+deactivations apply even while listings are cached.
 
 ```bash
 # Let LLMGateway choose the best Alibaba region for DeepSeek V3.2
