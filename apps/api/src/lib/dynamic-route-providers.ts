@@ -22,15 +22,29 @@ export async function getDynamicRouteProviderOptions() {
 		}),
 	]);
 	const carriers = new Map(claims.map((claim) => [claim.providerId, claim]));
+	const listingsByModel = new Map<string, typeof listings>();
+	for (const listing of listings) {
+		const modelListings = listingsByModel.get(listing.modelId) ?? [];
+		modelListings.push(listing);
+		listingsByModel.set(listing.modelId, modelListings);
+	}
+	const providersById = new Map<string, (typeof providers)[number]>(
+		providers.map((provider) => [provider.id, provider]),
+	);
 	const now = new Date();
 	return models.map((model) => {
-		const owned = listings.filter((listing) => listing.modelId === model.id);
-		const ownedIds = new Set(owned.map((listing) => listing.providerId));
+		const owned = listingsByModel.get(model.id) ?? [];
+		const ownedByProvider = new Map<string, (typeof listings)[number]>();
+		for (const listing of owned) {
+			if (!ownedByProvider.has(listing.providerId)) {
+				ownedByProvider.set(listing.providerId, listing);
+			}
+		}
 		const ids = new Set(
 			(model.providers as ProviderModelMapping[])
 				.filter(
 					(mapping) =>
-						!ownedIds.has(mapping.providerId) &&
+						!ownedByProvider.has(mapping.providerId) &&
 						(!mapping.deactivatedAt || mapping.deactivatedAt > now),
 				)
 				.map((mapping) => mapping.providerId as string),
@@ -39,7 +53,7 @@ export async function getDynamicRouteProviderOptions() {
 			if (
 				listing.status === "active" &&
 				(!listing.deactivatedAt || listing.deactivatedAt > now) &&
-				(providers.some((provider) => provider.id === listing.providerId) ||
+				(providersById.has(listing.providerId) ||
 					carriers.has(listing.providerId))
 			) {
 				ids.add(listing.providerId);
@@ -48,13 +62,12 @@ export async function getDynamicRouteProviderOptions() {
 		return {
 			modelId: model.id as string,
 			providers: [...ids].map((id) => {
-				const definition = providers.find((provider) => provider.id === id);
+				const definition = providersById.get(id);
 				return {
 					id,
 					name:
 						carriers.get(id)?.customName ??
-						owned.find((listing) => listing.providerId === id)?.provider
-							?.name ??
+						ownedByProvider.get(id)?.provider?.name ??
 						definition?.name ??
 						id,
 					color: definition?.color,
