@@ -30,6 +30,7 @@ import {
 	getProviderDefinition,
 	models,
 	type ProviderModelMapping,
+	type ModelDefinition,
 } from "@llmgateway/models";
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 import { isMappingDeactivated } from "@llmgateway/shared/deactivation";
@@ -436,11 +437,57 @@ interface MappingInfo {
 	excludedReasons: string[];
 }
 
-async function buildMappingInfos(
-	model: (typeof models)[number],
-): Promise<MappingInfo[]> {
+type AnalyticsMapping = Pick<
+	ProviderModelMapping,
+	| "inputPrice"
+	| "outputPrice"
+	| "cachedInputPrice"
+	| "requestPrice"
+	| "perSecondPrice"
+	| "perImagePrice"
+	| "pricingTiers"
+	| "peakPricing"
+	| "regions"
+	| "stability"
+	| "deactivatedAt"
+> & { providerId: string; status?: string; providerName?: string };
+
+async function buildMappingInfos(model: {
+	id: string;
+	stability?: ModelDefinition["stability"];
+	providers: readonly ProviderModelMapping[];
+}): Promise<MappingInfo[]> {
+	const listings = await db.query.modelProviderMapping.findMany({
+		where: {
+			modelId: model.id,
+			source: "airside",
+			region: { isNull: true },
+		},
+		with: { provider: true },
+	});
+	const ownedProviders = new Set(listings.map((row) => row.providerId));
+	const mappings: AnalyticsMapping[] = [
+		...model.providers.filter(
+			(mapping) => !ownedProviders.has(mapping.providerId),
+		),
+		...listings.map((row) => ({
+			providerId: row.providerId,
+			providerName: row.provider?.name,
+			status: row.status,
+			inputPrice: row.inputPrice ?? undefined,
+			outputPrice: row.outputPrice ?? undefined,
+			cachedInputPrice: row.cachedInputPrice ?? undefined,
+			requestPrice: row.requestPrice ?? undefined,
+			stability: row.stability,
+			deactivatedAt: row.deactivatedAt ?? undefined,
+		})),
+	];
+	const isStaticModel = models.some((entry) => entry.id === model.id);
+	const activeListingCount = listings.filter(
+		(row) => row.status === "active",
+	).length;
 	return await Promise.all(
-		model.providers.map(async (mapping: ProviderModelMapping) => {
+		mappings.map(async (mapping) => {
 			const providerDef = getProviderDefinition(mapping.providerId);
 			const modelStability =
 				"stability" in model
@@ -449,6 +496,12 @@ async function buildMappingInfos(
 			const stability = mapping.stability ?? modelStability ?? "stable";
 			const priority = providerDef?.priority ?? 1;
 			const excludedReasons: string[] = [];
+			if (mapping.status && mapping.status !== "active") {
+				excludedReasons.push("listing inactive");
+			}
+			if (isStaticModel ? !providerDef : activeListingCount !== 1) {
+				excludedReasons.push("provider pin required");
+			}
 			// Only a deactivation date that has actually passed excludes a mapping.
 			// Routing itself compares against the date, so a scheduled (future)
 			// deactivation still elects and serves traffic — flagging it here would
@@ -486,7 +539,8 @@ async function buildMappingInfos(
 					: 0;
 			return {
 				providerId: mapping.providerId,
-				providerName: providerDef?.name ?? mapping.providerId,
+				providerName:
+					mapping.providerName ?? providerDef?.name ?? mapping.providerId,
 				stability,
 				deactivatedAt: mapping.deactivatedAt
 					? mapping.deactivatedAt.toISOString()
@@ -589,7 +643,24 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 	const window = query.window ?? "3d";
 	const hours = WINDOW_HOURS[window];
 
-	const model = models.find((m) => m.id === query.modelId);
+	const staticModel = models.find((m) => m.id === query.modelId);
+	const databaseModel = staticModel
+		? undefined
+		: await db.query.model.findFirst({
+				where: { id: query.modelId, status: "active" },
+			});
+	const model =
+		staticModel ??
+		(databaseModel
+			? {
+					id: databaseModel.id,
+					name: databaseModel.name,
+					family: databaseModel.family,
+					stability: databaseModel.stability ?? undefined,
+					output: databaseModel.output,
+					providers: [],
+				}
+			: undefined);
 	if (!model) {
 		throw new HTTPException(404, {
 			message: `Model ${query.modelId} not found`,

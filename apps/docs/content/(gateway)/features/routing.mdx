@@ -10,6 +10,14 @@ LLMGateway provides flexible and intelligent routing options to help you get the
 
 LLMGateway also includes **automatic retry and fallback** — if a provider fails, your request is seamlessly retried on the next best provider, all within the same API call.
 
+## Routing Analytics
+
+Admin routing analytics includes static catalogue mappings and Airside listings,
+including mappings with no traffic in the selected window. Airside listings use
+their filed prices. Inactive listings remain visible but are excluded from scoring.
+Custom carriers that require a provider prefix are marked **provider pin required**;
+their traffic is shown without a score for automatic provider election.
+
 ## Global Provider Rate Limits
 
 Administrators can set a global RPM or RPD limit to `0` to block matching
