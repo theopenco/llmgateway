@@ -665,6 +665,102 @@ describe("dev plan tier changes", () => {
 		expect(body.apiKey?.id).toBe("test-dev-plan-api-key");
 	});
 
+	it("does not mint a second key after the DevPass key is renamed", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values({
+			id: "test-dev-plan-api-key",
+			...hashApiKeyForStorage("test-dev-plan-token"),
+			projectId: "test-dev-plan-project",
+			description: "Renamed key",
+			createdBy: "test-user-id",
+		});
+
+		const response = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.apiKey?.id).toBe("test-dev-plan-api-key");
+		const activeKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: "test-dev-plan-project" },
+				status: { eq: "active" },
+			},
+		});
+		expect(activeKeys).toHaveLength(1);
+	});
+
+	it("creates a single key for concurrent status requests", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+
+		const responses = await Promise.all(
+			Array.from({ length: 3 }, () =>
+				app.request("/dev-plans/status", { headers: { Cookie: token } }),
+			),
+		);
+
+		expect(responses.map((response) => response.status)).toEqual([
+			200, 200, 200,
+		]);
+		const activeKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: "test-dev-plan-project" },
+				status: { eq: "active" },
+			},
+		});
+		expect(activeKeys).toHaveLength(1);
+	});
+
+	it("revokes leftover developer keys when rotating", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values([
+			{
+				id: "test-legacy-manual-key",
+				...hashApiKeyForStorage("test-legacy-manual-token"),
+				projectId: "test-dev-plan-project",
+				description: "Manual key",
+				createdBy: "test-user-id",
+				createdAt: new Date(Date.now() - 60_000),
+			},
+			{
+				id: "test-dev-plan-api-key",
+				...hashApiKeyForStorage("test-dev-plan-token"),
+				projectId: "test-dev-plan-project",
+				description: "Dev Plan API Key",
+				createdBy: "test-user-id",
+			},
+		]);
+
+		const response = await app.request("/dev-plans/rotate-api-key", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ apiKeyId: "test-dev-plan-api-key" }),
+		});
+
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		const activeKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: "test-dev-plan-project" },
+				status: { eq: "active" },
+			},
+		});
+		expect(activeKeys.map((key) => key.id)).toEqual([body.apiKeyId]);
+	});
+
 	it("provisions an active key when only an inactive DevPass key exists", async () => {
 		await db.insert(tables.project).values({
 			id: "test-dev-plan-project",
