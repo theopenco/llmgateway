@@ -8,6 +8,7 @@ import {
 	generateTestRequestId,
 	getConcurrentTestOptions,
 	getTestOptions,
+	imageModels,
 	logMode,
 	streamingModels,
 	validateLogByRequestId,
@@ -65,7 +66,12 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			const contentChunks = streamResult.chunks.filter(
 				(chunk) => chunk.choices?.[0]?.delta?.content,
 			);
-			expect(contentChunks.length).toBeGreaterThan(0);
+			const imageChunks = imageModels.some((m) => m.model === model)
+				? streamResult.chunks.filter(
+						(chunk) => chunk.choices?.[0]?.delta?.images?.length,
+					)
+				: [];
+			expect(contentChunks.length + imageChunks.length).toBeGreaterThan(0);
 
 			// Verify each content chunk has proper OpenAI format
 			for (const chunk of contentChunks) {
