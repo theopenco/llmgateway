@@ -69,6 +69,17 @@ describe("getModelImageConfig", () => {
 		expect(config.defaultQuality).toBe("low");
 	});
 
+	it("offers Hy Image pixel sizes up to 4K and 20 reference images", () => {
+		const config = getModelImageConfig("tencent/hy-image-v3.5-preview");
+
+		expect(config.usesPixelDimensions).toBe(true);
+		expect(config.availableSizes).toContain("4096x4096");
+		expect(config.availableSizes).toContain("4096x2304");
+		expect(config.defaultSize).toBe("1024x1024");
+		expect(config.supportsQuality).toBe(false);
+		expect(config.maxInputImages).toBe(20);
+	});
+
 	it("offers Muse sizes without an unsupported quality control", () => {
 		const config = getModelImageConfig("meta/muse-image-1.0");
 

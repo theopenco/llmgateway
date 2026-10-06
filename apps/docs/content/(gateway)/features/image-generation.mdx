@@ -866,6 +866,40 @@ Available ByteDance models (see the [models page](https://llmgateway.io/models?f
 	to 4096×4096 (4K).
 </Callout>
 
+### Tencent Models
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "tencent/hy-image-v3.5-preview",
+    "messages": [
+      {
+        "role": "user",
+        "content": "A neon sign reading \"Open Late\" above a rainy storefront"
+      }
+    ],
+    "image_config": {
+      "image_size": "4096x2304"
+    }
+  }'
+```
+
+| Parameter    | Type    | Description                                                                                                                                            |
+| ------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `image_size` | string  | Exact output size in `WIDTHxHEIGHT` format. Each side 256–8192, area at most 4096×4096. Omit it to let the model pick the size from the prompt (~1.5K) |
+| `seed`       | integer | Seed for reproducible output                                                                                                                           |
+
+| Model                           | Description                                                                            |
+| ------------------------------- | -------------------------------------------------------------------------------------- |
+| `tencent/hy-image-v3.5-preview` | Generation and editing from up to 20 reference images, up to 4K, strong text in images |
+
+Each request returns one image. Tencent bills a fixed token count per image
+(more at 4K); billing uses the token count Tencent reports. See the
+[models page](https://llmgateway.io/models?filters=1&imageGeneration=true) for
+current pricing.
+
 ## Moderation
 
 GPT Image models expose a `moderation` parameter that controls how strict the

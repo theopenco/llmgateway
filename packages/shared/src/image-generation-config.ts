@@ -28,6 +28,20 @@ export const GPT_IMAGE_SIZES = [
 	"2160x3840",
 ] as const;
 
+// Tencent Hy Image 3.5 takes any WxH (sides 256-8192, area up to 4096x4096);
+// these presets cover 1K, 2K and 4K at common aspect ratios.
+const HY_IMAGE_SIZES = [
+	"1024x1024",
+	"2048x2048",
+	"4096x4096",
+	"2048x1152",
+	"1152x2048",
+	"4096x2304",
+	"2304x4096",
+	"1536x1024",
+	"1024x1536",
+] as const;
+
 const REVE_ASPECT_RATIOS: AspectRatio[] = [
 	"auto",
 	"1:1",
@@ -45,10 +59,12 @@ export function getModelImageConfig(model: string) {
 	const isGptImage25 = lower.includes("gpt-image-2.5-");
 	const isReve = lower.includes("reve");
 	const isMuseImage = lower.includes("muse-image");
+	const isHyImage = lower.includes("hy-image");
 
 	const usesPixelDimensions =
 		isGptImage ||
 		isMuseImage ||
+		isHyImage ||
 		lower.includes("alibaba") ||
 		lower.includes("qwen-image") ||
 		lower.includes("zai") ||
@@ -69,27 +85,29 @@ export function getModelImageConfig(model: string) {
 		? GPT_IMAGE_SIZES
 		: isMuseImage
 			? (["1024x1024", "1024x1536", "1536x1024"] as const)
-			: usesPixelDimensions
-				? ([
-						"1024x1024",
-						"720x1280",
-						"1280x720",
-						"1024x1536",
-						"1536x1024",
-						"2048x1024",
-						"1024x2048",
-					] as const)
-				: isReve
-					? (["2K"] as const)
-					: isSeedreamPro || isGrokImagine20
-						? (["1K", "2K"] as const)
-						: isSeedream
-							? (["2K", "4K"] as const)
-							: isGemini31FlashLiteImage
-								? (["1K"] as const)
-								: isGemini31FlashImage
-									? (["0.5K", "1K", "2K", "4K"] as const)
-									: (["1K", "2K", "4K"] as const);
+			: isHyImage
+				? HY_IMAGE_SIZES
+				: usesPixelDimensions
+					? ([
+							"1024x1024",
+							"720x1280",
+							"1280x720",
+							"1024x1536",
+							"1536x1024",
+							"2048x1024",
+							"1024x2048",
+						] as const)
+					: isReve
+						? (["2K"] as const)
+						: isSeedreamPro || isGrokImagine20
+							? (["1K", "2K"] as const)
+							: isSeedream
+								? (["2K", "4K"] as const)
+								: isGemini31FlashLiteImage
+									? (["1K"] as const)
+									: isGemini31FlashImage
+										? (["0.5K", "1K", "2K", "4K"] as const)
+										: (["1K", "2K", "4K"] as const);
 
 	const defaultSize = usesPixelDimensions
 		? "1024x1024"
@@ -161,6 +179,9 @@ function getMaxInputImages(lowerModel: string): number {
 	}
 	if (lowerModel.includes("seedream")) {
 		return 10;
+	}
+	if (lowerModel.includes("hy-image")) {
+		return 20;
 	}
 	if (lowerModel.includes("qwen-image-2.1")) {
 		return 10;

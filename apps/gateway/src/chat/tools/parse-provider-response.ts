@@ -964,6 +964,34 @@ export function parseProviderResponse(
 				}
 				break;
 			}
+			// Check if this is a Tencent Hy Image generation response
+			// Format: { object: "image.chat.completion.chunk", choices: [{ delta: { image: { url } }, finish_reason }], tokenhub_usage: { total_tokens }, error? }
+			if (
+				usedProvider === "tencent" &&
+				json.object === "image.chat.completion.chunk"
+			) {
+				const imageUrl = json.choices?.[0]?.delta?.image?.url;
+				if (typeof imageUrl === "string" && imageUrl) {
+					images = [{ type: "image_url", image_url: { url: imageUrl } }];
+					content = imageLabel;
+					finishReason = "stop";
+				} else {
+					// Failures arrive as a 200 with finish_reason "error" and an
+					// OpenAI-style error object, e.g. code "content_filter".
+					finishReason =
+						json.error?.code === "content_filter"
+							? "content_filter"
+							: "upstream_error";
+				}
+				// v3.5 reports only a total; TokenHub bills it as image output.
+				const billedTokens =
+					json.tokenhub_usage?.total_tokens ?? json.usage?.total_tokens ?? 0;
+				promptTokens = 0;
+				completionTokens = billedTokens;
+				imageOutputTokens = billedTokens > 0 ? billedTokens : null;
+				totalTokens = billedTokens;
+				break;
+			}
 			// Check if this is a Reve image generation response
 			// Format: { image: "base64...", version: "...", content_violation: false, ... }
 			if (usedProvider === "reve" && typeof json.image === "string") {
