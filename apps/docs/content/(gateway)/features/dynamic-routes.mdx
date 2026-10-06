@@ -132,7 +132,7 @@ Weights are relative — `{ 80, 20 }` and `{ 4, 1 }` produce the same split.
 
 ### `model`
 
-Terminates evaluation and routes the request to a catalog model (see the [models page](https://llmgateway.io/models) for available ids). Optional `providers` restricts routing to those providers and doubles as the ordered fallback preference; when omitted, every provider serving the model is a candidate and weighted smart routing picks the best one.
+Terminates evaluation and routes the request to a catalog model (see the [models page](https://llmgateway.io/models) for available ids). Optional `providers` restricts routing to those providers in preference order for initial selection and fallback. Eligibility checks and hybrid-mode key preference apply first; a healthy session pin takes precedence over the order. Scores choose among regions of the same provider, and explicit provider order disables exploration. When `providers` is omitted, every eligible provider serving the model is a candidate and weighted smart routing picks the best one.
 
 A `model` node can also target one of your organization's [custom catalog models](/features/custom-providers#custom-model-catalog) as `<customProviderName>/<modelName>`. Such a node must not set `providers` (the custom model already fixes its provider), and the referenced custom model must be active in your organization when the route is saved or published.
 

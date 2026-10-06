@@ -285,8 +285,6 @@ export function mergeAirsideListingsIntoModel(
 	};
 }
 
-/** Build the synthetic catalogue entry a listing represents — shared by the
- *  chat resolver and the /v1/models catalogue. */
 function activeAirsideRegions(listed: AirsideListedModel) {
 	const now = new Date();
 	return (listed.regionMappings ?? []).filter(
@@ -294,6 +292,8 @@ function activeAirsideRegions(listed: AirsideListedModel) {
 	);
 }
 
+/** Build the synthetic catalogue entry a listing represents — shared by the
+ *  chat resolver and the /v1/models catalogue. */
 export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 	mapping: ProviderModelMapping;
 	modelInfo: ModelDefinition;

@@ -314,6 +314,48 @@ describe("dynamic routes request path", () => {
 		expect((await pinned.json()).metadata.used_provider).toBe("openai");
 	});
 
+	test.each(["openai", "azure"])(
+		"respects a model node preferring %s",
+		async (first) => {
+			const token = await seedBase(`order-${first}`, ["openai", "azure"]);
+			const providers =
+				first === "openai" ? ["openai", "azure"] : ["azure", "openai"];
+			const route = await seedRoute(`order-${first}`, {
+				entry: "m",
+				nodes: [modelNode("m", "gpt-5.5", providers)],
+			} as DynamicRouteGraph);
+			const response = await chatCompletion(token, {
+				model: `dynamic/${route}`,
+				messages: [{ role: "user", content: "Say hi" }],
+			});
+			expect(response.status).toBe(200);
+			expect((await response.json()).metadata.used_provider).toBe(first);
+		},
+	);
+
+	test("keeps a healthy session pin when a dynamic route changes provider order", async () => {
+		const token = await seedBase("order-session", ["openai", "azure"]);
+		for (const providers of [
+			["openai", "azure"],
+			["azure", "openai"],
+		]) {
+			const route = await seedRoute(`order-session-${providers[0]}`, {
+				entry: "m",
+				nodes: [modelNode("m", "gpt-5.5", providers)],
+			} as DynamicRouteGraph);
+			const response = await chatCompletion(
+				token,
+				{
+					model: `dynamic/${route}`,
+					messages: [{ role: "user", content: "Say hi" }],
+				},
+				{ "x-session-id": "ordered-route-session" },
+			);
+			expect(response.status).toBe(200);
+			expect((await response.json()).metadata.used_provider).toBe("openai");
+		}
+	});
+
 	test("routes to a custom-provider catalog model", async () => {
 		const token = await seedBase("custom", []);
 		await db.insert(tables.providerKey).values({

@@ -10,6 +10,10 @@ A **session** ties together the requests that belong to the same conversation or
 
 Sessions are the foundation for several features. Today they power **sticky provider routing** and **session-level observability**; more session-scoped capabilities will build on the same identifier over time.
 
+A healthy, eligible session pin also takes precedence over a dynamic route's
+provider order. If that pin becomes unavailable, the route's order applies to
+the remaining eligible providers.
+
 ## Setting the session id
 
 For chat completions, the session key is resolved in priority order — the first present value wins:

@@ -995,7 +995,7 @@ describe("airside-listed models", () => {
 	async function createDynamicRoute(
 		token: string,
 		model = "mistral-small-2506",
-		provider = "mistral",
+		provider: string | string[] = "mistral",
 	) {
 		await db
 			.update(tables.organization)
@@ -1008,7 +1008,7 @@ describe("airside-listed models", () => {
 					id: "m",
 					type: "model" as const,
 					model,
-					providers: [provider],
+					providers: typeof provider === "string" ? [provider] : provider,
 				},
 			],
 		} as DynamicRouteGraph;
@@ -1467,6 +1467,64 @@ describe("airside-listed models", () => {
 							? "Bearer mock-acme-sky-key"
 							: "Bearer mock-acme-cloud-key"),
 				),
+			).toBe(true);
+		},
+	);
+
+	test.each([false, true])(
+		"honors dynamic provider order for selection and fallback (stream=%s)",
+		async (stream) => {
+			const token = `airside-ordered-${stream}`;
+			const model = "claude-haiku-4-5";
+			await setupCustomCarrier(token, {
+				modelId: model,
+				basePath: "/fail/first",
+			});
+			await setupCustomCarrier(`${token}-second`, {
+				modelId: model,
+				providerId: "acme-cloud",
+				basePath: "/second",
+			});
+			await setupCustomCarrier(`${token}-third`, {
+				modelId: model,
+				providerId: "acme-last",
+				basePath: "/third",
+			});
+			for (const [providerId, price] of [
+				["acme-sky", "90e-6"],
+				["acme-cloud", "30e-6"],
+				["acme-last", "1e-6"],
+			]) {
+				await materializeTestMapping({
+					providerId,
+					modelId: model,
+					apiFormat: "openai-chat-completions",
+					inputPrice: price,
+					outputPrice: price,
+					contextSize: 64000,
+				});
+				await setRoutingUptime(model, providerId, 100);
+			}
+			await createDynamicRoute(token, model, [
+				"acme-sky",
+				"acme-cloud",
+				"acme-last",
+			]);
+			await clearCache();
+			const res = await carrierRequest(token, "dynamic/airside-owned", {
+				stream,
+			});
+			expect(res.status).toBe(200);
+			expect(await res.text()).toContain("Hello from Luna");
+			expect(captured.map((request) => request.url)).toEqual([
+				"/fail/first/v1/chat/completions",
+				"/second/v1/chat/completions",
+			]);
+			expect(
+				captured[0].headers.authorization === "Bearer mock-acme-sky-key",
+			).toBe(true);
+			expect(
+				captured[1].headers.authorization === "Bearer mock-acme-cloud-key",
 			).toBe(true);
 		},
 	);

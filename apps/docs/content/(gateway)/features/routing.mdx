@@ -198,6 +198,12 @@ The selection reason in routing metadata will show `stable-preferred` when a req
 
 In a project in **hybrid** mode, routing first narrows the candidates to providers you have your own [provider key](/learn/provider-keys) for, and the weighted score picks among those. LLM Gateway's own credentials are used when none of your keys can serve the requested model, as fallback when attempts on your keys fail, or when your current keyed provider's uptime is degraded and no keyed candidate is healthier — escaping the degraded provider takes priority over staying on your key. Projects in API-keys or credits mode are unaffected.
 
+[Dynamic routes](/features/dynamic-routes) can specify provider preference order.
+After eligibility checks and hybrid-mode key preference, that order controls the
+initial provider and cross-provider fallback. A healthy session pin still wins;
+regional selection within a provider still uses scores. These requests skip
+random exploration and record `provider-order` when the order decides selection.
+
 **Routing Metadata**:
 
 Every request includes detailed routing metadata in the logs, showing:

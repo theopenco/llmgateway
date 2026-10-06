@@ -1,5 +1,6 @@
 import { hasInvalidProviderCredentialError } from "@/lib/provider-auth-errors.js";
 
+import { compareProviderOrder } from "@llmgateway/actions";
 import { DEFAULT_ROUTING_RETRY } from "@llmgateway/shared/routing-config";
 
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
@@ -260,8 +261,13 @@ export function selectNextProvider(
 		externalId: string;
 		region?: string;
 	}>,
+	providerOrder?: readonly string[],
 ): { providerId: string; externalId: string; region?: string } | null {
-	const sorted = [...providerScores].sort((a, b) => a.score - b.score);
+	const sorted = [...providerScores].sort(
+		(a, b) =>
+			compareProviderOrder(a.providerId, b.providerId, providerOrder) ||
+			a.score - b.score,
+	);
 	for (const score of sorted) {
 		if (score.excludedByContentFilter) {
 			continue;
