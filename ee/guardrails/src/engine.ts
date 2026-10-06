@@ -442,6 +442,43 @@ export async function logViolation(
 	});
 }
 
+// Every match is located on the unmasked text and the covered ranges are
+// merged before masking, so a match sharing a prefix or overlapping another
+// is masked in full rather than leaving its tail behind.
+function maskMatches(text: string, masks: RedactionInfo[]): string {
+	const masked = new Uint8Array(text.length);
+	for (const mask of masks) {
+		for (const match of mask.matches) {
+			if (!match.trim()) {
+				continue;
+			}
+			const pattern = createLiteralRegex(
+				match,
+				mask.caseSensitive,
+				mask.wholeWord,
+			);
+			let found;
+			while ((found = pattern.exec(text)) !== null) {
+				masked.fill(1, found.index, found.index + found[0].length);
+				pattern.lastIndex = found.index + 1;
+			}
+		}
+	}
+	const parts: string[] = [];
+	let start = 0;
+	while (start < text.length) {
+		let end = start;
+		while (end < text.length && masked[end] === masked[start]) {
+			end++;
+		}
+		parts.push(
+			masked[start] ? "*".repeat(end - start) : text.slice(start, end),
+		);
+		start = end;
+	}
+	return parts.join("");
+}
+
 export function applyRedactions(
 	messages: Message[],
 	redactions: RedactionInfo[],
@@ -470,21 +507,7 @@ export function applyRedactions(
 			if (hasSecrets) {
 				result = redactSecrets(result).redacted;
 			}
-			for (const mask of masks) {
-				for (const match of mask.matches) {
-					if (match.trim()) {
-						if (mask.caseSensitive && !mask.wholeWord) {
-							result = result.replaceAll(match, "*".repeat(match.length));
-							continue;
-						}
-						result = result.replace(
-							createLiteralRegex(match, mask.caseSensitive, mask.wholeWord),
-							(value) => "*".repeat(value.length),
-						);
-					}
-				}
-			}
-			return result;
+			return masks.length > 0 ? maskMatches(result, masks) : result;
 		};
 
 		if (typeof message.content === "string") {

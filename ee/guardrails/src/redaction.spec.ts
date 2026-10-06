@@ -54,6 +54,33 @@ describe("applyRedactions", () => {
 		expect(result[0].content).toBe("Our ********** is Acme Corp.");
 	});
 
+	it.each([
+		{
+			text: "SECRET:abc SECRET:abcdef",
+			matches: ["SECRET:abc", "SECRET:abcdef"],
+			expected: "********** *************",
+		},
+		{ text: "x abcd y", matches: ["abc", "bcd"], expected: "x **** y" },
+	])(
+		"masks overlapping matches in full: $text",
+		({ text, matches, expected }) => {
+			const result = applyRedactions(
+				[{ role: "user", content: text }],
+				[
+					{
+						ruleId: "rule_1",
+						messageIndex: 0,
+						kind: "mask",
+						matches,
+						pattern: matches.join(", "),
+						caseSensitive: true,
+					},
+				],
+			);
+			expect(result[0].content).toBe(expected);
+		},
+	);
+
 	it("masks matches case-insensitively while preserving original length", () => {
 		const messages: Message[] = [
 			{ role: "user", content: "SECRET and secret and Secret" },
