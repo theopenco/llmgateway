@@ -505,9 +505,11 @@ async function recalculateProjectHourlySourceStats(
 	}
 }
 
+// Retried attempts count once, matching the source and API-key source rows,
+// so per-model rows never sum above their source total.
 function getSourceModelAggregationFields() {
-	const base = getBaseAggregationFields();
-	const common = getCommonAggregationFields();
+	const base = getBaseAggregationFields(isNull(log.retriedByLogId));
+	const common = getCommonAggregationFields(isNull(log.retriedByLogId));
 	return {
 		requestCount: base.requestCount,
 		errorCount: base.errorCount,
@@ -577,7 +579,13 @@ export async function recalculateProjectHourlySourceModelStats(
 				],
 				...statsUpdate(
 					getTableColumns(projectHourlySourceModelStats),
-					getSourceModelAggregationFields(),
+					window.repairRequestCounters
+						? Object.fromEntries(
+								Object.entries(getSourceModelAggregationFields()).filter(
+									([key]) => key.endsWith("Count"),
+								),
+							)
+						: getSourceModelAggregationFields(),
 					true,
 					window.accumulate,
 				),
@@ -1365,6 +1373,12 @@ async function repairSourceRequestCounters() {
 					tx,
 				);
 				await recalculateApiKeyHourlySourceStatsForProjects(
+					projectIds,
+					hourTimestamp,
+					{ repairRequestCounters: true },
+					tx,
+				);
+				await recalculateProjectHourlySourceModelStats(
 					projectIds,
 					hourTimestamp,
 					{ repairRequestCounters: true },

@@ -240,6 +240,19 @@ describe("batched project stats refresh", () => {
 				totalTokens: "60",
 			});
 		}
+		const [modelRow] = await db
+			.select()
+			.from(tables.projectHourlySourceModelStats)
+			.where(eq(tables.projectHourlySourceModelStats.projectId, projectIds[0]));
+		expect(modelRow).toMatchObject({
+			requestCount: 1,
+			creditsRequestCount: 1,
+			apiKeysRequestCount: 0,
+			errorCount: 0,
+			cost: 0.5,
+			creditsCost: 0.25,
+			apiKeysCost: 0.25,
+		});
 		expect(
 			(
 				await db.query.projectHourlyStats.findFirst({
@@ -302,6 +315,12 @@ describe("batched project stats refresh", () => {
 					})
 					.where(eq(table.projectId, projectIds[0]));
 			}
+			await db
+				.update(tables.projectHourlySourceModelStats)
+				.set({ requestCount: 2, creditsRequestCount: 2 })
+				.where(
+					eq(tables.projectHourlySourceModelStats.projectId, projectIds[0]),
+				);
 			if (missing === 1) {
 				await db.delete(tables.log).where(eq(tables.log.id, finalId));
 			}
@@ -329,6 +348,16 @@ describe("batched project stats refresh", () => {
 					totalTokens: "60",
 				});
 			}
+			const [modelRow] = await db
+				.select()
+				.from(tables.projectHourlySourceModelStats)
+				.where(
+					eq(tables.projectHourlySourceModelStats.projectId, projectIds[0]),
+				);
+			expect(modelRow).toMatchObject({
+				requestCount: missing === 0 ? 1 : 2,
+				cost: 0.5,
+			});
 			await refreshProjectHourlyStats();
 			expect(
 				(
