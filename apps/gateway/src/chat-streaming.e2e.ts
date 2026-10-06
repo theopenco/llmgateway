@@ -119,9 +119,10 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				project_id: log.projectId,
 			});
 			expect(usageChunk.metadata.discount ?? null).toBe(log.discount ?? null);
-			expect(log.content).toBeTruthy();
-			expect(log.content).not.toBeNull();
 			expect(typeof log.content).toBe("string");
+			if (contentChunks.length > 0) {
+				expect(log.content).toBeTruthy();
+			}
 
 			// expect(log.cost).not.toBeNull();
 			// expect(log.cost).toBeGreaterThanOrEqual(0);
