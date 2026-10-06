@@ -37,10 +37,6 @@ const cachingFormSchema = z.object({
 		),
 	providerCacheControlMode: z.enum(["auto", "passthrough", "off"]),
 	semanticCacheMode: z.enum(["off", "shadow", "on"]),
-	semanticCacheThreshold: z
-		.number()
-		.min(0.9, "Similarity must be at least 0.90")
-		.max(0.999, "Similarity must be below 1"),
 });
 
 type CachingFormData = z.infer<typeof cachingFormSchema>;
@@ -55,7 +51,7 @@ const SEMANTIC_CACHE_MODE_OPTIONS = [
 		value: "shadow" as const,
 		label: "Shadow",
 		description:
-			"Look up matches and record them on the request log, but still call the provider. Use it to check a threshold before it affects answers.",
+			"Look up matches and record them on the request log, but still call the provider. Use it to see what would be served before it affects answers.",
 	},
 	{
 		value: "on" as const,
@@ -116,16 +112,11 @@ export function CachingSettings({
 				initialData.preferences.preferences.providerCacheControlMode ?? "auto",
 			semanticCacheMode:
 				initialData.preferences.preferences.semanticCacheMode ?? "off",
-			semanticCacheThreshold:
-				initialData.preferences.preferences.semanticCacheThreshold ?? 0.95,
 		},
 	});
 
 	const cachingEnabled = form.watch("cachingEnabled");
-	const semanticCacheMode = form.watch("semanticCacheMode");
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
-	const compliancePolicyActive =
-		selectedOrganization?.providerCompliancePolicy?.enabled === true;
 
 	const api = useApi();
 
@@ -146,12 +137,7 @@ export function CachingSettings({
 					cachingEnabled: data.cachingEnabled,
 					cacheDurationSeconds: data.cacheDurationSeconds,
 					...(isEnterprise
-						? {
-								semanticCacheMode: data.cachingEnabled
-									? data.semanticCacheMode
-									: "off",
-								semanticCacheThreshold: data.semanticCacheThreshold,
-							}
+						? { semanticCacheMode: data.semanticCacheMode }
 						: {}),
 					...(zeroDataRetentionEnabled
 						? {}
@@ -218,7 +204,15 @@ export function CachingSettings({
 								<FormControl>
 									<Switch
 										checked={field.value}
-										onCheckedChange={field.onChange}
+										onCheckedChange={(checked) => {
+											field.onChange(checked);
+											// The API turns semantic caching off with request
+											// caching; keep the form in step so a later save
+											// cannot re-arm it.
+											if (!checked) {
+												form.setValue("semanticCacheMode", "off");
+											}
+										}}
 										disabled={zeroDataRetentionEnabled && !field.value}
 									/>
 								</FormControl>
@@ -262,18 +256,12 @@ export function CachingSettings({
 					<div>
 						<h4 className="text-base font-medium">Semantic Caching</h4>
 						<p className="text-muted-foreground text-sm">
-							Also serve a cached response when the final user message means the
-							same as a cached one, not just when it is byte-identical. The
-							system prompt and earlier turns must match exactly. Requests
-							without tools only.
+							Also serve a cached response when the final user message differs
+							from a cached one only in ways that cannot change the answer, such
+							as letter case, trailing punctuation, contractions or
+							&quot;please&quot;. The system prompt and earlier turns must match
+							exactly. Requests without tools only.
 						</p>
-						{isEnterprise && compliancePolicyActive ? (
-							<p className="text-muted-foreground text-sm mt-1">
-								Not applied while your organization&apos;s compliance policy is
-								active: the embedding call would send prompts to a provider the
-								policy does not vet.
-							</p>
-						) : null}
 						{isEnterprise ? null : (
 							<p className="text-muted-foreground text-sm mt-1">
 								Available on the{" "}
@@ -309,13 +297,7 @@ export function CachingSettings({
 													value={option.value}
 													id={`semantic-cache-${option.value}`}
 													className="mt-1"
-													disabled={
-														!cachingEnabled ||
-														!isEnterprise ||
-														(compliancePolicyActive &&
-															option.value !== "off" &&
-															option.value !== field.value)
-													}
+													disabled={!cachingEnabled || !isEnterprise}
 												/>
 												<div className="space-y-1 leading-none">
 													<Label htmlFor={`semantic-cache-${option.value}`}>
@@ -332,39 +314,6 @@ export function CachingSettings({
 								<FormDescription>
 									Requires request caching. Matches use the cache duration
 									above.
-								</FormDescription>
-								<FormMessage />
-							</FormItem>
-						)}
-					/>
-
-					<FormField
-						control={form.control}
-						name="semanticCacheThreshold"
-						render={({ field }) => (
-							<FormItem>
-								<FormLabel>Similarity threshold</FormLabel>
-								<FormControl>
-									<Input
-										type="number"
-										step={0.001}
-										min={0.9}
-										max={0.999}
-										className="w-32"
-										disabled={
-											!cachingEnabled ||
-											semanticCacheMode === "off" ||
-											!isEnterprise
-										}
-										{...field}
-										onChange={(e) => field.onChange(Number(e.target.value))}
-									/>
-								</FormControl>
-								<FormDescription>
-									Cosine similarity the final user message must reach to reuse a
-									cached response (0.90 to 0.999). Higher is stricter. Run in
-									shadow mode first and review the logged matches before serving
-									them.
 								</FormDescription>
 								<FormMessage />
 							</FormItem>
