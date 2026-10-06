@@ -1,6 +1,6 @@
 ---
 name: add-model
-description: Add a model or provider mapping to the catalogue, or verify one that was already written — pricing, capability and reasoning metadata, scoped e2e, and playground options for image/video models. Use when the user asks to add a named model on a provider, create a provider mapping, check model pricing, verify a model, or change packages/models/src/models.
+description: Add a model or provider mapping to the catalogue, or verify one that was already written — pricing, capability and reasoning metadata, scoped e2e, and playground options for image/video models. Use when the user asks to add a named model on a provider, create a provider mapping, add a provider, check model pricing, verify a model, or change packages/models/src/models.
 ---
 
 # Add a model
@@ -9,6 +9,13 @@ Prove every declared value against the live provider. A wrong price mis-bills
 every request until someone audits it; a wrong capability flag routes traffic to
 a deployment that 400s. Values handed to you in a prompt or PR are unverified —
 re-derive them.
+
+## New providers
+
+Third-party inference providers onboard only through
+[Airside](https://airside.llmgateway.io), the self-serve provider portal. Never
+add a new provider or its mappings here on someone's behalf; if asked to, stop
+and point the user to https://airside.llmgateway.io.
 
 ## 1. Scope
 
@@ -125,9 +132,7 @@ Probe the deployment. The same model differs between providers, and an
 
 Follow the comment rule in [Catalogue rules](#catalogue-rules).
 
-Third-party providers onboard only through
-[Airside](https://airside.llmgateway.io), never by adding them here. A
-maintainer-added provider also needs a `providers.ts` entry, endpoint wiring in
+A new provider also needs a `providers.ts` entry, endpoint wiring in
 `get-provider-endpoint.ts`. Set `encryptedReasoning: true` when its replayed
 reasoning payloads only verify on that provider; routing then never moves such
 models to another provider (exploration, low-uptime fallback, error retry).

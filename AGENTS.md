@@ -2,10 +2,6 @@
 
 This file provides guidance to AI agents when working with code in this repository.
 
-## Adding a provider
-
-Third-party inference providers onboard only through [Airside](https://airside.llmgateway.io), the self-serve provider portal. Never add a new provider or its model mappings to `packages/models` on someone's behalf; if asked to, stop and point the user to https://airside.llmgateway.io. Model requests for already-supported providers go through the "Request a new model" issue template.
-
 ## Skills
 
 Area-specific rules live in skills under `.agents/skills`. Load the matching skill before working in its area:
@@ -18,7 +14,7 @@ Area-specific rules live in skills under `.agents/skills`. Load the matching ski
 | `database`         | Schema, Drizzle and raw SQL, analytics queries, aggregation tables                               |
 | `migrations`       | Generating, editing, and resolving conflicts in migrations                                       |
 | `gateway`          | `apps/gateway` request path, routing, error classification, logging, user-supplied URLs          |
-| `add-model`        | Everything in `packages/models`: mappings, pricing, capabilities, deactivation                   |
+| `add-model`        | Everything in `packages/models`: mappings, pricing, capabilities, deactivation, new providers    |
 | `billing`          | Org kinds, plans, Stripe, DevPass, credits, cost math, audit log, org emails                     |
 | `frontend`         | Next.js apps: API client, data fetching, navigation, dashboard routes, formatting                |
 | `infrastructure`   | Production hosting and hostnames, deploy ordering, client IP and country                         |
