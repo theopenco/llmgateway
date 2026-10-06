@@ -216,23 +216,24 @@ test("quantization edits stay pending on live models and can be withdrawn", asyn
 	await expect(active).not.toContainText("Change filed");
 });
 
-test("a delisted model shows why and can be relisted", async ({ page }) => {
+test("a delisted model needs a fresh preflight to relist", async ({ page }) => {
 	await login(page);
 	await page.goto("/dashboard/fleet");
-	const strip = page.getByTestId("model-strip-mistral-medium-4");
-	const status = page.getByTestId("status-mistral-medium-4");
-	await expect(status).toHaveText("In service");
+	const status = page.getByTestId("status-codestral-3");
+	await expect(page.getByTestId("relist-codestral-3")).toHaveCount(0);
 
-	await page.getByTestId("delete-mistral-medium-4").click();
-	await page.getByTestId("confirm-delete-mistral-medium-4").click();
+	await page.getByTestId("delete-codestral-3").click();
+	await page.getByTestId("confirm-delete-codestral-3").click();
 	await expect(status).toContainText("Delisted by your crew");
-	await expect(strip).not.toContainText("Verification");
-	await expect(page.getByTestId("verify-mistral-medium-4")).toHaveCount(0);
+	// Relisting needs a preflight that passed since delisting, so the
+	// delisted row offers Verify next to Relist.
+	await expect(page.getByTestId("verify-codestral-3")).toBeVisible();
 
-	await page.getByTestId("relist-mistral-medium-4").click();
-	await expect(status).toHaveText("In service");
-	await expect(page.getByTestId("relist-mistral-medium-4")).toHaveCount(0);
-	await expect(page.getByTestId("verify-mistral-medium-4")).toBeVisible();
+	await page.getByTestId("relist-codestral-3").click();
+	await expect(page.getByText(/before you relist/)).toBeVisible({
+		timeout: 15_000,
+	});
+	await expect(status).toContainText("Delisted by your crew");
 });
 
 test("registering a model requires provider preflight", async ({ page }) => {
