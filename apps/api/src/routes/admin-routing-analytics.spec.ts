@@ -242,7 +242,7 @@ describe("admin routing analytics endpoint", () => {
 		expect(res.status).toBe(404);
 	});
 
-	it("includes custom Airside traffic without electing a pinned-only carrier", async () => {
+	it("excludes an unapproved carrier while retaining its traffic", async () => {
 		await db.insert(tables.provider).values({
 			id: "routing-airside-carrier",
 			name: "Test Airside Carrier",
@@ -276,7 +276,7 @@ describe("admin routing analytics endpoint", () => {
 				listPrice: 2e-6,
 				cacheSupported: true,
 				routable: false,
-				excludedReasons: ["provider pin required"],
+				excludedReasons: ["carrier inactive or unapproved"],
 			}),
 		);
 		expect(body.summary).toContainEqual(
@@ -290,6 +290,43 @@ describe("admin routing analytics endpoint", () => {
 			expect.objectContaining({
 				providerId: "routing-airside-carrier",
 				requestCount: 7,
+			}),
+		);
+	});
+
+	it("scores an approved custom carrier without traffic", async () => {
+		await db.insert(tables.provider).values({
+			id: "routing-airside-carrier",
+			name: "Test Airside Carrier",
+			description: "test",
+		});
+		await db
+			.insert(tables.providerCompany)
+			.values({ id: "routing-company", name: "Test Carrier" });
+		await db.insert(tables.providerClaim).values({
+			providerCompanyId: "routing-company",
+			providerId: "routing-airside-carrier",
+			kind: "custom",
+			status: "active",
+			matchedDomain: "example.com",
+			customBaseUrl: "https://example.com",
+		});
+		await db.insert(tables.modelProviderMapping).values({
+			modelId: testModel.id,
+			providerId: "routing-airside-carrier",
+			externalId: "upstream-model",
+			source: "airside",
+			inputPrice: "1e-6",
+			outputPrice: "3e-6",
+		});
+		const res = await get(`?modelId=${testModel.id}`, cookie);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.mappings).toContainEqual(
+			expect.objectContaining({
+				providerId: "routing-airside-carrier",
+				routable: true,
+				excludedReasons: [],
 			}),
 		);
 	});
