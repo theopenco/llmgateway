@@ -22,6 +22,11 @@ import {
 	validateAllowedModels,
 } from "@/lib/provider-key-allowed-models.js";
 import {
+	bucketLabel,
+	hourBucketStarts,
+	utcDayBucketStarts,
+} from "@/lib/series-buckets.js";
+import {
 	getBucketUnitForWindow,
 	getTokenWindowStartDate,
 	getWindowBucketTimestamps,
@@ -79,7 +84,7 @@ import { maskToken } from "@llmgateway/shared/mask-token";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
-import type { ProviderKeyVariant, SQL } from "@llmgateway/db";
+import type { ProviderKeyVariant } from "@llmgateway/db";
 import type { ProviderDefinition, ProviderId } from "@llmgateway/models";
 
 export const adminProviderCredentials = new OpenAPIHono<ServerTypes>();
@@ -893,27 +898,8 @@ async function getRecentCredentialStats(providerKeyIds: string[]) {
 /** Days in the sparkline window, counting the day in progress as one. */
 const DAILY_SERIES_DAYS = 7;
 
-/**
- * Start of each UTC day in the sparkline window, oldest first. Whole UTC days
- * rather than a rolling 7×24h window: `date_trunc('day')` cuts on UTC
- * boundaries, so a rolling start would leave the oldest bucket holding only part
- * of its day and draw a dip that never happened.
- */
-function getDailySeriesDayStarts(now: Date = new Date()): Date[] {
-	const today = Date.UTC(
-		now.getUTCFullYear(),
-		now.getUTCMonth(),
-		now.getUTCDate(),
-	);
-	const dayMs = 24 * 60 * 60 * 1000;
-	return Array.from({ length: DAILY_SERIES_DAYS }, (_, index) => {
-		const offsetMs = (DAILY_SERIES_DAYS - 1 - index) * dayMs;
-		return new Date(today - offsetMs);
-	});
-}
-
 function buildEmptyDailySeries(now?: Date) {
-	return getDailySeriesDayStarts(now).map((day) => ({
+	return utcDayBucketStarts(DAILY_SERIES_DAYS, now).map((day) => ({
 		date: day.toISOString(),
 		cost: 0,
 		requestCount: 0,
@@ -939,7 +925,7 @@ async function getDailyCredentialStats(providerKeyIds: string[]) {
 		return series;
 	}
 
-	const dayStarts = getDailySeriesDayStarts();
+	const dayStarts = utcDayBucketStarts(DAILY_SERIES_DAYS);
 	const dayExpr = sql<Date>`date_trunc('day', ${tables.providerKeyHourlyStats.hourTimestamp})`;
 	const rows = await db
 		.select({
@@ -996,22 +982,6 @@ async function getDailyCredentialStats(providerKeyIds: string[]) {
 const HOUR_MS = 60 * 60 * 1000;
 
 /**
- * Hour starts for a sub-week error window, oldest first, ending with the hour
- * in progress. Epoch-aligned, which matches the UTC `hourTimestamp` buckets.
- */
-function getErrorSeriesBuckets(
-	window: Exclude<ErrorWindow, "7d">,
-	now: Date = new Date(),
-): Date[] {
-	const count = window === "4h" ? 4 : 24;
-	const end = Math.floor(now.getTime() / HOUR_MS) * HOUR_MS;
-	return Array.from({ length: count }, (_, index) => {
-		const offsetMs = (count - 1 - index) * HOUR_MS;
-		return new Date(end - offsetMs);
-	});
-}
-
-/**
  * Hourly request/error counts per credential for the sub-week error windows,
  * from the hourly rollup. One grouped query for every credential, like the
  * daily series. The rollup's grain is the hour, so nothing shorter is offered.
@@ -1025,7 +995,7 @@ async function getBucketedCredentialErrorSeries(
 		return series;
 	}
 
-	const buckets = getErrorSeriesBuckets(window);
+	const buckets = hourBucketStarts(window === "4h" ? 4 : 24);
 	const stats = tables.providerKeyHourlyStats;
 	const rows = await db
 		.select({
@@ -1071,14 +1041,6 @@ async function getBucketedCredentialErrorSeries(
 		);
 	}
 	return series;
-}
-
-/**
- * ISO-8601 UTC label for a truncated bucket, formatted the same way
- * `Date#toISOString` would, so it can be compared to a generated bucket grid.
- */
-function bucketLabel(bucketExpr: SQL<Date>) {
-	return sql<string>`to_char(${bucketExpr}, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 }
 
 /** Error split by unified finish reason; `errorCount` covers all three. */
