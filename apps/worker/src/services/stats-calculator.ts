@@ -1031,14 +1031,33 @@ export async function backfillHistoryIfNeeded() {
 	const modelTimes = new Set(
 		modelMinutes.map(({ minute }) => minute.getTime()),
 	);
-	const existing = [...mappingTimes, ...modelTimes];
-	const start =
-		existing.length > 0
-			? Math.min(...existing)
-			: Math.max(
-					roundToMinuteStart(new Date(Date.now() - backfillMs)).getTime(),
-					boundedStart.getTime(),
-				);
+	// History from before the window means the worker was down: recover the
+	// whole window. Without any, this is a fresh install and only the recent
+	// minutes are filled in.
+	const [olderMapping] = await db
+		.select({ minute: modelProviderMappingHistory.minuteTimestamp })
+		.from(modelProviderMappingHistory)
+		.where(lt(modelProviderMappingHistory.minuteTimestamp, boundedStart))
+		.limit(1);
+	const [olderModel] = olderMapping
+		? [olderMapping]
+		: await db
+				.select({ minute: modelHistory.minuteTimestamp })
+				.from(modelHistory)
+				.where(lt(modelHistory.minuteTimestamp, boundedStart))
+				.limit(1);
+	let start = Number.POSITIVE_INFINITY;
+	for (const time of [...mappingTimes, ...modelTimes]) {
+		start = Math.min(start, time);
+	}
+	if (olderModel) {
+		start = boundedStart.getTime();
+	} else if (start === Number.POSITIVE_INFINITY) {
+		start = Math.max(
+			roundToMinuteStart(new Date(Date.now() - backfillMs)).getTime(),
+			boundedStart.getTime(),
+		);
+	}
 	for (let time = start; time <= end.getTime(); time += ONE_MINUTE_MS) {
 		// Shutdown waits for this backfill; the next start resumes the gaps.
 		if (isStopRequested()) {

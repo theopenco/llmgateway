@@ -17,6 +17,7 @@ import {
 	apiKey,
 	eq,
 	and,
+	gte,
 	user,
 	getTableColumns,
 	sql,
@@ -1718,6 +1719,52 @@ describe("stats-calculator", () => {
 				original,
 			);
 		});
+
+		it(
+			"recovers the whole window after an outage longer than it",
+			{ timeout: 120_000 },
+			async () => {
+				vi.setSystemTime(new Date("2024-01-01T12:30:00.000Z"));
+				await db.insert(modelProviderMappingHistory).values({
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: new Date("2023-12-30T12:00:00.000Z"),
+					logsCount: 0,
+					errorsCount: 0,
+					clientErrorsCount: 0,
+					gatewayErrorsCount: 0,
+					upstreamErrorsCount: 0,
+					cachedCount: 0,
+					totalInputTokens: 0,
+					totalOutputTokens: 0,
+					totalTokens: 0,
+					totalReasoningTokens: 0,
+					totalCachedTokens: 0,
+					totalDuration: 0,
+				});
+
+				await backfillHistoryIfNeeded();
+
+				const minutes = new Set(
+					(
+						await db
+							.select({ minute: modelProviderMappingHistory.minuteTimestamp })
+							.from(modelProviderMappingHistory)
+							.where(
+								gte(
+									modelProviderMappingHistory.minuteTimestamp,
+									new Date("2023-12-31T00:00:00.000Z"),
+								),
+							)
+					).map(({ minute }) => minute.getTime()),
+				);
+				expect(minutes.size).toBe(1440);
+				expect(Math.min(...minutes)).toBe(
+					new Date("2023-12-31T12:30:00.000Z").getTime(),
+				);
+			},
+		);
 
 		it("should backfill missing periods", async () => {
 			// Create old history entry from 5 minutes ago
