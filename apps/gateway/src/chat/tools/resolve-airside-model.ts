@@ -99,9 +99,6 @@ export async function resolveAirsideModel(
 	let requestedRegion: string | undefined;
 	const colonIdx = modelName.indexOf(":");
 	if (colonIdx !== -1) {
-		// A region suffix resolves here only when the listing filed that region;
-		// otherwise fall through to the static parse, which owns catalogue
-		// regions.
 		requestedRegion = modelName.slice(colonIdx + 1);
 		modelName = modelName.slice(0, colonIdx);
 		if (!requestedRegion || requestedRegion.includes(":")) {
@@ -164,7 +161,9 @@ export async function resolveAirsideModel(
 			(regionRow) => regionRow.region === requestedRegion,
 		)
 	) {
-		return null;
+		throw new HTTPException(400, {
+			message: `Region '${requestedRegion}' is not available for model ${modelName}`,
+		});
 	}
 	return buildRoutingResolution(
 		owned.listings,

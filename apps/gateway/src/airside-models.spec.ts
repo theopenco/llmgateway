@@ -535,10 +535,10 @@ describe("airside-listed models", () => {
 		);
 		expect(Number(regionalPricing?.inputPrice)).toBeCloseTo(4e-6);
 		expect(Number(regionalPricing?.outputPrice)).toBeCloseTo(2e-5);
-		// An unfiled region falls through to the (throwing) static parse.
+		// An unfiled region cannot fall back to catalogue metadata.
 		await expect(
 			resolveAirsideModel("mistral/gpt-5.6-luna:mars"),
-		).resolves.toBeNull();
+		).rejects.toThrow("Region 'mars' is not available");
 
 		// Unpinned traffic routes to the cheaper default deployment and pays
 		// the default fare.
@@ -583,6 +583,60 @@ describe("airside-listed models", () => {
 		expect(Number(log!.inputCost)).toBeCloseTo(0.004, 6);
 		expect(Number(log!.outputCost)).toBeCloseTo(0.01, 6);
 	});
+
+	test.each(["missing", "inactive"])(
+		"rejects a %s Airside region instead of reviving the static mapping",
+		async (status) => {
+			await setup("airside-owned-region-token");
+			await materializeTestMapping({
+				providerId: "alibaba",
+				modelId: "qwen-max",
+				inputPrice: "2e-6",
+				outputPrice: "1e-5",
+			});
+			if (status === "inactive") {
+				await db.insert(tables.modelProviderMapping).values({
+					modelId: "qwen-max",
+					providerId: "alibaba",
+					region: "cn-beijing",
+					externalId: "qwen-max",
+					source: "airside",
+					status: "inactive",
+				});
+			}
+			await db.insert(tables.providerKey).values({
+				id: "airside-owned-region-key",
+				...encryptProviderKeyForStorage(
+					"mock-region-key",
+					"airside-owned-region-key",
+					"org-id",
+				),
+				provider: "alibaba",
+				organizationId: "org-id",
+				baseUrl: upstreamUrl,
+			});
+			await clearCache();
+
+			const response = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer airside-owned-region-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "alibaba/qwen-max:cn-beijing",
+					messages: [{ role: "user", content: "Say hi" }],
+				}),
+			});
+
+			expect(response.status).toBe(400);
+			expect(await response.text()).toContain(
+				"Region 'cn-beijing' is not available",
+			);
+			expect(captured).toHaveLength(0);
+		},
+	);
 
 	test("bills an approved Airside discount once", async () => {
 		await setup("airside-discount-token");
