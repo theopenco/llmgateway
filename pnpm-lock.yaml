@@ -1899,6 +1899,9 @@ importers:
       '@llmgateway/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@llmgateway/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       drizzle-orm:
         specifier: 1.0.0-beta.1
         version: 1.0.0-beta.1(@opentelemetry/api@1.9.0)(@types/mssql@9.1.8)(@types/pg@8.15.6)(mssql@11.0.1)(pg@8.16.3)(sql.js@1.13.0)

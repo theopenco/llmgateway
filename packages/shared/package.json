@@ -155,6 +155,11 @@
 			"import": "./dist/prompt-template.js",
 			"default": "./dist/prompt-template.js"
 		},
+		"./file-types": {
+			"types": "./dist/file-types.d.ts",
+			"import": "./dist/file-types.js",
+			"default": "./dist/file-types.js"
+		},
 		"./safe-redirect": {
 			"types": "./dist/safe-redirect.d.ts",
 			"import": "./dist/safe-redirect.js",
