@@ -37,6 +37,11 @@ import {
 	clearClaimVerificationKey,
 	saveClaimVerificationKey,
 } from "@/lib/model-verification.js";
+import {
+	bucketLabel,
+	hourBucketStarts,
+	utcDayBucketStarts,
+} from "@/lib/series-buckets.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import {
@@ -50,8 +55,11 @@ import {
 	count,
 	db,
 	eq,
+	excludeRegionalMappingRows,
+	gte,
 	inArray,
 	isNotNull,
+	isNull,
 	ne,
 	sql,
 	tables,
@@ -1520,18 +1528,54 @@ adminAirside.openapi(listCompanies, async (c) => {
 	});
 });
 
+const carrierWindowSchema = z.enum(["24h", "7d", "30d"]);
+
+const carrierSeriesPointSchema = z.object({
+	date: z.string(),
+	cost: z.number(),
+	requestCount: z.number(),
+	clientErrorCount: z.number(),
+	gatewayErrorCount: z.number(),
+	upstreamErrorCount: z.number(),
+});
+
+/**
+ * Bucket grid for the carriers table's traffic window: 24 hours ending with the
+ * hour in progress, or whole UTC days ending today.
+ */
+function carrierWindowBuckets(window: z.infer<typeof carrierWindowSchema>) {
+	if (window === "24h") {
+		return { bucket: "hour" as const, starts: hourBucketStarts(24) };
+	}
+	return {
+		bucket: "day" as const,
+		starts: utcDayBucketStarts(window === "7d" ? 7 : 30),
+	};
+}
+
 const listRoutingSettings = createRoute({
 	method: "get",
 	path: "/airside/routing-settings",
+	request: {
+		query: z.object({
+			window: carrierWindowSchema.default("7d").optional(),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
 					schema: z.object({
+						window: carrierWindowSchema,
+						bucket: z.enum(["hour", "day"]),
 						providers: z.array(
 							z.object({
 								providerId: z.string(),
 								company: z.object({ id: z.string(), name: z.string() }),
+								// Inactive = no active root mapping left to route to.
+								status: z.enum(["active", "inactive"]),
+								activeMappingCount: z.number(),
+								airsideMappingCount: z.number(),
 								discountPercent: z.number(),
 								marginPercent: z.number(),
 								// Signed routing-price adjustment (negative = boosted).
@@ -1540,6 +1584,14 @@ const listRoutingSettings = createRoute({
 								// global_model_stats.provider_margin_amount.
 								marginAmount30d: z.number(),
 								marginAmountTotal: z.number(),
+								// Traffic over `window`, from the hourly mapping rollup.
+								routedCost: z.number(),
+								requestCount: z.number(),
+								clientErrorCount: z.number(),
+								gatewayErrorCount: z.number(),
+								upstreamErrorCount: z.number(),
+								// Zero-filled, oldest first; the last bucket is in progress.
+								series: z.array(carrierSeriesPointSchema),
 								updatedAt: z.string(),
 							}),
 						),
@@ -1547,12 +1599,87 @@ const listRoutingSettings = createRoute({
 				},
 			},
 			description:
-				"Every Airside carrier's routing settings plus accrued gateway margin.",
+				"Every Airside carrier's routing settings, traffic, and accrued gateway margin.",
 		},
 	},
 });
 
+/** Per-carrier traffic series over the window, one grouped query. */
+async function getCarrierTrafficSeries(
+	providerIds: string[],
+	{ bucket, starts }: ReturnType<typeof carrierWindowBuckets>,
+) {
+	const series = new Map<string, z.infer<typeof carrierSeriesPointSchema>[]>();
+	if (providerIds.length === 0) {
+		return series;
+	}
+
+	const history = tables.modelProviderMappingHistoryHourly;
+	const bucketExpr =
+		bucket === "hour"
+			? sql<Date>`${history.hourTimestamp}`
+			: sql<Date>`date_trunc('day', ${history.hourTimestamp})`;
+	const rows = await db
+		.select({
+			providerId: history.providerId,
+			bucket: bucketLabel(bucketExpr).as("bucket"),
+			cost: sql<number>`coalesce(sum(cast(${history.totalCost} as double precision)), 0)`.as(
+				"cost",
+			),
+			requestCount: sql<number>`coalesce(sum(${history.logsCount}), 0)`.as(
+				"request_count",
+			),
+			clientErrorCount:
+				sql<number>`coalesce(sum(${history.clientErrorsCount}), 0)`.as(
+					"client_error_count",
+				),
+			gatewayErrorCount:
+				sql<number>`coalesce(sum(${history.gatewayErrorsCount}), 0)`.as(
+					"gateway_error_count",
+				),
+			upstreamErrorCount:
+				sql<number>`coalesce(sum(${history.upstreamErrorsCount}), 0)`.as(
+					"upstream_error_count",
+				),
+		})
+		.from(history)
+		.where(
+			and(
+				inArray(history.providerId, providerIds),
+				gte(history.hourTimestamp, starts[0]),
+				excludeRegionalMappingRows(history),
+			),
+		)
+		.groupBy(history.providerId, bucketExpr);
+
+	const byProviderAndBucket = new Map<string, (typeof rows)[number]>();
+	for (const row of rows) {
+		byProviderAndBucket.set(`${row.providerId}:${row.bucket}`, row);
+	}
+	for (const providerId of providerIds) {
+		series.set(
+			providerId,
+			starts.map((start) => {
+				const date = start.toISOString();
+				const row = byProviderAndBucket.get(`${providerId}:${date}`);
+				return {
+					date,
+					cost: Number(row?.cost ?? 0),
+					requestCount: Number(row?.requestCount ?? 0),
+					clientErrorCount: Number(row?.clientErrorCount ?? 0),
+					gatewayErrorCount: Number(row?.gatewayErrorCount ?? 0),
+					upstreamErrorCount: Number(row?.upstreamErrorCount ?? 0),
+				};
+			}),
+		);
+	}
+	return series;
+}
+
 adminAirside.openapi(listRoutingSettings, async (c) => {
+	const window = c.req.valid("query").window ?? "7d";
+	const buckets = carrierWindowBuckets(window);
+
 	const rows = await db
 		.select({
 			providerId: tables.providerRoutingSettings.providerId,
@@ -1581,40 +1708,76 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 		.toISOString()
 		.slice(0, 19)
 		.replace("T", " ");
-	const totals = providerIds.length
-		? await db
-				.select({
-					usedProvider: tables.globalModelStats.usedProvider,
-					total:
-						sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)), 0)`.as(
-							"total",
+	const mapping = tables.modelProviderMapping;
+	const [totals, mappingCounts, traffic] = providerIds.length
+		? await Promise.all([
+				db
+					.select({
+						usedProvider: tables.globalModelStats.usedProvider,
+						total:
+							sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)), 0)`.as(
+								"total",
+							),
+						last30d:
+							sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)) filter (where ${tables.globalModelStats.dayTimestamp} >= ${cutoff}::timestamp), 0)`.as(
+								"last30d",
+							),
+					})
+					.from(tables.globalModelStats)
+					.where(
+						and(
+							inArray(tables.globalModelStats.usedProvider, providerIds),
+							eq(tables.globalModelStats.usedMode, "credits"),
 						),
-					last30d:
-						sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)) filter (where ${tables.globalModelStats.dayTimestamp} >= ${cutoff}::timestamp), 0)`.as(
-							"last30d",
+					)
+					.groupBy(tables.globalModelStats.usedProvider),
+				db
+					.select({
+						providerId: mapping.providerId,
+						active: count(),
+						airside:
+							sql<number>`count(*) filter (where ${mapping.source} = 'airside')`.as(
+								"airside",
+							),
+					})
+					.from(mapping)
+					.where(
+						and(
+							inArray(mapping.providerId, providerIds),
+							eq(mapping.status, "active"),
+							isNull(mapping.region),
 						),
-				})
-				.from(tables.globalModelStats)
-				.where(
-					and(
-						inArray(tables.globalModelStats.usedProvider, providerIds),
-						eq(tables.globalModelStats.usedMode, "credits"),
-					),
-				)
-				.groupBy(tables.globalModelStats.usedProvider)
-		: [];
+					)
+					.groupBy(mapping.providerId),
+				getCarrierTrafficSeries(providerIds, buckets),
+			])
+		: [[], [], new Map<string, z.infer<typeof carrierSeriesPointSchema>[]>()];
 	const totalsByProvider = new Map(
 		totals.map((row) => [row.usedProvider, row]),
 	);
+	const countsByProvider = new Map(
+		mappingCounts.map((row) => [row.providerId, row]),
+	);
 
 	return c.json({
+		window,
+		bucket: buckets.bucket,
 		providers: rows.map((row) => {
 			const discountPercent = Number(row.discountPercent);
 			const marginPercent = Number(row.marginPercent);
 			const accrued = totalsByProvider.get(row.providerId);
+			const counts = countsByProvider.get(row.providerId);
+			const activeMappingCount = Number(counts?.active ?? 0);
+			const series = traffic.get(row.providerId) ?? [];
+			const sum = (key: Exclude<keyof (typeof series)[number], "date">) =>
+				series.reduce((total, point) => total + point[key], 0);
 			return {
 				providerId: row.providerId,
 				company: { id: row.companyId, name: row.companyName },
+				status:
+					activeMappingCount > 0 ? ("active" as const) : ("inactive" as const),
+				activeMappingCount,
+				airsideMappingCount: Number(counts?.airside ?? 0),
 				discountPercent,
 				marginPercent,
 				routingAdjustment: computeAirsideAdjustment(
@@ -1623,6 +1786,12 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 				),
 				marginAmount30d: Number(accrued?.last30d ?? 0),
 				marginAmountTotal: Number(accrued?.total ?? 0),
+				routedCost: sum("cost"),
+				requestCount: sum("requestCount"),
+				clientErrorCount: sum("clientErrorCount"),
+				gatewayErrorCount: sum("gatewayErrorCount"),
+				upstreamErrorCount: sum("upstreamErrorCount"),
+				series,
 				updatedAt: row.updatedAt.toISOString(),
 			};
 		}),
