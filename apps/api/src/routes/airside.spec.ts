@@ -3320,11 +3320,169 @@ describe("airside provider portal", () => {
 			expect(body.providers[0].routingAdjustment).toBeCloseTo(-0.19);
 			expect(body.providers[0].marginAmount30d).toBeCloseTo(5);
 			expect(body.providers[0].marginAmountTotal).toBeCloseTo(12);
+			// Traffic defaults to a 7-day, UTC-day grid.
+			expect(body).toMatchObject({ window: "7d", bucket: "day" });
+			expect(body.providers[0].series).toHaveLength(7);
 		} finally {
 			// deleteAll() does not cover the global stats tables.
 			await db
 				.delete(tables.globalModelStats)
 				.where(eq(tables.globalModelStats.usedProvider, "mistral"));
+		}
+	});
+
+	it("reports carrier status, mapping counts, and routed traffic per window", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		await setRoutingSettings(company.id, "mistral", 0.1, 0.3);
+
+		const modelId = "carrier-traffic-model";
+		const retiredModelId = "carrier-traffic-retired-model";
+		const rootId = "carrier-traffic-root";
+		const regionalId = "carrier-traffic-region";
+		const retiredId = "carrier-traffic-retired";
+		const providerExisted = Boolean(
+			await db.query.provider.findFirst({ where: { id: { eq: "mistral" } } }),
+		);
+		if (!providerExisted) {
+			await db
+				.insert(tables.provider)
+				.values({ id: "mistral", name: "Mistral", description: "test" });
+		}
+		await db.insert(tables.model).values([
+			{ id: modelId, name: "Carrier traffic model", family: "test" },
+			{ id: retiredModelId, name: "Carrier traffic retired", family: "test" },
+		]);
+		await db.insert(tables.modelProviderMapping).values([
+			{
+				id: rootId,
+				modelId,
+				providerId: "mistral",
+				externalId: modelId,
+				source: "airside",
+			},
+			{
+				id: regionalId,
+				modelId,
+				providerId: "mistral",
+				externalId: modelId,
+				source: "airside",
+				region: "eu",
+			},
+			{
+				id: retiredId,
+				modelId: retiredModelId,
+				providerId: "mistral",
+				externalId: retiredModelId,
+				source: "airside",
+				status: "inactive",
+			},
+		]);
+
+		const hourMs = 60 * 60 * 1000;
+		const recentHour = new Date(
+			Math.floor(Date.now() / hourMs) * hourMs - 2 * hourMs, // eslint-disable-line no-mixed-operators
+		);
+		const olderHour = new Date(recentHour.getTime() - 3 * 24 * hourMs); // eslint-disable-line no-mixed-operators
+		const historyIds = ["ct-recent", "ct-recent-region", "ct-older"];
+		await db.insert(tables.modelProviderMappingHistoryHourly).values([
+			{
+				id: historyIds[0],
+				modelId,
+				providerId: "mistral",
+				modelProviderMappingId: rootId,
+				hourTimestamp: recentHour,
+				logsCount: 10,
+				errorsCount: 3,
+				clientErrorsCount: 1,
+				upstreamErrorsCount: 2,
+				totalCost: 4,
+			},
+			// Regional rows are already merged into the root row.
+			{
+				id: historyIds[1],
+				modelId,
+				providerId: "mistral",
+				modelProviderMappingId: regionalId,
+				hourTimestamp: recentHour,
+				logsCount: 10,
+				totalCost: 4,
+			},
+			{
+				id: historyIds[2],
+				modelId,
+				providerId: "mistral",
+				modelProviderMappingId: rootId,
+				hourTimestamp: olderHour,
+				logsCount: 5,
+				totalCost: 6,
+			},
+		]);
+
+		try {
+			const [{ catalogueActive }] = await db
+				.select({ catalogueActive: sql<number>`count(*)::int` })
+				.from(tables.modelProviderMapping)
+				.where(
+					sql`${tables.modelProviderMapping.providerId} = 'mistral' and ${tables.modelProviderMapping.status} = 'active' and ${tables.modelProviderMapping.region} is null`,
+				);
+
+			const day = await app.request(
+				"/admin/airside/routing-settings?window=24h",
+				{ headers: { Cookie: cookie } },
+			);
+			expect(day.status).toBe(200);
+			const dayBody = await day.json();
+			expect(dayBody).toMatchObject({ window: "24h", bucket: "hour" });
+			const dayCarrier = dayBody.providers[0];
+			expect(dayCarrier).toMatchObject({
+				status: "active",
+				airsideMappingCount: 1,
+				activeMappingCount: catalogueActive,
+				requestCount: 10,
+				clientErrorCount: 1,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 2,
+			});
+			expect(dayCarrier.routedCost).toBeCloseTo(4);
+			expect(dayCarrier.series).toHaveLength(24);
+			expect(
+				dayCarrier.series.filter((point: { cost: number }) => point.cost > 0),
+			).toEqual([
+				expect.objectContaining({ date: recentHour.toISOString(), cost: 4 }),
+			]);
+
+			const week = await app.request(
+				"/admin/airside/routing-settings?window=7d",
+				{ headers: { Cookie: cookie } },
+			);
+			const weekCarrier = (await week.json()).providers[0];
+			expect(weekCarrier.routedCost).toBeCloseTo(10);
+			expect(weekCarrier.requestCount).toBe(15);
+			expect(weekCarrier.series).toHaveLength(7);
+
+			const month = await app.request(
+				"/admin/airside/routing-settings?window=30d",
+				{ headers: { Cookie: cookie } },
+			);
+			expect((await month.json()).providers[0].series).toHaveLength(30);
+		} finally {
+			await db
+				.delete(tables.modelProviderMappingHistoryHourly)
+				.where(
+					inArray(tables.modelProviderMappingHistoryHourly.id, historyIds),
+				);
+			await db
+				.delete(tables.model)
+				.where(inArray(tables.model.id, [modelId, retiredModelId]));
+			if (!providerExisted) {
+				await db
+					.delete(tables.provider)
+					.where(eq(tables.provider.id, "mistral"));
+			}
 		}
 	});
 

@@ -2068,6 +2068,9 @@ export const providerKey = snakeCase.table(
 		// skips them, so a deliberate exclusion is not re-enabled just because
 		// the account can still serve the model.
 		modelSyncExcluded: text().array(),
+		// When false the daily model sync leaves this key's `allowedModels`
+		// alone, so new models are only ever enabled by hand.
+		modelSyncEnabled: boolean().notNull().default(true),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.
@@ -5546,6 +5549,8 @@ export interface ProviderModelVerificationCheck {
 	label: string;
 	status: ProviderModelVerificationCheckStatus;
 	feedback?: string;
+	/** Set when a check passed only after retrying a timed-out request. */
+	warning?: string;
 	/** Per-request breakdown; present only for checks that probe variants. */
 	probes?: ProviderModelVerificationProbe[];
 }

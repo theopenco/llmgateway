@@ -24,6 +24,7 @@ describe("getModelImageConfig", () => {
 		expect(grok.availableSizes[0]).toBe("1K");
 		expect(grok.availableQualities[0]).toBe("low");
 		expect(gemini.availableSizes[0]).toBe("0.5K");
+		expect(gemini.maxInputImages).toBe(3);
 	});
 
 	it("exposes moderation only for GPT Image models", () => {
@@ -38,5 +39,15 @@ describe("getModelImageConfig", () => {
 		expect(gemini.supportsModeration).toBe(false);
 		expect(gemini.availableModerations).toEqual([]);
 		expect(gemini.defaultModeration).toBeUndefined();
+	});
+
+	it("offers 1K–4K and 14 reference images for Nano Banana 2.1", () => {
+		const config = getModelImageConfig(
+			"google-ai-studio/gemini-nano-banana-2.1",
+		);
+
+		expect(config.availableSizes).toEqual(["1K", "2K", "4K"]);
+		expect(config.defaultSize).toBe("1K");
+		expect(config.maxInputImages).toBe(14);
 	});
 });

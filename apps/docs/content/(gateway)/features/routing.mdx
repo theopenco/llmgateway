@@ -15,8 +15,21 @@ LLMGateway also includes **automatic retry and fallback** — if a provider fail
 Admin routing analytics includes static catalogue mappings and Airside listings,
 including mappings with no traffic in the selected window. Airside listings use
 their filed prices. Inactive listings remain visible but are excluded from scoring.
-Custom carriers that require a provider prefix are marked **provider pin required**;
-their traffic is shown without a score for automatic provider election.
+Approved, active Airside carriers participate in automatic provider selection and
+fallback using their filed prices and capabilities, including carriers defined
+entirely in Airside. Inactive or unapproved carriers remain visible but are
+excluded from scoring. A provider prefix is optional, including when multiple
+carriers list a model that is absent from the static catalogue.
+
+Airside carriers follow the same credential, capability, policy, rate-limit, and
+session rules as other providers. Adding a carrier does not expand the models
+that `auto` may choose. Dynamic-route provider lists include active Airside
+carriers; availability is checked when saving, publishing, rolling back, and
+executing a route.
+
+Scores use the default routing config. They are computed on the router's live
+metrics window and on hourly averages, for each request shape that changes the
+weights: streaming, cached prompts, sessions, and `routing` preferences.
 
 ## Global Provider Rate Limits
 
@@ -185,6 +198,14 @@ The selection reason in routing metadata will show `stable-preferred` when a req
 
 In a project in **hybrid** mode, routing first narrows the candidates to providers you have your own [provider key](/learn/provider-keys) for, and the weighted score picks among those. LLM Gateway's own credentials are used when none of your keys can serve the requested model, as fallback when attempts on your keys fail, or when your current keyed provider's uptime is degraded and no keyed candidate is healthier — escaping the degraded provider takes priority over staying on your key. Projects in API-keys or credits mode are unaffected.
 
+[Dynamic routes](/features/dynamic-routes) can specify provider preference order.
+After eligibility checks and hybrid-mode key preference, that order controls the
+initial provider and cross-provider fallback on non-sticky requests. A healthy
+session pin still wins; if it becomes unavailable, the next request selects a
+replacement using the order. Sticky requests still skip cross-provider retries.
+Regional selection within a provider still uses scores. These requests skip
+random exploration and record `provider-order` when the order decides selection.
+
 **Routing Metadata**:
 
 Every request includes detailed routing metadata in the logs, showing:
@@ -288,7 +309,7 @@ For the Anthropic Messages endpoint (`/v1/messages`), the session key is derived
 
 #### How pinning works
 
-On a session's **first** request the provider is chosen by the normal weighted smart-routing score — the same price-, priority-, uptime-, and throughput-aware algorithm used for non-sticky requests. That choice is then **persisted for the session** and reused on every subsequent request, so the upstream prompt cache stays warm without bouncing the conversation between providers.
+On a session's **first** request, a dynamic route with explicit provider order chooses the first eligible provider and scores its regions. Otherwise, the normal weighted smart-routing score chooses the provider using price, priority, uptime, and throughput. That choice is then **persisted for the session** and reused on every subsequent request, so the upstream prompt cache stays warm without bouncing the conversation between providers.
 
 The first selection uses the expected cache-hit rate and output/input mix even if the opening prompt is short. Routing uses observed project/model usage when sufficiently sampled, otherwise the workload defaults above. New usage observations affect future provider selections; a healthy existing pin stays in place as described below.
 
@@ -298,14 +319,14 @@ Request compatibility takes precedence over the saved pin. The gateway first fil
 
 #### Falling back when a provider is down
 
-An established pin yields only when its provider can no longer serve the session well. A session is re-scored and re-pinned to the current weighted-best provider when its provider:
+An established pin yields only when its provider can no longer serve the session well. A session selects and pins a replacement when its provider:
 
 - Drops below the session uptime threshold (default 85%), except for sessions on models with provider-bound reasoning, or
 - Is filtered out of the candidate set (health or compatibility filtering).
 
 Sticky requests never enter the cross-provider [automatic retry & fallback](#automatic-retry--fallback) loop — a transient failure is retried against the pinned provider only, on another configured key when several exist, or on the same platform key when only one is configured. The failure still degrades that provider's uptime metrics, which is what triggers re-pinning on a subsequent request once the uptime threshold is crossed.
 
-Re-pinning runs the same weighted algorithm again, so the replacement is the best currently available provider — not an arbitrary one.
+Re-pinning follows the same selection rules as the first request: explicit dynamic-route order chooses the provider and scores choose its region; otherwise weighted scoring chooses the provider.
 
 Sessions on models with provider-bound reasoning keep their eligible provider through uptime dips, because OpenAI encrypted reasoning and Gemini thought signatures cannot be replayed on another provider. If a pin expires or the provider becomes ineligible, moving a conversation with its old signatures can produce `Corrupted thought signature` or `Invalid thought signature`. On the pay-as-you-go API, keep a Gemini conversation on one provider with a provider-prefixed model and `X-No-Fallback: true` from its first request. For an affected conversation, resume with the provider that issued its signatures or start a new conversation. See&nbsp;[reasoning replay](/features/reasoning#gemini-thought-signatures).
 
@@ -359,6 +380,10 @@ Some providers expose the same model in multiple regions. In that case, LLMGatew
 
 - `provider/model` selects the best eligible region for that provider using the same routing inputs used elsewhere: recent uptime, throughput, latency, and price
 - `provider/model:region` pins the request to one exact region
+
+When Airside owns a provider/model pair, its active regional listings replace
+the catalogue regions. A pin to an unlisted, inactive, or expired region is rejected. Scheduled regional
+deactivations apply even while listings are cached.
 
 ```bash
 # Let LLMGateway choose the best Alibaba region for DeepSeek V3.2

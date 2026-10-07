@@ -644,6 +644,7 @@ describe("Models API", () => {
 		for (const modelId of [
 			"gemini-3.1-flash-image",
 			"gemini-3.1-flash-image-preview",
+			"gemini-nano-banana-2.1",
 		]) {
 			const imageModel = json.data.find((model: any) => model.id === modelId);
 
