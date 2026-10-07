@@ -168,6 +168,22 @@ describe("getGcpServiceAccountAccessToken", () => {
 		expect(keyA).not.toBe(keyB);
 	});
 
+	it("re-reads a Redis-cached token after a minute", async () => {
+		redisGetMock.mockResolvedValue("shared-token");
+		const now = Date.now();
+		const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+		const credentials = serviceAccount("redis-hit@example.com");
+
+		await getGcpServiceAccountAccessToken(credentials);
+		clock.mockReturnValue(now + 30_000);
+		await getGcpServiceAccountAccessToken(credentials);
+		expect(redisGetMock).toHaveBeenCalledTimes(1);
+
+		clock.mockReturnValue(now + 61_000);
+		await getGcpServiceAccountAccessToken(credentials);
+		expect(redisGetMock).toHaveBeenCalledTimes(2);
+	});
+
 	it("ignores a user-supplied token_uri", async () => {
 		redisGetMock.mockResolvedValue(null);
 		redisSetMock.mockResolvedValue("OK");

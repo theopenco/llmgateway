@@ -19,6 +19,7 @@ export const GOOGLE_OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token";
 const REDIS_KEY_PREFIX = "gcp:service-account:access_token:v2";
 const TTL_SECONDS = 50 * 60;
 const TTL_MS = TTL_SECONDS * 1000;
+const REDIS_HIT_MEMORY_TTL_MS = 60_000;
 
 interface MemoryCacheEntry {
 	token: string;
@@ -161,7 +162,12 @@ export async function getGcpServiceAccountAccessToken(
 	try {
 		const redisToken = await withAbortSignal(redisClient.get(key), abortSignal);
 		if (redisToken) {
-			memoryCache.set(key, { token: redisToken, expiresAt: now + TTL_MS });
+			// Another replica may have minted this up to TTL_MS ago, so it is kept
+			// in memory only briefly rather than for a full fresh lifetime.
+			memoryCache.set(key, {
+				token: redisToken,
+				expiresAt: now + REDIS_HIT_MEMORY_TTL_MS,
+			});
 			return redisToken;
 		}
 	} catch (err) {
