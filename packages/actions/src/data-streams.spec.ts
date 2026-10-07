@@ -624,6 +624,50 @@ describe("data streams", () => {
 		}
 	});
 
+	test("a takeover committing during the cursor write rejects the stale run", async () => {
+		const old = new Date(Date.now() - TEN_MINUTES_MS);
+		await seedAudit(["k1"], old);
+		const stream = await seedStream(new Date(old.getTime() - 1000));
+		const [lease] = await db
+			.insert(tables.lock)
+			.values({ key: "data-stream-spec-takeover" })
+			.returning();
+		let commit!: () => void;
+		const held = new Promise<void>((resolve) => (commit = resolve));
+		let markDeleted!: () => void;
+		const deleted = new Promise<void>((resolve) => (markDeleted = resolve));
+		const takeover = db.transaction(async (tx) => {
+			await tx.delete(tables.lock).where(eq(tables.lock.id, lease.id));
+			markDeleted();
+			await held;
+		});
+		await deleted;
+
+		const run = runDataStream(stream, { leaseId: lease.id });
+		let blocked = false;
+		try {
+			for (let i = 0; i < 40 && !blocked; i++) {
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				const result = await db.execute<{ waiting: number }>(sql`
+					select count(*)::int as waiting from pg_stat_activity
+					where datname = current_database() and wait_event_type = 'Lock'
+						and query ilike 'update "data_stream"%'
+				`);
+				blocked = result.rows[0].waiting > 0;
+			}
+		} finally {
+			commit();
+			await takeover;
+		}
+		await run;
+
+		expect(blocked).toBe(true);
+		expect(received).toHaveLength(1);
+		const after = await reload();
+		expect(after.cursorId).toBe("");
+		expect(after.deliveredCount).toBe(0);
+	});
+
 	test("replays a past window without moving the live cursor", async () => {
 		const old = new Date(Date.now() - ONE_HOUR_MS);
 		await seedAudit(["r1", "r2"], old);
