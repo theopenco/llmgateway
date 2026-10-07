@@ -888,7 +888,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
-				supportedToolChoices: ["auto", "none"],
+				supportedToolChoices: ["auto", "none", "required", "function"],
 				jsonOutputSchema: true,
 				supportedParameters: ["max_tokens", "effort", "tool_choice"],
 				webSearch: true,
