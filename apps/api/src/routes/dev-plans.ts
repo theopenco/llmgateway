@@ -390,7 +390,10 @@ devPlans.openapi(getPersonalOrg, async (c) => {
 // self-heal for the case where that webhook was delayed or missed: without it
 // the org is stuck holding a reference to a dead subscription — resume is
 // rejected by Stripe and a fresh subscribe is blocked as "already active".
-async function resetEndedDevPlan(organizationId: string): Promise<void> {
+async function resetEndedDevPlan(
+	organizationId: string,
+	subscriptionId?: string,
+): Promise<void> {
 	await db
 		.update(tables.organization)
 		.set({
@@ -410,7 +413,14 @@ async function resetEndedDevPlan(organizationId: string): Promise<void> {
 			devPlanBillingCycleStart: null,
 			subscriptionPaymentStatus: "current",
 		})
-		.where(eq(tables.organization.id, organizationId));
+		.where(
+			and(
+				eq(tables.organization.id, organizationId),
+				subscriptionId
+					? eq(tables.organization.devPlanStripeSubscriptionId, subscriptionId)
+					: undefined,
+			),
+		);
 }
 
 // Subscribe to a dev plan
@@ -769,6 +779,12 @@ devPlans.openapi(cancel, async (c) => {
 		const { immediate } = await cancelPlanSubscription(
 			personalOrg.devPlanStripeSubscriptionId,
 		);
+		if (immediate) {
+			await resetEndedDevPlan(
+				personalOrg.id,
+				personalOrg.devPlanStripeSubscriptionId,
+			);
+		}
 
 		await logAuditEvent({
 			organizationId: personalOrg.id,
@@ -782,10 +798,10 @@ devPlans.openapi(cancel, async (c) => {
 			},
 		});
 
-		// Wait for webhook to process
-		await new Promise((resolve) => {
-			setTimeout(resolve, 3000);
-		});
+		if (!immediate) {
+			// Wait for the scheduled-cancellation webhook.
+			await new Promise((resolve) => setTimeout(resolve, 3000));
+		}
 
 		return c.json({
 			success: true,

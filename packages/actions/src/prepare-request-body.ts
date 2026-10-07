@@ -1794,6 +1794,41 @@ export async function prepareRequestBody(
 		return bytedanceImageRequest;
 	}
 
+	// Handle Tencent Hy Image generation (TokenHub's Chat/Messages image API)
+	if (imageGenerations && usedProvider === "tencent") {
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		const content: Array<
+			| { type: "text"; text: string }
+			| { type: "image_url"; image_url: { url: string } }
+		> = [];
+		if (typeof lastUserMessage?.content === "string") {
+			content.push({ type: "text", text: lastUserMessage.content });
+		} else if (Array.isArray(lastUserMessage?.content)) {
+			for (const part of lastUserMessage.content) {
+				if (part.type === "text" && part.text) {
+					content.push({ type: "text", text: part.text });
+				} else if (part.type === "image_url" && part.image_url) {
+					const url =
+						typeof part.image_url === "string"
+							? part.image_url
+							: part.image_url.url;
+					if (url) {
+						content.push({ type: "image_url", image_url: { url } });
+					}
+				}
+			}
+		}
+
+		return {
+			model: usedExternalId,
+			messages: [{ role: "user", content }],
+			...(image_config?.image_size && { size: image_config.image_size }),
+			...(image_config?.seed !== undefined && { seed: image_config.seed }),
+		} as ProviderRequestBody;
+	}
+
 	// Check if the model supports system role. Look up by canonical model id.
 	const supportsSystemRole =
 		(modelDef as ModelDefinition)?.supportsSystemRole !== false;

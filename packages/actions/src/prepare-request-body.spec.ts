@@ -11,6 +11,7 @@ import {
 
 import type {
 	AnthropicRequestBody,
+	BaseMessage,
 	OpenAIRequestBody,
 	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
@@ -1581,6 +1582,93 @@ describe("prepareRequestBody - Meta image generation", () => {
 		await expect(
 			prepareMetaImageRequest({ image_size: "2048x2048" }),
 		).rejects.toBeInstanceOf(RequestError);
+	});
+});
+
+describe("prepareRequestBody - Tencent Hy Image generation", () => {
+	async function prepareTencentImageRequest(
+		messages: BaseMessage[],
+		imageConfig?: { image_size?: string; seed?: number; n?: number },
+	) {
+		return (await prepareRequestBody(
+			"tencent",
+			"hy-image-v3.5-preview",
+			null,
+			"hy-image-v3.5-preview",
+			messages,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("sends the last user turn as Chat/Messages content with size and seed", async () => {
+		const requestBody = await prepareTencentImageRequest(
+			[
+				{ role: "user", content: "An earlier prompt" },
+				{ role: "assistant", content: "Image generated" },
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Make it a watercolor" },
+						{
+							type: "image_url",
+							image_url: { url: "https://example.com/ref.png" },
+						},
+					],
+				},
+			],
+			{ image_size: "4096x2304", seed: 42, n: 2 },
+		);
+
+		expect(requestBody).toEqual({
+			model: "hy-image-v3.5-preview",
+			messages: [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Make it a watercolor" },
+						{
+							type: "image_url",
+							image_url: { url: "https://example.com/ref.png" },
+						},
+					],
+				},
+			],
+			size: "4096x2304",
+			seed: 42,
+		});
+	});
+
+	test("omits size so the model picks it from the prompt", async () => {
+		const requestBody = await prepareTencentImageRequest([
+			{ role: "user", content: "A lighthouse at dawn" },
+		]);
+
+		expect(requestBody).toEqual({
+			model: "hy-image-v3.5-preview",
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "A lighthouse at dawn" }],
+				},
+			],
+		});
 	});
 });
 
