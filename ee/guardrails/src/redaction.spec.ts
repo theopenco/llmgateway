@@ -81,6 +81,22 @@ describe("applyRedactions", () => {
 		},
 	);
 
+	it("masks a match that starts with an astral character", () => {
+		const result = applyRedactions(
+			[{ role: "user", content: "a 😀secret b 😀secret" }],
+			[
+				{
+					ruleId: "rule_1",
+					messageIndex: 0,
+					kind: "mask",
+					matches: ["😀secret"],
+					pattern: "😀secret",
+				},
+			],
+		);
+		expect(result[0].content).toBe("a ******** b ********");
+	});
+
 	it("masks matches case-insensitively while preserving original length", () => {
 		const messages: Message[] = [
 			{ role: "user", content: "SECRET and secret and Secret" },
