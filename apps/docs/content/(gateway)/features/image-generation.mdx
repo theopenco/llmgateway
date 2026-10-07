@@ -888,10 +888,10 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
-| Parameter    | Type    | Description                                                                                                                                            |
-| ------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `image_size` | string  | Exact output size in `WIDTHxHEIGHT` format. Each side 256–8192, area at most 4096×4096. Omit it to let the model pick the size from the prompt (~1.5K) |
-| `seed`       | integer | Seed for reproducible output                                                                                                                           |
+| Parameter    | Type    | Description                                                                                                                    |
+| ------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `image_size` | string  | Exact output size in `WIDTHxHEIGHT` format. Each side 256–8192. Omit it to let the model pick the size from the prompt (~1.5K) |
+| `seed`       | integer | Seed for reproducible output                                                                                                   |
 
 | Model                           | Description                                                                            |
 | ------------------------------- | -------------------------------------------------------------------------------------- |
