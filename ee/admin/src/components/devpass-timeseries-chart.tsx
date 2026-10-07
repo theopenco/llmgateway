@@ -40,6 +40,14 @@ const chartConfig = {
 		label: "PAYG top-ups",
 		color: "hsl(188 86% 40%)",
 	},
+	totalRevenue: {
+		label: "Total earnings",
+		color: "hsl(160 84% 30%)",
+	},
+	refunds: {
+		label: "Refunds",
+		color: "hsl(0 72% 51%)",
+	},
 	cost: {
 		label: "Provider cost",
 		color: "hsl(32 95% 44%)",
@@ -60,6 +68,8 @@ const SERIES_KEYS = [
 	"revenue",
 	"rawRevenue",
 	"topupRevenue",
+	"totalRevenue",
+	"refunds",
 	"cost",
 	"gatewayMargin",
 	"margin",
@@ -103,6 +113,7 @@ export function DevpassTimeseriesChart({
 	);
 
 	const totals = data?.totals;
+	const usageMultiple = totals?.usageMultiple ?? null;
 
 	const chartData = useMemo(() => {
 		const rows = data?.data ?? [];
@@ -112,6 +123,8 @@ export function DevpassTimeseriesChart({
 		let revenue = 0;
 		let rawRevenue = 0;
 		let topupRevenue = 0;
+		let totalRevenue = 0;
+		let refunds = 0;
 		let cost = 0;
 		let gatewayMargin = 0;
 		let margin = 0;
@@ -119,6 +132,8 @@ export function DevpassTimeseriesChart({
 			revenue += row.revenue;
 			rawRevenue += row.rawRevenue;
 			topupRevenue += row.topupRevenue;
+			totalRevenue += row.totalRevenue;
+			refunds += row.refunds;
 			cost += row.cost;
 			gatewayMargin += row.gatewayMargin;
 			margin += row.margin;
@@ -127,6 +142,8 @@ export function DevpassTimeseriesChart({
 				revenue,
 				rawRevenue,
 				topupRevenue,
+				totalRevenue,
+				refunds,
 				cost,
 				gatewayMargin,
 				margin,
@@ -149,14 +166,30 @@ export function DevpassTimeseriesChart({
 				<div className="flex flex-col gap-1">
 					<CardTitle>DevPass revenue & usage</CardTitle>
 					<CardDescription className="max-w-3xl">
-						Daily revenue net of refunds, raw gross subscription revenue, PAYG
-						overflow top-ups, real provider cost, the Airside gateway margin
-						inside that cost, and the resulting margin (plans + top-ups +
-						gateway margin − cost). Click a total to toggle its series. Range
-						totals won&apos;t match the cycle-scoped KPI cards above.
+						Daily subscription revenue net of refunds, raw gross subscription
+						revenue, PAYG overflow top-ups, total earnings (subscriptions +
+						top-ups, net of refunds), refunds issued, real provider cost, the
+						Airside gateway margin inside that cost, and the resulting margin
+						(plans + top-ups + gateway margin − cost). Average usage is provider
+						cost over subscription revenue net of refunds, excluding top-ups.
+						Click a total to toggle its series. Range totals won&apos;t match
+						the cycle-scoped KPI cards above.
 					</CardDescription>
 				</div>
 				<div className="flex shrink-0 flex-wrap items-center gap-3">
+					<div className="flex flex-col items-end gap-0.5">
+						<span className="text-xs text-muted-foreground">Avg usage</span>
+						<span
+							className={cn(
+								"text-xl font-bold leading-none tabular-nums",
+								usageMultiple !== null &&
+									usageMultiple > 1 &&
+									"text-rose-600 dark:text-rose-400",
+							)}
+						>
+							{usageMultiple === null ? "—" : `${usageMultiple.toFixed(1)}x`}
+						</span>
+					</div>
 					<div className="flex items-center gap-2">
 						<Label
 							htmlFor="devpass-cumulative"
@@ -173,7 +206,7 @@ export function DevpassTimeseriesChart({
 					<ChartTypeToggle value={chartType} onValueChange={setChartType} />
 				</div>
 			</CardHeader>
-			<div className="grid grid-cols-2 border-y sm:grid-cols-3 lg:grid-cols-6">
+			<div className="grid grid-cols-2 border-y sm:grid-cols-4">
 				{SERIES_KEYS.map((key, index) => {
 					const value = totals?.[key] ?? 0;
 					const active = activeSeries.includes(key);
@@ -185,10 +218,10 @@ export function DevpassTimeseriesChart({
 							data-active={active}
 							className={cn(
 								"flex flex-col gap-1 border-border/60 px-4 py-3 text-left transition-colors hover:bg-muted/30 data-[active=true]:bg-muted/50 sm:px-6",
-								index > 0 && "border-l max-sm:odd:border-l-0",
-								index % 3 === 0 && "sm:max-lg:border-l-0",
-								index > 1 && "max-sm:border-t",
-								index > 2 && "sm:max-lg:border-t",
+								index % 2 === 1 && "border-l",
+								index % 4 === 2 && "sm:border-l",
+								index >= 2 && index < 4 && "max-sm:border-t",
+								index >= 4 && "border-t",
 							)}
 							onClick={() => toggleSeries(key)}
 						>

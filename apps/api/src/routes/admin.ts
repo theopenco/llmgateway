@@ -16061,6 +16061,10 @@ const devpassTimeseriesPointSchema = z.object({
 	// PAYG overflow top-ups that day (net of top-up refunds). Counted into
 	// margin because `cost` includes the overflow usage they fund.
 	topupRevenue: z.number(),
+	// Net subscription revenue plus net top-ups.
+	totalRevenue: z.number(),
+	// Subscription and top-up refunds issued that day.
+	refunds: z.number(),
 	cost: z.number(),
 	// Gateway margin on Airside-carrier traffic that day. Added into margin
 	// because `cost` is the catalogue price, which still contains it.
@@ -16074,9 +16078,14 @@ const devpassTimeseriesSchema = z.object({
 		revenue: z.number(),
 		rawRevenue: z.number(),
 		topupRevenue: z.number(),
+		totalRevenue: z.number(),
+		refunds: z.number(),
 		cost: z.number(),
 		gatewayMargin: z.number(),
 		margin: z.number(),
+		// Provider cost over net subscription revenue (excl top-ups); null
+		// when that revenue is not positive.
+		usageMultiple: z.number().nullable(),
 	}),
 	range: z.object({
 		from: z.string(),
@@ -17607,6 +17616,8 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		revenue: number;
 		rawRevenue: number;
 		topupRevenue: number;
+		totalRevenue: number;
+		refunds: number;
 		cost: number;
 		gatewayMargin: number;
 		margin: number;
@@ -17628,6 +17639,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	let totalRevenue = 0;
 	let totalRawRevenue = 0;
 	let totalTopupRevenue = 0;
+	let totalRefunds = 0;
 	let totalCost = 0;
 	let totalGatewayMargin = 0;
 
@@ -17640,9 +17652,11 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	while (cursor.getTime() <= lastDay) {
 		const iso = cursor.toISOString().slice(0, 10);
 		const rawRevenue = revenueMap.get(iso) ?? 0;
-		const revenue = rawRevenue - (refundMap.get(iso) ?? 0);
-		const topupRevenue =
-			(topupMap.get(iso) ?? 0) - (topupRefundMap.get(iso) ?? 0);
+		const planRefunds = refundMap.get(iso) ?? 0;
+		const topupRefunds = topupRefundMap.get(iso) ?? 0;
+		const revenue = rawRevenue - planRefunds;
+		const topupRevenue = (topupMap.get(iso) ?? 0) - topupRefunds;
+		const refunds = planRefunds + topupRefunds;
 		const cost = costMap.get(iso) ?? 0;
 		const gatewayMargin = gatewayMarginMap.get(iso) ?? 0;
 		const margin = revenue + topupRevenue + gatewayMargin - cost;
@@ -17651,6 +17665,8 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 			revenue,
 			rawRevenue,
 			topupRevenue,
+			totalRevenue: revenue + topupRevenue,
+			refunds,
 			cost,
 			gatewayMargin,
 			margin,
@@ -17658,6 +17674,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		totalRevenue += revenue;
 		totalRawRevenue += rawRevenue;
 		totalTopupRevenue += topupRevenue;
+		totalRefunds += refunds;
 		totalCost += cost;
 		totalGatewayMargin += gatewayMargin;
 		cursor.setUTCDate(cursor.getUTCDate() + 1);
@@ -17669,9 +17686,12 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 			revenue: totalRevenue,
 			rawRevenue: totalRawRevenue,
 			topupRevenue: totalTopupRevenue,
+			totalRevenue: totalRevenue + totalTopupRevenue,
+			refunds: totalRefunds,
 			cost: totalCost,
 			gatewayMargin: totalGatewayMargin,
 			margin: totalRevenue + totalTopupRevenue + totalGatewayMargin - totalCost,
+			usageMultiple: totalRevenue > 0 ? totalCost / totalRevenue : null,
 		},
 		range: {
 			from: startDate.toISOString().slice(0, 10),
