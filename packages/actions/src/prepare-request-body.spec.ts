@@ -11,6 +11,7 @@ import {
 
 import type {
 	AnthropicRequestBody,
+	BaseMessage,
 	OpenAIRequestBody,
 	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
@@ -1693,6 +1694,145 @@ describe("prepareRequestBody - Anthropic", () => {
 		).length;
 		expect(messageMarkers).toBe(2);
 	});
+
+	test.each(
+		[
+			["anthropic", "claude-sonnet-5", "claude-sonnet-5"],
+			[
+				"aws-bedrock",
+				"claude-sonnet-4-5",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			],
+		].flatMap(([provider, model, upstreamModel]) =>
+			(["field", "parts", "override"] as const).map((source) => ({
+				provider,
+				model,
+				upstreamModel,
+				source,
+			})),
+		),
+	)(
+		"$provider reserves caller breakpoints before caching opening system messages ($source marker)",
+		async ({ provider, model, upstreamModel, source }) => {
+			const resultText =
+				source === "field"
+					? "Lookup complete."
+					: JSON.stringify([{ type: "text", text: "Lookup complete." }]);
+			const messages: BaseMessage[] = [
+				...Array.from({ length: 4 }, () => ({
+					role: "system" as const,
+					content: "Stable system context. ".repeat(2000),
+				})),
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Run the lookup tool." },
+						{ type: "text", text: " ", cache_control: { type: "ephemeral" } },
+					],
+				},
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "call_lookup",
+							type: "function",
+							function: { name: "lookup", arguments: "{}" },
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "call_lookup",
+					content:
+						source === "field"
+							? "Lookup complete."
+							: [
+									{
+										type: "text",
+										text: "Lookup complete.",
+										cache_control: {
+											type: "ephemeral",
+											...(source === "override" && { ttl: "1h" }),
+										},
+									},
+								],
+					...(source !== "parts" && {
+						tool_result_cache_control: { type: "ephemeral" },
+					}),
+				},
+			];
+			const body = await prepareRequestBody(
+				provider,
+				model,
+				null,
+				upstreamModel,
+				messages,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+			);
+			const resultContent =
+				provider === "anthropic"
+					? [
+							{
+								type: "tool_result",
+								tool_use_id: "call_lookup",
+								content: resultText,
+								cache_control: { type: "ephemeral" },
+							},
+						]
+					: [
+							{
+								toolResult: {
+									toolUseId: "call_lookup",
+									content: [{ text: resultText }],
+								},
+							},
+							{ cachePoint: { type: "default" } },
+						];
+			expect(body).toHaveProperty("messages.2.content", resultContent);
+			expect(
+				JSON.stringify(body).match(/"cache_control"|"cachePoint"/g),
+			).toHaveLength(4);
+			const withoutMarker = messages.map((message) =>
+				message.role === "tool"
+					? {
+							...message,
+							content:
+								source === "field"
+									? "Lookup complete."
+									: [{ type: "text" as const, text: "Lookup complete." }],
+							tool_result_cache_control: undefined,
+						}
+					: message,
+			);
+			const nextBody = await prepareRequestBody(
+				provider,
+				model,
+				null,
+				upstreamModel,
+				withoutMarker,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+			);
+			expect(nextBody).toHaveProperty(
+				provider === "anthropic"
+					? "messages.2.content.0.content"
+					: "messages.2.content.0.toolResult.content.0.text",
+				resultText,
+			);
+		},
+	);
 });
 
 describe("prepareRequestBody - OpenAI image generation", () => {

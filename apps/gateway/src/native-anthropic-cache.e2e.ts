@@ -10,6 +10,9 @@ import {
 	logMode,
 } from "@/chat-helpers.e2e.js";
 
+import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+
 import { app } from "./app.js";
 import { waitForLogByRequestId } from "./test-utils/test-helpers.js";
 
@@ -54,7 +57,7 @@ async function sendUntilCacheRead(
 
 const hasAnthropicKey = !!process.env.LLM_ANTHROPIC_API_KEY;
 const hasBedrockKey = !!process.env.LLM_AWS_BEDROCK_API_KEY;
-const hasVertexKey = !!process.env.LLM_GOOGLE_VERTEX_API_KEY;
+const hasVertexKey = !!process.env.LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON;
 
 // This suite tests hardcoded anthropic/bedrock model IDs, so it's not relevant
 // when the run is scoped via TEST_MODELS to unrelated providers.
@@ -950,6 +953,8 @@ describeCache(
 			model: string,
 			rounds: number,
 			attempt: number,
+			mode: "auto" | "passthrough",
+			cachedAttempts: ReadonlyMap<number, number>,
 		) {
 			const messages: unknown[] = [
 				{ role: "user", content: "Run the lookup tool until told to stop." },
@@ -959,29 +964,29 @@ describeCache(
 				messages.push(
 					{
 						role: "assistant",
-						content: [
-							{
-								type: "tool_use",
-								id: `toolu_${round}`,
-								name: "lookup",
-								input: { round },
-							},
-						],
+						content: Array.from({ length: 3 }, (_, index) => ({
+							type: "tool_use",
+							id: `toolu_${round}_${index}`,
+							name: "lookup",
+							input: { round, index },
+						})),
 					},
 					{
 						role: "user",
-						content: [
-							{
-								type: "tool_result",
-								tool_use_id: `toolu_${round}`,
-								content: buildUniqueLongSystemPrompt(
-									`${agentLoopRunTag}-${model}-result-${round}-${round === rounds ? attempt : 0}`,
-								),
-								...(round === rounds && {
+						content: Array.from({ length: 3 }, (_, index) => ({
+							type: "tool_result",
+							tool_use_id: `toolu_${round}_${index}`,
+							content:
+								index === 0
+									? buildUniqueLongSystemPrompt(
+											`${agentLoopRunTag}-${model}-${mode}-result-${round}-${round === rounds ? attempt : (cachedAttempts.get(round) ?? 0)}`,
+										)
+									: `Lookup ${round}.${index} completed.`,
+							...(round === rounds &&
+								index === 2 && {
 									cache_control: { type: "ephemeral" },
 								}),
-							},
-						],
+						})),
 					},
 					{ role: "system", content: `Reminder ${round}: reply briefly.` },
 				);
@@ -992,7 +997,9 @@ describeCache(
 				system: [
 					{
 						type: "text",
-						text: buildUniqueLongSystemPrompt(`${agentLoopRunTag}-${model}`),
+						text: buildUniqueLongSystemPrompt(
+							`${agentLoopRunTag}-${model}-${mode}`,
+						),
 						cache_control: { type: "ephemeral" },
 					},
 				],
@@ -1020,52 +1027,94 @@ describeCache(
 		];
 
 		for (const [model, hasKey] of agentLoopModels) {
-			(hasKey ? test : test.skip)(
-				`/v1/messages reads the conversation from cache across agent turns for ${model}`,
-				getTestOptions(),
-				async () => {
-					const send = async (rounds: number, attempt = 0) => {
-						const res = await app.request("/v1/messages", {
-							method: "POST",
-							headers: {
-								"Content-Type": "application/json",
-								"x-request-id": generateTestRequestId(),
-								"x-no-fallback": "true",
-								Authorization: `Bearer real-token`,
-							},
-							body: JSON.stringify(buildAgentLoopBody(model, rounds, attempt)),
+			for (const mode of ["auto", "passthrough"] as const) {
+				(hasKey ? test : test.skip)(
+					`/v1/messages reads the conversation from cache across agent turns for ${model} in ${mode} mode`,
+					getTestOptions(),
+					async () => {
+						const projectId = generateTestRequestId();
+						const token = generateTestRequestId();
+						await db.insert(tables.project).values({
+							id: projectId,
+							name: "Cache Test Project",
+							organizationId: "org-id",
+							mode: "api-keys",
+							providerCacheControlMode: mode,
 						});
-						const json = await res.json();
-						if (logMode) {
-							console.log("agent loop", model, rounds, res.status, json.usage);
+						await db.insert(tables.apiKey).values({
+							id: generateTestRequestId(),
+							projectId,
+							...hashApiKeyForStorage(token),
+							createdBy: "user-id",
+							description: "Cache Test API Key",
+						});
+						const cachedAttempts = new Map<number, number>();
+						const send = async (rounds: number, attempt = 0) => {
+							const res = await app.request("/v1/messages", {
+								method: "POST",
+								headers: {
+									"Content-Type": "application/json",
+									"x-request-id": generateTestRequestId(),
+									"x-no-fallback": "true",
+									Authorization: `Bearer ${token}`,
+								},
+								body: JSON.stringify(
+									buildAgentLoopBody(
+										model,
+										rounds,
+										attempt,
+										mode,
+										cachedAttempts,
+									),
+								),
+							});
+							const json = await res.json();
+							if (logMode) {
+								console.log(
+									"agent loop",
+									model,
+									rounds,
+									res.status,
+									json.usage,
+								);
+							}
+							return { status: res.status, json };
+						};
+
+						const first = await send(1);
+						expect(first.status).toBe(200);
+						let previousCached =
+							(first.json.usage.cache_creation_input_tokens ?? 0) +
+							(first.json.usage.cache_read_input_tokens ?? 0);
+						expect(previousCached).toBeGreaterThan(0);
+
+						for (const rounds of [4, 7, 10, 13]) {
+							let cacheRead = 0;
+							let currentCached = 0;
+							for (let attempt = 1; attempt <= 4; attempt++) {
+								const second = await send(rounds, attempt);
+								expect(second.status).toBe(200);
+								cacheRead = second.json.usage.cache_read_input_tokens ?? 0;
+								currentCached =
+									cacheRead +
+									(second.json.usage.cache_creation_input_tokens ?? 0);
+								if (cacheRead >= previousCached) {
+									cachedAttempts.set(rounds, attempt);
+									break;
+								}
+								await new Promise((r) => setTimeout(r, 500 * attempt));
+							}
+
+							expect(
+								cacheRead,
+								`cache prefix lost at round ${rounds} in ${mode} mode`,
+							).toBeGreaterThanOrEqual(previousCached);
+							expect(currentCached).toBeGreaterThan(previousCached);
+							previousCached = currentCached;
 						}
-						return { status: res.status, json };
-					};
-
-					const first = await send(1);
-					expect(first.status).toBe(200);
-					const firstCached =
-						(first.json.usage.cache_creation_input_tokens ?? 0) +
-						(first.json.usage.cache_read_input_tokens ?? 0);
-					expect(firstCached).toBeGreaterThan(0);
-
-					// Cache writes are eventually consistent, so allow a few tries.
-					let cacheRead = 0;
-					for (let attempt = 1; attempt <= 4; attempt++) {
-						const second = await send(2, attempt);
-						expect(second.status).toBe(200);
-						cacheRead = second.json.usage.cache_read_input_tokens ?? 0;
-						if (cacheRead >= firstCached) {
-							break;
-						}
-						await new Promise((r) => setTimeout(r, 500 * attempt));
-					}
-
-					// Everything the first turn cached, system prompt and
-					// conversation alike, is read back rather than written again.
-					expect(cacheRead).toBeGreaterThanOrEqual(firstCached);
-				},
-			);
+					},
+				);
+			}
 		}
 	},
 );

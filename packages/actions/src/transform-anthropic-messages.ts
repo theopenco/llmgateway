@@ -42,6 +42,60 @@ function findCacheControl(
 	return marker;
 }
 
+export function getToolResultCacheControl(
+	message: BaseMessage,
+): CacheControl | undefined {
+	return message.tool_result_cache_control ?? findCacheControl(message.content);
+}
+
+export function getToolResultText(message: BaseMessage): string {
+	if (!Array.isArray(message.content)) {
+		return message.content ?? "";
+	}
+	return JSON.stringify(
+		message.content.map((part) => {
+			if (!isTextContent(part)) {
+				return part;
+			}
+			const { cache_control: _marker, ...content } = part;
+			return content;
+		}),
+	);
+}
+
+/**
+ * Caller breakpoints the message transform will emit, counted before automatic
+ * ones are allocated. Bedrock also emits markers on tool results without
+ * content, and drops text markers on assistant tool-call turns.
+ */
+export function getCallerCacheControls(
+	messages: readonly BaseMessage[],
+	format: "anthropic" | "bedrock" = "anthropic",
+): CacheControl[] {
+	return messages.flatMap((message) => {
+		if (message.tool_call_id) {
+			const marker = getToolResultCacheControl(message);
+			return marker && (format === "bedrock" || message.content !== undefined)
+				? [marker]
+				: [];
+		}
+		if (
+			format === "bedrock" &&
+			message.role === "assistant" &&
+			message.tool_calls?.length
+		) {
+			return [];
+		}
+		return Array.isArray(message.content)
+			? message.content.flatMap((part) =>
+					isTextContent(part) && part.text?.trim() && part.cache_control
+						? [part.cache_control]
+						: [],
+				)
+			: [];
+	});
+}
+
 /**
  * Transforms Anthropic messages
  * @param initialCacheControlCount - Number of cache_control blocks already used (e.g., from system messages)
@@ -74,18 +128,7 @@ export async function transformAnthropicMessages(
 	// Breakpoints the caller placed further on. Auto-injection leaves room for
 	// them: spending the budget on early long blocks would drop the caller's
 	// trailing marker, the one that keeps a growing conversation cached.
-	let pendingCallerMarkers = 0;
-	for (const m of messages) {
-		if (m.tool_call_id && m.content !== undefined) {
-			if (m.tool_result_cache_control ?? findCacheControl(m.content)) {
-				pendingCallerMarkers++;
-			}
-		} else if (Array.isArray(m.content)) {
-			pendingCallerMarkers += m.content.filter(
-				(part) => isTextContent(part) && part.text && part.cache_control,
-			).length;
-		}
-	}
+	let pendingCallerMarkers = getCallerCacheControls(messages).length;
 
 	// Keep track of all tool_use IDs seen so far to ensure uniqueness
 	const seenToolUseIds = new Set<string>();
@@ -155,7 +198,7 @@ export async function transformAnthropicMessages(
 		// message field (Anthropic Messages API callers, whose tool_result content
 		// is lowered to a string) or on a text part (OpenAI-format callers).
 		const toolResultCacheControl = isDiscardedToolResult
-			? (m.tool_result_cache_control ?? findCacheControl(m.content))
+			? getToolResultCacheControl(m)
 			: undefined;
 
 		// Handle existing content
@@ -200,7 +243,7 @@ export async function transformAnthropicMessages(
 							} as TextContent;
 						}
 					}
-					if (isTextContent(part) && part.text) {
+					if (isTextContent(part) && part.text?.trim()) {
 						if (part.cache_control) {
 							pendingCallerMarkers--;
 							// Count caller-supplied markers toward Anthropic's 4-block
@@ -300,8 +343,7 @@ export async function transformAnthropicMessages(
 		if (originalRole === "tool" && m.tool_call_id && m.content !== undefined) {
 			// For tool results, we need to check if content is JSON string and parse it appropriately
 			let toolResultContent: string;
-			const contentStr =
-				typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+			const contentStr = getToolResultText(m);
 			try {
 				// Try to parse as JSON to see if it's structured data
 				const parsed = JSON.parse(contentStr);
