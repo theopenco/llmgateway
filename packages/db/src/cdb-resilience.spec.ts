@@ -151,7 +151,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const workingCdb = drizzle({
 			client: workingPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -183,7 +182,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 		// Create a new cdb instance with the broken pool but SAME cache instance
 		const brokenCdb = drizzle({
 			client: brokenPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache, // Same cache instance!
 		});
@@ -227,7 +225,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const workingCdb = drizzle({
 			client: workingPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -252,7 +249,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const brokenCdb = drizzle({
 			client: brokenPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -286,7 +282,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const workingCdb = drizzle({
 			client: workingPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -314,7 +309,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const brokenCdb = drizzle({
 			client: brokenPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -350,7 +344,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const workingCdb = drizzle({
 			client: workingPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -376,7 +369,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const brokenCdb = drizzle({
 			client: brokenPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -409,7 +401,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const brokenCdb = drizzle({
 			client: brokenPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -443,7 +434,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const workingCdb = drizzle({
 			client: workingPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -470,7 +460,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const slowCdb = drizzle({
 			client: slowPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -516,7 +505,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const workingCdb = drizzle({
 			client: workingPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -545,7 +533,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const brokenCdb = drizzle({
 			client: brokenPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -582,7 +569,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const workingCdb = drizzle({
 			client: workingPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -611,7 +597,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const brokenCdb = drizzle({
 			client: brokenPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -646,7 +631,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const workingCdb = drizzle({
 			client: workingPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -673,7 +657,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const brokenCdb = drizzle({
 			client: brokenPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -708,7 +691,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const workingCdb = drizzle({
 			client: workingPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});
@@ -736,7 +718,6 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const brokenCdb = drizzle({
 			client: brokenPool,
-			casing: "snake_case",
 			relations,
 			cache: sharedCache,
 		});

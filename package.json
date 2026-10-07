@@ -20,6 +20,7 @@
 		"license:issue": "tsx scripts/internal/issue-enterprise-license.ts",
 		"migrate": "pnpm --filter db migrate",
 		"migrations": "pnpm --filter db migrations",
+		"migrations:check": "pnpm --filter db migrations:check",
 		"prepare-codex": "mv ~/.nvm ~/.nvm-bak && export PATH=\"${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH\" && . ~/.bashrc && sudo service postgresql start && sudo service redis-server start && sleep 20 && pnpm sync",
 		"push": "pnpm push-dev && pnpm push-test",
 		"push-dev": "pnpm --filter db push",
@@ -146,6 +147,11 @@
 			"@hookform/resolvers": {
 				"peerDependencies": {
 					"zod": "*"
+				}
+			},
+			"drizzle-kit": {
+				"peerDependencies": {
+					"drizzle-orm": ">=1.0.0-rc.4"
 				}
 			}
 		},
