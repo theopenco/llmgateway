@@ -19,6 +19,10 @@ describe("getSafeRedirectPath", () => {
 		"/\\/evil.com",
 		"/\t/evil.com",
 		"javascript:alert(1)",
+		"/..//evil.com",
+		"/.//evil.com",
+		"/a/../..//evil.com",
+		"/%2e%2e//evil.com",
 	])("falls back for %j", (url) => {
 		expect(getSafeRedirectPath(url, "/home")).toBe("/home");
 	});

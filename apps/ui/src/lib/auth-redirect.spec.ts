@@ -21,6 +21,7 @@ describe("authentication redirects", () => {
 		"/\\outside.example.com",
 		"\\outside.example.com",
 		"/\n/outside.example.com",
+		"/..//outside.example.com",
 	])("rejects external or malformed redirects: %s", (target) => {
 		expect(getAuthRedirect(target)).toBe("/dashboard");
 	});
