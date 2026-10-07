@@ -25,7 +25,7 @@ full `pnpm build`.
 ## Queries
 
 - Use Drizzle's object syntax; reads via `db().query.<table>.findMany()` / `findFirst()`.
-- Columns are camelCase in TypeScript and snake_case in the database (`casing: "snake_case"`); raw SQL uses `user_id`, not `userId`.
+- Columns are camelCase in TypeScript and snake_case in the database (tables use `snakeCase.table`, so `column.name` is the snake_case name); raw SQL uses `user_id`, not `userId`.
 - Usage and analytics read the hourly aggregation tables: `project_hourly_stats`, `project_hourly_model_stats` (adds `used_model`/`used_provider`), `project_hourly_source_stats` (adds `source`), `api_key_hourly_stats`, `api_key_hourly_model_stats`, `global_model_stats`, `global_source_stats`. Join `project` → `organization` for org fields such as `billing_email`. Query `log` only for data no aggregate holds (payloads, `request_id` lookups, individual finish reasons), and say why.
 - `log` can hold billions of rows, takes an insert per request, and holds prompts, completions, and tool payloads. Retention nulls its payload columns but never deletes rows, so an unbounded scan covers the full history.
 - Bound every `log` read by an indexed leading column (`project_id`, `api_key_id`, …) and by `created_at` on both ends. A keyset cursor written as `created_at > c OR (created_at = c AND id > i)` gives no index lower bound; add `created_at >= c`. `EXPLAIN (ANALYZE, BUFFERS)` against data skewed toward one large org, where plans that are cheap for small orgs flip to scans from the start of the index.

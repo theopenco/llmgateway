@@ -218,20 +218,12 @@ const HISTORY_METRIC_COLUMNS = [
 // parameters; history rows have fewer than 40 columns.
 const HISTORY_UPSERT_CHUNK_SIZE = 1000;
 
-// The schema uses Drizzle's global `casing: "snake_case"`, so a column's `.name`
-// is the camelCase logical name and the snake_case DB name is only resolved at
-// SQL-build time. The raw `excluded.<column>` reference below needs the actual
-// DB column name, so convert it the same way Drizzle does.
-function toSnakeCase(name: string): string {
-	return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
-}
-
 function buildHistoryUpsert(
 	columns: Record<(typeof HISTORY_METRIC_COLUMNS)[number], Column>,
 ): { set: Record<string, SQL>; setWhere: SQL } {
 	const set: Record<string, SQL> = {};
 	for (const key of HISTORY_METRIC_COLUMNS) {
-		set[key] = sql`excluded.${sql.identifier(toSnakeCase(columns[key].name))}`;
+		set[key] = sql`excluded.${sql.identifier(columns[key].name)}`;
 	}
 	set.updatedAt = sql`now()`;
 	// Repeated refreshes usually leave most rows unchanged. Compare every metric

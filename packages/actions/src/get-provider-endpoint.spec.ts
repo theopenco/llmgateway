@@ -138,6 +138,28 @@ describe("getProviderEndpoint", () => {
 		);
 	});
 
+	it("routes Tencent image generation to the Hy Image endpoint", () => {
+		const base = "https://tokenhub-intl.tencentcloudmaas.com";
+		const endpoint = (imageGenerations: boolean, model: string) =>
+			getProviderEndpoint(
+				"tencent",
+				base,
+				model,
+				undefined,
+				false,
+				false,
+				false,
+				undefined,
+				undefined,
+				imageGenerations,
+			);
+
+		expect(endpoint(true, "hy-image-v3.5-preview")).toBe(
+			`${base}/v1/wand/hunyuan-image/v35-generation`,
+		);
+		expect(endpoint(false, "hy3")).toBe(`${base}/v1/chat/completions`);
+	});
+
 	it("rejects unsupported Runpod models", () => {
 		expect(() =>
 			getProviderEndpoint("runpod", undefined, "unregistered-model"),

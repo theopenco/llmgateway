@@ -210,7 +210,7 @@ export function ChatPricingPlans({
 			}
 			toast.success(
 				data.immediate
-					? "Membership cancelled — your renewal payment had failed, so no further charges will be attempted"
+					? "Membership ended — no further renewal charges will be attempted"
 					: "Membership cancelled — access continues until period end",
 			);
 			await refresh();

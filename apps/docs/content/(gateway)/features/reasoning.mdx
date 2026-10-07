@@ -43,7 +43,7 @@ Add the `reasoning_effort` parameter directly to your request:
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
 - `xhigh` - Very deep reasoning for the most complex problems
-- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google, Alibaba) have each tier translated to a native budget
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Gemini 2.5, Alibaba) have each tier translated to a native budget. Gemini 3+ models receive a thinking level: `xhigh` and `max` map to `high`, and a tier the model does not list in `reasoning_efforts` rises to the next one it does
 
 <Callout type="info">
 	OpenAI's reasoning models do not all accept the same effort values. The
@@ -81,7 +81,7 @@ Use the unified `reasoning` configuration object with an `effort` field:
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
 - `xhigh` - Very deep reasoning for the most complex problems
-- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google, Alibaba) have each tier translated to a native budget
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Gemini 2.5, Alibaba) have each tier translated to a native budget. Gemini 3+ models receive a thinking level: `xhigh` and `max` map to `high`, and a tier the model does not list in `reasoning_efforts` rises to the next one it does
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \

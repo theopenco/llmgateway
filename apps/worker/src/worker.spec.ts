@@ -11,10 +11,13 @@ import {
 import { db, eq, inArray, tables } from "@llmgateway/db";
 
 import {
+	acquireLease,
 	acquireLock,
 	cleanupExpiredLogData,
 	cleanupExpiredModelHistory,
 	processAutoTopUp,
+	releaseLease,
+	touchLease,
 } from "./worker.js";
 
 const stripeMock = vi.hoisted(() => ({
@@ -55,6 +58,7 @@ describe("worker", () => {
 			"test-lock-3",
 			"test-lock-4a",
 			"test-lock-4b",
+			"test-lease-1",
 		],
 		logId: "retention-test-log",
 		orgId: "retention-test-org",
@@ -201,6 +205,36 @@ describe("worker", () => {
 
 			const lockKeys = locks.map((lock) => lock.key).sort();
 			expect(lockKeys).toEqual([lockKey1, lockKey2].sort());
+		});
+	});
+
+	describe("leases", () => {
+		test("a stale holder cannot touch or release a lease taken over after expiry", async () => {
+			const key = "test-lease-1";
+			const stale = await acquireLease(key);
+			expect(stale).toBeTruthy();
+			// eslint-disable-next-line no-mixed-operators
+			const expired = new Date(Date.now() - 15 * 60 * 1000);
+			await db
+				.update(tables.lock)
+				.set({ updatedAt: expired })
+				.where(eq(tables.lock.key, key));
+
+			const current = await acquireLease(key);
+			expect(current).toBeTruthy();
+			expect(current).not.toBe(stale);
+			expect(await touchLease(stale!)).toBe(false);
+			await releaseLease(stale!);
+			const held = await db.query.lock.findMany({
+				where: { key: { eq: key } },
+			});
+			expect(held.map((lock) => lock.id)).toEqual([current]);
+
+			expect(await touchLease(current!)).toBe(true);
+			await releaseLease(current!);
+			expect(
+				await db.query.lock.findMany({ where: { key: { eq: key } } }),
+			).toHaveLength(0);
 		});
 	});
 

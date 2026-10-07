@@ -9,6 +9,7 @@ import { activity } from "./activity.js";
 import { adminAirside } from "./admin-airside.js";
 import { adminBenchmarks } from "./admin-benchmarks.js";
 import { adminContentFilter } from "./admin-content-filter.js";
+import { adminCrm } from "./admin-crm.js";
 import { adminLicense } from "./admin-license.js";
 import { adminLimitHits } from "./admin-limit-hits.js";
 import { adminLoad } from "./admin-load.js";
@@ -104,6 +105,7 @@ routes.route("/admin", adminBenchmarks);
 routes.route("/admin", adminAirside);
 routes.route("/admin", adminModelVerifications);
 routes.route("/admin", adminSdk);
+routes.route("/admin", adminCrm);
 
 routes.route("/airside", airside);
 

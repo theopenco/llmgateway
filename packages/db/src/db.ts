@@ -49,7 +49,6 @@ const instrumentedPool = instrumentDrizzle(pool, {
 
 export const db = drizzle({
 	client: instrumentedPool,
-	casing: "snake_case",
 	relations,
 });
 

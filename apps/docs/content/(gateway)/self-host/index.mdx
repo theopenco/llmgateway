@@ -61,6 +61,19 @@ tenant-filtered views. Daily charts retain hourly peaks, so switching from 7 to
 30 days does not smooth away a spike. Peak timestamps identify the start of the
 interval; the current incomplete interval is excluded.
 
+## Support chat diagnostics
+
+Support chat errors can arrive inside an HTTP `200` event stream. In the API
+logs, search for the conversation's `conversationId`, then follow `requestId`
+for each visitor attempt and `gatewayRequestId` into the gateway logs.
+
+`Chat support request finished` records whether the attempt completed, failed,
+returned an empty answer, was rejected, was aborted, or stayed silent because
+the conversation was escalated. Failure events include the stage and available
+provider error code or HTTP status. Gateway and step events record timing,
+selected models, token counts, and tool-call counts without recording chat
+contents or raw SDK error payloads.
+
 ## Sign-up email restrictions
 
 With `HOSTED=true`, administrators can manage the custom email-domain blocklist in

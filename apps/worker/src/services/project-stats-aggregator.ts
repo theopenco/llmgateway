@@ -317,10 +317,7 @@ function statsUpdate(
 	const existing: AnyColumn[] = [];
 	const incoming: SQL[] = [];
 	for (const key of Object.keys(fields)) {
-		const name = columns[key].name
-			.replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-			.toLowerCase();
-		const excluded = sql`excluded.${sql.identifier(name)}`;
+		const excluded = sql`excluded.${sql.identifier(columns[key].name)}`;
 		set[key] = accumulate ? sql`${columns[key]} + ${excluded}` : excluded;
 		existing.push(columns[key]);
 		incoming.push(excluded);

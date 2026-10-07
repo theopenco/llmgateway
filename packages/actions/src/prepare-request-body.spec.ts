@@ -11,6 +11,7 @@ import {
 
 import type {
 	AnthropicRequestBody,
+	BaseMessage,
 	OpenAIRequestBody,
 	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
@@ -1591,6 +1592,93 @@ describe("prepareRequestBody - Meta image generation", () => {
 		await expect(
 			prepareMetaImageRequest({ image_size: "2048x2048" }),
 		).rejects.toBeInstanceOf(RequestError);
+	});
+});
+
+describe("prepareRequestBody - Tencent Hy Image generation", () => {
+	async function prepareTencentImageRequest(
+		messages: BaseMessage[],
+		imageConfig?: { image_size?: string; seed?: number; n?: number },
+	) {
+		return (await prepareRequestBody(
+			"tencent",
+			"hy-image-v3.5-preview",
+			null,
+			"hy-image-v3.5-preview",
+			messages,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("sends the last user turn as Chat/Messages content with size and seed", async () => {
+		const requestBody = await prepareTencentImageRequest(
+			[
+				{ role: "user", content: "An earlier prompt" },
+				{ role: "assistant", content: "Image generated" },
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Make it a watercolor" },
+						{
+							type: "image_url",
+							image_url: { url: "https://example.com/ref.png" },
+						},
+					],
+				},
+			],
+			{ image_size: "4096x2304", seed: 42, n: 2 },
+		);
+
+		expect(requestBody).toEqual({
+			model: "hy-image-v3.5-preview",
+			messages: [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Make it a watercolor" },
+						{
+							type: "image_url",
+							image_url: { url: "https://example.com/ref.png" },
+						},
+					],
+				},
+			],
+			size: "4096x2304",
+			seed: 42,
+		});
+	});
+
+	test("omits size so the model picks it from the prompt", async () => {
+		const requestBody = await prepareTencentImageRequest([
+			{ role: "user", content: "A lighthouse at dawn" },
+		]);
+
+		expect(requestBody).toEqual({
+			model: "hy-image-v3.5-preview",
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "A lighthouse at dawn" }],
+				},
+			],
+		});
 	});
 });
 
@@ -3913,6 +4001,44 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		);
 	});
 
+	test("maps reasoning_effort to thinkingLevel on Gemini 3+", async () => {
+		const cases = [
+			{ model: "gemini-3.6-flash", effort: "minimal", expected: "minimal" },
+			{ model: "gemini-3.6-flash", effort: "medium", expected: "medium" },
+			{ model: "gemini-3.6-flash", effort: "max", expected: "high" },
+			// minimal is undeclared (and 400s) on 3.8 Flash and Pro.
+			{ model: "gemini-3.8-flash", effort: "minimal", expected: "low" },
+			{ model: "gemini-3.1-pro-preview", effort: "minimal", expected: "low" },
+		] as const;
+
+		for (const { model, effort, expected } of cases) {
+			const requestBody = (await prepareRequestBody(
+				"google-ai-studio",
+				model,
+				null,
+				model,
+				[{ role: "user", content: "test" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				effort,
+				true,
+				false,
+			)) as any;
+
+			expect(requestBody.generationConfig.thinkingConfig).toEqual({
+				includeThoughts: true,
+				thinkingLevel: expected,
+			});
+		}
+	});
+
 	test("should not set thinkingBudget when reasoning_effort is not provided", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
@@ -6121,9 +6247,9 @@ describe("prepareRequestBody - Alibaba cache_control", () => {
 // Sibling to the Anthropic max_tokens regression tests above. Every provider
 // gets the same three checks (caller-supplied, caller-omitted, reasoning) so
 // we never silently regress to a stale fallback the way the Anthropic 1024
-// default did (see PR #2289). For providers where max_tokens is OPTIONAL
-// upstream (everything except Anthropic), the omit path must leave the field
-// undefined so the provider's own default wins.
+// default did (see PR #2289). Claude needs an explicit max_tokens on every
+// platform; for other providers the omit path must leave the field undefined
+// so the provider's own default wins.
 describe("prepareRequestBody - max_tokens forwarding", () => {
 	describe("aws-bedrock (Anthropic via Converse)", () => {
 		test("forwards caller-supplied max_tokens verbatim", async () => {
@@ -6150,10 +6276,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			expect(requestBody.inferenceConfig?.maxTokens).toBe(32000);
 		});
 
-		test("leaves maxTokens unset when caller omits (no reasoning)", async () => {
-			// Bedrock's Converse API tolerates omitting max_tokens; the historical
-			// 1024 default was Anthropic-specific. When reasoning is off, just let
-			// upstream pick.
+		test("falls back to model maxOutput when caller omits (no reasoning)", async () => {
+			// Converse silently caps Claude at 4096 output tokens when maxTokens
+			// is omitted.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
 				"claude-sonnet-4-6",
@@ -6174,7 +6299,7 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				false,
 			)) as any;
 
-			expect(requestBody.inferenceConfig?.maxTokens).toBeUndefined();
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(64000);
 		});
 
 		test("falls back to model maxOutput when caller omits with reasoning enabled", async () => {

@@ -4,6 +4,41 @@ import { logger } from "@llmgateway/logger";
 
 import type Stripe from "stripe";
 
+async function listInvoicesByStatus(
+	subscriptionId: string,
+	status: "draft" | "open",
+): Promise<Stripe.Invoice[]> {
+	const invoices: Stripe.Invoice[] = [];
+	let startingAfter: string | undefined;
+	while (true) {
+		const page = await getStripe().invoices.list({
+			subscription: subscriptionId,
+			status,
+			limit: 100,
+			...(startingAfter ? { starting_after: startingAfter } : {}),
+		});
+		invoices.push(...page.data);
+		if (!page.has_more) {
+			return invoices;
+		}
+		const lastId = page.data.at(-1)?.id;
+		if (!lastId || lastId === startingAfter) {
+			throw new Error("Stripe invoice pagination did not advance");
+		}
+		startingAfter = lastId;
+	}
+}
+
+export async function getPendingSubscriptionInvoices(
+	subscriptionId: string,
+): Promise<Stripe.Invoice[]> {
+	const [drafts, open] = await Promise.all([
+		listInvoicesByStatus(subscriptionId, "draft"),
+		listInvoicesByStatus(subscriptionId, "open"),
+	]);
+	return [...drafts, ...open];
+}
+
 // Stripe drafts a subscription's cycle-renewal invoice at the period boundary
 // and only finalizes and charges it about an hour later. An immediate tier
 // upgrade re-anchors the billing cycle (`billing_cycle_anchor: "now"`) and
@@ -44,20 +79,7 @@ async function voidSubscriptionInvoices(
 	const stripe = getStripe();
 	let pending: Stripe.Invoice[];
 	try {
-		pending = [];
-		for (const status of ["draft", "open"] as const) {
-			let startingAfter: string | undefined;
-			do {
-				const page = await stripe.invoices.list({
-					subscription: subscriptionId,
-					status,
-					limit: 100,
-					...(startingAfter && { starting_after: startingAfter }),
-				});
-				pending.push(...page.data);
-				startingAfter = page.has_more ? page.data.at(-1)?.id : undefined;
-			} while (startingAfter);
-		}
+		pending = await getPendingSubscriptionInvoices(subscriptionId);
 	} catch (error) {
 		logger.error(
 			`Failed to list pending invoices for subscription ${subscriptionId} (${reason})`,

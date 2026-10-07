@@ -632,6 +632,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
@@ -770,6 +771,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
@@ -810,6 +812,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
@@ -848,6 +851,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
@@ -1199,6 +1203,15 @@ export const googleModels = [
 				webSearch: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				// Sampling params are fixed since Gemini 3.6 Flash and will be
+				// rejected by upcoming models, so temperature/top_p are dropped.
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 			{
 				providerId: "google-vertex",
@@ -1226,6 +1239,15 @@ export const googleModels = [
 				webSearch: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				// Sampling params are fixed since Gemini 3.6 Flash and will be
+				// rejected by upcoming models, so temperature/top_p are dropped.
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
@@ -1251,7 +1273,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65536,
 				reasoning: true,
-				reasoningEfforts: ["minimal", "low", "medium", "high"],
+				reasoningEfforts: ["low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
@@ -1261,6 +1283,15 @@ export const googleModels = [
 				webSearch: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				// Sampling params are fixed since Gemini 3.6 Flash and will be
+				// rejected by upcoming models, so temperature/top_p are dropped.
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 			{
 				providerId: "google-vertex",
@@ -1278,7 +1309,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65536,
 				reasoning: true,
-				reasoningEfforts: ["minimal", "low", "medium", "high"],
+				reasoningEfforts: ["low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
@@ -1288,6 +1319,15 @@ export const googleModels = [
 				webSearch: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				// Sampling params are fixed since Gemini 3.6 Flash and will be
+				// rejected by upcoming models, so temperature/top_p are dropped.
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
@@ -1323,6 +1363,15 @@ export const googleModels = [
 				webSearch: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				// Sampling params are fixed since Gemini 3.6 Flash and will be
+				// rejected by upcoming models, so temperature/top_p are dropped.
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 				supportsAssistantPrefill: false,
 			},
 			{
@@ -1350,6 +1399,15 @@ export const googleModels = [
 				webSearch: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				// Sampling params are fixed since Gemini 3.6 Flash and will be
+				// rejected by upcoming models, so temperature/top_p are dropped.
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 				supportsAssistantPrefill: false,
 			},
 		],
@@ -1754,6 +1812,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65535,
 				reasoning: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
