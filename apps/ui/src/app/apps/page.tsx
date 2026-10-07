@@ -39,17 +39,33 @@ interface AppsResponse {
 	totalRequests: number;
 }
 
+const BIG_NUMBER_UNITS = [
+	"K",
+	"M",
+	"B",
+	"T",
+	"Q",
+	"Qi",
+	"Sx",
+	"Sp",
+	"Oc",
+	"No",
+	"Dc",
+] as const;
+
 function formatBigNumber(n: number): string {
-	if (n >= 1_000_000_000) {
-		return `${(n / 1_000_000_000).toFixed(2)}B`;
+	if (n < 1_000) {
+		return formatNumber(n);
 	}
-	if (n >= 1_000_000) {
-		return `${(n / 1_000_000).toFixed(2)}M`;
+	const last = BIG_NUMBER_UNITS.length - 1;
+	let unit = Math.min(Math.floor(Math.log10(n) / 3) - 1, last);
+	let value = n / (1_000 ** (unit + 1));
+	const digits = () => (unit === 0 ? 1 : 2);
+	if (Number(value.toFixed(digits())) >= 1_000 && unit < last) {
+		unit += 1;
+		value /= 1_000;
 	}
-	if (n >= 1_000) {
-		return `${(n / 1_000).toFixed(1)}K`;
-	}
-	return formatNumber(n);
+	return `${value.toFixed(digits())}${BIG_NUMBER_UNITS[unit]}`;
 }
 
 function HeroStat({
