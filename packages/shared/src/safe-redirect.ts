@@ -14,9 +14,10 @@ export function getSafeRedirectPath(
 	}
 	try {
 		const target = new URL(url, ORIGIN);
-		return target.origin === ORIGIN
-			? `${target.pathname}${target.search}${target.hash}`
-			: fallback;
+		const path = `${target.pathname}${target.search}${target.hash}`;
+		// Dot segments collapse after the origin check ("/..//evil.com" becomes
+		// "//evil.com"), so the normalised path must itself stay relative.
+		return target.origin === ORIGIN && !path.startsWith("//") ? path : fallback;
 	} catch {
 		return fallback;
 	}
