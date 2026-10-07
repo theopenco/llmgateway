@@ -1,4 +1,10 @@
-import { isToolSearchBlock } from "@llmgateway/actions";
+import {
+	fromConverseReasoningContent,
+	isToolSearchBlock,
+	sealAnthropicThinkingBlock,
+	toAnthropicReasoningDetail,
+	type AnthropicThinkingBlock,
+} from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -28,6 +34,24 @@ import type {
 	Provider,
 	ReasoningDetail,
 } from "@llmgateway/models";
+
+// `content` holds the turn's thinking at its content positions, null elsewhere.
+function sealedThinkingDetails(
+	provider: string,
+	content: Array<AnthropicThinkingBlock | null>,
+): ReasoningDetail[] | null {
+	const details = content.flatMap((block, index) =>
+		block
+			? [
+					toAnthropicReasoningDetail(
+						sealAnthropicThinkingBlock(provider, block),
+						index,
+					),
+				]
+			: [],
+	);
+	return details.length > 0 ? details : null;
+}
 
 /**
  * Parses response content and metadata from different providers
@@ -175,6 +199,12 @@ export function parseProviderResponse(
 					})
 					.filter((value: string | null): value is string => value !== null)
 					.join("") ?? null;
+			reasoningDetails = sealedThinkingDetails(
+				usedProvider,
+				contentBlocks.map((block: any) =>
+					fromConverseReasoningContent(block.reasoningContent),
+				),
+			);
 
 			// Map Bedrock stop reasons to OpenAI finish reasons
 			const stopReason = json.stopReason;
@@ -250,6 +280,21 @@ export function parseProviderResponse(
 			content = textBlocks.map((block: any) => block.text).join("") ?? null;
 			reasoningContent =
 				thinkingBlocks.map((block: any) => block.thinking).join("") ?? null;
+			reasoningDetails = sealedThinkingDetails(
+				usedProvider,
+				contentBlocks.map((block: any): AnthropicThinkingBlock | null =>
+					block.type === "thinking" && typeof block.signature === "string"
+						? {
+								type: "thinking",
+								thinking: block.thinking ?? "",
+								signature: block.signature,
+							}
+						: block.type === "redacted_thinking" &&
+							  typeof block.data === "string"
+							? { type: "redacted_thinking", data: block.data }
+							: null,
+				),
+			);
 
 			finishReason = json.stop_reason ?? null;
 
