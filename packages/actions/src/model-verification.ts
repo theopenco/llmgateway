@@ -75,6 +75,8 @@ export interface RunModelVerificationOptions {
 	skipEnvVars?: boolean;
 	onCheck?: (check: ProviderModelVerificationCheck) => Promise<void> | void;
 	fetchImplementation?: typeof fetch;
+	/** Overrides BILLING_DATA_CHECKS_REQUIRED for this run. */
+	requireBillingData?: boolean;
 }
 
 export interface ModelVerificationRunResult {
@@ -786,6 +788,12 @@ function containsReasoningEvidence(value: unknown): boolean {
 }
 
 /**
+ * Whether billing-data defects fail their check. While false they pass it with
+ * a warning, so carriers can fix them before they start blocking listings.
+ */
+const BILLING_DATA_CHECKS_REQUIRED = false;
+
+/**
  * Protocol defects in an otherwise served response that no other probe variant
  * would fix: the gateway passes them straight through to developers, or bills
  * from them.
@@ -817,6 +825,12 @@ function responseDefect(
 		) {
 			return `The response contains tool_calls but finish_reason is ${JSON.stringify(choice.finish_reason ?? null)}. It must be "tool_calls", or clients stop instead of running the tool.`;
 		}
+	}
+	if (
+		(id === "reasoning" || id === "reasoning_budget") &&
+		!containsReasoningEvidence(body)
+	) {
+		return "The response showed no reasoning: no reasoning content and no reasoning tokens in usage. reasoning_effort must turn reasoning on.";
 	}
 	return null;
 }
@@ -1051,14 +1065,6 @@ function validateResponse(
 			} catch {
 				return "The structured response was not valid JSON.";
 			}
-		case "reasoning":
-		case "reasoning_budget":
-			if (!assistantText) {
-				return "The provider returned no assistant content.";
-			}
-			return containsReasoningEvidence(body)
-				? null
-				: "The response showed no reasoning: no reasoning content and no reasoning tokens in usage. reasoning_effort must turn reasoning on.";
 		case "web_search":
 			if (!assistantText) {
 				return "The provider returned no assistant content.";
@@ -1129,14 +1135,10 @@ function isStreamEnd(event: unknown): boolean {
  * the gateway needs: text, a finish reason, and complete usage that agrees
  * with the non-streaming request for the same prompt.
  */
-function validateStream(
-	body: string,
+function streamDefect(
+	events: unknown[],
 	basicUsage: ReportedUsage | undefined,
 ): string | null {
-	const events = parseStreamEvents(body);
-	if (!events) {
-		return "The response did not contain any streaming events.";
-	}
 	if (!events.some((event) => streamEventText(event).trim())) {
 		return "The stream did not contain any assistant text.";
 	}
@@ -1228,6 +1230,9 @@ interface CheckFailure {
 
 interface CheckContext {
 	secrets: Set<string>;
+	/** Billing-data defects the current check passed with, while not required. */
+	warnings: Set<string>;
+	requireBillingData?: boolean;
 	/** What the basic completion reported, for the streaming check to match. */
 	basicUsage?: ReportedUsage;
 	/** A key smoke test proves the key works; billing data is preflight's. */
@@ -1625,8 +1630,14 @@ async function executeCheck(
 		};
 	}
 	if (definition.request.stream) {
-		const streamed = validateStream(bodyText, context.basicUsage);
-		return streamed ? { message: streamed, rejected: false } : null;
+		const events = parseStreamEvents(bodyText);
+		if (!events) {
+			return {
+				message: "The response did not contain any streaming events.",
+				rejected: false,
+			};
+		}
+		return billingDefect(streamDefect(events, context.basicUsage), context);
 	}
 	let body: unknown;
 	try {
@@ -1640,14 +1651,42 @@ async function executeCheck(
 	if (definition.id === "basic") {
 		context.basicUsage = reportedUsage(body);
 	}
-	const defect = context.keyOnly
-		? null
-		: responseDefect(definition.id, body, definition.request);
-	if (defect) {
+	const invalid = validateResponse(definition.id, body, options.target);
+	if (invalid) {
+		return { message: invalid, rejected: false };
+	}
+	return billingDefect(
+		responseDefect(definition.id, body, definition.request),
+		context,
+	);
+}
+
+/** Fails on a billing-data defect once required; until then, warns. */
+function billingDefect(
+	defect: string | null,
+	context: CheckContext,
+): CheckFailure | null {
+	if (!defect || context.keyOnly) {
+		return null;
+	}
+	if (context.requireBillingData) {
 		return { message: defect, rejected: false, conclusive: true };
 	}
-	const invalid = validateResponse(definition.id, body, options.target);
-	return invalid ? { message: invalid, rejected: false } : null;
+	context.warnings.add(defect);
+	return null;
+}
+
+function passedWarning(
+	timeouts: number,
+	billingWarnings: Set<string>,
+): Pick<ProviderModelVerificationCheck, "warning"> {
+	const warnings = [...billingWarnings];
+	if (timeouts > 0) {
+		warnings.push(
+			`Passed after ${timeouts} timed-out ${timeouts === 1 ? "request" : "requests"}; the endpoint may be slow or overloaded.`,
+		);
+	}
+	return warnings.length > 0 ? { warning: warnings.join(" ") } : {};
 }
 
 export async function runProviderModelVerification(
@@ -1655,7 +1694,12 @@ export async function runProviderModelVerification(
 ): Promise<ModelVerificationRunResult> {
 	const definitions = verificationDefinitions(options.target);
 	const checks = createQueuedModelVerificationChecks(options.target);
-	const context: CheckContext = { secrets: new Set([options.token]) };
+	const context: CheckContext = {
+		secrets: new Set([options.token]),
+		warnings: new Set(),
+		requireBillingData:
+			options.requireBillingData ?? BILLING_DATA_CHECKS_REQUIRED,
+	};
 	let unsupportedToolChoices: ToolChoiceMode[] | undefined;
 	let unsupportedReasoningEfforts: ReasoningEffort[] | undefined;
 	for (let index = 0; index < definitions.length; index++) {
@@ -1667,6 +1711,7 @@ export async function runProviderModelVerification(
 		};
 		checks[index] = running;
 		await options.onCheck?.(running);
+		context.warnings.clear();
 		let progress = running;
 		const report = async (update: Partial<ProviderModelVerificationCheck>) => {
 			progress = { ...progress, ...update };
@@ -1712,11 +1757,7 @@ export async function runProviderModelVerification(
 					label: definition.label,
 					status: "passed",
 					feedback: outcome.feedback ?? "Passed",
-					...(timeouts > 0
-						? {
-								warning: `Passed after ${timeouts} timed-out ${timeouts === 1 ? "request" : "requests"}; the endpoint may be slow or overloaded.`,
-							}
-						: {}),
+					...passedWarning(timeouts, context.warnings),
 					...(outcome.probes?.length ? { probes: outcome.probes } : {}),
 				};
 		checks[index] = completed;
@@ -1767,7 +1808,7 @@ export async function runProviderKeySmokeTest(
 			request: createBasicVerificationRequest(options.target.modelName),
 		},
 		options,
-		{ secrets: new Set([options.token]), keyOnly: true },
+		{ secrets: new Set([options.token]), warnings: new Set(), keyOnly: true },
 		[],
 		() => undefined,
 		() => undefined,

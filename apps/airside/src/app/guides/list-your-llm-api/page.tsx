@@ -66,7 +66,8 @@ export default function ListingGuide() {
 					the declared context window and requests the full output limit. It
 					also checks what we bill from: every response must report input and
 					output token usage, and streams must end with a finish reason and a
-					usage chunk that matches the non-streaming request. We store the key
+					usage chunk that matches the non-streaming request. These billing
+					checks only warn for now and will become required. We store the key
 					encrypted as this carrier's test key, so later runs reuse it — change
 					or remove it under Settings at any time. Use a key separate from the
 					one behind your live integration: preflight traffic is billed by your

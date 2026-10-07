@@ -796,8 +796,14 @@ describe("model verification", () => {
 			webSearch: false,
 		};
 		const streamingOnly = { ...basicOnly, streaming: true };
+		// Runs with billing data required, as it will be once enforced.
 		const run = (
 			verificationTarget: ProviderModelVerificationTarget,
+			...bodies: (string | Record<string, unknown>)[]
+		) => runOptional(verificationTarget, true, ...bodies);
+		const runOptional = (
+			verificationTarget: ProviderModelVerificationTarget,
+			requireBillingData: boolean | undefined,
 			...bodies: (string | Record<string, unknown>)[]
 		) => {
 			const fetchImplementation = vi.fn<typeof fetch>();
@@ -813,8 +819,56 @@ describe("model verification", () => {
 				token: "provider-key",
 				baseUrl: "https://carrier.example",
 				fetchImplementation,
+				requireBillingData,
 			}).then((result) => ({ result, fetchImplementation }));
 		};
+
+		it("only warns about billing data until it is required", async () => {
+			const { result } = await runOptional(
+				{ ...streamingOnly, reasoning: true, reasoningEfforts: ["high"] },
+				undefined,
+				{ ...chatBody({ content: "OK" }), usage: undefined },
+				chatStream(null),
+				chatBody({ content: "The answer is 7/4." }),
+			);
+
+			expect(result.passed).toBe(true);
+			expect(result.summary).toBe(
+				"3 verification checks passed (3 with a warning).",
+			);
+			expect(result.checks).toMatchObject([
+				{
+					id: "basic",
+					status: "passed",
+					warning: expect.stringContaining(
+						"The response did not report token usage",
+					),
+				},
+				{
+					id: "streaming",
+					status: "passed",
+					warning: expect.stringContaining("stream_options.include_usage"),
+				},
+				{
+					id: "reasoning",
+					status: "passed",
+					warning: expect.stringContaining("The response showed no reasoning"),
+				},
+			]);
+		});
+
+		it("does not warn about a probe that failed for another reason", async () => {
+			const { result } = await runOptional(
+				{ ...basicOnly, tools: true },
+				false,
+				chatBody({ content: "OK" }),
+				{ choices: [{ message: { content: "It is sunny." } }] },
+				chatBody({ tool_calls: [toolCall] }, "tool_calls"),
+			);
+
+			expect(result.passed).toBe(true);
+			expect(result.checks[1].warning).toBeUndefined();
+		});
 
 		it.each([
 			{
