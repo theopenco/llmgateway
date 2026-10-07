@@ -324,6 +324,7 @@ import {
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
+import { readTencentImageBody } from "./tools/read-tencent-image-body.js";
 import {
 	flushTaggedStreamingRemainder,
 	splitTaggedStreamingContentChunk,
@@ -14683,6 +14684,8 @@ chat.openapi(completions, async (c) => {
 				);
 			}
 			json = collapsed.json;
+		} else if (isImageGeneration && usedProvider === "tencent") {
+			json = readTencentImageBody(await readBodyWithClientAbort(res.text()));
 		} else {
 			json = await readBodyWithClientAbort(res.json());
 		}
