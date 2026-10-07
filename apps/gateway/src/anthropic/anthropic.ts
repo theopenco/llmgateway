@@ -717,13 +717,38 @@ anthropic.openapi(messages, async (c) => {
 
 			// Convert each unique tool_use_id to a single tool message
 			for (const [toolUseId, blocks] of toolResults) {
-				// Combine content from all blocks with the same tool_use_id
+				// A breakpoint on the tool_result block or one of its content parts
+				// has no home in the OpenAI message shape, so carry it alongside.
+				// Left in the stringified text, a marker that moves to a later
+				// result would change that text and break the cached prefix. Blocks
+				// sharing a tool_use_id collapse into one message, so the last
+				// marker wins: it is the one that ends the prefix.
+				let toolResultCacheControl: CacheControl | undefined;
 				const combinedContent = blocks
-					.map((block) =>
-						typeof block.content === "string"
-							? block.content
-							: JSON.stringify(block.content),
-					)
+					.map((block) => {
+						if (typeof block.content === "string") {
+							toolResultCacheControl =
+								block.cache_control ?? toolResultCacheControl;
+							return block.content;
+						}
+						const parts = (block.content ?? []).map((part: unknown) => {
+							if (
+								!part ||
+								typeof part !== "object" ||
+								!("cache_control" in part)
+							) {
+								return part;
+							}
+							const { cache_control: marker, ...rest } = part as {
+								cache_control?: CacheControl;
+							};
+							toolResultCacheControl = marker ?? toolResultCacheControl;
+							return rest;
+						});
+						toolResultCacheControl =
+							block.cache_control ?? toolResultCacheControl;
+						return JSON.stringify(parts);
+					})
 					.join("\n");
 
 				// A client-side tool search answers with `tool_reference` blocks in
@@ -739,15 +764,6 @@ anthropic.openapi(messages, async (c) => {
 									(entry as { type?: unknown }).type === "tool_reference",
 							)
 						: [],
-				);
-
-				// A breakpoint on the tool_result block has no home in the OpenAI
-				// message shape, so carry it alongside. Blocks sharing a tool_use_id
-				// collapse into one message, so the last marker wins — it is the one
-				// that ends the prefix.
-				const toolResultCacheControl = blocks.reduce<CacheControl | undefined>(
-					(marker, block) => block.cache_control ?? marker,
-					undefined,
 				);
 
 				openaiMessages.push({
