@@ -5552,10 +5552,10 @@ export interface ProviderModelVerificationCheck {
 	/** Set when a check passed only after retrying a timed-out request. */
 	warning?: string;
 	/**
-	 * Billing-data defects the check passed with while those checks are
-	 * optional; each fails the check once they become required.
+	 * Optional checks this check missed. They warn while optional and fail
+	 * the check once they become required.
 	 */
-	billingWarnings?: string[];
+	optionalWarnings?: string[];
 	/** Per-request breakdown; present only for checks that probe variants. */
 	probes?: ProviderModelVerificationProbe[];
 }

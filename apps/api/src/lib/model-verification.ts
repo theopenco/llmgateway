@@ -32,8 +32,8 @@ export const modelVerificationSchema = z.object({
 			feedback: z.string().optional(),
 			// Set when the check passed only after retrying a timeout.
 			warning: z.string().optional(),
-			// Billing-data defects the check passed with while they are optional.
-			billingWarnings: z.array(z.string()).optional(),
+			// Optional checks this check missed; they warn instead of failing.
+			optionalWarnings: z.array(z.string()).optional(),
 			// Per-request breakdown for checks that probe several variants.
 			probes: z
 				.array(

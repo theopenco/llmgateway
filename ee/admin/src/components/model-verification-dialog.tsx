@@ -39,7 +39,7 @@ export interface ModelVerification {
 		status: "queued" | "running" | "passed" | "failed" | "skipped";
 		feedback?: string;
 		warning?: string;
-		billingWarnings?: string[];
+		optionalWarnings?: string[];
 		probes?: {
 			label: string;
 			status: "passed" | "failed";
@@ -62,7 +62,7 @@ export interface VerificationHistoryEntry extends ModelVerification {
 function hasWarning(check: ModelVerification["checks"][number]): boolean {
 	return (
 		check.status === "passed" &&
-		Boolean(check.warning || check.billingWarnings?.length)
+		Boolean(check.warning || check.optionalWarnings?.length)
 	);
 }
 
@@ -188,12 +188,12 @@ function VerificationResults({
 									{check.warning}
 								</p>
 							) : null}
-							{check.status === "passed" && check.billingWarnings?.length ? (
+							{check.status === "passed" && check.optionalWarnings?.length ? (
 								<ul
 									className="mt-1 space-y-1"
-									data-testid="admin-verification-billing-warnings"
+									data-testid="admin-verification-optional-warnings"
 								>
-									{check.billingWarnings.map((warning) => (
+									{check.optionalWarnings.map((warning) => (
 										<li key={warning} className="text-amber-600">
 											<span className="mr-1.5 inline-block rounded border border-current px-1 font-mono text-[0.6rem] tracking-wider uppercase">
 												Optional
@@ -212,11 +212,10 @@ function VerificationResults({
 				<p className="text-xs text-muted-foreground">{verification.summary}</p>
 			) : null}
 			{verification.checks.some(
-				(check) => check.status === "passed" && check.billingWarnings?.length,
+				(check) => check.status === "passed" && check.optionalWarnings?.length,
 			) ? (
 				<p className="text-xs text-amber-600">
-					Optional billing-data checks warn without blocking until
-					BILLING_DATA_CHECKS_REQUIRED is turned on.
+					Checks marked Optional warn without blocking for now.
 				</p>
 			) : null}
 		</div>

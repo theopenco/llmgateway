@@ -245,21 +245,20 @@ function VerificationProbes({ probes }: { probes?: VerificationProbe }) {
 function hasWarning(check: Verification["checks"][number]): boolean {
 	return (
 		check.status === "passed" &&
-		Boolean(check.warning || check.billingWarnings?.length)
+		Boolean(check.warning || check.optionalWarnings?.length)
 	);
 }
 
 /**
- * Billing-data defects a check passed with while those checks are optional.
- * Labelled so a carrier can tell them from a failure, and knows to fix them
- * before they become required.
+ * Optional checks a check missed. Labelled so a carrier can tell them from a
+ * failure, and knows they may become required.
  */
-function BillingWarnings({ warnings }: { warnings?: string[] }) {
+function OptionalWarnings({ warnings }: { warnings?: string[] }) {
 	if (!warnings?.length) {
 		return null;
 	}
 	return (
-		<ul className="mt-1 space-y-1" data-testid="verification-billing-warnings">
+		<ul className="mt-1 space-y-1" data-testid="verification-optional-warnings">
 			{warnings.map((warning) => (
 				<li key={warning} className="text-amber-600 dark:text-amber-400">
 					<span className="mr-1.5 inline-block rounded border border-current px-1 font-mono text-[0.6rem] tracking-wider uppercase">
@@ -274,8 +273,8 @@ function BillingWarnings({ warnings }: { warnings?: string[] }) {
 
 function VerificationResults({ verification }: { verification: Verification }) {
 	const warned = verification.checks.some(hasWarning);
-	const billingWarned = verification.checks.some(
-		(check) => check.status === "passed" && check.billingWarnings?.length,
+	const optionalWarned = verification.checks.some(
+		(check) => check.status === "passed" && check.optionalWarnings?.length,
 	);
 	const statusLabel =
 		verification.status === "queued"
@@ -330,7 +329,7 @@ function VerificationResults({ verification }: { verification: Verification }) {
 								</p>
 							) : null}
 							{check.status === "passed" ? (
-								<BillingWarnings warnings={check.billingWarnings} />
+								<OptionalWarnings warnings={check.optionalWarnings} />
 							) : null}
 							<VerificationProbes probes={check.probes} />
 						</div>
@@ -340,14 +339,13 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			{verification.summary ? (
 				<p className="text-muted-foreground text-xs">{verification.summary}</p>
 			) : null}
-			{billingWarned ? (
+			{optionalWarned ? (
 				<p
 					className="text-xs text-amber-600 dark:text-amber-400"
 					data-testid="verification-optional-note"
 				>
-					Checks marked Optional verify the token usage we bill from and the
-					response fields we pass to developers. They do not block this listing
-					yet, but will become required, so fix them on your endpoint now.
+					Checks marked Optional do not block this listing for now, but may
+					become required later.
 				</p>
 			) : null}
 			{verification.status === "failed" ? (

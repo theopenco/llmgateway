@@ -63,11 +63,9 @@ export default function ListingGuide() {
 				<p className="mt-3">
 					Paste a provider API key that can call this model and run preflight
 					verification. Preflight checks each declared capability, fills most of
-					the declared context window and requests the full output limit. It
-					also checks what we bill from: every response must report input and
-					output token usage, and streams must end with a finish reason and a
-					usage chunk that matches the non-streaming request. These billing
-					checks only warn for now and will become required. We store the key
+					the declared context window and requests the full output limit. Some
+					checks are optional for now: a miss shows as a warning marked Optional
+					instead of failing, and may become required later. We store the key
 					encrypted as this carrier's test key, so later runs reuse it — change
 					or remove it under Settings at any time. Use a key separate from the
 					one behind your live integration: preflight traffic is billed by your

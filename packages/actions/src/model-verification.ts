@@ -75,8 +75,8 @@ export interface RunModelVerificationOptions {
 	skipEnvVars?: boolean;
 	onCheck?: (check: ProviderModelVerificationCheck) => Promise<void> | void;
 	fetchImplementation?: typeof fetch;
-	/** Overrides BILLING_DATA_CHECKS_REQUIRED for this run. */
-	requireBillingData?: boolean;
+	/** Overrides OPTIONAL_CHECKS_REQUIRED for this run. */
+	requireOptionalChecks?: boolean;
 }
 
 export interface ModelVerificationRunResult {
@@ -788,10 +788,10 @@ function containsReasoningEvidence(value: unknown): boolean {
 }
 
 /**
- * Whether billing-data defects fail their check. While false they pass it with
- * a warning, so carriers can fix them before they start blocking listings.
+ * Whether optional checks fail their check. While false a check that misses
+ * one still passes, with the miss listed as an optional warning.
  */
-const BILLING_DATA_CHECKS_REQUIRED = false;
+const OPTIONAL_CHECKS_REQUIRED = false;
 
 /**
  * Protocol defects in an otherwise served response that no other probe variant
@@ -822,7 +822,7 @@ function responseDefect(
 /**
  * Tool calls that finish with anything but "tool_calls" make clients stop
  * instead of running the tool, so this fails the check outright rather than
- * waiting for billing data to become required. A named tool_choice
+ * being optional. A named tool_choice
  * legitimately finishes with "stop" on OpenAI itself.
  */
 function toolFinishDefect(
@@ -969,7 +969,7 @@ function mergeStreamUsage(events: unknown[]): ReportedUsage {
  */
 function usageDefect(usage: ReportedUsage, source: string): string | null {
 	if (usage.input === undefined && usage.output === undefined) {
-		return `${source} did not report token usage. Input and output token counts are required for billing.`;
+		return `${source} did not report token usage. Input and output token counts are needed for billing.`;
 	}
 	for (const [kind, count] of Object.entries(usage)) {
 		if (count !== undefined && (!Number.isInteger(count) || count < 0)) {
@@ -977,10 +977,10 @@ function usageDefect(usage: ReportedUsage, source: string): string | null {
 		}
 	}
 	if (!usage.input || usage.input <= 0) {
-		return `${source} reported ${usage.input ?? "no"} input tokens. A positive input token count is required for billing.`;
+		return `${source} reported ${usage.input ?? "no"} input tokens. A positive input token count is needed for billing.`;
 	}
 	if (!usage.output || usage.output <= 0) {
-		return `${source} reported ${usage.output ?? "no"} output tokens. A positive output token count is required for billing.`;
+		return `${source} reported ${usage.output ?? "no"} output tokens. A positive output token count is needed for billing.`;
 	}
 	if (usage.cached !== undefined && usage.cached > usage.input) {
 		return `${source} reported ${usage.cached} cached input tokens out of ${usage.input} input tokens. Cached tokens must be counted within the input tokens.`;
@@ -1255,12 +1255,12 @@ interface CheckFailure {
 
 interface CheckContext {
 	secrets: Set<string>;
-	/** Billing-data defects the current check passed with, while not required. */
-	billingWarnings: Set<string>;
-	requireBillingData?: boolean;
+	/** Optional checks the current check missed, while they only warn. */
+	optionalWarnings: Set<string>;
+	requireOptionalChecks?: boolean;
 	/** What the basic completion reported, for the streaming check to match. */
 	basicUsage?: ReportedUsage;
-	/** A key smoke test proves the key works; billing data is preflight's. */
+	/** A key smoke test proves the key works; optional checks are preflight's. */
 	keyOnly?: boolean;
 }
 
@@ -1662,7 +1662,7 @@ async function executeCheck(
 				rejected: false,
 			};
 		}
-		return billingDefect(streamDefect(events, context.basicUsage), context);
+		return optionalDefect(streamDefect(events, context.basicUsage), context);
 	}
 	let body: unknown;
 	try {
@@ -1687,21 +1687,21 @@ async function executeCheck(
 	if (toolFinish) {
 		return { message: toolFinish, rejected: false, conclusive: true };
 	}
-	return billingDefect(responseDefect(definition.id, body), context);
+	return optionalDefect(responseDefect(definition.id, body), context);
 }
 
-/** Fails on a billing-data defect once required; until then, warns. */
-function billingDefect(
+/** Fails on a missed optional check once they are required; until then, warns. */
+function optionalDefect(
 	defect: string | null,
 	context: CheckContext,
 ): CheckFailure | null {
 	if (!defect || context.keyOnly) {
 		return null;
 	}
-	if (context.requireBillingData) {
+	if (context.requireOptionalChecks) {
 		return { message: defect, rejected: false, conclusive: true };
 	}
-	context.billingWarnings.add(defect);
+	context.optionalWarnings.add(defect);
 	return null;
 }
 
@@ -1712,9 +1712,9 @@ export async function runProviderModelVerification(
 	const checks = createQueuedModelVerificationChecks(options.target);
 	const context: CheckContext = {
 		secrets: new Set([options.token]),
-		billingWarnings: new Set(),
-		requireBillingData:
-			options.requireBillingData ?? BILLING_DATA_CHECKS_REQUIRED,
+		optionalWarnings: new Set(),
+		requireOptionalChecks:
+			options.requireOptionalChecks ?? OPTIONAL_CHECKS_REQUIRED,
 	};
 	let unsupportedToolChoices: ToolChoiceMode[] | undefined;
 	let unsupportedReasoningEfforts: ReasoningEffort[] | undefined;
@@ -1727,7 +1727,7 @@ export async function runProviderModelVerification(
 		};
 		checks[index] = running;
 		await options.onCheck?.(running);
-		context.billingWarnings.clear();
+		context.optionalWarnings.clear();
 		let progress = running;
 		const report = async (update: Partial<ProviderModelVerificationCheck>) => {
 			progress = { ...progress, ...update };
@@ -1778,14 +1778,14 @@ export async function runProviderModelVerification(
 								warning: `Passed after ${timeouts} timed-out ${timeouts === 1 ? "request" : "requests"}; the endpoint may be slow or overloaded.`,
 							}
 						: {}),
-					...(context.billingWarnings.size > 0
-						? { billingWarnings: [...context.billingWarnings] }
+					...(context.optionalWarnings.size > 0
+						? { optionalWarnings: [...context.optionalWarnings] }
 						: {}),
 					...(outcome.probes?.length ? { probes: outcome.probes } : {}),
 				};
 		checks[index] = completed;
 		await options.onCheck?.(completed);
-		// A billing-data defect means the endpoint served the request, so the
+		// A missed optional check means the endpoint served the request, so the
 		// capability checks still have something to verify.
 		if (definition.id === "basic" && failure && !failure.conclusive) {
 			for (let rest = index + 1; rest < definitions.length; rest++) {
@@ -1806,7 +1806,7 @@ export async function runProviderModelVerification(
 	const warned = checks.filter(
 		(check) =>
 			check.status === "passed" &&
-			(check.warning || check.billingWarnings?.length),
+			(check.warning || check.optionalWarnings?.length),
 	).length;
 	return {
 		passed: failed === 0 && passed === checks.length,
@@ -1837,7 +1837,7 @@ export async function runProviderKeySmokeTest(
 		options,
 		{
 			secrets: new Set([options.token]),
-			billingWarnings: new Set(),
+			optionalWarnings: new Set(),
 			keyOnly: true,
 		},
 		[],

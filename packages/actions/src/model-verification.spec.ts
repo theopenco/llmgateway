@@ -781,7 +781,7 @@ describe("model verification", () => {
 		]);
 	});
 
-	describe("billing data", () => {
+	describe("optional checks", () => {
 		const basicOnly: ProviderModelVerificationTarget = {
 			...target,
 			providerId: "custom-carrier",
@@ -796,14 +796,14 @@ describe("model verification", () => {
 			webSearch: false,
 		};
 		const streamingOnly = { ...basicOnly, streaming: true };
-		// Runs with billing data required, as it will be once enforced.
+		// Runs with optional checks required.
 		const run = (
 			verificationTarget: ProviderModelVerificationTarget,
 			...bodies: (string | Record<string, unknown>)[]
 		) => runOptional(verificationTarget, true, ...bodies);
 		const runOptional = (
 			verificationTarget: ProviderModelVerificationTarget,
-			requireBillingData: boolean | undefined,
+			requireOptionalChecks: boolean | undefined,
 			...bodies: (string | Record<string, unknown>)[]
 		) => {
 			const fetchImplementation = vi.fn<typeof fetch>();
@@ -819,11 +819,11 @@ describe("model verification", () => {
 				token: "provider-key",
 				baseUrl: "https://carrier.example",
 				fetchImplementation,
-				requireBillingData,
+				requireOptionalChecks,
 			}).then((result) => ({ result, fetchImplementation }));
 		};
 
-		it("only warns about billing data until it is required", async () => {
+		it("only warns about optional checks until they are required", async () => {
 			const { result } = await runOptional(
 				{ ...streamingOnly, reasoning: true, reasoningEfforts: ["high"] },
 				undefined,
@@ -840,21 +840,21 @@ describe("model verification", () => {
 				{
 					id: "basic",
 					status: "passed",
-					billingWarnings: [
+					optionalWarnings: [
 						expect.stringContaining("The response did not report token usage"),
 					],
 				},
 				{
 					id: "streaming",
 					status: "passed",
-					billingWarnings: [
+					optionalWarnings: [
 						expect.stringContaining("stream_options.include_usage"),
 					],
 				},
 				{
 					id: "reasoning",
 					status: "passed",
-					billingWarnings: [
+					optionalWarnings: [
 						expect.stringContaining("The response showed no reasoning"),
 					],
 				},
@@ -871,7 +871,7 @@ describe("model verification", () => {
 			);
 
 			expect(result.passed).toBe(true);
-			expect(result.checks[1].billingWarnings).toBeUndefined();
+			expect(result.checks[1].optionalWarnings).toBeUndefined();
 		});
 
 		it.each([
@@ -980,7 +980,7 @@ describe("model verification", () => {
 				name: "a stream without a usage chunk",
 				stream: chatStream(null),
 				feedback:
-					"The stream did not report token usage. Input and output token counts are required for billing. OpenAI-compatible streams must honour stream_options.include_usage with a final usage chunk.",
+					"The stream did not report token usage. Input and output token counts are needed for billing. OpenAI-compatible streams must honour stream_options.include_usage with a final usage chunk.",
 			},
 			{
 				name: "usage sent as per-chunk increments",
@@ -1082,7 +1082,7 @@ describe("model verification", () => {
 			expect(result.passed).toBe(true);
 		});
 
-		it("leaves billing data out of a key smoke test", async () => {
+		it("leaves optional checks out of a key smoke test", async () => {
 			const failure = await runProviderKeySmokeTest({
 				target: basicOnly,
 				token: "provider-key",
@@ -1115,7 +1115,7 @@ describe("model verification", () => {
 			expect(result.unsupportedToolChoices).toBeUndefined();
 		});
 
-		it("fails tool calls finishing with stop even while billing data is optional", async () => {
+		it("fails tool calls finishing with stop even while other checks are optional", async () => {
 			const { result } = await runOptional(
 				{ ...basicOnly, tools: true },
 				undefined,
@@ -1129,7 +1129,7 @@ describe("model verification", () => {
 				status: "failed",
 				feedback: expect.stringContaining('It must be "tool_calls"'),
 			});
-			expect(result.checks[1].billingWarnings).toBeUndefined();
+			expect(result.checks[1].optionalWarnings).toBeUndefined();
 		});
 
 		it("accepts stop for a named tool_choice, as OpenAI returns it", async () => {
