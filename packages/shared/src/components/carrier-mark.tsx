@@ -55,6 +55,39 @@ export function isMonochromeSvgDataUrl(dataUrl: string): boolean {
 	return true;
 }
 
+/** Width / height of an SVG data URL, from its viewBox or width/height. */
+export function svgDataUrlAspectRatio(dataUrl: string): number | null {
+	const prefix = "data:image/svg+xml;base64,";
+	if (!dataUrl.startsWith(prefix)) {
+		return null;
+	}
+	let svg: string;
+	try {
+		svg = atob(dataUrl.slice(prefix.length));
+	} catch {
+		return null;
+	}
+	const root = /<svg\b[^>]*>/i.exec(svg)?.[0];
+	if (!root) {
+		return null;
+	}
+	const viewBox = /viewBox\s*=\s*["']([^"']+)["']/i.exec(root)?.[1];
+	const box = viewBox
+		?.trim()
+		.split(/[\s,]+/)
+		.map(Number);
+	if (box?.length === 4 && box[2] > 0 && box[3] > 0) {
+		return box[2] / box[3];
+	}
+	const width = parseFloat(
+		/\bwidth\s*=\s*["']([^"']+)["']/i.exec(root)?.[1] ?? "",
+	);
+	const height = parseFloat(
+		/\bheight\s*=\s*["']([^"']+)["']/i.exec(root)?.[1] ?? "",
+	);
+	return width > 0 && height > 0 ? width / height : null;
+}
+
 /**
  * Renders a carrier-uploaded SVG mark. Monochrome marks are painted with
  * `currentColor` through a CSS mask, so they follow the surrounding text color
