@@ -5549,6 +5549,8 @@ export interface ProviderModelVerificationCheck {
 	label: string;
 	status: ProviderModelVerificationCheckStatus;
 	feedback?: string;
+	/** Set when a check passed only after retrying a timed-out request. */
+	warning?: string;
 	/** Per-request breakdown; present only for checks that probe variants. */
 	probes?: ProviderModelVerificationProbe[];
 }
