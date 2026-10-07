@@ -66,7 +66,6 @@ import {
 	gte,
 	isNull,
 	inArray,
-	ne,
 	desc,
 	shortid,
 	sql,
@@ -177,7 +176,7 @@ function activeDevPassKeyFilter(projectId: string) {
 		eq(tables.apiKey.projectId, projectId),
 		eq(tables.apiKey.status, "active"),
 		eq(tables.apiKey.keyType, "user"),
-		ne(tables.apiKey.kind, "playground"),
+		eq(tables.apiKey.kind, "regular"),
 	);
 }
 
