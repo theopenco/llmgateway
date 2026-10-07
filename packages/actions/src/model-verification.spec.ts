@@ -840,19 +840,23 @@ describe("model verification", () => {
 				{
 					id: "basic",
 					status: "passed",
-					warning: expect.stringContaining(
-						"The response did not report token usage",
-					),
+					billingWarnings: [
+						expect.stringContaining("The response did not report token usage"),
+					],
 				},
 				{
 					id: "streaming",
 					status: "passed",
-					warning: expect.stringContaining("stream_options.include_usage"),
+					billingWarnings: [
+						expect.stringContaining("stream_options.include_usage"),
+					],
 				},
 				{
 					id: "reasoning",
 					status: "passed",
-					warning: expect.stringContaining("The response showed no reasoning"),
+					billingWarnings: [
+						expect.stringContaining("The response showed no reasoning"),
+					],
 				},
 			]);
 		});
@@ -867,7 +871,7 @@ describe("model verification", () => {
 			);
 
 			expect(result.passed).toBe(true);
-			expect(result.checks[1].warning).toBeUndefined();
+			expect(result.checks[1].billingWarnings).toBeUndefined();
 		});
 
 		it.each([
@@ -914,9 +918,9 @@ describe("model verification", () => {
 				feedback: "The response has no id",
 			},
 		])(
-			"fails the basic check on $name and skips the rest",
+			"fails the basic check on $name but still runs the rest",
 			async ({ body, feedback }) => {
-				const { result } = await run(streamingOnly, body);
+				const { result } = await run(streamingOnly, body, chatStream());
 
 				expect(result.passed).toBe(false);
 				expect(result.checks).toMatchObject([
@@ -925,7 +929,7 @@ describe("model verification", () => {
 						status: "failed",
 						feedback: expect.stringContaining(feedback),
 					},
-					{ id: "streaming", status: "skipped" },
+					{ id: "streaming", status: "passed" },
 				]);
 			},
 		);

@@ -1250,7 +1250,7 @@ interface CheckFailure {
 interface CheckContext {
 	secrets: Set<string>;
 	/** Billing-data defects the current check passed with, while not required. */
-	warnings: Set<string>;
+	billingWarnings: Set<string>;
 	requireBillingData?: boolean;
 	/** What the basic completion reported, for the streaming check to match. */
 	basicUsage?: ReportedUsage;
@@ -1691,21 +1691,8 @@ function billingDefect(
 	if (context.requireBillingData) {
 		return { message: defect, rejected: false, conclusive: true };
 	}
-	context.warnings.add(defect);
+	context.billingWarnings.add(defect);
 	return null;
-}
-
-function passedWarning(
-	timeouts: number,
-	billingWarnings: Set<string>,
-): Pick<ProviderModelVerificationCheck, "warning"> {
-	const warnings = [...billingWarnings];
-	if (timeouts > 0) {
-		warnings.push(
-			`Passed after ${timeouts} timed-out ${timeouts === 1 ? "request" : "requests"}; the endpoint may be slow or overloaded.`,
-		);
-	}
-	return warnings.length > 0 ? { warning: warnings.join(" ") } : {};
 }
 
 export async function runProviderModelVerification(
@@ -1715,7 +1702,7 @@ export async function runProviderModelVerification(
 	const checks = createQueuedModelVerificationChecks(options.target);
 	const context: CheckContext = {
 		secrets: new Set([options.token]),
-		warnings: new Set(),
+		billingWarnings: new Set(),
 		requireBillingData:
 			options.requireBillingData ?? BILLING_DATA_CHECKS_REQUIRED,
 	};
@@ -1730,7 +1717,7 @@ export async function runProviderModelVerification(
 		};
 		checks[index] = running;
 		await options.onCheck?.(running);
-		context.warnings.clear();
+		context.billingWarnings.clear();
 		let progress = running;
 		const report = async (update: Partial<ProviderModelVerificationCheck>) => {
 			progress = { ...progress, ...update };
@@ -1776,12 +1763,21 @@ export async function runProviderModelVerification(
 					label: definition.label,
 					status: "passed",
 					feedback: outcome.feedback ?? "Passed",
-					...passedWarning(timeouts, context.warnings),
+					...(timeouts > 0
+						? {
+								warning: `Passed after ${timeouts} timed-out ${timeouts === 1 ? "request" : "requests"}; the endpoint may be slow or overloaded.`,
+							}
+						: {}),
+					...(context.billingWarnings.size > 0
+						? { billingWarnings: [...context.billingWarnings] }
+						: {}),
 					...(outcome.probes?.length ? { probes: outcome.probes } : {}),
 				};
 		checks[index] = completed;
 		await options.onCheck?.(completed);
-		if (definition.id === "basic" && failure) {
+		// A billing-data defect means the endpoint served the request, so the
+		// capability checks still have something to verify.
+		if (definition.id === "basic" && failure && !failure.conclusive) {
 			for (let rest = index + 1; rest < definitions.length; rest++) {
 				const skipped: ProviderModelVerificationCheck = {
 					id: definitions[rest].id,
@@ -1798,7 +1794,9 @@ export async function runProviderModelVerification(
 	const failed = checks.filter((check) => check.status === "failed").length;
 	const passed = checks.filter((check) => check.status === "passed").length;
 	const warned = checks.filter(
-		(check) => check.status === "passed" && check.warning,
+		(check) =>
+			check.status === "passed" &&
+			(check.warning || check.billingWarnings?.length),
 	).length;
 	return {
 		passed: failed === 0 && passed === checks.length,
@@ -1827,7 +1825,11 @@ export async function runProviderKeySmokeTest(
 			request: createBasicVerificationRequest(options.target.modelName),
 		},
 		options,
-		{ secrets: new Set([options.token]), warnings: new Set(), keyOnly: true },
+		{
+			secrets: new Set([options.token]),
+			billingWarnings: new Set(),
+			keyOnly: true,
+		},
 		[],
 		() => undefined,
 		() => undefined,
