@@ -233,12 +233,15 @@ export async function runDataStream(
 	const started = Date.now();
 	let delivered = 0;
 	const outOfTime = () => Date.now() - started > MAX_RUN_MS;
+	// Locking the lease row makes a takeover's delete wait for this write, or
+	// fail it once committed; a plain EXISTS reads a snapshot and misses it.
 	const owned = options.leaseId
 		? exists(
 				db
 					.select({ id: tables.lock.id })
 					.from(tables.lock)
-					.where(eq(tables.lock.id, options.leaseId)),
+					.where(eq(tables.lock.id, options.leaseId))
+					.for("key share"),
 			)
 		: undefined;
 	const stillActive = async () =>
