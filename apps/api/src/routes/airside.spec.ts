@@ -30,6 +30,11 @@ import {
 const txtRecords = new Map<string, string[][]>();
 
 vi.mock("node:dns/promises", () => ({
+	lookup: async (hostname: string) => {
+		throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), {
+			code: "ENOTFOUND",
+		});
+	},
 	Resolver: class {
 		async resolveTxt(name: string) {
 			const found = txtRecords.get(name);
@@ -4975,6 +4980,19 @@ describe("airside provider portal", () => {
 				})
 			).status,
 		).toBe(201);
+	});
+
+	it("rejects a base URL whose host does not resolve", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
+		try {
+			const res = await registerCarrier(cookie, company.id);
+			expect(res.status).toBe(400);
+			expect((await res.json()).message).toContain("could not be resolved");
+		} finally {
+			vi.unstubAllEnvs();
+		}
 	});
 
 	it("rejects a registration off the verified email domain", async () => {
