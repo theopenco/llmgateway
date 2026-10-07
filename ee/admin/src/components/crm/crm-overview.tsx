@@ -561,6 +561,9 @@ export function CrmOverview() {
 		if (!current || current.stage === stage) {
 			return;
 		}
+		const previous = queryClient.getQueryData<CrmAccountsResponse>(
+			listOptions.queryKey,
+		);
 		queryClient.setQueryData<CrmAccountsResponse>(
 			listOptions.queryKey,
 			(old) =>
@@ -571,8 +574,17 @@ export function CrmOverview() {
 					),
 				},
 		);
-		update.mutate({ params: { path: { id } }, body: { stage } });
-		toast.success(`${current.name} → ${stageLabel(stage)}`);
+		update.mutate(
+			{ params: { path: { id } }, body: { stage } },
+			{
+				onSuccess: () =>
+					toast.success(`${current.name} → ${stageLabel(stage)}`),
+				onError: () => {
+					queryClient.setQueryData(listOptions.queryKey, previous);
+					toast.error(`Could not move ${current.name}`);
+				},
+			},
+		);
 	};
 
 	const k = data?.kpis;

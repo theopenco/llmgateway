@@ -106,11 +106,17 @@ export function CrmTasks() {
 									type="button"
 									aria-label="Mark done"
 									onClick={() => {
-										complete.mutate({
-											params: { path: { activityId: t.id } },
-											body: { completed: true },
-										});
-										toast.success("Follow-up done");
+										complete.mutate(
+											{
+												params: { path: { activityId: t.id } },
+												body: { completed: true },
+											},
+											{
+												onSuccess: () => toast.success("Follow-up done"),
+												onError: () =>
+													toast.error("Could not complete the task"),
+											},
+										);
 									}}
 									className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-muted-foreground/40 text-transparent transition hover:border-emerald-500 hover:text-emerald-500"
 								>

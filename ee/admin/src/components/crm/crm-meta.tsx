@@ -189,6 +189,23 @@ export function trendPct(current: number, previous: number): number | null {
 	return Math.round((ratio - 1) * 100);
 }
 
+/** Only http(s) URLs may become link targets; anything else (javascript:, data:) is dropped. */
+export function safeExternalUrl(
+	value: string | null | undefined,
+): string | null {
+	if (!value) {
+		return null;
+	}
+	try {
+		const url = new URL(value);
+		return url.protocol === "https:" || url.protocol === "http:"
+			? url.href
+			: null;
+	} catch {
+		return null;
+	}
+}
+
 export function accountHref(id: string): string {
 	return `/crm/${encodeURIComponent(id)}`;
 }

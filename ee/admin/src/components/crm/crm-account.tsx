@@ -56,6 +56,7 @@ import {
 	type CrmAccountDetail,
 	initials,
 	money,
+	safeExternalUrl,
 	relativeDays,
 	ScoreRing,
 	SegmentChip,
@@ -180,11 +181,13 @@ function DealStrip({ detail, m }: { detail: CrmAccountDetail; m: Mutations }) {
 					className={fieldClass}
 					value={a.stage}
 					onChange={(e) => {
-						m.update.mutate({
-							...path,
-							body: { stage: e.target.value as typeof a.stage },
-						});
-						toast.success("Stage updated");
+						m.update.mutate(
+							{
+								...path,
+								body: { stage: e.target.value as typeof a.stage },
+							},
+							{ onSuccess: () => toast.success("Stage updated") },
+						);
 					}}
 				>
 					{STAGES.map((s) => (
@@ -431,11 +434,13 @@ function ActivityFeed({
 										type="button"
 										aria-label="Mark done"
 										onClick={() => {
-											m.patchActivity.mutate({
-												params: { path: { activityId: t.id } },
-												body: { completed: true },
-											});
-											toast.success("Follow-up done");
+											m.patchActivity.mutate(
+												{
+													params: { path: { activityId: t.id } },
+													body: { completed: true },
+												},
+												{ onSuccess: () => toast.success("Follow-up done") },
+											);
 										}}
 										className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-muted-foreground/40 text-transparent transition hover:border-emerald-500 hover:text-emerald-500"
 									>
@@ -710,6 +715,7 @@ function PersonCard({
 	onEdit: () => void;
 }) {
 	const u = person.user;
+	const linkedin = safeExternalUrl(person.linkedinUrl);
 	return (
 		<article className="rounded-xl border border-border/70 bg-card p-4">
 			<div className="flex items-start gap-3">
@@ -811,9 +817,9 @@ function PersonCard({
 				</Fact>
 				<Fact label="Profiles">
 					<span className="flex items-center gap-2">
-						{person.linkedinUrl ? (
+						{linkedin ? (
 							<a
-								href={person.linkedinUrl}
+								href={linkedin}
 								target="_blank"
 								rel="noreferrer"
 								aria-label="LinkedIn"
@@ -834,9 +840,7 @@ function PersonCard({
 						{u?.xUsername ? (
 							<span className="text-xs">@{u.xUsername}</span>
 						) : null}
-						{!person.linkedinUrl && !u?.githubUsername && !u?.xUsername
-							? "—"
-							: null}
+						{!linkedin && !u?.githubUsername && !u?.xUsername ? "—" : null}
 					</span>
 				</Fact>
 			</dl>
@@ -1227,7 +1231,10 @@ export function CrmAccountView({ id }: { id: string }) {
 						<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
 							{a.domain ? (
 								<a
-									href={data.profile.website ?? `https://${a.domain}`}
+									href={
+										safeExternalUrl(data.profile.website) ??
+										`https://${a.domain}`
+									}
 									target="_blank"
 									rel="noreferrer"
 									className="inline-flex items-center gap-1 font-mono hover:text-foreground"
