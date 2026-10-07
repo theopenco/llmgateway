@@ -95,6 +95,25 @@ async function fetchLoad(
 	return (await res.json()) as LoadOverview;
 }
 
+interface LoadBreakdown {
+	rows: LoadOverview["breakdown"];
+	totalKeys: number;
+	page: number;
+	pageSize: number;
+}
+
+async function fetchBreakdown(
+	cookie: string,
+	query: Record<string, string> = {},
+): Promise<LoadBreakdown> {
+	const params = new URLSearchParams(query);
+	const res = await app.request(`/admin/load/breakdown?${params.toString()}`, {
+		headers: { Cookie: cookie },
+	});
+	expect(res.status).toBe(200);
+	return (await res.json()) as LoadBreakdown;
+}
+
 // `deleteAll()` does not cover the catalogue or the minute-grain history, so
 // this suite owns that cleanup, scoped to its own fixture ids.
 const clearCatalogFixtures = async () => {
@@ -869,5 +888,70 @@ describe("admin — gateway load", () => {
 				sublabel: "Load Org A / Load Project A",
 			},
 		]);
+	});
+
+	describe("breakdown", () => {
+		const orgs = { window: "1d", groupBy: "organization" };
+
+		test("matches the overview's rows for the same keys", async () => {
+			for (const query of [
+				orgs,
+				{ window: "1h", groupBy: "model" },
+				{ window: "7d", groupBy: "provider" },
+			]) {
+				const [overview, breakdown] = await Promise.all([
+					fetchLoad(cookie, query),
+					fetchBreakdown(cookie, query),
+				]);
+				expect(breakdown.rows).toEqual(overview.breakdown);
+				expect(breakdown.totalKeys).toBe(overview.totalKeys);
+			}
+		});
+
+		test("sorts on a column in either direction", async () => {
+			const keys = async (query: Record<string, string>) =>
+				(await fetchBreakdown(cookie, { ...orgs, ...query })).rows.map(
+					(row) => row.key,
+				);
+
+			expect(await keys({ sortBy: "requestCount", sortOrder: "asc" })).toEqual([
+				ORG_B,
+				ORG_A,
+			]);
+			expect(await keys({ sortBy: "label", sortOrder: "asc" })).toEqual([
+				ORG_A,
+				ORG_B,
+			]);
+			expect(await keys({ sortBy: "label", sortOrder: "desc" })).toEqual([
+				ORG_B,
+				ORG_A,
+			]);
+			// Org B has no latency samples, so it sorts last either way.
+			for (const sortOrder of ["asc", "desc"]) {
+				expect(await keys({ sortBy: "avgDurationMs", sortOrder })).toEqual([
+					ORG_A,
+					ORG_B,
+				]);
+			}
+		});
+
+		test("paginates and clamps a page past the end", async () => {
+			const second = await fetchBreakdown(cookie, {
+				...orgs,
+				pageSize: "1",
+				page: "2",
+			});
+			expect(second.rows.map((row) => row.key)).toEqual([ORG_B]);
+			expect(second.rows[0].label).toBe("Load Org B");
+			expect(second).toMatchObject({ totalKeys: 2, page: 2, pageSize: 1 });
+
+			const past = await fetchBreakdown(cookie, {
+				...orgs,
+				pageSize: "1",
+				page: "9",
+			});
+			expect(past.page).toBe(2);
+			expect(past.rows.map((row) => row.key)).toEqual([ORG_B]);
+		});
 	});
 });
