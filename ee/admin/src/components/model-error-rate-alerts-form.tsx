@@ -200,7 +200,7 @@ export function ModelErrorRateAlertsForm({
 							htmlFor={`${rule.id}-includeRetriedErrors`}
 							className="text-xs text-muted-foreground"
 						>
-							Include errors the gateway retried on another provider
+							Include errors the gateway retried
 						</Label>
 					</div>
 				</div>
