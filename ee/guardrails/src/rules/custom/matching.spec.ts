@@ -62,6 +62,10 @@ describe("custom guardrail matching", () => {
 		["bombings", "violence"],
 		["voters", "politics"],
 		["a gambler", "gambling"],
+		["investment", "financial_advice"],
+		["investors", "financial_advice"],
+		["a prescription", "medical_advice"],
+		["weaponry", "violence"],
 		["custom topics", "custom topic"],
 	])("matches the inflection %s for %s", (text, topic) => {
 		expect(
