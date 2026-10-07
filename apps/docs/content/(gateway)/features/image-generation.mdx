@@ -601,10 +601,11 @@ You can customize the generated image using the optional `image_config` paramete
 
 Available Google models:
 
-| Model                    | Description                                                                         |
-| ------------------------ | ----------------------------------------------------------------------------------- |
-| `gemini-3-pro-image`     | Gemini 3 Pro with native image generation. Supports aspect ratios and 1K–4K sizes.  |
-| `gemini-3.1-flash-image` | Gemini 3.1 Flash with native image generation. Supports 0.5K–4K sizes (default 1K). |
+| Model                    | Description                                                                                    |
+| ------------------------ | ---------------------------------------------------------------------------------------------- |
+| `gemini-3-pro-image`     | Gemini 3 Pro with native image generation. Supports aspect ratios and 1K–4K sizes.             |
+| `gemini-3.1-flash-image` | Gemini 3.1 Flash with native image generation. Supports 0.5K–4K sizes (default 1K).            |
+| `gemini-nano-banana-2.1` | Nano Banana 2.1, the Flash-tier successor to Nano Banana 2. Supports 1K–4K sizes (default 1K). |
 
 #### gemini-3-pro-image
 
@@ -854,16 +855,17 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 Available ByteDance models (see the [models page](https://llmgateway.io/models?filters=1&imageGeneration=true) for current pricing):
 
-| Model                        | Description                                                     |
-| ---------------------------- | --------------------------------------------------------------- |
-| `bytedance/seedream-4-0`     | High-quality text-to-image generation with 2K default output    |
-| `bytedance/seedream-4-5`     | Enhanced quality and consistency with improved prompt adherence |
-| `bytedance/seedream-5-0-pro` | Precise generation and reference-image editing at 1K or 2K      |
+| Model                          | Description                                                     |
+| ------------------------------ | --------------------------------------------------------------- |
+| `bytedance/seedream-4-0`       | High-quality text-to-image generation with 2K default output    |
+| `bytedance/seedream-4-5`       | Enhanced quality and consistency with improved prompt adherence |
+| `bytedance/seedream-5-0-pro`   | Precise generation and reference-image editing at 1K or 2K      |
+| `bytedance/seedream-5-0-flash` | Fast, low-cost generation and reference-image editing up to 2K  |
 
 <Callout type="info">
 	Seedream models support up to 2-10 reference images for multi-image fusion and
-	generation. The default output resolution is 2048×2048 (2K), with support up
-	to 4096×4096 (4K).
+	generation. The default output resolution is 2048×2048 (2K). Seedream 4.0 and
+	4.5 support up to 4096×4096 (4K); Seedream 5.0 Pro and Flash top out at 2K.
 </Callout>
 
 ## Moderation

@@ -9,14 +9,16 @@ import { fetchNoRedirect } from "./fetch-no-redirect.js";
 interface ServiceAccountKey {
 	client_email: string;
 	private_key: string;
-	token_uri: string;
 	project_id: string;
 }
+
+// Service-account JSON is user-supplied, so its token_uri is ignored: fetching
+// it would let a key point the server at internal hosts.
+export const GOOGLE_OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token";
 
 const REDIS_KEY_PREFIX = "gcp:service-account:access_token:v2";
 const TTL_SECONDS = 50 * 60;
 const TTL_MS = TTL_SECONDS * 1000;
-const TOKEN_URI = "https://oauth2.googleapis.com/token";
 
 interface MemoryCacheEntry {
 	token: string;
@@ -84,7 +86,7 @@ function signJwt(sa: ServiceAccountKey): string {
 	const claim = {
 		iss: sa.client_email,
 		scope: "https://www.googleapis.com/auth/cloud-platform",
-		aud: TOKEN_URI,
+		aud: GOOGLE_OAUTH_TOKEN_URI,
 		iat,
 		exp: iat + 3600,
 	};
@@ -104,7 +106,7 @@ async function exchangeJwtForAccessToken(
 	abortSignal?: AbortSignal,
 ): Promise<string> {
 	const jwt = signJwt(sa);
-	const res = await fetchNoRedirect(TOKEN_URI, {
+	const res = await fetchNoRedirect(GOOGLE_OAUTH_TOKEN_URI, {
 		method: "POST",
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams({

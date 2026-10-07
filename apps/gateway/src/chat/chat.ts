@@ -2360,7 +2360,8 @@ chat.openapi(completions, async (c) => {
 		requestedModel === "gemini-3-pro-image-preview" ||
 		requestedModel === "gemini-3.1-flash-image" ||
 		requestedModel === "gemini-3.1-flash-image-preview" ||
-		requestedModel === "gemini-3.1-flash-lite-image"
+		requestedModel === "gemini-3.1-flash-lite-image" ||
+		requestedModel === "gemini-nano-banana-2.1"
 			? countInputImages(messages)
 			: 0;
 

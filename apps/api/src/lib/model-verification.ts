@@ -30,6 +30,8 @@ export const modelVerificationSchema = z.object({
 			label: z.string(),
 			status: z.enum(["queued", "running", "passed", "failed", "skipped"]),
 			feedback: z.string().optional(),
+			// Set when the check passed only after retrying a timeout.
+			warning: z.string().optional(),
 			// Per-request breakdown for checks that probe several variants.
 			probes: z
 				.array(
