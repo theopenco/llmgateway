@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { voidPendingCycleRenewalInvoices } from "./pending-renewal.js";
+import {
+	getPendingSubscriptionInvoices,
+	voidOpenSubscriptionInvoices,
+	voidPendingCycleRenewalInvoices,
+} from "./pending-renewal.js";
 
 import type * as PaymentsModule from "@/routes/payments.js";
 
@@ -156,5 +160,45 @@ describe("voidPendingCycleRenewalInvoices", () => {
 		await expect(
 			voidPendingCycleRenewalInvoices(SUB_ID),
 		).resolves.toBeUndefined();
+	});
+
+	test.each(["draft", "open"] as const)(
+		"voids invoices from every %s page, including non-renewals on cancellation",
+		async (status) => {
+			stripeMock.invoices.list.mockImplementation(
+				async (params: { status: string; starting_after?: string }) => {
+					if (params.status !== status) {
+						return { data: [], has_more: false };
+					}
+					return {
+						data: [
+							{
+								id: params.starting_after ? "in_last" : "in_first",
+								status,
+								billing_reason: "manual",
+							},
+						],
+						has_more: !params.starting_after,
+					};
+				},
+			);
+			stripeMock.invoices.finalizeInvoice.mockResolvedValue({ status: "open" });
+			await voidOpenSubscriptionInvoices(SUB_ID);
+			expect(stripeMock.invoices.list).toHaveBeenCalledWith({
+				subscription: SUB_ID,
+				status,
+				limit: 100,
+				starting_after: "in_first",
+			});
+			expect(stripeMock.invoices.voidInvoice).toHaveBeenCalledWith("in_first");
+			expect(stripeMock.invoices.voidInvoice).toHaveBeenCalledWith("in_last");
+		},
+	);
+
+	test("rejects an empty page that claims more invoices instead of looping", async () => {
+		stripeMock.invoices.list.mockResolvedValue({ data: [], has_more: true });
+		await expect(getPendingSubscriptionInvoices(SUB_ID)).rejects.toThrow(
+			"pagination did not advance",
+		);
 	});
 });
