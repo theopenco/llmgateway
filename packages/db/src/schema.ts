@@ -3714,6 +3714,10 @@ export const modelProviderMappingHistory = snakeCase.table(
 		clientErrorsCount: integer().notNull().default(0),
 		gatewayErrorsCount: integer().notNull().default(0),
 		upstreamErrorsCount: integer().notNull().default(0),
+		// Subsets of gateway/upstream errors on attempts the gateway retried
+		// elsewhere, so error-rate alerts can ignore failures callers never saw.
+		retriedGatewayErrorsCount: integer().notNull().default(0),
+		retriedUpstreamErrorsCount: integer().notNull().default(0),
 		completedCount: integer().notNull().default(0),
 		lengthLimitCount: integer().notNull().default(0),
 		contentFilterCount: integer().notNull().default(0),
