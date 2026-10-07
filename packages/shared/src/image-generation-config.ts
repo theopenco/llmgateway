@@ -57,6 +57,7 @@ export function getModelImageConfig(model: string) {
 	const isSeedream =
 		lower.includes("seedream") || lower.includes("bytedance/seedream");
 	const isSeedreamPro = lower.includes("seedream-5-0-pro");
+	const isSeedreamFlash = lower.includes("seedream-5-0-flash");
 
 	const isGemini31FlashImage = lower.includes("gemini-3.1-flash-image");
 	const isGemini31FlashLiteImage = lower.includes(
@@ -83,13 +84,15 @@ export function getModelImageConfig(model: string) {
 					? (["2K"] as const)
 					: isSeedreamPro || isGrokImagine20
 						? (["1K", "2K"] as const)
-						: isSeedream
-							? (["2K", "4K"] as const)
-							: isGemini31FlashLiteImage
-								? (["1K"] as const)
-								: isGemini31FlashImage
-									? (["0.5K", "1K", "2K", "4K"] as const)
-									: (["1K", "2K", "4K"] as const);
+						: isSeedreamFlash
+							? (["1K", "1.5K", "2K"] as const)
+							: isSeedream
+								? (["2K", "4K"] as const)
+								: isGemini31FlashLiteImage
+									? (["1K"] as const)
+									: isGemini31FlashImage
+										? (["0.5K", "1K", "2K", "4K"] as const)
+										: (["1K", "2K", "4K"] as const);
 
 	const defaultSize = usesPixelDimensions
 		? "1024x1024"
