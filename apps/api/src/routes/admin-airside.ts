@@ -45,6 +45,10 @@ import {
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import {
+	collectProviderEnvCredentials,
+	readProviderEnvInventory,
+} from "@llmgateway/actions";
+import {
 	AIRSIDE_BASELINE_MARGIN,
 	AIRSIDE_DISCOUNT_MAX,
 	AIRSIDE_MARGIN_MAX,
@@ -1576,6 +1580,13 @@ const listRoutingSettings = createRoute({
 								status: z.enum(["active", "inactive"]),
 								activeMappingCount: z.number(),
 								airsideMappingCount: z.number(),
+								// Active keys serving the carrier, by who added them. Admin
+								// keys (incl. LLM_* env vars) bill our account pay-as-you-go;
+								// carrier keys bill the carrier's own account.
+								keySources: z.object({
+									admin: z.number(),
+									carrier: z.number(),
+								}),
 								discountPercent: z.number(),
 								marginPercent: z.number(),
 								// Signed routing-price adjustment (negative = boosted).
@@ -1709,55 +1720,99 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 		.slice(0, 19)
 		.replace("T", " ");
 	const mapping = tables.modelProviderMapping;
-	const [totals, mappingCounts, traffic] = providerIds.length
-		? await Promise.all([
-				db
-					.select({
-						usedProvider: tables.globalModelStats.usedProvider,
-						total:
-							sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)), 0)`.as(
-								"total",
+	const providerKey = tables.providerKey;
+	const [totals, mappingCounts, traffic, keyCounts, envInventory] =
+		providerIds.length
+			? await Promise.all([
+					db
+						.select({
+							usedProvider: tables.globalModelStats.usedProvider,
+							total:
+								sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)), 0)`.as(
+									"total",
+								),
+							last30d:
+								sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)) filter (where ${tables.globalModelStats.dayTimestamp} >= ${cutoff}::timestamp), 0)`.as(
+									"last30d",
+								),
+						})
+						.from(tables.globalModelStats)
+						.where(
+							and(
+								inArray(tables.globalModelStats.usedProvider, providerIds),
+								eq(tables.globalModelStats.usedMode, "credits"),
 							),
-						last30d:
-							sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)) filter (where ${tables.globalModelStats.dayTimestamp} >= ${cutoff}::timestamp), 0)`.as(
-								"last30d",
+						)
+						.groupBy(tables.globalModelStats.usedProvider),
+					db
+						.select({
+							providerId: mapping.providerId,
+							active: count(),
+							airside:
+								sql<number>`count(*) filter (where ${mapping.source} = 'airside')`.as(
+									"airside",
+								),
+						})
+						.from(mapping)
+						.where(
+							and(
+								inArray(mapping.providerId, providerIds),
+								eq(mapping.status, "active"),
+								isNull(mapping.region),
 							),
-					})
-					.from(tables.globalModelStats)
-					.where(
-						and(
-							inArray(tables.globalModelStats.usedProvider, providerIds),
-							eq(tables.globalModelStats.usedMode, "credits"),
-						),
-					)
-					.groupBy(tables.globalModelStats.usedProvider),
-				db
-					.select({
-						providerId: mapping.providerId,
-						active: count(),
-						airside:
-							sql<number>`count(*) filter (where ${mapping.source} = 'airside')`.as(
-								"airside",
+						)
+						.groupBy(mapping.providerId),
+					getCarrierTrafficSeries(providerIds, buckets),
+					db
+						.select({
+							provider: providerKey.provider,
+							carrierSubmitted: providerKey.carrierSubmitted,
+							count: count(),
+						})
+						.from(providerKey)
+						.where(
+							and(
+								inArray(providerKey.provider, providerIds),
+								eq(providerKey.managed, true),
+								isNull(providerKey.organizationId),
+								eq(providerKey.status, "active"),
 							),
-					})
-					.from(mapping)
-					.where(
-						and(
-							inArray(mapping.providerId, providerIds),
-							eq(mapping.status, "active"),
-							isNull(mapping.region),
-						),
-					)
-					.groupBy(mapping.providerId),
-				getCarrierTrafficSeries(providerIds, buckets),
-			])
-		: [[], [], new Map<string, z.infer<typeof carrierSeriesPointSchema>[]>()];
+						)
+						.groupBy(providerKey.provider, providerKey.carrierSubmitted),
+					readProviderEnvInventory(),
+				])
+			: [
+					[],
+					[],
+					new Map<string, z.infer<typeof carrierSeriesPointSchema>[]>(),
+					[],
+					null,
+				];
 	const totalsByProvider = new Map(
 		totals.map((row) => [row.usedProvider, row]),
 	);
 	const countsByProvider = new Map(
 		mappingCounts.map((row) => [row.providerId, row]),
 	);
+	const keySourcesFor = (providerId: string) => {
+		// Same fallback as the credentials catalog: local env when the gateway
+		// has not published its inventory.
+		const envKeys = envInventory
+			? (envInventory.providers[providerId] ?? [])
+			: collectProviderEnvCredentials(providerId);
+		const managed = (carrierSubmitted: boolean) =>
+			Number(
+				keyCounts.find(
+					(row) =>
+						row.provider === providerId &&
+						row.carrierSubmitted === carrierSubmitted,
+				)?.count ?? 0,
+			);
+		return {
+			admin: managed(false) + envKeys.length,
+			carrier: managed(true),
+		};
+	};
 
 	return c.json({
 		window,
@@ -1778,6 +1833,7 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 					activeMappingCount > 0 ? ("active" as const) : ("inactive" as const),
 				activeMappingCount,
 				airsideMappingCount: Number(counts?.airside ?? 0),
+				keySources: keySourcesFor(row.providerId),
 				discountPercent,
 				marginPercent,
 				routingAdjustment: computeAirsideAdjustment(

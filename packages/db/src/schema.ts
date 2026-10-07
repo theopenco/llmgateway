@@ -2036,6 +2036,9 @@ export const providerKey = pgTable(
 		// several credentials and the token itself is masked, so this is the
 		// only way to tell them apart.
 		comment: text(),
+		// Managed only: filed by an Airside carrier itself rather than added by
+		// an admin. Carrier keys bill the carrier's own upstream account.
+		carrierSubmitted: boolean().notNull().default(false),
 		// Managed-credential settings keyed by the provider's logical env keys
 		// (see ProviderKeyOptions.env_config). Mirrors everything the provider's
 		// `LLM_*` vars would carry apart from the API key itself, which lives in

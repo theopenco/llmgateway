@@ -137,6 +137,38 @@ function CarrierStatus({ carrier }: { carrier: Carrier }) {
 	return <Badge variant="secondary">Routing</Badge>;
 }
 
+/** Who added the carrier's active keys, which decides who pays the upstream. */
+function KeySourceCell({ carrier }: { carrier: Carrier }) {
+	const { admin, carrier: carrierKeys } = carrier.keySources;
+	if (admin === 0 && carrierKeys === 0) {
+		return (
+			<span className="text-muted-foreground text-xs" title="No active key.">
+				—
+			</span>
+		);
+	}
+	return (
+		<div className="flex flex-wrap gap-1">
+			{admin > 0 ? (
+				<Badge
+					variant="outline"
+					title={`${admin} active key${admin === 1 ? "" : "s"} added by an admin (incl. env vars) — we pay the upstream pay-as-you-go.`}
+				>
+					Admin{admin > 1 ? ` ×${admin}` : ""}
+				</Badge>
+			) : null}
+			{carrierKeys > 0 ? (
+				<Badge
+					variant="secondary"
+					title={`${carrierKeys} active key${carrierKeys === 1 ? "" : "s"} filed by the carrier in Airside — billed to their account, and we pay them out.`}
+				>
+					Carrier{carrierKeys > 1 ? ` ×${carrierKeys}` : ""}
+				</Badge>
+			) : null}
+		</div>
+	);
+}
+
 function bucketLabel(date: string, bucket: "hour" | "day") {
 	return bucket === "hour"
 		? `${date.slice(0, 10)} ${date.slice(11, 16)} UTC`
@@ -254,6 +286,7 @@ function CarrierTable({
 				<TableRow>
 					<SortableHead label="Company" sortKey="name" align="left" {...head} />
 					<TableHead>Status</TableHead>
+					<TableHead>Key added by</TableHead>
 					<SortableHead
 						label="Mappings"
 						sortKey="activeMappingCount"
@@ -301,6 +334,9 @@ function CarrierTable({
 						</TableCell>
 						<TableCell>
 							<CarrierStatus carrier={carrier} />
+						</TableCell>
+						<TableCell>
+							<KeySourceCell carrier={carrier} />
 						</TableCell>
 						<TableCell
 							className="text-right tabular-nums"
@@ -439,7 +475,8 @@ export function AirsideCarriersClient() {
 						Routed cost, requests, and error rate cover the{" "}
 						{carrierWindowOption(window).label} from the hourly mapping rollups,
 						one bar per {carrierWindowOption(window).bucket}. Mappings are filed
-						through Airside / active in total.
+						through Airside / active in total. Keys added by an admin bill our
+						account pay-as-you-go; keys the carrier filed bill theirs.
 						{showMargin
 							? " A negative routing adjustment means the carrier's traffic is boosted. Margin figures come from the daily global rollups (credits only)."
 							: ""}

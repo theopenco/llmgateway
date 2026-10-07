@@ -3486,6 +3486,46 @@ describe("airside provider portal", () => {
 		}
 	});
 
+	it("counts a carrier's active keys by who added them", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		await setRoutingSettings(company.id, "mistral", 0.1, 0.3);
+
+		const keySources = async () => {
+			const res = await app.request("/admin/airside/routing-settings", {
+				headers: { Cookie: cookie },
+			});
+			expect(res.status).toBe(200);
+			return (await res.json()).providers[0].keySources;
+		};
+		// LLM_* env keys count as admin keys and vary by machine.
+		const baseline = await keySources();
+
+		const key = (id: string, carrierSubmitted: boolean, status = "active") => ({
+			id,
+			provider: "mistral",
+			...encryptProviderKeyForStorage("key-source-test", id, null),
+			managed: true,
+			carrierSubmitted,
+			status: status as "active" | "inactive",
+		});
+		await db
+			.insert(tables.providerKey)
+			.values([
+				key("key-source-admin", false),
+				key("key-source-carrier", true),
+				key("key-source-inactive", true, "inactive"),
+			]);
+
+		expect(await keySources()).toEqual({
+			admin: baseline.admin + 1,
+			carrier: baseline.carrier + 1,
+		});
+	});
+
 	it("stores a model's selected upstream API format", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
@@ -4759,6 +4799,7 @@ describe("airside provider portal", () => {
 		expect(byToken.get("sk-acme-sky-rotated-1")?.status).toBe("deleted");
 		const pending = byToken.get("sk-acme-sky-rotated-2")!;
 		expect(pending.status).toBe("inactive");
+		expect(pending.carrierSubmitted).toBe(true);
 		// The live key keeps serving until the replacement is approved.
 		expect(byToken.get("sk-acme-sky-serving-key")?.status).toBe("active");
 
