@@ -59,7 +59,8 @@ function formatBigNumber(n: number): string {
 	}
 	const last = BIG_NUMBER_UNITS.length - 1;
 	let unit = Math.min(Math.floor(Math.log10(n) / 3) - 1, last);
-	let value = n / (1_000 ** (unit + 1));
+	const divisor = 1_000 ** (unit + 1);
+	let value = n / divisor;
 	const digits = () => (unit === 0 ? 1 : 2);
 	if (Number(value.toFixed(digits())) >= 1_000 && unit < last) {
 		unit += 1;
