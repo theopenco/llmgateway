@@ -43,6 +43,10 @@ export async function deleteAll() {
 	for (let attempt = 1; ; attempt++) {
 		try {
 			await db.delete(tables.log);
+			await db.delete(tables.crmActivity);
+			await db.delete(tables.crmContact);
+			await db.delete(tables.crmAccount);
+			await db.delete(tables.enterpriseContactSubmission);
 			await db.delete(tables.auditLog);
 			await db.delete(tables.platformAuditLog);
 			await db.delete(tables.contentFilterHourlyModelStats);
