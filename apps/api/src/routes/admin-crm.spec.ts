@@ -306,6 +306,67 @@ describe("admin enterprise CRM", () => {
 	});
 });
 
+describe("admin enterprise CRM input and time zones", () => {
+	let cookie: string;
+	const originalTz = process.env.TZ;
+
+	beforeEach(async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
+		cookie = await createTestUser();
+		await seedBook();
+	});
+
+	afterEach(async () => {
+		process.env.TZ = originalTz;
+		if (originalAdminEmails === undefined) {
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
+		} else {
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
+		}
+		await deleteAll();
+	});
+
+	it("rejects unparseable dates with 400", async () => {
+		const close = await call(cookie, "/crm/accounts/prospectco.com", {
+			method: "PATCH",
+			body: { closeDate: "next tuesday" },
+		});
+		expect(close.status).toBe(400);
+		const task = await call(cookie, "/crm/accounts/prospectco.com/activities", {
+			method: "POST",
+			body: { kind: "task", subject: "Call", dueAt: "soon" },
+		});
+		expect(task.status).toBe(400);
+	});
+
+	it("accepts a date-only close date", async () => {
+		const res = await call(cookie, "/crm/accounts/prospectco.com", {
+			method: "PATCH",
+			body: { closeDate: "2026-12-01" },
+		});
+		expect(res.status).toBe(200);
+		const { accounts } = await listAccounts(cookie);
+		const account = accounts.find((a) => a.id === "prospectco.com") as
+			(Summary & { closeDate: string | null }) | undefined;
+		expect(account?.closeDate).toBe("2026-12-01T00:00:00.000Z");
+	});
+
+	it("reports task due dates in UTC whatever the server time zone", async () => {
+		process.env.TZ = "America/Los_Angeles";
+		const dueAt = shift(new Date(), 3);
+		dueAt.setUTCMilliseconds(0);
+		const res = await call(cookie, "/crm/accounts/prospectco.com/activities", {
+			method: "POST",
+			body: { kind: "task", subject: "Follow up", dueAt: dueAt.toISOString() },
+		});
+		expect(res.status).toBe(200);
+		const { accounts } = await listAccounts(cookie);
+		const account = accounts.find((a) => a.id === "prospectco.com") as
+			(Summary & { nextTaskDueAt: string | null }) | undefined;
+		expect(account?.nextTaskDueAt).toBe(dueAt.toISOString());
+	});
+});
+
 describe("CRM scores", () => {
 	const now = new Date("2026-10-06T12:00:00Z");
 

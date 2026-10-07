@@ -866,6 +866,13 @@ async function assertAccount(id: string): Promise<void> {
 
 const nullableText = z.string().nullable().optional();
 
+const isoDateTime = z.string().datetime({ offset: true });
+
+const closeDateInput = z
+	.union([z.string().date(), isoDateTime])
+	.nullable()
+	.optional();
+
 const updateAccount = createRoute({
 	method: "patch",
 	path: "/crm/accounts/{id}",
@@ -880,7 +887,7 @@ const updateAccount = createRoute({
 						ownerEmail: nullableText,
 						priority: prioritySchema.optional(),
 						dealValue: z.number().min(0).nullable().optional(),
-						closeDate: nullableText,
+						closeDate: closeDateInput,
 						website: nullableText,
 						industry: nullableText,
 						employeeCount: nullableText,
@@ -941,7 +948,7 @@ const createActivity = createRoute({
 						subject: z.string().min(1),
 						body: z.string().optional(),
 						contactEmail: z.string().optional(),
-						dueAt: z.string().optional(),
+						dueAt: isoDateTime.optional(),
 					}),
 				},
 			},
@@ -988,7 +995,7 @@ const updateActivity = createRoute({
 				"application/json": {
 					schema: z.object({
 						completed: z.boolean().optional(),
-						dueAt: z.string().nullable().optional(),
+						dueAt: isoDateTime.nullable().optional(),
 					}),
 				},
 			},

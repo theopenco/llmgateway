@@ -526,7 +526,9 @@ export async function loadOrgUsage(
 			spend30d: sql<number>`coalesce(sum(case when ${stats.hourTimestamp} >= ${d30}::timestamp then ${stats.cost} else 0 end), 0)`,
 			spendPrev30d: sql<number>`coalesce(sum(case when ${stats.hourTimestamp} < ${d30}::timestamp then ${stats.cost} else 0 end), 0)`,
 			requests30d: sql<number>`coalesce(sum(case when ${stats.hourTimestamp} >= ${d30}::timestamp then ${stats.requestCount} else 0 end), 0)`,
-			lastUsageAt: sql<string | null>`max(${stats.hourTimestamp})`,
+			lastUsageAt: sql<Date | null>`max(${stats.hourTimestamp})`.mapWith(
+				stats.hourTimestamp,
+			),
 		})
 		.from(stats)
 		.innerJoin(tables.project, eq(tables.project.id, stats.projectId))
@@ -542,7 +544,7 @@ export async function loadOrgUsage(
 			spend30d: Number(r.spend30d),
 			spendPrev30d: Number(r.spendPrev30d),
 			requests30d: Number(r.requests30d),
-			lastUsageAt: r.lastUsageAt ? new Date(r.lastUsageAt) : null,
+			lastUsageAt: r.lastUsageAt,
 		});
 	}
 	return usage;
@@ -563,14 +565,16 @@ export async function loadActivityStats(
 	const rows = await db
 		.select({
 			accountId: a.accountId,
-			lastActivityAt: sql<
-				string | null
-			>`max(coalesce(${a.completedAt}, ${a.createdAt}))`,
+			lastActivityAt:
+				sql<Date | null>`max(coalesce(${a.completedAt}, ${a.createdAt}))`.mapWith(
+					a.createdAt,
+				),
 			openTasks: sql<number>`count(*) filter (where ${a.kind} = 'task' and ${a.completedAt} is null)`,
 			overdueTasks: sql<number>`count(*) filter (where ${a.kind} = 'task' and ${a.completedAt} is null and ${a.dueAt} < ${nowIso}::timestamp)`,
-			nextTaskDueAt: sql<
-				string | null
-			>`min(${a.dueAt}) filter (where ${a.kind} = 'task' and ${a.completedAt} is null)`,
+			nextTaskDueAt:
+				sql<Date | null>`min(${a.dueAt}) filter (where ${a.kind} = 'task' and ${a.completedAt} is null)`.mapWith(
+					a.dueAt,
+				),
 		})
 		.from(a)
 		.groupBy(a.accountId);
@@ -578,10 +582,10 @@ export async function loadActivityStats(
 		rows.map((r) => [
 			r.accountId,
 			{
-				lastActivityAt: r.lastActivityAt ? new Date(r.lastActivityAt) : null,
+				lastActivityAt: r.lastActivityAt,
 				openTasks: Number(r.openTasks),
 				overdueTasks: Number(r.overdueTasks),
-				nextTaskDueAt: r.nextTaskDueAt ? new Date(r.nextTaskDueAt) : null,
+				nextTaskDueAt: r.nextTaskDueAt,
 			},
 		]),
 	);
