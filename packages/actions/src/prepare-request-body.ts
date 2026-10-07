@@ -7,6 +7,7 @@ import {
 	getProviderDefinition,
 	expandAllProviderRegions,
 	type ProviderModelMapping,
+	type ReasoningEffort,
 	type ReasoningMode,
 	type ProviderId,
 	type BaseMessage,
@@ -789,6 +790,34 @@ function stripUnsupportedSchemaProperties(
 	}
 
 	return cleaned;
+}
+
+const GOOGLE_THINKING_LEVELS = ["minimal", "low", "medium", "high"] as const;
+
+/**
+ * Maps a reasoning effort to a Gemini 3+ `thinkingLevel`. Google has no tier
+ * above high, and models reject levels they do not support (e.g. `minimal` on
+ * Gemini 3.7+ Flash and Pro), so an undeclared level rises to the next
+ * declared one, as the budget fallback used to resolve it upstream.
+ */
+function getGoogleThinkingLevel(
+	effort: string,
+	declared: ReasoningEffort[] | undefined,
+): string {
+	// xhigh and max share the top level.
+	const level =
+		GOOGLE_THINKING_LEVELS.find((l) => l === effort) ?? ("high" as const);
+	const supported = GOOGLE_THINKING_LEVELS.filter((l) =>
+		declared?.length ? declared.includes(l) : true,
+	);
+	if (supported.length === 0) {
+		return level;
+	}
+	const index = GOOGLE_THINKING_LEVELS.indexOf(level);
+	return (
+		supported.find((l) => GOOGLE_THINKING_LEVELS.indexOf(l) >= index) ??
+		supported[supported.length - 1]
+	);
 }
 
 function mapGoogleImageSize(imageSize: string): string {
@@ -4269,6 +4298,17 @@ export async function prepareRequestBody(
 						// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed
 						requestBody.generationConfig.thinkingConfig.thinkingBudget =
 							reasoning_max_tokens;
+					} else if (
+						reasoning_effort !== undefined &&
+						!/^gemini-2[.-]/.test(usedExternalId)
+					) {
+						// Gemini 3+ takes a thinkingLevel; Google is retiring the
+						// thinkingBudget fallback. Gemini 2.x rejects thinkingLevel.
+						requestBody.generationConfig.thinkingConfig.thinkingLevel =
+							getGoogleThinkingLevel(
+								reasoning_effort,
+								providerMappingForOptions?.reasoningEfforts,
+							);
 					} else if (reasoning_effort !== undefined) {
 						const getThinkingBudget = (effort: string) => {
 							switch (effort) {
