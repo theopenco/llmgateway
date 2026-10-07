@@ -460,7 +460,10 @@ function maskMatches(text: string, masks: RedactionInfo[]): string {
 			let found;
 			while ((found = pattern.exec(text)) !== null) {
 				masked.fill(1, found.index, found.index + found[0].length);
-				pattern.lastIndex = found.index + 1;
+				// Step a whole code point: with the `u` flag a lastIndex inside a
+				// surrogate pair snaps back to its start, re-finding this match.
+				pattern.lastIndex =
+					found.index + ((text.codePointAt(found.index) ?? 0) > 0xffff ? 2 : 1);
 			}
 		}
 	}
