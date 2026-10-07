@@ -965,6 +965,11 @@ function usageDefect(usage: ReportedUsage, source: string): string | null {
 	if (usage.input === undefined && usage.output === undefined) {
 		return `${source} did not report token usage. Input and output token counts are required for billing.`;
 	}
+	for (const [kind, count] of Object.entries(usage)) {
+		if (count !== undefined && (!Number.isInteger(count) || count < 0)) {
+			return `${source} reported ${count} ${kind} tokens. Token counts must be non-negative integers.`;
+		}
+	}
 	if (!usage.input || usage.input <= 0) {
 		return `${source} reported ${usage.input ?? "no"} input tokens. A positive input token count is required for billing.`;
 	}
@@ -1151,6 +1156,20 @@ function streamDefect(
 		return usage.input === undefined && usage.output === undefined
 			? `${defect} OpenAI-compatible streams must honour stream_options.include_usage with a final usage chunk.`
 			: defect;
+	}
+	// Chat Completions usage counted before the finish chunk misses the output
+	// generated after it.
+	let lastEnd = events.length - 1;
+	while (!isStreamEnd(events[lastEnd])) {
+		lastEnd--;
+	}
+	if (
+		events.some((event) => isRecord(event) && Array.isArray(event.choices)) &&
+		!events
+			.slice(lastEnd)
+			.some((event) => reportedUsage(event).output !== undefined)
+	) {
+		return "The stream reported usage only before its finish reason. OpenAI-compatible streams must send the final usage in or after the chunk that carries finish_reason.";
 	}
 	return streamInputMismatch(usage.input ?? 0, basicUsage?.input);
 }

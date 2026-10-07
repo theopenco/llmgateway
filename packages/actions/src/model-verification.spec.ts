@@ -893,6 +893,22 @@ describe("model verification", () => {
 				feedback: "50 cached input tokens out of 20 input tokens",
 			},
 			{
+				name: "a negative cached token count",
+				body: chatBody({ content: "OK" }, "stop", {
+					...chatUsage,
+					prompt_tokens_details: { cached_tokens: -3 },
+				}),
+				feedback: "reported -3 cached tokens",
+			},
+			{
+				name: "a fractional token count",
+				body: chatBody({ content: "OK" }, "stop", {
+					prompt_tokens: 20.5,
+					completion_tokens: 2,
+				}),
+				feedback: "reported 20.5 input tokens",
+			},
+			{
 				name: "no response id",
 				body: { ...chatBody({ content: "OK" }), id: undefined },
 				feedback: "The response has no id",
@@ -985,6 +1001,23 @@ describe("model verification", () => {
 				stream: chatStream({ prompt_tokens: 200, completion_tokens: 2 }),
 				feedback:
 					"The stream reported 200 input tokens for the prompt the non-streaming request reported 20 input tokens for.",
+			},
+			{
+				name: "usage reported only before the finish reason",
+				stream: [
+					{
+						choices: [{ index: 0, delta: { content: "O" } }],
+						usage: chatUsage,
+					},
+					{
+						choices: [
+							{ index: 0, delta: { content: "K" }, finish_reason: "stop" },
+						],
+					},
+				]
+					.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
+					.join(""),
+				feedback: "The stream reported usage only before its finish reason.",
 			},
 			{
 				name: "a stream without a finish reason",
