@@ -1086,6 +1086,133 @@ export const enterpriseContactSubmission = snakeCase.table(
 	],
 );
 
+export const CRM_STAGES = [
+	"lead",
+	"qualified",
+	"trial",
+	"negotiation",
+	"customer",
+	"churned",
+	"lost",
+] as const;
+export type CrmStage = (typeof CRM_STAGES)[number];
+
+export const CRM_ACTIVITY_KINDS = [
+	"note",
+	"call",
+	"email",
+	"meeting",
+	"task",
+] as const;
+export type CrmActivityKind = (typeof CRM_ACTIVITY_KINDS)[number];
+
+export const CRM_CONTACT_ROLES = [
+	"champion",
+	"decision_maker",
+	"economic_buyer",
+	"technical",
+	"procurement",
+	"user",
+	"blocker",
+] as const;
+export type CrmContactRole = (typeof CRM_CONTACT_ROLES)[number];
+
+// Internal enterprise CRM. An account is a company, keyed by its corporate
+// email domain so a contact-form lead and the trial org it later signs up
+// with collapse into one record. Free-mail senders fall back to an
+// `org:<id>` / `lead:<email>` key. Everything the platform already knows
+// (orgs, members, usage, submissions) is derived at read time; these rows
+// only hold what sales adds on top.
+export const crmAccount = snakeCase.table("crm_account", {
+	id: text().primaryKey().notNull(),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	displayName: text(),
+	// Null = derived from platform state (lead / trial / customer).
+	stage: text({ enum: CRM_STAGES }),
+	ownerEmail: text(),
+	priority: text({ enum: ["low", "medium", "high"] })
+		.notNull()
+		.default("medium"),
+	// Expected annual contract value in USD.
+	dealValue: decimal(),
+	closeDate: timestamp(),
+	website: text(),
+	industry: text(),
+	employeeCount: text(),
+	headquarters: text(),
+	linkedinUrl: text(),
+	useCase: text(),
+	competitors: text(),
+	tags: json().$type<string[]>().notNull().default([]),
+	notes: text(),
+	lostReason: text(),
+	// Added by hand from the CRM (outbound or referral prospect). Rows created
+	// implicitly when sales annotates a derived account stay false, so an org
+	// that drops out of scope never lingers as a prospect.
+	manual: boolean().notNull().default(false),
+});
+
+export const crmContact = snakeCase.table(
+	"crm_contact",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		accountId: text()
+			.notNull()
+			.references(() => crmAccount.id, { onDelete: "cascade" }),
+		email: text().notNull(),
+		name: text(),
+		title: text(),
+		role: text({ enum: CRM_CONTACT_ROLES }),
+		phone: text(),
+		linkedinUrl: text(),
+		notes: text(),
+	},
+	(table) => [
+		uniqueIndex("crm_contact_account_email_idx").on(
+			table.accountId,
+			table.email,
+		),
+	],
+);
+
+export const crmActivity = snakeCase.table(
+	"crm_activity",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		accountId: text()
+			.notNull()
+			.references(() => crmAccount.id, { onDelete: "cascade" }),
+		kind: text({ enum: CRM_ACTIVITY_KINDS }).notNull(),
+		subject: text().notNull(),
+		body: text(),
+		contactEmail: text(),
+		authorEmail: text(),
+		// Tasks only: when it is due and when it was ticked off.
+		dueAt: timestamp(),
+		completedAt: timestamp(),
+	},
+	(table) => [
+		index("crm_activity_account_id_idx").on(table.accountId, table.createdAt),
+		index("crm_activity_due_at_idx")
+			.on(table.dueAt)
+			.where(sql`completed_at IS NULL`),
+	],
+);
+
 export const providerListingRequest = snakeCase.table(
 	"provider_listing_request",
 	{
