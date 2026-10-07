@@ -30,6 +30,12 @@ describe("upstream dispatcher", () => {
 					res.write("data: second\n\n");
 					res.end();
 				}, 200);
+			} else if (req.url === "/slow-headers") {
+				// undici's header timer has ~1s resolution, so delay well past it
+				setTimeout(() => {
+					res.writeHead(200, { "content-type": "application/json" });
+					res.end("{}");
+				}, 3000);
 			} else {
 				res.writeHead(200, { "content-type": "application/json" });
 				res.end("{}");
@@ -49,6 +55,7 @@ describe("upstream dispatcher", () => {
 		await closeUpstreamDispatcher();
 		setGlobalDispatcher(originalDispatcher);
 		delete process.env.UPSTREAM_KEEPALIVE_TIMEOUT_MS;
+		delete process.env.GATEWAY_TIMEOUT_MS;
 		clientPorts.length = 0;
 	});
 
@@ -99,6 +106,14 @@ describe("upstream dispatcher", () => {
 			} as RequestInit),
 		).rejects.toMatchObject({
 			cause: { code: "EACCES" },
+		});
+	});
+
+	it("bounds the wait for response headers by the gateway timeout", async () => {
+		process.env.GATEWAY_TIMEOUT_MS = "100";
+		installUpstreamDispatcher();
+		await expect(fetch(`${baseUrl}/slow-headers`)).rejects.toMatchObject({
+			cause: { code: "UND_ERR_HEADERS_TIMEOUT" },
 		});
 	});
 
