@@ -1790,6 +1790,56 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputCost).toBeCloseTo(1120 * (60 / 1e6));
 	});
 
+	it.each([
+		[15000, 0.024],
+		[20000, 0.032],
+	])(
+		"bills hy-image-v3.5-preview by TokenHub's reported %i tokens",
+		async (tokens, expectedCost) => {
+			const result = await calculateCosts(
+				"hy-image-v3.5-preview",
+				"tencent",
+				null,
+				0,
+				tokens,
+				null,
+				undefined,
+				null,
+				1,
+				"4096x2304",
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				tokens,
+			);
+
+			expect(result.imageOutputTokens).toBe(tokens);
+			expect(result.imageOutputCost).toBeCloseTo(expectedCost);
+			expect(result.totalCost).toBeCloseTo(expectedCost);
+		},
+	);
+
+	it("bills hy-image-v3.5-preview at the 4K token count when usage is missing", async () => {
+		const result = await calculateCosts(
+			"hy-image-v3.5-preview",
+			"tencent",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			undefined,
+			0,
+		);
+
+		expect(result.imageOutputTokens).toBe(20000);
+		expect(result.imageOutputCost).toBeCloseTo(0.032);
+	});
+
 	it("bills perImagePrice by the served resolution tier for qwen-image-3.0-pro", async () => {
 		// qwen-image-3.0-pro: $0.04/image at 1K, $0.075/image at 2K
 		const at1k = await calculateCosts(

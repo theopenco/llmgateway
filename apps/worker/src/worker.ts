@@ -36,7 +36,6 @@ import {
 	log,
 	type LogInsertData,
 	lt,
-	lte,
 	organization,
 	resolveVerifiedOrgRecipient,
 	shortid,
@@ -294,11 +293,16 @@ const schema = z.object({
 });
 
 export async function acquireLock(key: string): Promise<boolean> {
+	return (await acquireLease(key)) !== null;
+}
+
+/** Takes the lock and returns its row id, the owner token; null when held. */
+export async function acquireLease(key: string): Promise<string | null> {
 	// eslint-disable-next-line no-mixed-operators
 	const lockExpiry = new Date(Date.now() - LOCK_DURATION_MINUTES * 60 * 1000);
 
 	try {
-		await db.transaction(async (tx) => {
+		return await db.transaction(async (tx) => {
 			// First, delete any expired locks with the same key
 			await tx
 				.delete(tables.lock)
@@ -308,9 +312,11 @@ export async function acquireLock(key: string): Promise<boolean> {
 
 			// Then try to insert the new lock
 			try {
-				await tx.insert(tables.lock).values({
-					key,
-				});
+				const [lease] = await tx
+					.insert(tables.lock)
+					.values({ key })
+					.returning({ id: tables.lock.id });
+				return lease.id;
 			} catch (insertError) {
 				// If the insert failed due to a unique constraint violation within the transaction,
 				// another process holds the lock - throw a special error to be caught outside
@@ -321,12 +327,10 @@ export async function acquireLock(key: string): Promise<boolean> {
 				throw insertError;
 			}
 		});
-
-		return true;
 	} catch (error) {
-		// If we threw our special error, return false
+		// If we threw our special error, the lock is held
 		if (error instanceof Error && error.message === "LOCK_EXISTS") {
-			return false;
+			return null;
 		}
 		// Re-throw unexpected errors so they can be handled upstream
 		throw error;
@@ -3304,37 +3308,38 @@ async function runModelErrorRateAlertsLoop() {
 
 const DATA_STREAMS_LOCK_KEY = "data_streams";
 
-/** Marks the lock as still in use and returns the stamp written. */
-async function touchLock(key: string): Promise<Date> {
-	const at = new Date();
-	await db
+class DataStreamLeaseLost extends Error {}
+
+/** Keeps the lease fresh; false once it expired and another worker took it. */
+export async function touchLease(id: string): Promise<boolean> {
+	const touched = await db
 		.update(tables.lock)
-		.set({ updatedAt: at })
-		.where(eq(tables.lock.key, key));
-	return at;
+		.set({ updatedAt: new Date() })
+		.where(eq(tables.lock.id, id))
+		.returning({ id: tables.lock.id });
+	return touched.length > 0;
 }
 
-/**
- * Releases the lock unless another worker took it over: a lock acquired after
- * ours expired carries a newer stamp than our last touch, and deleting it
- * would let a third worker in alongside.
- */
-async function releaseLockIfOwned(key: string, lastTouch: Date): Promise<void> {
-	await db
-		.delete(tables.lock)
-		.where(
-			and(eq(tables.lock.key, key), lte(tables.lock.updatedAt, lastTouch)),
-		);
+/** Releases the lease only if it is still ours. */
+export async function releaseLease(id: string): Promise<void> {
+	await db.delete(tables.lock).where(eq(tables.lock.id, id));
 }
 
 /**
  * Forwards audit and request log metadata to each enabled data stream. Each
  * stream is re-read right before it runs, so a pause, credential rotation, or
- * revoked access made during the pass is honored by the rest of it.
+ * revoked access made during the pass is honored by the rest of it. Stream
+ * state is written only while `leaseId` is held; the pass stops once it is
+ * lost.
  */
-export async function processDataStreams(
-	onProgress?: () => Promise<void>,
-): Promise<void> {
+export async function processDataStreams(leaseId: string): Promise<void> {
+	const onProgress = async () => {
+		if (!(await touchLease(leaseId))) {
+			throw new DataStreamLeaseLost(
+				"Data streams lease lost to another worker",
+			);
+		}
+	};
 	const streams = await listActiveDataStreams();
 	for (const listed of streams) {
 		if (isStopRequested()) {
@@ -3346,10 +3351,10 @@ export async function processDataStreams(
 		}
 		// A pass can outlast the lock TTL with slow destinations; keep the lock
 		// fresh so a second worker never runs the same streams concurrently.
-		await onProgress?.();
+		await onProgress();
 		// One broken stream must never hold up delivery for the others.
 		try {
-			const result = await runDataStream(stream, { onProgress });
+			const result = await runDataStream(stream, { onProgress, leaseId });
 			if (result.paused) {
 				logger.warn("Data stream paused after repeated failures", {
 					streamId: stream.id,
@@ -3363,6 +3368,9 @@ export async function processDataStreams(
 				});
 			}
 		} catch (error) {
+			if (error instanceof DataStreamLeaseLost) {
+				throw error;
+			}
 			logger.error("Data stream run crashed", {
 				streamId: stream.id,
 				error: error instanceof Error ? error : new Error(String(error)),
@@ -3381,14 +3389,12 @@ async function runDataStreamsLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
-				if (await acquireLock(DATA_STREAMS_LOCK_KEY)) {
-					let lastTouch = await touchLock(DATA_STREAMS_LOCK_KEY);
+				const leaseId = await acquireLease(DATA_STREAMS_LOCK_KEY);
+				if (leaseId) {
 					try {
-						await processDataStreams(async () => {
-							lastTouch = await touchLock(DATA_STREAMS_LOCK_KEY);
-						});
+						await processDataStreams(leaseId);
 					} finally {
-						await releaseLockIfOwned(DATA_STREAMS_LOCK_KEY, lastTouch);
+						await releaseLease(leaseId);
 					}
 				}
 				await interruptibleSleep(interval);

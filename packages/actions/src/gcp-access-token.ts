@@ -6,9 +6,12 @@ import { logger } from "@llmgateway/logger";
 interface ServiceAccountKey {
 	client_email: string;
 	private_key: string;
-	token_uri: string;
 	project_id: string;
 }
+
+// Service-account JSON is user-supplied, so its token_uri is ignored: fetching
+// it would let a key point the server at internal hosts.
+export const GOOGLE_OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token";
 
 const REDIS_KEY_PREFIX = "gcp:service-account:access_token";
 const TTL_SECONDS = 50 * 60;
@@ -80,7 +83,7 @@ function signJwt(sa: ServiceAccountKey): string {
 	const claim = {
 		iss: sa.client_email,
 		scope: "https://www.googleapis.com/auth/cloud-platform",
-		aud: sa.token_uri,
+		aud: GOOGLE_OAUTH_TOKEN_URI,
 		iat,
 		exp: iat + 3600,
 	};
@@ -100,7 +103,7 @@ async function exchangeJwtForAccessToken(
 	abortSignal?: AbortSignal,
 ): Promise<string> {
 	const jwt = signJwt(sa);
-	const res = await fetch(sa.token_uri, {
+	const res = await fetch(GOOGLE_OAUTH_TOKEN_URI, {
 		method: "POST",
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams({
@@ -127,7 +130,7 @@ async function exchangeJwtForAccessToken(
 function cacheKey(sa: ServiceAccountKey): string {
 	const hash = crypto
 		.createHash("sha256")
-		.update(sa.client_email + "|" + sa.token_uri)
+		.update(sa.client_email)
 		.digest("hex")
 		.slice(0, 16);
 	return `${REDIS_KEY_PREFIX}:${hash}`;

@@ -162,6 +162,12 @@ Verify the toggle takes effect rather than just returning 200 — a provider can
 accept `enable_thinking: false` and still return `reasoning_content`. Declare it
 only on mappings where it works.
 
+Gemini 3+ efforts become `thinkingLevel`; an undeclared tier rises to the next
+declared one, so declare `reasoningEfforts` from a `thinkingLevel` probe
+(`minimal` 400s on several models). Google is retiring `thinkingBudget` and
+sampling params: omit `reasoningMaxTokens` where a budget 400s, and give 3.6+
+mappings a `supportedParameters` list without `temperature`/`top_p`.
+
 ## 6. Image, video, and other endpoints
 
 Probe the size/quality/duration grid; rate cards list tiers deployments refuse.

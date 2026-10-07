@@ -7,6 +7,7 @@ import {
 	getProviderDefinition,
 	expandAllProviderRegions,
 	type ProviderModelMapping,
+	type ReasoningEffort,
 	type ReasoningMode,
 	type ProviderId,
 	type BaseMessage,
@@ -789,6 +790,34 @@ function stripUnsupportedSchemaProperties(
 	}
 
 	return cleaned;
+}
+
+const GOOGLE_THINKING_LEVELS = ["minimal", "low", "medium", "high"] as const;
+
+/**
+ * Maps a reasoning effort to a Gemini 3+ `thinkingLevel`. Google has no tier
+ * above high, and models reject levels they do not support (e.g. `minimal` on
+ * Gemini 3.7+ Flash and Pro), so an undeclared level rises to the next
+ * declared one, as the budget fallback used to resolve it upstream.
+ */
+function getGoogleThinkingLevel(
+	effort: string,
+	declared: ReasoningEffort[] | undefined,
+): string {
+	// xhigh and max share the top level.
+	const level =
+		GOOGLE_THINKING_LEVELS.find((l) => l === effort) ?? ("high" as const);
+	const supported = GOOGLE_THINKING_LEVELS.filter((l) =>
+		declared?.length ? declared.includes(l) : true,
+	);
+	if (supported.length === 0) {
+		return level;
+	}
+	const index = GOOGLE_THINKING_LEVELS.indexOf(level);
+	return (
+		supported.find((l) => GOOGLE_THINKING_LEVELS.indexOf(l) >= index) ??
+		supported[supported.length - 1]
+	);
 }
 
 function mapGoogleImageSize(imageSize: string): string {
@@ -1792,6 +1821,41 @@ export async function prepareRequestBody(
 		};
 
 		return bytedanceImageRequest;
+	}
+
+	// Handle Tencent Hy Image generation (TokenHub's Chat/Messages image API)
+	if (imageGenerations && usedProvider === "tencent") {
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		const content: Array<
+			| { type: "text"; text: string }
+			| { type: "image_url"; image_url: { url: string } }
+		> = [];
+		if (typeof lastUserMessage?.content === "string") {
+			content.push({ type: "text", text: lastUserMessage.content });
+		} else if (Array.isArray(lastUserMessage?.content)) {
+			for (const part of lastUserMessage.content) {
+				if (part.type === "text" && part.text) {
+					content.push({ type: "text", text: part.text });
+				} else if (part.type === "image_url" && part.image_url) {
+					const url =
+						typeof part.image_url === "string"
+							? part.image_url
+							: part.image_url.url;
+					if (url) {
+						content.push({ type: "image_url", image_url: { url } });
+					}
+				}
+			}
+		}
+
+		return {
+			model: usedExternalId,
+			messages: [{ role: "user", content }],
+			...(image_config?.image_size && { size: image_config.image_size }),
+			...(image_config?.seed !== undefined && { seed: image_config.seed }),
+		} as ProviderRequestBody;
 	}
 
 	// Check if the model supports system role. Look up by canonical model id.
@@ -3955,8 +4019,13 @@ export async function prepareRequestBody(
 			if (temperature !== undefined) {
 				inferenceConfig.temperature = temperature;
 			}
-			if (max_tokens !== undefined) {
-				inferenceConfig.maxTokens = max_tokens;
+			// Converse caps Claude at 4096 output tokens when maxTokens is omitted,
+			// cutting off long replies and adaptive thinking mid-turn. Mirror the
+			// Anthropic path and default to the model's advertised maxOutput.
+			const bedrockMaxTokens =
+				max_tokens ?? providerMappingForOptions?.maxOutput;
+			if (bedrockMaxTokens !== undefined) {
+				inferenceConfig.maxTokens = bedrockMaxTokens;
 			}
 			if (top_p !== undefined) {
 				inferenceConfig.topP = top_p;
@@ -4036,19 +4105,10 @@ export async function prepareRequestBody(
 						type: "enabled",
 						budget_tokens: thinkingBudget,
 					};
-					// When the caller didn't supply max_tokens, fall back to the
-					// model's full advertised maxOutput rather than a flat 1024
-					// (Anthropic's historical default that silently truncates
-					// large responses and mid-emission tool calls). When the
-					// caller did supply one, leave it alone but ensure it leaves
-					// room for the thinking budget plus a minimum response.
-					const bedrockModelMaxOutput = providerMappingForOptions?.maxOutput;
+					// Ensure maxTokens leaves room for the thinking budget plus a
+					// minimum response.
 					const reasoningFloor = thinkingBudget + 1000;
-					if (inferenceConfig.maxTokens === undefined) {
-						inferenceConfig.maxTokens =
-							max_tokens ??
-							Math.max(bedrockModelMaxOutput ?? reasoningFloor, reasoningFloor);
-					}
+					inferenceConfig.maxTokens ??= reasoningFloor;
 					if (inferenceConfig.maxTokens < reasoningFloor) {
 						inferenceConfig.maxTokens = reasoningFloor;
 					}
@@ -4238,6 +4298,17 @@ export async function prepareRequestBody(
 						// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed
 						requestBody.generationConfig.thinkingConfig.thinkingBudget =
 							reasoning_max_tokens;
+					} else if (
+						reasoning_effort !== undefined &&
+						!/^gemini-2[.-]/.test(usedExternalId)
+					) {
+						// Gemini 3+ takes a thinkingLevel; Google is retiring the
+						// thinkingBudget fallback. Gemini 2.x rejects thinkingLevel.
+						requestBody.generationConfig.thinkingConfig.thinkingLevel =
+							getGoogleThinkingLevel(
+								reasoning_effort,
+								providerMappingForOptions?.reasoningEfforts,
+							);
 					} else if (reasoning_effort !== undefined) {
 						const getThinkingBudget = (effort: string) => {
 							switch (effort) {
