@@ -1,6 +1,6 @@
+import { randomUUID } from "node:crypto";
+
 import {
-	APICallError,
-	StreamProviderError,
 	streamText,
 	convertToModelMessages,
 	createUIMessageStream,
@@ -13,6 +13,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import { redisClient } from "@/auth/config.js";
+import { ChatSupportDiagnostics } from "@/utils/chat-support-diagnostics.js";
 import {
 	fetchKnowledgePage,
 	getCatalogueSummary,
@@ -24,7 +25,6 @@ import {
 import { notifyChatSupportEscalation } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
-import { isUpstreamError } from "@/utils/upstream-error.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { and, db, desc, eq, isNull, tables } from "@llmgateway/db";
@@ -45,20 +45,6 @@ function escapeHtml(text: string): string {
 		"'": "&#x27;",
 	};
 	return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
-}
-
-function getStreamErrorDetails(error: unknown): {
-	statusCode?: number;
-	code?: string | number;
-	type?: string;
-} {
-	if (StreamProviderError.isInstance(error)) {
-		return { statusCode: error.statusCode, code: error.code, type: error.type };
-	}
-	if (APICallError.isInstance(error)) {
-		return { statusCode: error.statusCode };
-	}
-	return {};
 }
 
 // Upstream messages can name internal deployments and regions, so the client
@@ -429,6 +415,7 @@ async function persistMessage(
 	conversationId: string,
 	role: "user" | "assistant",
 	content: string,
+	diagnostics?: ChatSupportDiagnostics,
 ): Promise<void> {
 	if (!content) {
 		return;
@@ -452,7 +439,14 @@ async function persistMessage(
 				.where(eq(t.id, conversationId));
 		});
 	} catch (error) {
-		logger.error("Failed to persist chat support message", toError(error));
+		if (diagnostics) {
+			diagnostics.fail("Failed to persist chat support message", error);
+		} else {
+			logger.error("Failed to persist chat support message", toError(error), {
+				conversationId,
+				role,
+			});
+		}
 	}
 }
 
@@ -482,9 +476,26 @@ const chatSupportRequestSchema = z.object({
 	clientId: z.string().min(1).max(64),
 });
 
-export const publicChatSupport = new Hono<ServerTypes>();
+export const publicChatSupport = new Hono<{
+	Variables: ServerTypes["Variables"] & {
+		supportDiagnostics: ChatSupportDiagnostics;
+	};
+}>();
+
+publicChatSupport.use("/", async (c, next) => {
+	const diagnostics = new ChatSupportDiagnostics();
+	c.set("supportDiagnostics", diagnostics);
+	diagnostics.info("Chat support request started");
+	await next();
+	if (c.error) {
+		diagnostics.fail("Chat support request failed", c.error);
+	} else if (c.res.status >= 400) {
+		diagnostics.finish("rejected", { statusCode: c.res.status });
+	}
+});
 
 publicChatSupport.post("/", async (c) => {
+	const diagnostics = c.get("supportDiagnostics");
 	const ipAddress = getClientIpFromContext(c) ?? "unknown";
 
 	const parsed = chatSupportRequestSchema.safeParse(
@@ -511,6 +522,7 @@ publicChatSupport.post("/", async (c) => {
 
 	// Checked only after validation so malformed requests can't consume the
 	// per-identifier buckets — or worse, trip the global breaker for free.
+	diagnostics.stage = "rate_limit";
 	const rateLimit = await checkMessageRateLimit(ipAddress, clientId);
 	if (!rateLimit.ok) {
 		return c.json({ error: rateLimit.message }, 429);
@@ -518,6 +530,7 @@ publicChatSupport.post("/", async (c) => {
 
 	const contextMessages = messages.slice(-MAX_CONTEXT_MESSAGES);
 
+	diagnostics.stage = "conversation";
 	const userAgent = c.req.header("User-Agent");
 	const conversationId = await getOrCreateConversation(
 		clientId,
@@ -527,6 +540,13 @@ publicChatSupport.post("/", async (c) => {
 		email,
 	);
 
+	diagnostics.conversationId = conversationId;
+	diagnostics.info("Chat support conversation loaded", {
+		messageCount: messages.length,
+		contextMessageCount: contextMessages.length,
+	});
+	diagnostics.stage = "persist_user";
+
 	// Persist the visitor's message up front so it is never lost if the assistant
 	// errors or a human has taken the conversation over.
 	const newUserMessage = [...messages].reverse().find((m) => m.role === "user");
@@ -535,6 +555,7 @@ publicChatSupport.post("/", async (c) => {
 			conversationId,
 			"user",
 			getTextFromUIMessage(newUserMessage),
+			diagnostics,
 		);
 	}
 
@@ -542,6 +563,7 @@ publicChatSupport.post("/", async (c) => {
 	// reply from here on. We still persist the visitor's message above so the
 	// support team sees it, then return an empty stream so the widget settles
 	// without producing an assistant turn.
+	diagnostics.stage = "escalation";
 	const ct = tables.chatSupportConversation;
 	const [escalationRow] = await db
 		.select({ escalatedAt: ct.escalatedAt })
@@ -549,13 +571,16 @@ publicChatSupport.post("/", async (c) => {
 		.where(eq(ct.id, conversationId))
 		.limit(1);
 	if (escalationRow?.escalatedAt) {
+		diagnostics.finish("escalated");
 		const noopStream = createUIMessageStream<UIMessage>({
 			execute: () => {
 				// Intentionally empty — escalated conversations get no AI reply.
 			},
 		});
 		return new Response(
-			noopStream.pipeThrough(new JsonToSseTransformStream()),
+			noopStream
+				.pipeThrough(new JsonToSseTransformStream())
+				.pipeThrough(new TextEncoderStream()),
 			{
 				headers: {
 					"content-type": "text/event-stream",
@@ -568,27 +593,53 @@ publicChatSupport.post("/", async (c) => {
 		);
 	}
 
+	diagnostics.stage = "configuration";
 	const supportApiKey = process.env.SUPPORT_CHAT_API_KEY;
 	if (!supportApiKey) {
-		logger.error("SUPPORT_CHAT_API_KEY not configured");
+		diagnostics.fail(
+			"SUPPORT_CHAT_API_KEY not configured",
+			new Error("Chat support is not configured"),
+		);
 		return c.json({ error: "Chat support is not configured" }, 503);
 	}
 
 	const llmgateway = createLLMGateway({
 		apiKey: supportApiKey,
 		baseURL: getGatewayApiBaseUrl(),
+		fetch: async (input, init) => {
+			const gatewayRequestId = randomUUID();
+			diagnostics.gatewayRequestId = gatewayRequestId;
+			const startedAt = Date.now();
+			const headers = new Headers(init?.headers);
+			headers.set("x-request-id", gatewayRequestId);
+			diagnostics.info("Chat support gateway request started");
+			const response = await fetch(input, { ...init, headers });
+			diagnostics.info("Chat support gateway response received", {
+				gatewayRequestId,
+				statusCode: response.status,
+				headerLatencyMs: Date.now() - startedAt,
+				selectedModel: response.headers.get("x-llmgateway-smart-model"),
+			});
+			return response;
+		},
 		headers: {
 			...forwardedIpHeaders(c.req.raw.headers),
 			"x-source": "support-chat",
 		},
 	});
 
+	diagnostics.stage = "knowledge";
 	const system = await buildSystemPrompt();
+	diagnostics.stage = "message_conversion";
+	const modelMessages = await convertToModelMessages(contextMessages);
+	diagnostics.stage = "generation";
 
+	let generationOutcome: "completed" | "empty" = "empty";
+	let completionDetails: Record<string, unknown> = {};
 	const result = streamText({
 		model: llmgateway.chat("smart"),
 		instructions: system,
-		messages: await convertToModelMessages(contextMessages),
+		messages: modelMessages,
 		maxOutputTokens: 1024,
 		stopWhen: isStepCount(4),
 		tools: {
@@ -603,19 +654,34 @@ publicChatSupport.post("/", async (c) => {
 				execute: async ({ url }) => await fetchKnowledgePage(url),
 			}),
 		},
-		// Without this the AI SDK console.error()s the error, which emits one
-		// log entry per line of its inspected output. Upstream failures reach the
-		// visitor below, so they are warnings.
 		onError: ({ error }) => {
-			const level = isUpstreamError(error) ? "warn" : "error";
-			logger[level](
-				"Chat support streaming error",
-				toError(error),
-				getStreamErrorDetails(error),
-			);
+			diagnostics.fail("Chat support streaming error", error);
 		},
-		async onEnd({ text }) {
-			await persistMessage(conversationId, "assistant", text);
+		onStepEnd: ({ stepNumber, finishReason, response, usage, toolCalls }) => {
+			diagnostics.info("Chat support step finished", {
+				stepNumber,
+				finishReason,
+				model: response.modelId,
+				responseId: response.id,
+				inputTokens: usage.inputTokens,
+				outputTokens: usage.outputTokens,
+				toolCallCount: toolCalls.length,
+			});
+		},
+		onAbort: () => {
+			diagnostics.finish("aborted");
+		},
+		async onEnd({ text, finishReason, steps, usage }) {
+			diagnostics.stage = "persist_assistant";
+			await persistMessage(conversationId, "assistant", text, diagnostics);
+			generationOutcome = text.trim() ? "completed" : "empty";
+			completionDetails = {
+				finishReason,
+				stepCount: steps.length,
+				textLength: text.length,
+				inputTokens: usage.inputTokens,
+				outputTokens: usage.outputTokens,
+			};
 		},
 	});
 
@@ -624,7 +690,10 @@ publicChatSupport.post("/", async (c) => {
 	// intermediate proxies, which tend to buffer `text/plain` responses and
 	// surface as "Load failed" errors on iOS.
 	const uiStream = result.toUIMessageStream({
-		onError: () => STREAM_ERROR_MESSAGE,
+		onError: (error) => {
+			diagnostics.fail("Chat support UI stream error", error);
+			return STREAM_ERROR_MESSAGE;
+		},
 	});
 	const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
 
@@ -633,9 +702,11 @@ publicChatSupport.post("/", async (c) => {
 	const KEEPALIVE_INTERVAL_MS = 15_000;
 	const encoder = new TextEncoder();
 	const reader = sseStream.getReader();
+	let keepalive: ReturnType<typeof setInterval>;
+	let canceled = false;
 	const streamWithKeepalive = new ReadableStream<Uint8Array>({
 		start(controller) {
-			const keepalive = setInterval(() => {
+			keepalive = setInterval(() => {
 				try {
 					controller.enqueue(encoder.encode(": ping\n\n"));
 				} catch {
@@ -647,7 +718,11 @@ publicChatSupport.post("/", async (c) => {
 				try {
 					while (true) {
 						const { done, value } = await reader.read();
+						if (canceled) {
+							return;
+						}
 						if (done) {
+							diagnostics.finish(generationOutcome, completionDetails);
 							clearInterval(keepalive);
 							controller.close();
 							return;
@@ -656,12 +731,19 @@ publicChatSupport.post("/", async (c) => {
 					}
 				} catch (err) {
 					clearInterval(keepalive);
-					controller.error(err);
+					if (!canceled) {
+						diagnostics.stage = "delivery";
+						diagnostics.fail("Chat support stream delivery failed", err);
+						controller.error(err);
+					}
 				}
 			})();
 		},
-		cancel() {
-			void reader.cancel();
+		async cancel() {
+			canceled = true;
+			clearInterval(keepalive);
+			diagnostics.finish("aborted");
+			await reader.cancel();
 		},
 	});
 
