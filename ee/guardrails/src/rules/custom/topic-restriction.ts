@@ -68,6 +68,7 @@ const TOPIC_KEYWORDS: Record<string, string[]> = {
 	medical_advice: [
 		"diagnosis",
 		"prescribe",
+		"prescription",
 		"medication",
 		"treatment",
 		"medical advice",

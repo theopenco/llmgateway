@@ -23,7 +23,10 @@ export function createLiteralRegex(
 export function createInflectedWordRegex(value: string): RegExp {
 	const word = value.trim();
 	const escaped = escapeLiteral(word);
-	const variants = [`${escaped}(?:s|es|d|ed|ing|ings|er|ers)?`];
+	// Inflections plus common derivations ("investment", "investors", "weaponry").
+	const suffixes =
+		"s|es|d|ed|ing|ings|er|ers|ment|ments|or|ors|ry|ries|ion|ions|ist|ists|ive|ives|al|ance|ances|ence|ences";
+	const variants = [`${escaped}(?:${suffixes})?`];
 	const last = word.at(-1)?.toLowerCase();
 	// Doubled final consonant ("stabbing"); not before "-er", so "bet" does not
 	// match "better".
@@ -32,7 +35,7 @@ export function createInflectedWordRegex(value: string): RegExp {
 	}
 	// Dropped final "e" ("voting", "voters", "gambler").
 	if (last === "e" && word.length > 2) {
-		variants.push(`${escapeLiteral(word.slice(0, -1))}(?:ing|ings|er|ers|ed)`);
+		variants.push(`${escapeLiteral(word.slice(0, -1))}(?:${suffixes})`);
 	}
 	return new RegExp(`${WORD_START}(?:${variants.join("|")})${WORD_END}`, "giu");
 }
