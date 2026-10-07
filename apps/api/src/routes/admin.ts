@@ -37,6 +37,8 @@ import {
 	mappingErrorWindowSchema,
 	notRetriedClause,
 	incidentErrorsClause,
+	platformOnlyClause,
+	byokClauseFor,
 	queryMappingErrorShapes,
 	buildErrorTimeline,
 	errorTimelineSchema,
@@ -13249,10 +13251,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 const UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT = 100;
 const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 
-// Customer-owned keys are useful when debugging a customer report, but they
-// should not affect the platform credential health ranking by default.
-const unstableMappingsPlatformOnlyClause = sql`AND ${tables.log.usedMode} <> 'api-keys'`;
-
 // Which error classes count against a mapping. `non_client` (default) drops
 // client-error logs from the sample; `client` drops every other failure, so
 // both rate against successes plus the selected errors.
@@ -13491,7 +13489,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const ignoreExpected = query.ignoreExpected !== "false";
 	const splitByKey = query.splitByKey === "true";
 	const includeByok = query.includeByok === "true";
-	const byokClause = includeByok ? sql`` : unstableMappingsPlatformOnlyClause;
+	const byokClause = includeByok ? sql`` : platformOnlyClause;
 	const errorScope = query.errorScope ?? "non_client";
 	const { interval: windowInterval, hours: windowHours } =
 		resolveMappingErrorWindow(query.window);
@@ -13709,8 +13707,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 	const groupByStream = groupByStreamParam === "true";
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
 	const retriedClause = includeRetried === "true" ? sql`` : notRetriedClause;
-	const byokClause =
-		includeByok === "true" ? sql`` : unstableMappingsPlatformOnlyClause;
+	const byokClause = byokClauseFor(includeByok);
 	const {
 		interval: windowInterval,
 		hours: windowHours,

@@ -269,6 +269,23 @@ export function getCommonAggregationFields() {
 	};
 }
 
+/**
+ * BYOK subset of the gateway/upstream error counts. Only
+ * project_hourly_model_stats carries these, for platform-only incident views.
+ */
+function apiKeysErrorFields() {
+	return {
+		apiKeysGatewayErrorCount:
+			sql<number>`sum(case when ${log.usedMode} = 'api-keys' and ${log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
+				"apiKeysGatewayErrorCount",
+			),
+		apiKeysUpstreamErrorCount:
+			sql<number>`sum(case when ${log.usedMode} = 'api-keys' and ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
+				"apiKeysUpstreamErrorCount",
+			),
+	};
+}
+
 // Bound aggregation working sets and keep wide INSERTs below the parameter limit.
 const STATS_READ_BATCH_SIZE = 100;
 const STATS_WRITE_BATCH_SIZE = 500;
@@ -374,7 +391,7 @@ async function recalculateProjectHourlyStats(
 /**
  * Calculate hourly model statistics for a batch of projects.
  */
-async function recalculateProjectHourlyModelStats(
+export async function recalculateProjectHourlyModelStats(
 	projectIds: string[],
 	hourTimestamp: string,
 	window: LogWindow = {},
@@ -387,6 +404,7 @@ async function recalculateProjectHourlyModelStats(
 			usedModel: log.usedModel,
 			usedProvider: log.usedProvider,
 			...getCommonAggregationFields(),
+			...apiKeysErrorFields(),
 			providerMarginAmount: providerMarginAmountField(),
 		})
 		.from(log)
@@ -418,6 +436,7 @@ async function recalculateProjectHourlyModelStats(
 					getTableColumns(projectHourlyModelStats),
 					{
 						...getCommonAggregationFields(),
+						...apiKeysErrorFields(),
 						providerMarginAmount: providerMarginAmountField(),
 					},
 					true,

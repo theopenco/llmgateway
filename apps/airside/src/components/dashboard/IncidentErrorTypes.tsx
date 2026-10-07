@@ -150,6 +150,7 @@ export function IncidentErrorTypes({
 	mapping,
 	window,
 	includeRetried,
+	includeByok,
 	showCarrier,
 }: {
 	providerCompanyId: string;
@@ -157,6 +158,7 @@ export function IncidentErrorTypes({
 	mapping: string | null;
 	window: IncidentsWindow;
 	includeRetried: boolean;
+	includeByok: boolean;
 	showCarrier: boolean;
 }) {
 	const api = useApi();
@@ -170,6 +172,7 @@ export function IncidentErrorTypes({
 						providerCompanyId,
 						window,
 						includeRetried: includeRetried ? "true" : "false",
+						includeByok: includeByok ? "true" : "false",
 						...(providerId ? { providerId } : {}),
 						...(mapping !== null ? { mapping } : {}),
 					},

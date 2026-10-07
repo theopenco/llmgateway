@@ -1891,6 +1891,101 @@ describe("airside provider portal", () => {
 		}
 	});
 
+	it("excludes BYOK traffic from incidents unless asked", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+
+		const hour = new Date();
+		hour.setMinutes(0, 0, 0);
+		await db.insert(tables.projectHourlyModelStats).values({
+			projectId: "test-project-id",
+			hourTimestamp: hour,
+			usedModel: "mistral/mistral-large-3",
+			usedProvider: "mistral",
+			requestCount: 10,
+			apiKeysRequestCount: 6,
+			errorCount: 5,
+			upstreamErrorCount: 4,
+			gatewayErrorCount: 1,
+			apiKeysUpstreamErrorCount: 3,
+			apiKeysGatewayErrorCount: 1,
+		});
+		await db.insert(tables.log).values(
+			(["credits", "api-keys", "api-keys"] as const).map((usedMode, i) => ({
+				id: `byok-incident-log-${i}`,
+				requestId: `byok-incident-request-${i}`,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				hasError: true,
+				unifiedFinishReason: "upstream_error" as const,
+				errorDetails: {
+					statusCode: 503,
+					statusText: "err",
+					responseText: "failed 503",
+				},
+				duration: 100,
+				usedMode,
+				requestedModel: "mistral-large-3",
+				requestedProvider: "mistral",
+				usedModel: "mistral/mistral-large-3",
+				usedProvider: "mistral",
+				responseSize: 10,
+				mode: usedMode,
+			})),
+		);
+
+		const base = `/airside/incidents?providerCompanyId=${company.id}`;
+		const platform = await app.request(base, { headers: { Cookie: cookie } });
+		expect((await platform.json()).mappings).toEqual([
+			expect.objectContaining({
+				requestCount: 4,
+				errorCount: 1,
+				upstreamErrorCount: 1,
+				gatewayErrorCount: 0,
+				errorRate: 0.25,
+			}),
+		]);
+		const all = await app.request(`${base}&includeByok=true`, {
+			headers: { Cookie: cookie },
+		});
+		expect((await all.json()).mappings).toEqual([
+			expect.objectContaining({ requestCount: 10, errorCount: 5 }),
+		]);
+
+		const errorsBase = `/airside/incidents/errors?providerCompanyId=${company.id}&providerId=mistral&mapping=mistral/mistral-large-3`;
+		const typesBase = `/airside/incidents/error-types?providerCompanyId=${company.id}`;
+		for (const [path, field] of [
+			[errorsBase, "sampledErrors"],
+			[typesBase, "sampledErrors"],
+		] as const) {
+			const platformErrors = await app.request(path, {
+				headers: { Cookie: cookie },
+			});
+			expect((await platformErrors.json())[field]).toBe(1);
+			const allErrors = await app.request(`${path}&includeByok=true`, {
+				headers: { Cookie: cookie },
+			});
+			expect((await allErrors.json())[field]).toBe(3);
+		}
+
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		const adminBase = "/admin/airside/incidents?providerId=mistral";
+		const adminPlatform = await app.request(adminBase, {
+			headers: { Cookie: cookie },
+		});
+		expect((await adminPlatform.json()).mappings).toEqual([
+			expect.objectContaining({ requestCount: 4, errorCount: 1 }),
+		]);
+		const adminTypes = await app.request(
+			"/admin/airside/incidents/error-types?providerId=mistral&includeByok=true",
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await adminTypes.json()).sampledErrors).toBe(3);
+	});
+
 	it("gates claims on the listing fee when configured", async () => {
 		process.env.AIRSIDE_LISTING_PRICE_ID = "price_test_airside";
 		await setUserEmail("ops@mistral.ai");

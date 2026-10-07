@@ -5979,6 +5979,10 @@ export const projectHourlyModelStats = pgTable(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		// BYOK subset of the gateway/upstream error counts, so incident views can
+		// show platform-only error rates.
+		apiKeysGatewayErrorCount: integer().notNull().default(0),
+		apiKeysUpstreamErrorCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour-model-provider

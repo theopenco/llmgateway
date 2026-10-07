@@ -190,11 +190,13 @@ export function ProviderIncidentErrorTypes({
 	mapping,
 	window,
 	includeRetried,
+	includeByok,
 }: {
 	providerId: string;
 	mapping: string | null;
 	window: NonNullable<ErrorTypesQuery["parameters"]["query"]["window"]>;
 	includeRetried: boolean;
+	includeByok: boolean;
 }) {
 	const $api = useApi();
 	const { data, isError, isFetching, isPlaceholderData, refetch } =
@@ -207,6 +209,7 @@ export function ProviderIncidentErrorTypes({
 						providerId,
 						window,
 						includeRetried: includeRetried ? "true" : "false",
+						includeByok: includeByok ? "true" : "false",
 						...(mapping !== null ? { mapping } : {}),
 					},
 				},

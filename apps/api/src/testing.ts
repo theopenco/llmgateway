@@ -345,6 +345,14 @@ export async function aggregateLogsForTesting() {
 			usedModel: tables.log.usedModel,
 			usedProvider: tables.log.usedProvider,
 			...getCommonAggregationFields(),
+			apiKeysGatewayErrorCount:
+				sql<number>`sum(case when ${tables.log.usedMode} = 'api-keys' and ${tables.log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
+					"apiKeysGatewayErrorCount",
+				),
+			apiKeysUpstreamErrorCount:
+				sql<number>`sum(case when ${tables.log.usedMode} = 'api-keys' and ${tables.log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
+					"apiKeysUpstreamErrorCount",
+				),
 		})
 		.from(tables.log)
 		.groupBy(
