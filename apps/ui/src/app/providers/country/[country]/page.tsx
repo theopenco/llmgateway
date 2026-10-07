@@ -41,6 +41,20 @@ function modelCountForProviders(
 	);
 }
 
+async function loadCountryProviders(code: string) {
+	const [apiProviders, apiModels] = await Promise.all([
+		fetchProviders(),
+		fetchModels(),
+	]);
+	const modelCounts = countApiModelsByProvider(apiModels);
+	const extraProviders = customCarrierGridProviders(apiProviders, modelCounts);
+	const countryProviders = [
+		...providersForCountry(code),
+		...extraProviders.filter((p) => p.headquarters === code),
+	];
+	return { apiProviders, modelCounts, extraProviders, countryProviders };
+}
+
 export default async function ProviderCountryPage({
 	params,
 }: CountryPageProps) {
@@ -51,16 +65,8 @@ export default async function ProviderCountryPage({
 		notFound();
 	}
 
-	const [apiProviders, apiModels] = await Promise.all([
-		fetchProviders(),
-		fetchModels(),
-	]);
-	const modelCounts = countApiModelsByProvider(apiModels);
-	const extraProviders = customCarrierGridProviders(apiProviders, modelCounts);
-	const countryProviders = [
-		...providersForCountry(country.code),
-		...extraProviders.filter((p) => p.headquarters === country.code),
-	];
+	const { apiProviders, modelCounts, extraProviders, countryProviders } =
+		await loadCountryProviders(country.code);
 	const uploadedLogos = Object.fromEntries(
 		apiProviders
 			.filter((p) => p.airsideLogoUrl)
@@ -150,7 +156,7 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const countryProviders = providersForCountry(country.code);
+	const { countryProviders } = await loadCountryProviders(country.code);
 	const description = `Browse ${countryProviders.length} AI providers headquartered in ${country.name} — access their models through LLM Gateway's OpenAI-compatible API with automatic fallback, caching, and cost analytics.`;
 	const canonical = `/providers/country/${country.code.toLowerCase()}`;
 

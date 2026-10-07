@@ -80,10 +80,10 @@ export function svgDataUrlAspectRatio(dataUrl: string): number | null {
 		return box[2] / box[3];
 	}
 	const width = parseFloat(
-		/\bwidth\s*=\s*["']([^"']+)["']/i.exec(root)?.[1] ?? "",
+		/\swidth\s*=\s*["']([^"']+)["']/i.exec(root)?.[1] ?? "",
 	);
 	const height = parseFloat(
-		/\bheight\s*=\s*["']([^"']+)["']/i.exec(root)?.[1] ?? "",
+		/\sheight\s*=\s*["']([^"']+)["']/i.exec(root)?.[1] ?? "",
 	);
 	return width > 0 && height > 0 ? width / height : null;
 }
