@@ -3955,8 +3955,13 @@ export async function prepareRequestBody(
 			if (temperature !== undefined) {
 				inferenceConfig.temperature = temperature;
 			}
-			if (max_tokens !== undefined) {
-				inferenceConfig.maxTokens = max_tokens;
+			// Converse caps Claude at 4096 output tokens when maxTokens is omitted,
+			// cutting off long replies and adaptive thinking mid-turn. Mirror the
+			// Anthropic path and default to the model's advertised maxOutput.
+			const bedrockMaxTokens =
+				max_tokens ?? providerMappingForOptions?.maxOutput;
+			if (bedrockMaxTokens !== undefined) {
+				inferenceConfig.maxTokens = bedrockMaxTokens;
 			}
 			if (top_p !== undefined) {
 				inferenceConfig.topP = top_p;
@@ -4036,19 +4041,10 @@ export async function prepareRequestBody(
 						type: "enabled",
 						budget_tokens: thinkingBudget,
 					};
-					// When the caller didn't supply max_tokens, fall back to the
-					// model's full advertised maxOutput rather than a flat 1024
-					// (Anthropic's historical default that silently truncates
-					// large responses and mid-emission tool calls). When the
-					// caller did supply one, leave it alone but ensure it leaves
-					// room for the thinking budget plus a minimum response.
-					const bedrockModelMaxOutput = providerMappingForOptions?.maxOutput;
+					// Ensure maxTokens leaves room for the thinking budget plus a
+					// minimum response.
 					const reasoningFloor = thinkingBudget + 1000;
-					if (inferenceConfig.maxTokens === undefined) {
-						inferenceConfig.maxTokens =
-							max_tokens ??
-							Math.max(bedrockModelMaxOutput ?? reasoningFloor, reasoningFloor);
-					}
+					inferenceConfig.maxTokens ??= reasoningFloor;
 					if (inferenceConfig.maxTokens < reasoningFloor) {
 						inferenceConfig.maxTokens = reasoningFloor;
 					}
