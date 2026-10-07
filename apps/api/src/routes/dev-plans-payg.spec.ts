@@ -546,6 +546,25 @@ describe("dev-plan PAYG top-up", () => {
 		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
 	});
 
+	it("never leaves an unbounded gate marker when the claim failed", async () => {
+		await insertOrg();
+		const marker = `topup_velocity:devpass_gate:${ORG_ID}:attempt-redis-down`;
+		const set = redisClient.set.bind(redisClient);
+		vi.spyOn(redisClient, "set").mockImplementation(((
+			...args: Parameters<typeof redisClient.set>
+		) =>
+			args[0] === marker && args.includes("NX")
+				? Promise.reject(new Error("Redis unavailable"))
+				: set(...args)) as typeof redisClient.set);
+
+		const res = await topUpRequest(
+			{ amount: 25, purchaseId: "attempt-redis-down" },
+			token,
+		);
+		expect(res.status).toBe(200);
+		expect(await redisClient.ttl(marker)).not.toBe(-1);
+	});
+
 	it("rejects a top-up without a purchaseId", async () => {
 		await insertOrg();
 

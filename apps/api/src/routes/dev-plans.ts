@@ -3918,7 +3918,15 @@ devPlans.openapi(topUpCredits, async (c) => {
 			throw err;
 		}
 		try {
-			await redisClient.set(gateMarkerKey, "passed", "KEEPTTL");
+			// XX: never create a marker this request did not claim (the claim may
+			// have failed on a Redis error), and always bound it with a TTL.
+			await redisClient.set(
+				gateMarkerKey,
+				"passed",
+				"EX",
+				TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
+				"XX",
+			);
 		} catch {
 			// Duplicates then wait out the poll and get a retryable 503.
 		}
