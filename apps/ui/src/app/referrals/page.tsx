@@ -244,31 +244,39 @@ function EarningsLedger() {
 						This month
 					</span>
 				</div>
-				<table className="w-full text-sm">
-					<thead>
-						<tr className="border-b font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-							<th className="px-5 py-2.5 text-left font-normal">Team</th>
-							<th className="px-5 py-2.5 text-right font-normal">LLM spend</th>
-							<th className="px-5 py-2.5 text-right font-normal">You earn</th>
-						</tr>
-					</thead>
-					<tbody>
-						{ledgerRows.map((row) => (
-							<tr
-								key={row.team}
-								className="border-b border-dashed last:border-0"
-							>
-								<td className="px-5 py-3 font-medium">{row.team}</td>
-								<td className="px-5 py-3 text-right tabular-nums text-muted-foreground">
-									{usd.format(row.spend)}
-								</td>
-								<td className="px-5 py-3 text-right font-mono tabular-nums">
-									+{usd.format(row.spend / 100)}
-								</td>
+				<div className="overflow-x-auto">
+					<table className="w-full min-w-[300px] text-sm">
+						<thead>
+							<tr className="border-b font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+								<th className="px-3 py-2.5 sm:px-5 text-left font-normal">
+									Team
+								</th>
+								<th className="px-3 py-2.5 sm:px-5 text-right font-normal">
+									LLM spend
+								</th>
+								<th className="px-3 py-2.5 sm:px-5 text-right font-normal">
+									You earn
+								</th>
 							</tr>
-						))}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							{ledgerRows.map((row) => (
+								<tr
+									key={row.team}
+									className="border-b border-dashed last:border-0"
+								>
+									<td className="px-3 py-3 sm:px-5 font-medium">{row.team}</td>
+									<td className="px-3 py-3 sm:px-5 text-right tabular-nums text-muted-foreground">
+										{usd.format(row.spend)}
+									</td>
+									<td className="px-3 py-3 sm:px-5 text-right font-mono tabular-nums">
+										+{usd.format(row.spend / 100)}
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
 				<div className="flex items-end justify-between bg-foreground px-5 py-4 text-background">
 					<div>
 						<p className="font-mono text-[10px] uppercase tracking-[0.16em] opacity-60">
