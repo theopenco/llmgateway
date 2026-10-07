@@ -1115,6 +1115,23 @@ describe("model verification", () => {
 			expect(result.unsupportedToolChoices).toBeUndefined();
 		});
 
+		it("fails tool calls finishing with stop even while billing data is optional", async () => {
+			const { result } = await runOptional(
+				{ ...basicOnly, tools: true },
+				undefined,
+				chatBody({ content: "OK" }),
+				chatBody({ tool_calls: [toolCall] }, "stop"),
+			);
+
+			expect(result.passed).toBe(false);
+			expect(result.checks[1]).toMatchObject({
+				id: "tools",
+				status: "failed",
+				feedback: expect.stringContaining('It must be "tool_calls"'),
+			});
+			expect(result.checks[1].billingWarnings).toBeUndefined();
+		});
+
 		it("accepts stop for a named tool_choice, as OpenAI returns it", async () => {
 			const { result } = await run(
 				{ ...basicOnly, tools: true, supportedToolChoices: ["function"] },

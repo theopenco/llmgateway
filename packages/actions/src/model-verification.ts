@@ -801,7 +801,6 @@ const BILLING_DATA_CHECKS_REQUIRED = false;
 function responseDefect(
 	id: ModelVerificationCheckId,
 	body: unknown,
-	request: ModelVerificationRequest,
 ): string | null {
 	const choice = atPath(body, ["choices", "0"]);
 	const chatCompletion = isRecord(body) && isRecord(choice);
@@ -811,21 +810,6 @@ function responseDefect(
 		}
 		return usageDefect(reportedUsage(body), "The response");
 	}
-	// A named tool_choice legitimately finishes with "stop" on OpenAI itself.
-	if (
-		id === "tools" &&
-		chatCompletion &&
-		typeof request.tool_choice !== "object"
-	) {
-		const toolCalls = atPath(choice, ["message", "tool_calls"]);
-		if (
-			Array.isArray(toolCalls) &&
-			toolCalls.length > 0 &&
-			choice.finish_reason !== "tool_calls"
-		) {
-			return `The response contains tool_calls but finish_reason is ${JSON.stringify(choice.finish_reason ?? null)}. It must be "tool_calls", or clients stop instead of running the tool.`;
-		}
-	}
 	if (
 		(id === "reasoning" || id === "reasoning_budget") &&
 		!containsReasoningEvidence(body)
@@ -833,6 +817,28 @@ function responseDefect(
 		return "The response showed no reasoning: no reasoning content and no reasoning tokens in usage. reasoning_effort must turn reasoning on.";
 	}
 	return null;
+}
+
+/**
+ * Tool calls that finish with anything but "tool_calls" make clients stop
+ * instead of running the tool, so this fails the check outright rather than
+ * waiting for billing data to become required. A named tool_choice
+ * legitimately finishes with "stop" on OpenAI itself.
+ */
+function toolFinishDefect(
+	body: unknown,
+	request: ModelVerificationRequest,
+): string | null {
+	const choice = atPath(body, ["choices", "0"]);
+	if (!isRecord(choice) || typeof request.tool_choice === "object") {
+		return null;
+	}
+	const toolCalls = atPath(choice, ["message", "tool_calls"]);
+	return Array.isArray(toolCalls) &&
+		toolCalls.length > 0 &&
+		choice.finish_reason !== "tool_calls"
+		? `The response contains tool_calls but finish_reason is ${JSON.stringify(choice.finish_reason ?? null)}. It must be "tool_calls", or clients stop instead of running the tool.`
+		: null;
 }
 
 function parseJsonOutput(text: string): unknown {
@@ -1674,10 +1680,14 @@ async function executeCheck(
 	if (invalid) {
 		return { message: invalid, rejected: false };
 	}
-	return billingDefect(
-		responseDefect(definition.id, body, definition.request),
-		context,
-	);
+	const toolFinish =
+		definition.id === "tools"
+			? toolFinishDefect(body, definition.request)
+			: null;
+	if (toolFinish) {
+		return { message: toolFinish, rejected: false, conclusive: true };
+	}
+	return billingDefect(responseDefect(definition.id, body), context);
 }
 
 /** Fails on a billing-data defect once required; until then, warns. */

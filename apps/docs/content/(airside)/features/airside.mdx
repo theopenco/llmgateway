@@ -46,8 +46,9 @@ Before a listing can be filed, Airside runs a **preflight** against your endpoin
 
 - **Basic completion** requires `usage` with positive input and output token counts, cached tokens counted within the input, and, on Chat Completions, a response `id`.
 - **Streaming** requires assistant text, a finish reason and a usage report (on Chat Completions, honour `stream_options.include_usage` with a final usage chunk). The streamed input token count must match the non-streaming request for the same prompt; usage sent as per-chunk increments is flagged, because the last reported value is what gets billed.
-- **Tool calls** on Chat Completions must finish with `finish_reason: "tool_calls"` (a named `tool_choice` may finish with `stop`). Since no other `tool_choice` mode fixes this, it never narrows your modes.
 - **Reasoning** requires evidence that the model reasoned: reasoning text, a reasoning block or reasoning tokens in `usage`. An endpoint that accepts `reasoning_effort` but ignores it is flagged.
+
+The **tool calls** check is required now: on Chat Completions, a response with `tool_calls` must finish with `finish_reason: "tool_calls"` (a named `tool_choice` may finish with `stop`), or the check fails, because clients stop instead of running the tool. Since no other `tool_choice` mode fixes this, it never narrows your modes.
 
 The context check is billed like any other large prompt. You supply a provider API key that can call the model, saved as this carrier's **test key** under Settings so later runs — yours and ours — reuse it. Use a key separate from the one behind your live integration: preflight traffic is billed by your own platform and is not tracked in LLMGateway usage or billing. You can replace or remove it at any time. Editing the model, its limits included, invalidates the run, so a listing never ships with checks made against different settings.
 
