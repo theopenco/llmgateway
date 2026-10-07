@@ -5365,6 +5365,11 @@ export const providerClaim = pgTable(
 		pendingProviderKeyId: text().references(() => providerKey.id, {
 			onDelete: "set null",
 		}),
+		// How the carrier's upstream usage is settled, set by admins only. See
+		// AIRSIDE_BILLING_MODES in @llmgateway/shared/airside-billing.
+		billingMode: text({ enum: ["payg", "postpaid", "payout"] })
+			.notNull()
+			.default("payg"),
 		// Self-declared public profile shown on the provider page. Display only:
 		// it never feeds compliance routing, which reads the static catalogue.
 		website: text(),

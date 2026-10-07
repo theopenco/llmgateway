@@ -77,6 +77,7 @@ import {
 	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
+import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
@@ -645,6 +646,7 @@ const adminClaimSchema = z.object({
 			iconUrl: z.string().nullable().optional(),
 		})
 		.nullable(),
+	billingMode: z.enum(AIRSIDE_BILLING_MODES),
 	// Custom carriers only: the provider key serving traffic, and a
 	// replacement awaiting approval here.
 	providerKey: carrierKeySchema.nullable(),
@@ -715,6 +717,7 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 		logoUrl: row.logoUrl,
 		iconUrl: row.iconUrl,
 		pendingBranding: row.pendingBranding ?? null,
+		billingMode: row.billingMode,
 		providerKey: keySummary(row.providerKeyId),
 		pendingProviderKey: keySummary(row.pendingProviderKeyId),
 		company: {
@@ -1580,13 +1583,12 @@ const listRoutingSettings = createRoute({
 								status: z.enum(["active", "inactive"]),
 								activeMappingCount: z.number(),
 								airsideMappingCount: z.number(),
-								// Active keys serving the carrier, by who added them. Admin
-								// keys (incl. LLM_* env vars) bill our account pay-as-you-go;
-								// carrier keys bill the carrier's own account.
-								keySources: z.object({
-									admin: z.number(),
-									carrier: z.number(),
-								}),
+								// Who added the key serving the carrier, null without one.
+								// Admin keys (incl. LLM_* env vars) bill our account
+								// pay-as-you-go; carrier keys bill the carrier's own account.
+								keySource: z.enum(["admin", "carrier"]).nullable(),
+								// From the active claim; payg when none is left.
+								billingMode: z.enum(AIRSIDE_BILLING_MODES),
 								discountPercent: z.number(),
 								marginPercent: z.number(),
 								// Signed routing-price adjustment (negative = boosted).
@@ -1699,6 +1701,7 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 			updatedAt: tables.providerRoutingSettings.updatedAt,
 			companyId: tables.providerCompany.id,
 			companyName: tables.providerCompany.name,
+			billingMode: tables.providerClaim.billingMode,
 		})
 		.from(tables.providerRoutingSettings)
 		.innerJoin(
@@ -1706,6 +1709,16 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 			eq(
 				tables.providerRoutingSettings.providerCompanyId,
 				tables.providerCompany.id,
+			),
+		)
+		.leftJoin(
+			tables.providerClaim,
+			and(
+				eq(
+					tables.providerClaim.providerId,
+					tables.providerRoutingSettings.providerId,
+				),
+				eq(tables.providerClaim.status, "active"),
 			),
 		)
 		.where(sql`${tables.providerRoutingSettings.modelId} IS NULL`)
@@ -1721,7 +1734,7 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 		.replace("T", " ");
 	const mapping = tables.modelProviderMapping;
 	const providerKey = tables.providerKey;
-	const [totals, mappingCounts, traffic, keyCounts, envInventory] =
+	const [totals, mappingCounts, traffic, primaryKeys, envInventory] =
 		providerIds.length
 			? await Promise.all([
 					db
@@ -1763,22 +1776,27 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 						)
 						.groupBy(mapping.providerId),
 					getCarrierTrafficSeries(providerIds, buckets),
+					// The gateway's primary key: first active managed key in its
+					// selection order (see listManagedProviderKeys).
 					db
-						.select({
+						.selectDistinctOn([providerKey.provider], {
 							provider: providerKey.provider,
 							carrierSubmitted: providerKey.carrierSubmitted,
-							count: count(),
 						})
 						.from(providerKey)
 						.where(
 							and(
 								inArray(providerKey.provider, providerIds),
 								eq(providerKey.managed, true),
-								isNull(providerKey.organizationId),
 								eq(providerKey.status, "active"),
 							),
 						)
-						.groupBy(providerKey.provider, providerKey.carrierSubmitted),
+						.orderBy(
+							providerKey.provider,
+							providerKey.sortOrder,
+							providerKey.createdAt,
+							providerKey.id,
+						),
 					readProviderEnvInventory(),
 				])
 			: [
@@ -1794,24 +1812,21 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 	const countsByProvider = new Map(
 		mappingCounts.map((row) => [row.providerId, row]),
 	);
-	const keySourcesFor = (providerId: string) => {
+	const primaryKeyByProvider = new Map(
+		primaryKeys.map((row) => [row.provider, row]),
+	);
+	const keySourceFor = (providerId: string) => {
+		const primary = primaryKeyByProvider.get(providerId);
+		if (primary) {
+			return primary.carrierSubmitted ? "carrier" : "admin";
+		}
+		// Managed keys supersede LLM_* env vars, which serve only without one.
 		// Same fallback as the credentials catalog: local env when the gateway
 		// has not published its inventory.
 		const envKeys = envInventory
 			? (envInventory.providers[providerId] ?? [])
 			: collectProviderEnvCredentials(providerId);
-		const managed = (carrierSubmitted: boolean) =>
-			Number(
-				keyCounts.find(
-					(row) =>
-						row.provider === providerId &&
-						row.carrierSubmitted === carrierSubmitted,
-				)?.count ?? 0,
-			);
-		return {
-			admin: managed(false) + envKeys.length,
-			carrier: managed(true),
-		};
+		return envKeys.length > 0 ? "admin" : null;
 	};
 
 	return c.json({
@@ -1833,7 +1848,8 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 					activeMappingCount > 0 ? ("active" as const) : ("inactive" as const),
 				activeMappingCount,
 				airsideMappingCount: Number(counts?.airside ?? 0),
-				keySources: keySourcesFor(row.providerId),
+				keySource: keySourceFor(row.providerId),
+				billingMode: row.billingMode ?? "payg",
 				discountPercent,
 				marginPercent,
 				routingAdjustment: computeAirsideAdjustment(
@@ -2069,6 +2085,7 @@ const updateClaimSettings = createRoute({
 						// null clears the image; omitted keeps the current one.
 						logoUrl: imageDataUrl(LOGO_MAX_BYTES).nullish(),
 						iconUrl: imageDataUrl(ICON_MAX_BYTES).nullish(),
+						billingMode: z.enum(AIRSIDE_BILLING_MODES).optional(),
 					}),
 				},
 			},
@@ -2112,6 +2129,9 @@ adminAirside.openapi(updateClaimSettings, async (c) => {
 			: {}),
 		...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}),
 		...(body.iconUrl !== undefined ? { iconUrl: body.iconUrl } : {}),
+		...(body.billingMode !== undefined
+			? { billingMode: body.billingMode }
+			: {}),
 	};
 	if (Object.keys(changes).length === 0) {
 		return c.json({ claim: await serializeAdminClaim(claim) });

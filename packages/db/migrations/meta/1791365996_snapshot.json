@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "d1130311-f60a-4652-9af2-de7d50d147c7",
+  "id": "65bc61c8-fc5b-46a2-8956-938b7e957eda",
   "prevId": "272c3024-eba2-4abb-892f-dabd04dc7d6c",
   "ddl": [
     {
@@ -25129,6 +25129,22 @@
       "generated": null,
       "identity": null,
       "name": "pending_provider_key_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_claim"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'payg'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "billing_mode",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_claim"

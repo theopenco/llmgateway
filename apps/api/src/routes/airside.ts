@@ -121,6 +121,7 @@ import {
 	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
+import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import { getStripe } from "./payments.js";
@@ -286,6 +287,8 @@ const claimSchema = z.object({
 	iconUrl: z.string().nullable(),
 	// Branding edits on an active claim awaiting admin approval.
 	pendingBranding: pendingBrandingSchema.nullable(),
+	// Set by admins; read-only for the carrier.
+	billingMode: z.enum(AIRSIDE_BILLING_MODES),
 	// Whether we hold a platform credential for this carrier. Without one the
 	// gateway has nothing to authenticate with, so an approved listing still
 	// serves no traffic — the portal says so instead of looking healthy.
@@ -509,6 +512,7 @@ function serializeClaim(
 		logoUrl: row.logoUrl,
 		iconUrl: row.iconUrl,
 		pendingBranding: row.pendingBranding ?? null,
+		billingMode: row.billingMode,
 		// Unknown on the single-claim responses (nothing renders the warning
 		// off those); the companies listing the portal polls resolves it.
 		hasManagedCredential: credentialedProviders?.has(row.providerId) ?? true,

@@ -32,6 +32,7 @@ interface ProviderDetail {
 			companyWebsite: string | null;
 			listedModels: string[];
 			verificationKeyMasked: string | null;
+			billingMode: string;
 			modelOverrides: { modelId: string; discountPercent: number }[];
 			pendingFilings: { id: string; modelId: string | null }[];
 		};
@@ -166,6 +167,47 @@ describe("admin provider detail for airside carriers", () => {
 			modelOverrides: [{ modelId: MODEL_ID, discountPercent: 0.05 }],
 			pendingFilings: [{ id: FILING_ID, modelId: null }],
 		});
+	});
+
+	test("admins set a carrier's billing mode", async () => {
+		await db.insert(tables.providerRoutingSettings).values({
+			id: SETTINGS_ID,
+			providerCompanyId: COMPANY_ID,
+			providerId: CARRIER_ID,
+		});
+		const detail = async () =>
+			(
+				(await (
+					await app.request(`/admin/providers/${CARRIER_ID}`, {
+						headers: { Cookie: cookie },
+					})
+				).json()) as ProviderDetail
+			).airside?.settings.billingMode;
+		const setMode = (billingMode: string) =>
+			app.request(`/admin/airside/claims/${CLAIM_ID}/settings`, {
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ billingMode }),
+			});
+
+		expect(await detail()).toBe("payg");
+		expect((await setMode("invoice")).status).toBe(400);
+
+		const updated = await setMode("payout");
+		expect(updated.status).toBe(200);
+		expect((await updated.json()).claim.billingMode).toBe("payout");
+		expect(await detail()).toBe("payout");
+
+		const carriers = await (
+			await app.request("/admin/airside/routing-settings", {
+				headers: { Cookie: cookie },
+			})
+		).json();
+		expect(
+			carriers.providers.find(
+				(p: { providerId: string }) => p.providerId === CARRIER_ID,
+			),
+		).toMatchObject({ billingMode: "payout" });
 	});
 
 	test("admins edit carrier settings directly", async () => {
