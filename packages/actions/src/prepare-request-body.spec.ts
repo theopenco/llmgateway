@@ -3903,6 +3903,44 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		);
 	});
 
+	test("maps reasoning_effort to thinkingLevel on Gemini 3+", async () => {
+		const cases = [
+			{ model: "gemini-3.6-flash", effort: "minimal", expected: "minimal" },
+			{ model: "gemini-3.6-flash", effort: "medium", expected: "medium" },
+			{ model: "gemini-3.6-flash", effort: "max", expected: "high" },
+			// minimal is undeclared (and 400s) on 3.8 Flash and Pro.
+			{ model: "gemini-3.8-flash", effort: "minimal", expected: "low" },
+			{ model: "gemini-3.1-pro-preview", effort: "minimal", expected: "low" },
+		] as const;
+
+		for (const { model, effort, expected } of cases) {
+			const requestBody = (await prepareRequestBody(
+				"google-ai-studio",
+				model,
+				null,
+				model,
+				[{ role: "user", content: "test" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				effort,
+				true,
+				false,
+			)) as any;
+
+			expect(requestBody.generationConfig.thinkingConfig).toEqual({
+				includeThoughts: true,
+				thinkingLevel: expected,
+			});
+		}
+	});
+
 	test("should not set thinkingBudget when reasoning_effort is not provided", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
