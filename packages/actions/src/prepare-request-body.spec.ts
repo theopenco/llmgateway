@@ -6199,9 +6199,9 @@ describe("prepareRequestBody - Alibaba cache_control", () => {
 // Sibling to the Anthropic max_tokens regression tests above. Every provider
 // gets the same three checks (caller-supplied, caller-omitted, reasoning) so
 // we never silently regress to a stale fallback the way the Anthropic 1024
-// default did (see PR #2289). For providers where max_tokens is OPTIONAL
-// upstream (everything except Anthropic), the omit path must leave the field
-// undefined so the provider's own default wins.
+// default did (see PR #2289). Claude needs an explicit max_tokens on every
+// platform; for other providers the omit path must leave the field undefined
+// so the provider's own default wins.
 describe("prepareRequestBody - max_tokens forwarding", () => {
 	describe("aws-bedrock (Anthropic via Converse)", () => {
 		test("forwards caller-supplied max_tokens verbatim", async () => {
@@ -6228,10 +6228,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			expect(requestBody.inferenceConfig?.maxTokens).toBe(32000);
 		});
 
-		test("leaves maxTokens unset when caller omits (no reasoning)", async () => {
-			// Bedrock's Converse API tolerates omitting max_tokens; the historical
-			// 1024 default was Anthropic-specific. When reasoning is off, just let
-			// upstream pick.
+		test("falls back to model maxOutput when caller omits (no reasoning)", async () => {
+			// Converse silently caps Claude at 4096 output tokens when maxTokens
+			// is omitted.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
 				"claude-sonnet-4-6",
@@ -6252,7 +6251,7 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				false,
 			)) as any;
 
-			expect(requestBody.inferenceConfig?.maxTokens).toBeUndefined();
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(64000);
 		});
 
 		test("falls back to model maxOutput when caller omits with reasoning enabled", async () => {
