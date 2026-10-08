@@ -400,6 +400,9 @@ describe("processNoPurchaseEmails opt-outs", () => {
 			await processNoPurchaseEmails();
 			expect(await db.select().from(followUpEmail)).toHaveLength(1);
 			expect(sendEmail).toHaveBeenCalledTimes(2);
+			const [first, second] = sendEmail.mock.calls.map((call) => call[1]);
+			expect(first).toEqual({ idempotencyKey: expect.any(String) });
+			expect(second).toEqual(first);
 		} finally {
 			vi.unstubAllEnvs();
 			sendEmail.mockReset();

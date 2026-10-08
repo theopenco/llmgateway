@@ -80,19 +80,25 @@ async function sendFollowUpEmail(opts: {
 	subject: string;
 	text: string;
 	category: EmailCategory;
+	idempotencyKey: string;
 }): Promise<void> {
 	const client = getResendClient();
 	if (!client) {
 		throw new Error("Resend is not configured for follow-up emails");
 	}
 
-	const { data, error } = await client.emails.send({
-		from: fromEmail,
-		to: [opts.to],
-		replyTo: replyToEmail,
-		subject: opts.subject,
-		...composeFollowUpBody(opts.to, opts.text, opts.category),
-	});
+	const { data, error } = await client.emails.send(
+		{
+			from: fromEmail,
+			to: [opts.to],
+			replyTo: replyToEmail,
+			subject: opts.subject,
+			...composeFollowUpBody(opts.to, opts.text, opts.category),
+		},
+		// A retry after an ambiguous failure (e.g. a timeout after Resend
+		// accepted the send) must not deliver the nudge twice.
+		{ idempotencyKey: opts.idempotencyKey },
+	);
 
 	if (error) {
 		throw new Error(`Resend API error: ${error.message}`);
@@ -223,7 +229,13 @@ async function sendAndRecord(
 
 	if (process.env.EMAIL_FOLLOW_UPS === "true") {
 		try {
-			await sendFollowUpEmail({ to: recipientEmail, subject, text, category });
+			await sendFollowUpEmail({
+				to: recipientEmail,
+				subject,
+				text,
+				category,
+				idempotencyKey: `follow-up:${organizationId}:${emailType}:${recipientEmail}`,
+			});
 		} catch (error) {
 			await db
 				.delete(followUpEmail)
