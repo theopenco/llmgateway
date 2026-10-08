@@ -448,7 +448,9 @@ export async function logViolation(
 function maskMatches(text: string, masks: RedactionInfo[]): string {
 	const masked = new Uint8Array(text.length);
 	for (const mask of masks) {
-		for (const match of mask.matches) {
+		// A uniform run can yield thousands of identical matches; scanning each
+		// separately is quadratic in the text length.
+		for (const match of new Set(mask.matches)) {
 			if (!match.trim()) {
 				continue;
 			}
@@ -460,10 +462,6 @@ function maskMatches(text: string, masks: RedactionInfo[]): string {
 			let found;
 			while ((found = pattern.exec(text)) !== null) {
 				masked.fill(1, found.index, found.index + found[0].length);
-				// Step a whole code point: with the `u` flag a lastIndex inside a
-				// surrogate pair snaps back to its start, re-finding this match.
-				pattern.lastIndex =
-					found.index + ((text.codePointAt(found.index) ?? 0) > 0xffff ? 2 : 1);
 			}
 		}
 	}

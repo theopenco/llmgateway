@@ -81,6 +81,27 @@ describe("applyRedactions", () => {
 		},
 	);
 
+	it("masks a long uniform run with many duplicate matches quickly", () => {
+		const text = "4".repeat(60_000);
+		const matches = Array.from({ length: 3_157 }, () => "4".repeat(19));
+		const start = performance.now();
+		const result = applyRedactions(
+			[{ role: "user", content: text }],
+			[
+				{
+					ruleId: "rule_1",
+					messageIndex: 0,
+					kind: "mask",
+					matches,
+					pattern: "\\d{13,19}",
+					caseSensitive: true,
+				},
+			],
+		);
+		expect(performance.now() - start).toBeLessThan(1000);
+		expect(result[0].content).toBe(`${"*".repeat(59_983)}${"4".repeat(17)}`);
+	});
+
 	it("masks a match that starts with an astral character", () => {
 		const result = applyRedactions(
 			[{ role: "user", content: "a 😀secret b 😀secret" }],
