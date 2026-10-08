@@ -20,7 +20,7 @@ const toolCall = (id: string): BaseMessage => ({
 	],
 });
 
-const toolLoop: BaseMessage[] = [
+const toolLoop = (): BaseMessage[] => [
 	{ role: "system", content: "You are a coding agent." },
 	{ role: "user", content: "Fix the failing test." },
 	toolCall("call_1"),
@@ -29,7 +29,7 @@ const toolLoop: BaseMessage[] = [
 	{ role: "tool", tool_call_id: "call_2", content: "second file" },
 ];
 
-const chat: BaseMessage[] = [
+const chat = (): BaseMessage[] => [
 	{ role: "system", content: "You are a helpful assistant." },
 	{ role: "user", content: "Hello!" },
 	{ role: "assistant", content: "Hi, how can I help?" },
@@ -46,7 +46,7 @@ async function prepare(
 		"claude-opus-4-7",
 		null,
 		"claude-opus-4-7",
-		structuredClone(messages),
+		messages,
 		false,
 		undefined,
 		1024,
@@ -98,7 +98,7 @@ describe("automatic conversation breakpoints", () => {
 	test.each(anthropicFormat)(
 		"%s marks the latest tool result of a tool loop",
 		async (provider) => {
-			const body = await prepare(provider, toolLoop);
+			const body = await prepare(provider, toolLoop());
 
 			expect(body.messages.at(-1)!.content.at(-1)).toMatchObject({
 				type: "tool_result",
@@ -113,7 +113,7 @@ describe("automatic conversation breakpoints", () => {
 	test.each(anthropicFormat)(
 		"%s marks the turn boundary and the new user message of a chat",
 		async (provider) => {
-			const body = await prepare(provider, chat);
+			const body = await prepare(provider, chat());
 
 			expect(body.messages.at(-2)!.content.at(-1)).toMatchObject({
 				text: "Hi, how can I help?",
@@ -128,7 +128,7 @@ describe("automatic conversation breakpoints", () => {
 	);
 
 	test("aws-bedrock marks the tool call turn and the latest tool result", async () => {
-		const body = await prepare("aws-bedrock", toolLoop);
+		const body = await prepare("aws-bedrock", toolLoop());
 
 		expect(body.messages.at(-2)!.content.at(-1)).toEqual({
 			cachePoint: { type: "default" },
@@ -143,7 +143,7 @@ describe("automatic conversation breakpoints", () => {
 	});
 
 	test("aws-bedrock marks the turn boundary and the new user message of a chat", async () => {
-		const body = await prepare("aws-bedrock", chat);
+		const body = await prepare("aws-bedrock", chat());
 
 		expect(body.messages.slice(-2).map((message) => message.content)).toEqual([
 			[{ text: "Hi, how can I help?" }, { cachePoint: { type: "default" } }],
@@ -154,7 +154,7 @@ describe("automatic conversation breakpoints", () => {
 	test.each([...anthropicFormat, "aws-bedrock" as const])(
 		"%s adds no breakpoint to the first turn",
 		async (provider) => {
-			const body = await prepare(provider, chat.slice(0, 2));
+			const body = await prepare(provider, chat().slice(0, 2));
 
 			expect(markers(body)).toEqual([]);
 		},
@@ -163,9 +163,30 @@ describe("automatic conversation breakpoints", () => {
 	test.each([...anthropicFormat, "aws-bedrock" as const])(
 		"%s adds no breakpoint in client-managed mode",
 		async (provider) => {
-			const body = await prepare(provider, toolLoop, "passthrough");
+			const body = await prepare(provider, toolLoop(), "passthrough");
 
 			expect(markers(body)).toEqual([]);
+		},
+	);
+
+	test.each(anthropicFormat)(
+		"%s leaves the caller's messages unchanged",
+		async (provider) => {
+			const messages: BaseMessage[] = [
+				...chat().slice(0, 2),
+				{
+					role: "assistant",
+					content: [{ type: "text", text: "Hi, how can I help?" }],
+				},
+				{ role: "user", content: [{ type: "text", text: "Tell me a joke." }] },
+			];
+			const sent = structuredClone(messages);
+
+			const body = await prepare(provider, messages);
+
+			expect(markers(body)).toHaveLength(2);
+			// A fallback re-prepares these same objects for the next provider.
+			expect(messages).toEqual(sent);
 		},
 	);
 
@@ -175,7 +196,7 @@ describe("automatic conversation breakpoints", () => {
 			const pixel =
 				"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 			const body = await prepare(provider, [
-				...chat.slice(0, 3),
+				...chat().slice(0, 3),
 				{
 					role: "user",
 					content: [{ type: "image_url", image_url: { url: pixel } }],
