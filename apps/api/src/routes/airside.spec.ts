@@ -3581,6 +3581,53 @@ describe("airside provider portal", () => {
 		}
 	});
 
+	it("reports who added the key serving a carrier", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		await setRoutingSettings(company.id, "mistral", 0.1, 0.3);
+
+		const keySource = async () => {
+			const res = await app.request("/admin/airside/routing-settings", {
+				headers: { Cookie: cookie },
+			});
+			expect(res.status).toBe(200);
+			return (await res.json()).providers[0].keySource;
+		};
+
+		const key = (
+			id: string,
+			carrierSubmitted: boolean,
+			sortOrder: number,
+			status: "active" | "inactive" = "active",
+		) => ({
+			id,
+			provider: "mistral",
+			...encryptProviderKeyForStorage("key-source-test", id, null),
+			managed: true,
+			carrierSubmitted,
+			sortOrder,
+			status,
+		});
+		// The inactive key sorts first but serves nothing.
+		await db
+			.insert(tables.providerKey)
+			.values([
+				key("key-source-inactive", false, 0, "inactive"),
+				key("key-source-carrier", true, 1),
+				key("key-source-admin", false, 2),
+			]);
+		expect(await keySource()).toBe("carrier");
+
+		await db
+			.update(tables.providerKey)
+			.set({ sortOrder: 3 })
+			.where(eq(tables.providerKey.id, "key-source-carrier"));
+		expect(await keySource()).toBe("admin");
+	});
+
 	it("stores a model's selected upstream API format", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
@@ -4854,6 +4901,7 @@ describe("airside provider portal", () => {
 		expect(byToken.get("sk-acme-sky-rotated-1")?.status).toBe("deleted");
 		const pending = byToken.get("sk-acme-sky-rotated-2")!;
 		expect(pending.status).toBe("inactive");
+		expect(pending.carrierSubmitted).toBe(true);
 		// The live key keeps serving until the replacement is approved.
 		expect(byToken.get("sk-acme-sky-serving-key")?.status).toBe("active");
 
@@ -4861,6 +4909,8 @@ describe("airside provider portal", () => {
 			await app.request("/airside/companies", { headers: { Cookie: cookie } })
 		).json();
 		expect(listed.companies[0].claims[0]).toMatchObject({
+			// Admin-set and read-only here; new carriers start on payg.
+			billingMode: "payg",
 			providerKey: { masked: original!.tokenMasked },
 			pendingProviderKey: { masked: pending.tokenMasked },
 		});

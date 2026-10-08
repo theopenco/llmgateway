@@ -21,6 +21,11 @@
 			"import": "./dist/index.js",
 			"default": "./dist/index.js"
 		},
+		"./airside-billing": {
+			"types": "./dist/airside-billing.d.ts",
+			"import": "./dist/airside-billing.js",
+			"default": "./dist/airside-billing.js"
+		},
 		"./gcs": {
 			"types": "./dist/gcs.d.ts",
 			"import": "./dist/gcs.js",

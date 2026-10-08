@@ -161,6 +161,7 @@ import {
 	resolveTrustTierOverride,
 	SYSTEM_BANNER_SEVERITIES,
 } from "@llmgateway/shared";
+import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
 import {
 	getResendClient,
 	fromEmail,
@@ -10856,6 +10857,7 @@ const providerDetailSchema = z.object({
 				paymentStatus: z.enum(["unpaid", "paid"]),
 				paidAt: z.string().nullable(),
 				listingInviteCode: z.string().nullable(),
+				billingMode: z.enum(AIRSIDE_BILLING_MODES),
 				domains: z.array(
 					z.object({
 						domain: z.string(),
@@ -11016,6 +11018,7 @@ admin.openapi(getProviderDetail, async (c) => {
 					verificationKeyMasked: tables.providerClaim.verificationKeyMasked,
 					verificationKeyUpdatedAt:
 						tables.providerClaim.verificationKeyUpdatedAt,
+					billingMode: tables.providerClaim.billingMode,
 					createdAt: tables.providerClaim.createdAt,
 					reviewedAt: tables.providerClaim.reviewedAt,
 				},
@@ -11241,6 +11244,7 @@ admin.openapi(getProviderDetail, async (c) => {
 						paymentStatus: carrier.paymentStatus,
 						paidAt: carrier.paidAt?.toISOString() ?? null,
 						listingInviteCode: carrier.listingInviteCode,
+						billingMode: carrier.claim.billingMode,
 						domains: carrierDomains.map((d) => ({
 							domain: d.domain,
 							verificationMethod: d.verificationMethod,
