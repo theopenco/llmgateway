@@ -33,9 +33,11 @@ const COLLAPSED_MODELS = 5;
 function ErrorTypeItem({
 	error,
 	showCarrier,
+	includeByok,
 }: {
 	error: ErrorType;
 	showCarrier: boolean;
+	includeByok: boolean;
 }) {
 	const [showAll, setShowAll] = useState(false);
 	const models = showAll
@@ -98,7 +100,7 @@ function ErrorTypeItem({
 						<TableRow key={model.usedModel}>
 							<TableCell className="font-mono">
 								<Link
-									href={`/dashboard/incidents?mapping=${encodeURIComponent(model.usedModel)}`}
+									href={`/dashboard/incidents?mapping=${encodeURIComponent(model.usedModel)}${includeByok ? "&includeByok=true" : ""}`}
 									className="hover:underline"
 									title="Open this mapping's incidents"
 								>
@@ -240,6 +242,7 @@ export function IncidentErrorTypes({
 						key={errorTypeKey(error)}
 						error={error}
 						showCarrier={showCarrier}
+						includeByok={includeByok}
 					/>
 				))}
 			</ul>

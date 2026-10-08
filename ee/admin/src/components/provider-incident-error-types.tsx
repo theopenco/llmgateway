@@ -52,9 +52,12 @@ export function errorTypeKey(error: ErrorType) {
 export function ErrorTypeItem({
 	error,
 	timeline,
+	includeByok = false,
 }: {
 	error: ErrorType;
 	timeline: ErrorTimeline;
+	/** Keeps the incidents page's BYOK switch on when following a model link. */
+	includeByok?: boolean;
 }) {
 	const [showAll, setShowAll] = useState(false);
 	const [showGraph, setShowGraph] = useState(false);
@@ -143,7 +146,7 @@ export function ErrorTypeItem({
 						<TableRow key={`${model.providerId}:${model.usedModel}`}>
 							<TableCell className="font-mono text-xs">
 								<Link
-									href={`/providers/${encodeURIComponent(model.providerId)}/incidents?mapping=${encodeURIComponent(model.usedModel)}`}
+									href={`/providers/${encodeURIComponent(model.providerId)}/incidents?mapping=${encodeURIComponent(model.usedModel)}${includeByok ? "&includeByok=true" : ""}`}
 									className="hover:underline"
 									title="Open this mapping's incidents"
 								>
@@ -287,6 +290,7 @@ export function ProviderIncidentErrorTypes({
 						key={errorTypeKey(error)}
 						error={error}
 						timeline={data.timeline}
+						includeByok={includeByok}
 					/>
 				))}
 			</ul>
