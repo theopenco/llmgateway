@@ -153,12 +153,52 @@ describe("DeepSeek V4 reasoning replay", () => {
 			},
 		);
 
+		test.each([
+			["openai", "deepseek-v4.1-flash"],
+			["runware", "deepseek-v4-flash"],
+			["deepseek", "deepseek-v4.1-flash"],
+			["moonshot", "kimi-k2.6"],
+		] satisfies [ProviderId, string][])(
+			"drops the reasoning alias beside supplied reasoning_content on %s %s",
+			async (provider, model) => {
+				// Runware rejects a message carrying both aliases.
+				const history: BaseMessage[] = [
+					{
+						...toolTurn,
+						reasoning: "alias",
+						reasoning_content: "provider reasoning",
+					},
+					{ ...toolTurn, reasoning: "alias", reasoning_content: "" },
+					{
+						role: "assistant",
+						content: "Done",
+						reasoning: "alias",
+						reasoning_content: "plain turn",
+					},
+				];
+				const original = structuredClone(history);
+				const body = chatBody(await prepare(provider, model, history, stream));
+				expect(body.messages).toEqual([
+					{ reasoning: undefined, reasoning_content: "provider reasoning" },
+					{ reasoning: undefined, reasoning_content: "" },
+					{ reasoning: undefined, reasoning_content: "plain turn" },
+				]);
+				expect(history).toEqual(original);
+			},
+		);
+
 		test.each(["gpt-4o-mini", "deepseek-v3.2"])(
 			"preserves echoed reasoning on an unrelated carrier model %s",
 			async (model) => {
 				const history: BaseMessage[] = [
 					{ ...toolTurn, reasoning: "tool reasoning" },
 					{ role: "assistant", content: "Done", reasoning: "ordinary turn" },
+					{
+						role: "assistant",
+						content: "Both",
+						reasoning: "alias",
+						reasoning_content: "kept",
+					},
 				];
 				expect(await prepare("openai", model, history, stream)).toMatchObject({
 					messages: history,
