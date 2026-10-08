@@ -23,6 +23,12 @@ LLM Gateway supports two retention levels that can be configured per organizatio
 </Callout>
 
 <Callout type="warning">
+	**Retain All Data** requires a Pro or Enterprise plan. Free organizations are
+	metadata only; one that already retains payloads from a paid plan keeps the
+	setting until it switches to Metadata Only, and cannot turn it back on.
+</Callout>
+
+<Callout type="warning">
 	Retention levels are configurable on standard (pay-as-you-go) organizations
 	only. DevPass and chat subscriptions are always metadata only — their request
 	and response payloads are not retained, and there is no setting to turn
@@ -52,7 +58,7 @@ Storage cost = 1,500 / 1,000,000 × $0.01 = **$0.000015**
 
 ## Configuring Retention
 
-Data retention is configured at the organization level in your dashboard settings. The setting is only available on standard pay-as-you-go organizations:
+Data retention is configured at the organization level in your dashboard settings. The setting is only available on standard pay-as-you-go organizations, and enabling **Retain All Data** requires a Pro or Enterprise plan:
 
 1. Navigate to **Organization Settings** → **Policies**
 2. Select your preferred **Data Retention Level**

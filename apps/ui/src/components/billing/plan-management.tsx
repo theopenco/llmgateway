@@ -265,7 +265,11 @@ export function PlanManagement() {
 							</div>
 							<div className="flex items-center gap-2">
 								<div className="w-2 h-2 rounded-full bg-green-500" />
-								<span>30-day data retention</span>
+								<span>
+									{isLegacyPro
+										? "30-day data retention"
+										: "Metadata request logs"}
+								</span>
 							</div>
 							<div className="flex items-center gap-2">
 								<div className="w-2 h-2 rounded-full bg-green-500" />

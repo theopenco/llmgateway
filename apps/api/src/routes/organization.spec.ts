@@ -717,7 +717,7 @@ describe("organization route", () => {
 		await db
 			.update(tables.organization)
 			.set({
-				plan: "free",
+				plan: "pro",
 				retentionLevel: "none",
 				providerCompliancePolicy: {
 					enabled: true,
@@ -746,6 +746,84 @@ describe("organization route", () => {
 				})
 			)?.retentionLevel,
 		).toBe("none");
+	});
+
+	test("free organizations cannot enable payload retention", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "free", retentionLevel: "none" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ retentionLevel: "retain" }),
+		});
+
+		expect(response.status).toBe(403);
+		expect(await response.json()).toMatchObject({
+			message: expect.stringContaining("Pro or Enterprise"),
+		});
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.retentionLevel,
+		).toBe("none");
+	});
+
+	test("free organizations can turn off retention kept from a paid plan", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "free", retentionLevel: "retain" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ retentionLevel: "none" }),
+		});
+
+		expect(response.status).toBe(200);
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.retentionLevel,
+		).toBe("none");
+	});
+
+	test("pro organizations can enable payload retention", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "pro", retentionLevel: "none" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ retentionLevel: "retain" }),
+		});
+
+		expect(response.status).toBe(200);
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.retentionLevel,
+		).toBe("retain");
 	});
 
 	test("payload retention can be enabled alongside a stored non-ZDR policy", async () => {

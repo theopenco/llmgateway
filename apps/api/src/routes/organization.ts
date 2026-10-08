@@ -762,6 +762,22 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
+	// Payload retention requires a Pro or Enterprise plan. Turning it off, or
+	// re-saving a setting kept from before a downgrade, stays allowed.
+	if (
+		retentionLevel === "retain" &&
+		userOrganization.organization?.retentionLevel !== "retain" &&
+		userOrganization.organization?.plan !== "pro" &&
+		!hasOrganizationEnterpriseAccess(
+			userOrganization.organization?.id,
+			userOrganization.organization?.plan,
+		)
+	) {
+		throw new HTTPException(403, {
+			message: "Data retention requires a Pro or Enterprise plan",
+		});
+	}
+
 	// DevPass accepts only the no-API-training requirement, regardless of plan.
 	// Other organizations retain the enterprise gate for enabling a policy.
 	if (providerCompliancePolicy !== undefined) {

@@ -67,7 +67,7 @@ export function PricingPlans() {
 				"Access to ALL models",
 				"Pay with credits (5% fee)",
 				"Bring Your Own Keys (free)",
-				"30-day data retention",
+				"Metadata request logs",
 				"Team Management",
 				"Advanced Analytics",
 				"Auto-routing & Vendor Selection",

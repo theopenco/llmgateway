@@ -72,8 +72,8 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink:
 			"https://docs.llmgateway.io/features/data-retention#storage-pricing",
 		learnMoreText: "See storage pricing →",
-		free: "30 days",
-		enterprise: "Unlimited",
+		free: "Metadata only",
+		enterprise: "Full payloads, unlimited",
 	},
 	{
 		name: "Auto-routing & Vendor Selection",

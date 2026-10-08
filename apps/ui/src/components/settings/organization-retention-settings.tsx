@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { ContactSalesLink } from "@/components/contact-sales";
 import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Button } from "@/lib/components/button";
 import { Label } from "@/lib/components/label";
@@ -37,6 +38,12 @@ export function OrganizationRetentionSettings() {
 	const effectiveRetentionLevel = zeroDataRetentionEnabled
 		? "none"
 		: retentionLevel;
+	// Payload retention needs Pro or Enterprise; a setting kept from a paid plan
+	// can still be re-saved or turned off.
+	const retainLocked =
+		selectedOrganization?.plan !== "pro" &&
+		selectedOrganization?.enterpriseAccess !== true &&
+		selectedOrganization?.retentionLevel !== "retain";
 
 	if (!selectedOrganization) {
 		return (
@@ -103,6 +110,21 @@ export function OrganizationRetentionSettings() {
 							</span>
 						</AlertDescription>
 					</Alert>
+				) : retainLocked ? (
+					<Alert>
+						<AlertDescription>
+							<strong>
+								Retain All Data requires a Pro or Enterprise plan.
+							</strong>
+							{` `}
+							<span className="sm:whitespace-nowrap">
+								<ContactSalesLink className="font-semibold underline hover:no-underline">
+									Contact us
+								</ContactSalesLink>
+								{` `}to upgrade.
+							</span>
+						</AlertDescription>
+					</Alert>
 				) : null}
 				<RadioGroup
 					value={effectiveRetentionLevel}
@@ -125,7 +147,9 @@ export function OrganizationRetentionSettings() {
 							<RadioGroupItem
 								value={id}
 								id={id}
-								disabled={zeroDataRetentionEnabled && id === "retain"}
+								disabled={
+									(zeroDataRetentionEnabled || retainLocked) && id === "retain"
+								}
 							/>
 							<div className="space-y-1 flex-1">
 								<Label htmlFor={id} className="font-medium">
