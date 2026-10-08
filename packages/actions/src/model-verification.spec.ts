@@ -861,6 +861,35 @@ describe("model verification", () => {
 			]);
 		});
 
+		it.each([
+			{
+				name: "text",
+				stream: `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: chatUsage })}\n\n`,
+				feedback: "The stream did not contain any assistant text.",
+			},
+			{
+				name: "a finish reason",
+				stream: `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "OK" } }], usage: chatUsage })}\n\n`,
+				feedback: "The stream ended without a finish reason.",
+			},
+		])(
+			"fails a stream without $name even while other checks are optional",
+			async ({ stream, feedback }) => {
+				const { result } = await runOptional(
+					streamingOnly,
+					undefined,
+					chatBody({ content: "OK" }),
+					stream,
+				);
+
+				expect(result.checks[1]).toMatchObject({
+					id: "streaming",
+					status: "failed",
+					feedback,
+				});
+			},
+		);
+
 		it("does not warn about a probe that failed for another reason", async () => {
 			const { result } = await runOptional(
 				{ ...basicOnly, tools: true },

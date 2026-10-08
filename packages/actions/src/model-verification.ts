@@ -1141,21 +1141,24 @@ function isStreamEnd(event: unknown): boolean {
 	);
 }
 
+/** Why a stream is unusable, or null: it needs text and a finish reason. */
+function invalidStream(events: unknown[]): string | null {
+	if (!events.some((event) => streamEventText(event).trim())) {
+		return "The stream did not contain any assistant text.";
+	}
+	return events.some(isStreamEnd)
+		? null
+		: "The stream ended without a finish reason.";
+}
+
 /**
- * A stream is billed from the usage it reports, so the check holds it to what
- * the gateway needs: text, a finish reason, and complete usage that agrees
- * with the non-streaming request for the same prompt.
+ * A stream is billed from the usage it reports, so it must be complete and
+ * agree with the non-streaming request for the same prompt.
  */
 function streamDefect(
 	events: unknown[],
 	basicUsage: ReportedUsage | undefined,
 ): string | null {
-	if (!events.some((event) => streamEventText(event).trim())) {
-		return "The stream did not contain any assistant text.";
-	}
-	if (!events.some(isStreamEnd)) {
-		return "The stream ended without a finish reason.";
-	}
 	const usage = mergeStreamUsage(events);
 	const defect = usageDefect(usage, "The stream");
 	if (defect) {
@@ -1661,6 +1664,10 @@ async function executeCheck(
 				message: "The response did not contain any streaming events.",
 				rejected: false,
 			};
+		}
+		const invalid = invalidStream(events);
+		if (invalid) {
+			return { message: invalid, rejected: false };
 		}
 		return optionalDefect(streamDefect(events, context.basicUsage), context);
 	}
