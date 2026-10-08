@@ -27,6 +27,7 @@ import * as logRetention from "@llmgateway/shared/log-retention";
 import * as contentFilterStats from "./content-filter-stats-aggregator.js";
 import * as routingTelemetry from "./routing-telemetry-aggregator.js";
 import {
+	getModelHistoryRetentionCutoff,
 	calculateMinutelyHistory,
 	calculateCurrentMinuteHistory,
 	calculateAggregatedStatistics,
@@ -2930,6 +2931,52 @@ describe("stats-calculator", () => {
 				),
 			).toHaveLength(3);
 		});
+
+		it.each(["model", "mapping"])(
+			"keeps finalized %s-only totals across partial-hour retention",
+			async (kind) => {
+				const cutoff = getModelHistoryRetentionCutoff();
+				const hour = new Date(cutoff);
+				hour.setUTCMinutes(0, 0, 0);
+				const minuteTimestamp = new Date(cutoff.getTime() + 60_000);
+				if (kind === "model") {
+					await db
+						.insert(modelHistory)
+						.values({ modelId: "gpt-4", minuteTimestamp, logsCount: 1 });
+					await db
+						.insert(modelHistoryHourly)
+						.values({ modelId: "gpt-4", hourTimestamp: hour, logsCount: 100 });
+				} else {
+					const labels = {
+						modelId: "gpt-4",
+						providerId: "openai",
+						modelProviderMappingId: "mapping-1",
+					};
+					await db
+						.insert(modelProviderMappingHistory)
+						.values({ ...labels, minuteTimestamp, logsCount: 1 });
+					await db
+						.insert(modelProviderMappingHistoryHourly)
+						.values({ ...labels, hourTimestamp: hour, logsCount: 100 });
+				}
+				await db.insert(aggregationProgress).values({
+					job: "hourly-usage",
+					bucketTimestamp: hour,
+					refreshedAt: mockDate,
+					finalizedAt: mockDate,
+				});
+				const table =
+					kind === "model"
+						? modelHistoryHourly
+						: modelProviderMappingHistoryHourly;
+				for (let attempt = 0; attempt < 2; attempt++) {
+					await backfillHourlyHistoryIfNeeded(1);
+					expect(
+						await db.select().from(table).where(eq(table.hourTimestamp, hour)),
+					).toEqual([expect.objectContaining({ logsCount: 100 })]);
+				}
+			},
+		);
 
 		it("prioritizes missing usage over failed diagnostics within the cap", async () => {
 			await db.insert(modelHistory).values({

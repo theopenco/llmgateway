@@ -16,6 +16,8 @@ import {
 	sql,
 	asc,
 	eq,
+	ne,
+	or,
 	gte,
 	lt,
 	and,
@@ -1836,7 +1838,16 @@ export async function backfillHourlyHistoryIfNeeded(
 		db
 			.select()
 			.from(aggregationProgress)
-			.where(gte(aggregationProgress.bucketTimestamp, cutoff)),
+			.where(
+				and(
+					// Keep the finalized hour even after its first minutes expire.
+					gte(aggregationProgress.bucketTimestamp, roundToHourStart(cutoff)),
+					or(
+						ne(aggregationProgress.job, "minute-usage"),
+						gte(aggregationProgress.bucketTimestamp, cutoff),
+					),
+				),
+			),
 	]);
 	const sources = [
 		mapping[0]?.timestamp,

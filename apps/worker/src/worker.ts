@@ -71,6 +71,7 @@ import {
 	GLOBAL_STATS_INTERVAL_SECONDS,
 	processClosedHours,
 } from "./services/global-stats-aggregator.js";
+import { startHistoryAfterRecovery } from "./services/history-startup.js";
 import {
 	runModelStatsByokErrorsBackfillStep,
 	runSourceModelStatsBackfillStep,
@@ -87,7 +88,6 @@ import { runRoutingBaselineBackfillStep } from "./services/routing-baseline-back
 import {
 	backfillHistoryIfNeeded,
 	backfillHourlyHistoryIfNeeded,
-	initializeMinuteRecovery,
 	calculateAggregatedStatistics,
 	calculateCurrentMinuteHistory,
 	calculateHourlyHistory,
@@ -3487,6 +3487,19 @@ async function runProviderKeyModelSyncLoop() {
 	}
 }
 
+async function runHistoryStartupLoop() {
+	activeLoops++;
+	try {
+		await startHistoryAfterRecovery(() => {
+			void runMinutelyHistoryLoop();
+			void runCurrentMinuteHistoryLoop();
+			void runModelHistoryRetentionLoop();
+		});
+	} finally {
+		activeLoops--;
+	}
+}
+
 export async function startWorker() {
 	if (isWorkerRunning) {
 		logger.error("Worker is already running");
@@ -3522,7 +3535,7 @@ export async function startWorker() {
 		);
 	}
 
-	await initializeMinuteRecovery();
+	void runHistoryStartupLoop();
 	// Start all worker loops (all sequential — each waits for completion before scheduling next run)
 	logger.info("Starting worker loops...");
 	logger.info(
@@ -3569,8 +3582,6 @@ export async function startWorker() {
 		"- API key expiration: runs every 5 minutes to disable keys whose TTL passed",
 	);
 
-	void runMinutelyHistoryLoop();
-	void runCurrentMinuteHistoryLoop();
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
 	void runModelVerificationLoop();
@@ -3599,7 +3610,6 @@ export async function startWorker() {
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();
-	void runModelHistoryRetentionLoop();
 	void runEndUserSessionCleanupLoop();
 	void runApiKeyExpirationLoop();
 	void runLimitHitFlushLoop();

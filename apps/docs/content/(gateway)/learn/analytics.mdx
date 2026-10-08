@@ -80,4 +80,4 @@ For a per-key view of the same breakdowns, see [API Keys](/learn/api-keys#per-ke
 
 Model and provider history stores request-bearing buckets. Successfully processed idle periods appear with zero requests, tokens, and cost; latency remains `null` when there are no samples. Unprocessed periods are not reported as confirmed idle periods. Failed, cached, and zero-cost requests still count as activity.
 
-Minute history covers the last 30 days, with hourly summaries retained for longer ranges. Eligible providers remain listed when idle, and rolling request counters return to zero as activity leaves the window. These storage semantics do not change routing or alert thresholds.
+Minute history covers the last 30 days, with hourly summaries retained for longer ranges. Recovery preserves finalized hourly totals when older minute history expires. Eligible providers remain listed when idle, and rolling request counters return to zero as activity leaves the window. These storage semantics do not change routing or alert thresholds.
