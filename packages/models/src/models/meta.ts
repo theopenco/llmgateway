@@ -85,7 +85,7 @@ export const metaModels = [
 				maxTemperature: 1,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
+				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
 				reasoningMode: "adaptive",
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
