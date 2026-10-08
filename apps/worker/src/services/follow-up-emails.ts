@@ -80,7 +80,7 @@ async function sendFollowUpEmail(opts: {
 	subject: string;
 	text: string;
 	category: EmailCategory;
-	idempotencyKey: string;
+	idempotencyKey?: string;
 }): Promise<void> {
 	const client = getResendClient();
 	if (!client) {
@@ -96,8 +96,8 @@ async function sendFollowUpEmail(opts: {
 			...composeFollowUpBody(opts.to, opts.text, opts.category),
 		},
 		// A retry after an ambiguous failure (e.g. a timeout after Resend
-		// accepted the send) must not deliver the nudge twice.
-		{ idempotencyKey: opts.idempotencyKey },
+		// accepted the send) must not deliver a once-ever nudge twice.
+		opts.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : undefined,
 	);
 
 	if (error) {
