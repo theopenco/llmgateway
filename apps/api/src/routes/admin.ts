@@ -1117,6 +1117,20 @@ const getOrganizationMembers = createRoute({
 	},
 });
 
+// Credit revenue excludes virtual plan allowances, gifts, wallet bookkeeping
+// and refunds; refunds are netted out separately on gross and credit bases.
+const creditRevenueFilter = and(
+	ne(tables.transaction.type, "credit_gift"),
+	ne(tables.transaction.type, "enterprise_license_fee"),
+	notPlanFilter,
+	notEndUserNonRevenueFilter,
+	notRefundFilter,
+);
+
+function sumTransactionWhere(column: AnyColumn, filter: SQL | undefined) {
+	return sql<number>`COALESCE(SUM(${column}) FILTER (WHERE ${filter}), 0)`;
+}
+
 admin.openapi(getMetrics, async (c) => {
 	const query = c.req.valid("query");
 	const { from, to } = query;
@@ -1182,120 +1196,152 @@ admin.openapi(getMetrics, async (c) => {
 				? gte(projectHourlyStats.hourTimestamp, startDate)
 				: undefined;
 
-	// Total signups
-	const [signupsRow] = await db
+	// Combine counts and transaction totals; run independent aggregates together.
+	const usersQuery = db
 		.select({
-			count: sql<number>`COUNT(*)`.as("count"),
+			count: sql<number>`COUNT(*)`,
+			verified: sql<number>`COUNT(*) FILTER (WHERE ${tables.user.emailVerified})`,
 		})
 		.from(tables.user)
 		.where(userDateFilter);
-
-	const totalSignups = Number(signupsRow?.count ?? 0);
-
-	// Verified users (email verified)
-	const [verifiedRow] = await db
+	// stripe_invoice_id is unique; plan revenue needs no correlated dedup scan.
+	const transactionQuery = db
 		.select({
-			count: sql<number>`COUNT(*)`.as("count"),
-		})
-		.from(tables.user)
-		.where(and(eq(tables.user.emailVerified, true), userDateFilter));
-
-	const verifiedUsers = Number(verifiedRow?.count ?? 0);
-
-	// Paying customers: organizations with at least one completed payment
-	// transaction (credit purchase, dev/chat plan charge, or end-user top-up —
-	// gifts and bookkeeping rows don't count)
-	const [payingRow] = await db
-		.select({
-			count:
-				sql<number>`COUNT(DISTINCT ${tables.transaction.organizationId})`.as(
-					"count",
+			payingCustomers: sql<number>`COUNT(DISTINCT CASE WHEN ${paidTransactionFilter} THEN ${tables.transaction.organizationId} END)`,
+			totalRevenue: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				creditRevenueFilter,
+			),
+			totalToppedUp: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				and(notPlanFilter, notEndUserWalletFilter),
+			),
+			totalToppedUpGifted: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				eq(tables.transaction.type, "credit_gift"),
+			),
+			totalProcessed: sumTransactionWhere(
+				tables.transaction.amount,
+				creditRevenueFilter,
+			),
+			totalGiftedCredits: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				eq(tables.transaction.type, "credit_gift"),
+			),
+			bonusCredits: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				eq(tables.transaction.type, "end_user_bonus"),
+			),
+			totalRefunds: sumTransactionWhere(
+				tables.transaction.amount,
+				eq(tables.transaction.type, "credit_refund"),
+			),
+			refundedCredits: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				eq(tables.transaction.type, "credit_refund"),
+			),
+			grossCreditsRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					inArray(tables.transaction.type, ["credit_topup", "end_user_topup"]),
+					// Only credit_topup on DevPass moves to its own split.
+					or(
+						ne(tables.organization.kind, "devpass"),
+						ne(tables.transaction.type, "credit_topup"),
+					),
+					sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
 				),
+			),
+			grossSdkPaymentsRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.transaction.type, "end_user_topup"),
+					sql`${tables.transaction.amount} > 0`,
+				),
+			),
+			grossDevpassTopupsRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.transaction.type, "credit_topup"),
+					eq(tables.organization.kind, "devpass"),
+					sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				),
+			),
+			grossDevpassRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.organization.kind, "devpass"),
+					inArray(tables.transaction.type, [
+						...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+						...LEGACY_DEV_PLAN_TX_TYPES,
+					]),
+				),
+			),
+			grossResetPassRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.organization.kind, "devpass"),
+					eq(tables.transaction.type, "dev_plan_reset_pass"),
+				),
+			),
+			grossChatPlansRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.organization.kind, "chat"),
+					inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
+				),
+			),
+			grossProSubscriptionsRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					ne(tables.organization.kind, "devpass"),
+					inArray(tables.transaction.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
+				),
+			),
+			grossManualPaymentsRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.transaction.type, "credit_manual_payment"),
+					sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				),
+			),
+			grossEnterpriseDealsRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.transaction.type, "enterprise_license_fee"),
+					sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				),
+			),
 		})
 		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
 		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				paidTransactionFilter,
-				transactionDateFilter,
-			),
+			and(eq(tables.transaction.status, "completed"), transactionDateFilter),
 		);
 
-	const payingCustomers = Number(payingRow?.count ?? 0);
+	// Airside gateway margin, per carrier. dayTimestamp is `timestamp without
+	// time zone`, so compare against UTC strings rather than Date parameters.
+	const toUtcTimestamp = (date: Date) =>
+		date.toISOString().slice(0, 19).replace("T", " ");
+	const airsideMarginDateFilter = and(
+		startDate
+			? sql`${globalModelStats.dayTimestamp} >= ${toUtcTimestamp(startDate)}::timestamp`
+			: undefined,
+		endDate
+			? sql`${globalModelStats.dayTimestamp} <= ${toUtcTimestamp(endDate)}::timestamp`
+			: undefined,
+	);
 
-	// Total credits revenue: completed credit-purchase rows use `creditAmount`,
-	// which is the credit value granted and so excludes the platform fee charged
-	// on top. Excludes enterprise deals, gifts, all plan rows (DevPass/legacy
-	// subscription/Chat Plan), the non-revenue end-user rows (developer margin +
-	// funded bonus), and refund reversals — refunds are netted out once, via
-	// `totalRefundedCredits`.
-	const [revenueRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_license_fee"),
-				notPlanFilter,
-				notEndUserNonRevenueFilter,
-				notRefundFilter,
-				transactionDateFilter,
-			),
-		);
-
-	const totalRevenue = Number(revenueRow?.value ?? 0);
-
-	// Total organizations
-	const [orgsRow] = await db
+	const orgsRowQuery = db
 		.select({
 			count: sql<number>`COUNT(*)`.as("count"),
 		})
 		.from(tables.organization)
 		.where(orgDateFilter);
-
-	const totalOrganizations = Number(orgsRow?.count ?? 0);
-
-	// Total topped up (credits from completed credit-purchase transactions).
-	// Excludes DevPass and Chat Plan virtual credits — those are granted per
-	// cycle and reset, so they would inflate the topped-up / unused-credits
-	// numbers — and all end-user wallet rows, which live in their own balance
-	// economy (their spend is not in `totalSpent`, so counting their top-ups
-	// would inflate unused credits).
-	const [toppedUpRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-			giftedValue:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.type} = 'credit_gift'), 0)`.as(
-					"giftedValue",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				notPlanFilter,
-				notEndUserWalletFilter,
-				transactionDateFilter,
-			),
-		);
-
-	const totalToppedUp = Number(toppedUpRow?.value ?? 0);
-	const totalToppedUpGifted = Number(toppedUpRow?.giftedValue ?? 0);
-
-	// Total spent (usage cost from hourly stats). Excludes spend from projects
-	// belonging to orgs whose usage is/was on a DevPass or Chat Plan, so the
-	// unusedCredits derivation (toppedUp - spent) only reflects the
-	// credit-purchase economy.
-	const [spentRow] = await db
+	const spentRowQuery = db
 		.select({
 			value:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
@@ -1330,357 +1376,24 @@ admin.openapi(getMetrics, async (c) => {
 				projectStatsDateFilter,
 				eq(tables.organization.devPlan, "none"),
 				eq(tables.organization.chatPlan, "none"),
+				// Separate legacy history so a large Pro subscription history cannot
+				// turn an anti-join into repeated checks of irrelevant plan rows.
 				sql`NOT EXISTS (
 					SELECT 1 FROM ${tables.transaction} t
 					WHERE t.organization_id = ${tables.organization.id}
-					AND (
-						t.type IN ('dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal')
-						OR t.type IN ('chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal')
-						OR (t.type IN ('subscription_start', 'subscription_cancel', 'subscription_end') AND ${tables.organization.kind} = 'devpass')
+					AND t.type IN (
+						'dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal',
+						'chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal'
 					)
 				)`,
+				sql`(${tables.organization.kind} <> 'devpass' OR NOT EXISTS (
+					SELECT 1 FROM ${tables.transaction} t
+					WHERE t.organization_id = ${tables.organization.id}
+					AND t.type IN ('subscription_start', 'subscription_cancel', 'subscription_end')
+				))`,
 			),
 		);
-
-	const totalSpent = Number(spentRow?.value ?? 0);
-	const totalCreditsSpent = Number(spentRow?.creditsValue ?? 0);
-	const totalApiKeysSpent = Number(spentRow?.apiKeysValue ?? 0);
-	const totalDebitedSpend = Number(spentRow?.debitedValue ?? 0);
-
-	// Total processed credits (gross payment amounts from completed non-gift,
-	// non-plan transactions — Stripe charges plus off-Stripe manual payments).
-	// Enterprise deals are reported separately. Refund rows carry a POSITIVE
-	// `amount` (the dollars sent back), so they are excluded here rather than
-	// counted as another charge; `totalRefunds` reports them.
-	const [processedRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_license_fee"),
-				notPlanFilter,
-				notEndUserNonRevenueFilter,
-				notRefundFilter,
-				transactionDateFilter,
-			),
-		);
-
-	const totalProcessed = Number(processedRow?.value ?? 0);
-
-	// Total gifted credits (sum of credit_gift transactions, using creditAmount)
-	const [giftedRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_gift"),
-				transactionDateFilter,
-			),
-		);
-
-	const totalGiftedCredits = Number(giftedRow?.value ?? 0);
-
-	// Total developer-funded end-user top-up bonus credits granted (net of
-	// refund claw-backs). end_user_bonus rows store creditAmount as the change to
-	// the developer org's credit balance — negative when a bonus is granted,
-	// positive when clawed back on refund — so negate the sum to report the net
-	// credits actually gifted into end-user wallets. Excluded from revenue above
-	// and surfaced here so it can be subtracted/considered in stats separately.
-	const [bonusRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "end_user_bonus"),
-				transactionDateFilter,
-			),
-		);
-
-	const totalBonusCredits = -Number(bonusRow?.value ?? 0);
-
-	// Refunds, on both bases: `amount` is the gross refunded to the customer
-	// (platform fee included, since the whole charge is sent back) and
-	// `creditAmount` is the negative clawback of the granted credits. Netting a
-	// credit-basis figure like `totalRevenue` needs the credit-basis refund, so
-	// report both rather than mixing them.
-	const [refundsRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-			creditsValue:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"creditsValue",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_refund"),
-				transactionDateFilter,
-			),
-		);
-
-	const totalRefunds = Number(refundsRow?.value ?? 0);
-	const totalRefundedCredits = -Number(refundsRow?.creditsValue ?? 0);
-
-	// Gross revenue splits: actual dollars charged via Stripe (`amount`, so
-	// including Stripe fees), before netting refunds out.
-	//
-	// Credits: org credit top-ups + end-user wallet top-ups. Refund reversals
-	// are negative same-type rows, so only positive amounts count as gross.
-	// DevPass orgs buy `credit_topup` rows too (PAYG overflow), but those are
-	// DevPass monetization, not PAYG-product revenue — they get their own
-	// split below instead of inflating this one.
-	const [grossCreditsRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-			// LLM SDK end-user wallet top-ups, a subset of `value`.
-			sdkValue:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.type} = 'end_user_topup'), 0)`.as(
-					"sdk_value",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				inArray(tables.transaction.type, ["credit_topup", "end_user_topup"]),
-				// Only devpass `credit_topup` rows move to the DevPass split
-				// below. An `end_user_topup` on a devpass org shouldn't exist
-				// (end-user wallets are backed by regular PAYG orgs), but that
-				// invariant isn't DB-enforced — if a row ever appears it must
-				// still count here exactly once, not vanish from gross revenue.
-				or(
-					ne(tables.organization.kind, "devpass"),
-					ne(tables.transaction.type, "credit_topup"),
-				),
-				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
-				transactionDateFilter,
-			),
-		);
-
-	const grossCreditsRevenue = Number(grossCreditsRow?.value ?? 0);
-	const grossSdkPaymentsRevenue = Number(grossCreditsRow?.sdkValue ?? 0);
-
-	// DevPass PAYG overflow top-ups: `credit_topup` purchases on devpass orgs.
-	const [grossDevpassTopupsRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_topup"),
-				eq(tables.organization.kind, "devpass"),
-				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
-				transactionDateFilter,
-			),
-		);
-
-	const grossDevpassTopupsRevenue = Number(grossDevpassTopupsRow?.value ?? 0);
-
-	// DevPass: dev plan subscription payments (+ legacy `subscription_*` rows on
-	// devpass orgs), deduplicated per Stripe invoice. Mirrors
-	// /admin/devpass/timeseries. One-time Reset Pass purchases are reported as
-	// their own split below.
-	const [grossDevpassRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				inArray(tables.transaction.type, [
-					...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				firstRowPerInvoiceFilter([
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				transactionDateFilter,
-			),
-		);
-
-	const grossDevpassRevenue = Number(grossDevpassRow?.value ?? 0);
-
-	// Reset Passes: one-time PaymentIntent purchases on devpass orgs — no
-	// invoice, so no dedup needed. Gross like the other splits (refunds are
-	// separate `credit_refund` rows and not netted out here).
-	const [grossResetPassRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				eq(tables.transaction.type, "dev_plan_reset_pass"),
-				transactionDateFilter,
-			),
-		);
-
-	const grossResetPassRevenue = Number(grossResetPassRow?.value ?? 0);
-
-	// Chat Plans: plan payments on chat orgs, deduplicated per Stripe invoice.
-	// Mirrors /admin/chat-plans/timeseries.
-	const [grossChatPlansRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "chat"),
-				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
-				firstRowPerInvoiceFilter(CHAT_PLAN_TX_TYPES),
-				transactionDateFilter,
-			),
-		);
-
-	const grossChatPlansRevenue = Number(grossChatPlansRow?.value ?? 0);
-
-	// Org Pro subscriptions: `subscription_*` rows on non-devpass orgs (the same
-	// legacy types double as DevPass rows on devpass orgs, counted above).
-	const [grossProSubsRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				ne(tables.organization.kind, "devpass"),
-				inArray(tables.transaction.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
-				firstRowPerInvoiceFilter([
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				transactionDateFilter,
-			),
-		);
-
-	const grossProSubscriptionsRevenue = Number(grossProSubsRow?.value ?? 0);
-
-	// Manual payments: credits an administrator granted against money received
-	// outside Stripe (wire, crypto, …). `amount` is the real payment, so these
-	// belong in gross revenue like any other purchase — kept as their own split
-	// because they never appear in Stripe reporting.
-	const [grossManualPaymentsRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_manual_payment"),
-				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
-				transactionDateFilter,
-			),
-		);
-
-	const grossManualPaymentsRevenue = Number(grossManualPaymentsRow?.value ?? 0);
-
-	// Enterprise deals: negotiated contract revenue recorded outside the credits
-	// economy. `creditAmount` is always null, so this split never changes credit
-	// flow or balances.
-	const [grossEnterpriseDealsRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "enterprise_license_fee"),
-				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
-				transactionDateFilter,
-			),
-		);
-
-	const grossEnterpriseDealsRevenue = Number(
-		grossEnterpriseDealsRow?.value ?? 0,
-	);
-
-	// Provider listing fees. Their payers are not organizations, so they have
-	// no transaction rows.
-	const [grossProviderListingRow] = await db
+	const grossProviderListingRowQuery = db
 		.select({
 			value:
 				sql<number>`COALESCE(SUM(CAST(${tables.providerListingPayment.amount} AS NUMERIC)), 0)`.as(
@@ -1698,24 +1411,7 @@ admin.openapi(getMetrics, async (c) => {
 					: undefined,
 			),
 		);
-
-	const grossProviderListingRevenue = Number(
-		grossProviderListingRow?.value ?? 0,
-	);
-
-	// Airside gateway margin, per carrier. dayTimestamp is `timestamp without
-	// time zone`, so compare against UTC strings rather than Date parameters.
-	const toUtcTimestamp = (date: Date) =>
-		date.toISOString().slice(0, 19).replace("T", " ");
-	const airsideMarginDateFilter = and(
-		startDate
-			? sql`${globalModelStats.dayTimestamp} >= ${toUtcTimestamp(startDate)}::timestamp`
-			: undefined,
-		endDate
-			? sql`${globalModelStats.dayTimestamp} <= ${toUtcTimestamp(endDate)}::timestamp`
-			: undefined,
-	);
-	const airsideMarginRows = await db
+	const airsideMarginRowsQuery = db
 		.select({
 			providerId: tables.providerRoutingSettings.providerId,
 			companyName: tables.providerCompany.name,
@@ -1748,6 +1444,64 @@ admin.openapi(getMetrics, async (c) => {
 			tables.providerRoutingSettings.providerId,
 			tables.providerCompany.name,
 		);
+	const [
+		[signupsRow],
+		[transactionRow],
+		[orgsRow],
+		[spentRow],
+		[grossProviderListingRow],
+		airsideMarginRows,
+	] = await Promise.all([
+		usersQuery,
+		transactionQuery,
+		orgsRowQuery,
+		spentRowQuery,
+		grossProviderListingRowQuery,
+		airsideMarginRowsQuery,
+	]);
+
+	const totalSignups = Number(signupsRow?.count ?? 0);
+	const verifiedUsers = Number(signupsRow?.verified ?? 0);
+	const payingCustomers = Number(transactionRow?.payingCustomers ?? 0);
+	const totalRevenue = Number(transactionRow?.totalRevenue ?? 0);
+	const totalOrganizations = Number(orgsRow?.count ?? 0);
+	const totalToppedUp = Number(transactionRow?.totalToppedUp ?? 0);
+	const totalToppedUpGifted = Number(transactionRow?.totalToppedUpGifted ?? 0);
+	const totalSpent = Number(spentRow?.value ?? 0);
+	const totalCreditsSpent = Number(spentRow?.creditsValue ?? 0);
+	const totalApiKeysSpent = Number(spentRow?.apiKeysValue ?? 0);
+	const totalDebitedSpend = Number(spentRow?.debitedValue ?? 0);
+	const totalProcessed = Number(transactionRow?.totalProcessed ?? 0);
+	const totalGiftedCredits = Number(transactionRow?.totalGiftedCredits ?? 0);
+	const totalBonusCredits = -Number(transactionRow?.bonusCredits ?? 0);
+	const totalRefunds = Number(transactionRow?.totalRefunds ?? 0);
+	const totalRefundedCredits = -Number(transactionRow?.refundedCredits ?? 0);
+	const grossCreditsRevenue = Number(transactionRow?.grossCreditsRevenue ?? 0);
+	const grossSdkPaymentsRevenue = Number(
+		transactionRow?.grossSdkPaymentsRevenue ?? 0,
+	);
+	const grossDevpassTopupsRevenue = Number(
+		transactionRow?.grossDevpassTopupsRevenue ?? 0,
+	);
+	const grossDevpassRevenue = Number(transactionRow?.grossDevpassRevenue ?? 0);
+	const grossResetPassRevenue = Number(
+		transactionRow?.grossResetPassRevenue ?? 0,
+	);
+	const grossChatPlansRevenue = Number(
+		transactionRow?.grossChatPlansRevenue ?? 0,
+	);
+	const grossProSubscriptionsRevenue = Number(
+		transactionRow?.grossProSubscriptionsRevenue ?? 0,
+	);
+	const grossManualPaymentsRevenue = Number(
+		transactionRow?.grossManualPaymentsRevenue ?? 0,
+	);
+	const grossEnterpriseDealsRevenue = Number(
+		transactionRow?.grossEnterpriseDealsRevenue ?? 0,
+	);
+	const grossProviderListingRevenue = Number(
+		grossProviderListingRow?.value ?? 0,
+	);
 
 	const airsideMarginByCarrier = airsideMarginRows
 		.map((row) => ({
@@ -1880,428 +1634,160 @@ admin.openapi(getTimeseries, async (c) => {
 		startDate.setUTCHours(0, 0, 0, 0);
 	}
 
-	// Signups per day
-	const signupsPerDay = await db
+	// One bucket holds all pre-range history for the cumulative opening balance.
+	const transactionDay = sql<
+		string | null
+	>`CASE WHEN ${lt(tables.transaction.createdAt, startDate)} THEN NULL ELSE DATE(${tables.transaction.createdAt})::text END`.as(
+		"date",
+	);
+	const revenueQuery = db
 		.select({
-			date: sql<string>`DATE(${tables.user.createdAt})`.as("date"),
-			count: sql<number>`COUNT(*)`.as("count"),
+			date: transactionDay,
+			revenue: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				creditRevenueFilter,
+			),
+			enterpriseRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				eq(tables.transaction.type, "enterprise_license_fee"),
+			),
+			processed: sumTransactionWhere(
+				tables.transaction.amount,
+				creditRevenueFilter,
+			),
+			refunds: sumTransactionWhere(
+				tables.transaction.amount,
+				eq(tables.transaction.type, "credit_refund"),
+			),
+			refundedCredits: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				eq(tables.transaction.type, "credit_refund"),
+			),
+			devpassRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.organization.kind, "devpass"),
+					inArray(tables.transaction.type, [
+						...DEV_PLAN_TX_TYPES,
+						...LEGACY_DEV_PLAN_TX_TYPES,
+					]),
+				),
+			),
+			devpassRefunds: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.transaction.type, "credit_refund"),
+					eq(tables.organization.kind, "devpass"),
+					sql`original.type IN (${sql.join(
+						[...DEV_PLAN_TX_TYPES, ...LEGACY_DEV_PLAN_TX_TYPES].map(
+							(type) => sql`${type}`,
+						),
+						sql`, `,
+					)})`,
+				),
+			),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.leftJoin(
+			sql`${tables.transaction} original`,
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				sql`original.id = ${tables.transaction.relatedTransactionId}`,
+			),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(sql`"date"`);
+
+	const firstPayment = db
+		.select({
+			firstPaidAt: sql<string>`MIN(${tables.transaction.createdAt})`.as(
+				"first_paid_at",
+			),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				paidTransactionFilter,
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(tables.transaction.organizationId)
+		.as("first_payment");
+	const paidDay = sql<
+		string | null
+	>`CASE WHEN ${firstPayment.firstPaidAt} < ${startDate.toISOString()}::timestamp THEN NULL ELSE DATE(${firstPayment.firstPaidAt})::text END`.as(
+		"date",
+	);
+	const paidQuery = db
+		.select({ date: paidDay, count: sql<number>`COUNT(*)` })
+		.from(firstPayment)
+		.groupBy(sql`"date"`);
+	const signupsQuery = db
+		.select({
+			date: sql<string>`DATE(${tables.user.createdAt})`,
+			count: sql<number>`COUNT(*)`,
 		})
 		.from(tables.user)
-		.where(gte(tables.user.createdAt, startDate))
-		.groupBy(sql`DATE(${tables.user.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.user.createdAt})`));
-
-	// Revenue per day (post-fee credit revenue; matches /admin/metrics
-	// totalRevenue). Enterprise deals are a separate series below.
-	const revenuePerDay = await db
-		.select({
-			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
 		.where(
 			and(
-				eq(tables.transaction.status, "completed"),
-				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_license_fee"),
-				notPlanFilter,
-				notEndUserNonRevenueFilter,
-				notRefundFilter,
-				gte(tables.transaction.createdAt, startDate),
-				lte(tables.transaction.createdAt, endDate),
+				gte(tables.user.createdAt, startDate),
+				lte(tables.user.createdAt, endDate),
 			),
 		)
-		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
-
-	const enterpriseRevenuePerDay = await db
-		.select({
-			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "enterprise_license_fee"),
-				gte(tables.transaction.createdAt, startDate),
-				lte(tables.transaction.createdAt, endDate),
-			),
-		)
-		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
-
-	// Processed per day (gross Stripe amount; matches /admin/metrics totalProcessed)
-	const processedPerDay = await db
-		.select({
-			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_license_fee"),
-				notPlanFilter,
-				notEndUserNonRevenueFilter,
-				notRefundFilter,
-				gte(tables.transaction.createdAt, startDate),
-				lte(tables.transaction.createdAt, endDate),
-			),
-		)
-		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
-
-	// Refunds per day, gross (positive `amount`) and on a credit basis (the
-	// negated `creditAmount` clawback), mirroring /admin/metrics.
-	const refundsPerDay = await db
-		.select({
-			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-			credits:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"credits",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_refund"),
-				gte(tables.transaction.createdAt, startDate),
-				lte(tables.transaction.createdAt, endDate),
-			),
-		)
-		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
-
-	// DevPass revenue per day: dev plan payments (+ legacy `subscription_*` rows
-	// on devpass orgs), gross Stripe `amount` deduplicated per invoice. Mirrors
-	// /admin/devpass/timeseries.
-	const devpassRevenuePerDay = await db
-		.select({
-			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				inArray(tables.transaction.type, [
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				firstRowPerInvoiceFilter([
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				gte(tables.transaction.createdAt, startDate),
-				lte(tables.transaction.createdAt, endDate),
-			),
-		)
-		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
-
-	// DevPass refunds per day: `credit_refund` rows linked back to a dev plan
-	// payment via `relatedTransactionId`. Mirrors /admin/devpass/timeseries.
-	const devpassRefundOriginalTx = aliasedTable(
-		tables.transaction,
-		"devpass_refund_original_tx",
+		.groupBy(sql`DATE(${tables.user.createdAt})`);
+	const [revenueRows, paidRows, signupsPerDay] = await Promise.all([
+		revenueQuery,
+		paidQuery,
+		signupsQuery,
+	]);
+	const preRange = revenueRows.find((row) => row.date === null);
+	const preRangeRevenue = Number(preRange?.revenue ?? 0);
+	const preRangeProcessed = Number(preRange?.processed ?? 0);
+	const preRangeRefunds = Number(preRange?.refunds ?? 0);
+	const preRangeRefundedCredits = -Number(preRange?.refundedCredits ?? 0);
+	const preRangeDevpassRevenue = Number(preRange?.devpassRevenue ?? 0);
+	const preRangeDevpassRefunds = Number(preRange?.devpassRefunds ?? 0);
+	const preRangeEnterpriseRevenue = Number(preRange?.enterpriseRevenue ?? 0);
+	const preRangeCount = Number(
+		paidRows.find((row) => row.date === null)?.count ?? 0,
 	);
-	const devpassRefundsPerDay = await db
-		.select({
-			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			devpassRefundOriginalTx,
-			eq(tables.transaction.relatedTransactionId, devpassRefundOriginalTx.id),
-		)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.type, "credit_refund"),
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				inArray(devpassRefundOriginalTx.type, [
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				gte(tables.transaction.createdAt, startDate),
-				lte(tables.transaction.createdAt, endDate),
-			),
-		)
-		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
-
-	// Pre-range totals for cumulative chart
-	const [preRangeRevenueRow] = await db
-		.select({
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_license_fee"),
-				notPlanFilter,
-				notEndUserNonRevenueFilter,
-				notRefundFilter,
-				sql`${tables.transaction.createdAt} < ${startDate}`,
-			),
-		);
-	const preRangeRevenue = Number(preRangeRevenueRow?.total ?? 0);
-
-	const [preRangeEnterpriseRevenueRow] = await db
-		.select({
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "enterprise_license_fee"),
-				sql`${tables.transaction.createdAt} < ${startDate}`,
-			),
-		);
-	const preRangeEnterpriseRevenue = Number(
-		preRangeEnterpriseRevenueRow?.total ?? 0,
+	const signupsMap = new Map(
+		signupsPerDay.map((row) => [row.date, Number(row.count)]),
 	);
-
-	const [preRangeProcessedRow] = await db
-		.select({
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_license_fee"),
-				notPlanFilter,
-				notEndUserNonRevenueFilter,
-				notRefundFilter,
-				sql`${tables.transaction.createdAt} < ${startDate}`,
-			),
-		);
-	const preRangeProcessed = Number(preRangeProcessedRow?.total ?? 0);
-
-	const [preRangeRefundsRow] = await db
-		.select({
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-			credits:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"credits",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_refund"),
-				sql`${tables.transaction.createdAt} < ${startDate}`,
-			),
-		);
-	const preRangeRefunds = Number(preRangeRefundsRow?.total ?? 0);
-	const preRangeRefundedCredits = -Number(preRangeRefundsRow?.credits ?? 0);
-
-	const [preRangeDevpassRevenueRow] = await db
-		.select({
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				inArray(tables.transaction.type, [
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				firstRowPerInvoiceFilter([
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				sql`${tables.transaction.createdAt} < ${startDate}`,
-			),
-		);
-	const preRangeDevpassRevenue = Number(preRangeDevpassRevenueRow?.total ?? 0);
-
-	const [preRangeDevpassRefundsRow] = await db
-		.select({
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			devpassRefundOriginalTx,
-			eq(tables.transaction.relatedTransactionId, devpassRefundOriginalTx.id),
-		)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.type, "credit_refund"),
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				inArray(devpassRefundOriginalTx.type, [
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				sql`${tables.transaction.createdAt} < ${startDate}`,
-			),
-		);
-	const preRangeDevpassRefunds = Number(preRangeDevpassRefundsRow?.total ?? 0);
-
-	// Count of orgs that became paying before the range (bounded SQL query)
-	const [preRangeRow] = await db
-		.select({
-			count: sql<number>`COUNT(*)`.as("count"),
-		})
-		.from(
-			db
-				.select({
-					organizationId: tables.transaction.organizationId,
-				})
-				.from(tables.transaction)
-				.where(
-					and(
-						eq(tables.transaction.status, "completed"),
-						paidTransactionFilter,
-					),
-				)
-				.groupBy(tables.transaction.organizationId)
-				.having(sql`MIN(${tables.transaction.createdAt}) < ${startDate}`)
-				.as("pre_range_orgs"),
-		);
-	const preRangeCount = Number(preRangeRow?.count ?? 0);
-
-	// New paid customers per day within the range (bounded SQL query)
-	const firstTransactionPerOrg = await db
-		.select({
-			date: sql<string>`date`.as("date"),
-			count: sql<number>`COUNT(*)`.as("count"),
-		})
-		.from(
-			db
-				.select({
-					date: sql<string>`DATE(MIN(${tables.transaction.createdAt}))`.as(
-						"date",
-					),
-				})
-				.from(tables.transaction)
-				.where(
-					and(
-						eq(tables.transaction.status, "completed"),
-						paidTransactionFilter,
-					),
-				)
-				.groupBy(tables.transaction.organizationId)
-				.having(
-					and(
-						sql`MIN(${tables.transaction.createdAt}) >= ${startDate}`,
-						sql`MIN(${tables.transaction.createdAt}) <= ${endDate}`,
-					),
-				)
-				.as("in_range_orgs"),
-		)
-		.groupBy(sql`date`)
-		.orderBy(asc(sql`date`));
-
-	// Build maps for quick lookup
-	const signupsMap = new Map<string, number>();
-	for (const row of signupsPerDay) {
-		signupsMap.set(row.date, Number(row.count));
-	}
-
-	const revenueMap = new Map<string, number>();
-	for (const row of revenuePerDay) {
-		revenueMap.set(row.date, Number(row.total));
-	}
-
-	const processedMap = new Map<string, number>();
-	for (const row of processedPerDay) {
-		processedMap.set(row.date, Number(row.total));
-	}
-
-	const refundsMap = new Map<string, number>();
-	const refundedCreditsMap = new Map<string, number>();
-	for (const row of refundsPerDay) {
-		refundsMap.set(row.date, Number(row.total));
-		refundedCreditsMap.set(row.date, -Number(row.credits));
-	}
-
-	const devpassRevenueMap = new Map<string, number>();
-	for (const row of devpassRevenuePerDay) {
-		devpassRevenueMap.set(row.date, Number(row.total));
-	}
-
-	const devpassRefundsMap = new Map<string, number>();
-	for (const row of devpassRefundsPerDay) {
-		devpassRefundsMap.set(row.date, Number(row.total));
-	}
-
-	const enterpriseRevenueMap = new Map<string, number>();
-	for (const row of enterpriseRevenuePerDay) {
-		enterpriseRevenueMap.set(row.date, Number(row.total));
-	}
-
-	const newPaidMap = new Map<string, number>();
-	for (const row of firstTransactionPerOrg) {
-		newPaidMap.set(row.date, Number(row.count));
-	}
+	const newPaidMap = new Map(
+		paidRows.map((row) => [row.date, Number(row.count)]),
+	);
+	const revenueMap = new Map(
+		revenueRows.map((row) => [row.date, Number(row.revenue)]),
+	);
+	const processedMap = new Map(
+		revenueRows.map((row) => [row.date, Number(row.processed)]),
+	);
+	const refundsMap = new Map(
+		revenueRows.map((row) => [row.date, Number(row.refunds)]),
+	);
+	const refundedCreditsMap = new Map(
+		revenueRows.map((row) => [row.date, -Number(row.refundedCredits)]),
+	);
+	const devpassRevenueMap = new Map(
+		revenueRows.map((row) => [row.date, Number(row.devpassRevenue)]),
+	);
+	const devpassRefundsMap = new Map(
+		revenueRows.map((row) => [row.date, Number(row.devpassRefunds)]),
+	);
+	const enterpriseRevenueMap = new Map(
+		revenueRows.map((row) => [row.date, Number(row.enterpriseRevenue)]),
+	);
 
 	// Fill all dates in range
 	const data: Array<{
@@ -2543,6 +2029,10 @@ const getGlobalStats = createRoute({
 			to: globalStatsDateSchema.optional(),
 			groupBy: globalStatsGroupBySchema.default("model").optional(),
 			modelView: globalStatsModelViewSchema.default("mapping").optional(),
+			includeTimeseriesBreakdown: z
+				.enum(["true", "false"])
+				.default("true")
+				.optional(),
 			mode: globalStatsModeSchema.default("total").optional(),
 			kind: globalStatsKindSchema.default("all").optional(),
 			// Comma-separated provider credential ids; narrows every metric to
@@ -2585,6 +2075,8 @@ admin.openapi(getGlobalStats, async (c) => {
 			? "model"
 			: (query.groupBy ?? "model");
 	const modelView = query.modelView ?? "mapping";
+	const includeTimeseriesBreakdown =
+		query.includeTimeseriesBreakdown !== "false";
 	const mode = query.mode ?? "total";
 	const kind = query.kind ?? "all";
 
@@ -2737,7 +2229,22 @@ admin.openapi(getGlobalStats, async (c) => {
 	);
 	const scopeFilter = and(rangeFilter, ...dimensionFilter);
 
-	const timeseriesRows = await db
+	// The dimension the breakdown groups on. `model` needs the per-model table
+	// (and its mapping/canonical/provider views); the rest are single columns
+	// on the source table.
+	const breakdownColumn =
+		groupBy === "mode"
+			? sourceTable.usedMode
+			: groupBy === "kind"
+				? sourceTable.orgKind
+				: globalSourceStats.source;
+
+	const compositionSums = {
+		requestCount: metricSums.requestCount,
+		cost: metricSums.cost,
+		totalTokens: metricSums.totalTokens,
+	};
+	const timeseriesQuery = db
 		.select({
 			date: dateExpr,
 			...metricSums,
@@ -2746,6 +2253,79 @@ admin.openapi(getGlobalStats, async (c) => {
 		.where(scopeFilter)
 		.groupBy(sourceTable.dayTimestamp)
 		.orderBy(asc(sourceTable.dayTimestamp));
+	const breakdownQuery =
+		groupBy === "model"
+			? db
+					.select({
+						usedModel: modelTable.usedModel,
+						usedProvider: modelTable.usedProvider,
+						...metricSums,
+					})
+					.from(modelTable)
+					.where(scopeFilter)
+					.groupBy(modelTable.usedModel, modelTable.usedProvider)
+					.orderBy(desc(metricSums.requestCount))
+			: db
+					.select({
+						dimension: breakdownColumn,
+						...metricSums,
+					})
+					.from(sourceTable)
+					.where(scopeFilter)
+					.groupBy(breakdownColumn)
+					.orderBy(desc(metricSums.requestCount));
+
+	// Daily dimensions only need the three chart metrics.
+	const timeseriesBreakdownQuery = !includeTimeseriesBreakdown
+		? Promise.resolve([])
+		: groupBy === "model"
+			? db
+					.select({
+						date: dateExpr,
+						usedModel: modelTable.usedModel,
+						usedProvider: modelTable.usedProvider,
+						...compositionSums,
+					})
+					.from(modelTable)
+					.where(scopeFilter)
+					.groupBy(
+						modelTable.dayTimestamp,
+						modelTable.usedModel,
+						modelTable.usedProvider,
+					)
+			: db
+					.select({
+						date: dateExpr,
+						dimension: breakdownColumn,
+						...compositionSums,
+					})
+					.from(sourceTable)
+					.where(scopeFilter)
+					.groupBy(sourceTable.dayTimestamp, breakdownColumn);
+
+	const [
+		timeseriesRows,
+		breakdownRows,
+		timeseriesBreakdownRows,
+		byModeRows,
+		byKindRows,
+	] = await Promise.all([
+		timeseriesQuery,
+		breakdownQuery,
+		timeseriesBreakdownQuery,
+		db
+			.select({ dimension: sourceTable.usedMode, ...compositionSums })
+			.from(sourceTable)
+			.where(and(rangeFilter, ...kindFilter, ...keyFilter))
+			.groupBy(sourceTable.usedMode)
+			.orderBy(desc(compositionSums.requestCount)),
+		db
+			.select({ dimension: sourceTable.orgKind, ...compositionSums })
+			.from(sourceTable)
+			.where(and(rangeFilter, ...modeFilter, ...keyFilter))
+			.groupBy(sourceTable.orgKind)
+			.orderBy(desc(compositionSums.requestCount)),
+	]);
 
 	const timeseriesMap = new Map<
 		string,
@@ -2774,38 +2354,6 @@ admin.openapi(getGlobalStats, async (c) => {
 		}
 	}
 
-	// The dimension the breakdown groups on. `model` needs the per-model table
-	// (and its mapping/canonical/provider views); the rest are single columns
-	// on the source table.
-	const breakdownColumn =
-		groupBy === "mode"
-			? sourceTable.usedMode
-			: groupBy === "kind"
-				? sourceTable.orgKind
-				: globalSourceStats.source;
-
-	const breakdownRows =
-		groupBy === "model"
-			? await db
-					.select({
-						usedModel: modelTable.usedModel,
-						usedProvider: modelTable.usedProvider,
-						...metricSums,
-					})
-					.from(modelTable)
-					.where(scopeFilter)
-					.groupBy(modelTable.usedModel, modelTable.usedProvider)
-					.orderBy(desc(metricSums.requestCount))
-			: await db
-					.select({
-						dimension: breakdownColumn,
-						...metricSums,
-					})
-					.from(sourceTable)
-					.where(scopeFilter)
-					.groupBy(breakdownColumn)
-					.orderBy(desc(metricSums.requestCount));
-
 	const breakdown: z.infer<typeof globalStatsBreakdownItemSchema>[] =
 		groupBy === "model" && modelView === "canonical"
 			? aggregateBreakdownRows(
@@ -2830,32 +2378,6 @@ admin.openapi(getGlobalStats, async (c) => {
 							label: globalStatsDimensionLabel(groupBy, key),
 						};
 					});
-
-	const timeseriesBreakdownRows =
-		groupBy === "model"
-			? await db
-					.select({
-						date: dateExpr,
-						usedModel: modelTable.usedModel,
-						usedProvider: modelTable.usedProvider,
-						...metricSums,
-					})
-					.from(modelTable)
-					.where(scopeFilter)
-					.groupBy(
-						modelTable.dayTimestamp,
-						modelTable.usedModel,
-						modelTable.usedProvider,
-					)
-			: await db
-					.select({
-						date: dateExpr,
-						dimension: breakdownColumn,
-						...metricSums,
-					})
-					.from(sourceTable)
-					.where(scopeFilter)
-					.groupBy(sourceTable.dayTimestamp, breakdownColumn);
 
 	const timeseriesBreakdownMap = new Map<
 		string,
@@ -2900,28 +2422,6 @@ admin.openapi(getGlobalStats, async (c) => {
 		}
 	}
 	const timeseriesBreakdown = Array.from(timeseriesBreakdownMap.values());
-
-	// Composition of the range along each dimension, each honouring the *other*
-	// filter so both always add up to `totals`.
-	const compositionSums = {
-		requestCount: metricSums.requestCount,
-		cost: metricSums.cost,
-		totalTokens: metricSums.totalTokens,
-	};
-	const [byModeRows, byKindRows] = await Promise.all([
-		db
-			.select({ dimension: sourceTable.usedMode, ...compositionSums })
-			.from(sourceTable)
-			.where(and(rangeFilter, ...kindFilter, ...keyFilter))
-			.groupBy(sourceTable.usedMode)
-			.orderBy(desc(compositionSums.requestCount)),
-		db
-			.select({ dimension: sourceTable.orgKind, ...compositionSums })
-			.from(sourceTable)
-			.where(and(rangeFilter, ...modeFilter, ...keyFilter))
-			.groupBy(sourceTable.orgKind)
-			.orderBy(desc(compositionSums.requestCount)),
-	]);
 
 	const toCompositionItem = (
 		dimension: "mode" | "kind",
