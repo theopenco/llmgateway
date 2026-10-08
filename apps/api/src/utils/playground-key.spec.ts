@@ -69,6 +69,10 @@ describe("resolvePlaygroundToken", () => {
 	test("keeps independent device credentials valid across missing and stale cookies", async () => {
 		const firstResponse = await resolver.request("/");
 		const first = await firstResponse.json();
+		const firstKey = await db.query.apiKey.findFirst({
+			where: { kind: { eq: "playground" } },
+		});
+		expect(firstKey?.description).toBe("Lounge");
 		const secondResponse = await resolver.request("/");
 		const second = await secondResponse.json();
 		expect(second.token).not.toBe(first.token);
@@ -96,6 +100,41 @@ describe("resolvePlaygroundToken", () => {
 			).toBe(true);
 		}
 	});
+
+	test.each(["Playground", "Auto-generated playground key"])(
+		"renames a managed %s key without rotating its secret",
+		async (description) => {
+			const firstResponse = await resolver.request("/");
+			const { token } = await firstResponse.json();
+			const key = await db.query.apiKey.findFirst({
+				where: { kind: { eq: "playground" } },
+			});
+			if (!key) {
+				throw new Error("Playground key was not created");
+			}
+			await db
+				.update(tables.apiKey)
+				.set({ description })
+				.where(eq(tables.apiKey.id, key.id));
+
+			const result = await getOrCreatePlaygroundApiKey(
+				key.projectId,
+				key.createdBy,
+				token,
+			);
+			const renamed = await db.query.apiKey.findFirst({
+				where: { id: { eq: key.id } },
+			});
+			expect(result.issued).toBe(false);
+			expect(result.token === token).toBe(true);
+			expect(renamed).toMatchObject({
+				description: "Lounge",
+				kind: "playground",
+				expiresAt: key.expiresAt,
+			});
+			expect(renamed?.tokenHash === key.tokenHash).toBe(true);
+		},
+	);
 
 	test("keeps concurrent independent first-use credentials valid", async () => {
 		const project = await db.query.project.findFirst();
