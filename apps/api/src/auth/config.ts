@@ -267,6 +267,33 @@ export async function checkAndRecordSignupAttempt(
 	}
 }
 
+// Real users stay far below this per IP per day; credential stuffing from a
+// small proxy pool sends thousands per IP while slipping under the short
+// per-IP window.
+export const SIGN_IN_DAILY_LIMIT = 100;
+const DAY_SECONDS = 24 * 60 * 60;
+
+/**
+ * Count an email sign-in attempt against a fixed 24h window per IP.
+ */
+export async function recordDailySignInAttempt(
+	ipAddress: string,
+): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
+	const key = `sign_in_daily:${ipAddress}`;
+	const results = await redisClient
+		.multi()
+		.set(key, 0, "EX", DAY_SECONDS, "NX")
+		.incr(key)
+		.ttl(key)
+		.exec();
+	if (!results) {
+		throw new Error("Sign-in rate limit transaction aborted");
+	}
+	const count = results[1][1] as number;
+	const ttl = results[2][1] as number;
+	return { allowed: count <= SIGN_IN_DAILY_LIMIT, retryAfterSeconds: ttl };
+}
+
 export interface ExponentialRateLimitConfig {
 	keyPrefix: string;
 	baseDelayMs: number;
@@ -1003,6 +1030,31 @@ The LLM Gateway Team`.trim();
 					) {
 						const body = ctx.body as { revokeOtherSessions?: boolean };
 						body.revokeOtherSessions = true;
+					}
+
+					if (ctx.path === "/sign-in/email") {
+						const signInIp = getClientIpFromHeaders(ctx.headers);
+						if (signInIp) {
+							const { allowed, retryAfterSeconds } =
+								await recordDailySignInAttempt(signInIp);
+							if (!allowed) {
+								return new Response(
+									JSON.stringify({
+										error: "too_many_requests",
+										message:
+											"Too many sign-in attempts. Please try again tomorrow or reset your password.",
+										retryAfter: retryAfterSeconds,
+									}),
+									{
+										status: 429,
+										headers: {
+											"Content-Type": "application/json",
+											"Retry-After": retryAfterSeconds.toString(),
+										},
+									},
+								);
+							}
+						}
 					}
 
 					let isUnknownSignInEmail = false;
