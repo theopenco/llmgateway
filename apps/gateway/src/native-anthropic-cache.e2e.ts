@@ -54,6 +54,8 @@ async function sendUntilCacheRead(
 
 const hasAnthropicKey = !!process.env.LLM_ANTHROPIC_API_KEY;
 const hasBedrockKey = !!process.env.LLM_AWS_BEDROCK_API_KEY;
+const hasVertexAnthropicKey =
+	!!process.env.LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON;
 
 // This suite tests hardcoded anthropic/bedrock model IDs, so it's not relevant
 // when the run is scoped via TEST_MODELS to unrelated providers.
@@ -309,6 +311,91 @@ describeCache(
 				assertCacheBilled(second.json.usage);
 			},
 		);
+
+		for (const [model, enabled] of [
+			["anthropic/claude-sonnet-4-6", hasAnthropicKey],
+			["vertex-anthropic/claude-sonnet-4-6", hasVertexAnthropicKey],
+			["aws-bedrock/claude-sonnet-4-6", hasBedrockKey],
+		] as const) {
+			(enabled ? test : test.skip)(
+				`openai-compat tool loop reads the previous turn from cache on ${model}`,
+				getTestOptions(),
+				async () => {
+					// No client markers and a system prompt too short to cache: only the
+					// gateway's conversation breakpoint can make the next turn a read.
+					const toolTurn = (id: string, result: string) => [
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id,
+									type: "function",
+									function: { name: "read_file", arguments: "{}" },
+								},
+							],
+						},
+						{ role: "tool", tool_call_id: id, content: result },
+					];
+					const firstTurn = [
+						{ role: "system", content: "You are a coding agent." },
+						{
+							role: "user",
+							content: `Task ${generateTestRequestId()}: read the file.`,
+						},
+						...toolTurn("call_1", buildLongSystemPrompt()),
+					];
+
+					const send = async (messages: unknown[]) => {
+						const res = await app.request("/v1/chat/completions", {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"x-request-id": generateTestRequestId(),
+								"x-no-fallback": "true",
+								Authorization: `Bearer real-token`,
+							},
+							body: JSON.stringify({
+								model,
+								max_tokens: 16,
+								messages,
+								tools: [
+									{
+										type: "function",
+										function: {
+											name: "read_file",
+											parameters: { type: "object", properties: {} },
+										},
+									},
+								],
+							}),
+						});
+						const json = await res.json();
+						if (logMode) {
+							console.log(
+								"tool loop",
+								model,
+								res.status,
+								JSON.stringify(json.usage),
+							);
+						}
+						return { status: res.status, json };
+					};
+
+					const first = await send(firstTurn);
+					expect(first.status).toBe(200);
+
+					const second = await sendUntilCacheRead(() =>
+						send([...firstTurn, ...toolTurn("call_2", "Done.")]),
+					);
+					expect(second.status).toBe(200);
+					expect(
+						second.json.usage.prompt_tokens_details.cached_tokens,
+						`expected cached_tokens > 0 after ${second.attempts} attempts`,
+					).toBeGreaterThan(0);
+				},
+			);
+		}
 
 		// Streaming Anthropic: verifies normalizeAnthropicUsage in
 		// transform-streaming-to-openai surfaces cache token usage in streamed
@@ -599,7 +686,7 @@ describeCache(
 
 		// Regression: a caller-supplied ttl:"1h" marker in the *messages* (e.g.
 		// RisuAI's rolling "Automatic Cache Point") must suppress the gateway's
-		// heuristic 5m markers (long-system + turn-boundary). Anthropic requires
+		// heuristic 5m markers (long system, conversation tail). Anthropic requires
 		// longer TTLs before shorter ones, so an injected 5m marker ahead of the
 		// caller's 1h marker used to fail the whole request with "a ttl='1h'
 		// cache_control block must not come after a ttl='5m' cache_control block".

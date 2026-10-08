@@ -476,11 +476,19 @@ describe("prepareRequestBody - Anthropic", () => {
 				: [],
 		);
 
-		// Exactly one marker, on the tool_result block the caller chose — the
-		// turn boundary lands on that same message and leaves it alone.
-		expect(marked).toHaveLength(1);
-		expect((marked[0] as { type: string }).type).toBe("tool_result");
-		expect(getCacheControl(marked[0])).toEqual({ type: "ephemeral" });
+		// The caller's marker stays on its tool_result; the automatic one ends the
+		// conversation.
+		expect(marked).toEqual([
+			expect.objectContaining({
+				type: "tool_result",
+				cache_control: { type: "ephemeral" },
+			}),
+			expect.objectContaining({
+				type: "text",
+				text: "What should I wear?",
+				cache_control: { type: "ephemeral" },
+			}),
+		]);
 	});
 
 	test("suppresses auto-injection when a tool_result carries a 1h ttl", async () => {
@@ -544,48 +552,6 @@ describe("prepareRequestBody - Anthropic", () => {
 			type: "ephemeral",
 			ttl: "1h",
 		});
-	});
-
-	test("places the turn-boundary marker on a bare tool_result message", async () => {
-		// A native-format turn that mixes a tool result with new text arrives as
-		// two messages, so the boundary message holds only a tool_result block.
-		// Anthropic accepts a breakpoint there; skipping it caches nothing.
-		const requestBody = (await prepareRequestBody(
-			"anthropic",
-			"claude-3-5-sonnet-20241022",
-			null,
-			"claude-3-5-sonnet-20241022",
-			[
-				{ role: "user", content: "Look up the weather." },
-				{
-					role: "assistant",
-					content: "",
-					tool_calls: [
-						{
-							id: "call_1",
-							type: "function",
-							function: { name: "get_weather", arguments: "{}" },
-						},
-					],
-				},
-				{ role: "tool", tool_call_id: "call_1", content: "sunny" },
-				{ role: "user", content: "What should I wear?" },
-			],
-			false, // stream
-			undefined, // temperature
-			1024, // max_tokens
-			undefined, // top_p
-			undefined, // frequency_penalty
-			undefined, // presence_penalty
-			undefined, // response_format
-		)) as AnthropicRequestBody;
-
-		const boundaryMsg = requestBody.messages[2]!;
-		const boundaryBlock = (boundaryMsg.content as unknown[])[0] as {
-			type: string;
-		};
-		expect(boundaryBlock.type).toBe("tool_result");
-		expect(getCacheControl(boundaryBlock)).toEqual({ type: "ephemeral" });
 	});
 
 	test("drops a tool_result breakpoint for a non-Anthropic provider", async () => {
@@ -776,7 +742,7 @@ describe("prepareRequestBody - Anthropic", () => {
 
 		expect(toolMarkers).toBe(1);
 		// The remaining 3 slots go to the system prompts; nothing is left for the
-		// messages or the turn boundary.
+		// messages or the conversation tail.
 		expect(systemMarkers).toBe(3);
 		expect(messageMarkers).toBe(0);
 		expect(toolMarkers + systemMarkers + messageMarkers).toBe(4);
@@ -1362,7 +1328,7 @@ describe("prepareRequestBody - Anthropic", () => {
 		}
 
 		// No auto-injected markers in messages either (long-block heuristic and
-		// turn-boundary placement are both suppressed); only the caller's own
+		// conversation-tail placement are both suppressed); only the caller's own
 		// 1h marker survives, with its ttl intact.
 		const markers: unknown[] = [];
 		for (const msg of requestBody.messages) {
@@ -1387,18 +1353,18 @@ describe("prepareRequestBody - Anthropic", () => {
 			"claude-3-5-sonnet-20241022",
 			[
 				{ role: "system", content: longContent },
-				{ role: "user", content: "Hello!" },
-				{ role: "assistant", content: "Hi!" },
 				{
 					role: "user",
 					content: [
 						{
 							type: "text",
-							text: "What should I do next?",
+							text: "Hello!",
 							cache_control: { type: "ephemeral" },
 						},
 					],
 				},
+				{ role: "assistant", content: "Hi!" },
+				{ role: "user", content: "What should I do next?" },
 			],
 			false,
 			undefined,
@@ -1415,22 +1381,16 @@ describe("prepareRequestBody - Anthropic", () => {
 		)) as AnthropicRequestBody;
 
 		// ttl-less caller markers are all 5m, same as the heuristics — no
-		// ordering conflict is possible, so the existing behavior is preserved:
-		// long system prompt and turn boundary still get auto markers.
+		// ordering conflict is possible, so the long system prompt and the
+		// conversation tail still get auto markers.
 		expect(getCacheControl((requestBody.system as unknown[])[0])).toEqual({
 			type: "ephemeral",
 		});
-
-		const boundaryMsg = requestBody.messages[1];
-		expect(boundaryMsg.role).toBe("assistant");
-		expect(getCacheControl((boundaryMsg.content as unknown[])[0])).toEqual({
-			type: "ephemeral",
-		});
-
-		const explicitMsg = requestBody.messages[2];
-		expect(getCacheControl((explicitMsg.content as unknown[])[0])).toEqual({
-			type: "ephemeral",
-		});
+		expect(
+			requestBody.messages.map((msg) =>
+				getCacheControl((msg.content as unknown[])[0]),
+			),
+		).toEqual([{ type: "ephemeral" }, undefined, { type: "ephemeral" }]);
 	});
 
 	test("drops the auto system marker when caller markers already fill the limit", async () => {
@@ -5520,7 +5480,7 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			false,
 		)) as any;
 
-		// No heuristic cachePoint on the long system prompt and no turn-boundary
+		// No heuristic cachePoint on the long system prompt and no conversation-tail
 		// cachePoint — a default-ttl (5m) point would precede the caller's 1h
 		// point, which Bedrock rejects.
 		expect(requestBody.system).toEqual([{ text: longContent }]);
@@ -5543,18 +5503,18 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			"anthropic.claude-3-7-sonnet-20250219-v1:0",
 			[
 				{ role: "system", content: longContent },
-				{ role: "user", content: "Hello!" },
-				{ role: "assistant", content: "Hi!" },
 				{
 					role: "user",
 					content: [
 						{
 							type: "text",
-							text: "What should I do next?",
+							text: "Hello!",
 							cache_control: { type: "ephemeral", ttl: "1h" },
 						},
 					],
 				},
+				{ role: "assistant", content: "Hi!" },
+				{ role: "user", content: "What should I do next?" },
 			],
 			false,
 			undefined,
@@ -5577,13 +5537,10 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			{ text: longContent },
 			{ cachePoint: { type: "default" } },
 		]);
-		expect(requestBody.messages[1]).toEqual({
-			role: "assistant",
-			content: [{ text: "Hi!" }, { cachePoint: { type: "default" } }],
-		});
-		expect(requestBody.messages[2].content).toEqual([
-			{ text: "What should I do next?" },
-			{ cachePoint: { type: "default" } },
+		expect(requestBody.messages.map((msg: any) => msg.content)).toEqual([
+			[{ text: "Hello!" }, { cachePoint: { type: "default" } }],
+			[{ text: "Hi!" }],
+			[{ text: "What should I do next?" }, { cachePoint: { type: "default" } }],
 		]);
 	});
 
@@ -5788,8 +5745,7 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			content: [{ text: "What is the weather and time in Berlin?" }],
 		});
 		expect(requestBody.messages[1].role).toBe("assistant");
-		// 2 toolUse blocks + 1 turn-boundary cachePoint
-		expect(requestBody.messages[1].content).toHaveLength(3);
+		expect(requestBody.messages[1].content).toHaveLength(2);
 		expect(requestBody.messages[1].content[0]).toEqual({
 			toolUse: {
 				toolUseId: "tool_1",
@@ -5803,9 +5759,6 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 				name: "get_time",
 				input: { city: "Berlin" },
 			},
-		});
-		expect(requestBody.messages[1].content[2]).toEqual({
-			cachePoint: { type: "default" },
 		});
 		expect(requestBody.messages[2]).toEqual({
 			role: "user",
@@ -5824,6 +5777,7 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 						content: [{ text: JSON.stringify({ time: "20:52" }) }],
 					},
 				},
+				{ cachePoint: { type: "default" } },
 			],
 		});
 	});

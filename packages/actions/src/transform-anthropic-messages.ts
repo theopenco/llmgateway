@@ -62,11 +62,7 @@ export async function transformAnthropicMessages(
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
 
-	// Determine if we should apply cache_control for long prompts
-	// Apply for anthropic provider only, and only when the project hasn't
-	// opted out of auto-injection.
-	const shouldApplyCacheControl =
-		provider === "anthropic" && autoInjectCacheControl;
+	const shouldApplyCacheControl = autoInjectCacheControl;
 
 	// Continue the budget the tools and system passes already spent from.
 	let cacheControlCount = initialCacheControlCount;
@@ -129,7 +125,7 @@ export async function transformAnthropicMessages(
 		// first pass for it. Assembling it would fetch (and size-check) images
 		// that never reach the provider, and its cache_control accounting would
 		// spend one of Anthropic's 4 slots on a block that is thrown away,
-		// starving the real cacheable blocks (and the turn boundary) of markers.
+		// starving the real cacheable blocks (and the tail) of markers.
 		const originalRole = m.role === "user" && m.tool_call_id ? "tool" : m.role;
 		const isDiscardedToolResult =
 			originalRole === "tool" && !!m.tool_call_id && m.content !== undefined;
@@ -188,7 +184,7 @@ export async function transformAnthropicMessages(
 					if (isTextContent(part) && part.text) {
 						if (part.cache_control) {
 							// Count caller-supplied markers toward Anthropic's 4-block
-							// cap so subsequent auto-injection and the turn-boundary
+							// cap so subsequent auto-injection and the conversation-tail
 							// placement don't push the total over 4 (which Anthropic
 							// rejects with a 400). Without this, a coding agent like
 							// Claude Code that sends 4 markers itself would hit the
@@ -410,48 +406,22 @@ export async function transformAnthropicMessages(
 			role: anthropicRole,
 		});
 	}
-	// Turn-boundary caching: in a multi-turn conversation the entire prefix
-	// (everything before the last user message) is identical between requests.
-	// Placing cache_control on the last content block of the message just before
-	// the final user turn lets Anthropic cache the entire prefix, dramatically
-	// improving the cache hit ratio for long conversations (e.g. Claude Code
-	// sessions with 100k+ token context).
-	if (shouldApplyCacheControl && results.length >= 3) {
-		// Find the last user message index — that's the "new" turn.
-		let lastUserIdx = -1;
-		for (let i = results.length - 1; i >= 0; i--) {
-			if (results[i]!.role === "user") {
-				lastUserIdx = i;
+	// Conversation caching: a breakpoint on the last block of the final message
+	// caches the whole prompt, so the next request reads it back and writes only
+	// what it appended. Any earlier breakpoint leaves the newest content, in an
+	// agent loop the latest tool result, uncached on every turn. A first turn
+	// gets none, so one-off requests don't pay the cache-write premium.
+	if (
+		shouldApplyCacheControl &&
+		results.length >= 3 &&
+		cacheControlCount < maxCacheControlBlocks
+	) {
+		const tail = results[results.length - 1]!.content;
+		for (let i = tail.length - 1; i >= 0; i--) {
+			const part = tail[i] as MessageContent;
+			if (isTextContent(part) || isToolResultContent(part)) {
+				part.cache_control ??= { type: "ephemeral" };
 				break;
-			}
-		}
-
-		// The turn boundary is the message right before the last user message.
-		const boundaryIdx = lastUserIdx > 0 ? lastUserIdx - 1 : -1;
-		if (boundaryIdx >= 0 && cacheControlCount < maxCacheControlBlocks) {
-			const boundaryMsg = results[boundaryIdx]!;
-			if (
-				Array.isArray(boundaryMsg.content) &&
-				boundaryMsg.content.length > 0
-			) {
-				// Find the last block that can carry a breakpoint. Text is the common
-				// case, but agent loops may put a tool_result at the boundary.
-				let lastCacheableIdx = -1;
-				for (let i = boundaryMsg.content.length - 1; i >= 0; i--) {
-					const part = boundaryMsg.content[i] as MessageContent | undefined;
-					if (part && (isTextContent(part) || isToolResultContent(part))) {
-						lastCacheableIdx = i;
-						break;
-					}
-				}
-				if (lastCacheableIdx >= 0) {
-					const target = boundaryMsg.content[lastCacheableIdx] as
-						TextContent | ToolResultContent;
-					if (!target.cache_control) {
-						target.cache_control = { type: "ephemeral" };
-						cacheControlCount++;
-					}
-				}
 			}
 		}
 	}
