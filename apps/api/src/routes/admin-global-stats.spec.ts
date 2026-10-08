@@ -97,6 +97,12 @@ interface GlobalStatsResponse {
 	};
 	breakdown: { key: string; label: string; requestCount: number }[];
 	timeseries: { date: string; requestCount: number; cost: number }[];
+	timeseriesBreakdown: {
+		date: string;
+		key: string;
+		requestCount: number;
+		cost: number;
+	}[];
 	groupBy: string;
 	providerKeyIds: string[];
 	provider: string | null;
@@ -420,6 +426,73 @@ describe("admin — global stats mode/kind dimensions", () => {
 				]),
 			);
 		});
+	});
+
+	test("daily and dimension totals reconcile across days and gaps", async () => {
+		const earlier = new Date(DAY);
+		earlier.setUTCDate(earlier.getUTCDate() - 2);
+		const fixture = {
+			dayTimestamp: earlier,
+			usedMode: "credits" as const,
+			orgKind: "default" as const,
+			requestCount: 3,
+			cost: 2,
+		};
+		await db.insert(tables.globalModelStats).values({
+			...fixture,
+			usedModel: MODEL,
+			usedProvider: "openai",
+		});
+		await db
+			.insert(tables.globalSourceStats)
+			.values({ ...fixture, source: SOURCE });
+
+		for (const groupBy of ["model", "source", "mode", "kind"]) {
+			const body = await fetchStats(cookie, {
+				from: earlier.toISOString().split("T")[0],
+				to: DATE,
+				groupBy,
+			});
+			expect(body.totals.requestCount).toBe(21);
+			expect(body.timeseries.map((point) => point.requestCount)).toEqual([
+				3, 0, 18,
+			]);
+			expect(
+				body.breakdown.reduce((sum, row) => sum + row.requestCount, 0),
+			).toBe(21);
+			for (const point of body.timeseries) {
+				const rows = body.timeseriesBreakdown.filter(
+					(row) => row.date === point.date,
+				);
+				expect(rows.reduce((sum, row) => sum + row.requestCount, 0)).toBe(
+					point.requestCount,
+				);
+				expect(rows.reduce((sum, row) => sum + row.cost, 0)).toBeCloseTo(
+					point.cost,
+					8,
+				);
+			}
+		}
+	});
+
+	test("can omit daily breakdowns without changing totals or model costs", async () => {
+		const full = await fetchStats(cookie);
+		const summary = await fetchStats(cookie, {
+			includeTimeseriesBreakdown: "false",
+		});
+		expect(full.timeseriesBreakdown.length).toBeGreaterThan(0);
+		expect(summary).toEqual({ ...full, timeseriesBreakdown: [] });
+	});
+
+	test("an empty range has no dimension subtotal rows", async () => {
+		const body = await fetchStats(cookie, {
+			from: "2000-01-01",
+			to: "2000-01-02",
+		});
+		expect(body.totals.requestCount).toBe(0);
+		expect(body.breakdown).toEqual([]);
+		expect(body.timeseriesBreakdown).toEqual([]);
+		expect(body.timeseries.map((point) => point.requestCount)).toEqual([0, 0]);
 	});
 
 	test("blends every bucket when unfiltered", async () => {
