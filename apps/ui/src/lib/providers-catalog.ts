@@ -6,7 +6,8 @@ import {
 } from "@llmgateway/models";
 import { isMappingDeactivated } from "@llmgateway/shared/components";
 
-import type { ApiModel } from "@llmgateway/shared/components";
+import type { ExtraGridProvider } from "@/components/providers/providers-grid";
+import type { ApiModel, ApiProvider } from "@llmgateway/shared/components";
 
 function getActiveModelCountsByProvider(): Record<string, number> {
 	const counts: Record<string, number> = {};
@@ -73,6 +74,42 @@ export function countApiModelsByProvider(
 		}
 	}
 	return counts;
+}
+
+/**
+ * DB-only providers (custom Airside carriers) with at least one active model.
+ * Every static catalogue id — listed or not — stays owned by the static config.
+ */
+export function customCarrierGridProviders(
+	apiProviders: ApiProvider[],
+	modelCounts: Record<string, number>,
+): ExtraGridProvider[] {
+	const staticIds = new Set(providerDefinitions.map((p) => p.id as string));
+	return apiProviders
+		.filter((p) => !staticIds.has(p.id) && (modelCounts[p.id] ?? 0) > 0)
+		.map((p) => {
+			const profile = p.airsideProfile;
+			const policy = profile?.dataPolicy;
+			return {
+				id: p.id,
+				name: p.name ?? p.id,
+				description:
+					p.description && p.description !== "(empty)" ? p.description : null,
+				modelsCount: modelCounts[p.id] ?? 0,
+				headquarters: profile?.headquarters ?? null,
+				website: profile?.website ?? p.website ?? null,
+				dataPolicy: policy
+					? {
+							apiTraining: policy.apiTraining,
+							promptLogging: policy.promptLogging,
+							retentionPeriod: policy.retentionPeriod,
+							gdpr: policy.gdpr,
+							iso27001: policy.iso27001,
+							soc2: policy.soc2 === 0 ? null : policy.soc2,
+						}
+					: null,
+			};
+		});
 }
 
 /** Distinct models routable through at least one of the given providers. */

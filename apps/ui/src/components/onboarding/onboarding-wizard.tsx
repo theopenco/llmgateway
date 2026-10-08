@@ -14,7 +14,7 @@ import {
 	KeyRound,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useRef, useState } from "react";
 
@@ -24,6 +24,7 @@ import {
 } from "@/components/onboarding/completion-stream";
 import { QuickStartSection } from "@/components/shared/quick-start-snippet";
 import { useDefaultProject } from "@/hooks/useDefaultProject";
+import { getAuthRedirect } from "@/lib/auth-redirect";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -38,10 +39,14 @@ import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import { ONBOARDING_MODEL } from "@llmgateway/shared";
 
+import type { Route } from "next";
+
 const DEFAULT_PROMPT = "Explain what an LLM gateway is in 2 sentences.";
 
 export function OnboardingWizard() {
 	const router = useRouter();
+	const searchParams = useSearchParams();
+	const redirectTarget = getAuthRedirect(searchParams.get("redirect"));
 	const posthog = usePostHog();
 	const queryClient = useQueryClient();
 	const api = useApi();
@@ -184,7 +189,7 @@ export function OnboardingWizard() {
 			await completeOnboarding.mutateAsync({});
 			const queryKey = api.queryOptions("get", "/user/me").queryKey;
 			await queryClient.invalidateQueries({ queryKey });
-			router.push("/dashboard");
+			router.push(redirectTarget as Route);
 		} catch {
 			setIsCompleting(false);
 		}
@@ -323,7 +328,7 @@ export function OnboardingWizard() {
 					</CardHeader>
 					<CardContent className="space-y-2">
 						<Button asChild variant="outline" className="w-full justify-start">
-							<Link href="/dashboard">
+							<Link href={redirectTarget as Route}>
 								<LayoutDashboard className="mr-2 h-4 w-4" />
 								Dashboard
 								<ArrowRight className="ml-auto h-4 w-4" />

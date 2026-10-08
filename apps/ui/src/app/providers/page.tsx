@@ -5,13 +5,10 @@ import { JsonLd } from "@/components/seo/json-ld";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import {
 	countApiModelsByProvider,
+	customCarrierGridProviders,
 	listedProviders,
 } from "@/lib/providers-catalog";
 
-import { providers as providerDefinitions } from "@llmgateway/models";
-import { isMappingDeactivated } from "@llmgateway/shared/components";
-
-import type { ExtraGridProvider } from "@/components/providers/providers-grid";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -79,26 +76,7 @@ export default async function ProvidersPage() {
 	);
 	const modelCounts = countApiModelsByProvider(apiModels);
 
-	// DB-only providers (custom Airside carriers) join the static grid; every
-	// static catalogue id — listed or not — stays owned by the static config.
-	const staticIds = new Set(providerDefinitions.map((p) => p.id as string));
-	const extraProviders: ExtraGridProvider[] = apiProviders
-		.filter((p) => !staticIds.has(p.id))
-		.map((p) => ({
-			id: p.id,
-			name: p.name ?? p.id,
-			description:
-				p.description && p.description !== "(empty)" ? p.description : null,
-			modelsCount: apiModels.filter((model) =>
-				model.mappings.some(
-					(mapping) =>
-						mapping.providerId === p.id &&
-						mapping.status === "active" &&
-						!isMappingDeactivated(mapping),
-				),
-			).length,
-		}))
-		.filter((p) => p.modelsCount > 0);
+	const extraProviders = customCarrierGridProviders(apiProviders, modelCounts);
 
 	return (
 		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">

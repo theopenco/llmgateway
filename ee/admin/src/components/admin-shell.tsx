@@ -11,6 +11,7 @@ import {
 	FlaskConical,
 	Gauge,
 	GitMerge,
+	Handshake,
 	KeyRound,
 	LayoutDashboard,
 	LogOut,
@@ -86,6 +87,7 @@ const navItems: NavItem[] = [
 		icon: Building2,
 		match: "prefix",
 	},
+	{ href: "/crm", label: "Enterprise CRM", icon: Handshake, match: "prefix" },
 	{ href: "/devpass", label: "DevPass", icon: Sparkles, match: "prefix" },
 	{
 		href: "/chat-plans",

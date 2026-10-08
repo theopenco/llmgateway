@@ -7453,14 +7453,14 @@ describe("api", () => {
 				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
-				model: "openai/gpt-4",
+				model: "openai/gpt-4o",
 				messages: [
 					{
 						role: "user",
 						content: "Hello",
 					},
 				],
-				max_tokens: 10000, // This exceeds gpt-4's maxOutput of 8192
+				max_tokens: 20000, // This exceeds gpt-4o's maxOutput of 16384
 			}),
 		});
 
@@ -7470,8 +7470,8 @@ describe("api", () => {
 		expect(json.error.message).toContain(
 			"exceeds the maximum output tokens allowed",
 		);
-		expect(json.error.message).toContain("10000");
-		expect(json.error.message).toContain("8192");
+		expect(json.error.message).toContain("20000");
+		expect(json.error.message).toContain("16384");
 	});
 
 	test("Max tokens validation allows valid token count", async () => {
@@ -7503,14 +7503,14 @@ describe("api", () => {
 				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
-				model: "openai/gpt-4",
+				model: "openai/gpt-4o",
 				messages: [
 					{
 						role: "user",
 						content: "Hello",
 					},
 				],
-				max_tokens: 4000, // This is within gpt-4's maxOutput of 8192
+				max_tokens: 4000, // This is within gpt-4o's maxOutput of 16384
 			}),
 		});
 

@@ -36,7 +36,6 @@ import {
 	log,
 	type LogInsertData,
 	lt,
-	lte,
 	organization,
 	resolveVerifiedOrgRecipient,
 	shortid,
@@ -72,6 +71,10 @@ import {
 	GLOBAL_STATS_INTERVAL_SECONDS,
 	processClosedHours,
 } from "./services/global-stats-aggregator.js";
+import {
+	runModelStatsByokErrorsBackfillStep,
+	runSourceModelStatsBackfillStep,
+} from "./services/hourly-stats-backfill.js";
 import { checkModelErrorRateAlerts } from "./services/model-error-rate-alerts.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
 import { processNotifications } from "./services/notifications.js";
@@ -81,7 +84,6 @@ import {
 } from "./services/project-stats-aggregator.js";
 import { syncProviderKeyModels } from "./services/provider-key-model-sync.js";
 import { runRoutingBaselineBackfillStep } from "./services/routing-baseline-backfill.js";
-import { runSourceModelStatsBackfillStep } from "./services/source-model-stats-backfill.js";
 import {
 	backfillHistoryIfNeeded,
 	backfillHourlyHistoryIfNeeded,
@@ -89,6 +91,8 @@ import {
 	calculateCurrentMinuteHistory,
 	calculateHourlyHistory,
 	calculateMinutelyHistory,
+	getModelHistoryRetentionCutoff,
+	MODEL_HISTORY_RETENTION_DAYS,
 } from "./services/stats-calculator.js";
 import { syncProvidersAndModels } from "./services/sync-models.js";
 import {
@@ -138,6 +142,8 @@ const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const MODEL_ERROR_RATE_ALERTS_LOCK_KEY = "model_error_rate_alerts";
 const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
 const SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY = "source_model_stats_backfill";
+const MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY =
+	"model_stats_byok_errors_backfill";
 const LOCK_DURATION_MINUTES = 5;
 // LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
@@ -294,11 +300,16 @@ const schema = z.object({
 });
 
 export async function acquireLock(key: string): Promise<boolean> {
+	return (await acquireLease(key)) !== null;
+}
+
+/** Takes the lock and returns its row id, the owner token; null when held. */
+export async function acquireLease(key: string): Promise<string | null> {
 	// eslint-disable-next-line no-mixed-operators
 	const lockExpiry = new Date(Date.now() - LOCK_DURATION_MINUTES * 60 * 1000);
 
 	try {
-		await db.transaction(async (tx) => {
+		return await db.transaction(async (tx) => {
 			// First, delete any expired locks with the same key
 			await tx
 				.delete(tables.lock)
@@ -308,9 +319,11 @@ export async function acquireLock(key: string): Promise<boolean> {
 
 			// Then try to insert the new lock
 			try {
-				await tx.insert(tables.lock).values({
-					key,
-				});
+				const [lease] = await tx
+					.insert(tables.lock)
+					.values({ key })
+					.returning({ id: tables.lock.id });
+				return lease.id;
 			} catch (insertError) {
 				// If the insert failed due to a unique constraint violation within the transaction,
 				// another process holds the lock - throw a special error to be caught outside
@@ -321,12 +334,10 @@ export async function acquireLock(key: string): Promise<boolean> {
 				throw insertError;
 			}
 		});
-
-		return true;
 	} catch (error) {
-		// If we threw our special error, return false
+		// If we threw our special error, the lock is held
 		if (error instanceof Error && error.message === "LOCK_EXISTS") {
-			return false;
+			return null;
 		}
 		// Re-throw unexpected errors so they can be handled upstream
 		throw error;
@@ -966,7 +977,6 @@ export async function cleanupExpiredLogData(): Promise<void> {
 // forever and now serve every window beyond 24h (7d/30d/90d public stats), so
 // the only readers of the minute tables are short windows (<=24h). 30 days
 // leaves a comfortable buffer over the largest minute-level reader.
-const MODEL_HISTORY_RETENTION_DAYS = 30;
 const MODEL_HISTORY_CLEANUP_BATCH_SIZE = 10000;
 // Cap the work per run (per table) so a single cleanup reliably finishes well
 // within the lock TTL (LOCK_DURATION_MINUTES), even on a large initial backlog.
@@ -1038,9 +1048,7 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 	try {
 		logger.info("Starting model history retention cleanup...");
 
-		const cutoffDate = new Date(
-			Date.now() - MODEL_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000, // eslint-disable-line no-mixed-operators
-		);
+		const cutoffDate = getModelHistoryRetentionCutoff();
 
 		const mapping = await cleanupModelHistoryTable(
 			tables.modelProviderMappingHistory,
@@ -3304,37 +3312,38 @@ async function runModelErrorRateAlertsLoop() {
 
 const DATA_STREAMS_LOCK_KEY = "data_streams";
 
-/** Marks the lock as still in use and returns the stamp written. */
-async function touchLock(key: string): Promise<Date> {
-	const at = new Date();
-	await db
+class DataStreamLeaseLost extends Error {}
+
+/** Keeps the lease fresh; false once it expired and another worker took it. */
+export async function touchLease(id: string): Promise<boolean> {
+	const touched = await db
 		.update(tables.lock)
-		.set({ updatedAt: at })
-		.where(eq(tables.lock.key, key));
-	return at;
+		.set({ updatedAt: new Date() })
+		.where(eq(tables.lock.id, id))
+		.returning({ id: tables.lock.id });
+	return touched.length > 0;
 }
 
-/**
- * Releases the lock unless another worker took it over: a lock acquired after
- * ours expired carries a newer stamp than our last touch, and deleting it
- * would let a third worker in alongside.
- */
-async function releaseLockIfOwned(key: string, lastTouch: Date): Promise<void> {
-	await db
-		.delete(tables.lock)
-		.where(
-			and(eq(tables.lock.key, key), lte(tables.lock.updatedAt, lastTouch)),
-		);
+/** Releases the lease only if it is still ours. */
+export async function releaseLease(id: string): Promise<void> {
+	await db.delete(tables.lock).where(eq(tables.lock.id, id));
 }
 
 /**
  * Forwards audit and request log metadata to each enabled data stream. Each
  * stream is re-read right before it runs, so a pause, credential rotation, or
- * revoked access made during the pass is honored by the rest of it.
+ * revoked access made during the pass is honored by the rest of it. Stream
+ * state is written only while `leaseId` is held; the pass stops once it is
+ * lost.
  */
-export async function processDataStreams(
-	onProgress?: () => Promise<void>,
-): Promise<void> {
+export async function processDataStreams(leaseId: string): Promise<void> {
+	const onProgress = async () => {
+		if (!(await touchLease(leaseId))) {
+			throw new DataStreamLeaseLost(
+				"Data streams lease lost to another worker",
+			);
+		}
+	};
 	const streams = await listActiveDataStreams();
 	for (const listed of streams) {
 		if (isStopRequested()) {
@@ -3346,10 +3355,10 @@ export async function processDataStreams(
 		}
 		// A pass can outlast the lock TTL with slow destinations; keep the lock
 		// fresh so a second worker never runs the same streams concurrently.
-		await onProgress?.();
+		await onProgress();
 		// One broken stream must never hold up delivery for the others.
 		try {
-			const result = await runDataStream(stream, { onProgress });
+			const result = await runDataStream(stream, { onProgress, leaseId });
 			if (result.paused) {
 				logger.warn("Data stream paused after repeated failures", {
 					streamId: stream.id,
@@ -3363,6 +3372,9 @@ export async function processDataStreams(
 				});
 			}
 		} catch (error) {
+			if (error instanceof DataStreamLeaseLost) {
+				throw error;
+			}
 			logger.error("Data stream run crashed", {
 				streamId: stream.id,
 				error: error instanceof Error ? error : new Error(String(error)),
@@ -3381,14 +3393,12 @@ async function runDataStreamsLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
-				if (await acquireLock(DATA_STREAMS_LOCK_KEY)) {
-					let lastTouch = await touchLock(DATA_STREAMS_LOCK_KEY);
+				const leaseId = await acquireLease(DATA_STREAMS_LOCK_KEY);
+				if (leaseId) {
 					try {
-						await processDataStreams(async () => {
-							lastTouch = await touchLock(DATA_STREAMS_LOCK_KEY);
-						});
+						await processDataStreams(leaseId);
 					} finally {
-						await releaseLockIfOwned(DATA_STREAMS_LOCK_KEY, lastTouch);
+						await releaseLease(leaseId);
 					}
 				}
 				await interruptibleSleep(interval);
@@ -3566,6 +3576,11 @@ export async function startWorker() {
 		"source model stats",
 		SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY,
 		runSourceModelStatsBackfillStep,
+	);
+	void runBackfillLoop(
+		"model stats BYOK errors",
+		MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY,
+		runModelStatsByokErrorsBackfillStep,
 	);
 	for (let i = 0; i < LOG_QUEUE_CONCURRENCY; i++) {
 		void runLogQueueLoop(i);

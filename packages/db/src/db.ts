@@ -13,9 +13,9 @@ export const pool = new Pool({
 	connectionString:
 		process.env.DATABASE_URL ?? "postgres://postgres:pw@localhost:5432/db",
 	// Explicit pool configuration for production reliability
-	max: Number(process.env.DATABASE_POOL_MAX) || 20, // Maximum connections in pool
+	max: Number(process.env.DATABASE_POOL_MAX) || 8, // Per-process cap; multiply by replicas (incl. deploy surge) and keep under the server max_connections
 	min: Number(process.env.DATABASE_POOL_MIN) || 2, // Minimum connections to maintain
-	idleTimeoutMillis: Number(process.env.DATABASE_IDLE_TIMEOUT_MS) || 30000, // Close idle connections after 30s
+	idleTimeoutMillis: Number(process.env.DATABASE_IDLE_TIMEOUT_MS) || 10000, // Release idle connections after 10s so bursts do not pin server slots
 	connectionTimeoutMillis:
 		Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS) || 10000, // Fail fast if can't connect in 10s
 	allowExitOnIdle: false,
@@ -49,7 +49,6 @@ const instrumentedPool = instrumentDrizzle(pool, {
 
 export const db = drizzle({
 	client: instrumentedPool,
-	casing: "snake_case",
 	relations,
 });
 

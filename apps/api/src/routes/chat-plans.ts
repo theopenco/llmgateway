@@ -10,7 +10,7 @@ import { ensureStripeCustomer } from "@/stripe.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, tables, eq } from "@llmgateway/db";
+import { db, tables, eq, and } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	CHAT_PLAN_PRICES,
@@ -223,6 +223,30 @@ chatPlans.openapi(cancel, async (c) => {
 		const { immediate } = await cancelPlanSubscription(
 			personalOrg.chatPlanStripeSubscriptionId,
 		);
+		if (immediate) {
+			await db
+				.update(tables.organization)
+				.set({
+					chatPlan: "none",
+					chatPlanCreditsLimit: "0",
+					chatPlanCreditsUsed: "0",
+					chatPlanStripeSubscriptionId: null,
+					chatPlanExpiresAt: null,
+					chatPlanCancelled: false,
+					chatPlanBillingCycleStart: null,
+					subscriptionPaymentStatus: "current",
+					chatPlanCardFingerprint: null,
+				})
+				.where(
+					and(
+						eq(tables.organization.id, personalOrg.id),
+						eq(
+							tables.organization.chatPlanStripeSubscriptionId,
+							personalOrg.chatPlanStripeSubscriptionId,
+						),
+					),
+				);
+		}
 
 		await logAuditEvent({
 			organizationId: personalOrg.id,
@@ -236,9 +260,9 @@ chatPlans.openapi(cancel, async (c) => {
 			},
 		});
 
-		await new Promise((resolve) => {
-			setTimeout(resolve, 3000);
-		});
+		if (!immediate) {
+			await new Promise((resolve) => setTimeout(resolve, 3000));
+		}
 
 		return c.json({
 			success: true,

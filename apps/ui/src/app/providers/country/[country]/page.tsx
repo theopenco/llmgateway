@@ -4,10 +4,11 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { ProvidersGrid } from "@/components/providers/providers-grid";
 import { JsonLd } from "@/components/seo/json-ld";
-import { fetchModels } from "@/lib/fetch-models";
+import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import {
 	activeModelCounts,
 	countApiModelsByProvider,
+	customCarrierGridProviders,
 	listedProviders,
 } from "@/lib/providers-catalog";
 
@@ -40,6 +41,20 @@ function modelCountForProviders(
 	);
 }
 
+async function loadCountryProviders(code: string) {
+	const [apiProviders, apiModels] = await Promise.all([
+		fetchProviders(),
+		fetchModels(),
+	]);
+	const modelCounts = countApiModelsByProvider(apiModels);
+	const extraProviders = customCarrierGridProviders(apiProviders, modelCounts);
+	const countryProviders = [
+		...providersForCountry(code),
+		...extraProviders.filter((p) => p.headquarters === code),
+	];
+	return { apiProviders, modelCounts, extraProviders, countryProviders };
+}
+
 export default async function ProviderCountryPage({
 	params,
 }: CountryPageProps) {
@@ -50,8 +65,13 @@ export default async function ProviderCountryPage({
 		notFound();
 	}
 
-	const countryProviders = providersForCountry(country.code);
-	const modelCounts = countApiModelsByProvider(await fetchModels());
+	const { apiProviders, modelCounts, extraProviders, countryProviders } =
+		await loadCountryProviders(country.code);
+	const uploadedLogos = Object.fromEntries(
+		apiProviders
+			.filter((p) => p.airsideLogoUrl)
+			.map((p) => [p.id, p.airsideLogoUrl as string]),
+	);
 	const modelCount = modelCountForProviders(countryProviders, modelCounts);
 
 	const countryUrl = `https://llmgateway.io/providers/country/${country.code.toLowerCase()}`;
@@ -107,6 +127,8 @@ export default async function ProviderCountryPage({
 				<ProvidersGrid
 					countryCode={country.code}
 					modelCounts={modelCounts}
+					uploadedLogos={uploadedLogos}
+					extraProviders={extraProviders}
 					heading={`${country.flag} AI Providers in ${country.name}`}
 					subheading={`Access ${modelCount} models from ${countryProviders.length} AI ${
 						countryProviders.length === 1 ? "provider" : "providers"
@@ -134,7 +156,7 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const countryProviders = providersForCountry(country.code);
+	const { countryProviders } = await loadCountryProviders(country.code);
 	const description = `Browse ${countryProviders.length} AI providers headquartered in ${country.name} — access their models through LLM Gateway's OpenAI-compatible API with automatic fallback, caching, and cost analytics.`;
 	const canonical = `/providers/country/${country.code.toLowerCase()}`;
 

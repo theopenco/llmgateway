@@ -11,10 +11,11 @@ import {
 	test,
 } from "vitest";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, sql, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import {
+	DATA_STREAM_BATCH_SIZE,
 	DATA_STREAM_MAX_FAILURES,
 	DATA_STREAM_MAX_REJECTIONS,
 	dataStreamRetryAt,
@@ -38,6 +39,12 @@ const STREAM_ID = "data-stream-spec-stream";
 const TEN_MINUTES_MS = 600_000;
 const ONE_HOUR_MS = 3_600_000;
 const SIGNING_SECRET = ["whsec", "spec", "0123456789abcdef"].join("_");
+
+const ids = (prefix: string, count: number) =>
+	Array.from(
+		{ length: count },
+		(_, i) => `${prefix}${String(i).padStart(4, "0")}`,
+	);
 
 interface Received {
 	body: { events: Record<string, unknown>[] };
@@ -179,7 +186,7 @@ describe("data streams", () => {
 	test("delivers settled audit events once, signed, and advances the cursor", async () => {
 		const old = new Date(Date.now() - TEN_MINUTES_MS);
 		await seedAudit(["a1", "a2"], old);
-		await seedAudit(["fresh"], new Date());
+		await seedAudit(["fresh"], new Date(Date.now() + TEN_MINUTES_MS));
 		const stream = await seedStream(new Date(old.getTime() - 1000));
 
 		const first = await runDataStream(stream);
@@ -215,17 +222,13 @@ describe("data streams", () => {
 				action: "project.create" as const,
 				resourceType: "project" as const,
 				resourceId: `resource-${id}`,
+				createdAt: sql`now() - interval '1 minute'`,
 			})),
 		);
-		const later = new Date(Date.now() + TEN_MINUTES_MS);
 		const stream = await seedStream(new Date(Date.now() - TEN_MINUTES_MS));
 
-		expect(await runDataStream(stream, { now: later })).toEqual({
-			delivered: 2,
-		});
-		expect(await runDataStream(await reload(), { now: later })).toEqual({
-			delivered: 0,
-		});
+		expect(await runDataStream(stream)).toEqual({ delivered: 2 });
+		expect(await runDataStream(await reload())).toEqual({ delivered: 0 });
 		expect(received).toHaveLength(1);
 	});
 
@@ -401,6 +404,25 @@ describe("data streams", () => {
 		expect(after.enabled).toBe(false);
 	});
 
+	test("a failing progress callback is not recorded as a delivery failure", async () => {
+		const old = new Date(Date.now() - TEN_MINUTES_MS);
+		await seedAudit(["g1"], old);
+		const stream = await seedStream(new Date(old.getTime() - 1000));
+
+		await expect(
+			runDataStream(stream, {
+				onProgress: async () => {
+					throw new Error("lease check failed");
+				},
+			}),
+		).rejects.toThrow("lease check failed");
+		const after = await reload();
+		expect(after.cursorId).toBe("g1");
+		expect(after.failureCount).toBe(0);
+		expect(after.lastError).toBeNull();
+		expect(after.lastErrorAt).toBeNull();
+	});
+
 	test("only runs streams the organization may export", async () => {
 		await seedStream(new Date());
 		const active = async () =>
@@ -431,6 +453,219 @@ describe("data streams", () => {
 		expect(await active()).toBe(false);
 		await setOrg({ requestLogExportEnabled: true });
 		expect(await active()).toBe(true);
+	});
+
+	test("a failure after an accepted batch counts from the reset counters", async () => {
+		const old = new Date(Date.now() - TEN_MINUTES_MS);
+		const batch = ids("c", DATA_STREAM_BATCH_SIZE + 1);
+		await seedAudit(batch, old);
+		const stream = await seedStream(new Date(old.getTime() - 1000), {
+			failureCount: DATA_STREAM_MAX_FAILURES - 1,
+			rejectionCount: DATA_STREAM_MAX_REJECTIONS - 1,
+			lastErrorAt: new Date(Date.now() - ONE_HOUR_MS),
+		});
+
+		const result = await runDataStream(stream, {
+			onProgress: async () => {
+				status = 413;
+			},
+		});
+		expect(result.paused).toBe(false);
+		expect(received).toHaveLength(2);
+		const after = await reload();
+		expect(after).toMatchObject({
+			enabled: true,
+			failureCount: 1,
+			rejectionCount: 1,
+			deliveredCount: DATA_STREAM_BATCH_SIZE,
+			cursorId: batch[DATA_STREAM_BATCH_SIZE - 1],
+		});
+		expect(
+			dataStreamRetryAt(after)!.getTime() - after.lastErrorAt!.getTime(),
+		).toBe(60_000);
+	});
+
+	test("stops between live batches once the organization loses access", async () => {
+		const old = new Date(Date.now() - TEN_MINUTES_MS);
+		await seedAudit(ids("v", DATA_STREAM_BATCH_SIZE * 2), old);
+		const stream = await seedStream(new Date(old.getTime() - 1000));
+
+		const result = await runDataStream(stream, {
+			onProgress: async () => {
+				await db
+					.update(tables.organization)
+					.set({ dataStreamsEnabled: false })
+					.where(eq(tables.organization.id, ORG_ID));
+			},
+		});
+		expect(result).toEqual({ delivered: DATA_STREAM_BATCH_SIZE });
+		expect(received).toHaveLength(1);
+	});
+
+	test("stops between replay batches once the organization loses access", async () => {
+		const old = new Date(Date.now() - ONE_HOUR_MS);
+		await seedAudit(ids("rv", DATA_STREAM_BATCH_SIZE * 2), old);
+		await seedStream(new Date());
+		await db
+			.update(tables.dataStream)
+			.set({
+				replayFrom: new Date(old.getTime() - 1000),
+				replayTo: new Date(old.getTime() + 1000),
+			})
+			.where(eq(tables.dataStream.id, STREAM_ID));
+
+		const result = await runDataStream(await reload(), {
+			onProgress: async () => {
+				await db
+					.update(tables.organization)
+					.set({ plan: "pro" })
+					.where(eq(tables.organization.id, ORG_ID));
+			},
+		});
+		expect(result).toEqual({ delivered: DATA_STREAM_BATCH_SIZE });
+		expect(received).toHaveLength(1);
+	});
+
+	test("waits for an open insert transaction instead of skipping its row", async () => {
+		const stream = await seedStream(new Date(Date.now() - TEN_MINUTES_MS));
+		const row = (id: string) => ({
+			id,
+			organizationId: ORG_ID,
+			userId: USER_ID,
+			action: "project.create" as const,
+			resourceType: "project" as const,
+			resourceId: `resource-${id}`,
+		});
+		let commit!: () => void;
+		const held = new Promise<void>((resolve) => (commit = resolve));
+		let markInserted!: () => void;
+		const inserted = new Promise<void>((resolve) => (markInserted = resolve));
+		const open = db.transaction(async (tx) => {
+			await tx.insert(tables.auditLog).values(row("late"));
+			markInserted();
+			await held;
+		});
+		await inserted;
+		const later = new Date(Date.now() + TEN_MINUTES_MS);
+		try {
+			await db.insert(tables.auditLog).values(row("committed-first"));
+			await runDataStream(stream, { now: later });
+		} finally {
+			commit();
+			await open;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 1100));
+		await runDataStream(await reload(), { now: later });
+
+		const delivered = received.flatMap((r) => r.body.events.map((e) => e.id));
+		expect(delivered.sort()).toEqual(["committed-first", "late"]);
+	});
+
+	test("replays rows from the last minute before the live cursor", async () => {
+		const now = Date.now();
+		await seedAudit(["recent-1"], new Date(now - 20_000));
+		await seedAudit(["recent-2"], new Date(now - 10_000));
+		await seedStream(new Date(now));
+		await db
+			.update(tables.dataStream)
+			.set({
+				replayFrom: new Date(now - TEN_MINUTES_MS),
+				replayTo: new Date(now - 5_000),
+			})
+			.where(eq(tables.dataStream.id, STREAM_ID));
+
+		expect((await runDataStream(await reload())).delivered).toBe(2);
+		expect((await reload()).replayFrom).toBeNull();
+	});
+
+	test("keeps a replay pending until its end is exportable", async () => {
+		const now = Date.now();
+		await seedAudit(["pending-1"], new Date(now - 20_000));
+		await seedStream(new Date(now));
+		await db
+			.update(tables.dataStream)
+			.set({
+				replayFrom: new Date(now - TEN_MINUTES_MS),
+				replayTo: new Date(now + TEN_MINUTES_MS),
+			})
+			.where(eq(tables.dataStream.id, STREAM_ID));
+
+		expect((await runDataStream(await reload())).delivered).toBe(1);
+		const pending = await reload();
+		expect(pending.replayFrom).not.toBeNull();
+		expect(pending.replayCursorId).toBe("pending-1");
+		expect((await runDataStream(pending)).delivered).toBe(0);
+		expect((await reload()).replayFrom).not.toBeNull();
+	});
+
+	test("a run without its lease cannot write stream state", async () => {
+		const old = new Date(Date.now() - TEN_MINUTES_MS);
+		await seedAudit(["l1"], old);
+		const stream = await seedStream(new Date(old.getTime() - 1000));
+
+		await runDataStream(stream, { leaseId: "data-stream-spec-lost-lease" });
+		const unowned = await reload();
+		expect(unowned.cursorId).toBe("");
+		expect(unowned.deliveredCount).toBe(0);
+		status = 500;
+		await runDataStream(unowned, { leaseId: "data-stream-spec-lost-lease" });
+		expect((await reload()).failureCount).toBe(0);
+
+		status = 200;
+		const [lease] = await db
+			.insert(tables.lock)
+			.values({ key: "data-stream-spec-lease" })
+			.returning();
+		try {
+			await runDataStream(await reload(), { leaseId: lease.id });
+			expect((await reload()).cursorId).toBe("l1");
+		} finally {
+			await db.delete(tables.lock).where(eq(tables.lock.id, lease.id));
+		}
+	});
+
+	test("a takeover committing during the cursor write rejects the stale run", async () => {
+		const old = new Date(Date.now() - TEN_MINUTES_MS);
+		await seedAudit(["k1"], old);
+		const stream = await seedStream(new Date(old.getTime() - 1000));
+		const [lease] = await db
+			.insert(tables.lock)
+			.values({ key: "data-stream-spec-takeover" })
+			.returning();
+		let commit!: () => void;
+		const held = new Promise<void>((resolve) => (commit = resolve));
+		let markDeleted!: () => void;
+		const deleted = new Promise<void>((resolve) => (markDeleted = resolve));
+		const takeover = db.transaction(async (tx) => {
+			await tx.delete(tables.lock).where(eq(tables.lock.id, lease.id));
+			markDeleted();
+			await held;
+		});
+		await deleted;
+
+		const run = runDataStream(stream, { leaseId: lease.id });
+		let blocked = false;
+		try {
+			for (let i = 0; i < 40 && !blocked; i++) {
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				const result = await db.execute<{ waiting: number }>(sql`
+					select count(*)::int as waiting from pg_stat_activity
+					where datname = current_database() and wait_event_type = 'Lock'
+						and query ilike 'update "data_stream"%'
+				`);
+				blocked = result.rows[0].waiting > 0;
+			}
+		} finally {
+			commit();
+			await takeover;
+		}
+		await run;
+
+		expect(blocked).toBe(true);
+		expect(received).toHaveLength(1);
+		const after = await reload();
+		expect(after.cursorId).toBe("");
+		expect(after.deliveredCount).toBe(0);
 	});
 
 	test("replays a past window without moving the live cursor", async () => {

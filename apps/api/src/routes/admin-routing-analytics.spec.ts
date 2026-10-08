@@ -1089,6 +1089,56 @@ describe("admin routing analytics endpoint", () => {
 		}
 	});
 
+	it("derives window metrics from credit-funded traffic only", async () => {
+		const hour = currentHourStart();
+		await db.insert(tables.modelProviderMappingHistoryHourly).values([
+			{
+				id: "routing-analytics-credits",
+				modelId: testModel.id,
+				providerId: providerA,
+				modelProviderMappingId: `${testModel.id}-${providerA}`,
+				usedMode: "credits",
+				hourTimestamp: hour,
+				logsCount: 10,
+				errorsCount: 1,
+				upstreamErrorsCount: 1,
+			},
+			// A customer's own key failing auth is not the platform's uptime.
+			{
+				id: "routing-analytics-byok",
+				modelId: testModel.id,
+				providerId: providerA,
+				modelProviderMappingId: `${testModel.id}-${providerA}`,
+				usedMode: "api-keys",
+				hourTimestamp: hour,
+				logsCount: 30,
+				errorsCount: 30,
+				gatewayErrorsCount: 30,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+
+		const summaryA = body.summary.find(
+			(s: { providerId: string }) => s.providerId === providerA,
+		);
+		expect(summaryA.requestCount).toBe(40);
+		expect(summaryA.errorCount).toBe(1);
+		expect(summaryA.uptime).toBe(90);
+		expect(summaryA.breakdown.uptimePenalty).toBeGreaterThan(0);
+
+		const entryA = body.hourly
+			.find((h: { hour: string }) => h.hour === hour.toISOString())
+			.providers.find(
+				(p: { providerId: string }) => p.providerId === providerA,
+			);
+		expect(entryA.requestCount).toBe(40);
+		expect(entryA.errorCount).toBe(1);
+		expect(entryA.uptime).toBe(90);
+	});
+
 	it("reads live metrics from credit-funded minute history only", async () => {
 		const tenMinutesMs = 10 * 60_000;
 		const minute = new Date(Date.now() - tenMinutesMs);

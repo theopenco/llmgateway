@@ -3,6 +3,7 @@ import {
 	asc,
 	db,
 	eq,
+	exists,
 	gt,
 	inArray,
 	lte,
@@ -10,6 +11,7 @@ import {
 	sql,
 	tables,
 } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
@@ -28,15 +30,7 @@ export const DATA_STREAM_BATCH_SIZE = 500;
 const MAX_BATCHES_PER_RUN = 10;
 /** A slow destination yields to the other streams after this long. */
 const MAX_RUN_MS = 20_000;
-/**
- * Rows younger than this are not exported yet: request logs are written
- * asynchronously, so a fresh row can land behind the cursor. Waiting closes
- * that gap without re-reading.
- */
-const SETTLE_DELAY_MS: Record<"audit_logs" | "request_logs", number> = {
-	audit_logs: 30_000,
-	request_logs: 120_000,
-};
+const CUTOFF_LAG_WARN_MS = 300_000;
 
 const RETRY_BASE_MS = 60_000;
 const RETRY_MAX_MS = 3_600_000;
@@ -78,6 +72,42 @@ function afterCursor(createdAt: AnyColumn, id: AnyColumn, cursor: Cursor) {
 			and(sql`${createdAt} = ${at}`, gt(id, cursor.id)),
 		),
 	);
+}
+
+/**
+ * Rows take `created_at` from `now()`, their transaction's start, so a row
+ * still uncommitted is never older than the oldest open transaction. Exporting
+ * only below that bound keeps a late commit from landing behind the cursor.
+ * The one-second margin covers a transaction that started but has not yet
+ * published its start time. Every log and audit writer writes first, so a
+ * transaction still without an xid after two minutes is a reader and does not
+ * hold exports back. Sessions of another role hide their start time and
+ * backend type; while any exist, fall back to a fixed delay.
+ */
+async function exportCutoff(): Promise<Date> {
+	const result = await db.execute<{ cutoff: Date; now: Date }>(sql`
+		select now(), least(
+			now() - interval '1 second',
+			min(xact_start) filter (
+				where backend_xid is not null
+					or xact_start > now() - interval '2 minutes'
+			),
+			case when bool_or(query = '<insufficient privilege>')
+				then now() - interval '2 minutes' end
+		) - interval '1 millisecond' as cutoff
+		from pg_stat_activity
+		where datname = current_database()
+			and coalesce(backend_type, 'client backend') = 'client backend'
+			and pid <> pg_backend_pid()
+	`);
+	const cutoff = new Date(result.rows[0].cutoff);
+	const lagMs = new Date(result.rows[0].now).getTime() - cutoff.getTime();
+	if (lagMs > CUTOFF_LAG_WARN_MS) {
+		logger.warn("Data stream export held back by a long transaction", {
+			lagMs,
+		});
+	}
+	return cutoff;
 }
 
 async function projectIdsFor(stream: DataStreamRow): Promise<string[]> {
@@ -182,9 +212,13 @@ export interface DataStreamRunOptions {
 	now?: Date;
 	/** Called after every delivered batch, e.g. to keep a worker lock fresh. */
 	onProgress?: () => Promise<void>;
+	/** Stream state is written only while this `lock` row exists. */
+	leaseId?: string;
 }
 
 class StreamStopped extends Error {}
+/** The caller's callback failed; that says nothing about the destination. */
+class ProgressFailed extends Error {}
 
 /**
  * Delivers every settled event after the stream's cursor (and any pending
@@ -197,9 +231,30 @@ export async function runDataStream(
 ): Promise<DataStreamRunResult> {
 	const now = options.now ?? new Date();
 	const started = Date.now();
-	const settled = new Date(now.getTime() - SETTLE_DELAY_MS[stream.source]);
 	let delivered = 0;
 	const outOfTime = () => Date.now() - started > MAX_RUN_MS;
+	// Locking the lease row makes a takeover's delete wait for this write, or
+	// fail it once committed; a plain EXISTS reads a snapshot and misses it.
+	const owned = options.leaseId
+		? exists(
+				db
+					.select({ id: tables.lock.id })
+					.from(tables.lock)
+					.where(eq(tables.lock.id, options.leaseId))
+					.for("key share"),
+			)
+		: undefined;
+	const stillActive = async () =>
+		(await loadActiveDataStream(stream.id)) !== null;
+	const progress = async () => {
+		try {
+			await options.onProgress?.();
+		} catch (cause) {
+			throw new ProgressFailed("Data stream progress callback failed", {
+				cause,
+			});
+		}
+	};
 	try {
 		const secret = decryptDataStreamSecret(
 			stream.secret,
@@ -208,6 +263,7 @@ export async function runDataStream(
 		);
 		const projectIds =
 			stream.source === "request_logs" ? await projectIdsFor(stream) : [];
+		const cutoff = await exportCutoff();
 		if (stream.replayFrom && stream.replayTo) {
 			// An empty id sorts before every row, so the window starts inclusive.
 			let cursor: Cursor = {
@@ -215,13 +271,15 @@ export async function runDataStream(
 					stream.replayCursorCreatedAt ?? stream.replayFrom.toISOString(),
 				id: stream.replayCursorId ?? "",
 			};
-			const until = stream.replayTo < settled ? stream.replayTo : settled;
+			const reachesEnd = stream.replayTo <= cutoff;
+			const until = reachesEnd ? stream.replayTo : cutoff;
 			for (let i = 0; i < MAX_BATCHES_PER_RUN; i++) {
 				const batch = await fetchBatch(stream, cursor, until, projectIds);
 				await deliverDataStreamBatch(stream, secret, batch.events, now);
 				delivered += batch.events.length;
-				const done =
+				const exhausted =
 					batch.events.length < DATA_STREAM_BATCH_SIZE || !batch.last;
+				const done = exhausted && reachesEnd;
 				if (batch.last) {
 					cursor = batch.last;
 				}
@@ -255,14 +313,15 @@ export async function runDataStream(
 							eq(tables.dataStream.id, stream.id),
 							eq(tables.dataStream.replayFrom, stream.replayFrom),
 							eq(tables.dataStream.replayTo, stream.replayTo),
+							owned,
 						),
 					)
-					.returning({ enabled: tables.dataStream.enabled });
-				await options.onProgress?.();
-				if (!updated || !updated.enabled) {
+					.returning({ id: tables.dataStream.id });
+				await progress();
+				if (!updated || !(await stillActive())) {
 					throw new StreamStopped();
 				}
-				if (done || outOfTime()) {
+				if (exhausted || outOfTime()) {
 					break;
 				}
 			}
@@ -272,15 +331,15 @@ export async function runDataStream(
 			id: stream.cursorId,
 		};
 		for (let i = 0; i < MAX_BATCHES_PER_RUN && !outOfTime(); i++) {
-			const batch = await fetchBatch(stream, cursor, settled, projectIds);
+			const batch = await fetchBatch(stream, cursor, cutoff, projectIds);
 			if (!batch.last) {
 				break;
 			}
 			await deliverDataStreamBatch(stream, secret, batch.events, now);
 			delivered += batch.events.length;
 			cursor = batch.last;
-			// The cursor always moves past a delivered batch; a pause that landed
-			// meanwhile only stops the loop.
+			// The cursor always moves past a delivered batch; a pause or lost
+			// access that landed meanwhile only stops the loop.
 			const [updated] = await db
 				.update(tables.dataStream)
 				.set({
@@ -292,10 +351,10 @@ export async function runDataStream(
 					failureCount: 0,
 					rejectionCount: 0,
 				})
-				.where(eq(tables.dataStream.id, stream.id))
-				.returning({ enabled: tables.dataStream.enabled });
-			await options.onProgress?.();
-			if (!updated || !updated.enabled) {
+				.where(and(eq(tables.dataStream.id, stream.id), owned))
+				.returning({ id: tables.dataStream.id });
+			await progress();
+			if (!updated || !(await stillActive())) {
 				throw new StreamStopped();
 			}
 			if (batch.events.length < DATA_STREAM_BATCH_SIZE || outOfTime()) {
@@ -307,38 +366,44 @@ export async function runDataStream(
 		if (error instanceof StreamStopped) {
 			return { delivered };
 		}
+		if (error instanceof ProgressFailed) {
+			throw error.cause;
+		}
 		const message = error instanceof Error ? error.message : String(error);
 		const rejected =
 			error instanceof DataStreamDeliveryError && error.permanent;
-		const failureCount = stream.failureCount + 1;
-		const rejectionCount = stream.rejectionCount + (rejected ? 1 : 0);
-		const pause =
-			rejectionCount >= DATA_STREAM_MAX_REJECTIONS ||
-			failureCount >= DATA_STREAM_MAX_FAILURES;
-		const pausedReason =
-			rejectionCount >= DATA_STREAM_MAX_REJECTIONS
-				? `Paused after ${rejectionCount} rejected deliveries`
-				: `Paused after ${failureCount} failed deliveries`;
+		// Counted in SQL: a batch accepted earlier in this run already reset
+		// the stored counters, so the run's snapshot is stale.
+		const t = tables.dataStream;
+		const failureCount = sql`${t.failureCount} + 1`;
+		const rejectionCount = sql`${t.rejectionCount} + ${rejected ? 1 : 0}`;
+		const rejectedOut = sql`${rejectionCount} >= ${DATA_STREAM_MAX_REJECTIONS}`;
+		const failedOut = sql`${failureCount} >= ${DATA_STREAM_MAX_FAILURES}`;
 		const [updated] = await db
-			.update(tables.dataStream)
+			.update(t)
 			.set({
 				lastError: message.slice(0, 1000),
 				lastErrorAt: now,
 				failureCount,
 				rejectionCount,
-				...(pause ? { enabled: false, pausedReason } : {}),
+				enabled: sql`not (${rejectedOut} or ${failedOut})`,
+				pausedReason: sql`case
+					when ${rejectedOut} then format('Paused after %s rejected deliveries', ${rejectionCount})
+					when ${failedOut} then format('Paused after %s failed deliveries', ${failureCount})
+					else ${t.pausedReason} end`,
 			})
-			.where(
-				and(
-					eq(tables.dataStream.id, stream.id),
-					eq(tables.dataStream.enabled, true),
-				),
-			)
-			.returning({ id: tables.dataStream.id });
-		if (pause && updated) {
-			await notifyDataStreamPaused(stream, pausedReason, message, now);
+			.where(and(eq(t.id, stream.id), eq(t.enabled, true), owned))
+			.returning({ enabled: t.enabled, pausedReason: t.pausedReason });
+		const paused = updated?.enabled === false;
+		if (paused) {
+			await notifyDataStreamPaused(
+				stream,
+				updated.pausedReason ?? "Paused",
+				message,
+				now,
+			);
 		}
-		return { delivered, error: message, paused: pause && !!updated };
+		return { delivered, error: message, paused };
 	}
 }
 

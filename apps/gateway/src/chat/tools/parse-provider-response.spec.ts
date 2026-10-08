@@ -55,6 +55,57 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("tencent hy image generation", () => {
+		it("extracts the delivered image and bills TokenHub's token count", () => {
+			const result = parseProviderResponse("tencent", "hy-image-v3.5-preview", {
+				object: "image.chat.completion.chunk",
+				choices: [
+					{
+						index: 0,
+						delta: {
+							type: "image",
+							image: {
+								url: "https://example.cos.ap-guangzhou.myqcloud.com/main.png",
+								width: 4096,
+								height: 4096,
+							},
+						},
+						finish_reason: null,
+					},
+				],
+				usage: { total_tokens: 20000 },
+				tokenhub_usage: { total_tokens: 20000 },
+			});
+
+			expect(result.images).toEqual([
+				{
+					type: "image_url",
+					image_url: {
+						url: "https://example.cos.ap-guangzhou.myqcloud.com/main.png",
+					},
+				},
+			]);
+			expect(result.finishReason).toBe("stop");
+			expect(result.completionTokens).toBe(20000);
+			expect(result.imageOutputTokens).toBe(20000);
+		});
+
+		it("maps a moderation failure to content_filter", () => {
+			const result = parseProviderResponse("tencent", "hy-image-v3.5-preview", {
+				object: "image.chat.completion.chunk",
+				choices: [{ index: 0, delta: {}, finish_reason: "error" }],
+				error: {
+					type: "invalid_request_error",
+					code: "content_filter",
+					message: "input moderation rejected",
+				},
+			});
+
+			expect(result.images).toEqual([]);
+			expect(result.finishReason).toBe("content_filter");
+		});
+	});
+
 	describe("openai responses format reasoning", () => {
 		it("extracts Muse images and usage from Responses output", () => {
 			const result = parseProviderResponse("meta", "muse-image-1.0", {

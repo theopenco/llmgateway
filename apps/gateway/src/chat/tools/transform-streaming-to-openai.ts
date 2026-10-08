@@ -6,6 +6,7 @@ import {
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getProviderDefinition } from "@llmgateway/models";
 
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
 import { extractImages } from "./extract-images.js";
@@ -113,7 +114,8 @@ export function transformStreamingToOpenai(
 		return false;
 	};
 
-	switch (usedProvider) {
+	// Airside carriers are DB-only, OpenAI-compatible providers.
+	switch (getProviderDefinition(usedProvider) ? usedProvider : "custom") {
 		case "anthropic":
 		case "vertex-anthropic":
 		case "azure-anthropic": {

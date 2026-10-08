@@ -25,6 +25,8 @@ const counts = {
 	clientErrorsCount: 0,
 	gatewayErrorsCount: 0,
 	upstreamErrorsCount: 0,
+	retriedGatewayErrorsCount: 0,
+	retriedUpstreamErrorsCount: 0,
 };
 
 describe("findMappingsOverThreshold", () => {
@@ -52,6 +54,37 @@ describe("findMappingsOverThreshold", () => {
 		]);
 		expect(hits.map((hit) => hit.mappingId)).toEqual(["client-heavy"]);
 		expect(hits[0].errorRate).toBe(40);
+	});
+
+	it("drops retried attempts when the rule excludes them", () => {
+		// 40 errors over 100 attempts; 30 of the errors were retried elsewhere.
+		const row = {
+			...counts,
+			upstreamErrorsCount: 30,
+			gatewayErrorsCount: 10,
+			retriedUpstreamErrorsCount: 25,
+			retriedGatewayErrorsCount: 5,
+		};
+		expect(findMappingsOverThreshold(shortRule, [row])[0]).toMatchObject({
+			requestCount: 100,
+			errorsCount: 40,
+		});
+		// 10 unretried errors over 70 remaining attempts is below 30%.
+		expect(
+			findMappingsOverThreshold({ ...shortRule, includeRetriedErrors: false }, [
+				row,
+			]),
+		).toEqual([]);
+		const [hit] = findMappingsOverThreshold(
+			{ ...shortRule, includeRetriedErrors: false, errorRatePercent: 10 },
+			[row],
+		);
+		expect(hit).toMatchObject({
+			requestCount: 70,
+			errorsCount: 10,
+			upstreamErrorsCount: 5,
+			gatewayErrorsCount: 5,
+		});
 	});
 });
 

@@ -25,11 +25,13 @@ import * as logRetention from "@llmgateway/shared/log-retention";
 
 import {
 	calculateMinutelyHistory,
+	calculateCurrentMinuteHistory,
 	calculateAggregatedStatistics,
 	calculateHourlyHistory,
 	backfillHistoryIfNeeded,
 	backfillHourlyHistoryIfNeeded,
 	resetHourlyHistoryState,
+	resetMinuteWriteCache,
 } from "./stats-calculator.js";
 
 // Mock current time for consistent testing
@@ -40,6 +42,7 @@ describe("stats-calculator", () => {
 		// Mock Date to have consistent time-based tests
 		vi.setSystemTime(mockDate);
 		resetHourlyHistoryState();
+		resetMinuteWriteCache();
 
 		// Clean up test data before each test
 		await db.delete(log);
@@ -811,6 +814,9 @@ describe("stats-calculator", () => {
 
 			expect(openaiHistory?.logsCount).toBe(2);
 			expect(openaiHistory?.errorsCount).toBe(1);
+			// The cross-provider fallback attempt stays, marked as retried.
+			expect(openaiHistory?.retriedUpstreamErrorsCount).toBe(1);
+			expect(openaiHistory?.retriedGatewayErrorsCount).toBe(0);
 			expect(anthropicHistory?.logsCount).toBe(1);
 			expect(anthropicHistory?.errorsCount).toBe(0);
 
@@ -2600,6 +2606,223 @@ describe("stats-calculator", () => {
 				.from(modelProviderMappingHistoryHourly);
 			expect(modelHourly).toHaveLength(0);
 			expect(mappingHourly).toHaveLength(0);
+		});
+	});
+
+	describe("calculateCurrentMinuteHistory", () => {
+		type MinuteTable = typeof modelHistory | typeof modelProviderMappingHistory;
+		const insertLog = (id: string, createdAt: Date) =>
+			db.insert(log).values({
+				id,
+				requestId: `req-${id}`,
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				duration: 1000,
+				requestedModel: "gpt-4",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+				usedMode: "credits",
+				createdAt,
+			});
+		const currentMinute = new Date("2024-01-01T12:30:00.000Z");
+		const readMinute = (table: MinuteTable) =>
+			db
+				.select({
+					modelId: table.modelId,
+					usedMode: table.usedMode,
+					logsCount: table.logsCount,
+				})
+				.from(table)
+				.where(eq(table.minuteTimestamp, currentMinute))
+				.orderBy(table.modelId, table.usedMode);
+		const tamper = (table: MinuteTable) =>
+			db
+				.update(table)
+				.set({ logsCount: 99 })
+				.where(
+					and(
+						eq(table.minuteTimestamp, currentMinute),
+						eq(table.modelId, "claude-3-5-sonnet"),
+						eq(table.usedMode, "api-keys"),
+					),
+				);
+		const tamperedCount = async (table: MinuteTable) =>
+			(await readMinute(table)).find(
+				(row) =>
+					row.modelId === "claude-3-5-sonnet" && row.usedMode === "api-keys",
+			)!.logsCount;
+
+		it("skips rows unchanged since its last tick and writes the ones that moved", async () => {
+			await insertLog("log-1", new Date("2024-01-01T12:30:10.000Z"));
+			await calculateCurrentMinuteHistory();
+			for (const table of [modelHistory, modelProviderMappingHistory]) {
+				const rows = await readMinute(table);
+				expect(rows).toHaveLength(4);
+				expect(
+					rows.find(
+						(row) => row.modelId === "gpt-4" && row.usedMode === "credits",
+					)!.logsCount,
+				).toBe(1);
+			}
+
+			// A row this process already wrote is not resent while its computed
+			// metrics are unchanged, so an out-of-band edit survives the next tick…
+			for (const table of [modelHistory, modelProviderMappingHistory]) {
+				await tamper(table);
+			}
+			await calculateCurrentMinuteHistory();
+			for (const table of [modelHistory, modelProviderMappingHistory]) {
+				expect(await tamperedCount(table)).toBe(99);
+			}
+
+			// …while rows whose metrics did change are written.
+			await insertLog("log-2", new Date("2024-01-01T12:30:20.000Z"));
+			await calculateCurrentMinuteHistory();
+			for (const table of [modelHistory, modelProviderMappingHistory]) {
+				const rows = await readMinute(table);
+				expect(
+					rows.find(
+						(row) => row.modelId === "gpt-4" && row.usedMode === "credits",
+					)!.logsCount,
+				).toBe(2);
+				expect(await tamperedCount(table)).toBe(99);
+			}
+
+			// The once-per-minute pass bypasses the cache and restores the row.
+			vi.setSystemTime(new Date("2024-01-01T12:31:00.000Z"));
+			await calculateMinutelyHistory();
+			for (const table of [modelHistory, modelProviderMappingHistory]) {
+				expect(await tamperedCount(table)).toBe(0);
+			}
+		});
+
+		it("writes every row again after the cache is reset", async () => {
+			await calculateCurrentMinuteHistory();
+			for (const table of [modelHistory, modelProviderMappingHistory]) {
+				await tamper(table);
+			}
+			resetMinuteWriteCache();
+			await calculateCurrentMinuteHistory();
+			for (const table of [modelHistory, modelProviderMappingHistory]) {
+				expect(await tamperedCount(table)).toBe(0);
+			}
+		});
+	});
+
+	describe("current-hour diagnostics throttle", () => {
+		it("re-runs the log-backed diagnostics for the in-progress hour only on the interval", async () => {
+			await db.insert(log).values({
+				id: "log-1",
+				requestId: "req-1",
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				duration: 1000,
+				requestedModel: "gpt-4",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+				usedMode: "credits",
+				createdAt: new Date("2024-01-01T12:10:00.000Z"),
+				routingMetadata: {
+					selectionReason: "weighted-score",
+					availableProviders: ["openai", "anthropic"],
+				},
+			});
+			const elections = () => db.select().from(routingElectionHourly);
+
+			await calculateMinutelyHistory();
+			await calculateHourlyHistory();
+			expect(await elections()).toHaveLength(1);
+
+			// Within the interval the usage rollups still refresh, the diagnostics
+			// do not.
+			await db.delete(routingElectionHourly);
+			vi.setSystemTime(new Date("2024-01-01T12:31:00.000Z"));
+			await calculateHourlyHistory();
+			expect(await elections()).toHaveLength(0);
+			expect(
+				await db.select().from(modelProviderMappingHistoryHourly),
+			).not.toHaveLength(0);
+
+			vi.setSystemTime(new Date("2024-01-01T12:35:00.000Z"));
+			await calculateHourlyHistory();
+			expect(await elections()).toHaveLength(1);
+		});
+	});
+
+	describe("calculateAggregatedStatistics row churn", () => {
+		const versions = async () => ({
+			models: await db
+				.select({ id: model.id, xmin: sql<string>`xmin::text` })
+				.from(model)
+				.orderBy(model.id),
+			mappings: await db
+				.select({ id: modelProviderMapping.id, xmin: sql<string>`xmin::text` })
+				.from(modelProviderMapping)
+				.orderBy(modelProviderMapping.id),
+		});
+
+		it("leaves model and mapping rows untouched while their counters are unchanged", async () => {
+			await db.insert(log).values({
+				id: "log-1",
+				requestId: "req-1",
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				duration: 1000,
+				requestedModel: "gpt-4",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+				usedMode: "credits",
+				createdAt: new Date("2024-01-01T12:29:00.000Z"),
+			});
+			await calculateMinutelyHistory();
+			await calculateAggregatedStatistics();
+			const first = await versions();
+			expect(
+				(await db.select().from(model).where(eq(model.id, "gpt-4")))[0]!
+					.logsCount,
+			).toBe(1);
+
+			await calculateAggregatedStatistics();
+			expect(await versions()).toEqual(first);
+
+			await db.insert(log).values({
+				id: "log-2",
+				requestId: "req-2",
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				duration: 1000,
+				requestedModel: "gpt-4",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+				usedMode: "credits",
+				createdAt: new Date("2024-01-01T12:29:30.000Z"),
+			});
+			await calculateMinutelyHistory();
+			await calculateAggregatedStatistics();
+			const second = await versions();
+			const changed = (
+				rows: { id: string; xmin: string }[],
+				before: { id: string; xmin: string }[],
+			) =>
+				rows
+					.filter(
+						(row) => row.xmin !== before.find((b) => b.id === row.id)!.xmin,
+					)
+					.map((row) => row.id);
+			expect(changed(second.models, first.models)).toEqual(["gpt-4"]);
+			expect(changed(second.mappings, first.mappings)).toEqual(["mapping-1"]);
 		});
 	});
 });

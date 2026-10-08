@@ -22,7 +22,7 @@ import type {
 
 type NumericField = Exclude<
 	keyof ModelErrorRateAlertRule,
-	"id" | "label" | "enabled"
+	"id" | "label" | "enabled" | "includeRetriedErrors"
 >;
 
 const numericFields: Array<{ key: NumericField; label: string }> = [
@@ -90,6 +90,7 @@ export function ModelErrorRateAlertsForm({
 				errorRatePercent: 30,
 				minRequests: 50,
 				cooldownMinutes: 120,
+				includeRetriedErrors: true,
 			},
 		]);
 		setSaved(false);
@@ -185,6 +186,22 @@ export function ModelErrorRateAlertsForm({
 								/>
 							</div>
 						))}
+					</div>
+					<div className="flex items-center gap-3">
+						<Switch
+							id={`${rule.id}-includeRetriedErrors`}
+							checked={rule.includeRetriedErrors}
+							disabled={disabled}
+							onCheckedChange={(checked) =>
+								updateRule(rule.id, { includeRetriedErrors: checked })
+							}
+						/>
+						<Label
+							htmlFor={`${rule.id}-includeRetriedErrors`}
+							className="text-xs text-muted-foreground"
+						>
+							Include errors the gateway retried
+						</Label>
 					</div>
 				</div>
 			))}

@@ -29,6 +29,13 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import {
+	AIRSIDE_BILLING_MODE_DESCRIPTIONS,
+	AIRSIDE_BILLING_MODE_LABELS,
+	AIRSIDE_BILLING_MODES,
+	type AirsideBillingMode,
+} from "@llmgateway/shared/airside-billing";
+
 import type { ProviderDetailResponse } from "@/lib/types";
 import type { ReactNode } from "react";
 
@@ -311,6 +318,60 @@ function EditDetailsDialog({
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function BillingModeField({
+	settings,
+	editable,
+}: {
+	settings: AirsideSettings;
+	editable: boolean;
+}) {
+	const $api = useApi();
+	const update = $api.useMutation(
+		"patch",
+		"/admin/airside/claims/{id}/settings",
+		useRefreshOnSuccess("Billing mode saved."),
+	);
+	if (!editable) {
+		return (
+			<span title={AIRSIDE_BILLING_MODE_DESCRIPTIONS[settings.billingMode]}>
+				{AIRSIDE_BILLING_MODE_LABELS[settings.billingMode]}
+			</span>
+		);
+	}
+	return (
+		<Select
+			value={settings.billingMode}
+			disabled={update.isPending}
+			onValueChange={(value) =>
+				update.mutate({
+					params: { path: { id: settings.claimId } },
+					body: { billingMode: value as AirsideBillingMode },
+				})
+			}
+		>
+			<SelectTrigger
+				size="sm"
+				className="mt-1 w-44"
+				aria-label="Billing mode"
+				title={AIRSIDE_BILLING_MODE_DESCRIPTIONS[settings.billingMode]}
+			>
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent>
+				{AIRSIDE_BILLING_MODES.map((mode) => (
+					<SelectItem
+						key={mode}
+						value={mode}
+						title={AIRSIDE_BILLING_MODE_DESCRIPTIONS[mode]}
+					>
+						{AIRSIDE_BILLING_MODE_LABELS[mode]}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
 	);
 }
 
@@ -745,6 +806,9 @@ export function AirsideSettingsSection({
 								{formatDate(settings.paidAt)}
 							</span>
 						) : null}
+					</SettingRow>
+					<SettingRow label="Billing">
+						<BillingModeField settings={settings} editable={editable} />
 					</SettingRow>
 					<SettingRow label="Claimed">
 						{formatDate(settings.claimedAt)}

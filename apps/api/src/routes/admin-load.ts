@@ -31,6 +31,7 @@ import {
 	gte,
 	ilike,
 	inArray,
+	lt,
 	or,
 	sql,
 	tables,
@@ -323,8 +324,12 @@ function readTotals(row: LoadTotals): LoadTotals {
 	};
 }
 
+function readPeaks(rows: { key: string; peak: number }[]): Map<string, number> {
+	return new Map(rows.map((row) => [row.key, Number(row.peak)]));
+}
+
 /**
- * The three shapes every load view needs. They are separate queries on purpose:
+ * The shapes every load view needs. They are separate queries on purpose:
  * one combined `GROUP BY bucket, key` would return `keys x buckets` rows, which
  * for a cross-tenant organization ranking over 90 days is six figures of rows
  * per poll. Ranking first and only bucketing the top series keeps every result
@@ -334,6 +339,8 @@ interface LoadSource {
 	bucketTotals: () => Promise<BucketTotalRow[]>;
 	keyTotals: () => Promise<KeyTotalRow[]>;
 	keyBuckets: (keys: string[]) => Promise<KeyBucketRow[]>;
+	/** Busiest bucket per key, counting only buckets that start before `before`. */
+	keyPeaks: (before: Date) => Promise<Map<string, number>>;
 }
 
 function mappingHistorySource(scope: LoadScope): LoadSource {
@@ -428,6 +435,26 @@ function mappingHistorySource(scope: LoadScope): LoadSource {
 				key: row.key,
 				...readTotals(row),
 			}));
+		},
+		async keyPeaks(before) {
+			const perBucket = db
+				.select({
+					key: keyExpr.as("key"),
+					requestCount: requests.as("request_count"),
+				})
+				.from(mph)
+				.where(and(...filters, lt(mphTs, before)))
+				.groupBy(bucketExpr, keyExpr)
+				.as("per_bucket");
+			return readPeaks(
+				await db
+					.select({
+						key: perBucket.key,
+						peak: sql<number>`MAX(${perBucket.requestCount})::float8`,
+					})
+					.from(perBucket)
+					.groupBy(perBucket.key),
+			);
 		},
 	};
 }
@@ -555,6 +582,27 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 				key: row.key,
 				...readTotals(row),
 			}));
+		},
+		async keyPeaks(before) {
+			const perBucket = db
+				.select({
+					key: keyExpr.as("key"),
+					requestCount: requests.as("request_count"),
+				})
+				.from(statsTable)
+				.innerJoin(tables.project, joinProject)
+				.where(and(...filters, lt(statsTable.hourTimestamp, before)))
+				.groupBy(bucketExpr, keyExpr)
+				.as("per_bucket");
+			return readPeaks(
+				await db
+					.select({
+						key: perBucket.key,
+						peak: sql<number>`MAX(${perBucket.requestCount})::float8`,
+					})
+					.from(perBucket)
+					.groupBy(perBucket.key),
+			);
 		},
 	};
 }
@@ -714,21 +762,23 @@ const loadOverviewResponseSchema = z.object({
 	totalKeys: z.number(),
 });
 
+const loadQuerySchema = z.object({
+	window: tokenWindowSchema.default("1h").optional(),
+	bucket: loadBucketSchema.optional(),
+	groupBy: loadGroupBySchema.default("model").optional(),
+	modelView: loadModelViewSchema.default("canonical").optional(),
+	mode: loadModeSchema.default("total").optional(),
+	rankBy: loadRankBySchema.default("requests").optional(),
+	organizationId: z.string().optional(),
+	projectId: z.string().optional(),
+	apiKeyId: z.string().optional(),
+});
+
 const getLoadOverview = createRoute({
 	method: "get",
 	path: "/load/overview",
 	request: {
-		query: z.object({
-			window: tokenWindowSchema.default("1h").optional(),
-			bucket: loadBucketSchema.optional(),
-			groupBy: loadGroupBySchema.default("model").optional(),
-			modelView: loadModelViewSchema.default("canonical").optional(),
-			mode: loadModeSchema.default("total").optional(),
-			rankBy: loadRankBySchema.default("requests").optional(),
-			organizationId: z.string().optional(),
-			projectId: z.string().optional(),
-			apiKeyId: z.string().optional(),
-		}),
+		query: loadQuerySchema,
 	},
 	responses: {
 		200: {
@@ -1037,16 +1087,181 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 		series: topKeys.map(({ key }) => ({ key, label: labelFor(key) })),
 		data,
 		breakdown: topKeys.map((row) => ({
-			key: row.key,
+			...breakdownRow(row, {
+				elapsedSeconds,
+				totalRequests: chartRequests,
+				peakRps: peakByKey.get(row.key) ?? 0,
+				modeComparable,
+			}),
 			label: labelFor(row.key),
-			requestCount: row.requestCount,
-			avgRps: toRps(row.requestCount, elapsedSeconds),
-			peakRps: peakByKey.get(row.key) ?? 0,
-			share: chartRequests > 0 ? row.requestCount / chartRequests : 0,
-			...qualityFor(row, modeComparable),
-			...errorCountsFor(row, modeComparable),
 		})),
 		totalKeys: rankedKeys.length,
+	});
+});
+
+function breakdownRow(
+	row: KeyTotalRow,
+	context: {
+		elapsedSeconds: number;
+		totalRequests: number;
+		peakRps: number;
+		modeComparable: boolean;
+	},
+) {
+	return {
+		key: row.key,
+		requestCount: row.requestCount,
+		avgRps: toRps(row.requestCount, context.elapsedSeconds),
+		peakRps: context.peakRps,
+		share:
+			context.totalRequests > 0 ? row.requestCount / context.totalRequests : 0,
+		...qualityFor(row, context.modeComparable),
+		...errorCountsFor(row, context.modeComparable),
+	};
+}
+
+const loadBreakdownSortSchema = z.enum([
+	"label",
+	"requestCount",
+	"avgRps",
+	"peakRps",
+	"share",
+	"errorRate",
+	"errorCount",
+	"clientErrorRate",
+	"avgDurationMs",
+	"avgTimeToFirstTokenMs",
+]);
+
+type LoadBreakdownSort = z.infer<typeof loadBreakdownSortSchema>;
+
+const getLoadBreakdown = createRoute({
+	method: "get",
+	path: "/load/breakdown",
+	request: {
+		query: loadQuerySchema.omit({ rankBy: true }).extend({
+			sortBy: loadBreakdownSortSchema.default("requestCount").optional(),
+			sortOrder: z.enum(["asc", "desc"]).default("desc").optional(),
+			page: z.coerce.number().int().min(1).default(1).optional(),
+			pageSize: z.coerce.number().int().min(1).max(100).default(25).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							rows: z.array(loadBreakdownRowSchema),
+							totalKeys: z.number(),
+							page: z.number(),
+							pageSize: z.number(),
+						})
+						.openapi({}),
+				},
+			},
+			description:
+				"Every key with traffic in the window, sorted on any column and paginated.",
+		},
+	},
+});
+
+/** Nulls (unknown latency or error rate) sort last in either direction. */
+function compareBreakdown(
+	a: number | string | null,
+	b: number | string | null,
+	order: "asc" | "desc",
+): number {
+	if (a === b) {
+		return 0;
+	}
+	if (a === null) {
+		return 1;
+	}
+	if (b === null) {
+		return -1;
+	}
+	const result =
+		typeof a === "string" && typeof b === "string"
+			? a.localeCompare(b)
+			: Number(a) - Number(b);
+	return order === "asc" ? result : -result;
+}
+
+adminLoad.openapi(getLoadBreakdown, async (c) => {
+	const {
+		sortBy = "requestCount",
+		sortOrder = "desc",
+		page = 1,
+		pageSize = 25,
+		...query
+	} = c.req.valid("query");
+	const scope = resolveLoadScope(query);
+	const peakBucket = peakBucketFor(scope.bucket);
+	const source = openLoadSource(scope);
+	const modeComparable = isModeComparable(scope);
+	const { elapsedSeconds } = loadGrid(scope);
+
+	// Only settled buckets count towards a peak; see `summarizeLoad`.
+	const [keyTotals, peaks] = await Promise.all([
+		source.keyTotals(),
+		source.keyPeaks(truncateToLoadBucket(scope.now, peakBucket)),
+	]);
+	const peakSeconds = BUCKET_SECONDS[peakBucket];
+	// Every key's totals sum to the same filtered total the chart divides by.
+	const totalRequests = sumTotals(keyTotals).requestCount;
+	const rows = keyTotals
+		.filter((row) => row.requestCount > 0)
+		.map((row) =>
+			breakdownRow(row, {
+				elapsedSeconds,
+				totalRequests,
+				peakRps: toRps(peaks.get(row.key) ?? 0, peakSeconds),
+				modeComparable,
+			}),
+		);
+
+	// Labels are only resolved for every key when they decide the order.
+	const labels =
+		sortBy === "label"
+			? await resolveLabels(
+					scope,
+					rows.map((row) => row.key),
+				)
+			: null;
+	const sortValue = (
+		row: (typeof rows)[number],
+		key: LoadBreakdownSort,
+	): number | string | null =>
+		key === "label" ? labels?.get(row.key) || row.key : row[key];
+	rows.sort(
+		(a, b) =>
+			compareBreakdown(sortValue(a, sortBy), sortValue(b, sortBy), sortOrder) ||
+			b.requestCount - a.requestCount ||
+			a.key.localeCompare(b.key),
+	);
+
+	const lastPage = Math.max(1, Math.ceil(rows.length / pageSize));
+	const currentPage = Math.min(page, lastPage);
+	const pageRows = rows.slice(
+		(currentPage - 1) * pageSize,
+		currentPage * pageSize,
+	);
+	const pageLabels =
+		labels ??
+		(await resolveLabels(
+			scope,
+			pageRows.map((row) => row.key),
+		));
+
+	return c.json({
+		rows: pageRows.map((row) => ({
+			...row,
+			label: pageLabels.get(row.key) || row.key,
+		})),
+		totalKeys: rows.length,
+		page: currentPage,
+		pageSize,
 	});
 });
 

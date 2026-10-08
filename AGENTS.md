@@ -4,7 +4,7 @@ This file provides guidance to AI agents when working with code in this reposito
 
 ## Skills
 
-Area-specific rules live in skills under `.agents/skills`. Load the matching skill before working in its area:
+Area-specific rules live in skills under `.agents/skills`. Load the matching skill before working in its area, and read the whole `SKILL.md` — never truncate it with `head`, `grep`, or a partial read:
 
 | Skill              | Use for                                                                                          |
 | ------------------ | ------------------------------------------------------------------------------------------------ |

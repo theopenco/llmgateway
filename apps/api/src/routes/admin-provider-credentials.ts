@@ -1483,6 +1483,8 @@ async function listKeyErrorMappings(
 			providerIds: [provider],
 			windowHours,
 			mapping: null,
+			// The key itself may be a customer's own.
+			includeByok: true,
 		}),
 	]);
 	const mappings = new Map<string, { providerId: string; usedModel: string }>();

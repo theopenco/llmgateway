@@ -763,16 +763,8 @@ export default function ChatPageClient({
 			const useImageGen =
 				supportsImageGen && !(supportsImages && hasImageAttachments);
 
-			// Check if model uses WIDTHxHEIGHT format (Alibaba, ZAI, or OpenAI gpt-image)
-			const isGptImage =
-				selectedModel.toLowerCase().includes("gpt-image") ||
-				selectedModel.toLowerCase().includes("openai/gpt-image");
-			const usesPixelDimensions =
-				isGptImage ||
-				selectedModel.toLowerCase().includes("alibaba") ||
-				selectedModel.toLowerCase().includes("qwen-image") ||
-				selectedModel.toLowerCase().includes("zai") ||
-				selectedModel.toLowerCase().includes("cogview");
+			const { isGptImage, usesPixelDimensions } =
+				getModelImageConfig(selectedModel);
 
 			// Always forward the user's quality choice (including "auto") so it
 			// surfaces in the activity log; the gateway treats "auto" as a no-op
@@ -2929,16 +2921,8 @@ function ExtraChatPanel({
 			const useImageGen =
 				supportsImageGen && !(supportsImages && hasImageAttachments);
 
-			// Check if model uses WIDTHxHEIGHT format (Alibaba, ZAI, or OpenAI gpt-image)
-			const isGptImage =
-				selectedModel.toLowerCase().includes("gpt-image") ||
-				selectedModel.toLowerCase().includes("openai/gpt-image");
-			const usesPixelDimensions =
-				isGptImage ||
-				selectedModel.toLowerCase().includes("alibaba") ||
-				selectedModel.toLowerCase().includes("qwen-image") ||
-				selectedModel.toLowerCase().includes("zai") ||
-				selectedModel.toLowerCase().includes("cogview");
+			const { isGptImage, usesPixelDimensions } =
+				getModelImageConfig(selectedModel);
 
 			// Always forward the user's quality choice (including "auto") so it
 			// surfaces in the activity log; the gateway treats "auto" as a no-op

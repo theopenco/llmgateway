@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { extractTokenUsage } from "./extract-token-usage.js";
 import { transformStreamingToOpenai } from "./transform-streaming-to-openai.js";
 
+import type { Provider } from "@llmgateway/models";
+
 const { warn, error, setexMock } = vi.hoisted(() => ({
 	warn: vi.fn(),
 	error: vi.fn(),
@@ -68,6 +70,24 @@ describe("transformStreamingToOpenai", () => {
 			});
 		},
 	);
+
+	it("treats Airside carriers as OpenAI-compatible without warning", () => {
+		warn.mockClear();
+		const result = transformStreamingToOpenai(
+			"carrier-only-provider" as Provider,
+			"carrier-only-provider/some-model",
+			{
+				id: "chatcmpl-test",
+				object: "chat.completion.chunk",
+				created: 1234567890,
+				choices: [{ index: 0, delta: {}, finish_reason: "tool_use" }],
+			},
+			[],
+		);
+
+		expect(result.choices[0].finish_reason).toBe("tool_calls");
+		expect(warn).not.toHaveBeenCalled();
+	});
 
 	it("replaces upstream model ids with the canonical mapping", () => {
 		const result = transformStreamingToOpenai(
