@@ -50,6 +50,7 @@ import {
 	getToolResultCacheControl,
 	getToolResultText,
 	MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS,
+	toSystemReminderText,
 	transformAnthropicMessages,
 } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
@@ -983,17 +984,15 @@ function toSystemReminderMessage(message: BaseMessage): BaseMessage {
 	if (message.role !== "system") {
 		return message;
 	}
-	const wrap = (text: string) =>
-		`<system-reminder>\n${text}\n</system-reminder>`;
 	return {
 		...message,
 		role: "user",
 		content:
 			typeof message.content === "string"
-				? wrap(message.content)
+				? toSystemReminderText(message.content)
 				: message.content.map((part) =>
 						isTextContent(part) && part.text
-							? { ...part, text: wrap(part.text) }
+							? { ...part, text: toSystemReminderText(part.text) }
 							: part,
 					),
 	};
@@ -3106,8 +3105,8 @@ export async function prepareRequestBody(
 			// Anthropic's system field (required for prompt caching). Hoisting a
 			// later one would change the prefix every time a client such as Claude
 			// Code appends one, re-writing the cached conversation on each turn, so
-			// those stay in place: natively where the mapping accepts the role,
-			// otherwise as a user system-reminder.
+			// those stay in place: natively where the mapping accepts the role at
+			// that position, otherwise as a user system-reminder.
 			const conversationStart = processedMessages.findIndex(
 				(m) => m.role !== "system",
 			);

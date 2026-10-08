@@ -22,6 +22,11 @@ import { RequestError } from "./request-error.js";
  */
 export const MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS = 4;
 
+/** How Claude clients send a system message on models without the role. */
+export function toSystemReminderText(text: string): string {
+	return `<system-reminder>\n${text}\n</system-reminder>`;
+}
+
 /**
  * Last caller-supplied cache breakpoint in an OpenAI-format content array. On a
  * tool message the array is lowered to a single tool_result block, so the last
@@ -466,6 +471,40 @@ export async function transformAnthropicMessages(
 			role: anthropicRole,
 		});
 	}
+
+	// Anthropic rejects a system message inside `messages` unless it follows a
+	// user turn and precedes an assistant turn or ends the conversation. A run
+	// placed anywhere else goes as a user reminder, as on models without the role.
+	for (let start = 0; start < results.length; start++) {
+		if (results[start]!.role !== "system") {
+			continue;
+		}
+		let end = start;
+		while (results[end + 1]?.role === "system") {
+			end++;
+		}
+		const next = results[end + 1];
+		if (
+			results[start - 1]?.role !== "user" ||
+			(next !== undefined && next.role !== "assistant")
+		) {
+			for (let i = start; i <= end; i++) {
+				results[i] = {
+					role: "user",
+					content: results[i]!.content.map((part) =>
+						part.type === "text"
+							? {
+									...part,
+									text: toSystemReminderText((part as TextContent).text),
+								}
+							: part,
+					),
+				};
+			}
+		}
+		start = end;
+	}
+
 	// Turn-boundary caching: in a multi-turn conversation the entire prefix
 	// (everything before the last user message) is identical between requests.
 	// Placing cache_control on the last content block of the message just before

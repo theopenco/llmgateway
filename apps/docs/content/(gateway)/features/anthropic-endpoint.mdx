@@ -179,7 +179,7 @@ For Claude models, `cache_control` markers on `system` and message content block
 
 Cache usage comes back in Anthropic's native fields: `usage.cache_creation_input_tokens` (tokens written to the cache this request, billed at the write premium), `usage.cache_read_input_tokens` (tokens served from cache at the discounted rate), and `usage.cache_creation` (the per-TTL write breakdown).
 
-A `system` message inside `messages` (as Claude Code sends on recent Claude models) stays at its position instead of being merged into the top-level `system` prompt, so the cached conversation prefix is not rewritten on every turn. Where the upstream model does not accept that role, it is sent in place as a user message wrapped in `<system-reminder>` tags. Claude Code's `tool_addition` and `tool_removal` blocks are accepted and passed to the model as a text note.
+A `system` message inside `messages` (as Claude Code sends on recent Claude models) stays at its position instead of being merged into the top-level `system` prompt, so the cached conversation prefix is not rewritten on every turn. Where the upstream model does not accept that role, or does not accept it at that position (it must follow a user turn and precede an assistant turn or end the conversation), it is sent in place as a user message wrapped in `<system-reminder>` tags. Claude Code's `tool_addition` and `tool_removal` blocks are accepted and passed to the model as a text note.
 
 <Callout type="warning">
 	Each Claude model has a minimum cacheable prompt length (it varies by model
