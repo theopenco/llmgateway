@@ -15,6 +15,7 @@ import {
 	YAxis,
 } from "recharts";
 
+import { TokenCapacity } from "@/app/load/token-capacity";
 import {
 	ChartTypeToggle,
 	type ChartType,
@@ -186,6 +187,27 @@ function bucketTickFormat(bucket: string, timestamp: string): string {
 }
 
 export function LoadClient() {
+	const searchParams = useSearchParams();
+	const view = searchParams.get("view") === "tokens" ? "tokens" : "requests";
+	return (
+		<>
+			<div className="px-6 pt-6">
+				<SegmentedUrlSelector
+					param="view"
+					value={view}
+					defaultValue="requests"
+					options={[
+						{ value: "requests", label: "Requests" },
+						{ value: "tokens", label: "Tokens" },
+					]}
+				/>
+			</div>
+			{view === "tokens" ? <TokenCapacity /> : <RequestLoadClient />}
+		</>
+	);
+}
+
+function RequestLoadClient() {
 	const searchParams = useSearchParams();
 	const router = useRouter();
 	const pathname = usePathname();

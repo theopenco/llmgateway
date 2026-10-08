@@ -55,11 +55,25 @@ unmodified.
 
 ## Gateway load
 
-The admin dashboard's **Gateway Load** page reports peak throughput from completed
-intervals: minutes for short model/provider views, and hours for longer ranges or
-tenant-filtered views. Daily charts retain hourly peaks, so switching from 7 to
+The admin dashboard's **Gateway Load → Requests** view reports peak throughput
+from completed intervals: minutes for short model/provider views, and hours for
+longer ranges or tenant-filtered views. Daily charts retain hourly peaks, so switching from 7 to
 30 days does not smooth away a spike. Peak timestamps identify the start of the
 interval; the current incomplete interval is excluded.
+
+Switch to **Tokens** for platform, model, or provider throughput over 7 or 30 days.
+Choose total, input, or output tokens and a billing mode. Average TPM includes
+quiet minutes; average tokens/day normalizes the same window to 24 hours. Peak
+TPM is the busiest completed UTC minute, and peak tokens/day is the busiest
+complete UTC calendar day. Partial days appear faded in the daily chart and do
+not count toward daily peaks. The table ranks the top ten models or providers by
+token volume and supports CSV export.
+
+Token metrics use recorded upstream usage, excluding gateway response-cache
+hits. Minute history is retained for 30 days. Measurements follow worker refreshes;
+use **Refresh** to update them. These fixed UTC intervals do not reproduce a
+provider's rolling rate-limit or quota accounting. Organization, project, and
+API-key filters apply only to the **Requests** view.
 
 ## Support chat diagnostics
 

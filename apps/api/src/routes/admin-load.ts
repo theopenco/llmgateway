@@ -18,6 +18,7 @@ import {
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { adminTokenCapacity } from "@/routes/admin-token-capacity.js";
 import { pickMappingHistoryTable } from "@/utils/history-window.js";
 
 import {
@@ -45,6 +46,7 @@ import type { AnyColumn, SQL, TtftTotals } from "@llmgateway/db";
 export const adminLoad = new OpenAPIHono<ServerTypes>();
 
 adminLoad.use("/*", adminMiddleware);
+adminLoad.route("/", adminTokenCapacity);
 
 // Enough series to show who the heavy hitters are without turning the chart
 // into spaghetti; the rest is folded into a single "Other" band.
