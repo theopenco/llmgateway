@@ -1163,9 +1163,9 @@ export interface ManagedProviderAvailability {
 	 */
 	defaultRegionUsable: ReadonlySet<string>;
 	/**
-	 * Regions each provider has a region-pinned managed credential for. Variant-
-	 * and model-agnostic, matching how `hasRegionSpecificEnvKey` reads the
-	 * environment: the region filter runs before either is known.
+	 * Regions each provider has a region-pinned managed credential for, with the
+	 * same variant and model narrowing as `usable`, since `findManagedProviderKey`
+	 * applies both before it narrows to the region.
 	 */
 	pinnedRegions: ReadonlyMap<string, ReadonlySet<string>>;
 }
@@ -1202,14 +1202,6 @@ export async function findManagedProviderAvailability(
 	const byProvider = new Map<string, typeof rows>();
 	for (const row of rows) {
 		configured.add(row.provider);
-		if (row.region) {
-			const regions = pinnedRegions.get(row.provider);
-			if (regions) {
-				regions.add(row.region);
-			} else {
-				pinnedRegions.set(row.provider, new Set([row.region]));
-			}
-		}
 		if (modelId && !providerKeyAllowsModel(row.allowedModels, modelId)) {
 			continue;
 		}
@@ -1235,6 +1227,12 @@ export async function findManagedProviderAvailability(
 
 		if (byVariant.some((key) => !key.region)) {
 			usable.add(provider);
+		}
+		const regions = new Set(
+			byVariant.flatMap((key) => (key.region ? [key.region] : [])),
+		);
+		if (regions.size > 0) {
+			pinnedRegions.set(provider, regions);
 		}
 		const defaultRegion = getRegionScopedDefaultRegion(provider);
 		if (
