@@ -1,0 +1,175 @@
+import { describe, expect, test } from "vitest";
+
+import { prepareRequestBody } from "./prepare-request-body.js";
+
+import type { BaseMessage, ProviderId } from "@llmgateway/models";
+
+const toolTurn: BaseMessage = {
+	role: "assistant",
+	content: "",
+	tool_calls: [
+		{
+			id: "call_weather",
+			type: "function",
+			function: { name: "get_weather", arguments: '{"city":"Paris"}' },
+		},
+	],
+};
+const messages: BaseMessage[] = [
+	{ role: "user", content: "Weather in Paris?" },
+	toolTurn,
+	{ role: "tool", tool_call_id: "call_weather", content: "sunny" },
+];
+function chatBody(body: Awaited<ReturnType<typeof prepareRequestBody>>) {
+	if (
+		body instanceof FormData ||
+		!("messages" in body) ||
+		!Array.isArray(body.messages)
+	) {
+		throw new Error("Expected a chat completions body");
+	}
+	return {
+		model: "model" in body ? body.model : undefined,
+		messages: body.messages.map((message) => ({
+			reasoning: "reasoning" in message ? message.reasoning : undefined,
+			reasoning_content:
+				"reasoning_content" in message ? message.reasoning_content : undefined,
+		})),
+	};
+}
+
+function prepare(
+	provider: ProviderId,
+	model: string,
+	history = messages,
+	stream = false,
+) {
+	return prepareRequestBody(
+		provider,
+		model,
+		null,
+		"vendor/deployment",
+		history,
+		stream,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+	);
+}
+
+describe("DeepSeek V4 reasoning replay", () => {
+	test.each([
+		"deepseek-v4-flash",
+		"deepseek-v4-pro",
+		"deepseek-v4.1-flash",
+		"deepseek-v4-flash-vision-exp",
+		"deepseek-v4-flash-0731",
+	])("recognizes canonical %s with a different upstream id", async (model) => {
+		const body = chatBody(await prepare("openai", model));
+		expect(body.model).toBe("vendor/deployment");
+		expect(body.messages[1].reasoning_content).toBe(" ");
+	});
+
+	test.each(["deepseek-v3.2", "gpt-4o-mini", "custom"])(
+		"does not add reasoning to unrelated %s",
+		async (model) => {
+			const body = chatBody(await prepare("openai", model));
+			expect(body.messages[1].reasoning_content).toBeUndefined();
+		},
+	);
+
+	test.each([
+		["deepseek", ""],
+		["moonshot", " "],
+		["novita", " "],
+		["custom", " "],
+		["deepinfra", " "],
+	] satisfies [ProviderId, string][])(
+		"uses the tool placeholder for %s",
+		async (provider, expected) => {
+			const body = chatBody(await prepare(provider, "deepseek-v4-flash"));
+			expect(body.messages[1].reasoning_content).toBe(expected);
+		},
+	);
+
+	test.each([false, true])(
+		"preserves supplied reasoning (stream=%s)",
+		async (stream) => {
+			const history: BaseMessage[] = [
+				{ ...toolTurn, reasoning: "caller reasoning" },
+				{ ...toolTurn, reasoning: "" },
+				{ ...toolTurn, reasoning: "ignored", reasoning_content: "original" },
+				{ ...toolTurn, reasoning_content: "" },
+				{ ...toolTurn, tool_calls: [] },
+				{ role: "assistant", content: "Done" },
+			];
+			const original = structuredClone(history);
+			const body = chatBody(
+				await prepare("openai", "deepseek-v4.1-flash", history, stream),
+			);
+			expect(body.messages.map((message) => message.reasoning_content)).toEqual(
+				["caller reasoning", " ", "original", "", undefined, undefined],
+			);
+			expect(history).toEqual(original);
+		},
+	);
+
+	test.each([
+		"anthropic",
+		"vertex-anthropic",
+		"azure-anthropic",
+		"aws-bedrock",
+		"google-ai-studio",
+		"google-vertex",
+		"mistral",
+	] satisfies ProviderId[])(
+		"strips chat reasoning on the %s wire",
+		async (provider) => {
+			const body = await prepare(provider, "deepseek-v4.1-flash", [
+				messages[0],
+				{ ...toolTurn, reasoning: "caller reasoning" },
+				messages[2],
+			]);
+			expect(JSON.stringify(body)).not.toContain('"reasoning_content"');
+			expect(JSON.stringify(body)).not.toContain('"reasoning"');
+			expect(JSON.stringify(body)).toContain("get_weather");
+		},
+	);
+
+	test("strips Fireworks reasoning while retaining the V4 backfill", async () => {
+		const body = chatBody(
+			await prepare("fireworks", "deepseek-v4.1-flash", [
+				messages[0],
+				{ ...toolTurn, reasoning: "caller reasoning" },
+				messages[2],
+			]),
+		);
+		expect(body.messages[1].reasoning).toBeUndefined();
+		expect(body.messages[1].reasoning_content).toBe("caller reasoning");
+	});
+
+	test("does not leak chat reasoning into Responses input items", async () => {
+		const args: Parameters<typeof prepareRequestBody> = [
+			"openai",
+			"deepseek-v4.1-flash",
+			null,
+			"vendor/deployment",
+			messages,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		];
+		args[25] = true;
+		const body = await prepareRequestBody(...args);
+		expect(JSON.stringify(body)).not.toContain('"reasoning_content"');
+		expect(JSON.stringify(body)).toContain('"function_call"');
+		expect(JSON.stringify(body)).toContain('"function_call_output"');
+	});
+});
