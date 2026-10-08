@@ -102,7 +102,7 @@ function generateLogo(outputPath: string): void {
 
 function isOpenWeights(modelId: string, family: string): boolean {
 	const openWeightsFamilies = ["mistral", "deepseek", "alibaba", "minimax"];
-	const openWeightsPatterns = [/llama/i, /gemma/i, /qwen/i, /mixtral/i, /deepseek/i, /nous/i, /minimax/i];
+	const openWeightsPatterns = [/llama/i, /gemma/i, /qwen/i, /mixtral/i, /deepseek/i, /nous/i, /minimax/i, /muse-glimmer/i];
 
 	if (openWeightsFamilies.includes(family)) {return true;}
 
