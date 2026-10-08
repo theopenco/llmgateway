@@ -63,15 +63,16 @@ export default function ListingGuide() {
 				<p className="mt-3">
 					Paste a provider API key that can call this model and run preflight
 					verification. Preflight checks each declared capability, fills most of
-					the declared context window and requests the full output limit. We
-					store the key encrypted as this carrier's test key, so later runs
-					reuse it — change or remove it under Settings at any time. Use a key
-					separate from the one behind your live integration: preflight traffic
-					is billed by your own platform and is not tracked in LLMGateway usage
-					or billing. Resolve failed checks before submitting the model.
-					Changing the verified mapping requires a new verification, and so does
-					an edit that adds a capability or raises a limit — narrowing one never
-					does.
+					the declared context window and requests the full output limit. Some
+					checks are optional for now: a miss shows as a warning marked Optional
+					instead of failing, and may become required later. We store the key
+					encrypted as this carrier's test key, so later runs reuse it — change
+					or remove it under Settings at any time. Use a key separate from the
+					one behind your live integration: preflight traffic is billed by your
+					own platform and is not tracked in LLMGateway usage or billing.
+					Resolve failed checks before submitting the model. Changing the
+					verified mapping requires a new verification, and so does an edit that
+					adds a capability or raises a limit — narrowing one never does.
 				</p>
 				<p className="mt-3">
 					A registered carrier files its provider key — the separate key we
