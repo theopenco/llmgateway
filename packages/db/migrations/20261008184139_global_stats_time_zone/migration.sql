@@ -134,6 +134,7 @@ CREATE TABLE "global_hourly_source_stats" (
 	CONSTRAINT "global_hourly_source_stats_hour_timestamp_source_used_mode_org_kind_unique" UNIQUE("hour_timestamp","source","used_mode","org_kind")
 );
 --> statement-breakpoint
+ALTER TABLE "user" ADD COLUMN "time_zone" text;--> statement-breakpoint
 CREATE INDEX "global_hourly_model_stats_hour_idx" ON "global_hourly_model_stats" ("hour_timestamp");--> statement-breakpoint
 CREATE INDEX "global_hourly_provider_key_model_stats_hour_idx" ON "global_hourly_provider_key_model_stats" ("hour_timestamp");--> statement-breakpoint
 CREATE INDEX "global_hourly_source_stats_hour_idx" ON "global_hourly_source_stats" ("hour_timestamp");
