@@ -53,6 +53,13 @@ export function extractReasoning(
 			const reasoningParts = parts.filter((part) => part.thought);
 			return reasoningParts.map((part) => part.text).join("") ?? "";
 		}
+		case "aws-bedrock": {
+			// Converse chunks arrive already transformed. Their thinking streams as
+			// `reasoning`; a signed `reasoning_details` entry repeats that text for
+			// replay and must not count twice.
+			const delta = (data as OpenAIStreamChunk).choices?.[0]?.delta;
+			return delta?.reasoning ?? "";
+		}
 		default: {
 			// OpenAI format. Sum reasoning across every choice so multi-choice
 			// streams (n > 1) accumulate into the logging buffer instead of

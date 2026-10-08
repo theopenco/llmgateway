@@ -389,6 +389,7 @@ import {
 	zeroCostsOnCachedResponseUsage,
 } from "./tools/transform-response-to-openai.js";
 import {
+	type AnthropicThinkingTextState,
 	type AnthropicToolSearchState,
 	transformStreamingToOpenai,
 } from "./tools/transform-streaming-to-openai.js";
@@ -10346,6 +10347,7 @@ chat.openapi(completions, async (c) => {
 					number,
 					GoogleThoughtSignatureState
 				>();
+				const anthropicThinkingText: AnthropicThinkingTextState = new Map();
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
 				let sawOpenAiResponsesDoneEvent = false;
@@ -11224,6 +11226,7 @@ chat.openapi(completions, async (c) => {
 										cacheThoughtSignatures: !zeroDataRetentionEnabled,
 										googleThoughtSignatureState,
 										googleToolCallIndices,
+										anthropicThinkingText,
 									},
 								);
 
