@@ -42,7 +42,7 @@ const chartConfig = {
 	},
 	totalRevenue: {
 		label: "Total earnings",
-		color: "hsl(160 84% 30%)",
+		color: "hsl(45 93% 47%)",
 	},
 	refunds: {
 		label: "Refunds",
