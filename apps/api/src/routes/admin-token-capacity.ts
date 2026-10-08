@@ -71,7 +71,7 @@ function expressions(table: TokenColumns, query: CapacityQuery) {
 	};
 }
 
-interface UsageRow {
+interface UsageRow extends Record<string, unknown> {
 	key: string | null;
 	timestamp: string;
 	tokens: number;
