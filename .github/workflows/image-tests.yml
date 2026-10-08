@@ -89,18 +89,12 @@ jobs:
         run: |
           for app in api gateway playground ui docs worker admin code airside; do
             echo "Building $app image..."
-            # worker has no smoke test, so it is only verified to build.
-            output=type=docker
-            if [ "$app" = worker ]; then output=type=cacheonly; fi
-            # Reads (never writes) the layer cache images.yml maintains on main.
-            docker buildx build \
+            docker build \
               -f infra/split.dockerfile \
               --target $app \
               --build-arg APP_VERSION=${{ needs.setup.outputs.image_tag }} \
               --secret id=TURBO_TOKEN,env=TURBO_TOKEN \
               --secret id=TURBO_TEAM,env=TURBO_TEAM \
-              --cache-from type=registry,ref=ghcr.io/${{ github.repository }}-$app:buildcache-linux-amd64 \
-              --output $output \
               -t ghcr.io/${{ github.repository }}-$app:${{ needs.setup.outputs.image_tag }} \
               .
 
