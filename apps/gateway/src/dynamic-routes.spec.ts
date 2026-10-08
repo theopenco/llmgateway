@@ -534,7 +534,7 @@ describe("dynamic routes request path", () => {
 				},
 				modelNode("big", "gpt-4o"),
 				modelNode("mid", "gpt-4o-mini"),
-				modelNode("small", "gpt-4.1-nano"),
+				modelNode("small", "gpt-6-luna"),
 			],
 		} as DynamicRouteGraph);
 
@@ -552,7 +552,7 @@ describe("dynamic routes request path", () => {
 			messages: [{ role: "user", content: "EASY_TASK say hi" }],
 		});
 		expect(easy.status).toBe(200);
-		expect((await easy.json()).model).toBe("openai/gpt-4.1-nano");
+		expect((await easy.json()).model).toBe("openai/gpt-6-luna");
 
 		// Four rows: two requests, each with its own billed classifier call.
 		const decisions = requestLogs(await waitForLogs(4)).map(
