@@ -87,6 +87,7 @@ import { runRoutingBaselineBackfillStep } from "./services/routing-baseline-back
 import {
 	backfillHistoryIfNeeded,
 	backfillHourlyHistoryIfNeeded,
+	initializeMinuteRecovery,
 	calculateAggregatedStatistics,
 	calculateCurrentMinuteHistory,
 	calculateHourlyHistory,
@@ -1069,6 +1070,29 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 				`Model history retention cleanup deleted ${mappingDeleted} model_provider_mapping_history and ${modelDeleted} model_history rows (older than ${MODEL_HISTORY_RETENTION_DAYS} days)`,
 			);
 		}
+
+		await db
+			.delete(tables.aggregationProgress)
+			.where(
+				and(
+					eq(tables.aggregationProgress.job, "minute-usage"),
+					lt(tables.aggregationProgress.bucketTimestamp, cutoffDate),
+				),
+			);
+		await db
+			.delete(tables.aggregationProgress)
+			.where(
+				and(
+					inArray(tables.aggregationProgress.job, [
+						"routing",
+						"content-filter",
+					]),
+					lt(
+						tables.aggregationProgress.bucketTimestamp,
+						getLogRetentionCutoff(),
+					),
+				),
+			);
 
 		logger.info("Model history retention cleanup completed successfully");
 	} catch (error) {
@@ -2679,6 +2703,11 @@ async function runModelHistoryRetentionLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
+				// Retry capped recovery and diagnostics before allowing minute pruning.
+				hourlyBackfillComplete =
+					(await backfillHistoryIfNeeded()) &&
+					(await backfillHourlyHistoryIfNeeded());
+
 				if (hourlyBackfillComplete) {
 					await cleanupExpiredModelHistory();
 				} else {
@@ -3493,25 +3522,7 @@ export async function startWorker() {
 		);
 	}
 
-	void backfillHistoryIfNeeded()
-		.then(() => {
-			logger.info("History backfill check completed");
-			// Hourly summaries roll up the minute history, so backfill them only
-			// after the minute backfill has had a chance to fill recent gaps.
-			return backfillHourlyHistoryIfNeeded();
-		})
-		.then(() => {
-			logger.info("Hourly history backfill check completed");
-			// Hourly rollups are now populated, so minute-history pruning is safe.
-			hourlyBackfillComplete = true;
-		})
-		.catch((error) => {
-			logger.error(
-				"Error during history backfill",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-		});
-
+	await initializeMinuteRecovery();
 	// Start all worker loops (all sequential — each waits for completion before scheduling next run)
 	logger.info("Starting worker loops...");
 	logger.info(
