@@ -50,18 +50,37 @@ function createCharBudget(name: string, maxChars: number) {
 	};
 }
 
+// Walks only the rows and cells stored in the file and charges the empty
+// padding between them before building it, so a sheet with a cell at the last
+// row throws at the cap instead of materialising every row in between.
 function sheetToCsv(
 	worksheet: ExcelJS.Worksheet,
 	charge: (chars: number) => void,
 ) {
 	const columnCount = worksheet.columnCount;
+	const emptyRow = ",".repeat(Math.max(0, columnCount - 1));
 	const lines: string[] = [];
-	worksheet.eachRow({ includeEmpty: true }, (row) => {
+	let lastRow = 0;
+	worksheet.eachRow((row, rowNumber) => {
+		const gap = rowNumber - lastRow - 1;
+		charge(gap * (emptyRow.length + 1));
+		for (let i = 0; i < gap; i++) {
+			lines.push(emptyRow);
+		}
+		lastRow = rowNumber;
 		const cells: string[] = [];
-		for (let col = 1; col <= columnCount; col++) {
-			const cell = csvEscape(row.getCell(col).text ?? "");
-			charge(cell.length + 1);
-			cells.push(cell);
+		row.eachCell((cell, col) => {
+			charge(col - cells.length - 1);
+			while (cells.length < col - 1) {
+				cells.push("");
+			}
+			const text = csvEscape(cell.text ?? "");
+			charge(text.length + 1);
+			cells.push(text);
+		});
+		charge(Math.max(0, columnCount - cells.length));
+		while (cells.length < columnCount) {
+			cells.push("");
 		}
 		lines.push(cells.join(","));
 	});
