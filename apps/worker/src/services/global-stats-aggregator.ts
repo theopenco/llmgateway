@@ -13,6 +13,7 @@ import {
 	eq,
 	getTableColumns,
 	isNotNull,
+	isNull,
 	type GlobalStatsOrgKind,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -218,7 +219,9 @@ export async function aggregateWindowIntoStats(
 			source: sql<string>`coalesce(${log.source}, 'unknown')`.as("source"),
 			usedMode: log.usedMode,
 			orgKind: ORG_KIND_EXPR,
-			...getBaseAggregationFields(),
+			// A retried request counts once per source, like the project source
+			// rows; per-model rows still count each provider attempt.
+			...getBaseAggregationFields(isNull(log.retriedByLogId)),
 		})
 		.from(log)
 		.leftJoin(organization, eq(log.organizationId, organization.id))
