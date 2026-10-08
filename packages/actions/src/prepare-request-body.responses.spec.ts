@@ -271,4 +271,23 @@ describe("transform to OpenAI Responses API", () => {
 		);
 		expect(undeclared.reasoning?.mode).toBeUndefined();
 	});
+
+	test("carries image_url detail onto input_image", async () => {
+		const url = "data:image/png;base64,iVBORw0KGgo=";
+		const body = await buildOpenAIResponsesBody([
+			{
+				role: "user",
+				content: [
+					{ type: "image_url", image_url: { url, detail: "low" } },
+					{ type: "image_url", image_url: { url } },
+				],
+			},
+		]);
+
+		const user = body.input.find((item) => item.role === "user");
+		expect(user?.content).toEqual([
+			{ type: "input_image", image_url: url, detail: "low" },
+			{ type: "input_image", image_url: url },
+		]);
+	});
 });
