@@ -46,12 +46,15 @@ describe("documented catalogue corrections", () => {
 		});
 	});
 	it.each([
-		["muse-spark-1.3", "meta"],
-		["muse-spark-1.3-contributor", "meta-contributor"],
+		["muse-spark-1.3", "meta", true],
+		["muse-spark-1.3-contributor", "meta-contributor", false],
 	])(
-		"exposes max reasoning and clamps temperature to 1 for %s",
-		(model, provider) => {
-			expect(mapping(model, provider).reasoningEfforts).toContain("max");
+		"limits max reasoning to the Standard tier and clamps temperature for %s",
+		(model, provider, hasMax) => {
+			// Meta offers max effort on the Standard tier only.
+			expect(mapping(model, provider).reasoningEfforts?.includes("max")).toBe(
+				hasMax,
+			);
 			// The API accepts up to 2, but never answers above 1.
 			expect(mapping(model, provider).maxTemperature).toBe(1);
 		},
