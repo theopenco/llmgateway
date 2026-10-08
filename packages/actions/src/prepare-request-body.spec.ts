@@ -1539,6 +1539,16 @@ describe("prepareRequestBody - Anthropic", () => {
 			reminderIndex: 2,
 		},
 		{
+			position: "after an assistant turn at the end",
+			messages: [
+				{ role: "user", content: "Hello!" },
+				{ role: "assistant", content: "Hi." },
+				{ role: "system", content: "The date changed." },
+			],
+			roles: ["user", "assistant", "user"],
+			reminderIndex: 2,
+		},
+		{
 			position: "before a user turn",
 			messages: [
 				{ role: "user", content: "Hello!" },
