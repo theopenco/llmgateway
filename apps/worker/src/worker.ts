@@ -91,6 +91,8 @@ import {
 	calculateCurrentMinuteHistory,
 	calculateHourlyHistory,
 	calculateMinutelyHistory,
+	getModelHistoryRetentionCutoff,
+	MODEL_HISTORY_RETENTION_DAYS,
 } from "./services/stats-calculator.js";
 import { syncProvidersAndModels } from "./services/sync-models.js";
 import {
@@ -975,7 +977,6 @@ export async function cleanupExpiredLogData(): Promise<void> {
 // forever and now serve every window beyond 24h (7d/30d/90d public stats), so
 // the only readers of the minute tables are short windows (<=24h). 30 days
 // leaves a comfortable buffer over the largest minute-level reader.
-const MODEL_HISTORY_RETENTION_DAYS = 30;
 const MODEL_HISTORY_CLEANUP_BATCH_SIZE = 10000;
 // Cap the work per run (per table) so a single cleanup reliably finishes well
 // within the lock TTL (LOCK_DURATION_MINUTES), even on a large initial backlog.
@@ -1047,9 +1048,7 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 	try {
 		logger.info("Starting model history retention cleanup...");
 
-		const cutoffDate = new Date(
-			Date.now() - MODEL_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000, // eslint-disable-line no-mixed-operators
-		);
+		const cutoffDate = getModelHistoryRetentionCutoff();
 
 		const mapping = await cleanupModelHistoryTable(
 			tables.modelProviderMappingHistory,
