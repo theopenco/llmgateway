@@ -28,6 +28,7 @@ import {
 import { ModelCtaButton } from "@/components/models/model-cta-button";
 import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
+import { buildProviderTabBranding } from "@/components/models/provider-tab-branding";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
@@ -148,6 +149,10 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	};
 
 	const allProviderIds = modelDef.providers.map((p) => p.providerId);
+	const providerTabBranding = buildProviderTabBranding(
+		allProviderIds,
+		await fetchProviders(),
+	);
 
 	const breadcrumbSchema = {
 		"@context": "https://schema.org",
@@ -449,6 +454,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 							modelId={decodedName}
 							providerIds={allProviderIds}
 							activeProviderId={decodedProvider}
+							branding={providerTabBranding}
 						/>
 					</div>
 

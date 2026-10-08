@@ -33,6 +33,7 @@ import { ModelFaqSection } from "@/components/models/model-faq";
 import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ModelUsageStats } from "@/components/models/model-usage-stats";
+import { buildProviderTabBranding } from "@/components/models/provider-tab-branding";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { RelatedModels } from "@/components/models/related-models";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -732,6 +733,10 @@ export default async function ModelPage({ params }: PageProps) {
 							modelId={decodedName}
 							providerIds={visibleProviders.map((p) => p.providerId)}
 							activeProviderId=""
+							branding={buildProviderTabBranding(
+								visibleProviders.map((p) => p.providerId),
+								apiProviders,
+							)}
 						/>
 					</div>
 
