@@ -1,3 +1,5 @@
+import { getProviderDefinition } from "@llmgateway/models";
+
 // Claude Code's auto mode asks Anthropic to review risky tool calls server-side,
 // at no charge, by adding a `safeguards` body field and a paired beta header to
 // its normal Messages API requests; the verdicts come back as
@@ -21,6 +23,12 @@ export interface AnthropicSafeguardsPassthrough {
 
 export function isSafeguardBeta(value: string): boolean {
 	return SAFEGUARD_BETA_PATTERN.test(value);
+}
+
+export function providerSupportsAnthropicSafeguards(
+	providerId: string,
+): boolean {
+	return getProviderDefinition(providerId)?.anthropicSafeguards === true;
 }
 
 export function parseBetaHeader(header: string | null | undefined): string[] {
@@ -54,8 +62,7 @@ export function extractAnthropicSafeguards(
 }
 
 // Restores the pair on an outgoing request. Only Anthropic's own API runs the
-// review; every other transport gets neither half, so a fallback to another
-// provider stays a valid request and Claude Code reverts to its own classifier.
+// review. Routing excludes other providers when this pair is requested.
 export function applyAnthropicSafeguards(
 	transportProvider: string,
 	requestBody: unknown,
