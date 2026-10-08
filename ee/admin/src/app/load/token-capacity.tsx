@@ -1,7 +1,8 @@
 "use client";
 
-import { Download, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { useSearchParams } from "next/navigation";
+import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
 
 import { StatCard } from "@/components/detail-stat-cards";
@@ -39,6 +40,7 @@ import {
 	formatNumber,
 } from "@llmgateway/shared/number-format";
 
+const PAGE_SIZE = 10;
 const STALE_TIME = 5 * 60 * 1000;
 const chartConfig = { tokens: { label: "Tokens", color: "var(--chart-1)" } };
 const utcDate = new Intl.DateTimeFormat("en-US", {
@@ -78,7 +80,7 @@ export function TokenCapacity() {
 		params.get("tokenModelView") === "mapping" ? "mapping" : "canonical";
 	const mode = useUsageMode();
 	const $api = useApi();
-	const { data, isLoading, isError, isFetching, refetch } = $api.useQuery(
+	const { data, isLoading, isError } = $api.useQuery(
 		"get",
 		"/admin/load/token-capacity",
 		{
@@ -91,6 +93,15 @@ export function TokenCapacity() {
 		},
 	);
 	const summary = data?.summary;
+	const filters = `${window}:${tokenType}:${groupBy}:${modelView}:${mode}`;
+	const [pagination, setPagination] = useState({ filters, page: 1 });
+	if (pagination.filters !== filters) {
+		setPagination({ filters, page: 1 });
+	}
+	const totalRows = data?.breakdown.length ?? 0;
+	const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
+	const page = Math.min(pagination.page, totalPages);
+	const offset = (page - 1) * PAGE_SIZE;
 
 	function exportCsv() {
 		if (!data) {
@@ -145,18 +156,6 @@ export function TokenCapacity() {
 						Token throughput and observed peaks across the platform.
 					</p>
 				</div>
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={isFetching}
-					onClick={() => void refetch()}
-				>
-					<RefreshCw
-						className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
-						aria-hidden
-					/>
-					{isFetching ? "Refreshing…" : "Refresh"}
-				</Button>
 			</div>
 			<div className="flex flex-wrap items-center gap-2">
 				<SegmentedUrlSelector
@@ -215,7 +214,7 @@ export function TokenCapacity() {
 			</div>
 			{isError ? (
 				<p role="alert" className="text-sm text-destructive">
-					Failed to load token throughput. Use Refresh to try again.
+					Failed to load token throughput. Reload the page to try again.
 				</p>
 			) : null}
 			<section
@@ -324,9 +323,8 @@ export function TokenCapacity() {
 						Top {groupBy === "provider" ? "providers" : "models"} by tokens
 					</CardTitle>
 					<CardDescription>
-						Up to 10, ranked by total{" "}
-						{tokenType === "total" ? "" : `${tokenType} `}tokens. Each row has
-						its own observed peaks.
+						Ranked by total {tokenType === "total" ? "" : `${tokenType} `}
+						tokens. Each row has its own observed peaks.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -359,7 +357,7 @@ export function TokenCapacity() {
 								</TableRow>
 							</TableHeader>
 							<TableBody>
-								{data.breakdown.map((row) => (
+								{data.breakdown.slice(offset, offset + PAGE_SIZE).map((row) => (
 									<TableRow key={row.key}>
 										<TableCell
 											className="max-w-64 truncate font-medium"
@@ -393,6 +391,38 @@ export function TokenCapacity() {
 							</TableBody>
 						</Table>
 					)}
+					{totalPages > 1 ? (
+						<div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+							<p className="text-sm text-muted-foreground">
+								Showing {formatNumber(offset + 1)} to{" "}
+								{formatNumber(Math.min(offset + PAGE_SIZE, totalRows))} of{" "}
+								{formatNumber(totalRows)}
+							</p>
+							<div className="flex items-center gap-2">
+								<Button
+									variant="outline"
+									size="sm"
+									disabled={page <= 1}
+									onClick={() => setPagination({ filters, page: page - 1 })}
+								>
+									<ChevronLeft className="h-4 w-4" aria-hidden />
+									Previous
+								</Button>
+								<span className="text-sm text-muted-foreground">
+									Page {formatNumber(page)} of {formatNumber(totalPages)}
+								</span>
+								<Button
+									variant="outline"
+									size="sm"
+									disabled={page >= totalPages}
+									onClick={() => setPagination({ filters, page: page + 1 })}
+								>
+									Next
+									<ChevronRight className="h-4 w-4" aria-hidden />
+								</Button>
+							</div>
+						</div>
+					) : null}
 				</CardContent>
 			</Card>
 			<p className="text-xs text-muted-foreground">
@@ -401,7 +431,7 @@ export function TokenCapacity() {
 					: ""}
 				Peaks use completed UTC minutes and days, not rolling intervals. Gateway
 				response-cache hits are excluded. Usage follows worker refreshes and
-				does not reproduce provider quota accounting. Refresh manually for
+				does not reproduce provider quota accounting. Reload the page for
 				updated measurements.
 			</p>
 		</div>
