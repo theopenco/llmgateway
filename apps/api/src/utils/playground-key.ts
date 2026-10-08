@@ -18,7 +18,7 @@ import type { Context } from "hono";
 
 export { PLAYGROUND_KEY_COOKIE_MAX_AGE, PLAYGROUND_KEY_COOKIE_NAME };
 
-export const PLAYGROUND_KEY_DESCRIPTION = "Playground";
+export const PLAYGROUND_KEY_DESCRIPTION = "Lounge";
 const PLAYGROUND_KEY_TTL_MS = PLAYGROUND_KEY_COOKIE_MAX_AGE * 1000;
 
 interface PlaygroundApiKeyResult {
