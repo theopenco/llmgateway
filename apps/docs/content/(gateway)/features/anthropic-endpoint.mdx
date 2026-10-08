@@ -238,6 +238,12 @@ Send every tool definition on every request, including the deferred ones — Ant
 	the gateway routes Bedrock through the Converse API.
 </Callout>
 
+### Auto Mode Safeguard Review
+
+In [auto mode](https://code.claude.com/docs/en/permission-modes#server-side-classifier-review), Claude Code asks Anthropic to review risky tool calls as part of its normal requests, at no charge: it sends a `safeguards` field with a paired `anthropic-beta` value, and Anthropic returns the verdicts in `safeguard_results` (on the final `message_delta` event when streaming). The gateway forwards both halves to the Anthropic API and returns the verdicts unchanged, so Claude Code keeps using the free server-side checks instead of its own billed classifier requests. Run `/status` in Claude Code to confirm: the **Auto mode server** row reads `Enabled`.
+
+**Where it works.** Server-side review runs on the Anthropic API only. When a request is routed to any other provider, the gateway sends neither the field nor its beta, the request still succeeds, and Claude Code falls back to its own classifier requests for the rest of the session. Pin the provider (`anthropic/claude-sonnet-4-6`) to keep the free review. If your setup routes Claude elsewhere and you want to skip the fallback notice, set `CLAUDE_CODE_AUTO_MODE_SERVER=0`.
+
 ### Gateway Response Cache
 
 If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a repeated request with the same [cache-key fields](/features/caching/gateway-caching#cache-key-generation) — resolved provider and model, messages, and the other keyed parameters; fields outside the cache key and insignificant JSON whitespace don't affect matching, but the key order inside message and tool objects does, and a request routed to a different provider is a cache miss — is replayed from cache instead of being sent upstream. The replayed body keeps the original `id`, content, and token counts, so check the `x-llmgateway-cache: HIT` response header or `metadata.cached`. Send `x-no-cache: true` to bypass the cache for a single request.

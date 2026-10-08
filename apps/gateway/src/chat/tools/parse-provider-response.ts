@@ -98,6 +98,7 @@ export function parseProviderResponse(
 	let cachedAudioInputTokens: number | null = null;
 	let toolResults = null;
 	let anthropicNativeBlocks: AnthropicNativeBlock[] | null = null;
+	let anthropicSafeguardResults: unknown = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
 	const searchResults: SearchResult[] = [];
@@ -384,6 +385,14 @@ export function parseProviderResponse(
 			const toolSearchBlocks = contentBlocks.filter(isToolSearchBlock);
 			if (toolSearchBlocks.length > 0) {
 				anthropicNativeBlocks = toolSearchBlocks;
+			}
+			// Server-side safeguard verdicts, present when the request carried
+			// `safeguards` (Claude Code auto mode). Opaque to the gateway.
+			if (
+				Array.isArray(json.safeguard_results) &&
+				json.safeguard_results.length > 0
+			) {
+				anthropicSafeguardResults = json.safeguard_results;
 			}
 
 			// Extract tool calls from Anthropic format
@@ -1543,6 +1552,7 @@ export function parseProviderResponse(
 		cachedAudioInputTokens,
 		toolResults,
 		anthropicNativeBlocks,
+		anthropicSafeguardResults,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,
 		searchResults: searchResults.length > 0 ? searchResults : null,

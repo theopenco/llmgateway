@@ -494,8 +494,16 @@ export function transformStreamingToOpenai(
 				// content_block_delta and message_delta chunks), so drop them
 				// instead of forwarding an empty assistant delta.
 				return null;
-			} else if (data.type === "message_delta" && data.delta?.stop_reason) {
+			} else if (
+				data.type === "message_delta" &&
+				(data.delta?.stop_reason ||
+					(Array.isArray(data.delta?.safeguard_results) &&
+						data.delta.safeguard_results.length > 0))
+			) {
 				const stopReason = data.delta.stop_reason;
+				// Server-side safeguard verdicts (Claude Code auto mode) ride on the
+				// final message_delta; carry them for the /v1/messages layer.
+				const safeguardResults = data.delta.safeguard_results;
 				transformedData = {
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -506,8 +514,14 @@ export function transformStreamingToOpenai(
 							index: 0,
 							delta: {
 								role: "assistant",
+								...(Array.isArray(safeguardResults) &&
+									safeguardResults.length > 0 && {
+										anthropic_safeguard_results: safeguardResults,
+									}),
 							},
-							finish_reason: mapFinishReasonToOpenai(stopReason, usedProvider),
+							finish_reason: stopReason
+								? mapFinishReasonToOpenai(stopReason, usedProvider)
+								: null,
 						},
 					],
 					usage: normalizeAnthropicUsage(usage),
