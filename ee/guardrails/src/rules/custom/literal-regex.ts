@@ -23,9 +23,10 @@ export function createLiteralRegex(
 export function createInflectedWordRegex(value: string): RegExp {
 	const word = value.trim();
 	const escaped = escapeLiteral(word);
-	// Inflections plus common derivations ("investment", "investors", "weaponry").
+	// Inflections plus common derivations ("investment", "weaponry",
+	// "murderous", "violently", "sexuality").
 	const suffixes =
-		"s|es|d|ed|ing|ings|er|ers|ment|ments|or|ors|ry|ries|ion|ions|ist|ists|ive|ives|al|ance|ances|ence|ences";
+		"s|es|d|ed|ing|ings|er|ers|ment|ments|or|ors|ry|ries|ion|ions|ist|ists|ive|ives|al|ance|ances|ence|ences|ous|ously|ly|ity|ities";
 	const variants = [`${escaped}(?:${suffixes})?`];
 	const last = word.at(-1)?.toLowerCase();
 	// Doubled final consonant ("stabbing"); not before "-er", so "bet" does not
