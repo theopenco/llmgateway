@@ -74,21 +74,18 @@ async function prepare(
 	)) as { messages: Array<{ content: Array<Record<string, unknown>> }> };
 }
 
-function markerCount(body: unknown): number {
+function markers(body: unknown): unknown[] {
 	if (Array.isArray(body)) {
-		return body.reduce<number>((sum, item) => sum + markerCount(item), 0);
+		return body.flatMap(markers);
 	}
 	if (body && typeof body === "object") {
-		return Object.entries(body).reduce<number>(
-			(sum, [key, value]) =>
-				sum +
-				(key === "cache_control" || key === "cachePoint"
-					? 1
-					: markerCount(value)),
-			0,
+		return Object.entries(body).flatMap(([key, value]) =>
+			key === "cache_control" || key === "cachePoint"
+				? [value]
+				: markers(value),
 		);
 	}
-	return 0;
+	return [];
 }
 
 const anthropicFormat: ProviderId[] = [
@@ -97,7 +94,7 @@ const anthropicFormat: ProviderId[] = [
 	"azure-anthropic",
 ];
 
-describe("automatic cache breakpoint on the conversation tail", () => {
+describe("automatic conversation breakpoints", () => {
 	test.each(anthropicFormat)(
 		"%s marks the latest tool result of a tool loop",
 		async (provider) => {
@@ -108,44 +105,50 @@ describe("automatic cache breakpoint on the conversation tail", () => {
 				content: "second file",
 				cache_control: { type: "ephemeral" },
 			});
-			expect(markerCount(body)).toBe(1);
+			// The turn before it holds only tool_use, so the boundary has no target.
+			expect(markers(body)).toHaveLength(1);
 		},
 	);
 
 	test.each(anthropicFormat)(
-		"%s marks the new user message of a chat",
+		"%s marks the turn boundary and the new user message of a chat",
 		async (provider) => {
 			const body = await prepare(provider, chat);
 
+			expect(body.messages.at(-2)!.content.at(-1)).toMatchObject({
+				text: "Hi, how can I help?",
+				cache_control: { type: "ephemeral" },
+			});
 			expect(body.messages.at(-1)!.content.at(-1)).toMatchObject({
-				type: "text",
 				text: "Tell me a joke.",
 				cache_control: { type: "ephemeral" },
 			});
-			expect(markerCount(body)).toBe(1);
+			expect(markers(body)).toHaveLength(2);
 		},
 	);
 
-	test("aws-bedrock ends the latest tool result with a cachePoint", async () => {
+	test("aws-bedrock marks the tool call turn and the latest tool result", async () => {
 		const body = await prepare("aws-bedrock", toolLoop);
 
+		expect(body.messages.at(-2)!.content.at(-1)).toEqual({
+			cachePoint: { type: "default" },
+		});
 		expect(body.messages.at(-1)!.content).toEqual([
 			expect.objectContaining({
 				toolResult: expect.objectContaining({ toolUseId: "call_2" }),
 			}),
 			{ cachePoint: { type: "default" } },
 		]);
-		expect(markerCount(body)).toBe(1);
+		expect(markers(body)).toHaveLength(2);
 	});
 
-	test("aws-bedrock ends the new user message of a chat with a cachePoint", async () => {
+	test("aws-bedrock marks the turn boundary and the new user message of a chat", async () => {
 		const body = await prepare("aws-bedrock", chat);
 
-		expect(body.messages.at(-1)!.content).toEqual([
-			{ text: "Tell me a joke." },
-			{ cachePoint: { type: "default" } },
+		expect(body.messages.slice(-2).map((message) => message.content)).toEqual([
+			[{ text: "Hi, how can I help?" }, { cachePoint: { type: "default" } }],
+			[{ text: "Tell me a joke." }, { cachePoint: { type: "default" } }],
 		]);
-		expect(markerCount(body)).toBe(1);
 	});
 
 	test.each([...anthropicFormat, "aws-bedrock" as const])(
@@ -153,7 +156,7 @@ describe("automatic cache breakpoint on the conversation tail", () => {
 		async (provider) => {
 			const body = await prepare(provider, chat.slice(0, 2));
 
-			expect(markerCount(body)).toBe(0);
+			expect(markers(body)).toEqual([]);
 		},
 	);
 
@@ -162,7 +165,86 @@ describe("automatic cache breakpoint on the conversation tail", () => {
 		async (provider) => {
 			const body = await prepare(provider, toolLoop, "passthrough");
 
-			expect(markerCount(body)).toBe(0);
+			expect(markers(body)).toEqual([]);
+		},
+	);
+
+	test.each(anthropicFormat)(
+		"%s keeps the boundary marker when the new message is only an image",
+		async (provider) => {
+			const pixel =
+				"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+			const body = await prepare(provider, [
+				...chat.slice(0, 3),
+				{
+					role: "user",
+					content: [{ type: "image_url", image_url: { url: pixel } }],
+				},
+			]);
+
+			expect(body.messages.at(-2)!.content.at(-1)).toMatchObject({
+				text: "Hi, how can I help?",
+				cache_control: { type: "ephemeral" },
+			});
+			expect(markers(body)).toHaveLength(1);
+		},
+	);
+
+	test.each(anthropicFormat)(
+		"%s counts markers on replayed native blocks toward the limit",
+		async (provider) => {
+			const marked = (ttl?: "1h") =>
+				Array.from({ length: 4 }, (_, index) => ({
+					type: "text",
+					text: `replayed ${index}`,
+					cache_control: { type: "ephemeral", ...(ttl && { ttl }) },
+				}));
+			const withNative = (
+				blocks: NonNullable<BaseMessage["anthropic_native_blocks"]>,
+			): BaseMessage[] => [
+				{ role: "user", content: "Look it up." },
+				{ ...toolCall("call_1"), anthropic_native_blocks: blocks },
+				{ role: "tool", tool_call_id: "call_1", content: "found" },
+			];
+
+			const full = await prepare(provider, withNative(marked()));
+			expect(markers(full)).toHaveLength(4);
+
+			// A 5m marker must not land before a caller's 1h one.
+			const oneHour = await prepare(provider, withNative(marked("1h")));
+			expect(markers(oneHour)).toEqual(
+				Array.from({ length: 4 }, () => ({ type: "ephemeral", ttl: "1h" })),
+			);
+		},
+	);
+
+	test.each(["vertex-anthropic", "azure-anthropic"] as const)(
+		"%s keeps a caller's fourth marker past a long message",
+		async (provider) => {
+			const body = await prepare(provider, [
+				{
+					role: "system",
+					content: ["one", "two", "three"].map((text) => ({
+						type: "text" as const,
+						text,
+						cache_control: { type: "ephemeral" as const },
+					})),
+				},
+				{ role: "user", content: "A".repeat(20000) },
+				toolCall("call_1"),
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: "result",
+					tool_result_cache_control: { type: "ephemeral" },
+				},
+			]);
+
+			expect(body.messages.at(-1)!.content.at(-1)).toMatchObject({
+				type: "tool_result",
+				cache_control: { type: "ephemeral" },
+			});
+			expect(markers(body)).toHaveLength(4);
 		},
 	);
 });

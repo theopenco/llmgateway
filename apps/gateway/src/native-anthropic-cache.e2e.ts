@@ -384,15 +384,27 @@ describeCache(
 
 					const first = await send(firstTurn);
 					expect(first.status).toBe(200);
-
-					const second = await sendUntilCacheRead(() =>
-						send([...firstTurn, ...toolTurn("call_2", "Done.")]),
+					const written =
+						first.json.usage.prompt_tokens_details.cache_write_tokens;
+					expect(written, "first turn writes the conversation").toBeGreaterThan(
+						0,
 					);
+
+					// Each retry appends a different turn, so a read can only come from
+					// the first request's write, never from an earlier retry.
+					let retry = 0;
+					const second = await sendUntilCacheRead(() => {
+						retry++;
+						return send([
+							...firstTurn,
+							...toolTurn(`call_${retry + 1}`, "Done."),
+						]);
+					});
 					expect(second.status).toBe(200);
 					expect(
 						second.json.usage.prompt_tokens_details.cached_tokens,
-						`expected cached_tokens > 0 after ${second.attempts} attempts`,
-					).toBeGreaterThan(0);
+						`expected the first turn read back after ${second.attempts} attempts`,
+					).toBeGreaterThanOrEqual(written);
 				},
 			);
 		}
@@ -686,7 +698,7 @@ describeCache(
 
 		// Regression: a caller-supplied ttl:"1h" marker in the *messages* (e.g.
 		// RisuAI's rolling "Automatic Cache Point") must suppress the gateway's
-		// heuristic 5m markers (long system, conversation tail). Anthropic requires
+		// heuristic 5m markers (long-system + turn-boundary). Anthropic requires
 		// longer TTLs before shorter ones, so an injected 5m marker ahead of the
 		// caller's 1h marker used to fail the whole request with "a ttl='1h'
 		// cache_control block must not come after a ttl='5m' cache_control block".

@@ -62,7 +62,11 @@ export async function transformAnthropicMessages(
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
 
-	const shouldApplyCacheControl = autoInjectCacheControl;
+	// Long-block markers are placed before the caller's later markers are
+	// counted, so they can take a caller's slot. Keep them on direct Anthropic,
+	// where they always ran, until caller markers are reserved first.
+	const shouldApplyCacheControl =
+		provider === "anthropic" && autoInjectCacheControl;
 
 	// Continue the budget the tools and system passes already spent from.
 	let cacheControlCount = initialCacheControlCount;
@@ -125,7 +129,7 @@ export async function transformAnthropicMessages(
 		// first pass for it. Assembling it would fetch (and size-check) images
 		// that never reach the provider, and its cache_control accounting would
 		// spend one of Anthropic's 4 slots on a block that is thrown away,
-		// starving the real cacheable blocks (and the tail) of markers.
+		// starving the real cacheable blocks (and the turn boundary) of markers.
 		const originalRole = m.role === "user" && m.tool_call_id ? "tool" : m.role;
 		const isDiscardedToolResult =
 			originalRole === "tool" && !!m.tool_call_id && m.content !== undefined;
@@ -184,7 +188,7 @@ export async function transformAnthropicMessages(
 					if (isTextContent(part) && part.text) {
 						if (part.cache_control) {
 							// Count caller-supplied markers toward Anthropic's 4-block
-							// cap so subsequent auto-injection and the conversation-tail
+							// cap so subsequent auto-injection and the turn-boundary
 							// placement don't push the total over 4 (which Anthropic
 							// rejects with a 400). Without this, a coding agent like
 							// Claude Code that sends 4 markers itself would hit the
@@ -406,22 +410,45 @@ export async function transformAnthropicMessages(
 			role: anthropicRole,
 		});
 	}
-	// Conversation caching: a breakpoint on the last block of the final message
-	// caches the whole prompt, so the next request reads it back and writes only
-	// what it appended. Any earlier breakpoint leaves the newest content, in an
-	// agent loop the latest tool result, uncached on every turn. A first turn
-	// gets none, so one-off requests don't pay the cache-write premium.
-	if (
-		shouldApplyCacheControl &&
-		results.length >= 3 &&
-		cacheControlCount < maxCacheControlBlocks
-	) {
-		const tail = results[results.length - 1]!.content;
-		for (let i = tail.length - 1; i >= 0; i--) {
-			const part = tail[i] as MessageContent;
-			if (isTextContent(part) || isToolResultContent(part)) {
-				part.cache_control ??= { type: "ephemeral" };
+	// Conversation caching, from a conversation's second turn on. The marker
+	// before the last user message keeps a stable prefix cached when only the
+	// final message changes between requests. The marker on the final message
+	// caches the whole prompt, so the next request in a growing conversation
+	// reads it back; in an agent loop it is the only one that lands, because
+	// the message before the newest tool result holds only tool_use.
+	if (autoInjectCacheControl && results.length >= 3) {
+		// Budget against what the messages actually carry: replayed native
+		// blocks bypass the running count above.
+		const placed = results.flatMap((message) =>
+			message.content.flatMap((part) => {
+				const marker = (part as { cache_control?: CacheControl }).cache_control;
+				return marker ? [marker] : [];
+			}),
+		);
+		// A caller using the 1h TTL in messages keeps sole control, as above.
+		let free = placed.some((marker) => marker.ttl === "1h")
+			? 0
+			: maxCacheControlBlocks - initialCacheControlCount - placed.length;
+
+		let lastUserIdx = -1;
+		for (let i = results.length - 1; i >= 0; i--) {
+			if (results[i]!.role === "user") {
+				lastUserIdx = i;
 				break;
+			}
+		}
+
+		for (const index of [lastUserIdx - 1, results.length - 1]) {
+			const content = index >= 0 ? results[index]!.content : [];
+			for (let i = content.length - 1; i >= 0 && free > 0; i--) {
+				const part = content[i] as MessageContent;
+				if (isTextContent(part) || isToolResultContent(part)) {
+					if (!part.cache_control) {
+						part.cache_control = { type: "ephemeral" };
+						free--;
+					}
+					break;
+				}
 			}
 		}
 	}
