@@ -443,8 +443,10 @@ export async function transformAnthropicMessages(
 			for (let i = content.length - 1; i >= 0 && free > 0; i--) {
 				const part = content[i] as MessageContent;
 				if (isTextContent(part) || isToolResultContent(part)) {
+					// A copy: the block may be the caller's own object, which a fallback
+					// re-prepares for the next provider.
 					if (!part.cache_control) {
-						part.cache_control = { type: "ephemeral" };
+						content[i] = { ...part, cache_control: { type: "ephemeral" } };
 						free--;
 					}
 					break;
