@@ -6658,16 +6658,18 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		});
 
 		test.each([
-			["deepseek-v4.1-flash", [" ", "Now Rome."]],
-			["gpt-4o-mini", [undefined, undefined]],
-		])(
-			"backfills reasoning_content on tool turns only for DeepSeek V4: %s via an OpenAI-format carrier",
-			async (model, expected) => {
+			["openai", "deepseek-v4.1-flash", [" ", "Now Rome."], undefined],
+			["novita", "deepseek-v4-flash", [" ", "Now Rome."], undefined],
+			["deepseek", "deepseek-v4.1-flash", ["", "Now Rome."], undefined],
+			["openai", "gpt-4o-mini", [undefined, undefined], "Now Rome."],
+		] as const)(
+			"backfills reasoning_content on tool turns only for DeepSeek V4: %s %s",
+			async (provider, model, expected, reasoningLeft) => {
 				// Airside carriers with an OpenAI chat-completions apiFormat reach
 				// prepareRequestBody with the "openai" transport, so only the
 				// canonical model id says the upstream is DeepSeek V4.
 				const requestBody = (await prepareRequestBody(
-					"openai",
+					provider,
 					model,
 					null,
 					model,
@@ -6734,6 +6736,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 					[1, 3].map((i) => requestBody.messages[i].reasoning_content),
 				).toEqual(expected);
 				expect(requestBody.messages[5].reasoning_content).toBeUndefined();
+				// Runware treats `reasoning` as an alias of `reasoning_content` and
+				// rejects a message that carries both, so the backfill moves it.
+				expect(requestBody.messages[3].reasoning).toBe(reasoningLeft);
 			},
 		);
 	});
