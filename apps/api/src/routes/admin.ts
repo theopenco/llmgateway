@@ -229,7 +229,7 @@ function buildOrganizationSearchFilter(search: string | undefined) {
  * Ranks by membership age so the founding owner wins, keyed by user id to stay
  * deterministic when two memberships share a timestamp.
  */
-function buildOrganizationOwnerSubquery() {
+function buildOrganizationOwnerSubquery(organizationIds?: string[]) {
 	const ranked = db
 		.select({
 			organizationId: tables.userOrganization.organizationId,
@@ -244,7 +244,14 @@ function buildOrganizationOwnerSubquery() {
 		})
 		.from(tables.userOrganization)
 		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
-		.where(eq(tables.userOrganization.role, "owner"))
+		.where(
+			and(
+				eq(tables.userOrganization.role, "owner"),
+				organizationIds
+					? inArray(tables.userOrganization.organizationId, organizationIds)
+					: undefined,
+			),
+		)
 		.as("owner_ranked");
 
 	return db
@@ -2229,102 +2236,73 @@ admin.openapi(getGlobalStats, async (c) => {
 	);
 	const scopeFilter = and(rangeFilter, ...dimensionFilter);
 
-	// The dimension the breakdown groups on. `model` needs the per-model table
-	// (and its mapping/canonical/provider views); the rest are single columns
-	// on the source table.
+	// Group coarser model views in SQL instead of transferring every mapping.
 	const breakdownColumn =
-		groupBy === "mode"
-			? sourceTable.usedMode
-			: groupBy === "kind"
-				? sourceTable.orgKind
-				: globalSourceStats.source;
+		groupBy === "model"
+			? modelView === "canonical"
+				? sql<string>`split_part(substring(${modelTable.usedModel} from position('/' in ${modelTable.usedModel}) + 1), ':', 1)`
+				: modelView === "provider"
+					? sql<string>`COALESCE(NULLIF(${modelTable.usedProvider}, ''), 'unknown')`
+					: modelTable.usedModel
+			: groupBy === "mode"
+				? sourceTable.usedMode
+				: groupBy === "kind"
+					? sourceTable.orgKind
+					: globalSourceStats.source;
 
 	const compositionSums = {
 		requestCount: metricSums.requestCount,
 		cost: metricSums.cost,
 		totalTokens: metricSums.totalTokens,
 	};
-	const timeseriesQuery = db
-		.select({
-			date: dateExpr,
-			...metricSums,
-		})
-		.from(sourceTable)
-		.where(scopeFilter)
-		.groupBy(sourceTable.dayTimestamp)
-		.orderBy(asc(sourceTable.dayTimestamp));
-	const breakdownQuery =
-		groupBy === "model"
-			? db
-					.select({
-						usedModel: modelTable.usedModel,
-						usedProvider: modelTable.usedProvider,
-						...metricSums,
-					})
-					.from(modelTable)
-					.where(scopeFilter)
-					.groupBy(modelTable.usedModel, modelTable.usedProvider)
-					.orderBy(desc(metricSums.requestCount))
-			: db
-					.select({
-						dimension: breakdownColumn,
-						...metricSums,
-					})
-					.from(sourceTable)
-					.where(scopeFilter)
-					.groupBy(breakdownColumn)
-					.orderBy(desc(metricSums.requestCount));
-
-	// Daily dimensions only need the three chart metrics.
-	const timeseriesBreakdownQuery = !includeTimeseriesBreakdown
-		? Promise.resolve([])
-		: groupBy === "model"
-			? db
-					.select({
-						date: dateExpr,
-						usedModel: modelTable.usedModel,
-						usedProvider: modelTable.usedProvider,
-						...compositionSums,
-					})
-					.from(modelTable)
-					.where(scopeFilter)
-					.groupBy(
-						modelTable.dayTimestamp,
-						modelTable.usedModel,
-						modelTable.usedProvider,
-					)
-			: db
-					.select({
-						date: dateExpr,
-						dimension: breakdownColumn,
-						...compositionSums,
-					})
-					.from(sourceTable)
-					.where(scopeFilter)
-					.groupBy(sourceTable.dayTimestamp, breakdownColumn);
-
+	// Separate full-metric summaries allow PostgreSQL's parallel aggregation.
 	const [
 		timeseriesRows,
 		breakdownRows,
 		timeseriesBreakdownRows,
-		byModeRows,
-		byKindRows,
+		compositionRows,
 	] = await Promise.all([
-		timeseriesQuery,
-		breakdownQuery,
-		timeseriesBreakdownQuery,
 		db
-			.select({ dimension: sourceTable.usedMode, ...compositionSums })
+			.select({ date: dateExpr, ...metricSums })
 			.from(sourceTable)
-			.where(and(rangeFilter, ...kindFilter, ...keyFilter))
-			.groupBy(sourceTable.usedMode)
-			.orderBy(desc(compositionSums.requestCount)),
+			.where(scopeFilter)
+			.groupBy(sourceTable.dayTimestamp),
 		db
-			.select({ dimension: sourceTable.orgKind, ...compositionSums })
+			.select({ dimension: breakdownColumn, ...metricSums })
 			.from(sourceTable)
-			.where(and(rangeFilter, ...modeFilter, ...keyFilter))
-			.groupBy(sourceTable.orgKind)
-			.orderBy(desc(compositionSums.requestCount)),
+			.where(scopeFilter)
+			.groupBy(breakdownColumn),
+		includeTimeseriesBreakdown
+			? db
+					.select({
+						date: dateExpr,
+						dimension: breakdownColumn,
+						...compositionSums,
+					})
+					.from(sourceTable)
+					.where(scopeFilter)
+					.groupBy(sourceTable.dayTimestamp, breakdownColumn)
+			: Promise.resolve([]),
+		// Both composition panels share this small mode × kind matrix. Each
+		// panel ignores its own filter while retaining the other dimension.
+		db
+			.select({
+				mode: sourceTable.usedMode,
+				kind: sourceTable.orgKind,
+				...compositionSums,
+			})
+			.from(sourceTable)
+			.where(
+				and(
+					rangeFilter,
+					...keyFilter,
+					or(
+						kind === "all" ? sql`true` : eq(sourceTable.orgKind, kind),
+						mode === "total" ? sql`true` : eq(sourceTable.usedMode, mode),
+					),
+				),
+			)
+			.groupBy(sourceTable.usedMode, sourceTable.orgKind),
 	]);
 
 	const timeseriesMap = new Map<
@@ -2354,90 +2332,57 @@ admin.openapi(getGlobalStats, async (c) => {
 		}
 	}
 
-	const breakdown: z.infer<typeof globalStatsBreakdownItemSchema>[] =
-		groupBy === "model" && modelView === "canonical"
-			? aggregateBreakdownRows(
-					breakdownRows as Array<
-						(typeof breakdownRows)[number] & { usedModel: string }
-					>,
-					(row) => extractCanonicalModelId(row.usedModel),
-				)
-			: groupBy === "model" && modelView === "provider"
-				? aggregateBreakdownRows(
-						breakdownRows as Array<
-							(typeof breakdownRows)[number] & { usedProvider: string }
-						>,
-						(row) => row.usedProvider || "unknown",
-					)
-				: breakdownRows.map((row) => {
-						const key =
-							"usedModel" in row ? row.usedModel : (row.dimension ?? "unknown");
-						return {
-							...toBreakdownMetrics(row),
-							key,
-							label: globalStatsDimensionLabel(groupBy, key),
-						};
-					});
-
-	const timeseriesBreakdownMap = new Map<
-		string,
-		z.infer<typeof globalStatsTimeseriesBreakdownPointSchema>
-	>();
-	for (const row of timeseriesBreakdownRows) {
-		let key: string;
-		if (groupBy === "model") {
-			const modelRow = row as (typeof timeseriesBreakdownRows)[number] & {
-				usedModel: string;
-				usedProvider: string;
-			};
-			key =
-				modelView === "canonical"
-					? extractCanonicalModelId(modelRow.usedModel)
-					: modelView === "provider"
-						? modelRow.usedProvider || "unknown"
-						: modelRow.usedModel;
-		} else {
-			key =
-				(
-					row as (typeof timeseriesBreakdownRows)[number] & {
-						dimension: string;
-					}
-				).dimension ?? "unknown";
-		}
-		const mapKey = `${row.date}:${key}`;
-		const existing = timeseriesBreakdownMap.get(mapKey);
-		if (existing) {
-			existing.requestCount += Number(row.requestCount);
-			existing.cost += Number(row.cost);
-			existing.totalTokens += Number(row.totalTokens);
-		} else {
-			timeseriesBreakdownMap.set(mapKey, {
-				date: row.date,
-				key,
-				label: globalStatsDimensionLabel(groupBy, key),
-				requestCount: Number(row.requestCount),
-				cost: Number(row.cost),
-				totalTokens: Number(row.totalTokens),
-			});
-		}
-	}
-	const timeseriesBreakdown = Array.from(timeseriesBreakdownMap.values());
-
-	const toCompositionItem = (
-		dimension: "mode" | "kind",
-		row: {
-			dimension: string | null;
-			requestCount: number | string;
-			cost: number | string;
-			totalTokens: number | string;
-		},
-	) => ({
+	const breakdown = breakdownRows
+		.map((row) => ({
+			...toBreakdownMetrics(row),
+			key: row.dimension ?? "unknown",
+			label: globalStatsDimensionLabel(groupBy, row.dimension ?? "unknown"),
+		}))
+		.sort(
+			(a, b) => b.requestCount - a.requestCount || a.key.localeCompare(b.key),
+		);
+	const timeseriesBreakdown = timeseriesBreakdownRows.map((row) => ({
+		date: row.date,
 		key: row.dimension ?? "unknown",
-		label: globalStatsDimensionLabel(dimension, row.dimension ?? "unknown"),
+		label: globalStatsDimensionLabel(groupBy, row.dimension ?? "unknown"),
 		requestCount: Number(row.requestCount),
 		cost: Number(row.cost),
 		totalTokens: Number(row.totalTokens),
-	});
+	}));
+
+	const compositionFor = (dimension: "mode" | "kind") => {
+		const rows = new Map<
+			string,
+			{ requestCount: number; cost: Decimal; totalTokens: number }
+		>();
+		for (const row of compositionRows) {
+			if (
+				dimension === "mode"
+					? kind !== "all" && row.kind !== kind
+					: mode !== "total" && row.mode !== mode
+			) {
+				continue;
+			}
+			const key = row[dimension] ?? "unknown";
+			const item = rows.get(key) ?? {
+				requestCount: 0,
+				cost: new Decimal(0),
+				totalTokens: 0,
+			};
+			item.requestCount += Number(row.requestCount);
+			item.cost = item.cost.plus(row.cost);
+			item.totalTokens += Number(row.totalTokens);
+			rows.set(key, item);
+		}
+		return Array.from(rows, ([key, item]) => ({
+			...item,
+			key,
+			label: globalStatsDimensionLabel(dimension, key),
+			cost: item.cost.toNumber(),
+		})).sort(
+			(a, b) => b.requestCount - a.requestCount || a.key.localeCompare(b.key),
+		);
+	};
 
 	return c.json({
 		start: startDate.toISOString().split("T")[0],
@@ -2450,8 +2395,8 @@ admin.openapi(getGlobalStats, async (c) => {
 		provider,
 		totals,
 		composition: {
-			byMode: byModeRows.map((row) => toCompositionItem("mode", row)),
-			byKind: byKindRows.map((row) => toCompositionItem("kind", row)),
+			byMode: compositionFor("mode"),
+			byKind: compositionFor("kind"),
 		},
 		timeseries,
 		timeseriesBreakdown,
@@ -2698,33 +2643,6 @@ function toBreakdownMetrics(
 	) as GlobalStatsRowMetrics;
 }
 
-// Collapses per-mapping rows onto a coarser key (canonical model id, provider)
-// by summing every metric.
-function aggregateBreakdownRows<T extends GlobalStatsRowMetrics>(
-	rows: T[],
-	keyOf: (row: T) => string,
-): z.infer<typeof globalStatsBreakdownItemSchema>[] {
-	const aggregated = new Map<
-		string,
-		z.infer<typeof globalStatsBreakdownItemSchema>
-	>();
-	for (const row of rows) {
-		const key = keyOf(row);
-		const existing = aggregated.get(key);
-		const metrics = toBreakdownMetrics(row);
-		if (!existing) {
-			aggregated.set(key, { ...metrics, key, label: key });
-			continue;
-		}
-		for (const metric of GLOBAL_STATS_METRIC_KEYS) {
-			existing[metric] += metrics[metric];
-		}
-	}
-	return Array.from(aggregated.values()).sort(
-		(a, b) => b.requestCount - a.requestCount,
-	);
-}
-
 // `Date.parse` rolls impossible days over instead of rejecting them
 // ("2026-02-30" becomes March 2), so round-trip the parsed date and refuse
 // anything that did not survive unchanged.
@@ -2775,71 +2693,82 @@ admin.openapi(getOrganizations, async (c) => {
 	// PAYG top-ups) net of their refunds. Excludes DevPass/Chat Plan virtual
 	// credits, gifts, and end-user wallet rows. Refunds of non-top-up charges
 	// carry a zero creditAmount, so including every credit_refund is safe.
-	const allTimeCredits = db
-		.select({
-			organizationId: tables.transaction.organizationId,
-			total:
-				sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"total",
+	const creditsForOrganizations = (organizationIds?: string[]) =>
+		db
+			.select({
+				organizationId: tables.transaction.organizationId,
+				total:
+					sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+						"total",
+					),
+			})
+			.from(tables.transaction)
+			.where(
+				and(
+					eq(tables.transaction.status, "completed"),
+					organizationIds
+						? inArray(tables.transaction.organizationId, organizationIds)
+						: undefined,
+					inArray(tables.transaction.type, [
+						"credit_topup",
+						"credit_manual_payment",
+						"credit_refund",
+					]),
 				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				inArray(tables.transaction.type, [
-					"credit_topup",
-					"credit_manual_payment",
-					"credit_refund",
-				]),
-			),
-		)
-		.groupBy(tables.transaction.organizationId)
-		.as("all_time_credits");
+			)
+			.groupBy(tables.transaction.organizationId)
+			.as("all_time_credits");
 
 	// Subquery for usage totals (cost, requests, tokens) per org, scoped to the
 	// selected window.
-	const totalSpentSub = db
-		.select({
-			organizationId: tables.project.organizationId,
-			total:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
-					"total_spent",
+	const usageForOrganizations = (organizationIds?: string[]) =>
+		db
+			.select({
+				organizationId: tables.project.organizationId,
+				total:
+					sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+						"total_spent",
+					),
+				creditsTotal:
+					sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
+						"credits_spent",
+					),
+				apiKeysTotal:
+					sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.apiKeysCost} AS NUMERIC)), 0)`.as(
+						"api_keys_spent",
+					),
+				requestsTotal:
+					sql<string>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
+						"total_requests",
+					),
+				tokensTotal:
+					sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"total_tokens",
+					),
+			})
+			.from(projectHourlyStats)
+			.innerJoin(
+				tables.project,
+				eq(projectHourlyStats.projectId, tables.project.id),
+			)
+			.where(
+				and(
+					organizationIds
+						? inArray(tables.project.organizationId, organizationIds)
+						: undefined,
+					usageStartDate
+						? gte(projectHourlyStats.hourTimestamp, usageStartDate)
+						: undefined,
+					usageEndDate
+						? lte(projectHourlyStats.hourTimestamp, usageEndDate)
+						: undefined,
 				),
-			creditsTotal:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
-					"credits_spent",
-				),
-			apiKeysTotal:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.apiKeysCost} AS NUMERIC)), 0)`.as(
-					"api_keys_spent",
-				),
-			requestsTotal:
-				sql<string>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
-					"total_requests",
-				),
-			tokensTotal:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
-					"total_tokens",
-				),
-		})
-		.from(projectHourlyStats)
-		.innerJoin(
-			tables.project,
-			eq(projectHourlyStats.projectId, tables.project.id),
-		)
-		.where(
-			and(
-				usageStartDate
-					? gte(projectHourlyStats.hourTimestamp, usageStartDate)
-					: undefined,
-				usageEndDate
-					? lte(projectHourlyStats.hourTimestamp, usageEndDate)
-					: undefined,
-			),
-		)
-		.groupBy(tables.project.organizationId)
-		.as("total_spent");
+			)
+			.groupBy(tables.project.organizationId)
+			.as("total_spent");
+
+	const allTimeCredits = creditsForOrganizations();
+	const totalSpentSub = usageForOrganizations();
 
 	const whereClause = and(
 		searchFilter,
@@ -2853,7 +2782,7 @@ admin.openapi(getOrganizations, async (c) => {
 			: undefined,
 	);
 
-	const [countResult] = await db
+	let countQuery = db
 		.select({
 			count: sql<number>`COUNT(*)`.as("count"),
 			totalCredits:
@@ -2862,17 +2791,13 @@ admin.openapi(getOrganizations, async (c) => {
 				),
 		})
 		.from(tables.organization)
-		.leftJoin(
+		.$dynamic();
+	if (query.minSpent) {
+		countQuery = countQuery.leftJoin(
 			totalSpentSub,
 			eq(tables.organization.id, totalSpentSub.organizationId),
-		)
-		.where(whereClause);
-
-	const total = Number(countResult?.count ?? 0);
-	const totalCredits = String(countResult?.totalCredits ?? "0");
-
-	// Subquery for owner user per org
-	const ownerSub = buildOrganizationOwnerSubquery();
+		);
+	}
 
 	const sortColumnMap = {
 		name: tables.organization.name,
@@ -2897,6 +2822,48 @@ admin.openapi(getOrganizations, async (c) => {
 		? [desc(sql`${tables.organization.plan} = 'enterprise'`)]
 		: [];
 
+	// Only aggregates that affect filtering or ordering belong before pagination.
+	let pageQuery = db
+		.select({ id: tables.organization.id })
+		.from(tables.organization)
+		.$dynamic();
+	if (
+		query.minSpent ||
+		["totalSpent", "totalRequests", "totalTokens"].includes(sortBy)
+	) {
+		pageQuery = pageQuery.leftJoin(
+			totalSpentSub,
+			eq(tables.organization.id, totalSpentSub.organizationId),
+		);
+	}
+	if (sortBy === "totalCreditsAllTime") {
+		pageQuery = pageQuery.leftJoin(
+			allTimeCredits,
+			eq(tables.organization.id, allTimeCredits.organizationId),
+		);
+	}
+	const [[countResult], page] = await Promise.all([
+		countQuery.where(whereClause),
+		pageQuery
+			.where(whereClause)
+			.orderBy(
+				...searchOrderBy,
+				orderFn(sortColumn),
+				asc(tables.organization.id),
+			)
+			.limit(limit)
+			.offset(offset),
+	]);
+	const total = Number(countResult?.count ?? 0);
+	const totalCredits = String(countResult?.totalCredits ?? "0");
+	const organizationIds = page.map((org) => org.id);
+	if (!organizationIds.length) {
+		return c.json({ organizations: [], total, totalCredits, limit, offset });
+	}
+	const pageCredits = creditsForOrganizations(organizationIds);
+	const pageUsage = usageForOrganizations(organizationIds);
+	const ownerSub = buildOrganizationOwnerSubquery(organizationIds);
+
 	const organizations = await db
 		.select({
 			id: tables.organization.id,
@@ -2914,26 +2881,24 @@ admin.openapi(getOrganizations, async (c) => {
 			createdAt: tables.organization.createdAt,
 			status: tables.organization.status,
 			riskFlagged: tables.organization.riskFlagged,
-			totalCreditsAllTime:
-				sql<string>`COALESCE(${allTimeCredits.total}, '0')`.as(
-					"totalCreditsAllTime",
-				),
-			totalSpent: sql<string>`COALESCE(${totalSpentSub.total}, '0')`.as(
+			totalCreditsAllTime: sql<string>`COALESCE(${pageCredits.total}, '0')`.as(
+				"totalCreditsAllTime",
+			),
+			totalSpent: sql<string>`COALESCE(${pageUsage.total}, '0')`.as(
 				"totalSpent",
 			),
 			totalCreditsSpent:
-				sql<string>`COALESCE(${totalSpentSub.creditsTotal}, '0')`.as(
+				sql<string>`COALESCE(${pageUsage.creditsTotal}, '0')`.as(
 					"totalCreditsSpent",
 				),
 			totalApiKeysSpent:
-				sql<string>`COALESCE(${totalSpentSub.apiKeysTotal}, '0')`.as(
+				sql<string>`COALESCE(${pageUsage.apiKeysTotal}, '0')`.as(
 					"totalApiKeysSpent",
 				),
-			totalRequests:
-				sql<string>`COALESCE(${totalSpentSub.requestsTotal}, '0')`.as(
-					"totalRequests",
-				),
-			totalTokens: sql<string>`COALESCE(${totalSpentSub.tokensTotal}, '0')`.as(
+			totalRequests: sql<string>`COALESCE(${pageUsage.requestsTotal}, '0')`.as(
+				"totalRequests",
+			),
+			totalTokens: sql<string>`COALESCE(${pageUsage.tokensTotal}, '0')`.as(
 				"totalTokens",
 			),
 			ownerUserId: ownerSub.userId,
@@ -2942,21 +2907,14 @@ admin.openapi(getOrganizations, async (c) => {
 		})
 		.from(tables.organization)
 		.leftJoin(
-			allTimeCredits,
-			eq(tables.organization.id, allTimeCredits.organizationId),
+			pageCredits,
+			eq(tables.organization.id, pageCredits.organizationId),
 		)
-		.leftJoin(
-			totalSpentSub,
-			eq(tables.organization.id, totalSpentSub.organizationId),
-		)
+		.leftJoin(pageUsage, eq(tables.organization.id, pageUsage.organizationId))
 		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId))
-		.where(whereClause)
-		// Ties (every org with no usage shares 0 requests/tokens) would otherwise
-		// come back in an arbitrary order that differs per LIMIT/OFFSET plan, so
-		// paging repeats some rows and skips others.
-		.orderBy(...searchOrderBy, orderFn(sortColumn), asc(tables.organization.id))
-		.limit(limit)
-		.offset(offset);
+		.where(inArray(tables.organization.id, organizationIds));
+	const pageOrder = new Map(organizationIds.map((id, index) => [id, index]));
+	organizations.sort((a, b) => pageOrder.get(a.id)! - pageOrder.get(b.id)!);
 
 	return c.json({
 		organizations: organizations.map((org) => ({

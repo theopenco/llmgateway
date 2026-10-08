@@ -475,6 +475,66 @@ describe("admin — global stats mode/kind dimensions", () => {
 		}
 	});
 
+	test("coarser model views combine regional mappings and preserve daily totals", async () => {
+		const models = [
+			"first/coarse-model:east",
+			"first/coarse-model:west",
+			"second/coarse-model",
+			"coarse-model",
+		];
+		try {
+			await db.insert(tables.globalModelStats).values(
+				models.map((usedModel, i) => ({
+					dayTimestamp: DAY,
+					usedModel,
+					usedProvider: i < 2 ? "first" : "second",
+					usedMode: "credits" as const,
+					orgKind: "default" as const,
+					requestCount: i + 1,
+					cost: (i + 1) / 8,
+				})),
+			);
+			const canonical = await fetchStats(cookie, { modelView: "canonical" });
+			expect(
+				canonical.breakdown.find((row) => row.key === "coarse-model"),
+			).toMatchObject({ requestCount: 10, cost: 1.25 });
+			expect(
+				canonical.timeseriesBreakdown.filter(
+					(row) => row.key === "coarse-model",
+				),
+			).toEqual([
+				expect.objectContaining({ date: DATE, requestCount: 10, cost: 1.25 }),
+			]);
+			const provider = await fetchStats(cookie, { modelView: "provider" });
+			expect(
+				provider.breakdown.find((row) => row.key === "first"),
+			).toMatchObject({ requestCount: 3, cost: 0.375 });
+			expect(
+				provider.breakdown.find((row) => row.key === "second"),
+			).toMatchObject({ requestCount: 7, cost: 0.875 });
+			expect(provider.totals).toEqual(canonical.totals);
+		} finally {
+			await db
+				.delete(tables.globalModelStats)
+				.where(inArray(tables.globalModelStats.usedModel, models));
+		}
+	});
+
+	test("each composition panel ignores only its own active filter", async () => {
+		const body = await fetchStats(cookie, {
+			mode: "api-keys",
+			kind: "devpass",
+		});
+		expect(body.totals.requestCount).toBe(0);
+		expect(body.breakdown).toEqual([]);
+		expect(body.composition.byMode).toEqual([
+			expect.objectContaining({ key: "credits", requestCount: 2 }),
+		]);
+		expect(body.composition.byKind).toEqual([
+			expect.objectContaining({ key: "default", requestCount: 5 }),
+		]);
+	});
+
 	test("can omit daily breakdowns without changing totals or model costs", async () => {
 		const full = await fetchStats(cookie);
 		const summary = await fetchStats(cookie, {
