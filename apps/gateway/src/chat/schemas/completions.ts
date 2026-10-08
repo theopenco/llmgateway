@@ -462,6 +462,16 @@ export const completionsRequestSchema = z.object({
 				"Processing tier for the request. `flex` and `priority` are forwarded only for provider/model mappings that explicitly support the requested tier, such as supported OpenAI and Google mappings. `auto`/`default` use the standard on-demand tier. Unsupported tier requests return a 400 `unsupported_service_tier` error. On coding (dev) plans only `auto`, `default` and `flex` are allowed.",
 			example: "flex",
 		}),
+	anthropic_safeguards: z
+		.object({
+			safeguards: z.array(z.object({ type: z.string() }).passthrough()).min(1),
+			betas: z.array(z.string()).min(1),
+		})
+		.optional()
+		.openapi({
+			description:
+				"Anthropic server-side safeguard review (Claude Code auto mode): the Messages API `safeguards` field and the `anthropic-beta` values it pairs with. Sent to the Anthropic API only and stripped for every other provider; the verdicts come back as `anthropic_safeguard_results` on the assistant message.",
+		}),
 	routing: z
 		.enum(["auto", "price", "throughput", "latency"])
 		.optional()

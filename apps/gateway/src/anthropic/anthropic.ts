@@ -4,6 +4,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { app } from "@/app.js";
+import { extractAnthropicSafeguards } from "@/chat/tools/anthropic-safeguards.js";
 import { forwardedCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
 import {
@@ -296,6 +297,13 @@ const anthropicRequestSchema = z.object({
 			description:
 				"Anthropic output configuration. `effort` controls adaptive reasoning depth on Opus 4.7+ models.",
 		}),
+	safeguards: z
+		.array(z.object({ type: z.string() }).passthrough())
+		.optional()
+		.openapi({
+			description:
+				"Anthropic server-side safeguard review, sent by Claude Code in auto mode with its paired `anthropic-beta` value. Forwarded to the Anthropic API only; the verdicts come back as `safeguard_results`.",
+		}),
 });
 
 const anthropicContentBlockSchema = z.object({
@@ -357,6 +365,13 @@ const anthropicResponseSchema = z.object({
 		description:
 			"Gateway routing metadata, the same object /v1/chat/completions returns: used_provider, used_model, used_region and routing attempts. On streams it rides on the message_delta event.",
 	}),
+	safeguard_results: z
+		.array(z.record(z.string(), z.unknown()))
+		.optional()
+		.openapi({
+			description:
+				"Anthropic's server-side safeguard verdicts, returned verbatim when the request carried `safeguards`. On streams it rides on the message_delta event's delta.",
+		}),
 });
 
 type AnthropicRequest = z.infer<typeof anthropicRequestSchema>;
@@ -992,6 +1007,17 @@ anthropic.openapi(messages, async (c) => {
 		),
 	);
 
+	// Claude Code auto mode: the `safeguards` field and its paired beta ask
+	// Anthropic to review risky tool calls server-side, at no charge. Neither
+	// fits the chat completions shape, so carry them alongside.
+	const anthropicSafeguards = extractAnthropicSafeguards(
+		anthropicRequest.safeguards,
+		c.req.header("anthropic-beta"),
+	);
+	if (anthropicSafeguards) {
+		openaiRequest.anthropic_safeguards = anthropicSafeguards;
+	}
+
 	// Get user-agent for forwarding
 	const userAgent = c.req.header("User-Agent") ?? "";
 
@@ -1178,6 +1204,9 @@ anthropic.openapi(messages, async (c) => {
 				let stopReason: string | null = null;
 				// Routing metadata from the inner final usage chunk.
 				let responseMetadata: Record<string, unknown> | undefined;
+				// Anthropic's server-side safeguard verdicts, re-emitted on the
+				// final message_delta where Claude Code reads them.
+				let safeguardResults: unknown;
 				let contentBlockStopsSent = false;
 				let messageDeltaSent = false;
 
@@ -1251,6 +1280,9 @@ anthropic.openapi(messages, async (c) => {
 							delta: {
 								stop_reason: stopReason,
 								stop_sequence: null,
+								...(safeguardResults !== undefined && {
+									safeguard_results: safeguardResults,
+								}),
 							},
 							usage: usage,
 							...(responseMetadata && { metadata: responseMetadata }),
@@ -1381,6 +1413,13 @@ anthropic.openapi(messages, async (c) => {
 								const delta = choice.delta;
 								if (!delta) {
 									continue;
+								}
+
+								if (
+									delta.anthropic_safeguard_results !== undefined &&
+									delta.anthropic_safeguard_results !== null
+								) {
+									safeguardResults = delta.anthropic_safeguard_results;
 								}
 
 								// Handle reasoning delta. The upstream chat completions
@@ -1915,6 +1954,12 @@ anthropic.openapi(messages, async (c) => {
 			typeof openaiResponse.metadata === "object" && {
 				metadata: openaiResponse.metadata as Record<string, unknown>,
 			}),
+		...(Array.isArray(
+			openaiResponse.choices?.[0]?.message?.anthropic_safeguard_results,
+		) && {
+			safeguard_results: openaiResponse.choices[0].message
+				.anthropic_safeguard_results as Array<Record<string, unknown>>,
+		}),
 	};
 
 	return c.json(anthropicResponse);
