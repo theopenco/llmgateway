@@ -157,6 +157,8 @@ describe("DeepSeek V4 reasoning replay", () => {
 			["openai", "deepseek-v4.1-flash"],
 			["runware", "deepseek-v4-flash"],
 			["deepseek", "deepseek-v4.1-flash"],
+			["deepseek", "deepseek-v3.2"],
+			["moonshot", "kimi-k2.5"],
 			["moonshot", "kimi-k2.6"],
 		] satisfies [ProviderId, string][])(
 			"drops the reasoning alias beside supplied reasoning_content on %s %s",
@@ -175,13 +177,65 @@ describe("DeepSeek V4 reasoning replay", () => {
 						reasoning: "alias",
 						reasoning_content: "plain turn",
 					},
+					{ ...toolTurn, reasoning: "", reasoning_content: "empty alias" },
+					{
+						role: "assistant",
+						content: "Done",
+						reasoning: "alias",
+						reasoning_content: "",
+					},
+					{
+						...toolTurn,
+						tool_calls: [],
+						reasoning: "alias",
+						reasoning_content: "empty tool list",
+					},
+					{
+						role: "user",
+						content: "Continue",
+						reasoning: "user alias",
+						reasoning_content: "user reasoning",
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_weather",
+						content: "sunny",
+						reasoning: "tool alias",
+						reasoning_content: "tool reasoning",
+					},
 				];
 				const original = structuredClone(history);
-				const body = chatBody(await prepare(provider, model, history, stream));
-				expect(body.messages).toEqual([
-					{ reasoning: undefined, reasoning_content: "provider reasoning" },
-					{ reasoning: undefined, reasoning_content: "" },
-					{ reasoning: undefined, reasoning_content: "plain turn" },
+				history.forEach(Object.freeze);
+				Object.freeze(history);
+				const body = await prepare(provider, model, history, stream);
+				expect(body).toMatchObject({
+					messages: [
+						{ ...toolTurn, reasoning_content: "provider reasoning" },
+						{ ...toolTurn, reasoning_content: "" },
+						{
+							role: "assistant",
+							content: "Done",
+							reasoning_content: "plain turn",
+						},
+						{ ...toolTurn, reasoning_content: "empty alias" },
+						{ role: "assistant", content: "Done", reasoning_content: "" },
+						{
+							...toolTurn,
+							tool_calls: [],
+							reasoning_content: "empty tool list",
+						},
+						...original.slice(6),
+					],
+				});
+				expect(chatBody(body).messages.map((m) => m.reasoning)).toEqual([
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					"user alias",
+					"tool alias",
 				]);
 				expect(history).toEqual(original);
 			},
@@ -220,8 +274,18 @@ describe("DeepSeek V4 reasoning replay", () => {
 		async (provider) => {
 			const body = await prepare(provider, "deepseek-v4.1-flash", [
 				messages[0],
-				{ ...toolTurn, reasoning: "caller reasoning" },
+				{
+					...toolTurn,
+					reasoning: "caller reasoning",
+					reasoning_content: "provider reasoning",
+				},
 				messages[2],
+				{
+					role: "assistant",
+					content: "Done",
+					reasoning: "plain alias",
+					reasoning_content: "plain reasoning",
+				},
 			]);
 			expect(JSON.stringify(body)).not.toContain('"reasoning_content"');
 			expect(JSON.stringify(body)).not.toContain('"reasoning"');
@@ -229,16 +293,20 @@ describe("DeepSeek V4 reasoning replay", () => {
 		},
 	);
 
-	test("strips Fireworks reasoning while retaining the V4 backfill", async () => {
+	test("strips Fireworks reasoning while retaining supplied provider reasoning", async () => {
 		const body = chatBody(
 			await prepare("fireworks", "deepseek-v4.1-flash", [
 				messages[0],
-				{ ...toolTurn, reasoning: "caller reasoning" },
+				{
+					...toolTurn,
+					reasoning: "caller reasoning",
+					reasoning_content: "provider reasoning",
+				},
 				messages[2],
 			]),
 		);
 		expect(body.messages[1].reasoning).toBeUndefined();
-		expect(body.messages[1].reasoning_content).toBe("caller reasoning");
+		expect(body.messages[1].reasoning_content).toBe("provider reasoning");
 	});
 
 	test("does not leak chat reasoning into Responses input items", async () => {
@@ -263,59 +331,65 @@ describe("DeepSeek V4 reasoning replay", () => {
 		expect(JSON.stringify(body)).toContain('"function_call_output"');
 	});
 
-	test("preserves opaque Responses reasoning and context while moving text", async () => {
-		const history: BaseMessage[] = [
-			messages[0],
-			{
-				...toolTurn,
-				reasoning: "caller reasoning",
-				reasoning_details: [
+	test.each([undefined, "", "provider reasoning"])(
+		"preserves opaque Responses reasoning and context with reasoning_content=%s",
+		async (reasoningContent) => {
+			const history: BaseMessage[] = [
+				messages[0],
+				{
+					...toolTurn,
+					reasoning: "caller reasoning",
+					...(reasoningContent !== undefined && {
+						reasoning_content: reasoningContent,
+					}),
+					reasoning_details: [
+						{
+							type: "reasoning.encrypted",
+							data: "opaque reasoning",
+							id: "rs_weather",
+							format: "openai-responses-v1",
+						},
+					],
+				},
+				messages[2],
+			];
+			const original = structuredClone(history);
+			const args: Parameters<typeof prepareRequestBody> = [
+				"openai",
+				"deepseek-v4.1-flash",
+				null,
+				"vendor/deployment",
+				history,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+			];
+			args[25] = true;
+			args[34] = "all_turns";
+			const body = await prepareRequestBody(...args);
+			expect(body).toMatchObject({
+				reasoning: { context: "all_turns" },
+				input: expect.arrayContaining([
 					{
-						type: "reasoning.encrypted",
-						data: "opaque reasoning",
+						type: "reasoning",
 						id: "rs_weather",
-						format: "openai-responses-v1",
+						summary: [],
+						encrypted_content: "opaque reasoning",
 					},
-				],
-			},
-			messages[2],
-		];
-		const original = structuredClone(history);
-		const args: Parameters<typeof prepareRequestBody> = [
-			"openai",
-			"deepseek-v4.1-flash",
-			null,
-			"vendor/deployment",
-			history,
-			false,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-		];
-		args[25] = true;
-		args[34] = "all_turns";
-		const body = await prepareRequestBody(...args);
-		expect(body).toMatchObject({
-			reasoning: { context: "all_turns" },
-			input: expect.arrayContaining([
-				{
-					type: "reasoning",
-					id: "rs_weather",
-					summary: [],
-					encrypted_content: "opaque reasoning",
-				},
-				{
-					type: "function_call",
-					call_id: "call_weather",
-					name: "get_weather",
-					arguments: '{"city":"Paris"}',
-				},
-			]),
-		});
-		expect(JSON.stringify(body)).not.toContain("caller reasoning");
-		expect(history).toEqual(original);
-	});
+					{
+						type: "function_call",
+						call_id: "call_weather",
+						name: "get_weather",
+						arguments: '{"city":"Paris"}',
+					},
+				]),
+			});
+			expect(JSON.stringify(body)).not.toContain("caller reasoning");
+			expect(history).toEqual(original);
+		},
+	);
 });
