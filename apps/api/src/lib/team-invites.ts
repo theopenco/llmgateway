@@ -99,24 +99,15 @@ export async function acceptPendingInvitesForUser(user: {
 				const [membership] = await withEnterpriseSeatForOrganization(
 					invite.organizationId,
 					user.id,
-					async (tx) => {
-						const [current] = await tx
-							.select({ status: tables.organization.status })
-							.from(tables.organization)
-							.where(eq(tables.organization.id, invite.organizationId))
-							.for("update");
-						if (current?.status !== "active") {
-							throw new Error("Cannot join an inactive organization");
-						}
-						return await tx
+					async (tx) =>
+						await tx
 							.insert(tables.userOrganization)
 							.values({
 								userId: user.id,
 								organizationId: invite.organizationId,
 								role: invite.role,
 							})
-							.returning({ id: tables.userOrganization.id });
-					},
+							.returning({ id: tables.userOrganization.id }),
 				);
 
 				if (isProjectScopedRole(invite.role) && invite.projectIds?.length) {

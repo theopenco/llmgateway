@@ -1,6 +1,7 @@
 import { Decimal } from "decimal.js";
 import Stripe from "stripe";
 
+import { lockOrganizationMembership } from "@/lib/enterprise-seats.js";
 import { getStripe } from "@/routes/payments.js";
 
 import { db, eq, tables } from "@llmgateway/db";
@@ -225,11 +226,13 @@ export async function tearDownSoleMemberOrganizations(
 	const closed: SoleMemberOrganization[] = [];
 	for (const org of organizations) {
 		const deleted = await db.transaction(async (tx) => {
-			const [current] = await tx
-				.select()
-				.from(tables.organization)
-				.where(eq(tables.organization.id, org.id))
-				.for("update");
+			// Joins wait on this lock and then see the org deleted. The row itself
+			// is only locked by the final update, so Stripe latency never blocks
+			// other writers such as the billing batch.
+			await lockOrganizationMembership(tx, org.id);
+			const current = await tx.query.organization.findFirst({
+				where: { id: { eq: org.id } },
+			});
 			if (!current || current.status === "deleted") {
 				return false;
 			}
