@@ -327,6 +327,7 @@ import {
 import { readTencentImageBody } from "./tools/read-tencent-image-body.js";
 import {
 	flushTaggedStreamingRemainder,
+	hasProviderBoundReasoning,
 	splitTaggedStreamingContentChunk,
 	splitReasoningFromTaggedContent,
 } from "./tools/reasoning-details.js";
@@ -2984,16 +2985,15 @@ chat.openapi(completions, async (c) => {
 			softExempt: providerId === softLimitExemptProvider,
 		});
 
-	// Another provider cannot verify the used mapping's encrypted reasoning, so
-	// requests on it never move providers (low-uptime reroute, retry).
+	// Keep low-uptime rerouting conservative for encrypted-reasoning mappings.
 	const usedProviderEncryptsReasoning = () =>
 		modelInfo.providers.some(
 			(p) => p.providerId === usedProvider && usesEncryptedReasoning(p),
 		);
-	// Cross-provider retry is off for pinned requests; the failed provider is
-	// retried on another key or the same key instead.
+	// Check replayed data at retry time, after cached Google signatures are
+	// restored. Reasoning capability alone does not bind a fresh request.
 	const isProviderPinned = () =>
-		sessionStickyEnabled || usedProviderEncryptsReasoning();
+		sessionStickyEnabled || hasProviderBoundReasoning(messages);
 
 	const retryProjectContext = {
 		mode: project.mode,
@@ -10027,6 +10027,33 @@ chat.openapi(completions, async (c) => {
 							willRetryStreamingError ||
 							willRetrySameKey;
 
+						const attemptLogId = shortid();
+						routingAttempts.push(
+							buildRoutingAttempt(
+								usedProvider,
+								usedInternalModel,
+								inferredStatusCode,
+								getErrorType(inferredStatusCode),
+								false,
+								{
+									region: usedRegion,
+									apiKeyHash: usedApiKeyHash,
+									credentialSource: currentCredentialSource(),
+									...currentProviderKeyIdentity(),
+									logId: attemptLogId,
+								},
+							),
+						);
+						routingMetadata = {
+							...(routingMetadata ?? {
+								availableProviders: [usedProvider],
+								selectedProvider: usedProvider,
+								selectionReason: "direct-provider-specified",
+								providerScores: [],
+							}),
+							routing: [...routingAttempts],
+						};
+
 						const baseLogEntry = createLogEntry(
 							requestId,
 							project,
@@ -10062,7 +10089,6 @@ chat.openapi(completions, async (c) => {
 							streamingErrorPluginIds,
 							undefined,
 						);
-						const attemptLogId = shortid();
 
 						await insertLogEntry({
 							...baseLogEntry,
@@ -10125,22 +10151,6 @@ chat.openapi(completions, async (c) => {
 						}
 
 						if (willRetrySameProvider && sameProviderRetryContext) {
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									inferredStatusCode,
-									getErrorType(inferredStatusCode),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							await applyResolvedProviderContext(sameProviderRetryContext);
 							retryAttempt--;
 							continue;
@@ -10153,43 +10163,11 @@ chat.openapi(completions, async (c) => {
 							// retried upstream call still cancels.
 							c.req.raw.signal.addEventListener("abort", onAbort);
 							await sameKeyRetryDelay(sameKeyRetryCount);
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									inferredStatusCode,
-									getErrorType(inferredStatusCode),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							retryAttempt--;
 							continue;
 						}
 
 						if (willRetryStreamingError) {
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									inferredStatusCode,
-									getErrorType(inferredStatusCode),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 							continue;
 						}
