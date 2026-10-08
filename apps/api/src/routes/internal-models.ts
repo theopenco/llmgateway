@@ -867,6 +867,41 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 		)
 		.groupBy(history.providerId, tables.provider.name);
 
+	const idleProviders = await db
+		.select({
+			providerId: tables.modelProviderMapping.providerId,
+			providerName: tables.provider.name,
+		})
+		.from(tables.modelProviderMapping)
+		.innerJoin(
+			tables.provider,
+			eq(tables.modelProviderMapping.providerId, tables.provider.id),
+		)
+		.where(
+			and(
+				eq(tables.modelProviderMapping.modelId, modelId),
+				eq(tables.modelProviderMapping.status, "active"),
+			),
+		);
+	const seenProviders = new Set(windowed.map((row) => row.providerId));
+	for (const idle of idleProviders) {
+		if (seenProviders.has(idle.providerId)) {
+			continue;
+		}
+		seenProviders.add(idle.providerId);
+		windowed.push({
+			...idle,
+			logsCount: 0,
+			clientErrorsCount: 0,
+			gatewayErrorsCount: 0,
+			upstreamErrorsCount: 0,
+			cachedCount: 0,
+			avgTimeToFirstToken: null,
+			totalDuration: 0,
+			totalOutputTokens: 0,
+		});
+	}
+
 	const providers = windowed.map((m) => {
 		const logsCount = Number(m.logsCount);
 		const { errorsCount, errorRate, uptime } = deriveStabilityMetrics({

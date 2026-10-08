@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
@@ -347,4 +347,141 @@ describe("admin catalog usage mode", () => {
 			"unknown",
 		]);
 	});
+	it.each([false, true])(
+		"preserves idle history with sparse storage (hourly=%s)",
+		async (hourly) => {
+			const halfHourMs = 30 * 60_000;
+			vi.setSystemTime(new Date(BUCKET.getTime() + halfHourMs));
+			try {
+				const idle = new Date(BUCKET.getTime() - ONE_HOUR_MS);
+				const createdAt = new Date(idle.getTime() - ONE_HOUR_MS);
+				await db
+					.update(tables.model)
+					.set({ createdAt })
+					.where(eq(tables.model.id, MODEL_ID));
+				await db
+					.update(tables.modelProviderMapping)
+					.set({ createdAt })
+					.where(eq(tables.modelProviderMapping.id, MAPPING_ID));
+				const coverage = {
+					job: hourly ? "hourly-usage" : "minute-usage",
+					bucketTimestamp: idle,
+					refreshedAt: new Date(),
+					finalizedAt: new Date(),
+				};
+				await db.insert(tables.aggregationProgress).values([
+					coverage,
+					{
+						...coverage,
+						bucketTimestamp: new Date(BUCKET.getTime() + ONE_HOUR_MS),
+					},
+					{
+						...coverage,
+						bucketTimestamp: new Date(idle.getTime() - 60_000),
+						refreshedAt: null,
+						finalizedAt: null,
+					},
+				]);
+				const modes = ["credits", "api-keys"] as const;
+				const mh = hourly ? tables.modelHistoryHourly : tables.modelHistory;
+				const mph = hourly
+					? tables.modelProviderMappingHistoryHourly
+					: tables.modelProviderMappingHistory;
+				// Explicit branches keep the different required bucket columns typed.
+				if (hourly) {
+					await db.insert(tables.modelHistoryHourly).values(
+						modes.map((usedMode) => ({
+							modelId: MODEL_ID,
+							hourTimestamp: idle,
+							usedMode,
+						})),
+					);
+					await db.insert(tables.modelProviderMappingHistoryHourly).values(
+						modes.map((usedMode) => ({
+							modelId: MODEL_ID,
+							providerId: PROVIDER_ID,
+							modelProviderMappingId: MAPPING_ID,
+							hourTimestamp: idle,
+							usedMode,
+						})),
+					);
+				} else {
+					await db.insert(tables.modelHistory).values(
+						modes.map((usedMode) => ({
+							modelId: MODEL_ID,
+							minuteTimestamp: idle,
+							usedMode,
+						})),
+					);
+					await db.insert(tables.modelProviderMappingHistory).values(
+						modes.map((usedMode) => ({
+							modelId: MODEL_ID,
+							providerId: PROVIDER_ID,
+							modelProviderMappingId: MAPPING_ID,
+							minuteTimestamp: idle,
+							usedMode,
+						})),
+					);
+				}
+				const paths = [
+					`providers/${PROVIDER_ID}`,
+					`models/${MODEL_ID}`,
+					`providers/${PROVIDER_ID}/models/${MODEL_ID}`,
+				];
+				const urls = paths.flatMap((path) =>
+					["total", ...modes].map(
+						(mode) =>
+							`/admin/${path}/history?window=${hourly ? "7d" : "4h"}&mode=${mode}`,
+					),
+				);
+				const read = async () => {
+					const results: unknown[] = [];
+					for (const url of urls) {
+						const res = await app.request(url, { headers: { Cookie: cookie } });
+						expect(res.status).toBe(200);
+						const body = await res.json();
+						expect(
+							body.data.find(
+								(row: { timestamp: string }) =>
+									row.timestamp === idle.toISOString(),
+							),
+						).toMatchObject({
+							logsCount: 0,
+							totalCost: 0,
+							totalTokens: 0,
+							avgTtft: null,
+							avgDuration: null,
+						});
+						expect(
+							body.data.every(
+								(row: { timestamp: string }) =>
+									new Date(row.timestamp) <= new Date(),
+							),
+						).toBe(true);
+						results.push(body);
+					}
+					return results;
+				};
+				const dense = await read();
+				await db
+					.delete(mh)
+					.where(and(eq(mh.modelId, MODEL_ID), eq(mh.logsCount, 0)));
+				await db
+					.delete(mph)
+					.where(and(eq(mph.modelId, MODEL_ID), eq(mph.logsCount, 0)));
+				expect(await read()).toEqual(dense);
+			} finally {
+				vi.useRealTimers();
+				await db.delete(tables.aggregationProgress);
+				await db
+					.delete(tables.modelHistoryHourly)
+					.where(eq(tables.modelHistoryHourly.modelId, MODEL_ID));
+				await db
+					.delete(tables.modelProviderMappingHistoryHourly)
+					.where(
+						eq(tables.modelProviderMappingHistoryHourly.modelId, MODEL_ID),
+					);
+			}
+		},
+	);
 });

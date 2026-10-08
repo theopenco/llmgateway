@@ -1,4 +1,15 @@
 import {
+	db,
+	and,
+	asc,
+	eq,
+	gte,
+	lte,
+	isNull,
+	isNotNull,
+	aggregationProgress,
+	model,
+	modelProviderMapping,
 	modelHistory,
 	modelHistoryHourly,
 	modelProviderMappingHistory,
@@ -59,4 +70,70 @@ export function pickModelHistoryTable(hourly: boolean): {
 		table: modelHistory,
 		bucket: modelHistory.minuteTimestamp,
 	};
+}
+
+// Coverage, rather than history row presence, distinguishes idle from unprocessed.
+export async function fillIdleHistory<
+	T extends { timestamp: string },
+>(options: {
+	rows: T[];
+	idle: Omit<T, "timestamp">;
+	hourly: boolean;
+	from: Date;
+	modelId?: string;
+	providerId?: string;
+	region?: string;
+}): Promise<T[]> {
+	const { rows, idle, hourly, from, modelId, providerId, region } = options;
+	const catalogue = providerId
+		? await db
+				.select({ createdAt: modelProviderMapping.createdAt })
+				.from(modelProviderMapping)
+				.where(
+					and(
+						eq(modelProviderMapping.status, "active"),
+						eq(modelProviderMapping.providerId, providerId),
+						modelId ? eq(modelProviderMapping.modelId, modelId) : undefined,
+						region !== undefined
+							? eq(modelProviderMapping.region, region)
+							: isNull(modelProviderMapping.region),
+					),
+				)
+				.orderBy(asc(modelProviderMapping.createdAt))
+				.limit(1)
+		: await db
+				.select({ createdAt: model.createdAt })
+				.from(model)
+				.where(and(eq(model.status, "active"), eq(model.id, modelId!)))
+				.limit(1);
+	if (!catalogue[0]) {
+		return rows;
+	}
+	const interval = hourly ? 3_600_000 : 60_000;
+	const firstEligible =
+		Math.floor(catalogue[0].createdAt.getTime() / interval) * interval;
+	const coverage = await db
+		.select({ bucket: aggregationProgress.bucketTimestamp })
+		.from(aggregationProgress)
+		.where(
+			and(
+				eq(aggregationProgress.job, hourly ? "hourly-usage" : "minute-usage"),
+				gte(
+					aggregationProgress.bucketTimestamp,
+					new Date(Math.max(from.getTime(), firstEligible)),
+				),
+				lte(aggregationProgress.bucketTimestamp, new Date()),
+				isNotNull(aggregationProgress.refreshedAt),
+			),
+		);
+	const result = new Map(rows.map((row) => [row.timestamp, row]));
+	for (const { bucket } of coverage) {
+		const timestamp = bucket.toISOString();
+		if (!result.has(timestamp)) {
+			result.set(timestamp, { ...idle, timestamp } as T);
+		}
+	}
+	return [...result.values()].sort((a, b) =>
+		a.timestamp.localeCompare(b.timestamp),
+	);
 }
