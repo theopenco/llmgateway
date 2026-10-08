@@ -92,6 +92,7 @@ export async function fillIdleHistory<
 				.select({
 					createdAt: modelProviderMapping.createdAt,
 					pausedAt: providerDraftModel.pausedAt,
+					delistedAt: providerDraftModel.delistedAt,
 					deactivatedAt: modelProviderMapping.deactivatedAt,
 				})
 				.from(modelProviderMapping)
@@ -101,7 +102,10 @@ export async function fillIdleHistory<
 						eq(modelProviderMapping.source, "airside"),
 						eq(providerDraftModel.providerId, modelProviderMapping.providerId),
 						eq(providerDraftModel.modelName, modelProviderMapping.modelId),
-						eq(providerDraftModel.status, "active"),
+						or(
+							eq(providerDraftModel.status, "active"),
+							eq(providerDraftModel.status, "delisted"),
+						),
 					),
 				)
 				.where(
@@ -109,6 +113,7 @@ export async function fillIdleHistory<
 						or(
 							eq(modelProviderMapping.status, "active"),
 							isNotNull(providerDraftModel.pausedAt),
+							isNotNull(providerDraftModel.delistedAt),
 							isNotNull(modelProviderMapping.deactivatedAt),
 						),
 						eq(modelProviderMapping.providerId, providerId),
@@ -122,6 +127,7 @@ export async function fillIdleHistory<
 				.select({
 					createdAt: model.createdAt,
 					pausedAt: sql<null>`null`,
+					delistedAt: sql<null>`null`,
 					deactivatedAt: sql<null>`null`,
 				})
 				.from(model)
@@ -136,6 +142,7 @@ export async function fillIdleHistory<
 		from: Math.floor(entry.createdAt.getTime() / interval) * interval,
 		until: Math.min(
 			entry.pausedAt?.getTime() ?? Infinity,
+			entry.delistedAt?.getTime() ?? Infinity,
 			entry.deactivatedAt?.getTime() ?? Infinity,
 		),
 	}));

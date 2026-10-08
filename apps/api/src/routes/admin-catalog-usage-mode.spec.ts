@@ -353,14 +353,52 @@ describe("admin catalog usage mode", () => {
 	});
 	it.each(
 		[false, true].flatMap((hourly) => [
-			{ hourly, paused: false, deactivated: false, idleOnly: false },
-			{ hourly, paused: true, deactivated: false, idleOnly: false },
-			{ hourly, paused: true, deactivated: false, idleOnly: true },
-			{ hourly, paused: false, deactivated: true, idleOnly: false },
+			{
+				hourly,
+				paused: false,
+				deactivated: false,
+				delisted: false,
+				idleOnly: false,
+			},
+			{
+				hourly,
+				paused: true,
+				deactivated: false,
+				delisted: false,
+				idleOnly: false,
+			},
+			{
+				hourly,
+				paused: true,
+				deactivated: false,
+				delisted: false,
+				idleOnly: true,
+			},
+			{
+				hourly,
+				paused: false,
+				deactivated: true,
+				delisted: false,
+				idleOnly: false,
+			},
+			{
+				hourly,
+				paused: false,
+				deactivated: false,
+				delisted: true,
+				idleOnly: false,
+			},
+			{
+				hourly,
+				paused: false,
+				deactivated: false,
+				delisted: true,
+				idleOnly: true,
+			},
 		]),
 	)(
-		"preserves idle history (hourly=$hourly, paused=$paused, deactivated=$deactivated, idleOnly=$idleOnly)",
-		async ({ hourly, paused, deactivated, idleOnly }) => {
+		"preserves idle history (hourly=$hourly, paused=$paused, deactivated=$deactivated, delisted=$delisted, idleOnly=$idleOnly)",
+		async ({ hourly, paused, deactivated, delisted, idleOnly }) => {
 			const halfHourMs = 30 * 60_000;
 			const twoHoursMs = 2 * ONE_HOUR_MS;
 			vi.setSystemTime(new Date(BUCKET.getTime() + halfHourMs));
@@ -443,7 +481,7 @@ describe("admin catalog usage mode", () => {
 						.delete(mph)
 						.where(and(eq(mph.modelId, MODEL_ID), gt(mph.logsCount, 0)));
 				}
-				if (paused) {
+				if (paused || delisted) {
 					await db
 						.insert(tables.providerCompany)
 						.values({ id: "history-company", name: "Test Company" });
@@ -454,8 +492,9 @@ describe("admin catalog usage mode", () => {
 							providerId: PROVIDER_ID,
 							modelName: MODEL_ID,
 							externalId: MODEL_ID,
-							status: "active",
-							pausedAt: new Date(),
+							status: delisted ? "delisted" : "active",
+							pausedAt: paused ? new Date() : null,
+							delistedAt: delisted ? new Date() : null,
 						})
 						.returning();
 					await db
@@ -514,7 +553,10 @@ describe("admin catalog usage mode", () => {
 									new Date(row.timestamp) <= new Date(),
 							),
 						).toBe(true);
-						if ((paused || deactivated) && url.includes("/providers/")) {
+						if (
+							(paused || deactivated || delisted) &&
+							url.includes("/providers/")
+						) {
 							expect(
 								body.data.some(
 									(row: { timestamp: string }) =>
