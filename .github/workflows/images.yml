@@ -88,6 +88,9 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.4.1
+        with:
+          # The runner is discarded after the job; removing the builder costs up to a minute.
+          cleanup: false
 
       - name: Login to GitHub Container Registry (main branch only)
         if: github.event_name != 'pull_request'
@@ -195,6 +198,9 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.4.1
+        with:
+          # The runner is discarded after the job; removing the builder costs up to a minute.
+          cleanup: false
 
       - name: Docker meta
         id: meta
@@ -251,6 +257,9 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.4.1
+        with:
+          # The runner is discarded after the job; removing the builder costs up to a minute.
+          cleanup: false
 
       - name: Login to GitHub Container Registry (main branch only)
         if: github.event_name != 'pull_request'
@@ -353,6 +362,9 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.4.1
+        with:
+          # The runner is discarded after the job; removing the builder costs up to a minute.
+          cleanup: false
 
       - name: Docker meta
         id: meta
