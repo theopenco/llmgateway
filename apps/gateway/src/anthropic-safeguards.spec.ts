@@ -35,6 +35,15 @@ const SAFEGUARD_RESULTS = [
 	},
 ];
 
+const SAFEGUARD_ROUTING_MODELS = [
+	"anthropic/claude-opus-4-8",
+	"claude-opus-4-8",
+	"auto",
+	"smart",
+	"llmgateway/auto",
+	"llmgateway/smart",
+];
+
 describe("anthropic safeguards helpers", () => {
 	test("extract requires both the field and a safeguard beta", () => {
 		expect(extractAnthropicSafeguards(SAFEGUARDS, undefined)).toBeUndefined();
@@ -110,6 +119,12 @@ describe("/v1/messages Claude Code auto mode safeguards", () => {
 	const harness = createGatewayApiTestHarness();
 
 	async function seedAnthropicKey() {
+		await db
+			.update(tables.organization)
+			.set({
+				smartRoutingConfig: { classifier: "none", models: ["claude-opus-4-8"] },
+			})
+			.where(eq(tables.organization.id, "org-id"));
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			...hashApiKeyForStorage("real-token"),
@@ -176,7 +191,7 @@ describe("/v1/messages Claude Code auto mode safeguards", () => {
 		],
 	};
 
-	test.each(["anthropic/claude-opus-4-8", "claude-opus-4-8", "auto"])(
+	test.each(SAFEGUARD_ROUTING_MODELS)(
 		"forwards safeguards and returns verdicts for %s",
 		async (model) => {
 			await seedAnthropicKey();
@@ -352,7 +367,7 @@ describe("/v1/messages Claude Code auto mode safeguards", () => {
 		}
 	});
 
-	test.each(["anthropic/claude-opus-4-8", "claude-opus-4-8", "auto"])(
+	test.each(SAFEGUARD_ROUTING_MODELS)(
 		"streams safeguard_results for %s",
 		async (model) => {
 			await seedAnthropicKey();
@@ -451,12 +466,13 @@ describe("/v1/messages Claude Code auto mode safeguards", () => {
 		},
 	);
 
-	async function seedOtherProvider(provider: string) {
+	async function seedOtherProvider(provider: string, name?: string) {
 		const id = `key-${provider}`;
 		await db.insert(tables.providerKey).values({
 			id,
 			...encryptProviderKeyForStorage("test-provider-key", id, "org-id"),
 			provider,
+			name,
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,
 		});
@@ -496,6 +512,27 @@ describe("/v1/messages Claude Code auto mode safeguards", () => {
 					expect(res.headers.get("content-type")).toContain("application/json");
 					expect((await res.json()).error.message).toContain(
 						"CLAUDE_CODE_AUTO_MODE_SERVER=0",
+					);
+				}
+				expect(spy).not.toHaveBeenCalled();
+			} finally {
+				spy.mockRestore();
+			}
+		},
+	);
+
+	test.each(["custom", "llmgateway/custom", "my-provider/claude-opus-4-8"])(
+		"rejects unsupported custom transport %s even with an Anthropic key",
+		async (model) => {
+			await seedAnthropicKey();
+			await seedOtherProvider("custom", "my-provider");
+			const spy = vi.spyOn(globalThis, "fetch");
+			try {
+				for (const stream of [false, true]) {
+					const res = await sendSafeguards(model, stream);
+					expect(res.status).toBe(400);
+					expect((await res.json()).error.message).toContain(
+						"No compatible provider",
 					);
 				}
 				expect(spy).not.toHaveBeenCalled();

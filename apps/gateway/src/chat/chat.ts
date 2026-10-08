@@ -3774,6 +3774,8 @@ chat.openapi(completions, async (c) => {
 		iamFilteredModelProviders = eligible;
 		expandedIamFilteredModelProviders =
 			expandedIamFilteredModelProviders.filter(supportsSafeguards);
+		// Auto/smart reach this check after resolving a real provider. Custom
+		// transports cannot forward safeguards and must not bypass this guard.
 		if (
 			eligible.length === 0 ||
 			(usedProvider !== undefined &&
