@@ -268,6 +268,9 @@ export async function transformGoogleMessages(
 	providerId?: ProviderId | string,
 ): Promise<GoogleMessageExtended[]> {
 	const result: GoogleMessageExtended[] = [];
+	// Gemini matches a functionResponse to its functionCall by name, while an
+	// OpenAI tool message only carries the call's id.
+	const toolCallNames = new Map<string, string>();
 
 	for (const m of messages) {
 		// Preserve the normalizer's removal of foreign reasoning-only turns.
@@ -287,7 +290,10 @@ export async function transformGoogleMessages(
 			const lastMsg = result[result.length - 1];
 			const functionResponsePart: GooglePart = {
 				functionResponse: {
-					name: m.name ?? "unknown_function",
+					name:
+						(m.tool_call_id && toolCallNames.get(m.tool_call_id)) ||
+						m.name ||
+						"unknown_function",
 					response: {
 						result: m.content,
 					},
@@ -336,6 +342,7 @@ export async function transformGoogleMessages(
 			// Add function calls
 			for (const toolCall of m.tool_calls) {
 				if (toolCall.type === "function") {
+					toolCallNames.set(toolCall.id, toolCall.function.name);
 					let args: Record<string, unknown> = {};
 					try {
 						args = JSON.parse(toolCall.function.arguments ?? "{}");
