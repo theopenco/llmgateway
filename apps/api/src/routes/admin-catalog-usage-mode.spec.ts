@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
+import { setAirsideModelServing } from "@/lib/airside-catalogue.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { and, db, eq, tables } from "@llmgateway/db";
+import { and, db, eq, gt, tables } from "@llmgateway/db";
 
 const MODEL_ID = "catalog-mode-model";
 const PROVIDER_ID = "catalog-mode-provider";
@@ -25,6 +26,9 @@ interface CatalogResponse {
 }
 
 async function clearFixtures() {
+	await db
+		.delete(tables.providerCompany)
+		.where(eq(tables.providerCompany.id, "history-company"));
 	await db
 		.delete(tables.modelProviderMappingHistory)
 		.where(eq(tables.modelProviderMappingHistory.modelId, MODEL_ID));
@@ -347,10 +351,18 @@ describe("admin catalog usage mode", () => {
 			"unknown",
 		]);
 	});
-	it.each([false, true])(
-		"preserves idle history with sparse storage (hourly=%s)",
-		async (hourly) => {
+	it.each(
+		[false, true].flatMap((hourly) => [
+			{ hourly, paused: false, deactivated: false, idleOnly: false },
+			{ hourly, paused: true, deactivated: false, idleOnly: false },
+			{ hourly, paused: true, deactivated: false, idleOnly: true },
+			{ hourly, paused: false, deactivated: true, idleOnly: false },
+		]),
+	)(
+		"preserves idle history (hourly=$hourly, paused=$paused, deactivated=$deactivated, idleOnly=$idleOnly)",
+		async ({ hourly, paused, deactivated, idleOnly }) => {
 			const halfHourMs = 30 * 60_000;
+			const twoHoursMs = 2 * ONE_HOUR_MS;
 			vi.setSystemTime(new Date(BUCKET.getTime() + halfHourMs));
 			try {
 				const idle = new Date(BUCKET.getTime() - ONE_HOUR_MS);
@@ -423,6 +435,50 @@ describe("admin catalog usage mode", () => {
 						})),
 					);
 				}
+				if (idleOnly) {
+					await db
+						.delete(mh)
+						.where(and(eq(mh.modelId, MODEL_ID), gt(mh.logsCount, 0)));
+					await db
+						.delete(mph)
+						.where(and(eq(mph.modelId, MODEL_ID), gt(mph.logsCount, 0)));
+				}
+				if (paused) {
+					await db
+						.insert(tables.providerCompany)
+						.values({ id: "history-company", name: "Test Company" });
+					const [listing] = await db
+						.insert(tables.providerDraftModel)
+						.values({
+							providerCompanyId: "history-company",
+							providerId: PROVIDER_ID,
+							modelName: MODEL_ID,
+							externalId: MODEL_ID,
+							status: "active",
+							pausedAt: new Date(),
+						})
+						.returning();
+					await db
+						.update(tables.modelProviderMapping)
+						.set({ source: "airside" })
+						.where(eq(tables.modelProviderMapping.id, MAPPING_ID));
+					await db.transaction(
+						async (tx) => await setAirsideModelServing(listing, false, tx),
+					);
+					vi.setSystemTime(new Date(BUCKET.getTime() + twoHoursMs));
+				}
+				if (deactivated) {
+					await db
+						.update(tables.modelProviderMapping)
+						.set({ deactivatedAt: new Date() })
+						.where(eq(tables.modelProviderMapping.id, MAPPING_ID));
+					vi.setSystemTime(new Date(BUCKET.getTime() + twoHoursMs));
+				}
+				// Later metadata edits must not move the historical pause boundary.
+				await db
+					.update(tables.modelProviderMapping)
+					.set({ updatedAt: new Date() })
+					.where(eq(tables.modelProviderMapping.id, MAPPING_ID));
 				const paths = [
 					`providers/${PROVIDER_ID}`,
 					`models/${MODEL_ID}`,
@@ -458,6 +514,18 @@ describe("admin catalog usage mode", () => {
 									new Date(row.timestamp) <= new Date(),
 							),
 						).toBe(true);
+						if ((paused || deactivated) && url.includes("/providers/")) {
+							expect(
+								body.data.some(
+									(row: { timestamp: string }) =>
+										row.timestamp ===
+										new Date(BUCKET.getTime() + ONE_HOUR_MS).toISOString(),
+								),
+							).toBe(false);
+							if (idleOnly) {
+								expect(body.data).toHaveLength(1);
+							}
+						}
 						results.push(body);
 					}
 					return results;

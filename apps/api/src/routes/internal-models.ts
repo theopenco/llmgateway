@@ -14,9 +14,12 @@ import {
 	db,
 	effectiveTtftTotals,
 	eq,
+	gt,
 	excludeRegionalMappingRows,
 	gte,
+	isNull,
 	modelProviderMappingHistoryHourly,
+	or,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -881,6 +884,11 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 			and(
 				eq(tables.modelProviderMapping.modelId, modelId),
 				eq(tables.modelProviderMapping.status, "active"),
+				eq(tables.provider.status, "active"),
+				or(
+					isNull(tables.modelProviderMapping.deactivatedAt),
+					gt(tables.modelProviderMapping.deactivatedAt, new Date()),
+				),
 			),
 		);
 	const seenProviders = new Set(windowed.map((row) => row.providerId));
