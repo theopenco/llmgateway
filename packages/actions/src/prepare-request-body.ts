@@ -33,6 +33,10 @@ import {
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 
 import {
+	anthropicThinkingBlocksFor,
+	toConverseReasoningContent,
+} from "./anthropic-thinking.js";
+import {
 	isToolSearchTool,
 	stripAnthropicNativeBlocks,
 	stripAnthropicToolExtensions,
@@ -2180,9 +2184,16 @@ export async function prepareRequestBody(
 	// are OpenAI Responses assistant-message markers. No chat-completions
 	// upstream understands them, and strict providers reject unknown message
 	// fields, so strip them from every path except the Responses API transform
-	// above. An assistant message that carried only reasoning (no
-	// content/tool_calls — an incomplete prior turn replayed for the Responses
-	// API) becomes empty here, so drop it.
+	// above and Claude's Messages/Converse transforms below, which rebuild each
+	// message and replay the provider's own thinking blocks from it. An
+	// assistant message that carried only reasoning (no content/tool_calls — an
+	// incomplete prior turn replayed for the Responses API) becomes empty here,
+	// so drop it.
+	const replaysAnthropicThinking =
+		modelDef?.family === "anthropic" &&
+		(usesAnthropicMessagesApi(usedProvider) ||
+			(usedProvider === "aws-bedrock" &&
+				providerMappingForOptions?.apiFormat !== "openai-chat-completions"));
 	processedMessages = processedMessages.flatMap((m) => {
 		if (
 			m.reasoning_details === undefined &&
@@ -2207,7 +2218,11 @@ export async function prepareRequestBody(
 		) {
 			return [];
 		}
-		return [rest];
+		return [
+			replaysAnthropicThinking && reasoningDetails !== undefined
+				? { ...rest, reasoning_details: reasoningDetails }
+				: rest,
+		];
 	});
 
 	// The OpenAI-style `reasoning` field on replayed assistant turns is tolerated
@@ -3787,9 +3802,19 @@ export async function prepareRequestBody(
 				flushPendingToolResults();
 
 				const role = msg.role === "user" ? "user" : "assistant";
+				// Converse's form of the Anthropic thinking blocks that open the turn.
+				const reasoningBlocks =
+					role === "assistant"
+						? anthropicThinkingBlocksFor(
+								"aws-bedrock",
+								msg.reasoning_details,
+							).map((block) => ({
+								reasoningContent: toConverseReasoningContent(block),
+							}))
+						: [];
 				const bedrockMessage: any = {
 					role,
-					content: [],
+					content: [...reasoningBlocks],
 				};
 
 				// Handle assistant messages with tool calls
@@ -3923,9 +3948,10 @@ export async function prepareRequestBody(
 				// Bedrock's Converse API rejects messages whose content array is
 				// empty ("The content field in the Message object at messages.N is
 				// empty"), while the Anthropic API accepts empty assistant turns.
-				// Mirror transformAnthropicMessages and drop such messages —
-				// Bedrock accepts the resulting consecutive same-role messages.
-				if (bedrockMessage.content.length === 0) {
+				// Mirror transformAnthropicMessages and drop such messages, including
+				// a turn left with only its thinking — Bedrock accepts the resulting
+				// consecutive same-role messages.
+				if (bedrockMessage.content.length === reasoningBlocks.length) {
 					continue;
 				}
 

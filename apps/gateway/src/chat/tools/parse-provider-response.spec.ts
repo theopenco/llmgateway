@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 
+import { anthropicThinkingBlocksFor } from "@llmgateway/actions";
+
 import { parseProviderResponse } from "./parse-provider-response.js";
 
 const { setexMock } = vi.hoisted(() => ({
@@ -670,6 +672,72 @@ describe("parseProviderResponse", () => {
 				google: { thought_signature: "sig-private" },
 			});
 			expect(setexMock).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("anthropic thinking replay", () => {
+		const thinking = {
+			type: "thinking",
+			thinking: "Compare the constraints.",
+			signature: "upstream-signature",
+		};
+		const redacted = {
+			type: "redacted_thinking",
+			data: "upstream-redacted-payload",
+		};
+
+		it("returns Anthropic thinking as details only Anthropic replays", () => {
+			const result = parseProviderResponse("anthropic", "claude-sonnet-4-6", {
+				content: [thinking, redacted, { type: "text", text: "Done." }],
+				stop_reason: "end_turn",
+			});
+
+			expect(
+				anthropicThinkingBlocksFor("anthropic", result.reasoningDetails ?? []),
+			).toEqual([thinking, redacted]);
+			expect(
+				anthropicThinkingBlocksFor(
+					"aws-bedrock",
+					result.reasoningDetails ?? [],
+				),
+			).toEqual([]);
+		});
+
+		it("returns Bedrock Converse reasoning as details only Bedrock replays", () => {
+			const result = parseProviderResponse(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-6",
+				{
+					output: {
+						message: {
+							role: "assistant",
+							content: [
+								{
+									reasoningContent: {
+										reasoningText: {
+											text: thinking.thinking,
+											signature: thinking.signature,
+										},
+									},
+								},
+								{ reasoningContent: { redactedContent: redacted.data } },
+								{ text: "Done." },
+							],
+						},
+					},
+					stopReason: "end_turn",
+				},
+			);
+
+			expect(
+				anthropicThinkingBlocksFor(
+					"aws-bedrock",
+					result.reasoningDetails ?? [],
+				),
+			).toEqual([thinking, redacted]);
+			expect(
+				anthropicThinkingBlocksFor("anthropic", result.reasoningDetails ?? []),
+			).toEqual([]);
 		});
 	});
 

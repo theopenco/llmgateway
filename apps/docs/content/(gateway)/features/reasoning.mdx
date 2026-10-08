@@ -452,6 +452,12 @@ On the Responses API, replay the complete `output`: assistant message items carr
 
 For Chat Completions, `content[]` text parts and `tool_calls[]` also accept `extra_content.google.thought_signature`. Streaming tool calls have distinct `index` values across chunks; accumulate calls by index and keep each signature with its original call. The tool-call signature cache remains a fallback, but replaying the metadata also works when signatures are not cached. Only replay signatures with the original content and the model/provider that issued them.
 
+### Claude Thinking Signatures
+
+Claude models return signed thinking on every provider that serves them. On `/v1/messages`, `thinking` blocks carry a `signature` and `redacted_thinking` blocks carry `data`, as on Anthropic's API. On Chat Completions, the same blocks arrive as `reasoning_details` entries with `format: "anthropic-claude-v1"`: `reasoning.text` with `text` and `signature`, or `reasoning.encrypted` with `data`. A streamed entry arrives complete once its block's signature does.
+
+Replay the assistant turn unchanged, including each entry's `block_index`. The gateway replays thinking only in the position where Claude produced it. With extended thinking, Claude reads its cached prompt prefix only when the turn's thinking blocks are sent back. Signatures are scoped to the provider that issued them: when a conversation moves to another provider, the gateway drops that provider's thinking blocks instead of failing the request.
+
 ### Error Handling
 
 Payloads are verified by the provider that issued them. A modified, truncated, or foreign payload is rejected upstream and the error is forwarded unchanged:

@@ -251,6 +251,7 @@ import {
 } from "@llmgateway/shared/smart-routing";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
+import { applyAnthropicSafeguards } from "./tools/anthropic-safeguards.js";
 import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
 import {
 	checkContentFilter,
@@ -390,6 +391,7 @@ import {
 	zeroCostsOnCachedResponseUsage,
 } from "./tools/transform-response-to-openai.js";
 import {
+	type AnthropicThinkingTextState,
 	type AnthropicToolSearchState,
 	transformStreamingToOpenai,
 } from "./tools/transform-streaming-to-openai.js";
@@ -2001,6 +2003,7 @@ chat.openapi(completions, async (c) => {
 
 	// Extract reasoning.effort and reasoning.max_tokens for unified reasoning configuration
 	const reasoning_object_effort = validationResult.data.reasoning?.effort;
+	const anthropicSafeguards = validationResult.data.anthropic_safeguards;
 	const reasoning_max_tokens = validationResult.data.reasoning?.max_tokens;
 	const reasoning_context = validationResult.data.reasoning?.context;
 	const reasoning_mode = validationResult.data.reasoning?.mode;
@@ -7273,6 +7276,9 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			n,
 			service_tier,
+			// A reply cached without safeguard verdicts must not answer a request
+			// that asked for them, or Claude Code falls back to its billed classifier.
+			anthropic_safeguards: anthropicSafeguards,
 		};
 
 		if (stream) {
@@ -8998,6 +9004,13 @@ chat.openapi(completions, async (c) => {
 								: "structured-outputs-2025-11-13";
 						}
 
+						applyAnthropicSafeguards(
+							transportProvider,
+							requestBody,
+							headers,
+							anthropicSafeguards,
+						);
+
 						// For the Gemini Developer API the processing tier is a body
 						// field; Vertex uses a header set above in getProviderHeaders.
 						applyGoogleServiceTier(
@@ -10377,6 +10390,7 @@ chat.openapi(completions, async (c) => {
 					number,
 					GoogleThoughtSignatureState
 				>();
+				const anthropicThinkingText: AnthropicThinkingTextState = new Map();
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
 				let sawOpenAiResponsesDoneEvent = false;
@@ -11255,6 +11269,7 @@ chat.openapi(completions, async (c) => {
 										cacheThoughtSignatures: !zeroDataRetentionEnabled,
 										googleThoughtSignatureState,
 										googleToolCallIndices,
+										anthropicThinkingText,
 									},
 								);
 
@@ -13438,6 +13453,13 @@ chat.openapi(completions, async (c) => {
 					: "structured-outputs-2025-11-13";
 			}
 
+			applyAnthropicSafeguards(
+				transportProvider,
+				requestBody,
+				headers,
+				anthropicSafeguards,
+			);
+
 			// Create a combined signal for both timeout and cancellation
 			// Non-streaming requests use a shorter timeout (default 80s).
 			// When we're forcing upstream SSE for openai/azure gpt-image-* (to
@@ -15316,6 +15338,15 @@ chat.openapi(completions, async (c) => {
 	) {
 		transformedResponse.choices[0].message.anthropic_native_blocks =
 			parsedResponse.anthropicNativeBlocks;
+	}
+	// Anthropic's server-side safeguard verdicts (Claude Code auto mode). The
+	// /v1/messages layer hands them back as `safeguard_results`.
+	if (
+		parsedResponse.anthropicSafeguardResults !== null &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.anthropic_safeguard_results =
+			parsedResponse.anthropicSafeguardResults;
 	}
 	// Surface the effective reasoning context the provider applied so the
 	// Responses layer reports the served mode rather than echoing the request.

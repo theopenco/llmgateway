@@ -122,6 +122,10 @@ export const user = snakeCase.table(
 		xUsername: text(),
 	},
 	(table) => [
+		index("user_created_at_verified_idx").on(
+			table.createdAt,
+			table.emailVerified,
+		),
 		// Admin "Flagged accounts" listing. Partial so the index only carries the
 		// handful of reviewed accounts, not every user row.
 		index("user_risk_status_idx")
@@ -491,6 +495,7 @@ export const organization = snakeCase.table(
 		}),
 	},
 	(table) => [
+		index("organization_created_at_idx").on(table.createdAt),
 		index("organization_dev_plan_card_fingerprint_idx").on(
 			table.devPlanCardFingerprint,
 		),
@@ -698,6 +703,14 @@ export const transaction = snakeCase.table(
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),
+		index("transaction_status_created_at_idx").on(
+			table.status,
+			table.createdAt,
+		),
+		index("transaction_organization_type_idx").on(
+			table.organizationId,
+			table.type,
+		),
 		// Serves the top-up velocity gate's rolling-window SUM
 		// (org + created_at range over credit_topup rows) without scanning an
 		// org's full transaction history.
@@ -6085,6 +6098,15 @@ export const projectHourlyStats = snakeCase.table(
 		unique().on(table.projectId, table.hourTimestamp),
 		// Index for worker refresh queries (find hours to update)
 		index("project_hourly_stats_hour_timestamp_idx").on(table.hourTimestamp),
+		// Covers dashboard spend without reading wide hourly rows.
+		index("project_hourly_stats_dashboard_spend_idx").on(
+			table.hourTimestamp,
+			table.projectId,
+			table.cost,
+			table.creditsCost,
+			table.apiKeysCost,
+			table.apiKeysDataStorageCost,
+		),
 	],
 );
 
@@ -6804,6 +6826,12 @@ export const globalModelStats = snakeCase.table(
 			table.orgKind,
 		),
 		index("global_model_stats_day_timestamp_idx").on(table.dayTimestamp),
+		index("global_model_stats_provider_margin_idx").on(
+			table.usedProvider,
+			table.usedMode,
+			table.dayTimestamp,
+			table.providerMarginAmount,
+		),
 		index("global_model_stats_used_model_day_timestamp_idx").on(
 			table.usedModel,
 			table.dayTimestamp,

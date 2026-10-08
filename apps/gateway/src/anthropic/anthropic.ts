@@ -4,6 +4,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { app } from "@/app.js";
+import { extractAnthropicSafeguards } from "@/chat/tools/anthropic-safeguards.js";
 import { forwardedCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
 import {
@@ -28,7 +29,10 @@ import { extractAnthropicSessionId } from "@/lib/session-id.js";
 import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
 import {
+	fromAnthropicReasoningDetail,
 	isToolSearchBlock,
+	leadingAnthropicThinking,
+	toAnthropicReasoningDetail,
 	TOOL_SEARCH_TOOL_TYPE_PREFIX,
 } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
@@ -47,7 +51,11 @@ import { buildAnthropicErrorEvent } from "./streaming-error-translation.js";
 import { mapAnthropicThinkingToReasoning } from "./thinking-to-reasoning.js";
 
 import type { ServerTypes } from "@/vars.js";
-import type { AnthropicNativeBlock, CacheControl } from "@llmgateway/models";
+import type {
+	AnthropicNativeBlock,
+	CacheControl,
+	ReasoningDetail,
+} from "@llmgateway/models";
 import type { Context } from "hono";
 
 // Most of the request schema is built from unions (content blocks, tool
@@ -296,6 +304,13 @@ const anthropicRequestSchema = z.object({
 			description:
 				"Anthropic output configuration. `effort` controls adaptive reasoning depth on Opus 4.7+ models.",
 		}),
+	safeguards: z
+		.array(z.object({ type: z.string() }).passthrough())
+		.optional()
+		.openapi({
+			description:
+				"Anthropic server-side safeguard review, sent by Claude Code in auto mode with its paired `anthropic-beta` value. Forwarded to the Anthropic API only; the verdicts come back as `safeguard_results`.",
+		}),
 });
 
 const anthropicContentBlockSchema = z.object({
@@ -357,6 +372,13 @@ const anthropicResponseSchema = z.object({
 		description:
 			"Gateway routing metadata, the same object /v1/chat/completions returns: used_provider, used_model, used_region and routing attempts. On streams it rides on the message_delta event.",
 	}),
+	safeguard_results: z
+		.array(z.record(z.string(), z.unknown()))
+		.optional()
+		.openapi({
+			description:
+				"Anthropic's server-side safeguard verdicts, returned verbatim when the request carried `safeguards`. On streams it rides on the message_delta event's delta.",
+		}),
 });
 
 type AnthropicRequest = z.infer<typeof anthropicRequestSchema>;
@@ -373,6 +395,7 @@ interface AnthropicWebSearchResult {
 // OpenAI-format equivalent, so they're dropped from the lowered content. The
 // tool search pair is carried separately on `anthropic_native_blocks` and
 // spliced back in for Anthropic upstreams — see collectToolSearchBlocks.
+// Thinking rides on `reasoning_details` — see collectThinkingDetails.
 const NON_FORWARDABLE_CONTENT_BLOCK_TYPES = new Set([
 	"thinking",
 	"redacted_thinking",
@@ -389,6 +412,42 @@ function collectToolSearchBlocks(
 	content: Array<{ type: string; name?: string }>,
 ): AnthropicNativeBlock[] {
 	return content.filter(isToolSearchBlock) as AnthropicNativeBlock[];
+}
+
+// Thinking blocks the gateway returned carry provider-sealed signatures.
+// prepareRequestBody replays the ones the serving provider issued, which keeps
+// a thinking-enabled tool loop's cached prefix intact.
+function collectThinkingDetails(
+	content: Array<{
+		type: string;
+		thinking?: string;
+		signature?: string;
+		data?: string;
+	}>,
+): ReasoningDetail[] {
+	return content.flatMap((block, index) => {
+		if (block.type === "thinking" && block.signature) {
+			return [
+				toAnthropicReasoningDetail(
+					{
+						type: "thinking",
+						thinking: block.thinking ?? "",
+						signature: block.signature,
+					},
+					index,
+				),
+			];
+		}
+		if (block.type === "redacted_thinking" && block.data) {
+			return [
+				toAnthropicReasoningDetail(
+					{ type: "redacted_thinking", data: block.data },
+					index,
+				),
+			];
+		}
+		return [];
+	});
 }
 
 function generateServerToolUseId(): string {
@@ -685,6 +744,7 @@ anthropic.openapi(messages, async (c) => {
 				.join("");
 
 			const toolSearchBlocks = collectToolSearchBlocks(message.content);
+			const thinkingDetails = collectThinkingDetails(message.content);
 
 			openaiMessages.push({
 				role: message.role,
@@ -692,6 +752,9 @@ anthropic.openapi(messages, async (c) => {
 				tool_calls: toolCalls,
 				...(toolSearchBlocks.length > 0 && {
 					anthropic_native_blocks: toolSearchBlocks,
+				}),
+				...(thinkingDetails.length > 0 && {
+					reasoning_details: thinkingDetails,
 				}),
 			});
 			continue;
@@ -717,8 +780,31 @@ anthropic.openapi(messages, async (c) => {
 
 			// Convert each unique tool_use_id to a single tool message
 			for (const [toolUseId, blocks] of toolResults) {
-				const combinedContent = blocks.flatMap(
-					(block): Record<string, unknown>[] => {
+				// Lift content markers before lowering blocks so moving a cache
+				// breakpoint does not change the tool result's text.
+				let toolResultCacheControl: CacheControl | undefined;
+				const combinedContent = blocks
+					.map((block) => {
+						const content = Array.isArray(block.content)
+							? block.content.map((entry: unknown) => {
+									if (!entry || typeof entry !== "object") {
+										return entry;
+									}
+									const { cache_control: marker, ...part } = entry as Record<
+										string,
+										unknown
+									> & {
+										cache_control?: CacheControl;
+									};
+									toolResultCacheControl = marker ?? toolResultCacheControl;
+									return part;
+								})
+							: block.content;
+						toolResultCacheControl =
+							block.cache_control ?? toolResultCacheControl;
+						return { ...block, content };
+					})
+					.flatMap((block): Record<string, unknown>[] => {
 						if (typeof block.content === "string") {
 							return [{ type: "text", text: block.content }];
 						}
@@ -768,8 +854,7 @@ anthropic.openapi(messages, async (c) => {
 									: [{ type: "text", text: JSON.stringify(part) }];
 							},
 						);
-					},
-				);
+					});
 				// A client-side tool search answers with `tool_reference` blocks in
 				// the tool_result content array. Stringifying them would leave
 				// Anthropic nothing to expand, so keep the originals alongside the
@@ -783,15 +868,6 @@ anthropic.openapi(messages, async (c) => {
 									(entry as { type?: unknown }).type === "tool_reference",
 							)
 						: [],
-				);
-
-				// A breakpoint on the tool_result block has no home in the OpenAI
-				// message shape, so carry it alongside. Blocks sharing a tool_use_id
-				// collapse into one message, so the last marker wins — it is the one
-				// that ends the prefix.
-				const toolResultCacheControl = blocks.reduce<CacheControl | undefined>(
-					(marker, block) => block.cache_control ?? marker,
-					undefined,
 				);
 
 				openaiMessages.push({
@@ -852,6 +928,10 @@ anthropic.openapi(messages, async (c) => {
 				message.role === "assistant"
 					? collectToolSearchBlocks(message.content)
 					: [];
+			const thinkingDetails =
+				message.role === "assistant"
+					? collectThinkingDetails(message.content)
+					: [];
 
 			// A turn made up entirely of dropped blocks (e.g. a `pause_turn` reply
 			// carrying only server_tool_use) would otherwise become an empty
@@ -891,6 +971,9 @@ anthropic.openapi(messages, async (c) => {
 					...(toolSearchBlocks.length > 0 && {
 						anthropic_native_blocks: toolSearchBlocks,
 					}),
+					...(thinkingDetails.length > 0 && {
+						reasoning_details: thinkingDetails,
+					}),
 				});
 			} else {
 				// For multi-modal content, or text content with cache_control markers,
@@ -922,6 +1005,9 @@ anthropic.openapi(messages, async (c) => {
 					content,
 					...(toolSearchBlocks.length > 0 && {
 						anthropic_native_blocks: toolSearchBlocks,
+					}),
+					...(thinkingDetails.length > 0 && {
+						reasoning_details: thinkingDetails,
 					}),
 				});
 			}
@@ -1037,6 +1123,17 @@ anthropic.openapi(messages, async (c) => {
 			anthropicRequest.output_config?.effort,
 		),
 	);
+
+	// Claude Code auto mode: the `safeguards` field and its paired beta ask
+	// Anthropic to review risky tool calls server-side, at no charge. Neither
+	// fits the chat completions shape, so carry them alongside.
+	const anthropicSafeguards = extractAnthropicSafeguards(
+		anthropicRequest.safeguards,
+		c.req.header("anthropic-beta"),
+	);
+	if (anthropicSafeguards) {
+		openaiRequest.anthropic_safeguards = anthropicSafeguards;
+	}
 
 	// Get user-agent for forwarding
 	const userAgent = c.req.header("User-Agent") ?? "";
@@ -1228,6 +1325,9 @@ anthropic.openapi(messages, async (c) => {
 				let stopReason: string | null = null;
 				// Routing metadata from the inner final usage chunk.
 				let responseMetadata: Record<string, unknown> | undefined;
+				// Anthropic's server-side safeguard verdicts, re-emitted on the
+				// final message_delta where Claude Code reads them.
+				let safeguardResults: unknown;
 				let contentBlockStopsSent = false;
 				let messageDeltaSent = false;
 
@@ -1301,6 +1401,9 @@ anthropic.openapi(messages, async (c) => {
 							delta: {
 								stop_reason: stopReason,
 								stop_sequence: null,
+								...(safeguardResults !== undefined && {
+									safeguard_results: safeguardResults,
+								}),
 							},
 							usage: usage,
 							...(responseMetadata && { metadata: responseMetadata }),
@@ -1433,6 +1536,13 @@ anthropic.openapi(messages, async (c) => {
 									continue;
 								}
 
+								if (
+									delta.anthropic_safeguard_results !== undefined &&
+									delta.anthropic_safeguard_results !== null
+								) {
+									safeguardResults = delta.anthropic_safeguard_results;
+								}
+
 								// Handle reasoning delta. The upstream chat completions
 								// stream normalizes provider reasoning fields to
 								// `delta.reasoning`; surface it as an Anthropic
@@ -1473,6 +1583,90 @@ anthropic.openapi(messages, async (c) => {
 										}),
 										event: "content_block_delta",
 									});
+								}
+
+								// The upstream signs a thinking block once it is complete and
+								// sends redacted thinking whole. Clients must replay both
+								// verbatim for the provider to keep the tool loop's cached
+								// prefix.
+								const thinkingBlocks = (
+									(delta.reasoning_details ?? []) as ReasoningDetail[]
+								).flatMap(
+									(detail) => fromAnthropicReasoningDetail(detail) ?? [],
+								);
+								for (const block of thinkingBlocks) {
+									if (block.type === "redacted_thinking") {
+										const index = contentBlocks.length;
+										contentBlocks.push({ type: block.type, stopped: true });
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_start",
+												index,
+												content_block: block,
+											}),
+											event: "content_block_start",
+										});
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_stop",
+												index,
+											}),
+											event: "content_block_stop",
+										});
+										continue;
+									}
+
+									// A signed block with no streamed text (omitted thinking
+									// display) still has to reach the client.
+									if (currentThinkingBlockIndex === null) {
+										currentThinkingBlockIndex = contentBlocks.length;
+										contentBlocks.push({
+											type: "thinking",
+											text: block.thinking,
+										});
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_start",
+												index: currentThinkingBlockIndex,
+												content_block: { type: "thinking", thinking: "" },
+											}),
+											event: "content_block_start",
+										});
+										if (block.thinking) {
+											await stream.writeSSE({
+												data: JSON.stringify({
+													type: "content_block_delta",
+													index: currentThinkingBlockIndex,
+													delta: {
+														type: "thinking_delta",
+														thinking: block.thinking,
+													},
+												}),
+												event: "content_block_delta",
+											});
+										}
+									}
+
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "content_block_delta",
+											index: currentThinkingBlockIndex,
+											delta: {
+												type: "signature_delta",
+												signature: block.signature,
+											},
+										}),
+										event: "content_block_delta",
+									});
+									contentBlocks[currentThinkingBlockIndex].stopped = true;
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "content_block_stop",
+											index: currentThinkingBlockIndex,
+										}),
+										event: "content_block_stop",
+									});
+									currentThinkingBlockIndex = null;
 								}
 
 								// Handle web-search citation annotations. The upstream chat
@@ -1844,12 +2038,22 @@ anthropic.openapi(messages, async (c) => {
 	// Transform OpenAI response to Anthropic format
 	const content: any[] = [];
 
-	// Surface reasoning as an Anthropic `thinking` block. Anthropic places
-	// thinking before the assistant's text/tool output, so emit it first.
+	// Surface reasoning as Anthropic `thinking` blocks ahead of the text/tool
+	// output. Signed blocks are returned only when they opened the upstream turn,
+	// where this order reproduces it; otherwise the reasoning string becomes one
+	// unsigned block that replay drops.
+	const responseThinkingBlocks = leadingAnthropicThinking(
+		openaiResponse.choices?.[0]?.message?.reasoning_details,
+	);
 	const responseReasoning =
 		openaiResponse.choices?.[0]?.message?.reasoning ??
 		openaiResponse.choices?.[0]?.message?.reasoning_content;
-	if (typeof responseReasoning === "string" && responseReasoning.length > 0) {
+	if (responseThinkingBlocks.length > 0) {
+		content.push(...responseThinkingBlocks);
+	} else if (
+		typeof responseReasoning === "string" &&
+		responseReasoning.length > 0
+	) {
 		content.push({
 			type: "thinking",
 			thinking: responseReasoning,
@@ -1975,6 +2179,12 @@ anthropic.openapi(messages, async (c) => {
 			typeof openaiResponse.metadata === "object" && {
 				metadata: openaiResponse.metadata as Record<string, unknown>,
 			}),
+		...(Array.isArray(
+			openaiResponse.choices?.[0]?.message?.anthropic_safeguard_results,
+		) && {
+			safeguard_results: openaiResponse.choices[0].message
+				.anthropic_safeguard_results as Array<Record<string, unknown>>,
+		}),
 	};
 
 	return c.json(anthropicResponse);
