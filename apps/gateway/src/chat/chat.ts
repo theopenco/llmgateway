@@ -10044,12 +10044,15 @@ chat.openapi(completions, async (c) => {
 								},
 							),
 						);
-						if (routingMetadata) {
-							routingMetadata = {
-								...routingMetadata,
-								routing: [...routingAttempts],
-							};
-						}
+						routingMetadata = {
+							...(routingMetadata ?? {
+								availableProviders: [usedProvider],
+								selectedProvider: usedProvider,
+								selectionReason: "direct-provider-specified",
+								providerScores: [],
+							}),
+							routing: [...routingAttempts],
+						};
 
 						const baseLogEntry = createLogEntry(
 							requestId,

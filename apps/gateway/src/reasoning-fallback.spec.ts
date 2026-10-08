@@ -342,6 +342,35 @@ describe("reasoning model retry before output", () => {
 		]);
 	});
 
+	test("records an immediate custom-provider error without routing scores", async () => {
+		await setup();
+		await harness.setProjectMode("api-keys");
+		const id = "custom-provider-key";
+		await db.insert(tables.providerKey).values({
+			id,
+			provider: "llmgateway",
+			organizationId: "org-id",
+			...encryptProviderKeyForStorage("test-custom", id, "org-id"),
+			baseUrl: "https://custom.example.com",
+		});
+		const attempts = mockUpstreams({ allFail: true });
+		const res = await request({ model: "llmgateway/custom" });
+		expect(await res.text()).toContain("rate_limit_exceeded");
+		expect(attempts).toEqual(["custom.example.com"]);
+		const [log] = await waitForLogs(1);
+		expect(log.retried).toBe(false);
+		expect(log.routingMetadata?.routing).toEqual([
+			expect.objectContaining({
+				provider: "llmgateway",
+				status_code: 429,
+				succeeded: false,
+				logId: log.id,
+				apiKeyHash: expect.any(String),
+				providerKeyId: id,
+			}),
+		]);
+	});
+
 	test("does not retry after output has started", async () => {
 		await setup();
 		const attempts = mockUpstreams({ outputFirst: true });
