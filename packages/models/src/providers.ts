@@ -216,6 +216,8 @@ export interface ProviderDefinition {
 	env: ProviderEnvConfig;
 	// Whether the provider supports request cancellation
 	cancellation?: boolean;
+	/** The gateway can forward Anthropic server-side safeguard review on this provider. */
+	anthropicSafeguards?: boolean;
 	// Color used for UI representation (hex code)
 	color?: string;
 	// Website URL
@@ -367,6 +369,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "anthropic",
 		name: "Anthropic",
+		anthropicSafeguards: true,
 		forwardsSafetyIdentifier: true,
 		description:
 			"Anthropic is a research and deployment company focused on building safe and useful AI.",

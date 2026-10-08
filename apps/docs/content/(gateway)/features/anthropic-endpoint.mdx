@@ -242,7 +242,9 @@ Send every tool definition on every request, including the deferred ones — Ant
 
 In [auto mode](https://code.claude.com/docs/en/permission-modes#server-side-classifier-review), Claude Code asks Anthropic to review risky tool calls as part of its normal requests, at no charge: it sends a `safeguards` field with a paired `anthropic-beta` value, and Anthropic returns the verdicts in `safeguard_results` (on the final `message_delta` event when streaming). The gateway forwards both halves to the Anthropic API and returns the verdicts unchanged, so Claude Code keeps using the free server-side checks instead of its own billed classifier requests. Run `/status` in Claude Code to confirm: the **Auto mode server** row reads `Enabled`.
 
-**Where it works.** Server-side review runs on the Anthropic API only. When a request is routed to any other provider, the gateway sends neither the field nor its beta, the request still succeeds, and Claude Code falls back to its own classifier requests for the rest of the session. Pin the provider (`anthropic/claude-sonnet-4-6`) to keep the free review. If your setup routes Claude elsewhere and you want to skip the fallback notice, set `CLAUDE_CODE_AUTO_MODE_SERVER=0`.
+**Routing requirements.** A nonempty `safeguards` field paired with its dated beta restricts automatic selection and retries to providers that support forwarding server-side review. Currently this is the Anthropic API. An incompatible saved session pin is replaced; an explicitly requested incompatible provider, or automatic selection with no compatible provider, returns HTTP `400`, including for streaming requests. A beta header alone does not restrict routing.
+
+Upstream availability still depends on the model, credentials, and rollout. If Anthropic returns no available verdict, Claude Code can fall back to its own billed classifier requests. To use another provider deliberately, set `CLAUDE_CODE_AUTO_MODE_SERVER=0` before starting Claude Code; its client-side classifier requests are billed normally.
 
 ### Gateway Response Cache
 

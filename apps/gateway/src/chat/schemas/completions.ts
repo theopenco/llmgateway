@@ -470,7 +470,7 @@ export const completionsRequestSchema = z.object({
 		.optional()
 		.openapi({
 			description:
-				"Anthropic server-side safeguard review (Claude Code auto mode): the Messages API `safeguards` field and the `anthropic-beta` values it pairs with. Sent to the Anthropic API only and stripped for every other provider; the verdicts come back as `anthropic_safeguard_results` on the assistant message.",
+				"Anthropic server-side safeguard review (Claude Code auto mode): the Messages API `safeguards` field and its paired beta values. Valid pairs restrict routing and fallback to compatible providers; unsupported provider pins return 400. Verdicts are returned as `anthropic_safeguard_results` on the assistant message.",
 		}),
 	routing: z
 		.enum(["auto", "price", "throughput", "latency"])
