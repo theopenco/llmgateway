@@ -1526,6 +1526,100 @@ describe("prepareRequestBody - Anthropic", () => {
 		]);
 	});
 
+	test.each([
+		{
+			position: "after an assistant turn",
+			messages: [
+				{ role: "user", content: "Hello!" },
+				{ role: "assistant", content: "Hi." },
+				{ role: "system", content: "The date changed." },
+				{ role: "user", content: "Continue." },
+			],
+			roles: ["user", "assistant", "user", "user"],
+			reminderIndex: 2,
+		},
+		{
+			position: "before a user turn",
+			messages: [
+				{ role: "user", content: "Hello!" },
+				{ role: "system", content: "The date changed." },
+				{ role: "user", content: "Continue." },
+			],
+			roles: ["user", "user", "user"],
+			reminderIndex: 1,
+		},
+		{
+			position: "before a user turn once an empty assistant turn is dropped",
+			messages: [
+				{ role: "user", content: "Hello!" },
+				{ role: "system", content: "The date changed." },
+				{ role: "assistant", content: "" },
+				{ role: "user", content: "Continue." },
+			],
+			roles: ["user", "user", "user"],
+			reminderIndex: 1,
+		},
+	])(
+		"sends a mid-conversation system message $position as a user reminder where the mapping accepts the role",
+		async ({ messages, roles, reminderIndex }) => {
+			const requestBody = (await prepareRequestBody(
+				"anthropic",
+				"claude-sonnet-5",
+				null,
+				"claude-sonnet-5",
+				messages as any,
+				false,
+				undefined,
+				1024,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+			)) as AnthropicRequestBody;
+
+			expect(requestBody.messages.map((msg) => msg.role)).toEqual(roles);
+			expect(requestBody.messages[reminderIndex].content).toMatchObject([
+				{
+					type: "text",
+					text: "<system-reminder>\nThe date changed.\n</system-reminder>",
+				},
+			]);
+		},
+	);
+
+	test("keeps a run of mid-conversation system messages in place between a user and an assistant turn", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-5",
+			null,
+			"claude-sonnet-5",
+			[
+				{ role: "user", content: "Hello!" },
+				{ role: "system", content: "The date changed." },
+				{ role: "system", content: "Reply briefly." },
+				{ role: "assistant", content: "Hi." },
+				{ role: "user", content: "Continue." },
+				{ role: "system", content: "Wrap up." },
+			] as any,
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as AnthropicRequestBody;
+
+		expect(requestBody.messages.map((msg) => msg.role)).toEqual([
+			"user",
+			"system",
+			"system",
+			"assistant",
+			"user",
+			"system",
+		]);
+	});
+
 	test("sends a mid-conversation system message as a user reminder elsewhere", async () => {
 		const requestBody = (await prepareRequestBody(
 			"anthropic",
