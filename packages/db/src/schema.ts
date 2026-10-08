@@ -5690,6 +5690,11 @@ export interface ProviderModelVerificationCheck {
 	feedback?: string;
 	/** Set when a check passed only after retrying a timed-out request. */
 	warning?: string;
+	/**
+	 * Optional checks this check missed. They warn while optional and fail
+	 * the check once they become required.
+	 */
+	optionalWarnings?: string[];
 	/** Per-request breakdown; present only for checks that probe variants. */
 	probes?: ProviderModelVerificationProbe[];
 }

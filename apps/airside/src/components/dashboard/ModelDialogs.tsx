@@ -242,14 +242,49 @@ function VerificationProbes({ probes }: { probes?: VerificationProbe }) {
 	);
 }
 
+function hasWarning(check: Verification["checks"][number]): boolean {
+	return (
+		check.status === "passed" &&
+		Boolean(check.warning || check.optionalWarnings?.length)
+	);
+}
+
+/**
+ * Optional checks a check missed. Labelled so a carrier can tell them from a
+ * failure, and knows they may become required.
+ */
+function OptionalWarnings({ warnings }: { warnings?: string[] }) {
+	if (!warnings?.length) {
+		return null;
+	}
+	return (
+		<ul className="mt-1 space-y-1" data-testid="verification-optional-warnings">
+			{warnings.map((warning) => (
+				<li key={warning} className="text-amber-600 dark:text-amber-400">
+					<span className="mr-1.5 inline-block rounded border border-current px-1 font-mono text-[0.6rem] tracking-wider uppercase">
+						Optional
+					</span>
+					{warning}
+				</li>
+			))}
+		</ul>
+	);
+}
+
 function VerificationResults({ verification }: { verification: Verification }) {
+	const warned = verification.checks.some(hasWarning);
+	const optionalWarned = verification.checks.some(
+		(check) => check.status === "passed" && check.optionalWarnings?.length,
+	);
 	const statusLabel =
 		verification.status === "queued"
 			? "Queued"
 			: verification.status === "running"
 				? "Running"
 				: verification.status === "passed"
-					? "Passed"
+					? warned
+						? "Passed with warnings"
+						: "Passed"
 					: "Failed";
 	return (
 		<div
@@ -269,7 +304,7 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			<ul className="divide-border divide-y">
 				{verification.checks.map((check) => (
 					<li key={check.id} className="flex items-start gap-2 py-2 text-xs">
-						{check.status === "passed" && check.warning ? (
+						{hasWarning(check) ? (
 							<AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
 						) : check.status === "passed" ? (
 							<CheckCircle2 className="text-signal mt-0.5 size-3.5 shrink-0" />
@@ -293,6 +328,9 @@ function VerificationResults({ verification }: { verification: Verification }) {
 									{check.warning}
 								</p>
 							) : null}
+							{check.status === "passed" ? (
+								<OptionalWarnings warnings={check.optionalWarnings} />
+							) : null}
 							<VerificationProbes probes={check.probes} />
 						</div>
 					</li>
@@ -300,6 +338,15 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			</ul>
 			{verification.summary ? (
 				<p className="text-muted-foreground text-xs">{verification.summary}</p>
+			) : null}
+			{optionalWarned ? (
+				<p
+					className="text-xs text-amber-600 dark:text-amber-400"
+					data-testid="verification-optional-note"
+				>
+					Checks marked Optional do not block this listing for now, but may
+					become required later.
+				</p>
 			) : null}
 			{verification.status === "failed" ? (
 				<p
@@ -375,6 +422,12 @@ function VerificationHistory({
 									<span className="text-muted-foreground">
 										{passed}/{entry.checks.length}
 									</span>
+									{entry.checks.some(hasWarning) ? (
+										<AlertTriangle
+											className="size-3 text-amber-600 dark:text-amber-400"
+											aria-label="Passed with warnings"
+										/>
+									) : null}
 									<span className="font-mono text-[0.65rem] tracking-wider uppercase">
 										{entry.status}
 									</span>
