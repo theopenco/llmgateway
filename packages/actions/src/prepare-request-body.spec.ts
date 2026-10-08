@@ -4170,6 +4170,61 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		});
 	});
 
+	test("keeps unions and $ref definitions in Google response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			[{ role: "user", content: "Extract the user info" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "user_info",
+					schema: {
+						type: "object",
+						properties: {
+							nickname: { anyOf: [{ type: "string" }, { type: "null" }] },
+							id: { anyOf: [{ type: "string" }, { type: "integer" }] },
+							address: { $ref: "#/$defs/Address" },
+							previous: { type: "array", items: { $ref: "#/$defs/Address" } },
+						},
+						required: ["nickname", "id", "address"],
+						$defs: {
+							Address: {
+								type: "object",
+								properties: { city: { type: "string" } },
+								required: ["city"],
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		const address = {
+			type: "OBJECT",
+			properties: { city: { type: "STRING" } },
+			required: ["city"],
+		};
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				nickname: { type: "STRING", nullable: true },
+				id: { anyOf: [{ type: "STRING" }, { type: "INTEGER" }] },
+				address,
+				previous: { type: "ARRAY", items: address },
+			},
+			required: ["nickname", "id", "address"],
+		});
+	});
+
 	test("normalizes primitive enums in response schemas", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
