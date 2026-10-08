@@ -10,7 +10,6 @@ import type { AnyColumn } from "@llmgateway/db";
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
-const TOP_KEYS = 10;
 
 const querySchema = z.object({
 	window: z.enum(["7d", "30d"]).default("7d"),
@@ -115,13 +114,9 @@ export function tokenCapacityDailyQuery(
 		), daily AS (
 			SELECT key, date_trunc('day', ts) AS day, SUM(tokens)::float8 AS tokens
 			FROM usage GROUP BY GROUPING SETS ((key, date_trunc('day', ts)), (date_trunc('day', ts)))
-		), top_keys AS (
-			SELECT key FROM daily WHERE key IS NOT NULL
-			GROUP BY key HAVING SUM(tokens) > 0
-			ORDER BY SUM(tokens) DESC, key LIMIT ${TOP_KEYS}
 		)
 		SELECT key, to_char(day, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS timestamp, tokens
-		FROM daily WHERE key IS NULL OR key IN (SELECT key FROM top_keys)
+		FROM daily
 		ORDER BY day, key
 	`;
 }

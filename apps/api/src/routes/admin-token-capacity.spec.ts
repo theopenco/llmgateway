@@ -227,7 +227,7 @@ describe("admin token capacity", () => {
 		}
 	});
 
-	test("caps the breakdown at ten while keeping all traffic in platform totals", async () => {
+	test("returns every ranked row beyond ten with complete totals and peaks", async () => {
 		for (let i = 0; i < 12; i++) {
 			const providerId = `capacity-provider-${i}`;
 			const common = {
@@ -246,9 +246,14 @@ describe("admin token capacity", () => {
 				.values({ ...common, hourTimestamp: new Date("2026-10-02T05:00:00Z") });
 		}
 		const result = await fetchCapacity({ groupBy: "provider" });
-		expect(result.breakdown).toHaveLength(10);
+		expect(result.breakdown).toHaveLength(12);
 		expect(result.breakdown[0].totalTokens).toBe(12);
-		expect(result.breakdown.at(-1)?.totalTokens).toBe(3);
+		expect(result.breakdown.at(-1)?.totalTokens).toBe(1);
+		expect(result.breakdown.at(-1)?.peakTpm).toBe(1);
+		expect(result.breakdown.at(-1)?.peakTokensPerDay).toBe(1);
+		const mappings = await fetchCapacity({ modelView: "mapping" });
+		expect(mappings.breakdown).toHaveLength(12);
+		expect(mappings.summary).toEqual(result.summary);
 		expect(result.summary.totalTokens).toBe(78);
 		expect(result.summary.peakTpm).toBe(78);
 	});

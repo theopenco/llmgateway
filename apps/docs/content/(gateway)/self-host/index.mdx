@@ -66,12 +66,12 @@ Choose total, input, or output tokens and a billing mode. Average TPM includes
 quiet minutes; average tokens/day normalizes the same window to 24 hours. Peak
 TPM is the busiest completed UTC minute, and peak tokens/day is the busiest
 complete UTC calendar day. Partial days appear faded in the daily chart and do
-not count toward daily peaks. The table ranks the top ten models or providers by
-token volume and supports CSV export.
+not count toward daily peaks. The table ranks all models or providers by
+token volume, with ten rows per page. CSV export includes every row.
 
 Token metrics use recorded upstream usage, excluding gateway response-cache
 hits. Minute history is retained for 30 days. Measurements follow worker refreshes;
-use **Refresh** to update them. These fixed UTC intervals do not reproduce a
+reload the page to update them. The Tokens view does not auto-refresh. These fixed UTC intervals do not reproduce a
 provider's rolling rate-limit or quota accounting. Organization, project, and
 API-key filters apply only to the **Requests** view.
 
