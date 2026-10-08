@@ -2040,18 +2040,22 @@ export async function prepareRequestBody(
 	) {
 		const fallback = usedProvider === "deepseek" ? "" : " ";
 		processedMessages = processedMessages.map((m) => {
+			if (m.role !== "assistant") {
+				return m;
+			}
+			// Never send both fields: Runware treats `reasoning` as an alias of
+			// `reasoning_content` and rejects a message carrying both.
+			const { reasoning, ...rest } = m;
+			if (m.reasoning_content !== undefined) {
+				return reasoning === undefined ? m : rest;
+			}
 			if (
-				m.role !== "assistant" ||
 				!m.tool_calls ||
 				!Array.isArray(m.tool_calls) ||
-				m.tool_calls.length === 0 ||
-				m.reasoning_content !== undefined
+				m.tool_calls.length === 0
 			) {
 				return m;
 			}
-			// Move rather than copy: Runware treats `reasoning` as an alias of
-			// `reasoning_content` and rejects a message carrying both.
-			const { reasoning, ...rest } = m;
 			return { ...rest, reasoning_content: reasoning || fallback };
 		});
 	}
