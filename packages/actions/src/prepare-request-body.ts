@@ -2049,8 +2049,10 @@ export async function prepareRequestBody(
 			) {
 				return m;
 			}
-			const reasoning = m.reasoning ?? fallback;
-			return { ...m, reasoning_content: reasoning || fallback };
+			// Move rather than copy: Runware treats `reasoning` as an alias of
+			// `reasoning_content` and rejects a message carrying both.
+			const { reasoning, ...rest } = m;
+			return { ...rest, reasoning_content: reasoning || fallback };
 		});
 	}
 
