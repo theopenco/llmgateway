@@ -1,10 +1,12 @@
+import { BASE_ERROR_CODES } from "@better-auth/core/error";
 import { passkey } from "@better-auth/passkey";
 import { sso } from "@better-auth/sso";
 import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 import { betterAuth } from "better-auth";
-import { createAuthMiddleware } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { bearer, deviceAuthorization } from "better-auth/plugins";
 import { Redis } from "ioredis";
+import { z } from "zod";
 
 import { createAuthDatabase } from "@/auth/database.js";
 import {
@@ -12,6 +14,10 @@ import {
 	MIN_PASSWORD_LENGTH,
 } from "@/auth/password-policy.js";
 import { serializedPasswordReset } from "@/auth/password-reset.js";
+import {
+	delayLikePasswordHash,
+	timedVerifyPassword,
+} from "@/auth/sign-in-timing.js";
 import { verificationCallback } from "@/auth/verification-callback.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
@@ -741,6 +747,9 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					},
 				},
 				customRules: {
+					// Default is 3 per 10s; credential stuffing rotates IPs at about
+					// one attempt per 5s each, under that limit.
+					"/sign-in/email": { window: 60, max: 5 },
 					"/device/code": { window: 60, max: 30 },
 					"/device/token": { window: 60, max: 120 },
 					"/device": { window: 60, max: 30 },
@@ -796,6 +805,7 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			emailAndPassword: {
 				enabled: true,
 				revokeSessionsOnPasswordReset: true,
+				password: { verify: timedVerifyPassword },
 				// Enforced on sign-up/reset/change/set-password only, never on
 				// sign-in, so existing accounts with shorter passwords keep working.
 				minPasswordLength: MIN_PASSWORD_LENGTH,
@@ -995,6 +1005,7 @@ The LLM Gateway Team`.trim();
 						body.revokeOtherSessions = true;
 					}
 
+					let isUnknownSignInEmail = false;
 					if (ctx.path.startsWith("/sign-in")) {
 						const body = ctx.body as { email?: string } | undefined;
 						const email = body?.email?.trim().toLowerCase();
@@ -1003,6 +1014,10 @@ The LLM Gateway Team`.trim();
 								where: { email: { eq: email } },
 								columns: { status: true, blockReason: true },
 							});
+							isUnknownSignInEmail =
+								!existingUser &&
+								ctx.path === "/sign-in/email" &&
+								z.string().email().safeParse(body?.email).success;
 							if (existingUser?.status === "deactivated") {
 								return new Response(
 									JSON.stringify({
@@ -1026,6 +1041,16 @@ The LLM Gateway Team`.trim();
 						if (await isSSOEnforcedForEmail(body?.email)) {
 							return ssoRequiredResponse();
 						}
+					}
+
+					// Answer unknown emails here so Better Auth skips its throwaway
+					// scrypt hash; see delayLikePasswordHash.
+					if (isUnknownSignInEmail) {
+						await delayLikePasswordHash();
+						throw APIError.from(
+							"UNAUTHORIZED",
+							BASE_ERROR_CODES.INVALID_EMAIL_OR_PASSWORD,
+						);
 					}
 
 					const ipAddress = getClientIpFromHeaders(ctx.headers) ?? "unknown";

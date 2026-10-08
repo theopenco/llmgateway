@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { setBlockedSignupCountries } from "@/utils/country-blocking.js";
 
@@ -814,5 +814,60 @@ describe("Signup country blocking", () => {
 		);
 
 		expect(response.status).not.toBe(403);
+	});
+});
+
+describe("Email sign-in for unknown accounts", () => {
+	const signIn = (email: string, password: string) =>
+		apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-in/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": `192.168.32.${randomInt(0, 255)}`,
+				},
+				body: JSON.stringify({ email, password }),
+			}),
+		);
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	test("rejects an unknown email like a wrong password without hashing", async () => {
+		const email = `known-${Date.now()}@example.com`;
+		const signUp = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": `192.168.33.${randomInt(0, 255)}`,
+				},
+				body: JSON.stringify({
+					email,
+					password: "Password123!",
+					name: "Known User",
+				}),
+			}),
+		);
+		expect(signUp.status).toBe(200);
+		await db
+			.update(tables.user)
+			.set({ emailVerified: true })
+			.where(eq(tables.user.email, email));
+
+		const wrongPassword = await signIn(email, "WrongPassword123!");
+
+		const context = await apiAuth.$context;
+		const hash = vi.spyOn(context.password, "hash");
+		const unknownEmail = await signIn(
+			`unknown-${Date.now()}@example.com`,
+			"Password123!",
+		);
+
+		expect(unknownEmail.status).toBe(401);
+		expect(wrongPassword.status).toBe(401);
+		expect(await unknownEmail.json()).toEqual(await wrongPassword.json());
+		expect(hash).not.toHaveBeenCalled();
 	});
 });
