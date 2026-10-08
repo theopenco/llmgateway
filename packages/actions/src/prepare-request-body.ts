@@ -2026,22 +2026,19 @@ export async function prepareRequestBody(
 	// DeepSeek (and Moonshot) thinking-mode endpoints reject assistant messages
 	// containing tool_calls unless `reasoning_content` is present. OpenAI-compat
 	// clients usually drop reasoning between turns, so translate the OpenAI-style
-	// `reasoning` field back to provider-style `reasoning_content`. DeepSeek
-	// accepts an empty string, but Moonshot's newer reasoning models (kimi-k2.5,
-	// kimi-k2.6) treat an empty string as missing — use a single space as a
-	// non-empty placeholder there. Novita proxies DeepSeek V4 with the same
-	// upstream constraint, so apply the DeepSeek behavior there too.
-	// Match by the canonical model id — never by the upstream form. DeepSeek
-	// V4 roots are `deepseek-v4*` regardless of which provider proxies them.
-	const isNovitaDeepseekV4 =
-		usedProvider === "novita" && usedInternalModel.startsWith("deepseek-v4");
+	// `reasoning` field back to provider-style `reasoning_content`. DeepSeek's
+	// own API accepts an empty string, but Moonshot's newer reasoning models
+	// (kimi-k2.5, kimi-k2.6) and Novita's DeepSeek V4 treat it as missing, so
+	// every other host gets a single space. Any host of DeepSeek V4 can enforce
+	// the constraint, including Airside carriers (e.g. Luminal) that reach this
+	// function as the "openai" transport, so match V4 by the canonical model id.
+	const isDeepseekV4 = usedInternalModel.startsWith("deepseek-v4");
 	if (
 		usedProvider === "deepseek" ||
 		usedProvider === "moonshot" ||
-		isNovitaDeepseekV4
+		isDeepseekV4
 	) {
-		const fallback =
-			usedProvider === "moonshot" || isNovitaDeepseekV4 ? " " : "";
+		const fallback = usedProvider === "deepseek" ? "" : " ";
 		processedMessages = processedMessages.map((m) => {
 			if (
 				m.role !== "assistant" ||
