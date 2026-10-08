@@ -69,6 +69,8 @@ interface MappingMinuteStats {
 	clientErrorsCount: number;
 	gatewayErrorsCount: number;
 	upstreamErrorsCount: number;
+	retriedGatewayErrorsCount: number;
+	retriedUpstreamErrorsCount: number;
 	completedCount: number;
 	lengthLimitCount: number;
 	contentFilterCount: number;
@@ -111,6 +113,8 @@ function createEmptyMappingMinuteStats(
 		clientErrorsCount: 0,
 		gatewayErrorsCount: 0,
 		upstreamErrorsCount: 0,
+		retriedGatewayErrorsCount: 0,
+		retriedUpstreamErrorsCount: 0,
 		completedCount: 0,
 		lengthLimitCount: 0,
 		contentFilterCount: 0,
@@ -148,6 +152,8 @@ function mergeMappingMinuteStats(
 	target.clientErrorsCount += source.clientErrorsCount;
 	target.gatewayErrorsCount += source.gatewayErrorsCount;
 	target.upstreamErrorsCount += source.upstreamErrorsCount;
+	target.retriedGatewayErrorsCount += source.retriedGatewayErrorsCount;
+	target.retriedUpstreamErrorsCount += source.retriedUpstreamErrorsCount;
 	target.completedCount += source.completedCount;
 	target.lengthLimitCount += source.lengthLimitCount;
 	target.contentFilterCount += source.contentFilterCount;
@@ -212,22 +218,30 @@ const HISTORY_METRIC_COLUMNS = [
 	"serviceTierUnconfirmedCount",
 ] as const;
 
+// Only the minute mapping history tracks retried errors (error-rate alerts).
+const MAPPING_HISTORY_METRIC_COLUMNS = [
+	...HISTORY_METRIC_COLUMNS,
+	"retriedGatewayErrorsCount",
+	"retriedUpstreamErrorsCount",
+] as const;
+
 // Chunk size for bulk upserts. Postgres caps a statement at 65535 bind
 // parameters; history rows have fewer than 40 columns.
 const HISTORY_UPSERT_CHUNK_SIZE = 1000;
 
-function buildHistoryUpsert(
-	columns: Record<(typeof HISTORY_METRIC_COLUMNS)[number], Column>,
+function buildHistoryUpsert<K extends string>(
+	columns: Record<K, Column>,
+	keys: readonly K[],
 ): { set: Record<string, SQL>; setWhere: SQL } {
 	const set: Record<string, SQL> = {};
-	for (const key of HISTORY_METRIC_COLUMNS) {
+	for (const key of keys) {
 		set[key] = sql`excluded.${sql.identifier(columns[key].name)}`;
 	}
 	set.updatedAt = sql`now()`;
 	// Repeated refreshes usually leave most rows unchanged. Compare every metric
 	// so late corrections still apply even when request counts stay the same.
-	const existing = HISTORY_METRIC_COLUMNS.map((key) => columns[key]);
-	const incoming = HISTORY_METRIC_COLUMNS.map((key) => set[key]);
+	const existing = keys.map((key) => columns[key]);
+	const incoming = keys.map((key) => set[key]);
 	return {
 		set,
 		setWhere: sql`row(${sql.join(existing, sql`, `)}) is distinct from row(${sql.join(incoming, sql`, `)})`,
@@ -554,7 +568,10 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 		}
 	}
 
-	const modelHistoryUpsert = buildHistoryUpsert(modelHistory);
+	const modelHistoryUpsert = buildHistoryUpsert(
+		modelHistory,
+		HISTORY_METRIC_COLUMNS,
+	);
 	for (
 		let i = 0;
 		i < modelHistoryValues.length;
@@ -628,6 +645,14 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			upstreamErrorsCount:
 				sql<number>`sum(case when ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
 					"upstreamErrorsCount",
+				),
+			retriedGatewayErrorsCount:
+				sql<number>`sum(case when ${log.retried} = true and ${log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
+					"retriedGatewayErrorsCount",
+				),
+			retriedUpstreamErrorsCount:
+				sql<number>`sum(case when ${log.retried} = true and ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
+					"retriedUpstreamErrorsCount",
 				),
 			completedCount:
 				sql<number>`sum(case when ${log.unifiedFinishReason} = 'completed' then 1 else 0 end)::int`.as(
@@ -854,6 +879,8 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			const clientErrorsCount = stat?.clientErrorsCount ?? 0;
 			const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
 			const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
+			const retriedGatewayErrorsCount = stat?.retriedGatewayErrorsCount ?? 0;
+			const retriedUpstreamErrorsCount = stat?.retriedUpstreamErrorsCount ?? 0;
 			const completedCount = stat?.completedCount ?? 0;
 			const lengthLimitCount = stat?.lengthLimitCount ?? 0;
 			const contentFilterCount = stat?.contentFilterCount ?? 0;
@@ -900,6 +927,8 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				clientErrorsCount,
 				gatewayErrorsCount,
 				upstreamErrorsCount,
+				retriedGatewayErrorsCount,
+				retriedUpstreamErrorsCount,
 				completedCount,
 				lengthLimitCount,
 				contentFilterCount,
@@ -929,7 +958,10 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		}
 	}
 
-	const mappingHistoryUpsert = buildHistoryUpsert(modelProviderMappingHistory);
+	const mappingHistoryUpsert = buildHistoryUpsert(
+		modelProviderMappingHistory,
+		MAPPING_HISTORY_METRIC_COLUMNS,
+	);
 	for (
 		let i = 0;
 		i < mappingHistoryValues.length;
@@ -1222,7 +1254,10 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 		...row,
 		hourTimestamp: roundedHour,
 	}));
-	const historyUpsert = buildHistoryUpsert(modelHistoryHourly);
+	const historyUpsert = buildHistoryUpsert(
+		modelHistoryHourly,
+		HISTORY_METRIC_COLUMNS,
+	);
 	for (let i = 0; i < historyValues.length; i += HISTORY_UPSERT_CHUNK_SIZE) {
 		await database
 			.insert(modelHistoryHourly)
@@ -1327,7 +1362,10 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 		...row,
 		hourTimestamp: roundedHour,
 	}));
-	const historyUpsert = buildHistoryUpsert(modelProviderMappingHistoryHourly);
+	const historyUpsert = buildHistoryUpsert(
+		modelProviderMappingHistoryHourly,
+		HISTORY_METRIC_COLUMNS,
+	);
 	for (let i = 0; i < historyValues.length; i += HISTORY_UPSERT_CHUNK_SIZE) {
 		await database
 			.insert(modelProviderMappingHistoryHourly)

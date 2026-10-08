@@ -811,6 +811,9 @@ describe("stats-calculator", () => {
 
 			expect(openaiHistory?.logsCount).toBe(2);
 			expect(openaiHistory?.errorsCount).toBe(1);
+			// The cross-provider fallback attempt stays, marked as retried.
+			expect(openaiHistory?.retriedUpstreamErrorsCount).toBe(1);
+			expect(openaiHistory?.retriedGatewayErrorsCount).toBe(0);
 			expect(anthropicHistory?.logsCount).toBe(1);
 			expect(anthropicHistory?.errorsCount).toBe(0);
 
