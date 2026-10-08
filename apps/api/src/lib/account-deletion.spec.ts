@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 import {
 	cancelOrganizationSubscriptions,
@@ -12,6 +12,10 @@ import {
 	getOrganizationSubscriptionIds,
 	tearDownSoleMemberOrganizations,
 } from "./account-deletion.js";
+import {
+	DeletedOrganizationError,
+	withEnterpriseSeatForOrganization,
+} from "./enterprise-seats.js";
 import { acceptPendingInvitesForUser } from "./team-invites.js";
 
 import type * as PaymentsModule from "@/routes/payments.js";
@@ -657,6 +661,53 @@ describe("tearDownSoleMemberOrganizations", () => {
 			).toBe("pending");
 		},
 	);
+
+	test("keeps the org row writable and blocks other joins while Stripe runs", async () => {
+		await seedOrg({ stripeSubscriptionId: "sub_pro" });
+		const teammate = { id: "second-user-id", email: "second@example.com" };
+		await db.insert(tables.user).values(teammate);
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		stripeMock.subscriptions.cancel.mockImplementation(async () => {
+			await gate;
+			return { status: "canceled" };
+		});
+		const deleting = tearDownSoleMemberOrganizations(USER_ID);
+		// SSO auto-join and SCIM provisioning share this join path.
+		let joining: Promise<unknown> | undefined;
+		try {
+			await vi.waitFor(() =>
+				expect(stripeMock.subscriptions.cancel).toHaveBeenCalledOnce(),
+			);
+			joining = withEnterpriseSeatForOrganization(
+				ORG_ID,
+				teammate.id,
+				async (tx) =>
+					await tx.insert(tables.userOrganization).values({
+						userId: teammate.id,
+						organizationId: ORG_ID,
+						role: "developer",
+					}),
+			);
+			joining.catch(() => undefined);
+			await db
+				.update(tables.organization)
+				.set({ credits: "5" })
+				.where(eq(tables.organization.id, ORG_ID));
+		} finally {
+			release();
+			await deleting;
+		}
+		await expect(joining).rejects.toThrow(DeletedOrganizationError);
+		expect(await getOrg()).toMatchObject({ status: "deleted", credits: "5" });
+		expect(
+			await db.query.userOrganization.findFirst({
+				where: { userId: { eq: teammate.id } },
+			}),
+		).toBeUndefined();
+	});
 
 	test("leaves local state untouched when Stripe cancellation fails", async () => {
 		await seedOrg({
