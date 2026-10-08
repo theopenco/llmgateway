@@ -31,11 +31,15 @@ describe("upstream dispatcher", () => {
 					res.end();
 				}, 200);
 			} else if (req.url === "/slow-headers") {
-				// undici's header timer has ~1s resolution, so delay well past it
+				// undici's response timers have ~1s resolution, so delay well past it
 				setTimeout(() => {
 					res.writeHead(200, { "content-type": "application/json" });
 					res.end("{}");
 				}, 3000);
+			} else if (req.url === "/stalled-body") {
+				res.writeHead(200, { "content-type": "text/event-stream" });
+				res.write("data: first\n\n");
+				setTimeout(() => res.end(), 3000);
 			} else {
 				res.writeHead(200, { "content-type": "application/json" });
 				res.end("{}");
@@ -109,13 +113,26 @@ describe("upstream dispatcher", () => {
 		});
 	});
 
-	it("bounds the wait for response headers by the gateway timeout", async () => {
-		process.env.GATEWAY_TIMEOUT_MS = "100";
-		installUpstreamDispatcher();
-		await expect(fetch(`${baseUrl}/slow-headers`)).rejects.toMatchObject({
-			cause: { code: "UND_ERR_HEADERS_TIMEOUT" },
-		});
-	});
+	it.each([
+		["global", () => undefined],
+		["tenant", () => getTenantUpstreamDispatcher()],
+	])(
+		"bounds slow headers and stalled bodies by the gateway timeout (%s dispatcher)",
+		async (_name, getDispatcher) => {
+			process.env.GATEWAY_TIMEOUT_MS = "100";
+			installUpstreamDispatcher();
+			const init = { dispatcher: getDispatcher() } as RequestInit;
+			await expect(
+				fetch(`${baseUrl}/slow-headers`, init),
+			).rejects.toMatchObject({
+				cause: { code: "UND_ERR_HEADERS_TIMEOUT" },
+			});
+			const res = await fetch(`${baseUrl}/stalled-body`, init);
+			await expect(res.text()).rejects.toMatchObject({
+				cause: { code: "UND_ERR_BODY_TIMEOUT" },
+			});
+		},
+	);
 
 	it("falls back to defaults on invalid env values", () => {
 		process.env.UPSTREAM_KEEPALIVE_TIMEOUT_MS = "not-a-number";
