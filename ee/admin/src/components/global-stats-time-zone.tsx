@@ -21,9 +21,11 @@ import { getBrowserTimeZone } from "@llmgateway/shared";
 
 export function GlobalStatsTimeZone({
 	value,
+	accountTimeZone,
 	onChange,
 }: {
 	value: string;
+	accountTimeZone: string | null;
 	onChange: (zone: string) => void;
 }) {
 	const [open, setOpen] = useState(false);
@@ -49,7 +51,9 @@ export function GlobalStatsTimeZone({
 					aria-expanded={open}
 					className="gap-2"
 				>
-					{value}
+					{value === "account"
+						? `Account (${accountTimeZone ?? "not saved; using UTC"})`
+						: value}
 					<ChevronsUpDown className="h-3.5 w-3.5 opacity-50" />
 				</Button>
 			</PopoverTrigger>
@@ -60,6 +64,12 @@ export function GlobalStatsTimeZone({
 						<CommandGroup heading="Display time zone">
 							<CommandItem onSelect={() => choose("UTC")}>
 								UTC (default)
+							</CommandItem>
+							<CommandItem
+								disabled={!accountTimeZone}
+								onSelect={() => choose("account")}
+							>
+								Account time zone ({accountTimeZone ?? "not saved"})
 							</CommandItem>
 							<CommandItem onSelect={() => choose(browserZone)}>
 								Current time zone ({browserZone})
