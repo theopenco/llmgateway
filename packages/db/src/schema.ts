@@ -4118,6 +4118,32 @@ export const modelProviderMappingHistoryHourly = snakeCase.table(
 			table.totalOutputTokens,
 			table.totalDuration,
 		),
+		// Partial covering index for the public provider stats aggregations
+		// (filter by hourTimestamp range, group by providerId, sum metrics).
+		// Nine in ten hourly rows belong to mappings that saw no traffic that
+		// hour and contribute nothing to a sum, so the predicate keeps the index
+		// to the rows that matter; readers add `logs_count > 0` so the planner
+		// can pick it. Covers every column those readers sum, which the v4 index
+		// no longer does, so they get an index-only scan again.
+		index("mpm_history_hourly_active_provider_stats_v1_idx")
+			.on(
+				table.hourTimestamp,
+				table.usedMode,
+				table.providerId,
+				table.logsCount,
+				table.clientErrorsCount,
+				table.gatewayErrorsCount,
+				table.upstreamErrorsCount,
+				table.cachedCount,
+				table.totalTimeToFirstToken,
+				table.timeToFirstTokenCount,
+				table.totalTimeToFirstReasoningToken,
+				table.timeToFirstReasoningTokenCount,
+				table.totalOutputTokens,
+				table.totalTokens,
+				table.totalDuration,
+			)
+			.where(sql`logs_count > 0`),
 	],
 );
 
@@ -4189,6 +4215,17 @@ export const modelHistoryHourly = snakeCase.table(
 			table.modelId,
 			table.hourTimestamp,
 		),
+		// Partial covering index for the public model rankings (tokens and
+		// requests per model over a window). Restricted to rows with traffic for
+		// the same reason as mpm_history_hourly_active_provider_stats_v1_idx.
+		index("model_history_hourly_active_model_stats_v1_idx")
+			.on(
+				table.hourTimestamp,
+				table.modelId,
+				table.totalTokens,
+				table.logsCount,
+			)
+			.where(sql`logs_count > 0`),
 	],
 );
 

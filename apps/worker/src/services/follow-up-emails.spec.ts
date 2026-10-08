@@ -7,12 +7,17 @@ import {
 	followUpEmail,
 	organization,
 	project,
+	projectHourlyStats,
 	transaction,
 	user,
 	userOrganization,
 } from "@llmgateway/db";
 
-import { processNoPurchaseEmails } from "./follow-up-emails.js";
+import {
+	processLowUsageEmails,
+	processNoPurchaseEmails,
+	processNoRepurchaseEmails,
+} from "./follow-up-emails.js";
 
 import type * as EmailModule from "@llmgateway/shared/email";
 
@@ -427,5 +432,142 @@ describe("processNoPurchaseEmails opt-outs", () => {
 		await processNoPurchaseEmails();
 
 		expect(await db.select().from(followUpEmail)).toHaveLength(1);
+	});
+});
+
+describe("usage-based follow-ups", () => {
+	const DAY_MS = 24 * 60 * 60 * 1000;
+	const daysAgo = (days: number) => {
+		const offsetMs = days * DAY_MS;
+		return new Date(Date.now() - offsetMs);
+	};
+
+	beforeEach(async () => {
+		await db.delete(followUpEmail);
+		await db.delete(transaction);
+		await db.delete(projectHourlyStats);
+		await db.delete(project);
+		await db.delete(userOrganization);
+		await db.delete(organization);
+		await db.delete(user);
+	});
+
+	async function seedOrg(opts: {
+		email: string;
+		topups: { daysAgo: number; credits: number }[];
+		spent: number;
+	}) {
+		const [owner] = await db
+			.insert(user)
+			.values({ email: opts.email, name: opts.email, emailVerified: true })
+			.returning();
+		const [org] = await db
+			.insert(organization)
+			.values({
+				name: opts.email,
+				status: "active",
+				devPlan: "none",
+				billingEmail: opts.email,
+				createdAt: daysAgo(40),
+			})
+			.returning();
+		await db.insert(userOrganization).values({
+			userId: owner.id,
+			organizationId: org.id,
+			role: "owner",
+		});
+		await db.insert(transaction).values(
+			opts.topups.map((topup) => ({
+				organizationId: org.id,
+				type: "credit_topup" as const,
+				status: "completed" as const,
+				amount: String(topup.credits),
+				creditAmount: String(topup.credits),
+				createdAt: daysAgo(topup.daysAgo),
+			})),
+		);
+		const [proj] = await db
+			.insert(project)
+			.values({ organizationId: org.id, name: "default" })
+			.returning();
+		if (opts.spent > 0) {
+			await db.insert(projectHourlyStats).values({
+				projectId: proj.id,
+				hourTimestamp: daysAgo(1),
+				cost: opts.spent,
+			});
+		}
+		return org;
+	}
+
+	const sentTo = (emailType: "low_usage" | "no_repurchase") =>
+		db
+			.select()
+			.from(followUpEmail)
+			.where(eq(followUpEmail.emailType, emailType));
+
+	it("nudges low usage only for orgs whose first topup falls in the window", async () => {
+		const idle = await seedOrg({
+			email: "idle@example.com",
+			topups: [{ daysAgo: 5, credits: 100 }],
+			spent: 1,
+		});
+		await seedOrg({
+			email: "busy@example.com",
+			topups: [{ daysAgo: 5, credits: 100 }],
+			spent: 50,
+		});
+		// First topup predates the window: not a fresh customer any more.
+		await seedOrg({
+			email: "old@example.com",
+			topups: [
+				{ daysAgo: 60, credits: 100 },
+				{ daysAgo: 5, credits: 100 },
+			],
+			spent: 0,
+		});
+		// Too recent to judge.
+		await seedOrg({
+			email: "new@example.com",
+			topups: [{ daysAgo: 1, credits: 100 }],
+			spent: 0,
+		});
+
+		await processLowUsageEmails();
+
+		const sent = await sentTo("low_usage");
+		expect(sent.map((row) => row.organizationId)).toEqual([idle.id]);
+	});
+
+	it("nudges a repurchase only for orgs whose last topup is stale and mostly consumed", async () => {
+		const consumed = await seedOrg({
+			email: "consumed@example.com",
+			topups: [
+				{ daysAgo: 60, credits: 100 },
+				{ daysAgo: 20, credits: 100 },
+			],
+			spent: 150,
+		});
+		await seedOrg({
+			email: "fresh@example.com",
+			topups: [{ daysAgo: 3, credits: 100 }],
+			spent: 90,
+		});
+		await seedOrg({
+			email: "unused@example.com",
+			topups: [{ daysAgo: 20, credits: 100 }],
+			spent: 10,
+		});
+		// Last topup predates the window entirely.
+		await seedOrg({
+			email: "lapsed@example.com",
+			topups: [{ daysAgo: 60, credits: 100 }],
+			spent: 100,
+		});
+
+		await processNoRepurchaseEmails();
+
+		const sent = await sentTo("no_repurchase");
+		expect(sent.map((row) => row.organizationId)).toEqual([consumed.id]);
 	});
 });
