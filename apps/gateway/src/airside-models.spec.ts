@@ -70,13 +70,21 @@ describe("airside-listed models", () => {
 								message.tool_calls.length > 0 &&
 								typeof message.reasoning_content !== "string",
 						);
-					if (missingReasoning) {
+					const duplicateReasoning =
+						Array.isArray(messages) &&
+						messages.some(
+							(message: Record<string, unknown>) =>
+								message.reasoning !== undefined &&
+								message.reasoning_content !== undefined,
+						);
+					if (missingReasoning || duplicateReasoning) {
 						res.writeHead(400, { "content-type": "application/json" });
 						res.end(
 							JSON.stringify({
 								error: {
-									message:
-										"The `reasoning_content` in the thinking mode must be passed back to the API.",
+									message: duplicateReasoning
+										? "duplicate field 'reasoning_content'"
+										: "The `reasoning_content` in the thinking mode must be passed back to the API.",
 									type: "invalid_request_error",
 								},
 							}),
@@ -1625,19 +1633,34 @@ describe("airside-listed models", () => {
 		{ role: "user", content: "Thanks!" },
 	];
 
-	function deepseekPayload(endpoint: string, model: string, stream: boolean) {
+	function deepseekPayload(
+		endpoint: string,
+		model: string,
+		stream: boolean,
+		withReasoning = false,
+	) {
+		const history = deepseekHistory.map((message) =>
+			withReasoning && message.tool_calls?.length
+				? { ...message, reasoning: "call the weather tool" }
+				: message,
+		);
 		if (endpoint.endsWith("/language-model")) {
 			return {
 				maxOutputTokens: 128,
-				prompt: deepseekHistory.map((message) => ({
+				prompt: history.map((message) => ({
 					role: message.role,
 					content: message.tool_calls?.length
-						? message.tool_calls.map((call) => ({
-								type: "tool-call",
-								toolCallId: call.id,
-								toolName: call.function.name,
-								input: JSON.parse(call.function.arguments),
-							}))
+						? [
+								...(message.reasoning
+									? [{ type: "reasoning", text: message.reasoning }]
+									: []),
+								...message.tool_calls.map((call) => ({
+									type: "tool-call",
+									toolCallId: call.id,
+									toolName: call.function.name,
+									input: JSON.parse(call.function.arguments),
+								})),
+							]
 						: message.tool_call_id
 							? [
 									{
@@ -1656,16 +1679,21 @@ describe("airside-listed models", () => {
 				model,
 				stream,
 				max_tokens: 128,
-				messages: deepseekHistory.map((message) => {
+				messages: history.map((message) => {
 					if (message.tool_calls?.length) {
 						return {
 							role: "assistant",
-							content: message.tool_calls.map((call) => ({
-								type: "tool_use",
-								id: call.id,
-								name: call.function.name,
-								input: JSON.parse(call.function.arguments),
-							})),
+							content: [
+								...(message.reasoning
+									? [{ type: "thinking", thinking: message.reasoning }]
+									: []),
+								...message.tool_calls.map((call) => ({
+									type: "tool_use",
+									id: call.id,
+									name: call.function.name,
+									input: JSON.parse(call.function.arguments),
+								})),
+							],
 						};
 					}
 					if (message.tool_call_id) {
@@ -1690,14 +1718,26 @@ describe("airside-listed models", () => {
 				stream,
 				max_output_tokens: 128,
 				store: false,
-				input: deepseekHistory.flatMap<Record<string, unknown>>((message) => {
+				input: history.flatMap<Record<string, unknown>>((message) => {
 					if (message.tool_calls?.length) {
-						return message.tool_calls.map((call) => ({
-							type: "function_call",
-							call_id: call.id,
-							name: call.function.name,
-							arguments: call.function.arguments,
-						}));
+						return [
+							...(message.reasoning
+								? [
+										{
+											type: "reasoning",
+											summary: [
+												{ type: "summary_text", text: message.reasoning },
+											],
+										},
+									]
+								: []),
+							...message.tool_calls.map((call) => ({
+								type: "function_call",
+								call_id: call.id,
+								name: call.function.name,
+								arguments: call.function.arguments,
+							})),
+						];
 					}
 					if (message.tool_call_id) {
 						return [
@@ -1712,19 +1752,22 @@ describe("airside-listed models", () => {
 				}),
 			};
 		}
-		return { model, stream, max_tokens: 128, messages: deepseekHistory };
+		return { model, stream, max_tokens: 128, messages: history };
 	}
 
-	function expectDeepseekReplay() {
+	function expectDeepseekReplay(withReasoning = false) {
 		for (const request of captured) {
 			const messages = request.body.messages as Record<string, unknown>[];
 			const toolTurns = messages.filter((message) =>
 				Array.isArray(message.tool_calls),
 			);
 			expect(toolTurns.map((message) => message.reasoning_content)).toEqual([
-				" ",
-				" ",
+				withReasoning ? "call the weather tool" : " ",
+				withReasoning ? "call the weather tool" : " ",
 			]);
+			expect(
+				toolTurns.every((message) => message.reasoning === undefined),
+			).toBe(true);
 			expect(
 				messages
 					.filter((message) => !Array.isArray(message.tool_calls))
@@ -1734,49 +1777,59 @@ describe("airside-listed models", () => {
 		}
 	}
 
-	test.each([
-		["/v1/chat/completions", false],
-		["/v1/chat/completions", true],
-		["/v1/messages", false],
-		["/v1/messages", true],
-		["/v1/responses", false],
-		["/v1/responses", true],
-		["/v4/ai/language-model", false],
-		["/v4/ai/language-model", true],
-		["/v1/responses/compact", false],
-	])(
-		"DeepSeek V4 replay passes enforcing carrier from %s (stream=%s)",
-		async (endpoint, stream) => {
-			const token = "airside-deepseek-entrypoint";
-			await setupCustomCarrier(token, {
-				providerId: "acme-deep",
-				modelId: deepseekModel,
-				basePath: "/deepseek-rule",
-				externalId: "vendor/deployment",
-			});
-			const res = await app.request(endpoint, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer ${token}`,
-					"x-no-fallback": "true",
-					"ai-language-model-id": `acme-deep/${deepseekModel}`,
-					"ai-language-model-specification-version": "4",
-					"ai-language-model-streaming": String(stream),
+	describe.each([false, true])(
+		"tool reasoning supplied=%s",
+		(withReasoning) => {
+			test.each([
+				["/v1/chat/completions", false],
+				["/v1/chat/completions", true],
+				["/v1/messages", false],
+				["/v1/messages", true],
+				["/v1/responses", false],
+				["/v1/responses", true],
+				["/v4/ai/language-model", false],
+				["/v4/ai/language-model", true],
+				["/v1/responses/compact", false],
+			])(
+				"DeepSeek V4 replay passes enforcing carrier from %s (stream=%s)",
+				async (endpoint, stream) => {
+					const token = "airside-deepseek-entrypoint";
+					await setupCustomCarrier(token, {
+						providerId: "acme-deep",
+						modelId: deepseekModel,
+						basePath: "/deepseek-rule",
+						externalId: "vendor/deployment",
+					});
+					const res = await app.request(endpoint, {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: `Bearer ${token}`,
+							"x-no-fallback": "true",
+							"ai-language-model-id": `acme-deep/${deepseekModel}`,
+							"ai-language-model-specification-version": "4",
+							"ai-language-model-streaming": String(stream),
+						},
+						body: JSON.stringify(
+							deepseekPayload(
+								endpoint,
+								`acme-deep/${deepseekModel}`,
+								stream,
+								withReasoning,
+							),
+						),
+					});
+					const body = await res.text();
+					expect(res.status, body).toBe(200);
+					expect(body).toContain(
+						endpoint.endsWith("/compact")
+							? "response.compaction"
+							: "Hello from Luna",
+					);
+					expect(captured).toHaveLength(1);
+					expectDeepseekReplay(withReasoning && endpoint !== "/v1/messages");
 				},
-				body: JSON.stringify(
-					deepseekPayload(endpoint, `acme-deep/${deepseekModel}`, stream),
-				),
-			});
-			const body = await res.text();
-			expect(res.status, body).toBe(200);
-			expect(body).toContain(
-				endpoint.endsWith("/compact")
-					? "response.compaction"
-					: "Hello from Luna",
 			);
-			expect(captured).toHaveLength(1);
-			expectDeepseekReplay();
 		},
 	);
 

@@ -117,6 +117,56 @@ describe("DeepSeek V4 reasoning replay", () => {
 		},
 	);
 
+	describe.each([false, true])("field preservation (stream=%s)", (stream) => {
+		test.each([
+			["openai", "deepseek-v4.1-flash"],
+			["runware", "deepseek-v4-flash"],
+			["novita", "deepseek-v4-flash"],
+			["deepseek", "deepseek-v4.1-flash"],
+			["deepseek", "deepseek-v3.2"],
+			["moonshot", "kimi-k2.6"],
+		] satisfies [ProviderId, string][])(
+			"moves tool reasoning and preserves other %s %s turns",
+			async (provider, model) => {
+				const history: BaseMessage[] = [
+					{ ...toolTurn, reasoning: "call the weather tool" },
+					{ role: "assistant", content: "Done", reasoning: "ordinary turn" },
+					{ ...toolTurn, tool_calls: [], reasoning: "no tool calls" },
+					{ ...toolTurn, reasoning_content: "provider reasoning" },
+				];
+				const original = structuredClone(history);
+				const result = await prepare(provider, model, history, stream);
+				const body = chatBody(result);
+				expect(body.messages).toEqual([
+					{ reasoning: undefined, reasoning_content: "call the weather tool" },
+					{ reasoning: "ordinary turn", reasoning_content: undefined },
+					{ reasoning: "no tool calls", reasoning_content: undefined },
+					{ reasoning: undefined, reasoning_content: "provider reasoning" },
+				]);
+				expect(result).toMatchObject({
+					messages: [
+						{ ...toolTurn, reasoning_content: "call the weather tool" },
+						...original.slice(1),
+					],
+				});
+				expect(history).toEqual(original);
+			},
+		);
+
+		test.each(["gpt-4o-mini", "deepseek-v3.2"])(
+			"preserves echoed reasoning on an unrelated carrier model %s",
+			async (model) => {
+				const history: BaseMessage[] = [
+					{ ...toolTurn, reasoning: "tool reasoning" },
+					{ role: "assistant", content: "Done", reasoning: "ordinary turn" },
+				];
+				expect(await prepare("openai", model, history, stream)).toMatchObject({
+					messages: history,
+				});
+			},
+		);
+	});
+
 	test.each([
 		"anthropic",
 		"vertex-anthropic",
@@ -171,5 +221,61 @@ describe("DeepSeek V4 reasoning replay", () => {
 		expect(JSON.stringify(body)).not.toContain('"reasoning_content"');
 		expect(JSON.stringify(body)).toContain('"function_call"');
 		expect(JSON.stringify(body)).toContain('"function_call_output"');
+	});
+
+	test("preserves opaque Responses reasoning and context while moving text", async () => {
+		const history: BaseMessage[] = [
+			messages[0],
+			{
+				...toolTurn,
+				reasoning: "caller reasoning",
+				reasoning_details: [
+					{
+						type: "reasoning.encrypted",
+						data: "opaque reasoning",
+						id: "rs_weather",
+						format: "openai-responses-v1",
+					},
+				],
+			},
+			messages[2],
+		];
+		const original = structuredClone(history);
+		const args: Parameters<typeof prepareRequestBody> = [
+			"openai",
+			"deepseek-v4.1-flash",
+			null,
+			"vendor/deployment",
+			history,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		];
+		args[25] = true;
+		args[34] = "all_turns";
+		const body = await prepareRequestBody(...args);
+		expect(body).toMatchObject({
+			reasoning: { context: "all_turns" },
+			input: expect.arrayContaining([
+				{
+					type: "reasoning",
+					id: "rs_weather",
+					summary: [],
+					encrypted_content: "opaque reasoning",
+				},
+				{
+					type: "function_call",
+					call_id: "call_weather",
+					name: "get_weather",
+					arguments: '{"city":"Paris"}',
+				},
+			]),
+		});
+		expect(JSON.stringify(body)).not.toContain("caller reasoning");
+		expect(history).toEqual(original);
 	});
 });
