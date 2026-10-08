@@ -897,7 +897,7 @@ export const xaiModels = [
 		id: "grok-imagine-video-1-5-lite",
 		name: "Grok Imagine Video 1.5 Lite",
 		description:
-			"xAI's lightweight video generation model. Creates videos from a text prompt or an input image at a low per-second price.",
+			"xAI's lightweight video generation model. Creates videos from a text prompt or an input image at a low per-second price. Served from us-east-1 and us-west-2.",
 		family: "xai",
 		output: ["video"],
 		releasedAt: new Date("2026-10-08"),
@@ -923,7 +923,6 @@ export const xaiModels = [
 				supportedVideoDurationsSeconds: [6, 8, 10, 12, 15],
 				supportsVideoAudio: true,
 				supportsVideoWithoutAudio: false,
-				regions: [{ id: "us-east-1" }, { id: "us-west-2" }],
 			},
 		],
 	},
