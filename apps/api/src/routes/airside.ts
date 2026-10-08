@@ -66,6 +66,7 @@ import {
 	mappingErrorShapesSchema,
 	notRetriedClause,
 	incidentErrorsClause,
+	byokClauseFor,
 	INCIDENT_ERRORS_LOG_LIMIT,
 	queryIncidentErrorTypes,
 	queryIncidentMappings,
@@ -4437,6 +4438,8 @@ const incidentsRoute = createRoute({
 			/** Exact `used_model` (`provider/model[:region]`). */
 			mapping: z.string().optional(),
 			window: incidentsWindowSchema.default("24h").optional(),
+			/** Include errors and requests served by customers' own keys. */
+			includeByok: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -4470,6 +4473,7 @@ airside.openapi(incidentsRoute, async (c) => {
 			providerIds,
 			windowHours,
 			mapping,
+			includeByok: query.includeByok === "true",
 		}),
 	});
 });
@@ -4484,6 +4488,8 @@ const incidentErrorsRoute = createRoute({
 			/** Exact `used_model` (`provider/model[:region]`). */
 			mapping: z.string(),
 			window: incidentsWindowSchema.default("24h").optional(),
+			/** Include errors and requests served by customers' own keys. */
+			includeByok: z.enum(["true", "false"]).optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
 		}),
 	},
@@ -4517,6 +4523,7 @@ airside.openapi(incidentErrorsRoute, async (c) => {
 			sampleLimit: INCIDENT_ERRORS_LOG_LIMIT,
 			extraClauses: [
 				incidentErrorsClause,
+				byokClauseFor(query.includeByok),
 				query.includeRetried === "false" ? notRetriedClause : sql``,
 			],
 		}),
@@ -4533,6 +4540,8 @@ const incidentErrorTypesRoute = createRoute({
 			/** Exact `used_model` (`provider/model[:region]`). */
 			mapping: z.string().optional(),
 			window: incidentsWindowSchema.default("24h").optional(),
+			/** Include errors and requests served by customers' own keys. */
+			includeByok: z.enum(["true", "false"]).optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
 		}),
 	},
@@ -4565,10 +4574,12 @@ airside.openapi(incidentErrorTypesRoute, async (c) => {
 				providerIds,
 				windowHours,
 				mapping: query.mapping ?? null,
+				includeByok: query.includeByok === "true",
 			}),
 			windowInterval,
 			extraClauses: [
 				incidentErrorsClause,
+				byokClauseFor(query.includeByok),
 				query.includeRetried === "false" ? notRetriedClause : sql``,
 			],
 		}),

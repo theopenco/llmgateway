@@ -26,6 +26,7 @@ import {
 	incidentsResponseSchema,
 	incidentsWindowSchema,
 	incidentErrorsClause,
+	byokClauseFor,
 	notRetriedClause,
 	queryIncidentErrorTypes,
 	buildErrorTimeline,
@@ -1373,6 +1374,8 @@ const listIncidents = createRoute({
 			/** Exact `used_model` (`provider/model[:region]`). */
 			mapping: z.string().optional(),
 			window: incidentsWindowSchema.default("24h").optional(),
+			/** Include errors and requests served by customers' own keys. */
+			includeByok: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -1401,6 +1404,7 @@ adminAirside.openapi(listIncidents, async (c) => {
 			providerIds,
 			windowHours,
 			mapping,
+			includeByok: query.includeByok === "true",
 		}),
 	});
 });
@@ -1414,6 +1418,8 @@ const listIncidentErrorTypes = createRoute({
 			/** Exact `used_model` (`provider/model[:region]`). */
 			mapping: z.string().optional(),
 			window: incidentsWindowSchema.default("24h").optional(),
+			/** Include errors and requests served by customers' own keys. */
+			includeByok: z.enum(["true", "false"]).optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
 		}),
 	},
@@ -1447,10 +1453,12 @@ adminAirside.openapi(listIncidentErrorTypes, async (c) => {
 				providerIds: [query.providerId],
 				windowHours,
 				mapping: query.mapping ?? null,
+				includeByok: query.includeByok === "true",
 			}),
 			windowInterval,
 			extraClauses: [
 				incidentErrorsClause,
+				byokClauseFor(query.includeByok),
 				query.includeRetried === "false" ? notRetriedClause : sql``,
 			],
 		})),

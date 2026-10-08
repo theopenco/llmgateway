@@ -71,6 +71,10 @@ import {
 	GLOBAL_STATS_INTERVAL_SECONDS,
 	processClosedHours,
 } from "./services/global-stats-aggregator.js";
+import {
+	runModelStatsByokErrorsBackfillStep,
+	runSourceModelStatsBackfillStep,
+} from "./services/hourly-stats-backfill.js";
 import { checkModelErrorRateAlerts } from "./services/model-error-rate-alerts.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
 import { processNotifications } from "./services/notifications.js";
@@ -80,7 +84,6 @@ import {
 } from "./services/project-stats-aggregator.js";
 import { syncProviderKeyModels } from "./services/provider-key-model-sync.js";
 import { runRoutingBaselineBackfillStep } from "./services/routing-baseline-backfill.js";
-import { runSourceModelStatsBackfillStep } from "./services/source-model-stats-backfill.js";
 import {
 	backfillHistoryIfNeeded,
 	backfillHourlyHistoryIfNeeded,
@@ -137,6 +140,8 @@ const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const MODEL_ERROR_RATE_ALERTS_LOCK_KEY = "model_error_rate_alerts";
 const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
 const SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY = "source_model_stats_backfill";
+const MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY =
+	"model_stats_byok_errors_backfill";
 const LOCK_DURATION_MINUTES = 5;
 // LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
@@ -3572,6 +3577,11 @@ export async function startWorker() {
 		"source model stats",
 		SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY,
 		runSourceModelStatsBackfillStep,
+	);
+	void runBackfillLoop(
+		"model stats BYOK errors",
+		MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY,
+		runModelStatsByokErrorsBackfillStep,
 	);
 	for (let i = 0; i < LOG_QUEUE_CONCURRENCY; i++) {
 		void runLogQueueLoop(i);
