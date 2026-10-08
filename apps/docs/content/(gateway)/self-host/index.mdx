@@ -53,6 +53,20 @@ every response. A subscriber's plan margin stays visible, since it is the plan
 price minus usage these roles already see. Request payloads in logs are shown
 unmodified.
 
+## Global Stats time ranges
+
+Global Stats defaults to UTC. Choose **Display time zone** to use your device's
+current zone or another named zone; the choice is saved for later visits. Chart
+labels and tooltips show bucket start times in that zone. Calendar ranges and
+daily totals retain UTC day boundaries.
+
+**Last 24 hours** uses hourly aggregates for the 24 complete hours ending at the
+latest UTC hour boundary, with the exact window shown above the charts. It spans
+midnight and uses the same window for totals, breakdowns, and provider filters.
+The current incomplete hour is excluded. The worker refreshes hourly after a
+settling delay, so recent hours may still be processing. CSV timestamps remain
+in UTC. Apply database migrations and run the worker to populate hourly history.
+
 ## Gateway load
 
 The admin dashboard's **Gateway Load → Requests** view reports peak throughput

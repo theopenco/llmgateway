@@ -131,6 +131,9 @@ import {
 	projectHourlyModelStats,
 	projectHourlySourceStats,
 	globalModelStats,
+	globalHourlyModelStats,
+	globalHourlySourceStats,
+	globalHourlyProviderKeyModelStats,
 	globalProviderKeyModelStats,
 	globalSourceStats,
 } from "@llmgateway/db";
@@ -1893,7 +1896,14 @@ admin.openapi(getTimeseries, async (c) => {
 	});
 });
 
-const globalStatsRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
+const globalStatsRangeSchema = z.enum([
+	"24h",
+	"7d",
+	"30d",
+	"90d",
+	"365d",
+	"all",
+]);
 const globalStatsGroupBySchema = z.enum(["model", "source", "mode", "kind"]);
 const globalStatsModelViewSchema = z.enum(["mapping", "canonical", "provider"]);
 // Billing mode filter. "total" blends every mode, including the "unknown"
@@ -1976,7 +1986,7 @@ const globalStatsBreakdownItemSchema = globalStatsMetricsSchema
 	})
 	.openapi({});
 
-// Per-day, per-dimension point. Only the three chartable metrics are returned
+// Per-bucket, per-dimension point. Only the three chartable metrics are returned
 // to keep the payload small; the client picks the top dimensions per metric and
 // collapses the rest into an "Other" bucket.
 const globalStatsTimeseriesBreakdownPointSchema = z
@@ -1991,6 +2001,8 @@ const globalStatsTimeseriesBreakdownPointSchema = z
 	.openapi({});
 
 const globalStatsResponseSchema = z.object({
+	granularity: z.enum(["hour", "day"]),
+	timeZone: z.literal("UTC"),
 	start: z.string(),
 	end: z.string(),
 	groupBy: globalStatsGroupBySchema,
@@ -2087,6 +2099,8 @@ admin.openapi(getGlobalStats, async (c) => {
 	const mode = query.mode ?? "total";
 	const kind = query.kind ?? "all";
 
+	const hourly = query.range === "24h" && !query.from && !query.to;
+	const hourMs = 60 * 60 * 1000;
 	const dayMs = 24 * 60 * 60 * 1000;
 	const MAX_GLOBAL_STATS_DAYS = 731;
 
@@ -2094,21 +2108,29 @@ admin.openapi(getGlobalStats, async (c) => {
 	// read the (much smaller) source table, which covers the same requests.
 	// A credential or provider filter reads a per-model table for every
 	// grouping, since both carry provider, model, mode and kind alike.
-	const modelTable = byKey ? globalProviderKeyModelStats : globalModelStats;
+	const modelStats = hourly ? globalHourlyModelStats : globalModelStats;
+	const keyStats = hourly
+		? globalHourlyProviderKeyModelStats
+		: globalProviderKeyModelStats;
+	const sourceStats = hourly ? globalHourlySourceStats : globalSourceStats;
+	const modelTable = byKey ? keyStats : modelStats;
 	const sourceTable = byKey
-		? globalProviderKeyModelStats
+		? keyStats
 		: groupBy === "model" || provider
-			? globalModelStats
-			: globalSourceStats;
+			? modelStats
+			: sourceStats;
+
+	const timestamp =
+		"hourTimestamp" in sourceTable
+			? sourceTable.hourTimestamp
+			: sourceTable.dayTimestamp;
 
 	// Narrowing happens in SQL, so every metric below — tokens, errors, cache,
 	// per-part costs — reflects exactly the selected slice.
 	const modeFilter = mode === "total" ? [] : [eq(sourceTable.usedMode, mode)];
 	const kindFilter = kind === "all" ? [] : [eq(sourceTable.orgKind, kind)];
 	const keyFilter = [
-		...(byKey
-			? [inArray(globalProviderKeyModelStats.providerKeyId, providerKeyIds)]
-			: []),
+		...(byKey ? [inArray(keyStats.providerKeyId, providerKeyIds)] : []),
 		...(provider ? [eq(modelTable.usedProvider, provider)] : []),
 	];
 	const dimensionFilter = [...modeFilter, ...kindFilter, ...keyFilter];
@@ -2130,15 +2152,17 @@ admin.openapi(getGlobalStats, async (c) => {
 			startDate = endDate;
 			endDate = tmp;
 		}
+	} else if (hourly) {
+		({ start: startDate, end: endDate } = globalStatsHourlyRange());
 	} else if (allTime) {
 		const bounds = await db
 			.select({
-				minDay: sql<
-					string | null
-				>`to_char(MIN(${sourceTable.dayTimestamp}), 'YYYY-MM-DD')`.as("minDay"),
-				maxDay: sql<
-					string | null
-				>`to_char(MAX(${sourceTable.dayTimestamp}), 'YYYY-MM-DD')`.as("maxDay"),
+				minDay: sql<string | null>`to_char(MIN(${timestamp}), 'YYYY-MM-DD')`.as(
+					"minDay",
+				),
+				maxDay: sql<string | null>`to_char(MAX(${timestamp}), 'YYYY-MM-DD')`.as(
+					"maxDay",
+				),
 			})
 			.from(sourceTable)
 			.where(dimensionFilter.length ? and(...dimensionFilter) : undefined);
@@ -2149,7 +2173,10 @@ admin.openapi(getGlobalStats, async (c) => {
 		startDate = minDay ? new Date(minDay + "T00:00:00Z") : new Date(endDate);
 		startDate.setUTCHours(0, 0, 0, 0);
 	} else {
-		const range = query.range && query.range !== "all" ? query.range : "30d";
+		const range =
+			query.range && query.range !== "all" && query.range !== "24h"
+				? query.range
+				: "30d";
 		const rangeDays: Record<"7d" | "30d" | "90d" | "365d", number> = {
 			"7d": 7,
 			"30d": 30,
@@ -2227,12 +2254,15 @@ admin.openapi(getGlobalStats, async (c) => {
 		videoOutputCost: sumMoney(sourceTable.videoOutputCost, "videoOutputCost"),
 	};
 
-	const dateExpr =
-		sql<string>`to_char(${sourceTable.dayTimestamp}, 'YYYY-MM-DD')`.as("date");
+	const dateExpr = hourly
+		? sql<string>`to_char(${timestamp}, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`.as(
+				"date",
+			)
+		: sql<string>`to_char(${timestamp}, 'YYYY-MM-DD')`.as("date");
 
 	const rangeFilter = and(
-		gte(sourceTable.dayTimestamp, startDate),
-		lte(sourceTable.dayTimestamp, endDate),
+		gte(timestamp, startDate),
+		hourly ? lt(timestamp, endDate) : lte(timestamp, endDate),
 	);
 	const scopeFilter = and(rangeFilter, ...dimensionFilter);
 
@@ -2248,7 +2278,7 @@ admin.openapi(getGlobalStats, async (c) => {
 				? sourceTable.usedMode
 				: groupBy === "kind"
 					? sourceTable.orgKind
-					: globalSourceStats.source;
+					: sourceStats.source;
 
 	const compositionSums = {
 		requestCount: metricSums.requestCount,
@@ -2266,7 +2296,7 @@ admin.openapi(getGlobalStats, async (c) => {
 			.select({ date: dateExpr, ...metricSums })
 			.from(sourceTable)
 			.where(scopeFilter)
-			.groupBy(sourceTable.dayTimestamp),
+			.groupBy(timestamp),
 		db
 			.select({ dimension: breakdownColumn, ...metricSums })
 			.from(sourceTable)
@@ -2281,7 +2311,7 @@ admin.openapi(getGlobalStats, async (c) => {
 					})
 					.from(sourceTable)
 					.where(scopeFilter)
-					.groupBy(sourceTable.dayTimestamp, breakdownColumn)
+					.groupBy(timestamp, breakdownColumn)
 			: Promise.resolve([]),
 		// Both composition panels share this small mode × kind matrix. Each
 		// panel ignores its own filter while retaining the other dimension.
@@ -2319,9 +2349,13 @@ admin.openapi(getGlobalStats, async (c) => {
 	const totals = emptyGlobalStatsMetrics();
 
 	const timeseries: z.infer<typeof globalStatsTimeseriesPointSchema>[] = [];
-	for (let i = 0; i < days; i++) {
-		const cur = new Date(startDate.getTime() + i * dayMs); // eslint-disable-line no-mixed-operators
-		const dateStr = cur.toISOString().split("T")[0];
+	const bucketCount = hourly ? 24 : days;
+	const bucketMs = hourly ? hourMs : dayMs;
+	for (let i = 0; i < bucketCount; i++) {
+		const cur = new Date(startDate.getTime() + i * bucketMs); // eslint-disable-line no-mixed-operators
+		const dateStr = hourly
+			? cur.toISOString()
+			: cur.toISOString().split("T")[0];
 		const point = timeseriesMap.get(dateStr) ?? {
 			date: dateStr,
 			...emptyGlobalStatsMetrics(),
@@ -2385,8 +2419,12 @@ admin.openapi(getGlobalStats, async (c) => {
 	};
 
 	return c.json({
-		start: startDate.toISOString().split("T")[0],
-		end: endDate.toISOString().split("T")[0],
+		granularity: hourly ? ("hour" as const) : ("day" as const),
+		timeZone: "UTC" as const,
+		start: hourly
+			? startDate.toISOString()
+			: startDate.toISOString().split("T")[0],
+		end: hourly ? endDate.toISOString() : endDate.toISOString().split("T")[0],
 		groupBy,
 		modelView,
 		mode,
@@ -2431,19 +2469,36 @@ const globalStatsListQuerySchema = z.object({
 	kind: globalStatsKindSchema.default("all").optional(),
 });
 
+function globalStatsHourlyRange() {
+	const end = new Date();
+	end.setUTCMinutes(0, 0, 0);
+	const dayMs = 24 * 60 * 60 * 1000;
+	const start = new Date(end.getTime() - dayMs);
+	return { start, end };
+}
+
 // Range, mode and kind filters shared by the Global Stats filter pickers.
 function globalStatsListFilters(
-	stats: typeof globalModelStats | typeof globalProviderKeyModelStats,
+	stats:
+		| typeof globalModelStats
+		| typeof globalProviderKeyModelStats
+		| typeof globalHourlyModelStats
+		| typeof globalHourlyProviderKeyModelStats,
 	query: z.infer<typeof globalStatsListQuerySchema>,
 ) {
 	const dayMs = 24 * 60 * 60 * 1000;
 	const filters = [];
+	const timestamp =
+		"hourTimestamp" in stats ? stats.hourTimestamp : stats.dayTimestamp;
 	if (query.from && query.to) {
 		const [start, end] = [query.from, query.to].sort();
 		filters.push(
-			gte(stats.dayTimestamp, new Date(start + "T00:00:00Z")),
-			lte(stats.dayTimestamp, new Date(end + "T00:00:00Z")),
+			gte(timestamp, new Date(start + "T00:00:00Z")),
+			lte(timestamp, new Date(end + "T00:00:00Z")),
 		);
+	} else if (query.range === "24h") {
+		const { start, end } = globalStatsHourlyRange();
+		filters.push(gte(timestamp, start), lt(timestamp, end));
 	} else if (query.range !== "all") {
 		const rangeDays: Record<"7d" | "30d" | "90d" | "365d", number> = {
 			"7d": 7,
@@ -2456,7 +2511,7 @@ function globalStatsListFilters(
 		const start = new Date(
 			end.getTime() - (rangeDays[query.range ?? "30d"] - 1) * dayMs, // eslint-disable-line no-mixed-operators
 		);
-		filters.push(gte(stats.dayTimestamp, start));
+		filters.push(gte(timestamp, start));
 	}
 	if (query.mode && query.mode !== "total") {
 		filters.push(eq(stats.usedMode, query.mode));
@@ -2498,7 +2553,10 @@ const getGlobalStatsProviders = createRoute({
 
 admin.openapi(getGlobalStatsProviders, async (c) => {
 	const query = c.req.valid("query");
-	const stats = globalModelStats;
+	const stats =
+		query.range === "24h" && !query.from && !query.to
+			? globalHourlyModelStats
+			: globalModelStats;
 	const filters = globalStatsListFilters(stats, query);
 	const cost = sumMoney(stats.cost, "cost");
 	const rows = await db
@@ -2550,7 +2608,10 @@ const getGlobalStatsProviderKeys = createRoute({
 
 admin.openapi(getGlobalStatsProviderKeys, async (c) => {
 	const query = c.req.valid("query");
-	const stats = globalProviderKeyModelStats;
+	const stats =
+		query.range === "24h" && !query.from && !query.to
+			? globalHourlyProviderKeyModelStats
+			: globalProviderKeyModelStats;
 	const filters = globalStatsListFilters(stats, query);
 	if (query.provider) {
 		filters.push(eq(stats.usedProvider, query.provider));
