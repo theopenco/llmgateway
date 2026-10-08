@@ -2985,8 +2985,7 @@ chat.openapi(completions, async (c) => {
 			softExempt: providerId === softLimitExemptProvider,
 		});
 
-	// Another provider cannot verify the used mapping's encrypted reasoning, so
-	// requests on it never move providers (low-uptime reroute, retry).
+	// Keep low-uptime rerouting conservative for encrypted-reasoning mappings.
 	const usedProviderEncryptsReasoning = () =>
 		modelInfo.providers.some(
 			(p) => p.providerId === usedProvider && usesEncryptedReasoning(p),
@@ -2994,8 +2993,7 @@ chat.openapi(completions, async (c) => {
 	// Check replayed data at retry time, after cached Google signatures are
 	// restored. Reasoning capability alone does not bind a fresh request.
 	const isProviderPinned = () =>
-		sessionStickyEnabled ||
-		(usedProviderEncryptsReasoning() && hasProviderBoundReasoning(messages));
+		sessionStickyEnabled || hasProviderBoundReasoning(messages);
 
 	const retryProjectContext = {
 		mode: project.mode,

@@ -203,6 +203,75 @@ describe("reasoning model retry before output", () => {
 	});
 
 	test.each([false, true])(
+		"pins signed reasoning independently of mapping capability (signed=%s)",
+		async (signed) => {
+			await setup();
+			await harness.setProjectMode("api-keys");
+			const replayModel = "gemma-4-31b-it";
+			for (const provider of ["novita", "deepinfra"]) {
+				const id = `provider-key-${provider}`;
+				await db.insert(tables.providerKey).values({
+					id,
+					provider,
+					organizationId: "org-id",
+					...encryptProviderKeyForStorage(`test-${provider}`, id, "org-id"),
+					allowedModels: [replayModel],
+					baseUrl: `https://${provider}.example.com`,
+				});
+				await harness.setRoutingMetrics(replayModel, provider, { uptime: 100 });
+			}
+			const attempts: string[] = [];
+			const fetch = globalThis.fetch;
+			vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+				const url = new URL(
+					input instanceof Request ? input.url : input.toString(),
+				);
+				attempts.push(url.hostname);
+				if (url.hostname === "novita.example.com") {
+					return Response.json(
+						{ error: { message: "Rate limit exceeded" } },
+						{ status: 429 },
+					);
+				}
+				return await fetch(
+					`${harness.mockServerUrl}/v1/chat/completions`,
+					init,
+				);
+			});
+			const res = await request({
+				model: replayModel,
+				stream: false,
+				messages: [
+					{
+						role: "assistant",
+						content: "Earlier answer",
+						...(signed && {
+							reasoning_details: [
+								{
+									type: "reasoning.text",
+									format: "google-gemini-v1",
+									signature: "signed-reasoning",
+								},
+							],
+						}),
+					},
+					{ role: "user", content: "Continue" },
+				],
+			});
+			expect(res.status).toBe(signed ? 500 : 200);
+			expect(attempts).toEqual(
+				signed
+					? ["novita.example.com"]
+					: ["novita.example.com", "deepinfra.example.com"],
+			);
+			const logs = await waitForLogs(signed ? 1 : 2);
+			const failure = logs.find((log) => log.usedProvider === "novita");
+			expect(failure?.retried).toBe(!signed);
+			expect(failure?.errorDetails?.statusCode).toBe(429);
+		},
+	);
+
+	test.each([false, true])(
 		"retries an HTTP 429 with stream=%s",
 		async (stream) => {
 			await setup();
