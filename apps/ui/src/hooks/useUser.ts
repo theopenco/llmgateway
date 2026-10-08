@@ -5,6 +5,7 @@ import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
 import { useAuthClient } from "@/lib/auth-client";
+import { getAuthPagePath } from "@/lib/auth-redirect";
 import { useApi } from "@/lib/fetch-client";
 
 import type { Route } from "next";
@@ -93,7 +94,7 @@ export function useUser(options?: UseUserOptions) {
 
 		if (redirectWhen === "authenticated" && hasUser && !isLoading && !error) {
 			if (checkOnboarding && !data.user.onboardingCompleted) {
-				router.push("/onboarding");
+				router.push(getAuthPagePath("/onboarding", redirectTo) as Route);
 			} else {
 				router.push(redirectTo as Route);
 			}

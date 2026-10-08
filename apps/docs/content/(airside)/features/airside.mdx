@@ -75,6 +75,8 @@ Chart axes and compact counts use `k`, `M`, `B`, or `T` for thousands through tr
 
 The **Incidents** page lists every mapping of your claimed providers that failed requests in the selected window (1 hour to 3 days), with its error rate, error count, upstream/gateway split, and total requests. Only upstream and gateway errors count: both are retried on another key or provider, and upstream errors count against your uptime. Client errors, canceled requests, and content-filtered requests are excluded.
 
+By default the page counts only traffic served by the gateway's own credentials. Turn on **Bring your own key traffic** to also include requests customers sent with their own provider keys.
+
 Expand a row to see the top error shapes behind it: HTTP status, status text, a response excerpt, the cause, the gateway's classification, and whether the request was streamed. The shapes cover every error in the window, including responses that started successfully and failed midway, up to the latest 100,000 per mapping. Counts always include retried attempts; the **Retried errors in details** switch drops retried attempts from the error shapes only.
 
 Switch to **By error type** to group the same errors across mappings instead: each error shows its total, its streaming and non-streaming counts, and every model it hit with per-model counts. Use it to spot failures such as timeouts that are not specific to one model. The same per-mapping limit applies.
@@ -98,6 +100,14 @@ Accepting more than the baseline margin or offering a discount makes your traffi
 ## Settings
 
 **Settings** holds the preflight **test key** for each claimed carrier, shown masked. Replace or remove it at any time; without one, preflight asks for a key on every run.
+
+Settings also shows each carrier's **billing mode**, which the LLM Gateway team sets and you can only view:
+
+- **Pay-as-you-go** (default) — LLM Gateway prepays usage on its own account with you.
+- **Post-billing** — you invoice LLM Gateway after each month's usage, paid by wire.
+- **Payout** — you supply the API key and cover upstream costs; LLM Gateway pays you after each month.
+
+Contact the LLM Gateway team to change it.
 
 ## Provider resources
 

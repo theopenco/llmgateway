@@ -2163,6 +2163,9 @@ export const providerKey = snakeCase.table(
 		// several credentials and the token itself is masked, so this is the
 		// only way to tell them apart.
 		comment: text(),
+		// Managed only: filed by an Airside carrier itself rather than added by
+		// an admin. Carrier keys bill the carrier's own upstream account.
+		carrierSubmitted: boolean().notNull().default(false),
 		// Managed-credential settings keyed by the provider's logical env keys
 		// (see ProviderKeyOptions.env_config). Mirrors everything the provider's
 		// `LLM_*` vars would carry apart from the API key itself, which lives in
@@ -3841,6 +3844,10 @@ export const modelProviderMappingHistory = snakeCase.table(
 		clientErrorsCount: integer().notNull().default(0),
 		gatewayErrorsCount: integer().notNull().default(0),
 		upstreamErrorsCount: integer().notNull().default(0),
+		// Subsets of gateway/upstream errors on attempts the gateway retried
+		// elsewhere, so error-rate alerts can ignore failures callers never saw.
+		retriedGatewayErrorsCount: integer().notNull().default(0),
+		retriedUpstreamErrorsCount: integer().notNull().default(0),
 		completedCount: integer().notNull().default(0),
 		lengthLimitCount: integer().notNull().default(0),
 		contentFilterCount: integer().notNull().default(0),
@@ -5489,6 +5496,11 @@ export const providerClaim = snakeCase.table(
 		pendingProviderKeyId: text().references(() => providerKey.id, {
 			onDelete: "set null",
 		}),
+		// How the carrier's upstream usage is settled, set by admins only. See
+		// AIRSIDE_BILLING_MODES in @llmgateway/shared/airside-billing.
+		billingMode: text({ enum: ["payg", "postpaid", "payout"] })
+			.notNull()
+			.default("payg"),
 		// Self-declared public profile shown on the provider page. Display only:
 		// it never feeds compliance routing, which reads the static catalogue.
 		website: text(),
@@ -6106,6 +6118,10 @@ export const projectHourlyModelStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		// BYOK subset of the gateway/upstream error counts, so incident views can
+		// show platform-only error rates.
+		apiKeysGatewayErrorCount: integer().notNull().default(0),
+		apiKeysUpstreamErrorCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour-model-provider

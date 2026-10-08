@@ -2,9 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, inArray, tables } from "@llmgateway/db";
 
-import { runSourceModelStatsBackfillStep } from "./source-model-stats-backfill.js";
+import {
+	runModelStatsByokErrorsBackfillStep,
+	runSourceModelStatsBackfillStep,
+} from "./hourly-stats-backfill.js";
 
 vi.hoisted(() => {
 	process.env.SOURCE_MODEL_STATS_BACKFILL_DAYS = "1";
@@ -42,12 +45,18 @@ describe("source model stats backfill", () => {
 		await db
 			.delete(tables.globalAggregationState)
 			.where(
-				eq(tables.globalAggregationState.id, "source-model-stats-backfill"),
+				inArray(tables.globalAggregationState.id, [
+					"source-model-stats-backfill",
+					"model-stats-byok-errors-backfill",
+				]),
 			);
 		await db.delete(tables.log).where(eq(tables.log.organizationId, orgId));
 		await db
 			.delete(tables.projectHourlySourceModelStats)
 			.where(eq(tables.projectHourlySourceModelStats.projectId, projectId));
+		await db
+			.delete(tables.projectHourlyModelStats)
+			.where(eq(tables.projectHourlyModelStats.projectId, projectId));
 		await db
 			.delete(tables.project)
 			.where(eq(tables.project.organizationId, orgId));
@@ -107,5 +116,50 @@ describe("source model stats backfill", () => {
 		]);
 
 		expect(await runSourceModelStatsBackfillStep()).toBe(false);
+	});
+
+	test("fills BYOK error counts of the last 3 days", async () => {
+		const byokError = {
+			usedMode: "api-keys",
+			hasError: true,
+			unifiedFinishReason: "upstream_error",
+		} as const;
+		await db.insert(tables.log).values([
+			logValues({ ...byokError }),
+			logValues({ ...byokError, unifiedFinishReason: "gateway_error" }),
+			logValues({ ...byokError, usedMode: "credits" }),
+			logValues({}),
+			// Outside the 3-day window.
+			logValues({ ...byokError, createdAt: new Date("2026-09-09T09:15:00Z") }),
+		]);
+
+		for (
+			let i = 0;
+			i < 100 && (await runModelStatsByokErrorsBackfillStep());
+			i++
+		) {
+			// Walks one hour per step.
+		}
+
+		const rows = await db.query.projectHourlyModelStats.findMany({
+			where: { projectId },
+		});
+		expect(
+			rows.map((row) => ({
+				hour: row.hourTimestamp.toISOString(),
+				requestCount: row.requestCount,
+				upstreamErrorCount: row.upstreamErrorCount,
+				apiKeysUpstreamErrorCount: row.apiKeysUpstreamErrorCount,
+				apiKeysGatewayErrorCount: row.apiKeysGatewayErrorCount,
+			})),
+		).toEqual([
+			{
+				hour: "2026-09-12T09:00:00.000Z",
+				requestCount: 4,
+				upstreamErrorCount: 2,
+				apiKeysUpstreamErrorCount: 1,
+				apiKeysGatewayErrorCount: 1,
+			},
+		]);
 	});
 });

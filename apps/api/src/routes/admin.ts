@@ -37,6 +37,8 @@ import {
 	mappingErrorWindowSchema,
 	notRetriedClause,
 	incidentErrorsClause,
+	platformOnlyClause,
+	byokClauseFor,
 	queryMappingErrorShapes,
 	buildErrorTimeline,
 	errorTimelineSchema,
@@ -159,6 +161,7 @@ import {
 	resolveTrustTierOverride,
 	SYSTEM_BANNER_SEVERITIES,
 } from "@llmgateway/shared";
+import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
 import {
 	getResendClient,
 	fromEmail,
@@ -10855,6 +10858,7 @@ const providerDetailSchema = z.object({
 				paymentStatus: z.enum(["unpaid", "paid"]),
 				paidAt: z.string().nullable(),
 				listingInviteCode: z.string().nullable(),
+				billingMode: z.enum(AIRSIDE_BILLING_MODES),
 				domains: z.array(
 					z.object({
 						domain: z.string(),
@@ -11015,6 +11019,7 @@ admin.openapi(getProviderDetail, async (c) => {
 					verificationKeyMasked: tables.providerClaim.verificationKeyMasked,
 					verificationKeyUpdatedAt:
 						tables.providerClaim.verificationKeyUpdatedAt,
+					billingMode: tables.providerClaim.billingMode,
 					createdAt: tables.providerClaim.createdAt,
 					reviewedAt: tables.providerClaim.reviewedAt,
 				},
@@ -11240,6 +11245,7 @@ admin.openapi(getProviderDetail, async (c) => {
 						paymentStatus: carrier.paymentStatus,
 						paidAt: carrier.paidAt?.toISOString() ?? null,
 						listingInviteCode: carrier.listingInviteCode,
+						billingMode: carrier.claim.billingMode,
 						domains: carrierDomains.map((d) => ({
 							domain: d.domain,
 							verificationMethod: d.verificationMethod,
@@ -13250,10 +13256,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 const UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT = 100;
 const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 
-// Customer-owned keys are useful when debugging a customer report, but they
-// should not affect the platform credential health ranking by default.
-const unstableMappingsPlatformOnlyClause = sql`AND ${tables.log.usedMode} <> 'api-keys'`;
-
 // Which error classes count against a mapping. `non_client` (default) drops
 // client-error logs from the sample; `client` drops every other failure, so
 // both rate against successes plus the selected errors.
@@ -13492,7 +13494,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const ignoreExpected = query.ignoreExpected !== "false";
 	const splitByKey = query.splitByKey === "true";
 	const includeByok = query.includeByok === "true";
-	const byokClause = includeByok ? sql`` : unstableMappingsPlatformOnlyClause;
+	const byokClause = includeByok ? sql`` : platformOnlyClause;
 	const errorScope = query.errorScope ?? "non_client";
 	const { interval: windowInterval, hours: windowHours } =
 		resolveMappingErrorWindow(query.window);
@@ -13710,8 +13712,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 	const groupByStream = groupByStreamParam === "true";
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
 	const retriedClause = includeRetried === "true" ? sql`` : notRetriedClause;
-	const byokClause =
-		includeByok === "true" ? sql`` : unstableMappingsPlatformOnlyClause;
+	const byokClause = byokClauseFor(includeByok);
 	const {
 		interval: windowInterval,
 		hours: windowHours,

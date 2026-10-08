@@ -50,6 +50,7 @@ function IncidentsContent() {
 	const mapping = searchParams.get("mapping");
 	const model = searchParams.get("model");
 	const groupByError = searchParams.get("group") === "error";
+	const includeByok = searchParams.get("includeByok") === "true";
 	const { company, isLoading: companyLoading } = useCompany();
 	const [timeWindow, setTimeWindow] = useState<IncidentsWindow>("24h");
 	const [providerId, setProviderId] = useState<string | undefined>(undefined);
@@ -64,6 +65,7 @@ function IncidentsContent() {
 	const baseQuery = {
 		providerCompanyId: company?.id ?? "",
 		window: timeWindow,
+		includeByok: includeByok ? ("true" as const) : ("false" as const),
 		...(providerId ? { providerId } : {}),
 	};
 	const queryOptions = {
@@ -305,6 +307,18 @@ function IncidentsContent() {
 								{groupByError ? "Retried errors" : "Retried errors in details"}
 							</Label>
 						</div>
+						<div className="flex items-center gap-2">
+							<Switch
+								id="include-byok"
+								checked={includeByok}
+								onCheckedChange={(checked) =>
+									setParam("includeByok", checked ? "true" : null)
+								}
+							/>
+							<Label htmlFor="include-byok" className="text-xs">
+								Bring your own key traffic
+							</Label>
+						</div>
 					</div>
 				</CardHeader>
 				<CardContent>
@@ -315,6 +329,7 @@ function IncidentsContent() {
 							mapping={mapping}
 							window={timeWindow}
 							includeRetried={includeRetried}
+							includeByok={includeByok}
 							showCarrier={company.claims.length > 1}
 						/>
 					) : (
@@ -341,11 +356,12 @@ function IncidentsContent() {
 									aria-busy={refreshing}
 								>
 									<IncidentsTable
-										key={`${mapping ?? ""}-${timeWindow}-${providerId ?? ""}`}
+										key={`${mapping ?? ""}-${timeWindow}-${providerId ?? ""}-${includeByok}`}
 										providerCompanyId={company.id}
 										mappings={data.mappings}
 										window={timeWindow}
 										includeRetried={includeRetried}
+										includeByok={includeByok}
 									/>
 								</div>
 							) : activeQuery.isError ? null : (

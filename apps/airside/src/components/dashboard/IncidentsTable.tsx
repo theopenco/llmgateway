@@ -115,11 +115,13 @@ function ErrorDetails({
 	mapping,
 	window,
 	includeRetried,
+	includeByok,
 }: {
 	providerCompanyId: string;
 	mapping: IncidentMapping;
 	window: IncidentsWindow;
 	includeRetried: boolean;
+	includeByok: boolean;
 }) {
 	const api = useApi();
 	const { data, isLoading, isError, isFetching, refetch } = api.useQuery(
@@ -133,6 +135,7 @@ function ErrorDetails({
 					mapping: mapping.usedModel,
 					window,
 					includeRetried: includeRetried ? "true" : "false",
+					includeByok: includeByok ? "true" : "false",
 				},
 			},
 		},
@@ -241,11 +244,13 @@ export function IncidentsTable({
 	mappings,
 	window,
 	includeRetried,
+	includeByok,
 }: {
 	providerCompanyId: string;
 	mappings: IncidentMapping[];
 	window: IncidentsWindow;
 	includeRetried: boolean;
+	includeByok: boolean;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(
 		mappings.length === 1 ? mappings[0].usedModel : null,
@@ -339,6 +344,7 @@ export function IncidentsTable({
 											mapping={mapping}
 											window={window}
 											includeRetried={includeRetried}
+											includeByok={includeByok}
 										/>
 									</TableCell>
 								</TableRow>
