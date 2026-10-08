@@ -31,6 +31,11 @@ export function ProviderKeyModelsDialog({
 	children: React.ReactNode;
 }) {
 	const api = useApi();
+	const { data: providerFacts } = api.useQuery(
+		"get",
+		"/internal/provider-facts",
+		{},
+	);
 	const queryClient = useQueryClient();
 	const [open, setOpen] = useState(false);
 	const [allowedModels, setAllowedModels] = useState<string[]>(
@@ -40,7 +45,12 @@ export function ProviderKeyModelsDialog({
 	const queryKey = api.queryOptions("get", "/keys/provider").queryKey;
 	const updateMutation = api.useMutation("patch", "/keys/provider/{id}");
 
-	const availableIds = useMemo(() => getProviderModelIds(provider), [provider]);
+	const availableIds = useMemo(
+		() =>
+			providerFacts?.providers.find((entry) => entry.id === provider)
+				?.modelIds ?? getProviderModelIds(provider),
+		[provider, providerFacts],
+	);
 
 	const handleOpenChange = (next: boolean) => {
 		setOpen(next);

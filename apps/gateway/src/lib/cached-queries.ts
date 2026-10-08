@@ -671,11 +671,7 @@ function groupAirsideRows(
 		if (
 			row.mapping.status !== "active" ||
 			(!providers.some((provider) => provider.id === row.mapping.providerId) &&
-				!(
-					row.carrier?.status === "active" &&
-					row.carrier.kind === "custom" &&
-					row.carrier.customBaseUrl
-				))
+				!(row.carrier?.status === "active" && row.carrier.customBaseUrl))
 		) {
 			unlisted.push({
 				modelId: row.mapping.modelId,
@@ -703,36 +699,26 @@ function groupAirsideRows(
 }
 
 async function selectAirsideRows(...conditions: SQL[]) {
-	return groupAirsideRows(
-		await db
-			.select({
-				model: modelTable,
-				mapping: modelProviderMappingTable,
-				carrier: {
-					status: providerClaimTable.status,
-					kind: providerClaimTable.kind,
-					customBaseUrl: providerClaimTable.customBaseUrl,
-				},
-			})
-			.from(modelProviderMappingTable)
-			.innerJoin(
-				modelTable,
-				eq(modelTable.id, modelProviderMappingTable.modelId),
-			)
-			.leftJoin(
-				providerClaimTable,
-				and(
-					eq(
-						providerClaimTable.providerId,
-						modelProviderMappingTable.providerId,
-					),
-					eq(providerClaimTable.status, "active"),
-				),
-			)
-			.where(
-				and(eq(modelProviderMappingTable.source, "airside"), ...conditions),
+	return await db
+		.select({
+			model: modelTable,
+			mapping: modelProviderMappingTable,
+			carrier: {
+				status: providerClaimTable.status,
+				kind: providerClaimTable.kind,
+				customBaseUrl: providerClaimTable.customBaseUrl,
+			},
+		})
+		.from(modelProviderMappingTable)
+		.innerJoin(modelTable, eq(modelTable.id, modelProviderMappingTable.modelId))
+		.leftJoin(
+			providerClaimTable,
+			and(
+				eq(providerClaimTable.providerId, modelProviderMappingTable.providerId),
+				eq(providerClaimTable.status, "active"),
 			),
-	);
+		)
+		.where(and(eq(modelProviderMappingTable.source, "airside"), ...conditions));
 }
 
 /** Find an active Airside-owned canonical mapping. */
@@ -741,7 +727,7 @@ export async function findAirsideModel(
 	modelName: string,
 ): Promise<AirsideListedModel | undefined> {
 	const owned = await swrWrap(
-		`airsidePair:${providerId}:${modelName}`,
+		`airsidePair:raw-v2:${providerId}:${modelName}`,
 		[modelTableName, modelProviderMappingTableName, providerClaimTableName],
 		async () =>
 			await selectAirsideRows(
@@ -750,7 +736,7 @@ export async function findAirsideModel(
 				eq(modelProviderMappingTable.modelId, modelName),
 			),
 	);
-	return owned.listings[0];
+	return groupAirsideRows(owned).listings[0];
 }
 
 export interface AirsideCustomCarrier {
@@ -768,7 +754,7 @@ export async function findAirsideCustomProvider(
 	providerId: string,
 ): Promise<AirsideCustomCarrier | undefined> {
 	const rows = await swrWrap(
-		`airsideCustomProvider:${providerId}`,
+		`airsideProvider:v2:${providerId}`,
 		[providerClaimTableName],
 		async () =>
 			await db
@@ -781,7 +767,6 @@ export async function findAirsideCustomProvider(
 				.where(
 					and(
 						eq(providerClaimTable.providerId, providerId),
-						eq(providerClaimTable.kind, "custom"),
 						eq(providerClaimTable.status, "active"),
 					),
 				)
@@ -802,20 +787,26 @@ export async function findAirsideCustomProvider(
 export async function findAirsidePairsByBareName(
 	modelName: string,
 ): Promise<AirsideOwnedPairs> {
-	return await swrWrap(
-		`airsidePairsByName:${modelName}`,
-		[modelTableName, modelProviderMappingTableName, providerClaimTableName],
-		async () =>
-			await selectAirsideRows(eq(modelProviderMappingTable.modelId, modelName)),
+	return groupAirsideRows(
+		await swrWrap(
+			`airsidePairsByName:raw-v2:${modelName}`,
+			[modelTableName, modelProviderMappingTableName, providerClaimTableName],
+			async () =>
+				await selectAirsideRows(
+					eq(modelProviderMappingTable.modelId, modelName),
+				),
+		),
 	);
 }
 
 /** Every Airside-owned mapping, for the /v1/models catalogue and auto routing. */
 export async function listAirsidePairs(): Promise<AirsideOwnedPairs> {
-	return await swrWrap(
-		"airsidePairs:all",
-		[modelTableName, modelProviderMappingTableName, providerClaimTableName],
-		async () => await selectAirsideRows(),
+	return groupAirsideRows(
+		await swrWrap(
+			"airsidePairs:raw-v2:all",
+			[modelTableName, modelProviderMappingTableName, providerClaimTableName],
+			async () => await selectAirsideRows(),
+		),
 	);
 }
 

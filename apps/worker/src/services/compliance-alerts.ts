@@ -5,6 +5,7 @@ import {
 	notificationChannelSenders,
 } from "@llmgateway/actions";
 import {
+	getEffectiveProviders,
 	and,
 	db,
 	eq,
@@ -24,7 +25,6 @@ import { logger } from "@llmgateway/logger";
 import {
 	getProviderComplianceFailures,
 	getProviderDefinition,
-	providers,
 } from "@llmgateway/models";
 import { failureLabel } from "@llmgateway/shared";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
@@ -214,6 +214,7 @@ async function processOrganization(
 ): Promise<void> {
 	const href = `/dashboard/${org.id}/org/compliance`;
 	const policyHash = hashCompliancePolicy(policy);
+	const providers = await getEffectiveProviders();
 	const previous = await db.query.complianceProviderState.findMany({
 		where: { organizationId: org.id },
 	});

@@ -38,7 +38,7 @@ import {
 	getProviderRefPolicyListFailures,
 	getProviderRequirementFailures,
 	models,
-	providers,
+	providers as catalogueProviders,
 	type ProviderCompliancePolicy,
 	type ProviderDefinition,
 	type ProviderId,
@@ -216,14 +216,6 @@ const REQUIREMENTS: {
 
 const DEFAULT_POLICY: ProviderCompliancePolicy = { enabled: false };
 
-const PROVIDER_COUNTRIES = getProviderCountries();
-
-// Catalogue providers offered by the restriction selectors (custom providers
-// are appended per-org at render time as `custom:<name>` refs).
-const SELECTABLE_PROVIDERS = providers.filter(
-	(provider) => !HIDDEN_PROVIDER_IDS.has(provider.id),
-);
-
 type RestrictionListKey =
 	"blockedProviders" | "allowedProviders" | "blockedModels" | "allowedModels";
 
@@ -238,6 +230,12 @@ export function ComplianceClient() {
 	const queryClient = useQueryClient();
 
 	const api = useApi();
+	const { data: providerFacts } = api.useQuery(
+		"get",
+		"/internal/provider-facts",
+		{},
+	);
+	const providers = providerFacts?.providers ?? catalogueProviders;
 	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/orgs").queryKey;
@@ -291,7 +289,7 @@ export function ComplianceClient() {
 			}
 		}
 		return { allowed: allowedList, blocked: blockedList };
-	}, [policy]);
+	}, [policy, providers]);
 	const totalProviders = allowed.length + blocked.length;
 
 	// The org's own custom providers, evaluated against their self-attested
@@ -336,18 +334,20 @@ export function ComplianceClient() {
 	const { customProviderOptions, customModelOptions } =
 		useCustomProviderSelection();
 	const selectableProviders = useMemo<SelectableProviderOption[]>(() => {
-		const catalogueOptions = SELECTABLE_PROVIDERS.map((provider) => {
-			const failures = getProviderRequirementFailures(provider, policy);
-			return {
-				id: provider.id,
-				name: provider.name,
-				color: provider.color,
-				meetsPolicy: failures.length === 0,
-				policyNotes: failures.map((reason) =>
-					failureLabel(reason, provider.headquarters),
-				),
-			};
-		});
+		const catalogueOptions = providers
+			.filter((provider) => !HIDDEN_PROVIDER_IDS.has(provider.id))
+			.map((provider) => {
+				const failures = getProviderRequirementFailures(provider, policy);
+				return {
+					id: provider.id,
+					name: provider.name,
+					color: provider.color,
+					meetsPolicy: failures.length === 0,
+					policyNotes: failures.map((reason) =>
+						failureLabel(reason, provider.headquarters),
+					),
+				};
+			});
 		const attestationByKeyId = new Map(
 			(providerKeysData?.providerKeys ?? []).map((key) => [
 				key.id,
@@ -366,11 +366,24 @@ export function ComplianceClient() {
 			};
 		});
 		return [...catalogueOptions, ...customOptions];
-	}, [customProviderOptions, providerKeysData, policy]);
-	const selectableModels = useMemo(
-		() => [...models, ...customModelOptions],
-		[customModelOptions],
-	);
+	}, [customProviderOptions, providerKeysData, policy, providers]);
+	const selectableModels = useMemo(() => {
+		const carrierModels = new Map<
+			string,
+			{ id: string; name: string; mappings: { providerId: string }[] }
+		>();
+		for (const provider of providerFacts?.providers ?? []) {
+			for (const id of provider.modelIds) {
+				if (models.some((model) => model.id === id)) {
+					continue;
+				}
+				const model = carrierModels.get(id) ?? { id, name: id, mappings: [] };
+				model.mappings.push({ providerId: provider.id });
+				carrierModels.set(id, model);
+			}
+		}
+		return [...models, ...carrierModels.values(), ...customModelOptions];
+	}, [customModelOptions, providerFacts]);
 
 	const setRestrictionList = (key: RestrictionListKey, values: string[]) => {
 		setPolicy((p) => ({
@@ -519,7 +532,8 @@ export function ComplianceClient() {
 								<CardDescription>
 									Only route requests to providers that meet the required
 									certifications and data policies. Requests to non-compliant
-									providers are blocked.
+									providers are blocked. Airside-only carriers use their
+									self-declared profile.
 								</CardDescription>
 							</div>
 							<div className="flex items-center gap-4">
@@ -706,7 +720,7 @@ export function ComplianceClient() {
 						}
 					>
 						<div className="flex flex-wrap gap-2">
-							{PROVIDER_COUNTRIES.map((country) => {
+							{getProviderCountries(providers).map((country) => {
 								const selected =
 									policy.allowedCountries?.includes(country.code) ?? false;
 								return (
@@ -829,7 +843,7 @@ export function ComplianceClient() {
 						<CardTitle>Provider Impact</CardTitle>
 						<CardDescription>
 							{policy.enabled
-								? `${allowed.length} of ${totalProviders} catalogue providers meet this policy.${
+								? `${allowed.length} of ${totalProviders} providers meet this policy.${
 										customProviders.length > 0
 											? ` ${compliantCustomCount} of ${customProviders.length} custom ${
 													customProviders.length === 1
@@ -871,7 +885,7 @@ export function ComplianceClient() {
 									</div>
 								) : (
 									<p className="text-sm text-muted-foreground">
-										No catalogue providers meet this policy.{" "}
+										No providers meet this policy.{" "}
 										{compliantCustomCount > 0
 											? "Only the compliant custom providers below can serve requests."
 											: "Requests will be blocked."}

@@ -82,6 +82,12 @@ export function CreateProviderKeyDialog({
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
+	const { data: providerFacts } = api.useQuery(
+		"get",
+		"/internal/provider-facts",
+		{},
+	);
+	const providerChoices = providerFacts?.providers ?? providers;
 	const queryKey = api.queryOptions("get", "/keys/provider").queryKey;
 	const queryClient = useQueryClient();
 
@@ -92,8 +98,12 @@ export function CreateProviderKeyDialog({
 	) as ProviderDefinition | undefined;
 
 	const availableModelIds = useMemo(
-		() => (selectedProvider ? getProviderModelIds(selectedProvider) : []),
-		[selectedProvider],
+		() =>
+			providerFacts?.providers.find(
+				(provider) => provider.id === selectedProvider,
+			)?.modelIds ??
+			(selectedProvider ? getProviderModelIds(selectedProvider) : []),
+		[selectedProvider, providerFacts],
 	);
 
 	// Sentinel for "let the gateway pick". Radix Select cannot hold an empty
@@ -135,7 +145,7 @@ export function CreateProviderKeyDialog({
 	// users can't configure a stealth provider key because the platform behind
 	// it is undisclosed, so hide them from the selector entirely.
 	const isEnterprise = selectedOrganization.enterpriseAccess === true;
-	const availableProviders = providers
+	const availableProviders = providerChoices
 		.filter(
 			(provider) =>
 				provider.id !== "llmgateway" && !isStealthProvider(provider),
@@ -451,12 +461,12 @@ export function CreateProviderKeyDialog({
 				<DialogHeader>
 					<DialogTitle>
 						{preselectedProvider
-							? `Add ${providers.find((p) => p.id === preselectedProvider)?.name} Key`
+							? `Add ${providerChoices.find((p) => p.id === preselectedProvider)?.name} Key`
 							: "Add Provider Key"}
 					</DialogTitle>
 					<DialogDescription>
 						{preselectedProvider
-							? `Add an API key for ${providers.find((p) => p.id === preselectedProvider)?.name} to enable direct access.`
+							? `Add an API key for ${providerChoices.find((p) => p.id === preselectedProvider)?.name} to enable direct access.`
 							: "Create a new provider key to connect to an LLM provider."}
 						<span className="block mt-1">
 							Organization: {selectedOrganization.name}

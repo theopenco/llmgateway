@@ -3,8 +3,15 @@ import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { and, db, eq, tables } from "@llmgateway/db";
-import { models } from "@llmgateway/models";
+import {
+	and,
+	cdb,
+	db,
+	eq,
+	tables,
+	getEffectiveProviders,
+} from "@llmgateway/db";
+import { models, providers, type ProviderDefinition } from "@llmgateway/models";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -22,7 +29,11 @@ import {
 	waitForLogByRequestId,
 } from "./test-utils/test-helpers.js";
 
-import type { ProviderApiFormat, ToolChoiceMode } from "@llmgateway/models";
+import type {
+	ModelDefinition,
+	ProviderApiFormat,
+	ToolChoiceMode,
+} from "@llmgateway/models";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 
 interface CapturedRequest {
@@ -2049,5 +2060,113 @@ describe("airside-listed models", () => {
 		});
 		expect(res.status).toBe(400);
 		expect(captured).toHaveLength(0);
+	});
+	test("resolves a pinned canonical alias on an Airside-only carrier", async () => {
+		const canonical = (models as readonly ModelDefinition[]).find(
+			(model) => model.aliases?.length,
+		);
+		expect(canonical).toBeDefined();
+		await setupCustomCarrier("airside-alias-token", { modelId: canonical!.id });
+		const resolution = await resolveAirsideModel(
+			`acme-sky/${canonical!.aliases![0]}`,
+		);
+		expect(resolution?.parseResult).toMatchObject({
+			requestedModel: canonical!.id,
+			requestedProvider: "acme-sky",
+		});
+	});
+
+	test("keeps identity, billing and compliance across catalogue removal", async () => {
+		await setupCustomCarrier("transition-token", {
+			providerId: "openai",
+			modelId: "transition-model",
+		});
+		await db
+			.update(tables.providerKey)
+			.set({ config: { baseUrl: upstreamUrl } })
+			.where(eq(tables.providerKey.id, "transition-token-managed-key"));
+		await cdb
+			.update(tables.providerClaim)
+			.set({
+				kind: "catalogue",
+				apiTraining: false,
+				promptLogging: false,
+				retentionPeriod: "0 days",
+				headquarters: "US",
+			})
+			.where(eq(tables.providerClaim.id, "transition-token-claim"));
+		await cdb
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: { enabled: true, blockApiTraining: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+		const catalogue = providers as ProviderDefinition[];
+		const index = catalogue.findIndex((provider) => provider.id === "openai");
+		const definition = catalogue[index];
+		await clearCache();
+		const send = async (suffix: string) =>
+			await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					Authorization: "Bearer transition-token",
+					"Content-Type": "application/json",
+					"x-no-fallback": "true",
+					"x-request-id": `catalogue-removal-${suffix}`,
+				},
+				body: JSON.stringify({
+					model: "openai/transition-model",
+					messages: [{ role: "user", content: `hello ${suffix}` }],
+				}),
+			});
+		try {
+			const before = await send("before");
+			expect(before.status).toBe(200);
+			await before.json();
+			// Keep caches warm: only this process's catalogue changed.
+			catalogue.splice(index, 1);
+			const after = await send("after");
+			expect(after.status).toBe(200);
+			const body = await after.json();
+			expect(body.usage).toMatchObject({
+				prompt_tokens: 1000,
+				completion_tokens: 500,
+			});
+			expect(captured.at(-1)?.url).toBe("/v1/chat/completions");
+			const log = await waitForLogByRequestId("catalogue-removal-after");
+			expect(log?.usedProvider).toBe("openai");
+			expect(Number(log?.cost)).toBeCloseTo(0.0075, 6);
+			expect(
+				(await getEffectiveProviders()).find(
+					(provider) => provider.id === "openai",
+				)?.dataPolicy?.apiTraining,
+			).toBe(false);
+			await cdb
+				.update(tables.providerClaim)
+				.set({ apiTraining: true })
+				.where(eq(tables.providerClaim.id, "transition-token-claim"));
+			expect(
+				(await getEffectiveProviders()).find(
+					(provider) => provider.id === "openai",
+				)?.dataPolicy?.apiTraining,
+			).toBe(true);
+			expect((await send("profile-edited")).status).toBe(403);
+			await cdb
+				.update(tables.providerClaim)
+				.set({ status: "revoked" })
+				.where(eq(tables.providerClaim.id, "transition-token-claim"));
+			expect(
+				(await getEffectiveProviders()).some(
+					(provider) => provider.id === "openai",
+				),
+			).toBe(false);
+			expect(
+				await findAirsideModel("openai", "transition-model"),
+			).toBeUndefined();
+		} finally {
+			if (!catalogue.some((provider) => provider.id === "openai")) {
+				catalogue.splice(index, 0, definition);
+			}
+		}
 	});
 });

@@ -2590,9 +2590,9 @@ export function isLiveMapping(
 }
 
 /**
- * Catalogue providers that serve `modelId` under the policy: active,
+ * Providers that serve `modelId` under the policy: active,
  * non-deprecated mappings whose provider has no compliance failures. Unknown
- * providers (e.g. DB-only carriers) fail closed. Empty when the model itself is
+ * providers absent from `definitions` fail closed. Empty when the model itself is
  * blocked by the policy's model lists.
  */
 export function getCompliantProvidersForModel(
@@ -2600,6 +2600,7 @@ export function getCompliantProvidersForModel(
 	mappings: readonly ModelMappingAvailability[],
 	policy: ProviderCompliancePolicy,
 	now: Date = new Date(),
+	definitions: readonly ProviderDefinition[] = providers,
 ): string[] {
 	if (!isModelAllowedByPolicy([modelId], policy)) {
 		return [];
@@ -2609,7 +2610,9 @@ export function getCompliantProvidersForModel(
 		if (!isLiveMapping(mapping, now)) {
 			continue;
 		}
-		const provider = getProviderDefinition(mapping.providerId);
+		const provider = definitions.find(
+			(entry) => entry.id === mapping.providerId,
+		);
 		if (
 			provider &&
 			getProviderComplianceFailures(provider, policy).length === 0
@@ -2697,14 +2700,12 @@ export function countryCodeToFlag(code: string): string {
 		.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
 }
 
-/**
- * Distinct provider-headquarters countries defined in the catalogue, sorted by
- * name. This is the authoritative, closed set of countries the compliance
- * country selector may offer.
- */
-export function getProviderCountries(): ProviderCountry[] {
+/** Distinct provider-headquarters countries, sorted by name. */
+export function getProviderCountries(
+	definitions: readonly ProviderDefinition[] = providers,
+): ProviderCountry[] {
 	const codes = new Set<string>();
-	for (const provider of providers) {
+	for (const provider of definitions) {
 		if (provider.headquarters) {
 			codes.add(provider.headquarters);
 		}

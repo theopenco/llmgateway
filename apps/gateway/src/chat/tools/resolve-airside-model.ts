@@ -134,7 +134,16 @@ export async function resolveAirsideModel(
 	// through admin-approved filings, so the handover cannot reprice traffic
 	// on its own.
 
-	const owned = await findAirsidePairsByBareName(modelName);
+	let owned = await findAirsidePairsByBareName(modelName);
+	if (!owned.listings.length && !owned.unlisted.length) {
+		const canonical = (models as readonly ModelDefinition[]).find((model) =>
+			model.aliases?.includes(modelName),
+		);
+		if (canonical) {
+			modelName = canonical.id;
+			owned = await findAirsidePairsByBareName(modelName);
+		}
+	}
 	const listed = owned.listings.find(
 		(candidate) => candidate.mapping.providerId === providerCandidate,
 	);

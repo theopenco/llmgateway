@@ -178,6 +178,7 @@ import {
 	setCache,
 	setStreamingCache,
 } from "@llmgateway/cache";
+import { getEffectiveProviders } from "@llmgateway/db";
 import {
 	type InferSelectModel,
 	isCachingEnabled,
@@ -3570,7 +3571,11 @@ chat.openapi(completions, async (c) => {
 			message: `Provider '${customProviderName}' not found.`,
 		});
 	}
+	const effectiveProviders = getActiveCompliancePolicy(organization)
+		? await getEffectiveProviders()
+		: undefined;
 	let complianceContext: ComplianceCheckContext = {
+		effectiveProviders,
 		customAttestation: customProviderKey?.complianceAttestation ?? null,
 		customProviderName,
 	};
@@ -3818,6 +3823,7 @@ chat.openapi(completions, async (c) => {
 		customProviderKey = providerKey;
 		customPricingMapping = provider;
 		complianceContext = {
+			effectiveProviders,
 			customAttestation: providerKey?.complianceAttestation ?? null,
 			customProviderName: provider.customProviderName,
 		};
@@ -4563,6 +4569,7 @@ chat.openapi(completions, async (c) => {
 			customProviderKey = providerKey;
 			customPricingMapping = provider;
 			complianceContext = {
+				effectiveProviders,
 				customAttestation: providerKey?.complianceAttestation ?? null,
 				customProviderName: provider.customProviderName,
 			};
@@ -7128,7 +7135,7 @@ chat.openapi(completions, async (c) => {
 		// registered on its approved claim.
 		url = getProviderEndpoint(
 			airsideCustomBaseUrl ? "custom" : usedProvider,
-			airsideCustomBaseUrl ?? credentialBaseUrl,
+			credentialBaseUrl ?? airsideCustomBaseUrl,
 			upstreamModelName,
 			usesGoogleQueryToken(transportProvider) ? usedToken : undefined,
 			stream,
@@ -8995,7 +9002,7 @@ chat.openapi(completions, async (c) => {
 								body: JSON.stringify(requestBody),
 								signal: fetchSignal,
 							},
-							airsideCustomBaseUrl ?? providerKey?.baseUrl,
+							providerKey?.baseUrl ?? airsideCustomBaseUrl,
 						);
 
 						logServiceTierRequest(usedProvider, forwardedServiceTier, res);
@@ -13474,7 +13481,7 @@ chat.openapi(completions, async (c) => {
 							: JSON.stringify(requestBody),
 					signal: fetchSignal,
 				},
-				airsideCustomBaseUrl ?? providerKey?.baseUrl,
+				providerKey?.baseUrl ?? airsideCustomBaseUrl,
 			);
 
 			logServiceTierRequest(usedProvider, forwardedServiceTier, res);

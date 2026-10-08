@@ -2,6 +2,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { getPinnedValidationModel } from "@llmgateway/actions";
+import { db } from "@llmgateway/db";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 import type { ProviderId } from "@llmgateway/models";
@@ -40,32 +41,49 @@ export function normalizeAllowedModels(
 }
 
 /**
- * Every allowed model must be a catalogue model with a live mapping for this
+ * Every allowed model must have a live catalogue or Airside mapping for this
  * provider — the restriction narrows routing, so an id the provider could
  * never serve anyway is a typo, and storing it would silently do nothing.
  * The key's options/region travel in `validationOptions` so a region-scoped
  * key is checked against the mapping it will actually use, the same way the
  * save-time probe resolves it.
  */
-export function validateAllowedModels(
+export async function validateAllowedModels(
 	provider: string,
 	allowedModels: string[] | null,
 	validationOptions?: ProviderKeyOptions,
-): void {
+): Promise<void> {
 	if (!allowedModels) {
 		return;
 	}
-	const unknown = allowedModels.filter(
-		(modelId) =>
+	const airside = await db.query.modelProviderMapping.findMany({
+		where: {
+			providerId: provider,
+			source: "airside",
+			modelId: { in: allowedModels },
+		},
+	});
+	const now = new Date();
+	const unknown = allowedModels.filter((modelId) => {
+		const listings = airside.filter((mapping) => mapping.modelId === modelId);
+		if (listings.length) {
+			return !listings.some(
+				(mapping) =>
+					mapping.status === "active" &&
+					(!mapping.deactivatedAt || mapping.deactivatedAt > now),
+			);
+		}
+		return (
 			getPinnedValidationModel(
 				provider as ProviderId,
 				modelId,
 				validationOptions,
-			) === null,
-	);
+			) === null
+		);
+	});
 	if (unknown.length > 0) {
 		throw new HTTPException(400, {
-			message: `Not available from ${provider} per the catalogue: ${unknown.join(", ")}`,
+			message: `Not available from ${provider} in the catalogue or Airside: ${unknown.join(", ")}`,
 		});
 	}
 }

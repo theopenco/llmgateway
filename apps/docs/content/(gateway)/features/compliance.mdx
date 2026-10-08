@@ -115,7 +115,7 @@ To route through a custom provider while a policy is active, an organization own
 
 Attestations only apply to custom provider keys. They can never be used to clear a catalogue provider that fails your policy.
 
-**Known limitation:** the country selector in the compliance policy only offers countries referenced by catalogue providers (see the [providers directory](https://llmgateway.io/providers)). A custom deployment attested to a country outside that set cannot be allowed while a country restriction is active.
+**Known limitation:** the country selector in the compliance policy only offers countries referenced by catalogue providers or active Airside profiles (see the [providers directory](https://llmgateway.io/providers)). A custom deployment attested to a country outside that set cannot be allowed while a country restriction is active.
 
 ## Compliance alerts
 
@@ -154,3 +154,8 @@ Project-scoped **developer** members cannot see the policy itself, but they can 
 ## Get Started
 
 DevPass subscribers can configure **No AI training** under **Settings**. [Contact us](https://llmgateway.io/enterprise) for the complete provider compliance policy.
+
+For providers managed entirely through Airside, policy checks use the active
+carrier's self-declared profile, including subsequent edits. No separate
+compliance review is required. Missing facts fail the corresponding policy
+requirement; provider allowlists and blocklists keep using the same provider ID.

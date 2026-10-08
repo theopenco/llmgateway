@@ -36,7 +36,7 @@ Registering a model that already exists in the catalogue reuses its identity: di
 
 Draft listings save immediately. On a live listing, a metadata change (description, context size, capabilities, quantization, and so on) is filed for review and applies once approved. Saving again while that change is pending replaces it in place, and saving the live values withdraws it. A pending price filing blocks metadata edits until it is reviewed.
 
-Carriers claiming a catalogue provider can also **import their catalogue models** in one click: each active catalogue model becomes a managed listing with its current price as an approved filing. Once approved, the listing serves the model at its filed fares and keeps the catalogue entry's request handling. Pausing or delisting an imported model takes it out of service instead of falling back to the catalogue entry; relisting or resuming puts it back. After a provider's models are all served this way, the LLM Gateway team removes its catalogue entries. This is how a provider's models migrate from the static catalogue into carrier self-management.
+Carriers claiming a catalogue provider can also **import their catalogue models** in one click: each active catalogue model becomes a managed listing with its current price as an approved filing. Once approved, the listing serves the model at its filed fares and keeps the catalogue entry's request handling. Pausing or delisting an imported model takes it out of service instead of falling back to the catalogue entry; relisting or resuming puts it back. The LLM Gateway team can then remove the provider's static definition and mappings; only its active Airside listings remain available.
 
 ### Upstream API and preflight
 
@@ -114,3 +114,15 @@ The [Airside resources](https://airside.llmgateway.io/resources) hub collects pr
 ## Carrier Slack channel
 
 Every new carrier is invited to a shared cross-team Slack Connect channel with the LLM Gateway team — the fastest way to reach us about claims, filings, or routing.
+
+### Catalogue removal
+
+When a provider's static catalogue definition is removed, its existing active
+Airside claim serves from its configured base URL, managed credentials, and
+active listings. Models
+without an active Airside listing are no longer offered by that provider.
+
+The carrier's declared profile then drives compliance routing. Later profile
+edits apply directly; missing facts do not satisfy compliance requirements.
+Provider IDs, BYOK keys, approved prices, and historical usage retain their
+existing identity.

@@ -172,7 +172,7 @@ function EditDetailsDialog({
 			...(trimmedName && trimmedName !== (settings.customName ?? "")
 				? { name: trimmedName }
 				: {}),
-			...(isCustom && baseUrl.trim() !== (settings.customBaseUrl ?? "")
+			...(baseUrl.trim() && baseUrl.trim() !== (settings.customBaseUrl ?? "")
 				? { baseUrl: baseUrl.trim() }
 				: {}),
 			...(isCustom && description !== (settings.customDescription ?? "")
@@ -217,26 +217,29 @@ function EditDetailsDialog({
 							onChange={(e) => setName(e.target.value)}
 						/>
 					</div>
-					{isCustom ? (
-						<>
-							<div className="space-y-1">
-								<Label htmlFor="airside-base-url">Base URL</Label>
-								<Input
-									id="airside-base-url"
-									value={baseUrl}
-									onChange={(e) => setBaseUrl(e.target.value)}
-								/>
-							</div>
-							<div className="space-y-1">
-								<Label htmlFor="airside-description">Description</Label>
-								<Textarea
-									id="airside-description"
-									value={description}
-									onChange={(e) => setDescription(e.target.value)}
-								/>
-							</div>
-						</>
-					) : null}
+					<div className="space-y-1">
+						<Label htmlFor="airside-base-url">Base URL</Label>
+						<Input
+							id="airside-base-url"
+							value={baseUrl}
+							onChange={(e) => setBaseUrl(e.target.value)}
+						/>
+						{!isCustom && (
+							<p className="text-xs text-muted-foreground">
+								Used after the static provider definition is removed.
+							</p>
+						)}
+					</div>
+					{isCustom && (
+						<div className="space-y-1">
+							<Label htmlFor="airside-description">Description</Label>
+							<Textarea
+								id="airside-description"
+								value={description}
+								onChange={(e) => setDescription(e.target.value)}
+							/>
+						</div>
+					)}
 					<div className="space-y-1">
 						<Label htmlFor="airside-website">Company website</Label>
 						<Input

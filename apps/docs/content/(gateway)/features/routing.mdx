@@ -819,3 +819,9 @@ Cache hits, retried attempts and requests without token usage are excluded. Each
 - Let auto routing handle model selection to automatically use the most cost-effective options, or smart routing to spend more only on the requests that need it
 - Use model IDs without provider prefixes to always get the cheapest available provider
 - Monitor your usage analytics to track cost savings from intelligent routing
+
+Providers managed entirely through Airside use their active listings for routing
+and pricing, and their declared carrier profile for compliance. Removing a static
+provider definition preserves its provider ID, existing pins, and session
+preferences for models still listed in Airside. Models without an active listing
+stop being available from that provider.
