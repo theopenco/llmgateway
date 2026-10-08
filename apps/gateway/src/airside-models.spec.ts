@@ -1529,6 +1529,47 @@ describe("airside-listed models", () => {
 		},
 	);
 
+	test("replays reasoning_content on DeepSeek V4 tool turns to a carrier", async () => {
+		const token = "airside-deepseek-v4";
+		await setupCustomCarrier(token, {
+			providerId: "acme-deep",
+			modelId: "deepseek-v4.1-flash",
+		});
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "acme-deep/deepseek-v4.1-flash",
+				messages: [
+					{ role: "user", content: "Weather in Paris?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: '{"city":"Paris"}',
+								},
+							},
+						],
+					},
+					{ role: "tool", tool_call_id: "call_1", content: "sunny" },
+				],
+			}),
+		});
+		expect(res.status, await res.text()).toBe(200);
+		expect(captured).toHaveLength(1);
+		const messages = captured[0].body.messages as Record<string, unknown>[];
+		expect(messages[1].reasoning_content).toBe(" ");
+	});
+
 	test.each(["pin", "no-fallback"])(
 		"keeps the chosen Airside carrier for %s requests",
 		async (restriction) => {
