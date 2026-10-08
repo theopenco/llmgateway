@@ -1296,13 +1296,17 @@ const getProviderFacts = createRoute({
 								env: z.object({ required: z.record(z.string().optional()) }),
 								color: z.string().optional(),
 								website: z.string().nullish(),
+								legalEntity: z.string().nullable(),
 								headquarters: z.string().nullish(),
 								dataPolicy: z
 									.object({
 										apiTraining: z.boolean().nullable(),
 										promptLogging: z.boolean().nullable(),
 										retentionPeriod: z.string().nullish(),
-										soc2: z.union([z.literal(1), z.literal(2)]).nullish(),
+										soc2: z
+											.union([z.literal(1), z.literal(2)])
+											.nullish()
+											.openapi({ type: "integer", enum: [1, 2, null] }),
 										iso27001: z.boolean().nullish(),
 										gdpr: z.boolean().nullish(),
 									})

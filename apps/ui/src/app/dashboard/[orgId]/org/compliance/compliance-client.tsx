@@ -382,7 +382,11 @@ export function ComplianceClient() {
 				carrierModels.set(id, model);
 			}
 		}
-		return [...models, ...carrierModels.values(), ...customModelOptions];
+		return [
+			...models,
+			...Array.from(carrierModels.values()),
+			...customModelOptions,
+		];
 	}, [customModelOptions, providerFacts]);
 
 	const setRestrictionList = (key: RestrictionListKey, values: string[]) => {
