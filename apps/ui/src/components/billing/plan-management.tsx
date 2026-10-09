@@ -15,6 +15,7 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 import { useToast } from "@/lib/components/use-toast";
+import { useAppConfig } from "@/lib/config";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 
@@ -38,6 +39,7 @@ export function PlanManagement() {
 	const queryClient = useQueryClient();
 	const api = useApi();
 	const posthog = usePostHog();
+	const { hosted } = useAppConfig();
 
 	const { data: subscriptionStatus } = api.useQuery(
 		"get",
@@ -266,9 +268,11 @@ export function PlanManagement() {
 							<div className="flex items-center gap-2">
 								<div className="w-2 h-2 rounded-full bg-green-500" />
 								<span>
-									{selectedOrganization.retentionLevel === "retain"
-										? "Full request & response retention (until November 8, 2026)"
-										: "Metadata-only request logs"}
+									{selectedOrganization.retentionLevel !== "retain"
+										? "Metadata-only request logs"
+										: hosted
+											? "Full request & response retention (until November 8, 2026)"
+											: "Full request & response retention"}
 								</span>
 							</div>
 							<div className="flex items-center gap-2">
