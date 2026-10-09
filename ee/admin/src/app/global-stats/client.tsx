@@ -301,12 +301,10 @@ function compactMetricFormatter(metric: TimeseriesMetric) {
 
 export function GlobalStatsClient({
 	initialTimeZone = "UTC",
-	accountTimeZone,
 }: {
 	initialTimeZone?: string;
-	accountTimeZone: string | null;
 }) {
-	const [selectedTimeZone, setSelectedTimeZone] = useState(initialTimeZone);
+	const [timeZone, setTimeZone] = useState(initialTimeZone);
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
@@ -377,10 +375,6 @@ export function GlobalStatsClient({
 	}, [updateParam, showTimeseriesBreakdown]);
 
 	const $api = useApi();
-	const timeZone =
-		selectedTimeZone === "account"
-			? (accountTimeZone ?? "UTC")
-			: selectedTimeZone;
 	// mode/kind are applied server-side (both are part of the aggregation key),
 	// so every metric below is already narrowed to the selected slice and the
 	// filters take part in the query key.
@@ -833,11 +827,7 @@ export function GlobalStatsClient({
 							</div>
 						</ToolbarGroup>
 						<ToolbarGroup label="Display time zone" className="ml-auto">
-							<GlobalStatsTimeZone
-								value={selectedTimeZone}
-								accountTimeZone={accountTimeZone}
-								onChange={setSelectedTimeZone}
-							/>
+							<GlobalStatsTimeZone value={timeZone} onChange={setTimeZone} />
 						</ToolbarGroup>
 						<ToolbarGroup label="Range (UTC)">
 							<GlobalStatsRangePicker />

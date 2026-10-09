@@ -87,6 +87,7 @@ export const user = snakeCase.table(
 		image: text(),
 		onboardingCompleted: boolean().notNull().default(false),
 		newsletterSubscribed: boolean().notNull().default(false),
+		// Unused. Drop once no deployed code selects it.
 		timeZone: text(),
 		status: text({
 			enum: ["active", "deactivated"],
