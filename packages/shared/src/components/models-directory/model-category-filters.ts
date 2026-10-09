@@ -167,7 +167,7 @@ export const curatedCategoryModelIds: Record<
 		"minimax-m3",
 		"grok-4-20-reasoning",
 		"grok-4-3",
-		"mimo-v2.5-pro",
+		"mimo-v2.6-pro",
 	]),
 };
 
