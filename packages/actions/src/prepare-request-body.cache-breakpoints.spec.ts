@@ -239,6 +239,24 @@ describe("automatic conversation breakpoints", () => {
 		},
 	);
 
+	test.each(["anthropic", "aws-bedrock"] as const)(
+		"%s marks the latest tool result after long opening messages",
+		async (provider) => {
+			const body = await prepare(provider, [
+				{ role: "system", content: "S".repeat(20000) },
+				{ role: "user", content: "U".repeat(20000) },
+				{ role: "assistant", content: "A".repeat(20000) },
+				{ role: "user", content: "V".repeat(20000) },
+				...toolLoop().slice(2),
+			]);
+
+			expect(JSON.stringify(body.messages.at(-1)!.content.at(-1))).toMatch(
+				/"(cache_control|cachePoint)"/,
+			);
+			expect(markers(body)).toHaveLength(4);
+		},
+	);
+
 	test.each(["vertex-anthropic", "azure-anthropic"] as const)(
 		"%s keeps a caller's fourth marker past a long message",
 		async (provider) => {
