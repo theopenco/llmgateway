@@ -94,6 +94,43 @@ describe("admin rate limits for airside listings", () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 	});
 
+	test("updates an existing limit to an airside target", async () => {
+		const headers = { Cookie: cookie, "Content-Type": "application/json" };
+		const created = await app.request("/admin/rate-limits", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				provider: "openai",
+				limitType: "rpm",
+				maxRequests: 10,
+			}),
+		});
+		expect(created.status).toBe(201);
+		const { id } = await created.json();
+		const updated = await app.request(`/admin/rate-limits/${id}`, {
+			method: "PUT",
+			headers,
+			body: JSON.stringify({
+				provider: CARRIER_ID,
+				model: MODEL_ID,
+				limitType: "rpd",
+				maxRequests: 100,
+				enforcement: "global",
+				mode: "soft",
+			}),
+		});
+		expect(updated.status).toBe(200);
+		expect(await updated.json()).toMatchObject({
+			id,
+			provider: CARRIER_ID,
+			model: MODEL_ID,
+			limitType: "rpd",
+			maxRequests: 100,
+			enforcement: "global",
+			mode: "soft",
+		});
+	});
+
 	test("options list airside carriers and their models", async () => {
 		const response = await app.request("/admin/rate-limits/options", {
 			headers: { Cookie: cookie },

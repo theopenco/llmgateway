@@ -141,7 +141,7 @@ export default async function OrganizationRateLimitsPage({
 							<TableHead>Mode</TableHead>
 							<TableHead>Reason</TableHead>
 							<TableHead>Created</TableHead>
-							{isAdmin ? <TableHead className="w-[50px]" /> : null}
+							{isAdmin ? <TableHead className="w-[130px]" /> : null}
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -200,10 +200,20 @@ export default async function OrganizationRateLimitsPage({
 									</TableCell>
 									{isAdmin ? (
 										<TableCell>
-											<DeleteRateLimitButton
-												rateLimitId={rateLimit.id}
-												orgId={orgId}
-											/>
+											<div className="flex items-center gap-1">
+												{options && (
+													<RateLimitForm
+														providers={options.providers}
+														mappings={options.mappings}
+														orgId={orgId}
+														rateLimit={rateLimit}
+													/>
+												)}
+												<DeleteRateLimitButton
+													rateLimitId={rateLimit.id}
+													orgId={orgId}
+												/>
+											</div>
 										</TableCell>
 									) : null}
 								</TableRow>
