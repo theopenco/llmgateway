@@ -36,7 +36,7 @@ import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
 
-import { TimeZoneSetting } from "@llmgateway/shared";
+import { TimeZoneSetting, useDisplayTimeZone } from "@llmgateway/shared";
 
 interface DeletionPreviewOrganization {
 	id: string;
@@ -87,6 +87,7 @@ function formatProviderName(providerId: string): string {
 
 export function AccountClient() {
 	const { user } = useUser();
+	const { timeZone } = useDisplayTimeZone();
 	const router = useRouter();
 	const queryClient = useQueryClient();
 	const posthog = usePostHog();
@@ -114,6 +115,7 @@ export function AccountClient() {
 		user?.accounts?.filter((a) => a.providerId !== "credential") ?? [];
 
 	const updateUserMutation = useUpdateUser();
+	const saveTimeZone = useUpdateUser();
 	const deleteAccountMutation = useDeleteAccount();
 	const { data: deletionPreview } = useAccountDeletionPreview();
 
@@ -278,6 +280,35 @@ export function AccountClient() {
 						</CardHeader>
 						<CardContent>
 							<TimeZoneSetting />
+							<div className="mt-4 space-y-2">
+								<p className="text-sm text-muted-foreground">
+									Account time zone: {user?.timeZone ?? "Not saved"}. Save the
+									current display zone to use it on other devices and in Global
+									Stats.
+								</p>
+								<Button
+									variant="outline"
+									disabled={!user || saveTimeZone.isPending}
+									onClick={() =>
+										saveTimeZone.mutate(
+											{ body: { timeZone } },
+											{
+												onSuccess: () =>
+													toast({ title: "Account time zone saved" }),
+												onError: () =>
+													toast({
+														title: "Could not save account time zone",
+														variant: "destructive",
+													}),
+											},
+										)
+									}
+								>
+									{saveTimeZone.isPending
+										? "Saving…"
+										: `Save ${timeZone} to account`}
+								</Button>
+							</div>
 						</CardContent>
 					</Card>
 					<Card>

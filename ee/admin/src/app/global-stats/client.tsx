@@ -1,6 +1,5 @@
 "use client";
 
-import { format, parseISO } from "date-fns";
 import {
 	BarChart3,
 	Building2,
@@ -33,10 +32,8 @@ import {
 	type ChartType,
 } from "@/components/chart-type-toggle";
 import { GlobalStatsBreakdownDetails } from "@/components/global-stats-breakdown-details";
-import {
-	GlobalStatsRangePicker,
-	resolveGlobalStatsRange,
-} from "@/components/global-stats-range-picker";
+import { GlobalStatsRangePicker } from "@/components/global-stats-range-picker";
+import { GlobalStatsTimeZone } from "@/components/global-stats-time-zone";
 import { OrgKindSelector, useOrgKind } from "@/components/org-kind-selector";
 import {
 	ProviderKeySelector,
@@ -75,10 +72,12 @@ import {
 	buildGlobalStatsTimeseriesCsv,
 	globalStatsExportFilename,
 } from "@/lib/global-stats-csv";
+import { resolveGlobalStatsRange } from "@/lib/global-stats-range";
 import { orgKindDescription, orgKindLabel } from "@/lib/org-kind";
 import { usageModeDescription, usageModeLabel } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
+import { formatDateTime } from "@llmgateway/shared";
 import { detectCsvFormat } from "@llmgateway/shared";
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
@@ -300,12 +299,19 @@ function compactMetricFormatter(metric: TimeseriesMetric) {
 	}
 }
 
-export function GlobalStatsClient() {
+export function GlobalStatsClient({
+	initialTimeZone = "UTC",
+	accountTimeZone,
+}: {
+	initialTimeZone?: string;
+	accountTimeZone: string | null;
+}) {
+	const [selectedTimeZone, setSelectedTimeZone] = useState(initialTimeZone);
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 
-	const { allTime, from, to } = resolveGlobalStatsRange(searchParams);
+	const { allTime, range, from, to } = resolveGlobalStatsRange(searchParams);
 	const usageMode = useUsageMode();
 	const orgKind = useOrgKind();
 	const providerKeyIds = useProviderKeyIds();
@@ -371,6 +377,10 @@ export function GlobalStatsClient() {
 	}, [updateParam, showTimeseriesBreakdown]);
 
 	const $api = useApi();
+	const timeZone =
+		selectedTimeZone === "account"
+			? (accountTimeZone ?? "UTC")
+			: selectedTimeZone;
 	// mode/kind are applied server-side (both are part of the aggregation key),
 	// so every metric below is already narrowed to the selected slice and the
 	// filters take part in the query key.
@@ -382,7 +392,7 @@ export function GlobalStatsClient() {
 		{
 			params: {
 				query: {
-					...(allTime ? { range: "all" as const } : { from, to }),
+					...(range ? { range } : { from, to }),
 					groupBy,
 					modelView,
 					mode: usageMode,
@@ -406,19 +416,18 @@ export function GlobalStatsClient() {
 		.map((key) => key.label)
 		.join(", ");
 
+	const hourly = range === "24h";
 	const rangeLabel = useMemo(() => {
 		const start = from ?? data?.start;
 		const end = to ?? data?.end;
 		if (!start || !end) {
-			return "all time";
+			return hourly ? "last 24 hours" : "all time";
 		}
-		const startDate = parseISO(start);
-		const endDate = parseISO(end);
-		if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-			return allTime ? "all time" : "selected range";
+		if (hourly) {
+			return `${formatDateTime(start, timeZone, "monthDayYearHourMinuteZone")} – ${formatDateTime(end, timeZone, "monthDayYearHourMinuteZone")}`;
 		}
-		return `${format(startDate, "MMM d, yyyy")} – ${format(endDate, "MMM d, yyyy")}`;
-	}, [allTime, from, to, data?.start, data?.end]);
+		return `${formatDateTime(start, "UTC", "monthDayYear")} – ${formatDateTime(end, "UTC", "monthDayYear")} (UTC dates)`;
+	}, [hourly, timeZone, from, to, data?.start, data?.end]);
 
 	const totals = data?.totals;
 	const timeseries = useMemo(() => data?.timeseries ?? [], [data?.timeseries]);
@@ -620,6 +629,7 @@ export function GlobalStatsClient() {
 			start: from ?? data?.start ?? "",
 			end: to ?? data?.end ?? "",
 			allTime,
+			granularity: data?.granularity,
 			traffic: usageModeLabel(usageMode),
 			organization: orgKindLabel(orgKind),
 			groupBy:
@@ -638,6 +648,7 @@ export function GlobalStatsClient() {
 			to,
 			data?.start,
 			data?.end,
+			data?.granularity,
 			allTime,
 			usageMode,
 			orgKind,
@@ -666,13 +677,16 @@ export function GlobalStatsClient() {
 		downloadCsv(
 			globalStatsExportFilename(
 				showTimeseriesBreakdown
-					? `daily-by-${exportDimension.replace(/\s+/g, "-")}`
-					: "daily",
+					? `${hourly ? "hourly" : "daily"}-by-${exportDimension.replace(/\s+/g, "-")}`
+					: hourly
+						? "hourly"
+						: "daily",
 				exportScope,
 			),
 			csv,
 		);
 	}, [
+		hourly,
 		showTimeseriesBreakdown,
 		sortedBreakdown,
 		timeseries,
@@ -741,9 +755,15 @@ export function GlobalStatsClient() {
 							Global Stats
 						</h1>
 						<p className="mt-1 text-sm text-muted-foreground">
-							Cross-organization usage aggregated by day, grouped by model,
-							x-source header, billing mode or organization kind.
+							Cross-organization usage aggregated by{" "}
+							{hourly ? "hour" : "UTC day"}, grouped by model, x-source header,
+							billing mode or organization kind.
 							{scopeNotes.length > 0 ? ` ${scopeNotes.join(" ")}` : ""}
+						</p>
+						<p className="mt-1 text-xs text-muted-foreground">
+							{hourly
+								? `24 complete hours · ${rangeLabel}. Updated hourly; recent hours may still be processing.`
+								: `Calendar ranges and daily buckets use UTC. Bucket start times are displayed in ${timeZone}.`}
 						</p>
 						{unattributedNote ? (
 							<p className="mt-1 text-xs text-muted-foreground">
@@ -812,7 +832,14 @@ export function GlobalStatsClient() {
 								})}
 							</div>
 						</ToolbarGroup>
-						<ToolbarGroup label="Range" className="ml-auto">
+						<ToolbarGroup label="Display time zone" className="ml-auto">
+							<GlobalStatsTimeZone
+								value={selectedTimeZone}
+								accountTimeZone={accountTimeZone}
+								onChange={setSelectedTimeZone}
+							/>
+						</ToolbarGroup>
+						<ToolbarGroup label="Range (UTC)">
 							<GlobalStatsRangePicker />
 						</ToolbarGroup>
 					</div>
@@ -894,7 +921,7 @@ export function GlobalStatsClient() {
 			<Card>
 				<CardHeader className="gap-0 space-y-0 border-b p-0">
 					<div className="p-4 sm:p-6">
-						<CardTitle>Daily timeseries</CardTitle>
+						<CardTitle>{hourly ? "Hourly" : "Daily"} timeseries</CardTitle>
 						<CardDescription>
 							Aggregate{" "}
 							{chartMetric === "cost"
@@ -902,7 +929,7 @@ export function GlobalStatsClient() {
 								: chartMetric === "totalTokens"
 									? "total tokens"
 									: "request count"}{" "}
-							per day
+							per {hourly ? "hour" : "UTC day"}
 							{showTimeseriesBreakdown
 								? ` broken down by ${
 										groupBy === "model"
@@ -1038,11 +1065,17 @@ export function GlobalStatsClient() {
 											if (typeof value !== "string" || !value) {
 												return "";
 											}
-											const date = parseISO(value);
+											const date = new Date(
+												value.length === 10 ? `${value}T00:00:00Z` : value,
+											);
 											if (Number.isNaN(date.getTime())) {
 												return value;
 											}
-											return format(date, "MMM d");
+											return formatDateTime(
+												date,
+												timeZone,
+												hourly ? "hourMinute" : "monthDayHourMinute",
+											);
 										}}
 									/>
 									<YAxis
@@ -1060,11 +1093,17 @@ export function GlobalStatsClient() {
 													if (typeof value !== "string" || !value) {
 														return "";
 													}
-													const date = parseISO(value);
+													const date = new Date(
+														value.length === 10 ? `${value}T00:00:00Z` : value,
+													);
 													if (Number.isNaN(date.getTime())) {
 														return value;
 													}
-													return format(date, "MMM d, yyyy");
+													return formatDateTime(
+														date,
+														timeZone,
+														"monthDayYearHourMinuteZone",
+													);
 												}}
 												formatter={(value, name, item) =>
 													showTimeseriesBreakdown ? (
