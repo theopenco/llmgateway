@@ -129,6 +129,7 @@ export async function transformAnthropicMessages(
 	initialCacheControlCount = 0,
 	minCacheableChars = 1024 * 4,
 	autoInjectCacheControl = true,
+	automaticCacheTtl?: "1h",
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
 
@@ -291,7 +292,10 @@ export async function transformAnthropicMessages(
 							cacheControlCount++;
 							return {
 								...part,
-								cache_control: { type: "ephemeral" },
+								cache_control: {
+									type: "ephemeral",
+									...(automaticCacheTtl && { ttl: automaticCacheTtl }),
+								},
 							};
 						}
 					}
@@ -308,7 +312,12 @@ export async function transformAnthropicMessages(
 			const textContent: TextContent = {
 				type: "text",
 				text: m.content,
-				...(shouldCache && { cache_control: { type: "ephemeral" } }),
+				...(shouldCache && {
+					cache_control: {
+						type: "ephemeral",
+						...(automaticCacheTtl && { ttl: automaticCacheTtl }),
+					},
+				}),
 			};
 			if (shouldCache) {
 				cacheControlCount++;
@@ -544,9 +553,10 @@ export async function transformAnthropicMessages(
 			}),
 		);
 		// A caller using the 1h TTL in messages keeps sole control, as above.
-		let free = placed.some((marker) => marker.ttl === "1h")
-			? 0
-			: maxCacheControlBlocks - initialCacheControlCount - placed.length;
+		let free =
+			!automaticCacheTtl && placed.some((marker) => marker.ttl === "1h")
+				? 0
+				: maxCacheControlBlocks - initialCacheControlCount - placed.length;
 
 		let lastUserIdx = -1;
 		for (let i = results.length - 1; i >= 0; i--) {
@@ -564,7 +574,13 @@ export async function transformAnthropicMessages(
 					// A copy: the block may be the caller's own object, which a fallback
 					// re-prepares for the next provider.
 					if (!part.cache_control) {
-						content[i] = { ...part, cache_control: { type: "ephemeral" } };
+						content[i] = {
+							...part,
+							cache_control: {
+								type: "ephemeral",
+								...(automaticCacheTtl && { ttl: automaticCacheTtl }),
+							},
+						};
 						free--;
 					}
 					break;

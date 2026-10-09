@@ -224,6 +224,11 @@
 			"types": "./dist/components/product-switcher.d.ts",
 			"import": "./dist/components/product-switcher.js",
 			"default": "./dist/components/product-switcher.js"
+		},
+		"./provider-cache-settings": {
+			"types": "./dist/provider-cache-settings.d.ts",
+			"import": "./dist/provider-cache-settings.js",
+			"default": "./dist/provider-cache-settings.js"
 		}
 	},
 	"module": "./dist/index.js",

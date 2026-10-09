@@ -19,10 +19,22 @@ import {
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { RadioGroup, RadioGroupItem } from "@/lib/components/radio-group";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/lib/components/select";
 import { Separator } from "@/lib/components/separator";
 import { Switch } from "@/lib/components/switch";
 import { useToast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
+
+import {
+	AUTOMATIC_CACHE_DURATION_DESCRIPTION,
+	AUTOMATIC_CACHE_DURATION_OPTIONS,
+} from "@llmgateway/shared/provider-cache-settings";
 
 import type { CachingSettingsData } from "@/types/settings";
 
@@ -36,6 +48,7 @@ const cachingFormSchema = z.object({
 			"Cache duration must not exceed 31,536,000 seconds (1 year)",
 		),
 	providerCacheControlMode: z.enum(["auto", "passthrough", "off"]),
+	providerCacheAutoTtl: z.enum(["5m", "1h"]),
 });
 
 type CachingFormData = z.infer<typeof cachingFormSchema>;
@@ -88,12 +101,15 @@ export function CachingSettings({
 				initialData.preferences.preferences.cachingEnabled ?? false,
 			cacheDurationSeconds:
 				initialData.preferences.preferences.cacheDurationSeconds ?? 60,
+			providerCacheAutoTtl:
+				initialData.preferences.preferences.providerCacheAutoTtl ?? "5m",
 			providerCacheControlMode:
 				initialData.preferences.preferences.providerCacheControlMode ?? "auto",
 		},
 	});
 
 	const cachingEnabled = form.watch("cachingEnabled");
+	const providerCacheControlMode = form.watch("providerCacheControlMode");
 
 	const api = useApi();
 
@@ -113,6 +129,7 @@ export function CachingSettings({
 				body: {
 					cachingEnabled: data.cachingEnabled,
 					cacheDurationSeconds: data.cacheDurationSeconds,
+					providerCacheAutoTtl: data.providerCacheAutoTtl,
 					...(zeroDataRetentionEnabled
 						? {}
 						: { providerCacheControlMode: data.providerCacheControlMode }),
@@ -265,6 +282,47 @@ export function CachingSettings({
 									Cache writes are billed at 1.25× (5m) or 2× (1h) the input
 									price; reads are 0.1×. Note: changing this setting may take up
 									to 5 minutes to take effect.
+								</FormDescription>
+								<FormMessage />
+							</FormItem>
+						)}
+					/>
+
+					<FormField
+						control={form.control}
+						name="providerCacheAutoTtl"
+						render={({ field }) => (
+							<FormItem>
+								<FormLabel>Automatic cache duration</FormLabel>
+								<Select
+									value={field.value}
+									onValueChange={field.onChange}
+									disabled={
+										zeroDataRetentionEnabled ||
+										providerCacheControlMode !== "auto"
+									}
+								>
+									<FormControl>
+										<SelectTrigger className="w-[200px]">
+											<SelectValue>
+												{
+													AUTOMATIC_CACHE_DURATION_OPTIONS.find(
+														(option) => option.value === field.value,
+													)?.label
+												}
+											</SelectValue>
+										</SelectTrigger>
+									</FormControl>
+									<SelectContent>
+										{AUTOMATIC_CACHE_DURATION_OPTIONS.map((option) => (
+											<SelectItem key={option.value} value={option.value}>
+												{option.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								<FormDescription>
+									{AUTOMATIC_CACHE_DURATION_DESCRIPTION}
 								</FormDescription>
 								<FormMessage />
 							</FormItem>

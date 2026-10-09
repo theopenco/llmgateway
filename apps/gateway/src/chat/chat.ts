@@ -7354,6 +7354,7 @@ chat.openapi(completions, async (c) => {
 		enabled: projectCachingEnabled,
 		duration: cacheDuration,
 		providerCacheControlMode: configuredProviderCacheControlMode,
+		providerCacheAutoTtl,
 	} = await isCachingEnabled(project.id);
 	const providerCacheControlMode = zeroDataRetentionEnabled
 		? "off"
@@ -8238,6 +8239,7 @@ chat.openapi(completions, async (c) => {
 			organization.safetyIdentifier,
 			getUsedProviderMapping(),
 			reasoning_mode,
+			providerCacheAutoTtl,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -8449,6 +8451,7 @@ chat.openapi(completions, async (c) => {
 				),
 				n,
 				providerCacheControlMode,
+				providerCacheAutoTtl,
 				service_tier,
 				clientRequestedServiceTier: clientRequestedServiceTier(),
 				verbosity,

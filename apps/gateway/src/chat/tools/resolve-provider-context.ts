@@ -184,6 +184,7 @@ export interface ProviderContextOptions {
 	excludedProviderKeyIds?: ReadonlySet<string>;
 	n?: number;
 	providerCacheControlMode: ProviderCacheControlMode;
+	providerCacheAutoTtl?: "5m" | "1h";
 	service_tier?: "auto" | "default" | "flex" | "priority";
 	/**
 	 * The premium tier the client asked for itself, or null when `service_tier`
@@ -1007,6 +1008,8 @@ export async function resolveProviderContext(
 		undefined,
 		organization.safetyIdentifier,
 		providerMappingForSelected,
+		undefined,
+		options.providerCacheAutoTtl,
 	);
 
 	// Post-validation of max_tokens in request body
