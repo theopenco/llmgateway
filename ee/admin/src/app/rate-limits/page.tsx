@@ -76,7 +76,7 @@ export default async function GlobalRateLimitsPage() {
 								Global Rate Limits
 							</h1>
 							<p className="text-sm text-muted-foreground">
-								RPM caps that apply to all organizations
+								RPM and RPD caps that apply to all organizations
 							</p>
 						</div>
 					</div>
@@ -103,7 +103,7 @@ export default async function GlobalRateLimitsPage() {
 							<TableHead>Mode</TableHead>
 							<TableHead>Reason</TableHead>
 							<TableHead>Created</TableHead>
-							<TableHead className="w-[50px]" />
+							<TableHead className="w-[130px]" />
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -170,7 +170,17 @@ export default async function GlobalRateLimitsPage() {
 									</TableCell>
 									<TableCell>
 										<AdminOnly>
-											<DeleteRateLimitButton rateLimitId={rateLimit.id} />
+											<div className="flex items-center gap-1">
+												{options && (
+													<RateLimitForm
+														providers={options.providers}
+														mappings={options.mappings}
+														showEnforcement
+														rateLimit={rateLimit}
+													/>
+												)}
+												<DeleteRateLimitButton rateLimitId={rateLimit.id} />
+											</div>
 										</AdminOnly>
 									</TableCell>
 								</TableRow>

@@ -1,8 +1,8 @@
 "use client";
 
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ import { useApi } from "@/lib/fetch-client";
 import { getProviderIcon } from "@llmgateway/shared";
 
 import type {
+	RateLimitEntry,
 	RateLimitModelMapping,
 	RateLimitProviderOption,
 } from "@/lib/types";
@@ -50,7 +51,8 @@ interface RateLimitFormProps {
 	providers: RateLimitProviderOption[];
 	mappings: RateLimitModelMapping[];
 	showEnforcement?: boolean;
-	/** Creates an organization rate limit; omitted for a global rate limit. */
+	rateLimit?: RateLimitEntry;
+	/** Omitted for a global rate limit. */
 	orgId?: string;
 }
 
@@ -58,9 +60,11 @@ export function RateLimitForm({
 	providers,
 	mappings,
 	showEnforcement = false,
+	rateLimit,
 	orgId,
 }: RateLimitFormProps) {
 	const $api = useApi();
+	const formId = useId();
 	const router = useRouter();
 	const [open, setOpen] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -76,13 +80,6 @@ export function RateLimitForm({
 
 	const onSuccess = () => {
 		setOpen(false);
-		setProvider("__all__");
-		setModel("__all__");
-		setLimitType("rpm");
-		setEnforcement("per_org");
-		setMode("strict");
-		setMaxRequests("");
-		setReason("");
 		router.refresh();
 	};
 	const globalMutation = $api.useMutation("post", "/admin/rate-limits", {
@@ -94,11 +91,38 @@ export function RateLimitForm({
 		"/admin/organizations/{orgId}/rate-limits",
 		{ meta: { inlineError: true }, onSuccess },
 	);
-	const mutation = orgId ? orgMutation : globalMutation;
+	const globalUpdateMutation = $api.useMutation(
+		"put",
+		"/admin/rate-limits/{rateLimitId}",
+		{
+			meta: { inlineError: true },
+			onSuccess,
+		},
+	);
+	const orgUpdateMutation = $api.useMutation(
+		"put",
+		"/admin/organizations/{orgId}/rate-limits/{rateLimitId}",
+		{
+			meta: { inlineError: true },
+			onSuccess,
+		},
+	);
+	const mutation = rateLimit
+		? orgId
+			? orgUpdateMutation
+			: globalUpdateMutation
+		: orgId
+			? orgMutation
+			: globalMutation;
 	const shownError =
 		error ??
 		(mutation.isError
-			? apiErrorMessage(mutation.error, "Failed to create rate limit")
+			? apiErrorMessage(
+					mutation.error,
+					rateLimit
+						? "Failed to update rate limit"
+						: "Failed to create rate limit",
+				)
 			: null);
 
 	// Filter mappings by selected provider
@@ -157,6 +181,9 @@ export function RateLimitForm({
 
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
+		if (mutation.isPending) {
+			return;
+		}
 		setError(null);
 		mutation.reset();
 
@@ -186,7 +213,20 @@ export function RateLimitForm({
 			mode,
 			reason: reason || null,
 		};
-		if (orgId) {
+		if (rateLimit) {
+			const rateLimitId = rateLimit.id;
+			if (orgId) {
+				orgUpdateMutation.mutate({
+					params: { path: { orgId, rateLimitId } },
+					body,
+				});
+			} else {
+				globalUpdateMutation.mutate({
+					params: { path: { rateLimitId } },
+					body: { ...body, enforcement },
+				});
+			}
+		} else if (orgId) {
 			orgMutation.mutate({ params: { path: { orgId } }, body });
 		} else {
 			globalMutation.mutate({
@@ -202,21 +242,38 @@ export function RateLimitForm({
 		<Dialog
 			open={open}
 			onOpenChange={(nextOpen) => {
+				if (mutation.isPending) {
+					return;
+				}
 				setOpen(nextOpen);
 				if (nextOpen) {
+					setProvider(rateLimit?.provider ?? "__all__");
+					setModel(rateLimit?.model ?? "__all__");
+					setLimitType(rateLimit?.limitType ?? "rpm");
+					setEnforcement(rateLimit?.enforcement ?? "per_org");
+					setMode(rateLimit?.mode ?? "strict");
+					setMaxRequests(rateLimit ? String(rateLimit.maxRequests) : "");
+					setReason(rateLimit?.reason ?? "");
+					setError(null);
 					mutation.reset();
 				}
 			}}
 		>
 			<DialogTrigger asChild>
-				<Button size="sm">
-					<Plus className="h-4 w-4" />
-					Add Rate Limit
+				<Button size="sm" variant={rateLimit ? "ghost" : "default"}>
+					{rateLimit ? (
+						<Pencil className="h-4 w-4" />
+					) : (
+						<Plus className="h-4 w-4" />
+					)}
+					{rateLimit ? "Edit" : "Add Rate Limit"}
 				</Button>
 			</DialogTrigger>
 			<DialogContent>
 				<DialogHeader>
-					<DialogTitle>Add Rate Limit</DialogTitle>
+					<DialogTitle>
+						{rateLimit ? "Edit Rate Limit" : "Add Rate Limit"}
+					</DialogTitle>
 					<DialogDescription>
 						Set a maximum requests per minute or per day cap for a provider,
 						model, or combination.
@@ -224,12 +281,12 @@ export function RateLimitForm({
 				</DialogHeader>
 				<form onSubmit={handleSubmit} className="space-y-4">
 					<div className="space-y-2">
-						<Label htmlFor="limitType">Limit Type</Label>
+						<Label htmlFor={`${formId}-limitType`}>Limit Type</Label>
 						<Select
 							value={limitType}
 							onValueChange={(value) => setLimitType(value as RateLimitType)}
 						>
-							<SelectTrigger className="w-full">
+							<SelectTrigger id={`${formId}-limitType`} className="w-full">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
@@ -241,14 +298,14 @@ export function RateLimitForm({
 
 					{showEnforcement && (
 						<div className="space-y-2">
-							<Label htmlFor="enforcement">Enforcement</Label>
+							<Label htmlFor={`${formId}-enforcement`}>Enforcement</Label>
 							<Select
 								value={enforcement}
 								onValueChange={(value) =>
 									setEnforcement(value as RateLimitEnforcement)
 								}
 							>
-								<SelectTrigger className="w-full">
+								<SelectTrigger id={`${formId}-enforcement`} className="w-full">
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
@@ -267,12 +324,12 @@ export function RateLimitForm({
 					)}
 
 					<div className="space-y-2">
-						<Label htmlFor="mode">Mode</Label>
+						<Label htmlFor={`${formId}-mode`}>Mode</Label>
 						<Select
 							value={mode}
 							onValueChange={(value) => setMode(value as RateLimitMode)}
 						>
-							<SelectTrigger className="w-full">
+							<SelectTrigger id={`${formId}-mode`} className="w-full">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
@@ -291,9 +348,9 @@ export function RateLimitForm({
 					</div>
 
 					<div className="space-y-2">
-						<Label htmlFor="provider">Provider</Label>
+						<Label htmlFor={`${formId}-provider`}>Provider</Label>
 						<Select value={provider} onValueChange={handleProviderChange}>
-							<SelectTrigger className="w-full">
+							<SelectTrigger id={`${formId}-provider`} className="w-full">
 								<SelectValue>
 									{selectedProvider ? (
 										<span className="flex items-center gap-2">
@@ -303,8 +360,10 @@ export function RateLimitForm({
 											})()}
 											{selectedProvider.name}
 										</span>
-									) : (
+									) : provider === "__all__" ? (
 										"All Providers"
+									) : (
+										provider
 									)}
 								</SelectValue>
 							</SelectTrigger>
@@ -327,13 +386,15 @@ export function RateLimitForm({
 					</div>
 
 					<div className="space-y-2">
-						<Label htmlFor="model">Model</Label>
+						<Label htmlFor={`${formId}-model`}>Model</Label>
 						<Select value={model} onValueChange={setModel}>
-							<SelectTrigger className="w-full">
+							<SelectTrigger id={`${formId}-model`} className="w-full">
 								<SelectValue>
 									{selectedModel
 										? `${selectedModel.modelName} (${selectedModel.modelId})`
-										: "All Models"}
+										: model === "__all__"
+											? "All Models"
+											: model}
 								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
@@ -361,9 +422,11 @@ export function RateLimitForm({
 					</div>
 
 					<div className="space-y-2">
-						<Label htmlFor="maxRequests">Max {limitType.toUpperCase()}</Label>
+						<Label htmlFor={`${formId}-maxRequests`}>
+							Max {limitType.toUpperCase()}
+						</Label>
 						<Input
-							id="maxRequests"
+							id={`${formId}-maxRequests`}
 							type="number"
 							min={0}
 							step="1"
@@ -381,9 +444,9 @@ export function RateLimitForm({
 					</div>
 
 					<div className="space-y-2">
-						<Label htmlFor="reason">Reason (optional)</Label>
+						<Label htmlFor={`${formId}-reason`}>Reason (optional)</Label>
 						<Input
-							id="reason"
+							id={`${formId}-reason`}
 							type="text"
 							placeholder="e.g., Prevent abuse on expensive model"
 							value={reason}
@@ -402,6 +465,7 @@ export function RateLimitForm({
 							type="button"
 							variant="outline"
 							onClick={() => setOpen(false)}
+							disabled={mutation.isPending}
 						>
 							Cancel
 						</Button>
@@ -409,7 +473,7 @@ export function RateLimitForm({
 							{mutation.isPending && (
 								<Loader2 className="h-4 w-4 animate-spin" />
 							)}
-							Create Rate Limit
+							{rateLimit ? "Save Changes" : "Create Rate Limit"}
 						</Button>
 					</DialogFooter>
 				</form>

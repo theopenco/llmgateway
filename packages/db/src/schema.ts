@@ -3833,6 +3833,20 @@ export const modelProviderMapping = snakeCase.table(
 	],
 );
 
+export const aggregationProgress = snakeCase.table(
+	"aggregation_progress",
+	{
+		job: text().notNull(),
+		bucketTimestamp: timestamp().notNull(),
+		refreshedAt: timestamp(),
+		finalizedAt: timestamp(),
+	},
+	(t) => [
+		uniqueIndex().on(t.job, t.bucketTimestamp),
+		index().on(t.bucketTimestamp),
+	],
+);
+
 export const modelProviderMappingHistory = snakeCase.table(
 	"model_provider_mapping_history",
 	{
@@ -4608,6 +4622,7 @@ export const auditLogActions = [
 	"discount.create",
 	"discount.delete",
 	"rate_limit.create",
+	"rate_limit.update",
 	"rate_limit.delete",
 	// Dev Plan
 	"dev_plan.subscribe",
