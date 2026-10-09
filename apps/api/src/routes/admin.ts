@@ -49,6 +49,11 @@ import {
 	getModelErrorRateAlertsSettings,
 	setModelErrorRateAlertsSettings,
 } from "@/lib/model-error-rate-alerts.js";
+import {
+	getOrganizationTimeseries,
+	organizationTimeseriesQuery,
+	organizationTimeseriesSchema,
+} from "@/lib/organization-timeseries.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
 	getBucketUnitForWindow,
@@ -11716,13 +11721,16 @@ const getOrgCostByModelTimeseries = createRoute({
 				.default("model")
 				.optional(),
 			bucket: costTimeseriesBucketSchema.optional(),
+			...organizationTimeseriesQuery,
 		}),
 	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: costByModelTimeseriesResponseSchema.openapi({}),
+					schema: costByModelTimeseriesResponseSchema
+						.extend({ timeseries: organizationTimeseriesSchema.optional() })
+						.openapi({}),
 				},
 			},
 			description:
@@ -11757,6 +11765,33 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 		.where(eq(tables.project.organizationId, orgId));
 
 	const ids = projectIds.map((p) => p.id);
+
+	if (query.includeTimeseries === "true" || query.model || query.apiKeyId) {
+		const timeseries = await getOrganizationTimeseries({
+			projectIds: ids,
+			startDate,
+			endDate: new Date(),
+			bucket: bucketUnit,
+			groupBy: groupBy === "api-key" ? "apiKey" : groupBy,
+			modelView,
+			model: query.model,
+			apiKeyId: query.apiKeyId,
+			rankBy: query.rankBy,
+			mode: query.mode,
+		});
+		return c.json({
+			window,
+			bucket: bucketUnit,
+			modelView,
+			groupBy,
+			models: timeseries.series.map((s) => s.label),
+			data: timeseries.points.map((p) => ({
+				timestamp: p.timestamp,
+				entries: p.entries.map((e) => ({ ...e, model: e.label })),
+			})),
+			timeseries,
+		});
+	}
 
 	if (ids.length === 0) {
 		return c.json({

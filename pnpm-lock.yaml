@@ -2202,6 +2202,9 @@ importers:
       react-medium-image-zoom:
         specifier: 5.4.0
         version: 5.4.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      recharts:
+        specifier: ^2.15.4
+        version: 2.15.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       resend:
         specifier: 6.8.0
         version: 6.8.0(@react-email/render@1.0.6(react-dom@19.3.0(react@19.3.0))(react@19.3.0))

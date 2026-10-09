@@ -224,6 +224,16 @@
 			"types": "./dist/components/product-switcher.d.ts",
 			"import": "./dist/components/product-switcher.js",
 			"default": "./dist/components/product-switcher.js"
+		},
+		"./prompt-cache": {
+			"types": "./dist/prompt-cache.d.ts",
+			"import": "./dist/prompt-cache.js",
+			"default": "./dist/prompt-cache.js"
+		},
+		"./usage-timeseries": {
+			"types": "./dist/components/usage-timeseries.d.ts",
+			"import": "./dist/components/usage-timeseries.js",
+			"default": "./dist/components/usage-timeseries.js"
 		}
 	},
 	"module": "./dist/index.js",
@@ -277,6 +287,7 @@
 		"react-dom": "19.3.0",
 		"react-hook-form": "7.65.0",
 		"react-medium-image-zoom": "5.4.0",
+		"recharts": "^2.15.4",
 		"resend": "6.8.0",
 		"sonner": "^2.0.7",
 		"tailwind-merge": "3.4.0",

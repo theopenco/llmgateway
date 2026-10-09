@@ -1,5 +1,6 @@
 "use client";
 
+import { keepPreviousData } from "@tanstack/react-query";
 import { Coins, Zap, Hash } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
@@ -9,8 +10,11 @@ import {
 	getAnalyticsRange,
 } from "@/components/analytics/analytics-date-range";
 import { currencyFormatter } from "@/components/analytics/chart-helpers";
+import {
+	useChartStyle,
+	ChartStyleSelector,
+} from "@/components/analytics/chart-style";
 import { DimensionUsageCard } from "@/components/analytics/dimension-usage-card";
-import { DimensionUsageOverTimeCard } from "@/components/analytics/dimension-usage-over-time-card";
 import { RoutingSavingsCard } from "@/components/analytics/routing-savings-card";
 import { EnterpriseFeatureCard } from "@/components/contact-sales";
 import {
@@ -39,6 +43,10 @@ import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode } from "@/lib/usage-mode";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
+import {
+	OrganizationUsageTimeseries,
+	useUsageTimeseriesControls,
+} from "@llmgateway/shared/usage-timeseries";
 
 import type { DimensionRow } from "@/components/analytics/chart-helpers";
 import type { Route } from "next";
@@ -222,6 +230,33 @@ export function OrgAnalyticsClient() {
 		},
 	);
 
+	const usageMode = useUsageMode();
+	const rangeDays =
+		Math.round((Date.parse(toStr) - Date.parse(fromStr)) / 86_400_000) + 1;
+	const timeseriesControls = useUsageTimeseriesControls(rangeDays);
+	const { style: chartStyle } = useChartStyle();
+	const timeseries = api.useQuery(
+		"get",
+		"/analytics/activity",
+		{
+			params: {
+				query: {
+					organizationId,
+					from: fromStr,
+					to: toStr,
+					groupBy,
+					timezone: displayTimeZone,
+					...timeseriesControls.query,
+					mode: usageMode,
+				},
+			},
+		},
+		{
+			enabled: !!organizationId && isEnterprise && isAdmin,
+			placeholderData: keepPreviousData,
+		},
+	);
+
 	const routingSavings = api.useQuery(
 		"get",
 		"/analytics/routing-savings",
@@ -242,7 +277,6 @@ export function OrgAnalyticsClient() {
 		},
 	);
 
-	const usageMode = useUsageMode();
 	const rows = ((data?.activity ?? []) as OrgActivityRow[]).map((row) => ({
 		...applyUsageMode(row, usageMode),
 		breakdown: row.breakdown.map((entry) => applyUsageMode(entry, usageMode)),
@@ -338,11 +372,23 @@ export function OrgAnalyticsClient() {
 							</Select>
 						</div>
 
-						<DimensionUsageOverTimeCard
-							rows={rows}
-							loading={isLoading}
-							title={`Cost by ${copy.noun} over time`}
-							description={copy.overTime}
+						<OrganizationUsageTimeseries
+							data={timeseries.data?.timeseries}
+							loading={timeseries.isFetching}
+							error={timeseries.isError}
+							retry={() => {
+								void timeseries.refetch();
+							}}
+							controls={timeseriesControls}
+							groupBy={groupBy}
+							timeZone={displayTimeZone}
+							mode={usageMode}
+							lineStyle={chartStyle !== "bar"}
+							modelViewControl={
+								timeseriesControls.metric !== "cacheRate" ? (
+									<ChartStyleSelector />
+								) : undefined
+							}
 						/>
 						<DimensionUsageCard
 							rows={rows}
