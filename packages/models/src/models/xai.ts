@@ -909,8 +909,11 @@ export const xaiModels = [
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0",
+				imageInputPrice: "0.01",
 				perSecondPrice: {
-					default: "0.02",
+					"480p": "0.02",
+					"720p": "0.03",
+					default: "0.03",
 				},
 				contextSize: 2000,
 				maxOutput: 1,
