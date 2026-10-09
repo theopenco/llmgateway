@@ -20,6 +20,7 @@ import {
 	type PerplexityAgentRequestBody,
 	type PromptCacheOptions,
 	type PromptCacheRetention,
+	type ProviderCacheAutoTtl,
 	type ProviderCacheControlMode,
 	type ProviderRequestBody,
 	type ReasoningDetail,
@@ -1426,7 +1427,22 @@ export async function prepareRequestBody(
 	 */
 	resolvedProviderMapping?: ProviderModelMapping,
 	reasoning_mode?: ReasoningMode,
+	providerCacheAutoTtl: ProviderCacheAutoTtl = "5m",
 ): Promise<ProviderRequestBody | FormData> {
+	// Check before provider transforms can strip a caller's markers.
+	const hasCacheMarker = (part: object) =>
+		"cache_control" in part && part.cache_control !== undefined;
+	const hasCallerCacheMarkers =
+		providerCacheAutoTtl === "1h" &&
+		providerCacheControlMode === "auto" &&
+		(tools?.some(hasCacheMarker) ||
+			messages.some(
+				(message) =>
+					message.tool_result_cache_control !== undefined ||
+					(Array.isArray(message.content) &&
+						message.content.some(hasCacheMarker)) ||
+					message.anthropic_native_blocks?.some(hasCacheMarker),
+			));
 	tools = normalizeToolParameters(tools);
 	// Anthropic's server-side tool search (`defer_loading` plus the tool search
 	// tool) only exists on the Anthropic Messages API. Anywhere else the tools
@@ -1918,6 +1934,13 @@ export async function prepareRequestBody(
 	// working while traffic that sends no markers never pays the write premium.
 	const allowProviderCacheWrites = providerCacheControlMode !== "off";
 	const autoInjectCacheControl = providerCacheControlMode === "auto";
+	const automaticCacheTtl =
+		autoInjectCacheControl &&
+		!hasCallerCacheMarkers &&
+		providerCacheAutoTtl === "1h" &&
+		providerMappingForOptions?.cacheWriteInputPrice1h !== undefined
+			? ("1h" as const)
+			: undefined;
 
 	// A tool message's `tool_result_cache_control` only has a destination on the
 	// Anthropic Messages API, where it becomes a marker on the tool_result block
@@ -3233,7 +3256,7 @@ export async function prepareRequestBody(
 			// shorter ones ("a 1-hour cache entry must appear before any 5-minute
 			// cache entries" —
 			// platform.claude.com/docs/en/build-with-claude/prompt-caching;
-			// processing order: tools, system, messages). The gateway's heuristics
+			// processing order: tools, system, messages). With caller markers, the gateway's heuristics
 			// inject ttl-less markers (5m default), so when the caller placed an
 			// explicit ttl:"1h" marker in the messages, any auto-injected marker
 			// would land before it and Anthropic rejects the request ("a ttl='1h'
@@ -3398,7 +3421,10 @@ export async function prepareRequestBody(
 							systemContent.push({
 								type: "text",
 								text,
-								cache_control: { type: "ephemeral" },
+								cache_control: {
+									type: "ephemeral",
+									...(automaticCacheTtl && { ttl: automaticCacheTtl }),
+								},
 							});
 						} else {
 							systemContent.push({ type: "text", text });
@@ -3431,6 +3457,7 @@ export async function prepareRequestBody(
 				systemCacheControlCount, // Pass count to respect the 4 block limit
 				minCacheableChars, // Model-specific minimum cacheable characters
 				autoCacheControlEnabled,
+				automaticCacheTtl,
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
@@ -3794,7 +3821,7 @@ export async function prepareRequestBody(
 
 					if (shouldHeuristicCache) {
 						bedrockCacheControlCount++;
-						systemContent.push(createBedrockCachePoint());
+						systemContent.push(createBedrockCachePoint(automaticCacheTtl));
 					}
 				}
 
@@ -3917,7 +3944,9 @@ export async function prepareRequestBody(
 
 						if (shouldCache) {
 							bedrockCacheControlCount++;
-							bedrockMessage.content.push(createBedrockCachePoint());
+							bedrockMessage.content.push(
+								createBedrockCachePoint(automaticCacheTtl),
+							);
 						}
 					}
 				} else if (Array.isArray(msg.content)) {
@@ -3950,7 +3979,9 @@ export async function prepareRequestBody(
 
 									if (shouldCache) {
 										bedrockCacheControlCount++;
-										bedrockMessage.content.push(createBedrockCachePoint());
+										bedrockMessage.content.push(
+											createBedrockCachePoint(automaticCacheTtl),
+										);
 									}
 								}
 							}
@@ -4050,7 +4081,9 @@ export async function prepareRequestBody(
 							boundaryMsg.content[boundaryMsg.content.length - 1];
 						// Only add if the last block isn't already a cachePoint.
 						if (!lastBlock.cachePoint) {
-							boundaryMsg.content.push(createBedrockCachePoint());
+							boundaryMsg.content.push(
+								createBedrockCachePoint(automaticCacheTtl),
+							);
 							bedrockCacheControlCount++;
 						}
 					}
@@ -4066,7 +4099,7 @@ export async function prepareRequestBody(
 			) {
 				const tail = bedrockMessages[bedrockMessages.length - 1].content;
 				if (tail.length > 0 && !tail[tail.length - 1].cachePoint) {
-					tail.push(createBedrockCachePoint());
+					tail.push(createBedrockCachePoint(automaticCacheTtl));
 				}
 			}
 

@@ -17,7 +17,10 @@ import {
 	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
-import { resolveChatApiOrigin } from "@/lib/api-origin.js";
+import {
+	hasInternalClientCacheMarkers,
+	resolveChatApiOrigin,
+} from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
 	findManagedProviderAvailability,
@@ -7354,7 +7357,11 @@ chat.openapi(completions, async (c) => {
 		enabled: projectCachingEnabled,
 		duration: cacheDuration,
 		providerCacheControlMode: configuredProviderCacheControlMode,
+		providerCacheAutoTtl: configuredProviderCacheAutoTtl,
 	} = await isCachingEnabled(project.id);
+	const providerCacheAutoTtl = hasInternalClientCacheMarkers(c)
+		? "5m"
+		: configuredProviderCacheAutoTtl;
 	const providerCacheControlMode = zeroDataRetentionEnabled
 		? "off"
 		: configuredProviderCacheControlMode;
@@ -8238,6 +8245,7 @@ chat.openapi(completions, async (c) => {
 			organization.safetyIdentifier,
 			getUsedProviderMapping(),
 			reasoning_mode,
+			providerCacheAutoTtl,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -8449,6 +8457,7 @@ chat.openapi(completions, async (c) => {
 				),
 				n,
 				providerCacheControlMode,
+				providerCacheAutoTtl,
 				service_tier,
 				clientRequestedServiceTier: clientRequestedServiceTier(),
 				verbosity,
