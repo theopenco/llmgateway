@@ -783,10 +783,10 @@ describe("prepareRequestBody - Anthropic", () => {
 		).length;
 
 		expect(toolMarkers).toBe(1);
-		// The remaining 3 slots go to the system prompts; nothing is left for the
-		// messages or the turn boundary.
-		expect(systemMarkers).toBe(3);
-		expect(messageMarkers).toBe(0);
+		// The system prompts take one more slot and leave two for the
+		// conversation markers.
+		expect(systemMarkers).toBe(1);
+		expect(messageMarkers).toBe(2);
 		expect(toolMarkers + systemMarkers + messageMarkers).toBe(4);
 	});
 

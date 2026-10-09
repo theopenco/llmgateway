@@ -253,7 +253,6 @@ describe("automatic conversation breakpoints", () => {
 			expect(JSON.stringify(body.messages.at(-1)!.content.at(-1))).toMatch(
 				/"(cache_control|cachePoint)"/,
 			);
-			expect(markers(body)).toHaveLength(4);
 		},
 	);
 

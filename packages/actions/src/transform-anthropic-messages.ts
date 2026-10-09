@@ -24,6 +24,17 @@ import { RequestError } from "./request-error.js";
 export const MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS = 4;
 
 /**
+ * Breakpoints the automatic long-block markers may fill. In a conversation they
+ * leave two for the conversation markers, which cache the whole prompt instead
+ * of a fixed opening prefix.
+ */
+export function longBlockMarkerLimit(nonSystemMessageCount: number): number {
+	return (
+		MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS - (nonSystemMessageCount >= 3 ? 2 : 0)
+	);
+}
+
+/**
  * Last caller-supplied cache breakpoint in an OpenAI-format content array. On a
  * tool message the array is lowered to a single tool_result block, so the last
  * marker is the one that ends the prefix.
@@ -71,6 +82,7 @@ export async function transformAnthropicMessages(
 	// Continue the budget the tools and system passes already spent from.
 	let cacheControlCount = initialCacheControlCount;
 	const maxCacheControlBlocks = MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS;
+	const longBlockLimit = longBlockMarkerLimit(messages.length);
 
 	// Keep track of all tool_use IDs seen so far to ensure uniqueness
 	const seenToolUseIds = new Set<string>();
@@ -206,7 +218,7 @@ export async function transformAnthropicMessages(
 						} else if (
 							shouldApplyCacheControl &&
 							part.text.length >= minCacheableChars &&
-							cacheControlCount < maxCacheControlBlocks
+							cacheControlCount < longBlockLimit
 						) {
 							// Automatically add cache_control for long text blocks.
 							cacheControlCount++;
@@ -224,7 +236,7 @@ export async function transformAnthropicMessages(
 			const shouldCache =
 				shouldApplyCacheControl &&
 				m.content.length >= minCacheableChars &&
-				cacheControlCount < maxCacheControlBlocks;
+				cacheControlCount < longBlockLimit;
 			const textContent: TextContent = {
 				type: "text",
 				text: m.content,

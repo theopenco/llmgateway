@@ -51,6 +51,7 @@ import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { mappingSupportsToolChoice } from "./tool-choice-support.js";
 import {
+	longBlockMarkerLimit,
 	MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS,
 	transformAnthropicMessages,
 } from "./transform-anthropic-messages.js";
@@ -3336,7 +3337,8 @@ export async function prepareRequestBody(
 						const shouldCache =
 							autoCacheControlEnabled &&
 							text.length >= minCacheableChars &&
-							systemCacheControlCount < maxCacheControlBlocks;
+							systemCacheControlCount <
+								longBlockMarkerLimit(nonSystemMessages.length);
 
 						if (shouldCache) {
 							systemCacheControlCount++;
@@ -3647,6 +3649,9 @@ export async function prepareRequestBody(
 			const bedrockNonSystemMessages = processedMessages.filter(
 				(m) => m.role !== "system",
 			);
+			const bedrockLongBlockLimit = longBlockMarkerLimit(
+				bedrockNonSystemMessages.length,
+			);
 
 			// Mirror the Anthropic branch: Bedrock enforces the same
 			// longer-TTL-first ordering for cachePoints, and heuristic injection
@@ -3721,7 +3726,7 @@ export async function prepareRequestBody(
 						bedrockAutoCachePointEnabled &&
 						!callerSetBedrockCacheControl &&
 						block.text.length >= bedrockMinCacheableChars &&
-						bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+						bedrockCacheControlCount < bedrockLongBlockLimit;
 
 					if (shouldHeuristicCache) {
 						bedrockCacheControlCount++;
@@ -3833,7 +3838,7 @@ export async function prepareRequestBody(
 						const shouldCache =
 							bedrockAutoCachePointEnabled &&
 							msg.content.length >= bedrockMinCacheableChars &&
-							bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+							bedrockCacheControlCount < bedrockLongBlockLimit;
 
 						if (shouldCache) {
 							bedrockCacheControlCount++;
@@ -3863,7 +3868,7 @@ export async function prepareRequestBody(
 									const shouldCache =
 										bedrockAutoCachePointEnabled &&
 										part.text.length >= bedrockMinCacheableChars &&
-										bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+										bedrockCacheControlCount < bedrockLongBlockLimit;
 
 									if (shouldCache) {
 										bedrockCacheControlCount++;
