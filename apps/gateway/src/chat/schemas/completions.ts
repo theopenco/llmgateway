@@ -390,6 +390,16 @@ export const completionsRequestSchema = z.object({
 			description:
 				'Controls which tool the model calls. `{"type": "web_search"}` demands a search instead of offering one, and requires a `web_search` tool in `tools`. Providers whose web search is model-elected are unaffected by it — the model already decides — but it is the only way to reach providers that can search solely on demand (currently Alibaba\'s DashScope and its resellers), which are otherwise skipped when routing a web search request.',
 		}),
+	parallel_tool_calls: z
+		.boolean()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"Whether the model may call several tools in one turn. Forwarded to OpenAI and Azure; `false` maps to Anthropic's `disable_parallel_tool_use`.",
+			example: false,
+		}),
 	reasoning_effort: z
 		.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
 		.nullable()
