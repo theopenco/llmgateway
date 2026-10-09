@@ -251,7 +251,12 @@ import {
 } from "@llmgateway/shared/smart-routing";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
-import { applyAnthropicSafeguards } from "./tools/anthropic-safeguards.js";
+import {
+	applyAnthropicSafeguards,
+	extractAnthropicSafeguards,
+	isSafeguardBeta,
+	providerSupportsAnthropicSafeguards,
+} from "./tools/anthropic-safeguards.js";
 import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
 import {
 	checkContentFilter,
@@ -2003,7 +2008,12 @@ chat.openapi(completions, async (c) => {
 
 	// Extract reasoning.effort and reasoning.max_tokens for unified reasoning configuration
 	const reasoning_object_effort = validationResult.data.reasoning?.effort;
-	const anthropicSafeguards = validationResult.data.anthropic_safeguards;
+	const anthropicSafeguards = extractAnthropicSafeguards(
+		validationResult.data.anthropic_safeguards?.safeguards,
+		validationResult.data.anthropic_safeguards?.betas
+			.filter(isSafeguardBeta)
+			.join(","),
+	);
 	const reasoning_max_tokens = validationResult.data.reasoning?.max_tokens;
 	const reasoning_context = validationResult.data.reasoning?.context;
 	const reasoning_mode = validationResult.data.reasoning?.mode;
@@ -3771,6 +3781,47 @@ chat.openapi(completions, async (c) => {
 		}
 	};
 
+	const rejectUnsupportedSafeguards = async (): Promise<never> => {
+		const message =
+			"No compatible provider is available for the requested Anthropic safeguards. Use Anthropic or remove safeguards (in Claude Code, set CLAUDE_CODE_AUTO_MODE_SERVER=0 to use billed client-side classifier requests).";
+		await logGatewayRejection({
+			message,
+			statusCode: 400,
+			statusText: "Bad Request",
+			cause: "unsupported_anthropic_safeguards",
+		});
+		throw new HTTPException(400, {
+			message,
+			cause: "unsupported_anthropic_safeguards",
+		});
+	};
+	const enforceAnthropicSafeguards = async () => {
+		if (!anthropicSafeguards) {
+			return;
+		}
+		const supportsSafeguards = (provider: ProviderModelMapping) =>
+			providerSupportsAnthropicSafeguards(provider.providerId);
+		const eligible = iamFilteredModelProviders.filter(supportsSafeguards);
+		recordPreRoutingDrops(
+			iamFilteredModelProviders,
+			eligible,
+			"Anthropic server-side safeguards not supported",
+			"anthropic_safeguards",
+		);
+		iamFilteredModelProviders = eligible;
+		expandedIamFilteredModelProviders =
+			expandedIamFilteredModelProviders.filter(supportsSafeguards);
+		// Auto/smart reach this check after resolving a real provider. Custom
+		// transports cannot forward safeguards and must not bypass this guard.
+		if (
+			eligible.length === 0 ||
+			(usedProvider !== undefined &&
+				!providerSupportsAnthropicSafeguards(usedProvider))
+		) {
+			await rejectUnsupportedSafeguards();
+		}
+	};
+
 	// For auto/smart routing, modelInfo is still the synthetic "llmgateway"
 	// model here; compliance is enforced after the real model/provider is
 	// resolved (and the candidate set is compliance-filtered during selection
@@ -3778,6 +3829,7 @@ chat.openapi(completions, async (c) => {
 	if (usedInternalModel !== "auto" && usedInternalModel !== "smart") {
 		await enforceCompliancePolicy();
 		await enforceServiceTierKeyEligibility();
+		await enforceAnthropicSafeguards();
 	}
 
 	// Pricing override for custom-provider requests that match an enterprise
@@ -4116,6 +4168,7 @@ chat.openapi(completions, async (c) => {
 		}> = [];
 		const now = new Date(); // Cache current time for deprecation checks
 		const autoFilterOpts = {
+			anthropicSafeguards: Boolean(anthropicSafeguards),
 			webSearchTool: !!webSearchTool,
 			webSearchForced: !!webSearchTool?.forced,
 			responseFormatType: response_format?.type,
@@ -4714,6 +4767,9 @@ chat.openapi(completions, async (c) => {
 					message: complianceBlockMessage(modelInfo.id),
 				});
 			}
+			if (anthropicSafeguards) {
+				await rejectUnsupportedSafeguards();
+			}
 			// A dynamic route must never silently fall back to the hardcoded
 			// default model — fail with the route's resolved target instead.
 			if (dynamicRouteSelection) {
@@ -4818,6 +4874,7 @@ chat.openapi(completions, async (c) => {
 		}
 		await enforceCompliancePolicy();
 		await enforceServiceTierKeyEligibility();
+		await enforceAnthropicSafeguards();
 	} else if (
 		(usedProvider === "llmgateway" && usedInternalModel === "custom") ||
 		usedInternalModel === "custom"
@@ -5952,7 +6009,11 @@ chat.openapi(completions, async (c) => {
 			selectionReason = "fallback-first-available";
 		}
 
-		let routingMetadataProviders = allModelProviders;
+		let routingMetadataProviders = anthropicSafeguards
+			? allModelProviders.filter((provider) =>
+					providerSupportsAnthropicSafeguards(provider.providerId),
+				)
+			: allModelProviders;
 		let directProviderRegionWasExplicit = false;
 
 		if (

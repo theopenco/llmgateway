@@ -282,6 +282,19 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 	prompt-cache–aware routing those plans depend on.
 </Callout>
 
+### Anthropic safeguards
+
+A nonempty `safeguards` body with its paired dated beta makes server-side review
+support a routing requirement. Automatic model and provider selection, session
+pins, and retries exclude providers that cannot forward it. An explicit
+incompatible provider pin, or automatic selection with no compatible provider,
+returns `400`, including for streaming requests. Routing preferences cannot
+relax this requirement; a beta header alone does not enable it.
+
+See [Claude Code auto mode](/features/anthropic-endpoint#auto-mode-safeguard-review)
+for upstream availability and the opt-out that restores broader routing with
+billed client-side classifier requests.
+
 ### Sticky Session Routing
 
 When a model is served by multiple providers, every request is normally scored independently — so a multi-turn conversation can bounce between providers. That defeats provider-side **prompt caching**, which only pays off when consecutive requests with a shared prefix hit the **same** provider.
@@ -319,7 +332,7 @@ The first selection uses the expected cache-hit rate and output/input mix even i
 
 Because the pinned provider is replayed directly, sticky requests **skip the epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
 
-Request compatibility takes precedence over the saved pin. The gateway first filters mappings for requirements such as input modalities, service tiers, regions, and a non-`auto` `tool_choice`, then looks for the pinned provider in that eligible set. If the pinned mapping cannot honor the request but another mapping can, the session moves to the capable mapping and the pin is updated. For a fixed model or dynamic route where **no** mapping can honor `tool_choice`, the gateway preserves availability instead: it keeps the mappings, downgrades `tool_choice` to `auto`, and sticky routing may retain the existing pin. Automatic model selection does not use that fallback because it can choose a capable model instead.
+Request compatibility takes precedence over the saved pin. The gateway first filters mappings for requirements such as input modalities, service tiers, regions, requested Anthropic safeguards, and a non-`auto` `tool_choice`, then looks for the pinned provider in that eligible set. If the pinned mapping cannot honor the request but another mapping can, the session moves to the capable mapping and the pin is updated. For a fixed model or dynamic route where **no** mapping can honor `tool_choice`, the gateway preserves availability instead: it keeps the mappings, downgrades `tool_choice` to `auto`, and sticky routing may retain the existing pin. Automatic model selection does not use that fallback because it can choose a capable model instead.
 
 #### Falling back when a provider is down
 

@@ -7,6 +7,8 @@ import {
 	type RoutingExclusionReason,
 } from "@llmgateway/shared";
 
+import { providerSupportsAnthropicSafeguards } from "./anthropic-safeguards.js";
+
 import type {
 	ProviderModelMapping,
 	ReasoningMode,
@@ -15,6 +17,7 @@ import type {
 } from "@llmgateway/models";
 
 export interface ProviderFilterOptions {
+	anthropicSafeguards?: boolean;
 	webSearchTool?: WebSearchTool | boolean;
 	/**
 	 * Whether the caller sent `tool_choice: {type: "web_search"}`. Passed
@@ -165,6 +168,13 @@ export function getProviderFilterReasons(
 	options: ProviderFilterOptions,
 ): ProviderFilterReason[] {
 	const reasons: ProviderFilterReason[] = [];
+
+	if (
+		options.anthropicSafeguards &&
+		!providerSupportsAnthropicSafeguards(provider.providerId)
+	) {
+		reasons.push(exclusionReason("anthropic_safeguards"));
+	}
 
 	if (options.noReasoning && provider.reasoning === true) {
 		reasons.push(exclusionReason("no_reasoning_variant"));

@@ -6666,6 +6666,91 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			).toBe(true);
 			expect(requestBody.messages[1].content).toBe("Got it, Ada!");
 		});
+
+		test.each([
+			["openai", "deepseek-v4.1-flash", [" ", "Now Rome."], undefined],
+			["novita", "deepseek-v4-flash", [" ", "Now Rome."], undefined],
+			["deepseek", "deepseek-v4.1-flash", ["", "Now Rome."], undefined],
+			["openai", "gpt-4o-mini", [undefined, undefined], "Now Rome."],
+		] as const)(
+			"backfills reasoning_content on tool turns only for DeepSeek V4: %s %s",
+			async (provider, model, expected, reasoningLeft) => {
+				// Airside carriers with an OpenAI chat-completions apiFormat reach
+				// prepareRequestBody with the "openai" transport, so only the
+				// canonical model id says the upstream is DeepSeek V4.
+				const requestBody = (await prepareRequestBody(
+					provider,
+					model,
+					null,
+					model,
+					[
+						{ role: "user", content: "Weather in Paris, then Rome?" },
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"Paris"}',
+									},
+								},
+							],
+						},
+						{ role: "tool", tool_call_id: "call_1", content: "sunny" },
+						{
+							role: "assistant",
+							content: "",
+							reasoning: "Now Rome.",
+							tool_calls: [
+								{
+									id: "call_2",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"Rome"}',
+									},
+								},
+							],
+						},
+						{ role: "tool", tool_call_id: "call_2", content: "rain" },
+						{ role: "assistant", content: "Paris sunny, Rome rainy." },
+						{ role: "user", content: "Thanks!" },
+					],
+					false,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					false,
+					20,
+					null,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					false, // useResponsesApi
+				)) as any;
+
+				expect(
+					[1, 3].map((i) => requestBody.messages[i].reasoning_content),
+				).toEqual(expected);
+				expect(requestBody.messages[5].reasoning_content).toBeUndefined();
+				// Runware treats `reasoning` as an alias of `reasoning_content` and
+				// rejects a message that carries both, so the backfill moves it.
+				expect(requestBody.messages[3].reasoning).toBe(reasoningLeft);
+			},
+		);
 	});
 
 	describe("azure-ai-foundry", () => {

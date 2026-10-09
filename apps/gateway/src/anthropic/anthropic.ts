@@ -1219,7 +1219,12 @@ anthropic.openapi(messages, async (c) => {
 				? parsedError.error.message
 				: errorData || response.statusText;
 
-		if (anthropicRequest.stream) {
+		// Keep safeguard preflight rejections as HTTP 400s, including for
+		// streaming clients: no successful stream without the requested review.
+		if (
+			anthropicRequest.stream &&
+			!(anthropicSafeguards && response.status === 400)
+		) {
 			// Derive the Anthropic error type from the HTTP status so streamed
 			// errors match the non-streaming path.
 			const errorEvent = buildAnthropicErrorEvent({

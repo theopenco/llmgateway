@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, test, vi } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import { redisClient } from "@llmgateway/cache";
 import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
@@ -32,6 +33,15 @@ const SAFEGUARD_RESULTS = [
 			},
 		},
 	},
+];
+
+const SAFEGUARD_ROUTING_MODELS = [
+	"anthropic/claude-opus-4-8",
+	"claude-opus-4-8",
+	"auto",
+	"smart",
+	"llmgateway/auto",
+	"llmgateway/smart",
 ];
 
 describe("anthropic safeguards helpers", () => {
@@ -109,6 +119,12 @@ describe("/v1/messages Claude Code auto mode safeguards", () => {
 	const harness = createGatewayApiTestHarness();
 
 	async function seedAnthropicKey() {
+		await db
+			.update(tables.organization)
+			.set({
+				smartRoutingConfig: { classifier: "none", models: ["claude-opus-4-8"] },
+			})
+			.where(eq(tables.organization.id, "org-id"));
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			...hashApiKeyForStorage("real-token"),
@@ -144,7 +160,10 @@ describe("/v1/messages Claude Code auto mode safeguards", () => {
 						: input instanceof URL
 							? input.toString()
 							: input.url;
-				if (url.includes(`${harness.mockServerUrl}/v1/messages`)) {
+				if (
+					url.includes(`${harness.mockServerUrl}/v1/messages`) ||
+					url.includes(`${harness.mockServerUrl}/anthropic/v1/messages`)
+				) {
 					const body =
 						input instanceof Request ? await input.text() : String(init?.body);
 					seen.body = JSON.parse(body);
@@ -172,58 +191,62 @@ describe("/v1/messages Claude Code auto mode safeguards", () => {
 		],
 	};
 
-	test("forwards safeguards with its beta and returns safeguard_results", async () => {
-		await seedAnthropicKey();
-		const { spy, seen } = captureAnthropicUpstream(
-			() =>
-				new Response(
-					JSON.stringify({
-						id: "msg_safeguards",
-						type: "message",
-						role: "assistant",
-						model: "claude-opus-4-8",
-						content: [
-							{
-								type: "tool_use",
-								id: "toolu_01SAFE",
-								name: "Bash",
-								input: { command: "ls" },
-							},
-						],
-						stop_reason: "tool_use",
-						stop_sequence: null,
-						usage: { input_tokens: 100, output_tokens: 5 },
-						safeguard_results: SAFEGUARD_RESULTS,
-					}),
-					{ status: 200, headers: { "Content-Type": "application/json" } },
-				),
-		);
+	test.each(SAFEGUARD_ROUTING_MODELS)(
+		"forwards safeguards and returns verdicts for %s",
+		async (model) => {
+			await seedAnthropicKey();
+			await seedOtherProvider("aws-bedrock");
+			const { spy, seen } = captureAnthropicUpstream(
+				() =>
+					new Response(
+						JSON.stringify({
+							id: "msg_safeguards",
+							type: "message",
+							role: "assistant",
+							model: "claude-opus-4-8",
+							content: [
+								{
+									type: "tool_use",
+									id: "toolu_01SAFE",
+									name: "Bash",
+									input: { command: "ls" },
+								},
+							],
+							stop_reason: "tool_use",
+							stop_sequence: null,
+							usage: { input_tokens: 100, output_tokens: 5 },
+							safeguard_results: SAFEGUARD_RESULTS,
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					),
+			);
 
-		try {
-			const res = await app.request("/v1/messages", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-					"x-no-fallback": "true",
-					"anthropic-beta": `interleaved-thinking-2025-05-14,${SAFEGUARD_BETA}`,
-				},
-				body: JSON.stringify({ ...toolTurn, safeguards: SAFEGUARDS }),
-			});
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+						"anthropic-beta": `interleaved-thinking-2025-05-14,${SAFEGUARD_BETA}`,
+					},
+					body: JSON.stringify({ ...toolTurn, model, safeguards: SAFEGUARDS }),
+				});
 
-			expect(res.status).toBe(200);
-			expect(seen.body.safeguards).toEqual(SAFEGUARDS);
-			const betas = (seen.headers?.get("anthropic-beta") ?? "").split(",");
-			expect(betas).toContain(SAFEGUARD_BETA);
+				expect(res.status).toBe(200);
+				expect(seen.body.safeguards).toEqual(SAFEGUARDS);
+				const betas = (seen.headers?.get("anthropic-beta") ?? "").split(",");
+				expect(betas).toContain(SAFEGUARD_BETA);
 
-			const json = await res.json();
-			expect(json.safeguard_results).toEqual(SAFEGUARD_RESULTS);
-			const toolUse = json.content.find((b: any) => b.type === "tool_use");
-			expect(toolUse.id).toBe("toolu_01SAFE");
-		} finally {
-			spy.mockRestore();
-		}
-	});
+				const json = await res.json();
+				expect(json.safeguard_results).toEqual(SAFEGUARD_RESULTS);
+				const toolUse = json.content.find((b: any) => b.type === "tool_use");
+				expect(toolUse.id).toBe("toolu_01SAFE");
+			} finally {
+				spy.mockRestore();
+			}
+		},
+	);
 
 	test("drops safeguards when its beta is missing", async () => {
 		await seedAnthropicKey();
@@ -344,95 +367,314 @@ describe("/v1/messages Claude Code auto mode safeguards", () => {
 		}
 	});
 
-	test("streams safeguard_results on the final message_delta", async () => {
+	test.each(SAFEGUARD_ROUTING_MODELS)(
+		"streams safeguard_results for %s",
+		async (model) => {
+			await seedAnthropicKey();
+			await seedOtherProvider("aws-bedrock");
+			const frame = (event: string, data: unknown) =>
+				`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+			const sse = [
+				frame("message_start", {
+					type: "message_start",
+					message: {
+						id: "msg_stream_safeguards",
+						type: "message",
+						role: "assistant",
+						model: "claude-opus-4-8",
+						content: [],
+						usage: { input_tokens: 100, output_tokens: 0 },
+					},
+				}),
+				frame("content_block_start", {
+					type: "content_block_start",
+					index: 0,
+					content_block: {
+						type: "tool_use",
+						id: "toolu_01SAFE",
+						name: "Bash",
+						input: {},
+					},
+				}),
+				frame("content_block_delta", {
+					type: "content_block_delta",
+					index: 0,
+					delta: { type: "input_json_delta", partial_json: '{"command":"ls"}' },
+				}),
+				frame("content_block_stop", { type: "content_block_stop", index: 0 }),
+				frame("message_delta", {
+					type: "message_delta",
+					delta: {
+						stop_reason: "tool_use",
+						stop_sequence: null,
+						safeguard_results: SAFEGUARD_RESULTS,
+					},
+					usage: { output_tokens: 12 },
+				}),
+				frame("message_stop", { type: "message_stop" }),
+			].join("");
+			const { spy, seen } = captureAnthropicUpstream(
+				() =>
+					new Response(
+						new ReadableStream({
+							start(controller) {
+								controller.enqueue(new TextEncoder().encode(sse));
+								controller.close();
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "text/event-stream" } },
+					),
+			);
+
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+						"anthropic-beta": SAFEGUARD_BETA,
+					},
+					body: JSON.stringify({
+						...toolTurn,
+						model,
+						stream: true,
+						safeguards: SAFEGUARDS,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				expect(seen.body.safeguards).toEqual(SAFEGUARDS);
+				const text = await res.text();
+				const events = text
+					.split("\n")
+					.filter((line) => line.startsWith("data: "))
+					.map((line) => JSON.parse(line.slice(6)));
+				const messageDelta = events.find((e) => e.type === "message_delta");
+				expect(messageDelta?.delta?.safeguard_results).toEqual(
+					SAFEGUARD_RESULTS,
+				);
+				const toolStart = events.find(
+					(e) =>
+						e.type === "content_block_start" &&
+						e.content_block?.type === "tool_use",
+				);
+				expect(toolStart?.content_block?.id).toBe("toolu_01SAFE");
+			} finally {
+				spy.mockRestore();
+			}
+		},
+	);
+
+	async function seedOtherProvider(provider: string, name?: string) {
+		const id = `key-${provider}`;
+		await db.insert(tables.providerKey).values({
+			id,
+			...encryptProviderKeyForStorage("test-provider-key", id, "org-id"),
+			provider,
+			name,
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+		});
+	}
+
+	function sendSafeguards(model: string, stream = false, headers = {}) {
+		return app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+				"anthropic-beta": SAFEGUARD_BETA,
+				...headers,
+			},
+			body: JSON.stringify({
+				...toolTurn,
+				model,
+				stream,
+				safeguards: SAFEGUARDS,
+			}),
+		});
+	}
+
+	test.each(["aws-bedrock", "vertex-anthropic", "azure-anthropic"])(
+		"rejects an explicit %s pin before upstream, including streaming",
+		async (provider) => {
+			await seedAnthropicKey();
+			await seedOtherProvider(provider);
+			const spy = vi.spyOn(globalThis, "fetch");
+			try {
+				for (const stream of [false, true]) {
+					const res = await sendSafeguards(
+						`${provider}/${provider === "azure-anthropic" ? "claude-opus-4-8" : "claude-sonnet-4-6"}`,
+						stream,
+					);
+					expect(res.status).toBe(400);
+					expect(res.headers.get("content-type")).toContain("application/json");
+					expect((await res.json()).error.message).toContain(
+						"CLAUDE_CODE_AUTO_MODE_SERVER=0",
+					);
+				}
+				expect(spy).not.toHaveBeenCalled();
+			} finally {
+				spy.mockRestore();
+			}
+		},
+	);
+
+	test.each(["custom", "llmgateway/custom", "my-provider/claude-opus-4-8"])(
+		"rejects unsupported custom transport %s even with an Anthropic key",
+		async (model) => {
+			await seedAnthropicKey();
+			await seedOtherProvider("custom", "my-provider");
+			const spy = vi.spyOn(globalThis, "fetch");
+			try {
+				for (const stream of [false, true]) {
+					const res = await sendSafeguards(model, stream);
+					expect(res.status).toBe(400);
+					expect((await res.json()).error.message).toContain(
+						"No compatible provider",
+					);
+				}
+				expect(spy).not.toHaveBeenCalled();
+			} finally {
+				spy.mockRestore();
+			}
+		},
+	);
+
+	test("automatic model selection rejects when only an incompatible key is available", async () => {
 		await seedAnthropicKey();
-		const frame = (event: string, data: unknown) =>
-			`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-		const sse = [
-			frame("message_start", {
-				type: "message_start",
-				message: {
-					id: "msg_stream_safeguards",
-					type: "message",
-					role: "assistant",
-					model: "claude-opus-4-8",
-					content: [],
-					usage: { input_tokens: 100, output_tokens: 0 },
-				},
-			}),
-			frame("content_block_start", {
-				type: "content_block_start",
-				index: 0,
-				content_block: {
-					type: "tool_use",
-					id: "toolu_01SAFE",
-					name: "Bash",
-					input: {},
-				},
-			}),
-			frame("content_block_delta", {
-				type: "content_block_delta",
-				index: 0,
-				delta: { type: "input_json_delta", partial_json: '{"command":"ls"}' },
-			}),
-			frame("content_block_stop", { type: "content_block_stop", index: 0 }),
-			frame("message_delta", {
-				type: "message_delta",
-				delta: {
-					stop_reason: "tool_use",
-					stop_sequence: null,
-					safeguard_results: SAFEGUARD_RESULTS,
-				},
-				usage: { output_tokens: 12 },
-			}),
-			frame("message_stop", { type: "message_stop" }),
-		].join("");
+		await db
+			.delete(tables.providerKey)
+			.where(eq(tables.providerKey.id, "provider-key-id"));
+		await seedOtherProvider("aws-bedrock");
+		const res = await sendSafeguards("auto");
+		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toContain(
+			"No compatible provider",
+		);
+	});
+
+	test("a saved Bedrock session pin yields to the safeguard requirement", async () => {
+		await seedAnthropicKey();
+		await seedOtherProvider("aws-bedrock");
+		const sessionId = "safeguards-session";
+		const key = `session_provider:org-id:claude-opus-4-8:${sessionId}`;
+		await redisClient.set(
+			key,
+			JSON.stringify({ providerId: "aws-bedrock", region: "global" }),
+			"EX",
+			3600,
+		);
 		const { spy, seen } = captureAnthropicUpstream(
 			() =>
 				new Response(
-					new ReadableStream({
-						start(controller) {
-							controller.enqueue(new TextEncoder().encode(sse));
-							controller.close();
-						},
+					JSON.stringify({
+						id: "msg_sticky",
+						type: "message",
+						role: "assistant",
+						model: "claude-opus-4-8",
+						content: [{ type: "text", text: "ok" }],
+						stop_reason: "end_turn",
+						usage: { input_tokens: 10, output_tokens: 1 },
+						safeguard_results: SAFEGUARD_RESULTS,
 					}),
-					{ status: 200, headers: { "Content-Type": "text/event-stream" } },
+					{ headers: { "Content-Type": "application/json" } },
 				),
 		);
-
 		try {
-			const res = await app.request("/v1/messages", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-					"x-no-fallback": "true",
-					"anthropic-beta": SAFEGUARD_BETA,
-				},
-				body: JSON.stringify({
-					...toolTurn,
-					stream: true,
-					safeguards: SAFEGUARDS,
-				}),
+			const res = await sendSafeguards("claude-opus-4-8", false, {
+				"x-session-id": sessionId,
 			});
-
 			expect(res.status).toBe(200);
+			expect((await res.json()).safeguard_results).toEqual(SAFEGUARD_RESULTS);
 			expect(seen.body.safeguards).toEqual(SAFEGUARDS);
-			const text = await res.text();
-			const events = text
-				.split("\n")
-				.filter((line) => line.startsWith("data: "))
-				.map((line) => JSON.parse(line.slice(6)));
-			const messageDelta = events.find((e) => e.type === "message_delta");
-			expect(messageDelta?.delta?.safeguard_results).toEqual(SAFEGUARD_RESULTS);
-			const toolStart = events.find(
-				(e) =>
-					e.type === "content_block_start" &&
-					e.content_block?.type === "tool_use",
-			);
-			expect(toolStart?.content_block?.id).toBe("toolu_01SAFE");
+			expect(JSON.parse((await redisClient.get(key)) ?? "null")).toMatchObject({
+				providerId: "anthropic",
+			});
 		} finally {
 			spy.mockRestore();
 		}
 	});
+
+	test.each([false, true])(
+		"upstream failure never falls back to Bedrock (stream=%s)",
+		async (stream) => {
+			await seedAnthropicKey();
+			await seedOtherProvider("aws-bedrock");
+			const { spy, seen } = captureAnthropicUpstream(
+				() =>
+					new Response(
+						JSON.stringify({
+							error: { type: "overloaded_error", message: "Overloaded" },
+						}),
+						{ status: 503, headers: { "Content-Type": "application/json" } },
+					),
+			);
+			try {
+				const res = await sendSafeguards("claude-opus-4-8", stream);
+				const body = await res.text();
+				expect(body).toContain("error");
+				expect(seen.body.safeguards).toEqual(SAFEGUARDS);
+				expect(spy.mock.calls.length).toBeGreaterThan(0);
+				for (const [input] of spy.mock.calls) {
+					const url = input instanceof Request ? input.url : String(input);
+					expect(url).toContain(`${harness.mockServerUrl}/v1/messages`);
+				}
+			} finally {
+				spy.mockRestore();
+			}
+		},
+	);
+
+	test.each(["beta-only", "body-only", "unrelated-beta"])(
+		"%s does not restrict an unsupported provider",
+		async (mode) => {
+			await seedAnthropicKey();
+			await seedOtherProvider("azure-anthropic");
+			const { spy, seen } = captureAnthropicUpstream(
+				() =>
+					new Response(
+						JSON.stringify({
+							id: "msg_plain",
+							type: "message",
+							role: "assistant",
+							model: "claude-opus-4-8",
+							content: [{ type: "text", text: "ok" }],
+							stop_reason: "end_turn",
+							usage: { input_tokens: 10, output_tokens: 1 },
+						}),
+						{ headers: { "Content-Type": "application/json" } },
+					),
+			);
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+						...(mode !== "body-only" && {
+							"anthropic-beta":
+								mode === "beta-only"
+									? SAFEGUARD_BETA
+									: "interleaved-thinking-2025-05-14",
+						}),
+					},
+					body: JSON.stringify({
+						...toolTurn,
+						model: "azure-anthropic/claude-opus-4-8",
+						...(mode !== "beta-only" && { safeguards: SAFEGUARDS }),
+					}),
+				});
+				expect(res.status).toBe(200);
+				expect(seen.body.safeguards).toBeUndefined();
+				expect(seen.headers?.get("anthropic-beta") ?? "").not.toContain(
+					SAFEGUARD_BETA,
+				);
+			} finally {
+				spy.mockRestore();
+			}
+		},
+	);
 });
