@@ -89,7 +89,7 @@ export function useHistoryClient() {
 						? { from, to, modelView, groupBy: "model" as const }
 						: { range: "all" as const, modelView, groupBy: "model" as const };
 				const { data } = await $fetch.GET("/admin/global-stats", {
-					params: { query },
+					params: { query: { ...query, includeTimeseriesBreakdown: "false" } },
 				});
 				return mapGlobalStatsToCostByModel(data, "30d");
 			},

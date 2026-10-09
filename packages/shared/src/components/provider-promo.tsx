@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 
 import { getActiveProviderPromo } from "@/marketing";
 
@@ -19,8 +19,11 @@ export function useProviderPromo() {
 
 export function ProviderPromoContent({
 	promo,
+	trailing,
 }: {
 	promo: NonNullable<ReturnType<typeof getActiveProviderPromo>>;
+	// Rendered on the countdown's line so it never wraps alone.
+	trailing?: ReactNode;
 }) {
 	const countdown = useCountdown(promo.endsAt);
 	const isScx = promo.id === "scx";
@@ -48,15 +51,20 @@ export function ProviderPromoContent({
 				</span>{" "}
 				{isScx ? `${promo.modelCount} SCX models` : "open-source models"}
 			</span>
-			<span
-				suppressHydrationWarning
-				className="rounded-full bg-black/10 px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums leading-tight dark:bg-white/10"
-			>
-				ends in {formatCountdown(countdown)}
+			<span className="inline-flex items-center gap-2.5 whitespace-nowrap">
+				<span
+					suppressHydrationWarning
+					className="rounded-full bg-black/10 px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums leading-tight dark:bg-white/10"
+				>
+					ends in {formatCountdown(countdown)}
+				</span>
+				{isScx && (
+					<span className="hidden text-xs font-medium lg:inline">
+						View offer
+					</span>
+				)}
+				{trailing}
 			</span>
-			{isScx && (
-				<span className="hidden text-xs font-medium lg:inline">View offer</span>
-			)}
 		</>
 	);
 }

@@ -251,6 +251,12 @@ import {
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
+import {
+	applyAnthropicSafeguards,
+	extractAnthropicSafeguards,
+	isSafeguardBeta,
+	providerSupportsAnthropicSafeguards,
+} from "./tools/anthropic-safeguards.js";
 import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
 import {
 	checkContentFilter,
@@ -390,6 +396,7 @@ import {
 	zeroCostsOnCachedResponseUsage,
 } from "./tools/transform-response-to-openai.js";
 import {
+	type AnthropicThinkingTextState,
 	type AnthropicToolSearchState,
 	transformStreamingToOpenai,
 } from "./tools/transform-streaming-to-openai.js";
@@ -2005,6 +2012,12 @@ chat.openapi(completions, async (c) => {
 
 	// Extract reasoning.effort and reasoning.max_tokens for unified reasoning configuration
 	const reasoning_object_effort = validationResult.data.reasoning?.effort;
+	const anthropicSafeguards = extractAnthropicSafeguards(
+		validationResult.data.anthropic_safeguards?.safeguards,
+		validationResult.data.anthropic_safeguards?.betas
+			.filter(isSafeguardBeta)
+			.join(","),
+	);
 	const reasoning_max_tokens = validationResult.data.reasoning?.max_tokens;
 	const reasoning_context = validationResult.data.reasoning?.context;
 	const reasoning_mode = validationResult.data.reasoning?.mode;
@@ -3736,6 +3749,47 @@ chat.openapi(completions, async (c) => {
 		}
 	};
 
+	const rejectUnsupportedSafeguards = async (): Promise<never> => {
+		const message =
+			"No compatible provider is available for the requested Anthropic safeguards. Use Anthropic or remove safeguards (in Claude Code, set CLAUDE_CODE_AUTO_MODE_SERVER=0 to use billed client-side classifier requests).";
+		await logGatewayRejection({
+			message,
+			statusCode: 400,
+			statusText: "Bad Request",
+			cause: "unsupported_anthropic_safeguards",
+		});
+		throw new HTTPException(400, {
+			message,
+			cause: "unsupported_anthropic_safeguards",
+		});
+	};
+	const enforceAnthropicSafeguards = async () => {
+		if (!anthropicSafeguards) {
+			return;
+		}
+		const supportsSafeguards = (provider: ProviderModelMapping) =>
+			providerSupportsAnthropicSafeguards(provider.providerId);
+		const eligible = iamFilteredModelProviders.filter(supportsSafeguards);
+		recordPreRoutingDrops(
+			iamFilteredModelProviders,
+			eligible,
+			"Anthropic server-side safeguards not supported",
+			"anthropic_safeguards",
+		);
+		iamFilteredModelProviders = eligible;
+		expandedIamFilteredModelProviders =
+			expandedIamFilteredModelProviders.filter(supportsSafeguards);
+		// Auto/smart reach this check after resolving a real provider. Custom
+		// transports cannot forward safeguards and must not bypass this guard.
+		if (
+			eligible.length === 0 ||
+			(usedProvider !== undefined &&
+				!providerSupportsAnthropicSafeguards(usedProvider))
+		) {
+			await rejectUnsupportedSafeguards();
+		}
+	};
+
 	// For auto/smart routing, modelInfo is still the synthetic "llmgateway"
 	// model here; compliance is enforced after the real model/provider is
 	// resolved (and the candidate set is compliance-filtered during selection
@@ -3743,6 +3797,7 @@ chat.openapi(completions, async (c) => {
 	if (usedInternalModel !== "auto" && usedInternalModel !== "smart") {
 		await enforceCompliancePolicy();
 		await enforceServiceTierKeyEligibility();
+		await enforceAnthropicSafeguards();
 	}
 
 	// Pricing override for custom-provider requests that match an enterprise
@@ -4082,6 +4137,7 @@ chat.openapi(completions, async (c) => {
 		}> = [];
 		const now = new Date(); // Cache current time for deprecation checks
 		const autoFilterOpts = {
+			anthropicSafeguards: Boolean(anthropicSafeguards),
 			webSearchTool: !!webSearchTool,
 			webSearchForced: !!webSearchTool?.forced,
 			responseFormatType: response_format?.type,
@@ -4679,6 +4735,9 @@ chat.openapi(completions, async (c) => {
 					message: complianceBlockMessage(modelInfo.id),
 				});
 			}
+			if (anthropicSafeguards) {
+				await rejectUnsupportedSafeguards();
+			}
 			// A dynamic route must never silently fall back to the hardcoded
 			// default model — fail with the route's resolved target instead.
 			if (dynamicRouteSelection) {
@@ -4783,6 +4842,7 @@ chat.openapi(completions, async (c) => {
 		}
 		await enforceCompliancePolicy();
 		await enforceServiceTierKeyEligibility();
+		await enforceAnthropicSafeguards();
 	} else if (
 		(usedProvider === "llmgateway" && usedInternalModel === "custom") ||
 		usedInternalModel === "custom"
@@ -5914,7 +5974,11 @@ chat.openapi(completions, async (c) => {
 			selectionReason = "fallback-first-available";
 		}
 
-		let routingMetadataProviders = allModelProviders;
+		let routingMetadataProviders = anthropicSafeguards
+			? allModelProviders.filter((provider) =>
+					providerSupportsAnthropicSafeguards(provider.providerId),
+				)
+			: allModelProviders;
 		let directProviderRegionWasExplicit = false;
 
 		if (
@@ -7237,6 +7301,9 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			n,
 			service_tier,
+			// A reply cached without safeguard verdicts must not answer a request
+			// that asked for them, or Claude Code falls back to its billed classifier.
+			anthropic_safeguards: anthropicSafeguards,
 		};
 
 		if (stream) {
@@ -8975,6 +9042,13 @@ chat.openapi(completions, async (c) => {
 								: "structured-outputs-2025-11-13";
 						}
 
+						applyAnthropicSafeguards(
+							transportProvider,
+							requestBody,
+							headers,
+							anthropicSafeguards,
+						);
+
 						// For the Gemini Developer API the processing tier is a body
 						// field; Vertex uses a header set above in getProviderHeaders.
 						applyGoogleServiceTier(
@@ -10353,6 +10427,7 @@ chat.openapi(completions, async (c) => {
 					number,
 					GoogleThoughtSignatureState
 				>();
+				const anthropicThinkingText: AnthropicThinkingTextState = new Map();
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
 				let sawOpenAiResponsesDoneEvent = false;
@@ -11231,6 +11306,7 @@ chat.openapi(completions, async (c) => {
 										cacheThoughtSignatures: !zeroDataRetentionEnabled,
 										googleThoughtSignatureState,
 										googleToolCallIndices,
+										anthropicThinkingText,
 									},
 								);
 
@@ -13424,6 +13500,13 @@ chat.openapi(completions, async (c) => {
 					: "structured-outputs-2025-11-13";
 			}
 
+			applyAnthropicSafeguards(
+				transportProvider,
+				requestBody,
+				headers,
+				anthropicSafeguards,
+			);
+
 			// Create a combined signal for both timeout and cancellation
 			// Non-streaming requests use a shorter timeout (default 80s).
 			// When we're forcing upstream SSE for openai/azure gpt-image-* (to
@@ -15302,6 +15385,15 @@ chat.openapi(completions, async (c) => {
 	) {
 		transformedResponse.choices[0].message.anthropic_native_blocks =
 			parsedResponse.anthropicNativeBlocks;
+	}
+	// Anthropic's server-side safeguard verdicts (Claude Code auto mode). The
+	// /v1/messages layer hands them back as `safeguard_results`.
+	if (
+		parsedResponse.anthropicSafeguardResults !== null &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.anthropic_safeguard_results =
+			parsedResponse.anthropicSafeguardResults;
 	}
 	// Surface the effective reasoning context the provider applied so the
 	// Responses layer reports the served mode rather than echoing the request.

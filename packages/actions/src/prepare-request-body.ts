@@ -34,6 +34,10 @@ import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import {
+	anthropicThinkingBlocksFor,
+	toConverseReasoningContent,
+} from "./anthropic-thinking.js";
+import {
 	isToolSearchTool,
 	stripAnthropicNativeBlocks,
 	stripAnthropicToolExtensions,
@@ -41,13 +45,19 @@ import {
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
 import { fetchNoRedirect } from "./fetch-no-redirect.js";
+import { orderToolResultReminders } from "./order-tool-result-reminders.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { mappingSupportsToolChoice } from "./tool-choice-support.js";
 import {
+	getCallerCacheControls,
+	getToolResultCacheControl,
+	getToolResultText,
+	longBlockMarkerLimit,
 	MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS,
+	toSystemReminderText,
 	transformAnthropicMessages,
 } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
@@ -1002,6 +1012,28 @@ function transformMessagesForNoSystemRole(messages: any[]): any[] {
 }
 
 /**
+ * Rewrites a mid-conversation system message as the user `<system-reminder>`
+ * Claude clients use on models without a system role inside `messages`.
+ */
+function toSystemReminderMessage(message: BaseMessage): BaseMessage {
+	if (message.role !== "system") {
+		return message;
+	}
+	return {
+		...message,
+		role: "user",
+		content:
+			typeof message.content === "string"
+				? toSystemReminderText(message.content)
+				: message.content.map((part) =>
+						isTextContent(part) && part.text
+							? { ...part, text: toSystemReminderText(part.text) }
+							: part,
+					),
+	};
+}
+
+/**
  * Maps the OpenAI-only `developer` role to `system`. Applied only for mappings
  * that declare `supportsDeveloperRole: false`, i.e. upstreams that reject
  * `developer` with a 400 ("developer is not one of ['system', 'assistant',
@@ -1889,10 +1921,17 @@ export async function prepareRequestBody(
 
 	// A tool message's `tool_result_cache_control` only has a destination on the
 	// Anthropic Messages API, where it becomes a marker on the tool_result block
-	// the message is lowered to. Anywhere else it would reach the upstream as an
-	// unknown message field, and a project that opted out of provider cache
-	// writes must not emit it at all.
-	if (!anthropicMessagesApi || !allowProviderCacheWrites) {
+	// the message is lowered to, and on Bedrock Converse, where it becomes a
+	// cachePoint after the toolResult. Anywhere else it would reach the upstream
+	// as an unknown message field, and a project that opted out of provider
+	// cache writes must not emit it at all.
+	const bedrockConverseApi =
+		usedProvider === "aws-bedrock" &&
+		providerMappingForOptions?.apiFormat !== "openai-chat-completions";
+	if (
+		!(anthropicMessagesApi || bedrockConverseApi) ||
+		!allowProviderCacheWrites
+	) {
 		processedMessages = processedMessages.map((m) => {
 			if (m.tool_result_cache_control === undefined) {
 				return m;
@@ -2026,34 +2065,37 @@ export async function prepareRequestBody(
 	// DeepSeek (and Moonshot) thinking-mode endpoints reject assistant messages
 	// containing tool_calls unless `reasoning_content` is present. OpenAI-compat
 	// clients usually drop reasoning between turns, so translate the OpenAI-style
-	// `reasoning` field back to provider-style `reasoning_content`. DeepSeek
-	// accepts an empty string, but Moonshot's newer reasoning models (kimi-k2.5,
-	// kimi-k2.6) treat an empty string as missing — use a single space as a
-	// non-empty placeholder there. Novita proxies DeepSeek V4 with the same
-	// upstream constraint, so apply the DeepSeek behavior there too.
-	// Match by the canonical model id — never by the upstream form. DeepSeek
-	// V4 roots are `deepseek-v4*` regardless of which provider proxies them.
-	const isNovitaDeepseekV4 =
-		usedProvider === "novita" && usedInternalModel.startsWith("deepseek-v4");
+	// `reasoning` field back to provider-style `reasoning_content`. DeepSeek's
+	// own API accepts an empty string, but Moonshot's newer reasoning models
+	// (kimi-k2.5, kimi-k2.6) and Novita's DeepSeek V4 treat it as missing, so
+	// every other host gets a single space. Any host of DeepSeek V4 can enforce
+	// the constraint, including Airside carriers (e.g. Luminal) that reach this
+	// function as the "openai" transport, so match V4 by the canonical model id.
+	const isDeepseekV4 = usedInternalModel.startsWith("deepseek-v4");
 	if (
 		usedProvider === "deepseek" ||
 		usedProvider === "moonshot" ||
-		isNovitaDeepseekV4
+		isDeepseekV4
 	) {
-		const fallback =
-			usedProvider === "moonshot" || isNovitaDeepseekV4 ? " " : "";
+		const fallback = usedProvider === "deepseek" ? "" : " ";
 		processedMessages = processedMessages.map((m) => {
+			if (m.role !== "assistant") {
+				return m;
+			}
+			// Never send both fields: Runware treats `reasoning` as an alias of
+			// `reasoning_content` and rejects a message carrying both.
+			const { reasoning, ...rest } = m;
+			if (m.reasoning_content !== undefined) {
+				return reasoning === undefined ? m : rest;
+			}
 			if (
-				m.role !== "assistant" ||
 				!m.tool_calls ||
 				!Array.isArray(m.tool_calls) ||
-				m.tool_calls.length === 0 ||
-				m.reasoning_content !== undefined
+				m.tool_calls.length === 0
 			) {
 				return m;
 			}
-			const reasoning = m.reasoning ?? fallback;
-			return { ...m, reasoning_content: reasoning || fallback };
+			return { ...rest, reasoning_content: reasoning || fallback };
 		});
 	}
 
@@ -2159,9 +2201,16 @@ export async function prepareRequestBody(
 	// are OpenAI Responses assistant-message markers. No chat-completions
 	// upstream understands them, and strict providers reject unknown message
 	// fields, so strip them from every path except the Responses API transform
-	// above. An assistant message that carried only reasoning (no
-	// content/tool_calls — an incomplete prior turn replayed for the Responses
-	// API) becomes empty here, so drop it.
+	// above and Claude's Messages/Converse transforms below, which rebuild each
+	// message and replay the provider's own thinking blocks from it. An
+	// assistant message that carried only reasoning (no content/tool_calls — an
+	// incomplete prior turn replayed for the Responses API) becomes empty here,
+	// so drop it.
+	const replaysAnthropicThinking =
+		modelDef?.family === "anthropic" &&
+		(usesAnthropicMessagesApi(usedProvider) ||
+			(usedProvider === "aws-bedrock" &&
+				providerMappingForOptions?.apiFormat !== "openai-chat-completions"));
 	processedMessages = processedMessages.flatMap((m) => {
 		if (
 			m.reasoning_details === undefined &&
@@ -2186,7 +2235,11 @@ export async function prepareRequestBody(
 		) {
 			return [];
 		}
-		return [rest];
+		return [
+			replaysAnthropicThinking && reasoningDetails !== undefined
+				? { ...rest, reasoning_details: reasoningDetails }
+				: rest,
+		];
 	});
 
 	// The OpenAI-style `reasoning` field on replayed assistant turns is tolerated
@@ -3151,13 +3204,30 @@ export async function prepareRequestBody(
 			);
 			requestBody.max_tokens = max_tokens ?? fallbackMaxTokens;
 
-			// Extract system messages for Anthropic's system field (required for prompt caching)
-			const systemMessages = processedMessages.filter(
-				(m) => m.role === "system",
-			);
-			const nonSystemMessages = processedMessages.filter(
+			// Only the system messages that open the conversation go into
+			// Anthropic's system field (required for prompt caching). Hoisting a
+			// later one would change the prefix every time a client such as Claude
+			// Code appends one, re-writing the cached conversation on each turn, so
+			// those stay in place: natively where the mapping accepts the role at
+			// that position, otherwise as a user system-reminder. Reminders that
+			// interrupt tool results move after the complete result set.
+			const conversationStart = processedMessages.findIndex(
 				(m) => m.role !== "system",
 			);
+			const systemMessages =
+				conversationStart === -1
+					? processedMessages
+					: processedMessages.slice(0, conversationStart);
+			const conversationMessages =
+				conversationStart === -1
+					? []
+					: orderToolResultReminders(
+							processedMessages.slice(conversationStart),
+						);
+			const nonSystemMessages =
+				providerMappingForOptions?.midConversationSystem === true
+					? conversationMessages
+					: conversationMessages.map(toSystemReminderMessage);
 
 			// Anthropic requires longer-TTL cache breakpoints to come before
 			// shorter ones ("a 1-hour cache entry must appear before any 5-minute
@@ -3172,13 +3242,10 @@ export async function prepareRequestBody(
 			// case — including when the 1h marker rides on a tool_result, which
 			// this check would otherwise miss. A 1h marker only on system is safe:
 			// message-level 5m markers after it satisfy the ordering.
-			const callerUses1hTtlInMessages = nonSystemMessages.some(
-				(m) =>
-					m.tool_result_cache_control?.ttl === "1h" ||
-					(Array.isArray(m.content) &&
-						m.content.some(
-							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
-						)),
+			const callerMessageCacheControls =
+				getCallerCacheControls(nonSystemMessages);
+			const callerUses1hTtlInMessages = callerMessageCacheControls.some(
+				(marker) => marker.ttl === "1h",
 			);
 			const autoCacheControlEnabled =
 				autoInjectCacheControl && !callerUses1hTtlInMessages;
@@ -3321,7 +3388,10 @@ export async function prepareRequestBody(
 						const shouldCache =
 							autoCacheControlEnabled &&
 							text.length >= minCacheableChars &&
-							systemCacheControlCount < maxCacheControlBlocks;
+							systemCacheControlCount + callerMessageCacheControls.length <
+								maxCacheControlBlocks &&
+							systemCacheControlCount <
+								longBlockMarkerLimit(nonSystemMessages.length);
 
 						if (shouldCache) {
 							systemCacheControlCount++;
@@ -3345,8 +3415,8 @@ export async function prepareRequestBody(
 				nonSystemMessages.map((m) => ({
 					...m, // Preserve original properties for transformation
 					role:
-						m.role === "assistant"
-							? "assistant"
+						m.role === "assistant" || m.role === "system"
+							? m.role
 							: m.role === "tool"
 								? "user" // Tool results become user messages in Anthropic
 								: "user",
@@ -3625,12 +3695,25 @@ export async function prepareRequestBody(
 				};
 			};
 
-			// Extract system messages for Bedrock's system field (required for prompt caching)
-			const bedrockSystemMessages = processedMessages.filter(
-				(m) => m.role === "system",
-			);
-			const bedrockNonSystemMessages = processedMessages.filter(
+			// Mirror the Anthropic branch: only the system messages that open the
+			// conversation go into Bedrock's system field (required for prompt
+			// caching). Converse has no system role inside messages, so a later one
+			// becomes a user system-reminder, after any interrupted tool results.
+			const bedrockConversationStart = processedMessages.findIndex(
 				(m) => m.role !== "system",
+			);
+			const bedrockSystemMessages =
+				bedrockConversationStart === -1
+					? processedMessages
+					: processedMessages.slice(0, bedrockConversationStart);
+			const bedrockNonSystemMessages =
+				bedrockConversationStart === -1
+					? []
+					: orderToolResultReminders(
+							processedMessages.slice(bedrockConversationStart),
+						).map(toSystemReminderMessage);
+			const bedrockLongBlockLimit = longBlockMarkerLimit(
+				bedrockNonSystemMessages.length,
 			);
 
 			// Mirror the Anthropic branch: Bedrock enforces the same
@@ -3640,15 +3723,14 @@ export async function prepareRequestBody(
 			// supports 1h, i.e. the marker won't be downgraded to 5m — suppress
 			// heuristic cachePoint injection so an auto-added 5m point can't
 			// precede the caller's 1h point.
+			const bedrockCallerCacheControls = getCallerCacheControls(
+				bedrockNonSystemMessages,
+				"bedrock",
+			);
+			let bedrockPendingCallerMarkers = bedrockCallerCacheControls.length;
 			const bedrockCallerUses1hTtlInMessages =
 				bedrockSupports1hTtl &&
-				bedrockNonSystemMessages.some(
-					(m) =>
-						Array.isArray(m.content) &&
-						m.content.some(
-							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
-						),
-				);
+				bedrockCallerCacheControls.some((marker) => marker.ttl === "1h");
 			const bedrockAutoCachePointEnabled =
 				autoInjectCacheControl && !bedrockCallerUses1hTtlInMessages;
 
@@ -3706,7 +3788,9 @@ export async function prepareRequestBody(
 						bedrockAutoCachePointEnabled &&
 						!callerSetBedrockCacheControl &&
 						block.text.length >= bedrockMinCacheableChars &&
-						bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+						bedrockCacheControlCount + bedrockPendingCallerMarkers <
+							bedrockMaxCacheControlBlocks &&
+						bedrockCacheControlCount < bedrockLongBlockLimit;
 
 					if (shouldHeuristicCache) {
 						bedrockCacheControlCount++;
@@ -3742,10 +3826,7 @@ export async function prepareRequestBody(
 						content: [],
 					};
 
-					const textContent =
-						typeof msg.content === "string"
-							? msg.content
-							: JSON.stringify(msg.content ?? "");
+					const textContent = getToolResultText(msg);
 
 					pendingToolResultMessage.content.push({
 						toolResult: {
@@ -3760,15 +3841,37 @@ export async function prepareRequestBody(
 							],
 						},
 					});
+					// In an agentic loop the caller's breakpoint sits on the last tool
+					// result, which is where the stable prefix ends.
+					const toolResultCacheControl = getToolResultCacheControl(msg);
+					if (toolResultCacheControl) {
+						bedrockPendingCallerMarkers--;
+						if (bedrockCacheControlCount < bedrockMaxCacheControlBlocks) {
+							bedrockCacheControlCount++;
+							pendingToolResultMessage.content.push(
+								createBedrockCachePoint(toolResultCacheControl.ttl),
+							);
+						}
+					}
 					continue;
 				}
 
 				flushPendingToolResults();
 
 				const role = msg.role === "user" ? "user" : "assistant";
+				// Converse's form of the Anthropic thinking blocks that open the turn.
+				const reasoningBlocks =
+					role === "assistant"
+						? anthropicThinkingBlocksFor(
+								"aws-bedrock",
+								msg.reasoning_details,
+							).map((block) => ({
+								reasoningContent: toConverseReasoningContent(block),
+							}))
+						: [];
 				const bedrockMessage: any = {
 					role,
-					content: [],
+					content: [...reasoningBlocks],
 				};
 
 				// Handle assistant messages with tool calls
@@ -3808,7 +3911,9 @@ export async function prepareRequestBody(
 						const shouldCache =
 							bedrockAutoCachePointEnabled &&
 							msg.content.length >= bedrockMinCacheableChars &&
-							bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+							bedrockCacheControlCount + bedrockPendingCallerMarkers <
+								bedrockMaxCacheControlBlocks &&
+							bedrockCacheControlCount < bedrockLongBlockLimit;
 
 						if (shouldCache) {
 							bedrockCacheControlCount++;
@@ -3826,6 +3931,7 @@ export async function prepareRequestBody(
 								});
 
 								if (part.cache_control) {
+									bedrockPendingCallerMarkers--;
 									if (bedrockCacheControlCount < bedrockMaxCacheControlBlocks) {
 										bedrockCacheControlCount++;
 										bedrockMessage.content.push(
@@ -3838,7 +3944,9 @@ export async function prepareRequestBody(
 									const shouldCache =
 										bedrockAutoCachePointEnabled &&
 										part.text.length >= bedrockMinCacheableChars &&
-										bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+										bedrockCacheControlCount + bedrockPendingCallerMarkers <
+											bedrockMaxCacheControlBlocks &&
+										bedrockCacheControlCount < bedrockLongBlockLimit;
 
 									if (shouldCache) {
 										bedrockCacheControlCount++;
@@ -3902,9 +4010,10 @@ export async function prepareRequestBody(
 				// Bedrock's Converse API rejects messages whose content array is
 				// empty ("The content field in the Message object at messages.N is
 				// empty"), while the Anthropic API accepts empty assistant turns.
-				// Mirror transformAnthropicMessages and drop such messages —
-				// Bedrock accepts the resulting consecutive same-role messages.
-				if (bedrockMessage.content.length === 0) {
+				// Mirror transformAnthropicMessages and drop such messages, including
+				// a turn left with only its thinking — Bedrock accepts the resulting
+				// consecutive same-role messages.
+				if (bedrockMessage.content.length === reasoningBlocks.length) {
 					continue;
 				}
 
@@ -3945,6 +4054,19 @@ export async function prepareRequestBody(
 							bedrockCacheControlCount++;
 						}
 					}
+				}
+			}
+
+			// And after the final message, as in transformAnthropicMessages, so a
+			// growing conversation reads the whole previous request back.
+			if (
+				bedrockAutoCachePointEnabled &&
+				bedrockMessages.length >= 3 &&
+				bedrockCacheControlCount < bedrockMaxCacheControlBlocks
+			) {
+				const tail = bedrockMessages[bedrockMessages.length - 1].content;
+				if (tail.length > 0 && !tail[tail.length - 1].cachePoint) {
+					tail.push(createBedrockCachePoint());
 				}
 			}
 

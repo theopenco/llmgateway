@@ -75,3 +75,9 @@ For budget warnings, upcoming model retirements, and provider issues, enable [no
 These charts derive from the same activity data the rest of the dashboard already reads — there is no separate analytics pipeline to wait on. Aggregation happens per time bucket and is timezone-correct, so totals line up with the Activity and Usage pages for the same range.
 
 For a per-key view of the same breakdowns, see [API Keys](/learn/api-keys#per-key-statistics). For an org-wide, per-person view on the Enterprise plan, see [Member Analytics](/learn/member-analytics).
+
+## Idle periods and missing samples
+
+Model and provider history stores request-bearing buckets. Successfully processed idle periods appear with zero requests, tokens, and cost; latency remains `null` when there are no samples. Unprocessed periods are not reported as confirmed idle periods. Failed, cached, and zero-cost requests still count as activity.
+
+Minute history covers the last 30 days, with hourly summaries retained for longer ranges. Recovery preserves finalized hourly totals when older minute history expires. Eligible providers remain listed when idle, and rolling request counters return to zero as activity leaves the window. These storage semantics do not change routing or alert thresholds.

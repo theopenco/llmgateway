@@ -24,17 +24,17 @@ For most users, prompt caching just works — you do not need to change your req
 
 Most providers inspect incoming requests for shared prefixes and cache them automatically once prompts cross the provider's minimum size — the [models page](https://llmgateway.io/models) shows which models support prompt caching. LLM Gateway forwards the provider's cache metadata back to you in the response, and bills the cached portion at the model's `cached_input` rate.
 
-For **Anthropic** and **AWS Bedrock Claude**, prompt caching is strictly opt-in via `cache_control` / `cachePoint` markers on the request body. To get automatic cache benefits without rewriting your requests, LLM Gateway injects those markers for you by default: on long system blocks, on long message text blocks, and — in conversations of three or more messages — on the message just before the latest user turn, so the whole conversation prefix can be served from cache.
+For **Claude** models, on every provider that serves them, prompt caching is strictly opt-in via `cache_control` / `cachePoint` markers on the request body. To get automatic cache benefits without rewriting your requests, LLM Gateway injects those markers for you by default. Once a conversation has three or more messages, it marks the last text or tool result block of the message before the latest user turn, and of the latest message. The first keeps a fixed prefix, such as few-shot examples, cached when only the final message changes. The second caches the conversation up to that block, so the next request reads it back and pays full price only for what it appended; in an agent's tool loop it lands on the newest tool result. Long system blocks are also marked, and on some providers so are long message text blocks, but those markers always leave room for the two conversation markers.
 
 ### Choosing a cache-write mode
 
 **Project Settings → Caching → Provider Cache Writes** (on DevPass, **Settings → Provider cache writes**) controls how the gateway treats those markers:
 
-| Mode                    | Markers your client sends | Markers the gateway adds |
-| ----------------------- | ------------------------- | ------------------------ |
-| **Automatic** (default) | Forwarded                 | Added on long prompts    |
-| **Client-managed**      | Forwarded                 | Never added              |
-| **Disabled**            | Stripped                  | Never added              |
+| Mode                    | Markers your client sends | Markers the gateway adds                |
+| ----------------------- | ------------------------- | --------------------------------------- |
+| **Automatic** (default) | Forwarded                 | Added on long prompts and conversations |
+| **Client-managed**      | Forwarded                 | Never added                             |
+| **Disabled**            | Stripped                  | Never added                             |
 
 **Automatic** suits requests that do not manage caching themselves. If you send long prompts sporadically — with gaps wider than the 5-minute TTL — you pay the cache-write premium (1.25× input for 5m, 2× for 1h) without ever benefiting from a cache read, so one of the other modes will be cheaper.
 
@@ -44,7 +44,7 @@ For **Anthropic** and **AWS Bedrock Claude**, prompt caching is strictly opt-in 
 
 The mode applies to every upstream that takes an explicit cache marker, whichever field it uses for one — the gateway translates your `cache_control` into the marker the resolved provider expects. Providers that cache automatically with no marker at all are unaffected, since there is nothing to forward or strip. On models whose explicit caching is a request-level mode rather than a per-block marker, Client-managed and Disabled also send `prompt_cache_options: {"mode": "explicit"}`, so implicit caching does not write a cache the request never asked for. The [models page](https://llmgateway.io/models) shows which models support prompt caching.
 
-Where the upstream takes per-block markers, they are forwarded on `system` blocks, message text blocks, tool definitions, and `tool_result` blocks. A `cache_control` on an image or other non-text content block is not forwarded — put the breakpoint on an adjacent text block instead. An OpenAI-format `tool` message has nowhere to carry a `cache_control` block; set `tool_result_cache_control` on the tool message instead, and it becomes the breakpoint on the Anthropic `tool_result` block (applied on Anthropic-format upstreams only, stripped everywhere else).
+Where the upstream takes per-block markers, they are forwarded on `system` blocks, message text blocks, tool definitions, and `tool_result` blocks. A `cache_control` on an image or other non-text content block is not forwarded. Put the breakpoint on an adjacent text block instead. For an OpenAI-format `tool` message, set `tool_result_cache_control` on the message. It becomes a marker on the Anthropic `tool_result` block or a Bedrock `cachePoint` after the tool result. Markers on text parts of the tool message are also accepted; the last marked text part wins. The message-level field takes precedence. Other upstreams strip the message-level field.
 
 Changes saved through the dashboard or API take effect immediately — the gateway's cached project settings are invalidated on write.
 
@@ -110,7 +110,7 @@ To mark content as cacheable, send the message content as an array of blocks and
 }
 ```
 
-Use `ttl: "5m"` (the default if omitted) for short-lived caches that match a single user's session, and `ttl: "1h"` when the same prefix will be reused over a longer window (for example, a coding agent that keeps the same project context warm across many requests).
+Use `ttl: "5m"` (the default if omitted) for continuous work: each cache hit refreshes its lifetime without another write charge. Use `ttl: "1h"` when coding pauses or long tool runs leave gaps of 5–60 minutes between requests. The longer lifetime has a higher [write premium](#verifying-cache-writes-and-the-write-premium); it does not improve reuse when the prompt prefix changes.
 
 The same `cache_control` markers work on the native [`/v1/messages` endpoint](/features/anthropic-endpoint) (Anthropic request format), where cache usage comes back in Anthropic's own fields: `usage.cache_creation_input_tokens` (written this request) and `usage.cache_read_input_tokens` (served from cache).
 
@@ -166,7 +166,7 @@ Anthropic requires cache breakpoints with longer TTLs to appear before shorter o
 
 - When your request contains an explicit `ttl: "1h"` marker in the **messages**, LLM Gateway skips its automatic marker injection for that request entirely and forwards only your markers — the same behavior you would get calling the provider directly.
 - A `ttl: "1h"` marker only on the **system** prompt does not disable automatic injection, since 5-minute breakpoints after it still satisfy the ordering rule.
-- Explicit markers that use the default 5-minute TTL coexist with automatic injection (capped at 4 breakpoints total per Anthropic's limit).
+- Explicit markers that use the default 5-minute TTL coexist with automatic injection (capped at 4 breakpoints total per Anthropic's limit). Your markers take priority: automatic injection only uses the breakpoints your request leaves free.
 
 This section describes the default **Automatic** mode. In **Client-managed** mode there is no injection to reconcile — your markers are forwarded exactly as sent, whatever their TTL.
 

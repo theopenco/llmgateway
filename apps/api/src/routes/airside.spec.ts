@@ -1553,6 +1553,26 @@ describe("airside provider portal", () => {
 			}),
 		]);
 		expect(body.daily).toHaveLength(1);
+		await db.insert(tables.modelProviderMappingHistoryHourly).values({
+			modelId: "mistral-large-3",
+			providerId: "mistral",
+			modelProviderMappingId: "sparse-airside-idle",
+			hourTimestamp: hour,
+		});
+		const dense = await app.request(
+			`/airside/stats?providerCompanyId=${company.id}&days=7`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(dense.status).toBe(200);
+		expect(await dense.json()).toEqual(body);
+		await db
+			.delete(tables.modelProviderMappingHistoryHourly)
+			.where(
+				eq(
+					tables.modelProviderMappingHistoryHourly.modelProviderMappingId,
+					"sparse-airside-idle",
+				),
+			);
 	});
 
 	it("returns per-mapping incidents scoped to claimed providers", async () => {
@@ -2937,7 +2957,7 @@ describe("airside provider portal", () => {
 				id,
 				provider: providerId,
 				managed: true,
-				status: "active",
+				status: "active" as const,
 				...encryptProviderKeyForStorage("managed-provider-test-key", id, null),
 			})),
 		);

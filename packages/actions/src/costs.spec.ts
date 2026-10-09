@@ -579,6 +579,53 @@ describe("calculateCosts", () => {
 		expect(result.cacheWriteTokens).toBe(1000);
 	});
 
+	it.each([
+		// model, input, 5m write, 1h write (USD per 1M tokens)
+		["claude-sonnet-4-5", 3, 3.75, 6],
+		["claude-sonnet-4-6", 3, 3.75, 6],
+		["claude-haiku-4-5", 1, 1.25, 2],
+		["claude-opus-4-5-20251101", 5, 6.25, 10],
+		["claude-opus-4-6", 5, 6.25, 10],
+		["claude-opus-4-7", 5, 6.25, 10],
+		["claude-sonnet-5", 2, 2.5, 4],
+	])(
+		"bills Vertex %s cache writes at the write rates",
+		async (model, input, write5m, write1h) => {
+			// 4 uncached + 300 5m writes + 700 1h writes = 1004 prompt tokens.
+			const result = await calculateCosts(
+				model,
+				"vertex-anthropic",
+				null,
+				1004,
+				50,
+				0,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{
+					cacheWriteTokens: 1000,
+					cacheWrite1hTokens: 700,
+				},
+			);
+
+			const fiveMinuteWriteCost = 300 * write5m;
+			const oneHourWriteCost = 700 * write1h;
+			expect(result.inputCost).toBeCloseTo((4 * input) / 1e6, 12);
+			expect(result.cacheWriteInputCost).toBeCloseTo(
+				(fiveMinuteWriteCost + oneHourWriteCost) / 1e6,
+				12,
+			);
+			expect(result.cacheWriteTokens).toBe(1000);
+		},
+	);
+
 	it("applies AWS Bedrock 10% regional pricing but not global pricing", async () => {
 		const global = await calculateCosts(
 			"claude-opus-4-8",
