@@ -29,6 +29,17 @@ export function toSystemReminderText(text: string): string {
 }
 
 /**
+ * Breakpoints the automatic long-block markers may fill. In a conversation they
+ * leave two for the conversation markers, which cache the whole prompt instead
+ * of a fixed opening prefix.
+ */
+export function longBlockMarkerLimit(nonSystemMessageCount: number): number {
+	return (
+		MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS - (nonSystemMessageCount >= 3 ? 2 : 0)
+	);
+}
+
+/**
  * Last caller-supplied cache breakpoint in an OpenAI-format content array. On a
  * tool message the array is lowered to a single tool_result block, so the last
  * marker is the one that ends the prefix.
@@ -121,15 +132,16 @@ export async function transformAnthropicMessages(
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
 
-	// Determine if we should apply cache_control for long prompts
-	// Apply for anthropic provider only, and only when the project hasn't
-	// opted out of auto-injection.
+	// Long-block markers are placed before the caller's later markers are
+	// counted, so they can take a caller's slot. Keep them on direct Anthropic,
+	// where they always ran, until caller markers are reserved first.
 	const shouldApplyCacheControl =
 		provider === "anthropic" && autoInjectCacheControl;
 
 	// Continue the budget the tools and system passes already spent from.
 	let cacheControlCount = initialCacheControlCount;
 	const maxCacheControlBlocks = MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS;
+	const longBlockLimit = longBlockMarkerLimit(messages.length);
 
 	// Breakpoints the caller placed further on. Auto-injection leaves room for
 	// them: spending the budget on early long blocks would drop the caller's
@@ -274,7 +286,9 @@ export async function transformAnthropicMessages(
 						} else if (
 							shouldApplyCacheControl &&
 							part.text.length >= minCacheableChars &&
-							cacheControlCount + pendingCallerMarkers < maxCacheControlBlocks
+							cacheControlCount + pendingCallerMarkers <
+								maxCacheControlBlocks &&
+							cacheControlCount < longBlockLimit
 						) {
 							// Automatically add cache_control for long text blocks.
 							cacheControlCount++;
@@ -292,7 +306,8 @@ export async function transformAnthropicMessages(
 			const shouldCache =
 				shouldApplyCacheControl &&
 				m.content.length >= minCacheableChars &&
-				cacheControlCount + pendingCallerMarkers < maxCacheControlBlocks;
+				cacheControlCount + pendingCallerMarkers < maxCacheControlBlocks &&
+				cacheControlCount < longBlockLimit;
 			const textContent: TextContent = {
 				type: "text",
 				text: m.content,
@@ -534,14 +549,26 @@ export async function transformAnthropicMessages(
 		start = end;
 	}
 
-	// Turn-boundary caching: in a multi-turn conversation the entire prefix
-	// (everything before the last user message) is identical between requests.
-	// Placing cache_control on the last content block of the message just before
-	// the final user turn lets Anthropic cache the entire prefix, dramatically
-	// improving the cache hit ratio for long conversations (e.g. Claude Code
-	// sessions with 100k+ token context).
-	if (shouldApplyCacheControl && results.length >= 3) {
-		// Find the last user message index — that's the "new" turn.
+	// Conversation caching, from a conversation's second turn on. The marker
+	// before the last user message keeps a stable prefix cached when only the
+	// final message changes between requests. The marker on the final message
+	// caches the whole prompt, so the next request in a growing conversation
+	// reads it back; in an agent loop it is the only one that lands, because
+	// the message before the newest tool result holds only tool_use.
+	if (autoInjectCacheControl && results.length >= 3) {
+		// Budget against what the messages actually carry: replayed native
+		// blocks bypass the running count above.
+		const placed = results.flatMap((message) =>
+			message.content.flatMap((part) => {
+				const marker = (part as { cache_control?: CacheControl }).cache_control;
+				return marker ? [marker] : [];
+			}),
+		);
+		// A caller using the 1h TTL in messages keeps sole control, as above.
+		let free = placed.some((marker) => marker.ttl === "1h")
+			? 0
+			: maxCacheControlBlocks - initialCacheControlCount - placed.length;
+
 		let lastUserIdx = -1;
 		for (let i = results.length - 1; i >= 0; i--) {
 			if (results[i]!.role === "user") {
@@ -550,31 +577,18 @@ export async function transformAnthropicMessages(
 			}
 		}
 
-		// The turn boundary is the message right before the last user message.
-		const boundaryIdx = lastUserIdx > 0 ? lastUserIdx - 1 : -1;
-		if (boundaryIdx >= 0 && cacheControlCount < maxCacheControlBlocks) {
-			const boundaryMsg = results[boundaryIdx]!;
-			if (
-				Array.isArray(boundaryMsg.content) &&
-				boundaryMsg.content.length > 0
-			) {
-				// Find the last block that can carry a breakpoint. Text is the common
-				// case, but agent loops may put a tool_result at the boundary.
-				let lastCacheableIdx = -1;
-				for (let i = boundaryMsg.content.length - 1; i >= 0; i--) {
-					const part = boundaryMsg.content[i] as MessageContent | undefined;
-					if (part && (isTextContent(part) || isToolResultContent(part))) {
-						lastCacheableIdx = i;
-						break;
+		for (const index of [lastUserIdx - 1, results.length - 1]) {
+			const content = index >= 0 ? results[index]!.content : [];
+			for (let i = content.length - 1; i >= 0 && free > 0; i--) {
+				const part = content[i] as MessageContent;
+				if (isTextContent(part) || isToolResultContent(part)) {
+					// A copy: the block may be the caller's own object, which a fallback
+					// re-prepares for the next provider.
+					if (!part.cache_control) {
+						content[i] = { ...part, cache_control: { type: "ephemeral" } };
+						free--;
 					}
-				}
-				if (lastCacheableIdx >= 0) {
-					const target = boundaryMsg.content[lastCacheableIdx] as
-						TextContent | ToolResultContent;
-					if (!target.cache_control) {
-						target.cache_control = { type: "ephemeral" };
-						cacheControlCount++;
-					}
+					break;
 				}
 			}
 		}

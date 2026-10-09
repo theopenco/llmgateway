@@ -4,7 +4,7 @@ import { app } from "@/index.js";
 import { deleteAll } from "@/testing.js";
 
 import { redisClient } from "@llmgateway/cache";
-import { db, eq, tables } from "@llmgateway/db";
+import { and, db, eq, tables } from "@llmgateway/db";
 
 const PROVIDER_ID = "stats-test-carrier";
 const MODEL_ID = "gpt-4o";
@@ -218,5 +218,28 @@ describe("public providers stats", () => {
 		const provider = await fetchProviderStats();
 		expect(provider.errorsCount).toBe(20);
 		expect(provider.uptime).toBeCloseTo(80);
+	});
+	test("public statistics match without stored idle buckets", async () => {
+		await seedMinute(1, {
+			logsCount: 10,
+			totalTimeToFirstToken: 1000,
+			timeToFirstTokenCount: 2,
+		});
+		await seedMinute(2, {
+			logsCount: 0,
+			totalTimeToFirstToken: 0,
+			timeToFirstTokenCount: 0,
+		});
+		const dense = await fetchProviderStats();
+		await db
+			.delete(tables.modelProviderMappingHistory)
+			.where(
+				and(
+					eq(tables.modelProviderMappingHistory.providerId, PROVIDER_ID),
+					eq(tables.modelProviderMappingHistory.logsCount, 0),
+				),
+			);
+		await redisClient.flushdb();
+		expect(await fetchProviderStats()).toEqual(dense);
 	});
 });

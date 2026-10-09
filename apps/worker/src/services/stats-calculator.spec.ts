@@ -10,6 +10,7 @@ import {
 	modelProviderMappingHistoryHourly,
 	modelHistoryHourly,
 	routingElectionHourly,
+	aggregationProgress,
 	routingExclusionHourly,
 	log,
 	organization,
@@ -17,19 +18,22 @@ import {
 	apiKey,
 	eq,
 	and,
-	gte,
 	user,
 	getTableColumns,
 	sql,
 } from "@llmgateway/db";
 import * as logRetention from "@llmgateway/shared/log-retention";
 
+import * as contentFilterStats from "./content-filter-stats-aggregator.js";
+import * as routingTelemetry from "./routing-telemetry-aggregator.js";
 import {
+	getModelHistoryRetentionCutoff,
 	calculateMinutelyHistory,
 	calculateCurrentMinuteHistory,
 	calculateAggregatedStatistics,
 	calculateHourlyHistory,
 	backfillHistoryIfNeeded,
+	initializeMinuteRecovery,
 	backfillHourlyHistoryIfNeeded,
 	resetHourlyHistoryState,
 	resetMinuteWriteCache,
@@ -46,6 +50,7 @@ describe("stats-calculator", () => {
 		resetMinuteWriteCache();
 
 		// Clean up test data before each test
+		await db.delete(aggregationProgress);
 		await db.delete(log);
 		await db.delete(routingElectionHourly);
 		await db.delete(routingExclusionHourly);
@@ -210,8 +215,8 @@ describe("stats-calculator", () => {
 			await refresh();
 			const initial = await readHistory();
 			for (const rows of initial) {
-				expect(rows).toHaveLength(4);
-				expect(rows.filter((row) => row.logsCount === 0)).toHaveLength(3);
+				expect(rows).toHaveLength(1);
+				expect(rows.filter((row) => row.logsCount === 0)).toHaveLength(0);
 			}
 
 			await refresh();
@@ -238,7 +243,7 @@ describe("stats-calculator", () => {
 			await db.delete(log);
 			await refresh();
 			for (const rows of await readHistory()) {
-				expect(rows).toHaveLength(4);
+				expect(rows).toHaveLength(0);
 				for (const row of rows) {
 					expect(row.logsCount).toBe(0);
 					expect(row.totalInputCost).toBe(0);
@@ -262,6 +267,26 @@ describe("stats-calculator", () => {
 				externalId: id,
 			})),
 		);
+		await db.insert(log).values(
+			models.flatMap(({ id }) =>
+				(["credits", "api-keys"] as const).map((usedMode) => ({
+					id: `log-${id}-${usedMode}`,
+					requestId: `req-${id}-${usedMode}`,
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					requestedModel: id,
+					usedModel: `openai/${id}`,
+					usedProvider: "openai",
+					mode: usedMode,
+					usedMode,
+					duration: 0,
+					responseSize: 0,
+					createdAt: new Date("2024-01-01T12:29:00Z"),
+				})),
+			),
+		);
+
 		await calculateMinutelyHistory();
 		await calculateHourlyHistory();
 
@@ -272,8 +297,8 @@ describe("stats-calculator", () => {
 			modelProviderMappingHistoryHourly,
 		]) {
 			const rows = await db.select().from(table);
-			expect(rows).toHaveLength(1006);
-			expect(new Set(rows.map((row) => row.modelId)).size).toBe(503);
+			expect(rows).toHaveLength(1002);
+			expect(new Set(rows.map((row) => row.modelId)).size).toBe(501);
 		}
 	});
 
@@ -373,7 +398,7 @@ describe("stats-calculator", () => {
 				.select()
 				.from(modelProviderMappingHistory);
 
-			expect(historyRecords).toHaveLength(4);
+			expect(historyRecords).toHaveLength(2);
 
 			// Check OpenAI GPT-4 record
 			const gptRecord = historyRecords.find(
@@ -1179,7 +1204,7 @@ describe("stats-calculator", () => {
 			const historyRecords = await db
 				.select()
 				.from(modelProviderMappingHistory);
-			expect(historyRecords.length).toBeGreaterThanOrEqual(2); // Our test mappings
+			expect(historyRecords).toHaveLength(0);
 
 			// All should have zero stats since the log was for non-existent model/provider
 			for (const record of historyRecords) {
@@ -1190,21 +1215,16 @@ describe("stats-calculator", () => {
 
 		it("should handle empty logs gracefully", async () => {
 			await calculateMinutelyHistory();
-
-			// Should create history records for all mappings with zero stats
-			const historyRecords = await db
-				.select()
-				.from(modelProviderMappingHistory);
-			expect(historyRecords.length).toBeGreaterThanOrEqual(2); // Our test mappings
-
-			// All should have zero stats since no logs were inserted
-			for (const record of historyRecords) {
-				expect(record.logsCount).toBe(0);
-				expect(record.errorsCount).toBe(0);
-				expect(record.totalOutputTokens).toBe(0);
-				expect(record.totalDuration).toBe(0);
-				expect(record.cachedCount).toBe(0);
-			}
+			expect(await db.select().from(modelHistory)).toEqual([]);
+			expect(await db.select().from(modelProviderMappingHistory)).toEqual([]);
+			const progress = await db.select().from(aggregationProgress);
+			expect(progress).toHaveLength(1);
+			expect(progress[0]).toMatchObject({
+				job: "minute-usage",
+				bucketTimestamp: new Date("2024-01-01T12:29:00Z"),
+				refreshedAt: mockDate,
+				finalizedAt: mockDate,
+			});
 		});
 
 		it("should update existing history records on conflict", async () => {
@@ -1252,7 +1272,7 @@ describe("stats-calculator", () => {
 			const historyRecords = await db
 				.select()
 				.from(modelProviderMappingHistory);
-			expect(historyRecords.length).toBeGreaterThanOrEqual(2); // At least the 2 test mappings
+			expect(historyRecords).toHaveLength(1);
 
 			// Check the active mapping was updated
 			const gptRecord = historyRecords.find(
@@ -1270,13 +1290,11 @@ describe("stats-calculator", () => {
 				(r) =>
 					r.modelId === "claude-3-5-sonnet" && r.providerId === "anthropic",
 			);
-			expect(claudeRecord).toBeTruthy();
-			expect(claudeRecord?.logsCount).toBe(0);
-			expect(claudeRecord?.totalOutputTokens).toBe(0);
+			expect(claudeRecord).toBeUndefined();
 
 			// Check that model history was also created
 			const modelHistoryRecords = await db.select().from(modelHistory);
-			expect(modelHistoryRecords.length).toBeGreaterThanOrEqual(2); // At least 2 models
+			expect(modelHistoryRecords).toHaveLength(1);
 
 			const gptModelRecord = modelHistoryRecords.find(
 				(r) => r.modelId === "gpt-4" && r.usedMode === "api-keys",
@@ -1288,42 +1306,21 @@ describe("stats-calculator", () => {
 			const claudeModelRecord = modelHistoryRecords.find(
 				(r) => r.modelId === "claude-3-5-sonnet",
 			);
-			expect(claudeModelRecord).toBeTruthy();
-			expect(claudeModelRecord?.logsCount).toBe(0); // No logs for claude in this test
-			expect(claudeModelRecord?.totalOutputTokens).toBe(0);
+			expect(claudeModelRecord).toBeUndefined();
 		});
 
-		it("should create entries for inactive model-provider mappings", async () => {
-			// Don't insert any logs, so all mappings should be inactive
-
+		it("should record progress for idle mappings", async () => {
 			await calculateMinutelyHistory();
-
-			// Should create history records for all model-provider mappings
-			const historyRecords = await db
-				.select()
-				.from(modelProviderMappingHistory);
-			expect(historyRecords.length).toBeGreaterThanOrEqual(2); // At least our 2 test mappings
-
-			// All should have zero stats since no logs were inserted
-			for (const record of historyRecords) {
-				expect(record.logsCount).toBe(0);
-				expect(record.errorsCount).toBe(0);
-				expect(record.totalOutputTokens).toBe(0);
-				expect(record.totalDuration).toBe(0);
-				expect(record.cachedCount).toBe(0);
-			}
-
-			// Check model history was also created with zero stats
-			const modelHistoryRecords = await db.select().from(modelHistory);
-			expect(modelHistoryRecords.length).toBeGreaterThanOrEqual(2); // At least our 2 test models
-
-			for (const record of modelHistoryRecords) {
-				expect(record.logsCount).toBe(0);
-				expect(record.errorsCount).toBe(0);
-				expect(record.totalOutputTokens).toBe(0);
-				expect(record.totalDuration).toBe(0);
-				expect(record.cachedCount).toBe(0);
-			}
+			expect(await db.select().from(modelHistory)).toEqual([]);
+			expect(await db.select().from(modelProviderMappingHistory)).toEqual([]);
+			const progress = await db.select().from(aggregationProgress);
+			expect(progress).toHaveLength(1);
+			expect(progress[0]).toMatchObject({
+				job: "minute-usage",
+				bucketTimestamp: new Date("2024-01-01T12:29:00Z"),
+				refreshedAt: mockDate,
+				finalizedAt: mockDate,
+			});
 		});
 	});
 
@@ -1418,22 +1415,18 @@ describe("stats-calculator", () => {
 			expect(anthropicMapping?.logsCount).toBe(1);
 		});
 
-		it("should create model history entries for inactive models", async () => {
-			// Don't insert any logs, so all models should have zero stats
-
+		it("should record progress for idle models", async () => {
 			await calculateMinutelyHistory();
-
-			const modelHistoryRecords = await db.select().from(modelHistory);
-			expect(modelHistoryRecords.length).toBeGreaterThanOrEqual(2); // At least our 2 test models
-
-			// All should have zero stats since no logs were inserted
-			for (const record of modelHistoryRecords) {
-				expect(record.logsCount).toBe(0);
-				expect(record.errorsCount).toBe(0);
-				expect(record.totalOutputTokens).toBe(0);
-				expect(record.totalDuration).toBe(0);
-				expect(record.cachedCount).toBe(0);
-			}
+			expect(await db.select().from(modelHistory)).toEqual([]);
+			expect(await db.select().from(modelProviderMappingHistory)).toEqual([]);
+			const progress = await db.select().from(aggregationProgress);
+			expect(progress).toHaveLength(1);
+			expect(progress[0]).toMatchObject({
+				job: "minute-usage",
+				bucketTimestamp: new Date("2024-01-01T12:29:00Z"),
+				refreshedAt: mockDate,
+				finalizedAt: mockDate,
+			});
 		});
 
 		it("should handle model history conflicts with upsert", async () => {
@@ -1649,72 +1642,27 @@ describe("stats-calculator", () => {
 	});
 
 	describe("backfillHistoryIfNeeded", () => {
-		it("repairs independent minute gaps even after newer rows succeed", async () => {
-			for (const minute of [27, 28, 29]) {
-				vi.setSystemTime(new Date(`2024-01-01T12:${minute + 1}:00.000Z`));
-				await calculateMinutelyHistory();
-			}
-			const missingModel = new Date("2024-01-01T12:27:00.000Z");
-			const missingMapping = new Date("2024-01-01T12:28:00.000Z");
-			const originalModel = await db
-				.select()
-				.from(modelHistory)
-				.where(eq(modelHistory.minuteTimestamp, missingModel));
-			const originalMapping = await db
-				.select()
-				.from(modelProviderMappingHistory)
-				.where(eq(modelProviderMappingHistory.minuteTimestamp, missingMapping));
-			await db
-				.delete(modelHistory)
-				.where(eq(modelHistory.minuteTimestamp, missingModel));
-			await db
-				.delete(modelProviderMappingHistory)
-				.where(eq(modelProviderMappingHistory.minuteTimestamp, missingMapping));
-			await backfillHistoryIfNeeded();
-			expect(
-				await db
-					.select()
-					.from(modelHistory)
-					.where(eq(modelHistory.minuteTimestamp, missingModel)),
-			).toHaveLength(originalModel.length);
-			expect(
-				await db
-					.select()
-					.from(modelProviderMappingHistory)
-					.where(
-						eq(modelProviderMappingHistory.minuteTimestamp, missingMapping),
-					),
-			).toHaveLength(originalMapping.length);
-		});
-
 		it("should backfill when no history exists", async () => {
-			// Set time to 12:30 so we backfill from 12:25 to 12:29 (5 minutes)
-			vi.setSystemTime(new Date("2024-01-01T12:30:00.000Z"));
-
 			await backfillHistoryIfNeeded();
-
-			const historyRecords = await db
+			expect(await db.select().from(modelHistory)).toEqual([]);
+			expect(await db.select().from(modelProviderMappingHistory)).toEqual([]);
+			const progress = await db
 				.select()
-				.from(modelProviderMappingHistory);
-
-			// Should have created history for 5 minutes (12:25-12:29) for 2 mappings = 10 records
-			expect(historyRecords.length).toBeGreaterThanOrEqual(10);
-
-			// Check that we have entries for each minute
-			const timestamps = historyRecords.map((r) => r.minuteTimestamp.getTime());
-			const uniqueTimestamps = new Set(timestamps);
-			expect(uniqueTimestamps.size).toBe(5); // 5 different minutes
-
-			// Check that model history was also backfilled
-			const modelHistoryRecords = await db.select().from(modelHistory);
-			// Should have created history for 5 minutes for 2 models = 10 records
-			expect(modelHistoryRecords.length).toBeGreaterThanOrEqual(10);
-
-			const modelTimestamps = modelHistoryRecords.map((r) =>
-				r.minuteTimestamp.getTime(),
+				.from(aggregationProgress)
+				.orderBy(aggregationProgress.bucketTimestamp);
+			expect(progress).toHaveLength(5);
+			expect(progress[0].bucketTimestamp).toEqual(
+				new Date("2024-01-01T12:25:00Z"),
 			);
-			const uniqueModelTimestamps = new Set(modelTimestamps);
-			expect(uniqueModelTimestamps.size).toBe(5); // 5 different minutes
+			expect(progress.every((row) => row.finalizedAt !== null)).toBe(true);
+			resetMinuteWriteCache();
+			await backfillHistoryIfNeeded();
+			expect(
+				await db
+					.select()
+					.from(aggregationProgress)
+					.orderBy(aggregationProgress.bucketTimestamp),
+			).toEqual(progress);
 		});
 
 		it("does not rewrite complete recent history", async () => {
@@ -1726,51 +1674,25 @@ describe("stats-calculator", () => {
 			);
 		});
 
-		it(
-			"recovers the whole window after an outage longer than it",
-			{ timeout: 120_000 },
-			async () => {
-				vi.setSystemTime(new Date("2024-01-01T12:30:00.000Z"));
-				await db.insert(modelProviderMappingHistory).values({
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: new Date("2023-12-30T12:00:00.000Z"),
-					logsCount: 0,
-					errorsCount: 0,
-					clientErrorsCount: 0,
-					gatewayErrorsCount: 0,
-					upstreamErrorsCount: 0,
-					cachedCount: 0,
-					totalInputTokens: 0,
-					totalOutputTokens: 0,
-					totalTokens: 0,
-					totalReasoningTokens: 0,
-					totalCachedTokens: 0,
-					totalDuration: 0,
-				});
-
-				await backfillHistoryIfNeeded();
-
-				const minutes = new Set(
-					(
-						await db
-							.select({ minute: modelProviderMappingHistory.minuteTimestamp })
-							.from(modelProviderMappingHistory)
-							.where(
-								gte(
-									modelProviderMappingHistory.minuteTimestamp,
-									new Date("2023-12-31T00:00:00.000Z"),
-								),
-							)
-					).map(({ minute }) => minute.getTime()),
-				);
-				expect(minutes.size).toBe(1440);
-				expect(Math.min(...minutes)).toBe(
-					new Date("2023-12-31T12:30:00.000Z").getTime(),
-				);
-			},
-		);
+		it("resumes a long outage across capped recovery passes", async () => {
+			const minuteTimestamp = new Date("2023-12-30T12:00:00Z");
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				minuteTimestamp,
+			});
+			expect(await initializeMinuteRecovery()).toEqual(minuteTimestamp);
+			expect(await backfillHistoryIfNeeded(2)).toBe(false);
+			expect(await backfillHistoryIfNeeded(2)).toBe(false);
+			const progress = await db
+				.select()
+				.from(aggregationProgress)
+				.orderBy(aggregationProgress.bucketTimestamp);
+			expect(progress).toHaveLength(4);
+			expect(progress.every((row) => row.finalizedAt !== null)).toBe(true);
+			expect(progress[0].bucketTimestamp).toEqual(minuteTimestamp);
+		});
 
 		it("should backfill missing periods", async () => {
 			// Create old history entry from 5 minutes ago
@@ -1800,18 +1722,15 @@ describe("stats-calculator", () => {
 				.select()
 				.from(modelProviderMappingHistory);
 
-			// Should have backfilled 4 minutes (12:26-12:29) for 2 mappings = 8 new records + 1 existing = 9
-			expect(historyRecords.length).toBeGreaterThanOrEqual(9);
-
-			// Check we have entries for the missing minutes
-			const timestamps = historyRecords.map((r) => r.minuteTimestamp);
-			const sortedTimestamps = timestamps.sort(
-				(a, b) => a.getTime() - b.getTime(),
-			);
-
-			expect(sortedTimestamps[0]?.getTime()).toBe(oldMinute.getTime());
-			expect(sortedTimestamps[sortedTimestamps.length - 1]?.getTime()).toBe(
-				new Date("2024-01-01T12:29:00.000Z").getTime(),
+			expect(historyRecords).toHaveLength(0);
+			const progress = await db
+				.select()
+				.from(aggregationProgress)
+				.orderBy(aggregationProgress.bucketTimestamp);
+			expect(progress).toHaveLength(5);
+			expect(progress[0].bucketTimestamp).toEqual(oldMinute);
+			expect(progress[4].bucketTimestamp).toEqual(
+				new Date("2024-01-01T12:29:00Z"),
 			);
 		});
 	});
@@ -2176,6 +2095,7 @@ describe("stats-calculator", () => {
 				{
 					modelId: "gpt-4",
 					minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+					logsCount: 1,
 					totalInputTokens: minuteTokens,
 					totalOutputTokens: minuteTokens,
 					totalTokens: minuteTokens,
@@ -2185,6 +2105,7 @@ describe("stats-calculator", () => {
 				{
 					modelId: "gpt-4",
 					minuteTimestamp: new Date("2024-01-01T12:15:00.000Z"),
+					logsCount: 1,
 					totalInputTokens: minuteTokens,
 					totalOutputTokens: minuteTokens,
 					totalTokens: minuteTokens,
@@ -2199,6 +2120,7 @@ describe("stats-calculator", () => {
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
 					minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+					logsCount: 1,
 					totalInputTokens: minuteTokens,
 					totalOutputTokens: minuteTokens,
 					totalTokens: minuteTokens,
@@ -2210,6 +2132,7 @@ describe("stats-calculator", () => {
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
 					minuteTimestamp: new Date("2024-01-01T12:15:00.000Z"),
+					logsCount: 1,
 					totalInputTokens: minuteTokens,
 					totalOutputTokens: minuteTokens,
 					totalTokens: minuteTokens,
@@ -2429,7 +2352,7 @@ describe("stats-calculator", () => {
 				modelProviderMappingHistoryHourly,
 			]) {
 				const rows = await db.select().from(table).orderBy(table.hourTimestamp);
-				expect(rows.map((row) => row.logsCount)).toEqual([1, 99]);
+				expect(rows.map((row) => row.logsCount)).toEqual([99, 99]);
 			}
 			const elections = await db
 				.select()
@@ -2715,22 +2638,26 @@ describe("stats-calculator", () => {
 				.where(
 					and(
 						eq(table.minuteTimestamp, currentMinute),
-						eq(table.modelId, "claude-3-5-sonnet"),
+						eq(table.modelId, "gpt-4"),
 						eq(table.usedMode, "api-keys"),
 					),
 				);
 		const tamperedCount = async (table: MinuteTable) =>
 			(await readMinute(table)).find(
-				(row) =>
-					row.modelId === "claude-3-5-sonnet" && row.usedMode === "api-keys",
+				(row) => row.modelId === "gpt-4" && row.usedMode === "api-keys",
 			)!.logsCount;
 
 		it("skips rows unchanged since its last tick and writes the ones that moved", async () => {
 			await insertLog("log-1", new Date("2024-01-01T12:30:10.000Z"));
+			await insertLog("idle-mode-log", currentMinute);
+			await db
+				.update(log)
+				.set({ usedMode: "api-keys" })
+				.where(eq(log.id, "idle-mode-log"));
 			await calculateCurrentMinuteHistory();
 			for (const table of [modelHistory, modelProviderMappingHistory]) {
 				const rows = await readMinute(table);
-				expect(rows).toHaveLength(4);
+				expect(rows).toHaveLength(2);
 				expect(
 					rows.find(
 						(row) => row.modelId === "gpt-4" && row.usedMode === "credits",
@@ -2765,11 +2692,16 @@ describe("stats-calculator", () => {
 			vi.setSystemTime(new Date("2024-01-01T12:31:00.000Z"));
 			await calculateMinutelyHistory();
 			for (const table of [modelHistory, modelProviderMappingHistory]) {
-				expect(await tamperedCount(table)).toBe(0);
+				expect(await tamperedCount(table)).toBe(1);
 			}
 		});
 
 		it("writes every row again after the cache is reset", async () => {
+			await insertLog("idle-mode-log", currentMinute);
+			await db
+				.update(log)
+				.set({ usedMode: "api-keys" })
+				.where(eq(log.id, "idle-mode-log"));
 			await calculateCurrentMinuteHistory();
 			for (const table of [modelHistory, modelProviderMappingHistory]) {
 				await tamper(table);
@@ -2777,7 +2709,7 @@ describe("stats-calculator", () => {
 			resetMinuteWriteCache();
 			await calculateCurrentMinuteHistory();
 			for (const table of [modelHistory, modelProviderMappingHistory]) {
-				expect(await tamperedCount(table)).toBe(0);
+				expect(await tamperedCount(table)).toBe(1);
 			}
 		});
 	});
@@ -2797,7 +2729,7 @@ describe("stats-calculator", () => {
 				responseSize: 100,
 				mode: "credits",
 				usedMode: "credits",
-				createdAt: new Date("2024-01-01T12:10:00.000Z"),
+				createdAt: new Date("2024-01-01T12:29:00.000Z"),
 				routingMetadata: {
 					selectionReason: "weighted-score",
 					availableProviders: ["openai", "anthropic"],
@@ -2893,6 +2825,357 @@ describe("stats-calculator", () => {
 					.map((row) => row.id);
 			expect(changed(second.models, first.models)).toEqual(["gpt-4"]);
 			expect(changed(second.mappings, first.mappings)).toEqual(["mapping-1"]);
+		});
+	});
+	describe("sparse recovery", () => {
+		const insertRequest = (id: string, createdAt: Date) =>
+			db.insert(log).values({
+				id,
+				requestId: id,
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				duration: 0,
+				responseSize: 0,
+				requestedModel: "gpt-4",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				mode: "credits",
+				usedMode: "credits",
+				createdAt,
+			});
+
+		it("does not repeat first-write cleanup on empty incremental ticks", async () => {
+			let deletes = 0;
+			const transaction = db.transaction.bind(db);
+			vi.spyOn(db, "transaction").mockImplementation((callback) =>
+				transaction(async (tx) => {
+					const remove = tx.delete.bind(tx);
+					vi.spyOn(tx, "delete").mockImplementation((table) => {
+						deletes++;
+						return remove(table);
+					});
+					return await callback(tx);
+				}),
+			);
+			await calculateCurrentMinuteHistory();
+			const first = deletes;
+			expect(first).toBeGreaterThan(0);
+			await calculateCurrentMinuteHistory();
+			expect(deletes).toBe(first);
+		});
+
+		it("repairs hourly summaries after live and recovery work overlap", async () => {
+			await db.insert(aggregationProgress).values({
+				job: "minute-usage",
+				bucketTimestamp: new Date("2024-01-01T11:59:00Z"),
+			});
+			await insertRequest("overlap", new Date("2024-01-01T11:59:00Z"));
+			await Promise.all([backfillHistoryIfNeeded(), calculateHourlyHistory()]);
+			await backfillHourlyHistoryIfNeeded();
+			for (const table of [
+				modelHistoryHourly,
+				modelProviderMappingHistoryHourly,
+			]) {
+				const rows = await db.select().from(table);
+				expect(rows).toHaveLength(1);
+				expect(rows[0]).toMatchObject({
+					logsCount: 1,
+					hourTimestamp: new Date("2024-01-01T11:00:00Z"),
+				});
+			}
+		});
+
+		it("repairs partial hourly writes even when one summary already exists", async () => {
+			const minuteTimestamp = new Date("2024-01-01T11:30:00Z");
+			await db
+				.insert(modelHistory)
+				.values({ modelId: "gpt-4", minuteTimestamp, logsCount: 3 });
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				minuteTimestamp,
+				logsCount: 3,
+			});
+			await db.execute(
+				sql`create function fail_hour_history() returns trigger language plpgsql as $$ begin raise exception 'test hourly write failure'; end $$`,
+			);
+			await db.execute(
+				sql`create trigger fail_hour_history before insert on model_history_hourly for each statement execute function fail_hour_history()`,
+			);
+			try {
+				await expect(backfillHourlyHistoryIfNeeded()).rejects.toThrow();
+				expect(
+					await db.select().from(modelProviderMappingHistoryHourly),
+				).toHaveLength(1);
+				expect((await db.select().from(aggregationProgress))[0]).toMatchObject({
+					job: "hourly-usage",
+					finalizedAt: null,
+					refreshedAt: null,
+				});
+			} finally {
+				await db.execute(
+					sql`drop trigger fail_hour_history on model_history_hourly`,
+				);
+				await db.execute(sql`drop function fail_hour_history()`);
+			}
+			await backfillHourlyHistoryIfNeeded();
+			expect((await db.select().from(modelHistoryHourly))[0].logsCount).toBe(3);
+		});
+
+		it("continues capped recovery past finalized empty buckets", async () => {
+			expect(await backfillHistoryIfNeeded(2)).toBe(false);
+			expect(await backfillHistoryIfNeeded(2)).toBe(false);
+			expect(await backfillHistoryIfNeeded(2)).toBe(true);
+			expect(
+				(await db.select().from(aggregationProgress)).filter(
+					(row) => row.finalizedAt,
+				),
+			).toHaveLength(5);
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp: new Date("2024-01-01T09:30:00Z"),
+			});
+			expect(await backfillHourlyHistoryIfNeeded(1)).toBe(false);
+			expect(await backfillHourlyHistoryIfNeeded(1)).toBe(false);
+			expect(await backfillHourlyHistoryIfNeeded(1)).toBe(true);
+			expect(
+				(await db.select().from(aggregationProgress)).filter(
+					(row) => row.job === "hourly-usage" && row.finalizedAt,
+				),
+			).toHaveLength(3);
+		});
+
+		it.each(["model", "mapping"])(
+			"keeps finalized %s-only totals across partial-hour retention",
+			async (kind) => {
+				const cutoff = getModelHistoryRetentionCutoff();
+				const hour = new Date(cutoff);
+				hour.setUTCMinutes(0, 0, 0);
+				const minuteTimestamp = new Date(cutoff.getTime() + 60_000);
+				if (kind === "model") {
+					await db
+						.insert(modelHistory)
+						.values({ modelId: "gpt-4", minuteTimestamp, logsCount: 1 });
+					await db
+						.insert(modelHistoryHourly)
+						.values({ modelId: "gpt-4", hourTimestamp: hour, logsCount: 100 });
+				} else {
+					const labels = {
+						modelId: "gpt-4",
+						providerId: "openai",
+						modelProviderMappingId: "mapping-1",
+					};
+					await db
+						.insert(modelProviderMappingHistory)
+						.values({ ...labels, minuteTimestamp, logsCount: 1 });
+					await db
+						.insert(modelProviderMappingHistoryHourly)
+						.values({ ...labels, hourTimestamp: hour, logsCount: 100 });
+				}
+				await db.insert(aggregationProgress).values({
+					job: "hourly-usage",
+					bucketTimestamp: hour,
+					refreshedAt: mockDate,
+					finalizedAt: mockDate,
+				});
+				const table =
+					kind === "model"
+						? modelHistoryHourly
+						: modelProviderMappingHistoryHourly;
+				for (let attempt = 0; attempt < 2; attempt++) {
+					await backfillHourlyHistoryIfNeeded(1);
+					expect(
+						await db.select().from(table).where(eq(table.hourTimestamp, hour)),
+					).toEqual([expect.objectContaining({ logsCount: 100 })]);
+				}
+			},
+		);
+
+		it("prioritizes missing usage over failed diagnostics within the cap", async () => {
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp: new Date("2024-01-01T10:30:00Z"),
+			});
+			await db.insert(aggregationProgress).values({
+				job: "hourly-usage",
+				bucketTimestamp: new Date("2024-01-01T10:00:00Z"),
+				refreshedAt: mockDate,
+				finalizedAt: mockDate,
+			});
+			vi.spyOn(
+				routingTelemetry,
+				"calculateRoutingTelemetryForHour",
+			).mockRejectedValue(new Error("diagnostic failure"));
+
+			expect(await backfillHourlyHistoryIfNeeded(1)).toBe(false);
+			expect(
+				(await db.select().from(aggregationProgress)).find(
+					(row) =>
+						row.job === "hourly-usage" &&
+						row.bucketTimestamp.getTime() ===
+							new Date("2024-01-01T11:00:00Z").getTime(),
+				),
+			).toMatchObject({ finalizedAt: mockDate });
+		});
+
+		it("removes corrected retry buckets without touching other minutes", async () => {
+			const minute = new Date("2024-01-01T12:30:00Z");
+			await insertRequest("failed", minute);
+			await db.update(log).set({ hasError: true }).where(eq(log.id, "failed"));
+			await calculateCurrentMinuteHistory();
+			await insertRequest("recovered", new Date("2024-01-01T12:31:00Z"));
+			await db
+				.update(log)
+				.set({ retried: true, retriedByLogId: "recovered" })
+				.where(eq(log.id, "failed"));
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp: new Date("2024-01-01T12:28:00Z"),
+				logsCount: 0,
+			});
+			await calculateCurrentMinuteHistory();
+			expect(await db.select().from(modelProviderMappingHistory)).toEqual([]);
+			const rows = await db.select().from(modelHistory);
+			expect(rows).toHaveLength(1);
+			expect(rows[0].minuteTimestamp).toEqual(new Date("2024-01-01T12:28:00Z"));
+		});
+
+		it("finalizes empty hours once and ignores legacy zero minutes", async () => {
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp: new Date("2024-01-01T10:30:00Z"),
+			});
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				minuteTimestamp: new Date("2024-01-01T10:30:00Z"),
+			});
+			await backfillHourlyHistoryIfNeeded();
+			expect(await db.select().from(modelHistoryHourly)).toEqual([]);
+			expect(await db.select().from(modelProviderMappingHistoryHourly)).toEqual(
+				[],
+			);
+			const before = await db
+				.select()
+				.from(aggregationProgress)
+				.orderBy(aggregationProgress.job, aggregationProgress.bucketTimestamp);
+			expect(before).toHaveLength(6);
+			expect(before.every((row) => row.finalizedAt !== null)).toBe(true);
+			vi.setSystemTime(new Date("2024-01-01T12:31:00Z"));
+			resetHourlyHistoryState();
+			await backfillHourlyHistoryIfNeeded();
+			expect(
+				await db
+					.select()
+					.from(aggregationProgress)
+					.orderBy(
+						aggregationProgress.job,
+						aggregationProgress.bucketTimestamp,
+					),
+			).toEqual(before);
+		});
+
+		it("keeps older gaps recoverable when live refresh runs first", async () => {
+			await initializeMinuteRecovery();
+			await insertRequest("gap-request", new Date("2024-01-01T12:26:00Z"));
+			await calculateMinutelyHistory();
+			await calculateCurrentMinuteHistory();
+			await backfillHistoryIfNeeded();
+			const rows = await db.select().from(modelHistory);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toMatchObject({
+				logsCount: 1,
+				minuteTimestamp: new Date("2024-01-01T12:26:00Z"),
+			});
+			const progress = await db
+				.select()
+				.from(aggregationProgress)
+				.where(eq(aggregationProgress.job, "minute-usage"));
+			expect(progress.filter((row) => row.finalizedAt)).toHaveLength(5);
+		});
+
+		it("rolls back a failed minute before retrying it", async () => {
+			await insertRequest("partial-request", new Date("2024-01-01T12:29:00Z"));
+			await db.execute(
+				sql`create function fail_model_history() returns trigger language plpgsql as $$ begin raise exception 'test model write failure'; end $$`,
+			);
+			await db.execute(
+				sql`create trigger fail_model_history before insert on model_history for each statement execute function fail_model_history()`,
+			);
+			try {
+				await expect(calculateMinutelyHistory()).rejects.toThrow();
+				expect(
+					await db.select().from(modelProviderMappingHistory),
+				).toHaveLength(0);
+				expect(await db.select().from(modelHistory)).toHaveLength(0);
+				const progress = await db.select().from(aggregationProgress);
+				expect(
+					progress.find((row) => row.job === "minute-usage"),
+				).toMatchObject({ refreshedAt: null, finalizedAt: null });
+			} finally {
+				await db.execute(sql`drop trigger fail_model_history on model_history`);
+				await db.execute(sql`drop function fail_model_history()`);
+			}
+			await backfillHistoryIfNeeded();
+			expect(await db.select().from(modelHistory)).toHaveLength(1);
+			expect(
+				(await db.select().from(aggregationProgress))[0].finalizedAt,
+			).not.toBeNull();
+		});
+
+		it("retries failed diagnostics independently of empty usage", async () => {
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp: new Date("2024-01-01T11:30:00Z"),
+			});
+			const routing = vi
+				.spyOn(routingTelemetry, "calculateRoutingTelemetryForHour")
+				.mockRejectedValueOnce(new Error("diagnostic failure"));
+			const content = vi.spyOn(
+				contentFilterStats,
+				"calculateContentFilterStatsForHour",
+			);
+			await backfillHourlyHistoryIfNeeded();
+			const before = await db.select().from(aggregationProgress);
+			expect(
+				before.find((row) => row.job === "hourly-usage")?.finalizedAt,
+			).not.toBeNull();
+			expect(
+				before.find((row) => row.job === "routing")?.finalizedAt,
+			).toBeNull();
+			await backfillHourlyHistoryIfNeeded();
+			expect(routing).toHaveBeenCalledTimes(2);
+			expect(content).toHaveBeenCalledTimes(1);
+			expect(
+				(await db.select().from(aggregationProgress)).every(
+					(row) => row.finalizedAt !== null,
+				),
+			).toBe(true);
+		});
+
+		it("resets aged-out catalogue counters without repeating idle updates", async () => {
+			await insertRequest("expiring", new Date("2024-01-01T12:29:00Z"));
+			await calculateMinutelyHistory();
+			await calculateAggregatedStatistics();
+			vi.setSystemTime(new Date("2024-01-01T14:30:00Z"));
+			await calculateAggregatedStatistics();
+			for (const table of [model, modelProviderMapping, provider]) {
+				const before = await db
+					.select({ count: table.logsCount, xmin: sql<string>`xmin::text` })
+					.from(table)
+					.orderBy(table.id);
+				expect(before.every((row) => row.count === 0)).toBe(true);
+				await calculateAggregatedStatistics();
+				expect(
+					await db
+						.select({ count: table.logsCount, xmin: sql<string>`xmin::text` })
+						.from(table)
+						.orderBy(table.id),
+				).toEqual(before);
+			}
 		});
 	});
 });

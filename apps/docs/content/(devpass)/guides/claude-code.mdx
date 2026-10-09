@@ -68,6 +68,16 @@ Review the diff and test output, then check the request in your&nbsp;[LLM Gatewa
 
 ![Claude Code completing the coding task through LLM Gateway](/images/guides/claude-code/verified-session.png)
 
+## Prompt cache lifetime
+
+For Claude models, the default 5-minute cache refreshes on each hit. If coding pauses or long tool runs regularly exceed five minutes, opt into a 1-hour lifetime before starting Claude Code:
+
+```bash
+export CLAUDE_CODE_PROMPT_CACHE_TTL=1h
+```
+
+One-hour cache writes cost more, so the default is cheaper for continuous work. `FORCE_PROMPT_CACHING_5M=1` overrides this setting. See [provider cache control](/features/caching/provider-cache-control) for pricing and usage fields.
+
 ## Auto mode classifier billing
 
 When Claude Code requests server-side auto mode review, routing is restricted to

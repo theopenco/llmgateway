@@ -477,11 +477,19 @@ describe("prepareRequestBody - Anthropic", () => {
 				: [],
 		);
 
-		// Exactly one marker, on the tool_result block the caller chose — the
-		// turn boundary lands on that same message and leaves it alone.
-		expect(marked).toHaveLength(1);
-		expect((marked[0] as { type: string }).type).toBe("tool_result");
-		expect(getCacheControl(marked[0])).toEqual({ type: "ephemeral" });
+		// The caller's marker stays on its tool_result, where the turn boundary
+		// leaves it alone; the conversation tail gets the automatic one.
+		expect(marked).toEqual([
+			expect.objectContaining({
+				type: "tool_result",
+				cache_control: { type: "ephemeral" },
+			}),
+			expect.objectContaining({
+				type: "text",
+				text: "What should I wear?",
+				cache_control: { type: "ephemeral" },
+			}),
+		]);
 	});
 
 	test("suppresses auto-injection when a tool_result carries a 1h ttl", async () => {
@@ -776,10 +784,10 @@ describe("prepareRequestBody - Anthropic", () => {
 		).length;
 
 		expect(toolMarkers).toBe(1);
-		// The remaining 3 slots go to the system prompts; nothing is left for the
-		// messages or the turn boundary.
-		expect(systemMarkers).toBe(3);
-		expect(messageMarkers).toBe(0);
+		// The system prompts take one more slot and leave two for the
+		// conversation markers.
+		expect(systemMarkers).toBe(1);
+		expect(messageMarkers).toBe(2);
 		expect(toolMarkers + systemMarkers + messageMarkers).toBe(4);
 	});
 
@@ -1755,11 +1763,11 @@ describe("prepareRequestBody - Anthropic", () => {
 			msg.content.map((block) => Object.keys(block)[0]),
 		);
 		expect(blocks).toEqual([
-			["text", "cachePoint"],
+			["text"],
 			["text"],
 			["toolUse"],
 			["toolResult", "cachePoint"],
-			["text"],
+			["text", "cachePoint"],
 		]);
 	});
 
@@ -1916,9 +1924,10 @@ describe("prepareRequestBody - Anthropic", () => {
 							{ cachePoint: { type: "default" } },
 						];
 			expect(body).toHaveProperty("messages.2.content", resultContent);
+			// Anthropic cannot mark the tool-use-only boundary; Bedrock can.
 			expect(
 				JSON.stringify(body).match(/"cache_control"|"cachePoint"/g),
-			).toHaveLength(4);
+			).toHaveLength(provider === "anthropic" ? 3 : 4);
 			const withoutMarker = messages.map((message) =>
 				message.role === "tool"
 					? {
@@ -6291,6 +6300,7 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 						content: [{ text: JSON.stringify({ time: "20:52" }) }],
 					},
 				},
+				{ cachePoint: { type: "default" } },
 			],
 		});
 	});

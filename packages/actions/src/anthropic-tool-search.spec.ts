@@ -347,6 +347,7 @@ describe("anthropic tool search", () => {
 				type: "tool_result",
 				tool_use_id: "toolu_search",
 				content: references,
+				cache_control: { type: "ephemeral" },
 			},
 		]);
 	});
@@ -377,7 +378,12 @@ describe("anthropic tool search", () => {
 		};
 
 		expect(await toolResult([{ type: "text", text: "" }])).toEqual([
-			{ type: "tool_result", tool_use_id: "toolu_1", content: "No output" },
+			{
+				type: "tool_result",
+				tool_use_id: "toolu_1",
+				content: "No output",
+				cache_control: { type: "ephemeral" },
+			},
 		]);
 		expect(
 			await toolResult([
@@ -389,6 +395,7 @@ describe("anthropic tool search", () => {
 				type: "tool_result",
 				tool_use_id: "toolu_1",
 				content: [{ type: "text", text: "sunny" }],
+				cache_control: { type: "ephemeral" },
 			},
 		]);
 	});

@@ -1547,6 +1547,26 @@ describe("airside provider portal", () => {
 			}),
 		]);
 		expect(body.daily).toHaveLength(1);
+		await db.insert(tables.modelProviderMappingHistoryHourly).values({
+			modelId: "mistral-large-3",
+			providerId: "mistral",
+			modelProviderMappingId: "sparse-airside-idle",
+			hourTimestamp: hour,
+		});
+		const dense = await app.request(
+			`/airside/stats?providerCompanyId=${company.id}&days=7`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(dense.status).toBe(200);
+		expect(await dense.json()).toEqual(body);
+		await db
+			.delete(tables.modelProviderMappingHistoryHourly)
+			.where(
+				eq(
+					tables.modelProviderMappingHistoryHourly.modelProviderMappingId,
+					"sparse-airside-idle",
+				),
+			);
 	});
 
 	it("filters a fleet model across regions before the incident result limit", async () => {

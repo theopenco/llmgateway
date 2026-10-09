@@ -71,6 +71,7 @@ import {
 	GLOBAL_STATS_INTERVAL_SECONDS,
 	processClosedHours,
 } from "./services/global-stats-aggregator.js";
+import { startHistoryAfterRecovery } from "./services/history-startup.js";
 import {
 	runModelStatsByokErrorsBackfillStep,
 	runSourceModelStatsBackfillStep,
@@ -1071,6 +1072,29 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 				`Model history retention cleanup deleted ${mappingDeleted} model_provider_mapping_history and ${modelDeleted} model_history rows (older than ${MODEL_HISTORY_RETENTION_DAYS} days)`,
 			);
 		}
+
+		await db
+			.delete(tables.aggregationProgress)
+			.where(
+				and(
+					eq(tables.aggregationProgress.job, "minute-usage"),
+					lt(tables.aggregationProgress.bucketTimestamp, cutoffDate),
+				),
+			);
+		await db
+			.delete(tables.aggregationProgress)
+			.where(
+				and(
+					inArray(tables.aggregationProgress.job, [
+						"routing",
+						"content-filter",
+					]),
+					lt(
+						tables.aggregationProgress.bucketTimestamp,
+						getLogRetentionCutoff(),
+					),
+				),
+			);
 
 		logger.info("Model history retention cleanup completed successfully");
 	} catch (error) {
@@ -2681,6 +2705,11 @@ async function runModelHistoryRetentionLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
+				// Retry capped recovery and diagnostics before allowing minute pruning.
+				hourlyBackfillComplete =
+					(await backfillHistoryIfNeeded()) &&
+					(await backfillHourlyHistoryIfNeeded());
+
 				if (hourlyBackfillComplete) {
 					await cleanupExpiredModelHistory();
 				} else {
@@ -3460,6 +3489,19 @@ async function runProviderKeyModelSyncLoop() {
 	}
 }
 
+async function runHistoryStartupLoop() {
+	activeLoops++;
+	try {
+		await startHistoryAfterRecovery(() => {
+			void runMinutelyHistoryLoop();
+			void runCurrentMinuteHistoryLoop();
+			void runModelHistoryRetentionLoop();
+		});
+	} finally {
+		activeLoops--;
+	}
+}
+
 export async function startWorker() {
 	if (isWorkerRunning) {
 		logger.error("Worker is already running");
@@ -3495,33 +3537,7 @@ export async function startWorker() {
 		);
 	}
 
-	activeLoops++;
-	void backfillHistoryIfNeeded()
-		.then(() => {
-			logger.info("History backfill check completed");
-			// Hourly summaries roll up the minute history, so backfill them only
-			// after the minute backfill has had a chance to fill recent gaps.
-			return backfillHourlyHistoryIfNeeded();
-		})
-		.then(() => {
-			// A backfill cut short by shutdown has not populated every rollup.
-			if (isStopRequested()) {
-				return;
-			}
-			logger.info("Hourly history backfill check completed");
-			// Hourly rollups are now populated, so minute-history pruning is safe.
-			hourlyBackfillComplete = true;
-		})
-		.catch((error) => {
-			logger.error(
-				"Error during history backfill",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-		})
-		.finally(() => {
-			activeLoops--;
-		});
-
+	void runHistoryStartupLoop();
 	// Start all worker loops (all sequential — each waits for completion before scheduling next run)
 	logger.info("Starting worker loops...");
 	logger.info(
@@ -3568,8 +3584,6 @@ export async function startWorker() {
 		"- API key expiration: runs every 5 minutes to disable keys whose TTL passed",
 	);
 
-	void runMinutelyHistoryLoop();
-	void runCurrentMinuteHistoryLoop();
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
 	void runModelVerificationLoop();
@@ -3598,7 +3612,6 @@ export async function startWorker() {
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();
-	void runModelHistoryRetentionLoop();
 	void runEndUserSessionCleanupLoop();
 	void runApiKeyExpirationLoop();
 	void runLimitHitFlushLoop();

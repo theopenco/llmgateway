@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
@@ -72,6 +72,10 @@ const BASE_FIXTURE_COST = BUCKETS.reduce(
 );
 
 interface GlobalStatsResponse {
+	start: string;
+	end: string;
+	granularity: "hour" | "day";
+	timeZone: string;
 	totals: {
 		requestCount: number;
 		cost: number;
@@ -112,7 +116,10 @@ async function fetchStats(
 	cookie: string,
 	query: Record<string, string> = {},
 ): Promise<GlobalStatsResponse> {
-	const params = new URLSearchParams({ from: DATE, to: DATE, ...query });
+	const params = new URLSearchParams({
+		...(query.range ? {} : { from: DATE, to: DATE }),
+		...query,
+	});
 	const res = await app.request(`/admin/global-stats?${params.toString()}`, {
 		headers: { Cookie: cookie },
 	});
@@ -125,6 +132,15 @@ async function fetchStats(
 // suite inserted. Also runs before inserting, so a crashed run's leftovers do
 // not collide with the unique key.
 const clearFixtures = async () => {
+	await db
+		.delete(tables.globalHourlyModelStats)
+		.where(eq(tables.globalHourlyModelStats.usedModel, MODEL));
+	await db
+		.delete(tables.globalHourlySourceStats)
+		.where(eq(tables.globalHourlySourceStats.source, SOURCE));
+	await db
+		.delete(tables.globalHourlyProviderKeyModelStats)
+		.where(eq(tables.globalHourlyProviderKeyModelStats.usedModel, MODEL));
 	await db
 		.delete(tables.globalModelStats)
 		.where(eq(tables.globalModelStats.usedModel, MODEL));
@@ -189,8 +205,106 @@ describe("admin — global stats mode/kind dimensions", () => {
 	});
 
 	afterEach(async () => {
+		vi.useRealTimers();
 		await clearFixtures();
 		await deleteAll();
+	});
+
+	test("last 24 hours uses complete hourly buckets for every slice", async () => {
+		const elapsedMs = 37 * 60_000;
+		const now = new Date(DAY.getTime() + elapsedMs);
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(now);
+		const hourMs = 60 * 60 * 1000;
+		const dayMs = 24 * hourMs;
+		const start = new Date(DAY.getTime() - dayMs);
+		for (const offset of [-1, 0, 12, 23, 24]) {
+			const offsetMs = offset * hourMs;
+			for (const bucket of BUCKETS) {
+				const values = {
+					hourTimestamp: new Date(start.getTime() + offsetMs),
+					usedMode: bucket.usedMode,
+					orgKind: bucket.orgKind,
+					requestCount: bucket.requestCount,
+					cost: bucket.cost,
+					totalTokens: String(bucket.tokens),
+				};
+				await db
+					.insert(tables.globalHourlyModelStats)
+					.values({ ...values, usedModel: MODEL, usedProvider: "openai" });
+				await db
+					.insert(tables.globalHourlySourceStats)
+					.values({ ...values, source: SOURCE });
+				await db.insert(tables.globalHourlyProviderKeyModelStats).values({
+					...values,
+					usedModel: MODEL,
+					usedProvider: "openai",
+					providerKeyId: PROVIDER_KEY_ID,
+				});
+			}
+		}
+		for (const groupBy of ["model", "source", "mode", "kind"]) {
+			const body = await fetchStats(cookie, { range: "24h", groupBy });
+			expect(body.granularity).toBe("hour");
+			expect(body.timeZone).toBe("UTC");
+			expect(body.start).toBe(start.toISOString());
+			expect(body.end).toBe(DAY.toISOString());
+			expect(body.timeseries).toHaveLength(24);
+			expect(body.timeseries[0].requestCount).toBe(18);
+			expect(body.timeseries[1].requestCount).toBe(0);
+			expect(body.timeseries[23].requestCount).toBe(18);
+			expect(body.totals.requestCount).toBe(54);
+			expect(body.totals.totalTokens).toBe(540);
+			expect(
+				body.breakdown.reduce((sum, row) => sum + row.requestCount, 0),
+			).toBe(54);
+			expect(
+				body.timeseriesBreakdown.reduce(
+					(sum, row) => sum + row.requestCount,
+					0,
+				),
+			).toBe(54);
+		}
+		const filters: Record<string, string>[] = [
+			{},
+			{ provider: "openai" },
+			{ providerKeyId: PROVIDER_KEY_ID },
+		];
+		for (const filter of filters) {
+			const body = await fetchStats(cookie, {
+				range: "24h",
+				mode: "credits",
+				kind: "devpass",
+				...filter,
+			});
+			expect(body.totals.requestCount).toBe(6);
+			expect(body.totals.cost).toBeCloseTo(0.75);
+			expect(
+				body.composition.byMode.reduce((sum, row) => sum + row.requestCount, 0),
+			).toBe(6);
+		}
+		await db.insert(tables.providerKey).values({
+			id: PROVIDER_KEY_ID,
+			...encryptProviderKeyForStorage("test-token", PROVIDER_KEY_ID, null),
+			provider: "openai",
+			managed: true,
+		});
+		const keys = await app.request(
+			"/admin/global-stats/provider-keys?range=24h&mode=credits&kind=devpass&provider=openai",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(keys.status).toBe(200);
+		expect((await keys.json()).providerKeys).toMatchObject([
+			{ id: PROVIDER_KEY_ID, requestCount: 6, cost: 0.75 },
+		]);
+		const providers = await app.request(
+			"/admin/global-stats/providers?range=24h&mode=credits&kind=devpass",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(providers.status).toBe(200);
+		expect((await providers.json()).providers).toEqual([
+			{ provider: "openai", requestCount: 6, cost: 0.75 },
+		]);
 	});
 
 	describe("provider key filter", () => {

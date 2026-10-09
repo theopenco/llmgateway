@@ -17,13 +17,12 @@ test("shutdown waits for startup history before closing shared clients", async (
 	const gate = new Promise<void>((resolve) => {
 		release = resolve;
 	});
-	vi.spyOn(sync, "syncProvidersAndModels").mockImplementation(async () => {
+	vi.spyOn(sync, "syncProvidersAndModels").mockResolvedValue();
+	vi.spyOn(history, "initializeMinuteRecovery").mockImplementation(async () => {
 		requestStop();
-	});
-	vi.spyOn(history, "backfillHistoryIfNeeded").mockImplementation(async () => {
 		await gate;
+		return new Date();
 	});
-	vi.spyOn(history, "backfillHourlyHistoryIfNeeded").mockResolvedValue();
 	const closeDatabase = vi.spyOn(database, "closeDatabase").mockResolvedValue();
 	const closeRedis = vi.spyOn(cache, "closeRedisClient").mockResolvedValue();
 	const closeStorage = vi

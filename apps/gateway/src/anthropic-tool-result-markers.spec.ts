@@ -136,9 +136,10 @@ describe("/v1/messages tool_result content markers", () => {
 		const second = await send(1);
 
 		expect(first[0]!.content).toEqual(second[0]!.content);
+		// The newest result also gets the automatic conversation breakpoint.
 		expect(first.map((block) => block.cache_control)).toEqual([
 			{ type: "ephemeral" },
-			undefined,
+			{ type: "ephemeral" },
 		]);
 		expect(second.map((block) => block.cache_control)).toEqual([
 			undefined,
