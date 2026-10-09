@@ -91,6 +91,7 @@ import {
 } from "@/utils/email-domain-blocking.js";
 import {
 	HOURLY_BUCKET_THRESHOLD_MINUTES,
+	fillIdleHistory,
 	floorToHourStart,
 	isHourlyRange,
 	pickMappingHistoryTable,
@@ -9956,7 +9957,27 @@ admin.openapi(getProviderHistory, async (c) => {
 		.groupBy(mphTs)
 		.orderBy(asc(mphTs));
 
-	return c.json({ data: mapHistoryRows(rows) });
+	return c.json({
+		data: await fillIdleHistory({
+			rows: mapHistoryRows(rows),
+			idle: {
+				logsCount: 0,
+				errorsCount: 0,
+				clientErrorsCount: 0,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: 0,
+				cachedCount: 0,
+				avgTtft: null,
+				avgDuration: null,
+				totalTokens: 0,
+				totalCost: 0,
+				...toTokenBreakdown({}),
+			},
+			hourly,
+			from: rangeStart,
+			providerId,
+		}),
+	});
 });
 
 // Model history
@@ -10117,7 +10138,27 @@ admin.openapi(getModelHistory, async (c) => {
 		.groupBy(mhTs)
 		.orderBy(asc(mhTs));
 
-	return c.json({ data: mapHistoryRows(rows) });
+	return c.json({
+		data: await fillIdleHistory({
+			rows: mapHistoryRows(rows),
+			idle: {
+				logsCount: 0,
+				errorsCount: 0,
+				clientErrorsCount: 0,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: 0,
+				cachedCount: 0,
+				avgTtft: null,
+				avgDuration: null,
+				totalTokens: 0,
+				totalCost: 0,
+				...toTokenBreakdown({}),
+			},
+			hourly,
+			from: rangeStart,
+			modelId,
+		}),
+	});
 });
 
 // Mapping history (provider + model)
@@ -10306,7 +10347,29 @@ admin.openapi(getMappingHistory, async (c) => {
 		.groupBy(mphTs)
 		.orderBy(asc(mphTs));
 
-	return c.json({ data: mapHistoryRows(rows) });
+	return c.json({
+		data: await fillIdleHistory({
+			rows: mapHistoryRows(rows),
+			idle: {
+				logsCount: 0,
+				errorsCount: 0,
+				clientErrorsCount: 0,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: 0,
+				cachedCount: 0,
+				avgTtft: null,
+				avgDuration: null,
+				totalTokens: 0,
+				totalCost: 0,
+				...toTokenBreakdown({}),
+			},
+			hourly,
+			from: rangeStart,
+			providerId,
+			modelId,
+			region,
+		}),
+	});
 });
 
 // Provider detail – aggregated stats + per-model breakdown for the window
