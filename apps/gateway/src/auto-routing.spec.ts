@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import { redisClient } from "@llmgateway/cache";
 import { db, tables } from "@llmgateway/db";
 import { models } from "@llmgateway/models";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
@@ -38,6 +39,54 @@ describe("auto routing", () => {
 		);
 		return "real-token-auto";
 	}
+
+	test("auto respects lax caps without turning a new session into an exemption", async () => {
+		const token = await seed(["google-ai-studio"]);
+		await db.insert(tables.rateLimit).values({
+			id: "auto-lax",
+			provider: "google-ai-studio",
+			enforcement: "global",
+			maxRpm: 1,
+			mode: "lax",
+		});
+		const key =
+			"rate_limit:provider_cap:rpm:__global__:google-ai-studio:__all_models__";
+		for (const [turn, sessionId, status] of [
+			[1, "ongoing-auto", 200],
+			[2, "ongoing-auto", 200],
+			[3, "new-auto", 429],
+		] as const) {
+			const response = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+					"x-session-id": sessionId,
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [
+						{
+							role: "user",
+							content: [
+								{ type: "text", text: `Summarize this document, turn ${turn}` },
+								{
+									type: "file",
+									file: {
+										filename: "doc.pdf",
+										file_data: "data:application/pdf;base64,JVBERi0xLjQK",
+									},
+								},
+							],
+						},
+					],
+				}),
+			});
+			expect(response.status).toBe(status);
+			await response.text();
+		}
+		expect(await redisClient.zcard(key)).toBe(2);
+	});
 
 	test("a document request never selects a deactivated mapping", async () => {
 		// Documents widen auto to the whole catalogue, where retired Gemini 1.5

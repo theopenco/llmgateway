@@ -38,10 +38,9 @@ export interface ProviderRateLimitResult {
 	allowed: boolean;
 	rateLimited: boolean;
 	blockedBy: ProviderRateLimitWindow[];
-	// Rate limited, and every blocking window is a soft limit.
-	softOnly?: boolean;
-	// Allowed past a soft limit because the caller passed `softExempt`.
-	softLimitBypassed?: boolean;
+	// Every blocking window permits an existing session pin.
+	sessionExemptible?: boolean;
+	bypassReason?: "session_pin" | "explicit_provider";
 	retryAfter?: number;
 	limits: Record<ProviderRateLimitWindow, ProviderRateLimitWindowState>;
 }
@@ -277,13 +276,50 @@ function getBlockedWindows(
 		.map(([window]) => window);
 }
 
-function isSoftOnly(
+function isSessionExemptible(
 	limits: Record<ProviderRateLimitWindow, ProviderRateLimitWindowState>,
 	blockedBy: ProviderRateLimitWindow[],
 ): boolean {
 	return (
-		blockedBy.length > 0 &&
-		blockedBy.every((window) => limits[window].mode === "soft")
+		getProviderRateLimitBypassReason(
+			{ limits, blockedBy },
+			{ sessionPinned: true },
+		) !== undefined
+	);
+}
+
+export interface ProviderRateLimitExemption {
+	sessionPinned?: boolean;
+	explicitProvider?: boolean;
+}
+
+export function getProviderRateLimitBypassReason(
+	result: Pick<ProviderRateLimitResult, "limits" | "blockedBy">,
+	options: ProviderRateLimitExemption,
+): ProviderRateLimitResult["bypassReason"] {
+	if (result.blockedBy.length === 0) {
+		return undefined;
+	}
+	const allowed = result.blockedBy.every((window) => {
+		const { limit, mode } = result.limits[window];
+		return (
+			limit > 0 &&
+			(mode === "soft" || mode === "lax") &&
+			(options.sessionPinned || (mode === "lax" && options.explicitProvider))
+		);
+	});
+	return allowed
+		? options.sessionPinned
+			? "session_pin"
+			: "explicit_provider"
+		: undefined;
+}
+
+export function hasExceededLaxLimit(
+	result: Pick<ProviderRateLimitResult, "limits" | "blockedBy">,
+): boolean {
+	return result.blockedBy.some(
+		(window) => result.limits[window].mode === "lax",
 	);
 }
 
@@ -316,7 +352,7 @@ export async function peekProviderRateLimit(
 			allowed: blockedBy.length === 0,
 			rateLimited: blockedBy.length > 0,
 			blockedBy,
-			softOnly: isSoftOnly(limits, blockedBy),
+			sessionExemptible: isSessionExemptible(limits, blockedBy),
 			retryAfter: getCombinedRetryAfter(limits, blockedBy),
 			limits,
 		};
@@ -328,7 +364,7 @@ export async function peekProviderRateLimit(
 
 /**
  * Batch check which providers are rate-limited (read-only, no slot consumed).
- * `softOnly` is the subset blocked by soft limits alone.
+ * `sessionExemptible` permits session pins; `laxLimited` must never fail open.
  */
 export async function filterRateLimitedProviders(
 	organizationId: string,
@@ -336,7 +372,11 @@ export async function filterRateLimitedProviders(
 		providerId: string;
 		model: string;
 	}>,
-): Promise<{ rateLimited: Set<string>; softOnly: Set<string> }> {
+): Promise<{
+	rateLimited: Set<string>;
+	sessionExemptible: Set<string>;
+	laxLimited: Map<string, ProviderRateLimitResult>;
+}> {
 	const results = await Promise.all(
 		candidates.map(async (candidate) => ({
 			providerId: candidate.providerId,
@@ -351,9 +391,14 @@ export async function filterRateLimitedProviders(
 	const limited = results.filter((result) => result.rateLimited);
 	return {
 		rateLimited: new Set(limited.map((result) => result.providerId)),
-		softOnly: new Set(
+		laxLimited: new Map(
 			limited
-				.filter((result) => result.softOnly)
+				.filter(hasExceededLaxLimit)
+				.map((result) => [result.providerId, result]),
+		),
+		sessionExemptible: new Set(
+			limited
+				.filter((result) => result.sessionExemptible)
 				.map((result) => result.providerId),
 		),
 	};
@@ -363,8 +408,7 @@ export async function filterRateLimitedProviders(
  * Pick fallback candidates that are not at their RPM/RPD cap.
  * Dedupes peeks by providerId since rate limits are keyed by org+provider+root
  * model id, so region-expanded variants share the same window. Falls open to
- * the original candidates if every one is capped, so callers always get a
- * non-empty list when input was non-empty.
+ * original candidates if every one is capped, except exhausted lax caps.
  */
 export async function pickNonRateLimitedCandidates<
 	T extends { providerId: string },
@@ -385,7 +429,7 @@ export async function pickNonRateLimitedCandidates<
 		).values(),
 	);
 
-	const { rateLimited } = await filterRateLimitedProviders(
+	const { rateLimited, laxLimited } = await filterRateLimitedProviders(
 		organizationId,
 		uniquePeekCandidates,
 	);
@@ -394,20 +438,21 @@ export async function pickNonRateLimitedCandidates<
 		(p) => !rateLimited.has(p.providerId),
 	);
 
-	return nonRateLimited.length > 0 ? nonRateLimited : candidates;
+	return nonRateLimited.length > 0
+		? nonRateLimited
+		: candidates.filter((p) => !laxLimited.has(p.providerId));
 }
 
 /**
  * Check configurable provider/model caps stored in the database.
  * Uses a Redis sliding window approach identical to free model rate limiting.
- * With `softExempt`, a request blocked only by soft limits is allowed and still
- * counted, so the window reflects real traffic past the cap.
+ * Exempt requests still count toward every configured window.
  */
 export async function checkProviderRateLimit(
 	organizationId: string,
 	provider: string,
 	model: string,
-	options: { softExempt?: boolean } = {},
+	options: ProviderRateLimitExemption = {},
 ): Promise<ProviderRateLimitResult> {
 	try {
 		const { keys, limits } = await getProviderRateLimitStates(
@@ -417,10 +462,13 @@ export async function checkProviderRateLimit(
 		);
 		const blockedBy = getBlockedWindows(limits);
 
-		const softOnly = isSoftOnly(limits, blockedBy);
-		const softLimitBypassed = softOnly && options.softExempt === true;
+		const sessionExemptible = isSessionExemptible(limits, blockedBy);
+		const bypassReason = getProviderRateLimitBypassReason(
+			{ limits, blockedBy },
+			options,
+		);
 
-		if (blockedBy.length > 0 && !softLimitBypassed) {
+		if (blockedBy.length > 0 && !bypassReason) {
 			const retryAfter = getCombinedRetryAfter(limits, blockedBy);
 
 			logger.info(`Provider rate limit exceeded`, {
@@ -436,7 +484,7 @@ export async function checkProviderRateLimit(
 				allowed: false,
 				rateLimited: true,
 				blockedBy,
-				softOnly,
+				sessionExemptible,
 				retryAfter,
 				limits,
 			};
@@ -482,7 +530,7 @@ export async function checkProviderRateLimit(
 			allowed: true,
 			rateLimited: false,
 			blockedBy: [],
-			...(softLimitBypassed && { softLimitBypassed }),
+			...(bypassReason && { bypassReason }),
 			limits: updatedLimits,
 		};
 	} catch (error) {

@@ -46,6 +46,9 @@ async function clearFixtures() {
 		.delete(tables.providerCompany)
 		.where(eq(tables.providerCompany.id, COMPANY_ID));
 	await db.delete(tables.provider).where(eq(tables.provider.id, CARRIER_ID));
+	await db
+		.delete(tables.organization)
+		.where(eq(tables.organization.id, "test-org"));
 }
 
 describe("admin rate limits for airside listings", () => {
@@ -55,6 +58,11 @@ describe("admin rate limits for airside listings", () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await clearFixtures();
+		await db.insert(tables.organization).values({
+			id: "test-org",
+			name: "Test Organization",
+			billingEmail: "admin@example.com",
+		});
 
 		await db.insert(tables.provider).values({
 			id: CARRIER_ID,
@@ -237,7 +245,7 @@ describe("admin rate limits for airside listings", () => {
 		expect(await soft.json()).toMatchObject({ mode: "soft" });
 	});
 
-	test("rejects a soft zero limit", async () => {
+	test.each(["soft", "lax"])("rejects a %s zero limit", async (mode) => {
 		const response = await app.request("/admin/rate-limits", {
 			method: "POST",
 			headers: { Cookie: cookie, "Content-Type": "application/json" },
@@ -245,10 +253,38 @@ describe("admin rate limits for airside listings", () => {
 				provider: CARRIER_ID,
 				limitType: "rpm",
 				maxRequests: 0,
-				mode: "soft",
+				mode,
 			}),
 		});
 		expect(response.status).toBe(400);
+	});
+
+	test.each([
+		["/admin/rate-limits", "rpm"],
+		["/admin/rate-limits", "rpd"],
+		["/admin/organizations/test-org/rate-limits", "rpm"],
+		["/admin/organizations/test-org/rate-limits", "rpd"],
+	])("round-trips lax on %s for %s", async (path, limitType) => {
+		const response = await app.request(path, {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				provider: CARRIER_ID,
+				limitType,
+				maxRequests: 10,
+				mode: "lax",
+			}),
+		});
+		expect(response.status).toBe(201);
+		const created = await response.json();
+		expect(created).toMatchObject({ mode: "lax", limitType });
+		const listed = await app.request(path, { headers: { Cookie: cookie } });
+		expect(listed.status).toBe(200);
+		expect((await listed.json()).rateLimits).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: created.id, mode: "lax" }),
+			]),
+		);
 	});
 
 	test("still rejects zero on organization-specific limits", async () => {

@@ -185,7 +185,7 @@ For organizations that have **purchased at least some credits**:
 
 LLMGateway uses configured provider/model caps to route requests away from providers that have reached their allowance. If you pin a provider and disable fallback, reaching one of these gateway-enforced caps can return `429`.
 
-A cap marked **soft** keeps [sessions](/features/sessions) already pinned to the provider on it and routes only new traffic away; see [Global Provider Rate Limits](/features/routing#global-provider-rate-limits).
+A **soft** cap preserves existing [session pins](/features/sessions). A **lax** cap also allows explicit `provider/model` requests, including first requests and requests without a session. Automatic routing and cross-provider fallback respect lax caps even when every provider is capped. Exempt requests still count, and every exceeded RPM/RPD window must allow the exemption. See [Global Provider Rate Limits](/features/routing#global-provider-rate-limits).
 
 Rate limits returned by an upstream provider are treated as provider errors and are eligible for retries or [fallback routing](/features/routing), subject to your routing configuration and available providers. Upstream `Retry-After` and rate-limit headers are never forwarded to clients, including when retries are exhausted. Provider-scoped quota headers (`X-RateLimit-*-Provider*`) are not exposed.
 

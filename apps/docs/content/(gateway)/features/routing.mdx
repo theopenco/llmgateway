@@ -45,14 +45,30 @@ provider remains selected, the request returns `429` without calling it, even
 when every candidate is rate-limited. No configured limit still means unlimited;
 other rate-limit settings retain their existing behavior.
 
-Each limit is **strict** (the default) or **soft**. Both route traffic away from
-a provider that has reached its limit. A soft limit makes one exception: a
-[session](/features/sessions) already pinned to that provider keeps using it, so
-its prompt cache stays warm. Those requests still count toward the limit, so
-usage can exceed it until the pinned sessions end. New sessions, requests
-without a session id, and a session's first request on a model are routed away
-as usual. A limit of `0` is always strict, and a session stays pinned only when
-every limit it exceeds is soft.
+Each limit is **strict** (the default), **soft**, or **lax**. Soft and lax
+limits allow [sessions](/features/sessions) already pinned to the capped
+provider to keep using it. Lax also allows requests that explicitly name that
+provider (`provider/model`), even without a session or on its first request.
+
+| Request after reaching the cap                            | Soft         | Lax         |
+| --------------------------------------------------------- | ------------ | ----------- |
+| Existing session pinned to the provider/model             | Allowed      | Allowed     |
+| Explicit provider request without an existing session pin | No exemption | Allowed     |
+| Automatic routing without an existing session pin         | Routed away  | Routed away |
+| Fallback from another provider                            | No exemption | Excluded    |
+
+Exempt requests still count toward the limit. A session id alone does not grant
+an exemption, and every exceeded RPM/RPD window must permit the request: a
+strict window grants no exemption, while a soft window still requires an
+existing session pin. Zero limits are always strict.
+
+Lax caps apply to automatic provider selection under every routing strategy,
+including dynamic provider ordering. A capped lax provider cannot be used as a
+last resort when all candidates are capped; requests with no eligible initial
+route return `429`. Retries on the originally selected provider retain its
+exemption, including credential and region changes; cross-provider fallback
+does not. Administrators can configure lax limits globally or for a specific
+organization, with the same precedence and counter scopes as other modes.
 
 ## Model Selection
 

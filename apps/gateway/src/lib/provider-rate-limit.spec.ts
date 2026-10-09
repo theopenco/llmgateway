@@ -160,6 +160,62 @@ describe("checkProviderRateLimit", () => {
 		}
 	});
 
+	it.each([
+		["lax", "lax", false, false, false],
+		["lax", "lax", false, true, true],
+		["lax", "lax", true, false, true],
+		["soft", "lax", false, true, false],
+		["lax", "soft", false, true, false],
+		["soft", "lax", true, false, true],
+		["lax", "soft", true, true, true],
+		["strict", "lax", true, true, false],
+		["lax", "strict", true, true, false],
+	] as const)(
+		"checks exceeded %s/%s windows (session=%s, explicit=%s)",
+		async (rpmMode, rpdMode, sessionPinned, explicitProvider, allowed) => {
+			vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
+				maxRpm: 1,
+				maxRpd: 1,
+				rpmSource: "global_provider",
+				rpdSource: "org_provider",
+				rpmMode,
+				rpdMode,
+			});
+			vi.mocked(redis.zcard).mockResolvedValue(1);
+			vi.mocked(redis.zrange).mockResolvedValue([
+				"seed",
+				Date.now().toString(),
+			]);
+			const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o", {
+				sessionPinned,
+				explicitProvider,
+			});
+			expect(result.allowed).toBe(allowed);
+			expect(redis.zadd).toHaveBeenCalledTimes(allowed ? 2 : 0);
+			expect(result.bypassReason).toBe(
+				allowed
+					? sessionPinned
+						? "session_pin"
+						: "explicit_provider"
+					: undefined,
+			);
+		},
+	);
+
+	it("does not exempt zero even if a stale result says lax", async () => {
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
+			...noLimits,
+			rpmSource: "global_provider",
+			rpmMode: "lax",
+		});
+		const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o", {
+			sessionPinned: true,
+			explicitProvider: true,
+		});
+		expect(result.allowed).toBe(false);
+		expect(redis.zadd).not.toHaveBeenCalled();
+	});
+
 	describe("soft limits", () => {
 		const softRpm = {
 			maxRpm: 10,
@@ -185,7 +241,7 @@ describe("checkProviderRateLimit", () => {
 			const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o");
 
 			expect(result.allowed).toBe(false);
-			expect(result.softOnly).toBe(true);
+			expect(result.sessionExemptible).toBe(true);
 			expect(redis.zadd).not.toHaveBeenCalled();
 		});
 
@@ -195,11 +251,11 @@ describe("checkProviderRateLimit", () => {
 			);
 
 			const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o", {
-				softExempt: true,
+				sessionPinned: true,
 			});
 
 			expect(result.allowed).toBe(true);
-			expect(result.softLimitBypassed).toBe(true);
+			expect(result.bypassReason).toBe("session_pin");
 			expect(vi.mocked(redis.zadd).mock.calls[0][0]).toBe(
 				"rate_limit:provider_cap:rpm:org-1:openai:gpt-4o",
 			);
@@ -213,11 +269,11 @@ describe("checkProviderRateLimit", () => {
 			});
 
 			const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o", {
-				softExempt: true,
+				sessionPinned: true,
 			});
 
 			expect(result.allowed).toBe(false);
-			expect(result.softOnly).toBe(false);
+			expect(result.sessionExemptible).toBe(false);
 			expect(redis.zadd).not.toHaveBeenCalled();
 		});
 	});
@@ -419,7 +475,7 @@ describe("filterRateLimitedProviders", () => {
 
 		expect(result.rateLimited.has("openai")).toBe(true);
 		expect(result.rateLimited.has("anthropic")).toBe(false);
-		expect(result.softOnly.size).toBe(0);
+		expect(result.sessionExemptible.size).toBe(0);
 	});
 
 	it("reports providers blocked by soft limits alone", async () => {
@@ -451,7 +507,7 @@ describe("filterRateLimitedProviders", () => {
 		]);
 
 		expect([...result.rateLimited].sort()).toEqual(["anthropic", "openai"]);
-		expect([...result.softOnly]).toEqual(["openai"]);
+		expect([...result.sessionExemptible]).toEqual(["openai"]);
 	});
 });
 
@@ -475,6 +531,21 @@ describe("pickNonRateLimitedCandidates", () => {
 		rpdSource: "none",
 		rpmRateLimitId: "rl-rpm",
 	} as const;
+
+	it("does not revive lax providers when every fallback is capped", async () => {
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
+			...cappedRpm,
+			rpmMode: "lax",
+		});
+		vi.mocked(redis.zcard).mockResolvedValue(10);
+		vi.mocked(redis.zrange).mockResolvedValue(["seed", Date.now().toString()]);
+		expect(
+			await pickNonRateLimitedCandidates("org-1", "gpt-4o", [
+				{ providerId: "openai" },
+				{ providerId: "azure" },
+			]),
+		).toEqual([]);
+	});
 
 	it("drops a rate-limited candidate so the router falls back to the next one", async () => {
 		vi.mocked(mockCachedQueries.findEffectiveRateLimit)

@@ -5451,7 +5451,7 @@ const rateLimitSchema = z.object({
 	limitType: z.enum(["rpm", "rpd"]),
 	maxRequests: z.number(),
 	enforcement: z.enum(["per_org", "global"]),
-	mode: z.enum(["strict", "soft"]),
+	mode: z.enum(["strict", "soft", "lax"]),
 	reason: z.string().nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
@@ -5471,8 +5471,8 @@ const createRateLimitBodySchema = z.object({
 		.int("Limit must be a whole number")
 		.min(0, "Limit must be at least 0"),
 	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
-	// "soft" lets a session already pinned to the capped provider keep it.
-	mode: z.enum(["strict", "soft"]).optional().default("strict"),
+	// Soft preserves session pins; lax also permits explicit provider requests.
+	mode: z.enum(["strict", "soft", "lax"]).optional().default("strict"),
 	reason: z.string().nullable().optional(),
 });
 
@@ -5654,7 +5654,7 @@ function formatRateLimit(r: {
 	maxRpm: number | null;
 	maxRpd: number | null;
 	enforcement: string;
-	mode: "strict" | "soft";
+	mode: "strict" | "soft" | "lax";
 	reason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
@@ -5704,9 +5704,9 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 		throw new HTTPException(400, { message: validation.error });
 	}
 
-	if (body.mode === "soft" && body.maxRequests === 0) {
+	if (body.mode !== "strict" && body.maxRequests === 0) {
 		throw new HTTPException(400, {
-			message: "A limit of 0 blocks all requests and cannot be soft",
+			message: "A limit of 0 blocks all requests and must be strict",
 		});
 	}
 

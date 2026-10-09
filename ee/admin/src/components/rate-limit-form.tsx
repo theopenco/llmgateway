@@ -44,7 +44,7 @@ function AirsideBadge() {
 
 type RateLimitType = "rpm" | "rpd";
 type RateLimitEnforcement = "per_org" | "global";
-type RateLimitMode = "strict" | "soft";
+type RateLimitMode = "strict" | "soft" | "lax";
 
 interface RateLimitFormProps {
 	providers: RateLimitProviderOption[];
@@ -173,8 +173,8 @@ export function RateLimitForm({
 			return;
 		}
 
-		if (mode === "soft" && parsedLimit === 0) {
-			setError("A limit of 0 blocks all requests and cannot be soft");
+		if (mode !== "strict" && parsedLimit === 0) {
+			setError("A limit of 0 blocks all requests and must be strict");
 			return;
 		}
 
@@ -283,12 +283,15 @@ export function RateLimitForm({
 							<SelectContent>
 								<SelectItem value="strict">Strict</SelectItem>
 								<SelectItem value="soft">Soft</SelectItem>
+								<SelectItem value="lax">Lax</SelectItem>
 							</SelectContent>
 						</Select>
 						<p className="text-xs text-muted-foreground">
 							{mode === "strict"
 								? "All traffic is routed away once the limit is reached"
-								: "Sessions already pinned to the provider keep using it past the limit; new sessions are routed away"}
+								: mode === "soft"
+									? "Sessions already pinned to the provider keep using it past the limit; new sessions are routed away"
+									: "Explicit provider requests and existing pinned sessions may exceed the limit; automatic routing and fallback respect it."}
 						</p>
 					</div>
 
