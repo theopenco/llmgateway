@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test, vi } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
@@ -7,6 +7,7 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
+import { resetFailOnceCounter } from "./test-utils/mock-openai-server.js";
 
 // Regression tests for https://github.com/theopenco/llmgateway/issues/3347:
 // switching service tiers mid-session must not break session stickiness.
@@ -329,7 +330,7 @@ describe("session stickiness across candidate changes", () => {
 		const rpmKey = "rate_limit:provider_cap:rpm:org-id:openai:gpt-5.5";
 		const rpdKey = "rate_limit:provider_cap:rpd:org-id:openai:gpt-5.5";
 
-		async function capOpenai(mode: "strict" | "soft") {
+		async function capOpenai(mode: "strict" | "soft" | "lax") {
 			await db.insert(tables.rateLimit).values({
 				id: `rate-limit-openai-${mode}`,
 				organizationId: "org-id",
@@ -366,46 +367,297 @@ describe("session stickiness across candidate changes", () => {
 			};
 		}
 
-		test("a pinned session stays on a soft-capped provider and still counts", async () => {
-			const token = await seedApiAndProviderKeys("soft-pinned");
-			const sessionId = "session-soft-pinned";
-			await capOpenai("soft");
-			await pinToOpenai(sessionId);
-
-			const result = await send(token, sessionId);
-
-			expect(result.status).toBe(200);
-			expect(result.firstProvider).toBe("openai");
-			expect(result.usedProvider).toBe("openai");
-			expect(await readSessionPin(sessionId)).toMatchObject({
-				providerId: "openai",
-			});
-			// Counted past the cap of 1, so new sessions keep being routed away.
-			expect(await redisClient.zcard(rpmKey)).toBe(2);
+		describe.each(["soft", "lax"] as const)("zero %s caps", (mode) => {
+			test.each([false, true])(
+				"allows only eligible requests (stream=%s)",
+				async (stream) => {
+					const token = await seedApiAndProviderKeys("zero-cap");
+					await db.insert(tables.rateLimit).values({
+						id: "zero-cap",
+						organizationId: "org-id",
+						model: MODEL,
+						maxRpm: 0,
+						maxRpd: 0,
+						mode,
+					});
+					await pinToOpenai("zero-existing");
+					for (const sessionId of [undefined, "zero-new", "zero-existing"]) {
+						for (const explicit of [false, true]) {
+							const res = await chatCompletion(
+								token,
+								{
+									model: explicit ? `openai/${MODEL}` : MODEL,
+									stream,
+									messages: [
+										{ role: "user", content: `zero ${sessionId} ${explicit}` },
+									],
+								},
+								sessionId ? { "x-session-id": sessionId } : {},
+							);
+							const allowed =
+								sessionId === "zero-existing" || (mode === "lax" && explicit);
+							expect(res.status).toBe(allowed ? 200 : 429);
+							await res.text();
+						}
+					}
+					const count = mode === "lax" ? 4 : 2;
+					expect(await redisClient.zcard(rpmKey)).toBe(count);
+					expect(await redisClient.zcard(rpdKey)).toBe(count);
+				},
+			);
 		});
 
-		test("a new session is routed away from a soft-capped provider", async () => {
-			const token = await seedApiAndProviderKeys("soft-new");
-			const sessionId = "session-soft-new";
+		test.each(["soft", "lax"] as const)(
+			"a pinned session stays on a %s-capped provider and still counts",
+			async (mode) => {
+				const token = await seedApiAndProviderKeys("soft-pinned");
+				const sessionId = "session-soft-pinned";
+				await capOpenai(mode);
+				await pinToOpenai(sessionId);
+
+				const result = await send(token, sessionId);
+
+				expect(result.status).toBe(200);
+				expect(result.firstProvider).toBe("openai");
+				expect(result.usedProvider).toBe("openai");
+				expect(await readSessionPin(sessionId)).toMatchObject({
+					providerId: "openai",
+				});
+				// Counted past the cap of 1, so new sessions keep being routed away.
+				expect(await redisClient.zcard(rpmKey)).toBe(2);
+			},
+		);
+
+		test.each(["soft", "lax"] as const)(
+			"a new session is routed away from a %s-capped provider",
+			async (mode) => {
+				const token = await seedApiAndProviderKeys("soft-new");
+				const sessionId = "session-soft-new";
+				await capOpenai(mode);
+
+				const result = await send(token, sessionId);
+
+				expect(result.firstProvider).toBe("azure");
+				expect(await readSessionPin(sessionId)).toMatchObject({
+					providerId: "azure",
+				});
+				expect(await redisClient.zcard(rpmKey)).toBe(1);
+			},
+		);
+
+		test.each(["soft", "lax"] as const)(
+			"a request without a session is routed away from a %s-capped provider",
+			async (mode) => {
+				const token = await seedApiAndProviderKeys("soft-no-session");
+				await capOpenai(mode);
+
+				const result = await send(token);
+
+				expect(result.firstProvider).toBe("azure");
+				expect(await redisClient.zcard(rpmKey)).toBe(1);
+			},
+		);
+
+		test.each([
+			["org", "rpm", false],
+			["org", "rpd", true],
+			["global", "rpm", true],
+			["global", "rpd", false],
+			["shared", "rpm", false],
+			["shared", "rpd", true],
+		] as const)(
+			"lax explicit requests bypass %s %s (stream=%s)",
+			async (scope, window, stream) => {
+				const token = await seedApiAndProviderKeys("lax-explicit");
+				await db.insert(tables.rateLimit).values({
+					id: "lax-explicit",
+					organizationId: scope === "org" ? "org-id" : null,
+					provider: "openai",
+					model: MODEL,
+					mode: "lax",
+					enforcement: scope === "shared" ? "global" : "per_org",
+					...(window === "rpm" ? { maxRpm: 1 } : { maxRpd: 1 }),
+				});
+				const key = `rate_limit:provider_cap:${window}:${scope === "shared" ? "__global__" : "org-id"}:openai:${MODEL}`;
+				await redisClient.zadd(key, Date.now(), "seed");
+				for (const sessionId of [undefined, "lax-new-session"]) {
+					const res = await chatCompletion(
+						token,
+						{
+							model: `openai/${MODEL}`,
+							stream,
+							messages: [
+								{ role: "user", content: `lax ${sessionId ?? "no-session"}` },
+							],
+						},
+						{
+							"x-no-fallback": "true",
+							...(sessionId ? { "x-session-id": sessionId } : {}),
+						},
+					);
+					expect(res.status).toBe(200);
+					await res.text();
+				}
+				expect(await redisClient.zcard(key)).toBe(3);
+				expect(await readSessionPin("lax-new-session")).toMatchObject({
+					providerId: "openai",
+				});
+			},
+		);
+
+		test.each([false, true])(
+			"all lax candidates capped returns 429 (stream=%s)",
+			async (stream) => {
+				const token = await seedApiAndProviderKeys("lax-all");
+				await capOpenai("lax");
+				await db.insert(tables.rateLimit).values({
+					id: "lax-azure",
+					organizationId: "org-id",
+					provider: "azure",
+					model: MODEL,
+					maxRpm: 1,
+					mode: "lax",
+				});
+				await redisClient.zadd(
+					`rate_limit:provider_cap:rpm:org-id:azure:${MODEL}`,
+					Date.now(),
+					"seed",
+				);
+				const res = await chatCompletion(
+					token,
+					{
+						model: MODEL,
+						stream,
+						messages: [{ role: "user", content: "all lax capped" }],
+					},
+					{ "x-session-id": "lax-all-new" },
+				);
+				expect(res.status).toBe(429);
+				expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
+				expect(await redisClient.zcard(rpmKey)).toBe(1);
+			},
+		);
+
+		test("a no-fallback cap rejection includes retry headers", async () => {
+			const token = await seedApiAndProviderKeys("cap-headers");
 			await capOpenai("soft");
-
-			const result = await send(token, sessionId);
-
-			expect(result.firstProvider).toBe("azure");
-			expect(await readSessionPin(sessionId)).toMatchObject({
-				providerId: "azure",
-			});
-			expect(await redisClient.zcard(rpmKey)).toBe(1);
+			const res = await chatCompletion(
+				token,
+				{
+					model: `openai/${MODEL}`,
+					messages: [{ role: "user", content: "no fallback at cap" }],
+				},
+				{ "x-no-fallback": "true" },
+			);
+			expect(res.status).toBe(429);
+			expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
+			expect(res.headers.get("RateLimit-Remaining")).toBe("0");
+			expect(res.headers.get("RateLimit-Reset")).toBe(
+				res.headers.get("Retry-After"),
+			);
+			expect(Number(res.headers.get("X-RateLimit-Reset"))).toBeGreaterThan(
+				Math.floor(Date.now() / 1000),
+			);
 		});
 
-		test("a request without a session is routed away from a soft-capped provider", async () => {
-			const token = await seedApiAndProviderKeys("soft-no-session");
-			await capOpenai("soft");
-
-			const result = await send(token);
-
-			expect(result.firstProvider).toBe("azure");
+		test("the single-provider shortcut cannot create a lax exemption", async () => {
+			const token = await seedApiAndProviderKeys("lax-single");
+			await capOpenai("lax");
+			const res = await chatCompletion(
+				token,
+				{
+					model: MODEL,
+					service_tier: "flex",
+					messages: [{ role: "user", content: "single lax" }],
+				},
+				{ "x-session-id": "lax-single-new" },
+			);
+			expect(res.status).toBe(429);
 			expect(await redisClient.zcard(rpmKey)).toBe(1);
+			expect(await readSessionPin("lax-single-new")).toBeNull();
+		});
+
+		test.each([false, true])(
+			"fallback cannot enter a lax-capped provider (stream=%s)",
+			async (stream) => {
+				const token = await seedApiAndProviderKeys("lax-fallback");
+				await capOpenai("lax");
+				const res = await chatCompletion(token, {
+					model: `azure/${MODEL}`,
+					stream,
+					messages: [{ role: "user", content: "TRIGGER_ERROR lax-fallback" }],
+				});
+				const body = await res.text();
+				expect(res.status === 500 || body.includes("error")).toBe(true);
+				expect(await redisClient.zcard(rpmKey)).toBe(1);
+			},
+		);
+
+		test.each([false, true])(
+			"lax explicit requests retain their exemption when rotating keys (stream=%s)",
+			async (stream) => {
+				resetFailOnceCounter();
+				const token = await seedApiAndProviderKeys("lax-retry");
+				await capOpenai("lax");
+				await db.insert(tables.providerKey).values({
+					id: "lax-retry-key",
+					...encryptProviderKeyForStorage(
+						["sk", "lax", "retry"].join("_"),
+						"lax-retry-key",
+						"org-id",
+					),
+					provider: "openai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+				const res = await chatCompletion(
+					token,
+					{
+						model: `openai/${MODEL}`,
+						stream,
+						messages: [
+							{ role: "user", content: "TRIGGER_FAIL_ONCE lax-retry" },
+						],
+					},
+					{ "x-no-fallback": "true" },
+				);
+				expect(res.status).toBe(200);
+				const body = await res.text();
+				expect(body).not.toContain("Temporary server error");
+				expect(await redisClient.zcard(rpmKey)).toBe(3);
+			},
+		);
+
+		test("a cap reached after selection cannot use the newly created session pin", async () => {
+			const token = await seedApiAndProviderKeys("lax-race");
+			await db.insert(tables.rateLimit).values({
+				id: "lax-race",
+				organizationId: "org-id",
+				provider: "azure",
+				model: MODEL,
+				maxRpm: 1,
+				mode: "lax",
+			});
+			const key = `rate_limit:provider_cap:rpm:org-id:azure:${MODEL}`;
+			const original = redisClient.zcard.bind(redisClient);
+			let filled = false;
+			const spy = vi
+				.spyOn(redisClient, "zcard")
+				.mockImplementation(async (...args) => {
+					const count = await original(...args);
+					if (args[0] === key && !filled) {
+						filled = true;
+						await redisClient.zadd(key, Date.now(), "concurrent-request");
+					}
+					return count;
+				});
+			try {
+				const result = await send(token, "lax-race-new");
+				expect(result.status).toBe(429);
+				expect(await redisClient.zcard(key)).toBe(1);
+			} finally {
+				spy.mockRestore();
+			}
 		});
 
 		test("a strict cap still re-pins a pinned session", async () => {

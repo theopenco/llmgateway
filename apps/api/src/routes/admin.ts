@@ -5452,7 +5452,7 @@ const rateLimitSchema = z.object({
 	limitType: z.enum(["rpm", "rpd"]),
 	maxRequests: z.number(),
 	enforcement: z.enum(["per_org", "global"]),
-	mode: z.enum(["strict", "soft"]),
+	mode: z.enum(["strict", "soft", "lax"]),
 	reason: z.string().nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
@@ -5472,21 +5472,16 @@ const createRateLimitBodySchema = z.object({
 		.int("Limit must be a whole number")
 		.min(0, "Limit must be at least 0"),
 	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
-	// "soft" lets a session already pinned to the capped provider keep it.
-	mode: z.enum(["strict", "soft"]).optional().default("strict"),
+	// Soft preserves session pins; lax also permits explicit provider requests.
+	mode: z.enum(["strict", "soft", "lax"]).optional().default("strict"),
 	reason: z.string().nullable().optional(),
 });
 
 // Org-specific limits are always enforced per-org, so they don't expose the
 // enforcement choice.
-const createOrganizationRateLimitBodySchema = createRateLimitBodySchema
-	.omit({ enforcement: true })
-	.extend({
-		maxRequests: z.coerce
-			.number()
-			.int("Limit must be a whole number")
-			.min(1, "Limit must be at least 1"),
-	});
+const createOrganizationRateLimitBodySchema = createRateLimitBodySchema.omit({
+	enforcement: true,
+});
 
 // --- Global Rate Limits ---
 
@@ -5533,6 +5528,33 @@ const createGlobalRateLimit = createRoute({
 		409: {
 			description:
 				"Rate limit already exists for this provider/model/limit type combination.",
+		},
+	},
+});
+
+const updateGlobalRateLimit = createRoute({
+	method: "put",
+	path: "/rate-limits/{rateLimitId}",
+	request: {
+		params: z.object({
+			rateLimitId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": { schema: createRateLimitBodySchema.openapi({}) },
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: { "application/json": { schema: rateLimitSchema.openapi({}) } },
+			description: "Updated rate limit.",
+		},
+		400: { description: "Invalid rate limit data." },
+		404: { description: "Rate limit not found." },
+		409: {
+			description:
+				"A rate limit already exists for this provider/model combination.",
 		},
 	},
 });
@@ -5622,6 +5644,36 @@ const createOrganizationRateLimit = createRoute({
 	},
 });
 
+const updateOrganizationRateLimit = createRoute({
+	method: "put",
+	path: "/organizations/{orgId}/rate-limits/{rateLimitId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			rateLimitId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createOrganizationRateLimitBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: { "application/json": { schema: rateLimitSchema.openapi({}) } },
+			description: "Updated rate limit.",
+		},
+		400: { description: "Invalid rate limit data." },
+		404: { description: "Rate limit not found." },
+		409: {
+			description:
+				"A rate limit already exists for this provider/model combination.",
+		},
+	},
+});
+
 const deleteOrganizationRateLimit = createRoute({
 	method: "delete",
 	path: "/organizations/{orgId}/rate-limits/{rateLimitId}",
@@ -5655,7 +5707,7 @@ function formatRateLimit(r: {
 	maxRpm: number | null;
 	maxRpd: number | null;
 	enforcement: string;
-	mode: "strict" | "soft";
+	mode: "strict" | "soft" | "lax";
 	reason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
@@ -5677,6 +5729,70 @@ function formatRateLimit(r: {
 		createdAt: r.createdAt.toISOString(),
 		updatedAt: r.updatedAt.toISOString(),
 	};
+}
+
+async function updateRateLimit(
+	rateLimitId: string,
+	organizationId: string | null,
+	body: z.infer<typeof createRateLimitBodySchema>,
+) {
+	const scope = and(
+		eq(tables.rateLimit.id, rateLimitId),
+		organizationId === null
+			? isNull(tables.rateLimit.organizationId)
+			: eq(tables.rateLimit.organizationId, organizationId),
+	);
+
+	try {
+		return await db.transaction(async (tx) => {
+			const [before] = await tx
+				.select()
+				.from(tables.rateLimit)
+				.where(scope)
+				.for("update");
+			if (!before) {
+				throw new HTTPException(404, { message: "Rate limit not found" });
+			}
+
+			const provider = body.provider ?? null;
+			const model = body.model ?? null;
+			const validation = await validateProviderAndModel(provider, model);
+			if (validation.error) {
+				throw new HTTPException(400, { message: validation.error });
+			}
+
+			const [updated] = await tx
+				.update(tables.rateLimit)
+				.set({
+					provider,
+					model,
+					maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
+					maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+					enforcement: body.enforcement,
+					mode: body.mode,
+					reason: body.reason ?? null,
+				})
+				.where(scope)
+				.returning();
+			return { before, updated };
+		});
+	} catch (error) {
+		const cause = error instanceof Error && error.cause ? error.cause : error;
+		if (
+			typeof cause === "object" &&
+			cause !== null &&
+			"code" in cause &&
+			cause.code === "23505" &&
+			"constraint" in cause &&
+			cause.constraint === "rate_limit_org_provider_model_unique"
+		) {
+			throw new HTTPException(409, {
+				message:
+					"A rate limit already exists for this provider/model combination",
+			});
+		}
+		throw error;
+	}
 }
 
 // --- Global Rate Limit Handlers ---
@@ -5705,12 +5821,6 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 		throw new HTTPException(400, { message: validation.error });
 	}
 
-	if (body.mode === "soft" && body.maxRequests === 0) {
-		throw new HTTPException(400, {
-			message: "A limit of 0 blocks all requests and cannot be soft",
-		});
-	}
-
 	const [created] = await db
 		.insert(tables.rateLimit)
 		.values({
@@ -5734,6 +5844,16 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 	}
 
 	return c.json(formatRateLimit(created), 201);
+});
+
+admin.openapi(updateGlobalRateLimit, async (c) => {
+	const { rateLimitId } = c.req.valid("param");
+	const { updated } = await updateRateLimit(
+		rateLimitId,
+		null,
+		c.req.valid("json"),
+	);
+	return c.json(formatRateLimit(updated), 200);
 });
 
 admin.openapi(deleteGlobalRateLimit, async (c) => {
@@ -6633,6 +6753,28 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 	});
 
 	return c.json(formatRateLimit(created), 201);
+});
+
+admin.openapi(updateOrganizationRateLimit, async (c) => {
+	const user = c.get("user");
+	const { orgId, rateLimitId } = c.req.valid("param");
+	const { before, updated } = await updateRateLimit(rateLimitId, orgId, {
+		...c.req.valid("json"),
+		enforcement: "per_org",
+	});
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "rate_limit.update",
+		resourceType: "rate_limit",
+		resourceId: updated.id,
+		metadata: {
+			before: formatRateLimit(before),
+			after: formatRateLimit(updated),
+			source: "admin",
+		},
+	});
+	return c.json(formatRateLimit(updated), 200);
 });
 
 admin.openapi(deleteOrganizationRateLimit, async (c) => {

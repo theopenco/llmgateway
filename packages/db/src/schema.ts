@@ -4622,6 +4622,7 @@ export const auditLogActions = [
 	"discount.create",
 	"discount.delete",
 	"rate_limit.create",
+	"rate_limit.update",
 	"rate_limit.delete",
 	// Dev Plan
 	"dev_plan.subscribe",
@@ -5262,8 +5263,8 @@ export const rateLimit = snakeCase.table(
 			.notNull()
 			.default("per_org"),
 		// "soft" keeps a session already pinned to the capped provider on it;
-		// all other traffic is routed away exactly as under "strict".
-		mode: text({ enum: ["strict", "soft"] })
+		// "lax" also allows explicitly requested providers past the cap.
+		mode: text({ enum: ["strict", "soft", "lax"] })
 			.notNull()
 			.default("strict"),
 		// Optional metadata
