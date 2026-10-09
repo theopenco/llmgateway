@@ -45,6 +45,7 @@ import {
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
 import { fetchNoRedirect } from "./fetch-no-redirect.js";
+import { orderToolResultReminders } from "./order-tool-result-reminders.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
@@ -3208,7 +3209,8 @@ export async function prepareRequestBody(
 			// later one would change the prefix every time a client such as Claude
 			// Code appends one, re-writing the cached conversation on each turn, so
 			// those stay in place: natively where the mapping accepts the role at
-			// that position, otherwise as a user system-reminder.
+			// that position, otherwise as a user system-reminder. Reminders that
+			// interrupt tool results move after the complete result set.
 			const conversationStart = processedMessages.findIndex(
 				(m) => m.role !== "system",
 			);
@@ -3219,7 +3221,9 @@ export async function prepareRequestBody(
 			const conversationMessages =
 				conversationStart === -1
 					? []
-					: processedMessages.slice(conversationStart);
+					: orderToolResultReminders(
+							processedMessages.slice(conversationStart),
+						);
 			const nonSystemMessages =
 				providerMappingForOptions?.midConversationSystem === true
 					? conversationMessages
@@ -3694,7 +3698,7 @@ export async function prepareRequestBody(
 			// Mirror the Anthropic branch: only the system messages that open the
 			// conversation go into Bedrock's system field (required for prompt
 			// caching). Converse has no system role inside messages, so a later one
-			// stays in place as a user system-reminder.
+			// becomes a user system-reminder, after any interrupted tool results.
 			const bedrockConversationStart = processedMessages.findIndex(
 				(m) => m.role !== "system",
 			);
@@ -3705,9 +3709,9 @@ export async function prepareRequestBody(
 			const bedrockNonSystemMessages =
 				bedrockConversationStart === -1
 					? []
-					: processedMessages
-							.slice(bedrockConversationStart)
-							.map(toSystemReminderMessage);
+					: orderToolResultReminders(
+							processedMessages.slice(bedrockConversationStart),
+						).map(toSystemReminderMessage);
 			const bedrockLongBlockLimit = longBlockMarkerLimit(
 				bedrockNonSystemMessages.length,
 			);
