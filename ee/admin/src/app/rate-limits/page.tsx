@@ -76,7 +76,7 @@ export default async function GlobalRateLimitsPage() {
 								Global Rate Limits
 							</h1>
 							<p className="text-sm text-muted-foreground">
-								RPM caps that apply to all organizations
+								RPM and RPD caps that apply to all organizations
 							</p>
 						</div>
 					</div>
@@ -103,7 +103,7 @@ export default async function GlobalRateLimitsPage() {
 							<TableHead>Mode</TableHead>
 							<TableHead>Reason</TableHead>
 							<TableHead>Created</TableHead>
-							<TableHead className="w-[50px]" />
+							<TableHead className="w-[130px]" />
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -154,8 +154,10 @@ export default async function GlobalRateLimitsPage() {
 										)}
 									</TableCell>
 									<TableCell>
-										{rateLimit.mode === "soft" ? (
-											<Badge variant="secondary">Soft</Badge>
+										{rateLimit.mode !== "strict" ? (
+											<Badge variant="secondary">
+												{rateLimit.mode === "lax" ? "Lax" : "Soft"}
+											</Badge>
 										) : (
 											<Badge variant="outline">Strict</Badge>
 										)}
@@ -168,7 +170,17 @@ export default async function GlobalRateLimitsPage() {
 									</TableCell>
 									<TableCell>
 										<AdminOnly>
-											<DeleteRateLimitButton rateLimitId={rateLimit.id} />
+											<div className="flex items-center gap-1">
+												{options && (
+													<RateLimitForm
+														providers={options.providers}
+														mappings={options.mappings}
+														showEnforcement
+														rateLimit={rateLimit}
+													/>
+												)}
+												<DeleteRateLimitButton rateLimitId={rateLimit.id} />
+											</div>
 										</AdminOnly>
 									</TableCell>
 								</TableRow>
@@ -203,6 +215,10 @@ export default async function GlobalRateLimitsPage() {
 					<li>
 						<strong>Soft</strong> limits let a session already pinned to the
 						capped provider keep using it; new sessions are routed away
+					</li>
+					<li>
+						<strong>Lax</strong> limits also allow explicit provider requests
+						past the cap; automatic routing and fallback respect it
 					</li>
 					<li>
 						When a cap is hit, the gateway prefers other eligible providers

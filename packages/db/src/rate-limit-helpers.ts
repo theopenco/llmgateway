@@ -20,7 +20,7 @@ export type RateLimitSource =
 	| "carrier_provider_model"
 	| "none";
 
-export type RateLimitMode = "strict" | "soft";
+export type RateLimitMode = "strict" | "soft" | "lax";
 
 interface RateLimitMatch {
 	id: string;
@@ -47,9 +47,8 @@ interface RateLimitMatch {
  * wildcard (all providers / all models). They are undefined for non-shared
  * limits, which are keyed per request.
  *
- * `rpmMode`/`rpdMode` are "soft" when the matched limit lets a session already
- * pinned to the provider keep using it past the cap, and unset for a strict
- * limit. A zero limit is a hard block and never soft.
+ * `rpmMode`/`rpdMode` preserve soft/lax exemptions per window and are unset
+ * for strict limits, including when an admin cap is zero.
  */
 export interface EffectiveRateLimit {
 	maxRpm: number;
@@ -319,8 +318,8 @@ async function queryEffectiveRateLimit(
 		maxRpd: rpd.limit,
 		rpmSource: rpm.source,
 		rpdSource: rpd.source,
-		rpmMode: rpm.limit > 0 && rpm.mode === "soft" ? "soft" : undefined,
-		rpdMode: rpd.limit > 0 && rpd.mode === "soft" ? "soft" : undefined,
+		rpmMode: rpm.mode !== "strict" ? rpm.mode : undefined,
+		rpdMode: rpd.mode !== "strict" ? rpd.mode : undefined,
 		rpmRateLimitId: rpm.rateLimitId,
 		rpdRateLimitId: rpd.rateLimitId,
 		rpmShared: rpm.shared,

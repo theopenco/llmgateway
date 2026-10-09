@@ -3833,6 +3833,20 @@ export const modelProviderMapping = snakeCase.table(
 	],
 );
 
+export const aggregationProgress = snakeCase.table(
+	"aggregation_progress",
+	{
+		job: text().notNull(),
+		bucketTimestamp: timestamp().notNull(),
+		refreshedAt: timestamp(),
+		finalizedAt: timestamp(),
+	},
+	(t) => [
+		uniqueIndex().on(t.job, t.bucketTimestamp),
+		index().on(t.bucketTimestamp),
+	],
+);
+
 export const modelProviderMappingHistory = snakeCase.table(
 	"model_provider_mapping_history",
 	{
@@ -4608,6 +4622,7 @@ export const auditLogActions = [
 	"discount.create",
 	"discount.delete",
 	"rate_limit.create",
+	"rate_limit.update",
 	"rate_limit.delete",
 	// Dev Plan
 	"dev_plan.subscribe",
@@ -5248,8 +5263,8 @@ export const rateLimit = snakeCase.table(
 			.notNull()
 			.default("per_org"),
 		// "soft" keeps a session already pinned to the capped provider on it;
-		// all other traffic is routed away exactly as under "strict".
-		mode: text({ enum: ["strict", "soft"] })
+		// "lax" also allows explicitly requested providers past the cap.
+		mode: text({ enum: ["strict", "soft", "lax"] })
 			.notNull()
 			.default("strict"),
 		// Optional metadata
@@ -6749,71 +6764,73 @@ export type GlobalStatsOrgKind = (typeof GLOBAL_STATS_ORG_KINDS)[number];
 // Global model statistics — cross-org, cross-project aggregation by model.
 // Rows are day-bucketed (`dayTimestamp`); the worker can update them at any
 // cadence via the configurable bucket size.
+const globalModelStatsColumns = () => ({
+	id: text().primaryKey().notNull().$defaultFn(shortid),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	usedModel: text().notNull(),
+	usedProvider: text().notNull(),
+	// Billing mode the request was actually served under (log.usedMode).
+	// "unknown" on rows aggregated before this column existed.
+	usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+		.notNull()
+		.default("unknown"),
+	// organization.kind at aggregation time. "unknown" on rows aggregated
+	// before this column existed and on requests whose organization row is
+	// gone. Stored verbatim ("default" is labelled PAYG in the admin UI).
+	orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS }).notNull().default("unknown"),
+	// Request counts
+	requestCount: integer().notNull().default(0),
+	errorCount: integer().notNull().default(0),
+	cacheCount: integer().notNull().default(0),
+	streamedCount: integer().notNull().default(0),
+	nonStreamedCount: integer().notNull().default(0),
+	// Unified finish reason counts
+	completedCount: integer().notNull().default(0),
+	lengthLimitCount: integer().notNull().default(0),
+	contentFilterCount: integer().notNull().default(0),
+	toolCallsCount: integer().notNull().default(0),
+	canceledCount: integer().notNull().default(0),
+	unknownFinishCount: integer().notNull().default(0),
+	// Error type counts (subset of errorCount)
+	clientErrorCount: integer().notNull().default(0),
+	gatewayErrorCount: integer().notNull().default(0),
+	upstreamErrorCount: integer().notNull().default(0),
+	// Token counts
+	inputTokens: decimal().notNull().default("0"),
+	outputTokens: decimal().notNull().default("0"),
+	totalTokens: decimal().notNull().default("0"),
+	reasoningTokens: decimal().notNull().default("0"),
+	cachedTokens: decimal().notNull().default("0"),
+	cacheWriteTokens: decimal().notNull().default("0"),
+	// Costs
+	cost: real().notNull().default(0),
+	inputCost: real().notNull().default(0),
+	outputCost: real().notNull().default(0),
+	requestCost: real().notNull().default(0),
+	dataStorageCost: real().notNull().default(0),
+	discountSavings: real().notNull().default(0),
+	imageInputCost: real().notNull().default(0),
+	imageOutputCost: real().notNull().default(0),
+	audioInputCost: real().notNull().default(0),
+	audioOutputCost: real().notNull().default(0),
+	videoOutputCost: real().notNull().default(0),
+	cachedInputCost: real().notNull().default(0),
+	cacheWriteInputCost: real().notNull().default(0),
+	// Gateway margin earned on Airside-carrier traffic:
+	// SUM(log.cost * log.providerMarginPercent) for credits-mode, non-cached
+	// requests. 0 for providers without routing settings.
+	providerMarginAmount: real().notNull().default(0),
+});
+
 export const globalModelStats = snakeCase.table(
 	"global_model_stats",
 	{
-		id: text().primaryKey().notNull().$defaultFn(shortid),
-		createdAt: timestamp().notNull().defaultNow(),
-		updatedAt: timestamp()
-			.notNull()
-			.defaultNow()
-			.$onUpdate(() => new Date()),
-		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
-		usedModel: text().notNull(),
-		usedProvider: text().notNull(),
-		// Billing mode the request was actually served under (log.usedMode).
-		// "unknown" on rows aggregated before this column existed.
-		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
-			.notNull()
-			.default("unknown"),
-		// organization.kind at aggregation time. "unknown" on rows aggregated
-		// before this column existed and on requests whose organization row is
-		// gone. Stored verbatim ("default" is labelled PAYG in the admin UI).
-		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
-			.notNull()
-			.default("unknown"),
-		// Request counts
-		requestCount: integer().notNull().default(0),
-		errorCount: integer().notNull().default(0),
-		cacheCount: integer().notNull().default(0),
-		streamedCount: integer().notNull().default(0),
-		nonStreamedCount: integer().notNull().default(0),
-		// Unified finish reason counts
-		completedCount: integer().notNull().default(0),
-		lengthLimitCount: integer().notNull().default(0),
-		contentFilterCount: integer().notNull().default(0),
-		toolCallsCount: integer().notNull().default(0),
-		canceledCount: integer().notNull().default(0),
-		unknownFinishCount: integer().notNull().default(0),
-		// Error type counts (subset of errorCount)
-		clientErrorCount: integer().notNull().default(0),
-		gatewayErrorCount: integer().notNull().default(0),
-		upstreamErrorCount: integer().notNull().default(0),
-		// Token counts
-		inputTokens: decimal().notNull().default("0"),
-		outputTokens: decimal().notNull().default("0"),
-		totalTokens: decimal().notNull().default("0"),
-		reasoningTokens: decimal().notNull().default("0"),
-		cachedTokens: decimal().notNull().default("0"),
-		cacheWriteTokens: decimal().notNull().default("0"),
-		// Costs
-		cost: real().notNull().default(0),
-		inputCost: real().notNull().default(0),
-		outputCost: real().notNull().default(0),
-		requestCost: real().notNull().default(0),
-		dataStorageCost: real().notNull().default(0),
-		discountSavings: real().notNull().default(0),
-		imageInputCost: real().notNull().default(0),
-		imageOutputCost: real().notNull().default(0),
-		audioInputCost: real().notNull().default(0),
-		audioOutputCost: real().notNull().default(0),
-		videoOutputCost: real().notNull().default(0),
-		cachedInputCost: real().notNull().default(0),
-		cacheWriteInputCost: real().notNull().default(0),
-		// Gateway margin earned on Airside-carrier traffic:
-		// SUM(log.cost * log.providerMarginPercent) for credits-mode, non-cached
-		// requests. 0 for providers without routing settings.
-		providerMarginAmount: real().notNull().default(0),
+		...globalModelStatsColumns(),
+		dayTimestamp: timestamp().notNull(),
 	},
 	(table) => [
 		// usedMode/orgKind are part of the key: every metric is therefore
@@ -6845,64 +6862,66 @@ export const globalModelStats = snakeCase.table(
 );
 
 // Global source statistics — cross-org, cross-project aggregation by x-source header.
+const globalSourceStatsColumns = () => ({
+	id: text().primaryKey().notNull().$defaultFn(shortid),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	// NULL log.source rows are stored under the literal 'unknown' so the
+	// unique constraint and onConflictDoUpdate target stay valid.
+	source: text().notNull(),
+	// See globalModelStats for the semantics of these two dimensions.
+	usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+		.notNull()
+		.default("unknown"),
+	orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS }).notNull().default("unknown"),
+	// Request counts
+	requestCount: integer().notNull().default(0),
+	errorCount: integer().notNull().default(0),
+	cacheCount: integer().notNull().default(0),
+	streamedCount: integer().notNull().default(0),
+	nonStreamedCount: integer().notNull().default(0),
+	// Unified finish reason counts
+	completedCount: integer().notNull().default(0),
+	lengthLimitCount: integer().notNull().default(0),
+	contentFilterCount: integer().notNull().default(0),
+	toolCallsCount: integer().notNull().default(0),
+	canceledCount: integer().notNull().default(0),
+	unknownFinishCount: integer().notNull().default(0),
+	// Error type counts (subset of errorCount)
+	clientErrorCount: integer().notNull().default(0),
+	gatewayErrorCount: integer().notNull().default(0),
+	upstreamErrorCount: integer().notNull().default(0),
+	// Token counts
+	inputTokens: decimal().notNull().default("0"),
+	outputTokens: decimal().notNull().default("0"),
+	totalTokens: decimal().notNull().default("0"),
+	reasoningTokens: decimal().notNull().default("0"),
+	cachedTokens: decimal().notNull().default("0"),
+	cacheWriteTokens: decimal().notNull().default("0"),
+	// Costs
+	cost: real().notNull().default(0),
+	inputCost: real().notNull().default(0),
+	outputCost: real().notNull().default(0),
+	requestCost: real().notNull().default(0),
+	dataStorageCost: real().notNull().default(0),
+	discountSavings: real().notNull().default(0),
+	imageInputCost: real().notNull().default(0),
+	imageOutputCost: real().notNull().default(0),
+	audioInputCost: real().notNull().default(0),
+	audioOutputCost: real().notNull().default(0),
+	videoOutputCost: real().notNull().default(0),
+	cachedInputCost: real().notNull().default(0),
+	cacheWriteInputCost: real().notNull().default(0),
+});
+
 export const globalSourceStats = snakeCase.table(
 	"global_source_stats",
 	{
-		id: text().primaryKey().notNull().$defaultFn(shortid),
-		createdAt: timestamp().notNull().defaultNow(),
-		updatedAt: timestamp()
-			.notNull()
-			.defaultNow()
-			.$onUpdate(() => new Date()),
-		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
-		// NULL log.source rows are stored under the literal 'unknown' so the
-		// unique constraint and onConflictDoUpdate target stay valid.
-		source: text().notNull(),
-		// See globalModelStats for the semantics of these two dimensions.
-		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
-			.notNull()
-			.default("unknown"),
-		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
-			.notNull()
-			.default("unknown"),
-		// Request counts
-		requestCount: integer().notNull().default(0),
-		errorCount: integer().notNull().default(0),
-		cacheCount: integer().notNull().default(0),
-		streamedCount: integer().notNull().default(0),
-		nonStreamedCount: integer().notNull().default(0),
-		// Unified finish reason counts
-		completedCount: integer().notNull().default(0),
-		lengthLimitCount: integer().notNull().default(0),
-		contentFilterCount: integer().notNull().default(0),
-		toolCallsCount: integer().notNull().default(0),
-		canceledCount: integer().notNull().default(0),
-		unknownFinishCount: integer().notNull().default(0),
-		// Error type counts (subset of errorCount)
-		clientErrorCount: integer().notNull().default(0),
-		gatewayErrorCount: integer().notNull().default(0),
-		upstreamErrorCount: integer().notNull().default(0),
-		// Token counts
-		inputTokens: decimal().notNull().default("0"),
-		outputTokens: decimal().notNull().default("0"),
-		totalTokens: decimal().notNull().default("0"),
-		reasoningTokens: decimal().notNull().default("0"),
-		cachedTokens: decimal().notNull().default("0"),
-		cacheWriteTokens: decimal().notNull().default("0"),
-		// Costs
-		cost: real().notNull().default(0),
-		inputCost: real().notNull().default(0),
-		outputCost: real().notNull().default(0),
-		requestCost: real().notNull().default(0),
-		dataStorageCost: real().notNull().default(0),
-		discountSavings: real().notNull().default(0),
-		imageInputCost: real().notNull().default(0),
-		imageOutputCost: real().notNull().default(0),
-		audioInputCost: real().notNull().default(0),
-		audioOutputCost: real().notNull().default(0),
-		videoOutputCost: real().notNull().default(0),
-		cachedInputCost: real().notNull().default(0),
-		cacheWriteInputCost: real().notNull().default(0),
+		...globalSourceStatsColumns(),
+		dayTimestamp: timestamp().notNull(),
 	},
 	(table) => [
 		unique().on(
@@ -6924,64 +6943,66 @@ export const globalSourceStats = snakeCase.table(
 // rows with a non-null `log.providerKeyId` land here (see
 // providerKeyHourlyStats), so summing this table never reproduces the global
 // totals; it answers "which models did this credential serve, at what cost".
+const globalProviderKeyModelStatsColumns = () => ({
+	id: text().primaryKey().notNull().$defaultFn(shortid),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	providerKeyId: text().notNull(),
+	usedModel: text().notNull(),
+	usedProvider: text().notNull(),
+	// See globalModelStats for the semantics of these two dimensions.
+	usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+		.notNull()
+		.default("unknown"),
+	orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS }).notNull().default("unknown"),
+	// Request counts
+	requestCount: integer().notNull().default(0),
+	errorCount: integer().notNull().default(0),
+	cacheCount: integer().notNull().default(0),
+	streamedCount: integer().notNull().default(0),
+	nonStreamedCount: integer().notNull().default(0),
+	// Unified finish reason counts
+	completedCount: integer().notNull().default(0),
+	lengthLimitCount: integer().notNull().default(0),
+	contentFilterCount: integer().notNull().default(0),
+	toolCallsCount: integer().notNull().default(0),
+	canceledCount: integer().notNull().default(0),
+	unknownFinishCount: integer().notNull().default(0),
+	// Error type counts (subset of errorCount)
+	clientErrorCount: integer().notNull().default(0),
+	gatewayErrorCount: integer().notNull().default(0),
+	upstreamErrorCount: integer().notNull().default(0),
+	// Token counts
+	inputTokens: decimal().notNull().default("0"),
+	outputTokens: decimal().notNull().default("0"),
+	totalTokens: decimal().notNull().default("0"),
+	reasoningTokens: decimal().notNull().default("0"),
+	cachedTokens: decimal().notNull().default("0"),
+	cacheWriteTokens: decimal().notNull().default("0"),
+	// Costs
+	cost: real().notNull().default(0),
+	inputCost: real().notNull().default(0),
+	outputCost: real().notNull().default(0),
+	requestCost: real().notNull().default(0),
+	dataStorageCost: real().notNull().default(0),
+	discountSavings: real().notNull().default(0),
+	imageInputCost: real().notNull().default(0),
+	imageOutputCost: real().notNull().default(0),
+	audioInputCost: real().notNull().default(0),
+	audioOutputCost: real().notNull().default(0),
+	videoOutputCost: real().notNull().default(0),
+	cachedInputCost: real().notNull().default(0),
+	cacheWriteInputCost: real().notNull().default(0),
+});
+
 export const globalProviderKeyModelStats = snakeCase.table(
 	"global_provider_key_model_stats",
 	{
-		id: text().primaryKey().notNull().$defaultFn(shortid),
-		createdAt: timestamp().notNull().defaultNow(),
-		updatedAt: timestamp()
-			.notNull()
-			.defaultNow()
-			.$onUpdate(() => new Date()),
-		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
-		providerKeyId: text().notNull(),
-		usedModel: text().notNull(),
-		usedProvider: text().notNull(),
-		// See globalModelStats for the semantics of these two dimensions.
-		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
-			.notNull()
-			.default("unknown"),
-		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
-			.notNull()
-			.default("unknown"),
-		// Request counts
-		requestCount: integer().notNull().default(0),
-		errorCount: integer().notNull().default(0),
-		cacheCount: integer().notNull().default(0),
-		streamedCount: integer().notNull().default(0),
-		nonStreamedCount: integer().notNull().default(0),
-		// Unified finish reason counts
-		completedCount: integer().notNull().default(0),
-		lengthLimitCount: integer().notNull().default(0),
-		contentFilterCount: integer().notNull().default(0),
-		toolCallsCount: integer().notNull().default(0),
-		canceledCount: integer().notNull().default(0),
-		unknownFinishCount: integer().notNull().default(0),
-		// Error type counts (subset of errorCount)
-		clientErrorCount: integer().notNull().default(0),
-		gatewayErrorCount: integer().notNull().default(0),
-		upstreamErrorCount: integer().notNull().default(0),
-		// Token counts
-		inputTokens: decimal().notNull().default("0"),
-		outputTokens: decimal().notNull().default("0"),
-		totalTokens: decimal().notNull().default("0"),
-		reasoningTokens: decimal().notNull().default("0"),
-		cachedTokens: decimal().notNull().default("0"),
-		cacheWriteTokens: decimal().notNull().default("0"),
-		// Costs
-		cost: real().notNull().default(0),
-		inputCost: real().notNull().default(0),
-		outputCost: real().notNull().default(0),
-		requestCost: real().notNull().default(0),
-		dataStorageCost: real().notNull().default(0),
-		discountSavings: real().notNull().default(0),
-		imageInputCost: real().notNull().default(0),
-		imageOutputCost: real().notNull().default(0),
-		audioInputCost: real().notNull().default(0),
-		audioOutputCost: real().notNull().default(0),
-		videoOutputCost: real().notNull().default(0),
-		cachedInputCost: real().notNull().default(0),
-		cacheWriteInputCost: real().notNull().default(0),
+		...globalProviderKeyModelStatsColumns(),
+		dayTimestamp: timestamp().notNull(),
 	},
 	(table) => [
 		// Named explicitly: the auto-generated six-column name exceeds Postgres'
@@ -7679,4 +7700,60 @@ export const promptLabel = snakeCase.table(
 		version: integer().notNull(),
 	},
 	(table) => [unique().on(table.promptId, table.label)],
+);
+
+export const globalHourlyModelStats = snakeCase.table(
+	"global_hourly_model_stats",
+	{
+		...globalModelStatsColumns(),
+		hourTimestamp: timestamp().notNull(),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.usedModel,
+			table.usedProvider,
+			table.usedMode,
+			table.orgKind,
+		),
+		index("global_hourly_model_stats_hour_idx").on(table.hourTimestamp),
+	],
+);
+
+export const globalHourlySourceStats = snakeCase.table(
+	"global_hourly_source_stats",
+	{
+		...globalSourceStatsColumns(),
+		hourTimestamp: timestamp().notNull(),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.source,
+			table.usedMode,
+			table.orgKind,
+		),
+		index("global_hourly_source_stats_hour_idx").on(table.hourTimestamp),
+	],
+);
+
+export const globalHourlyProviderKeyModelStats = snakeCase.table(
+	"global_hourly_provider_key_model_stats",
+	{
+		...globalProviderKeyModelStatsColumns(),
+		hourTimestamp: timestamp().notNull(),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.providerKeyId,
+			table.usedModel,
+			table.usedProvider,
+			table.usedMode,
+			table.orgKind,
+		),
+		index("global_hourly_provider_key_model_stats_hour_idx").on(
+			table.hourTimestamp,
+		),
+	],
 );
