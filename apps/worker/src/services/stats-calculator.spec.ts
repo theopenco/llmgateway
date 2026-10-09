@@ -502,12 +502,14 @@ describe("stats-calculator", () => {
 					mode: row.usedMode,
 					requests: row.logsCount,
 					tokens: row.totalTokens,
-					cost: row.totalCost,
 				})),
 			).toEqual([
-				{ mode: "api-keys", requests: 1, tokens: 20, cost: 0.2 },
-				{ mode: "credits", requests: 1, tokens: 30, cost: 0.3 },
+				{ mode: "api-keys", requests: 1, tokens: 20 },
+				{ mode: "credits", requests: 1, tokens: 30 },
 			]);
+			// log.cost stays real (float4), so the stored double carries its exact value
+			expect(rows[0]?.totalCost).toBeCloseTo(0.2, 6);
+			expect(rows[1]?.totalCost).toBeCloseTo(0.3, 6);
 		});
 
 		it("should only count requests that recorded a time to first token", async () => {
