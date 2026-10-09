@@ -17,7 +17,10 @@ import {
 	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
-import { resolveChatApiOrigin } from "@/lib/api-origin.js";
+import {
+	hasInternalClientCacheMarkers,
+	resolveChatApiOrigin,
+} from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
 	findManagedProviderAvailability,
@@ -7354,8 +7357,11 @@ chat.openapi(completions, async (c) => {
 		enabled: projectCachingEnabled,
 		duration: cacheDuration,
 		providerCacheControlMode: configuredProviderCacheControlMode,
-		providerCacheAutoTtl,
+		providerCacheAutoTtl: configuredProviderCacheAutoTtl,
 	} = await isCachingEnabled(project.id);
+	const providerCacheAutoTtl = hasInternalClientCacheMarkers(c)
+		? "5m"
+		: configuredProviderCacheAutoTtl;
 	const providerCacheControlMode = zeroDataRetentionEnabled
 		? "off"
 		: configuredProviderCacheControlMode;
