@@ -17,7 +17,10 @@ import {
 	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
-import { resolveChatApiOrigin } from "@/lib/api-origin.js";
+import {
+	hasInternalClientCacheMarkers,
+	resolveChatApiOrigin,
+} from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
 	findManagedProviderAvailability,
@@ -105,6 +108,9 @@ import {
 	checkProviderRateLimit,
 	filterRateLimitedProviders,
 	getExceededProviderRateLimitLabels,
+	getProviderRateLimitBypassReason,
+	mustEnforceProviderRateLimit,
+	type ProviderRateLimitResult,
 	peekProviderRateLimit,
 	pickNonRateLimitedCandidates,
 	providerRateLimitWindows,
@@ -380,7 +386,6 @@ import {
 	describeSmartRoutingSwitch,
 	selectSmartRoutingModel,
 } from "./tools/smart-routing-selection.js";
-import { resolveSoftLimitExemptProvider } from "./tools/soft-rate-limit.js";
 import { resolveTieredContentFilterPlan } from "./tools/tiered-content-filter.js";
 import {
 	encodeChatMessages,
@@ -2408,6 +2413,8 @@ chat.openapi(completions, async (c) => {
 		? expandedAllModelProviders
 		: modelInfoResult.allModelProviders;
 	let requestedProvider = modelInfoResult.requestedProvider;
+	const explicitRateLimitProvider = modelInfoResult.requestedProvider;
+	const explicitRateLimitModel = modelInfoResult.modelInfo.id;
 
 	// If a specific region was requested (e.g. "alibaba/qwen-plus:cn-beijing"),
 	// filter providers to only those matching the requested region
@@ -2980,23 +2987,90 @@ chat.openapi(completions, async (c) => {
 				routingCfg.session.uptimeThreshold,
 			)
 		: routingCfg.retry.lowUptimeFallbackThreshold;
-	const createSessionStore = (modelId: string) =>
-		sessionStickyEnabled && sessionId
-			? createSessionProviderStore(
-					project.organizationId,
-					modelId,
-					sessionId,
-					routingCfg.session.ttlSeconds,
-				)
-			: undefined;
+	const sessionStores = new Map<
+		string,
+		ReturnType<typeof createSessionProviderStore>
+	>();
+	const pendingSessionPins = new Set<string>();
+	const createSessionStore = (modelId: string) => {
+		if (!sessionStickyEnabled || !sessionId) {
+			return undefined;
+		}
+		let store = sessionStores.get(modelId);
+		if (!store) {
+			const persistent = createSessionProviderStore(
+				project.organizationId,
+				modelId,
+				sessionId,
+				routingCfg.session.ttlSeconds,
+			);
+			let initialPin: ReturnType<typeof persistent.get> | undefined;
+			store = {
+				get: () => {
+					initialPin ??= persistent.get();
+					return initialPin;
+				},
+				// Commit the final pin only after the rate-limit gate accepts it.
+				set: async () => {
+					pendingSessionPins.add(modelId);
+				},
+			};
+			sessionStores.set(modelId, store);
+		}
+		return store;
+	};
 
-	// A session pinned to a provider keeps it past a soft rate limit; set once
-	// routing finds such a pin, and those requests still count toward the cap.
-	let softLimitExemptProvider: string | undefined;
-	const consumeProviderRateLimit = (providerId: string) =>
-		checkProviderRateLimit(project.organizationId, providerId, modelInfo.id, {
-			softExempt: providerId === softLimitExemptProvider,
+	// Snapshot the existing pin before any routing can create or replace it.
+	let initialProviderFallback = false;
+	const providerRateLimitExemption = (
+		providerId: string,
+		fallback = false,
+	) => ({
+		sessionPinned: !fallback && providerId === existingSessionProvider,
+		explicitProvider:
+			!fallback &&
+			providerId === explicitRateLimitProvider &&
+			modelInfo.id === explicitRateLimitModel,
+	});
+	const consumeProviderRateLimit = (providerId: string, fallback: boolean) =>
+		checkProviderRateLimit(
+			project.organizationId,
+			providerId,
+			modelInfo.id,
+			providerRateLimitExemption(
+				providerId,
+				fallback ||
+					initialProviderFallback ||
+					providerId !== initialRateLimitProvider,
+			),
+		);
+	const rejectProviderRateLimit = async (
+		result: ProviderRateLimitResult,
+	): Promise<never> => {
+		if (result.retryAfter) {
+			c.header("Retry-After", result.retryAfter.toString());
+			c.header("RateLimit-Reset", result.retryAfter.toString());
+			c.header(
+				"X-RateLimit-Reset",
+				(Math.floor(Date.now() / 1000) + result.retryAfter).toString(),
+			);
+		}
+		c.header("RateLimit-Remaining", "0");
+		const blockedLimits = result.blockedBy
+			.map(
+				(window) =>
+					`${result.limits[window].limit} ${providerRateLimitWindows[window].label}`,
+			)
+			.join(" and ");
+		const message = `Rate limit exceeded: maximum ${blockedLimits} for this provider/model. Please try again later.`;
+		await logGatewayRejection({
+			message,
+			statusCode: 429,
+			statusText: "Too Many Requests",
+			cause: "rate_limit_exceeded",
 		});
+		throw new HTTPException(429, { message });
+	};
 
 	// Keep low-uptime rerouting conservative for encrypted-reasoning mappings.
 	const usedProviderEncryptsReasoning = () =>
@@ -4163,6 +4237,7 @@ chat.openapi(completions, async (c) => {
 		// instead of the generic errors / hardcoded fallback below.
 		let anyPreComplianceCandidate = false;
 		let anyPostComplianceCandidate = false;
+		let blockedAutoRateLimit: ProviderRateLimitResult | undefined;
 
 		for (const staticModelDef of models) {
 			const modelDef = airsideOwnedModelIds.has(staticModelDef.id)
@@ -4486,9 +4561,39 @@ chat.openapi(completions, async (c) => {
 					project.organizationId,
 					providerDiscountResolver,
 				);
+			// Remove exhausted routes before ranking models or preferring BYOK.
+			let rateLimitEligibleProviders = deduplicatedSuitableProviders;
+			if (rateLimitEligibleProviders.length > 0) {
+				const pin = await createSessionStore(modelDef.id)?.get();
+				const { enforcedLimits, sessionExemptible } =
+					await filterRateLimitedProviders(
+						project.organizationId,
+						rateLimitEligibleProviders.map((provider) => ({
+							providerId: provider.providerId,
+							model: modelDef.id,
+						})),
+					);
+				rateLimitEligibleProviders = rateLimitEligibleProviders.filter(
+					(provider) => {
+						const limit = enforcedLimits.get(provider.providerId);
+						if (
+							!limit ||
+							(provider.providerId === pin?.providerId &&
+								sessionExemptible.has(provider.providerId))
+						) {
+							return true;
+						}
+						blockedAutoRateLimit ??= limit;
+						recordFilteredProvider(filteredOutForModel, provider.providerId, [
+							exclusionReason("rate_limited"),
+						]);
+						return false;
+					},
+				);
+			}
 			const preferredSuitableProviders = preferProvidersWithKeys(
 				project.mode,
-				deduplicatedSuitableProviders,
+				rateLimitEligibleProviders,
 				providersWithKeys,
 			);
 
@@ -4541,6 +4646,10 @@ chat.openapi(completions, async (c) => {
 					});
 				}
 			}
+		}
+
+		if (smartRoutingCandidates.length === 0 && blockedAutoRateLimit) {
+			await rejectProviderRateLimit(blockedAutoRateLimit);
 		}
 
 		// A sticky session keeps its model and effort across turns, and only
@@ -4850,6 +4959,10 @@ chat.openapi(completions, async (c) => {
 	// explicitly-requested (or custom) paid model with a pointer to the auto route.
 	assertTestWalletModelAllowed(endUserWallet, modelInfo);
 
+	const existingSessionProvider = (
+		await createSessionStore(modelInfo.id)?.get()
+	)?.providerId;
+
 	// Peek the requested provider's caps before region selection below, which
 	// pins the session: read afterwards, a brand-new session would look already
 	// pinned and slip past a soft limit.
@@ -4864,12 +4977,6 @@ chat.openapi(completions, async (c) => {
 					modelInfo.id,
 				)
 			: undefined;
-	if (usedProvider && requestedProviderRateLimitPeek?.softOnly) {
-		softLimitExemptProvider = await resolveSoftLimitExemptProvider(
-			createSessionStore(modelInfo.id),
-			new Set([usedProvider]),
-		);
-	}
 
 	// When a specific provider is requested and it has multiple mappings (for example,
 	// regional variants), pick the best eligible mapping up front so the request and
@@ -5093,23 +5200,15 @@ chat.openapi(completions, async (c) => {
 		const baseModelId = (modelInfo as ModelDefinition).id;
 		const rateLimitPeek = requestedProviderRateLimitPeek;
 
-		if (rateLimitPeek.rateLimited && !softLimitExemptProvider) {
+		if (
+			rateLimitPeek.rateLimited &&
+			!getProviderRateLimitBypassReason(
+				rateLimitPeek,
+				providerRateLimitExemption(usedProvider),
+			)
+		) {
 			if (noFallback) {
-				const blockedLimits = rateLimitPeek.blockedBy
-					.map(
-						(window) =>
-							`${rateLimitPeek.limits[window].limit} ${providerRateLimitWindows[window].label}`,
-					)
-					.join(" and ");
-
-				const message = `Rate limit exceeded: maximum ${blockedLimits} for ${requestedProvider}/${baseModelId}. Please try again later.`;
-				await logGatewayRejection({
-					message,
-					statusCode: 429,
-					statusText: "Too Many Requests",
-					cause: "rate_limit_exceeded",
-				});
-				throw new HTTPException(429, { message });
+				await rejectProviderRateLimit(rateLimitPeek);
 			}
 
 			// Attempt to re-route to alternative providers (same pattern as low-uptime fallback)
@@ -5255,6 +5354,8 @@ chat.openapi(completions, async (c) => {
 								requestedProvider,
 								[exclusionReason("rate_limited")],
 							);
+							initialProviderFallback ||=
+								cheapestResult.provider.providerId !== usedProvider;
 							usedProvider = cheapestResult.provider.providerId;
 							usedInternalModel = modelInfo.id;
 							usedExternalId = cheapestResult.provider.externalId;
@@ -5506,6 +5607,8 @@ chat.openapi(completions, async (c) => {
 							};
 
 							if (cheapestResult) {
+								initialProviderFallback ||=
+									cheapestResult.provider.providerId !== usedProvider;
 								usedProvider = cheapestResult.provider.providerId;
 								usedInternalModel = modelInfo.id;
 								usedExternalId = cheapestResult.provider.externalId;
@@ -5724,28 +5827,40 @@ chat.openapi(completions, async (c) => {
 			// peeked across the full candidate list (not just keyed providers) so
 			// hybrid mode can overflow to credits-backed providers when every keyed
 			// candidate is rate limited.
-			const { rateLimited: rateLimitedProviderIds, softOnly } =
-				await filterRateLimitedProviders(
-					project.organizationId,
-					contentFilterPreferredProviders.map((p) => ({
-						providerId: p.providerId,
-						model: (modelInfo as ModelDefinition).id,
-					})),
-				);
-			softLimitExemptProvider = await resolveSoftLimitExemptProvider(
-				createSessionStore((modelInfo as ModelDefinition).id),
-				softOnly,
+			const {
+				rateLimited: rateLimitedProviderIds,
+				sessionExemptible,
+				enforcedLimits,
+			} = await filterRateLimitedProviders(
+				project.organizationId,
+				contentFilterPreferredProviders.map((p) => ({
+					providerId: p.providerId,
+					model: (modelInfo as ModelDefinition).id,
+				})),
 			);
+			const sessionExemptProvider =
+				existingSessionProvider &&
+				sessionExemptible.has(existingSessionProvider)
+					? existingSessionProvider
+					: undefined;
 			const routingCandidates = getRoutingCandidatesForProjectMode(
 				project.mode,
-				contentFilterPreferredProviders,
+				contentFilterPreferredProviders.filter(
+					(candidate) =>
+						!enforcedLimits.has(candidate.providerId) ||
+						candidate.providerId === sessionExemptProvider,
+				),
 				new Set(
 					[...rateLimitedProviderIds].filter(
-						(providerId) => providerId !== softLimitExemptProvider,
+						(providerId) => providerId !== sessionExemptProvider,
 					),
 				),
 				providersWithKeys,
 			);
+			if (routingCandidates.length === 0 && enforcedLimits.size > 0) {
+				await rejectProviderRateLimit([...enforcedLimits.values()][0]);
+			}
+
 			const routingCandidateProviderIds = new Set(
 				routingCandidates.map((candidate) => candidate.providerId),
 			);
@@ -5932,11 +6047,11 @@ chat.openapi(completions, async (c) => {
 					applySelectedCustomProvider(routingCandidates[0]);
 				}
 			} else {
-				usedProvider = contentFilterPreferredProviders[0].providerId;
+				usedProvider = routingCandidates[0].providerId;
 				usedInternalModel = modelInfo.id;
-				usedExternalId = contentFilterPreferredProviders[0].externalId;
-				usedRegion = contentFilterPreferredProviders[0].region;
-				applySelectedCustomProvider(contentFilterPreferredProviders[0]);
+				usedExternalId = routingCandidates[0].externalId;
+				usedRegion = routingCandidates[0].region;
+				applySelectedCustomProvider(routingCandidates[0]);
 			}
 		}
 	}
@@ -6707,68 +6822,36 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Consume a rate-limit slot for the chosen provider (routing already filtered rate-limited ones)
+	const initialRateLimitProvider = usedProvider;
 	{
-		const providerRateLimitResult =
-			await consumeProviderRateLimit(usedProvider);
+		const providerRateLimitResult = await consumeProviderRateLimit(
+			usedProvider,
+			false,
+		);
 
-		if (providerRateLimitResult.softLimitBypassed) {
+		if (providerRateLimitResult.bypassReason) {
 			const scoreEntry = routingMetadata?.providerScores.find(
 				(score) => score.providerId === usedProvider,
 			);
 			if (scoreEntry) {
 				scoreEntry.rate_limited = true;
 			}
-			logger.info("Soft provider rate limit bypassed for pinned session", {
+			logger.info("Provider rate limit bypassed for pinned request", {
 				organizationId: project.organizationId,
 				provider: usedProvider,
 				model: modelInfo.id,
+				reason: providerRateLimitResult.bypassReason,
 			});
 		}
 
-		// Serving an explicitly requested provider skips provider selection and
-		// its pinning, so pin here: the session's later requests then count as
-		// ongoing under a soft limit and stay on this provider's prompt cache.
-		if (
-			providerRateLimitResult.allowed &&
-			requestedProviderRateLimitPeek &&
-			usedProvider === requestedProvider
-		) {
-			await createSessionStore(modelInfo.id)?.set(usedProvider, usedRegion);
-		}
-
 		// Race condition: between peek and consume, the window may have filled.
-		// Zero global caps always block, including when every routing candidate is capped.
+		// Lax and zero caps require an exemption even when every candidate is capped.
 		if (!providerRateLimitResult.allowed) {
 			if (
 				(noFallback && requestedProvider) ||
-				providerRateLimitResult.blockedBy.some(
-					(window) => providerRateLimitResult.limits[window].limit === 0,
-				)
+				mustEnforceProviderRateLimit(providerRateLimitResult)
 			) {
-				const retryAfter = providerRateLimitResult.retryAfter;
-				if (retryAfter) {
-					c.header("Retry-After", retryAfter.toString());
-					c.header("RateLimit-Reset", retryAfter.toString());
-					const resetTime = Math.floor(Date.now() / 1000) + retryAfter;
-					c.header("X-RateLimit-Reset", resetTime.toString());
-				}
-				c.header("RateLimit-Remaining", "0");
-
-				const blockedLimits = providerRateLimitResult.blockedBy
-					.map(
-						(window) =>
-							`${providerRateLimitResult.limits[window].limit} ${providerRateLimitWindows[window].label}`,
-					)
-					.join(" and ");
-
-				const message = `Rate limit exceeded: maximum ${blockedLimits} for this provider/model. Please try again later.`;
-				await logGatewayRejection({
-					message,
-					statusCode: 429,
-					statusText: "Too Many Requests",
-					cause: "rate_limit_exceeded",
-				});
-				throw new HTTPException(429, { message });
+				await rejectProviderRateLimit(providerRateLimitResult);
 			}
 			// Otherwise proceed — the provider was the best available option from routing
 			logger.warn(
@@ -6782,6 +6865,24 @@ chat.openapi(completions, async (c) => {
 					),
 				},
 			);
+		}
+		// Serving an explicitly requested provider skips provider selection and
+		// its pinning, so pin here: the session's later requests then count as
+		// ongoing under a soft limit and stay on this provider's prompt cache.
+		if (
+			sessionStickyEnabled &&
+			sessionId &&
+			(pendingSessionPins.has(modelInfo.id) ||
+				(providerRateLimitResult.allowed &&
+					requestedProviderRateLimitPeek &&
+					usedProvider === requestedProvider))
+		) {
+			await createSessionProviderStore(
+				project.organizationId,
+				modelInfo.id,
+				sessionId,
+				routingCfg.session.ttlSeconds,
+			).set(usedProvider, usedRegion);
 		}
 	}
 
@@ -7256,7 +7357,11 @@ chat.openapi(completions, async (c) => {
 		enabled: projectCachingEnabled,
 		duration: cacheDuration,
 		providerCacheControlMode: configuredProviderCacheControlMode,
+		providerCacheAutoTtl: configuredProviderCacheAutoTtl,
 	} = await isCachingEnabled(project.id);
+	const providerCacheAutoTtl = hasInternalClientCacheMarkers(c)
+		? "5m"
+		: configuredProviderCacheAutoTtl;
 	const providerCacheControlMode = zeroDataRetentionEnabled
 		? "off"
 		: configuredProviderCacheControlMode;
@@ -8140,6 +8245,7 @@ chat.openapi(completions, async (c) => {
 			organization.safetyIdentifier,
 			getUsedProviderMapping(),
 			reasoning_mode,
+			providerCacheAutoTtl,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -8351,6 +8457,7 @@ chat.openapi(completions, async (c) => {
 				),
 				n,
 				providerCacheControlMode,
+				providerCacheAutoTtl,
 				service_tier,
 				clientRequestedServiceTier: clientRequestedServiceTier(),
 				verbosity,
@@ -8487,6 +8594,9 @@ chat.openapi(completions, async (c) => {
 				return null;
 			}
 
+			if ((await consumeProviderRateLimit(usedProvider, false)).rateLimited) {
+				return null;
+			}
 			return nextContext;
 		} catch {
 			return null;
@@ -8943,6 +9053,7 @@ chat.openapi(completions, async (c) => {
 						// requests routed to a provider via fallback, not just the initial pick.
 						const retryRateLimitResult = await consumeProviderRateLimit(
 							nextProvider.providerId,
+							nextProvider.providerId !== usedProvider,
 						);
 						if (retryRateLimitResult.rateLimited) {
 							failedProviderIds.add(
@@ -9157,7 +9268,8 @@ chat.openapi(completions, async (c) => {
 								}) &&
 								// Same-key retries re-hit the provider, so consume a rate-limit
 								// slot like fallback retries do and skip the retry when limited.
-								!(await consumeProviderRateLimit(usedProvider)).rateLimited;
+								!(await consumeProviderRateLimit(usedProvider, false))
+									.rateLimited;
 							const willRetryRequest =
 								willRetrySameProvider || willRetryTimeout || willRetrySameKey;
 
@@ -9396,7 +9508,8 @@ chat.openapi(completions, async (c) => {
 								}) &&
 								// Same-key retries re-hit the provider, so consume a rate-limit
 								// slot like fallback retries do and skip the retry when limited.
-								!(await consumeProviderRateLimit(usedProvider)).rateLimited;
+								!(await consumeProviderRateLimit(usedProvider, false))
+									.rateLimited;
 							const willRetryRequest =
 								willRetrySameProvider || willRetryFetch || willRetrySameKey;
 
@@ -9714,7 +9827,8 @@ chat.openapi(completions, async (c) => {
 							}) &&
 							// Same-key retries re-hit the provider, so consume a rate-limit
 							// slot like fallback retries do and skip the retry when limited.
-							!(await consumeProviderRateLimit(usedProvider)).rateLimited;
+							!(await consumeProviderRateLimit(usedProvider, false))
+								.rateLimited;
 						const willRetryRequest =
 							willRetrySameProvider || willRetryHttpError || willRetrySameKey;
 
@@ -10095,7 +10209,8 @@ chat.openapi(completions, async (c) => {
 							}) &&
 							// Same-key retries re-hit the provider, so consume a rate-limit
 							// slot like fallback retries do and skip the retry when limited.
-							!(await consumeProviderRateLimit(usedProvider)).rateLimited;
+							!(await consumeProviderRateLimit(usedProvider, false))
+								.rateLimited;
 						const willRetryRequest =
 							willRetrySameProvider ||
 							willRetryStreamingError ||
@@ -13401,6 +13516,7 @@ chat.openapi(completions, async (c) => {
 			// requests routed to a provider via fallback, not just the initial pick.
 			const retryRateLimitResult = await consumeProviderRateLimit(
 				nextProvider.providerId,
+				nextProvider.providerId !== usedProvider,
 			);
 			if (retryRateLimitResult.rateLimited) {
 				failedProviderIds.add(
@@ -13643,7 +13759,7 @@ chat.openapi(completions, async (c) => {
 				}) &&
 				// Same-key retries re-hit the provider, so consume a rate-limit
 				// slot like fallback retries do and skip the retry when limited.
-				!(await consumeProviderRateLimit(usedProvider)).rateLimited;
+				!(await consumeProviderRateLimit(usedProvider, false)).rateLimited;
 			const willRetryRequest =
 				willRetrySameProvider || willRetryFetchNonStreaming || willRetrySameKey;
 
@@ -14088,7 +14204,7 @@ chat.openapi(completions, async (c) => {
 				}) &&
 				// Same-key retries re-hit the provider, so consume a rate-limit
 				// slot like fallback retries do and skip the retry when limited.
-				!(await consumeProviderRateLimit(usedProvider)).rateLimited;
+				!(await consumeProviderRateLimit(usedProvider, false)).rateLimited;
 			const willRetryRequest =
 				willRetrySameProvider || willRetryHttpNonStreaming || willRetrySameKey;
 

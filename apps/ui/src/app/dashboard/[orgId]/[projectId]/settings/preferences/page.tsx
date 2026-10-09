@@ -80,7 +80,7 @@ export default async function PreferencesPage({
 						<CardHeader>
 							<CardTitle>Caching</CardTitle>
 							<CardDescription>
-								Configure caching settings for your API requests
+								Configure provider prompt caching and gateway response caching
 							</CardDescription>
 						</CardHeader>
 						<CardContent>

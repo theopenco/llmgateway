@@ -602,6 +602,30 @@ anthropic.openapi(messages, async (c) => {
 	}
 
 	const anthropicRequest: AnthropicRequest = validation.data;
+	// Validation and lowering can drop markers. Keep their original presence
+	// so the project duration never overrides a caller's caching strategy.
+	const originalRequest = rawRequest as AnthropicRequest;
+	const hasCacheMarker = (block: object) =>
+		"cache_control" in block && Boolean(block.cache_control);
+	const hasContentCacheMarker = (block: {
+		type: string;
+		tool?: { type: string; definition?: object };
+	}) =>
+		hasCacheMarker(block) ||
+		// An inline definition may be superseded or removed during lowering.
+		((block.type === "tool_addition" || block.type === "tool_removal") &&
+			block.tool?.type === "tool_definition" &&
+			block.tool.definition !== undefined &&
+			hasCacheMarker(block.tool.definition));
+	const hasClientCacheMarkers =
+		(originalRequest.tools?.some(hasCacheMarker) ?? false) ||
+		(Array.isArray(originalRequest.system) &&
+			originalRequest.system.some(hasCacheMarker)) ||
+		originalRequest.messages.some(
+			(message) =>
+				Array.isArray(message.content) &&
+				message.content.some(hasContentCacheMarker),
+		);
 	const retainPayloadLogs = await shouldRetainPayloadLogs(c);
 
 	// Transform Anthropic request to OpenAI format
@@ -1119,7 +1143,7 @@ anthropic.openapi(messages, async (c) => {
 			"x-source": c.req.header("x-source") ?? "",
 			"x-debug": c.req.header("x-debug") ?? "",
 			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
-			...internalApiOriginHeaders("messages"),
+			...internalApiOriginHeaders("messages", { hasClientCacheMarkers }),
 			...forwardedIpHeaders(c.req.raw.headers),
 			...forwardedCustomHeaders(c.req.raw.headers),
 			...(sessionId ? { "x-session-id": sessionId } : {}),

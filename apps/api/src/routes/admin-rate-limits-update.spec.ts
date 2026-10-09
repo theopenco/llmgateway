@@ -111,17 +111,40 @@ describe("admin rate limit updates", () => {
 			}
 		});
 
+		it.each(["strict", "soft", "lax"])(
+			`round-trips zero %s ${scope} caps when editing`,
+			async (mode) => {
+				const created = await (await request(base, "POST", original)).json();
+				for (const limitType of ["rpm", "rpd"]) {
+					const response = await request(`${base}/${created.id}`, "PUT", {
+						...original,
+						limitType,
+						maxRequests: 0,
+						mode,
+					});
+					expect(response.status).toBe(200);
+					const updated = await response.json();
+					expect(updated).toMatchObject({
+						id: created.id,
+						maxRequests: 0,
+						mode,
+						limitType,
+					});
+					const list = await (await request(base, "GET")).json();
+					expect(list.rateLimits).toContainEqual(updated);
+				}
+			},
+		);
+
 		it(`rejects invalid ${scope} edits without changing the rule`, async () => {
 			const created = await (await request(base, "POST", original)).json();
 			for (const change of [
 				{ maxRequests: -1 },
 				{ maxRequests: 1.5 },
-				{ maxRequests: 0, mode: "soft" },
 				{ provider: null, model: null },
 				{ provider: "missing-provider" },
 				{ model: "missing-model" },
 				{ provider: "anthropic", model: "gpt-4o" },
-				...(scope === "organization" ? [{ maxRequests: 0 }] : []),
 			]) {
 				const response = await request(`${base}/${created.id}`, "PUT", {
 					...original,
@@ -167,21 +190,6 @@ describe("admin rate limit updates", () => {
 			).toBe(403);
 		});
 	}
-
-	it("allows a strict zero global cap", async () => {
-		const created = await (
-			await request("/admin/rate-limits", "POST", original)
-		).json();
-		const response = await request(`/admin/rate-limits/${created.id}`, "PUT", {
-			...original,
-			maxRequests: 0,
-		});
-		expect(response.status).toBe(200);
-		expect(await response.json()).toMatchObject({
-			maxRequests: 0,
-			mode: "strict",
-		});
-	});
 
 	it("returns 404 for missing and incorrectly scoped rules", async () => {
 		const global = await (

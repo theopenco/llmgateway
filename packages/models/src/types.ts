@@ -33,6 +33,8 @@ export interface CacheControl {
  *   that should not pay the cache-write premium.
  * - `off`: strip every marker so the project never writes to a provider cache.
  */
+export type ProviderCacheAutoTtl = "5m" | "1h";
+
 export type ProviderCacheControlMode = "auto" | "passthrough" | "off";
 
 // Base content types

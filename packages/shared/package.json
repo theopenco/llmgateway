@@ -234,6 +234,11 @@
 			"types": "./dist/components/usage-timeseries.d.ts",
 			"import": "./dist/components/usage-timeseries.js",
 			"default": "./dist/components/usage-timeseries.js"
+		},
+		"./provider-cache-settings": {
+			"types": "./dist/provider-cache-settings.d.ts",
+			"import": "./dist/provider-cache-settings.js",
+			"default": "./dist/provider-cache-settings.js"
 		}
 	},
 	"module": "./dist/index.js",

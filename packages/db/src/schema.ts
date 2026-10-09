@@ -1442,6 +1442,9 @@ export const project = snakeCase.table(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		cachingEnabled: boolean().notNull().default(false),
 		cacheDurationSeconds: integer().notNull().default(60),
+		providerCacheAutoTtl: text({ enum: ["5m", "1h"] })
+			.notNull()
+			.default("5m"),
 		// How provider-side prompt-cache markers are handled for this project.
 		// "passthrough" exists because a single key often serves both a coding
 		// agent that manages its own markers and traffic that must not pay the
@@ -5263,8 +5266,8 @@ export const rateLimit = snakeCase.table(
 			.notNull()
 			.default("per_org"),
 		// "soft" keeps a session already pinned to the capped provider on it;
-		// all other traffic is routed away exactly as under "strict".
-		mode: text({ enum: ["strict", "soft"] })
+		// "lax" also allows explicitly requested providers past the cap.
+		mode: text({ enum: ["strict", "soft", "lax"] })
 			.notNull()
 			.default("strict"),
 		// Optional metadata

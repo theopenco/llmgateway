@@ -154,8 +154,10 @@ export default async function GlobalRateLimitsPage() {
 										)}
 									</TableCell>
 									<TableCell>
-										{rateLimit.mode === "soft" ? (
-											<Badge variant="secondary">Soft</Badge>
+										{rateLimit.mode !== "strict" ? (
+											<Badge variant="secondary">
+												{rateLimit.mode === "lax" ? "Lax" : "Soft"}
+											</Badge>
 										) : (
 											<Badge variant="outline">Strict</Badge>
 										)}
@@ -213,6 +215,10 @@ export default async function GlobalRateLimitsPage() {
 					<li>
 						<strong>Soft</strong> limits let a session already pinned to the
 						capped provider keep using it; new sessions are routed away
+					</li>
+					<li>
+						<strong>Lax</strong> limits also allow explicit provider requests
+						past the cap; automatic routing and fallback respect it
 					</li>
 					<li>
 						When a cap is hit, the gateway prefers other eligible providers

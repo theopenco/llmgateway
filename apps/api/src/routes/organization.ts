@@ -30,7 +30,10 @@ import {
 	isInvoiceableTransaction,
 	isRefundTransaction,
 } from "@/utils/invoice.js";
-import { providerCacheControlModeSchema } from "@/utils/provider-cache-control.js";
+import {
+	providerCacheAutoTtlSchema,
+	providerCacheControlModeSchema,
+} from "@/utils/provider-cache-control.js";
 import { serializeOrganization } from "@/utils/serialize-organization.js";
 import {
 	smartRoutingConfigInputSchema,
@@ -248,6 +251,7 @@ const projectSchema = z.object({
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
 	providerCacheControlMode: providerCacheControlModeSchema,
+	providerCacheAutoTtl: providerCacheAutoTtlSchema,
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
