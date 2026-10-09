@@ -63,7 +63,7 @@ empryo
 
 Type `/login` to connect a pay-as-you-go LLM Gateway account. For a&nbsp;[DevPass](https://devpass.llmgateway.io) subscription, use `/login llmgateway-devpass`.
 
-The agent opens the gateway's authorization page in your browser. Check the account and project, then approve the connection. Approval creates an API key and returns it to Empryo through a local callback. Keep the terminal running until the callback finishes.
+The agent opens the gateway's authorization page in your browser. Check the account and project, then approve the connection. Approval creates an API key and returns it to Empryo through a local callback. If your organization sets a spending limit for you, the key carries the same limit. Keep the terminal running until the callback finishes.
 
 You can start the same flow directly from the shell:
 
@@ -73,7 +73,7 @@ empryo --login llmgateway
 empryo --login llmgateway-devpass
 ```
 
-If the browser reports an active-key limit, manage your organization's API keys in the&nbsp;[dashboard](https://llmgateway.io/dashboard) before starting the login flow again. If the local callback expires, restart login to get a fresh authorization link.
+If the browser reports an active-key limit, revoke a key you no longer use on the API Keys page of the&nbsp;[dashboard](https://llmgateway.io/dashboard), then select **Authorize** again. If the local callback expires, restart login to get a fresh authorization link.
 
 ![Empryo browser authorization completed](/images/guides/empryo/browser-login.png)
 
