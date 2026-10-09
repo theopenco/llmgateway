@@ -54,6 +54,7 @@ import {
 	getCallerCacheControls,
 	getToolResultCacheControl,
 	getToolResultText,
+	longBlockMarkerLimit,
 	MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS,
 	toSystemReminderText,
 	transformAnthropicMessages,
@@ -3384,7 +3385,9 @@ export async function prepareRequestBody(
 							autoCacheControlEnabled &&
 							text.length >= minCacheableChars &&
 							systemCacheControlCount + callerMessageCacheControls.length <
-								maxCacheControlBlocks;
+								maxCacheControlBlocks &&
+							systemCacheControlCount <
+								longBlockMarkerLimit(nonSystemMessages.length);
 
 						if (shouldCache) {
 							systemCacheControlCount++;
@@ -3705,6 +3708,9 @@ export async function prepareRequestBody(
 					: processedMessages
 							.slice(bedrockConversationStart)
 							.map(toSystemReminderMessage);
+			const bedrockLongBlockLimit = longBlockMarkerLimit(
+				bedrockNonSystemMessages.length,
+			);
 
 			// Mirror the Anthropic branch: Bedrock enforces the same
 			// longer-TTL-first ordering for cachePoints, and heuristic injection
@@ -3779,7 +3785,8 @@ export async function prepareRequestBody(
 						!callerSetBedrockCacheControl &&
 						block.text.length >= bedrockMinCacheableChars &&
 						bedrockCacheControlCount + bedrockPendingCallerMarkers <
-							bedrockMaxCacheControlBlocks;
+							bedrockMaxCacheControlBlocks &&
+						bedrockCacheControlCount < bedrockLongBlockLimit;
 
 					if (shouldHeuristicCache) {
 						bedrockCacheControlCount++;
@@ -3901,7 +3908,8 @@ export async function prepareRequestBody(
 							bedrockAutoCachePointEnabled &&
 							msg.content.length >= bedrockMinCacheableChars &&
 							bedrockCacheControlCount + bedrockPendingCallerMarkers <
-								bedrockMaxCacheControlBlocks;
+								bedrockMaxCacheControlBlocks &&
+							bedrockCacheControlCount < bedrockLongBlockLimit;
 
 						if (shouldCache) {
 							bedrockCacheControlCount++;
@@ -3933,7 +3941,8 @@ export async function prepareRequestBody(
 										bedrockAutoCachePointEnabled &&
 										part.text.length >= bedrockMinCacheableChars &&
 										bedrockCacheControlCount + bedrockPendingCallerMarkers <
-											bedrockMaxCacheControlBlocks;
+											bedrockMaxCacheControlBlocks &&
+										bedrockCacheControlCount < bedrockLongBlockLimit;
 
 									if (shouldCache) {
 										bedrockCacheControlCount++;
@@ -4041,6 +4050,19 @@ export async function prepareRequestBody(
 							bedrockCacheControlCount++;
 						}
 					}
+				}
+			}
+
+			// And after the final message, as in transformAnthropicMessages, so a
+			// growing conversation reads the whole previous request back.
+			if (
+				bedrockAutoCachePointEnabled &&
+				bedrockMessages.length >= 3 &&
+				bedrockCacheControlCount < bedrockMaxCacheControlBlocks
+			) {
+				const tail = bedrockMessages[bedrockMessages.length - 1].content;
+				if (tail.length > 0 && !tail[tail.length - 1].cachePoint) {
+					tail.push(createBedrockCachePoint());
 				}
 			}
 

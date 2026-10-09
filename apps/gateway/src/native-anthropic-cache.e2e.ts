@@ -314,6 +314,103 @@ describeCache(
 			},
 		);
 
+		for (const [model, enabled] of [
+			["anthropic/claude-sonnet-4-6", hasAnthropicKey],
+			["vertex-anthropic/claude-sonnet-4-6", hasVertexKey],
+			["aws-bedrock/claude-sonnet-4-6", hasBedrockKey],
+		] as const) {
+			(enabled ? test : test.skip)(
+				`openai-compat tool loop reads the previous turn from cache on ${model}`,
+				getTestOptions(),
+				async () => {
+					// No client markers and a system prompt too short to cache: only the
+					// gateway's conversation breakpoint can make the next turn a read.
+					const toolTurn = (id: string, result: string) => [
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id,
+									type: "function",
+									function: { name: "read_file", arguments: "{}" },
+								},
+							],
+						},
+						{ role: "tool", tool_call_id: id, content: result },
+					];
+					const firstTurn = [
+						{ role: "system", content: "You are a coding agent." },
+						{
+							role: "user",
+							content: `Task ${generateTestRequestId()}: read the file.`,
+						},
+						...toolTurn("call_1", buildLongSystemPrompt()),
+					];
+
+					const send = async (messages: unknown[]) => {
+						const res = await app.request("/v1/chat/completions", {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"x-request-id": generateTestRequestId(),
+								"x-no-fallback": "true",
+								Authorization: `Bearer real-token`,
+							},
+							body: JSON.stringify({
+								model,
+								max_tokens: 16,
+								messages,
+								tools: [
+									{
+										type: "function",
+										function: {
+											name: "read_file",
+											parameters: { type: "object", properties: {} },
+										},
+									},
+								],
+							}),
+						});
+						const json = await res.json();
+						if (logMode) {
+							console.log(
+								"tool loop",
+								model,
+								res.status,
+								JSON.stringify(json.usage),
+							);
+						}
+						return { status: res.status, json };
+					};
+
+					const first = await send(firstTurn);
+					expect(first.status).toBe(200);
+					const written =
+						first.json.usage.prompt_tokens_details.cache_write_tokens;
+					expect(written, "first turn writes the conversation").toBeGreaterThan(
+						0,
+					);
+
+					// Each retry appends a different turn, so a read can only come from
+					// the first request's write, never from an earlier retry.
+					let retry = 0;
+					const second = await sendUntilCacheRead(() => {
+						retry++;
+						return send([
+							...firstTurn,
+							...toolTurn(`call_${retry + 1}`, "Done."),
+						]);
+					});
+					expect(second.status).toBe(200);
+					expect(
+						second.json.usage.prompt_tokens_details.cached_tokens,
+						`expected the first turn read back after ${second.attempts} attempts`,
+					).toBeGreaterThanOrEqual(written);
+				},
+			);
+		}
+
 		// Streaming Anthropic: verifies normalizeAnthropicUsage in
 		// transform-streaming-to-openai surfaces cache token usage in streamed
 		// chunks. Without this, billing/observability for streaming clients is
