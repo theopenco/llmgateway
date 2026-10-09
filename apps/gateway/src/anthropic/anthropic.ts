@@ -607,13 +607,24 @@ anthropic.openapi(messages, async (c) => {
 	const originalRequest = rawRequest as AnthropicRequest;
 	const hasCacheMarker = (block: object) =>
 		"cache_control" in block && Boolean(block.cache_control);
+	const hasContentCacheMarker = (block: {
+		type: string;
+		tool?: { type: string; definition?: object };
+	}) =>
+		hasCacheMarker(block) ||
+		// An inline definition may be superseded or removed during lowering.
+		((block.type === "tool_addition" || block.type === "tool_removal") &&
+			block.tool?.type === "tool_definition" &&
+			block.tool.definition !== undefined &&
+			hasCacheMarker(block.tool.definition));
 	const hasClientCacheMarkers =
 		(originalRequest.tools?.some(hasCacheMarker) ?? false) ||
 		(Array.isArray(originalRequest.system) &&
 			originalRequest.system.some(hasCacheMarker)) ||
 		originalRequest.messages.some(
 			(message) =>
-				Array.isArray(message.content) && message.content.some(hasCacheMarker),
+				Array.isArray(message.content) &&
+				message.content.some(hasContentCacheMarker),
 		);
 	const retainPayloadLogs = await shouldRetainPayloadLogs(c);
 
