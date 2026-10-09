@@ -4608,6 +4608,7 @@ export const auditLogActions = [
 	"discount.create",
 	"discount.delete",
 	"rate_limit.create",
+	"rate_limit.update",
 	"rate_limit.delete",
 	// Dev Plan
 	"dev_plan.subscribe",
