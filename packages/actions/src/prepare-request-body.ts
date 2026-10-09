@@ -51,7 +51,11 @@ import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { mappingSupportsToolChoice } from "./tool-choice-support.js";
 import {
+	getCallerCacheControls,
+	getToolResultCacheControl,
+	getToolResultText,
 	MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS,
+	toSystemReminderText,
 	transformAnthropicMessages,
 } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
@@ -1013,17 +1017,15 @@ function toSystemReminderMessage(message: BaseMessage): BaseMessage {
 	if (message.role !== "system") {
 		return message;
 	}
-	const wrap = (text: string) =>
-		`<system-reminder>\n${text}\n</system-reminder>`;
 	return {
 		...message,
 		role: "user",
 		content:
 			typeof message.content === "string"
-				? wrap(message.content)
+				? toSystemReminderText(message.content)
 				: message.content.map((part) =>
 						isTextContent(part) && part.text
-							? { ...part, text: wrap(part.text) }
+							? { ...part, text: toSystemReminderText(part.text) }
 							: part,
 					),
 	};
@@ -3204,8 +3206,8 @@ export async function prepareRequestBody(
 			// Anthropic's system field (required for prompt caching). Hoisting a
 			// later one would change the prefix every time a client such as Claude
 			// Code appends one, re-writing the cached conversation on each turn, so
-			// those stay in place: natively where the mapping accepts the role,
-			// otherwise as a user system-reminder.
+			// those stay in place: natively where the mapping accepts the role at
+			// that position, otherwise as a user system-reminder.
 			const conversationStart = processedMessages.findIndex(
 				(m) => m.role !== "system",
 			);
@@ -3235,13 +3237,10 @@ export async function prepareRequestBody(
 			// case — including when the 1h marker rides on a tool_result, which
 			// this check would otherwise miss. A 1h marker only on system is safe:
 			// message-level 5m markers after it satisfy the ordering.
-			const callerUses1hTtlInMessages = nonSystemMessages.some(
-				(m) =>
-					m.tool_result_cache_control?.ttl === "1h" ||
-					(Array.isArray(m.content) &&
-						m.content.some(
-							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
-						)),
+			const callerMessageCacheControls =
+				getCallerCacheControls(nonSystemMessages);
+			const callerUses1hTtlInMessages = callerMessageCacheControls.some(
+				(marker) => marker.ttl === "1h",
 			);
 			const autoCacheControlEnabled =
 				autoInjectCacheControl && !callerUses1hTtlInMessages;
@@ -3384,7 +3383,8 @@ export async function prepareRequestBody(
 						const shouldCache =
 							autoCacheControlEnabled &&
 							text.length >= minCacheableChars &&
-							systemCacheControlCount < maxCacheControlBlocks;
+							systemCacheControlCount + callerMessageCacheControls.length <
+								maxCacheControlBlocks;
 
 						if (shouldCache) {
 							systemCacheControlCount++;
@@ -3713,17 +3713,14 @@ export async function prepareRequestBody(
 			// supports 1h, i.e. the marker won't be downgraded to 5m — suppress
 			// heuristic cachePoint injection so an auto-added 5m point can't
 			// precede the caller's 1h point.
+			const bedrockCallerCacheControls = getCallerCacheControls(
+				bedrockNonSystemMessages,
+				"bedrock",
+			);
+			let bedrockPendingCallerMarkers = bedrockCallerCacheControls.length;
 			const bedrockCallerUses1hTtlInMessages =
 				bedrockSupports1hTtl &&
-				bedrockNonSystemMessages.some(
-					(m) =>
-						m.tool_result_cache_control?.ttl === "1h" ||
-						(Array.isArray(m.content) &&
-							m.content.some(
-								(part) =>
-									isTextContent(part) && part.cache_control?.ttl === "1h",
-							)),
-				);
+				bedrockCallerCacheControls.some((marker) => marker.ttl === "1h");
 			const bedrockAutoCachePointEnabled =
 				autoInjectCacheControl && !bedrockCallerUses1hTtlInMessages;
 
@@ -3781,7 +3778,8 @@ export async function prepareRequestBody(
 						bedrockAutoCachePointEnabled &&
 						!callerSetBedrockCacheControl &&
 						block.text.length >= bedrockMinCacheableChars &&
-						bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+						bedrockCacheControlCount + bedrockPendingCallerMarkers <
+							bedrockMaxCacheControlBlocks;
 
 					if (shouldHeuristicCache) {
 						bedrockCacheControlCount++;
@@ -3791,23 +3789,6 @@ export async function prepareRequestBody(
 
 				if (systemContent.length > 0) {
 					requestBody.system = systemContent;
-				}
-			}
-
-			// Caller breakpoints further on in the conversation. Heuristic
-			// cachePoints leave room for them, so early long blocks cannot use up
-			// the budget before the caller's trailing marker.
-			let bedrockPendingCallerMarkers = 0;
-			for (const msg of bedrockNonSystemMessages) {
-				if (msg.tool_call_id) {
-					if (msg.tool_result_cache_control) {
-						bedrockPendingCallerMarkers++;
-					}
-				} else if (Array.isArray(msg.content)) {
-					bedrockPendingCallerMarkers += msg.content.filter(
-						(part) =>
-							isTextContent(part) && part.text?.trim() && part.cache_control,
-					).length;
 				}
 			}
 
@@ -3834,10 +3815,7 @@ export async function prepareRequestBody(
 						content: [],
 					};
 
-					const textContent =
-						typeof msg.content === "string"
-							? msg.content
-							: JSON.stringify(msg.content ?? "");
+					const textContent = getToolResultText(msg);
 
 					pendingToolResultMessage.content.push({
 						toolResult: {
@@ -3854,12 +3832,13 @@ export async function prepareRequestBody(
 					});
 					// In an agentic loop the caller's breakpoint sits on the last tool
 					// result, which is where the stable prefix ends.
-					if (msg.tool_result_cache_control) {
+					const toolResultCacheControl = getToolResultCacheControl(msg);
+					if (toolResultCacheControl) {
 						bedrockPendingCallerMarkers--;
 						if (bedrockCacheControlCount < bedrockMaxCacheControlBlocks) {
 							bedrockCacheControlCount++;
 							pendingToolResultMessage.content.push(
-								createBedrockCachePoint(msg.tool_result_cache_control.ttl),
+								createBedrockCachePoint(toolResultCacheControl.ttl),
 							);
 						}
 					}
