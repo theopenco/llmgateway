@@ -5,6 +5,7 @@ import { BlockedSignupCountriesForm } from "@/components/blocked-signup-countrie
 import { BlockedSignupEmailDomainsForm } from "@/components/blocked-signup-email-domains-form";
 import { CreditPurchaseBlockToggle } from "@/components/credit-purchase-block-toggle";
 import { ForceThreeDSecureForm } from "@/components/force-three-d-secure-form";
+import { ModelErrorRateAlertsForm } from "@/components/model-error-rate-alerts-form";
 import { SystemBannerForm } from "@/components/system-banner-form";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,17 +20,8 @@ import {
 	getBlockedSignupEmailDomains,
 	getCreditPurchaseBlock,
 	getForceThreeDSecure,
+	getModelErrorRateAlerts,
 	getSystemBanner,
-	updateBlockedSignupCountries,
-	updateBlockedSignupEmailDomains,
-	updateCreditPurchaseBlock,
-	updateForceThreeDSecure,
-	updateSystemBanner,
-} from "@/lib/admin-settings";
-
-import type {
-	ForceThreeDSecureMode,
-	SystemBannerSettingInput,
 } from "@/lib/admin-settings";
 
 function SignInPrompt() {
@@ -59,12 +51,14 @@ export default async function SettingsPage() {
 		blockedSignupEmailDomains,
 		forceThreeDSecure,
 		systemBanner,
+		modelErrorRateAlerts,
 	] = await Promise.all([
 		getCreditPurchaseBlock(),
 		getBlockedSignupCountries(),
 		getBlockedSignupEmailDomains(),
 		getForceThreeDSecure(),
 		getSystemBanner(),
+		getModelErrorRateAlerts(),
 	]);
 
 	if (
@@ -72,41 +66,10 @@ export default async function SettingsPage() {
 		blockedSignupCountries === null ||
 		blockedSignupEmailDomains === null ||
 		forceThreeDSecure === null ||
-		systemBanner === null
+		systemBanner === null ||
+		modelErrorRateAlerts === null
 	) {
 		return <SignInPrompt />;
-	}
-
-	async function handleToggle(blocked: boolean): Promise<{ success: boolean }> {
-		"use server";
-
-		const result = await updateCreditPurchaseBlock(blocked);
-		return { success: result !== null };
-	}
-
-	async function handleSaveCountries(countries: string[]) {
-		"use server";
-
-		return await updateBlockedSignupCountries(countries);
-	}
-
-	async function handleSaveEmailDomains(domains: string[]) {
-		"use server";
-		return await updateBlockedSignupEmailDomains(domains);
-	}
-
-	async function handleSaveBanner(input: SystemBannerSettingInput) {
-		"use server";
-
-		const result = await updateSystemBanner(input);
-		return { ok: result.banner !== null, message: result.message };
-	}
-
-	async function handleSaveThreeDSecure(mode: ForceThreeDSecureMode) {
-		"use server";
-
-		const result = await updateForceThreeDSecure(mode);
-		return { ok: result.state !== null, message: result.message };
 	}
 
 	return (
@@ -118,7 +81,7 @@ export default async function SettingsPage() {
 				<div>
 					<h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
 					<p className="text-sm text-muted-foreground">
-						Platform-wide announcements and emergency switches
+						Platform-wide announcements, alerts and emergency switches
 					</p>
 				</div>
 			</header>
@@ -133,7 +96,22 @@ export default async function SettingsPage() {
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					<SystemBannerForm banner={systemBanner} onSave={handleSaveBanner} />
+					<SystemBannerForm banner={systemBanner} />
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Model error-rate alerts</CardTitle>
+					<CardDescription>
+						Posts to Discord when a model/provider mapping&apos;s gateway and
+						upstream error rate over a rule&apos;s window reaches its threshold.
+						Credit traffic only, checked every minute; each mapping alerts once
+						per cooldown. Needs MODEL_ERROR_RATE_DISCORD_URL on the worker.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<ModelErrorRateAlertsForm settings={modelErrorRateAlerts} />
 				</CardContent>
 			</Card>
 
@@ -151,7 +129,6 @@ export default async function SettingsPage() {
 					<CreditPurchaseBlockToggle
 						blocked={creditPurchaseBlock.blocked}
 						envForced={creditPurchaseBlock.envForced}
-						onToggle={handleToggle}
 					/>
 				</CardContent>
 			</Card>
@@ -169,7 +146,6 @@ export default async function SettingsPage() {
 				<CardContent>
 					<BlockedSignupCountriesForm
 						countries={blockedSignupCountries.countries}
-						onSave={handleSaveCountries}
 					/>
 				</CardContent>
 			</Card>
@@ -186,7 +162,6 @@ export default async function SettingsPage() {
 				<CardContent>
 					<BlockedSignupEmailDomainsForm
 						domains={blockedSignupEmailDomains.domains}
-						onSave={handleSaveEmailDomains}
 					/>
 				</CardContent>
 			</Card>
@@ -207,7 +182,6 @@ export default async function SettingsPage() {
 					<ForceThreeDSecureForm
 						mode={forceThreeDSecure.mode}
 						envOverride={forceThreeDSecure.envOverride}
-						onSave={handleSaveThreeDSecure}
 					/>
 				</CardContent>
 			</Card>

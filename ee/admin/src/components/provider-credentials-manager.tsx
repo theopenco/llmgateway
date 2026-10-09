@@ -28,8 +28,9 @@ import { toast } from "sonner";
 
 import { ProviderCredentialsSpendOverview } from "@/components/provider-credentials-spend-overview";
 import { ProviderKeyErrorRateCell } from "@/components/provider-key-error-rate-cell";
+import { ProviderKeyInsightsLink } from "@/components/provider-key-insights-link";
+import { ProviderKeyModelSyncDialog } from "@/components/provider-key-model-sync-dialog";
 import { ProviderKeySpendCell } from "@/components/provider-key-spend-cell";
-import { ProviderKeySpendDialog } from "@/components/provider-key-spend-dialog";
 import { ProviderKeyStatusBadge } from "@/components/provider-key-status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -72,8 +73,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
-import { apiErrorMessage, thrownErrorMessage } from "@/lib/api-error";
-import { useFetchClient } from "@/lib/fetch-client";
+import {
+	apiErrorMessage,
+	browserRequestErrorMessage,
+	thrownErrorMessage,
+} from "@/lib/api-error";
+import { useAppConfig } from "@/lib/config";
+import { useApi, useFetchClient } from "@/lib/fetch-client";
 import {
 	DEFAULT_ERROR_WINDOW,
 	ERROR_WINDOW_OPTIONS,
@@ -84,7 +90,11 @@ import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon, PROVIDER_MODEL_KINDS } from "@llmgateway/shared";
+import {
+	getProviderIcon,
+	MODEL_SYNC_PROVIDERS,
+	PROVIDER_MODEL_KINDS,
+} from "@llmgateway/shared";
 import {
 	MultiModelIdSelector,
 	ReorderableItem,
@@ -166,11 +176,6 @@ function totalOf(counts: VariantCounts): number {
 	return counts.default + counts.enterprise + counts.plans;
 }
 
-interface MutationResult {
-	success: boolean;
-	error?: string;
-}
-
 interface ProviderCredentialsManagerProps {
 	credentials: ProviderCredential[];
 	catalog: ProviderCredentialCatalogEntry[];
@@ -183,36 +188,6 @@ interface ProviderCredentialsManagerProps {
 	envSource: "gateway" | "api";
 	/** ISO timestamp of the gateway's snapshot; null when envSource is `api`. */
 	envPublishedAt: string | null;
-	onCreate: (body: {
-		provider: string;
-		token: string;
-		comment?: string;
-		variant?: Variant;
-		region?: string;
-		config?: Record<string, string>;
-		usageLimit?: string | null;
-		allowedModels?: string[] | null;
-		skipValidation?: boolean;
-	}) => Promise<MutationResult>;
-	onUpdate: (
-		id: string,
-		body: {
-			token?: string;
-			comment?: string | null;
-			variant?: Variant;
-			region?: string | null;
-			status?: "active" | "inactive";
-			config?: Record<string, string>;
-			usageLimit?: string | null;
-			allowedModels?: string[] | null;
-			skipValidation?: boolean;
-		},
-	) => Promise<MutationResult>;
-	onDelete: (id: string) => Promise<MutationResult>;
-	onReorder: (
-		provider: string,
-		credentialIds: string[],
-	) => Promise<MutationResult>;
 }
 
 function ProviderIcon({ provider }: { provider: string }) {
@@ -481,7 +456,18 @@ function ManagedCredentialCells({
 				<ProviderCell provider={credential.provider} />
 			</TableCell>
 			<TableCell className="font-mono text-xs">
-				<div>{credential.maskedToken}</div>
+				<div className="flex items-center gap-1.5">
+					{credential.maskedToken}
+					{credential.carrierKey ? (
+						<Badge
+							variant="secondary"
+							className="font-sans text-[11px]"
+							title="The provider key this Airside carrier is served with."
+						>
+							Carrier key
+						</Badge>
+					) : null}
+				</div>
 				{credential.tokenHash ? (
 					<div
 						className="text-[11px] text-muted-foreground"
@@ -553,10 +539,16 @@ function ManagedCredentialCells({
 			</TableCell>
 			<TableCell className="text-right">
 				<div className="flex justify-end gap-1">
-					<ProviderKeySpendDialog
+					<ProviderKeyInsightsLink
 						providerKeyId={credential.id}
 						label={`${credential.provider} ${credential.maskedToken}`}
 					/>
+					{MODEL_SYNC_PROVIDERS.includes(credential.provider) && (
+						<ProviderKeyModelSyncDialog
+							providerKeyId={credential.id}
+							label={`${credential.provider} ${credential.maskedToken}`}
+						/>
+					)}
 					{/* Global Stats is admin-only. */}
 					{isAdmin && (
 						<Button
@@ -605,12 +597,9 @@ export function ProviderCredentialsManager({
 	catalog,
 	envSource,
 	envPublishedAt,
-	onCreate,
-	onUpdate,
-	onDelete,
-	onReorder,
 }: ProviderCredentialsManagerProps) {
 	const router = useRouter();
+	const $api = useApi();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const providerFilter = searchParams.get("provider") ?? ALL_PROVIDERS;
@@ -660,8 +649,47 @@ export function ProviderCredentialsManager({
 	const [editing, setEditing] = useState<ProviderCredential | null>(null);
 	const [creating, setCreating] = useState(false);
 	const [deleting, setDeleting] = useState<ProviderCredential | null>(null);
-	const [deleteLoading, setDeleteLoading] = useState(false);
-	const [deleteError, setDeleteError] = useState<string | null>(null);
+
+	// Create, edit and delete report failures inside their dialog, so they opt
+	// out of the global error toast.
+	const createMutation = $api.useMutation(
+		"post",
+		"/admin/provider-credentials",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
+				setCreating(false);
+				router.refresh();
+			},
+		},
+	);
+	const updateMutation = $api.useMutation(
+		"patch",
+		"/admin/provider-credentials/{id}",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
+				setEditing(null);
+				router.refresh();
+			},
+		},
+	);
+	const deleteMutation = $api.useMutation(
+		"delete",
+		"/admin/provider-credentials/{id}",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
+				setDeleting(null);
+				router.refresh();
+			},
+		},
+	);
+	const reorderMutation = $api.useMutation(
+		"put",
+		"/admin/provider-credentials/order",
+		{ meta: { errorMessage: "Failed to save credential order" } },
+	);
 
 	// Deleted credentials are listed for their history only: they take no part
 	// in rotation, reordering, env supersession or the create dialog's counts.
@@ -891,14 +919,22 @@ export function ProviderCredentialsManager({
 		[envByProvider, providerCounts, matchesProviderFilter],
 	);
 
+	const resetUpdate = updateMutation.reset;
+	const resetDelete = deleteMutation.reset;
 	const editCredential = useCallback(
-		(credential: ProviderCredential) => setEditing(credential),
-		[],
+		(credential: ProviderCredential) => {
+			resetUpdate();
+			setEditing(credential);
+		},
+		[resetUpdate],
 	);
-	const requestDelete = useCallback((credential: ProviderCredential) => {
-		setDeleteError(null);
-		setDeleting(credential);
-	}, []);
+	const requestDelete = useCallback(
+		(credential: ProviderCredential) => {
+			resetDelete();
+			setDeleting(credential);
+		},
+		[resetDelete],
+	);
 
 	function renderEnvRows(provider: string) {
 		return (envByProvider.get(provider) ?? []).map((entry) => (
@@ -946,7 +982,7 @@ export function ProviderCredentialsManager({
 		setOrder((current) => new Map(current).set(provider, ids));
 	}
 
-	async function commitReorder(provider: string, ids: string[]) {
+	function commitReorder(provider: string, ids: string[]) {
 		const snapshot = preDragOrder.current;
 		preDragOrder.current = null;
 		if (!snapshot) {
@@ -954,31 +990,21 @@ export function ProviderCredentialsManager({
 		}
 
 		setSavingProvider(provider);
-		const result = await onReorder(provider, ids);
-		if (!result.success) {
-			setOrder(snapshot);
-			toast.error(result.error ?? "Failed to save credential order");
-			setSavingProvider(null);
-			return;
-		}
-		router.refresh();
-		setSavingProvider(null);
+		reorderMutation.mutate(
+			{ body: { provider, credentialIds: ids } },
+			{
+				onSuccess: () => router.refresh(),
+				onError: () => setOrder(snapshot),
+				onSettled: () => setSavingProvider(null),
+			},
+		);
 	}
 
-	async function confirmDelete() {
+	function confirmDelete() {
 		if (!deleting) {
 			return;
 		}
-		setDeleteLoading(true);
-		setDeleteError(null);
-		const result = await onDelete(deleting.id);
-		setDeleteLoading(false);
-		if (!result.success) {
-			setDeleteError(result.error ?? "Failed to delete credential");
-			return;
-		}
-		setDeleting(null);
-		router.refresh();
+		deleteMutation.mutate({ params: { path: { id: deleting.id } } });
 	}
 
 	return (
@@ -1001,7 +1027,12 @@ export function ProviderCredentialsManager({
 						/>
 					</div>
 					{isAdmin && (
-						<Button onClick={() => setCreating(true)}>
+						<Button
+							onClick={() => {
+								createMutation.reset();
+								setCreating(true);
+							}}
+						>
 							<Plus className="mr-1 h-4 w-4" />
 							Add credential
 						</Button>
@@ -1185,9 +1216,7 @@ export function ProviderCredentialsManager({
 														ids={ids}
 														disabled={savingProvider === provider}
 														onReorder={(next) => applyReorder(provider, next)}
-														onCommit={(next) =>
-															void commitReorder(provider, next)
-														}
+														onCommit={(next) => commitReorder(provider, next)}
 													>
 														{ids.map((id: string) => {
 															const credential = credentialById.get(id);
@@ -1273,25 +1302,33 @@ export function ProviderCredentialsManager({
 					credentialCounts={credentialCounts}
 					regionsInUse={regionsInUse}
 					onClose={() => setCreating(false)}
-					onSubmit={async (values) => {
-						const result = await onCreate({
-							provider: values.provider,
-							token: values.token,
-							comment: values.comment || undefined,
-							variant: values.variant,
-							region: values.region || undefined,
-							config: values.config,
-							usageLimit: values.usageLimit || undefined,
-							allowedModels:
-								values.allowedModels.length > 0 ? values.allowedModels : null,
-							skipValidation: values.skipValidation,
-						});
-						if (result.success) {
-							setCreating(false);
-							router.refresh();
-						}
-						return result;
-					}}
+					saving={createMutation.isPending}
+					saveError={
+						createMutation.isError
+							? apiErrorMessage(
+									createMutation.error,
+									"Failed to create credential",
+								)
+							: null
+					}
+					onSubmit={(values) =>
+						createMutation.mutate({
+							body: {
+								provider: values.provider,
+								token: values.token,
+								comment: values.comment || undefined,
+								variant: values.variant,
+								region: values.region || undefined,
+								config: values.config,
+								usageLimit: values.usageLimit || undefined,
+								allowedModels:
+									values.allowedModels.length > 0 ? values.allowedModels : null,
+								modelSyncEnabled: values.modelSyncEnabled,
+								skipValidation: values.skipValidation,
+								carrierKey: values.carrierKey,
+							},
+						})
+					}
 				/>
 			) : null}
 
@@ -1303,25 +1340,34 @@ export function ProviderCredentialsManager({
 					credentialCounts={credentialCounts}
 					regionsInUse={regionsInUse}
 					onClose={() => setEditing(null)}
-					onSubmit={async (values) => {
-						const result = await onUpdate(editing.id, {
-							...(values.token ? { token: values.token } : {}),
-							comment: values.comment || null,
-							variant: values.variant,
-							region: values.region || null,
-							status: values.status,
-							config: values.config,
-							usageLimit: values.usageLimit || null,
-							allowedModels:
-								values.allowedModels.length > 0 ? values.allowedModels : null,
-							skipValidation: values.skipValidation,
-						});
-						if (result.success) {
-							setEditing(null);
-							router.refresh();
-						}
-						return result;
-					}}
+					saving={updateMutation.isPending}
+					saveError={
+						updateMutation.isError
+							? apiErrorMessage(
+									updateMutation.error,
+									"Failed to update credential",
+								)
+							: null
+					}
+					onSubmit={(values) =>
+						updateMutation.mutate({
+							params: { path: { id: editing.id } },
+							body: {
+								...(values.token ? { token: values.token } : {}),
+								comment: values.comment || null,
+								variant: values.variant,
+								region: values.region || null,
+								status: values.status,
+								config: values.config,
+								usageLimit: values.usageLimit || null,
+								allowedModels:
+									values.allowedModels.length > 0 ? values.allowedModels : null,
+								allowedModelsBase: editing.allowedModels,
+								modelSyncEnabled: values.modelSyncEnabled,
+								skipValidation: values.skipValidation,
+							},
+						})
+					}
 				/>
 			) : null}
 
@@ -1342,8 +1388,13 @@ export function ProviderCredentialsManager({
 								: null}
 						</DialogDescription>
 					</DialogHeader>
-					{deleteError ? (
-						<p className="text-sm text-destructive">{deleteError}</p>
+					{deleteMutation.isError ? (
+						<p className="text-sm text-destructive">
+							{apiErrorMessage(
+								deleteMutation.error,
+								"Failed to delete credential",
+							)}
+						</p>
 					) : null}
 					<DialogFooter>
 						<Button variant="outline" onClick={() => setDeleting(null)}>
@@ -1352,9 +1403,9 @@ export function ProviderCredentialsManager({
 						<Button
 							variant="destructive"
 							onClick={confirmDelete}
-							disabled={deleteLoading}
+							disabled={deleteMutation.isPending}
 						>
-							{deleteLoading ? (
+							{deleteMutation.isPending ? (
 								<Loader2 className="mr-1 h-4 w-4 animate-spin" />
 							) : null}
 							Remove
@@ -1378,7 +1429,11 @@ interface CredentialFormValues {
 	usageLimit: string;
 	/** Canonical model ids the credential may serve; empty means unrestricted. */
 	allowedModels: string[];
+	/** Let the daily model sync append models the account starts serving. */
+	modelSyncEnabled: boolean;
 	skipValidation: boolean;
+	/** Custom carriers, on create: serve the carrier with this key. */
+	carrierKey: boolean;
 }
 
 const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
@@ -1560,6 +1615,8 @@ function CredentialDialog({
 	regionsInUse,
 	onClose,
 	onSubmit,
+	saving,
+	saveError,
 }: {
 	catalog: ProviderCredentialCatalogEntry[];
 	credential?: ProviderCredential;
@@ -1569,7 +1626,10 @@ function CredentialDialog({
 	/** Provider/region pairs already claimed, for annotating the region options. */
 	regionsInUse: { provider: string; region: string | null }[];
 	onClose: () => void;
-	onSubmit: (values: CredentialFormValues) => Promise<MutationResult>;
+	onSubmit: (values: CredentialFormValues) => void;
+	saving: boolean;
+	/** Why the last save failed, cleared when the dialog opens. */
+	saveError: string | null;
 }) {
 	const isEdit = credential !== undefined;
 	const [provider, setProvider] = useState(
@@ -1591,12 +1651,15 @@ function CredentialDialog({
 	const [allowedModels, setAllowedModels] = useState<string[]>(
 		credential?.allowedModels ?? [],
 	);
+	const [modelSyncEnabled, setModelSyncEnabled] = useState(
+		credential?.modelSyncEnabled ?? true,
+	);
 	// An edit defaults to skipping the live check: the credential already passed
 	// one when it was stored, so re-probing on every metadata tweak spends an
 	// upstream request to re-learn what we know. Unchecking forces the check —
 	// worth it when the token, config or region changes.
 	const [skipValidation, setSkipValidation] = useState(isEdit);
-	const [loading, setLoading] = useState(false);
+	const [carrierKey, setCarrierKey] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
 	// Self-test / verify-models probes run against the CURRENT form values (not
@@ -1607,6 +1670,7 @@ function CredentialDialog({
 	// is far shorter than the API's, so the round trip through it would be cut
 	// short with an opaque "upstream request timeout".
 	const $fetch = useFetchClient();
+	const { apiUrl } = useAppConfig();
 	const [selfTestLoading, setSelfTestLoading] = useState(false);
 	const [selfTestOutcome, setSelfTestOutcome] = useState<
 		SelfTestOutcome | undefined
@@ -1651,6 +1715,7 @@ function CredentialDialog({
 		selfTestRequestId.current = requestId;
 		setSelfTestLoading(true);
 		setSelfTestOutcome(undefined);
+		const startedAt = Date.now();
 		try {
 			const { data, error, response } = await $fetch.POST(
 				"/admin/provider-credentials/self-test",
@@ -1674,9 +1739,15 @@ function CredentialDialog({
 			if (selfTestRequestId.current !== requestId) {
 				return;
 			}
-			setSelfTestOutcome({
-				error: thrownErrorMessage(cause, "Failed to test credential"),
-			});
+			const message = await browserRequestErrorMessage(
+				cause,
+				{ url: `${apiUrl}/admin/provider-credentials/self-test`, startedAt },
+				"Failed to test credential",
+			);
+			if (selfTestRequestId.current !== requestId) {
+				return;
+			}
+			setSelfTestOutcome({ error: message });
 		} finally {
 			if (selfTestRequestId.current === requestId) {
 				setSelfTestLoading(false);
@@ -1690,6 +1761,7 @@ function CredentialDialog({
 			body: CredentialTestInput,
 			model: string,
 		): Promise<ModelVerificationEntry> => {
+			const startedAt = Date.now();
 			try {
 				const { data, error, response } = await $fetch.POST(
 					"/admin/provider-credentials/verify-models",
@@ -1711,11 +1783,18 @@ function CredentialDialog({
 					model,
 					inCatalog: true,
 					valid: false,
-					error: thrownErrorMessage(cause, "Failed to verify model"),
+					error: await browserRequestErrorMessage(
+						cause,
+						{
+							url: `${apiUrl}/admin/provider-credentials/verify-models`,
+							startedAt,
+						},
+						"Failed to verify model",
+					),
 				};
 			}
 		},
-		[$fetch],
+		[$fetch, apiUrl],
 	);
 
 	/**
@@ -1857,15 +1936,14 @@ function CredentialDialog({
 		return usage;
 	}, [regionsInUse, provider]);
 
-	async function handleSubmit() {
+	function handleSubmit() {
 		const trimmedLimit = usageLimit.trim();
 		if (trimmedLimit && !nonNegativeDecimalPattern.test(trimmedLimit)) {
 			setError("Max spend must be a non-negative number.");
 			return;
 		}
-		setLoading(true);
 		setError(null);
-		const result = await onSubmit({
+		onSubmit({
 			provider,
 			token,
 			comment,
@@ -1875,13 +1953,13 @@ function CredentialDialog({
 			config,
 			usageLimit: trimmedLimit,
 			allowedModels,
+			modelSyncEnabled,
 			skipValidation,
+			carrierKey,
 		});
-		setLoading(false);
-		if (!result.success) {
-			setError(result.error ?? "Something went wrong");
-		}
 	}
+
+	const shownError = error ?? saveError;
 
 	return (
 		<Dialog
@@ -2249,6 +2327,25 @@ function CredentialDialog({
 								? "Empty means the key serves every model of the provider. Restrict it when the upstream account only has some models enabled, so routing never picks this key for a model it cannot serve."
 								: `Routing will only use this credential for the ${allowedModels.length === 1 ? "listed model" : `${allowedModels.length} listed models`}.`}
 						</p>
+						{MODEL_SYNC_PROVIDERS.includes(provider) ? (
+							<div className="flex items-start gap-2">
+								<Switch
+									id="model-sync-enabled"
+									checked={modelSyncEnabled}
+									onCheckedChange={setModelSyncEnabled}
+								/>
+								<div className="flex flex-col gap-1">
+									<Label htmlFor="model-sync-enabled" className="font-normal">
+										Auto-add new models
+									</Label>
+									<p className="text-xs text-muted-foreground">
+										Once a day, models the account starts serving are tested and
+										added to the restriction. Turn off to only change the list
+										by hand.
+									</p>
+								</div>
+							</div>
+						) : null}
 						<div className="flex flex-wrap gap-2">
 							<Button
 								type="button"
@@ -2387,6 +2484,27 @@ function CredentialDialog({
 						</div>
 					) : null}
 
+					{!isEdit && selectedEntry?.carrier ? (
+						<div className="flex items-start gap-2">
+							<Checkbox
+								id="carrier-key"
+								checked={carrierKey}
+								onCheckedChange={(checked) => setCarrierKey(checked === true)}
+							/>
+							<div className="flex flex-col gap-1">
+								<Label htmlFor="carrier-key" className="font-normal">
+									Use as the carrier&apos;s provider key
+								</Label>
+								<p className="text-xs text-muted-foreground">
+									Replaces the provider key the carrier filed in Airside, which
+									is retired, and shows this one in the carrier&apos;s settings.
+									Leave unchecked to add an extra key alongside it. A carrier
+									without a provider key always gets this one.
+								</p>
+							</div>
+						</div>
+					) : null}
+
 					<div className="flex items-start gap-2">
 						<Checkbox
 							id="skip-validation"
@@ -2410,7 +2528,9 @@ function CredentialDialog({
 						</div>
 					</div>
 
-					{error ? <p className="text-sm text-destructive">{error}</p> : null}
+					{shownError ? (
+						<p className="text-sm text-destructive">{shownError}</p>
+					) : null}
 				</div>
 
 				<DialogFooter>
@@ -2420,12 +2540,12 @@ function CredentialDialog({
 					<Button
 						onClick={handleSubmit}
 						disabled={
-							loading ||
+							saving ||
 							(!isEdit && (!provider || !token)) ||
 							hasUnsatisfiedExclusiveGroup
 						}
 					>
-						{loading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+						{saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
 						{isEdit ? "Save" : "Create"}
 					</Button>
 				</DialogFooter>

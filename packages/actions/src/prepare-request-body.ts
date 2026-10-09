@@ -7,6 +7,7 @@ import {
 	getProviderDefinition,
 	expandAllProviderRegions,
 	type ProviderModelMapping,
+	type ReasoningEffort,
 	type ReasoningMode,
 	type ProviderId,
 	type BaseMessage,
@@ -32,6 +33,10 @@ import {
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
+import {
+	anthropicThinkingBlocksFor,
+	toConverseReasoningContent,
+} from "./anthropic-thinking.js";
 import {
 	isToolSearchTool,
 	stripAnthropicNativeBlocks,
@@ -789,6 +794,34 @@ function stripUnsupportedSchemaProperties(
 	}
 
 	return cleaned;
+}
+
+const GOOGLE_THINKING_LEVELS = ["minimal", "low", "medium", "high"] as const;
+
+/**
+ * Maps a reasoning effort to a Gemini 3+ `thinkingLevel`. Google has no tier
+ * above high, and models reject levels they do not support (e.g. `minimal` on
+ * Gemini 3.7+ Flash and Pro), so an undeclared level rises to the next
+ * declared one, as the budget fallback used to resolve it upstream.
+ */
+function getGoogleThinkingLevel(
+	effort: string,
+	declared: ReasoningEffort[] | undefined,
+): string {
+	// xhigh and max share the top level.
+	const level =
+		GOOGLE_THINKING_LEVELS.find((l) => l === effort) ?? ("high" as const);
+	const supported = GOOGLE_THINKING_LEVELS.filter((l) =>
+		declared?.length ? declared.includes(l) : true,
+	);
+	if (supported.length === 0) {
+		return level;
+	}
+	const index = GOOGLE_THINKING_LEVELS.indexOf(level);
+	return (
+		supported.find((l) => GOOGLE_THINKING_LEVELS.indexOf(l) >= index) ??
+		supported[supported.length - 1]
+	);
 }
 
 function mapGoogleImageSize(imageSize: string): string {
@@ -1818,6 +1851,41 @@ export async function prepareRequestBody(
 		return bytedanceImageRequest;
 	}
 
+	// Handle Tencent Hy Image generation (TokenHub's Chat/Messages image API)
+	if (imageGenerations && usedProvider === "tencent") {
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		const content: Array<
+			| { type: "text"; text: string }
+			| { type: "image_url"; image_url: { url: string } }
+		> = [];
+		if (typeof lastUserMessage?.content === "string") {
+			content.push({ type: "text", text: lastUserMessage.content });
+		} else if (Array.isArray(lastUserMessage?.content)) {
+			for (const part of lastUserMessage.content) {
+				if (part.type === "text" && part.text) {
+					content.push({ type: "text", text: part.text });
+				} else if (part.type === "image_url" && part.image_url) {
+					const url =
+						typeof part.image_url === "string"
+							? part.image_url
+							: part.image_url.url;
+					if (url) {
+						content.push({ type: "image_url", image_url: { url } });
+					}
+				}
+			}
+		}
+
+		return {
+			model: usedExternalId,
+			messages: [{ role: "user", content }],
+			...(image_config?.image_size && { size: image_config.image_size }),
+			...(image_config?.seed !== undefined && { seed: image_config.seed }),
+		} as ProviderRequestBody;
+	}
+
 	// Check if the model supports system role. Look up by canonical model id.
 	const supportsSystemRole =
 		(modelDef as ModelDefinition)?.supportsSystemRole !== false;
@@ -1993,34 +2061,37 @@ export async function prepareRequestBody(
 	// DeepSeek (and Moonshot) thinking-mode endpoints reject assistant messages
 	// containing tool_calls unless `reasoning_content` is present. OpenAI-compat
 	// clients usually drop reasoning between turns, so translate the OpenAI-style
-	// `reasoning` field back to provider-style `reasoning_content`. DeepSeek
-	// accepts an empty string, but Moonshot's newer reasoning models (kimi-k2.5,
-	// kimi-k2.6) treat an empty string as missing — use a single space as a
-	// non-empty placeholder there. Novita proxies DeepSeek V4 with the same
-	// upstream constraint, so apply the DeepSeek behavior there too.
-	// Match by the canonical model id — never by the upstream form. DeepSeek
-	// V4 roots are `deepseek-v4*` regardless of which provider proxies them.
-	const isNovitaDeepseekV4 =
-		usedProvider === "novita" && usedInternalModel.startsWith("deepseek-v4");
+	// `reasoning` field back to provider-style `reasoning_content`. DeepSeek's
+	// own API accepts an empty string, but Moonshot's newer reasoning models
+	// (kimi-k2.5, kimi-k2.6) and Novita's DeepSeek V4 treat it as missing, so
+	// every other host gets a single space. Any host of DeepSeek V4 can enforce
+	// the constraint, including Airside carriers (e.g. Luminal) that reach this
+	// function as the "openai" transport, so match V4 by the canonical model id.
+	const isDeepseekV4 = usedInternalModel.startsWith("deepseek-v4");
 	if (
 		usedProvider === "deepseek" ||
 		usedProvider === "moonshot" ||
-		isNovitaDeepseekV4
+		isDeepseekV4
 	) {
-		const fallback =
-			usedProvider === "moonshot" || isNovitaDeepseekV4 ? " " : "";
+		const fallback = usedProvider === "deepseek" ? "" : " ";
 		processedMessages = processedMessages.map((m) => {
+			if (m.role !== "assistant") {
+				return m;
+			}
+			// Never send both fields: Runware treats `reasoning` as an alias of
+			// `reasoning_content` and rejects a message carrying both.
+			const { reasoning, ...rest } = m;
+			if (m.reasoning_content !== undefined) {
+				return reasoning === undefined ? m : rest;
+			}
 			if (
-				m.role !== "assistant" ||
 				!m.tool_calls ||
 				!Array.isArray(m.tool_calls) ||
-				m.tool_calls.length === 0 ||
-				m.reasoning_content !== undefined
+				m.tool_calls.length === 0
 			) {
 				return m;
 			}
-			const reasoning = m.reasoning ?? fallback;
-			return { ...m, reasoning_content: reasoning || fallback };
+			return { ...rest, reasoning_content: reasoning || fallback };
 		});
 	}
 
@@ -2048,7 +2119,11 @@ export async function prepareRequestBody(
 	// `processImageUrl` with the SSRF guard left on (its default): the guard is
 	// what enforces https-only and refuses internal hosts, so an `http://` URL
 	// is rejected rather than quietly forwarded to the provider to fetch.
-	if (providerMappingForOptions?.requiresBase64Images) {
+	// `resolvedProviderMapping` covers mappings shaped under another transport
+	// (AWS Bedrock's OpenAI format), which the provider-keyed lookup misses.
+	if (
+		(providerMappingForOptions ?? resolvedProviderMapping)?.requiresBase64Images
+	) {
 		processedMessages = await Promise.all(
 			processedMessages.map(async (m) => {
 				if (!Array.isArray(m.content)) {
@@ -2122,9 +2197,16 @@ export async function prepareRequestBody(
 	// are OpenAI Responses assistant-message markers. No chat-completions
 	// upstream understands them, and strict providers reject unknown message
 	// fields, so strip them from every path except the Responses API transform
-	// above. An assistant message that carried only reasoning (no
-	// content/tool_calls — an incomplete prior turn replayed for the Responses
-	// API) becomes empty here, so drop it.
+	// above and Claude's Messages/Converse transforms below, which rebuild each
+	// message and replay the provider's own thinking blocks from it. An
+	// assistant message that carried only reasoning (no content/tool_calls — an
+	// incomplete prior turn replayed for the Responses API) becomes empty here,
+	// so drop it.
+	const replaysAnthropicThinking =
+		modelDef?.family === "anthropic" &&
+		(usesAnthropicMessagesApi(usedProvider) ||
+			(usedProvider === "aws-bedrock" &&
+				providerMappingForOptions?.apiFormat !== "openai-chat-completions"));
 	processedMessages = processedMessages.flatMap((m) => {
 		if (
 			m.reasoning_details === undefined &&
@@ -2149,7 +2231,11 @@ export async function prepareRequestBody(
 		) {
 			return [];
 		}
-		return [rest];
+		return [
+			replaysAnthropicThinking && reasoningDetails !== undefined
+				? { ...rest, reasoning_details: reasoningDetails }
+				: rest,
+		];
 	});
 
 	// The OpenAI-style `reasoning` field on replayed assistant turns is tolerated
@@ -2608,6 +2694,21 @@ export async function prepareRequestBody(
 					if (supportedServiceTier) {
 						requestBody.service_tier = supportedServiceTier;
 					}
+				}
+
+				// AWS Bedrock's OpenAI format is shaped under this transport, so
+				// its tier support is keyed on the resolved mapping's provider.
+				if (
+					resolvedProviderMapping?.providerId === "aws-bedrock" &&
+					(service_tier === "flex" || service_tier === "priority") &&
+					supportsServiceTier(
+						usedInternalModel,
+						"aws-bedrock",
+						service_tier,
+						usedRegion,
+					)
+				) {
+					requestBody.service_tier = service_tier;
 				}
 
 				if (usedProvider === "openai") {
@@ -3537,11 +3638,10 @@ export async function prepareRequestBody(
 					requestBody.top_p = top_p;
 				}
 				if (reasoning_effort !== undefined) {
-					const reasoningEffort =
+					// Bedrock's chat completions surface ignores the nested
+					// `reasoning.effort` form; only the top-level field is applied.
+					requestBody.reasoning_effort =
 						reasoning_effort === "minimal" ? "low" : reasoning_effort;
-					requestBody.reasoning = {
-						effort: reasoningEffort,
-					};
 				}
 				if (n !== undefined && n > 1) {
 					requestBody.n = n;
@@ -3769,9 +3869,19 @@ export async function prepareRequestBody(
 				flushPendingToolResults();
 
 				const role = msg.role === "user" ? "user" : "assistant";
+				// Converse's form of the Anthropic thinking blocks that open the turn.
+				const reasoningBlocks =
+					role === "assistant"
+						? anthropicThinkingBlocksFor(
+								"aws-bedrock",
+								msg.reasoning_details,
+							).map((block) => ({
+								reasoningContent: toConverseReasoningContent(block),
+							}))
+						: [];
 				const bedrockMessage: any = {
 					role,
-					content: [],
+					content: [...reasoningBlocks],
 				};
 
 				// Handle assistant messages with tool calls
@@ -3908,9 +4018,10 @@ export async function prepareRequestBody(
 				// Bedrock's Converse API rejects messages whose content array is
 				// empty ("The content field in the Message object at messages.N is
 				// empty"), while the Anthropic API accepts empty assistant turns.
-				// Mirror transformAnthropicMessages and drop such messages —
-				// Bedrock accepts the resulting consecutive same-role messages.
-				if (bedrockMessage.content.length === 0) {
+				// Mirror transformAnthropicMessages and drop such messages, including
+				// a turn left with only its thinking — Bedrock accepts the resulting
+				// consecutive same-role messages.
+				if (bedrockMessage.content.length === reasoningBlocks.length) {
 					continue;
 				}
 
@@ -4025,8 +4136,13 @@ export async function prepareRequestBody(
 			if (temperature !== undefined) {
 				inferenceConfig.temperature = temperature;
 			}
-			if (max_tokens !== undefined) {
-				inferenceConfig.maxTokens = max_tokens;
+			// Converse caps Claude at 4096 output tokens when maxTokens is omitted,
+			// cutting off long replies and adaptive thinking mid-turn. Mirror the
+			// Anthropic path and default to the model's advertised maxOutput.
+			const bedrockMaxTokens =
+				max_tokens ?? providerMappingForOptions?.maxOutput;
+			if (bedrockMaxTokens !== undefined) {
+				inferenceConfig.maxTokens = bedrockMaxTokens;
 			}
 			if (top_p !== undefined) {
 				inferenceConfig.topP = top_p;
@@ -4106,19 +4222,10 @@ export async function prepareRequestBody(
 						type: "enabled",
 						budget_tokens: thinkingBudget,
 					};
-					// When the caller didn't supply max_tokens, fall back to the
-					// model's full advertised maxOutput rather than a flat 1024
-					// (Anthropic's historical default that silently truncates
-					// large responses and mid-emission tool calls). When the
-					// caller did supply one, leave it alone but ensure it leaves
-					// room for the thinking budget plus a minimum response.
-					const bedrockModelMaxOutput = providerMappingForOptions?.maxOutput;
+					// Ensure maxTokens leaves room for the thinking budget plus a
+					// minimum response.
 					const reasoningFloor = thinkingBudget + 1000;
-					if (inferenceConfig.maxTokens === undefined) {
-						inferenceConfig.maxTokens =
-							max_tokens ??
-							Math.max(bedrockModelMaxOutput ?? reasoningFloor, reasoningFloor);
-					}
+					inferenceConfig.maxTokens ??= reasoningFloor;
 					if (inferenceConfig.maxTokens < reasoningFloor) {
 						inferenceConfig.maxTokens = reasoningFloor;
 					}
@@ -4308,6 +4415,17 @@ export async function prepareRequestBody(
 						// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed
 						requestBody.generationConfig.thinkingConfig.thinkingBudget =
 							reasoning_max_tokens;
+					} else if (
+						reasoning_effort !== undefined &&
+						!/^gemini-2[.-]/.test(usedExternalId)
+					) {
+						// Gemini 3+ takes a thinkingLevel; Google is retiring the
+						// thinkingBudget fallback. Gemini 2.x rejects thinkingLevel.
+						requestBody.generationConfig.thinkingConfig.thinkingLevel =
+							getGoogleThinkingLevel(
+								reasoning_effort,
+								providerMappingForOptions?.reasoningEfforts,
+							);
 					} else if (reasoning_effort !== undefined) {
 						const getThinkingBudget = (effort: string) => {
 							switch (effort) {

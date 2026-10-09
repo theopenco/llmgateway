@@ -8,7 +8,10 @@ import { z } from "zod";
 import {
 	checkAndReserveTopUp,
 	flushLimitHits,
+	listActiveDataStreams,
+	loadActiveDataStream,
 	releaseTopUpReservation,
+	runDataStream,
 } from "@llmgateway/actions";
 import {
 	closeRedisClient,
@@ -68,14 +71,19 @@ import {
 	GLOBAL_STATS_INTERVAL_SECONDS,
 	processClosedHours,
 } from "./services/global-stats-aggregator.js";
+import {
+	runModelStatsByokErrorsBackfillStep,
+	runSourceModelStatsBackfillStep,
+} from "./services/hourly-stats-backfill.js";
+import { checkModelErrorRateAlerts } from "./services/model-error-rate-alerts.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
 import { processNotifications } from "./services/notifications.js";
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
 	refreshProjectHourlyStats,
 } from "./services/project-stats-aggregator.js";
+import { syncProviderKeyModels } from "./services/provider-key-model-sync.js";
 import { runRoutingBaselineBackfillStep } from "./services/routing-baseline-backfill.js";
-import { runSourceModelStatsBackfillStep } from "./services/source-model-stats-backfill.js";
 import {
 	backfillHistoryIfNeeded,
 	backfillHourlyHistoryIfNeeded,
@@ -83,6 +91,8 @@ import {
 	calculateCurrentMinuteHistory,
 	calculateHourlyHistory,
 	calculateMinutelyHistory,
+	getModelHistoryRetentionCutoff,
+	MODEL_HISTORY_RETENTION_DAYS,
 } from "./services/stats-calculator.js";
 import { syncProvidersAndModels } from "./services/sync-models.js";
 import {
@@ -90,6 +100,7 @@ import {
 	processPendingWebhookDeliveries,
 } from "./services/video-jobs.js";
 import {
+	getStopSignal,
 	interruptibleSleep,
 	isStopRequested,
 	requestStop,
@@ -128,8 +139,11 @@ const LIMIT_HIT_FLUSH_LOCK_KEY = "limit_hit_flush";
 const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
+const MODEL_ERROR_RATE_ALERTS_LOCK_KEY = "model_error_rate_alerts";
 const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
 const SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY = "source_model_stats_backfill";
+const MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY =
+	"model_stats_byok_errors_backfill";
 const LOCK_DURATION_MINUTES = 5;
 // LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
@@ -286,11 +300,16 @@ const schema = z.object({
 });
 
 export async function acquireLock(key: string): Promise<boolean> {
+	return (await acquireLease(key)) !== null;
+}
+
+/** Takes the lock and returns its row id, the owner token; null when held. */
+export async function acquireLease(key: string): Promise<string | null> {
 	// eslint-disable-next-line no-mixed-operators
 	const lockExpiry = new Date(Date.now() - LOCK_DURATION_MINUTES * 60 * 1000);
 
 	try {
-		await db.transaction(async (tx) => {
+		return await db.transaction(async (tx) => {
 			// First, delete any expired locks with the same key
 			await tx
 				.delete(tables.lock)
@@ -300,9 +319,11 @@ export async function acquireLock(key: string): Promise<boolean> {
 
 			// Then try to insert the new lock
 			try {
-				await tx.insert(tables.lock).values({
-					key,
-				});
+				const [lease] = await tx
+					.insert(tables.lock)
+					.values({ key })
+					.returning({ id: tables.lock.id });
+				return lease.id;
 			} catch (insertError) {
 				// If the insert failed due to a unique constraint violation within the transaction,
 				// another process holds the lock - throw a special error to be caught outside
@@ -313,12 +334,10 @@ export async function acquireLock(key: string): Promise<boolean> {
 				throw insertError;
 			}
 		});
-
-		return true;
 	} catch (error) {
-		// If we threw our special error, return false
+		// If we threw our special error, the lock is held
 		if (error instanceof Error && error.message === "LOCK_EXISTS") {
-			return false;
+			return null;
 		}
 		// Re-throw unexpected errors so they can be handled upstream
 		throw error;
@@ -958,7 +977,6 @@ export async function cleanupExpiredLogData(): Promise<void> {
 // forever and now serve every window beyond 24h (7d/30d/90d public stats), so
 // the only readers of the minute tables are short windows (<=24h). 30 days
 // leaves a comfortable buffer over the largest minute-level reader.
-const MODEL_HISTORY_RETENTION_DAYS = 30;
 const MODEL_HISTORY_CLEANUP_BATCH_SIZE = 10000;
 // Cap the work per run (per table) so a single cleanup reliably finishes well
 // within the lock TTL (LOCK_DURATION_MINUTES), even on a large initial backlog.
@@ -1030,9 +1048,7 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 	try {
 		logger.info("Starting model history retention cleanup...");
 
-		const cutoffDate = new Date(
-			Date.now() - MODEL_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000, // eslint-disable-line no-mixed-operators
-		);
+		const cutoffDate = getModelHistoryRetentionCutoff();
 
 		const mapping = await cleanupModelHistoryTable(
 			tables.modelProviderMappingHistory,
@@ -3262,6 +3278,186 @@ async function runNotificationsLoop() {
 	}
 }
 
+async function runModelErrorRateAlertsLoop() {
+	activeLoops++;
+	const interval = 60 * 1000;
+	logger.info(
+		`Starting model error-rate alerts loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(MODEL_ERROR_RATE_ALERTS_LOCK_KEY)) {
+					try {
+						await checkModelErrorRateAlerts();
+					} finally {
+						await releaseLock(MODEL_ERROR_RATE_ALERTS_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in model error-rate alerts loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Model error-rate alerts loop stopped");
+	}
+}
+
+const DATA_STREAMS_LOCK_KEY = "data_streams";
+
+class DataStreamLeaseLost extends Error {}
+
+/** Keeps the lease fresh; false once it expired and another worker took it. */
+export async function touchLease(id: string): Promise<boolean> {
+	const touched = await db
+		.update(tables.lock)
+		.set({ updatedAt: new Date() })
+		.where(eq(tables.lock.id, id))
+		.returning({ id: tables.lock.id });
+	return touched.length > 0;
+}
+
+/** Releases the lease only if it is still ours. */
+export async function releaseLease(id: string): Promise<void> {
+	await db.delete(tables.lock).where(eq(tables.lock.id, id));
+}
+
+/**
+ * Forwards audit and request log metadata to each enabled data stream. Each
+ * stream is re-read right before it runs, so a pause, credential rotation, or
+ * revoked access made during the pass is honored by the rest of it. Stream
+ * state is written only while `leaseId` is held; the pass stops once it is
+ * lost.
+ */
+export async function processDataStreams(leaseId: string): Promise<void> {
+	const onProgress = async () => {
+		if (!(await touchLease(leaseId))) {
+			throw new DataStreamLeaseLost(
+				"Data streams lease lost to another worker",
+			);
+		}
+	};
+	const streams = await listActiveDataStreams();
+	for (const listed of streams) {
+		if (isStopRequested()) {
+			return;
+		}
+		const stream = await loadActiveDataStream(listed.id);
+		if (!stream) {
+			continue;
+		}
+		// A pass can outlast the lock TTL with slow destinations; keep the lock
+		// fresh so a second worker never runs the same streams concurrently.
+		await onProgress();
+		// One broken stream must never hold up delivery for the others.
+		try {
+			const result = await runDataStream(stream, { onProgress, leaseId });
+			if (result.paused) {
+				logger.warn("Data stream paused after repeated failures", {
+					streamId: stream.id,
+					error: result.error,
+				});
+			} else if (result.error) {
+				logger.warn("Data stream delivery failed", {
+					streamId: stream.id,
+					failureCount: stream.failureCount + 1,
+					error: result.error,
+				});
+			}
+		} catch (error) {
+			if (error instanceof DataStreamLeaseLost) {
+				throw error;
+			}
+			logger.error("Data stream run crashed", {
+				streamId: stream.id,
+				error: error instanceof Error ? error : new Error(String(error)),
+			});
+		}
+	}
+}
+
+async function runDataStreamsLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 30 : 10) * 1000;
+	logger.info(
+		`Starting data streams loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				const leaseId = await acquireLease(DATA_STREAMS_LOCK_KEY);
+				if (leaseId) {
+					try {
+						await processDataStreams(leaseId);
+					} finally {
+						await releaseLease(leaseId);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in data streams loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Data streams loop stopped");
+	}
+}
+
+const PROVIDER_KEY_MODEL_SYNC_LOCK_KEY = "provider_key_model_sync";
+
+async function runProviderKeyModelSyncLoop() {
+	activeLoops++;
+	// Hourly check; each credential is itself synced at most once a day.
+	const interval = 60 * 60 * 1000;
+	logger.info("Starting provider key model sync loop...");
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(PROVIDER_KEY_MODEL_SYNC_LOCK_KEY)) {
+					try {
+						await syncProviderKeyModels({
+							signal: getStopSignal(),
+							// A run outlasts the lock TTL, so keep the lock fresh.
+							onProgress: async () => {
+								await db
+									.update(tables.lock)
+									.set({ updatedAt: new Date() })
+									.where(eq(tables.lock.key, PROVIDER_KEY_MODEL_SYNC_LOCK_KEY));
+							},
+						});
+					} finally {
+						await releaseLock(PROVIDER_KEY_MODEL_SYNC_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in provider key model sync loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Provider key model sync loop stopped");
+	}
+}
+
 export async function startWorker() {
 	if (isWorkerRunning) {
 		logger.error("Worker is already running");
@@ -3381,6 +3577,11 @@ export async function startWorker() {
 		SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY,
 		runSourceModelStatsBackfillStep,
 	);
+	void runBackfillLoop(
+		"model stats BYOK errors",
+		MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY,
+		runModelStatsByokErrorsBackfillStep,
+	);
 	for (let i = 0; i < LOG_QUEUE_CONCURRENCY; i++) {
 		void runLogQueueLoop(i);
 	}
@@ -3395,6 +3596,9 @@ export async function startWorker() {
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
 	void runNotificationsLoop();
+	void runModelErrorRateAlertsLoop();
+	void runDataStreamsLoop();
+	void runProviderKeyModelSyncLoop();
 	void runFollowUpEmailsLoop({
 		shouldStop: isStopRequested,
 		acquireLock,

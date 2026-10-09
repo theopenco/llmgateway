@@ -10,6 +10,27 @@ LLMGateway provides flexible and intelligent routing options to help you get the
 
 LLMGateway also includes **automatic retry and fallback** — if a provider fails, your request is seamlessly retried on the next best provider, all within the same API call.
 
+## Routing Analytics
+
+Admin routing analytics includes static catalogue mappings and Airside listings,
+including mappings with no traffic in the selected window. Airside listings use
+their filed prices. Inactive listings remain visible but are excluded from scoring.
+Approved, active Airside carriers participate in automatic provider selection and
+fallback using their filed prices and capabilities, including carriers defined
+entirely in Airside. Inactive or unapproved carriers remain visible but are
+excluded from scoring. A provider prefix is optional, including when multiple
+carriers list a model that is absent from the static catalogue.
+
+Airside carriers follow the same credential, capability, policy, rate-limit, and
+session rules as other providers. Adding a carrier does not expand the models
+that `auto` may choose. Dynamic-route provider lists include active Airside
+carriers; availability is checked when saving, publishing, rolling back, and
+executing a route.
+
+Scores use the default routing config. They are computed on the router's live
+metrics window and on hourly averages, for each request shape that changes the
+weights: streaming, cached prompts, sessions, and `routing` preferences.
+
 ## Global Provider Rate Limits
 
 Administrators can set a global RPM or RPD limit to `0` to block matching
@@ -23,6 +44,15 @@ window. Routing can fall back to another available provider. If a zero-limited
 provider remains selected, the request returns `429` without calling it, even
 when every candidate is rate-limited. No configured limit still means unlimited;
 other rate-limit settings retain their existing behavior.
+
+Each limit is **strict** (the default) or **soft**. Both route traffic away from
+a provider that has reached its limit. A soft limit makes one exception: a
+[session](/features/sessions) already pinned to that provider keeps using it, so
+its prompt cache stays warm. Those requests still count toward the limit, so
+usage can exceed it until the pinned sessions end. New sessions, requests
+without a session id, and a session's first request on a model are routed away
+as usual. A limit of `0` is always strict, and a session stays pinned only when
+every limit it exceeds is soft.
 
 ## Model Selection
 
@@ -78,6 +108,8 @@ Provider metrics (uptime, throughput, latency) are not a flat "last N minutes" s
 - The remainder of the 60-minute window is weighted **1×**
 
 This makes routing react quickly to a provider that just started failing or slowing down, without overreacting to a single noisy data point.
+
+Only requests served on LLM Gateway's own credentials feed these metrics. Requests on your own [provider keys](/learn/provider-keys) never count toward a provider's uptime, so a misconfigured key cannot degrade routing for anyone else.
 
 **Prompt Caching and Token Costs**:
 
@@ -166,6 +198,14 @@ The selection reason in routing metadata will show `stable-preferred` when a req
 
 In a project in **hybrid** mode, routing first narrows the candidates to providers you have your own [provider key](/learn/provider-keys) for, and the weighted score picks among those. LLM Gateway's own credentials are used when none of your keys can serve the requested model, as fallback when attempts on your keys fail, or when your current keyed provider's uptime is degraded and no keyed candidate is healthier — escaping the degraded provider takes priority over staying on your key. Projects in API-keys or credits mode are unaffected.
 
+[Dynamic routes](/features/dynamic-routes) can specify provider preference order.
+After eligibility checks and hybrid-mode key preference, that order controls the
+initial provider and cross-provider fallback on non-sticky requests. A healthy
+session pin still wins; if it becomes unavailable, the next request selects a
+replacement using the order. Sticky requests still skip cross-provider retries.
+Regional selection within a provider still uses scores. These requests skip
+random exploration and record `provider-order` when the order decides selection.
+
 **Routing Metadata**:
 
 Every request includes detailed routing metadata in the logs, showing:
@@ -238,6 +278,19 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 	prompt-cache–aware routing those plans depend on.
 </Callout>
 
+### Anthropic safeguards
+
+A nonempty `safeguards` body with its paired dated beta makes server-side review
+support a routing requirement. Automatic model and provider selection, session
+pins, and retries exclude providers that cannot forward it. An explicit
+incompatible provider pin, or automatic selection with no compatible provider,
+returns `400`, including for streaming requests. Routing preferences cannot
+relax this requirement; a beta header alone does not enable it.
+
+See [Claude Code auto mode](/features/anthropic-endpoint#auto-mode-safeguard-review)
+for upstream availability and the opt-out that restores broader routing with
+billed client-side classifier requests.
+
 ### Sticky Session Routing
 
 When a model is served by multiple providers, every request is normally scored independently — so a multi-turn conversation can bounce between providers. That defeats provider-side **prompt caching**, which only pays off when consecutive requests with a shared prefix hit the **same** provider.
@@ -269,24 +322,24 @@ For the Anthropic Messages endpoint (`/v1/messages`), the session key is derived
 
 #### How pinning works
 
-On a session's **first** request the provider is chosen by the normal weighted smart-routing score — the same price-, priority-, uptime-, and throughput-aware algorithm used for non-sticky requests. That choice is then **persisted for the session** and reused on every subsequent request, so the upstream prompt cache stays warm without bouncing the conversation between providers.
+On a session's **first** request, a dynamic route with explicit provider order chooses the first eligible provider and scores its regions. Otherwise, the normal weighted smart-routing score chooses the provider using price, priority, uptime, and throughput. That choice is then **persisted for the session** and reused on every subsequent request, so the upstream prompt cache stays warm without bouncing the conversation between providers.
 
 The first selection uses the expected cache-hit rate and output/input mix even if the opening prompt is short. Routing uses observed project/model usage when sufficiently sampled, otherwise the workload defaults above. New usage observations affect future provider selections; a healthy existing pin stays in place as described below.
 
 Because the pinned provider is replayed directly, sticky requests **skip the epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
 
-Request compatibility takes precedence over the saved pin. The gateway first filters mappings for requirements such as input modalities, service tiers, regions, and a non-`auto` `tool_choice`, then looks for the pinned provider in that eligible set. If the pinned mapping cannot honor the request but another mapping can, the session moves to the capable mapping and the pin is updated. For a fixed model or dynamic route where **no** mapping can honor `tool_choice`, the gateway preserves availability instead: it keeps the mappings, downgrades `tool_choice` to `auto`, and sticky routing may retain the existing pin. Automatic model selection does not use that fallback because it can choose a capable model instead.
+Request compatibility takes precedence over the saved pin. The gateway first filters mappings for requirements such as input modalities, service tiers, regions, requested Anthropic safeguards, and a non-`auto` `tool_choice`, then looks for the pinned provider in that eligible set. If the pinned mapping cannot honor the request but another mapping can, the session moves to the capable mapping and the pin is updated. For a fixed model or dynamic route where **no** mapping can honor `tool_choice`, the gateway preserves availability instead: it keeps the mappings, downgrades `tool_choice` to `auto`, and sticky routing may retain the existing pin. Automatic model selection does not use that fallback because it can choose a capable model instead.
 
 #### Falling back when a provider is down
 
-An established pin yields only when its provider can no longer serve the session well. A session is re-scored and re-pinned to the current weighted-best provider when its provider:
+An established pin yields only when its provider can no longer serve the session well. A session selects and pins a replacement when its provider:
 
 - Drops below the session uptime threshold (default 85%), except for sessions on models with provider-bound reasoning, or
 - Is filtered out of the candidate set (health or compatibility filtering).
 
 Sticky requests never enter the cross-provider [automatic retry & fallback](#automatic-retry--fallback) loop — a transient failure is retried against the pinned provider only, on another configured key when several exist, or on the same platform key when only one is configured. The failure still degrades that provider's uptime metrics, which is what triggers re-pinning on a subsequent request once the uptime threshold is crossed.
 
-Re-pinning runs the same weighted algorithm again, so the replacement is the best currently available provider — not an arbitrary one.
+Re-pinning follows the same selection rules as the first request: explicit dynamic-route order chooses the provider and scores choose its region; otherwise weighted scoring chooses the provider.
 
 Sessions on models with provider-bound reasoning keep their eligible provider through uptime dips, because OpenAI encrypted reasoning and Gemini thought signatures cannot be replayed on another provider. If a pin expires or the provider becomes ineligible, moving a conversation with its old signatures can produce `Corrupted thought signature` or `Invalid thought signature`. On the pay-as-you-go API, keep a Gemini conversation on one provider with a provider-prefixed model and `X-No-Fallback: true` from its first request. For an affected conversation, resume with the provider that issued its signatures or start a new conversation. See&nbsp;[reasoning replay](/features/reasoning#gemini-thought-signatures).
 
@@ -340,6 +393,10 @@ Some providers expose the same model in multiple regions. In that case, LLMGatew
 
 - `provider/model` selects the best eligible region for that provider using the same routing inputs used elsewhere: recent uptime, throughput, latency, and price
 - `provider/model:region` pins the request to one exact region
+
+When Airside owns a provider/model pair, its active regional listings replace
+the catalogue regions. A pin to an unlisted, inactive, or expired region is rejected. Scheduled regional
+deactivations apply even while listings are cached.
 
 ```bash
 # Let LLMGateway choose the best Alibaba region for DeepSeek V3.2
@@ -433,7 +490,7 @@ When using model ID routing (without a provider prefix), LLMGateway automaticall
 Request → Provider A (500 error) → Provider B (200 OK) → Response
 ```
 
-Both streaming and non-streaming requests support automatic retry.
+Both streaming and non-streaming requests support automatic retry. A streaming request is retried when the provider fails before sending any output, including an error event that follows only stream lifecycle events such as `response.created`. Once output has reached the client, a later error ends the stream instead.
 
 ### What Triggers a Retry
 
@@ -457,7 +514,7 @@ Automatic retry to a different provider is disabled when:
 - The `X-No-Fallback: true` header is set
 - A specific provider is requested (e.g., `openai/gpt-4o`)
 - The request carries a session id and [sticky session routing](#sticky-session-routing) is enabled — the session stays pinned to its provider
-- The model has [provider-bound reasoning](#smart-routing-algorithm) — another provider would reject the conversation's reasoning payloads
+- The request replays [provider-bound reasoning](#smart-routing-algorithm), such as encrypted reasoning or signed thought parts — another provider would reject those payloads. This pin applies regardless of the selected mapping's reasoning capability. A reasoning-capable model alone does not disable retries: requests without replayed payloads can fail over before output starts.
 - No alternative providers are available for the requested model
 - The maximum retry count (default 2) has been exhausted
 
@@ -577,7 +634,7 @@ Auto routing automatically selects the best model for your specific use case wit
 
 ### Default behaviour
 
-By default, auto routing picks the cheapest of a small built-in set of models that can serve the request: it filters out models whose context window, capabilities (vision, tools, reasoning, structured output) or provider availability do not fit, then selects the cheapest of what remains. Larger prompts skip the smallest model.
+By default, auto routing picks the cheapest of a small built-in set of models that can serve the request: it filters out models whose context window, capabilities (vision, tools, reasoning, structured output) or provider availability do not fit, then selects the cheapest of what remains. Larger prompts skip the smallest model. Requests with audio or document input search every active model that supports that input instead of the built-in set.
 
 ```bash
 # Let LLMGateway choose the optimal model

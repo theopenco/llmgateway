@@ -1025,6 +1025,13 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		chatMessages,
 		"TRIGGER_FINISH_WITHOUT_DONE",
 	);
+	// An upstream that answers 200 but interrupts generation, e.g. SGLang.
+	const finishReason = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_FINISH_ABORT",
+	)
+		? "abort"
+		: "stop";
 	const shouldReturnStreamedProviderError = hasUserMessageTrigger(
 		chatMessages,
 		"TRIGGER_STREAM_PROVIDER_ERROR",
@@ -1270,7 +1277,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 							{
 								index,
 								delta: {},
-								finish_reason: "stop",
+								finish_reason: finishReason,
 							},
 						],
 						...(isLastChoice && { usage: streamingUsage }),
@@ -1354,6 +1361,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	const choices = Array.from({ length: requestedN }, (_, index) => ({
 		...baseChoice,
 		index,
+		finish_reason: finishReason,
 		message: {
 			role: "assistant",
 			content:
@@ -2954,17 +2962,6 @@ mockOpenAIServer.post(
 mockOpenAIServer.post(
 	"/v1/publishers/google/models/*",
 	vertexPublisherModelHandler,
-);
-
-// Stub Vertex OAuth token endpoint. Test fixtures build a service-account
-// JSON whose token_uri points here, so the gateway's JWT-grant exchange
-// receives a fake access token instead of hitting Google.
-mockOpenAIServer.post("/mock-google-oauth/token", async (c) =>
-	c.json({
-		access_token: "mock-oauth-access-token",
-		token_type: "Bearer",
-		expires_in: 3600,
-	}),
 );
 
 mockOpenAIServer.get("/v1/videos/:id", async (c) => {

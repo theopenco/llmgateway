@@ -21,11 +21,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import {
-	activateFlaggedAccount,
-	getFlaggedAccounts,
-	setFlaggedAccountArchived,
-} from "@/lib/admin-flagged-accounts";
+import { getFlaggedAccounts } from "@/lib/admin-flagged-accounts";
 import { canWrite } from "@/lib/admin-role";
 import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { requireSession } from "@/lib/require-session";
@@ -80,18 +76,6 @@ export default async function FlaggedAccountsPage({
 				<p className="text-destructive">Failed to load flagged accounts.</p>
 			</div>
 		);
-	}
-
-	async function handleActivate(userId: string) {
-		"use server";
-
-		return await activateFlaggedAccount(userId);
-	}
-
-	async function handleArchive(userId: string, archived: boolean) {
-		"use server";
-
-		return await setFlaggedAccountArchived(userId, archived);
 	}
 
 	const emptyMessage =
@@ -357,14 +341,12 @@ export default async function FlaggedAccountsPage({
 														userId={account.userId}
 														email={account.email}
 														organizationCount={account.organizations.length}
-														onActivate={handleActivate}
 													/>
 												)}
 												<ArchiveFlaggedAccountButton
 													userId={account.userId}
 													email={account.email}
 													archived={view === "archived"}
-													onChange={handleArchive}
 												/>
 											</div>
 										</TableCell>

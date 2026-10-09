@@ -8,6 +8,7 @@
 		"dist/"
 	],
 	"scripts": {
+		"backfill:provider-listing-payments": "tsx --env-file-if-exists=../../.env ./src/scripts/backfill-provider-listing-payments.ts",
 		"build": "tsc && resolve-tspaths && pnpm run generate",
 		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon --exec node --enable-source-maps --env-file=../../.env dist/serve.js\"",
 		"format": "eslint --fix . && prettier --write .",
@@ -38,7 +39,7 @@
 		"@llmgateway/logger": "workspace:*",
 		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
-		"@modelcontextprotocol/sdk": "1.29.0",
+		"@modelcontextprotocol/sdk": "1.31.0",
 		"@opentelemetry/api": "1.9.0",
 		"@opentelemetry/sdk-node": "0.218.0",
 		"ai": "7.0.96",
@@ -47,7 +48,6 @@
 		"decimal.js": "10.5.0",
 		"disposable-email-domains-js": "1.20.0",
 		"dotenv": "17.4.2",
-		"drizzle-zod": "0.8.3",
 		"exceljs": "4.4.0",
 		"gateway": "workspace:*",
 		"hono": "^4.13.5",
@@ -58,7 +58,7 @@
 		"posthog-node": "5.10.4",
 		"react": "19.3.0",
 		"resend": "6.8.0",
-		"sharp": "0.35.4",
+		"sharp": "0.35.5",
 		"stripe": "18.1.1",
 		"tldts": "6.1.86",
 		"unpdf": "1.6.2",

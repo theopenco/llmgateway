@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
 
-import { editorial } from "./fonts";
+import { DeveloperSnippet } from "./developer-snippet";
 import { TrackedLink } from "./tracked-link";
 
 const CARRIERS: { id: keyof typeof dimensions; name: string }[] = [
@@ -46,6 +46,13 @@ function logoHeight(id: keyof typeof dimensions) {
 	return ratio > 2.2 ? "h-4" : ratio > 1.3 ? "h-6" : "h-8";
 }
 
+const ENDPOINTS = [
+	"/v1/chat/completions",
+	"/v1/responses",
+	"/v1/images/generations",
+	"/v1/images/edits",
+];
+
 const PLANS = [
 	{
 		name: "Bring your own keys",
@@ -65,7 +72,7 @@ const PLANS = [
 	{
 		name: "Enterprise",
 		price: "Custom",
-		note: "SSO, audit logs, guardrails and a 99.9% SLA on Enterprise Cloud. Starts with a 30-day pilot.",
+		note: "SSO, audit logs, guardrails and a 99.9% SLA on Enterprise Cloud.",
 	},
 ];
 
@@ -80,24 +87,25 @@ export function DeveloperLane({ migrations }: { migrations: MigrationLink[] }) {
 			<div className="mx-auto max-w-7xl px-4 sm:px-6">
 				<div className="grid grid-cols-1 gap-12 lg:grid-cols-12">
 					<div className="min-w-0 lg:col-span-5">
-						<p className="font-mono text-[11px] uppercase tracking-[0.2em] text-sky-600 dark:text-sky-300">
-							For developers
-						</p>
-						<h2 className="mt-4 font-display text-4xl font-bold leading-[1.08] tracking-[-0.03em] md:text-5xl">
+						<h2 className="text-balance font-display text-4xl font-bold leading-[1.08] tracking-[-0.03em] md:text-5xl">
 							Change two lines.{" "}
-							<span
-								className={cn(
-									editorial.className,
-									"block font-normal italic text-muted-foreground",
-								)}
-							>
-								Keep your SDK.
-							</span>
+							<span className="text-muted-foreground">Keep your SDK.</span>
 						</h2>
 						<p className="mt-5 text-lg text-muted-foreground">
-							Point any OpenAI SDK at LLM Gateway and switch models by changing
-							one string. Start free, pay only when you top up.
+							Use our AI SDK provider, any OpenAI SDK, cURL or any language. Run
+							DevPass Code, Claude Code, Codex, OpenCode or Empryo on any model.
+							Switch models by changing one string.
 						</p>
+						<ul className="mt-5 flex flex-wrap gap-2 font-mono text-xs">
+							{ENDPOINTS.map((endpoint) => (
+								<li
+									key={endpoint}
+									className="rounded-md border border-border bg-card px-2.5 py-1 text-foreground/80"
+								>
+									<span className="text-muted-foreground">POST</span> {endpoint}
+								</li>
+							))}
+						</ul>
 
 						<dl className="mt-8 divide-y divide-border border-y border-border">
 							{PLANS.map((plan) => (
@@ -138,88 +146,19 @@ export function DeveloperLane({ migrations }: { migrations: MigrationLink[] }) {
 							<TrackedLink
 								href="/enterprise#contact"
 								location="home_developers"
-								cta="start_pilot"
-								className="text-sm font-medium text-amber-700 underline-offset-4 hover:underline dark:text-amber-300"
+								cta="contact_sales"
+								className="text-sm font-medium text-blue-600 underline-offset-4 hover:underline dark:text-blue-400"
 							>
-								Rolling out company-wide? Start a pilot
+								Rolling out company-wide? Talk to sales
 							</TrackedLink>
 						</div>
 					</div>
 
 					<div className="min-w-0 lg:col-span-7">
-						<div className="overflow-hidden rounded-2xl border border-black/10 bg-[#fffdf7] text-[#1f1f24] shadow-[0_30px_80px_-40px_rgba(17,17,19,0.35)] dark:border-white/10 dark:bg-[#0b0b0e] dark:text-[#e8e6df] dark:shadow-2xl">
-							<div className="flex items-center gap-2 border-b border-black/10 px-5 py-3 font-mono text-[11px] text-black/45 dark:border-white/10 dark:text-white/45">
-								<span className="size-2.5 rounded-full bg-black/15 dark:bg-white/15" />
-								<span className="size-2.5 rounded-full bg-black/15 dark:bg-white/15" />
-								<span className="size-2.5 rounded-full bg-black/15 dark:bg-white/15" />
-								<span className="ml-3">app.ts</span>
-							</div>
-							<pre className="overflow-x-auto p-6 font-mono text-[13px] leading-7">
-								<code>
-									<span className="text-rose-600 dark:text-rose-300">
-										import
-									</span>{" "}
-									OpenAI{" "}
-									<span className="text-rose-600 dark:text-rose-300">from</span>{" "}
-									<span className="text-emerald-700 dark:text-emerald-300">
-										&quot;openai&quot;
-									</span>
-									;{"\n\n"}
-									<span className="text-rose-600 dark:text-rose-300">
-										const
-									</span>{" "}
-									client ={" "}
-									<span className="text-rose-600 dark:text-rose-300">new</span>{" "}
-									<span className="text-sky-700 dark:text-sky-300">OpenAI</span>
-									({"{"}
-									{"\n"}
-									<span className="-mx-6 block border-l-2 border-amber-500 bg-amber-400/15 px-6 dark:border-amber-300 dark:bg-amber-300/10">
-										{"  "}baseURL:{" "}
-										<span className="text-emerald-700 dark:text-emerald-300">
-											&quot;https://api.llmgateway.io/v1&quot;
-										</span>
-										,
-									</span>
-									<span className="-mx-6 block border-l-2 border-amber-500 bg-amber-400/15 px-6 dark:border-amber-300 dark:bg-amber-300/10">
-										{"  "}apiKey: process.env.
-										<span className="text-amber-700 dark:text-amber-200">
-											LLM_GATEWAY_API_KEY
-										</span>
-										,
-									</span>
-									{"}"});{"\n\n"}
-									<span className="text-rose-600 dark:text-rose-300">
-										const
-									</span>{" "}
-									res ={" "}
-									<span className="text-rose-600 dark:text-rose-300">
-										await
-									</span>{" "}
-									client.chat.completions.
-									<span className="text-sky-700 dark:text-sky-300">create</span>
-									({"{"}
-									{"\n"}
-									{"  "}model:{" "}
-									<span className="text-emerald-700 dark:text-emerald-300">
-										&quot;anthropic/claude-sonnet-5&quot;
-									</span>
-									,{"\n"}
-									{"  "}messages: [{"{"} role:{" "}
-									<span className="text-emerald-700 dark:text-emerald-300">
-										&quot;user&quot;
-									</span>
-									, content:{" "}
-									<span className="text-emerald-700 dark:text-emerald-300">
-										&quot;Hello&quot;
-									</span>{" "}
-									{"}"}],{"\n"}
-									{"}"});
-								</code>
-							</pre>
-						</div>
+						<DeveloperSnippet />
 
 						{migrations.length > 0 && (
-							<div className="mt-6 flex flex-wrap items-center gap-2">
+							<div className="mt-8 flex flex-wrap items-center gap-2">
 								<span className="mr-1 text-sm text-muted-foreground">
 									Switching from
 								</span>

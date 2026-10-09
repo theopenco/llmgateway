@@ -68,6 +68,19 @@ Review the diff and test output, then check the request in your&nbsp;[LLM Gatewa
 
 ![Claude Code completing the coding task through LLM Gateway](/images/guides/claude-code/verified-session.png)
 
+## Auto mode classifier billing
+
+When Claude Code requests server-side auto mode review, routing is restricted to
+providers that can forward it. This also applies to DevPass with canonical model
+IDs; no provider prefix is needed. An incompatible saved session pin is replaced,
+and requests with no compatible provider are rejected instead of silently routing
+to one that would drop the review.
+
+Check `/status` for **Auto mode server: Enabled**. Availability still depends on
+the upstream model and credentials. Set `CLAUDE_CODE_AUTO_MODE_SERVER=0` before
+launch to opt out and allow broader routing with billed client-side classifier
+requests. See [auto mode safeguards](/features/anthropic-endpoint#auto-mode-safeguard-review).
+
 ## Troubleshooting
 
 - **Requests use the wrong endpoint:** check `ANTHROPIC_BASE_URL` in the shell that starts Claude Code and restart the agent after changing it.

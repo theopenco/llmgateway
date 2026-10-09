@@ -97,6 +97,12 @@ interface GlobalStatsResponse {
 	};
 	breakdown: { key: string; label: string; requestCount: number }[];
 	timeseries: { date: string; requestCount: number; cost: number }[];
+	timeseriesBreakdown: {
+		date: string;
+		key: string;
+		requestCount: number;
+		cost: number;
+	}[];
 	groupBy: string;
 	providerKeyIds: string[];
 	provider: string | null;
@@ -420,6 +426,133 @@ describe("admin — global stats mode/kind dimensions", () => {
 				]),
 			);
 		});
+	});
+
+	test("daily and dimension totals reconcile across days and gaps", async () => {
+		const earlier = new Date(DAY);
+		earlier.setUTCDate(earlier.getUTCDate() - 2);
+		const fixture = {
+			dayTimestamp: earlier,
+			usedMode: "credits" as const,
+			orgKind: "default" as const,
+			requestCount: 3,
+			cost: 2,
+		};
+		await db.insert(tables.globalModelStats).values({
+			...fixture,
+			usedModel: MODEL,
+			usedProvider: "openai",
+		});
+		await db
+			.insert(tables.globalSourceStats)
+			.values({ ...fixture, source: SOURCE });
+
+		for (const groupBy of ["model", "source", "mode", "kind"]) {
+			const body = await fetchStats(cookie, {
+				from: earlier.toISOString().split("T")[0],
+				to: DATE,
+				groupBy,
+			});
+			expect(body.totals.requestCount).toBe(21);
+			expect(body.timeseries.map((point) => point.requestCount)).toEqual([
+				3, 0, 18,
+			]);
+			expect(
+				body.breakdown.reduce((sum, row) => sum + row.requestCount, 0),
+			).toBe(21);
+			for (const point of body.timeseries) {
+				const rows = body.timeseriesBreakdown.filter(
+					(row) => row.date === point.date,
+				);
+				expect(rows.reduce((sum, row) => sum + row.requestCount, 0)).toBe(
+					point.requestCount,
+				);
+				expect(rows.reduce((sum, row) => sum + row.cost, 0)).toBeCloseTo(
+					point.cost,
+					8,
+				);
+			}
+		}
+	});
+
+	test("coarser model views combine regional mappings and preserve daily totals", async () => {
+		const models = [
+			"first/coarse-model:east",
+			"first/coarse-model:west",
+			"second/coarse-model",
+			"coarse-model",
+		];
+		try {
+			await db.insert(tables.globalModelStats).values(
+				models.map((usedModel, i) => ({
+					dayTimestamp: DAY,
+					usedModel,
+					usedProvider: i < 2 ? "first" : "second",
+					usedMode: "credits" as const,
+					orgKind: "default" as const,
+					requestCount: i + 1,
+					cost: (i + 1) / 8,
+				})),
+			);
+			const canonical = await fetchStats(cookie, { modelView: "canonical" });
+			expect(
+				canonical.breakdown.find((row) => row.key === "coarse-model"),
+			).toMatchObject({ requestCount: 10, cost: 1.25 });
+			expect(
+				canonical.timeseriesBreakdown.filter(
+					(row) => row.key === "coarse-model",
+				),
+			).toEqual([
+				expect.objectContaining({ date: DATE, requestCount: 10, cost: 1.25 }),
+			]);
+			const provider = await fetchStats(cookie, { modelView: "provider" });
+			expect(
+				provider.breakdown.find((row) => row.key === "first"),
+			).toMatchObject({ requestCount: 3, cost: 0.375 });
+			expect(
+				provider.breakdown.find((row) => row.key === "second"),
+			).toMatchObject({ requestCount: 7, cost: 0.875 });
+			expect(provider.totals).toEqual(canonical.totals);
+		} finally {
+			await db
+				.delete(tables.globalModelStats)
+				.where(inArray(tables.globalModelStats.usedModel, models));
+		}
+	});
+
+	test("each composition panel ignores only its own active filter", async () => {
+		const body = await fetchStats(cookie, {
+			mode: "api-keys",
+			kind: "devpass",
+		});
+		expect(body.totals.requestCount).toBe(0);
+		expect(body.breakdown).toEqual([]);
+		expect(body.composition.byMode).toEqual([
+			expect.objectContaining({ key: "credits", requestCount: 2 }),
+		]);
+		expect(body.composition.byKind).toEqual([
+			expect.objectContaining({ key: "default", requestCount: 5 }),
+		]);
+	});
+
+	test("can omit daily breakdowns without changing totals or model costs", async () => {
+		const full = await fetchStats(cookie);
+		const summary = await fetchStats(cookie, {
+			includeTimeseriesBreakdown: "false",
+		});
+		expect(full.timeseriesBreakdown.length).toBeGreaterThan(0);
+		expect(summary).toEqual({ ...full, timeseriesBreakdown: [] });
+	});
+
+	test("an empty range has no dimension subtotal rows", async () => {
+		const body = await fetchStats(cookie, {
+			from: "2000-01-01",
+			to: "2000-01-02",
+		});
+		expect(body.totals.requestCount).toBe(0);
+		expect(body.breakdown).toEqual([]);
+		expect(body.timeseriesBreakdown).toEqual([]);
+		expect(body.timeseries.map((point) => point.requestCount)).toEqual([0, 0]);
 	});
 
 	test("blends every bucket when unfiltered", async () => {

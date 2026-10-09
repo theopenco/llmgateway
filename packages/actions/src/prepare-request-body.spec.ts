@@ -11,6 +11,7 @@ import {
 
 import type {
 	AnthropicRequestBody,
+	BaseMessage,
 	OpenAIRequestBody,
 	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
@@ -1792,6 +1793,93 @@ describe("prepareRequestBody - Meta image generation", () => {
 	});
 });
 
+describe("prepareRequestBody - Tencent Hy Image generation", () => {
+	async function prepareTencentImageRequest(
+		messages: BaseMessage[],
+		imageConfig?: { image_size?: string; seed?: number; n?: number },
+	) {
+		return (await prepareRequestBody(
+			"tencent",
+			"hy-image-v3.5-preview",
+			null,
+			"hy-image-v3.5-preview",
+			messages,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("sends the last user turn as Chat/Messages content with size and seed", async () => {
+		const requestBody = await prepareTencentImageRequest(
+			[
+				{ role: "user", content: "An earlier prompt" },
+				{ role: "assistant", content: "Image generated" },
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Make it a watercolor" },
+						{
+							type: "image_url",
+							image_url: { url: "https://example.com/ref.png" },
+						},
+					],
+				},
+			],
+			{ image_size: "4096x2304", seed: 42, n: 2 },
+		);
+
+		expect(requestBody).toEqual({
+			model: "hy-image-v3.5-preview",
+			messages: [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Make it a watercolor" },
+						{
+							type: "image_url",
+							image_url: { url: "https://example.com/ref.png" },
+						},
+					],
+				},
+			],
+			size: "4096x2304",
+			seed: 42,
+		});
+	});
+
+	test("omits size so the model picks it from the prompt", async () => {
+		const requestBody = await prepareTencentImageRequest([
+			{ role: "user", content: "A lighthouse at dawn" },
+		]);
+
+		expect(requestBody).toEqual({
+			model: "hy-image-v3.5-preview",
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "A lighthouse at dawn" }],
+				},
+			],
+		});
+	});
+});
+
 describe("prepareRequestBody - xAI image generation", () => {
 	async function prepareXaiImageRequest(imageConfig: {
 		aspect_ratio?: string;
@@ -2390,6 +2478,66 @@ describe("prepareRequestBody - verbosity", () => {
 		})) as { text?: { verbosity?: string } };
 
 		expect(requestBody.text?.verbosity).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - AWS Bedrock service tier", () => {
+	const bedrockMapping = (modelId: string) =>
+		models
+			.find((m) => m.id === modelId)
+			?.providers.find((p) => p.providerId === "aws-bedrock") as
+			ProviderModelMapping | undefined;
+
+	async function prepare(modelId: string, externalId: string) {
+		return (await prepareRequestBody(
+			"openai",
+			modelId,
+			"global",
+			externalId,
+			[{ role: "user", content: "Hello!" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"flex",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			bedrockMapping(modelId),
+		)) as any;
+	}
+
+	test("forwards flex for a mapping that declares it", async () => {
+		const requestBody = await prepare("kimi-k3", "global.moonshotai.kimi-k3");
+		expect(requestBody.service_tier).toBe("flex");
+	});
+
+	test("drops flex for a mapping that does not declare it", async () => {
+		const requestBody = await prepare("grok-4-7", "global.xai.grok-4.7");
+		expect(requestBody.service_tier).toBeUndefined();
 	});
 });
 
@@ -4051,6 +4199,44 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		);
 	});
 
+	test("maps reasoning_effort to thinkingLevel on Gemini 3+", async () => {
+		const cases = [
+			{ model: "gemini-3.6-flash", effort: "minimal", expected: "minimal" },
+			{ model: "gemini-3.6-flash", effort: "medium", expected: "medium" },
+			{ model: "gemini-3.6-flash", effort: "max", expected: "high" },
+			// minimal is undeclared (and 400s) on 3.8 Flash and Pro.
+			{ model: "gemini-3.8-flash", effort: "minimal", expected: "low" },
+			{ model: "gemini-3.1-pro-preview", effort: "minimal", expected: "low" },
+		] as const;
+
+		for (const { model, effort, expected } of cases) {
+			const requestBody = (await prepareRequestBody(
+				"google-ai-studio",
+				model,
+				null,
+				model,
+				[{ role: "user", content: "test" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				effort,
+				true,
+				false,
+			)) as any;
+
+			expect(requestBody.generationConfig.thinkingConfig).toEqual({
+				includeThoughts: true,
+				thinkingLevel: expected,
+			});
+		}
+	});
+
 	test("should not set thinkingBudget when reasoning_effort is not provided", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
@@ -5240,8 +5426,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			max_completion_tokens: 128,
 			top_p: 0.9,
 			response_format: { type: "json_object" },
-			reasoning: { effort: "high" },
+			reasoning_effort: "high",
 		});
+		expect(requestBody.reasoning).toBeUndefined();
 		expect(requestBody.inferenceConfig).toBeUndefined();
 		expect(requestBody.system).toBeUndefined();
 	});
@@ -5270,7 +5457,7 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		expect(requestBody).toMatchObject({
 			model: "xai.grok-4.6",
 			max_completion_tokens: 128,
-			reasoning: { effort: "xhigh" },
+			reasoning_effort: "xhigh",
 		});
 	});
 
@@ -6258,9 +6445,9 @@ describe("prepareRequestBody - Alibaba cache_control", () => {
 // Sibling to the Anthropic max_tokens regression tests above. Every provider
 // gets the same three checks (caller-supplied, caller-omitted, reasoning) so
 // we never silently regress to a stale fallback the way the Anthropic 1024
-// default did (see PR #2289). For providers where max_tokens is OPTIONAL
-// upstream (everything except Anthropic), the omit path must leave the field
-// undefined so the provider's own default wins.
+// default did (see PR #2289). Claude needs an explicit max_tokens on every
+// platform; for other providers the omit path must leave the field undefined
+// so the provider's own default wins.
 describe("prepareRequestBody - max_tokens forwarding", () => {
 	describe("aws-bedrock (Anthropic via Converse)", () => {
 		test("forwards caller-supplied max_tokens verbatim", async () => {
@@ -6287,10 +6474,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			expect(requestBody.inferenceConfig?.maxTokens).toBe(32000);
 		});
 
-		test("leaves maxTokens unset when caller omits (no reasoning)", async () => {
-			// Bedrock's Converse API tolerates omitting max_tokens; the historical
-			// 1024 default was Anthropic-specific. When reasoning is off, just let
-			// upstream pick.
+		test("falls back to model maxOutput when caller omits (no reasoning)", async () => {
+			// Converse silently caps Claude at 4096 output tokens when maxTokens
+			// is omitted.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
 				"claude-sonnet-4-6",
@@ -6311,7 +6497,7 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				false,
 			)) as any;
 
-			expect(requestBody.inferenceConfig?.maxTokens).toBeUndefined();
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(64000);
 		});
 
 		test("falls back to model maxOutput when caller omits with reasoning enabled", async () => {
@@ -6678,6 +6864,91 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			).toBe(true);
 			expect(requestBody.messages[1].content).toBe("Got it, Ada!");
 		});
+
+		test.each([
+			["openai", "deepseek-v4.1-flash", [" ", "Now Rome."], undefined],
+			["novita", "deepseek-v4-flash", [" ", "Now Rome."], undefined],
+			["deepseek", "deepseek-v4.1-flash", ["", "Now Rome."], undefined],
+			["openai", "gpt-4o-mini", [undefined, undefined], "Now Rome."],
+		] as const)(
+			"backfills reasoning_content on tool turns only for DeepSeek V4: %s %s",
+			async (provider, model, expected, reasoningLeft) => {
+				// Airside carriers with an OpenAI chat-completions apiFormat reach
+				// prepareRequestBody with the "openai" transport, so only the
+				// canonical model id says the upstream is DeepSeek V4.
+				const requestBody = (await prepareRequestBody(
+					provider,
+					model,
+					null,
+					model,
+					[
+						{ role: "user", content: "Weather in Paris, then Rome?" },
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"Paris"}',
+									},
+								},
+							],
+						},
+						{ role: "tool", tool_call_id: "call_1", content: "sunny" },
+						{
+							role: "assistant",
+							content: "",
+							reasoning: "Now Rome.",
+							tool_calls: [
+								{
+									id: "call_2",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"Rome"}',
+									},
+								},
+							],
+						},
+						{ role: "tool", tool_call_id: "call_2", content: "rain" },
+						{ role: "assistant", content: "Paris sunny, Rome rainy." },
+						{ role: "user", content: "Thanks!" },
+					],
+					false,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					false,
+					20,
+					null,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					false, // useResponsesApi
+				)) as any;
+
+				expect(
+					[1, 3].map((i) => requestBody.messages[i].reasoning_content),
+				).toEqual(expected);
+				expect(requestBody.messages[5].reasoning_content).toBeUndefined();
+				// Runware treats `reasoning` as an alias of `reasoning_content` and
+				// rejects a message that carries both, so the backfill moves it.
+				expect(requestBody.messages[3].reasoning).toBe(reasoningLeft);
+			},
+		);
 	});
 
 	describe("azure-ai-foundry", () => {

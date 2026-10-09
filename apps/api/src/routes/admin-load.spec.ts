@@ -29,6 +29,7 @@ interface LoadOverview {
 	window: string;
 	bucket: "minute" | "hour" | "day";
 	source: "mapping-history" | "project-stats";
+	summarySource: "mapping-history" | "project-stats";
 	groupBy: string;
 	summary: {
 		currentRps: number;
@@ -92,6 +93,25 @@ async function fetchLoad(
 	});
 	expect(res.status).toBe(200);
 	return (await res.json()) as LoadOverview;
+}
+
+interface LoadBreakdown {
+	rows: LoadOverview["breakdown"];
+	totalKeys: number;
+	page: number;
+	pageSize: number;
+}
+
+async function fetchBreakdown(
+	cookie: string,
+	query: Record<string, string> = {},
+): Promise<LoadBreakdown> {
+	const params = new URLSearchParams(query);
+	const res = await app.request(`/admin/load/breakdown?${params.toString()}`, {
+		headers: { Cookie: cookie },
+	});
+	expect(res.status).toBe(200);
+	return (await res.json()) as LoadBreakdown;
 }
 
 // `deleteAll()` does not cover the catalogue or the minute-grain history, so
@@ -479,7 +499,7 @@ describe("admin — gateway load", () => {
 	);
 
 	test.each([
-		{ groupBy: "organization" },
+		{ groupBy: "organization", organizationId: ORG_A },
 		{ groupBy: "project", projectId: PROJECT_A },
 		{ groupBy: "api-key", apiKeyId: API_KEY_A },
 		{ groupBy: "model", organizationId: ORG_A },
@@ -503,6 +523,30 @@ describe("admin — gateway load", () => {
 			weekly.breakdown.map((row) => row.peakRps),
 		);
 		expect(monthly.summary.totalRequests).toBe(weekly.summary.totalRequests);
+	});
+
+	test.each<Record<string, string>>([
+		{ window: "1h" },
+		{ window: "1d" },
+		{ window: "1d", organizationId: ORG_A },
+	])("reports the same summary under every grouping: %j", async (filter) => {
+		const groupings = [
+			"model",
+			"provider",
+			"organization",
+			"project",
+			"api-key",
+		];
+		const bodies = await Promise.all(
+			groupings.map((groupBy) => fetchLoad(cookie, { ...filter, groupBy })),
+		);
+		const expected = filter.organizationId
+			? "project-stats"
+			: "mapping-history";
+		for (const body of bodies) {
+			expect(body.summarySource).toBe(expected);
+			expect(body.summary).toEqual(bodies[0].summary);
+		}
 	});
 
 	test("counts the bucket the window opens in", async () => {
@@ -547,13 +591,15 @@ describe("admin — gateway load", () => {
 		const total = await fetchLoad(cookie, {
 			window: "1d",
 			groupBy: "organization",
+			organizationId: ORG_A,
 		});
-		expect(total.summary.errorRate).toBeCloseTo(60 / (9000 - 12), 6);
-		expect(total.summary.clientErrorRate).toBeCloseTo(12 / 9000, 6);
+		expect(total.summary.errorRate).toBeCloseTo(60 / (7200 - 12), 6);
+		expect(total.summary.clientErrorRate).toBeCloseTo(12 / 7200, 6);
 
 		const credits = await fetchLoad(cookie, {
 			window: "1d",
 			groupBy: "organization",
+			organizationId: ORG_A,
 			mode: "credits",
 		});
 		// The per-mode request columns have no matching error split.
@@ -674,16 +720,13 @@ describe("admin — gateway load", () => {
 		const orgB = body.breakdown.find((row) => row.key === ORG_B);
 		expect(orgB?.avgDurationMs).toBeNull();
 		expect(orgB?.avgTimeToFirstTokenMs).toBeNull();
-
-		// The summary is count-weighted across both orgs, so it is org A's
-		// samples alone rather than the mean of 1500 and nothing.
-		expect(body.summary.avgDurationMs).toBeCloseTo(1500, 6);
 	});
 
 	test("withholds latency when a mode narrows the tenant rollup", async () => {
 		const body = await fetchLoad(cookie, {
 			window: "1d",
 			groupBy: "organization",
+			organizationId: ORG_A,
 			mode: "credits",
 		});
 
@@ -845,5 +888,70 @@ describe("admin — gateway load", () => {
 				sublabel: "Load Org A / Load Project A",
 			},
 		]);
+	});
+
+	describe("breakdown", () => {
+		const orgs = { window: "1d", groupBy: "organization" };
+
+		test("matches the overview's rows for the same keys", async () => {
+			for (const query of [
+				orgs,
+				{ window: "1h", groupBy: "model" },
+				{ window: "7d", groupBy: "provider" },
+			]) {
+				const [overview, breakdown] = await Promise.all([
+					fetchLoad(cookie, query),
+					fetchBreakdown(cookie, query),
+				]);
+				expect(breakdown.rows).toEqual(overview.breakdown);
+				expect(breakdown.totalKeys).toBe(overview.totalKeys);
+			}
+		});
+
+		test("sorts on a column in either direction", async () => {
+			const keys = async (query: Record<string, string>) =>
+				(await fetchBreakdown(cookie, { ...orgs, ...query })).rows.map(
+					(row) => row.key,
+				);
+
+			expect(await keys({ sortBy: "requestCount", sortOrder: "asc" })).toEqual([
+				ORG_B,
+				ORG_A,
+			]);
+			expect(await keys({ sortBy: "label", sortOrder: "asc" })).toEqual([
+				ORG_A,
+				ORG_B,
+			]);
+			expect(await keys({ sortBy: "label", sortOrder: "desc" })).toEqual([
+				ORG_B,
+				ORG_A,
+			]);
+			// Org B has no latency samples, so it sorts last either way.
+			for (const sortOrder of ["asc", "desc"]) {
+				expect(await keys({ sortBy: "avgDurationMs", sortOrder })).toEqual([
+					ORG_A,
+					ORG_B,
+				]);
+			}
+		});
+
+		test("paginates and clamps a page past the end", async () => {
+			const second = await fetchBreakdown(cookie, {
+				...orgs,
+				pageSize: "1",
+				page: "2",
+			});
+			expect(second.rows.map((row) => row.key)).toEqual([ORG_B]);
+			expect(second.rows[0].label).toBe("Load Org B");
+			expect(second).toMatchObject({ totalKeys: 2, page: 2, pageSize: 1 });
+
+			const past = await fetchBreakdown(cookie, {
+				...orgs,
+				pageSize: "1",
+				page: "9",
+			});
+			expect(past.page).toBe(2);
+			expect(past.rows.map((row) => row.key)).toEqual([ORG_B]);
+		});
 	});
 });

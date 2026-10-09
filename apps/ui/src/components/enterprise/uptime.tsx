@@ -73,7 +73,11 @@ function buildSegments(
 	return segments;
 }
 
-export function UptimeVisualization() {
+export function UptimeVisualization({
+	showEyebrow = true,
+}: {
+	showEyebrow?: boolean;
+}) {
 	const ref = useRef<HTMLDivElement>(null);
 	const inView = useInView(ref, { once: true, margin: "-80px" });
 
@@ -83,15 +87,17 @@ export function UptimeVisualization() {
 				<div className="mx-auto max-w-5xl">
 					{/* Section header */}
 					<div className="mb-12 text-center sm:mb-16">
-						<div className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5">
-							<span className="relative flex h-2 w-2">
-								<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
-								<span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-							</span>
-							<span className="text-xs font-mono text-emerald-600 dark:text-emerald-400">
-								RELIABILITY
-							</span>
-						</div>
+						{showEyebrow && (
+							<div className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5">
+								<span className="relative flex h-2 w-2">
+									<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
+									<span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+								</span>
+								<span className="text-xs font-mono text-emerald-600 dark:text-emerald-400">
+									RELIABILITY
+								</span>
+							</div>
+						)}
 						<h2 className="mb-4 text-3xl font-bold tracking-tight text-balance sm:text-4xl lg:text-5xl">
 							Never go down.{" "}
 							<span className="text-muted-foreground">

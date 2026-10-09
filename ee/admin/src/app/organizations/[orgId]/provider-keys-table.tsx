@@ -1,5 +1,5 @@
+import { ProviderKeyInsightsLink } from "@/components/provider-key-insights-link";
 import { ProviderKeySpendCell } from "@/components/provider-key-spend-cell";
-import { ProviderKeySpendDialog } from "@/components/provider-key-spend-dialog";
 import { ProviderKeyStatusBadge } from "@/components/provider-key-status-badge";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -99,7 +99,7 @@ export function ProviderKeysTable({
 										{formatDate(key.createdAt)}
 									</TableCell>
 									<TableCell className="text-right">
-										<ProviderKeySpendDialog
+										<ProviderKeyInsightsLink
 											providerKeyId={key.id}
 											label={key.name ?? key.provider}
 										/>

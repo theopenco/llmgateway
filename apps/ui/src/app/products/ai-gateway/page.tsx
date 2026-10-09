@@ -22,7 +22,7 @@ import { MARKETING_STATS } from "@llmgateway/shared";
 
 import type { Metadata } from "next";
 
-const title = "AI Gateway — One API for Every LLM Provider";
+const title = "AI Gateway — Open-Source LLM API Gateway";
 const description = `Route requests to ${MARKETING_STATS.models} models across ${MARKETING_STATS.providers} providers through one OpenAI-compatible endpoint — with smart routing, automatic fallback, caching, and guardrails.`;
 
 export const metadata: Metadata = {

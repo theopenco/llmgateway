@@ -1,0 +1,2 @@
+ALTER TABLE "project_hourly_model_stats" ADD COLUMN "api_keys_gateway_error_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_model_stats" ADD COLUMN "api_keys_upstream_error_count" integer DEFAULT 0 NOT NULL;

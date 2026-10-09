@@ -4,7 +4,10 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as emailUtils from "@/utils/email.js";
 
-import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import {
+	encryptProviderKeyForStorage,
+	readProviderKey,
+} from "@llmgateway/actions";
 import {
 	db,
 	eq,
@@ -15,6 +18,7 @@ import {
 } from "@llmgateway/db";
 import {
 	models as catalogueModels,
+	REASONING_EFFORTS,
 	type ModelDefinition,
 	type ProviderApiFormat,
 	type ToolChoiceMode,
@@ -49,6 +53,12 @@ async function setUserEmail(email: string) {
 		.where(eq(tables.user.id, "test-user-id"));
 }
 
+const carrierProfile = {
+	website: "https://acme-sky.ai",
+	privacyPolicyUrl: "https://acme-sky.ai/privacy",
+	termsUrl: "https://acme-sky.ai/terms",
+};
+
 function json(cookie: string, body?: unknown, method = "POST") {
 	return {
 		method,
@@ -60,7 +70,7 @@ function json(cookie: string, body?: unknown, method = "POST") {
 async function createCompany(cookie: string, name = "Mistral Ops") {
 	const res = await app.request(
 		"/airside/companies",
-		json(cookie, { name, website: "https://mistral.ai" }),
+		json(cookie, { name, website: "https://mistral.ai", acceptTerms: true }),
 	);
 	expect(res.status).toBe(201);
 	const body = await res.json();
@@ -82,6 +92,42 @@ async function claimProvider(
 		providerId: string;
 		status: string;
 	};
+}
+
+// A passed preflight proving anything the model could claim, for tests that
+// edit or relist a listing but aren't about the preflight gate itself.
+async function passPreflight(modelId: string) {
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: modelId } },
+	});
+	await db.insert(tables.providerModelVerification).values({
+		id: `verification-${crypto.randomUUID()}`,
+		providerCompanyId: model!.providerCompanyId,
+		draftModelId: modelId,
+		requestedBy: "test-user-id",
+		target: {
+			providerId: model!.providerId,
+			modelName: model!.modelName,
+			externalId: model!.externalId,
+			apiFormat: model!.apiFormat ?? "openai-chat-completions",
+			streaming: true,
+			vision: true,
+			audio: true,
+			tools: true,
+			supportedToolChoices: null,
+			jsonOutput: true,
+			jsonOutputSchema: true,
+			reasoning: true,
+			reasoningMaxTokens: true,
+			reasoningEfforts: [...REASONING_EFFORTS],
+			webSearch: true,
+			contextSize: 100_000_000,
+			maxOutput: 100_000_000,
+		},
+		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+		status: "passed",
+		completedAt: new Date(),
+	});
 }
 
 // Fast-path activation for tests that aren't about the review flow itself —
@@ -257,6 +303,7 @@ describe("airside provider portal", () => {
 
 	afterEach(async () => {
 		vi.restoreAllMocks();
+		vi.unstubAllGlobals();
 		if (originalAdminEmails === undefined) {
 			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
@@ -316,6 +363,205 @@ describe("airside provider portal", () => {
 		});
 	});
 
+	it("requires accepting the Airside terms to create a company", async () => {
+		for (const acceptTerms of [undefined, false]) {
+			const res = await app.request(
+				"/airside/companies",
+				json(cookie, { name: "No Terms Inc", acceptTerms }),
+			);
+			expect(res.status).toBe(400);
+		}
+		const created = await app.request(
+			"/airside/companies",
+			json(cookie, { name: "Terms Inc", acceptTerms: true }),
+		);
+		expect(created.status).toBe(201);
+		const { company } = await created.json();
+		expect(company.termsAcceptedAt).toEqual(expect.any(String));
+		const row = await db.query.providerCompany.findFirst({
+			where: { id: { eq: company.id } },
+		});
+		expect(row?.termsAcceptedBy).toBe("test-user-id");
+	});
+
+	it("records terms acceptance for an existing company", async () => {
+		const company = await createCompany(cookie);
+		await db
+			.update(tables.providerCompany)
+			.set({ termsAcceptedAt: null, termsAcceptedBy: null })
+			.where(eq(tables.providerCompany.id, company.id));
+		const list = async () =>
+			(
+				await (
+					await app.request("/airside/companies", {
+						headers: { Cookie: cookie },
+					})
+				).json()
+			).companies[0];
+		expect((await list()).termsAcceptedAt).toBeNull();
+
+		const other = await createSecondUser("outsider@example.com");
+		const foreign = await app.request(
+			`/airside/companies/${company.id}/accept-terms`,
+			json(other),
+		);
+		expect(foreign.status).toBe(404);
+
+		const accepted = await app.request(
+			`/airside/companies/${company.id}/accept-terms`,
+			json(cookie),
+		);
+		expect(accepted.status).toBe(200);
+		const { termsAcceptedAt } = await accepted.json();
+		expect((await list()).termsAcceptedAt).toBe(termsAcceptedAt);
+
+		await db.insert(tables.providerCompanyMember).values({
+			providerCompanyId: company.id,
+			userId: "crew-outsider-example-com",
+			role: "member",
+		});
+		const repeat = await app.request(
+			`/airside/companies/${company.id}/accept-terms`,
+			json(other),
+		);
+		expect(repeat.status).toBe(200);
+		expect((await repeat.json()).termsAcceptedAt).toBe(termsAcceptedAt);
+		const row = await db.query.providerCompany.findFirst({
+			where: { id: { eq: company.id } },
+		});
+		expect(row?.termsAcceptedAt?.toISOString()).toBe(termsAcceptedAt);
+		expect(row?.termsAcceptedBy).toBe("test-user-id");
+	});
+
+	it("fills catalogue claim profiles from the catalogue", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const claimable = await app.request("/airside/claimable", {
+			headers: { Cookie: cookie },
+		});
+		const mistral = (await claimable.json()).providers.find(
+			(p: { providerId: string }) => p.providerId === "mistral",
+		);
+		expect(mistral.profileDefaults).toEqual(
+			expect.objectContaining({
+				website: expect.any(String),
+				privacyPolicyUrl: expect.any(String),
+				termsUrl: expect.any(String),
+			}),
+		);
+		expect(mistral.profileDefaults).toHaveProperty("statusPageUrl");
+
+		const company = await createCompany(cookie);
+		const res = await app.request(
+			"/airside/claims",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				profile: { statusPageUrl: "https://status.mistral.ai" },
+			}),
+		);
+		expect(res.status).toBe(201);
+		const { claim } = await res.json();
+		expect(claim.profileMissing).toEqual([]);
+		expect(claim.profile).toMatchObject({
+			website: mistral.profileDefaults.website,
+			termsUrl: mistral.profileDefaults.termsUrl,
+			statusPageUrl: "https://status.mistral.ai",
+		});
+	});
+
+	it("keeps cleared catalogue links cleared and the reviewed data policy", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const created = await app.request(
+			"/airside/claims",
+			json(cookie, { providerCompanyId: company.id, providerId: "mistral" }),
+		);
+		expect(created.status).toBe(201);
+		const { claim } = await created.json();
+		const reviewed = claim.profile;
+		expect(reviewed).toMatchObject({
+			website: "https://mistral.ai",
+			statusPageUrl: "https://status.mistral.ai",
+			legalEntity: "Mistral AI",
+			headquarters: "FR",
+		});
+		for (const key of claim.profileRecommendedMissing) {
+			expect(["statusPageUrl", "legalEntity", "headquarters"]).toContain(key);
+		}
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(
+				`/airside/claims/${claim.id}/profile`,
+				json(cookie, body, "PATCH"),
+			);
+
+		expect((await patch({ apiTraining: false })).status).toBe(400);
+		expect((await patch({ retentionPeriod: null })).status).toBe(400);
+
+		const cleared = await patch({
+			statusPageUrl: null,
+			legalEntity: "Mistral AI SAS",
+		});
+		expect(cleared.status).toBe(200);
+		const saved = (await cleared.json()).claim;
+		expect(saved.profile).toEqual({
+			...reviewed,
+			statusPageUrl: null,
+			legalEntity: "Mistral AI SAS",
+		});
+		expect(saved.profileRecommendedMissing).toContain("statusPageUrl");
+
+		const listedCompany = (
+			await (
+				await app.request("/airside/companies", {
+					headers: { Cookie: cookie },
+				})
+			).json()
+		).companies[0];
+		expect(listedCompany.claims[0].profile.statusPageUrl).toBeNull();
+
+		await activateClaim();
+		await db
+			.insert(tables.provider)
+			.values({ id: "mistral", name: "Mistral", description: "" })
+			.onConflictDoNothing();
+		const listed = (
+			await (await app.request("/internal/providers")).json()
+		).providers.find((p: { id: string }) => p.id === "mistral");
+		expect(listed.airsideProfile).toEqual({
+			website: reviewed.website,
+			statusPageUrl: null,
+			termsUrl: reviewed.termsUrl,
+			privacyPolicyUrl: reviewed.privacyPolicyUrl,
+			legalEntity: "Mistral AI SAS",
+			headquarters: "FR",
+			dataPolicy: null,
+		});
+	});
+
+	it("rejects listings whose model id is not catalogue-style", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+
+		const listed = await createModel(cookie, company.id, {
+			modelName: "deepseek/DeepSeek V4.1 Flash",
+		});
+		expect(listed.status).toBe(400);
+		expect((await listed.json()).message).toContain("deepseek-v4.1-flash");
+
+		const queued = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "Mistral Large 3",
+			}),
+		);
+		expect(queued.status).toBe(400);
+		expect((await queued.json()).message).toContain("mistral-large-3");
+	});
+
 	it("requires a verified email for company creation", async () => {
 		await db
 			.update(tables.user)
@@ -323,7 +569,7 @@ describe("airside provider portal", () => {
 			.where(eq(tables.user.id, "test-user-id"));
 		const res = await app.request(
 			"/airside/companies",
-			json(cookie, { name: "Unverified Inc" }),
+			json(cookie, { name: "Unverified Inc", acceptTerms: true }),
 		);
 		expect(res.status).toBe(403);
 	});
@@ -758,6 +1004,7 @@ describe("airside provider portal", () => {
 		expect(model.supportedToolChoices).toEqual(["auto", "none"]);
 
 		// A draft applies metadata in place, so the narrowing is editable.
+		await passPreflight(model.id);
 		const patched = await app.request(
 			`/airside/models/${model.id}`,
 			json(cookie, { supportedToolChoices: null }, "PATCH"),
@@ -784,6 +1031,70 @@ describe("airside provider portal", () => {
 			tools: true,
 			modelName: "mistral-large-3",
 		});
+	});
+
+	it("requires a passing preflight to widen a listing or relist it", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const { model } = await (await createModel(cookie, company.id)).json();
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(
+				`/airside/models/${model.id}`,
+				json(cookie, body, "PATCH"),
+			);
+
+		// Claiming more than the listing proved needs a preflight first.
+		const widened = await patch({ vision: true });
+		expect(widened.status).toBe(409);
+		expect((await widened.json()).message).toContain("Run preflight");
+		expect((await patch({ contextSize: 512000 })).status).toBe(409);
+		// Narrowing and descriptive edits need none.
+		expect((await patch({ tools: false })).status).toBe(200);
+		expect((await patch({ displayName: "Mistral Large 3 Turbo" })).status).toBe(
+			200,
+		);
+
+		await passPreflight(model.id);
+		expect((await patch({ vision: true })).status).toBe(200);
+		// Only the latest run counts: a later failure blocks again.
+		await db.insert(tables.providerModelVerification).values({
+			id: `verification-${crypto.randomUUID()}`,
+			providerCompanyId: company.id,
+			draftModelId: model.id,
+			requestedBy: "test-user-id",
+			target: {
+				providerId: "mistral",
+				modelName: model.modelName,
+				externalId: model.modelName,
+				streaming: true,
+				vision: true,
+				audio: true,
+				tools: true,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				reasoningEfforts: null,
+				webSearch: false,
+			},
+			checks: [],
+			status: "failed",
+			completedAt: new Date(),
+		});
+		expect((await patch({ audio: true })).status).toBe(409);
+
+		// A delisted model relists only after a preflight run since delisting.
+		await db
+			.update(tables.providerDraftModel)
+			.set({ status: "delisted", delistedAt: new Date() })
+			.where(eq(tables.providerDraftModel.id, model.id));
+		const relist = async () =>
+			await app.request(`/airside/models/${model.id}/relist`, json(cookie));
+		const blocked = await relist();
+		expect(blocked.status).toBe(409);
+		expect((await blocked.json()).message).toContain("before you relist");
 	});
 
 	it("lists a listing's preflight history without naming our reviewers", async () => {
@@ -876,6 +1187,7 @@ describe("airside provider portal", () => {
 
 		// A live listing keeps a capability edit in a filing until it is
 		// approved, so the row still says reasoning is off.
+		await passPreflight(model.id);
 		const filed = await app.request(
 			`/airside/models/${model.id}`,
 			json(cookie, { reasoning: true, reasoningEfforts: ["low"] }, "PATCH"),
@@ -1098,6 +1410,7 @@ describe("airside provider portal", () => {
 				family: "mistral",
 			})
 			.returning();
+		await passPreflight(model.id);
 		const blocked = await app.request(
 			`/airside/models/${model.id}/relist`,
 			json(cookie),
@@ -1131,6 +1444,43 @@ describe("airside provider portal", () => {
 			json(cookie),
 		);
 		expect(relistAgain.status).toBe(409);
+	});
+
+	it("lists admin filings newest first with pagination", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const ids: string[] = [];
+		for (const modelName of ["mistral-a", "mistral-b", "mistral-c"]) {
+			const created = await createModel(cookie, company.id, { modelName });
+			const { model } = await created.json();
+			ids.push(model.pendingFiling.id as string);
+		}
+		for (const [index, id] of ids.entries()) {
+			await db
+				.update(tables.providerPriceFiling)
+				.set({ createdAt: new Date(Date.UTC(2026, 0, index + 1)) })
+				.where(eq(tables.providerPriceFiling.id, id));
+		}
+
+		const page = async (offset: number) => {
+			const res = await app.request(
+				`/admin/airside/filings?limit=2&offset=${offset}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			return await res.json();
+		};
+		const first = await page(0);
+		expect(first.total).toBe(3);
+		expect(first.filings.map((f: { id: string }) => f.id)).toEqual([
+			ids[2],
+			ids[1],
+		]);
+		const second = await page(2);
+		expect(second.filings.map((f: { id: string }) => f.id)).toEqual([ids[0]]);
 	});
 
 	it("rejects admin queue access for non-admins", async () => {
@@ -1216,7 +1566,7 @@ describe("airside provider portal", () => {
 				requestCount: 10,
 				errorCount: 5,
 				clientErrorCount: 1,
-				upstreamErrorCount: 2,
+				upstreamErrorCount: 3,
 				gatewayErrorCount: 1,
 				canceledCount: 1,
 			},
@@ -1287,6 +1637,29 @@ describe("airside provider portal", () => {
 			})),
 		);
 
+		// A 200 that failed mid-response: an upstream error without error
+		// details, described by its raw finish reason.
+		await db.insert(tables.log).values({
+			id: "incident-log-aborted",
+			requestId: "incident-request-aborted",
+			organizationId: "test-org-id",
+			projectId: "test-project-id",
+			apiKeyId: "test-api-key-id",
+			hasError: true,
+			retried: false,
+			streamed: true,
+			finishReason: "abort",
+			unifiedFinishReason: "upstream_error",
+			duration: 100,
+			usedMode: "credits" as const,
+			requestedModel: "mistral-large-3",
+			requestedProvider: "mistral",
+			usedModel: "mistral/mistral-large-3",
+			usedProvider: "mistral",
+			responseSize: 10,
+			mode: "credits" as const,
+		});
+
 		const base = `/airside/incidents?providerCompanyId=${company.id}`;
 		const res = await app.request(base, { headers: { Cookie: cookie } });
 		expect(res.status).toBe(200);
@@ -1301,10 +1674,10 @@ describe("airside provider portal", () => {
 				modelId: "mistral-large-3",
 				region: null,
 				requestCount: 10,
-				errorCount: 3,
-				upstreamErrorCount: 2,
+				errorCount: 4,
+				upstreamErrorCount: 3,
 				gatewayErrorCount: 1,
-				errorRate: 0.3,
+				errorRate: 0.4,
 			},
 		]);
 
@@ -1339,17 +1712,134 @@ describe("airside provider portal", () => {
 		});
 		expect(errors.status).toBe(200);
 		const errorsBody = await errors.json();
-		expect(errorsBody.sampledErrors).toBe(3);
-		expect(errorsBody.errors).toEqual([
-			expect.objectContaining({ statusCode: 503, streamed: true, count: 2 }),
-			expect.objectContaining({ statusCode: 500, streamed: false, count: 1 }),
-		]);
+		// Every error the row counts, not a sample of them.
+		expect(errorsBody.sampledErrors).toBe(4);
+		expect(errorsBody.capped).toBe(false);
+		expect(errorsBody.errors).toHaveLength(3);
+		expect(errorsBody.errors).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ statusCode: 503, streamed: true, count: 2 }),
+				expect.objectContaining({
+					statusCode: 500,
+					streamed: false,
+					count: 1,
+				}),
+				expect.objectContaining({
+					statusCode: null,
+					statusText: "abort",
+					classification: "upstream_error",
+					streamed: true,
+					count: 1,
+				}),
+			]),
+		);
 
 		const notRetried = await app.request(`${errorsBase}&includeRetried=false`, {
 			headers: { Cookie: cookie },
 		});
 		const notRetriedBody = await notRetried.json();
-		expect(notRetriedBody.sampledErrors).toBe(2);
+		expect(notRetriedBody.sampledErrors).toBe(3);
+
+		// The same errors grouped by type across mappings instead of per mapping.
+		await db.insert(tables.projectHourlyModelStats).values({
+			projectId: "test-project-id",
+			hourTimestamp: hour,
+			usedModel: "mistral/mistral-medium-3",
+			usedProvider: "mistral",
+			requestCount: 4,
+			errorCount: 1,
+			upstreamErrorCount: 1,
+		});
+		await db.insert(tables.log).values({
+			id: "incident-log-other-model",
+			requestId: "incident-request-other-model",
+			organizationId: "test-org-id",
+			projectId: "test-project-id",
+			apiKeyId: "test-api-key-id",
+			hasError: true,
+			retried: false,
+			streamed: false,
+			unifiedFinishReason: "upstream_error",
+			errorDetails: {
+				statusCode: 503,
+				statusText: "err",
+				responseText: "failed 503",
+			},
+			duration: 100,
+			usedMode: "credits" as const,
+			requestedModel: "mistral-medium-3",
+			requestedProvider: "mistral",
+			usedModel: "mistral/mistral-medium-3",
+			usedProvider: "mistral",
+			responseSize: 10,
+			mode: "credits" as const,
+		});
+		const typesBase = `/airside/incidents/error-types?providerCompanyId=${company.id}`;
+		const types = await app.request(typesBase, {
+			headers: { Cookie: cookie },
+		});
+		expect(types.status).toBe(200);
+		const typesBody = await types.json();
+		expect(typesBody).toMatchObject({
+			sampledErrors: 5,
+			sampleLimit: 100_000,
+			cappedMappings: 0,
+		});
+		expect(typesBody.errors).toHaveLength(3);
+		expect(typesBody.errors).toContainEqual(
+			expect.objectContaining({
+				statusCode: null,
+				statusText: "abort",
+				count: 1,
+				streamedCount: 1,
+			}),
+		);
+		expect(typesBody.errors.slice(0, 1)).toEqual([
+			expect.objectContaining({
+				statusCode: 503,
+				count: 3,
+				streamedCount: 2,
+				models: [
+					{
+						providerId: "mistral",
+						usedModel: "mistral/mistral-large-3",
+						modelId: "mistral-large-3",
+						region: null,
+						count: 2,
+						streamedCount: 2,
+					},
+					{
+						providerId: "mistral",
+						usedModel: "mistral/mistral-medium-3",
+						modelId: "mistral-medium-3",
+						region: null,
+						count: 1,
+						streamedCount: 0,
+					},
+				],
+			}),
+		]);
+		expect(typesBody.errors).toContainEqual(
+			expect.objectContaining({
+				statusCode: 500,
+				count: 1,
+				streamedCount: 0,
+				models: [expect.objectContaining({ modelId: "mistral-large-3" })],
+			}),
+		);
+
+		const typesNotRetried = await app.request(
+			`${typesBase}&includeRetried=false&mapping=mistral/mistral-large-3`,
+			{ headers: { Cookie: cookie } },
+		);
+		const typesNotRetriedBody = await typesNotRetried.json();
+		expect(typesNotRetriedBody.sampledErrors).toBe(3);
+		expect(typesNotRetriedBody.errors).toHaveLength(2);
+
+		const foreignTypes = await app.request(`${typesBase}&providerId=openai`, {
+			headers: { Cookie: cookie },
+		});
+		expect(foreignTypes.status).toBe(404);
 
 		const foreignErrors = await app.request(
 			`/airside/incidents/errors?providerCompanyId=${company.id}&providerId=openai&mapping=openai/gpt-6`,
@@ -1369,15 +1859,131 @@ describe("airside provider portal", () => {
 			{ headers: { Cookie: cookie } },
 		);
 		expect(adminView.status).toBe(200);
-		expect((await adminView.json()).mappings).toEqual(body.mappings);
+		expect((await adminView.json()).mappings).toEqual(
+			expect.arrayContaining(body.mappings),
+		);
+		const adminTypes = await app.request(
+			"/admin/airside/incidents/error-types?providerId=mistral",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(adminTypes.status).toBe(200);
+		// The admin view adds each error's occurrences over time for its graph.
+		const adminTypesBody = await adminTypes.json();
+		expect(adminTypesBody.timeline.bucketSeconds).toBe(1800);
+		expect(
+			adminTypesBody.errors.map(
+				(error: { buckets: { start: number; count: number }[] }) =>
+					error.buckets.reduce((sum, bucket) => sum + bucket.count, 0),
+			),
+		).toEqual(typesBody.errors.map((error: { count: number }) => error.count));
+		expect(
+			adminTypesBody.errors.map(
+				({ buckets: _buckets, ...error }: { buckets: unknown }) => error,
+			),
+		).toEqual(typesBody.errors);
 
 		const outsider = await createSecondUser("outsider@example.com");
-		for (const path of [base, errorsBase]) {
+		for (const path of [base, errorsBase, typesBase]) {
 			const denied = await app.request(path, {
 				headers: { Cookie: outsider },
 			});
 			expect(denied.status).toBe(404);
 		}
+	});
+
+	it("excludes BYOK traffic from incidents unless asked", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+
+		const hour = new Date();
+		hour.setMinutes(0, 0, 0);
+		await db.insert(tables.projectHourlyModelStats).values({
+			projectId: "test-project-id",
+			hourTimestamp: hour,
+			usedModel: "mistral/mistral-large-3",
+			usedProvider: "mistral",
+			requestCount: 10,
+			apiKeysRequestCount: 6,
+			errorCount: 5,
+			upstreamErrorCount: 4,
+			gatewayErrorCount: 1,
+			apiKeysUpstreamErrorCount: 3,
+			apiKeysGatewayErrorCount: 1,
+		});
+		await db.insert(tables.log).values(
+			(["credits", "api-keys", "api-keys"] as const).map((usedMode, i) => ({
+				id: `byok-incident-log-${i}`,
+				requestId: `byok-incident-request-${i}`,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				hasError: true,
+				unifiedFinishReason: "upstream_error" as const,
+				errorDetails: {
+					statusCode: 503,
+					statusText: "err",
+					responseText: "failed 503",
+				},
+				duration: 100,
+				usedMode,
+				requestedModel: "mistral-large-3",
+				requestedProvider: "mistral",
+				usedModel: "mistral/mistral-large-3",
+				usedProvider: "mistral",
+				responseSize: 10,
+				mode: usedMode,
+			})),
+		);
+
+		const base = `/airside/incidents?providerCompanyId=${company.id}`;
+		const platform = await app.request(base, { headers: { Cookie: cookie } });
+		expect((await platform.json()).mappings).toEqual([
+			expect.objectContaining({
+				requestCount: 4,
+				errorCount: 1,
+				upstreamErrorCount: 1,
+				gatewayErrorCount: 0,
+				errorRate: 0.25,
+			}),
+		]);
+		const all = await app.request(`${base}&includeByok=true`, {
+			headers: { Cookie: cookie },
+		});
+		expect((await all.json()).mappings).toEqual([
+			expect.objectContaining({ requestCount: 10, errorCount: 5 }),
+		]);
+
+		const errorsBase = `/airside/incidents/errors?providerCompanyId=${company.id}&providerId=mistral&mapping=mistral/mistral-large-3`;
+		const typesBase = `/airside/incidents/error-types?providerCompanyId=${company.id}`;
+		for (const [path, field] of [
+			[errorsBase, "sampledErrors"],
+			[typesBase, "sampledErrors"],
+		] as const) {
+			const platformErrors = await app.request(path, {
+				headers: { Cookie: cookie },
+			});
+			expect((await platformErrors.json())[field]).toBe(1);
+			const allErrors = await app.request(`${path}&includeByok=true`, {
+				headers: { Cookie: cookie },
+			});
+			expect((await allErrors.json())[field]).toBe(3);
+		}
+
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		const adminBase = "/admin/airside/incidents?providerId=mistral";
+		const adminPlatform = await app.request(adminBase, {
+			headers: { Cookie: cookie },
+		});
+		expect((await adminPlatform.json()).mappings).toEqual([
+			expect.objectContaining({ requestCount: 4, errorCount: 1 }),
+		]);
+		const adminTypes = await app.request(
+			"/admin/airside/incidents/error-types?providerId=mistral&includeByok=true",
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await adminTypes.json()).sampledErrors).toBe(3);
 	});
 
 	it("gates claims on the listing fee when configured", async () => {
@@ -1599,6 +2205,7 @@ describe("airside provider portal", () => {
 		expect(Number(published.mappings[0].inputPrice)).toBeCloseTo(2e-6);
 
 		// Metadata edits on a live listing are filed, not applied.
+		await passPreflight(model.id);
 		const filed = await app.request(
 			`/airside/models/${model.id}`,
 			json(cookie, { contextSize: 128000, tools: false }, "PATCH"),
@@ -2808,12 +3415,217 @@ describe("airside provider portal", () => {
 			expect(body.providers[0].routingAdjustment).toBeCloseTo(-0.19);
 			expect(body.providers[0].marginAmount30d).toBeCloseTo(5);
 			expect(body.providers[0].marginAmountTotal).toBeCloseTo(12);
+			// Traffic defaults to a 7-day, UTC-day grid.
+			expect(body).toMatchObject({ window: "7d", bucket: "day" });
+			expect(body.providers[0].series).toHaveLength(7);
 		} finally {
 			// deleteAll() does not cover the global stats tables.
 			await db
 				.delete(tables.globalModelStats)
 				.where(eq(tables.globalModelStats.usedProvider, "mistral"));
 		}
+	});
+
+	it("reports carrier status, mapping counts, and routed traffic per window", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		await setRoutingSettings(company.id, "mistral", 0.1, 0.3);
+
+		const modelId = "carrier-traffic-model";
+		const retiredModelId = "carrier-traffic-retired-model";
+		const rootId = "carrier-traffic-root";
+		const regionalId = "carrier-traffic-region";
+		const retiredId = "carrier-traffic-retired";
+		const providerExisted = Boolean(
+			await db.query.provider.findFirst({ where: { id: { eq: "mistral" } } }),
+		);
+		if (!providerExisted) {
+			await db
+				.insert(tables.provider)
+				.values({ id: "mistral", name: "Mistral", description: "test" });
+		}
+		await db.insert(tables.model).values([
+			{ id: modelId, name: "Carrier traffic model", family: "test" },
+			{ id: retiredModelId, name: "Carrier traffic retired", family: "test" },
+		]);
+		await db.insert(tables.modelProviderMapping).values([
+			{
+				id: rootId,
+				modelId,
+				providerId: "mistral",
+				externalId: modelId,
+				source: "airside",
+			},
+			{
+				id: regionalId,
+				modelId,
+				providerId: "mistral",
+				externalId: modelId,
+				source: "airside",
+				region: "eu",
+			},
+			{
+				id: retiredId,
+				modelId: retiredModelId,
+				providerId: "mistral",
+				externalId: retiredModelId,
+				source: "airside",
+				status: "inactive",
+			},
+		]);
+
+		const hourMs = 60 * 60 * 1000;
+		const recentHour = new Date(
+			Math.floor(Date.now() / hourMs) * hourMs - 2 * hourMs, // eslint-disable-line no-mixed-operators
+		);
+		const olderHour = new Date(recentHour.getTime() - 3 * 24 * hourMs); // eslint-disable-line no-mixed-operators
+		const historyIds = ["ct-recent", "ct-recent-region", "ct-older"];
+		await db.insert(tables.modelProviderMappingHistoryHourly).values([
+			{
+				id: historyIds[0],
+				modelId,
+				providerId: "mistral",
+				modelProviderMappingId: rootId,
+				hourTimestamp: recentHour,
+				logsCount: 10,
+				errorsCount: 3,
+				clientErrorsCount: 1,
+				upstreamErrorsCount: 2,
+				totalCost: 4,
+			},
+			// Regional rows are already merged into the root row.
+			{
+				id: historyIds[1],
+				modelId,
+				providerId: "mistral",
+				modelProviderMappingId: regionalId,
+				hourTimestamp: recentHour,
+				logsCount: 10,
+				totalCost: 4,
+			},
+			{
+				id: historyIds[2],
+				modelId,
+				providerId: "mistral",
+				modelProviderMappingId: rootId,
+				hourTimestamp: olderHour,
+				logsCount: 5,
+				totalCost: 6,
+			},
+		]);
+
+		try {
+			const [{ catalogueActive }] = await db
+				.select({ catalogueActive: sql<number>`count(*)::int` })
+				.from(tables.modelProviderMapping)
+				.where(
+					sql`${tables.modelProviderMapping.providerId} = 'mistral' and ${tables.modelProviderMapping.status} = 'active' and ${tables.modelProviderMapping.region} is null`,
+				);
+
+			const day = await app.request(
+				"/admin/airside/routing-settings?window=24h",
+				{ headers: { Cookie: cookie } },
+			);
+			expect(day.status).toBe(200);
+			const dayBody = await day.json();
+			expect(dayBody).toMatchObject({ window: "24h", bucket: "hour" });
+			const dayCarrier = dayBody.providers[0];
+			expect(dayCarrier).toMatchObject({
+				status: "active",
+				airsideMappingCount: 1,
+				activeMappingCount: catalogueActive,
+				requestCount: 10,
+				clientErrorCount: 1,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 2,
+			});
+			expect(dayCarrier.routedCost).toBeCloseTo(4);
+			expect(dayCarrier.series).toHaveLength(24);
+			expect(
+				dayCarrier.series.filter((point: { cost: number }) => point.cost > 0),
+			).toEqual([
+				expect.objectContaining({ date: recentHour.toISOString(), cost: 4 }),
+			]);
+
+			const week = await app.request(
+				"/admin/airside/routing-settings?window=7d",
+				{ headers: { Cookie: cookie } },
+			);
+			const weekCarrier = (await week.json()).providers[0];
+			expect(weekCarrier.routedCost).toBeCloseTo(10);
+			expect(weekCarrier.requestCount).toBe(15);
+			expect(weekCarrier.series).toHaveLength(7);
+
+			const month = await app.request(
+				"/admin/airside/routing-settings?window=30d",
+				{ headers: { Cookie: cookie } },
+			);
+			expect((await month.json()).providers[0].series).toHaveLength(30);
+		} finally {
+			await db
+				.delete(tables.modelProviderMappingHistoryHourly)
+				.where(
+					inArray(tables.modelProviderMappingHistoryHourly.id, historyIds),
+				);
+			await db
+				.delete(tables.model)
+				.where(inArray(tables.model.id, [modelId, retiredModelId]));
+			if (!providerExisted) {
+				await db
+					.delete(tables.provider)
+					.where(eq(tables.provider.id, "mistral"));
+			}
+		}
+	});
+
+	it("reports who added the key serving a carrier", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		await setRoutingSettings(company.id, "mistral", 0.1, 0.3);
+
+		const keySource = async () => {
+			const res = await app.request("/admin/airside/routing-settings", {
+				headers: { Cookie: cookie },
+			});
+			expect(res.status).toBe(200);
+			return (await res.json()).providers[0].keySource;
+		};
+
+		const key = (
+			id: string,
+			carrierSubmitted: boolean,
+			sortOrder: number,
+			status: "active" | "inactive" = "active",
+		) => ({
+			id,
+			provider: "mistral",
+			...encryptProviderKeyForStorage("key-source-test", id, null),
+			managed: true,
+			carrierSubmitted,
+			sortOrder,
+			status,
+		});
+		// The inactive key sorts first but serves nothing.
+		await db
+			.insert(tables.providerKey)
+			.values([
+				key("key-source-inactive", false, 0, "inactive"),
+				key("key-source-carrier", true, 1),
+				key("key-source-admin", false, 2),
+			]);
+		expect(await keySource()).toBe("carrier");
+
+		await db
+			.update(tables.providerKey)
+			.set({ sortOrder: 3 })
+			.where(eq(tables.providerKey.id, "key-source-carrier"));
+		expect(await keySource()).toBe("admin");
 	});
 
 	it("stores a model's selected upstream API format", async () => {
@@ -2851,6 +3663,7 @@ describe("airside provider portal", () => {
 		expect(model.reasoningEfforts).toEqual(["low", "medium", "high"]);
 
 		// Edits to the efforts persist.
+		await passPreflight(model.id);
 		const patch = await app.request(
 			`/airside/models/${model.id}`,
 			json(cookie, { reasoningEfforts: ["medium", "max"] }, "PATCH"),
@@ -3211,6 +4024,7 @@ describe("airside provider portal", () => {
 			unlistedProviderIds: ["mistral"],
 		});
 
+		await passPreflight(listing!.id);
 		const relisted = await app.request(
 			`/airside/models/${listing!.id}/relist`,
 			json(cookie),
@@ -3470,41 +4284,50 @@ describe("airside provider portal", () => {
 				providerId: "acme-sky",
 				name: "Acme Sky",
 				baseUrl: "https://api.acme-sky.ai",
+				profile: carrierProfile,
 				...overrides,
 			}),
 		);
 	}
 
-	it("verifies a company website over DNS and accepts it as a claim domain", async () => {
+	it("verifies the website's domain over DNS and accepts it as a claim domain", async () => {
 		// A freemail account proves nothing on its own, so this account can
 		// only register a carrier once it proves the company's domain.
 		await setUserEmail("founder@gmail.com");
 		const create = await app.request(
 			"/airside/companies",
-			json(cookie, { name: "Acme Sky", website: "https://acme-sky.ai" }),
+			json(cookie, {
+				name: "Acme Sky",
+				website: "https://acme-sky.ai",
+				acceptTerms: true,
+			}),
 		);
 		const company = (await create.json()).company as { id: string };
 
 		const blocked = await registerCarrier(cookie, company.id);
 		expect(blocked.status).toBe(403);
 
+		// Registering the company queues its website's domain for verification.
 		const challenge = await app.request(
-			`/airside/companies/${company.id}/website-verification`,
+			`/airside/companies/${company.id}/domains`,
 			{ headers: { Cookie: cookie } },
 		);
 		expect(challenge.status).toBe(200);
 		const record = await challenge.json();
-		expect(record.domain).toBe("acme-sky.ai");
 		expect(record.recordName).toBe("_llmgateway-airside");
 		expect(record.recordValue).toMatch(
 			/^llmgateway-airside-verification=[0-9a-f]{32}$/,
 		);
-		expect(record.verifiedDomain).toBeNull();
+		expect(record.suggestedDomain).toBeNull();
+		expect(record.domains).toHaveLength(1);
+		const [domain] = record.domains;
+		expect(domain.domain).toBe("acme-sky.ai");
+		expect(domain.verifiedAt).toBeNull();
 
 		// Nothing published yet.
 		txtRecords.clear();
 		const tooEarly = await app.request(
-			`/airside/companies/${company.id}/website-verification`,
+			`/airside/companies/${company.id}/domains/${domain.id}/verify`,
 			json(cookie),
 		);
 		expect(tooEarly.status).toBe(400);
@@ -3513,11 +4336,11 @@ describe("airside provider portal", () => {
 			[record.recordValue as string],
 		]);
 		const verified = await app.request(
-			`/airside/companies/${company.id}/website-verification`,
+			`/airside/companies/${company.id}/domains/${domain.id}/verify`,
 			json(cookie),
 		);
 		expect(verified.status).toBe(200);
-		expect((await verified.json()).verifiedDomain).toBe("acme-sky.ai");
+		expect((await verified.json()).domain.verifiedAt).not.toBeNull();
 
 		// The proven domain now carries a registration the email domain could not.
 		const allowed = await registerCarrier(cookie, company.id);
@@ -3525,30 +4348,207 @@ describe("airside provider portal", () => {
 		expect((await allowed.json()).claim.matchedDomain).toBe("acme-sky.ai");
 	});
 
-	it("drops the DNS proof when the website moves to another domain", async () => {
+	it("requires the core public profile to register a carrier", async () => {
 		await setUserEmail("ops@acme-sky.ai");
 		const company = await createCompany(cookie, "Acme Sky");
-		await db
-			.update(tables.providerCompany)
-			.set({ website: "https://acme-sky.ai" })
-			.where(eq(tables.providerCompany.id, company.id));
 
-		const record = await (
-			await app.request(
-				`/airside/companies/${company.id}/website-verification`,
-				{ headers: { Cookie: cookie } },
-			)
-		).json();
-		txtRecords.set("_llmgateway-airside.acme-sky.ai", [
-			[record.recordValue as string],
-		]);
-		await app.request(
-			`/airside/companies/${company.id}/website-verification`,
-			json(cookie),
+		const noProfile = await registerCarrier(cookie, company.id, {
+			profile: undefined,
+		});
+		expect(noProfile.status).toBe(400);
+		const partial = await registerCarrier(cookie, company.id, {
+			profile: { website: "https://acme-sky.ai" },
+		});
+		expect(partial.status).toBe(400);
+		expect(JSON.stringify(await partial.json())).toContain(
+			"privacy policy URL",
 		);
+		const ftp = await registerCarrier(cookie, company.id, {
+			profile: { ...carrierProfile, termsUrl: "ftp://acme-sky.ai/terms" },
+		});
+		expect(ftp.status).toBe(400);
 
-		// Editing the website to a domain the token was never published on must
-		// not carry the old proof over.
+		const created = await registerCarrier(cookie, company.id, {
+			profile: {
+				...carrierProfile,
+				headquarters: "DE",
+				apiTraining: false,
+				soc2: 2,
+			},
+		});
+		expect(created.status).toBe(201);
+		const { claim } = await created.json();
+		expect(claim.profile).toMatchObject({
+			...carrierProfile,
+			headquarters: "DE",
+			apiTraining: false,
+			soc2: 2,
+			statusPageUrl: null,
+		});
+		expect(claim.profileMissing).toEqual([]);
+		expect(claim.profileRecommendedMissing).toContain("statusPageUrl");
+		expect(claim.profileUpdatedAt).not.toBeNull();
+		const row = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
+		});
+		expect(row).toMatchObject({
+			privacyPolicyUrl: carrierProfile.privacyPolicyUrl,
+			termsUrl: carrierProfile.termsUrl,
+			headquarters: "DE",
+			soc2: 2,
+		});
+	});
+
+	it("updates a claim's public profile in place", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		const { claim } = await (await registerCarrier(cookie, company.id)).json();
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(
+				`/airside/claims/${claim.id}/profile`,
+				json(cookie, body, "PATCH"),
+			);
+
+		const updated = await patch({
+			statusPageUrl: "https://status.acme-sky.ai",
+			retentionPeriod: "30 days",
+			gdpr: true,
+		});
+		expect(updated.status).toBe(200);
+		const body = await updated.json();
+		expect(body.claim.profile).toMatchObject({
+			statusPageUrl: "https://status.acme-sky.ai",
+			retentionPeriod: "30 days",
+			gdpr: true,
+			website: carrierProfile.website,
+		});
+		expect(body.claim.profileRecommendedMissing).not.toContain("statusPageUrl");
+
+		// Optional fields clear with null; required ones cannot.
+		const cleared = await patch({ statusPageUrl: null });
+		expect((await cleared.json()).claim.profile.statusPageUrl).toBeNull();
+		expect((await patch({ termsUrl: null })).status).toBe(400);
+		expect((await patch({ website: "not a url" })).status).toBe(400);
+		expect((await patch({ headquarters: "Germany" })).status).toBe(400);
+		expect((await patch({ soc2: 3 })).status).toBe(400);
+
+		// Live claims apply profile changes immediately, with no review.
+		await activateClaim("acme-sky");
+		const live = await patch({ legalEntity: "Acme Sky GmbH" });
+		expect(live.status).toBe(200);
+		const liveClaim = (await live.json()).claim;
+		expect(liveClaim.profile.legalEntity).toBe("Acme Sky GmbH");
+		expect(liveClaim.pendingBranding).toBeNull();
+
+		const other = await createSecondUser("other@example.com");
+		const foreign = await app.request(
+			`/airside/claims/${claim.id}/profile`,
+			json(other, { gdpr: false }, "PATCH"),
+		);
+		expect(foreign.status).toBe(404);
+
+		await db
+			.update(tables.providerClaim)
+			.set({ status: "rejected" })
+			.where(eq(tables.providerClaim.id, claim.id));
+		expect((await patch({ gdpr: false })).status).toBe(409);
+	});
+
+	it("publishes a live custom carrier's profile on the provider listing", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		const registered = await registerCarrier(cookie, company.id, {
+			profile: { ...carrierProfile, soc2: 0, headquarters: "FR" },
+		});
+		expect(registered.status).toBe(201);
+		await db
+			.insert(tables.provider)
+			.values({ id: "acme-sky", name: "Acme Sky", description: "" })
+			.onConflictDoNothing();
+		const listed = async () =>
+			(await (await app.request("/internal/providers")).json()).providers.find(
+				(p: { id: string }) => p.id === "acme-sky",
+			);
+
+		// Pending registrations publish nothing.
+		expect((await listed()).airsideProfile).toBeNull();
+		await activateClaim("acme-sky");
+		expect((await listed()).airsideProfile).toEqual({
+			website: carrierProfile.website,
+			statusPageUrl: null,
+			termsUrl: carrierProfile.termsUrl,
+			privacyPolicyUrl: carrierProfile.privacyPolicyUrl,
+			legalEntity: null,
+			headquarters: "FR",
+			dataPolicy: {
+				apiTraining: null,
+				promptLogging: null,
+				retentionPeriod: null,
+				gdpr: null,
+				soc2: 0,
+				iso27001: null,
+			},
+		});
+	});
+
+	it("reports missing profile fields on legacy custom claims", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		await db.insert(tables.providerClaim).values({
+			providerCompanyId: company.id,
+			providerId: "acme-sky",
+			kind: "custom",
+			matchedDomain: "acme-sky.ai",
+			customName: "Acme Sky",
+			customBaseUrl: "https://api.acme-sky.ai",
+			status: "active",
+		});
+		const res = await app.request("/airside/companies", {
+			headers: { Cookie: cookie },
+		});
+		const [claim] = (await res.json()).companies[0].claims;
+		expect(claim.profileMissing).toEqual([
+			"website",
+			"privacyPolicyUrl",
+			"termsUrl",
+		]);
+		expect(claim.profileUpdatedAt).toBeNull();
+		expect(claim.profile.website).toBeNull();
+	});
+
+	it("suggests the website's domain and keeps a proof when the website moves", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		const domainsUrl = `/airside/companies/${company.id}/domains`;
+		const list = async () =>
+			await (
+				await app.request(domainsUrl, { headers: { Cookie: cookie } })
+			).json();
+
+		// A company without a row for its website gets the domain suggested.
+		const [queued] = (await list()).domains;
+		await app.request(
+			`${domainsUrl}/${queued.id}`,
+			json(cookie, undefined, "DELETE"),
+		);
+		const emptied = await list();
+		expect(emptied.domains).toEqual([]);
+		expect(emptied.suggestedDomain).toBe("mistral.ai");
+
+		const added = await app.request(
+			domainsUrl,
+			json(cookie, { domain: emptied.suggestedDomain }),
+		);
+		expect(added.status).toBe(201);
+		const { domain } = await added.json();
+		expect((await list()).suggestedDomain).toBeNull();
+
+		txtRecords.set("_llmgateway-airside.mistral.ai", [
+			[emptied.recordValue as string],
+		]);
+		await app.request(`${domainsUrl}/${domain.id}/verify`, json(cookie));
+
+		// The proof belongs to the domain, not to the website field.
 		await db
 			.update(tables.providerCompany)
 			.set({ website: "https://somewhere-else.ai" })
@@ -3557,7 +4557,103 @@ describe("airside provider portal", () => {
 			headers: { Cookie: cookie },
 		});
 		const [listed] = (await after.json()).companies;
-		expect(listed.websiteVerifiedDomain).toBeNull();
+		expect(listed.verifiedDomains).toEqual(["mistral.ai"]);
+	});
+
+	it("verifies an additional domain and accepts carriers hosted on it", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		const offDomain = { baseUrl: "https://flash.acme-sky.cloud" };
+		expect((await registerCarrier(cookie, company.id, offDomain)).status).toBe(
+			403,
+		);
+
+		// A URL or subdomain collapses to the registrable domain.
+		const added = await app.request(
+			`/airside/companies/${company.id}/domains`,
+			json(cookie, { domain: "https://Flash.acme-sky.cloud/v1" }),
+		);
+		expect(added.status).toBe(201);
+		const { domain } = await added.json();
+		expect(domain.domain).toBe("acme-sky.cloud");
+		expect(domain.verifiedAt).toBeNull();
+
+		const dupe = await app.request(
+			`/airside/companies/${company.id}/domains`,
+			json(cookie, { domain: "acme-sky.cloud" }),
+		);
+		expect(dupe.status).toBe(409);
+
+		// Added but unproven: still not claimable.
+		txtRecords.clear();
+		const tooEarly = await app.request(
+			`/airside/companies/${company.id}/domains/${domain.id}/verify`,
+			json(cookie),
+		);
+		expect(tooEarly.status).toBe(400);
+		expect((await registerCarrier(cookie, company.id, offDomain)).status).toBe(
+			403,
+		);
+
+		const listed = await (
+			await app.request(`/airside/companies/${company.id}/domains`, {
+				headers: { Cookie: cookie },
+			})
+		).json();
+		expect(listed.domains.map((d: { domain: string }) => d.domain)).toEqual([
+			"mistral.ai",
+			"acme-sky.cloud",
+		]);
+		txtRecords.set("_llmgateway-airside.acme-sky.cloud", [
+			[listed.recordValue as string],
+		]);
+		const verified = await app.request(
+			`/airside/companies/${company.id}/domains/${domain.id}/verify`,
+			json(cookie),
+		);
+		expect(verified.status).toBe(200);
+		expect((await verified.json()).domain.verifiedAt).not.toBeNull();
+
+		const companies = await (
+			await app.request("/airside/companies", { headers: { Cookie: cookie } })
+		).json();
+		expect(companies.companies[0].verifiedDomains).toEqual(["acme-sky.cloud"]);
+
+		const allowed = await registerCarrier(cookie, company.id, offDomain);
+		expect(allowed.status).toBe(201);
+		expect((await allowed.json()).claim.matchedDomain).toBe("acme-sky.cloud");
+
+		// Removing the domain withdraws it from future registrations.
+		const removed = await app.request(
+			`/airside/companies/${company.id}/domains/${domain.id}`,
+			json(cookie, undefined, "DELETE"),
+		);
+		expect(removed.status).toBe(200);
+		expect(
+			(
+				await registerCarrier(cookie, company.id, {
+					...offDomain,
+					providerId: "acme-sky-two",
+				})
+			).status,
+		).toBe(403);
+	});
+
+	it("rejects unusable domains", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		for (const domain of ["localhost", "10.0.0.1", "gmail.com"]) {
+			const res = await app.request(
+				`/airside/companies/${company.id}/domains`,
+				json(cookie, { domain }),
+			);
+			expect(res.status).toBe(400);
+		}
+		const foreign = await app.request(
+			"/airside/companies/not-a-company/domains",
+			json(cookie, { domain: "acme-sky.cloud" }),
+		);
+		expect(foreign.status).toBe(404);
 	});
 
 	it("registers a new carrier as a pending custom claim", async () => {
@@ -3577,6 +4673,417 @@ describe("airside provider portal", () => {
 		// Pending registration blocks the id for everyone.
 		const dupe = await registerCarrier(cookie, company.id);
 		expect(dupe.status).toBe(409);
+	});
+
+	// Upstream for custom-carrier smoke tests: answers a basic completion for
+	// the keys in `workingKeys`, 401 for anything else.
+	function stubCarrierUpstream(workingKeys: Set<string>) {
+		const upstream = vi.fn(
+			async (_url: string | URL | Request, init?: RequestInit) => {
+				const token = new Headers(init?.headers).get("authorization");
+				return token && workingKeys.has(token.replace("Bearer ", ""))
+					? Response.json({
+							id: "chatcmpl-1",
+							object: "chat.completion",
+							model: "sky",
+							choices: [
+								{
+									index: 0,
+									message: { role: "assistant", content: "OK" },
+									finish_reason: "stop",
+								},
+							],
+						})
+					: Response.json(
+							{ error: { message: "Invalid API key" } },
+							{ status: 401 },
+						);
+			},
+		);
+		vi.stubGlobal("fetch", upstream);
+		return upstream;
+	}
+
+	async function approvedCarrier() {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@acme-sky.ai";
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		const { claim } = await (await registerCarrier(cookie, company.id)).json();
+		await app.request(
+			`/admin/airside/claims/${claim.id}/approve`,
+			json(cookie),
+		);
+		// The testing key preflight runs on, saved like any pasted one.
+		await app.request(
+			`/airside/claims/${claim.id}/verification-key`,
+			json(cookie, { apiKey: "sk-acme-sky-testing-key" }, "PUT"),
+		);
+		return { company, claim: claim as { id: string } };
+	}
+
+	const sky = (modelName: string, providerKey?: string) => ({
+		providerId: "acme-sky",
+		modelName,
+		...(providerKey ? { providerKey } : {}),
+	});
+
+	it("files the provider key with the first model and serves it once approved", async () => {
+		const { company, claim } = await approvedCarrier();
+		// Registration and approval collect no provider key.
+		expect(
+			await db.query.providerKey.findMany({
+				where: { provider: { eq: "acme-sky" } },
+			}),
+		).toHaveLength(0);
+		const upstream = stubCarrierUpstream(new Set(["sk-acme-sky-serving-key"]));
+
+		const missing = await createModel(cookie, company.id, sky("sky-large"));
+		expect(missing.status).toBe(400);
+		expect((await missing.json()).message).toContain("Add your provider key");
+		const sameAsTesting = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-testing-key"),
+		);
+		expect(sameAsTesting.status).toBe(400);
+		expect((await sameAsTesting.json()).message).toContain(
+			"two different keys",
+		);
+		const broken = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-broken"),
+		);
+		expect(broken.status).toBe(400);
+		const brokenBody = await broken.json();
+		expect(brokenBody.message).toContain("smoke test against sky-large");
+		expect(brokenBody.message).not.toContain("sk-acme-sky-broken");
+		expect(
+			await db.query.providerKey.findMany({
+				where: { provider: { eq: "acme-sky" } },
+			}),
+		).toHaveLength(0);
+
+		const first = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-serving-key"),
+		);
+		expect(first.status).toBe(201);
+		const [url] = upstream.mock.calls.at(-1)!;
+		expect(String(url)).toBe("https://api.acme-sky.ai/v1/chat/completions");
+		const [key] = await db.query.providerKey.findMany({
+			where: { provider: { eq: "acme-sky" } },
+		});
+		expect(key).toMatchObject({
+			managed: true,
+			organizationId: null,
+			status: "inactive",
+		});
+		expect(key.tokenCiphertext).not.toContain("sk-acme-sky-serving-key");
+		expect(readProviderKey(key)).toBe("sk-acme-sky-serving-key");
+
+		// The first key is reviewed with the first model: it cannot be dropped.
+		expect(
+			(
+				await app.request(
+					`/airside/claims/${claim.id}/provider-key`,
+					json(cookie, undefined, "DELETE"),
+				)
+			).status,
+		).toBe(409);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/claims/${claim.id}/provider-key/reject`,
+					json(cookie),
+				)
+			).status,
+		).toBe(409);
+
+		// Later models probe the key on file instead of taking another one.
+		const extraKey = await createModel(
+			cookie,
+			company.id,
+			sky("sky-small", "sk-acme-sky-other"),
+		);
+		expect(extraKey.status).toBe(400);
+		expect((await extraKey.json()).message).toContain("already on file");
+		expect(
+			(await createModel(cookie, company.id, sky("sky-small"))).status,
+		).toBe(201);
+
+		// Approving the first model puts its provider key into service.
+		const { model } = await first.json();
+		const approved = await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		const live = await db.query.providerKey.findFirst({
+			where: { id: { eq: key.id } },
+		});
+		expect(live?.status).toBe("active");
+		const liveClaim = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
+		});
+		expect(liveClaim).toMatchObject({
+			providerKeyId: key.id,
+			pendingProviderKeyId: null,
+		});
+
+		// Revoking the carrier retires its key.
+		const revoked = await app.request(
+			`/admin/airside/claims/${claim.id}/revoke`,
+			json(cookie, {}),
+		);
+		expect(revoked.status).toBe(200);
+		const retired = await db.query.providerKey.findFirst({
+			where: { id: { eq: key.id } },
+		});
+		expect(retired?.status).toBe("deleted");
+	});
+
+	it("replaces the provider key only after a smoke test and admin approval", async () => {
+		const { company, claim } = await approvedCarrier();
+		const workingKeys = new Set(["sk-acme-sky-serving-key"]);
+		stubCarrierUpstream(workingKeys);
+		const submit = async (apiKey: string) =>
+			await app.request(
+				`/airside/claims/${claim.id}/provider-key`,
+				json(cookie, { apiKey }, "PUT"),
+			);
+
+		// Before any listing there is nothing to smoke-test against.
+		const early = await submit("sk-acme-sky-early");
+		expect(early.status).toBe(409);
+		expect((await early.json()).message).toContain("first model");
+
+		const first = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-serving-key"),
+		);
+		const { model } = await first.json();
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		const original = await db.query.providerKey.findFirst({
+			where: { provider: { eq: "acme-sky" } },
+		});
+
+		// The testing key and the live key are not valid replacements.
+		expect((await submit("sk-acme-sky-testing-key")).status).toBe(400);
+		expect((await submit("sk-acme-sky-serving-key")).status).toBe(400);
+		// Nor can the testing key become the provider key the other way round.
+		const sameTestingKey = await app.request(
+			`/airside/claims/${claim.id}/verification-key`,
+			json(cookie, { apiKey: "sk-acme-sky-serving-key" }, "PUT"),
+		);
+		expect(sameTestingKey.status).toBe(400);
+		// A key that fails the smoke test never reaches review.
+		const broken = await submit("sk-acme-sky-broken");
+		expect(broken.status).toBe(400);
+		expect((await broken.json()).message).toContain("smoke test");
+
+		for (const k of [1, 2, 3, 4].map((n) => `sk-acme-sky-rotated-${n}`)) {
+			workingKeys.add(k);
+		}
+		expect((await submit("sk-acme-sky-rotated-1")).status).toBe(200);
+		// A second submission replaces the first while it awaits review.
+		expect((await submit("sk-acme-sky-rotated-2")).status).toBe(200);
+		const keys = await db.query.providerKey.findMany({
+			where: { provider: { eq: "acme-sky" } },
+		});
+		const byToken = new Map(keys.map((k) => [readProviderKey(k), k]));
+		expect(byToken.get("sk-acme-sky-broken")).toBeUndefined();
+		expect(byToken.get("sk-acme-sky-rotated-1")?.status).toBe("deleted");
+		const pending = byToken.get("sk-acme-sky-rotated-2")!;
+		expect(pending.status).toBe("inactive");
+		expect(pending.carrierSubmitted).toBe(true);
+		// The live key keeps serving until the replacement is approved.
+		expect(byToken.get("sk-acme-sky-serving-key")?.status).toBe("active");
+
+		const listed = await (
+			await app.request("/airside/companies", { headers: { Cookie: cookie } })
+		).json();
+		expect(listed.companies[0].claims[0]).toMatchObject({
+			// Admin-set and read-only here; new carriers start on payg.
+			billingMode: "payg",
+			providerKey: { masked: original!.tokenMasked },
+			pendingProviderKey: { masked: pending.tokenMasked },
+		});
+
+		const queue = await (
+			await app.request("/admin/airside/claims?pendingProviderKey=true", {
+				headers: { Cookie: cookie },
+			})
+		).json();
+		expect(queue.claims.map((c: { id: string }) => c.id)).toEqual([claim.id]);
+
+		const approved = await app.request(
+			`/admin/airside/claims/${claim.id}/provider-key/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		const approvedClaim = (await approved.json()).claim;
+		expect(approvedClaim.providerKey.masked).toBe(pending.tokenMasked);
+		expect(approvedClaim.pendingProviderKey).toBeNull();
+		const after = await db.query.providerKey.findMany({
+			where: { provider: { eq: "acme-sky" }, status: { eq: "active" } },
+		});
+		expect(after.map((k) => k.id)).toEqual([pending.id]);
+
+		// A rejected replacement never serves; the live key stays.
+		expect((await submit("sk-acme-sky-rotated-3")).status).toBe(200);
+		const rejected = await app.request(
+			`/admin/airside/claims/${claim.id}/provider-key/reject`,
+			json(cookie),
+		);
+		expect(rejected.status).toBe(200);
+		expect((await rejected.json()).claim).toMatchObject({
+			providerKey: { masked: pending.tokenMasked },
+			pendingProviderKey: null,
+		});
+
+		// The carrier can withdraw a replacement itself.
+		expect((await submit("sk-acme-sky-rotated-4")).status).toBe(200);
+		const withdrawn = await app.request(
+			`/airside/claims/${claim.id}/provider-key`,
+			json(cookie, undefined, "DELETE"),
+		);
+		expect(withdrawn.status).toBe(200);
+		const remaining = await db.query.providerKey.findMany({
+			where: { provider: { eq: "acme-sky" }, status: { ne: "deleted" } },
+		});
+		expect(remaining.map((k) => k.id)).toEqual([pending.id]);
+	});
+
+	it("lets an admin set or override a carrier's provider key", async () => {
+		const { company, claim } = await approvedCarrier();
+		stubCarrierUpstream(new Set(["sk-admin-set"]));
+		const create = async (token: string, carrierKey?: boolean) => {
+			const res = await app.request(
+				"/admin/provider-credentials",
+				json(cookie, { provider: "acme-sky", token, carrierKey }),
+			);
+			expect(res.status).toBe(201);
+			return (await res.json()).credential as {
+				id: string;
+				carrierKey: boolean;
+			};
+		};
+		const linkedKeyId = async () =>
+			(
+				await db.query.providerClaim.findFirst({
+					where: { id: { eq: claim.id } },
+				})
+			)?.providerKeyId;
+
+		// The testing key never serves traffic, from admin either.
+		const reused = await app.request(
+			"/admin/provider-credentials",
+			json(cookie, { provider: "acme-sky", token: "sk-acme-sky-testing-key" }),
+		);
+		expect(reused.status).toBe(400);
+
+		// A carrier without a key gets the admin's credential linked.
+		const set = await create("sk-admin-set");
+		const rotatedToTesting = await app.request(
+			`/admin/provider-credentials/${set.id}`,
+			json(cookie, { token: "sk-acme-sky-testing-key" }, "PATCH"),
+		);
+		expect(rotatedToTesting.status).toBe(400);
+		expect(set.carrierKey).toBe(true);
+		expect(await linkedKeyId()).toBe(set.id);
+		// The carrier no longer has to file one with its first model.
+		expect(
+			(await createModel(cookie, company.id, sky("sky-large"))).status,
+		).toBe(201);
+
+		// An extra key leaves the carrier's key alone.
+		const extra = await create("sk-admin-extra", false);
+		expect(extra.carrierKey).toBe(false);
+		expect(await linkedKeyId()).toBe(set.id);
+
+		// Overriding links the new key and retires the old one.
+		const override = await create("sk-admin-override", true);
+		expect(await linkedKeyId()).toBe(override.id);
+		const retired = await db.query.providerKey.findFirst({
+			where: { id: { eq: set.id } },
+		});
+		expect(retired?.status).toBe("deleted");
+
+		// Deleting the linked credential unlinks it.
+		const deleted = await app.request(
+			`/admin/provider-credentials/${override.id}`,
+			json(cookie, undefined, "DELETE"),
+		);
+		expect(deleted.status).toBe(200);
+		expect(await linkedKeyId()).toBeNull();
+	});
+
+	it("smoke-tests the serving key against every new listing", async () => {
+		const { company } = await approvedCarrier();
+		const workingKeys = new Set(["sk-acme-sky-serving-key"]);
+		stubCarrierUpstream(workingKeys);
+		const first = await createModel(
+			cookie,
+			company.id,
+			sky("sky-large", "sk-acme-sky-serving-key"),
+		);
+		const { model } = await first.json();
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+
+		// The account behind the serving key lost access upstream.
+		workingKeys.clear();
+		const blocked = await createModel(cookie, company.id, sky("sky-small"));
+		expect(blocked.status).toBe(400);
+		expect((await blocked.json()).message).toContain(
+			"smoke test against sky-small",
+		);
+		workingKeys.add("sk-acme-sky-serving-key");
+		expect(
+			(await createModel(cookie, company.id, sky("sky-small"))).status,
+		).toBe(201);
+	});
+
+	it("records an email-matched domain without granting it to the company", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		expect((await registerCarrier(cookie, company.id)).status).toBe(201);
+
+		const { domains } = await (
+			await app.request(`/airside/companies/${company.id}/domains`, {
+				headers: { Cookie: cookie },
+			})
+		).json();
+		const emailRow = domains.find(
+			(d: { method: string }) => d.method === "email",
+		);
+		expect(emailRow.domain).toBe("acme-sky.ai");
+		expect(emailRow.verifiedAt).not.toBeNull();
+
+		// A record of the proof, not a company grant: it is not listed as a
+		// verified domain, cannot be removed, and does not outlive the email.
+		const companies = await (
+			await app.request("/airside/companies", { headers: { Cookie: cookie } })
+		).json();
+		expect(companies.companies[0].verifiedDomains).toEqual([]);
+		const removed = await app.request(
+			`/airside/companies/${company.id}/domains/${emailRow.id}`,
+			json(cookie, undefined, "DELETE"),
+		);
+		expect(removed.status).toBe(404);
+		await setUserEmail("ops@elsewhere.ai");
+		const res = await registerCarrier(cookie, company.id, {
+			providerId: "acme-sky-two",
+		});
+		expect(res.status).toBe(403);
 	});
 
 	it("rejects freemail accounts and flags them on the claimable list", async () => {

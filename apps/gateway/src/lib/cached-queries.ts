@@ -19,6 +19,7 @@ import {
 	gte,
 	inArray,
 	ne,
+	or,
 	sql,
 	cdb as db,
 	apiKey as apiKeyTable,
@@ -37,6 +38,9 @@ import {
 	providerKeyAllowsModel,
 	organization as organizationTable,
 	project as projectTable,
+	prompt as promptTable,
+	promptLabel as promptLabelTable,
+	promptVersion as promptVersionTable,
 	model as modelTable,
 	modelProviderMapping as modelProviderMappingTable,
 	providerClaim as providerClaimTable,
@@ -48,7 +52,7 @@ import {
 	userProject as userProjectTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
-import { getRegionScopedDefaultRegion } from "@llmgateway/models";
+import { getRegionScopedDefaultRegion, providers } from "@llmgateway/models";
 import {
 	CONTENT_FILTER_SETTING_ID,
 	parseContentFilterSettings,
@@ -135,6 +139,9 @@ const organizationTeamProjectTableName = getTableName(
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
+const promptTableName = getTableName(promptTable);
+const promptVersionTableName = getTableName(promptVersionTable);
+const promptLabelTableName = getTableName(promptLabelTable);
 const modelTableName = getTableName(modelTable);
 const modelProviderMappingTableName = getTableName(modelProviderMappingTable);
 const providerClaimTableName = getTableName(providerClaimTable);
@@ -334,7 +341,7 @@ export async function findProjectById(
 
 // TTL for the "fresh" credit/balance refetch below. A zero-credit org or
 // zero-balance wallet otherwise refetches on EVERY request; under high
-// throughput that is one Postgres SELECT per request (and the DB pool, max 20,
+// throughput that is one Postgres SELECT per request (and the DB pool, max 8,
 // saturates). A short TTL still reflects topups/debits within FRESH_TTL_SECONDS
 // while collapsing per-request DB load to at most one query per window per row.
 const FRESH_TTL_SECONDS = 2;
@@ -539,6 +546,79 @@ export async function findCustomProviderKey(
 }
 
 /**
+ * A project's prompt by id or name, with the requested version (or the
+ * production version when none is pinned). Undefined when either is missing.
+ */
+export async function findPromptVersion(
+	projectId: string,
+	ref: string,
+	selector: { version?: number; label?: string },
+) {
+	const label = selector.label ?? "production";
+	const cacheKey =
+		selector.version !== undefined
+			? `prompt:${projectId}:${ref}:v${selector.version}`
+			: `prompt:${projectId}:${ref}:label:${label}`;
+	return await swrWrap(
+		cacheKey,
+		[promptTableName, promptVersionTableName, promptLabelTableName],
+		async () => {
+			const [prompt] = await db
+				.select()
+				.from(promptTable)
+				.where(
+					and(
+						eq(promptTable.projectId, projectId),
+						or(eq(promptTable.id, ref), eq(promptTable.name, ref)),
+					),
+				)
+				.limit(1);
+			if (!prompt) {
+				return undefined;
+			}
+			let resolved = selector.version;
+			if (resolved === undefined) {
+				if (label === "latest") {
+					resolved = prompt.latestVersion || undefined;
+				} else {
+					const [pointer] = await db
+						.select({ version: promptLabelTable.version })
+						.from(promptLabelTable)
+						.where(
+							and(
+								eq(promptLabelTable.promptId, prompt.id),
+								eq(promptLabelTable.label, label),
+							),
+						)
+						.limit(1);
+					resolved = pointer?.version;
+				}
+			}
+			if (resolved === undefined) {
+				return undefined;
+			}
+			const [row] = await db
+				.select()
+				.from(promptVersionTable)
+				.where(
+					and(
+						eq(promptVersionTable.promptId, prompt.id),
+						eq(promptVersionTable.version, resolved),
+					),
+				)
+				.limit(1);
+			return row
+				? {
+						prompt,
+						version: row,
+						label: selector.version === undefined ? label : undefined,
+					}
+				: undefined;
+		},
+	);
+}
+
+/**
  * Find a single active custom model catalog entry for a provider key (cacheable).
  *
  * Custom models are matched by exact `modelName` (the id used after the provider
@@ -574,6 +654,11 @@ function groupAirsideRows(
 	rows: {
 		model: InferSelectModel<typeof modelTable>;
 		mapping: InferSelectModel<typeof modelProviderMappingTable>;
+		carrier: {
+			status: string;
+			kind: string;
+			customBaseUrl: string | null;
+		} | null;
 	}[],
 ): AirsideOwnedPairs {
 	const listings: AirsideListedModel[] = [];
@@ -583,14 +668,26 @@ function groupAirsideRows(
 		if (row.mapping.region !== null) {
 			continue;
 		}
-		if (row.mapping.status !== "active") {
+		if (
+			row.mapping.status !== "active" ||
+			(!providers.some((provider) => provider.id === row.mapping.providerId) &&
+				!(
+					row.carrier?.status === "active" &&
+					row.carrier.kind === "custom" &&
+					row.carrier.customBaseUrl
+				))
+		) {
 			unlisted.push({
 				modelId: row.mapping.modelId,
 				providerId: row.mapping.providerId,
 			});
 			continue;
 		}
-		const listing: AirsideListedModel = { ...row, regionMappings: [] };
+		const listing: AirsideListedModel = {
+			model: row.model,
+			mapping: row.mapping,
+			regionMappings: [],
+		};
 		byPair.set(`${row.mapping.modelId}:${row.mapping.providerId}`, listing);
 		listings.push(listing);
 	}
@@ -611,11 +708,26 @@ async function selectAirsideRows(...conditions: SQL[]) {
 			.select({
 				model: modelTable,
 				mapping: modelProviderMappingTable,
+				carrier: {
+					status: providerClaimTable.status,
+					kind: providerClaimTable.kind,
+					customBaseUrl: providerClaimTable.customBaseUrl,
+				},
 			})
 			.from(modelProviderMappingTable)
 			.innerJoin(
 				modelTable,
 				eq(modelTable.id, modelProviderMappingTable.modelId),
+			)
+			.leftJoin(
+				providerClaimTable,
+				and(
+					eq(
+						providerClaimTable.providerId,
+						modelProviderMappingTable.providerId,
+					),
+					eq(providerClaimTable.status, "active"),
+				),
 			)
 			.where(
 				and(eq(modelProviderMappingTable.source, "airside"), ...conditions),
@@ -630,7 +742,7 @@ export async function findAirsideModel(
 ): Promise<AirsideListedModel | undefined> {
 	const owned = await swrWrap(
 		`airsidePair:${providerId}:${modelName}`,
-		[modelTableName, modelProviderMappingTableName],
+		[modelTableName, modelProviderMappingTableName, providerClaimTableName],
 		async () =>
 			await selectAirsideRows(
 				eq(modelProviderMappingTable.status, "active"),
@@ -692,7 +804,7 @@ export async function findAirsidePairsByBareName(
 ): Promise<AirsideOwnedPairs> {
 	return await swrWrap(
 		`airsidePairsByName:${modelName}`,
-		[modelTableName, modelProviderMappingTableName],
+		[modelTableName, modelProviderMappingTableName, providerClaimTableName],
 		async () =>
 			await selectAirsideRows(eq(modelProviderMappingTable.modelId, modelName)),
 	);
@@ -702,7 +814,7 @@ export async function findAirsidePairsByBareName(
 export async function listAirsidePairs(): Promise<AirsideOwnedPairs> {
 	return await swrWrap(
 		"airsidePairs:all",
-		[modelTableName, modelProviderMappingTableName],
+		[modelTableName, modelProviderMappingTableName, providerClaimTableName],
 		async () => await selectAirsideRows(),
 	);
 }

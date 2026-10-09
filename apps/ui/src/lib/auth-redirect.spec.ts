@@ -35,7 +35,7 @@ describe("authentication redirects", () => {
 
 	test("preserves the complete return path across authentication pages", () => {
 		const target = "/connect/device?user_code=ABCDEFGH&source=app#approve";
-		for (const page of ["/signup", "/login"] as const) {
+		for (const page of ["/signup", "/login", "/onboarding"] as const) {
 			const url = new URL(
 				getAuthPagePath(page, target),
 				"https://example.test",

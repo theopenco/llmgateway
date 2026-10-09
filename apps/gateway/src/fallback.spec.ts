@@ -10,6 +10,7 @@ import {
 } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import { redisClient } from "@llmgateway/cache";
 import { db, eq, tables, type Log } from "@llmgateway/db";
 import { getProviderDefinition } from "@llmgateway/models";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
@@ -85,7 +86,6 @@ describe("fallback and error status code handling", () => {
 					name: providerDefinition?.name ?? providerId,
 					description:
 						providerDefinition?.description ?? `${providerId} provider`,
-					streaming: providerDefinition?.streaming ?? true,
 					cancellation: providerDefinition?.cancellation ?? false,
 					color: providerDefinition?.color ?? "#000000",
 					website: providerDefinition?.website ?? `https://${providerId}.com`,
@@ -1396,27 +1396,70 @@ describe("fallback and error status code handling", () => {
 			);
 		});
 
-		test("does not retry a failed request on another provider", async () => {
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-				},
-				body: JSON.stringify({
-					model: "gemini-2.5-flash",
-					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
-				}),
-			});
+		test.each([false, true])(
+			"does not retry replayed reasoning on another provider (cached=%s)",
+			async (cached) => {
+				if (cached) {
+					await redisClient.set(
+						"thought_signature:call_retry",
+						"cached-signature",
+					);
+				}
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "gemini-2.5-flash",
+						messages: [
+							{
+								role: "assistant",
+								content: "Earlier answer",
+								...(cached
+									? {
+											tool_calls: [
+												{
+													id: "call_retry",
+													type: "function",
+													function: { name: "lookup", arguments: "{}" },
+												},
+											],
+										}
+									: {
+											reasoning_details: [
+												{
+													type: "reasoning.text",
+													format: "google-gemini-v1",
+													signature: "signed-reasoning",
+												},
+											],
+										}),
+							},
+							...(cached
+								? [
+										{
+											role: "tool",
+											tool_call_id: "call_retry",
+											content: "Result",
+										},
+									]
+								: []),
+							{ role: "user", content: "TRIGGER_FAIL_ONCE hello" },
+						],
+					}),
+				});
 
-			expect(res.status).toBe(500);
-			const logs = await waitForLogs(1);
-			expect(logs).toHaveLength(1);
-			expect(["google-ai-studio", "google-vertex"]).toContain(
-				logs[0].usedProvider,
-			);
-			expect(logs[0].retried).toBe(false);
-		});
+				expect(res.status).toBe(500);
+				const logs = await waitForLogs(1);
+				expect(logs).toHaveLength(1);
+				expect(["google-ai-studio", "google-vertex"]).toContain(
+					logs[0].usedProvider,
+				);
+				expect(logs[0].retried).toBe(false);
+			},
+		);
 	});
 
 	describe("low-uptime fallback respects IAM provider rules", () => {

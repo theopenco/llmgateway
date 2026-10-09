@@ -665,6 +665,102 @@ describe("dev plan tier changes", () => {
 		expect(body.apiKey?.id).toBe("test-dev-plan-api-key");
 	});
 
+	it("does not mint a second key after the DevPass key is renamed", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values({
+			id: "test-dev-plan-api-key",
+			...hashApiKeyForStorage("test-dev-plan-token"),
+			projectId: "test-dev-plan-project",
+			description: "Renamed key",
+			createdBy: "test-user-id",
+		});
+
+		const response = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.apiKey?.id).toBe("test-dev-plan-api-key");
+		const activeKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: "test-dev-plan-project" },
+				status: { eq: "active" },
+			},
+		});
+		expect(activeKeys).toHaveLength(1);
+	});
+
+	it("creates a single key for concurrent status requests", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+
+		const responses = await Promise.all(
+			Array.from({ length: 3 }, () =>
+				app.request("/dev-plans/status", { headers: { Cookie: token } }),
+			),
+		);
+
+		expect(responses.map((response) => response.status)).toEqual([
+			200, 200, 200,
+		]);
+		const activeKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: "test-dev-plan-project" },
+				status: { eq: "active" },
+			},
+		});
+		expect(activeKeys).toHaveLength(1);
+	});
+
+	it("revokes leftover developer keys when rotating", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values([
+			{
+				id: "test-legacy-manual-key",
+				...hashApiKeyForStorage("test-legacy-manual-token"),
+				projectId: "test-dev-plan-project",
+				description: "Manual key",
+				createdBy: "test-user-id",
+				createdAt: new Date(Date.now() - 60_000),
+			},
+			{
+				id: "test-dev-plan-api-key",
+				...hashApiKeyForStorage("test-dev-plan-token"),
+				projectId: "test-dev-plan-project",
+				description: "Dev Plan API Key",
+				createdBy: "test-user-id",
+			},
+		]);
+
+		const response = await app.request("/dev-plans/rotate-api-key", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ apiKeyId: "test-dev-plan-api-key" }),
+		});
+
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		const activeKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: "test-dev-plan-project" },
+				status: { eq: "active" },
+			},
+		});
+		expect(activeKeys.map((key) => key.id)).toEqual([body.apiKeyId]);
+	});
+
 	it("provisions an active key when only an inactive DevPass key exists", async () => {
 		await db.insert(tables.project).values({
 			id: "test-dev-plan-project",
@@ -2299,6 +2395,7 @@ describe("dev plan cancellation", () => {
 	beforeEach(async () => {
 		vi.clearAllMocks();
 		stripeMock.invoices.list.mockResolvedValue({ data: [] });
+		stripeMock.subscriptions.update.mockResolvedValue({ status: "active" });
 		token = await createTestUser();
 		nowSecondsValue = Math.floor(Date.now() / 1000);
 
@@ -2383,5 +2480,108 @@ describe("dev plan cancellation", () => {
 		expect(stripeMock.invoices.voidInvoice).toHaveBeenCalledWith(
 			"in_failed_renewal",
 		);
+		expect(
+			await db.query.organization.findFirst({ where: { id: ORG_ID } }),
+		).toMatchObject({
+			devPlan: "none",
+			devPlanStripeSubscriptionId: null,
+			devPlanCreditsLimit: "0",
+		});
 	}, 15_000);
+
+	it.each(["canceled", "incomplete_expired"])(
+		"self-heals and audits an already %s subscription",
+		async (status) => {
+			stripeMock.subscriptions.retrieve.mockResolvedValue(
+				retrievedSubscription({ status }),
+			);
+			const res = await cancel();
+			expect(res.status).toBe(200);
+			expect(await res.json()).toEqual({ success: true, immediate: true });
+			expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+			expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
+			expect(
+				await db.query.organization.findFirst({ where: { id: ORG_ID } }),
+			).toMatchObject({ devPlan: "none", devPlanStripeSubscriptionId: null });
+			expect(
+				await db.query.auditLog.findFirst({
+					where: { organizationId: ORG_ID, action: "dev_plan.cancel" },
+				}),
+			).toBeDefined();
+		},
+	);
+
+	it("does not clear a replacement subscription activated during cancellation", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription({ status: "past_due" }),
+		);
+		stripeMock.subscriptions.cancel.mockImplementationOnce(async () => {
+			await db
+				.update(tables.organization)
+				.set({ devPlanStripeSubscriptionId: "sub_replacement" })
+				.where(eq(tables.organization.id, ORG_ID));
+		});
+		expect((await cancel()).status).toBe(200);
+		expect(
+			await db.query.organization.findFirst({ where: { id: ORG_ID } }),
+		).toMatchObject({
+			devPlan: "pro",
+			devPlanStripeSubscriptionId: "sub_replacement",
+		});
+	});
+});
+
+describe("chat plan cancellation", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		stripeMock.invoices.list.mockResolvedValue({ data: [] });
+		token = await createTestUser();
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Personal Org",
+			billingEmail: "admin@example.com",
+			kind: "chat",
+			chatPlan: "pro",
+			chatPlanCreditsLimit: "100",
+			chatPlanStripeSubscriptionId: SUBSCRIPTION_ID,
+			chatPlanCardFingerprint: "fp_chat_cancel",
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	it.each(["past_due", "canceled"])(
+		"clears local state and audits a %s subscription",
+		async (status) => {
+			stripeMock.subscriptions.retrieve.mockResolvedValue({ status });
+			const res = await app.request("/chat-plans/cancel", {
+				method: "POST",
+				headers: { Cookie: token },
+			});
+			expect(res.status).toBe(200);
+			expect(await res.json()).toEqual({ success: true, immediate: true });
+			expect(
+				await db.query.organization.findFirst({ where: { id: ORG_ID } }),
+			).toMatchObject({
+				chatPlan: "none",
+				chatPlanStripeSubscriptionId: null,
+				chatPlanCreditsLimit: "0",
+				chatPlanCardFingerprint: null,
+			});
+			expect(
+				await db.query.auditLog.findFirst({
+					where: { organizationId: ORG_ID, action: "chat_plan.cancel" },
+				}),
+			).toBeDefined();
+		},
+	);
 });
