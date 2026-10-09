@@ -28,6 +28,7 @@ import {
 	eq,
 	getApiKeyCurrentPeriodState,
 	isValidApiKeyPeriodDuration,
+	mostRestrictiveApiKeyLimits,
 	resolveMemberBudgetPolicies,
 	shortid,
 	tables,
@@ -889,44 +890,6 @@ function memberBudgetPolicies(
 	);
 }
 
-const periodHours = { hour: 1, day: 24, week: 168, month: 720 } as const;
-
-function normalizedRecurringSpend(
-	budget: ReturnType<typeof memberBudgetPolicies>[number]["budget"],
-): number {
-	return (
-		Number(budget.periodUsageLimit) /
-		(budget.periodUsageDurationValue! *
-			periodHours[budget.periodUsageDurationUnit!])
-	);
-}
-
-function mostRestrictiveBudget(
-	policies: ReturnType<typeof memberBudgetPolicies>,
-): ApiKeyLimitConfig {
-	const usageLimits = policies
-		.map(({ budget }) => budget.usageLimit)
-		.filter((value): value is string => value !== null);
-	const recurring = policies
-		.map(({ budget }) => budget)
-		.filter(
-			(budget) =>
-				budget.periodUsageLimit !== null &&
-				budget.periodUsageDurationValue !== null &&
-				budget.periodUsageDurationUnit !== null,
-		)
-		.sort((a, b) => normalizedRecurringSpend(a) - normalizedRecurringSpend(b));
-	const strictestPeriod = recurring[0];
-	return {
-		usageLimit: usageLimits.length
-			? String(Math.min(...usageLimits.map(Number)))
-			: null,
-		periodUsageLimit: strictestPeriod?.periodUsageLimit ?? null,
-		periodUsageDurationValue: strictestPeriod?.periodUsageDurationValue ?? null,
-		periodUsageDurationUnit: strictestPeriod?.periodUsageDurationUnit ?? null,
-	};
-}
-
 /**
  * Reject a proposed API-key limit that would exceed the key owner's effective
  * member budget (their own caps, or the org-wide default developer caps that
@@ -1048,7 +1011,11 @@ async function resolveApiKeyOwnerBudgets(
 
 		budgets.set(
 			key.id,
-			mostRestrictiveBudget(memberBudgetPolicies(membership, organization)),
+			mostRestrictiveApiKeyLimits(
+				memberBudgetPolicies(membership, organization).map(
+					({ budget }) => budget,
+				),
+			),
 		);
 	}
 

@@ -1,6 +1,7 @@
 import type { ApiKeyPeriodDurationUnit } from "./api-key-period-limit.js";
 
 export {
+	mostRestrictiveApiKeyLimits,
 	validateApiKeyLimitsWithinMemberBudget,
 	type ApiKeyLimitConstraints,
 	type MemberBudgetOwner,
