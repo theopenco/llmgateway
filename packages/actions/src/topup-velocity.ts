@@ -91,6 +91,7 @@ async function windowDbSumUsd(organizationId: string, now: number) {
 			and(
 				eq(tables.transaction.organizationId, organizationId),
 				eq(tables.transaction.type, "credit_topup"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
 				inArray(tables.transaction.status, ["pending", "completed"]),
 				gte(tables.transaction.createdAt, windowStart),
 			),

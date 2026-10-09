@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { formatDistanceToNowStrict } from "date-fns";
+import { addMonths, addYears, formatDistanceToNowStrict } from "date-fns";
 import { Info, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -78,13 +78,10 @@ function resolveRenewAt(status: DevPlanStatus | null | undefined): Date | null {
 	if (!status.devPlanBillingCycleStart) {
 		return null;
 	}
-	const projected = new Date(status.devPlanBillingCycleStart);
-	if ((status.devPlanCycle ?? "monthly") === "annual") {
-		projected.setFullYear(projected.getFullYear() + 1);
-	} else {
-		projected.setMonth(projected.getMonth() + 1);
-	}
-	return projected;
+	const start = new Date(status.devPlanBillingCycleStart);
+	return status.devPlanCycle === "annual"
+		? addYears(start, 1)
+		: addMonths(start, 1);
 }
 
 export default function BillingClient({

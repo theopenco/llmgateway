@@ -97,6 +97,27 @@ export function buildChatRequest({
 		...(tools && { tools }),
 		...(tool_choice !== undefined && { tool_choice }),
 	};
+	if (
+		options.reasoning !== undefined &&
+		options.reasoning !== "provider-default"
+	) {
+		if (
+			typeof options.reasoning === "string" &&
+			["none", "minimal", "low", "medium", "high", "xhigh"].includes(
+				options.reasoning,
+			)
+		) {
+			body.reasoning_effort = options.reasoning;
+		} else {
+			warnings.push(
+				unsupportedSettingWarning(
+					specVersion,
+					"reasoning",
+					"Unsupported reasoning effort.",
+				),
+			);
+		}
+	}
 
 	if (options.responseFormat?.type === "json") {
 		body.response_format = options.responseFormat.schema

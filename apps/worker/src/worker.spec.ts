@@ -489,50 +489,57 @@ describe("worker", () => {
 			vi.unstubAllEnvs();
 		});
 
-		test("stops before charging when PAYG is disabled mid-pass", async () => {
-			// The charging test above already invoked the payment mocks.
-			vi.clearAllMocks();
+		test.each([
+			{ devPlanPaygEnabled: false },
+			{ riskFlagged: true },
+			{ status: "deleted" as const },
+		])(
+			"stops before charging when eligibility changes mid-pass: %j",
+			async (change) => {
+				// The charging test above already invoked the payment mocks.
+				vi.clearAllMocks();
 
-			await db.insert(tables.organization).values({
-				id: "org-devpass-payg-race",
-				name: "DevPass PAYG Race",
-				billingEmail: "billing@example.com",
-				kind: "devpass",
-				devPlan: "pro",
-				devPlanPaygEnabled: true,
-				devPlanStripeSubscriptionId: "sub_devpass_race",
-				credits: "2",
-				autoTopUpEnabled: true,
-				autoTopUpThreshold: "10",
-				autoTopUpAmount: "25",
-				stripeCustomerId: "cus_devpass_race",
-			});
+				await db.insert(tables.organization).values({
+					id: "org-devpass-payg-race",
+					name: "DevPass PAYG Race",
+					billingEmail: "billing@example.com",
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanPaygEnabled: true,
+					devPlanStripeSubscriptionId: "sub_devpass_race",
+					credits: "2",
+					autoTopUpEnabled: true,
+					autoTopUpThreshold: "10",
+					autoTopUpAmount: "25",
+					stripeCustomerId: "cus_devpass_race",
+				});
 
-			stripeMock.subscriptions.retrieve.mockResolvedValue({
-				default_payment_method: "pm_devpass_race",
-			});
-			// The user disables overflow while the worker is resolving the card
-			// (this mock runs before the pre-charge re-authorization). The
-			// recheck must catch the change and stop before any transaction or
-			// PaymentIntent is created.
-			stripeMock.paymentMethods.retrieve.mockImplementation(async () => {
-				await db
-					.update(tables.organization)
-					.set({ devPlanPaygEnabled: false })
-					.where(eq(tables.organization.id, "org-devpass-payg-race"));
-				return { customer: "cus_devpass_race", card: { country: "US" } };
-			});
+				stripeMock.subscriptions.retrieve.mockResolvedValue({
+					default_payment_method: "pm_devpass_race",
+				});
+				// The user disables overflow while the worker is resolving the card
+				// (this mock runs before the pre-charge re-authorization). The
+				// recheck must catch the change and stop before any transaction or
+				// PaymentIntent is created.
+				stripeMock.paymentMethods.retrieve.mockImplementation(async () => {
+					await db
+						.update(tables.organization)
+						.set(change)
+						.where(eq(tables.organization.id, "org-devpass-payg-race"));
+					return { customer: "cus_devpass_race", card: { country: "US" } };
+				});
 
-			await processAutoTopUp();
+				await processAutoTopUp();
 
-			expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
-			const transactions = await db.query.transaction.findMany({
-				where: {
-					organizationId: { eq: "org-devpass-payg-race" },
-				},
-			});
-			expect(transactions).toHaveLength(0);
-		});
+				expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+				const transactions = await db.query.transaction.findMany({
+					where: {
+						organizationId: { eq: "org-devpass-payg-race" },
+					},
+				});
+				expect(transactions).toHaveLength(0);
+			},
+		);
 
 		test("skips the charge when the top-up velocity cap is reached", async () => {
 			vi.clearAllMocks();

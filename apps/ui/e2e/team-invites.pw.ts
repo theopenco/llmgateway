@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
-const apiUrl = process.env.PW_API_URL ?? "http://localhost:4002";
+const apiUrl =
+	process.env.PW_API_URL ?? process.env.API_URL ?? "http://localhost:4002";
 const orgId = "test-org-id";
 const recipientEmail = "enterprise@example.com";
 const invitationLoginPath = "/login?reauthenticate=true";

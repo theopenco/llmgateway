@@ -74,9 +74,9 @@ function hourWindow(targetHour: Date) {
  * that served the request. Scans a single hour of `log`, like the routing
  * telemetry rollup; the admin dashboard only reads the hourly rows.
  * Provider retries write one row per attempt under the same request id with
- * the evaluation copied onto each, so counts are per request id. Evaluations
- * whose moderation call failed never scored anything, so they are left out of
- * sampledCount to keep the violation rate honest during an outage.
+ * the evaluation copied onto each, so counts are per request id. Failed
+ * evaluations without a violation are excluded from sampledCount; partial
+ * checks with a proven violation remain in both counts.
  *
  * Every row is keyed by classifier and role; role is always "deciding" since
  * the shadow classifier was removed, and a legacy shadow verdict is ignored.
@@ -175,7 +175,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			${CONTENT_FILTER_STATS_ALL_CATEGORY} as category,
 			classifier,
 			role,
-			count(distinct request_id) filter (where not moderation_failed)::int as sampled_count,
+			count(distinct request_id) filter (where not moderation_failed or violation)::int as sampled_count,
 			count(distinct request_id) filter (where violation)::int as violation_count,
 			count(distinct request_id) filter (where blocked)::int as blocked_count,
 			coalesce(

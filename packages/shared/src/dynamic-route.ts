@@ -28,9 +28,9 @@ export const DYNAMIC_ROUTE_NAME_MESSAGE =
  * Hard bound on nodes visited during a single evaluation so a malformed or
  * adversarial graph can never loop forever at request time.
  */
-export const DYNAMIC_ROUTE_MAX_HOPS = 50;
-
 export const DYNAMIC_ROUTE_MAX_NODES = 100;
+
+export const DYNAMIC_ROUTE_MAX_HOPS = DYNAMIC_ROUTE_MAX_NODES;
 
 export interface CustomDynamicRouteModelRef {
 	providerName: string;

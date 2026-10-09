@@ -1665,29 +1665,33 @@ describe("stats-calculator", () => {
 			).toEqual(progress);
 		});
 
-		it("should not backfill when history is up to date", async () => {
-			// Create recent history entry
-			const recentMinute = new Date("2024-01-01T12:28:00.000Z");
+		it("does not rewrite complete recent history", async () => {
+			await calculateMinutelyHistory();
+			const original = await db.select().from(modelProviderMappingHistory);
+			await backfillHistoryIfNeeded();
+			expect(await db.select().from(modelProviderMappingHistory)).toEqual(
+				original,
+			);
+		});
+
+		it("resumes a long outage across capped recovery passes", async () => {
+			const minuteTimestamp = new Date("2023-12-30T12:00:00Z");
 			await db.insert(modelProviderMappingHistory).values({
 				modelId: "gpt-4",
 				providerId: "openai",
 				modelProviderMappingId: "mapping-1",
-				minuteTimestamp: recentMinute,
-				logsCount: 0,
-				errorsCount: 0,
-				cachedCount: 0,
-				totalOutputTokens: 0,
-				totalDuration: 0,
+				minuteTimestamp,
 			});
-
-			await backfillHistoryIfNeeded();
-
-			const historyRecords = await db
+			expect(await initializeMinuteRecovery()).toEqual(minuteTimestamp);
+			expect(await backfillHistoryIfNeeded(2)).toBe(false);
+			expect(await backfillHistoryIfNeeded(2)).toBe(false);
+			const progress = await db
 				.select()
-				.from(modelProviderMappingHistory);
-			// Should only have the one we inserted, no backfill needed
-			expect(historyRecords).toHaveLength(0);
-			expect(await db.select().from(aggregationProgress)).toHaveLength(2);
+				.from(aggregationProgress)
+				.orderBy(aggregationProgress.bucketTimestamp);
+			expect(progress).toHaveLength(4);
+			expect(progress.every((row) => row.finalizedAt !== null)).toBe(true);
+			expect(progress[0].bucketTimestamp).toEqual(minuteTimestamp);
 		});
 
 		it("should backfill missing periods", async () => {
@@ -2842,12 +2846,23 @@ describe("stats-calculator", () => {
 			});
 
 		it("does not repeat first-write cleanup on empty incremental ticks", async () => {
-			const deletes = vi.spyOn(db, "delete");
+			let deletes = 0;
+			const transaction = db.transaction.bind(db);
+			vi.spyOn(db, "transaction").mockImplementation((callback) =>
+				transaction(async (tx) => {
+					const remove = tx.delete.bind(tx);
+					vi.spyOn(tx, "delete").mockImplementation((table) => {
+						deletes++;
+						return remove(table);
+					});
+					return await callback(tx);
+				}),
+			);
 			await calculateCurrentMinuteHistory();
-			const first = deletes.mock.calls.length;
+			const first = deletes;
 			expect(first).toBeGreaterThan(0);
 			await calculateCurrentMinuteHistory();
-			expect(deletes.mock.calls).toHaveLength(first);
+			expect(deletes).toBe(first);
 		});
 
 		it("repairs hourly summaries after live and recovery work overlap", async () => {
@@ -3082,7 +3097,7 @@ describe("stats-calculator", () => {
 			expect(progress.filter((row) => row.finalizedAt)).toHaveLength(5);
 		});
 
-		it("repairs a partial minute write before recording success", async () => {
+		it("rolls back a failed minute before retrying it", async () => {
 			await insertRequest("partial-request", new Date("2024-01-01T12:29:00Z"));
 			await db.execute(
 				sql`create function fail_model_history() returns trigger language plpgsql as $$ begin raise exception 'test model write failure'; end $$`,
@@ -3094,7 +3109,7 @@ describe("stats-calculator", () => {
 				await expect(calculateMinutelyHistory()).rejects.toThrow();
 				expect(
 					await db.select().from(modelProviderMappingHistory),
-				).toHaveLength(1);
+				).toHaveLength(0);
 				expect(await db.select().from(modelHistory)).toHaveLength(0);
 				const progress = await db.select().from(aggregationProgress);
 				expect(

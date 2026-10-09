@@ -54,6 +54,7 @@ describe("global stats aggregation", () => {
 		providerMarginPercent?: number;
 		cached?: boolean;
 		providerKeyId?: string;
+		retriedByLogId?: string;
 	}) =>
 		db.insert(log).values({
 			requestId: `global-stats-request-${randomUUID()}`,
@@ -66,6 +67,7 @@ describe("global stats aggregation", () => {
 			providerMarginPercent: values.providerMarginPercent,
 			cached: values.cached ?? false,
 			providerKeyId: values.providerKeyId,
+			retriedByLogId: values.retriedByLogId,
 			promptTokens: "10",
 			completionTokens: "20",
 			totalTokens: values.totalTokens ?? "30",
@@ -277,6 +279,24 @@ describe("global stats aggregation", () => {
 		expect(Number(devpassCredits!.cost)).toBeCloseTo(0.05, 6);
 		expect(String(devpassCredits!.totalTokens)).toBe("60");
 		expect(String(devpassCredits!.inputTokens)).toBe("20");
+	});
+
+	test("counts a retried request once per source", async () => {
+		const attempt = {
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "credits" as const,
+			cost: 0.01,
+		};
+		await insertLog({ ...attempt, retriedByLogId: `retry-${suffix}` });
+		await insertLog(attempt);
+
+		await aggregate();
+
+		const [source] = await readSourceStats();
+		expect(source.requestCount).toBe(1);
+		const [model] = await readModelStats();
+		expect(model.requestCount).toBe(2);
 	});
 
 	test("blended totals are unchanged by the split", async () => {

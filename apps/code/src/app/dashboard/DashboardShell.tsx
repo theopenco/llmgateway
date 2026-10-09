@@ -296,10 +296,13 @@ export default function DashboardShell({
 			initialResult: Awaited<ReturnType<typeof finalizeOnce>>,
 		) => {
 			let result = initialResult;
-			for (let attempt = 0; attempt < 60; attempt++) {
-				if (result?.status !== "payment_pending") {
-					return result;
-				}
+			// Bounded: a canceled PaymentIntent also reports payment_pending, so an
+			// unbounded loop would poll for as long as the tab stays open.
+			for (
+				let attempt = 0;
+				attempt < 60 && result?.status === "payment_pending";
+				attempt++
+			) {
 				setSetupActivationStatus("processing");
 				await wait(2000, signal);
 				result = await finalizeOnce();

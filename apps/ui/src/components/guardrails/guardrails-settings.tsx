@@ -39,6 +39,7 @@ import {
 import { Switch } from "@/lib/components/switch";
 import { useApi } from "@/lib/fetch-client";
 
+import { isRecognizedFileTypeEntry } from "@llmgateway/shared/file-types";
 import {
 	canManageProject,
 	isOrganizationAdmin,
@@ -113,7 +114,18 @@ const DEFAULT_DRAFT: DraftConfig = {
 	enabled: false,
 	systemRules: DEFAULT_SYSTEM_RULES,
 	maxFileSizeMb: 10,
-	allowedFileTypes: ["pdf", "txt", "md", "csv", "json", "xml"],
+	allowedFileTypes: [
+		"image/jpeg",
+		"image/png",
+		"image/gif",
+		"image/webp",
+		"pdf",
+		"txt",
+		"md",
+		"csv",
+		"json",
+		"xml",
+	],
 	piiAction: "redact",
 };
 
@@ -672,7 +684,14 @@ function GuardrailsForm({
 										if (e.key === "Enter") {
 											const input = e.currentTarget;
 											const value = input.value.trim().toLowerCase();
+											if (value && !isRecognizedFileTypeEntry(value)) {
+												setError(
+													`"${value}" is not a recognized file type. Use a MIME type such as application/pdf or image/*, or a common extension such as pdf or docx.`,
+												);
+												return;
+											}
 											if (value && !draft.allowedFileTypes.includes(value)) {
+												setError(null);
 												setDraft({
 													...draft,
 													allowedFileTypes: [...draft.allowedFileTypes, value],

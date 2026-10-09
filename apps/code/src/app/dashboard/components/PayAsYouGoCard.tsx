@@ -1,16 +1,17 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CreditCard, Loader2, RefreshCw, Wallet } from "lucide-react";
 import { usePostHog } from "posthog-js/react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useAppConfig } from "@/lib/config";
-import { useApi } from "@/lib/fetch-client";
+import { getCookie, setCookie } from "@/lib/cookies";
+import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import {
 	AUTO_TOP_UP_DEFAULT_AMOUNT,
@@ -30,6 +31,34 @@ interface PayAsYouGoCardProps {
 }
 
 const PRESET_AMOUNTS = [10, 25, 50, 100];
+const ATTEMPT_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
+
+// A stored attempt is retryable only while Stripe still remembers its
+// idempotency key; `null` means it is stale or unreadable.
+function parseStoredAttempt(
+	stored: string,
+): { id: string; createdAt: number } | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(stored);
+	} catch {
+		return null;
+	}
+	if (
+		!parsed ||
+		typeof parsed !== "object" ||
+		!("id" in parsed) ||
+		typeof parsed.id !== "string" ||
+		!("createdAt" in parsed) ||
+		typeof parsed.createdAt !== "number" ||
+		!Number.isFinite(parsed.createdAt) ||
+		Date.now() - parsed.createdAt >= ATTEMPT_RETRY_WINDOW_MS ||
+		parsed.createdAt > Date.now()
+	) {
+		return null;
+	}
+	return { id: parsed.id, createdAt: parsed.createdAt };
+}
 
 async function invalidateDevPlanStatus(
 	queryClient: ReturnType<typeof useQueryClient>,
@@ -68,14 +97,6 @@ export default function PayAsYouGoCard({
 	const [reloadAmount, setReloadAmount] = useState<string>(
 		autoTopUpAmount ?? String(AUTO_TOP_UP_DEFAULT_AMOUNT),
 	);
-	// Idempotency key for the current purchase attempt: resubmitting the same
-	// attempt (double-click, network retry) reuses the same PaymentIntent on
-	// Stripe's side. Rotated whenever the amount changes or a request settles,
-	// so a deliberate new attempt never replays a stale outcome.
-	const purchaseIdRef = useRef<string>(crypto.randomUUID());
-	const rotatePurchaseId = () => {
-		purchaseIdRef.current = crypto.randomUUID();
-	};
 
 	const serial = (organizationId ?? "GATEWAY").slice(-6).toUpperCase();
 
@@ -87,7 +108,32 @@ export default function PayAsYouGoCard({
 	);
 
 	const settingsMutation = api.useMutation("patch", "/dev-plans/settings");
-	const topUpMutation = api.useMutation("post", "/dev-plans/topup");
+	const client = useFetchClient();
+	const topUpMutation = useMutation({
+		mutationFn: async (body: { amount: number; purchaseId: string }) => {
+			const { data, error, response } = await client.POST("/dev-plans/topup", {
+				body,
+			});
+			if (!data) {
+				const failure: unknown = error;
+				const message =
+					typeof failure === "object" &&
+					failure !== null &&
+					"message" in failure &&
+					typeof failure.message === "string"
+						? failure.message
+						: "The payment result could not be confirmed.";
+				// Statuses the server only returns before any charge, so the next
+				// click must start a new attempt instead of replaying this id.
+				throw Object.assign(new Error(message), {
+					definitive: [400, 401, 402, 403, 404, 409, 422, 429].includes(
+						response.status,
+					),
+				});
+			}
+			return data;
+		},
+	});
 
 	const amount = customAmount ? Number(customAmount) : selectedAmount;
 	const amountValid =
@@ -126,15 +172,50 @@ export default function PayAsYouGoCard({
 		if (!amountValid) {
 			return;
 		}
+		const purchaseCookie = `devpass_topup_${organizationId}_${amount}`;
 		try {
+			const stored = getCookie(purchaseCookie);
+			let attempt: { id: string; createdAt: number };
+			if (stored) {
+				const parsed = parseStoredAttempt(stored);
+				if (!parsed) {
+					// Warn once, then let the next click start a new attempt.
+					setCookie(purchaseCookie, "", -1);
+					throw Object.assign(
+						new Error(
+							"This pending payment can no longer be retried safely. Check your billing history, then try again to start a new payment.",
+						),
+						{ definitive: true },
+					);
+				}
+				attempt = parsed;
+			} else {
+				attempt = { id: crypto.randomUUID(), createdAt: Date.now() };
+			}
+			const serialized = JSON.stringify(attempt);
+			setCookie(purchaseCookie, serialized, 3650);
+			if (getCookie(purchaseCookie) !== serialized) {
+				throw Object.assign(
+					new Error(
+						"Enable cookies before purchasing credits so payment retries can be recovered safely.",
+					),
+					{ definitive: true },
+				);
+			}
 			const result = await topUpMutation.mutateAsync({
-				body: { amount, purchaseId: purchaseIdRef.current },
+				amount,
+				purchaseId: attempt.id,
 			});
 			// The charge is confirmed, so the next click is a new attempt.
 			// Rotate before the client-side follow-ups so a hiccup in them
 			// can't leave a spent key behind.
-			rotatePurchaseId();
-			await invalidateDevPlanStatus(queryClient);
+			setCookie(purchaseCookie, "", -1);
+			void invalidateDevPlanStatus(queryClient).catch((error: unknown) => {
+				console.error(
+					"Could not refresh credits after confirmed payment:",
+					error,
+				);
+			});
 			if (posthogKey) {
 				posthog.capture("devpass_payg_topup", {
 					amount,
@@ -146,24 +227,19 @@ export default function PayAsYouGoCard({
 			});
 			setCustomAmount("");
 		} catch (err) {
-			// The fetch client rejects with the API's parsed error body (a
-			// plain object with `message`) for definitive server outcomes, and
-			// with a real Error for network failures — where the server may
-			// still have charged. Only a definitive outcome rotates the key;
-			// an uncertain retry must reuse it so Stripe collapses the
-			// resubmission into the original PaymentIntent.
-			const serverMessage =
-				!(err instanceof Error) &&
-				typeof (err as { message?: unknown })?.message === "string"
-					? (err as { message: string }).message
-					: undefined;
-			if (serverMessage) {
-				rotatePurchaseId();
+			// Only a definitive failure (no charge) shows its own message and
+			// starts a new attempt. Anything else — network errors, 5xx, an
+			// unparseable body — may have charged, so it keeps the attempt and
+			// tells the user to retry the same amount, which cannot double-charge.
+			const definitive = (err as { definitive?: boolean })?.definitive === true;
+			if (definitive) {
+				setCookie(purchaseCookie, "", -1);
 			}
 			toast.error("Top-up failed", {
 				description:
-					serverMessage ??
-					"We couldn't confirm the payment. Check your connection and retry — a retry will not charge you twice.",
+					definitive && err instanceof Error
+						? err.message
+						: "We couldn't confirm the payment. Check your connection and retry within 23 hours using the same amount.",
 			});
 		}
 	};
@@ -310,7 +386,6 @@ export default function PayAsYouGoCard({
 											onClick={() => {
 												setSelectedAmount(preset);
 												setCustomAmount("");
-												rotatePurchaseId();
 											}}
 											className={`rounded-md border px-3 py-1.5 font-mono text-sm tabular-nums transition-colors ${
 												active
@@ -335,7 +410,6 @@ export default function PayAsYouGoCard({
 										value={customAmount}
 										onChange={(e) => {
 											setCustomAmount(e.target.value);
-											rotatePurchaseId();
 										}}
 										className="h-9 w-28 pl-6 font-mono text-sm"
 										data-testid="payg-custom-amount"

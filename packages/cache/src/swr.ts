@@ -285,3 +285,27 @@ export async function invalidateSwrByTables(tables: string[]): Promise<void> {
 		);
 	}
 }
+
+/**
+ * Drops the given keys' mirrors. A Postgres outage then fails these reads
+ * instead of serving the dropped value; use when that value must not be served.
+ */
+export async function invalidateSwrKeys(keys: string[]): Promise<void> {
+	if (keys.length === 0) {
+		return;
+	}
+	await redisClient.unlink(
+		...keys.flatMap((key) => [swrMirrorKey(key), swrThrottleKey(key)]),
+	);
+}
+
+/**
+ * Lets the next successful read of each key rewrite its mirror at once, while
+ * the current mirror stays available as the outage fallback.
+ */
+export async function refreshSwrKeys(keys: string[]): Promise<void> {
+	if (keys.length === 0) {
+		return;
+	}
+	await redisClient.unlink(...keys.map(swrThrottleKey));
+}

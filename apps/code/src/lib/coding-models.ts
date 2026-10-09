@@ -3,6 +3,7 @@ import { getConfig } from "@/lib/config-server";
 import {
 	discountFraction,
 	isCodingModel,
+	mappingSupportsCoding,
 	isPremiumModel,
 } from "@llmgateway/shared";
 import {
@@ -85,7 +86,9 @@ export async function getCodingModelCards(): Promise<CodingModelCard[]> {
 
 	return codingModels.map((model) => {
 		const provider = getCheapestProvider(
-			model.mappings.filter(isActiveMapping),
+			model.mappings.filter(
+				(mapping) => isActiveMapping(mapping) && mappingSupportsCoding(mapping),
+			),
 		);
 		return {
 			id: model.id,

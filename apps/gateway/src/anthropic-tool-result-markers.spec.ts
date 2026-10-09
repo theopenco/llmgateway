@@ -79,14 +79,13 @@ describe("/v1/messages tool_result content markers", () => {
 
 	// Claude's tool loop: the client marks the newest result, so the marker
 	// moves to a later result on every request.
-	async function send(markedResult: number) {
+	async function send(markedResult: number, content?: Block) {
 		const results = [0, 1].map((index) => ({
 			type: "tool_result",
 			tool_use_id: `toolu_${index}`,
 			content: [
 				{
-					type: "text",
-					text: `result ${index}`,
+					...(content ?? { type: "text", text: `result ${index}` }),
 					...(index === markedResult && {
 						cache_control: { type: "ephemeral" },
 					}),
@@ -146,5 +145,23 @@ describe("/v1/messages tool_result content markers", () => {
 			undefined,
 			{ type: "ephemeral" },
 		]);
+	});
+	test("lifts markers out of JSON-preserved tool result blocks", async () => {
+		await setup();
+		const content: Block = {
+			type: "search_result",
+			source: "https://example.com",
+			title: "Lookup",
+			content: [{ type: "text", text: "Found the answer." }],
+		};
+
+		const first = await send(0, content);
+		const second = await send(1, content);
+
+		expect(first[0]!.content).toEqual(JSON.stringify(content));
+		expect(second[0]!.content).toEqual(first[0]!.content);
+		expect(first[0]!.cache_control).toEqual({ type: "ephemeral" });
+		expect(second[0]!.cache_control).toBeUndefined();
+		expect(second[1]!.cache_control).toEqual({ type: "ephemeral" });
 	});
 });

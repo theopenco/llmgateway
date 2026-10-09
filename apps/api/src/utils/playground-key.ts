@@ -2,7 +2,17 @@ import { getCookie, setCookie } from "hono/cookie";
 
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
-import { and, asc, cdb, db, eq, sql, tables, shortid } from "@llmgateway/db";
+import {
+	and,
+	asc,
+	cdb,
+	db,
+	eq,
+	inArray,
+	sql,
+	tables,
+	shortid,
+} from "@llmgateway/db";
 import {
 	PLAYGROUND_KEY_COOKIE_MAX_AGE,
 	PLAYGROUND_KEY_COOKIE_NAME,
@@ -20,6 +30,10 @@ export { PLAYGROUND_KEY_COOKIE_MAX_AGE, PLAYGROUND_KEY_COOKIE_NAME };
 
 export const PLAYGROUND_KEY_DESCRIPTION = "Lounge";
 const PLAYGROUND_KEY_TTL_MS = PLAYGROUND_KEY_COOKIE_MAX_AGE * 1000;
+// A member holds one key per device. The cookie is shared across projects and
+// the mobile client keeps tokens in memory, so misses are routine: past this
+// many keys a miss recycles the stalest row instead of minting another.
+export const MAX_PLAYGROUND_KEYS_PER_MEMBER = 5;
 
 interface PlaygroundApiKeyResult {
 	token: string;
@@ -28,10 +42,6 @@ interface PlaygroundApiKeyResult {
 	cookieMaxAge: number;
 }
 
-// Playground keys are per (project, user): the row is provisioned lazily the
-// first time that member uses the playground, and is only ever rotated for the
-// member who owns it. Scoping by creator keeps teammates from revoking each
-// other's key. The cookie carries the secret because storage is hash-only.
 export async function getOrCreatePlaygroundApiKey(
 	projectId: string,
 	userId: string,
@@ -42,22 +52,48 @@ export async function getOrCreatePlaygroundApiKey(
 			sql`SELECT ${tables.project.id} FROM ${tables.project} WHERE ${tables.project.id} = ${projectId} FOR UPDATE`,
 		);
 
-		const [key] = await tx
-			.select()
-			.from(tables.apiKey)
-			.where(
-				and(
-					eq(tables.apiKey.projectId, projectId),
-					eq(tables.apiKey.status, "active"),
-					eq(tables.apiKey.keyType, "user"),
-					eq(tables.apiKey.kind, "playground"),
-					eq(tables.apiKey.createdBy, userId),
-				),
-			)
-			.orderBy(asc(tables.apiKey.createdAt))
-			.limit(1);
+		const memberKeys = and(
+			eq(tables.apiKey.projectId, projectId),
+			eq(tables.apiKey.status, "active"),
+			eq(tables.apiKey.keyType, "user"),
+			eq(tables.apiKey.kind, "playground"),
+			eq(tables.apiKey.createdBy, userId),
+		);
+		const [presented] = existingToken
+			? await tx
+					.select()
+					.from(tables.apiKey)
+					.where(
+						and(
+							memberKeys,
+							inArray(
+								tables.apiKey.tokenHash,
+								getApiKeyFingerprints(existingToken),
+							),
+						),
+					)
+					.limit(1)
+			: [];
 
 		const now = Date.now();
+		let key: typeof presented | undefined = presented;
+		if (!key) {
+			// No usable key for this device: reuse an expired row, or the stalest
+			// one once the member is at the cap, so rows stay bounded.
+			const existing = await tx
+				.select()
+				.from(tables.apiKey)
+				.where(memberKeys)
+				.orderBy(asc(tables.apiKey.updatedAt), asc(tables.apiKey.createdAt));
+			key =
+				existing.find(
+					(candidate) =>
+						candidate.expiresAt && candidate.expiresAt.getTime() <= now,
+				) ??
+				(existing.length >= MAX_PLAYGROUND_KEYS_PER_MEMBER
+					? existing[0]
+					: undefined);
+		}
 		const tokenMatches =
 			key &&
 			existingToken &&

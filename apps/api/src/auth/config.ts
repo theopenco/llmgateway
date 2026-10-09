@@ -188,62 +188,29 @@ export async function checkAndRecordSignupAttempt(
 	const now = Date.now();
 
 	try {
-		const pipeline = redisClient.pipeline();
-		pipeline.get(key);
-		pipeline.get(attemptsKey);
-		const results = await pipeline.exec();
-
-		if (!results) {
-			throw new Error("Redis pipeline execution failed");
-		}
-
-		const lastAttemptTime = results[0][1] as string | null;
-		const attemptCount = parseInt((results[1][1] as string) || "0", 10);
-
-		// Check if we're currently in a rate limit period
-		if (lastAttemptTime && attemptCount > 0) {
-			const lastTime = parseInt(lastAttemptTime, 10);
-			const delayMs = Math.min(
-				60 * 1000 * Math.pow(2, attemptCount - 1), // Start at 1 minute, double each time
-				24 * 60 * 60 * 1000, // Cap at 24 hours
-			);
-			const resetTime = lastTime + delayMs;
-
-			if (now < resetTime) {
-				return {
-					allowed: false,
-					resetTime,
-					remaining: 0,
-				};
-			}
-		}
-
-		// Allow the request and record the attempt
-		const newAttemptCount = attemptCount + 1;
-		const nextDelayMs = Math.min(
-			60 * 1000 * Math.pow(2, newAttemptCount - 1), // Next delay
-			24 * 60 * 60 * 1000, // Cap at 24 hours
-		);
-		const nextResetTime = now + nextDelayMs;
-
-		// Update Redis with new attempt
-		const updatePipeline = redisClient.pipeline();
-		updatePipeline.set(key, now.toString());
-		updatePipeline.set(attemptsKey, newAttemptCount.toString());
-		updatePipeline.expire(key, Math.ceil((24 * 60 * 60 * 1000) / 1000)); // 24 hours
-		updatePipeline.expire(attemptsKey, Math.ceil((24 * 60 * 60 * 1000) / 1000));
-		await updatePipeline.exec();
-
-		logger.debug("Signup attempt recorded", {
-			ipAddress,
-			attemptCount: newAttemptCount,
-			nextDelayMs,
-			nextResetTime,
-		});
+		const [allowed, resetTime] = (await redisClient.eval(
+			`
+local last = tonumber(redis.call('GET', KEYS[1]))
+local attempts = tonumber(redis.call('GET', KEYS[2])) or 0
+local now = tonumber(ARGV[1])
+if last and attempts > 0 then
+  local reset = last + math.min(60000 * 2 ^ (attempts - 1), 86400000)
+  if now < reset then return {0, reset} end
+end
+attempts = attempts + 1
+redis.call('SET', KEYS[1], now, 'EX', 86400)
+redis.call('SET', KEYS[2], attempts, 'EX', 86400)
+return {1, now + math.min(60000 * 2 ^ (attempts - 1), 86400000)}
+`,
+			2,
+			key,
+			attemptsKey,
+			now,
+		)) as [number, number];
 
 		return {
-			allowed: true,
-			resetTime: nextResetTime,
+			allowed: allowed === 1,
+			resetTime,
 			remaining: 0,
 		};
 	} catch (error) {

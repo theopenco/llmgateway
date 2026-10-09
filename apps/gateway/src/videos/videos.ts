@@ -150,19 +150,14 @@ import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemet
 import type { Context } from "hono";
 
 function createProviderDiscountResolver(organizationId: string) {
-	return async (
-		provider: Pick<ProviderModelMapping, "providerId">,
-		modelId: string,
-	) =>
+	return async (provider: { providerId: string }, modelId: string) =>
 		(await findEffectiveDiscount(organizationId, provider.providerId, modelId))
 			.discount;
 }
 
 function createProviderRoutingScoreMultiplierResolver() {
-	return async (
-		provider: Pick<ProviderModelMapping, "providerId">,
-		modelId: string,
-	) => await findRoutingScoreAdjustment(provider.providerId, modelId);
+	return async (provider: { providerId: string }, modelId: string) =>
+		await findRoutingScoreAdjustment(provider.providerId, modelId);
 }
 
 const TERMINAL_VIDEO_STATUSES = new Set([
@@ -5314,7 +5309,11 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		// exists to reconcile. A zero reservation (BYOK, wallet) records no spend
 		// but still stamps org activity. recordSpend is fail-open, matching the
 		// counters' overall best-effort semantics.
-		await recordSpend(organization.id, reservedSpendUsd);
+		await recordSpend(
+			organization.id,
+			reservedSpendUsd,
+			created.createdAt.getTime(),
+		);
 
 		// A background evaluation that settled after the insert is merged into the
 		// job row, where the worker reads it at finalization.

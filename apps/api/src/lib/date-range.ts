@@ -41,8 +41,14 @@ export function resolveDateRange(
 } {
 	if (from && to) {
 		if (
-			Number.isNaN(Date.parse(from + "T00:00:00Z")) ||
-			Number.isNaN(Date.parse(to + "T00:00:00Z"))
+			[from, to].some((date) => {
+				const parsed = new Date(`${date}T00:00:00Z`);
+				return (
+					!/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+					Number.isNaN(parsed.getTime()) ||
+					parsed.toISOString().slice(0, 10) !== date
+				);
+			})
 		) {
 			throw new HTTPException(400, {
 				message: "Invalid from/to date (expected YYYY-MM-DD)",

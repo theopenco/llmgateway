@@ -115,7 +115,8 @@ export function stripAnthropicToolExtensions(
  * upstreams reject unknown message fields, so this has to run for every
  * non-Anthropic provider. An assistant turn that consisted only of a tool
  * search is left with nothing to say, so it is dropped rather than forwarded
- * as an empty message that providers reject.
+ * as an empty message that providers reject. A tool result must stay to answer
+ * its tool call, so an empty one carries its blocks as JSON text instead.
  */
 export function stripAnthropicNativeBlocks(
 	messages: BaseMessage[],
@@ -124,13 +125,18 @@ export function stripAnthropicNativeBlocks(
 		if (message.anthropic_native_blocks === undefined) {
 			return [message];
 		}
-		const { anthropic_native_blocks: _dropped, ...rest } = message;
+		const { anthropic_native_blocks: dropped, ...rest } = message;
 		const isEmpty =
 			(rest.content === undefined ||
 				rest.content === null ||
 				rest.content === "" ||
 				(Array.isArray(rest.content) && rest.content.length === 0)) &&
 			(!rest.tool_calls || rest.tool_calls.length === 0);
-		return isEmpty ? [] : [rest];
+		if (!isEmpty) {
+			return [rest];
+		}
+		return rest.role === "tool"
+			? [{ ...rest, content: JSON.stringify(dropped) }]
+			: [];
 	});
 }

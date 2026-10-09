@@ -1466,7 +1466,10 @@ export function RegisterModelDialog({
 							type="password"
 							autoComplete="off"
 							value={apiKey}
-							onChange={(event) => setApiKey(event.target.value)}
+							onChange={(event) => {
+								setApiKey(event.target.value);
+								setVerificationId("");
+							}}
 							placeholder={
 								savedVerificationKey
 									? "Paste a key to replace the saved one"
@@ -1644,7 +1647,10 @@ export function VerifyModelDialog({
 							type="password"
 							autoComplete="off"
 							value={apiKey}
-							onChange={(event) => setApiKey(event.target.value)}
+							onChange={(event) => {
+								setApiKey(event.target.value);
+								setVerificationId("");
+							}}
 							placeholder={
 								savedVerificationKey
 									? "Paste a key to replace the saved one"
@@ -2166,7 +2172,10 @@ export function EditModelDialog({
 							type="password"
 							autoComplete="off"
 							value={apiKey}
-							onChange={(event) => setApiKey(event.target.value)}
+							onChange={(event) => {
+								setApiKey(event.target.value);
+								setVerificationId("");
+							}}
 							placeholder={
 								savedVerificationKey
 									? "Paste a key to replace the saved one"

@@ -1249,6 +1249,8 @@ interface CheckFailure {
 	 * a transport error says nothing and must never narrow a listing.
 	 */
 	rejected: boolean;
+	/** Not the upstream's verdict (timeout, 5xx, auth): never narrows a listing. */
+	transient?: boolean;
 	/**
 	 * The response was served but carries a protocol defect no other probe
 	 * variant would fix, so a ladder stops instead of narrowing the listing.
@@ -1307,6 +1309,7 @@ async function attemptCheck(
 					? `${message} (timed out on all ${CHECK_TIMEOUT_ATTEMPTS} attempts)`
 					: message,
 				rejected: false,
+				transient: true,
 			};
 		}
 	}
@@ -1504,6 +1507,9 @@ async function runCheck(
 		if (!failure) {
 			return { failure: null, unsupportedToolChoices, probes };
 		}
+		if (failure.transient) {
+			return { failure, probes };
+		}
 		if (failure.conclusive) {
 			break;
 		}
@@ -1654,7 +1660,8 @@ async function executeCheck(
 				upstreamErrorMessage(bodyText, response.status),
 				context.secrets,
 			),
-			rejected: response.status >= 400 && response.status < 500,
+			rejected: response.status === 400 || response.status === 422,
+			transient: response.status !== 400 && response.status !== 422,
 		};
 	}
 	if (definition.request.stream) {

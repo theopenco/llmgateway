@@ -44,6 +44,68 @@ describe("getGcpServiceAccountAccessToken", () => {
 		vi.restoreAllMocks();
 	});
 
+	it.each([
+		"http://127.0.0.1/token",
+		"https://oauth2.googleapis.com.evil.example/token",
+		"https://accounts.google.com/o/oauth2/token",
+	])(
+		"always exchanges at Google's token endpoint, ignoring token_uri %s",
+		async (tokenUri) => {
+			redisGetMock.mockResolvedValue(null);
+			redisSetMock.mockResolvedValue("OK");
+			const credentials = JSON.parse(serviceAccount(`${tokenUri}@example.com`));
+			credentials.token_uri = tokenUri;
+			const fetchMock = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValue(
+					Response.json({ access_token: "test-access-token" }),
+				);
+
+			await expect(
+				getGcpServiceAccountAccessToken(JSON.stringify(credentials)),
+			).resolves.toBe("test-access-token");
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			expect(fetchMock.mock.calls[0]?.[0]).toBe(
+				"https://oauth2.googleapis.com/token",
+			);
+			const assertion = new URLSearchParams(
+				String(fetchMock.mock.calls[0]?.[1]?.body),
+			).get("assertion");
+			const claims = JSON.parse(
+				Buffer.from(assertion?.split(".")[1] ?? "", "base64url").toString(),
+			) as { aud: string };
+			expect(claims.aud).toBe("https://oauth2.googleapis.com/token");
+		},
+	);
+
+	it("disables redirects when exchanging credentials", async () => {
+		redisGetMock.mockResolvedValue(null);
+		redisSetMock.mockResolvedValue("OK");
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(Response.json({ access_token: "test-access-token" }));
+
+		await getGcpServiceAccountAccessToken(
+			serviceAccount("redirect@example.com"),
+		);
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"https://oauth2.googleapis.com/token",
+			expect.objectContaining({ redirect: "error" }),
+		);
+	});
+
+	it("does not expose token endpoint response bodies", async () => {
+		redisGetMock.mockResolvedValue(null);
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response("untrusted response details", { status: 400 }),
+		);
+
+		await expect(
+			getGcpServiceAccountAccessToken(serviceAccount("error@example.com")),
+		).rejects.toThrow(/^Failed to exchange JWT for GCP access token: 400$/);
+	});
+
 	it("stops waiting for a Redis cache read when aborted", async () => {
 		redisGetMock.mockReturnValue(pending());
 		const controller = new AbortController();
@@ -85,6 +147,41 @@ describe("getGcpServiceAccountAccessToken", () => {
 		controller.abort(reason);
 
 		await expect(result).rejects.toBe(reason);
+	});
+
+	it("does not share a cached token between different keys for one account", async () => {
+		redisGetMock.mockResolvedValue(null);
+		redisSetMock.mockResolvedValue("OK");
+		vi.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(Response.json({ access_token: "token-key-a" }))
+			.mockResolvedValueOnce(Response.json({ access_token: "token-key-b" }));
+
+		const email = "shared-account@example.com";
+		await expect(
+			getGcpServiceAccountAccessToken(serviceAccount(email)),
+		).resolves.toBe("token-key-a");
+		await expect(
+			getGcpServiceAccountAccessToken(serviceAccount(email)),
+		).resolves.toBe("token-key-b");
+
+		const [keyA, keyB] = redisGetMock.mock.calls.map((call) => call[0]);
+		expect(keyA).not.toBe(keyB);
+	});
+
+	it("re-reads a Redis-cached token after a minute", async () => {
+		redisGetMock.mockResolvedValue("shared-token");
+		const now = Date.now();
+		const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+		const credentials = serviceAccount("redis-hit@example.com");
+
+		await getGcpServiceAccountAccessToken(credentials);
+		clock.mockReturnValue(now + 30_000);
+		await getGcpServiceAccountAccessToken(credentials);
+		expect(redisGetMock).toHaveBeenCalledTimes(1);
+
+		clock.mockReturnValue(now + 61_000);
+		await getGcpServiceAccountAccessToken(credentials);
+		expect(redisGetMock).toHaveBeenCalledTimes(2);
 	});
 
 	it("ignores a user-supplied token_uri", async () => {

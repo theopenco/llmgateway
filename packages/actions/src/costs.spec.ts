@@ -1052,6 +1052,32 @@ describe("calculateCosts", () => {
 		);
 	});
 
+	it("does not add reported Google image tokens on top of the prompt", async () => {
+		// Google's promptTokenCount already includes the IMAGE modality tokens.
+		const result = await calculateCosts(
+			"gemini-3-pro-image-preview",
+			"google-ai-studio",
+			null,
+			526, // 10 text + 516 image
+			500,
+			null,
+			undefined,
+			null,
+			0,
+			undefined,
+			2, // input images; the reported count takes precedence
+			null,
+			null,
+			undefined,
+			516, // reported IMAGE modality tokens
+		);
+
+		expect(result.imageInputTokens).toBe(516);
+		expect(result.imageInputCost).toBeCloseTo(516 * (2 / 1e6));
+		expect(result.promptTokens).toBe(526);
+		expect(result.inputCost).toBeCloseTo(526 * (2 / 1e6));
+	});
+
 	it("should track image output tokens and costs separately", async () => {
 		// Test with gemini-3-pro-image-preview for image output
 		const result = await calculateCosts(

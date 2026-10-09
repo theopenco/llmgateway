@@ -1,6 +1,7 @@
 import { Decimal } from "decimal.js";
 import Stripe from "stripe";
 
+import { lockOrganizationMembership } from "@/lib/enterprise-seats.js";
 import { getStripe } from "@/routes/payments.js";
 
 import { db, eq, tables } from "@llmgateway/db";
@@ -222,25 +223,36 @@ export async function tearDownSoleMemberOrganizations(
 		return [];
 	}
 
-	const now = new Date();
-
+	const closed: SoleMemberOrganization[] = [];
 	for (const org of organizations) {
-		const cancelled = await cancelOrganizationSubscriptions(org.subscriptions);
-
-		if (cancelled.length > 0) {
-			logger.info(
-				`Cancelled Stripe subscriptions for organization ${org.id} on account deletion of user ${userId}: ${cancelled.join(", ")}`,
-			);
+		const deleted = await db.transaction(async (tx) => {
+			// Joins wait on this lock and then see the org deleted. The row itself
+			// is only locked by the final update, so Stripe latency never blocks
+			// other writers such as the billing batch.
+			await lockOrganizationMembership(tx, org.id);
+			const current = await tx.query.organization.findFirst({
+				where: { id: { eq: org.id } },
+			});
+			if (!current || current.status === "deleted") {
+				return false;
+			}
+			const members = await tx.query.userOrganization.findMany({
+				where: { organizationId: { eq: org.id } },
+				columns: { userId: true },
+			});
+			if (members.length !== 1 || members[0].userId !== userId) {
+				return false;
+			}
+			await cancelOrganizationSubscriptions(current);
+			await tx
+				.update(tables.organization)
+				.set({ status: "deleted", ...getCancelledOrganizationPlanState() })
+				.where(eq(tables.organization.id, org.id));
+			return true;
+		});
+		if (deleted) {
+			closed.push(org);
 		}
-
-		await db
-			.update(tables.organization)
-			.set({
-				status: "deleted",
-				...getCancelledOrganizationPlanState(now),
-			})
-			.where(eq(tables.organization.id, org.id));
 	}
-
-	return organizations;
+	return closed;
 }

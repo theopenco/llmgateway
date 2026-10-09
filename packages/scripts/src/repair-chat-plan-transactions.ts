@@ -49,6 +49,9 @@ function hasFlag(name: string): boolean {
 	return process.argv.includes(`--${name}`);
 }
 
+// The charged amount is the only record of the tier these rows were bought
+// at: their description is the generic Pro one, and the org's plan today may
+// differ from the plan at the time of the charge.
 function tierFromAmount(amount: string | null): ChatPlanTier | null {
 	if (amount === null) {
 		return null;
@@ -115,17 +118,10 @@ async function main(): Promise<void> {
 	let skipped = 0;
 
 	for (const { transaction, organization } of rows) {
-		// The charged amount identifies the tier outright; a discounted charge
-		// (promo code) falls back to the tier the org is on today.
-		const tier =
-			tierFromAmount(transaction.amount) ??
-			(organization.chatPlan !== "none"
-				? (organization.chatPlan as ChatPlanTier)
-				: null);
-
+		const tier = tierFromAmount(transaction.amount);
 		if (!tier) {
 			console.log(
-				`  SKIP ${transaction.id} (org ${organization.id}): cannot resolve tier from amount ${transaction.amount} and org has no chat plan`,
+				`  SKIP ${transaction.id} (org ${organization.id}): amount ${transaction.amount} matches no membership price, so the historical tier is unavailable`,
 			);
 			skipped += 1;
 			continue;

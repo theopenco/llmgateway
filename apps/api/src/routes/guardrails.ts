@@ -18,8 +18,12 @@ import {
 	defaultSystemRulesConfig,
 	defaultAllowedFileTypes,
 } from "@llmgateway/db";
-import { checkGuardrails } from "@llmgateway/guardrails";
+import {
+	checkGuardrails,
+	validateGuardrailRegex,
+} from "@llmgateway/guardrails";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { isRecognizedFileTypeEntry } from "@llmgateway/shared/file-types";
 import {
 	canManageProject,
 	isOrganizationAdmin,
@@ -330,7 +334,14 @@ const updateConfigBodySchema = z.object({
 	enabled: z.boolean().optional(),
 	systemRules: systemRulesConfigSchema.optional(),
 	maxFileSizeMb: z.number().optional(),
-	allowedFileTypes: z.array(z.string()).optional(),
+	allowedFileTypes: z
+		.array(
+			z.string().refine(isRecognizedFileTypeEntry, {
+				message:
+					"Unknown file type. Use a MIME type such as application/pdf or image/*, or a common extension such as pdf or docx.",
+			}),
+		)
+		.optional(),
 	piiAction: z.enum(["block", "redact", "warn", "allow"]).optional(),
 });
 
@@ -703,10 +714,30 @@ const createRuleBodySchema = z.object({
 	action: z.enum(["block", "redact", "warn", "allow"]).optional(),
 });
 
+function validateRegexConfig(config: CustomRuleConfig) {
+	const patterns =
+		config.type === "custom_regex"
+			? [config.pattern]
+			: config.type === "blocked_terms" && config.matchType === "regex"
+				? config.terms
+				: [];
+	try {
+		for (const pattern of patterns) {
+			validateGuardrailRegex(pattern);
+		}
+	} catch {
+		throw new HTTPException(400, {
+			message:
+				"Use valid RE2 regex patterns of at most 1000 characters that do not match empty text. Lookarounds and backreferences are not supported.",
+		});
+	}
+}
+
 async function createScopedRule(
 	scope: GuardrailScopeContext,
 	body: z.infer<typeof createRuleBodySchema>,
 ) {
+	validateRegexConfig(body.config);
 	const [created] = await db
 		.insert(tables.guardrailRule)
 		.values({
@@ -840,6 +871,9 @@ async function updateScopedRule(
 	body: z.infer<typeof updateRuleBodySchema>,
 ) {
 	const existing = await findScopedRule(scope, ruleId);
+	if (body.config || body.enabled === true) {
+		validateRegexConfig(body.config ?? existing.config);
+	}
 
 	const [updated] = await db
 		.update(tables.guardrailRule)

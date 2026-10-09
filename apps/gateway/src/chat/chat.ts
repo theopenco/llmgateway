@@ -134,6 +134,7 @@ import {
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
+import { processImageUrl } from "@llmgateway/actions";
 import {
 	applyGoogleServiceTier,
 	assumeServedServiceTier,
@@ -194,6 +195,7 @@ import {
 import {
 	applyRedactions,
 	checkGuardrails,
+	resolveGuardrailScope,
 	logViolation,
 } from "@llmgateway/guardrails";
 import { logger, toError } from "@llmgateway/logger";
@@ -252,7 +254,6 @@ import {
 } from "@llmgateway/shared/smart-routing";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
-import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
 import {
 	applyAnthropicSafeguards,
 	extractAnthropicSafeguards,
@@ -585,9 +586,10 @@ async function keepCheapestCustomRoutingMapping(
 function filterRegionsByAvailableKeys(
 	expandedProviders: ProviderModelMapping[],
 	managed: ManagedProviderAvailability,
+	variant?: ReturnType<typeof getLicensedOrganizationEnvVariant>,
 ): ProviderModelMapping[] {
 	return expandedProviders.filter((mapping) =>
-		platformKeyCoversMappingRegion(mapping, managed),
+		platformKeyCoversMappingRegion(mapping, managed, variant),
 	);
 }
 
@@ -602,6 +604,7 @@ function filterRegionsByAvailableKeys(
 function platformKeyCoversMappingRegion(
 	mapping: ProviderModelMapping,
 	managed: ManagedProviderAvailability,
+	variant?: ReturnType<typeof getLicensedOrganizationEnvVariant>,
 ): boolean {
 	const providerDef = providers.find((p) => p.id === mapping.providerId) as
 		ProviderDefinition | undefined;
@@ -619,8 +622,7 @@ function platformKeyCoversMappingRegion(
 		region,
 		managed,
 		() =>
-			region === regionConfig.defaultRegion ||
-			hasRegionSpecificEnvKey(mapping.providerId as Provider, region),
+			hasRegionSpecificEnvKey(mapping.providerId as Provider, region, variant),
 	);
 }
 
@@ -642,19 +644,14 @@ function preferConcreteRegionalMappings(
 }
 
 function createProviderDiscountResolver(organizationId: string) {
-	return async (
-		provider: Pick<ProviderModelMapping, "providerId">,
-		modelId: string,
-	) =>
+	return async (provider: { providerId: string }, modelId: string) =>
 		(await findEffectiveDiscount(organizationId, provider.providerId, modelId))
 			.discount;
 }
 
 function createProviderRoutingScoreMultiplierResolver() {
-	return async (
-		provider: Pick<ProviderModelMapping, "providerId">,
-		modelId: string,
-	) => await findRoutingScoreAdjustment(provider.providerId, modelId);
+	return async (provider: { providerId: string }, modelId: string) =>
+		await findRoutingScoreAdjustment(provider.providerId, modelId);
 }
 
 async function collapseProvidersToBestRegionPerProvider(
@@ -2595,59 +2592,6 @@ chat.openapi(completions, async (c) => {
 
 	let configIndex = 0; // Index for round-robin environment variables
 
-	// Filter region candidates based on available keys.
-	// - credits mode: only keep regions a platform credential covers (a managed
-	//   credential pinned to the region, or — for providers with no managed
-	//   credential — the env key, whose base value covers the default region)
-	// - hybrid mode: providers with a DB key keep all regions (user chose their region);
-	//   providers without a DB key are filtered like credits mode
-	// - api-keys mode: no filtering (all regions available, user picks via DB key)
-	//
-	// Variant- and model-agnostic: this runs before the organization (and with
-	// it the env-var variant) is resolved, exactly like the env-var side.
-	const managedRegionAvailability =
-		project.mode === "api-keys"
-			? EMPTY_MANAGED_PROVIDER_AVAILABILITY
-			: await findManagedProviderAvailability();
-	if (project.mode === "credits") {
-		modelInfo = {
-			...modelInfo,
-			providers: filterRegionsByAvailableKeys(
-				modelInfo.providers,
-				managedRegionAvailability,
-			),
-		};
-		routingExpandedModelProviders = filterRegionsByAvailableKeys(
-			routingExpandedModelProviders,
-			managedRegionAvailability,
-		);
-		allModelProviders = filterRegionsByAvailableKeys(
-			allModelProviders,
-			managedRegionAvailability,
-		);
-	} else if (project.mode === "hybrid") {
-		const dbProviderKeys = await findActiveProviderKeys(project.organizationId);
-		const providersWithDbKeys = new Set(dbProviderKeys.map((k) => k.provider));
-		const filterHybridRegions = (
-			expanded: ProviderModelMapping[],
-		): ProviderModelMapping[] =>
-			expanded.filter(
-				(mapping) =>
-					// Providers with a DB key: keep all regions
-					providersWithDbKeys.has(mapping.providerId) ||
-					// Providers without a DB key: filter like credits mode
-					platformKeyCoversMappingRegion(mapping, managedRegionAvailability),
-			);
-		modelInfo = {
-			...modelInfo,
-			providers: filterHybridRegions(modelInfo.providers),
-		};
-		routingExpandedModelProviders = filterHybridRegions(
-			routingExpandedModelProviders,
-		);
-		allModelProviders = filterHybridRegions(allModelProviders);
-	}
-
 	// Fetch organization for coding model restriction check and credit validation
 	let organization = await findOrganizationById(project.organizationId);
 
@@ -2779,6 +2723,56 @@ chat.openapi(completions, async (c) => {
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getLicensedOrganizationEnvVariant(organization);
+
+	const managedRegionAvailability =
+		project.mode === "api-keys"
+			? EMPTY_MANAGED_PROVIDER_AVAILABILITY
+			: await findManagedProviderAvailability(envVariant);
+	if (project.mode === "credits") {
+		modelInfo = {
+			...modelInfo,
+			providers: filterRegionsByAvailableKeys(
+				modelInfo.providers,
+				managedRegionAvailability,
+				envVariant,
+			),
+		};
+		routingExpandedModelProviders = filterRegionsByAvailableKeys(
+			routingExpandedModelProviders,
+			managedRegionAvailability,
+			envVariant,
+		);
+		allModelProviders = filterRegionsByAvailableKeys(
+			allModelProviders,
+			managedRegionAvailability,
+			envVariant,
+		);
+	} else if (project.mode === "hybrid") {
+		const dbProviderKeys = await findActiveProviderKeys(project.organizationId);
+		const providersWithDbKeys = new Set(dbProviderKeys.map((k) => k.provider));
+		const filterHybridRegions = (
+			expanded: ProviderModelMapping[],
+		): ProviderModelMapping[] =>
+			expanded.filter(
+				(mapping) =>
+					// Providers with a DB key: keep all regions
+					providersWithDbKeys.has(mapping.providerId) ||
+					// Providers without a DB key: filter like credits mode
+					platformKeyCoversMappingRegion(
+						mapping,
+						managedRegionAvailability,
+						envVariant,
+					),
+			);
+		modelInfo = {
+			...modelInfo,
+			providers: filterHybridRegions(modelInfo.providers),
+		};
+		routingExpandedModelProviders = filterHybridRegions(
+			routingExpandedModelProviders,
+		);
+		allModelProviders = filterHybridRegions(allModelProviders);
+	}
 
 	// Apply the dev-plan flex default only when a mapping and credential support it.
 	if (
@@ -3102,9 +3096,77 @@ chat.openapi(completions, async (c) => {
 		chatPlanExpiresAt: organization.chatPlanExpiresAt,
 	};
 
+	// Get image size limits from environment variables or use defaults
+	const freeLimitMB = imageSizeLimitMB(
+		process.env.IMAGE_SIZE_LIMIT_FREE_MB,
+		50,
+	);
+	const proLimitMB = imageSizeLimitMB(process.env.IMAGE_SIZE_LIMIT_PRO_MB, 100);
+	const enterpriseLimitMB = imageSizeLimitMB(
+		process.env.IMAGE_SIZE_LIMIT_ENTERPRISE_MB,
+		proLimitMB,
+	);
+
+	// Determine max image size based on plan. Enterprise is never capped below
+	// Pro — bucketing it with free rejected enterprise uploads at the free limit
+	// and then told them to contact us about raising their Enterprise limits.
+	const userPlan = getLicensedOrganizationPlan(
+		organization?.id,
+		organization?.plan,
+	);
+	const maxImageSizeMB =
+		userPlan === "enterprise"
+			? enterpriseLimitMB
+			: userPlan === "pro"
+				? proLimitMB
+				: freeLimitMB;
+
 	// Run guardrails check for enterprise organizations
 	let guardrailResult: Awaited<ReturnType<typeof checkGuardrails>> | undefined;
 	if (hasOrganizationEnterpriseAccess(organization.id, organization.plan)) {
+		const guardrailScope = await resolveGuardrailScope(
+			project.organizationId,
+			project.id,
+		);
+		if (
+			guardrailScope?.config.enabled &&
+			guardrailScope.config.systemRules.file_types?.enabled
+		) {
+			for (const message of messages) {
+				if (!Array.isArray(message.content)) {
+					continue;
+				}
+				for (const part of message.content) {
+					if (
+						part.type !== "image_url" ||
+						part.image_url.url.slice(0, 5).toLowerCase() === "data:"
+					) {
+						continue;
+					}
+					try {
+						const image = await processImageUrl(
+							part.image_url.url,
+							false,
+							maxImageSizeMB,
+							userPlan,
+						);
+						part.image_url.url = `data:${image.mimeType};base64,${image.data}`;
+					} catch (error) {
+						const message =
+							error instanceof Error
+								? error.message
+								: "Unable to validate attachment";
+						await logGatewayRejection({
+							message,
+							statusCode: 400,
+							statusText: "Bad Request",
+							cause: "attachment_validation_failed",
+						});
+						throw new HTTPException(400, { message });
+					}
+				}
+			}
+		}
 		guardrailResult = await checkGuardrails({
 			organizationId: project.organizationId,
 			projectId: project.id,
@@ -3498,31 +3560,6 @@ chat.openapi(completions, async (c) => {
 			usedRegion = requestedRegion;
 		}
 	}
-
-	// Get image size limits from environment variables or use defaults
-	const freeLimitMB = imageSizeLimitMB(
-		process.env.IMAGE_SIZE_LIMIT_FREE_MB,
-		50,
-	);
-	const proLimitMB = imageSizeLimitMB(process.env.IMAGE_SIZE_LIMIT_PRO_MB, 100);
-	const enterpriseLimitMB = imageSizeLimitMB(
-		process.env.IMAGE_SIZE_LIMIT_ENTERPRISE_MB,
-		proLimitMB,
-	);
-
-	// Determine max image size based on plan. Enterprise is never capped below
-	// Pro — bucketing it with free rejected enterprise uploads at the free limit
-	// and then told them to contact us about raising their Enterprise limits.
-	const userPlan = getLicensedOrganizationPlan(
-		organization?.id,
-		organization?.plan,
-	);
-	const maxImageSizeMB =
-		userPlan === "enterprise"
-			? enterpriseLimitMB
-			: userPlan === "pro"
-				? proLimitMB
-				: freeLimitMB;
 
 	// Validate IAM rules for model access
 	// Pass modelInfo (with deactivated providers already filtered) so IAM validation
@@ -4351,6 +4388,7 @@ chat.openapi(completions, async (c) => {
 					),
 					activeMappings.map((mapping) => mapping.providerId),
 					await findManagedProviderAvailability(envVariant, modelDef.id),
+					envVariant,
 				);
 
 			const candidateProviders = preferConcreteRegionalMappings(
@@ -4359,6 +4397,7 @@ chat.openapi(completions, async (c) => {
 						? filterRegionsByAvailableKeys(
 								activeMappings,
 								managedRegionAvailability,
+								envVariant,
 							)
 						: activeMappings,
 					{
@@ -5228,6 +5267,7 @@ chat.openapi(completions, async (c) => {
 						),
 						providerIds,
 						await findManagedProviderAvailability(envVariant, baseModelId),
+						envVariant,
 					);
 
 				const availableModelProviders = preferConcreteRegionalMappings(
@@ -5445,6 +5485,7 @@ chat.openapi(completions, async (c) => {
 						),
 						providerIds,
 						await findManagedProviderAvailability(envVariant, baseModelId),
+						envVariant,
 					);
 
 				// Filter model providers to only those available (excluding the low-uptime one)
@@ -5699,6 +5740,7 @@ chat.openapi(completions, async (c) => {
 					),
 					providerIds,
 					await findManagedProviderAvailability(envVariant, routedModelId),
+					envVariant,
 				);
 
 			// Build a map of provider → locked region from DB provider keys.
@@ -5858,7 +5900,7 @@ chat.openapi(completions, async (c) => {
 				await rejectProviderRateLimit([...enforcedLimits.values()][0]);
 			}
 
-			const routingCandidateProviderIds = new Set(
+			const routingCandidateProviderIds = new Set<string>(
 				routingCandidates.map((candidate) => candidate.providerId),
 			);
 			for (const providerId of rateLimitedProviderIds) {
@@ -7373,6 +7415,7 @@ chat.openapi(completions, async (c) => {
 
 	if (cachingEnabled) {
 		const cachePayload = {
+			...validationResult.data,
 			provider: usedProvider,
 			model: usedInternalModel,
 			messages,
@@ -7556,7 +7599,7 @@ chat.openapi(completions, async (c) => {
 					reasoningTokens ?? null,
 					0, // outputImageCount
 					undefined, // imageSize
-					inputImageCount,
+					0, // inputImageCount: cached prompt tokens already include images
 					null, // webSearchCount
 					project.organizationId,
 					undefined,
@@ -7772,7 +7815,7 @@ chat.openapi(completions, async (c) => {
 					cachedResponse.usage?.reasoning_tokens ?? null,
 					0, // outputImageCount
 					undefined, // imageSize
-					inputImageCount,
+					0, // inputImageCount: cached prompt tokens already include images
 					null, // webSearchCount
 					project.organizationId,
 					undefined,
@@ -9112,19 +9155,6 @@ chat.openapi(completions, async (c) => {
 							serviceTier: forwardedServiceTier,
 						});
 						headers["Content-Type"] = "application/json";
-
-						// Add the effort beta header whenever the outgoing body uses
-						// Anthropic's effort-based reasoning fields — triggered by the
-						// explicit `effort` param or by a `reasoning_effort` mapped onto an
-						// adaptive model (Opus 4.7+).
-						if (
-							anthropicRequestNeedsEffortBeta(transportProvider, requestBody)
-						) {
-							const currentBeta = headers["anthropic-beta"];
-							headers["anthropic-beta"] = currentBeta
-								? `${currentBeta},effort-2025-11-24`
-								: "effort-2025-11-24";
-						}
 
 						// Add structured outputs beta header for Anthropic if json_schema response_format is specified
 						if (
@@ -10502,6 +10532,7 @@ chat.openapi(completions, async (c) => {
 				let cacheCreation1hTokens: number | null = null;
 				let audioInputTokens: number | null = null;
 				let cachedAudioInputTokens: number | null = null;
+				let imageInputTokens: number | null = null;
 				let streamingToolCalls = null;
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
@@ -10985,7 +11016,7 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
-										null,
+										imageInputTokens,
 										null,
 										{
 											cacheWriteTokens: cacheCreationTokens,
@@ -11978,6 +12009,9 @@ chat.openapi(completions, async (c) => {
 								if (usage.cachedAudioInputTokens !== null) {
 									cachedAudioInputTokens = usage.cachedAudioInputTokens;
 								}
+								if (usage.imageInputTokens !== null) {
+									imageInputTokens = usage.imageInputTokens;
+								}
 								if (
 									usage.totalTokens === null &&
 									promptTokens !== null &&
@@ -12566,7 +12600,7 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
-										null,
+										imageInputTokens,
 										null,
 										{
 											cacheWriteTokens: cacheCreationTokens,
@@ -12623,19 +12657,14 @@ chat.openapi(completions, async (c) => {
 									},
 								],
 								usage: (() => {
-									// Only add image input tokens for providers that
-									// exclude them from upstream usage (Google)
-									const providerExcludesImageInput =
-										isGoogleCompatibleProvider(transportProvider);
-									const imageInputAdj = providerExcludesImageInput
-										? inputImageCount * 560
-										: 0;
+									// costs.promptTokens adds estimated image input tokens
+									// only when upstream usage did not report them.
 									const adjPrompt = Math.max(
 										1,
 										Math.round(
-											promptTokens && promptTokens > 0
-												? promptTokens + imageInputAdj
-												: (calculatedPromptTokens ?? 1) + imageInputAdj,
+											streamingCostsEarly.promptTokens ??
+												calculatedPromptTokens ??
+												1,
 										),
 									);
 									const adjCompletion = Math.round(
@@ -12699,6 +12728,8 @@ chat.openapi(completions, async (c) => {
 										cachedTokens,
 										cacheCreationTokens,
 										reasoningTokens: calculatedReasoningTokens,
+										imageInputTokens:
+											imageInputTokens ?? streamingCostsEarly.imageInputTokens,
 										audioInputTokens,
 									});
 									return earlyUsage;
@@ -12919,7 +12950,7 @@ chat.openapi(completions, async (c) => {
 									webSearchCount,
 									project.organizationId,
 									image_config?.image_quality,
-									null,
+									imageInputTokens,
 									null,
 									{
 										cacheWriteTokens: cacheCreationTokens,
@@ -13577,16 +13608,6 @@ chat.openapi(completions, async (c) => {
 			});
 			if (!(requestBody instanceof FormData)) {
 				headers["Content-Type"] = "application/json";
-			}
-
-			// Add the effort beta header whenever the outgoing body uses Anthropic's
-			// effort-based reasoning fields — triggered by the explicit `effort` param
-			// or by a `reasoning_effort` mapped onto an adaptive model (Opus 4.7+).
-			if (anthropicRequestNeedsEffortBeta(transportProvider, requestBody)) {
-				const currentBeta = headers["anthropic-beta"];
-				headers["anthropic-beta"] = currentBeta
-					? `${currentBeta},effort-2025-11-24`
-					: "effort-2025-11-24";
 			}
 
 			// Add structured outputs beta header for Anthropic if json_schema response_format is specified
@@ -15427,7 +15448,7 @@ chat.openapi(completions, async (c) => {
 		requestId,
 		usedRegion,
 		cacheCreationTokens,
-		imageInputTokens,
+		imageInputTokens ?? costs.imageInputTokens,
 		imageOutputTokens,
 		cacheCreation5mTokens,
 		cacheCreation1hTokens,

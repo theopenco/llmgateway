@@ -199,9 +199,14 @@ function formatKeyList(keys: string[], conjunction: "and" | "or"): string {
 
 export function hasProviderEnvironmentToken(
 	provider: Provider | string,
+	variant?: EnvVarVariant,
 ): boolean {
 	const envVar = getProviderEnvVar(provider);
-	return envVar ? Boolean(process.env[envVar]) : false;
+	return envVar
+		? Boolean(
+				process.env[getVariantEnvVarNameFor(envVar, variant) ?? envVar]?.trim(),
+			)
+		: false;
 }
 
 /**
@@ -454,6 +459,7 @@ export function getRegionSpecificEnvVarName(
 export function hasRegionSpecificEnvKey(
 	provider: Provider,
 	region: string,
+	variant?: EnvVarVariant,
 ): boolean {
 	const baseEnvVar = getProviderEnvVar(provider);
 	if (!baseEnvVar) {
@@ -461,16 +467,21 @@ export function hasRegionSpecificEnvKey(
 	}
 	if (
 		regionEndpointRequiresWorkspaceId(provider, region) &&
-		!getRegionScopedProviderEnvValue(provider, "workspaceId", region)
+		!getRegionScopedProviderEnvValue(
+			provider,
+			"workspaceId",
+			region,
+			undefined,
+			variant,
+		)
 	) {
 		return false;
 	}
-	const regionSuffix = getRegionEnvVarSuffix(region);
-	if (process.env[`${baseEnvVar}__${regionSuffix}`]) {
+	if (getRegionSpecificEnvVarName(provider, region, variant)) {
 		return true;
 	}
 	const def = getProviderDefinition(provider);
-	if (process.env[baseEnvVar]) {
+	if (hasProviderEnvironmentToken(provider, variant)) {
 		// The base key covers the provider's default region, and — for providers
 		// whose credential is shared across regions (e.g. AWS Bedrock) — every
 		// region, so non-default regions don't need a per-region env key.

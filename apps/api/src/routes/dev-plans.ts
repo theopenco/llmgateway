@@ -110,6 +110,10 @@ export const devPlans = new OpenAPIHono<ServerTypes>();
 // lease this old cannot still have an upgrade charge in flight.
 const STALE_TIER_CHANGE_CLAIM_MS = 15 * 60 * 1000;
 
+// How long a duplicate top-up waits for the first attempt's velocity gate.
+const GATE_MARKER_WAIT_MS = 5000;
+const GATE_MARKER_POLL_MS = 100;
+
 // Plan charges that prove the org was (or still is) a paying DevPass
 // subscriber, used to keep the billing page reachable after a plan ends.
 const DEV_PLAN_INVOICE_TYPES = [
@@ -3866,38 +3870,89 @@ devPlans.openapi(topUpCredits, async (c) => {
 	// below collapses them into ONE PaymentIntent — so the gate and its
 	// reservation must also run once per purchase, or every retry would
 	// double-count the same attempt and can 429 legitimate resubmissions. The
-	// NX marker makes the gate idempotent; retries skip it (the original
-	// attempt's reservation still covers the amount). On failure the marker is
+	// marker is "pending" while the gate runs and "passed" once it has, so a
+	// retry only skips the gate after it passed; a concurrent duplicate waits
+	// for the outcome instead of charging ungated. On failure the marker is
 	// cleared with the reservation so a fresh retry re-gates.
 	const gateMarkerKey = `topup_velocity:devpass_gate:${personalOrg.id}:${purchaseId}`;
-	let firstGateAttempt = true;
-	try {
-		firstGateAttempt =
-			(await redisClient.set(
+	const claimGate = async () => {
+		try {
+			return (
+				(await redisClient.set(
+					gateMarkerKey,
+					"pending",
+					"EX",
+					TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
+					"NX",
+				)) === "OK"
+			);
+		} catch {
+			// Redis unavailable: gate normally (the reservation path degrades to
+			// DB-only inside the check anyway).
+			return true;
+		}
+	};
+	let firstGateAttempt = await claimGate();
+	for (
+		let waitedMs = 0;
+		!firstGateAttempt && waitedMs < GATE_MARKER_WAIT_MS;
+		waitedMs += GATE_MARKER_POLL_MS
+	) {
+		const marker = await redisClient.get(gateMarkerKey);
+		if (marker === "passed") {
+			break;
+		}
+		if (marker === null) {
+			firstGateAttempt = await claimGate();
+			continue;
+		}
+		await new Promise((resolve) => setTimeout(resolve, GATE_MARKER_POLL_MS));
+	}
+	if (
+		!firstGateAttempt &&
+		(await redisClient.get(gateMarkerKey)) !== "passed"
+	) {
+		// Not a decline: the client keeps this purchaseId and retries it.
+		throw new HTTPException(503, {
+			message:
+				"This payment is still being processed. Retry in a moment with the same amount.",
+		});
+	}
+	const clearGateMarker = async () => {
+		try {
+			await redisClient.del(gateMarkerKey);
+		} catch {
+			// Marker expires with its TTL; a stuck marker only skips re-gating.
+		}
+	};
+	if (firstGateAttempt) {
+		try {
+			await assertTopUpVelocityAllowed(personalOrg, gateGrossUsd, { user });
+		} catch (err) {
+			// Rejected, so nothing is reserved: a retry of this id must re-gate.
+			await clearGateMarker();
+			throw err;
+		}
+		try {
+			// XX: never create a marker this request did not claim (the claim may
+			// have failed on a Redis error), and always bound it with a TTL.
+			await redisClient.set(
 				gateMarkerKey,
-				"1",
+				"passed",
 				"EX",
 				TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
-				"NX",
-			)) === "OK";
-	} catch {
-		// Redis unavailable: gate normally (the reservation path degrades to
-		// DB-only inside the check anyway).
-		firstGateAttempt = true;
-	}
-	if (firstGateAttempt) {
-		await assertTopUpVelocityAllowed(personalOrg, gateGrossUsd, { user });
+				"XX",
+			);
+		} catch {
+			// Duplicates then wait out the poll and get a retryable 503.
+		}
 	}
 	const releaseGate = async () => {
 		if (!firstGateAttempt) {
 			return;
 		}
 		await releaseTopUpReservation(personalOrg.id, gateGrossUsd);
-		try {
-			await redisClient.del(gateMarkerKey);
-		} catch {
-			// Marker expires with its TTL; a stuck marker only skips re-gating.
-		}
+		await clearGateMarker();
 	};
 
 	// A failure before the charge means no money moved — free the reservation.

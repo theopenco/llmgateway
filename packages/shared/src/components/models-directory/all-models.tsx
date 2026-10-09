@@ -942,8 +942,7 @@ export function AllModels({
 	const urlCategory = searchParams.get("category");
 
 	// The status chips are single-select: `?status=` holds at most one value.
-	// Legacy `?deactivated=true` links map onto the Deactivated chip so old
-	// URLs keep working. No param means the default view (no status filter).
+	// Legacy links retain their inclusive visibility independently of status.
 	function getStatusFilterFromUrl(
 		searchParams: URLSearchParams,
 	): ModelMappingStatus | null {
@@ -951,7 +950,7 @@ export function AllModels({
 		if (status && isModelMappingStatus(status) && status !== "active") {
 			return status;
 		}
-		return searchParams.get("deactivated") === "true" ? "deactivated" : null;
+		return null;
 	}
 
 	const [filters, setFilters] = useState(() => {
@@ -996,6 +995,7 @@ export function AllModels({
 			capabilities,
 			selectedProvider: searchParams.get("provider") ?? "all",
 			status: getStatusFilterFromUrl(searchParams),
+			showDeactivated: searchParams.get("deactivated") === "true",
 			source: searchParams.get("source") ?? "all",
 			eligibleOnly: searchParams.get("eligibility") === "eligible",
 			inputPrice: {
@@ -1073,7 +1073,7 @@ export function AllModels({
 
 	const setStatusFilter = useCallback(
 		(status: ModelMappingStatus | null) => {
-			setFilters((prev) => ({ ...prev, status }));
+			setFilters((prev) => ({ ...prev, status, showDeactivated: false }));
 			updateUrlWithFilters({
 				status: status ?? undefined,
 				deactivated: undefined,
@@ -1094,7 +1094,7 @@ export function AllModels({
 					mapping,
 					{
 						status: filters.status,
-						showDeactivated: false,
+						showDeactivated: filters.showDeactivated,
 						eligibleOnly: filters.eligibleOnly,
 					},
 					now,
@@ -1106,7 +1106,13 @@ export function AllModels({
 			totalModelCount: visibleModelCount,
 			totalProviderCount: providers.length,
 		};
-	}, [models, providers, filters.status, filters.eligibleOnly]);
+	}, [
+		models,
+		providers,
+		filters.status,
+		filters.showDeactivated,
+		filters.eligibleOnly,
+	]);
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
 		const now = new Date();
@@ -1125,16 +1131,42 @@ export function AllModels({
 				// Filter out deprecated provider mappings, plus deactivated ones
 				// unless the visitor opted into seeing them; with a status chip
 				// active only mappings of exactly that status remain
-				const visibleMappings = model.mappings.filter((mapping) =>
-					isVisibleMapping(
-						mapping,
-						{
-							status: filters.status,
-							showDeactivated: false,
-							eligibleOnly: filters.eligibleOnly,
-						},
-						now,
-					),
+				const visibleMappings = model.mappings.filter(
+					(mapping) =>
+						providerRowPassesFilters(model, mapping, {
+							providerFilter:
+								filters.selectedProvider === "all"
+									? null
+									: filters.selectedProvider,
+							capabilities: filters.capabilities,
+							categoryFilter,
+							category: filters.category,
+						}) &&
+						withinBounds(
+							inputPriceInUnit(mapping, priceUnit),
+							filters.inputPrice.min,
+							filters.inputPrice.max,
+						) &&
+						withinBounds(
+							outputPriceInUnit(mapping, priceUnit),
+							filters.outputPrice.min,
+							filters.outputPrice.max,
+						) &&
+						withinBounds(
+							mapping.contextSize ?? null,
+							filters.contextSize.min,
+							filters.contextSize.max,
+						) &&
+						(!priceUnit || minUnitPrice(mapping, priceUnit) !== null) &&
+						isVisibleMapping(
+							mapping,
+							{
+								status: filters.status,
+								showDeactivated: filters.showDeactivated,
+								eligibleOnly: filters.eligibleOnly,
+							},
+							now,
+						),
 				);
 
 				return {
@@ -1167,13 +1199,13 @@ export function AllModels({
 						.toLowerCase()
 						.normalize("NFD")
 						.replace(/[\u0300-\u036f]/g, "") // strip accents
-						.replace(/[^a-z0-9]/g, "");
+						.replace(new RegExp("[^\\p{L}\\p{N}]", "gu"), "");
 
 				const queryTokens = deferredSearchQuery
 					.trim()
 					.toLowerCase()
 					.split(/\s+/)
-					.map((t: string) => t.replace(/[^a-z0-9]/g, ""))
+					.map(normalize)
 					.filter(Boolean);
 
 				const providerStrings = (model.providerDetails ?? []).flatMap((p) => [
@@ -1195,9 +1227,11 @@ export function AllModels({
 				);
 				const containsPhrase = normalizedQuery
 					? haystack.includes(normalizedQuery)
-					: true;
+					: false;
 
-				if (!(containsAllTokens || containsPhrase)) {
+				// A query with nothing searchable in it (only spaces or punctuation)
+				// filters nothing.
+				if (normalizedQuery && !(containsAllTokens || containsPhrase)) {
 					return false;
 				}
 			}
@@ -1758,6 +1792,7 @@ export function AllModels({
 			},
 			selectedProvider: "all",
 			status: null,
+			showDeactivated: false,
 			source: "all",
 			eligibleOnly: false,
 			inputPrice: { min: "", max: "" },

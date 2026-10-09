@@ -39,6 +39,7 @@ export function formatDeprecationDate(
 		month: "short",
 		day: "numeric",
 		year: "numeric",
+		timeZone: "UTC",
 	});
 
 	if (type === "deprecated") {

@@ -419,15 +419,20 @@ const calibrationCase: BenchmarkCase = {
 		const raw = extractFinalAnswer(response.content);
 		const [answer, confidenceRaw] = raw.split("|");
 		const confidence = Number(confidenceRaw);
+		const validConfidence =
+			Boolean(confidenceRaw?.trim()) &&
+			raw.split("|").length === 2 &&
+			Number.isFinite(confidence) &&
+			confidence >= 0 &&
+			confidence <= 1;
 		return {
-			passed: normalizeAnswer(answer ?? "") === "1/6",
+			passed: normalizeAnswer(answer ?? "") === "1/6" && validConfidence,
 			answer,
 			expected: "1/6",
-			confidence:
-				Number.isFinite(confidence) && confidence >= 0 && confidence <= 1
-					? confidence
-					: 0,
-			detail: "Answer and confidence parsed",
+			confidence: validConfidence ? confidence : undefined,
+			detail: validConfidence
+				? "Answer and confidence parsed"
+				: "Missing or invalid confidence",
 		};
 	},
 };

@@ -2,7 +2,10 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { generateText, tool } from "ai";
 import { HTTPException } from "hono/http-exception";
 
-import { extractFileText } from "@/lib/file-extract.js";
+import {
+	ExtractedTextTooLongError,
+	extractFileText,
+} from "@/lib/file-extract.js";
 import { chunkText, cosineSimilarity, embedTexts } from "@/lib/rag.js";
 import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 import {
@@ -523,10 +526,18 @@ chatProjects.openapi(uploadFile, async (c) => {
 		const buffer = Buffer.from(body.contentBase64, "base64");
 		fileSize = buffer.length;
 		try {
-			textContent = await extractFileText(body.name, body.mimeType, buffer);
-		} catch {
+			textContent = await extractFileText(
+				body.name,
+				body.mimeType,
+				buffer,
+				MAX_FILE_CONTENT_CHARS,
+			);
+		} catch (error) {
 			throw new HTTPException(400, {
-				message: `Could not extract text from ${body.name}`,
+				message:
+					error instanceof ExtractedTextTooLongError
+						? error.message
+						: `Could not extract text from ${body.name}`,
 			});
 		}
 		if (textContent.length > MAX_FILE_CONTENT_CHARS) {

@@ -1,3 +1,5 @@
+import { createInflectedWordRegex } from "./literal-regex.js";
+
 import type {
 	TopicRestrictionRuleConfig,
 	GuardrailAction,
@@ -66,6 +68,7 @@ const TOPIC_KEYWORDS: Record<string, string[]> = {
 	medical_advice: [
 		"diagnosis",
 		"prescribe",
+		"prescription",
 		"medication",
 		"treatment",
 		"medical advice",
@@ -93,14 +96,14 @@ export function checkTopicRestriction(
 		const keywords = TOPIC_KEYWORDS[topic.toLowerCase()];
 		if (keywords) {
 			for (const keyword of keywords) {
-				if (contentLower.includes(keyword.toLowerCase())) {
+				if (createInflectedWordRegex(keyword).test(contentLower)) {
 					matches.push(`${topic}: ${keyword}`);
 					break; // One match per topic is enough
 				}
 			}
 		} else {
 			// Treat the topic itself as a keyword to search for
-			if (contentLower.includes(topic.toLowerCase())) {
+			if (topic.trim() && createInflectedWordRegex(topic).test(contentLower)) {
 				matches.push(topic);
 			}
 		}

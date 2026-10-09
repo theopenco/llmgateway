@@ -48,6 +48,7 @@ function IncidentsContent() {
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const mapping = searchParams.get("mapping");
+	const model = searchParams.get("model");
 	const groupByError = searchParams.get("group") === "error";
 	const includeByok = searchParams.get("includeByok") === "true";
 	const { company, isLoading: companyLoading } = useCompany();
@@ -83,12 +84,27 @@ function IncidentsContent() {
 	const filteredQuery = api.useQuery(
 		"get",
 		"/airside/incidents",
-		{ params: { query: { ...baseQuery, mapping: mapping ?? undefined } } },
-		{ ...queryOptions, enabled: !!company && mapping !== null },
+		{
+			params: {
+				query: {
+					...baseQuery,
+					mapping: mapping ?? undefined,
+					model: model ?? undefined,
+				},
+			},
+		},
+		{
+			...queryOptions,
+			enabled: !!company && (mapping !== null || model !== null),
+		},
 	);
 
 	function setParam(name: string, next: string | null) {
 		const params = new URLSearchParams(searchParams.toString());
+		if (name === "mapping") {
+			// Picking or clearing a mapping replaces the all-regions model filter.
+			params.delete("model");
+		}
 		if (next) {
 			params.set(name, next);
 		} else {
@@ -119,7 +135,8 @@ function IncidentsContent() {
 		);
 	}
 
-	const activeQuery = mapping !== null ? filteredQuery : allQuery;
+	const activeQuery =
+		mapping !== null || model !== null ? filteredQuery : allQuery;
 	const data = activeQuery.data;
 	const refreshing = activeQuery.isPlaceholderData;
 	const mappingOptions = allQuery.data?.mappings.map((row) => row.usedModel);
@@ -270,13 +287,13 @@ function IncidentsContent() {
 								))}
 							</SelectContent>
 						</Select>
-						{mapping !== null ? (
+						{mapping !== null || (model !== null && !groupByError) ? (
 							<button
 								type="button"
 								onClick={() => setMapping(null)}
 								className="bg-primary/15 text-primary inline-flex items-center gap-1 rounded px-2 py-1 font-mono text-xs"
 							>
-								{mapping}
+								{mapping ?? `${model} (all regions)`}
 								<X className="size-3" aria-label="Clear mapping filter" />
 							</button>
 						) : null}

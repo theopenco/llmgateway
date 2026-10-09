@@ -58,6 +58,8 @@ The protocol carries the language-model specification version in a request heade
 | 6      | 3            | `https://api.llmgateway.io/v3/ai` |
 | 7      | 4            | `https://api.llmgateway.io/v4/ai` |
 
+Generated responses and terminal stream parts use the negotiated finish-reason format: a string for spec v2, or `{ unified, raw }` for spec v3 and v4. The `raw` field preserves the provider's original finish reason when supplied. An empty `finish_reason` in a later stream chunk does not replace an earlier non-empty reason.
+
 ## Model IDs
 
 Model IDs use the provider-pinned `provider/model` form (`anthropic/claude-sonnet-5`, `openai/gpt-4o`) — the same convention AI Gateway IDs use, so existing model strings resolve unchanged.
@@ -81,6 +83,11 @@ const { balance, totalUsed } = await gateway.getCredits();
 `balance` is the organization's remaining credit balance and `totalUsed` its lifetime credits spend.
 
 ## Gateway-only options
+
+AI SDK 7's top-level `reasoning` option maps to `reasoning_effort`.
+`provider-default` leaves the provider's default unchanged; unsupported values
+produce a warning. An explicit `providerOptions.llmgateway.reasoning_effort`
+overrides the top-level setting.
 
 Features that have no field in the AI SDK call options — reasoning effort, service tier, routing strategy, prompt cache keys, plugins — are set through the `llmgateway` provider options namespace, which is passed onto the underlying request:
 

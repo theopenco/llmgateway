@@ -31,7 +31,6 @@ import {
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import {
 	anthropicThinkingBlocksFor,
@@ -44,9 +43,7 @@ import {
 	toAnthropicToolSearchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
-import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { orderToolResultReminders } from "./order-tool-result-reminders.js";
-import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
@@ -252,37 +249,13 @@ function normalizeImageModeration(
 async function fetchImageAsBlob(
 	url: string,
 	index: number,
+	maxSizeMB: number,
 ): Promise<{ blob: Blob; filename: string }> {
-	const parsed = parseDataUrl(url);
-	if (parsed) {
-		const mimeType = parsed.mediaType || "image/png";
-		const payload = parsed.data;
-		const isBase64 = parsed.isBase64;
-		const raw = isBase64
-			? Buffer.from(payload, "base64")
-			: Buffer.from(decodeURIComponent(payload), "utf-8");
-		const buffer = new ArrayBuffer(raw.byteLength);
-		new Uint8Array(buffer).set(raw);
-		const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
-		return {
-			blob: new Blob([buffer], { type: mimeType }),
-			filename: `image-${index}.${ext}`,
-		};
-	}
-
-	// SSRF: the URL comes from the request body, so validate it does not resolve
-	// to an internal host and refuse redirects before fetching.
-	await assertSafeUserContentUrl(url);
-	const response = await fetchNoRedirect(url);
-	if (!response.ok) {
-		throw new Error(
-			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
-		);
-	}
-	const mimeType =
-		response.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
-	const buffer = await response.arrayBuffer();
-	const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
+	const { data, mimeType } = await processImageUrl(url, false, maxSizeMB);
+	const raw = Buffer.from(data, "base64");
+	const buffer = new ArrayBuffer(raw.byteLength);
+	new Uint8Array(buffer).set(raw);
+	const ext = mimeType.split(";")[0].split("/")[1]?.split("+")[0] ?? "png";
 	return {
 		blob: new Blob([buffer], { type: mimeType }),
 		filename: `image-${index}.${ext}`,
@@ -1584,7 +1557,9 @@ export async function prepareRequestBody(
 			}
 
 			const decoded = await Promise.all(
-				imageUrls.map((url, index) => fetchImageAsBlob(url, index)),
+				imageUrls.map((url, index) =>
+					fetchImageAsBlob(url, index, maxImageSizeMB),
+				),
 			);
 			const fieldName = decoded.length === 1 ? "image" : "image[]";
 			for (const { blob, filename } of decoded) {
@@ -1918,6 +1893,52 @@ export async function prepareRequestBody(
 	// working while traffic that sends no markers never pays the write premium.
 	const allowProviderCacheWrites = providerCacheControlMode !== "off";
 	const autoInjectCacheControl = providerCacheControlMode === "auto";
+
+	if (!anthropicMessagesApi) {
+		const messagesWithImages: BaseMessage[] = [];
+		const pendingImages: BaseMessage[] = [];
+		for (const message of processedMessages) {
+			if (message.role !== "tool") {
+				messagesWithImages.push(...pendingImages.splice(0));
+			}
+			if (message.role === "tool" && Array.isArray(message.content)) {
+				const images = message.content.filter(
+					(part) => part.type === "image_url",
+				);
+				if (images.length > 0) {
+					const rest = message.content.filter(
+						(part) => part.type !== "image_url",
+					);
+					// An empty tool result reads as "no output" and models re-call
+					// the tool instead of looking at the relocated images.
+					messagesWithImages.push({
+						...message,
+						content: rest.length
+							? rest
+							: [
+									{
+										type: "text",
+										text: `The tool returned ${images.length} ${images.length === 1 ? "image" : "images"}, attached in the next message.`,
+									},
+								],
+					});
+					pendingImages.push({
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: `Images from tool result ${message.tool_call_id ?? ""}:`,
+							},
+							...images,
+						],
+					});
+					continue;
+				}
+			}
+			messagesWithImages.push(message);
+		}
+		processedMessages = [...messagesWithImages, ...pendingImages];
+	}
 
 	// A tool message's `tool_result_cache_control` only has a destination on the
 	// Anthropic Messages API, where it becomes a marker on the tool_result block

@@ -278,6 +278,41 @@ describe("anthropic tool search", () => {
 		);
 	});
 
+	test("keeps a tool_reference-only tool result for other providers", async () => {
+		const references = [{ type: "tool_reference", tool_name: "get_weather" }];
+		const body = (await prepare(
+			"openai",
+			"gpt-4o-mini",
+			[
+				{ role: "user", content: "What is the weather in Paris?" },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "toolu_search",
+							type: "function",
+							function: { name: "find_tools", arguments: '{"q":"weather"}' },
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "toolu_search",
+					content: "",
+					anthropic_native_blocks: references,
+				},
+			],
+			[DEFERRED_TOOL],
+		)) as OpenAIRequestBody;
+
+		expect(body.messages.at(-1)).toMatchObject({
+			role: "tool",
+			tool_call_id: "toolu_search",
+			content: JSON.stringify(references),
+		});
+	});
+
 	test("replays tool_reference blocks in a tool_result verbatim", async () => {
 		const references = [{ type: "tool_reference", tool_name: "get_weather" }];
 		const body = (await prepare(
@@ -312,6 +347,54 @@ describe("anthropic tool search", () => {
 				type: "tool_result",
 				tool_use_id: "toolu_search",
 				content: references,
+				cache_control: { type: "ephemeral" },
+			},
+		]);
+	});
+
+	test("drops empty text parts from an array tool_result", async () => {
+		const toolResult = async (content: BaseMessage["content"]) => {
+			const body = (await prepare(
+				"anthropic",
+				"claude-sonnet-4-6",
+				[
+					{ role: "user", content: "What is the weather in Paris?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "toolu_1",
+								type: "function",
+								function: { name: "get_weather", arguments: "{}" },
+							},
+						],
+					},
+					{ role: "tool", tool_call_id: "toolu_1", content },
+				],
+				[DEFERRED_TOOL],
+			)) as AnthropicRequestBody;
+			return body.messages.at(-1)?.content;
+		};
+
+		expect(await toolResult([{ type: "text", text: "" }])).toEqual([
+			{
+				type: "tool_result",
+				tool_use_id: "toolu_1",
+				content: "No output",
+				cache_control: { type: "ephemeral" },
+			},
+		]);
+		expect(
+			await toolResult([
+				{ type: "text", text: " " },
+				{ type: "text", text: "sunny" },
+			]),
+		).toEqual([
+			{
+				type: "tool_result",
+				tool_use_id: "toolu_1",
+				content: [{ type: "text", text: "sunny" }],
 				cache_control: { type: "ephemeral" },
 			},
 		]);

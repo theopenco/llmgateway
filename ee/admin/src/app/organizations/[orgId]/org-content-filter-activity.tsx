@@ -71,8 +71,13 @@ const percentFormatter = new Intl.NumberFormat("en-US", {
 export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 	const searchParams = useSearchParams();
 	const window = parseWindow(searchParams.get("window"));
-	const $api = useApi();
-	const { data, isLoading: loading } = $api.useQuery(
+	const api = useApi();
+	const {
+		data,
+		isPending: loading,
+		isError,
+		refetch,
+	} = api.useQuery(
 		"get",
 		"/admin/organizations/{orgId}/content-filter",
 		{ params: { path: { orgId }, query: { window } } },
@@ -97,8 +102,8 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 							Requests the gateway content filter sampled for this organization
 							over the selected window, and how many crossed their tier&apos;s
 							thresholds, broken down by category and by the model that served
-							the request. Sampled counts every moderated request; blocked is
-							the subset actually rejected.
+							the request. Sampled counts checks with a result; blocked is the
+							subset actually rejected.
 						</CardDescription>
 					</div>
 					<Link
@@ -113,6 +118,20 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 				{loading ? (
 					<div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
 						Loading...
+					</div>
+				) : isError && !data ? (
+					<div
+						role="alert"
+						className="flex h-[300px] items-center justify-center gap-2 text-sm text-muted-foreground"
+					>
+						Unable to load content filter activity.
+						<button
+							type="button"
+							className="underline"
+							onClick={() => void refetch()}
+						>
+							Try again
+						</button>
 					</div>
 				) : !data || !hasActivity ? (
 					<div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">

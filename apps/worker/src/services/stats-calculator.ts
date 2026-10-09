@@ -1,3 +1,5 @@
+import { isStopRequested } from "@/shutdown.js";
+
 import {
 	db,
 	provider,
@@ -396,15 +398,20 @@ function getCurrentHourStart(): Date {
  * Calculate and store 1-minute historical data for models for a specific minute
  * @param targetMinute The specific minute to calculate history for
  */
+type HistoryDatabase =
+	typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 interface MinuteHistoryOptions {
 	// Skip rows unchanged since this process last wrote the same minute; see
 	// upsertMinuteRows. Only the frequent current-minute refresh sets this.
 	incremental?: boolean;
+	// Transaction that writes the mapping and model rows for a minute together.
+	database?: HistoryDatabase;
 }
 
 async function calculateModelHistoryForMinute(
 	targetMinute: Date,
-	options: MinuteHistoryOptions = {},
+	{ database = db, ...options }: MinuteHistoryOptions = {},
 ) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 	if (roundedTargetMinute < getLogRetentionCutoff()) {
@@ -416,7 +423,6 @@ async function calculateModelHistoryForMinute(
 	const minuteAlreadyWritten = writeCache?.processed === true;
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
-	const database = db;
 
 	// Get logs from the specified minute, aggregated by base model.
 	// Note: usedModel contains "provider/model[:region]" in logs.
@@ -755,7 +761,7 @@ async function calculateModelHistoryForMinute(
  */
 async function calculateHistoryForMinute(
 	targetMinute: Date,
-	options: MinuteHistoryOptions = {},
+	{ database = db, ...options }: MinuteHistoryOptions = {},
 ) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 	if (roundedTargetMinute < getLogRetentionCutoff()) {
@@ -770,7 +776,6 @@ async function calculateHistoryForMinute(
 	const minuteAlreadyWritten = writeCache?.processed === true;
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
-	const database = db;
 
 	// Get logs from the specified minute and normalize them back into the
 	// (base model, provider, region) tuple used by model_provider_mapping.
@@ -1185,6 +1190,32 @@ async function calculateHistoryForMinute(
 	};
 }
 
+async function calculateMinuteHistory(
+	targetMinute: Date,
+	options: Omit<MinuteHistoryOptions, "database"> = {},
+) {
+	try {
+		return await db.transaction(async (database) => ({
+			mappingResult: await calculateHistoryForMinute(targetMinute, {
+				...options,
+				database,
+			}),
+			modelResult: await calculateModelHistoryForMinute(targetMinute, {
+				...options,
+				database,
+			}),
+		}));
+	} catch (error) {
+		// A rollback undoes writes the incremental cache already recorded, so
+		// forget this minute and let the next refresh write it in full.
+		const minuteMs = roundToMinuteStart(targetMinute).getTime();
+		for (const perMinute of minuteWriteCaches.values()) {
+			perMinute.delete(minuteMs);
+		}
+		throw error;
+	}
+}
+
 type AggregationJob =
 	"minute-usage" | "hourly-usage" | "routing" | "content-filter";
 
@@ -1259,12 +1290,10 @@ async function refreshMinute(minute: Date, incremental = false) {
 						eq(aggregationProgress.bucketTimestamp, roundToHourStart(minute)),
 					),
 				);
-			const mappingResult = await calculateHistoryForMinute(minute, {
-				incremental,
-			});
-			const modelResult = await calculateModelHistoryForMinute(minute, {
-				incremental,
-			});
+			const { mappingResult, modelResult } = await calculateMinuteHistory(
+				minute,
+				{ incremental },
+			);
 			await recordProgress("minute-usage", minute, !incremental);
 			return { mappingResult, modelResult };
 		},
@@ -1349,7 +1378,7 @@ export async function backfillHistoryIfNeeded(maxBuckets = 1440) {
 		if (completed.has(ms)) {
 			continue;
 		}
-		if (computed >= maxBuckets) {
+		if (isStopRequested() || computed >= maxBuckets) {
 			return false;
 		}
 		await refreshMinute(new Date(ms));
@@ -1935,7 +1964,7 @@ export async function backfillHourlyHistoryIfNeeded(
 		if (!usage && !routing && !contentFilter) {
 			continue;
 		}
-		if (computed >= maxBuckets) {
+		if (isStopRequested() || computed >= maxBuckets) {
 			return false;
 		}
 		// A pending minute means recovery was capped or failed. Do not finalize

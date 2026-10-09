@@ -696,6 +696,8 @@ export async function processAutoTopUp(): Promise<void> {
 				});
 				if (
 					!freshOrg ||
+					freshOrg.riskFlagged ||
+					freshOrg.status !== "active" ||
 					!freshOrg.autoTopUpEnabled ||
 					(freshOrg.kind === "devpass" && !freshOrg.devPlanPaygEnabled) ||
 					Number(freshOrg.credits || 0) >=

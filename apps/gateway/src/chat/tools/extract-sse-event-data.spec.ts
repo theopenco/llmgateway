@@ -3,6 +3,16 @@ import { describe, expect, it } from "vitest";
 import { extractSseEventData } from "./extract-sse-event-data.js";
 
 describe("extractSseEventData", () => {
+	it.each(["\n", "\r\n", "\r"])(
+		"reads an error with %j line endings",
+		(newline) => {
+			expect(
+				extractSseEventData(
+					`event: error${newline}data: {"error":"failed"}${newline}${newline}`,
+				),
+			).toEqual(['{"error":"failed"}']);
+		},
+	);
 	it("returns the first payload event", () => {
 		expect(extractSseEventData('data: {"ok":true}\n\n')).toEqual([
 			'{"ok":true}',

@@ -397,6 +397,31 @@ describe("findManagedProviderAvailability", () => {
 		).toBe("bedrock-regional");
 	});
 
+	it("reports pinned regions only for credentials the request can select", async () => {
+		await insertManaged({
+			id: "ent-frankfurt",
+			provider: "aws-bedrock",
+			variant: "enterprise",
+			region: "eu-central-1",
+		});
+		await insertManaged({
+			id: "default-virginia",
+			provider: "aws-bedrock",
+			region: "us-east-1",
+		});
+
+		expect(
+			(await findManagedProviderAvailability()).pinnedRegions.get(
+				"aws-bedrock",
+			),
+		).toEqual(new Set(["us-east-1"]));
+		expect(
+			(await findManagedProviderAvailability("enterprise")).pinnedRegions.get(
+				"aws-bedrock",
+			),
+		).toEqual(new Set(["eu-central-1"]));
+	});
+
 	it("does not let a region-agnostic default rescue a region-pinned variant", async () => {
 		// An enterprise org resolves to the enterprise credentials and never
 		// falls back to default once any enterprise credential exists, so a

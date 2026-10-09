@@ -49,6 +49,40 @@ describe("detectSecrets", () => {
 });
 
 describe("redactSecrets", () => {
+	it("redacts the body of a truncated private key", () => {
+		const content = [
+			"before",
+			"-----BEGIN RSA PRIVATE KEY-----",
+			"YWJjZA==",
+		].join("\n");
+		expect(redactSecrets(content).redacted).toBe("before\n[SECRET_REDACTED]");
+	});
+	it.each(["", "RSA ", "EC ", "OPENSSH ", "PGP ", "ENCRYPTED "])(
+		"redacts the whole %sprivate key without removing surrounding text",
+		(prefix) => {
+			const key = [
+				`-----BEGIN ${prefix}PRIVATE KEY-----`,
+				Buffer.from("synthetic private key material").toString("base64"),
+				`-----END ${prefix}PRIVATE KEY-----`,
+			].join("\n");
+
+			expect(redactSecrets(`before\n${key}\nafter`).redacted).toBe(
+				"before\n[SECRET_REDACTED]\nafter",
+			);
+		},
+	);
+
+	it("redacts separate private keys independently", () => {
+		const key = [
+			"-----BEGIN PRIVATE KEY-----",
+			"YWJjZA==",
+			"-----END PRIVATE KEY-----",
+		].join("\r\n");
+		expect(redactSecrets(`${key}\nkeep this text\n${key}`).redacted).toBe(
+			"[SECRET_REDACTED]\nkeep this text\n[SECRET_REDACTED]",
+		);
+	});
+
 	it("leaves a git sha untouched", () => {
 		const content = "commit a94a8fe5ccb19ba61c4c0873d391e987982fbbd3";
 		expect(redactSecrets(content).redacted).toBe(content);

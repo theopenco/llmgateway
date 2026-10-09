@@ -71,27 +71,29 @@ export function addApiKeyPeriodDuration(
 	const next = new Date(startedAt);
 
 	switch (unit) {
-		case "hour":
-			next.setHours(next.getHours() + value);
+		case "hour": {
+			const milliseconds = value * 60 * 60 * 1000;
+			next.setTime(next.getTime() + milliseconds);
 			return next;
+		}
+		// Calendar units use UTC so a window does not drift by the host's DST
+		// offset (an API server and a browser would otherwise disagree).
 		case "day":
-			next.setDate(next.getDate() + value);
+			next.setUTCDate(next.getUTCDate() + value);
 			return next;
 		case "week": {
 			const daysToAdd = value * 7;
-			next.setDate(next.getDate() + daysToAdd);
+			next.setUTCDate(next.getUTCDate() + daysToAdd);
 			return next;
 		}
 		case "month": {
-			const dayOfMonth = next.getDate();
-			next.setDate(1);
-			next.setMonth(next.getMonth() + value);
+			const dayOfMonth = next.getUTCDate();
+			next.setUTCDate(1);
+			next.setUTCMonth(next.getUTCMonth() + value);
 			const lastDayOfTargetMonth = new Date(
-				next.getFullYear(),
-				next.getMonth() + 1,
-				0,
-			).getDate();
-			next.setDate(Math.min(dayOfMonth, lastDayOfTargetMonth));
+				Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0),
+			).getUTCDate();
+			next.setUTCDate(Math.min(dayOfMonth, lastDayOfTargetMonth));
 			return next;
 		}
 	}

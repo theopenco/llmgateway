@@ -48,7 +48,7 @@ interface ManageOrgDialogProps {
 	seats: number | null;
 	apiKeyLimit: number | null;
 	projectLimit: number | null;
-	trustTierOverride: number | null;
+	trustTierOverride?: number | null;
 	// Undefined when the settings response is unavailable: the controls are
 	// hidden and the save leaves both values untouched.
 	contentFilterTierOverride?: number | null;
@@ -167,9 +167,14 @@ export function ManageOrgDialog({
 	const [projectLimitValue, setProjectLimitValue] = useState(
 		projectLimit === null ? "" : String(projectLimit),
 	);
-	const [trustTierValue, setTrustTierValue] = useState(
-		trustTierOverride === null ? "auto" : String(trustTierOverride),
-	);
+	const [trustTierSelection, setTrustTierValue] = useState<string | null>(null);
+	const trustTierValue =
+		trustTierSelection ??
+		(trustTierOverride === undefined
+			? "unavailable"
+			: trustTierOverride === null
+				? "auto"
+				: String(trustTierOverride));
 	const hasContentFilterControls =
 		contentFilterTierOverride !== undefined &&
 		contentFilterLogOnly !== undefined;
@@ -342,8 +347,12 @@ export function ManageOrgDialog({
 				seats: seatsToSave,
 				apiKeyLimit: apiKeyLimitToSave,
 				projectLimit: projectLimitToSave,
-				trustTierOverride:
-					trustTierValue === "auto" ? null : Number(trustTierValue),
+				...(trustTierOverride !== undefined
+					? {
+							trustTierOverride:
+								trustTierValue === "auto" ? null : Number(trustTierValue),
+						}
+					: {}),
 				...(hasContentFilterControls
 					? {
 							contentFilterTierOverride:
@@ -696,11 +705,20 @@ export function ManageOrgDialog({
 
 					<div className="space-y-2">
 						<Label htmlFor="manageTrustTier">Trust tier override</Label>
-						<Select value={trustTierValue} onValueChange={setTrustTierValue}>
+						<Select
+							value={trustTierValue}
+							onValueChange={setTrustTierValue}
+							disabled={trustTierOverride === undefined}
+						>
 							<SelectTrigger id="manageTrustTier">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
+								{trustTierOverride === undefined && (
+									<SelectItem value="unavailable">
+										Unavailable (unchanged)
+									</SelectItem>
+								)}
 								<SelectItem value="auto">
 									Automatic (age/spend ladder)
 								</SelectItem>

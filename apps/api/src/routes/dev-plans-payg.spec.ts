@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { redisClient } from "@llmgateway/cache";
 import { db, tables } from "@llmgateway/db";
 
 const stripeMock = vi.hoisted(() => ({
@@ -506,6 +507,62 @@ describe("dev-plan PAYG top-up", () => {
 		expect(
 			stripeMock.paymentIntents.create.mock.calls[2][1]?.idempotencyKey,
 		).toBe(`dev-plan-topup:${ORG_ID}:attempt-def-456`);
+	});
+
+	it("re-gates a replayed purchaseId after a velocity rejection", async () => {
+		vi.stubEnv("GATEWAY_TOPUP_VELOCITY_ENABLED", "true");
+		vi.stubEnv("GATEWAY_SPEND_TIER_0_TOPUP_DAILY_CAP_USD", "20");
+		await insertOrg();
+
+		// A rejected attempt reserves nothing, so replaying its purchaseId must
+		// hit the velocity check again instead of skipping it.
+		for (let attempt = 0; attempt < 2; attempt++) {
+			const res = await topUpRequest(
+				{ amount: 25, purchaseId: "attempt-over-cap" },
+				token,
+			);
+			expect(res.status).toBe(429);
+		}
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+	});
+
+	it("gates a concurrent duplicate whose first attempt was rejected", async () => {
+		vi.stubEnv("GATEWAY_TOPUP_VELOCITY_ENABLED", "true");
+		vi.stubEnv("GATEWAY_SPEND_TIER_0_TOPUP_DAILY_CAP_USD", "20");
+		await insertOrg();
+
+		// The first attempt is still inside the gate, then is rejected and
+		// clears its marker. The duplicate must gate itself, not charge.
+		const marker = `topup_velocity:devpass_gate:${ORG_ID}:attempt-racing`;
+		await redisClient.set(marker, "pending", "EX", 60);
+		const duplicate = topUpRequest(
+			{ amount: 25, purchaseId: "attempt-racing" },
+			token,
+		);
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		await redisClient.del(marker);
+
+		expect((await duplicate).status).toBe(429);
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+	});
+
+	it("never leaves an unbounded gate marker when the claim failed", async () => {
+		await insertOrg();
+		const marker = `topup_velocity:devpass_gate:${ORG_ID}:attempt-redis-down`;
+		const set = redisClient.set.bind(redisClient);
+		vi.spyOn(redisClient, "set").mockImplementation(((
+			...args: Parameters<typeof redisClient.set>
+		) =>
+			args[0] === marker && args.includes("NX")
+				? Promise.reject(new Error("Redis unavailable"))
+				: set(...args)) as typeof redisClient.set);
+
+		const res = await topUpRequest(
+			{ amount: 25, purchaseId: "attempt-redis-down" },
+			token,
+		);
+		expect(res.status).toBe(200);
+		expect(await redisClient.ttl(marker)).not.toBe(-1);
 	});
 
 	it("rejects a top-up without a purchaseId", async () => {

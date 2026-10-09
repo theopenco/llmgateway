@@ -3,6 +3,8 @@
 import { usePathname } from "next/navigation";
 
 import { AirsideSidebar } from "@/components/dashboard/AirsideSidebar";
+import { useCompany } from "@/components/dashboard/company-context";
+import { QueryError } from "@/components/dashboard/IncidentsTable";
 import { findActiveNav, getNavGroups } from "@/components/dashboard/nav";
 import { ShellBanners } from "@/components/dashboard/ShellBanners";
 import { TopBarActions } from "@/components/dashboard/TopBarActions";
@@ -57,6 +59,7 @@ export function DashboardShell({
 	defaultSidebarOpen?: boolean;
 }) {
 	const badges = useNavBadges();
+	const { isError, isFetching, retry } = useCompany();
 
 	return (
 		<SidebarProvider defaultOpen={defaultSidebarOpen}>
@@ -70,7 +73,17 @@ export function DashboardShell({
 				</header>
 				<div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-6 sm:px-6">
 					<ShellBanners />
-					<div className="min-w-0 flex-1">{children}</div>
+					<div className="min-w-0 flex-1">
+						{isError ? (
+							<QueryError
+								message="Could not load your carrier companies."
+								onRetry={retry}
+								retrying={isFetching}
+							/>
+						) : (
+							children
+						)}
+					</div>
 				</div>
 			</SidebarInset>
 		</SidebarProvider>

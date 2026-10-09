@@ -23,6 +23,8 @@ import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 
+import { getSafeRedirectPath } from "@llmgateway/shared/safe-redirect";
+
 const formSchema = z.object({
 	email: z.string().email({ message: "Please enter a valid email address" }),
 	password: z
@@ -30,23 +32,13 @@ const formSchema = z.object({
 		.min(8, { message: "Password must be at least 8 characters" }),
 });
 
-function getSafeRedirectUrl(url: string | null): string {
-	if (!url) {
-		return "/";
-	}
-	if (url.startsWith("/") && !url.startsWith("//")) {
-		return url;
-	}
-	return "/";
-}
-
 export default function Login() {
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const [isLoading, setIsLoading] = useState(false);
 	const { signIn } = useAuth();
-	const returnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
+	const returnUrl = getSafeRedirectPath(searchParams.get("returnUrl"));
 
 	useUser({
 		redirectTo: returnUrl,
@@ -124,7 +116,7 @@ export default function Login() {
 				onSuccess: () => {
 					queryClient.clear();
 					toast.success("Login successful");
-					router.push("/");
+					router.push(returnUrl);
 				},
 				onError: (ctx) => {
 					toast.error(ctx.error.message ?? "An unknown error occurred", {

@@ -105,6 +105,29 @@ describe("ai sdk gateway protocol surface", () => {
 		expect(json.usage.outputTokens).toHaveProperty("total");
 	});
 
+	test.each(["2", "3", "4"])(
+		"returns the negotiated v%s finish reason in both response modes",
+		async (specVersion) => {
+			const token = await seedKeys(`finish-${specVersion}`);
+			const finishReason =
+				specVersion === "2" ? "stop" : { unified: "stop", raw: "stop" };
+			for (const stream of [false, true]) {
+				const response = await languageModel(
+					token,
+					{
+						prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+					},
+					{ specVersion, stream },
+				);
+				expect(response.status).toBe(200);
+				const result = stream
+					? (await readStreamParts(response)).at(-1)
+					: await response.json();
+				expect(result).toMatchObject({ finishReason });
+			}
+		},
+	);
+
 	test("reports flat usage when the caller announced spec version 2", async () => {
 		const token = await seedKeys("v2");
 

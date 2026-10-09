@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	hasProviderEnvironmentToken,
 	getOrganizationEnvVariant,
 	getProviderEnvExclusiveGroups,
 	getProviderEnvExclusiveViolations,
@@ -21,6 +22,12 @@ const PLANS_REGIONAL = `${BASE}__PLANS__US_VIRGINIA`;
 const VERTEX_PROJECT = "LLM_GOOGLE_CLOUD_PROJECT";
 
 describe("variant env var helpers", () => {
+	it("discovers only the requesting variant credential", () => {
+		vi.stubEnv(BASE, "");
+		vi.stubEnv(PLANS, "plan-key");
+		expect(hasProviderEnvironmentToken("alibaba", "plans")).toBe(true);
+		expect(hasProviderEnvironmentToken("alibaba")).toBe(false);
+	});
 	beforeEach(() => {
 		for (const name of [
 			BASE,

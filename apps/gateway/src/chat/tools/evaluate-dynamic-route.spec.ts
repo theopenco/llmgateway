@@ -28,6 +28,51 @@ function makeContext(
 }
 
 describe("evaluateDynamicRoute", () => {
+	it("evaluates a valid path through all 100 allowed nodes", () => {
+		const graph = dynamicRouteGraphSchema.parse({
+			entry: "n0",
+			nodes: [
+				...Array.from({ length: 99 }, (_, index) => ({
+					id: `n${index}`,
+					type: "conditional",
+					conditions: [
+						{
+							field: { source: "header", path: "x-test" },
+							op: "exists",
+							next: `n${index + 1}`,
+						},
+					],
+					else: `n${index + 1}`,
+				})),
+				{ id: "n99", type: "end" },
+			],
+		});
+		expect(evaluateDynamicRoute(graph, makeContext()).path).toHaveLength(100);
+	});
+
+	it("preserves split proportions when finite weights would overflow their sum", () => {
+		const graph = (weight: number): DynamicRouteGraph => ({
+			entry: "p",
+			nodes: [
+				{
+					id: "p",
+					type: "percentage",
+					splits: [
+						{ weight, next: "a" },
+						{ weight, next: "b" },
+					],
+				},
+				{ id: "a", type: "end" },
+				{ id: "b", type: "end" },
+			],
+		});
+		for (let index = 0; index < 50; index++) {
+			const context = makeContext({ splitKey: `session-${index}` });
+			expect(evaluateDynamicRoute(graph(1e308), context)).toEqual(
+				evaluateDynamicRoute(graph(1), context),
+			);
+		}
+	});
 	it("resolves a plain model node", () => {
 		const graph: DynamicRouteGraph = {
 			entry: "m",

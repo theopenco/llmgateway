@@ -2,6 +2,9 @@ import * as crypto from "node:crypto";
 
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
+import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
+
+import { fetchNoRedirect } from "./fetch-no-redirect.js";
 
 interface ServiceAccountKey {
 	client_email: string;
@@ -13,9 +16,10 @@ interface ServiceAccountKey {
 // it would let a key point the server at internal hosts.
 export const GOOGLE_OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token";
 
-const REDIS_KEY_PREFIX = "gcp:service-account:access_token";
+const REDIS_KEY_PREFIX = "gcp:service-account:access_token:v2";
 const TTL_SECONDS = 50 * 60;
 const TTL_MS = TTL_SECONDS * 1000;
+const REDIS_HIT_MEMORY_TTL_MS = 60_000;
 
 interface MemoryCacheEntry {
 	token: string;
@@ -103,7 +107,7 @@ async function exchangeJwtForAccessToken(
 	abortSignal?: AbortSignal,
 ): Promise<string> {
 	const jwt = signJwt(sa);
-	const res = await fetch(GOOGLE_OAUTH_TOKEN_URI, {
+	const res = await fetchNoRedirect(GOOGLE_OAUTH_TOKEN_URI, {
 		method: "POST",
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams({
@@ -114,9 +118,8 @@ async function exchangeJwtForAccessToken(
 	});
 
 	if (!res.ok) {
-		const text = await res.text();
 		throw new Error(
-			`Failed to exchange JWT for GCP access token: ${res.status} ${text}`,
+			`Failed to exchange JWT for GCP access token: ${res.status}`,
 		);
 	}
 
@@ -127,12 +130,13 @@ async function exchangeJwtForAccessToken(
 	return data.access_token;
 }
 
+// Keyed by the private key, not just the account name, so a token is only
+// served to a caller holding the credential that minted it.
 function cacheKey(sa: ServiceAccountKey): string {
 	const hash = crypto
-		.createHash("sha256")
-		.update(sa.client_email)
-		.digest("hex")
-		.slice(0, 16);
+		.createHmac("sha256", getApiKeyHashSecret())
+		.update(`gcp-sa-token\0${sa.client_email}\0${sa.private_key}`)
+		.digest("hex");
 	return `${REDIS_KEY_PREFIX}:${hash}`;
 }
 
@@ -158,7 +162,12 @@ export async function getGcpServiceAccountAccessToken(
 	try {
 		const redisToken = await withAbortSignal(redisClient.get(key), abortSignal);
 		if (redisToken) {
-			memoryCache.set(key, { token: redisToken, expiresAt: now + TTL_MS });
+			// Another replica may have minted this up to TTL_MS ago, so it is kept
+			// in memory only briefly rather than for a full fresh lifetime.
+			memoryCache.set(key, {
+				token: redisToken,
+				expiresAt: now + REDIS_HIT_MEMORY_TTL_MS,
+			});
 			return redisToken;
 		}
 	} catch (err) {

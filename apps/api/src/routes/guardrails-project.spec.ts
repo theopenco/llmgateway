@@ -52,6 +52,27 @@ describe("project guardrails API", () => {
 		});
 	}
 
+	test.each(["custom_regex", "blocked_terms"] as const)(
+		"rejects unsupported %s expressions before saving",
+		async (type) => {
+			const config =
+				type === "custom_regex"
+					? { type, pattern: "secret(?=value)" }
+					: {
+							type,
+							terms: ["secret(?=value)"],
+							matchType: "regex",
+							caseSensitive: false,
+						};
+			const res = await authed("/guardrails/projects/test-project-id/rules", {
+				method: "POST",
+				body: JSON.stringify({ name: "Regex rule", type, config }),
+			});
+			expect(res.status).toBe(400);
+			expect(await db.query.guardrailRule.findMany()).toHaveLength(0);
+		},
+	);
+
 	test("requires authentication", async () => {
 		const res = await app.request(
 			"/guardrails/projects/test-project-id/config",
@@ -111,6 +132,20 @@ describe("project guardrails API", () => {
 		expect(body.projectId).toBe("test-project-id");
 		expect(body.organizationId).toBe("test-org-id");
 		expect(body.inheritOrganization).toBe(true);
+	});
+
+	test("rejects allow-list entries that can never match", async () => {
+		const rejected = await authed("/guardrails/config/test-org-id", {
+			method: "PUT",
+			body: JSON.stringify({ allowedFileTypes: ["pdf", "pfd"] }),
+		});
+		expect(rejected.status).toBe(400);
+
+		const saved = await authed("/guardrails/config/test-org-id", {
+			method: "PUT",
+			body: JSON.stringify({ allowedFileTypes: ["docx", "image/*"] }),
+		});
+		expect(saved.status).toBe(200);
 	});
 
 	test("organization and project configs are stored separately", async () => {

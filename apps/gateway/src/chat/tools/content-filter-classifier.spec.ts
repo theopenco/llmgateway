@@ -323,6 +323,24 @@ describe("evaluateContentFilterWithClassifiers", () => {
 		hasJevCredential.mockResolvedValue(true);
 	});
 
+	it.each([
+		{ imagesAllowed: false, credential: true },
+		{ imagesAllowed: true, credential: false },
+	])("records skipped image moderation as incomplete: %j", async (options) => {
+		hasOpenAICredential.mockResolvedValue(options.credential);
+		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
+		const evaluated = await evaluateContentFilterWithClassifiers({
+			plan: PLAN,
+			messages: IMAGE_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: options.imagesAllowed,
+			classifierAllowed: () => true,
+		});
+		expect(evaluated?.evaluation.moderationFailed).toBe(true);
+		expect(evaluated?.evaluation.violation).toBe(false);
+		expect(checkOpenAI).not.toHaveBeenCalled();
+	});
+
 	it("reuses a result already scored by the same classifier", async () => {
 		const existing = {
 			...result(false, { violence: 0.1 }, "jev-1.13.0"),

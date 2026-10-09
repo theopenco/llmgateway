@@ -32,6 +32,15 @@ export interface AgentRunOutcome {
 
 function sum(values: Array<number | null>): number | null {
 	const present = values.filter((value): value is number => value !== null);
+	return present.length !== values.length || present.length === 0
+		? null
+		: present.reduce((total, value) => total + value, 0);
+}
+
+// Tool-call-only turns stream no content, so their generation time is null by
+// design; unlike token usage, a missing turn must not blank the aggregate.
+function sumPresent(values: Array<number | null>): number | null {
+	const present = values.filter((value): value is number => value !== null);
 	return present.length === 0
 		? null
 		: present.reduce((total, value) => total + value, 0);
@@ -61,7 +70,9 @@ function aggregateTiming(
 	usage: BenchmarkUsage,
 ): BenchmarkTiming {
 	const first = turns[0]?.timing;
-	const generationMs = sum(turns.map((turn) => turn.timing.generationMs));
+	const generationMs = sumPresent(
+		turns.map((turn) => turn.timing.generationMs),
+	);
 	const stalls = turns
 		.map((turn) => turn.timing.maxContentStallMs)
 		.filter((value): value is number => value !== null);
