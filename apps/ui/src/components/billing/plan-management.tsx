@@ -265,7 +265,11 @@ export function PlanManagement() {
 							</div>
 							<div className="flex items-center gap-2">
 								<div className="w-2 h-2 rounded-full bg-green-500" />
-								<span>Metadata-only request logs</span>
+								<span>
+									{selectedOrganization.retentionLevel === "retain"
+										? "Full request & response retention (until November 8, 2026)"
+										: "Metadata-only request logs"}
+								</span>
 							</div>
 							<div className="flex items-center gap-2">
 								<div className="w-2 h-2 rounded-full bg-green-500" />

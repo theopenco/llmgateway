@@ -21,7 +21,7 @@ import type { Metadata } from "next";
 
 const title = "Observability — LLM Usage, Cost & Latency Analytics";
 const description =
-	"Monitor every LLM request in real time: cost analytics, per-model and per-provider breakdowns, error and cache rates, latency, and metadata request logs — with full prompts and responses on Enterprise — across every provider you use.";
+	"Monitor every LLM request in real time: cost analytics, per-model and per-provider breakdowns, error and cache rates, latency, and metadata request logs by default — with full prompts and responses on Enterprise — across every provider you use.";
 
 export const metadata: Metadata = {
 	title,

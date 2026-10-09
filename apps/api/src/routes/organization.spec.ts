@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/index.js";
 import {
@@ -767,6 +767,60 @@ describe("organization route", () => {
 		expect(await response.json()).toMatchObject({
 			message: expect.stringContaining("requires an Enterprise plan"),
 		});
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.retentionLevel,
+		).toBe("none");
+	});
+
+	test("a kept retention setting cannot be re-saved once it was switched off", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "free", retentionLevel: "retain" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		// Simulate the transition worker (or another owner) switching the
+		// organization to Metadata Only between the gate read and the write.
+		const originalUpdate = cdb.update.bind(cdb);
+		const updateSpy = vi.spyOn(cdb, "update").mockImplementationOnce(((
+			...args: Parameters<typeof cdb.update>
+		) => {
+			updateSpy.mockRestore();
+			const builder = originalUpdate(...args);
+			const originalSet = builder.set.bind(builder);
+			builder.set = ((...setArgs: Parameters<typeof builder.set>) => {
+				const query = originalSet(...setArgs);
+				const originalWhere = query.where.bind(query);
+				query.where = ((...whereArgs: Parameters<typeof query.where>) => {
+					const filtered = originalWhere(...whereArgs);
+					const originalReturning = filtered.returning.bind(filtered);
+					filtered.returning = (async () => {
+						await db
+							.update(tables.organization)
+							.set({ retentionLevel: "none" })
+							.where(eq(tables.organization.id, "test-org-id"));
+						return await originalReturning();
+					}) as typeof filtered.returning;
+					return filtered;
+				}) as typeof query.where;
+				return query;
+			}) as typeof builder.set;
+			return builder;
+		}) as typeof cdb.update);
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ retentionLevel: "retain" }),
+		});
+
+		expect(response.status).toBe(409);
 		expect(
 			(
 				await db.query.organization.findFirst({

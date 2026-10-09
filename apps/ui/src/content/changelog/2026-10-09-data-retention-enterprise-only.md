@@ -20,9 +20,9 @@ New organizations are **Metadata Only**. Request timestamps, models, token count
 
 ## What happens to existing organizations
 
-Organizations that already retain full payloads keep the setting during a 30-day transition window. On **November 8, 2026**, organizations that are not on Enterprise switch to Metadata Only automatically. You can make the switch earlier at any time; once an organization is Metadata Only, the setting cannot be re-enabled without Enterprise.
+Organizations that already retain full payloads keep the setting during a 30-day transition window. On **November 8, 2026**, organizations on llmgateway.io that are not on Enterprise switch to Metadata Only automatically; self-hosted deployments are not switched. You can make the switch earlier at any time; once an organization is Metadata Only, the setting cannot be re-enabled without Enterprise.
 
-| Organization                           | Before November 8, 2026   | From November 8, 2026 |
+| Organization (llmgateway.io)           | Before November 8, 2026   | From November 8, 2026 |
 | -------------------------------------- | ------------------------- | --------------------- |
 | Enterprise                             | Retain All Data available | Unchanged             |
 | Existing, currently retaining payloads | Retain All Data kept      | Metadata Only         |

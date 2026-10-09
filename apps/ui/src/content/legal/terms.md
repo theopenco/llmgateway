@@ -80,7 +80,7 @@ Any service levels, support commitments, or uptime targets apply **only** if exp
 
 ## 5. Data and Privacy
 
-Your data is processed in accordance with our [Privacy Policy](https://llmgateway.io/privacy). Request data is stored as **Metadata Only** (usage statistics and pricing data) by default. Organizations on an Enterprise plan can additionally choose **Retain All Data** (request payloads and responses) under **Settings → Policies**. Organizations that are not on an Enterprise plan and that enabled Retain All Data before October 9, 2026 keep that setting until **November 8, 2026**, after which they are switched to Metadata Only; it cannot be re-enabled without an Enterprise plan.
+Your data is processed in accordance with our [Privacy Policy](https://llmgateway.io/privacy). Request data is stored as **Metadata Only** (usage statistics and pricing data) by default. Organizations on an Enterprise plan can additionally choose **Retain All Data** (request payloads and responses) under **Settings → Policies**. Organizations that are not on an Enterprise plan and that enabled Retain All Data before October 9, 2026 keep that setting until **November 8, 2026**, after which the hosted Service switches them to Metadata Only; it cannot be re-enabled without an Enterprise plan.
 
 By using the Service, you consent to the collection, processing, and transfer of data as described in the Privacy Policy. You are solely responsible for the data, prompts, and content you submit to the Service (“Customer Data”), including ensuring you have all rights and consents necessary to submit it and to have it processed by us and by the AI providers you select.
 

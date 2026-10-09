@@ -10,12 +10,14 @@ import { Label } from "@/lib/components/label";
 import { RadioGroup, RadioGroupItem } from "@/lib/components/radio-group";
 import { Separator } from "@/lib/components/separator";
 import { toast } from "@/lib/components/use-toast";
+import { useAppConfig } from "@/lib/config";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 
 export function OrganizationRetentionSettings() {
 	const queryClient = useQueryClient();
 	const { selectedOrganization } = useDashboardState();
+	const { hosted } = useAppConfig();
 
 	const api = useApi();
 	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
@@ -39,13 +41,16 @@ export function OrganizationRetentionSettings() {
 		? "none"
 		: retentionLevel;
 	// Payload retention is Enterprise-only. Existing non-Enterprise orgs that
-	// still retain payloads keep the setting until the transition window ends
-	// (2026-11-08) or turn it off, but cannot re-enable it.
+	// still retain payloads keep the setting or turn it off, but cannot
+	// re-enable it. The hosted platform switches them to Metadata Only on
+	// 2026-11-08; self-hosted installs are left alone.
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const retainLocked =
 		!isEnterprise && selectedOrganization?.retentionLevel !== "retain";
 	const retainTransitionNotice =
-		!isEnterprise && selectedOrganization?.retentionLevel === "retain";
+		hosted &&
+		!isEnterprise &&
+		selectedOrganization?.retentionLevel === "retain";
 
 	if (!selectedOrganization) {
 		return (

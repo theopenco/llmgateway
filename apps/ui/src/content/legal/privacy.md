@@ -49,7 +49,7 @@ Depending on your organization's **data retention setting**, we may store:
 - **Metadata Only** (default for all organizations): Usage, pricing, and provider statistics (excluding request content)
 - **Retain All Data** (Enterprise plans only): Request payloads and responses with metadata
 
-Enterprise organizations can configure this under **Settings → Policies** in their organization dashboard. Organizations that are not on an Enterprise plan and that enabled Retain All Data before October 9, 2026 keep that setting until **November 8, 2026**, after which they are switched to Metadata Only. Regardless of setting, request content is transmitted to the AI provider you select in order to fulfill the request (see [Data Sharing](#5-data-sharing)).
+Enterprise organizations can configure this under **Settings → Policies** in their organization dashboard. Organizations that are not on an Enterprise plan and that enabled Retain All Data before October 9, 2026 keep that setting until **November 8, 2026**, after which the hosted service switches them to Metadata Only. Regardless of setting, request content is transmitted to the AI provider you select in order to fulfill the request (see [Data Sharing](#5-data-sharing)).
 
 ### d. Payment Information
 
@@ -120,7 +120,7 @@ You can manage permissions from the **Team** page. Your organization is responsi
 We keep personal data only as long as necessary for the purposes it was collected, or as required by law:
 
 - **Account and profile data** (name, email, login credentials, API keys): retained while your account is active; deleted promptly when you delete your account.
-- **AI request content and metadata:** request and response content is stored only for Enterprise organizations that enable Retain All Data (and, until November 8, 2026, for other organizations that enabled it before October 9, 2026); aggregated usage and cost metadata is retained for analytics and billing accuracy.
+- **AI request content and metadata:** request and response content is stored only for Enterprise organizations that enable Retain All Data (and, until November 8, 2026, for other organizations that enabled it before October 9, 2026); aggregated usage and cost metadata is retained for analytics and billing accuracy. Independently of the retention setting, Responses API input and output items are stored for up to 30 days to support response retrieval and `previous_response_id` chaining; send `store: false` to opt out.
 - **Billing and accounting records** (purchases of credits, payments, invoices, and the transaction history of credits bought and spent): retained for **10 years** to comply with applicable tax and accounting law, even after account deletion, after which they are deleted or anonymized.
 
 Where we retain billing records after account deletion, we restrict processing of that data to what the law requires and anonymize personal identifiers not needed for the accounting record.

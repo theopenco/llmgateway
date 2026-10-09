@@ -27,7 +27,7 @@ That default matters more than it looks. Store too little and you can't debug a 
 
 **LLM Gateway** makes the decision explicit: retention is a per-organization policy, not a side effect of logging.
 
-> **Update (October 9, 2026):** Full payload retention (**Retain All Data**) is now an [Enterprise](/enterprise) feature. New organizations are Metadata Only, and non-Enterprise organizations that already retain payloads keep the setting until **November 8, 2026**, after which they switch to Metadata Only automatically. See the [changelog](/changelog/data-retention-enterprise-only) for details. The guidance below on what to store still applies; the sections on enabling it apply to Enterprise organizations.
+> **Update (October 9, 2026):** Full payload retention (**Retain All Data**) is now an [Enterprise](/enterprise) feature. New organizations are Metadata Only, and, on the hosted platform, non-Enterprise organizations that already retain payloads keep the setting until **November 8, 2026**, after which they switch to Metadata Only automatically (self-hosted deployments are not switched). See the [changelog](/changelog/data-retention-enterprise-only) for details. The guidance below on what to store still applies; the sections on enabling it apply to Enterprise organizations.
 
 ## Metadata or full payloads: the only real decision
 
@@ -40,7 +40,7 @@ There are two meaningfully different retention levels for LLM traffic:
 
 Metadata-only is the default on LLM Gateway, and it's the right default: your usage dashboards, cost analytics, and per-model breakdowns all work without a single prompt being stored. Payload retention is opt-in, per organization, for the teams that need to inspect exactly what was sent and returned.
 
-Full payload retention is an Enterprise feature. Free pay-as-you-go organizations, DevPass, and chat subscriptions are metadata-only — their request and response payloads are not retained, and there is no setting to turn payload storage on outside Enterprise.
+Full payload retention is an Enterprise feature. Free pay-as-you-go organizations cannot enable it (an existing Retain All Data setting stays active until the November 8, 2026 transition), and DevPass and chat subscriptions are always metadata-only — their request and response payloads are not retained, and there is no setting to turn payload storage on.
 
 ## When you actually need full payloads
 
@@ -66,7 +66,7 @@ One exception worth knowing: the Responses API keeps stored responses (used for 
 
 ## Setting the policy
 
-Retention is configured per organization in the dashboard. Enterprise organizations can enable **Retain All Data**; every other organization is Metadata Only:
+Retention is configured per organization in the dashboard. Enterprise organizations can enable **Retain All Data**; other organizations cannot enable it (a setting kept from before October 9, 2026 stays active until the transition):
 
 1. Navigate to **Organization Settings → Policies**
 2. Select your **Data Retention Level**

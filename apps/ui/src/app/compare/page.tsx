@@ -29,7 +29,7 @@ const faqs = [
 	},
 	{
 		question: "How does LLM Gateway price against other AI gateways?",
-		answer: `You pay providers their per-token rates plus a ${MARKETING_STATS.platformFee} platform fee on credits, or you bring your own provider keys and pay 0% markup. There are no per-seat licences and no request-volume tiers for standard inference. Request logs are metadata-only; full request and response retention is an Enterprise feature billed at ${MARKETING_STATS.dataStoragePrice}.`,
+		answer: `You pay providers their per-token rates plus a ${MARKETING_STATS.platformFee} platform fee on credits, or you bring your own provider keys and pay 0% markup. There are no per-seat licences and no request-volume tiers for standard inference. Request logs are metadata-only by default; full request and response retention is an Enterprise feature billed at ${MARKETING_STATS.dataStoragePrice}.`,
 	},
 	{
 		question: "Do I have to rewrite my code to switch?",

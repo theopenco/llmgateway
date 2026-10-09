@@ -765,18 +765,24 @@ organization.openapi(updateOrganization, async (c) => {
 	// Payload retention is Enterprise-only. Turning it off, or re-saving a
 	// setting kept from before a downgrade, stays allowed until the transition
 	// window closes.
+	const retentionEnterpriseAccess = hasOrganizationEnterpriseAccess(
+		userOrganization.organization?.id,
+		userOrganization.organization?.plan,
+	);
 	if (
 		retentionLevel === "retain" &&
 		userOrganization.organization?.retentionLevel !== "retain" &&
-		!hasOrganizationEnterpriseAccess(
-			userOrganization.organization?.id,
-			userOrganization.organization?.plan,
-		)
+		!retentionEnterpriseAccess
 	) {
 		throw new HTTPException(403, {
 			message: "Retain All Data requires an Enterprise plan",
 		});
 	}
+	// A kept setting may only be re-saved while it is still stored: the write
+	// re-checks the column so a concurrent switch to Metadata Only (owner or
+	// transition worker) cannot be reverted by an earlier read.
+	const grandfatheredRetain =
+		retentionLevel === "retain" && !retentionEnterpriseAccess;
 
 	// DevPass accepts only the no-API-training requirement, regardless of plan.
 	// Other organizations retain the enterprise gate for enabling a policy.
@@ -986,6 +992,9 @@ organization.openapi(updateOrganization, async (c) => {
 		) {
 			updateConditions.push(eq(tables.organization.retentionLevel, "none"));
 		}
+		if (grandfatheredRetain) {
+			updateConditions.push(eq(tables.organization.retentionLevel, "retain"));
+		}
 
 		try {
 			// Cached client so gateway policy gates see compliance changes
@@ -1007,6 +1016,12 @@ organization.openapi(updateOrganization, async (c) => {
 			throw err;
 		}
 		if (!updatedOrganization) {
+			if (grandfatheredRetain) {
+				throw new HTTPException(409, {
+					message:
+						"Retain All Data is no longer enabled for this organization and requires an Enterprise plan to turn back on",
+				});
+			}
 			throw new HTTPException(400, {
 				message: zdrRetentionConflictMessage,
 			});

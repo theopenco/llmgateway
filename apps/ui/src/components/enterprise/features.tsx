@@ -49,7 +49,7 @@ const features = [
 		icon: Database,
 		title: "Full Data Retention",
 		description:
-			"Store full request and response payloads, not just metadata, and keep them as long as you need. No automatic deletion or storage limits.",
+			"Store full request and response payloads, not just metadata, with a retention period set by your organization's policy and no storage limits.",
 	},
 	{
 		icon: Headphones,
