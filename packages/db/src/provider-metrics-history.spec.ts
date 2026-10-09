@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { waitForSwrMirrorWrites } from "@llmgateway/cache";
+import { redisClient, waitForSwrMirrorWrites } from "@llmgateway/cache";
 import { DEFAULT_ROUTING_HISTORY } from "@llmgateway/shared/routing-config";
 
 import { db } from "./db.js";
@@ -71,5 +71,46 @@ describe("getProviderMetricsFromHistory", () => {
 			throughput: 100,
 			totalRequests: 10,
 		});
+	});
+	it("keeps routing metrics identical when idle buckets are absent", async () => {
+		modelId = `sparse-routing-${crypto.randomUUID()}`;
+		const candidates = [{ modelId, providerId: "routing-provider" }];
+		const minute = Math.floor(Date.now() / 60_000) * 60_000;
+		await db.insert(modelProviderMappingHistory).values([
+			{
+				modelId,
+				providerId: "routing-provider",
+				modelProviderMappingId: "sparse-routing-mapping",
+				usedMode: "credits",
+				minuteTimestamp: new Date(minute),
+				logsCount: 10,
+				totalOutputTokens: 100,
+				totalDuration: 1000,
+			},
+			{
+				modelId,
+				providerId: "routing-provider",
+				modelProviderMappingId: "sparse-routing-mapping",
+				usedMode: "credits",
+				minuteTimestamp: new Date(minute - 60_000),
+			},
+		]);
+		const dense = await getProviderMetricsFromHistory(
+			candidates,
+			DEFAULT_ROUTING_HISTORY,
+		);
+		await waitForSwrMirrorWrites();
+		await redisClient.flushdb();
+		await db
+			.delete(modelProviderMappingHistory)
+			.where(
+				and(
+					eq(modelProviderMappingHistory.modelId, modelId),
+					eq(modelProviderMappingHistory.logsCount, 0),
+				),
+			);
+		expect(
+			await getProviderMetricsFromHistory(candidates, DEFAULT_ROUTING_HISTORY),
+		).toEqual(dense);
 	});
 });
