@@ -2,7 +2,11 @@ import { buildVerificationTarget } from "@/lib/model-verification.js";
 
 import { runProviderKeySmokeTest } from "@llmgateway/actions";
 import { db } from "@llmgateway/db";
-import { models, type ProviderValidationResult } from "@llmgateway/models";
+import {
+	models,
+	providers,
+	type ProviderValidationResult,
+} from "@llmgateway/models";
 
 /** DB-only mappings have no static validation model. */
 export async function validateAirsideKey(
@@ -33,7 +37,9 @@ export async function validateAirsideKey(
 			(!allowedModels?.length || allowedModels.includes(row.modelId)) &&
 			(!row.deactivatedAt || row.deactivatedAt > new Date()),
 	);
-	if (!claim?.customBaseUrl || !mapping) {
+	const isCatalogueProvider = providers.some((entry) => entry.id === provider);
+	const carrierBaseUrl = isCatalogueProvider ? undefined : claim?.customBaseUrl;
+	if (!mapping || (!isCatalogueProvider && !carrierBaseUrl)) {
 		return undefined;
 	}
 	const target = buildVerificationTarget({
@@ -43,8 +49,8 @@ export async function validateAirsideKey(
 	const failure = await runProviderKeySmokeTest({
 		target,
 		token,
-		baseUrl: baseUrl ?? claim.customBaseUrl,
-		skipEnvVars: true,
+		baseUrl: baseUrl ?? carrierBaseUrl ?? undefined,
+		skipEnvVars: !isCatalogueProvider,
 	});
 	return {
 		valid: !failure,

@@ -40,6 +40,10 @@ Carriers claiming a catalogue provider can also **import their catalogue models*
 
 ### Catalogue removal
 
+While the static provider definition exists, routing and BYOK key validation use
+its endpoint configuration. An Airside base URL configured in advance takes effect
+after that definition is removed; a BYOK key's explicit base URL still overrides it.
+
 When a provider's static catalogue definition is removed, its existing active
 Airside claim serves from its configured base URL, managed credentials, and
 active listings. Models without an active Airside listing are no longer offered by that provider.

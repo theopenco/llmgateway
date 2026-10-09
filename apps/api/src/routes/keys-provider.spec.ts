@@ -178,6 +178,69 @@ describe("provider keys route", () => {
 		expect(providerKey?.tokenMasked).not.toBe("inference-test-token");
 	});
 
+	test.each([null, "https://future.example.com"])(
+		"validates catalogue BYOK listings independently of the Airside endpoint %s",
+		async (customBaseUrl) => {
+			const modelId = "byok-catalogue-listing";
+			await db
+				.insert(tables.provider)
+				.values({ id: "openai", name: "OpenAI", description: "Test" })
+				.onConflictDoNothing();
+			await db.insert(tables.providerCompany).values({
+				id: "byok-catalogue-company",
+				name: "Test Carrier",
+			});
+			await cdb.insert(tables.providerClaim).values({
+				providerCompanyId: "byok-catalogue-company",
+				providerId: "openai",
+				kind: "catalogue",
+				matchedDomain: "example.com",
+				status: "active",
+				customBaseUrl,
+			});
+			await db.insert(tables.model).values({ id: modelId, family: "test" });
+			await db.insert(tables.modelProviderMapping).values({
+				providerId: "openai",
+				modelId,
+				externalId: "upstream-model",
+				source: "airside",
+				apiFormat: "openai-chat-completions",
+				status: "active",
+			});
+			try {
+				vi.mocked(runProviderKeySmokeTest)
+					.mockClear()
+					.mockResolvedValueOnce(null);
+				const created = await app.request("/keys/provider", {
+					method: "POST",
+					headers: { "Content-Type": "application/json", Cookie: token },
+					body: JSON.stringify({
+						provider: "openai",
+						token: "test-carrier-key",
+						organizationId: "test-org-id",
+						allowedModels: [modelId],
+					}),
+				});
+				expect(created.status).toBe(200);
+				expect(runProviderKeySmokeTest).toHaveBeenCalledExactlyOnceWith(
+					expect.objectContaining({
+						target: expect.objectContaining({
+							providerId: "openai",
+							modelName: modelId,
+						}),
+						baseUrl: undefined,
+						skipEnvVars: false,
+					}),
+				);
+			} finally {
+				await db
+					.delete(tables.modelProviderMapping)
+					.where(eq(tables.modelProviderMapping.modelId, modelId));
+				await db.delete(tables.model).where(eq(tables.model.id, modelId));
+			}
+		},
+	);
+
 	test("creates and edits restricted BYOK keys for a removed catalogue provider", async () => {
 		const providerId = "byok-airside-test";
 		const modelId = "byok-airside-model";
