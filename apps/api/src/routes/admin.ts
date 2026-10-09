@@ -5478,14 +5478,9 @@ const createRateLimitBodySchema = z.object({
 
 // Org-specific limits are always enforced per-org, so they don't expose the
 // enforcement choice.
-const createOrganizationRateLimitBodySchema = createRateLimitBodySchema
-	.omit({ enforcement: true })
-	.extend({
-		maxRequests: z.coerce
-			.number()
-			.int("Limit must be a whole number")
-			.min(1, "Limit must be at least 1"),
-	});
+const createOrganizationRateLimitBodySchema = createRateLimitBodySchema.omit({
+	enforcement: true,
+});
 
 // --- Global Rate Limits ---
 
@@ -5702,12 +5697,6 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 	const validation = await validateProviderAndModel(provider, model);
 	if (validation.error) {
 		throw new HTTPException(400, { message: validation.error });
-	}
-
-	if (body.mode !== "strict" && body.maxRequests === 0) {
-		throw new HTTPException(400, {
-			message: "A limit of 0 blocks all requests and must be strict",
-		});
 	}
 
 	const [created] = await db

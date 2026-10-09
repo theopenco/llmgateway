@@ -106,7 +106,7 @@ import {
 	filterRateLimitedProviders,
 	getExceededProviderRateLimitLabels,
 	getProviderRateLimitBypassReason,
-	hasExceededLaxLimit,
+	mustEnforceProviderRateLimit,
 	type ProviderRateLimitResult,
 	peekProviderRateLimit,
 	pickNonRateLimitedCandidates,
@@ -4700,7 +4700,7 @@ chat.openapi(completions, async (c) => {
 		if (selectedModel && selectedProviders.length > 0) {
 			const selectedModelId = selectedModel.id;
 			const pin = await createSessionStore(selectedModelId)?.get();
-			const { laxLimited, sessionExemptible } =
+			const { enforcedLimits, sessionExemptible } =
 				await filterRateLimitedProviders(
 					project.organizationId,
 					selectedProviders.map((provider) => ({
@@ -4710,12 +4710,12 @@ chat.openapi(completions, async (c) => {
 				);
 			selectedProviders = selectedProviders.filter(
 				(provider) =>
-					!laxLimited.has(provider.providerId) ||
+					!enforcedLimits.has(provider.providerId) ||
 					(provider.providerId === pin?.providerId &&
 						sessionExemptible.has(provider.providerId)),
 			);
 			if (selectedProviders.length === 0) {
-				await rejectProviderRateLimit([...laxLimited.values()][0]);
+				await rejectProviderRateLimit([...enforcedLimits.values()][0]);
 			}
 			// Fetch uptime/latency metrics from last 5 minutes for provider selection
 			const metricsCombinations = selectedProviders.map((p) => ({
@@ -5825,7 +5825,7 @@ chat.openapi(completions, async (c) => {
 			const {
 				rateLimited: rateLimitedProviderIds,
 				sessionExemptible,
-				laxLimited,
+				enforcedLimits,
 			} = await filterRateLimitedProviders(
 				project.organizationId,
 				contentFilterPreferredProviders.map((p) => ({
@@ -5842,7 +5842,7 @@ chat.openapi(completions, async (c) => {
 				project.mode,
 				contentFilterPreferredProviders.filter(
 					(candidate) =>
-						!laxLimited.has(candidate.providerId) ||
+						!enforcedLimits.has(candidate.providerId) ||
 						candidate.providerId === sessionExemptProvider,
 				),
 				new Set(
@@ -5852,8 +5852,8 @@ chat.openapi(completions, async (c) => {
 				),
 				providersWithKeys,
 			);
-			if (routingCandidates.length === 0 && laxLimited.size > 0) {
-				await rejectProviderRateLimit([...laxLimited.values()][0]);
+			if (routingCandidates.length === 0 && enforcedLimits.size > 0) {
+				await rejectProviderRateLimit([...enforcedLimits.values()][0]);
 			}
 
 			const routingCandidateProviderIds = new Set(
@@ -6840,14 +6840,11 @@ chat.openapi(completions, async (c) => {
 		}
 
 		// Race condition: between peek and consume, the window may have filled.
-		// Zero global caps always block, including when every routing candidate is capped.
+		// Lax and zero caps require an exemption even when every candidate is capped.
 		if (!providerRateLimitResult.allowed) {
 			if (
 				(noFallback && requestedProvider) ||
-				hasExceededLaxLimit(providerRateLimitResult) ||
-				providerRateLimitResult.blockedBy.some(
-					(window) => providerRateLimitResult.limits[window].limit === 0,
-				)
+				mustEnforceProviderRateLimit(providerRateLimitResult)
 			) {
 				await rejectProviderRateLimit(providerRateLimitResult);
 			}

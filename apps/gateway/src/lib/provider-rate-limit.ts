@@ -94,19 +94,16 @@ async function readWindowState(
 	source: RateLimitSource,
 	mode: RateLimitMode,
 ): Promise<ProviderRateLimitWindowState> {
-	if (limit === 0) {
-		const rateLimited =
-			source === "global_provider" ||
-			source === "global_model" ||
-			source === "global_provider_model";
+	// Carrier zero means unlimited; an admin zero cap is already exhausted.
+	if (
+		limit === 0 &&
+		(source === "none" || source === "carrier_provider_model")
+	) {
 		return {
 			currentCount: 0,
 			limit: 0,
 			remaining: 0,
-			rateLimited,
-			...(rateLimited && {
-				retryAfter: providerRateLimitWindows[window].seconds,
-			}),
+			rateLimited: false,
 			source,
 			mode,
 		};
@@ -301,9 +298,8 @@ export function getProviderRateLimitBypassReason(
 		return undefined;
 	}
 	const allowed = result.blockedBy.every((window) => {
-		const { limit, mode } = result.limits[window];
+		const { mode } = result.limits[window];
 		return (
-			limit > 0 &&
 			(mode === "soft" || mode === "lax") &&
 			(options.sessionPinned || (mode === "lax" && options.explicitProvider))
 		);
@@ -315,11 +311,12 @@ export function getProviderRateLimitBypassReason(
 		: undefined;
 }
 
-export function hasExceededLaxLimit(
+export function mustEnforceProviderRateLimit(
 	result: Pick<ProviderRateLimitResult, "limits" | "blockedBy">,
 ): boolean {
 	return result.blockedBy.some(
-		(window) => result.limits[window].mode === "lax",
+		(window) =>
+			result.limits[window].mode === "lax" || result.limits[window].limit === 0,
 	);
 }
 
@@ -364,7 +361,7 @@ export async function peekProviderRateLimit(
 
 /**
  * Batch check which providers are rate-limited (read-only, no slot consumed).
- * `sessionExemptible` permits session pins; `laxLimited` must never fail open.
+ * `sessionExemptible` permits session pins; `enforcedLimits` must never fail open.
  */
 export async function filterRateLimitedProviders(
 	organizationId: string,
@@ -375,7 +372,7 @@ export async function filterRateLimitedProviders(
 ): Promise<{
 	rateLimited: Set<string>;
 	sessionExemptible: Set<string>;
-	laxLimited: Map<string, ProviderRateLimitResult>;
+	enforcedLimits: Map<string, ProviderRateLimitResult>;
 }> {
 	const results = await Promise.all(
 		candidates.map(async (candidate) => ({
@@ -391,9 +388,9 @@ export async function filterRateLimitedProviders(
 	const limited = results.filter((result) => result.rateLimited);
 	return {
 		rateLimited: new Set(limited.map((result) => result.providerId)),
-		laxLimited: new Map(
+		enforcedLimits: new Map(
 			limited
-				.filter(hasExceededLaxLimit)
+				.filter(mustEnforceProviderRateLimit)
 				.map((result) => [result.providerId, result]),
 		),
 		sessionExemptible: new Set(
@@ -408,7 +405,7 @@ export async function filterRateLimitedProviders(
  * Pick fallback candidates that are not at their RPM/RPD cap.
  * Dedupes peeks by providerId since rate limits are keyed by org+provider+root
  * model id, so region-expanded variants share the same window. Falls open to
- * original candidates if every one is capped, except exhausted lax caps.
+ * original candidates if every one is capped, except exhausted lax or zero caps.
  */
 export async function pickNonRateLimitedCandidates<
 	T extends { providerId: string },
@@ -429,7 +426,7 @@ export async function pickNonRateLimitedCandidates<
 		).values(),
 	);
 
-	const { rateLimited, laxLimited } = await filterRateLimitedProviders(
+	const { rateLimited, enforcedLimits } = await filterRateLimitedProviders(
 		organizationId,
 		uniquePeekCandidates,
 	);
@@ -440,7 +437,7 @@ export async function pickNonRateLimitedCandidates<
 
 	return nonRateLimited.length > 0
 		? nonRateLimited
-		: candidates.filter((p) => !laxLimited.has(p.providerId));
+		: candidates.filter((p) => !enforcedLimits.has(p.providerId));
 }
 
 /**
@@ -496,7 +493,7 @@ export async function checkProviderRateLimit(
 			Object.entries(limits) as Array<
 				[ProviderRateLimitWindow, ProviderRateLimitWindowState]
 			>
-		).filter(([, limit]) => limit.limit > 0);
+		).filter(([, limit]) => limit.limit > 0 || limit.rateLimited);
 
 		await Promise.all(
 			configuredWindows.map(([window]) =>

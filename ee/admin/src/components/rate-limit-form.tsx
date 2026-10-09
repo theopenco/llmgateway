@@ -161,7 +161,7 @@ export function RateLimitForm({
 		mutation.reset();
 
 		const parsedLimit = Number(maxRequests);
-		const minimum = showEnforcement ? 0 : 1;
+		const minimum = 0;
 		if (
 			maxRequests.trim() === "" ||
 			!Number.isInteger(parsedLimit) ||
@@ -170,11 +170,6 @@ export function RateLimitForm({
 			setError(
 				`Max ${limitType.toUpperCase()} must be a whole number of at least ${minimum}`,
 			);
-			return;
-		}
-
-		if (mode !== "strict" && parsedLimit === 0) {
-			setError("A limit of 0 blocks all requests and must be strict");
 			return;
 		}
 
@@ -370,7 +365,7 @@ export function RateLimitForm({
 						<Input
 							id="maxRequests"
 							type="number"
-							min={showEnforcement ? 0 : 1}
+							min={0}
 							step="1"
 							placeholder={limitType === "rpm" ? "e.g., 60" : "e.g., 5000"}
 							value={maxRequests}
@@ -381,7 +376,7 @@ export function RateLimitForm({
 							{limitType === "rpm"
 								? "Maximum requests per minute allowed"
 								: "Maximum requests per day allowed"}
-							{showEnforcement && ". Set 0 to block matching requests"}
+							. Set 0 to allow only requests exempt under the selected mode
 						</p>
 					</div>
 

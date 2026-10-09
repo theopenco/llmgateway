@@ -33,17 +33,13 @@ weights: streaming, cached prompts, sessions, and `routing` preferences.
 
 ## Global Provider Rate Limits
 
-Administrators can set a global RPM or RPD limit to `0` to block matching
-provider/model requests, with either **Global** or **Per-organization**
-enforcement. Remove the limit or set a positive value to resume traffic; changes
+Administrators can set global or organization-specific RPM/RPD caps. Global
+limits support **Global** (shared) or **Per-organization** counters. Changes
 propagate through the rate-limit cache (default 60 seconds).
 
-Existing precedence still applies: organization-specific limits and more specific
-global provider/model limits can override a provider-wide limit for the same
-window. Routing can fall back to another available provider. If a zero-limited
-provider remains selected, the request returns `429` without calling it, even
-when every candidate is rate-limited. No configured limit still means unlimited;
-other rate-limit settings retain their existing behavior.
+Organization-specific limits and more specific global provider/model limits
+can override a provider-wide limit for the same window. No configured limit
+means unlimited.
 
 Each limit is **strict** (the default), **soft**, or **lax**. Soft and lax
 limits allow [sessions](/features/sessions) already pinned to the capped
@@ -60,7 +56,14 @@ provider (`provider/model`), even without a session or on its first request.
 Exempt requests still count toward the limit. A session id alone does not grant
 an exemption, and every exceeded RPM/RPD window must permit the request: a
 strict window grants no exemption, while a soft window still requires an
-existing session pin. Zero limits are always strict.
+existing session pin.
+
+A limit of `0` permits only requests exempt under its mode: **strict** blocks
+all matching requests, **soft** allows existing session pins, and **lax** also
+allows explicit provider requests. Zero caps cannot be used as a last resort
+for non-exempt traffic. Routing can choose an available alternative; if no
+eligible initial route remains, the gateway returns `429`. Exempt requests
+still increment both configured counters.
 
 Lax caps apply to automatic provider selection under every routing strategy,
 including dynamic provider ordering. A capped lax provider cannot be used as a

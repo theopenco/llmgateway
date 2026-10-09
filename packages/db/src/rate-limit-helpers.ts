@@ -48,7 +48,7 @@ interface RateLimitMatch {
  * limits, which are keyed per request.
  *
  * `rpmMode`/`rpdMode` preserve soft/lax exemptions per window and are unset
- * for strict limits. A zero limit never grants an exemption.
+ * for strict limits, including when an admin cap is zero.
  */
 export interface EffectiveRateLimit {
 	maxRpm: number;
@@ -318,8 +318,8 @@ async function queryEffectiveRateLimit(
 		maxRpd: rpd.limit,
 		rpmSource: rpm.source,
 		rpdSource: rpd.source,
-		rpmMode: rpm.limit > 0 && rpm.mode !== "strict" ? rpm.mode : undefined,
-		rpdMode: rpd.limit > 0 && rpd.mode !== "strict" ? rpd.mode : undefined,
+		rpmMode: rpm.mode !== "strict" ? rpm.mode : undefined,
+		rpdMode: rpd.mode !== "strict" ? rpd.mode : undefined,
 		rpmRateLimitId: rpm.rateLimitId,
 		rpdRateLimitId: rpd.rateLimitId,
 		rpmShared: rpm.shared,

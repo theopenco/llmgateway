@@ -245,20 +245,6 @@ describe("admin rate limits for airside listings", () => {
 		expect(await soft.json()).toMatchObject({ mode: "soft" });
 	});
 
-	test.each(["soft", "lax"])("rejects a %s zero limit", async (mode) => {
-		const response = await app.request("/admin/rate-limits", {
-			method: "POST",
-			headers: { Cookie: cookie, "Content-Type": "application/json" },
-			body: JSON.stringify({
-				provider: CARRIER_ID,
-				limitType: "rpm",
-				maxRequests: 0,
-				mode,
-			}),
-		});
-		expect(response.status).toBe(400);
-	});
-
 	test.each([
 		["/admin/rate-limits", "rpm"],
 		["/admin/rate-limits", "rpd"],
@@ -287,21 +273,42 @@ describe("admin rate limits for airside listings", () => {
 		);
 	});
 
-	test("still rejects zero on organization-specific limits", async () => {
-		const response = await app.request(
-			"/admin/organizations/test-org/rate-limits",
-			{
-				method: "POST",
-				headers: { Cookie: cookie, "Content-Type": "application/json" },
-				body: JSON.stringify({
-					provider: CARRIER_ID,
-					limitType: "rpd",
-					maxRequests: 0,
-				}),
-			},
-		);
-		expect(response.status).toBe(400);
-	});
+	test.each(["strict", "soft", "lax"])(
+		"round-trips zero %s caps globally and per organization",
+		async (mode) => {
+			for (const path of [
+				"/admin/rate-limits",
+				"/admin/organizations/test-org/rate-limits",
+			]) {
+				for (const limitType of ["rpm", "rpd"]) {
+					const response = await app.request(path, {
+						method: "POST",
+						headers: { Cookie: cookie, "Content-Type": "application/json" },
+						body: JSON.stringify({
+							provider: CARRIER_ID,
+							limitType,
+							maxRequests: 0,
+							mode,
+						}),
+					});
+					expect(response.status).toBe(201);
+					const created = await response.json();
+					expect(created).toMatchObject({ maxRequests: 0, mode, limitType });
+					const listed = await app.request(path, {
+						headers: { Cookie: cookie },
+					});
+					expect((await listed.json()).rateLimits).toEqual(
+						expect.arrayContaining([
+							expect.objectContaining({ id: created.id, maxRequests: 0, mode }),
+						]),
+					);
+					await db
+						.delete(tables.rateLimit)
+						.where(eq(tables.rateLimit.id, created.id));
+				}
+			}
+		},
+	);
 
 	test("unknown providers and models are still rejected", async () => {
 		const unknownProvider = await app.request("/admin/rate-limits", {

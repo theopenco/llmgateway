@@ -87,7 +87,7 @@ describe("getEffectiveRateLimit", () => {
 	);
 
 	it.each(["soft", "lax"] as const)(
-		"never exempts a zero %s limit",
+		"preserves the mode of a zero %s limit",
 		async (mode) => {
 			createQueryMock([
 				{
@@ -105,7 +105,7 @@ describe("getEffectiveRateLimit", () => {
 			const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
 
 			expect(result.maxRpm).toBe(0);
-			expect(result.rpmMode).toBeUndefined();
+			expect(result.rpmMode).toBe(mode);
 		},
 	);
 

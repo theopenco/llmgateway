@@ -367,6 +367,46 @@ describe("session stickiness across candidate changes", () => {
 			};
 		}
 
+		describe.each(["soft", "lax"] as const)("zero %s caps", (mode) => {
+			test.each([false, true])(
+				"allows only eligible requests (stream=%s)",
+				async (stream) => {
+					const token = await seedApiAndProviderKeys("zero-cap");
+					await db.insert(tables.rateLimit).values({
+						id: "zero-cap",
+						organizationId: "org-id",
+						model: MODEL,
+						maxRpm: 0,
+						maxRpd: 0,
+						mode,
+					});
+					await pinToOpenai("zero-existing");
+					for (const sessionId of [undefined, "zero-new", "zero-existing"]) {
+						for (const explicit of [false, true]) {
+							const res = await chatCompletion(
+								token,
+								{
+									model: explicit ? `openai/${MODEL}` : MODEL,
+									stream,
+									messages: [
+										{ role: "user", content: `zero ${sessionId} ${explicit}` },
+									],
+								},
+								sessionId ? { "x-session-id": sessionId } : {},
+							);
+							const allowed =
+								sessionId === "zero-existing" || (mode === "lax" && explicit);
+							expect(res.status).toBe(allowed ? 200 : 429);
+							await res.text();
+						}
+					}
+					const count = mode === "lax" ? 4 : 2;
+					expect(await redisClient.zcard(rpmKey)).toBe(count);
+					expect(await redisClient.zcard(rpdKey)).toBe(count);
+				},
+			);
+		});
+
 		test.each(["soft", "lax"] as const)(
 			"a pinned session stays on a %s-capped provider and still counts",
 			async (mode) => {
