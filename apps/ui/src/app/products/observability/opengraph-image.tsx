@@ -13,7 +13,7 @@ export default function Image() {
 		title: "Every request,",
 		titleAccent: "accounted for.",
 		subtitle:
-			"Cost, latency, errors and cache hits, with spend by model, provider and API key. Full prompts and responses when data retention is on.",
+			"Cost, latency, errors and cache hits, with spend by model, provider and API key. Full prompts and responses with Enterprise data retention.",
 		screenshot: "observability-activity-dark.webp",
 		accent: "#c4b5fd",
 		glow: "rgba(139,92,246,0.3)",

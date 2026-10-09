@@ -53,7 +53,7 @@ Certifications tell you how a provider behaves; jurisdiction tells you which law
 Two retention questions, often conflated: what you store, and what your providers store.
 
 - **What good looks like:** metadata-only storage unless payload retention has a named justification; provider-side logging and training excluded by policy (point 2).
-- **How to enforce it:** LLM Gateway defaults to metadata-only — no prompts or responses stored. Payload retention is per-organization opt-in at $0.01/1M tokens with automatic deletion after the retention period (custom periods on Enterprise). The [LLM data retention guide](/blog/llm-data-retention) covers the trade-offs.
+- **How to enforce it:** LLM Gateway defaults to metadata-only — no prompts or responses stored. Payload retention is an Enterprise-only, per-organization opt-in at $0.01/1M tokens with automatic deletion after the retention period (custom periods available). The [LLM data retention guide](/blog/llm-data-retention) covers the trade-offs.
 
 ## 5. Gate who can use what
 

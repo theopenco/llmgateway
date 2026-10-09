@@ -64,7 +64,7 @@ If Helicone was your _only_ window into LLM traffic, a gateway replaces it one-f
 - **Analytics included, not metered** — per-request cost and latency breakdowns, per-model and per-provider usage, spend tracking per project and API key, with no per-log fees
 - **It's also your router** — automatic failover, weighted routing on live uptime/latency/price, and Redis-backed response caching; Helicone observed problems, a gateway routes around them
 - **Open source and self-hostable** — the AGPLv3 core runs inside your boundary, with data in your own Postgres
-- **Payload retention is a policy, not a default** — metadata-only by default, full [data retention](/blog/llm-data-retention) opt-in when you need payload-level debugging
+- **Payload retention is a policy, not a default** — metadata-only by default, full [data retention](/blog/llm-data-retention) opt-in on Enterprise when you need payload-level debugging
 - **A migration that's one line again** — same trick that got you into Helicone gets you out
 
 ```diff

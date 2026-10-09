@@ -15,6 +15,7 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 import { useToast } from "@/lib/components/use-toast";
+import { useAppConfig } from "@/lib/config";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 
@@ -25,7 +26,7 @@ const ENTERPRISE_FEATURES = [
 	"Dedicated support & SLA",
 	"Provider compliance policies",
 	"SSO & audit logs",
-	"Extended data retention",
+	"Full request & response retention",
 	"Custom models & guardrails",
 	"Volume pricing",
 ];
@@ -38,6 +39,7 @@ export function PlanManagement() {
 	const queryClient = useQueryClient();
 	const api = useApi();
 	const posthog = usePostHog();
+	const { hosted } = useAppConfig();
 
 	const { data: subscriptionStatus } = api.useQuery(
 		"get",
@@ -265,7 +267,13 @@ export function PlanManagement() {
 							</div>
 							<div className="flex items-center gap-2">
 								<div className="w-2 h-2 rounded-full bg-green-500" />
-								<span>30-day data retention</span>
+								<span>
+									{selectedOrganization.retentionLevel !== "retain"
+										? "Metadata-only request logs"
+										: hosted
+											? "Full request & response retention (until November 8, 2026)"
+											: "Full request & response retention"}
+								</span>
 							</div>
 							<div className="flex items-center gap-2">
 								<div className="w-2 h-2 rounded-full bg-green-500" />
