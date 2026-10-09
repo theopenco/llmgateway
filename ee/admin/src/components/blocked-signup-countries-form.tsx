@@ -1,13 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 const countryNames = new Intl.DisplayNames(["en"], { type: "region" });
 
@@ -21,40 +23,43 @@ function countryLabel(code: string): string {
 
 interface BlockedSignupCountriesFormProps {
 	countries: string[];
-	onSave: (
-		countries: string[],
-	) => Promise<{ countries: string[] | null; message: string | null }>;
 }
 
 export function BlockedSignupCountriesForm({
 	countries,
-	onSave,
 }: BlockedSignupCountriesFormProps) {
 	const router = useRouter();
 	const readOnly = !canWrite(useAdminRole());
-	const [pending, startTransition] = useTransition();
+	const $api = useApi();
 	const [value, setValue] = useState(countries.join(", "));
-	const [error, setError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
+	const mutation = $api.useMutation(
+		"put",
+		"/admin/settings/blocked-signup-countries",
+		{
+			meta: { inlineError: true },
+			onSuccess: (data) => {
+				setValue(data.countries.join(", "));
+				setSaved(true);
+				router.refresh();
+			},
+		},
+	);
+	const pending = mutation.isPending;
+	const error = mutation.isError
+		? apiErrorMessage(mutation.error, "Failed to update the blocked countries.")
+		: null;
 
 	const handleSubmit = (event: React.FormEvent) => {
 		event.preventDefault();
-		setError(null);
 		setSaved(false);
-		startTransition(async () => {
-			const result = await onSave(
-				value
+		mutation.mutate({
+			body: {
+				countries: value
 					.split(",")
 					.map((code) => code.trim())
 					.filter(Boolean),
-			);
-			if (result.countries === null) {
-				setError(result.message);
-				return;
-			}
-			setValue(result.countries.join(", "));
-			setSaved(true);
-			router.refresh();
+			},
 		});
 	};
 
@@ -66,6 +71,11 @@ export function BlockedSignupCountriesForm({
 					placeholder="e.g. KP, SY"
 					value={value}
 					disabled={pending || readOnly}
+					autoComplete="off"
+					data-1p-ignore
+					data-lpignore="true"
+					data-bwignore
+					data-form-type="other"
 					onChange={(event) => {
 						setValue(event.target.value);
 						setSaved(false);

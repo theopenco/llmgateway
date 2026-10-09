@@ -1,12 +1,12 @@
 ---
 title: Service Tiers
-description: Trade latency against cost on supported OpenAI, Google, and Fireworks models with Flex and Priority processing tiers.
+description: Trade latency against cost on supported OpenAI, Google, Fireworks, and AWS Bedrock models with Flex and Priority processing tiers.
 icon: Gauge
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-Some OpenAI, Google, and Fireworks models support selectable **processing tiers** that trade
+Some OpenAI, Google, Fireworks, and AWS Bedrock models support selectable **processing tiers** that trade
 latency and availability against price. You pick one per request with the
 OpenAI-compatible `service_tier` parameter, and LLM Gateway forwards it only
 when the selected provider/model mapping supports that tier.
@@ -73,6 +73,12 @@ the exact tiers exposed by each provider card.
   Fireworks does not report the tier it served, but a Priority request is either
   served at Priority or shed with a 503, so an accepted request is billed at the
   tier it was sent at.
+
+- **AWS Bedrock** (`aws-bedrock`) — sent as a `service_tier` field in the request
+  body for models served through Bedrock's OpenAI-compatible endpoint that opt
+  in. Only Flex is offered, billed at 0.5x standard token prices in every region.
+  Bedrock reports the served tier back, so the request is billed at the tier it
+  actually ran at.
 
 - **Azure** (`azure`) — sent as a `service_tier` field in the request body on the
   v1 chat completions and responses endpoints. Only Priority is offered (Azure

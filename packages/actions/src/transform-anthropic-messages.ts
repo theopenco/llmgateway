@@ -12,6 +12,7 @@ import {
 	type ToolUseContent,
 } from "@llmgateway/models";
 
+import { anthropicThinkingBlocksFor } from "./anthropic-thinking.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
@@ -466,8 +467,15 @@ export async function transformAnthropicMessages(
 						];
 		}
 
+		// Thinking opens the turn, as Anthropic emitted it. Replaying it keeps the
+		// cached prefix of a tool loop intact.
+		const thinkingBlocks =
+			m.role === "assistant" && provider
+				? anthropicThinkingBlocksFor(provider, m.reasoning_details)
+				: [];
+
 		results.push({
-			content: anthropicContent,
+			content: [...thinkingBlocks, ...anthropicContent],
 			role: anthropicRole,
 		});
 	}

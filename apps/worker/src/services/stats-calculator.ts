@@ -36,6 +36,22 @@ const BACKFILL_DURATION_SECONDS =
 const HOURLY_BACKFILL_MAX_ITERATIONS =
 	Number(process.env.HOURLY_BACKFILL_MAX_ITERATIONS) || 24 * 400;
 
+// Minute history is pruned after this many days; the hourly rollups are kept.
+export const MODEL_HISTORY_RETENTION_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MODEL_HISTORY_RETENTION_MS = MODEL_HISTORY_RETENTION_DAYS * DAY_MS;
+
+export function getModelHistoryRetentionCutoff(): Date {
+	return new Date(Date.now() - MODEL_HISTORY_RETENTION_MS);
+}
+
+// The in-progress hour's usage rollups refresh every minute, but the two
+// diagnostics that read `log` for the whole hour (routing telemetry and content
+// filter stats) are far heavier and only feed admin dashboards, so they refresh
+// this often instead. Closed hours and backfills always run them.
+const CURRENT_HOUR_DIAGNOSTICS_INTERVAL_MS =
+	(Number(process.env.CURRENT_HOUR_DIAGNOSTICS_INTERVAL_SECONDS) || 300) * 1000;
+
 const ONE_MINUTE_MS = 60 * 1000;
 const ONE_HOUR_MS = 60 * ONE_MINUTE_MS;
 const usedModelWithRegionSql = sql<string>`split_part(${log.usedModel}, '/', 2)`;
@@ -69,6 +85,8 @@ interface MappingMinuteStats {
 	clientErrorsCount: number;
 	gatewayErrorsCount: number;
 	upstreamErrorsCount: number;
+	retriedGatewayErrorsCount: number;
+	retriedUpstreamErrorsCount: number;
 	completedCount: number;
 	lengthLimitCount: number;
 	contentFilterCount: number;
@@ -111,6 +129,8 @@ function createEmptyMappingMinuteStats(
 		clientErrorsCount: 0,
 		gatewayErrorsCount: 0,
 		upstreamErrorsCount: 0,
+		retriedGatewayErrorsCount: 0,
+		retriedUpstreamErrorsCount: 0,
 		completedCount: 0,
 		lengthLimitCount: 0,
 		contentFilterCount: 0,
@@ -148,6 +168,8 @@ function mergeMappingMinuteStats(
 	target.clientErrorsCount += source.clientErrorsCount;
 	target.gatewayErrorsCount += source.gatewayErrorsCount;
 	target.upstreamErrorsCount += source.upstreamErrorsCount;
+	target.retriedGatewayErrorsCount += source.retriedGatewayErrorsCount;
+	target.retriedUpstreamErrorsCount += source.retriedUpstreamErrorsCount;
 	target.completedCount += source.completedCount;
 	target.lengthLimitCount += source.lengthLimitCount;
 	target.contentFilterCount += source.contentFilterCount;
@@ -212,30 +234,97 @@ const HISTORY_METRIC_COLUMNS = [
 	"serviceTierUnconfirmedCount",
 ] as const;
 
+// Only the minute mapping history tracks retried errors (error-rate alerts).
+const MAPPING_HISTORY_METRIC_COLUMNS = [
+	...HISTORY_METRIC_COLUMNS,
+	"retriedGatewayErrorsCount",
+	"retriedUpstreamErrorsCount",
+] as const;
+
 // Chunk size for bulk upserts. Postgres caps a statement at 65535 bind
 // parameters; history rows have fewer than 40 columns.
 const HISTORY_UPSERT_CHUNK_SIZE = 1000;
 
-// The schema uses Drizzle's global `casing: "snake_case"`, so a column's `.name`
-// is the camelCase logical name and the snake_case DB name is only resolved at
-// SQL-build time. The raw `excluded.<column>` reference below needs the actual
-// DB column name, so convert it the same way Drizzle does.
-function toSnakeCase(name: string): string {
-	return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+// The current-minute loop recomputes the in-progress minute every few seconds,
+// but between ticks only the handful of rows that saw traffic change. The
+// upsert's WHERE already leaves unchanged rows alone, yet Postgres still probes
+// the unique index and compares every column for each of the thousands of
+// candidate rows per tick. Remember what the last tick wrote per minute and
+// only send rows whose metrics differ. Keyed by minute, so a new minute starts
+// with a full write (zero rows for idle mappings included); only the current
+// and previous minute are kept. The once-per-minute pass bypasses this cache.
+type MinuteWriteCache = Map<string, string>;
+const minuteWriteCaches = new Map<string, Map<number, MinuteWriteCache>>();
+
+function getMinuteWriteCache(
+	table: string,
+	minuteMs: number,
+): MinuteWriteCache {
+	let perMinute = minuteWriteCaches.get(table);
+	if (!perMinute) {
+		perMinute = new Map();
+		minuteWriteCaches.set(table, perMinute);
+	}
+	let cache = perMinute.get(minuteMs);
+	if (!cache) {
+		cache = new Map();
+		perMinute.set(minuteMs, cache);
+		for (const key of perMinute.keys()) {
+			if (key < minuteMs - ONE_MINUTE_MS) {
+				perMinute.delete(key);
+			}
+		}
+	}
+	return cache;
 }
 
-function buildHistoryUpsert(
-	columns: Record<(typeof HISTORY_METRIC_COLUMNS)[number], Column>,
+/** Forget what the current-minute loop last wrote (tests). */
+export function resetMinuteWriteCache() {
+	minuteWriteCaches.clear();
+}
+
+/**
+ * Chunked upsert of one minute's rows. With a cache, rows whose metrics match
+ * what this process last wrote for the minute are skipped, and the cache is
+ * updated only after the write succeeds so a failed tick is retried in full.
+ */
+async function upsertMinuteRows<T extends Record<string, unknown>>(opts: {
+	rows: T[];
+	keyOf: (row: T) => string;
+	metricKeys: readonly (keyof T & string)[];
+	cache: MinuteWriteCache | undefined;
+	write: (chunk: T[]) => Promise<void>;
+}): Promise<number> {
+	const { rows, keyOf, metricKeys, cache, write } = opts;
+	const serialize = (row: T) =>
+		metricKeys.map((key) => String(row[key])).join("|");
+	const pending = cache
+		? rows.filter((row) => cache.get(keyOf(row)) !== serialize(row))
+		: rows;
+	for (let i = 0; i < pending.length; i += HISTORY_UPSERT_CHUNK_SIZE) {
+		await write(pending.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE));
+	}
+	if (cache) {
+		for (const row of pending) {
+			cache.set(keyOf(row), serialize(row));
+		}
+	}
+	return pending.length;
+}
+
+function buildHistoryUpsert<K extends string>(
+	columns: Record<K, Column>,
+	keys: readonly K[],
 ): { set: Record<string, SQL>; setWhere: SQL } {
 	const set: Record<string, SQL> = {};
-	for (const key of HISTORY_METRIC_COLUMNS) {
-		set[key] = sql`excluded.${sql.identifier(toSnakeCase(columns[key].name))}`;
+	for (const key of keys) {
+		set[key] = sql`excluded.${sql.identifier(columns[key].name)}`;
 	}
 	set.updatedAt = sql`now()`;
 	// Repeated refreshes usually leave most rows unchanged. Compare every metric
 	// so late corrections still apply even when request counts stay the same.
-	const existing = HISTORY_METRIC_COLUMNS.map((key) => columns[key]);
-	const incoming = HISTORY_METRIC_COLUMNS.map((key) => set[key]);
+	const existing = keys.map((key) => columns[key]);
+	const incoming = keys.map((key) => set[key]);
 	return {
 		set,
 		setWhere: sql`row(${sql.join(existing, sql`, `)}) is distinct from row(${sql.join(incoming, sql`, `)})`,
@@ -301,11 +390,24 @@ function getCurrentHourStart(): Date {
  * Calculate and store 1-minute historical data for models for a specific minute
  * @param targetMinute The specific minute to calculate history for
  */
-async function calculateModelHistoryForMinute(targetMinute: Date) {
+interface MinuteHistoryOptions {
+	// Skip rows unchanged since this process last wrote the same minute; see
+	// upsertMinuteRows. Only the frequent current-minute refresh sets this.
+	incremental?: boolean;
+}
+
+async function calculateModelHistoryForMinute(
+	targetMinute: Date,
+	options: MinuteHistoryOptions = {},
+) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 	if (roundedTargetMinute < getLogRetentionCutoff()) {
 		return { totalModels: 0, activeModels: 0, inactiveModels: 0 };
 	}
+	const writeCache = options.incremental
+		? getMinuteWriteCache("model_history", roundedTargetMinute.getTime())
+		: undefined;
+	const minuteAlreadyWritten = (writeCache?.size ?? 0) > 0;
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
 	const database = db;
@@ -562,35 +664,42 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 		}
 	}
 
-	const modelHistoryUpsert = buildHistoryUpsert(modelHistory);
-	for (
-		let i = 0;
-		i < modelHistoryValues.length;
-		i += HISTORY_UPSERT_CHUNK_SIZE
-	) {
-		const chunk = modelHistoryValues.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE);
-		await database
-			.insert(modelHistory)
-			.values(chunk)
-			.onConflictDoUpdate({
-				target: [
-					modelHistory.modelId,
-					modelHistory.minuteTimestamp,
-					modelHistory.usedMode,
-				],
-				...modelHistoryUpsert,
-			});
-	}
+	const modelHistoryUpsert = buildHistoryUpsert(
+		modelHistory,
+		HISTORY_METRIC_COLUMNS,
+	);
+	await upsertMinuteRows({
+		rows: modelHistoryValues,
+		keyOf: (row) => `${row.modelId}|${row.usedMode}`,
+		metricKeys: HISTORY_METRIC_COLUMNS,
+		cache: writeCache,
+		write: (chunk) =>
+			database
+				.insert(modelHistory)
+				.values(chunk)
+				.onConflictDoUpdate({
+					target: [
+						modelHistory.modelId,
+						modelHistory.minuteTimestamp,
+						modelHistory.usedMode,
+					],
+					...modelHistoryUpsert,
+				})
+				.then(() => undefined),
+	});
 	// Once the per-mode rows are complete, remove the legacy blended bucket for
 	// this minute so the default All view cannot count both representations.
-	await database
-		.delete(modelHistory)
-		.where(
-			and(
-				eq(modelHistory.minuteTimestamp, roundedTargetMinute),
-				eq(modelHistory.usedMode, "unknown"),
-			),
-		);
+	// A minute this process already wrote has no legacy rows left to remove.
+	if (!minuteAlreadyWritten) {
+		await database
+			.delete(modelHistory)
+			.where(
+				and(
+					eq(modelHistory.minuteTimestamp, roundedTargetMinute),
+					eq(modelHistory.usedMode, "unknown"),
+				),
+			);
+	}
 
 	return {
 		totalModels: allModels.length,
@@ -603,11 +712,21 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
  * Calculate and store 1-minute historical data for model-provider mappings for a specific minute
  * @param targetMinute The specific minute to calculate history for
  */
-async function calculateHistoryForMinute(targetMinute: Date) {
+async function calculateHistoryForMinute(
+	targetMinute: Date,
+	options: MinuteHistoryOptions = {},
+) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 	if (roundedTargetMinute < getLogRetentionCutoff()) {
 		return { totalMappings: 0, activeMappings: 0, inactiveMappings: 0 };
 	}
+	const writeCache = options.incremental
+		? getMinuteWriteCache(
+				"model_provider_mapping_history",
+				roundedTargetMinute.getTime(),
+			)
+		: undefined;
+	const minuteAlreadyWritten = (writeCache?.size ?? 0) > 0;
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
 	const database = db;
@@ -636,6 +755,14 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			upstreamErrorsCount:
 				sql<number>`sum(case when ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
 					"upstreamErrorsCount",
+				),
+			retriedGatewayErrorsCount:
+				sql<number>`sum(case when ${log.retried} = true and ${log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
+					"retriedGatewayErrorsCount",
+				),
+			retriedUpstreamErrorsCount:
+				sql<number>`sum(case when ${log.retried} = true and ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
+					"retriedUpstreamErrorsCount",
 				),
 			completedCount:
 				sql<number>`sum(case when ${log.unifiedFinishReason} = 'completed' then 1 else 0 end)::int`.as(
@@ -862,6 +989,8 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			const clientErrorsCount = stat?.clientErrorsCount ?? 0;
 			const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
 			const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
+			const retriedGatewayErrorsCount = stat?.retriedGatewayErrorsCount ?? 0;
+			const retriedUpstreamErrorsCount = stat?.retriedUpstreamErrorsCount ?? 0;
 			const completedCount = stat?.completedCount ?? 0;
 			const lengthLimitCount = stat?.lengthLimitCount ?? 0;
 			const contentFilterCount = stat?.contentFilterCount ?? 0;
@@ -908,6 +1037,8 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				clientErrorsCount,
 				gatewayErrorsCount,
 				upstreamErrorsCount,
+				retriedGatewayErrorsCount,
+				retriedUpstreamErrorsCount,
 				completedCount,
 				lengthLimitCount,
 				contentFilterCount,
@@ -937,33 +1068,39 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		}
 	}
 
-	const mappingHistoryUpsert = buildHistoryUpsert(modelProviderMappingHistory);
-	for (
-		let i = 0;
-		i < mappingHistoryValues.length;
-		i += HISTORY_UPSERT_CHUNK_SIZE
-	) {
-		const chunk = mappingHistoryValues.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE);
+	const mappingHistoryUpsert = buildHistoryUpsert(
+		modelProviderMappingHistory,
+		MAPPING_HISTORY_METRIC_COLUMNS,
+	);
+	await upsertMinuteRows({
+		rows: mappingHistoryValues,
+		keyOf: (row) => `${row.modelProviderMappingId}|${row.usedMode}`,
+		metricKeys: MAPPING_HISTORY_METRIC_COLUMNS,
+		cache: writeCache,
+		write: (chunk) =>
+			database
+				.insert(modelProviderMappingHistory)
+				.values(chunk)
+				.onConflictDoUpdate({
+					target: [
+						modelProviderMappingHistory.modelProviderMappingId,
+						modelProviderMappingHistory.minuteTimestamp,
+						modelProviderMappingHistory.usedMode,
+					],
+					...mappingHistoryUpsert,
+				})
+				.then(() => undefined),
+	});
+	if (!minuteAlreadyWritten) {
 		await database
-			.insert(modelProviderMappingHistory)
-			.values(chunk)
-			.onConflictDoUpdate({
-				target: [
-					modelProviderMappingHistory.modelProviderMappingId,
-					modelProviderMappingHistory.minuteTimestamp,
-					modelProviderMappingHistory.usedMode,
-				],
-				...mappingHistoryUpsert,
-			});
+			.delete(modelProviderMappingHistory)
+			.where(
+				and(
+					eq(modelProviderMappingHistory.minuteTimestamp, roundedTargetMinute),
+					eq(modelProviderMappingHistory.usedMode, "unknown"),
+				),
+			);
 	}
-	await database
-		.delete(modelProviderMappingHistory)
-		.where(
-			and(
-				eq(modelProviderMappingHistory.minuteTimestamp, roundedTargetMinute),
-				eq(modelProviderMappingHistory.usedMode, "unknown"),
-			),
-		);
 
 	return {
 		totalMappings: allMappings.length,
@@ -1158,9 +1295,13 @@ export async function calculateCurrentMinuteHistory() {
 	const currentMinuteStart = getCurrentMinuteStart();
 
 	try {
-		const mappingResult = await calculateHistoryForMinute(currentMinuteStart);
-		const modelResult =
-			await calculateModelHistoryForMinute(currentMinuteStart);
+		const mappingResult = await calculateHistoryForMinute(currentMinuteStart, {
+			incremental: true,
+		});
+		const modelResult = await calculateModelHistoryForMinute(
+			currentMinuteStart,
+			{ incremental: true },
+		);
 
 		logger.debug(
 			`Updated current minute history for ${currentMinuteStart.toISOString()}: ${mappingResult.activeMappings} active mappings, ${modelResult.activeModels} active models`,
@@ -1230,7 +1371,10 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 		...row,
 		hourTimestamp: roundedHour,
 	}));
-	const historyUpsert = buildHistoryUpsert(modelHistoryHourly);
+	const historyUpsert = buildHistoryUpsert(
+		modelHistoryHourly,
+		HISTORY_METRIC_COLUMNS,
+	);
 	for (let i = 0; i < historyValues.length; i += HISTORY_UPSERT_CHUNK_SIZE) {
 		await database
 			.insert(modelHistoryHourly)
@@ -1335,7 +1479,10 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 		...row,
 		hourTimestamp: roundedHour,
 	}));
-	const historyUpsert = buildHistoryUpsert(modelProviderMappingHistoryHourly);
+	const historyUpsert = buildHistoryUpsert(
+		modelProviderMappingHistoryHourly,
+		HISTORY_METRIC_COLUMNS,
+	);
 	for (let i = 0; i < historyValues.length; i += HISTORY_UPSERT_CHUNK_SIZE) {
 		await database
 			.insert(modelProviderMappingHistoryHourly)
@@ -1386,9 +1533,20 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
  * the routing telemetry for that hour. Routing telemetry rides along here rather
  * than on its own schedule so it is covered by the same backfill pass.
  */
-async function calculateHistoryForHour(targetHour: Date) {
+async function calculateHistoryForHour(
+	targetHour: Date,
+	options: { diagnostics?: boolean } = {},
+) {
 	const mappingResult = await calculateMappingHistoryForHour(targetHour);
 	const modelResult = await calculateModelHistoryForHour(targetHour);
+	if (options.diagnostics === false) {
+		return {
+			mappingResult,
+			modelResult,
+			routingResult: null,
+			contentFilterResult: null,
+		};
+	}
 	// Routing telemetry is diagnostic, and it reads `log` rather than the minute
 	// history the two rollups above are built from. A failure in it must not cost
 	// us the hour's usage and cost stats, so it is logged and skipped instead of
@@ -1426,10 +1584,12 @@ async function calculateHistoryForHour(targetHour: Date) {
 // again. A restart forgets the marker and simply recomputes it one more time.
 const HOURLY_SETTLE_MS = 5 * 60 * 1000;
 let settledHour: number | undefined;
+let currentHourDiagnosticsAt: number | undefined;
 
-/** Forget which closed hour is settled (tests). */
+/** Forget which closed hour is settled and when diagnostics last ran (tests). */
 export function resetHourlyHistoryState() {
 	settledHour = undefined;
+	currentHourDiagnosticsAt = undefined;
 }
 
 /**
@@ -1448,7 +1608,14 @@ export async function calculateHourlyHistory() {
 				settledHour = previousHourStart.getTime();
 			}
 		}
-		await calculateHistoryForHour(currentHourStart);
+		const now = Date.now();
+		const diagnostics =
+			currentHourDiagnosticsAt === undefined ||
+			now - currentHourDiagnosticsAt >= CURRENT_HOUR_DIAGNOSTICS_INTERVAL_MS;
+		await calculateHistoryForHour(currentHourStart, { diagnostics });
+		if (diagnostics) {
+			currentHourDiagnosticsAt = now;
+		}
 
 		logger.debug(
 			`Recorded hourly history for ${previousHourStart.toISOString()} and ${currentHourStart.toISOString()}`,
@@ -1482,17 +1649,30 @@ export async function backfillHourlyHistoryIfNeeded() {
 			currentHourStart.getTime() - ONE_HOUR_MS,
 		);
 
-		// Earliest minute-history entry across both source tables — the oldest hour
-		// the hourly rollup could possibly cover.
+		// Earliest retained minute-history entry across both source tables — the
+		// oldest hour the hourly rollup could possibly cover. The lower bound
+		// matters: minute rows are pruned from the front of the timestamp index
+		// hourly, and an unbounded ORDER BY ... LIMIT 1 walks every dead index
+		// entry that vacuum has not reclaimed yet (tens of seconds on production)
+		// before reaching the first live row. Anything older than the retention
+		// window is about to be pruned and was rolled up while it was current.
+		const earliestRetainedMinute = getModelHistoryRetentionCutoff();
 		const earliestMappingMinute = await database
 			.select({ minuteTimestamp: modelProviderMappingHistory.minuteTimestamp })
 			.from(modelProviderMappingHistory)
+			.where(
+				gte(
+					modelProviderMappingHistory.minuteTimestamp,
+					earliestRetainedMinute,
+				),
+			)
 			.orderBy(asc(modelProviderMappingHistory.minuteTimestamp))
 			.limit(1);
 
 		const earliestModelMinute = await database
 			.select({ minuteTimestamp: modelHistory.minuteTimestamp })
 			.from(modelHistory)
+			.where(gte(modelHistory.minuteTimestamp, earliestRetainedMinute))
 			.orderBy(asc(modelHistory.minuteTimestamp))
 			.limit(1);
 
@@ -1646,6 +1826,35 @@ export async function backfillHourlyHistoryIfNeeded() {
  */
 const STATS_ROLLUP_WINDOW_MINUTES = 60;
 
+interface RollingStats {
+	totalLogs: number;
+	totalErrors: number;
+	totalClientErrors: number;
+	totalGatewayErrors: number;
+	totalUpstreamErrors: number;
+	totalCached: number;
+}
+
+// The rolling counters are rewritten for every catalogue row each minute, but
+// most of them are idle and unchanged. An update that writes identical values
+// still produces a new tuple version plus index entries on tables the gateway
+// reads for every request, so only touch rows whose counters moved. Nothing
+// reads model or mapping `statsUpdatedAt` for freshness; the provider rows
+// (which the health notifier does read) are left on their unconditional path.
+function rollingStatsChanged(
+	table: {
+		logsCount: Column;
+		errorsCount: Column;
+		clientErrorsCount: Column;
+		gatewayErrorsCount: Column;
+		upstreamErrorsCount: Column;
+		cachedCount: Column;
+	},
+	stats: RollingStats,
+): SQL {
+	return sql`(${table.logsCount}, ${table.errorsCount}, ${table.clientErrorsCount}, ${table.gatewayErrorsCount}, ${table.upstreamErrorsCount}, ${table.cachedCount}) is distinct from (${stats.totalLogs}::int, ${stats.totalErrors}::int, ${stats.totalClientErrors}::int, ${stats.totalGatewayErrors}::int, ${stats.totalUpstreamErrors}::int, ${stats.totalCached}::int)`;
+}
+
 export async function calculateAggregatedStatistics() {
 	logger.debug("Starting aggregated statistics calculation...");
 
@@ -1687,7 +1896,13 @@ export async function calculateAggregatedStatistics() {
 					),
 			})
 			.from(modelProviderMappingHistory)
-			.where(gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo))
+			.where(
+				and(
+					gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo),
+					// BYOK failures reflect the customer's key, not the provider.
+					eq(modelProviderMappingHistory.usedMode, "credits"),
+				),
+			)
 			.groupBy(modelProviderMappingHistory.modelProviderMappingId);
 
 		interface RollupAgg {
@@ -1797,7 +2012,7 @@ export async function calculateAggregatedStatistics() {
 					statsUpdatedAt: new Date(),
 					updatedAt: new Date(),
 				})
-				.where(eq(model.id, modelId));
+				.where(and(eq(model.id, modelId), rollingStatsChanged(model, agg)));
 		}
 
 		logger.debug(`Updated statistics for ${modelMap.size} models`);
@@ -1829,7 +2044,19 @@ export async function calculateAggregatedStatistics() {
 					statsUpdatedAt: new Date(),
 					updatedAt: new Date(),
 				})
-				.where(eq(modelProviderMapping.id, mappingId));
+				.where(
+					and(
+						eq(modelProviderMapping.id, mappingId),
+						rollingStatsChanged(modelProviderMapping, {
+							totalLogs,
+							totalErrors,
+							totalClientErrors,
+							totalGatewayErrors,
+							totalUpstreamErrors,
+							totalCached,
+						}),
+					),
+				);
 
 			mappingUpdateCount++;
 		}

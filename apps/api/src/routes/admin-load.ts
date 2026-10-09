@@ -18,6 +18,7 @@ import {
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { adminTokenCapacity } from "@/routes/admin-token-capacity.js";
 import { pickMappingHistoryTable } from "@/utils/history-window.js";
 
 import {
@@ -31,6 +32,7 @@ import {
 	gte,
 	ilike,
 	inArray,
+	lt,
 	or,
 	sql,
 	tables,
@@ -44,6 +46,7 @@ import type { AnyColumn, SQL, TtftTotals } from "@llmgateway/db";
 export const adminLoad = new OpenAPIHono<ServerTypes>();
 
 adminLoad.use("/*", adminMiddleware);
+adminLoad.route("/", adminTokenCapacity);
 
 // Enough series to show who the heavy hitters are without turning the chart
 // into spaghetti; the rest is folded into a single "Other" band.
@@ -323,8 +326,12 @@ function readTotals(row: LoadTotals): LoadTotals {
 	};
 }
 
+function readPeaks(rows: { key: string; peak: number }[]): Map<string, number> {
+	return new Map(rows.map((row) => [row.key, Number(row.peak)]));
+}
+
 /**
- * The three shapes every load view needs. They are separate queries on purpose:
+ * The shapes every load view needs. They are separate queries on purpose:
  * one combined `GROUP BY bucket, key` would return `keys x buckets` rows, which
  * for a cross-tenant organization ranking over 90 days is six figures of rows
  * per poll. Ranking first and only bucketing the top series keeps every result
@@ -334,6 +341,8 @@ interface LoadSource {
 	bucketTotals: () => Promise<BucketTotalRow[]>;
 	keyTotals: () => Promise<KeyTotalRow[]>;
 	keyBuckets: (keys: string[]) => Promise<KeyBucketRow[]>;
+	/** Busiest bucket per key, counting only buckets that start before `before`. */
+	keyPeaks: (before: Date) => Promise<Map<string, number>>;
 }
 
 function mappingHistorySource(scope: LoadScope): LoadSource {
@@ -428,6 +437,26 @@ function mappingHistorySource(scope: LoadScope): LoadSource {
 				key: row.key,
 				...readTotals(row),
 			}));
+		},
+		async keyPeaks(before) {
+			const perBucket = db
+				.select({
+					key: keyExpr.as("key"),
+					requestCount: requests.as("request_count"),
+				})
+				.from(mph)
+				.where(and(...filters, lt(mphTs, before)))
+				.groupBy(bucketExpr, keyExpr)
+				.as("per_bucket");
+			return readPeaks(
+				await db
+					.select({
+						key: perBucket.key,
+						peak: sql<number>`MAX(${perBucket.requestCount})::float8`,
+					})
+					.from(perBucket)
+					.groupBy(perBucket.key),
+			);
 		},
 	};
 }
@@ -555,6 +584,27 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 				key: row.key,
 				...readTotals(row),
 			}));
+		},
+		async keyPeaks(before) {
+			const perBucket = db
+				.select({
+					key: keyExpr.as("key"),
+					requestCount: requests.as("request_count"),
+				})
+				.from(statsTable)
+				.innerJoin(tables.project, joinProject)
+				.where(and(...filters, lt(statsTable.hourTimestamp, before)))
+				.groupBy(bucketExpr, keyExpr)
+				.as("per_bucket");
+			return readPeaks(
+				await db
+					.select({
+						key: perBucket.key,
+						peak: sql<number>`MAX(${perBucket.requestCount})::float8`,
+					})
+					.from(perBucket)
+					.groupBy(perBucket.key),
+			);
 		},
 	};
 }
@@ -688,6 +738,9 @@ const loadOverviewResponseSchema = z.object({
 	window: tokenWindowSchema,
 	bucket: loadBucketSchema,
 	source: loadSourceSchema,
+	// The summary depends only on the filters, never on the grouping, so it can
+	// come from a different rollup than the chart.
+	summarySource: loadSourceSchema,
 	groupBy: loadGroupBySchema,
 	modelView: loadModelViewSchema,
 	mode: loadModeSchema,
@@ -711,21 +764,23 @@ const loadOverviewResponseSchema = z.object({
 	totalKeys: z.number(),
 });
 
+const loadQuerySchema = z.object({
+	window: tokenWindowSchema.default("1h").optional(),
+	bucket: loadBucketSchema.optional(),
+	groupBy: loadGroupBySchema.default("model").optional(),
+	modelView: loadModelViewSchema.default("canonical").optional(),
+	mode: loadModeSchema.default("total").optional(),
+	rankBy: loadRankBySchema.default("requests").optional(),
+	organizationId: z.string().optional(),
+	projectId: z.string().optional(),
+	apiKeyId: z.string().optional(),
+});
+
 const getLoadOverview = createRoute({
 	method: "get",
 	path: "/load/overview",
 	request: {
-		query: z.object({
-			window: tokenWindowSchema.default("1h").optional(),
-			bucket: loadBucketSchema.optional(),
-			groupBy: loadGroupBySchema.default("model").optional(),
-			modelView: loadModelViewSchema.default("canonical").optional(),
-			mode: loadModeSchema.default("total").optional(),
-			rankBy: loadRankBySchema.default("requests").optional(),
-			organizationId: z.string().optional(),
-			projectId: z.string().optional(),
-			apiKeyId: z.string().optional(),
-		}),
+		query: loadQuerySchema,
 	},
 	responses: {
 		200: {
@@ -740,39 +795,195 @@ const getLoadOverview = createRoute({
 	},
 });
 
-adminLoad.openapi(getLoadOverview, async (c) => {
-	const scope = resolveLoadScope(c.req.valid("query"));
-	// Keep hourly spikes before rolling long-range charts up to days.
-	const peakBucket = scope.bucket === "day" ? "hour" : scope.bucket;
+// Keep hourly spikes before rolling long-range charts up to days.
+function peakBucketFor(bucket: LoadBucket): LoadBucket {
+	return bucket === "day" ? "hour" : bucket;
+}
+
+function openLoadSource(scope: LoadScope): LoadSource {
 	const sourceScope = {
 		...scope,
-		bucket: peakBucket,
+		bucket: peakBucketFor(scope.bucket),
 		startDate: loadRangeStart(scope),
 	};
-	const source =
-		scope.source === "mapping-history"
-			? mappingHistorySource(sourceScope)
-			: projectStatsSource(sourceScope);
+	return scope.source === "mapping-history"
+		? mappingHistorySource(sourceScope)
+		: projectStatsSource(sourceScope);
+}
 
-	const [bucketTotals, keyTotals] = await Promise.all([
+/**
+ * The headline figures describe all traffic matching the filters, so they
+ * must not move when only the grouping does. Grouping by model reads the
+ * minute-grain mapping history and grouping by organization the hourly tenant
+ * rollups, so taking the summary from the chart's source reported a one-minute
+ * spike as the peak on one tab and an hourly average on the next.
+ */
+function summaryScopeFor(query: LoadQuery, now: Date): LoadScope {
+	const tenantFiltered = Boolean(
+		query.organizationId || query.projectId || query.apiKeyId,
+	);
+	return resolveLoadScope(
+		{ ...query, groupBy: tenantFiltered ? "project" : "model" },
+		now,
+	);
+}
+
+/**
+ * The per-mode request columns on the tenant rollups have no matching error
+ * or latency split, so a mode-filtered view there would pair credits-only
+ * requests with blended errors and blended latency. The mapping history keys
+ * on `used_mode`, so both stay exact there.
+ */
+function isModeComparable(scope: LoadScope): boolean {
+	return scope.mode === "total" || scope.source === "mapping-history";
+}
+
+function stabilityFor(totals: LoadTotals) {
+	return deriveStabilityMetrics({
+		logsCount: totals.requestCount,
+		clientErrorsCount: totals.clientErrors,
+		gatewayErrorsCount: totals.gatewayErrors,
+		upstreamErrorsCount: totals.upstreamErrors,
+	});
+}
+
+function qualityFor(totals: LoadTotals | undefined, modeComparable: boolean) {
+	if (!totals || !modeComparable) {
+		return {
+			avgDurationMs: null,
+			avgTimeToFirstTokenMs: null,
+			errorRate: null,
+			clientErrorRate: null,
+		};
+	}
+	const { errorRate } = stabilityFor(totals);
+	return {
+		avgDurationMs:
+			totals.durationCount > 0
+				? totals.totalDuration / totals.durationCount
+				: null,
+		avgTimeToFirstTokenMs: avgEffectiveTtft(totals),
+		errorRate: errorRate === null ? null : errorRate / 100,
+		clientErrorRate:
+			totals.requestCount > 0
+				? Math.min(totals.clientErrors, totals.requestCount) /
+					totals.requestCount
+				: null,
+	};
+}
+
+function errorCountsFor(totals: LoadTotals, modeComparable: boolean) {
+	return modeComparable
+		? {
+				errorCount: stabilityFor(totals).errorsCount,
+				clientErrorCount: Math.min(totals.clientErrors, totals.requestCount),
+			}
+		: { errorCount: null, clientErrorCount: null };
+}
+
+interface LoadGrid {
+	buckets: string[];
+	secondsFor: Map<string, number>;
+	elapsedSeconds: number;
+}
+
+function loadGrid(scope: LoadScope): LoadGrid {
+	const buckets = generateLoadBuckets(scope.startDate, scope.now, scope.bucket);
+	const secondsFor = new Map(
+		buckets.map((bucket) => [
+			bucket,
+			bucketSecondsFor(bucket, scope.bucket, scope.now),
+		]),
+	);
+	const elapsedSeconds = buckets.reduce(
+		(sum, bucket) => sum + (secondsFor.get(bucket) ?? 0),
+		0,
+	);
+	return { buckets, secondsFor, elapsedSeconds };
+}
+
+function chartBucketFor(timestamp: string, unit: LoadBucket): string {
+	return formatLoadBucket(truncateToLoadBucket(new Date(timestamp), unit));
+}
+
+function sumTotals(rows: LoadTotals[]): LoadTotals {
+	const total = emptyTotals();
+	for (const row of rows) {
+		addTotals(total, row);
+	}
+	return total;
+}
+
+function summarizeLoad(scope: LoadScope, bucketTotals: BucketTotalRow[]) {
+	const peakBucket = peakBucketFor(scope.bucket);
+	const modeComparable = isModeComparable(scope);
+	const { buckets, secondsFor, elapsedSeconds } = loadGrid(scope);
+
+	const requestsByBucket = new Map<string, number>();
+	for (const row of bucketTotals) {
+		const bucket = chartBucketFor(row.bucket, scope.bucket);
+		requestsByBucket.set(
+			bucket,
+			(requestsByBucket.get(bucket) ?? 0) + row.requestCount,
+		);
+	}
+
+	// A partial bucket can be a single second wide, which makes its rate far too
+	// jumpy to report as a peak or as the headline "current" figure.
+	const currentBuckets = buckets
+		.filter((bucket) => !isPartialBucket(bucket, scope.bucket, scope.now))
+		.slice(-CURRENT_RATE_BUCKETS[scope.bucket]);
+	const currentSeconds = currentBuckets.reduce(
+		(sum, bucket) => sum + (secondsFor.get(bucket) ?? 0),
+		0,
+	);
+	const currentRequests = currentBuckets.reduce(
+		(sum, bucket) => sum + (requestsByBucket.get(bucket) ?? 0),
+		0,
+	);
+	const peakPoint = bucketTotals
+		.filter((row) => !isPartialBucket(row.bucket, peakBucket, scope.now))
+		.reduce<BucketTotalRow | null>(
+			(best, row) =>
+				best === null || row.requestCount > best.requestCount ? row : best,
+			null,
+		);
+	const total = sumTotals(bucketTotals);
+
+	return {
+		currentRps: toRps(currentRequests, currentSeconds),
+		currentSeconds,
+		avgRps: toRps(total.requestCount, elapsedSeconds),
+		peakRps: toRps(peakPoint?.requestCount ?? 0, BUCKET_SECONDS[peakBucket]),
+		peakAt: peakPoint && peakPoint.requestCount > 0 ? peakPoint.bucket : null,
+		totalRequests: total.requestCount,
+		...qualityFor(total, modeComparable),
+		...errorCountsFor(total, modeComparable),
+	};
+}
+
+adminLoad.openapi(getLoadOverview, async (c) => {
+	const query = c.req.valid("query");
+	const now = new Date();
+	const scope = resolveLoadScope(query, now);
+	const summaryScope = summaryScopeFor(query, now);
+	const peakBucket = peakBucketFor(scope.bucket);
+	const source = openLoadSource(scope);
+	// Mapping-history bucket totals ignore the grouping, so the chart's rows
+	// already answer the summary whenever the grain matches.
+	const summaryShared =
+		summaryScope.source === scope.source &&
+		summaryScope.bucket === scope.bucket &&
+		(scope.source === "mapping-history" ||
+			summaryScope.groupBy === scope.groupBy);
+
+	const [bucketTotals, keyTotals, summaryBucketTotals] = await Promise.all([
 		source.bucketTotals(),
 		source.keyTotals(),
+		summaryShared ? null : openLoadSource(summaryScope).bucketTotals(),
 	]);
 
-	// The per-mode request columns on the tenant rollups have no matching error
-	// or latency split, so a mode-filtered view there would pair credits-only
-	// requests with blended errors and blended latency. The mapping history keys
-	// on `used_mode`, so both stay exact there.
-	const modeComparable =
-		scope.mode === "total" || scope.source === "mapping-history";
-
-	const stabilityFor = (totals: LoadTotals) =>
-		deriveStabilityMetrics({
-			logsCount: totals.requestCount,
-			clientErrorsCount: totals.clientErrors,
-			gatewayErrorsCount: totals.gatewayErrors,
-			upstreamErrorsCount: totals.upstreamErrors,
-		});
+	const modeComparable = isModeComparable(scope);
 
 	// Ranked by absolute error count rather than rate, so a key with a single
 	// failed request cannot outrank one failing thousands.
@@ -802,22 +1013,10 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 	]);
 	const labelFor = (key: string) => labels.get(key) || key;
 
-	const allBuckets = generateLoadBuckets(
-		scope.startDate,
-		scope.now,
-		scope.bucket,
-	);
-	const secondsFor = new Map(
-		allBuckets.map((bucket) => [
-			bucket,
-			bucketSecondsFor(bucket, scope.bucket, scope.now),
-		]),
-	);
-	const chartBucket = (timestamp: string) =>
-		formatLoadBucket(truncateToLoadBucket(new Date(timestamp), scope.bucket));
+	const { buckets: allBuckets, secondsFor, elapsedSeconds } = loadGrid(scope);
 	const totalsByBucket = new Map<string, LoadTotals>();
 	for (const row of bucketTotals) {
-		const bucket = chartBucket(row.bucket);
+		const bucket = chartBucketFor(row.bucket, scope.bucket);
 		let totals = totalsByBucket.get(bucket);
 		if (!totals) {
 			totals = emptyTotals();
@@ -827,7 +1026,7 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 	}
 	const totalsByKeyBucket = new Map<string, LoadTotals>();
 	for (const row of keyBuckets) {
-		const cell = `${row.key}\u0000${chartBucket(row.bucket)}`;
+		const cell = `${row.key}\u0000${chartBucketFor(row.bucket, scope.bucket)}`;
 		let totals = totalsByKeyBucket.get(cell);
 		if (!totals) {
 			totals = emptyTotals();
@@ -835,39 +1034,6 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 		}
 		addTotals(totals, row);
 	}
-
-	const qualityFor = (totals: LoadTotals | undefined) => {
-		if (!totals || !modeComparable) {
-			return {
-				avgDurationMs: null,
-				avgTimeToFirstTokenMs: null,
-				errorRate: null,
-				clientErrorRate: null,
-			};
-		}
-		const { errorRate } = stabilityFor(totals);
-		return {
-			avgDurationMs:
-				totals.durationCount > 0
-					? totals.totalDuration / totals.durationCount
-					: null,
-			avgTimeToFirstTokenMs: avgEffectiveTtft(totals),
-			errorRate: errorRate === null ? null : errorRate / 100,
-			clientErrorRate:
-				totals.requestCount > 0
-					? Math.min(totals.clientErrors, totals.requestCount) /
-						totals.requestCount
-					: null,
-		};
-	};
-
-	const errorCountsFor = (totals: LoadTotals) =>
-		modeComparable
-			? {
-					errorCount: stabilityFor(totals).errorsCount,
-					clientErrorCount: Math.min(totals.clientErrors, totals.requestCount),
-				}
-			: { errorCount: null, clientErrorCount: null };
 
 	const data = allBuckets.map((timestamp) => {
 		const seconds = secondsFor.get(timestamp) ?? BUCKET_SECONDS[scope.bucket];
@@ -879,7 +1045,7 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 			bucketSeconds: seconds,
 			requestCount,
 			rps: toRps(requestCount, seconds),
-			...qualityFor(bucketTotal),
+			...qualityFor(bucketTotal, modeComparable),
 			entries: topKeys.map(({ key }) => {
 				const cellTotals = totalsByKeyBucket.get(`${key}\u0000${timestamp}`);
 				const count = cellTotals?.requestCount ?? 0;
@@ -887,37 +1053,11 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 					key,
 					requestCount: count,
 					rps: toRps(count, seconds),
-					...qualityFor(cellTotals),
+					...qualityFor(cellTotals, modeComparable),
 				};
 			}),
 		};
 	});
-
-	// A partial bucket can be a single second wide, which makes its rate far too
-	// jumpy to report as a peak or as the headline "current" figure.
-	const settledPoints = data.filter((point) => !point.partial);
-	const peakPoint = bucketTotals
-		.filter((row) => !isPartialBucket(row.bucket, peakBucket, scope.now))
-		.reduce<BucketTotalRow | null>(
-			(best, row) =>
-				best === null || row.requestCount > best.requestCount ? row : best,
-			null,
-		);
-	const currentBuckets = settledPoints.slice(
-		-CURRENT_RATE_BUCKETS[scope.bucket],
-	);
-	const currentSeconds = currentBuckets.reduce(
-		(sum, point) => sum + point.bucketSeconds,
-		0,
-	);
-	const currentRequests = currentBuckets.reduce(
-		(sum, point) => sum + point.requestCount,
-		0,
-	);
-	const elapsedSeconds = allBuckets.reduce(
-		(sum, bucket) => sum + (secondsFor.get(bucket) ?? 0),
-		0,
-	);
 
 	const peakByKey = new Map<string, number>();
 	for (const row of keyBuckets) {
@@ -930,44 +1070,200 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 		}
 	}
 
-	const total = emptyTotals();
-	for (const row of bucketTotals) {
-		addTotals(total, row);
-	}
-	const totalRequests = total.requestCount;
+	// Shares stay on the chart's own source so the breakdown sums to 100%.
+	const chartRequests = sumTotals(bucketTotals).requestCount;
 
 	return c.json({
 		window: scope.window,
 		bucket: scope.bucket,
 		source: scope.source,
+		summarySource: summaryScope.source,
 		groupBy: scope.groupBy,
 		modelView: scope.modelView,
 		mode: scope.mode,
 		rankBy: scope.rankBy,
 		asOf: scope.now.toISOString(),
-		summary: {
-			currentRps: toRps(currentRequests, currentSeconds),
-			currentSeconds,
-			avgRps: toRps(totalRequests, elapsedSeconds),
-			peakRps: toRps(peakPoint?.requestCount ?? 0, BUCKET_SECONDS[peakBucket]),
-			peakAt: peakPoint && peakPoint.requestCount > 0 ? peakPoint.bucket : null,
-			totalRequests,
-			...qualityFor(total),
-			...errorCountsFor(total),
-		},
+		summary: summaryShared
+			? summarizeLoad(scope, bucketTotals)
+			: summarizeLoad(summaryScope, summaryBucketTotals ?? []),
 		series: topKeys.map(({ key }) => ({ key, label: labelFor(key) })),
 		data,
 		breakdown: topKeys.map((row) => ({
-			key: row.key,
+			...breakdownRow(row, {
+				elapsedSeconds,
+				totalRequests: chartRequests,
+				peakRps: peakByKey.get(row.key) ?? 0,
+				modeComparable,
+			}),
 			label: labelFor(row.key),
-			requestCount: row.requestCount,
-			avgRps: toRps(row.requestCount, elapsedSeconds),
-			peakRps: peakByKey.get(row.key) ?? 0,
-			share: totalRequests > 0 ? row.requestCount / totalRequests : 0,
-			...qualityFor(row),
-			...errorCountsFor(row),
 		})),
 		totalKeys: rankedKeys.length,
+	});
+});
+
+function breakdownRow(
+	row: KeyTotalRow,
+	context: {
+		elapsedSeconds: number;
+		totalRequests: number;
+		peakRps: number;
+		modeComparable: boolean;
+	},
+) {
+	return {
+		key: row.key,
+		requestCount: row.requestCount,
+		avgRps: toRps(row.requestCount, context.elapsedSeconds),
+		peakRps: context.peakRps,
+		share:
+			context.totalRequests > 0 ? row.requestCount / context.totalRequests : 0,
+		...qualityFor(row, context.modeComparable),
+		...errorCountsFor(row, context.modeComparable),
+	};
+}
+
+const loadBreakdownSortSchema = z.enum([
+	"label",
+	"requestCount",
+	"avgRps",
+	"peakRps",
+	"share",
+	"errorRate",
+	"errorCount",
+	"clientErrorRate",
+	"avgDurationMs",
+	"avgTimeToFirstTokenMs",
+]);
+
+type LoadBreakdownSort = z.infer<typeof loadBreakdownSortSchema>;
+
+const getLoadBreakdown = createRoute({
+	method: "get",
+	path: "/load/breakdown",
+	request: {
+		query: loadQuerySchema.omit({ rankBy: true }).extend({
+			sortBy: loadBreakdownSortSchema.default("requestCount").optional(),
+			sortOrder: z.enum(["asc", "desc"]).default("desc").optional(),
+			page: z.coerce.number().int().min(1).default(1).optional(),
+			pageSize: z.coerce.number().int().min(1).max(100).default(25).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							rows: z.array(loadBreakdownRowSchema),
+							totalKeys: z.number(),
+							page: z.number(),
+							pageSize: z.number(),
+						})
+						.openapi({}),
+				},
+			},
+			description:
+				"Every key with traffic in the window, sorted on any column and paginated.",
+		},
+	},
+});
+
+/** Nulls (unknown latency or error rate) sort last in either direction. */
+function compareBreakdown(
+	a: number | string | null,
+	b: number | string | null,
+	order: "asc" | "desc",
+): number {
+	if (a === b) {
+		return 0;
+	}
+	if (a === null) {
+		return 1;
+	}
+	if (b === null) {
+		return -1;
+	}
+	const result =
+		typeof a === "string" && typeof b === "string"
+			? a.localeCompare(b)
+			: Number(a) - Number(b);
+	return order === "asc" ? result : -result;
+}
+
+adminLoad.openapi(getLoadBreakdown, async (c) => {
+	const {
+		sortBy = "requestCount",
+		sortOrder = "desc",
+		page = 1,
+		pageSize = 25,
+		...query
+	} = c.req.valid("query");
+	const scope = resolveLoadScope(query);
+	const peakBucket = peakBucketFor(scope.bucket);
+	const source = openLoadSource(scope);
+	const modeComparable = isModeComparable(scope);
+	const { elapsedSeconds } = loadGrid(scope);
+
+	// Only settled buckets count towards a peak; see `summarizeLoad`.
+	const [keyTotals, peaks] = await Promise.all([
+		source.keyTotals(),
+		source.keyPeaks(truncateToLoadBucket(scope.now, peakBucket)),
+	]);
+	const peakSeconds = BUCKET_SECONDS[peakBucket];
+	// Every key's totals sum to the same filtered total the chart divides by.
+	const totalRequests = sumTotals(keyTotals).requestCount;
+	const rows = keyTotals
+		.filter((row) => row.requestCount > 0)
+		.map((row) =>
+			breakdownRow(row, {
+				elapsedSeconds,
+				totalRequests,
+				peakRps: toRps(peaks.get(row.key) ?? 0, peakSeconds),
+				modeComparable,
+			}),
+		);
+
+	// Labels are only resolved for every key when they decide the order.
+	const labels =
+		sortBy === "label"
+			? await resolveLabels(
+					scope,
+					rows.map((row) => row.key),
+				)
+			: null;
+	const sortValue = (
+		row: (typeof rows)[number],
+		key: LoadBreakdownSort,
+	): number | string | null =>
+		key === "label" ? labels?.get(row.key) || row.key : row[key];
+	rows.sort(
+		(a, b) =>
+			compareBreakdown(sortValue(a, sortBy), sortValue(b, sortBy), sortOrder) ||
+			b.requestCount - a.requestCount ||
+			a.key.localeCompare(b.key),
+	);
+
+	const lastPage = Math.max(1, Math.ceil(rows.length / pageSize));
+	const currentPage = Math.min(page, lastPage);
+	const pageRows = rows.slice(
+		(currentPage - 1) * pageSize,
+		currentPage * pageSize,
+	);
+	const pageLabels =
+		labels ??
+		(await resolveLabels(
+			scope,
+			pageRows.map((row) => row.key),
+		));
+
+	return c.json({
+		rows: pageRows.map((row) => ({
+			...row,
+			label: pageLabels.get(row.key) || row.key,
+		})),
+		totalKeys: rows.length,
+		page: currentPage,
+		pageSize,
 	});
 });
 

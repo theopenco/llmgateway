@@ -49,6 +49,11 @@ const DESCRIPTIONS: Record<
 		description:
 			"As an owner or admin, hear when a seat or API key limit blocks directory sync, SSO sign-in, an invite, or a new key.",
 	},
+	data_stream: {
+		title: "Data streams",
+		description:
+			"As an owner or admin, hear when a data stream is paused after repeated delivery failures.",
+	},
 	marketing: {
 		title: "Product tips and offers",
 		description:

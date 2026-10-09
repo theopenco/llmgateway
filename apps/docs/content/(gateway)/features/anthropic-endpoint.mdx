@@ -240,6 +240,14 @@ Send every tool definition on every request, including the deferred ones — Ant
 	the gateway routes Bedrock through the Converse API.
 </Callout>
 
+### Auto Mode Safeguard Review
+
+In [auto mode](https://code.claude.com/docs/en/permission-modes#server-side-classifier-review), Claude Code asks Anthropic to review risky tool calls as part of its normal requests, at no charge: it sends a `safeguards` field with a paired `anthropic-beta` value, and Anthropic returns the verdicts in `safeguard_results` (on the final `message_delta` event when streaming). The gateway forwards both halves to the Anthropic API and returns the verdicts unchanged, so Claude Code keeps using the free server-side checks instead of its own billed classifier requests. Run `/status` in Claude Code to confirm: the **Auto mode server** row reads `Enabled`.
+
+**Routing requirements.** A nonempty `safeguards` field paired with its dated beta restricts automatic selection and retries to providers that support forwarding server-side review. Currently this is the Anthropic API. An incompatible saved session pin is replaced; an explicitly requested incompatible provider, or automatic selection with no compatible provider, returns HTTP `400`, including for streaming requests. A beta header alone does not restrict routing.
+
+Upstream availability still depends on the model, credentials, and rollout. If Anthropic returns no available verdict, Claude Code can fall back to its own billed classifier requests. To use another provider deliberately, set `CLAUDE_CODE_AUTO_MODE_SERVER=0` before starting Claude Code; its client-side classifier requests are billed normally.
+
 ### Gateway Response Cache
 
 If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a repeated request with the same [cache-key fields](/features/caching/gateway-caching#cache-key-generation) — resolved provider and model, messages, and the other keyed parameters; fields outside the cache key and insignificant JSON whitespace don't affect matching, but the key order inside message and tool objects does, and a request routed to a different provider is a cache miss — is replayed from cache instead of being sent upstream. The replayed body keeps the original `id`, content, and token counts, so check the `x-llmgateway-cache: HIT` response header or `metadata.cached`. Send `x-no-cache: true` to bypass the cache for a single request.

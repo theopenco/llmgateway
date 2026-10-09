@@ -40,6 +40,8 @@ export function serializeOrganization(
 		referralEarnings: organization.referralEarnings,
 		referralBonusEnabled: organization.referralBonusEnabled,
 		referralBonusPercent: organization.referralBonusPercent,
+		dataStreamsEnabled: organization.dataStreamsEnabled,
+		requestLogExportEnabled: organization.requestLogExportEnabled,
 		kind: organization.kind,
 		devPlan: organization.devPlan,
 		devPlanCycle: organization.devPlanCycle,

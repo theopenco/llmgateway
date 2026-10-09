@@ -19,8 +19,8 @@ import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
 // Cheapest to priciest on their OpenAI mappings, so the configured list splits
 // into one model per difficulty band.
-const CHEAP_MODEL = "gpt-4.1-nano";
-const MID_MODEL = "gpt-4o-mini";
+const CHEAP_MODEL = "gpt-4o-mini";
+const MID_MODEL = "gpt-4.1-mini";
 const EXPENSIVE_MODEL = "gpt-4o";
 
 const THREE_MODELS = [EXPENSIVE_MODEL, CHEAP_MODEL, MID_MODEL];
@@ -543,10 +543,10 @@ describe("smart routing", () => {
 		expect((await second.json()).model).toBe(`openai/${CHEAP_MODEL}`);
 	});
 
-	// gpt-5-nano < gpt-5-mini < o4-mini on price, and all three support
-	// reasoning, so a hard verdict lands on o4-mini and exercises the default
-	// reasoning effort that auto routing applies.
-	const REASONING_MODELS = ["gpt-5-nano", "gpt-5-mini", "o4-mini"];
+	// gpt-6-luna < gpt-5.6-luna < gpt-6.1-sol on price, and all three support
+	// reasoning, so a hard verdict lands on gpt-6.1-sol and exercises the default
+	// reasoning effort that auto routing applies. All three use the Responses API.
+	const REASONING_MODELS = ["gpt-6-luna", "gpt-5.6-luna", "gpt-6.1-sol"];
 
 	async function upstreamEffortForHardRequest(
 		suffix: string,
@@ -564,12 +564,12 @@ describe("smart routing", () => {
 			],
 		});
 		expect(res.status).toBe(200);
-		expect((await res.json()).model).toBe("openai/o4-mini");
+		expect((await res.json()).model).toBe("openai/gpt-6.1-sol");
 
 		const log = requestLogs(await waitForLogs(2))[0];
 		expect(log?.routingMetadata?.smartRouting?.difficulty).toBe("high");
-		return (log?.upstreamRequest as { reasoning_effort?: string } | null)
-			?.reasoning_effort;
+		return (log?.upstreamRequest as { reasoning?: { effort?: string } } | null)
+			?.reasoning?.effort;
 	}
 
 	test("a hard request gets a real thinking budget when there is room", async () => {
@@ -609,8 +609,9 @@ describe("smart routing", () => {
 		const token = await seedBase("free-narrow", {
 			orgConfig: {
 				classifier: "none",
-				models: [MID_MODEL, "claude-haiku-4-5-free"],
+				models: [MID_MODEL, "atria-dawn-preview"],
 			},
+			providers: ["openai", "atria"],
 		});
 
 		const res = await chatCompletion(token, {
@@ -619,7 +620,7 @@ describe("smart routing", () => {
 			free_models_only: true,
 		});
 		expect(res.status).toBe(200);
-		expect((await res.json()).model).toContain("claude-haiku-4-5-free");
+		expect((await res.json()).model).toContain("atria-dawn-preview");
 	});
 
 	test("skips the classifier when the policy blocks its provider", async () => {

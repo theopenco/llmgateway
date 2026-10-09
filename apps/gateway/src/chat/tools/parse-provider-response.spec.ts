@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 
+import { anthropicThinkingBlocksFor } from "@llmgateway/actions";
+
 import { parseProviderResponse } from "./parse-provider-response.js";
 
 const { setexMock } = vi.hoisted(() => ({
@@ -52,6 +54,57 @@ describe("parseProviderResponse", () => {
 
 			expect(result.content).toBe("Current news summary.");
 			expect(result.webSearchCount).toBe(1);
+		});
+	});
+
+	describe("tencent hy image generation", () => {
+		it("extracts the delivered image and bills TokenHub's token count", () => {
+			const result = parseProviderResponse("tencent", "hy-image-v3.5-preview", {
+				object: "image.chat.completion.chunk",
+				choices: [
+					{
+						index: 0,
+						delta: {
+							type: "image",
+							image: {
+								url: "https://example.cos.ap-guangzhou.myqcloud.com/main.png",
+								width: 4096,
+								height: 4096,
+							},
+						},
+						finish_reason: null,
+					},
+				],
+				usage: { total_tokens: 20000 },
+				tokenhub_usage: { total_tokens: 20000 },
+			});
+
+			expect(result.images).toEqual([
+				{
+					type: "image_url",
+					image_url: {
+						url: "https://example.cos.ap-guangzhou.myqcloud.com/main.png",
+					},
+				},
+			]);
+			expect(result.finishReason).toBe("stop");
+			expect(result.completionTokens).toBe(20000);
+			expect(result.imageOutputTokens).toBe(20000);
+		});
+
+		it("maps a moderation failure to content_filter", () => {
+			const result = parseProviderResponse("tencent", "hy-image-v3.5-preview", {
+				object: "image.chat.completion.chunk",
+				choices: [{ index: 0, delta: {}, finish_reason: "error" }],
+				error: {
+					type: "invalid_request_error",
+					code: "content_filter",
+					message: "input moderation rejected",
+				},
+			});
+
+			expect(result.images).toEqual([]);
+			expect(result.finishReason).toBe("content_filter");
 		});
 	});
 
@@ -590,6 +643,72 @@ describe("parseProviderResponse", () => {
 				google: { thought_signature: "sig-private" },
 			});
 			expect(setexMock).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("anthropic thinking replay", () => {
+		const thinking = {
+			type: "thinking",
+			thinking: "Compare the constraints.",
+			signature: "upstream-signature",
+		};
+		const redacted = {
+			type: "redacted_thinking",
+			data: "upstream-redacted-payload",
+		};
+
+		it("returns Anthropic thinking as details only Anthropic replays", () => {
+			const result = parseProviderResponse("anthropic", "claude-sonnet-4-6", {
+				content: [thinking, redacted, { type: "text", text: "Done." }],
+				stop_reason: "end_turn",
+			});
+
+			expect(
+				anthropicThinkingBlocksFor("anthropic", result.reasoningDetails ?? []),
+			).toEqual([thinking, redacted]);
+			expect(
+				anthropicThinkingBlocksFor(
+					"aws-bedrock",
+					result.reasoningDetails ?? [],
+				),
+			).toEqual([]);
+		});
+
+		it("returns Bedrock Converse reasoning as details only Bedrock replays", () => {
+			const result = parseProviderResponse(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-6",
+				{
+					output: {
+						message: {
+							role: "assistant",
+							content: [
+								{
+									reasoningContent: {
+										reasoningText: {
+											text: thinking.thinking,
+											signature: thinking.signature,
+										},
+									},
+								},
+								{ reasoningContent: { redactedContent: redacted.data } },
+								{ text: "Done." },
+							],
+						},
+					},
+					stopReason: "end_turn",
+				},
+			);
+
+			expect(
+				anthropicThinkingBlocksFor(
+					"aws-bedrock",
+					result.reasoningDetails ?? [],
+				),
+			).toEqual([thinking, redacted]);
+			expect(
+				anthropicThinkingBlocksFor("anthropic", result.reasoningDetails ?? []),
+			).toEqual([]);
 		});
 	});
 

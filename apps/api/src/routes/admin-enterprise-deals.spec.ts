@@ -14,6 +14,7 @@ interface AdminMetricsResponse {
 	payingCustomers: number;
 	grossRevenue: number;
 	grossEnterpriseDealsRevenue: number;
+	grossProviderListingRevenue: number;
 }
 
 describe("admin enterprise deals", () => {
@@ -136,6 +137,41 @@ describe("admin enterprise deals", () => {
 		expect(deal!.createdAt.getTime()).toBeLessThanOrEqual(
 			afterCreate + clockSkewMs,
 		);
+	});
+
+	test("counts provider listing fees as revenue within the date range", async () => {
+		await db.insert(tables.providerListingPayment).values([
+			{
+				source: "airside",
+				amount: "2500",
+				stripeCheckoutSessionId: "cs_metrics_airside",
+				paidAt: new Date("2026-03-10T00:00:00.000Z"),
+			},
+			{
+				source: "listing_request",
+				amount: "500",
+				stripeCheckoutSessionId: "cs_metrics_request",
+				paidAt: new Date("2025-01-10T00:00:00.000Z"),
+			},
+		]);
+
+		const all = await app.request("/admin/metrics", {
+			headers: { Cookie: cookie },
+		});
+		expect(all.status).toBe(200);
+		const allBody = (await all.json()) as AdminMetricsResponse;
+		expect(allBody.grossProviderListingRevenue).toBe(3000);
+		expect(allBody.grossRevenue).toBe(3000);
+		expect(allBody.totalRevenue).toBe(0);
+		expect(allBody.payingCustomers).toBe(0);
+
+		const ranged = await app.request(
+			"/admin/metrics?from=2026-03-01&to=2026-03-31",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(ranged.status).toBe(200);
+		const rangedBody = (await ranged.json()) as AdminMetricsResponse;
+		expect(rangedBody.grossProviderListingRevenue).toBe(2500);
 	});
 
 	test("reports enterprise revenue separately from credit flow", async () => {

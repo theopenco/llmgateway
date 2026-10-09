@@ -831,6 +831,110 @@ describeCache(
 			},
 		);
 
+		// With budgeted thinking, a tool-result continuation whose history lacks
+		// the turn's signed thinking blocks misses the whole cache, system prompt
+		// included. The gateway must return the signature and replay the block.
+		for (const { model, enabled } of [
+			{ model: "anthropic/claude-sonnet-4-6", enabled: hasAnthropicKey },
+			{ model: "aws-bedrock/claude-sonnet-4-6", enabled: hasBedrockKey },
+		]) {
+			(enabled ? test : test.skip)(
+				`${model} thinking tool loop reads the previous prefix`,
+				getTestOptions(),
+				async () => {
+					const send = async (body: Record<string, unknown>) => {
+						const res = await app.request("/v1/messages", {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"x-request-id": generateTestRequestId(),
+								"x-no-fallback": "true",
+								Authorization: `Bearer real-token`,
+							},
+							body: JSON.stringify({
+								model,
+								max_tokens: 2048,
+								thinking: { type: "enabled", budget_tokens: 1024 },
+								tools: [
+									{
+										name: "get_time",
+										description: "Returns the current time.",
+										input_schema: { type: "object", properties: {} },
+									},
+								],
+								...body,
+							}),
+						});
+						expect(res.status).toBe(200);
+						return await res.json();
+					};
+
+					let continuation: any;
+					let expectedRead = 0;
+					for (let attempt = 1; attempt <= 3; attempt++) {
+						const system = [
+							{
+								type: "text",
+								text: buildUniqueLongSystemPrompt(
+									`thinking-${model}-${Date.now()}`,
+								),
+								cache_control: { type: "ephemeral" },
+							},
+						];
+						const prompt = {
+							role: "user",
+							content: "Call get_time, then tell me the time.",
+						};
+						const first = await send({ system, messages: [prompt] });
+						const thinking = first.content.find(
+							(block: any) => block.type === "thinking",
+						);
+						const toolUse = first.content.find(
+							(block: any) => block.type === "tool_use",
+						);
+						expect(thinking?.signature).toBeTruthy();
+						expect(toolUse).toBeDefined();
+						expectedRead =
+							first.usage.cache_creation_input_tokens +
+							first.usage.cache_read_input_tokens;
+
+						continuation = await send({
+							system,
+							messages: [
+								prompt,
+								{ role: "assistant", content: first.content },
+								{
+									role: "user",
+									content: [
+										{
+											type: "tool_result",
+											tool_use_id: toolUse.id,
+											content: "12:00",
+											cache_control: { type: "ephemeral" },
+										},
+									],
+								},
+							],
+						});
+						if (logMode) {
+							console.log(model, "attempt", attempt, {
+								first: first.usage,
+								continuation: continuation.usage,
+							});
+						}
+						if (continuation.usage.cache_read_input_tokens >= expectedRead) {
+							break;
+						}
+					}
+
+					expect(expectedRead).toBeGreaterThan(0);
+					expect(
+						continuation.usage.cache_read_input_tokens,
+					).toBeGreaterThanOrEqual(expectedRead);
+				},
+			);
+		}
+
 		// Log persistence of the per-TTL cache write breakdown. The response has
 		// always carried usage.cache_creation, but the log record previously only
 		// stored the total cacheWriteTokens, so the dashboard couldn't attribute

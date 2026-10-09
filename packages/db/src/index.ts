@@ -30,6 +30,6 @@ export * from "./webhook-helpers.js";
 
 export * from "drizzle-orm";
 
-export const tables = {
+export const tables: typeof schema = {
 	...schema,
 };

@@ -58,9 +58,9 @@ const anthropicKnownContentBlockSchema = z.union([
 			})
 			.optional(),
 	}),
-	// Extended-thinking blocks echoed back in conversation history. They
-	// carry no value for the internal OpenAI-format request, so they're
-	// accepted here and stripped during transformation.
+	// Extended-thinking blocks echoed back in conversation history. Lowering
+	// carries them on `reasoning_details` for replay to the provider that
+	// signed them.
 	z.object({
 		type: z.literal("thinking"),
 		thinking: z.string(),

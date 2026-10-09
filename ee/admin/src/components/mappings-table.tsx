@@ -1,11 +1,11 @@
 "use client";
 
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import { ErrorBreakdownCell } from "@/components/error-breakdown";
 import { HistoryChart } from "@/components/history-chart";
+import { SortHeaderLink } from "@/components/sort-header-link";
 import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,8 +17,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { getMappingHistory } from "@/lib/admin-history";
-import { cn } from "@/lib/utils";
+import { useHistoryClient } from "@/lib/history-client";
 
 import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -90,24 +89,12 @@ function SortableHeader({
 	const href = `/model-provider-mappings?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}${filterQuery}`;
 
 	return (
-		<Link
+		<SortHeaderLink
+			label={label}
 			href={href}
-			className={cn(
-				"flex items-center gap-1 hover:text-foreground transition-colors",
-				isActive ? "text-foreground" : "text-muted-foreground",
-			)}
-		>
-			{label}
-			{isActive ? (
-				currentSortOrder === "asc" ? (
-					<ArrowUp className="h-3.5 w-3.5" />
-				) : (
-					<ArrowDown className="h-3.5 w-3.5" />
-				)
-			) : (
-				<ArrowUpDown className="h-3.5 w-3.5 opacity-50" />
-			)}
-		</Link>
+			active={isActive}
+			order={currentSortOrder}
+		/>
 	);
 }
 
@@ -134,9 +121,10 @@ function MappingRow({
 	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
+	const history = useHistoryClient();
 	const fetchData = useCallback(
 		async (window: HistoryWindow) => {
-			return await getMappingHistory(
+			return await history.mappingHistory(
 				mapping.providerId,
 				mapping.modelId,
 				window,
@@ -145,7 +133,7 @@ function MappingRow({
 				usageMode,
 			);
 		},
-		[mapping.providerId, mapping.modelId, usageMode],
+		[history, mapping.providerId, mapping.modelId, usageMode],
 	);
 
 	return (

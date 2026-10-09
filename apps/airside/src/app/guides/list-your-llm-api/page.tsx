@@ -24,10 +24,10 @@ export default function ListingGuide() {
 				<p>
 					Use a company email and verify it. Have your API base URL and public
 					website ready. The domain checks connect those addresses to the
-					provider you want to claim. If your email and API domains differ,
-					follow the website verification flow in onboarding. Existing catalogue
-					providers can be claimed; a new provider can register a custom
-					carrier.
+					provider you want to claim. If your email and API domains differ, add
+					the API domain in onboarding and verify it over DNS. Existing
+					catalogue providers can be claimed; a new provider can register a
+					custom carrier.
 				</p>
 				<p className="mt-3">
 					Onboarding shows the applicable listing fee or invite-code option
@@ -63,13 +63,23 @@ export default function ListingGuide() {
 				<p className="mt-3">
 					Paste a provider API key that can call this model and run preflight
 					verification. Preflight checks each declared capability, fills most of
-					the declared context window and requests the full output limit. We
-					store the key encrypted as this carrier's test key, so later runs
-					reuse it — change or remove it under Settings at any time. Use a key
-					separate from the one behind your live integration: preflight traffic
-					is billed by your own platform and is not tracked in LLMGateway usage
-					or billing. Resolve failed checks before submitting the model.
-					Changing the verified mapping requires a new verification.
+					the declared context window and requests the full output limit. Some
+					checks are optional for now: a miss shows as a warning marked Optional
+					instead of failing, and may become required later. We store the key
+					encrypted as this carrier's test key, so later runs reuse it — change
+					or remove it under Settings at any time. Use a key separate from the
+					one behind your live integration: preflight traffic is billed by your
+					own platform and is not tracked in LLMGateway usage or billing.
+					Resolve failed checks before submitting the model. Changing the
+					verified mapping requires a new verification, and so does an edit that
+					adds a capability or raises a limit — narrowing one never does.
+				</p>
+				<p className="mt-3">
+					A registered carrier files its provider key — the separate key we
+					serve live traffic with — together with its first model. We smoke-test
+					it against that model when you file, and it goes live once the model
+					is approved. Replacing it later under Settings is smoke-tested the
+					same way and reviewed by our team.
 				</p>
 				<p className="mt-3">
 					Every preflight stays on the record. The Verify dialog lists past runs

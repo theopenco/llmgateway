@@ -43,6 +43,7 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	context_size: "context_size too small",
 	// Request-shape constraints that are not per-mapping capabilities.
 	service_tier: "service tier not supported by this mapping",
+	anthropic_safeguards: "Anthropic server-side safeguards not supported",
 	service_tier_key: "no service-tier-eligible credential for this provider",
 	coding_plan_cache: "no cached input pricing (coding plan)",
 	// Credential / configuration reachability.
@@ -116,6 +117,7 @@ export const ROUTING_EXCLUSION_REASON_LABELS: Record<
 	max_tokens: "max_tokens",
 	context_size: "Context size",
 	service_tier: "Service tier",
+	anthropic_safeguards: "Anthropic safeguards",
 	service_tier_key: "Service-tier key",
 	coding_plan_cache: "Coding plan caching",
 	no_provider_key: "No key",
@@ -221,6 +223,7 @@ export function routingExclusionReasonMessage(
  */
 export const ROUTING_SELECTION_REASONS = [
 	"weighted-score",
+	"provider-order",
 	"price-only",
 	"price-only-no-metrics",
 	"session-sticky",
@@ -271,6 +274,7 @@ const SELECTION_KIND_BY_REASON: Record<
 	RoutingSelectionKind
 > = {
 	"weighted-score": "scored",
+	"provider-order": "pinned",
 	"price-only": "scored",
 	"price-only-no-metrics": "scored",
 	"session-sticky": "sticky",
@@ -311,6 +315,7 @@ export const ROUTING_SELECTION_REASON_LABELS: Record<
 	string
 > = {
 	"weighted-score": "Weighted score",
+	"provider-order": "Provider order",
 	"price-only": "Price only",
 	"price-only-no-metrics": "Price only (no metrics)",
 	"session-sticky": "Session sticky",

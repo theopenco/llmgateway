@@ -43,7 +43,12 @@ export async function deleteAll() {
 	for (let attempt = 1; ; attempt++) {
 		try {
 			await db.delete(tables.log);
+			await db.delete(tables.crmActivity);
+			await db.delete(tables.crmContact);
+			await db.delete(tables.crmAccount);
+			await db.delete(tables.enterpriseContactSubmission);
 			await db.delete(tables.auditLog);
+			await db.delete(tables.platformAuditLog);
 			await db.delete(tables.contentFilterHourlyModelStats);
 			await db.delete(tables.contentFilterHourlyStats);
 			await db.delete(projectHourlyStats);
@@ -63,6 +68,7 @@ export async function deleteAll() {
 			await db.delete(tables.providerClaim);
 			await db.delete(tables.providerCompanyMember);
 			await db.delete(tables.providerRoutingSettings);
+			await db.delete(tables.providerListingPayment);
 			await db.delete(tables.providerCompany);
 			await db.delete(tables.routingScoreMultiplier);
 			await db.delete(tables.organizationInvite);
@@ -343,6 +349,14 @@ export async function aggregateLogsForTesting() {
 			usedModel: tables.log.usedModel,
 			usedProvider: tables.log.usedProvider,
 			...getCommonAggregationFields(),
+			apiKeysGatewayErrorCount:
+				sql<number>`sum(case when ${tables.log.usedMode} = 'api-keys' and ${tables.log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
+					"apiKeysGatewayErrorCount",
+				),
+			apiKeysUpstreamErrorCount:
+				sql<number>`sum(case when ${tables.log.usedMode} = 'api-keys' and ${tables.log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
+					"apiKeysUpstreamErrorCount",
+				),
 		})
 		.from(tables.log)
 		.groupBy(

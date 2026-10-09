@@ -18,6 +18,8 @@ import {
 	REGION_WORKSPACE_ID_PLACEHOLDER,
 } from "@llmgateway/models";
 
+import { getBedrockProfilePrefix } from "./provider-api-format.js";
+
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
 function appendPath(url: string, path: string): string {
@@ -630,6 +632,12 @@ export function getProviderEndpoint(
 			((!apiFormat || apiFormat === "provider-native") &&
 				providerMapping?.apiFormat === "openai-chat-completions"))
 	) {
+		if (getBedrockProfilePrefix(providerMapping, region)) {
+			return appendPath(
+				url.includes("/openai/v1") ? url : appendPath(url, "/openai/v1"),
+				"/chat/completions",
+			);
+		}
 		return appendPath(
 			getBedrockMantleBaseUrl(url, region),
 			"/chat/completions",
@@ -978,6 +986,11 @@ export function getProviderEndpoint(
 				return `${url}/v1/images/generations`;
 			}
 			return `${url}/v1/chat/completions`;
+		case "tencent":
+			if (imageGenerations) {
+				return `${url}/v1/wand/hunyuan-image/v35-generation`;
+			}
+			return `${url}/v1/chat/completions`;
 		case "reve":
 			if (imageGenerations) {
 				return `${url}/v1/image/create`;
@@ -1041,7 +1054,6 @@ export function getProviderEndpoint(
 		case "scx-ai-gp":
 		case "ranoai":
 		case "consensusprotocol":
-		case "tencent":
 		case "atria":
 		case "custom":
 		default:

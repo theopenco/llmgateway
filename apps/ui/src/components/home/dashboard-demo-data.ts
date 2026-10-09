@@ -1632,3 +1632,231 @@ export const USAGE_ALERTS = [
 		unread: false,
 	},
 ];
+
+export interface DemoAgent {
+	id: string;
+	share: number;
+	lastActiveMinutes: number;
+	models: Record<string, number>;
+}
+
+export const DEMO_AGENTS: DemoAgent[] = [
+	{
+		id: "claude.com/claude-code",
+		share: 0.38,
+		lastActiveMinutes: 2,
+		models: {
+			"anthropic/claude-sonnet-5": 0.64,
+			"openai/gpt-6-sol": 0.21,
+			"fireworks/kimi-k3": 0.15,
+		},
+	},
+	{
+		id: "devpass-code",
+		share: 0.24,
+		lastActiveMinutes: 9,
+		models: {
+			"fireworks/kimi-k3": 0.46,
+			"zai/glm-5.3": 0.31,
+			"deepseek/deepseek-v4.1-flash": 0.23,
+		},
+	},
+	{
+		id: "cursor",
+		share: 0.17,
+		lastActiveMinutes: 24,
+		models: {
+			"anthropic/claude-sonnet-5": 0.52,
+			"openai/gpt-6-sol": 0.48,
+		},
+	},
+	{
+		id: "codex",
+		share: 0.12,
+		lastActiveMinutes: 47,
+		models: {
+			"openai/gpt-6-sol": 0.78,
+			"openai/gpt-6-luna": 0.22,
+		},
+	},
+	{
+		id: "opencode",
+		share: 0.06,
+		lastActiveMinutes: 130,
+		models: {
+			"deepseek/deepseek-v4.1-flash": 0.55,
+			"google-vertex/gemini-3.8-flash": 0.45,
+		},
+	},
+	{
+		id: "cline",
+		share: 0.03,
+		lastActiveMinutes: 1_440,
+		models: {
+			"anthropic/claude-sonnet-5": 1,
+		},
+	},
+];
+
+export interface DemoApiKeyDetail {
+	id: string;
+	maskedToken: string;
+	status: "active" | "inactive";
+	createdDaysAgo: number;
+	creatorId: string;
+	usageLimit: number | null;
+	periodLimit: { amount: number; days: number } | null;
+	iamRules: number;
+	expiresInDays: number | null;
+	retired?: { description: string; usage: number };
+}
+
+export const DEMO_API_KEY_DETAILS: DemoApiKeyDetail[] = [
+	{
+		id: "key_coding",
+		maskedToken: "llmgtwy_7Kq2…f9Rz",
+		status: "active",
+		createdDaysAgo: 214,
+		creatorId: "usr_leo",
+		usageLimit: null,
+		periodLimit: { amount: 6_000, days: 30 },
+		iamRules: 2,
+		expiresInDays: null,
+	},
+	{
+		id: "key_support",
+		maskedToken: "llmgtwy_Xc81…2mDa",
+		status: "active",
+		createdDaysAgo: 401,
+		creatorId: "usr_sam",
+		usageLimit: 48_000,
+		periodLimit: null,
+		iamRules: 1,
+		expiresInDays: null,
+	},
+	{
+		id: "key_pipeline",
+		maskedToken: "llmgtwy_Pn4t…kW0e",
+		status: "active",
+		createdDaysAgo: 162,
+		creatorId: "usr_priya",
+		usageLimit: null,
+		periodLimit: { amount: 3_500, days: 7 },
+		iamRules: 0,
+		expiresInDays: null,
+	},
+	{
+		id: "key_search",
+		maskedToken: "llmgtwy_bR6s…Lq3v",
+		status: "active",
+		createdDaysAgo: 88,
+		creatorId: "usr_sam",
+		usageLimit: null,
+		periodLimit: null,
+		iamRules: 0,
+		expiresInDays: 41,
+	},
+	{
+		id: "key_legal",
+		maskedToken: "llmgtwy_Ze9m…H1cu",
+		status: "active",
+		createdDaysAgo: 36,
+		creatorId: "usr_maya",
+		usageLimit: 2_500,
+		periodLimit: null,
+		iamRules: 3,
+		expiresInDays: null,
+	},
+	{
+		id: "key_hackathon",
+		maskedToken: "llmgtwy_Ja0w…pT7n",
+		status: "inactive",
+		createdDaysAgo: 290,
+		creatorId: "usr_leo",
+		usageLimit: 500,
+		periodLimit: null,
+		iamRules: 0,
+		expiresInDays: null,
+		retired: { description: "hackathon-2026", usage: 412.37 },
+	},
+];
+
+export const DEMO_USER_NAMES: Record<string, string> = Object.fromEntries(
+	USER_SHARES.map((user) => [user.id, user.name]),
+);
+
+export const ROUTING_WEIGHTS = [
+	{ label: "Price", help: "Weight for cost-based ranking", value: 0.4 },
+	{
+		label: "Uptime",
+		help: "Weight for provider availability",
+		value: 0.3,
+	},
+	{
+		label: "Throughput",
+		help: "Weight for tokens-per-second efficiency",
+		value: 0.1,
+	},
+	{
+		label: "Latency",
+		help: "Weight for streaming response time",
+		value: 0.15,
+	},
+	{
+		label: "Cache",
+		help: "Bonus for providers with prompt caching",
+		value: 0.05,
+	},
+];
+
+export const ROUTING_RETRY = [
+	{
+		label: "Max Retries",
+		help: "Maximum cross-provider fallback attempts",
+		value: 2,
+	},
+	{
+		label: "Low Uptime Fallback (%)",
+		help: "If requested provider is below this, reroute automatically",
+		value: 90,
+	},
+];
+
+export const ROUTING_PROVIDER_PRIORITIES = [
+	{ providerId: "anthropic", priority: 1 },
+	{ providerId: "aws-bedrock", priority: 1 },
+	{ providerId: "google-vertex", priority: 1 },
+	{ providerId: "openai", priority: 1 },
+	{ providerId: "azure", priority: 0.8 },
+	{ providerId: "fireworks", priority: 0 },
+];
+
+export const SMART_ROUTING_MODELS = [
+	"claude-sonnet-5",
+	"gpt-6-sol",
+	"gemini-3.8-flash",
+	"deepseek-v4.1-flash",
+];
+
+export const SDK_SETTINGS = {
+	markupPercent: 15,
+	bonusPercent: 0,
+	allowedOrigins: ["https://app.acme.com", "https://staging.acme.com"],
+	brandName: "Acme Assist",
+	supportEmail: "billing@acme.com",
+	descriptorSuffix: "ACME AI",
+	platformKeys: [
+		{
+			id: "pk_live",
+			description: "Production backend",
+			mode: "live" as const,
+			maskedToken: "llmgtwy_plat_live_4Rm…a8Qe",
+		},
+		{
+			id: "pk_test",
+			description: "Local development",
+			mode: "test" as const,
+			maskedToken: "llmgtwy_plat_test_n2V…Yy0k",
+		},
+	],
+};

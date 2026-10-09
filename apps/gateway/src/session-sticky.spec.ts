@@ -321,4 +321,229 @@ describe("session stickiness across candidate changes", () => {
 			providerId: "deepinfra",
 		});
 	});
+
+	// A soft rate limit routes new traffic away from the capped provider but
+	// keeps a session already pinned to it. The pin is on openai while azure is
+	// the natural winner, so a first attempt on azure means the pin was dropped.
+	describe("soft rate limits", () => {
+		const rpmKey = "rate_limit:provider_cap:rpm:org-id:openai:gpt-5.5";
+		const rpdKey = "rate_limit:provider_cap:rpd:org-id:openai:gpt-5.5";
+
+		async function capOpenai(mode: "strict" | "soft") {
+			await db.insert(tables.rateLimit).values({
+				id: `rate-limit-openai-${mode}`,
+				organizationId: "org-id",
+				provider: "openai",
+				model: MODEL,
+				maxRpm: 1,
+				mode,
+			});
+			// Fill the only slot so the cap is already reached.
+			await redisClient.zadd(rpmKey, Date.now(), "seed");
+		}
+
+		async function pinToOpenai(sessionId: string) {
+			await redisClient.set(
+				sessionPinKey(sessionId),
+				JSON.stringify({ providerId: "openai" }),
+				"EX",
+				3600,
+			);
+		}
+
+		async function send(token: string, sessionId?: string) {
+			const res = await chatCompletion(
+				token,
+				{ model: MODEL, messages: [{ role: "user", content: "hello" }] },
+				sessionId ? { "x-session-id": sessionId } : {},
+			);
+			const json = await res.json();
+			return {
+				status: res.status,
+				firstProvider: json.metadata?.routing?.[0]?.provider as
+					string | undefined,
+				usedProvider: json.metadata?.used_provider as string | undefined,
+			};
+		}
+
+		test("a pinned session stays on a soft-capped provider and still counts", async () => {
+			const token = await seedApiAndProviderKeys("soft-pinned");
+			const sessionId = "session-soft-pinned";
+			await capOpenai("soft");
+			await pinToOpenai(sessionId);
+
+			const result = await send(token, sessionId);
+
+			expect(result.status).toBe(200);
+			expect(result.firstProvider).toBe("openai");
+			expect(result.usedProvider).toBe("openai");
+			expect(await readSessionPin(sessionId)).toMatchObject({
+				providerId: "openai",
+			});
+			// Counted past the cap of 1, so new sessions keep being routed away.
+			expect(await redisClient.zcard(rpmKey)).toBe(2);
+		});
+
+		test("a new session is routed away from a soft-capped provider", async () => {
+			const token = await seedApiAndProviderKeys("soft-new");
+			const sessionId = "session-soft-new";
+			await capOpenai("soft");
+
+			const result = await send(token, sessionId);
+
+			expect(result.firstProvider).toBe("azure");
+			expect(await readSessionPin(sessionId)).toMatchObject({
+				providerId: "azure",
+			});
+			expect(await redisClient.zcard(rpmKey)).toBe(1);
+		});
+
+		test("a request without a session is routed away from a soft-capped provider", async () => {
+			const token = await seedApiAndProviderKeys("soft-no-session");
+			await capOpenai("soft");
+
+			const result = await send(token);
+
+			expect(result.firstProvider).toBe("azure");
+			expect(await redisClient.zcard(rpmKey)).toBe(1);
+		});
+
+		test("a strict cap still re-pins a pinned session", async () => {
+			const token = await seedApiAndProviderKeys("strict-pinned");
+			const sessionId = "session-strict-pinned";
+			await capOpenai("strict");
+			await pinToOpenai(sessionId);
+
+			const result = await send(token, sessionId);
+
+			expect(result.firstProvider).toBe("azure");
+			expect(await readSessionPin(sessionId)).toMatchObject({
+				providerId: "azure",
+			});
+			expect(await redisClient.zcard(rpmKey)).toBe(1);
+		});
+
+		describe("explicitly requested provider", () => {
+			const MULTI_REGION_MODEL = "qwen-plus";
+			const alibabaRpmKey = `rate_limit:provider_cap:rpm:org-id:alibaba:${MULTI_REGION_MODEL}`;
+
+			async function seedAlibaba() {
+				await db.insert(tables.apiKey).values({
+					id: "token-id-soft-explicit",
+					...hashApiKeyForStorage("real-token-soft-explicit"),
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+				await db.insert(tables.providerKey).values({
+					id: "provider-key-soft-explicit",
+					...encryptProviderKeyForStorage(
+						"sk-alibaba-test-key",
+						"provider-key-soft-explicit",
+						"org-id",
+					),
+					provider: "alibaba",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+				await db.insert(tables.rateLimit).values({
+					id: "rate-limit-alibaba-soft",
+					organizationId: "org-id",
+					provider: "alibaba",
+					model: MULTI_REGION_MODEL,
+					maxRpm: 1,
+					mode: "soft",
+				});
+				return "real-token-soft-explicit";
+			}
+
+			async function sendExplicit(token: string, sessionId: string) {
+				const res = await chatCompletion(
+					token,
+					{
+						model: `alibaba/${MULTI_REGION_MODEL}`,
+						messages: [{ role: "user", content: `hello ${sessionId}` }],
+					},
+					{ "x-session-id": sessionId, "x-no-fallback": "true" },
+				);
+				return res.status;
+			}
+
+			test("a new session is blocked even when region selection pins it", async () => {
+				const token = await seedAlibaba();
+				await redisClient.zadd(alibabaRpmKey, Date.now(), "seed");
+
+				expect(await sendExplicit(token, "session-explicit-new")).toBe(429);
+				expect(await redisClient.zcard(alibabaRpmKey)).toBe(1);
+			});
+
+			test("an ongoing session keeps the provider past the cap", async () => {
+				const token = await seedAlibaba();
+				const sessionId = "session-explicit-ongoing";
+
+				// Takes the only slot and pins the session.
+				expect(await sendExplicit(token, sessionId)).toBe(200);
+				expect(
+					await readSessionPin(sessionId, MULTI_REGION_MODEL),
+				).toMatchObject({ providerId: "alibaba" });
+
+				expect(await sendExplicit(token, sessionId)).toBe(200);
+				expect(await redisClient.zcard(alibabaRpmKey)).toBe(2);
+
+				expect(await sendExplicit(token, "session-explicit-other")).toBe(429);
+			});
+
+			test("an ongoing session on a single-mapping provider keeps it", async () => {
+				const token = await seedApiAndProviderKeys("soft-explicit-single");
+				const sessionId = "session-explicit-single";
+				await db.insert(tables.rateLimit).values({
+					id: "rate-limit-openai-soft-explicit",
+					organizationId: "org-id",
+					provider: "openai",
+					model: MODEL,
+					maxRpm: 1,
+					mode: "soft",
+				});
+				const sendOpenai = async (session: string) =>
+					(
+						await chatCompletion(
+							token,
+							{
+								model: `openai/${MODEL}`,
+								messages: [{ role: "user", content: `hello ${session}` }],
+							},
+							{ "x-session-id": session, "x-no-fallback": "true" },
+						)
+					).status;
+
+				expect(await sendOpenai(sessionId)).toBe(200);
+				expect(await sendOpenai(sessionId)).toBe(200);
+				expect(await redisClient.zcard(rpmKey)).toBe(2);
+				expect(await sendOpenai("session-explicit-single-other")).toBe(429);
+			});
+		});
+
+		test("a strict window exceeded alongside a soft one re-pins the session", async () => {
+			const token = await seedApiAndProviderKeys("mixed-pinned");
+			const sessionId = "session-mixed-pinned";
+			await capOpenai("soft");
+			// Strict RPD from a broader row; RPM and RPD resolve independently.
+			await db.insert(tables.rateLimit).values({
+				id: "rate-limit-openai-strict-rpd",
+				organizationId: "org-id",
+				provider: "openai",
+				model: null,
+				maxRpd: 1,
+			});
+			await redisClient.zadd(rpdKey, Date.now(), "seed");
+			await pinToOpenai(sessionId);
+
+			const result = await send(token, sessionId);
+
+			expect(result.firstProvider).toBe("azure");
+			expect(await readSessionPin(sessionId)).toMatchObject({
+				providerId: "azure",
+			});
+		});
+	});
 });

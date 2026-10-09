@@ -4,7 +4,7 @@ This file provides guidance to AI agents when working with code in this reposito
 
 ## Skills
 
-Area-specific rules live in skills under `.agents/skills`. Load the matching skill before working in its area:
+Area-specific rules live in skills under `.agents/skills`. Load the matching skill before working in its area, and read the whole `SKILL.md` — never truncate it with `head`, `grep`, or a partial read:
 
 | Skill              | Use for                                                                                          |
 | ------------------ | ------------------------------------------------------------------------------------------------ |
@@ -14,7 +14,7 @@ Area-specific rules live in skills under `.agents/skills`. Load the matching ski
 | `database`         | Schema, Drizzle and raw SQL, analytics queries, aggregation tables                               |
 | `migrations`       | Generating, editing, and resolving conflicts in migrations                                       |
 | `gateway`          | `apps/gateway` request path, routing, error classification, logging, user-supplied URLs          |
-| `add-model`        | Everything in `packages/models`: mappings, pricing, capabilities, deactivation                   |
+| `add-model`        | Everything in `packages/models`: mappings, pricing, capabilities, deactivation, new providers    |
 | `billing`          | Org kinds, plans, Stripe, DevPass, credits, cost math, audit log, org emails                     |
 | `frontend`         | Next.js apps: API client, data fetching, navigation, dashboard routes, formatting                |
 | `infrastructure`   | Production hosting and hostnames, deploy ordering, client IP and country                         |
@@ -92,7 +92,7 @@ When creating a package in `packages/`, copy `package.json`, `tsconfig.json`, `.
 ## Code Standards
 
 - When proxying a request on a caller's behalf, including in-process `app.request()` calls, spread `forwardedIpHeaders(incomingHeaders)` from `@llmgateway/shared/client-ip` into the forwarded headers. Preserve only the configured client-IP header; never substitute another header or the proxy address. Cover the internal hop with an IP-rule regression test.
-- Always use the internal api (`apps/api/`) for backend operations, never Next.js API routes.
+- Always use the internal api (`apps/api/`) for backend operations, never Next.js API routes or server actions that wrap it. Mutate from the browser with the typed client (`$api.useMutation`); use a server API client only for SSR reads.
 - Never suppress errors with a silent `.catch(() => [])`, `.catch(() => ({}))`, or another empty/default fallback. Handle a deliberate recovery in the owning helper with explicit logging and last-known-good data when available; otherwise let the error propagate.
 - Do not use broad try/catch in API handlers unless to check for specific errors; let errors propagate to the global error handler.
 - Always use top-level `import`, never `require`. Dynamic imports are allowed only for the optional Jelly scene in `packages/shared/src/components/jelly/jelly-logo.tsx` and the DevPass card form in `apps/code/src/app/dashboard/components/DevPassPaymentMethod.tsx`.
@@ -103,6 +103,7 @@ When creating a package in `packages/`, copy `package.json`, `tsconfig.json`, `.
 - Hash or HMAC with an existing deployment secret — `getApiKeyHashSecret()` from `@llmgateway/shared/api-key-hash`, with a domain-separation prefix. New secrets come from required env vars with no default value.
 - Do all money math with `Decimal` from `decimal.js`.
 - NEVER query the `log` table from the gateway request path, and never fetch a user-supplied URL with a bare `fetch()` — see the `gateway` skill.
+- `log` can hold billions of rows of high-throughput, sensitive data (prompts and completions). Load the `database` skill before adding any `log` read.
 - Models and provider mappings on `origin/main` are never removed, only deactivated — see the `add-model` skill.
 
 ### Public repository

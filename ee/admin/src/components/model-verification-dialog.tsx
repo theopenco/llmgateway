@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	AlertTriangle,
 	CheckCircle2,
 	Clock3,
 	Loader2,
@@ -37,6 +38,8 @@ export interface ModelVerification {
 		label: string;
 		status: "queued" | "running" | "passed" | "failed" | "skipped";
 		feedback?: string;
+		warning?: string;
+		optionalWarnings?: string[];
 		probes?: {
 			label: string;
 			status: "passed" | "failed";
@@ -56,6 +59,13 @@ export interface VerificationHistoryEntry extends ModelVerification {
 	actorEmail: string | null;
 }
 
+function hasWarning(check: ModelVerification["checks"][number]): boolean {
+	return (
+		check.status === "passed" &&
+		Boolean(check.warning || check.optionalWarnings?.length)
+	);
+}
+
 export function VerificationStatusBadge({
 	verification,
 }: {
@@ -69,7 +79,7 @@ export function VerificationStatusBadge({
 	).length;
 	const label =
 		verification.status === "passed"
-			? `Passed ${passedCount}/${verification.checks.length}`
+			? `Passed ${passedCount}/${verification.checks.length}${verification.checks.some(hasWarning) ? " · warnings" : ""}`
 			: verification.status === "failed"
 				? "Failed"
 				: verification.status === "running"
@@ -154,7 +164,9 @@ function VerificationResults({
 			<ul className="divide-y divide-border">
 				{verification.checks.map((check) => (
 					<li key={check.id} className="flex items-start gap-2 py-2 text-xs">
-						{check.status === "passed" ? (
+						{hasWarning(check) ? (
+							<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+						) : check.status === "passed" ? (
 							<CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
 						) : check.status === "failed" ? (
 							<XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
@@ -168,6 +180,29 @@ function VerificationResults({
 							{check.feedback ? (
 								<p className="mt-0.5 text-muted-foreground">{check.feedback}</p>
 							) : null}
+							{check.warning ? (
+								<p
+									className="mt-0.5 text-amber-600"
+									data-testid="admin-verification-warning"
+								>
+									{check.warning}
+								</p>
+							) : null}
+							{check.status === "passed" && check.optionalWarnings?.length ? (
+								<ul
+									className="mt-1 space-y-1"
+									data-testid="admin-verification-optional-warnings"
+								>
+									{check.optionalWarnings.map((warning) => (
+										<li key={warning} className="text-amber-600">
+											<span className="mr-1.5 inline-block rounded border border-current px-1 font-mono text-[0.6rem] tracking-wider uppercase">
+												Optional
+											</span>
+											{warning}
+										</li>
+									))}
+								</ul>
+							) : null}
 							<VerificationProbeList probes={check.probes} />
 						</div>
 					</li>
@@ -175,6 +210,13 @@ function VerificationResults({
 			</ul>
 			{verification.summary ? (
 				<p className="text-xs text-muted-foreground">{verification.summary}</p>
+			) : null}
+			{verification.checks.some(
+				(check) => check.status === "passed" && check.optionalWarnings?.length,
+			) ? (
+				<p className="text-xs text-amber-600">
+					Checks marked Optional warn without blocking for now.
+				</p>
 			) : null}
 		</div>
 	);

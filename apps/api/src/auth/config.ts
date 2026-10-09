@@ -37,7 +37,10 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { accountBlockMessage } from "@llmgateway/shared/account-block";
-import { getClientIpFromHeaders } from "@llmgateway/shared/client-ip";
+import {
+	getClientIpFromHeaders,
+	getClientIpHeaderName,
+} from "@llmgateway/shared/client-ip";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
@@ -690,6 +693,12 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				},
 			},
 			advanced: {
+				// Better Auth defaults to X-Forwarded-For and rejects a multi-hop
+				// chain, which is what an appending load balancer always sends:
+				// session IPs came out null and its rate limiter shared one bucket.
+				ipAddress: {
+					ipAddressHeaders: [getClientIpHeaderName()],
+				},
 				crossSubDomainCookies: {
 					enabled: true,
 					domain: cookieDomain,

@@ -401,23 +401,13 @@ export function ProductFamily() {
 		<section className="relative border-y border-border bg-muted/30 py-24 md:py-32">
 			<div className="mx-auto max-w-7xl px-4 sm:px-6">
 				<div className="max-w-3xl">
-					<p className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-						The LLM Gateway family
-					</p>
-					<h2 className="mt-4 font-display text-4xl font-bold leading-[1.08] tracking-[-0.03em] md:text-6xl">
-						One terminal.{" "}
-						<span
-							className={cn(
-								editorial.className,
-								"font-normal whitespace-nowrap italic",
-							)}
-						>
-							Five gates.
-						</span>
+					<h2 className="text-balance font-display text-4xl font-bold leading-[1.08] tracking-[-0.03em] md:text-5xl">
+						One API key.{" "}
+						<span className="text-muted-foreground">Five products.</span>
 					</h2>
 					<p className="mt-5 text-lg text-muted-foreground">
-						The same routing, billing and trust layer powers every product. Pick
-						the gate for the people you&apos;re equipping.
+						The same routing, billing and analytics run under each one. Start
+						with the API, add the rest when you need it.
 					</p>
 				</div>
 

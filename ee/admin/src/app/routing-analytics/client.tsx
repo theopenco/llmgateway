@@ -45,20 +45,29 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
-import { models, providers } from "@llmgateway/models";
+import { providers } from "@llmgateway/models";
 import { ModelMappingSelector } from "@llmgateway/shared/components";
 import { isDeactivationScheduledSoon } from "@llmgateway/shared/deactivation";
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 import {
 	ROUTING_EXCLUSION_REASON_LABELS,
-	ROUTING_SELECTION_KIND_LABELS,
 	ROUTING_SELECTION_REASON_LABELS,
 } from "@llmgateway/shared/routing-telemetry";
 
+import {
+	electionKindColor,
+	electionKindLabel,
+	formatPercent,
+	formatSelectionPrice,
+	numberFormatter,
+} from "./_components/format";
+import { ProportionBar } from "./_components/proportion-bar";
+import { DEFAULT_SCENARIO_ID, RankingCard } from "./_components/ranking-card";
+
+import type { MetricSource } from "./_components/types";
 import type { ChartConfig } from "@/components/ui/chart";
 import type {
 	RoutingExclusionReason,
-	RoutingSelectionKind,
 	RoutingSelectionReason,
 } from "@llmgateway/shared/routing-telemetry";
 
@@ -102,20 +111,6 @@ const METRIC_OPTIONS: {
 	},
 ];
 
-// Fixed hues per election kind so the proportion bar, the per-hour chart and the
-// legend all agree. `scored` is the only kind where the score decided anything,
-// so it gets the one calm color and everything else reads as a deviation.
-const ELECTION_KIND_COLORS: Record<string, string> = {
-	scored: "hsl(142 71% 45%)",
-	pinned: "hsl(221 83% 53%)",
-	narrowed: "hsl(32 95% 44%)",
-	"single-candidate": "hsl(215 16% 47%)",
-	sticky: "hsl(280 65% 60%)",
-	fallback: "hsl(0 72% 51%)",
-	exploration: "hsl(189 94% 43%)",
-	unknown: "hsl(215 16% 47%)",
-};
-
 // Distinct, color-blind-friendly hues. Repeat for >12 series.
 const SERIES_COLORS = [
 	"hsl(221 83% 53%)",
@@ -154,10 +149,6 @@ const TOOLTIP_HOUR_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	hour12: false,
 });
 
-const numberFormatter = new Intl.NumberFormat("en-US", {
-	maximumFractionDigits: 0,
-});
-
 function formatAxisHour(value: string): string {
 	return AXIS_HOUR_FORMATTER.format(new Date(value));
 }
@@ -170,6 +161,10 @@ function parseWindow(value: string | null): RoutingWindow {
 	return WINDOW_OPTIONS.some((o) => o.value === value)
 		? (value as RoutingWindow)
 		: "3d";
+}
+
+function parseSource(value: string | null): MetricSource {
+	return value === "window" ? "window" : "live";
 }
 
 function parseMetric(value: string | null): MetricKey {
@@ -191,16 +186,6 @@ function formatMetricValue(metric: MetricKey, value: number): string {
 	}
 }
 
-function formatSelectionPrice(price: number, isImageModel: boolean): string {
-	if (price === 0) {
-		return "free";
-	}
-	if (isImageModel) {
-		return `$${price.toFixed(4)}/image`;
-	}
-	return `$${(price * 1e6).toFixed(2)}/M`;
-}
-
 function formatDeactivationDate(value: string | null): string {
 	if (!value) {
 		return "";
@@ -214,13 +199,6 @@ function formatDeactivationDate(value: string | null): string {
 	});
 }
 
-function formatContribution(value: number): string {
-	if (value === 0) {
-		return "—";
-	}
-	return value > 0 ? `+${value.toFixed(3)}` : value.toFixed(3);
-}
-
 // Pseudo entries that are never routed across providers.
 const EXCLUDED_MODEL_IDS = new Set(["auto", "custom"]);
 
@@ -232,79 +210,9 @@ function EmptyState({ children }: { children: React.ReactNode }) {
 	);
 }
 
-function formatPercent(value: number, total: number): string {
-	if (total <= 0) {
-		return "—";
-	}
-	return `${((value / total) * 100).toFixed(1)}%`;
-}
-
-function electionKindLabel(kind: string): string {
-	return ROUTING_SELECTION_KIND_LABELS[kind as RoutingSelectionKind] ?? kind;
-}
-
-function electionKindColor(kind: string): string {
-	return ELECTION_KIND_COLORS[kind] ?? ELECTION_KIND_COLORS.unknown;
-}
-
 function exclusionReasonLabel(reason: string): string {
 	return (
 		ROUTING_EXCLUSION_REASON_LABELS[reason as RoutingExclusionReason] ?? reason
-	);
-}
-
-/**
- * Single-row stacked proportion bar. Used for the election-path and service-tier
- * splits, where the shares matter more than absolute counts and a full chart
- * would bury a three-segment comparison.
- */
-function ProportionBar({
-	segments,
-	total,
-}: {
-	segments: { key: string; label: string; value: number; color: string }[];
-	total: number;
-}) {
-	if (total <= 0) {
-		return (
-			<p className="text-sm text-muted-foreground">
-				No routed requests in this window.
-			</p>
-		);
-	}
-	const visible = segments.filter((segment) => segment.value > 0);
-	return (
-		<div className="space-y-3">
-			<div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
-				{visible.map((segment) => (
-					<div
-						key={segment.key}
-						style={{
-							width: `${(segment.value / total) * 100}%`,
-							backgroundColor: segment.color,
-						}}
-						title={`${segment.label}: ${numberFormatter.format(segment.value)}`}
-					/>
-				))}
-			</div>
-			<div className="flex flex-wrap gap-x-4 gap-y-1.5">
-				{visible.map((segment) => (
-					<div key={segment.key} className="flex items-center gap-1.5 text-xs">
-						<span
-							className="h-2.5 w-2.5 shrink-0 rounded-full"
-							style={{ backgroundColor: segment.color }}
-						/>
-						<span>{segment.label}</span>
-						<span className="font-mono text-muted-foreground">
-							{formatPercent(segment.value, total)}
-						</span>
-						<span className="font-mono text-muted-foreground">
-							({numberFormatter.format(segment.value)})
-						</span>
-					</div>
-				))}
-			</div>
-		</div>
 	);
 }
 
@@ -317,6 +225,8 @@ export function RoutingAnalyticsClient() {
 	const modelId = searchParams.get("modelId");
 	const window = parseWindow(searchParams.get("window"));
 	const metric = parseMetric(searchParams.get("metric"));
+	const source = parseSource(searchParams.get("source"));
+	const scenarioId = searchParams.get("scenario") ?? DEFAULT_SCENARIO_ID;
 	const [chartType, setChartType] = useState<ChartType>("line");
 	const MetricChart = chartType === "line" ? LineChart : BarChart;
 
@@ -344,9 +254,19 @@ export function RoutingAnalyticsClient() {
 		[updateParams],
 	);
 
+	const { data: catalogue, isError: catalogueError } = $api.useQuery(
+		"get",
+		"/internal/models",
+	);
 	const selectableModels = useMemo(
-		() => models.filter((model) => !EXCLUDED_MODEL_IDS.has(model.id)),
-		[],
+		() =>
+			(catalogue?.models ?? [])
+				.filter((model) => !EXCLUDED_MODEL_IDS.has(model.id))
+				.map((model) => ({
+					...model,
+					mappings: model.mappings.filter((mapping) => !mapping.region),
+				})),
+		[catalogue],
 	);
 
 	const { data, isLoading, isError } = $api.useQuery(
@@ -460,19 +380,14 @@ export function RoutingAnalyticsClient() {
 		});
 	}, [data]);
 
-	const scoredSummary = useMemo(
-		() => sortedSummary.filter((summary) => summary.score !== null),
-		[sortedSummary],
+	// The default request shape, scored on both metric sources: live is what
+	// the router reads right now, the window is the smoothed history.
+	const defaultScenario = data?.scenarios.find(
+		(scenario) => scenario.id === DEFAULT_SCENARIO_ID,
 	);
-
-	const electedProviderId = scoredSummary[0]?.providerId ?? null;
-	const electedScore = scoredSummary[0]?.score ?? null;
-	const runnerUp = scoredSummary[1];
-	const runnerUpScore = runnerUp?.score ?? null;
-	const runnerUpMargin =
-		runnerUpScore !== null && electedScore !== null
-			? runnerUpScore - electedScore
-			: null;
+	const livePick = defaultScenario?.live;
+	const windowPick = defaultScenario?.window;
+	const stickyScoreMargin = data?.config.sticky.scoreMargin ?? 0;
 	const routableCount =
 		data?.mappings.filter((mapping) => mapping.routable).length ?? 0;
 
@@ -611,12 +526,11 @@ export function RoutingAnalyticsClient() {
 						Routing Analytics
 					</h1>
 					<p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-						Why the gateway elects a specific provider mapping for a routed
-						model id: hourly-averaged routing inputs (uptime, latency,
-						throughput), static factors (price, priority, cache support), and
-						the resulting weighted score per mapping. Live routing uses the same
-						formula over a tier-weighted 60-minute window; hourly buckets are
-						shown here to smooth out fluctuations.
+						Which provider mapping the gateway elects for a routed model id, and
+						why. Live scores use the router&apos;s own inputs: the tier-weighted
+						recent window it reads on every request. Hourly buckets are smoothed
+						history for spotting trends. Every score uses the gateway&apos;s
+						formula under default routing config.
 					</p>
 				</div>
 				<div className="flex flex-wrap items-center gap-3">
@@ -645,7 +559,9 @@ export function RoutingAnalyticsClient() {
 				</div>
 			</header>
 
-			{!modelId ? (
+			{catalogueError && !modelId ? (
+				<EmptyState>Failed to load the model catalogue.</EmptyState>
+			) : !modelId ? (
 				<EmptyState>
 					Select a model to inspect how the gateway routes it.
 				</EmptyState>
@@ -662,39 +578,40 @@ export function RoutingAnalyticsClient() {
 							hint="served, from the mapping rollup"
 						/>
 						<StatCard
-							label="Elected mapping"
+							label="Router picks now"
 							value={
-								electedProviderId ? (
+								livePick?.winnerProviderId ? (
 									<span className="text-xl">
-										{providerName(electedProviderId)}
+										{providerName(livePick.winnerProviderId)}
 									</span>
 								) : (
 									"—"
 								)
 							}
-							hint="lowest score, not the busiest"
+							hint={
+								livePick?.method === "price-only"
+									? `no metrics in the last ${data.live.windowMinutes} min: lowest price after priority`
+									: livePick?.margin === null || livePick?.margin === undefined
+										? "live metrics, streaming request"
+										: `${livePick.margin <= stickyScoreMargin ? `inside the ${stickyScoreMargin} sticky margin` : "clear winner"}: ${livePick.margin.toFixed(3)} ahead of ${providerName(livePick.runnerUpProviderId!)}`
+							}
+						/>
+						<StatCard
+							label="Window best"
+							value={
+								windowPick?.winnerProviderId ? (
+									<span className="text-xl">
+										{providerName(windowPick.winnerProviderId)}
+									</span>
+								) : (
+									"—"
+								)
+							}
+							hint={`lowest score on ${window} hourly averages`}
 						/>
 						<StatCard
 							label="Routable mappings"
 							value={`${routableCount} / ${data.mappings.length}`}
-						/>
-						<StatCard
-							label="Runner-up"
-							value={
-								runnerUp ? (
-									<span className="text-xl">
-										{providerName(runnerUp.providerId)}
-										{runnerUpMargin !== null ? (
-											<span className="ml-2 text-sm font-normal text-muted-foreground">
-												+{runnerUpMargin.toFixed(3)}
-											</span>
-										) : null}
-									</span>
-								) : (
-									<span className="text-xl text-muted-foreground">—</span>
-								)
-							}
-							hint="score behind the elected mapping"
 						/>
 						<StatCard
 							label="Score-decided"
@@ -721,20 +638,6 @@ export function RoutingAnalyticsClient() {
 							}
 						/>
 						<StatCard
-							label="Tiered requests"
-							value={
-								<span>
-									{formatPercent(
-										data.serviceTier.explicit + data.serviceTier.implicit,
-										data.serviceTier.requestCount,
-									)}
-									<span className="ml-2 text-sm font-normal text-muted-foreground">
-										{numberFormatter.format(data.serviceTier.implicit)} implicit
-									</span>
-								</span>
-							}
-						/>
-						<StatCard
 							label="Excluded from elections"
 							value={
 								data.exclusions.length > 0 ? (
@@ -756,6 +659,19 @@ export function RoutingAnalyticsClient() {
 							hint="mapping drops, not requests"
 						/>
 					</section>
+
+					<RankingCard
+						data={data}
+						source={source}
+						scenarioId={scenarioId}
+						providerName={providerName}
+						providerColor={providerSeriesColor}
+						onSelectScenario={(id) =>
+							updateParams({
+								scenario: id === DEFAULT_SCENARIO_ID ? null : id,
+							})
+						}
+					/>
 
 					<Card>
 						<CardHeader className="border-b p-4 sm:p-6">
@@ -846,6 +762,15 @@ export function RoutingAnalyticsClient() {
 							{data.serviceTier.explicit + data.serviceTier.implicit > 0 ? (
 								<div className="flex flex-wrap gap-x-6 gap-y-2 text-xs">
 									<span>
+										Tiered{" "}
+										<span className="font-mono">
+											{formatPercent(
+												data.serviceTier.explicit + data.serviceTier.implicit,
+												data.serviceTier.requestCount,
+											)}
+										</span>
+									</span>
+									<span>
 										Confirmed at a premium tier{" "}
 										<span className="font-mono">
 											{numberFormatter.format(data.serviceTier.served)}
@@ -876,6 +801,7 @@ export function RoutingAnalyticsClient() {
 									routing score multiplier and Airside margin, which is what the
 									score uses. An organization-specific discount can lower its
 									own price further and shift that organization&apos;s election.
+									Score is the streaming request shape on these window averages.
 								</CardDescription>
 							</div>
 							<div className="flex flex-wrap gap-1.5 sm:justify-end">
@@ -1483,97 +1409,6 @@ export function RoutingAnalyticsClient() {
 									})}
 								</div>
 							)}
-						</CardContent>
-					</Card>
-
-					<Card>
-						<CardHeader className="border-b p-4 sm:p-6">
-							<CardTitle>Score composition (window average)</CardTitle>
-							<CardDescription className="max-w-3xl">
-								How each factor contributes to the final score. Factor
-								contributions are the weighted ratio against the best mapping (0
-								= best); penalties are added on top.
-							</CardDescription>
-						</CardHeader>
-						<CardContent className="p-0">
-							<div className="overflow-x-auto">
-								<Table>
-									<TableHeader>
-										<TableRow className="[&>th]:whitespace-nowrap">
-											<TableHead>Provider</TableHead>
-											<TableHead className="text-right">Price</TableHead>
-											<TableHead className="text-right">Uptime</TableHead>
-											<TableHead className="text-right">Throughput</TableHead>
-											<TableHead className="text-right">Latency</TableHead>
-											<TableHead className="text-right">Cache</TableHead>
-											<TableHead className="text-right">
-												Priority penalty
-											</TableHead>
-											<TableHead className="text-right">
-												Uptime penalty
-											</TableHead>
-											<TableHead className="text-right">= Score</TableHead>
-										</TableRow>
-									</TableHeader>
-									<TableBody>
-										{sortedSummary
-											.filter((summary) => summary.breakdown !== null)
-											.map((summary) => {
-												const breakdown = summary.breakdown!;
-												const mapping = data.mappings.find(
-													(m) => m.providerId === summary.providerId,
-												)!;
-												return (
-													<TableRow key={summary.providerId}>
-														<TableCell>
-															<div className="flex items-center gap-2">
-																<span
-																	className="h-2.5 w-2.5 shrink-0 rounded-full"
-																	style={{
-																		backgroundColor: providerSeriesColor(
-																			summary.providerId,
-																		),
-																	}}
-																/>
-																{mapping.providerName}
-															</div>
-														</TableCell>
-														<TableCell className="text-right font-mono text-xs">
-															{formatContribution(breakdown.priceContribution)}
-														</TableCell>
-														<TableCell className="text-right font-mono text-xs">
-															{formatContribution(breakdown.uptimeContribution)}
-														</TableCell>
-														<TableCell className="text-right font-mono text-xs">
-															{formatContribution(
-																breakdown.throughputContribution,
-															)}
-														</TableCell>
-														<TableCell className="text-right font-mono text-xs">
-															{formatContribution(
-																breakdown.latencyContribution,
-															)}
-														</TableCell>
-														<TableCell className="text-right font-mono text-xs">
-															{formatContribution(breakdown.cacheContribution)}
-														</TableCell>
-														<TableCell className="text-right font-mono text-xs">
-															{formatContribution(breakdown.priorityPenalty)}
-														</TableCell>
-														<TableCell className="text-right font-mono text-xs">
-															{formatContribution(breakdown.uptimePenalty)}
-														</TableCell>
-														<TableCell className="text-right font-mono text-xs font-semibold">
-															{summary.score !== null
-																? summary.score.toFixed(3)
-																: "—"}
-														</TableCell>
-													</TableRow>
-												);
-											})}
-									</TableBody>
-								</Table>
-							</div>
 						</CardContent>
 					</Card>
 				</>

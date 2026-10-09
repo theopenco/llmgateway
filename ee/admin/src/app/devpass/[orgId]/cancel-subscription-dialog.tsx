@@ -23,56 +23,68 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 interface CancelSubscriptionDialogProps {
+	orgId: string;
 	orgName: string;
 	tier: string;
 	expiresAt: string | null;
 	alreadyCancelled: boolean;
-	onCancel: (data: {
-		immediate: boolean;
-		comment?: string;
-	}) => Promise<{ success: boolean; message?: string; error?: string }>;
 }
 
 export function CancelSubscriptionDialog({
+	orgId,
 	orgName,
 	tier,
 	expiresAt,
 	alreadyCancelled,
-	onCancel,
 }: CancelSubscriptionDialogProps) {
 	const router = useRouter();
+	const $api = useApi();
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 	const [timing, setTiming] = useState<"period_end" | "immediate">(
 		"period_end",
 	);
 	const [comment, setComment] = useState("");
 
-	const handleSubmit = async () => {
-		setLoading(true);
-		setError(null);
+	const cancelMutation = $api.useMutation(
+		"post",
+		"/admin/devpass/{orgId}/cancel-subscription",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
+				setOpen(false);
+				setComment("");
+				router.refresh();
+			},
+		},
+	);
+	const loading = cancelMutation.isPending;
+	const error = cancelMutation.isError
+		? apiErrorMessage(cancelMutation.error, "Failed to cancel subscription")
+		: null;
 
-		const result = await onCancel({
-			immediate: timing === "immediate",
-			comment: comment.trim() || undefined,
-		});
-
-		setLoading(false);
-
-		if (result.success) {
-			setOpen(false);
-			setComment("");
-			router.refresh();
-		} else {
-			setError(result.error ?? "Failed to cancel subscription");
+	const handleOpenChange = (next: boolean) => {
+		if (next) {
+			cancelMutation.reset();
 		}
+		setOpen(next);
+	};
+
+	const handleSubmit = () => {
+		cancelMutation.mutate({
+			params: { path: { orgId } },
+			body: {
+				immediate: timing === "immediate",
+				comment: comment.trim() || undefined,
+			},
+		});
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogTrigger asChild>
 				<Button variant="outline" size="sm">
 					<Ban className="mr-1.5 h-4 w-4" />

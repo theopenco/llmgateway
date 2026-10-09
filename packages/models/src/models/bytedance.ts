@@ -454,6 +454,32 @@ export const bytedanceModels = [
 		],
 	},
 	{
+		id: "seedream-5-0-flash",
+		name: "Seedream 5.0 Flash",
+		description:
+			"ByteDance Seedream 5.0 Flash fast, cost-efficient image generation and editing model for high-volume and interactive workflows, with up to 2K output",
+		family: "bytedance",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-09-15"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "bytedance",
+				externalId: "dola-seedream-5-0-flash-260915",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0.018",
+				contextSize: 2000,
+				maxOutput: 4096,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
 		id: "seed-2-0-pro-260328",
 		name: "Seed 2.0 Pro (260328)",
 		description:
