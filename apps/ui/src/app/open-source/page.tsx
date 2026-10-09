@@ -58,7 +58,7 @@ const openSourceFaqs: CompareFaqItem[] = [
 	},
 	{
 		question: "Is there a managed option too?",
-		answer: `Yes. If you would rather not run infrastructure, the hosted LLM API gateway is pay-as-you-go with a flat 5% platform fee on credits, or 0% when you bring your own provider keys. Optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}.`,
+		answer: `Yes. If you would rather not run infrastructure, the hosted LLM API gateway is pay-as-you-go with a flat 5% platform fee on credits, or 0% when you bring your own provider keys. Request logs are metadata-only; full payload retention is an Enterprise feature billed at ${MARKETING_STATS.dataStoragePrice}.`,
 	},
 	{
 		question: "Which models does the open-source gateway support?",

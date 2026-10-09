@@ -68,12 +68,12 @@ const pricingFeatures: PricingFeature[] = [
 	},
 	{
 		name: "Data Retention",
-		description: `Metadata is free; full payloads are ${MARKETING_STATS.dataStoragePrice}`,
+		description: `Metadata-only logs on Free; full request & response payloads are Enterprise-only, billed at ${MARKETING_STATS.dataStoragePrice}`,
 		learnMoreLink:
 			"https://docs.llmgateway.io/features/data-retention#storage-pricing",
 		learnMoreText: "See storage pricing →",
 		free: "Metadata only",
-		enterprise: "Full payloads, unlimited",
+		enterprise: "Full payload retention, unlimited",
 	},
 	{
 		name: "Auto-routing & Vendor Selection",

@@ -25,7 +25,7 @@ const ENTERPRISE_FEATURES = [
 	"Dedicated support & SLA",
 	"Provider compliance policies",
 	"SSO & audit logs",
-	"Extended data retention",
+	"Full request & response retention",
 	"Custom models & guardrails",
 	"Volume pricing",
 ];
@@ -265,11 +265,7 @@ export function PlanManagement() {
 							</div>
 							<div className="flex items-center gap-2">
 								<div className="w-2 h-2 rounded-full bg-green-500" />
-								<span>
-									{isLegacyPro
-										? "30-day data retention"
-										: "Metadata request logs"}
-								</span>
+								<span>Metadata-only request logs</span>
 							</div>
 							<div className="flex items-center gap-2">
 								<div className="w-2 h-2 rounded-full bg-green-500" />

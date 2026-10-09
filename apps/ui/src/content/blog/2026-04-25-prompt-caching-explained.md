@@ -104,7 +104,7 @@ Rule of thumb: if your prompt sets `temperature: 0` or the task is factual/deter
 
 No code changes required. Three steps in the dashboard:
 
-1. **Enable Data Retention** — organization settings → set to "Retain All Data" (required because caching needs to store the payload)
+1. **Enable Data Retention** — organization settings → set to "Retain All Data" (required because caching needs to store the payload; Enterprise-only since October 9, 2026)
 2. **Enable Caching** — project settings → Preferences → toggle on
 3. **Set the TTL** — anywhere from 10 seconds to 1 year. Default is 60 seconds. For FAQ-style workloads, try 1 hour; for truly static classification, try 30 days.
 

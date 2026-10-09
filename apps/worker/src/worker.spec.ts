@@ -18,6 +18,7 @@ import {
 	processAutoTopUp,
 	releaseLease,
 	touchLease,
+	enforceRetentionPlanGating,
 } from "./worker.js";
 
 const stripeMock = vi.hoisted(() => ({
@@ -53,6 +54,7 @@ describe("worker", () => {
 		apiKeyId: "retention-test-api-key",
 		lockKeys: [
 			"data_retention_cleanup",
+			"retention_plan_gating",
 			"test-lock-1",
 			"test-lock-2",
 			"test-lock-3",
@@ -789,6 +791,124 @@ describe("worker", () => {
 
 			expect(mappingRows.map((r) => r.id)).toEqual(["mph-recent"]);
 			expect(modelRows.map((r) => r.id)).toEqual(["mh-recent"]);
+		});
+	});
+
+	describe("enforceRetentionPlanGating", () => {
+		const gatingOrgIds = [
+			"gating-free-retain",
+			"gating-free-metadata",
+			"gating-enterprise-retain",
+			"gating-pro-retain",
+		];
+
+		const seedGatingOrgs = async () => {
+			await db.insert(tables.organization).values([
+				{
+					id: "gating-free-retain",
+					name: "Gating Free Retain",
+					billingEmail: "gating-free@example.com",
+					plan: "free",
+					retentionLevel: "retain",
+				},
+				{
+					id: "gating-free-metadata",
+					name: "Gating Free Metadata",
+					billingEmail: "gating-free-metadata@example.com",
+					plan: "free",
+					retentionLevel: "none",
+				},
+				{
+					id: "gating-enterprise-retain",
+					name: "Gating Enterprise Retain",
+					billingEmail: "gating-enterprise@example.com",
+					plan: "enterprise",
+					retentionLevel: "retain",
+				},
+				{
+					id: "gating-pro-retain",
+					name: "Gating Pro Retain",
+					billingEmail: "gating-pro@example.com",
+					plan: "pro",
+					retentionLevel: "retain",
+				},
+			]);
+		};
+
+		const retentionByOrg = async () => {
+			const rows = await db
+				.select({
+					id: tables.organization.id,
+					retentionLevel: tables.organization.retentionLevel,
+				})
+				.from(tables.organization)
+				.where(inArray(tables.organization.id, gatingOrgIds));
+			return Object.fromEntries(rows.map((r) => [r.id, r.retentionLevel]));
+		};
+
+		const previousHosted = process.env.HOSTED;
+
+		afterEach(() => {
+			if (previousHosted === undefined) {
+				delete process.env.HOSTED;
+			} else {
+				process.env.HOSTED = previousHosted;
+			}
+		});
+
+		test("leaves every organization alone before the cutoff", async () => {
+			process.env.HOSTED = "true";
+			await seedGatingOrgs();
+
+			const switched = await enforceRetentionPlanGating(
+				new Date("2026-11-07T23:59:59Z"),
+			);
+
+			expect(switched).toBe(0);
+			expect(await retentionByOrg()).toEqual({
+				"gating-free-retain": "retain",
+				"gating-free-metadata": "none",
+				"gating-enterprise-retain": "retain",
+				"gating-pro-retain": "retain",
+			});
+		});
+
+		test("switches every non-Enterprise organization to Metadata Only after the cutoff", async () => {
+			process.env.HOSTED = "true";
+			await seedGatingOrgs();
+
+			const switched = await enforceRetentionPlanGating(
+				new Date("2026-11-08T00:00:00Z"),
+			);
+
+			expect(switched).toBe(2);
+			expect(await retentionByOrg()).toEqual({
+				"gating-free-retain": "none",
+				"gating-free-metadata": "none",
+				"gating-enterprise-retain": "retain",
+				"gating-pro-retain": "none",
+			});
+
+			expect(
+				await enforceRetentionPlanGating(new Date("2026-11-09T00:00:00Z")),
+			).toBe(0);
+		});
+
+		test("never downgrades self-hosted installs", async () => {
+			delete process.env.HOSTED;
+			await seedGatingOrgs();
+
+			const switched = await enforceRetentionPlanGating(
+				new Date("2026-11-08T00:00:00Z"),
+			);
+
+			expect(switched).toBe(0);
+			expect(await retentionByOrg()).toEqual({
+				"gating-free-retain": "retain",
+				"gating-free-metadata": "none",
+				"gating-enterprise-retain": "retain",
+				"gating-pro-retain": "retain",
+			});
 		});
 	});
 });

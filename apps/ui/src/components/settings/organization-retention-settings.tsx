@@ -38,12 +38,14 @@ export function OrganizationRetentionSettings() {
 	const effectiveRetentionLevel = zeroDataRetentionEnabled
 		? "none"
 		: retentionLevel;
-	// Payload retention needs Pro or Enterprise; a setting kept from a paid plan
-	// can still be re-saved or turned off.
+	// Payload retention is Enterprise-only. Existing non-Enterprise orgs that
+	// still retain payloads keep the setting until the transition window ends
+	// (2026-11-08) or turn it off, but cannot re-enable it.
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const retainLocked =
-		selectedOrganization?.plan !== "pro" &&
-		selectedOrganization?.enterpriseAccess !== true &&
-		selectedOrganization?.retentionLevel !== "retain";
+		!isEnterprise && selectedOrganization?.retentionLevel !== "retain";
+	const retainTransitionNotice =
+		!isEnterprise && selectedOrganization?.retentionLevel === "retain";
 
 	if (!selectedOrganization) {
 		return (
@@ -113,15 +115,55 @@ export function OrganizationRetentionSettings() {
 				) : retainLocked ? (
 					<Alert>
 						<AlertDescription>
-							<strong>
-								Retain All Data requires a Pro or Enterprise plan.
-							</strong>
+							<strong>Retain All Data requires an Enterprise plan.</strong>
 							{` `}
+							Full request and response payloads are only stored on Enterprise;
+							other organizations keep Metadata Only (timestamps, models, token
+							counts, costs, and latency).{` `}
 							<span className="sm:whitespace-nowrap">
+								<a
+									href="https://llmgateway.io/enterprise"
+									target="_blank"
+									rel="noopener noreferrer"
+									className="font-semibold underline hover:no-underline"
+								>
+									Explore Enterprise
+								</a>
+								{` `}or{` `}
 								<ContactSalesLink className="font-semibold underline hover:no-underline">
-									Contact us
+									contact us
 								</ContactSalesLink>
 								{` `}to upgrade.
+							</span>
+						</AlertDescription>
+					</Alert>
+				) : retainTransitionNotice ? (
+					<Alert variant="destructive">
+						<AlertDescription>
+							<strong>
+								Payload retention for this organization ends on November 8,
+								2026.
+							</strong>
+							{` `}
+							Retain All Data is now an Enterprise-only feature. On that date
+							this organization will switch to Metadata Only automatically
+							unless it upgrades to Enterprise. You can switch to Metadata Only
+							earlier, but Retain All Data cannot be re-enabled afterwards
+							without Enterprise.{` `}
+							<span className="sm:whitespace-nowrap">
+								<a
+									href="https://llmgateway.io/enterprise"
+									target="_blank"
+									rel="noopener noreferrer"
+									className="font-semibold underline hover:no-underline"
+								>
+									Explore Enterprise
+								</a>
+								{` `}or{` `}
+								<ContactSalesLink className="font-semibold underline hover:no-underline">
+									contact us
+								</ContactSalesLink>
+								{` `}to keep it.
 							</span>
 						</AlertDescription>
 					</Alert>
@@ -166,8 +208,8 @@ export function OrganizationRetentionSettings() {
 						<Alert>
 							<AlertDescription>
 								<strong>Data Retention Period:</strong> Retained data is
-								automatically cleaned up after 30 days. Contact us for
-								enterprise plans with unlimited retention.
+								automatically cleaned up after 30 days. Enterprise plans can be
+								configured with unlimited retention.
 								<p className="mt-2">
 									<strong>Data storage is billed at $0.01 per 1M tokens</strong>{" "}
 									(includes input, cached, output, and reasoning tokens).

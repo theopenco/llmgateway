@@ -713,7 +713,7 @@ describe("organization route", () => {
 		).not.toBe(true);
 	});
 
-	test("payload retention stays blocked by stored ZDR after downgrade", async () => {
+	test("downgraded organizations cannot re-enable payload retention", async () => {
 		await db
 			.update(tables.organization)
 			.set({
@@ -735,9 +735,9 @@ describe("organization route", () => {
 			body: JSON.stringify({ retentionLevel: "retain" }),
 		});
 
-		expect(response.status).toBe(400);
+		expect(response.status).toBe(403);
 		expect(await response.json()).toMatchObject({
-			message: expect.stringContaining("Zero data retention"),
+			message: expect.stringContaining("Enterprise"),
 		});
 		expect(
 			(
@@ -765,7 +765,7 @@ describe("organization route", () => {
 
 		expect(response.status).toBe(403);
 		expect(await response.json()).toMatchObject({
-			message: expect.stringContaining("Pro or Enterprise"),
+			message: expect.stringContaining("requires an Enterprise plan"),
 		});
 		expect(
 			(
@@ -801,7 +801,7 @@ describe("organization route", () => {
 		).toBe("none");
 	});
 
-	test("pro organizations can enable payload retention", async () => {
+	test("legacy pro organizations cannot enable payload retention", async () => {
 		await db
 			.update(tables.organization)
 			.set({ plan: "pro", retentionLevel: "none" })
@@ -816,14 +816,14 @@ describe("organization route", () => {
 			body: JSON.stringify({ retentionLevel: "retain" }),
 		});
 
-		expect(response.status).toBe(200);
+		expect(response.status).toBe(403);
 		expect(
 			(
 				await db.query.organization.findFirst({
 					where: { id: { eq: "test-org-id" } },
 				})
 			)?.retentionLevel,
-		).toBe("retain");
+		).toBe("none");
 	});
 
 	test("payload retention can be enabled alongside a stored non-ZDR policy", async () => {

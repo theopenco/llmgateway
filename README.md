@@ -119,7 +119,7 @@ LLMGateway is available under a dual license:
 ### Enterprise features include:
 
 - Advanced billing and subscription management
-- Extended data retention (unlimited vs 30 days)
+- Full request and response payload retention (Retain All Data); other plans are metadata only
 - Custom provider key configurations
 - Team and organization management
 - Priority support

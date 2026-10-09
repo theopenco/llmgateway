@@ -2652,6 +2652,7 @@ async function runDataRetentionLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
+				await enforceRetentionPlanGating();
 				await cleanupExpiredLogData();
 
 				await interruptibleSleep(interval);
@@ -3673,4 +3674,54 @@ export async function stopWorker(): Promise<boolean> {
 
 	logger.info("Worker stopped gracefully");
 	return true;
+}
+// Retain All Data moved to Enterprise on 2026-10-09 with a 30-day transition
+// window. Non-Enterprise organizations on the hosted platform that still retain
+// payloads are switched to Metadata Only once the window closes. Self-hosted
+// installs are never downgraded.
+const RETENTION_PLAN_GATING_CUTOFF = new Date("2026-11-08T00:00:00Z");
+const RETENTION_PLAN_GATING_LOCK_KEY = "retention_plan_gating";
+
+export async function enforceRetentionPlanGating(
+	now: Date = new Date(),
+): Promise<number> {
+	if (process.env.HOSTED !== "true" || now < RETENTION_PLAN_GATING_CUTOFF) {
+		return 0;
+	}
+
+	const lockAcquired = await acquireLock(RETENTION_PLAN_GATING_LOCK_KEY);
+	if (!lockAcquired) {
+		return 0;
+	}
+
+	try {
+		const switched = await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none", updatedAt: now })
+			.where(
+				and(
+					eq(tables.organization.retentionLevel, "retain"),
+					eq(tables.organization.kind, "default"),
+					sql`${tables.organization.plan} <> 'enterprise'`,
+				),
+			)
+			.returning({ id: tables.organization.id });
+
+		if (switched.length > 0) {
+			await invalidateOrganizationsCache(switched.map((org) => org.id));
+			logger.info(
+				`Retention plan gating switched ${switched.length} organizations to Metadata Only`,
+			);
+		}
+
+		return switched.length;
+	} catch (error) {
+		logger.error(
+			"Error enforcing retention plan gating",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		return 0;
+	} finally {
+		await releaseLock(RETENTION_PLAN_GATING_LOCK_KEY);
+	}
 }

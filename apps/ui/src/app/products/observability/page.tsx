@@ -21,7 +21,7 @@ import type { Metadata } from "next";
 
 const title = "Observability — LLM Usage, Cost & Latency Analytics";
 const description =
-	"Monitor every LLM request in real time: cost analytics, per-model and per-provider breakdowns, error and cache rates, latency, and full request logs — across every provider you use.";
+	"Monitor every LLM request in real time: cost analytics, per-model and per-provider breakdowns, error and cache rates, latency, and metadata request logs — with full prompts and responses on Enterprise — across every provider you use.";
 
 export const metadata: Metadata = {
 	title,
@@ -40,7 +40,7 @@ const features = [
 		icon: Activity,
 		title: "Request-level activity",
 		description:
-			"Inspect every API request — prompt, response, tokens, cost, latency, finish reason, and the provider that served it.",
+			"Inspect every API request — model, tokens, cost, latency, finish reason, and the provider that served it. Full prompts and responses with Enterprise data retention.",
 	},
 	{
 		icon: CircleDollarSign,
@@ -127,7 +127,7 @@ export default function ObservabilityProductPage() {
 							slug="activity"
 							alt="LLM Gateway activity view with per-request logs"
 							title="Every request, inspectable"
-							description="Filter request logs by model, provider, API key, finish reason, or session — then drill into any single request."
+							description="Filter request logs by model, provider, API key, finish reason, or session — then drill into any single request's metadata, or its full prompt and response on Enterprise."
 						/>
 						<ProductScreenshot
 							slug="usage"

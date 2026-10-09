@@ -209,7 +209,7 @@ export function Faq() {
 											</li>
 										</ul>
 										<p className="mt-2">
-											Optional{" "}
+											Request logs are metadata only. On Enterprise,{" "}
 											<a
 												href="https://docs.llmgateway.io/features/data-retention#storage-pricing"
 												className="underline"

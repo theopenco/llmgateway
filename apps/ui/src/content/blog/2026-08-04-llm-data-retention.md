@@ -7,11 +7,11 @@ summary: "A practical guide to LLM data retention: when storing full prompts and
 categories: ["Guides"]
 faqs:
   - question: "Does LLM Gateway store my prompts by default?"
-    answer: "No. The default retention level is metadata-only: timestamps, models, token counts, and costs, with no request or response payloads. Full payload storage is an explicit opt-in per organization, available on standard pay-as-you-go organizations."
+    answer: "No. The default retention level is metadata-only: timestamps, models, token counts, and costs, with no request or response payloads. Full payload storage (Retain All Data) is an explicit opt-in per organization and, since October 9, 2026, is available on the Enterprise plan only."
   - question: "How much does LLM data retention cost?"
     answer: "Metadata retention is free. Full payload retention costs $0.01 per 1 million tokens across all token types, billed per request and itemized in `usage.cost_details.data_storage_cost`."
   - question: "How long does LLM Gateway keep stored request data?"
-    answer: "On the managed cloud, 30 days by default, after which records are deleted automatically; Enterprise organizations can configure custom retention periods to match their audit or data-minimization requirements. Payload retention itself is only configurable on standard pay-as-you-go organizations — DevPass and chat subscriptions stay metadata-only. Self-hosted deployments set their own retention periods through environment variables."
+    answer: "On the managed cloud, 30 days by default, after which records are deleted automatically; Enterprise organizations can configure custom retention periods to match their audit or data-minimization requirements. Payload retention itself is an Enterprise feature — other organizations, including DevPass and chat subscriptions, stay metadata-only. Self-hosted deployments set their own retention periods through environment variables."
   - question: "Can I keep LLM logs inside my own infrastructure?"
     answer: "Yes — self-host the AGPLv3 gateway and all stored data lives in your own PostgreSQL database, with retention configured through environment variables and no per-token storage fee."
 image:
@@ -27,18 +27,20 @@ That default matters more than it looks. Store too little and you can't debug a 
 
 **LLM Gateway** makes the decision explicit: retention is a per-organization policy, not a side effect of logging.
 
+> **Update (October 9, 2026):** Full payload retention (**Retain All Data**) is now an [Enterprise](/enterprise) feature. New organizations are Metadata Only, and non-Enterprise organizations that already retain payloads keep the setting until **November 8, 2026**, after which they switch to Metadata Only automatically. See the [changelog](/changelog/data-retention-enterprise-only) for details. The guidance below on what to store still applies; the sections on enabling it apply to Enterprise organizations.
+
 ## Metadata or full payloads: the only real decision
 
 There are two meaningfully different retention levels for LLM traffic:
 
-| Level               | What's stored                                                                                 | What it enables                                               | Cost on LLM Gateway |
-| ------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------- |
-| **Metadata only**   | Timestamps, model, provider, token counts, costs, finish reasons                              | Usage analytics, spend tracking, routing data                 | Free (default)      |
-| **Retain all data** | Everything above, plus full request and response payloads — messages, tool calls, attachments | Payload-level debugging, audit trails, incident investigation | $0.01 per 1M tokens |
+| Level               | What's stored                                                                                 | What it enables                                               | Cost on LLM Gateway              |
+| ------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------- |
+| **Metadata only**   | Timestamps, model, provider, token counts, costs, finish reasons                              | Usage analytics, spend tracking, routing data                 | Free (default)                   |
+| **Retain all data** | Everything above, plus full request and response payloads — messages, tool calls, attachments | Payload-level debugging, audit trails, incident investigation | $0.01 per 1M tokens (Enterprise) |
 
 Metadata-only is the default on LLM Gateway, and it's the right default: your usage dashboards, cost analytics, and per-model breakdowns all work without a single prompt being stored. Payload retention is opt-in, per organization, for the teams that need to inspect exactly what was sent and returned.
 
-Full payload retention is configurable on standard pay-as-you-go organizations. DevPass and chat subscriptions are always metadata-only — their request and response payloads are not retained, and there is no setting to turn payload storage on.
+Full payload retention is an Enterprise feature. Free pay-as-you-go organizations, DevPass, and chat subscriptions are metadata-only — their request and response payloads are not retained, and there is no setting to turn payload storage on outside Enterprise.
 
 ## When you actually need full payloads
 
@@ -48,7 +50,7 @@ Three situations justify storing complete requests and responses:
 - **Audit and incident response.** Compliance frameworks increasingly ask what data was shown to which AI system. A payload trail answers that question with records rather than architecture diagrams.
 - **Quality analysis.** Measuring prompt effectiveness or response quality over time requires the actual text, not just token counts.
 
-If none of these apply, stay on metadata-only. You get the analytics without the obligations.
+If none of these apply, stay on metadata-only. You get the analytics without the obligations. If they do apply, full payload retention is part of the [Enterprise plan](/enterprise).
 
 ## What retention costs
 
@@ -64,7 +66,7 @@ One exception worth knowing: the Responses API keeps stored responses (used for 
 
 ## Setting the policy
 
-Retention is configured per organization in the dashboard:
+Retention is configured per organization in the dashboard. Enterprise organizations can enable **Retain All Data**; every other organization is Metadata Only:
 
 1. Navigate to **Organization Settings → Policies**
 2. Select your **Data Retention Level**

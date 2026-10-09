@@ -9,7 +9,7 @@ description: "Terms of Use for LLM Gateway: account eligibility, billing and cre
 # Terms of Use
 
 **Effective Date:** June 11, 2026  
-**Last Updated:** September 18, 2026
+**Last Updated:** October 9, 2026
 
 Welcome to **LLM Gateway** (“we”, “our”, or “us”), operated by **Polar Lights LLC**, 16192 Coastal Highway, Lewes, DE 19958, United States. These Terms of Use (“Terms”) form a binding legal agreement between you (“you” or “Customer”) and LLM Gateway and govern your access to and use of the LLM Gateway platform, including our website **[llmgateway.io](https://llmgateway.io)**, APIs, SDKs, dashboards, and any related products or services (collectively, the “Service”).
 
@@ -80,10 +80,7 @@ Any service levels, support commitments, or uptime targets apply **only** if exp
 
 ## 5. Data and Privacy
 
-Your data is processed in accordance with our [Privacy Policy](https://llmgateway.io/privacy). You control how request data is stored under **Settings → Policies**, including whether to:
-
-- **Retain All Data** (request payloads and responses); or
-- **Store Metadata Only** (usage statistics and pricing data).
+Your data is processed in accordance with our [Privacy Policy](https://llmgateway.io/privacy). Request data is stored as **Metadata Only** (usage statistics and pricing data) by default. Organizations on an Enterprise plan can additionally choose **Retain All Data** (request payloads and responses) under **Settings → Policies**. Organizations that are not on an Enterprise plan and that enabled Retain All Data before October 9, 2026 keep that setting until **November 8, 2026**, after which they are switched to Metadata Only; it cannot be re-enabled without an Enterprise plan.
 
 By using the Service, you consent to the collection, processing, and transfer of data as described in the Privacy Policy. You are solely responsible for the data, prompts, and content you submit to the Service (“Customer Data”), including ensuring you have all rights and consents necessary to submit it and to have it processed by us and by the AI providers you select.
 

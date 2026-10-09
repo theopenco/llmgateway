@@ -762,19 +762,19 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
-	// Payload retention requires a Pro or Enterprise plan. Turning it off, or
-	// re-saving a setting kept from before a downgrade, stays allowed.
+	// Payload retention is Enterprise-only. Turning it off, or re-saving a
+	// setting kept from before a downgrade, stays allowed until the transition
+	// window closes.
 	if (
 		retentionLevel === "retain" &&
 		userOrganization.organization?.retentionLevel !== "retain" &&
-		userOrganization.organization?.plan !== "pro" &&
 		!hasOrganizationEnterpriseAccess(
 			userOrganization.organization?.id,
 			userOrganization.organization?.plan,
 		)
 	) {
 		throw new HTTPException(403, {
-			message: "Data retention requires a Pro or Enterprise plan",
+			message: "Retain All Data requires an Enterprise plan",
 		});
 	}
 
