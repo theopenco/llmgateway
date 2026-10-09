@@ -21,7 +21,6 @@ import { requestEmailChange } from "@/lib/email-change.js";
 import { getAdminRole } from "@/middleware/admin.js";
 import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
-import { isValidTimeZone } from "@/utils/timezone.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
@@ -38,7 +37,6 @@ const publicUserSchema = z.object({
 	email: z.string(),
 	name: z.string().nullable(),
 	onboardingCompleted: z.boolean(),
-	timeZone: z.string().nullable(),
 	emailVerified: z.boolean(),
 	isAdmin: z.boolean(),
 	adminRole: z.enum(["admin", "support", "viewer"]).nullable(),
@@ -118,7 +116,6 @@ function toPublicUser(
 		email: userRecord.email,
 		name: userRecord.name,
 		onboardingCompleted: userRecord.onboardingCompleted,
-		timeZone: userRecord.timeZone,
 		emailVerified: userRecord.emailVerified,
 		isAdmin: adminRole === "admin",
 		adminRole,
@@ -193,12 +190,6 @@ user.openapi(get, async (c) => {
 });
 
 const updateUserSchema = z.object({
-	timeZone: z
-		.string()
-		.max(64)
-		.refine(isValidTimeZone, "Invalid IANA time zone")
-		.nullable()
-		.optional(),
 	currentPassword: z.string().min(1).optional(),
 	name: z.string().optional(),
 	// Lowercased to match better-auth, which stores emails lowercase and looks
