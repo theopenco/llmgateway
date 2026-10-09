@@ -12,6 +12,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
+				midConversationSystem: true,
 				externalId: "claude-fable-5-1",
 				inputPrice: "10.0e-6",
 				outputPrice: "50.0e-6",
@@ -90,6 +91,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
+				midConversationSystem: true,
 				externalId: "claude-fable-5",
 				inputPrice: "10.0e-6",
 				outputPrice: "50.0e-6",
@@ -502,6 +504,8 @@ export const anthropicModels = [
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
+				cacheWriteInputPrice: "3.75e-6",
+				cacheWriteInputPrice1h: "6.0e-6",
 				minCacheableTokens: 1024,
 				requestPrice: "0",
 				contextSize: 200000,
@@ -643,6 +647,8 @@ export const anthropicModels = [
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
+				cacheWriteInputPrice: "3.75e-6",
+				cacheWriteInputPrice1h: "6.0e-6",
 				minCacheableTokens: 2048,
 				requestPrice: "0",
 				contextSize: 1000000,
@@ -667,6 +673,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
+				midConversationSystem: true,
 				externalId: "claude-sonnet-5",
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
@@ -738,6 +745,7 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "vertex-anthropic",
+				midConversationSystem: true,
 				externalId: "claude-sonnet-5",
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
@@ -770,6 +778,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
+				midConversationSystem: true,
 				externalId: "claude-sonnet-5-5",
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
@@ -1003,6 +1012,8 @@ export const anthropicModels = [
 				inputPrice: "1.0e-6",
 				outputPrice: "5.0e-6",
 				cachedInputPrice: "0.1e-6",
+				cacheWriteInputPrice: "1.25e-6",
+				cacheWriteInputPrice1h: "2.0e-6",
 				minCacheableTokens: 4096,
 				requestPrice: "0",
 				contextSize: 200000,
@@ -1484,6 +1495,8 @@ export const anthropicModels = [
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
+				cacheWriteInputPrice: "6.25e-6",
+				cacheWriteInputPrice1h: "10.0e-6",
 				minCacheableTokens: 4096,
 				requestPrice: "0",
 				contextSize: 200000,
@@ -1594,6 +1607,8 @@ export const anthropicModels = [
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
+				cacheWriteInputPrice: "6.25e-6",
+				cacheWriteInputPrice1h: "10.0e-6",
 				minCacheableTokens: 4096,
 				requestPrice: "0",
 				contextSize: 1000000,
@@ -1703,6 +1718,8 @@ export const anthropicModels = [
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
+				cacheWriteInputPrice: "6.25e-6",
+				cacheWriteInputPrice1h: "10.0e-6",
 				minCacheableTokens: 4096,
 				requestPrice: "0",
 				contextSize: 1000000,
@@ -1729,6 +1746,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
+				midConversationSystem: true,
 				externalId: "claude-opus-4-8",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
@@ -1817,6 +1835,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
+				midConversationSystem: true,
 				externalId: "claude-opus-5-5",
 				inputPrice: "4.0e-6",
 				outputPrice: "20.0e-6",
@@ -1902,6 +1921,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
+				midConversationSystem: true,
 				externalId: "claude-opus-5",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
