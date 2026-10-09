@@ -5452,7 +5452,7 @@ const rateLimitSchema = z.object({
 	limitType: z.enum(["rpm", "rpd"]),
 	maxRequests: z.number(),
 	enforcement: z.enum(["per_org", "global"]),
-	mode: z.enum(["strict", "soft"]),
+	mode: z.enum(["strict", "soft", "lax"]),
 	reason: z.string().nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
@@ -5472,21 +5472,16 @@ const createRateLimitBodySchema = z.object({
 		.int("Limit must be a whole number")
 		.min(0, "Limit must be at least 0"),
 	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
-	// "soft" lets a session already pinned to the capped provider keep it.
-	mode: z.enum(["strict", "soft"]).optional().default("strict"),
+	// Soft preserves session pins; lax also permits explicit provider requests.
+	mode: z.enum(["strict", "soft", "lax"]).optional().default("strict"),
 	reason: z.string().nullable().optional(),
 });
 
 // Org-specific limits are always enforced per-org, so they don't expose the
 // enforcement choice.
-const createOrganizationRateLimitBodySchema = createRateLimitBodySchema
-	.omit({ enforcement: true })
-	.extend({
-		maxRequests: z.coerce
-			.number()
-			.int("Limit must be a whole number")
-			.min(1, "Limit must be at least 1"),
-	});
+const createOrganizationRateLimitBodySchema = createRateLimitBodySchema.omit({
+	enforcement: true,
+});
 
 // --- Global Rate Limits ---
 
@@ -5712,7 +5707,7 @@ function formatRateLimit(r: {
 	maxRpm: number | null;
 	maxRpd: number | null;
 	enforcement: string;
-	mode: "strict" | "soft";
+	mode: "strict" | "soft" | "lax";
 	reason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
@@ -5764,11 +5759,6 @@ async function updateRateLimit(
 			const validation = await validateProviderAndModel(provider, model);
 			if (validation.error) {
 				throw new HTTPException(400, { message: validation.error });
-			}
-			if (body.mode === "soft" && body.maxRequests === 0) {
-				throw new HTTPException(400, {
-					message: "A limit of 0 blocks all requests and cannot be soft",
-				});
 			}
 
 			const [updated] = await tx
@@ -5829,12 +5819,6 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 	const validation = await validateProviderAndModel(provider, model);
 	if (validation.error) {
 		throw new HTTPException(400, { message: validation.error });
-	}
-
-	if (body.mode === "soft" && body.maxRequests === 0) {
-		throw new HTTPException(400, {
-			message: "A limit of 0 blocks all requests and cannot be soft",
-		});
 	}
 
 	const [created] = await db

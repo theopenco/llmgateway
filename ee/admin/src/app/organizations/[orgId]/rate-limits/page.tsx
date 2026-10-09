@@ -186,8 +186,10 @@ export default async function OrganizationRateLimitsPage({
 										</span>
 									</TableCell>
 									<TableCell>
-										{rateLimit.mode === "soft" ? (
-											<Badge variant="secondary">Soft</Badge>
+										{rateLimit.mode !== "strict" ? (
+											<Badge variant="secondary">
+												{rateLimit.mode === "lax" ? "Lax" : "Soft"}
+											</Badge>
 										) : (
 											<Badge variant="outline">Strict</Badge>
 										)}
@@ -303,6 +305,10 @@ export default async function OrganizationRateLimitsPage({
 					<li>
 						Rate limits cap the maximum requests per minute (RPM) or per day
 						(RPD) for matching providers and models
+					</li>
+					<li>
+						<strong>Lax</strong> limits also allow explicit provider requests
+						past the cap; automatic routing and fallback respect it
 					</li>
 					<li>
 						When a rate limit is hit, the gateway falls back to other providers

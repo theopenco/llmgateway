@@ -45,7 +45,7 @@ function AirsideBadge() {
 
 type RateLimitType = "rpm" | "rpd";
 type RateLimitEnforcement = "per_org" | "global";
-type RateLimitMode = "strict" | "soft";
+type RateLimitMode = "strict" | "soft" | "lax";
 
 interface RateLimitFormProps {
 	providers: RateLimitProviderOption[];
@@ -188,7 +188,7 @@ export function RateLimitForm({
 		mutation.reset();
 
 		const parsedLimit = Number(maxRequests);
-		const minimum = showEnforcement ? 0 : 1;
+		const minimum = 0;
 		if (
 			maxRequests.trim() === "" ||
 			!Number.isInteger(parsedLimit) ||
@@ -197,11 +197,6 @@ export function RateLimitForm({
 			setError(
 				`Max ${limitType.toUpperCase()} must be a whole number of at least ${minimum}`,
 			);
-			return;
-		}
-
-		if (mode === "soft" && parsedLimit === 0) {
-			setError("A limit of 0 blocks all requests and cannot be soft");
 			return;
 		}
 
@@ -340,12 +335,15 @@ export function RateLimitForm({
 							<SelectContent>
 								<SelectItem value="strict">Strict</SelectItem>
 								<SelectItem value="soft">Soft</SelectItem>
+								<SelectItem value="lax">Lax</SelectItem>
 							</SelectContent>
 						</Select>
 						<p className="text-xs text-muted-foreground">
 							{mode === "strict"
 								? "All traffic is routed away once the limit is reached"
-								: "Sessions already pinned to the provider keep using it past the limit; new sessions are routed away"}
+								: mode === "soft"
+									? "Sessions already pinned to the provider keep using it past the limit; new sessions are routed away"
+									: "Explicit provider requests and existing pinned sessions may exceed the limit; automatic routing and fallback respect it."}
 						</p>
 					</div>
 
@@ -430,7 +428,7 @@ export function RateLimitForm({
 						<Input
 							id={`${formId}-maxRequests`}
 							type="number"
-							min={showEnforcement ? 0 : 1}
+							min={0}
 							step="1"
 							placeholder={limitType === "rpm" ? "e.g., 60" : "e.g., 5000"}
 							value={maxRequests}
@@ -441,7 +439,7 @@ export function RateLimitForm({
 							{limitType === "rpm"
 								? "Maximum requests per minute allowed"
 								: "Maximum requests per day allowed"}
-							{showEnforcement && ". Set 0 to block matching requests"}
+							. Set 0 to allow only requests exempt under the selected mode
 						</p>
 					</div>
 
