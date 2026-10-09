@@ -350,6 +350,11 @@ async function validateConfig(
 				message: `Unknown provider: ${provider}`,
 			});
 		}
+		if (!carrier.customBaseUrl) {
+			throw new HTTPException(400, {
+				message: "Configure the carrier endpoint before adding credentials.",
+			});
+		}
 		// A custom Airside carrier's endpoint is fixed at registration (the
 		// claim's base URL); its managed credential is only the API key we
 		// hold for it, so it takes no settings.

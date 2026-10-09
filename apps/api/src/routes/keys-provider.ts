@@ -602,14 +602,6 @@ keysProvider.openapi(create, async (c) => {
 	try {
 		const isTestEnv =
 			process.env.NODE_ENV === "test" && process.env.E2E_TEST !== "true";
-		// Validate that provider is one of the allowed provider IDs
-		if (
-			!(await getEffectiveProviders()).some((p) => p.id === provider) &&
-			provider !== "custom"
-		) {
-			throw new Error(`Invalid provider: ${provider}`);
-		}
-
 		// Skip validation for custom providers as they don't have predefined models
 		const airsideValidation =
 			provider === "custom"

@@ -339,7 +339,13 @@ describe("airside provider portal", () => {
 		}
 		await db
 			.delete(tables.provider)
-			.where(inArray(tables.provider.id, ["mistral", "acme-sky"]));
+			.where(
+				inArray(tables.provider.id, [
+					"mistral",
+					"acme-sky",
+					"retired-catalogue",
+				]),
+			);
 		await deleteAll();
 	});
 
@@ -2917,6 +2923,75 @@ describe("airside provider portal", () => {
 			json(cookie, {}),
 		);
 		expect(again.status).toBe(409);
+	});
+
+	it("preserves catalogue-owned credentials and identity after removal and revocation", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
+		const company = await createCompany(cookie);
+		const providerId = "retired-catalogue";
+		await db
+			.insert(tables.provider)
+			.values({ id: providerId, name: "Test Carrier", description: "" });
+		await db.insert(tables.providerKey).values(
+			["retired-linked", "retired-platform"].map((id) => ({
+				id,
+				provider: providerId,
+				managed: true,
+				status: "active",
+				...encryptProviderKeyForStorage("managed-provider-test-key", id, null),
+			})),
+		);
+		const [claim] = await db
+			.insert(tables.providerClaim)
+			.values({
+				providerCompanyId: company.id,
+				providerId,
+				kind: "catalogue",
+				status: "active",
+				matchedDomain: "example.com",
+				customBaseUrl: "https://carrier.example.com",
+				providerKeyId: "retired-linked",
+			})
+			.returning();
+		await db.insert(tables.providerDraftModel).values({
+			providerCompanyId: company.id,
+			providerId,
+			modelName: "retired-model",
+			externalId: "retired-model",
+			status: "active",
+		});
+
+		const res = await app.request(
+			`/admin/airside/claims/${claim.id}/revoke`,
+			json(cookie, {}),
+		);
+		expect(res.status).toBe(200);
+		expect((await res.json()).claim.status).toBe("revoked");
+		expect(
+			await db.query.providerKey.findMany({
+				where: { provider: { eq: providerId } },
+				columns: { status: true },
+			}),
+		).toEqual([{ status: "active" }, { status: "active" }]);
+		expect(
+			await db.query.provider.findFirst({ where: { id: { eq: providerId } } }),
+		).toBeDefined();
+		expect(
+			await db.query.providerDraftModel.findFirst({
+				where: { providerId: { eq: providerId } },
+			}),
+		).toMatchObject({ status: "delisted", delistReason: "claim_revoked" });
+		const facts = await app.request("/internal/provider-facts");
+		expect(
+			(await facts.json()).providers.some(
+				(p: { id: string }) => p.id === providerId,
+			),
+		).toBe(false);
+		expect(
+			await db.query.providerClaim.findFirst({
+				where: { id: { eq: claim.id } },
+			}),
+		).toMatchObject({ providerKeyId: "retired-linked" });
 	});
 
 	it("runs fare changes through the admin approval queue", async () => {

@@ -1255,8 +1255,8 @@ adminAirside.openapi(revokeClaim, async (c) => {
 		await tx
 			.delete(tables.providerRoutingSettings)
 			.where(eq(tables.providerRoutingSettings.providerId, claim.providerId));
-		// A custom carrier's credentials are the carrier's own keys.
-		if (effectiveClaimKind(claim) === "custom") {
+		// Credential ownership follows registration kind, not current transport.
+		if (claim.kind === "custom") {
 			await tx
 				.update(tables.providerKey)
 				.set({ status: "deleted" })
@@ -1348,7 +1348,7 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				restoreStatic: true,
 			});
 		}
-		if (effectiveClaimKind(claim) === "custom") {
+		if (claim.kind === "custom") {
 			// The provider row only existed for this registration; drop it once no
 			// catalogue mapping references it any more.
 			const remaining = await tx

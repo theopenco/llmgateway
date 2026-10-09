@@ -1326,7 +1326,16 @@ internalModels.openapi(getProviderFacts, async (c) => {
 	]);
 	return c.json({
 		providers: providers.map((provider) => ({
-			...provider,
+			id: provider.id,
+			name: provider.name,
+			description: provider.description,
+			forwardsSafetyIdentifier: provider.forwardsSafetyIdentifier,
+			env: { required: provider.env.required },
+			color: provider.color,
+			website: provider.website,
+			legalEntity: provider.legalEntity,
+			headquarters: provider.headquarters,
+			dataPolicy: provider.dataPolicy,
 			modelIds: models
 				.filter((model) =>
 					model.providers.some((entry) => entry.id === provider.id),
