@@ -26,6 +26,38 @@ describe("getFinishReasonFromError", () => {
 		).toBe("upstream_error");
 	});
 
+	it("returns upstream_error for opaque provider trace-id invalid request errors", () => {
+		// novita intermittently rejects otherwise-valid requests with this bare
+		// body (no param, no reason); the identical request succeeds on a retry
+		// or on another provider's mapping for the same model.
+		for (const statusCode of [400, 422]) {
+			for (const body of [
+				'{"message":"invalid request error trace_id: 4f685001a23cf81c91b130323bcfd793","type":"invalid_request_error"}',
+				'{"error":{"message":"invalid request error trace_id: 4f685001a23cf81c91b130323bcfd793","type":"invalid_request_error"}}',
+			]) {
+				expect(getFinishReasonFromError(statusCode, body)).toBe(
+					"upstream_error",
+				);
+			}
+		}
+	});
+
+	it("keeps actionable or non-trace invalid-request errors as client_error", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"Invalid request error: unsupported parameter top_k","type":"invalid_request_error"}}',
+			),
+		).toBe("client_error");
+		// A trace-id-shaped message without the 32-hex id keeps the old handling.
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"invalid request error trace_id: not-a-hex-id","type":"invalid_request_error"}}',
+			),
+		).toBe("client_error");
+	});
+
 	it("returns upstream_error when the upstream model does not exist", () => {
 		for (const message of [
 			"The model `deepseek:v4.1@flash` does not exist",
