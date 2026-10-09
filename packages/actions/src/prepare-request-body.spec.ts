@@ -3623,7 +3623,7 @@ describe("prepareRequestBody - Xiaomi thinking", () => {
 
 	test("forwards native effort tiers verbatim without a thinking parameter", async () => {
 		const requestBody = await prepare({
-			model: "mimo-v2.5-pro",
+			model: "mimo-v2.6-pro",
 			reasoningEffort: "high",
 		});
 		expect(requestBody.reasoning_effort).toBe("high");
@@ -3632,7 +3632,7 @@ describe("prepareRequestBody - Xiaomi thinking", () => {
 
 	test("maps none to thinking disabled and never forwards reasoning_effort", async () => {
 		const requestBody = await prepare({
-			model: "mimo-v2.5-pro",
+			model: "mimo-v2.6-pro",
 			reasoningEffort: "none",
 		});
 		expect(requestBody.thinking).toEqual({ type: "disabled" });
@@ -3640,14 +3640,14 @@ describe("prepareRequestBody - Xiaomi thinking", () => {
 	});
 
 	test("keeps the provider default when no reasoning_effort is requested", async () => {
-		const requestBody = await prepare({ model: "mimo-v2.5-pro" });
+		const requestBody = await prepare({ model: "mimo-v2.6-pro" });
 		expect(requestBody.thinking).toBeUndefined();
 		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
 
 	test("forwards unsupported tiers verbatim so the provider rejects them", async () => {
 		const requestBody = await prepare({
-			model: "mimo-v2.5",
+			model: "mimo-v2.6-flash",
 			reasoningEffort: "xhigh",
 		});
 		expect(requestBody.reasoning_effort).toBe("xhigh");
@@ -8700,9 +8700,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("flattens tool message with array content (text + image) to plain string", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{ role: "user", content: "describe this" },
 				{
@@ -8740,9 +8740,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("leaves tool message with plain string content unchanged", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{ role: "user", content: "What is the weather?" },
 				{
@@ -8772,9 +8772,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("leaves user message array content unchanged (images still work)", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{
 					role: "user",
@@ -8818,9 +8818,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("handles tool message with multiple text blocks", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{
 					role: "tool",
@@ -8851,9 +8851,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("handles tool message with only images, no text (empty string)", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{
 					role: "tool",
@@ -8886,9 +8886,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("applies standard default params (stream_options, temperature, etc.)", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[{ role: "user", content: "Hello" }],
 			true,
 			0.7,
