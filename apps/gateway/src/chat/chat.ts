@@ -4234,6 +4234,7 @@ chat.openapi(completions, async (c) => {
 		// instead of the generic errors / hardcoded fallback below.
 		let anyPreComplianceCandidate = false;
 		let anyPostComplianceCandidate = false;
+		let blockedAutoRateLimit: ProviderRateLimitResult | undefined;
 
 		for (const staticModelDef of models) {
 			const modelDef = airsideOwnedModelIds.has(staticModelDef.id)
@@ -4557,9 +4558,39 @@ chat.openapi(completions, async (c) => {
 					project.organizationId,
 					providerDiscountResolver,
 				);
+			// Remove exhausted routes before ranking models or preferring BYOK.
+			let rateLimitEligibleProviders = deduplicatedSuitableProviders;
+			if (rateLimitEligibleProviders.length > 0) {
+				const pin = await createSessionStore(modelDef.id)?.get();
+				const { enforcedLimits, sessionExemptible } =
+					await filterRateLimitedProviders(
+						project.organizationId,
+						rateLimitEligibleProviders.map((provider) => ({
+							providerId: provider.providerId,
+							model: modelDef.id,
+						})),
+					);
+				rateLimitEligibleProviders = rateLimitEligibleProviders.filter(
+					(provider) => {
+						const limit = enforcedLimits.get(provider.providerId);
+						if (
+							!limit ||
+							(provider.providerId === pin?.providerId &&
+								sessionExemptible.has(provider.providerId))
+						) {
+							return true;
+						}
+						blockedAutoRateLimit ??= limit;
+						recordFilteredProvider(filteredOutForModel, provider.providerId, [
+							exclusionReason("rate_limited"),
+						]);
+						return false;
+					},
+				);
+			}
 			const preferredSuitableProviders = preferProvidersWithKeys(
 				project.mode,
-				deduplicatedSuitableProviders,
+				rateLimitEligibleProviders,
 				providersWithKeys,
 			);
 
@@ -4612,6 +4643,10 @@ chat.openapi(completions, async (c) => {
 					});
 				}
 			}
+		}
+
+		if (smartRoutingCandidates.length === 0 && blockedAutoRateLimit) {
+			await rejectProviderRateLimit(blockedAutoRateLimit);
 		}
 
 		// A sticky session keeps its model and effort across turns, and only
@@ -4698,25 +4733,6 @@ chat.openapi(completions, async (c) => {
 
 		// If we found a suitable model, use the cheapest provider from it
 		if (selectedModel && selectedProviders.length > 0) {
-			const selectedModelId = selectedModel.id;
-			const pin = await createSessionStore(selectedModelId)?.get();
-			const { enforcedLimits, sessionExemptible } =
-				await filterRateLimitedProviders(
-					project.organizationId,
-					selectedProviders.map((provider) => ({
-						providerId: provider.providerId,
-						model: selectedModelId,
-					})),
-				);
-			selectedProviders = selectedProviders.filter(
-				(provider) =>
-					!enforcedLimits.has(provider.providerId) ||
-					(provider.providerId === pin?.providerId &&
-						sessionExemptible.has(provider.providerId)),
-			);
-			if (selectedProviders.length === 0) {
-				await rejectProviderRateLimit([...enforcedLimits.values()][0]);
-			}
 			// Fetch uptime/latency metrics from last 5 minutes for provider selection
 			const metricsCombinations = selectedProviders.map((p) => ({
 				modelId: selectedModel.id,
@@ -5189,21 +5205,7 @@ chat.openapi(completions, async (c) => {
 			)
 		) {
 			if (noFallback) {
-				const blockedLimits = rateLimitPeek.blockedBy
-					.map(
-						(window) =>
-							`${rateLimitPeek.limits[window].limit} ${providerRateLimitWindows[window].label}`,
-					)
-					.join(" and ");
-
-				const message = `Rate limit exceeded: maximum ${blockedLimits} for ${requestedProvider}/${baseModelId}. Please try again later.`;
-				await logGatewayRejection({
-					message,
-					statusCode: 429,
-					statusText: "Too Many Requests",
-					cause: "rate_limit_exceeded",
-				});
-				throw new HTTPException(429, { message });
+				await rejectProviderRateLimit(rateLimitPeek);
 			}
 
 			// Attempt to re-route to alternative providers (same pattern as low-uptime fallback)

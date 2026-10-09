@@ -9,7 +9,7 @@ import { isMappingDeactivated } from "@llmgateway/shared/deactivation";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
-import { waitForLogs } from "./test-utils/test-helpers.js";
+import { clearCache, waitForLogs } from "./test-utils/test-helpers.js";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
 
@@ -87,6 +87,75 @@ describe("auto routing", () => {
 		}
 		expect(await redisClient.zcard(key)).toBe(2);
 	});
+
+	test.each([
+		["lax", 1],
+		["lax", 0],
+		["soft", 0],
+		["strict", 0],
+	] as const)(
+		"auto skips a model exhausted by a %s cap of %s",
+		async (mode, maxRpm) => {
+			const token = await seed(["google-ai-studio"]);
+			const send = (turn: number) =>
+				app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${token}`,
+					},
+					body: JSON.stringify({
+						model: "auto",
+						messages: [
+							{
+								role: "user",
+								content: [
+									{
+										type: "text",
+										text: `Summarize this document, turn ${turn}`,
+									},
+									{
+										type: "file",
+										file: {
+											filename: "doc.pdf",
+											file_data: "data:application/pdf;base64,JVBERi0xLjQK",
+										},
+									},
+								],
+							},
+						],
+					}),
+				});
+			const first = await send(1);
+			expect(first.status).toBe(200);
+			await first.text();
+			const [firstLog] = await waitForLogs(1);
+			const cappedModel = firstLog
+				.usedModel!.slice("google-ai-studio/".length)
+				.split(":")[0];
+			await db.insert(tables.rateLimit).values({
+				id: "auto-model-cap",
+				model: cappedModel,
+				maxRpm,
+				mode,
+			});
+			await clearCache();
+			await redisClient.zadd(
+				`rate_limit:provider_cap:rpm:org-id:google-ai-studio:${cappedModel}`,
+				Date.now(),
+				"seed",
+			);
+			const second = await send(2);
+			expect(second.status).toBe(200);
+			await second.text();
+			const logs = await waitForLogs(2);
+			expect(
+				logs.some(
+					(log) => log.usedModel && log.usedModel !== firstLog.usedModel,
+				),
+			).toBe(true);
+		},
+	);
 
 	test("a document request never selects a deactivated mapping", async () => {
 		// Documents widen auto to the whole catalogue, where retired Gemini 1.5

@@ -538,6 +538,28 @@ describe("session stickiness across candidate changes", () => {
 			},
 		);
 
+		test("a no-fallback cap rejection includes retry headers", async () => {
+			const token = await seedApiAndProviderKeys("cap-headers");
+			await capOpenai("soft");
+			const res = await chatCompletion(
+				token,
+				{
+					model: `openai/${MODEL}`,
+					messages: [{ role: "user", content: "no fallback at cap" }],
+				},
+				{ "x-no-fallback": "true" },
+			);
+			expect(res.status).toBe(429);
+			expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
+			expect(res.headers.get("RateLimit-Remaining")).toBe("0");
+			expect(res.headers.get("RateLimit-Reset")).toBe(
+				res.headers.get("Retry-After"),
+			);
+			expect(Number(res.headers.get("X-RateLimit-Reset"))).toBeGreaterThan(
+				Math.floor(Date.now() / 1000),
+			);
+		});
+
 		test("the single-provider shortcut cannot create a lax exemption", async () => {
 			const token = await seedApiAndProviderKeys("lax-single");
 			await capOpenai("lax");

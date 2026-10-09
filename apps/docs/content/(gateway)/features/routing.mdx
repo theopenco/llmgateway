@@ -66,7 +66,9 @@ eligible initial route remains, the gateway returns `429`. Exempt requests
 still increment both configured counters.
 
 Lax caps apply to automatic provider selection under every routing strategy,
-including dynamic provider ordering. A capped lax provider cannot be used as a
+including dynamic provider ordering. Auto model selection excludes exhausted
+routes before ranking models, so another eligible model can serve the request.
+A capped lax provider cannot be used as a
 last resort when all candidates are capped; requests with no eligible initial
 route return `429`. Retries on the originally selected provider retain its
 exemption, including credential and region changes; cross-provider fallback
