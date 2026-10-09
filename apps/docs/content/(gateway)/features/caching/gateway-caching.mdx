@@ -6,7 +6,7 @@ icon: Zap
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-Gateway caching serves a previously-seen request entirely from LLM Gateway without forwarding it to the upstream provider. Requests are matched on the parsed [cache-key fields](#cache-key-generation) — JSON formatting outside string values, and parameters outside the cache key, do not create a separate entry; the text of your messages and the key order of message and tool objects do. Repeated identical calls cost **$0** — there is no inference and no provider charge. It is most useful for API workloads with deterministic inputs (classification, batch jobs, FAQ lookups, retries) rather than free-form chat.
+Gateway caching serves a previously-seen request entirely from LLM Gateway without forwarding it to the upstream provider. Requests are matched on the parsed [cache-key fields](#cache-key-generation) — JSON formatting outside string values, and parameters outside the cache key, do not create a separate entry; the text of your messages and the key order of message and tool objects do. Repeated identical calls cost **$0** — there is no inference and no provider charge. It is intended for repeated standalone API requests, such as classification, batch jobs, FAQ lookups, and retries. It is generally not useful for agents, coding tools, or conversational chat interfaces, where prompts change each turn; use provider prompt caching for their shared context.
 
 <Callout type="info">
 	If you want to reduce the cost of long, partially-shared prompts in chat apps
@@ -55,7 +55,7 @@ Caching can dramatically reduce costs for applications with repetitive requests:
 
 To use caching:
 
-1. Enable **Caching** in your project settings under Preferences
+1. Under **Project Settings → Preferences → Caching**, find **Gateway Response Caching** below **Provider Prompt Caching** and enable **gateway response caching**
 2. Configure the cache duration (TTL) as needed
 3. Make requests as normal—caching is automatic
 
