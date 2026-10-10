@@ -311,6 +311,7 @@ export {
 } from "./custom-providers.js";
 
 export {
+	mostRestrictiveApiKeyLimits,
 	validateApiKeyLimitsWithinMemberBudget,
 	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
 	type ApiKeyLimitConstraints,
