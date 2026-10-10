@@ -5,6 +5,8 @@ import {
 	setGlobalDispatcher,
 } from "undici";
 
+import { getGatewayTimeoutMs } from "@/lib/timeout-config.js";
+
 import { logger } from "@llmgateway/logger";
 import { safeOutboundLookup } from "@llmgateway/shared/url-safety-node";
 
@@ -13,6 +15,14 @@ import type { Dispatcher } from "undici";
 function envInt(name: string, fallback: number): number {
 	const value = Number(process.env[name]);
 	return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+// undici defaults headersTimeout and bodyTimeout to 300s, which would cut off
+// provider calls before the longer plain/streaming request timeouts fire. Cap
+// them at the overall gateway timeout so those timers stay in charge.
+function responseTimeouts() {
+	const timeoutMs = getGatewayTimeoutMs();
+	return { headersTimeout: timeoutMs, bodyTimeout: timeoutMs };
 }
 
 let agent: Agent | null = null;
@@ -42,6 +52,7 @@ export function installUpstreamDispatcher(): Dispatcher {
 	const dnsCacheTtlMs = envInt("UPSTREAM_DNS_CACHE_TTL_MS", 300_000);
 
 	agent = new Agent({
+		...responseTimeouts(),
 		keepAliveTimeout: keepAliveTimeoutMs,
 		connect: { timeout: connectTimeoutMs },
 	});
@@ -71,6 +82,7 @@ export function installUpstreamDispatcher(): Dispatcher {
 export function getTenantUpstreamDispatcher(): Dispatcher {
 	if (!tenantDispatcher) {
 		tenantAgent = new Agent({
+			...responseTimeouts(),
 			keepAliveTimeout: envInt("UPSTREAM_KEEPALIVE_TIMEOUT_MS", 60_000),
 			connect: {
 				timeout: envInt("UPSTREAM_CONNECT_TIMEOUT_MS", 10_000),
