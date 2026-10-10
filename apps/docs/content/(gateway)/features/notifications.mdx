@@ -17,6 +17,8 @@ Open the **Notifications** bell in the dashboard header, then select **Notificat
 
 Organization limit alerts are sent at most once per day for each kind of limit; rejected directory sync pushes are also listed in the [audit log](/features/audit-logs). Budget alerts repeat for each new recurring period, or when you change the limit or alert threshold. Unlimited keys do not trigger budget warnings. Each scheduled model retirement is announced once; ongoing provider issues produce at most one alert per day per project, or per accessible key for developers.
 
+Retirement dates apply per provider mapping. A mapping can be retired when its provider redirects requests to a newer model. Check the [model catalogue](https://llmgateway.io/models) and update your requested model before the mapping's deactivation date.
+
 Provider alerts require at least 20 non-cached, non-client-error requests and an upstream error rate of at least 20% in the latest hourly statistics window. Stale statistics do not trigger alerts. Checks run about once a minute; these warnings are not a guarantee that every outage or budget crossing will be caught before a request fails.
 
 [Compliance alerts](/features/compliance#compliance-alerts) follow organization role instead of project access: you receive them while your role is inside the audience the organization selected, and leaving that audience hides them from the inbox and stops pending email. They are also the only alerts that can be posted to a shared Slack channel, once per organization rather than per recipient.
