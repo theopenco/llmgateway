@@ -1,11 +1,4 @@
-const compact = new Intl.NumberFormat("en-US", {
-	notation: "compact",
-	maximumFractionDigits: 1,
-});
-
-export function formatCompact(value: number): string {
-	return compact.format(value);
-}
+export { formatCompactNumber as formatCompact } from "@llmgateway/shared/number-format";
 
 export function formatUsd(value: number): string {
 	return new Intl.NumberFormat("en-US", {

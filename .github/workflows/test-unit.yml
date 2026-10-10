@@ -9,6 +9,9 @@ permissions:
 jobs:
   shard:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -21,6 +24,14 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      - name: Set up Turborepo Remote Cache
+        # Fork PRs get no OIDC token; they fall back to building cold.
+        if: vars.TURBO_TEAM != ''
+        continue-on-error: true
+        uses: vercel/setup-turborepo-remote-cache-action@v1.1.0
+        with:
+          team: ${{ vars.TURBO_TEAM }}
+
       - name: Run unit test shard ${{ matrix.shard }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -32,7 +43,7 @@ jobs:
           pnpm run setup
           # Never fail here: the merge job reports the combined result, and a
           # failing shard must still upload its blob so that report is complete.
-          pnpm vitest run --no-file-parallelism \
+          pnpm vitest run \
             --shard=${{ matrix.shard }}/${{ strategy.job-total }} \
             --reporter=blob --outputFile=unit-results-${{ matrix.shard }}.blob || true
 

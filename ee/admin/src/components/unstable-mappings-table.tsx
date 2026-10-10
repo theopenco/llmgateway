@@ -1,10 +1,20 @@
 "use client";
 
-import { ChevronDown, ChevronRight } from "lucide-react";
+import {
+	BarChart3,
+	Boxes,
+	ChevronDown,
+	ChevronRight,
+	Filter,
+	Loader2,
+} from "lucide-react";
 import Link from "next/link";
 import { Fragment, useState } from "react";
 
+import { ErrorShapeTimeline } from "@/components/error-shape-timeline";
+import { useFilterNavigation } from "@/components/filter-navigation";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
 	Table,
 	TableBody,
@@ -16,9 +26,14 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared";
+import { ERROR_CLASSIFICATIONS, getProviderIcon } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
-import type { UnstableWindow } from "@/lib/unstable-mappings-params";
+import type { ErrorTimeline } from "@/components/error-shape-timeline";
+import type {
+	UnstableErrorScope,
+	UnstableWindow,
+} from "@/lib/unstable-mappings-params";
 
 interface UnstableMapping {
 	modelId: string;
@@ -43,39 +58,12 @@ interface UnstableMapping {
  */
 const UNATTRIBUTED_KEY = "__unattributed__";
 
-const percentFormatter = new Intl.NumberFormat("en-US", {
+export const percentFormatter = new Intl.NumberFormat("en-US", {
 	style: "percent",
 	maximumFractionDigits: 1,
 });
 
-// Human-readable labels and badge styling for the gateway's internal error
-// classification (the log's `unified_finish_reason`). Shown next to the HTTP
-// status because the status alone is misleading — some 4xx responses are
-// classified as gateway or upstream errors.
-const classificationBadges: Record<string, { label: string; class: string }> = {
-	client_error: {
-		label: "Client error",
-		class: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
-	},
-	gateway_error: {
-		label: "Gateway error",
-		class: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
-	},
-	upstream_error: {
-		label: "Upstream error",
-		class: "bg-red-500/15 text-red-600 dark:text-red-400",
-	},
-	content_filter: {
-		label: "Content filter",
-		class: "bg-purple-500/15 text-purple-600 dark:text-purple-400",
-	},
-	canceled: {
-		label: "Canceled",
-		class: "bg-muted text-muted-foreground",
-	},
-};
-
-function ClassificationBadge({
+export function ClassificationBadge({
 	classification,
 }: {
 	classification: string | null;
@@ -83,16 +71,25 @@ function ClassificationBadge({
 	if (!classification) {
 		return null;
 	}
-	const badge = classificationBadges[classification] ?? {
-		label: classification,
-		class: "bg-muted text-muted-foreground",
-	};
+	const badge = ERROR_CLASSIFICATIONS[classification];
 	return (
-		<Badge className={cn("font-medium", badge.class)}>{badge.label}</Badge>
+		<>
+			<Badge
+				className={cn(
+					"font-medium",
+					badge?.badgeClass ?? "bg-muted text-muted-foreground",
+				)}
+			>
+				{badge?.label ?? classification}
+			</Badge>
+			{badge && (
+				<span className="text-xs text-muted-foreground">{badge.hint}</span>
+			)}
+		</>
 	);
 }
 
-function errorRateClass(rate: number): string {
+export function errorRateClass(rate: number): string {
 	if (rate >= 0.5) {
 		return "bg-red-500/15 text-red-600 dark:text-red-400";
 	}
@@ -102,7 +99,163 @@ function errorRateClass(rate: number): string {
 	return "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400";
 }
 
-function ErrorDetails({
+interface ErrorShape {
+	statusCode: number | null;
+	statusText: string | null;
+	responseText: string | null;
+	cause: string | null;
+	classification: string | null;
+	/** Null when streaming and non-streaming occurrences are merged. */
+	streamed: boolean | null;
+	count: number;
+	streamedCount: number;
+	providerKeyId?: string | null;
+	buckets?: { start: number; count: number }[];
+}
+
+export const STREAM_MODES = [
+	{
+		streamed: true,
+		label: "Streaming",
+		badgeClass: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400",
+	},
+	{
+		streamed: false,
+		label: "Non-streaming",
+		badgeClass: "bg-muted text-muted-foreground",
+	},
+];
+
+function ProviderKeyLabel({
+	providerKeyId,
+	label,
+	maskedToken,
+	managed,
+}: {
+	providerKeyId: string | null;
+	label: string | null;
+	maskedToken: string | null;
+	managed: boolean | null;
+}) {
+	if (!providerKeyId) {
+		return (
+			<span
+				className="text-xs text-muted-foreground"
+				title="Served by an env-var key, or the request failed before a credential was resolved."
+			>
+				env / unattributed
+			</span>
+		);
+	}
+	return (
+		<div className="flex items-center gap-2">
+			<span
+				className="max-w-[220px] truncate font-mono text-xs"
+				title={maskedToken ?? label ?? providerKeyId}
+			>
+				{label ?? providerKeyId}
+			</span>
+			{managed !== null && (
+				<Badge
+					variant="secondary"
+					className="text-[11px] text-muted-foreground"
+				>
+					{managed ? "managed" : "byok"}
+				</Badge>
+			)}
+		</div>
+	);
+}
+
+type ErrorGroupBy = "none" | "stream" | "key";
+
+const ERROR_GROUP_OPTIONS: { value: ErrorGroupBy; label: string }[] = [
+	{ value: "none", label: "None" },
+	{ value: "stream", label: "By stream mode" },
+	{ value: "key", label: "By key" },
+];
+
+function ErrorShapeItem({
+	error,
+	showStreamModes,
+	timeline,
+}: {
+	error: ErrorShape;
+	showStreamModes: boolean;
+	timeline: ErrorTimeline;
+}) {
+	const [showGraph, setShowGraph] = useState(false);
+	// An error seen in both modes carries a count per mode; the total is on
+	// the right.
+	const modeCounts = STREAM_MODES.map((mode) => ({
+		...mode,
+		count: mode.streamed
+			? error.streamedCount
+			: error.count - error.streamedCount,
+	})).filter((mode) => mode.count > 0);
+	return (
+		<li className="rounded-md border border-border/60 bg-background/60 p-3">
+			<div className="flex items-center justify-between gap-3">
+				<div className="flex flex-wrap items-center gap-2">
+					{showStreamModes &&
+						modeCounts.map((mode) => (
+							<Badge
+								key={mode.label}
+								className={cn("font-medium tabular-nums", mode.badgeClass)}
+							>
+								{mode.label}
+								{modeCounts.length > 1 && ` ${formatNumber(mode.count)}×`}
+							</Badge>
+						))}
+					{error.statusCode !== null && (
+						<Badge variant="outline" className="font-mono">
+							{error.statusCode}
+						</Badge>
+					)}
+					{error.statusText && (
+						<span className="text-sm font-medium">{error.statusText}</span>
+					)}
+					<ClassificationBadge classification={error.classification} />
+				</div>
+				<div className="flex shrink-0 items-center gap-2">
+					{error.buckets && (
+						<Button
+							size="sm"
+							variant={showGraph ? "default" : "outline"}
+							className="h-7 px-2 text-xs"
+							aria-pressed={showGraph}
+							title="Show occurrences over the selected window"
+							onClick={() => setShowGraph(!showGraph)}
+						>
+							<BarChart3 className="h-3.5 w-3.5" />
+							Graph
+						</Button>
+					)}
+					<span className="text-sm font-semibold tabular-nums">
+						{formatNumber(error.count)}×
+					</span>
+				</div>
+			</div>
+			{showGraph && error.buckets && (
+				<div className="mt-2">
+					<ErrorShapeTimeline timeline={timeline} buckets={error.buckets} />
+				</div>
+			)}
+			{error.responseText && (
+				<pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 text-xs text-muted-foreground">
+					{error.responseText}
+				</pre>
+			)}
+			{error.cause && (
+				<p className="mt-1 text-xs text-muted-foreground">
+					Cause: {error.cause}
+				</p>
+			)}
+		</li>
+	);
+}
+
+export function ErrorDetails({
 	usedModel,
 	provider,
 	providerKeyId,
@@ -111,6 +264,9 @@ function ErrorDetails({
 	logLimit,
 	ignoreExpected,
 	includeByok,
+	errorScope = "non_client",
+	incidentsOnly = false,
+	errorMessage = null,
 }: {
 	usedModel: string;
 	provider: string;
@@ -120,9 +276,19 @@ function ErrorDetails({
 	logLimit: number;
 	ignoreExpected: boolean;
 	includeByok: boolean;
+	errorScope?: UnstableErrorScope;
+	/** Only upstream and gateway errors, matching the Incidents counts. */
+	incidentsOnly?: boolean;
+	/** Only errors whose public or internal details contain this text. */
+	errorMessage?: string | null;
 }) {
+	// A drilldown already scoped to one key has nothing to group by.
+	const canGroupByKey = providerKeyId === undefined;
+	const [selectedGroupBy, setGroupBy] = useState<ErrorGroupBy>("none");
+	const groupBy =
+		selectedGroupBy === "key" && !canGroupByKey ? "none" : selectedGroupBy;
 	const $api = useApi();
-	const { data, isLoading, isError } = $api.useQuery(
+	const { data, isLoading, isError, isFetching, refetch } = $api.useQuery(
 		"get",
 		"/admin/unstable-mappings/errors",
 		{
@@ -136,61 +302,89 @@ function ErrorDetails({
 					logLimit,
 					ignoreExpected: ignoreExpected ? "true" : "false",
 					includeByok: includeByok ? "true" : "false",
+					errorScope,
+					incidentsOnly: incidentsOnly ? "true" : "false",
+					groupByKey: groupBy === "key" ? "true" : "false",
+					groupByStream: groupBy === "stream" ? "true" : "false",
+					...(errorMessage ? { errorMessage } : {}),
 				},
 			},
 		},
 	);
 
-	if (isLoading) {
-		return (
-			<div className="space-y-2 p-4">
-				{[0, 1, 2].map((i) => (
-					<div key={i} className="h-8 animate-pulse rounded bg-muted/40" />
-				))}
-			</div>
-		);
-	}
-
-	if (isError) {
-		return (
-			<p className="p-4 text-sm text-muted-foreground">
-				Failed to load error details.
-			</p>
-		);
-	}
-
 	const errors = data?.errors ?? [];
 
-	if (errors.length === 0) {
-		return (
-			<p className="p-4 text-sm text-muted-foreground">
-				No error details available in the sampled window.
+	let body;
+	if (isLoading) {
+		body = [0, 1, 2].map((i) => (
+			<div key={i} className="h-8 animate-pulse rounded bg-muted/40" />
+		));
+	} else if (isError) {
+		body = (
+			<div
+				role="alert"
+				className="flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm"
+			>
+				<span>Failed to load error details.</span>
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={isFetching}
+					onClick={() => void refetch()}
+				>
+					{isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+					Retry
+				</Button>
+			</div>
+		);
+	} else if (errors.length === 0) {
+		body = (
+			<p className="text-sm text-muted-foreground">
+				No error details available in this window.
 			</p>
 		);
-	}
-
-	// Streaming and non-streaming requests often fail differently, so split
-	// the drilldown into one section per mode to make debugging easier.
-	const groups = [
-		{
-			label: "Streaming",
-			badgeClass: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400",
-			errors: errors.filter((error) => error.streamed),
-		},
-		{
-			label: "Non-streaming",
-			badgeClass: "bg-muted text-muted-foreground",
-			errors: errors.filter((error) => !error.streamed),
-		},
-	].filter((group) => group.errors.length > 0);
-
-	return (
-		<div className="space-y-4 p-4">
-			<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-				Top {errors.length} error{errors.length === 1 ? "" : "s"} ·{" "}
-				{data?.sampledErrors.toLocaleString()} sampled
-			</p>
-			{groups.map((group) => (
+	} else if (data?.groupByKey) {
+		body = data.keys.map((key) => {
+			const keyErrors = errors.filter(
+				(error) => (error.providerKeyId ?? null) === key.providerKeyId,
+			);
+			return (
+				<div key={key.providerKeyId ?? "none"} className="space-y-2">
+					<div className="flex flex-wrap items-center gap-2">
+						<ProviderKeyLabel
+							providerKeyId={key.providerKeyId}
+							label={key.providerKeyLabel}
+							maskedToken={key.providerKeyMaskedToken}
+							managed={key.providerKeyManaged}
+						/>
+						<span className="text-xs text-muted-foreground">
+							{formatNumber(key.errorsCount)}× total
+							{keyErrors.length > 0 &&
+								` · top ${keyErrors.length} error${keyErrors.length === 1 ? "" : "s"}`}
+						</span>
+					</div>
+					<ul className="space-y-2">
+						{keyErrors.map((error, i) => (
+							<ErrorShapeItem
+								key={i}
+								error={error}
+								showStreamModes
+								timeline={data.timeline}
+							/>
+						))}
+					</ul>
+				</div>
+			);
+		});
+	} else if (data?.groupByStream) {
+		// Streaming and non-streaming requests often fail differently, so split
+		// the drilldown into one section per mode to make debugging easier.
+		body = STREAM_MODES.map((mode) => ({
+			...mode,
+			errors: errors.filter((error) => error.streamed === mode.streamed),
+		}))
+			.filter((group) => group.errors.length > 0)
+			.map((group) => (
 				<div key={group.label} className="space-y-2">
 					<div className="flex items-center gap-2">
 						<Badge className={cn("font-medium", group.badgeClass)}>
@@ -199,53 +393,83 @@ function ErrorDetails({
 						<span className="text-xs text-muted-foreground">
 							{group.errors.length} error
 							{group.errors.length === 1 ? "" : "s"} ·{" "}
-							{group.errors
-								.reduce((sum, error) => sum + error.count, 0)
-								.toLocaleString()}
+							{formatNumber(
+								group.errors.reduce((sum, error) => sum + error.count, 0),
+							)}
 							× total
 						</span>
 					</div>
 					<ul className="space-y-2">
 						{group.errors.map((error, i) => (
-							<li
+							<ErrorShapeItem
 								key={i}
-								className="rounded-md border border-border/60 bg-background/60 p-3"
-							>
-								<div className="flex items-center justify-between gap-3">
-									<div className="flex items-center gap-2">
-										{error.statusCode !== null && (
-											<Badge variant="outline" className="font-mono">
-												{error.statusCode}
-											</Badge>
-										)}
-										{error.statusText && (
-											<span className="text-sm font-medium">
-												{error.statusText}
-											</span>
-										)}
-										<ClassificationBadge
-											classification={error.classification}
-										/>
-									</div>
-									<span className="shrink-0 text-sm font-semibold tabular-nums">
-										{error.count.toLocaleString()}×
-									</span>
-								</div>
-								{error.responseText && (
-									<pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 text-xs text-muted-foreground">
-										{error.responseText}
-									</pre>
-								)}
-								{error.cause && (
-									<p className="mt-1 text-xs text-muted-foreground">
-										Cause: {error.cause}
-									</p>
-								)}
-							</li>
+								error={error}
+								showStreamModes={false}
+								timeline={data.timeline}
+							/>
 						))}
 					</ul>
 				</div>
-			))}
+			));
+	} else if (data) {
+		body = (
+			<ul className="space-y-2">
+				{errors.map((error, i) => (
+					<ErrorShapeItem
+						key={i}
+						error={error}
+						showStreamModes
+						timeline={data.timeline}
+					/>
+				))}
+			</ul>
+		);
+	}
+
+	return (
+		<div className="space-y-4 p-4" aria-busy={isLoading}>
+			<div className="flex flex-wrap items-center justify-between gap-2">
+				<p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					{isLoading ? (
+						<>
+							<Loader2 className="h-3.5 w-3.5 animate-spin" />
+							Scanning logs for error details…
+						</>
+					) : data && errors.length > 0 ? (
+						<>
+							{data.groupByKey
+								? `Top errors of ${data.keys.length} key${data.keys.length === 1 ? "" : "s"}`
+								: `Top ${errors.length} error${errors.length === 1 ? "" : "s"}`}{" "}
+							·{" "}
+							{data.capped
+								? `latest ${formatNumber(data.sampledErrors)} sampled (max logs reached — older errors in the window are not counted)`
+								: `${formatNumber(data.sampledErrors)} total`}
+						</>
+					) : null}
+				</p>
+				<div
+					className="flex items-center gap-1"
+					role="group"
+					aria-label="Group errors by"
+				>
+					<span className="mr-1 text-xs text-muted-foreground">Group</span>
+					{ERROR_GROUP_OPTIONS.filter(
+						(option) => canGroupByKey || option.value !== "key",
+					).map((option) => (
+						<Button
+							key={option.value}
+							size="sm"
+							variant={groupBy === option.value ? "default" : "outline"}
+							className="h-7 px-2 text-xs"
+							aria-pressed={groupBy === option.value}
+							onClick={() => setGroupBy(option.value)}
+						>
+							{option.label}
+						</Button>
+					))}
+				</div>
+			</div>
+			{body}
 		</div>
 	);
 }
@@ -258,6 +482,8 @@ export function UnstableMappingsTable({
 	ignoreExpected,
 	splitByKey,
 	includeByok,
+	errorMessage,
+	errorScope,
 }: {
 	mappings: UnstableMapping[];
 	includeRetried: boolean;
@@ -266,8 +492,11 @@ export function UnstableMappingsTable({
 	ignoreExpected: boolean;
 	splitByKey: boolean;
 	includeByok: boolean;
+	errorMessage: string | null;
+	errorScope: UnstableErrorScope;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(null);
+	const { isPending, navigate } = useFilterNavigation();
 	const columnCount = splitByKey ? 7 : 6;
 
 	if (mappings.length === 0) {
@@ -326,47 +555,64 @@ export function UnstableMappingsTable({
 									</Link>
 								</TableCell>
 								<TableCell>
-									<Link
-										href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}${mapping.region ? `?region=${encodeURIComponent(mapping.region)}` : ""}`}
-										className="font-mono text-xs hover:underline"
-									>
-										{mapping.modelId}
-										{mapping.region && (
-											<span className="text-muted-foreground">
-												:{mapping.region}
-											</span>
-										)}
-									</Link>
+									<div className="flex items-center gap-1">
+										<Link
+											href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}${mapping.region ? `?region=${encodeURIComponent(mapping.region)}` : ""}`}
+											className="font-mono text-xs hover:underline"
+										>
+											{mapping.modelId}
+											{mapping.region && (
+												<span className="text-muted-foreground">
+													:{mapping.region}
+												</span>
+											)}
+										</Link>
+										<button
+											type="button"
+											className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
+											aria-label="Filter to this mapping"
+											title="Filter to this mapping"
+											disabled={isPending}
+											onClick={() =>
+												navigate(
+													`scope:mapping:${mapping.usedModel}`,
+													(params) => {
+														params.delete("modelId");
+														params.set("mapping", mapping.usedModel);
+													},
+												)
+											}
+										>
+											<Filter className="h-3.5 w-3.5" />
+										</button>
+										<button
+											type="button"
+											className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
+											aria-label="Filter to every mapping of this model"
+											title="Filter to every mapping of this model"
+											disabled={isPending}
+											onClick={() =>
+												navigate(
+													`scope:modelId:${mapping.modelId}`,
+													(params) => {
+														params.delete("mapping");
+														params.set("modelId", mapping.modelId);
+													},
+												)
+											}
+										>
+											<Boxes className="h-3.5 w-3.5" />
+										</button>
+									</div>
 								</TableCell>
 								{splitByKey && (
 									<TableCell>
-										{mapping.providerKeyId ? (
-											<div className="flex items-center gap-2">
-												<span
-													className="max-w-[220px] truncate font-mono text-xs"
-													title={
-														mapping.providerKeyMaskedToken ??
-														mapping.providerKeyLabel ??
-														mapping.providerKeyId
-													}
-												>
-													{mapping.providerKeyLabel ?? mapping.providerKeyId}
-												</span>
-												<Badge
-													variant="secondary"
-													className="text-[11px] text-muted-foreground"
-												>
-													{mapping.providerKeyManaged ? "managed" : "byok"}
-												</Badge>
-											</div>
-										) : (
-											<span
-												className="text-xs text-muted-foreground"
-												title="Served by an env-var key, or the request failed before a credential was resolved."
-											>
-												env / unattributed
-											</span>
-										)}
+										<ProviderKeyLabel
+											providerKeyId={mapping.providerKeyId}
+											label={mapping.providerKeyLabel}
+											maskedToken={mapping.providerKeyMaskedToken}
+											managed={mapping.providerKeyManaged}
+										/>
 									</TableCell>
 								)}
 								<TableCell className="text-right">
@@ -380,10 +626,10 @@ export function UnstableMappingsTable({
 									</Badge>
 								</TableCell>
 								<TableCell className="text-right tabular-nums">
-									{mapping.errorsCount.toLocaleString()}
+									{formatNumber(mapping.errorsCount)}
 								</TableCell>
 								<TableCell className="text-right tabular-nums text-muted-foreground">
-									{mapping.logsCount.toLocaleString()}
+									{formatNumber(mapping.logsCount)}
 								</TableCell>
 							</TableRow>
 							{isOpen && (
@@ -402,6 +648,8 @@ export function UnstableMappingsTable({
 											logLimit={logLimit}
 											ignoreExpected={ignoreExpected}
 											includeByok={includeByok}
+											errorMessage={errorMessage}
+											errorScope={errorScope}
 										/>
 									</TableCell>
 								</TableRow>

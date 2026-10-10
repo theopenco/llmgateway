@@ -17,21 +17,20 @@ import { Navbar } from "@/components/landing/navbar";
 import { JsonLd } from "@/components/seo/json-ld";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
+import { fetchModels } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
-import {
-	models as modelDefinitions,
-	providers as providerDefinitions,
-	type ModelDefinition,
-} from "@llmgateway/models";
+import { providers as providerDefinitions } from "@llmgateway/models";
 import { MARKETING_STATS } from "@llmgateway/shared";
 import {
 	getModelFamilyIcon,
 	isMappingDeactivated,
 	ScxIcon,
 } from "@llmgateway/shared/components";
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
+import type { ApiModel } from "@/lib/fetch-models";
 import type { Metadata } from "next";
 
 export const revalidate = 300;
@@ -77,7 +76,7 @@ interface ScxModelEntry {
 	releasedAt: number;
 }
 
-function formatPerMillion(perTokenPrice: string | undefined): string | null {
+function formatPerMillion(perTokenPrice: string | null): string | null {
 	if (!perTokenPrice) {
 		return null;
 	}
@@ -88,18 +87,16 @@ function formatPerMillion(perTokenPrice: string | undefined): string | null {
 	return `$${perMillion % 1 === 0 ? perMillion.toFixed(0) : perMillion.toFixed(2)}`;
 }
 
-const compactNumber = new Intl.NumberFormat("en", { notation: "compact" });
-
-// Derived per render, not at module load: isMappingDeactivated() is
-// time-based, so a mapping whose deactivatedAt passes must drop out on the
-// next revalidation.
-function getScxCatalog() {
-	const scxModels: ScxModelEntry[] = (
-		modelDefinitions as readonly ModelDefinition[]
-	).flatMap((model) => {
-		const mapping = model.providers.find(
+// SCX serves its models as Airside listings, which only the API catalogue
+// carries. isMappingDeactivated() is time-based, so derive per render.
+function getScxCatalog(apiModels: ApiModel[]) {
+	const scxModels: ScxModelEntry[] = apiModels.flatMap((model) => {
+		const mapping = model.mappings.find(
 			(p) =>
-				SCX_PROVIDER_IDS.includes(p.providerId) && !isMappingDeactivated(p),
+				SCX_PROVIDER_IDS.includes(p.providerId) &&
+				!p.region &&
+				p.status === "active" &&
+				!isMappingDeactivated(p),
 		);
 		if (!mapping) {
 			return [];
@@ -110,10 +107,10 @@ function getScxCatalog() {
 				name: model.name ?? model.id,
 				family: model.family,
 				turbo: mapping.providerId === SCX_TURBO_ID,
-				contextSize: mapping.contextSize ?? null,
+				contextSize: mapping.contextSize,
 				inputPerM: formatPerMillion(mapping.inputPrice),
 				outputPerM: formatPerMillion(mapping.outputPrice),
-				releasedAt: model.releasedAt?.getTime() ?? 0,
+				releasedAt: model.releasedAt ? Date.parse(model.releasedAt) : 0,
 			},
 		];
 	});
@@ -205,7 +202,7 @@ type PublicModelStats =
 	paths["/public/models/stats"]["get"]["responses"][200]["content"]["application/json"];
 
 export default async function PartnersPage() {
-	const { scxModels, scxEndpoints } = getScxCatalog();
+	const { scxModels, scxEndpoints } = getScxCatalog(await fetchModels());
 	// Server-side snapshot used to order the partner's models by real traffic;
 	// the page degrades to release order when stats are unavailable.
 	const stats = await fetchServerData<PublicModelStats>(
@@ -506,7 +503,7 @@ export default async function PartnersPage() {
 											)}
 											{model.contextSize ? (
 												<span className="tabular-nums">
-													{compactNumber.format(model.contextSize)} context
+													{formatCompactNumber(model.contextSize)} context
 												</span>
 											) : null}
 										</div>
@@ -519,7 +516,7 @@ export default async function PartnersPage() {
 											</span>
 											{hasUsage && tokens > 0 ? (
 												<span className="tabular-nums text-muted-foreground/70">
-													{compactNumber.format(tokens)} tokens
+													{formatCompactNumber(tokens)} tokens
 												</span>
 											) : null}
 										</div>

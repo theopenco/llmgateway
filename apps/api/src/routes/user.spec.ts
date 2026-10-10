@@ -376,7 +376,7 @@ describe("user accounts and email editability", () => {
 	});
 
 	it("PATCH /user/me should preserve the current identity until email confirmation", async () => {
-		vi.stubEnv("ADMIN_EMAILS", "changed@example.com");
+		vi.stubEnv("ADMIN_FULL_ACCESS_EMAILS", "changed@example.com");
 		try {
 			const res = await app.request("/user/me", {
 				method: "PATCH",

@@ -2,98 +2,75 @@
 id: autohand
 slug: autohand
 title: Autohand Code Integration
-description: Use GPT-5, Claude, Gemini, or any model with Autohand Code's autonomous coding agent. Simple config, full cost tracking.
-date: 2026-03-19
+description: Connect Autohand Code’s built-in LLM Gateway provider with an API key, choose a model, and verify a coding task.
+date: 2026-09-23
 ---
 
-Autohand Code is an autonomous AI coding agent that works in your terminal, IDE, and Slack. With LLM Gateway, you can route all Autohand Code requests through a single gateway—use any of 200+ models from 40+ providers, with full cost tracking and smart routing.
+[Autohand Code](https://autohand.ai) is a terminal coding agent with a built-in LLM Gateway provider. Use a pay-as-you-go or DevPass API key to connect it to your workspace.
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+## Video walkthrough
 
-## Quick Start
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/9be1L7sX0Ho"
+		title="Autohand setup with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
 
-Configure Autohand Code to use LLM Gateway by setting the base URL and API key:
+## Install
 
 ```bash
-export OPENAI_BASE_URL=https://api.llmgateway.io/v1
-export OPENAI_API_KEY=llmgtwy_your_api_key_here
+pnpm add -g autohand-cli
+autohand --version
 ```
 
-Then start Autohand Code as usual:
+See the&nbsp;[Autohand documentation](https://docs.autohand.ai/getting-started/first-session) for installation and onboarding.
+
+## Sign in to Autohand
+
+The current CLI requires an Autohand account even when inference uses a provider API key. Run `autohand login` and complete the browser sign-in before starting a session. Your LLM Gateway key is a separate credential.
+
+## Connect LLM Gateway
+
+Create a key in your&nbsp;[dashboard](https://llmgateway.io/dashboard), then export it before launching Autohand:
 
 ```bash
-autohand
+export LLMGATEWAY_API_KEY="your_api_key"
+autohand --provider llmgateway --model MODEL_ID
 ```
 
-Autohand Code will now route all requests through LLM Gateway.
+Replace `MODEL_ID` with a text model that supports tools from the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools). With DevPass, choose a canonical model ID supported by your plan; provider-pinned routing is unavailable on coding plans.
 
-## Configuration File
+## Save the provider configuration
 
-You can also configure LLM Gateway in Autohand Code's config file. Add or update the provider settings:
+To keep LLM Gateway as your default, merge these settings into `~/.autohand/config.json`:
 
 ```json
 {
-  "provider": {
-    "llmgateway": {
-      "baseUrl": "https://api.llmgateway.io/v1",
-      "apiKey": "llmgtwy_your_api_key_here"
-    }
-  },
-  "model": "gpt-5"
+  "provider": "llmgateway",
+  "llmgateway": {
+    "apiKey": "${LLMGATEWAY_API_KEY}",
+    "baseUrl": "https://api.llmgateway.io/v1",
+    "model": "MODEL_ID"
+  }
 }
 ```
 
-## Why Use LLM Gateway with Autohand Code
+The provider name is a string, with a separate `llmgateway` settings object. Keep the API key in your environment and replace the model placeholder before running the agent.
 
-- **200+ models** — GPT-5, Claude Opus, Gemini, Llama, and more from 40+ providers
-- **Smart routing** — Automatically selects the best provider based on uptime, throughput, price, and latency
-- **Cost tracking** — Monitor exactly how much each autonomous session costs
-- **Single bill** — No need to manage multiple API provider accounts
-- **Response caching** — Repeated requests hit cache automatically
-- **Automatic failover** — If one provider is down, requests route to another
+## Verify a coding task
 
-## Choosing Models
+Start `autohand` from your project directory. Ask it to read a failing test, fix the implementation, and rerun the test without changing the test file. Review its file changes and command output, then check the request in the workspace that issued your key.
 
-You can use any model from the [models page](https://llmgateway.io/models). Popular options for Autohand Code:
+## Troubleshooting
 
-| Model                    | Best For                                    |
-| ------------------------ | ------------------------------------------- |
-| `gpt-5`                  | Latest OpenAI flagship, highest quality     |
-| `claude-opus-4-6`        | Anthropic's most capable model              |
-| `claude-sonnet-4-6`      | Fast reasoning with extended thinking       |
-| `gemini-3.1-pro-preview` | Google's latest flagship, 1M context window |
-| `o3`                     | Advanced reasoning tasks                    |
-| `gpt-5-mini`             | Cost-effective, quick responses             |
-| `gemini-3.6-flash`       | Fast responses, good for high-volume        |
-| `deepseek-v3.1`          | Open-source with tool support               |
+- **Wrong provider:** Pass `--provider llmgateway` explicitly or check the top-level `provider` setting.
+- **Authentication failed:** Export `LLMGATEWAY_API_KEY` in the same shell and confirm the key is active.
+- **Model unavailable:** Choose a tool-capable model allowed by your workspace or DevPass plan.
 
-## Autohand Code Features with LLM Gateway
-
-### Terminal (CLI)
-
-Autohand Code CLI works seamlessly with LLM Gateway. Set the environment variables and use all Autohand Code commands as normal—multi-file editing, agentic search, and autonomous code generation all work out of the box.
-
-### IDE Integration
-
-Autohand Code's VS Code and Zed extensions respect the same environment variables. Set them in your shell profile and the IDE integration will automatically route through LLM Gateway.
-
-### Slack Integration
-
-When using Autohand Code through Slack, configure the LLM Gateway base URL in your Autohand Code server settings to route all Slack-triggered coding tasks through the gateway.
-
-## Monitoring Usage
-
-Once configured, all Autohand Code requests appear in your LLM Gateway dashboard:
-
-- **Request logs** — See every prompt and response
-- **Cost breakdown** — Track spending by model and time period
-- **Usage analytics** — Understand your AI usage patterns
-
-## Get Started
-
-1. [Sign up free](https://llmgateway.io/signup) — no credit card required
-2. Create or roll an API key in the dashboard and copy the newly shown secret
-3. Set the environment variables above
-4. Run `autohand` and start coding
-
-Questions? Check [our docs](https://docs.llmgateway.io) or [join Discord](https://llmgateway.io/discord).
+See Autohand's&nbsp;[LLM Gateway integration reference](https://docs.autohand.ai/integrations/llmgateway) for additional options.

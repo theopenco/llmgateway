@@ -20,9 +20,17 @@ import {
 } from "@/lib/use-model-benchmarks";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared/components";
+import { CarrierMark, getProviderIcon } from "@llmgateway/shared/components";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
-export function ModelBenchmarks({ modelId }: { modelId: string }) {
+export function ModelBenchmarks({
+	modelId,
+	uploadedIcons = {},
+}: {
+	modelId: string;
+	// Carrier-uploaded marks (Airside claims), keyed by provider id.
+	uploadedIcons?: Record<string, string>;
+}) {
 	const { data, isLoading } = useModelBenchmarks(modelId);
 
 	const providers = data?.providers ?? [];
@@ -182,17 +190,18 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 						Real performance data from LLM Gateway over the last{" "}
 						{sorted[0]?.windowHours ?? 24} hours. Higher uptime and throughput
 						are better. Stats are hidden for providers with under{" "}
-						{MIN_SIGNIFICANT_REQUESTS.toLocaleString()} requests, where the
-						sample is too small to be reliable.
+						{formatNumber(MIN_SIGNIFICANT_REQUESTS)} requests, where the sample
+						is too small to be reliable.
 					</p>
 
 					<div className="grid gap-3">
 						{sorted.map((provider) => {
+							const uploadedIcon = uploadedIcons[provider.providerId];
 							const ProviderIcon = getProviderIcon(provider.providerId);
 							const isMostStable = provider.providerId === mostStableProviderId;
 							const isSignificant =
 								provider.logsCount >= MIN_SIGNIFICANT_REQUESTS;
-							const insufficientDataTitle = `Not enough traffic for reliable stats (under ${MIN_SIGNIFICANT_REQUESTS.toLocaleString()} requests)`;
+							const insufficientDataTitle = `Not enough traffic for reliable stats (under ${formatNumber(MIN_SIGNIFICANT_REQUESTS)} requests)`;
 
 							return (
 								<div
@@ -206,7 +215,13 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 								>
 									<div className="flex items-center justify-between gap-4 flex-wrap">
 										<div className="flex items-center gap-3 min-w-0">
-											{ProviderIcon ? (
+											{uploadedIcon ? (
+												<CarrierMark
+													src={uploadedIcon}
+													alt={provider.providerName}
+													className="h-5 w-5 shrink-0 object-contain"
+												/>
+											) : ProviderIcon ? (
 												<ProviderIcon className="h-5 w-5 shrink-0" />
 											) : (
 												<Server className="h-5 w-5 shrink-0 text-muted-foreground" />
@@ -227,7 +242,7 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 													)}
 												</div>
 												<span className="text-xs text-muted-foreground">
-													{provider.logsCount.toLocaleString()} requests
+													{formatNumber(provider.logsCount)} requests
 												</span>
 											</div>
 										</div>
@@ -252,7 +267,7 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 													}
 												>
 													{isSignificant && provider.tokensPerSecond !== null
-														? `${provider.tokensPerSecond.toLocaleString()} tok/s`
+														? `${formatNumber(provider.tokensPerSecond)} tok/s`
 														: "\u2014"}
 												</span>
 											</div>

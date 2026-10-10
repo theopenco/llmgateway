@@ -1,13 +1,24 @@
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
+import { CatalogFiltersBar } from "@/components/catalog-filters";
+import { CatalogSearch } from "@/components/catalog-search";
+import {
+	FilterLink,
+	FilterNavigationProvider,
+	FilterNavigationResults,
+} from "@/components/filter-navigation";
 import { ModelsTable } from "@/components/models-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import { UsageModeSelector } from "@/components/usage-mode-selector";
+import {
+	catalogExactQuery,
+	catalogFilterQuery,
+	parseCatalogFilters,
+} from "@/lib/catalog-filters";
 import {
 	CATALOG_PAGE_WINDOW_DEFAULT,
 	pageWindowOptionsWithMinutes,
@@ -17,6 +28,8 @@ import {
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { parseUsageMode } from "@/lib/usage-mode";
+
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -45,19 +58,6 @@ function SignInPrompt() {
 	);
 }
 
-function formatCompactNumber(value: number): string {
-	if (value >= 1_000_000_000) {
-		return `${(value / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (value >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		return `${(value / 1_000).toFixed(1)}k`;
-	}
-	return value.toLocaleString("en-US");
-}
-
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
@@ -67,14 +67,7 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 export default async function ModelsPage({
 	searchParams,
 }: {
-	searchParams?: Promise<{
-		page?: string;
-		search?: string;
-		sortBy?: string;
-		sortOrder?: string;
-		window?: string;
-		mode?: string;
-	}>;
+	searchParams?: Promise<Partial<Record<string, string>>>;
 }) {
 	await requireSession();
 
@@ -89,6 +82,13 @@ export default async function ModelsPage({
 	);
 	const usageMode = parseUsageMode(params?.mode);
 	const { from, to } = windowToFromTo(pageWindow);
+	const filters = parseCatalogFilters(params);
+	const selection = {
+		search,
+		modelId: params?.modelId,
+	};
+	const filterQuery =
+		catalogFilterQuery(filters) + catalogExactQuery(selection);
 	const limit = 50;
 	const offset = (page - 1) * limit;
 
@@ -99,11 +99,13 @@ export default async function ModelsPage({
 				limit,
 				offset,
 				search,
+				modelId: selection.modelId,
 				sortBy,
 				sortOrder,
 				from,
 				to,
 				mode: usageMode,
+				...filters,
 			},
 		},
 	});
@@ -114,144 +116,119 @@ export default async function ModelsPage({
 
 	const totalPages = Math.ceil(data.total / limit);
 
-	async function handleSearch(formData: FormData) {
-		"use server";
-		const searchValue = formData.get("search") as string;
-		const sortByValue = formData.get("sortBy") as string;
-		const sortOrderValue = formData.get("sortOrder") as string;
-		const windowValue = formData.get("window") as string;
-		const modeValue = formData.get("mode") as string;
-		const searchParam = searchValue
-			? `&search=${encodeURIComponent(searchValue)}`
-			: "";
-		const sortParam = `&sortBy=${sortByValue}&sortOrder=${sortOrderValue}`;
-		const windowParam = windowValue ? `&window=${windowValue}` : "";
-		const modeParam = modeValue === "total" ? "" : `&mode=${modeValue}`;
-		redirect(
-			`/models?page=1${searchParam}${sortParam}${windowParam}${modeParam}`,
-		);
-	}
 	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
 
 	return (
-		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 overflow-hidden px-4 py-8 md:px-8">
-			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-				<div>
-					<h1 className="text-3xl font-semibold tracking-tight">Models</h1>
-					<p className="mt-1 text-sm text-muted-foreground">
-						{data.total} models found — click a row to view details
-					</p>
-				</div>
-				<div className="flex w-full items-center gap-3 sm:w-auto">
-					<form
-						action={handleSearch}
-						className="flex w-full items-center gap-2 sm:w-auto"
-					>
-						<input type="hidden" name="sortBy" value={sortBy} />
-						<input type="hidden" name="sortOrder" value={sortOrder} />
-						<input type="hidden" name="window" value={pageWindow} />
-						<input type="hidden" name="mode" value={usageMode} />
-						<div className="relative min-w-0 flex-1 sm:max-w-64">
-							<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-							<input
-								type="text"
-								name="search"
-								placeholder="Search by name or ID..."
-								defaultValue={search}
-								className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+		<FilterNavigationProvider>
+			<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 overflow-hidden px-4 py-8 md:px-8">
+				<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+					<div>
+						<h1 className="text-3xl font-semibold tracking-tight">Models</h1>
+						<p className="mt-1 text-sm text-muted-foreground">
+							{data.total} models found — click a row to view details
+						</p>
+					</div>
+					<div className="flex w-full items-center gap-3 sm:w-auto">
+						<Suspense>
+							<CatalogSearch scope="models" selection={selection} />
+						</Suspense>
+					</div>
+				</header>
+
+				<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+					<FilterNavigationResults message={null}>
+						<div className="flex flex-wrap items-center gap-6 text-sm">
+							<div>
+								<span className="text-muted-foreground">Total Requests</span>
+								<p className="text-xl font-semibold tabular-nums">
+									{formatCompactNumber(
+										data.models.reduce((s, m) => s + m.logsCount, 0),
+									)}
+								</p>
+							</div>
+							<div>
+								<span className="text-muted-foreground">Total Tokens</span>
+								<p className="text-xl font-semibold tabular-nums">
+									{formatCompactNumber(data.totalTokens)}
+								</p>
+								<TokenBreakdown breakdown={data} short className="mt-0.5" />
+							</div>
+							<div>
+								<span className="text-muted-foreground">Total Cost</span>
+								<p className="text-xl font-semibold tabular-nums">
+									{currencyFormatter.format(data.totalCost)}
+								</p>
+							</div>
+						</div>
+					</FilterNavigationResults>
+					<Suspense>
+						<div className="flex flex-wrap items-center gap-2">
+							<UsageModeSelector compact extraParams={{ page: null }} />
+							<TimeWindowSelector
+								current={pageWindow}
+								options={pageWindowOptionsWithMinutes}
 							/>
 						</div>
-						<Button type="submit" size="sm">
-							Search
-						</Button>
-					</form>
+					</Suspense>
 				</div>
-			</header>
 
-			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-				<div className="flex flex-wrap items-center gap-6 text-sm">
-					<div>
-						<span className="text-muted-foreground">Total Requests</span>
-						<p className="text-xl font-semibold tabular-nums">
-							{formatCompactNumber(
-								data.models.reduce((s, m) => s + m.logsCount, 0),
-							)}
-						</p>
-					</div>
-					<div>
-						<span className="text-muted-foreground">Total Tokens</span>
-						<p className="text-xl font-semibold tabular-nums">
-							{formatCompactNumber(data.totalTokens)}
-						</p>
-						<TokenBreakdown breakdown={data} short className="mt-0.5" />
-					</div>
-					<div>
-						<span className="text-muted-foreground">Total Cost</span>
-						<p className="text-xl font-semibold tabular-nums">
-							{currencyFormatter.format(data.totalCost)}
-						</p>
-					</div>
-				</div>
 				<Suspense>
-					<div className="flex flex-wrap items-center gap-2">
-						<UsageModeSelector compact extraParams={{ page: null }} />
-						<TimeWindowSelector
-							current={pageWindow}
-							options={pageWindowOptionsWithMinutes}
+					<CatalogFiltersBar filters={filters} />
+				</Suspense>
+
+				<FilterNavigationResults>
+					<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
+						<ModelsTable
+							models={data.models}
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							search={search}
+							pageWindow={pageWindow}
+							usageMode={usageMode}
+							filterQuery={filterQuery}
 						/>
 					</div>
-				</Suspense>
-			</div>
+				</FilterNavigationResults>
 
-			<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
-				<ModelsTable
-					models={data.models}
-					sortBy={sortBy}
-					sortOrder={sortOrder}
-					search={search}
-					pageWindow={pageWindow}
-					usageMode={usageMode}
-				/>
-			</div>
-
-			{totalPages > 1 && (
-				<div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-					<p className="text-sm text-muted-foreground">
-						Showing {offset + 1} to {Math.min(offset + limit, data.total)} of{" "}
-						{data.total}
-					</p>
-					<div className="flex items-center gap-2">
-						<Button variant="outline" size="sm" asChild disabled={page <= 1}>
-							<Link
-								href={`/models?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${modeParam}`}
-								className={page <= 1 ? "pointer-events-none opacity-50" : ""}
+				{totalPages > 1 && (
+					<div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+						<p className="text-sm text-muted-foreground">
+							Showing {offset + 1} to {Math.min(offset + limit, data.total)} of{" "}
+							{data.total}
+						</p>
+						<div className="flex items-center gap-2">
+							<Button variant="outline" size="sm" asChild disabled={page <= 1}>
+								<FilterLink
+									href={`/models?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${modeParam}${filterQuery}`}
+									className={page <= 1 ? "pointer-events-none opacity-50" : ""}
+								>
+									<ChevronLeft className="h-4 w-4" />
+									Previous
+								</FilterLink>
+							</Button>
+							<span className="text-sm text-muted-foreground">
+								Page {page} of {totalPages}
+							</span>
+							<Button
+								variant="outline"
+								size="sm"
+								asChild
+								disabled={page >= totalPages}
 							>
-								<ChevronLeft className="h-4 w-4" />
-								Previous
-							</Link>
-						</Button>
-						<span className="text-sm text-muted-foreground">
-							Page {page} of {totalPages}
-						</span>
-						<Button
-							variant="outline"
-							size="sm"
-							asChild
-							disabled={page >= totalPages}
-						>
-							<Link
-								href={`/models?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${modeParam}`}
-								className={
-									page >= totalPages ? "pointer-events-none opacity-50" : ""
-								}
-							>
-								Next
-								<ChevronRight className="h-4 w-4" />
-							</Link>
-						</Button>
+								<FilterLink
+									href={`/models?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${modeParam}${filterQuery}`}
+									className={
+										page >= totalPages ? "pointer-events-none opacity-50" : ""
+									}
+								>
+									Next
+									<ChevronRight className="h-4 w-4" />
+								</FilterLink>
+							</Button>
+						</div>
 					</div>
-				</div>
-			)}
-		</div>
+				)}
+			</div>
+		</FilterNavigationProvider>
 	);
 }

@@ -35,6 +35,10 @@ import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared";
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { ChartConfig } from "@/components/ui/chart";
 
@@ -78,11 +82,6 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
 	maximumFractionDigits: 4,
-});
-
-const compactFormatter = new Intl.NumberFormat("en-US", {
-	notation: "compact",
-	maximumFractionDigits: 1,
 });
 
 /** Whole-window totals read as money amounts, not per-bucket fractions. */
@@ -149,7 +148,7 @@ function metricValue(point: OverviewPoint, metric: Metric): number {
 function formatMetric(value: number, metric: Metric): string {
 	return metric === "cost"
 		? currencyFormatter.format(value)
-		: value.toLocaleString();
+		: formatNumber(value);
 }
 
 interface ProviderSeries {
@@ -296,8 +295,8 @@ function ProviderSpendChart({
 				</div>
 				<span className="text-xs tabular-nums text-muted-foreground">
 					{totalCurrencyFormatter.format(series.windowCost)} ·{" "}
-					{series.windowRequests.toLocaleString()} requests ·{" "}
-					{compactFormatter.format(series.windowTokens)} tokens
+					{formatNumber(series.windowRequests)} requests ·{" "}
+					{formatCompactNumber(series.windowTokens)} tokens
 				</span>
 			</div>
 			{!series.hasTraffic ? (
@@ -330,7 +329,7 @@ function ProviderSpendChart({
 							tickFormatter={(value: number) =>
 								metric === "cost"
 									? currencyFormatter.format(value)
-									: compactFormatter.format(value)
+									: formatCompactNumber(value)
 							}
 						/>
 						<ChartTooltip

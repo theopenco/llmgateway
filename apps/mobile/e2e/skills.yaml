@@ -1,0 +1,127 @@
+appId: io.llmgateway.lounge
+---
+- evalScript: ${output.skillName = "Native writing " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Skills"
+- tapOn: "Generate skill"
+- tapOn:
+    id: "field-what-should-this-skill-do-"
+- inputText: ${"SKILL_CANCEL_PROBE " + output.skillName}
+- tapOn: "Done typing"
+- tapOn:
+    text: "Generate draft"
+    waitToSettleTimeoutMs: 200
+- tapOn:
+    text: "Cancel generation"
+    waitToSettleTimeoutMs: 200
+- assertVisible: "Generate skill"
+- tapOn: "Generate skill"
+- tapOn:
+    id: "field-what-should-this-skill-do-"
+- inputText: "Create a clear writing skill for short explanations."
+- tapOn: "Done typing"
+- tapOn: "Generate draft"
+- extendedWaitUntil:
+    visible:
+      id: "field-skill-name"
+    timeout: 30000
+- assertVisible: "Use the word HARBOR when answering."
+- tapOn:
+    id: "field-skill-name"
+    point: "95%,50%"
+- eraseText: 100
+- inputText: ${output.skillName}
+- tapOn: "Done typing"
+- scrollUntilVisible:
+    element: "Save skill"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Save skill"
+- extendedWaitUntil:
+    notVisible: "Save skill"
+    timeout: 15000
+- assertVisible: ${output.skillName}
+- launchApp
+- runFlow: helpers/organization.yaml
+- tapOn: "New conversation"
+- runFlow: helpers/chat-model.yaml
+- runFlow: helpers/close-chat-options.yaml
+- tapOn: "Message.*"
+- inputText: ${"SKILL_ENABLED_PROBE " + output.skillName}
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: "Enabled skill verified.*HARBOR."
+    timeout: 30000
+- launchApp
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Skills"
+- tapOn: ${"Enable " + output.skillName}
+- launchApp
+- runFlow: helpers/organization.yaml
+- tapOn: "New conversation"
+- runFlow: helpers/chat-model.yaml
+- runFlow: helpers/close-chat-options.yaml
+- tapOn: "Message.*"
+- inputText: ${"SKILL_DISABLED_PROBE " + output.skillName}
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: "Skill excluded from context."
+    timeout: 30000
+- launchApp
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Skills"
+- tapOn: ${"Edit " + output.skillName}
+- scrollUntilVisible:
+    element:
+      id: "field-instructions"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "field-instructions"
+    point: "95%,90%"
+- eraseText: 200
+- inputText: "Use the word LIGHTHOUSE when answering."
+- tapOn: "Done typing"
+- tapOn: "Save skill"
+- extendedWaitUntil:
+    notVisible: "Save skill"
+    timeout: 15000
+- tapOn: ${"Enable " + output.skillName}
+- launchApp
+- runFlow: helpers/organization.yaml
+- tapOn: "New conversation"
+- runFlow: helpers/chat-model.yaml
+- runFlow: helpers/close-chat-options.yaml
+- tapOn: "Message.*"
+- inputText: ${"SKILL_EDITED_PROBE " + output.skillName}
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: "Enabled skill verified.*LIGHTHOUSE."
+    timeout: 30000
+- launchApp
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Skills"
+- tapOn: ${"Delete " + output.skillName}
+- tapOn: "Delete"
+- assertNotVisible: ${output.skillName}
+- launchApp
+- runFlow: helpers/organization.yaml
+- tapOn: "New conversation"
+- runFlow: helpers/chat-model.yaml
+- runFlow: helpers/close-chat-options.yaml
+- tapOn: "Message.*"
+- inputText: ${"SKILL_DELETED_PROBE " + output.skillName}
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: "Skill excluded from context."
+    timeout: 30000

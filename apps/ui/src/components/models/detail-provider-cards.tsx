@@ -19,6 +19,7 @@ import {
 	getProviderIcon,
 	isMappingDeactivated,
 } from "@llmgateway/shared/components";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import { ProviderSection } from "./model-card";
 
@@ -407,7 +408,7 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 									throughput !== undefined && (
 										<span className="inline-flex h-4 shrink-0 items-center gap-1 whitespace-nowrap rounded border border-border/50 bg-background/80 px-1.5 text-[10px] font-medium tabular-nums text-muted-foreground">
 											<Zap className="h-2.5 w-2.5 text-amber-500" />
-											{throughput.toLocaleString()} tok/s
+											{formatNumber(throughput)} tok/s
 										</span>
 									)
 								}

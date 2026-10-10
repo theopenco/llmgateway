@@ -53,7 +53,7 @@ const resources = [
 export default function DevelopersPage() {
 	return (
 		<>
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<main className="container mx-auto max-w-4xl px-6 py-28">
 				<h1 className="text-4xl font-bold tracking-tight">
 					LLM Gateway Developer Resources

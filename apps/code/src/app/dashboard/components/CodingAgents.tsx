@@ -6,6 +6,8 @@ import { useMemo } from "react";
 
 import { useApi } from "@/lib/fetch-client";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import {
 	AGENTS,
 	ALL_CODING_AGENT_SOURCES,
@@ -51,7 +53,7 @@ function AgentCard({
 						Requests
 					</p>
 					<p className="text-sm font-medium tabular-nums">
-						{stats.requestCount.toLocaleString()}
+						{formatNumber(stats.requestCount)}
 					</p>
 				</div>
 				<div>
@@ -169,7 +171,7 @@ export default function CodingAgents({
 					<div className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
 						<span>{agentStats.length} active</span>
 						<span className="text-border">·</span>
-						<span>{totalRequests.toLocaleString()} requests</span>
+						<span>{formatNumber(totalRequests)} requests</span>
 						<span className="text-border">·</span>
 						<span className="font-medium text-foreground">
 							${totalCost.toFixed(2)}

@@ -4,6 +4,7 @@ slug: "devpass-no-ai-training"
 date: "2026-08-28"
 title: "No AI Training for DevPass"
 summary: "DevPass subscribers can now restrict routing to providers that explicitly state API inputs are not used for training. Unknown policies fail closed, and retries or fallbacks never escape the setting. Available on every active DevPass tier."
+tags: ["devpass"]
 image:
   src: "/changelog/devpass-no-ai-training.png"
   alt: "A glowing privacy shield protecting a prompt on a circuit board while routing traces avoid a neural-network training node"

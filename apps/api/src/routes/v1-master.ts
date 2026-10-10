@@ -57,6 +57,7 @@ import {
 import { createProjectForOrg } from "@/routes/projects.js";
 import { memberIamRuleSchema } from "@/routes/team.js";
 import {
+	providerCacheAutoTtlSchema,
 	providerCacheControlModeSchema,
 	resolveProviderCacheControlMode,
 	withLegacyProviderCacheControl,
@@ -78,6 +79,7 @@ import {
 	shortid,
 	tables,
 } from "@llmgateway/db";
+import { accountBlockMessage } from "@llmgateway/shared/account-block";
 import {
 	getApiKeyFingerprint,
 	getApiKeyFingerprints,
@@ -127,7 +129,12 @@ v1Master.use("*", async (c, next) => {
 	}
 
 	if (row.organization?.status === "deleted") {
-		throw new HTTPException(403, { message: "Organization is not active" });
+		throw new HTTPException(403, {
+			message: accountBlockMessage(
+				row.organization.blockReason,
+				"Organization is not active",
+			),
+		});
 	}
 
 	if (
@@ -250,6 +257,7 @@ const projectSchema = z.object({
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
 	providerCacheControlMode: providerCacheControlModeSchema,
+	providerCacheAutoTtl: providerCacheAutoTtlSchema,
 	/** @deprecated use providerCacheControlMode; false maps to "off". */
 	providerCacheControlEnabled: z.boolean(),
 	mode: projectModeEnum,
@@ -261,6 +269,7 @@ const createProjectBody = z.object({
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
 	providerCacheControlMode: providerCacheControlModeSchema.optional(),
+	providerCacheAutoTtl: providerCacheAutoTtlSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: projectModeEnum.optional(),
 });
@@ -446,6 +455,7 @@ const updateProjectBody = z
 		cachingEnabled: z.boolean().optional(),
 		cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
 		providerCacheControlMode: providerCacheControlModeSchema.optional(),
+		providerCacheAutoTtl: providerCacheAutoTtlSchema.optional(),
 		providerCacheControlEnabled: z.boolean().optional(),
 		mode: projectModeEnum.optional(),
 		status: z.enum(["active", "inactive"]).optional(),

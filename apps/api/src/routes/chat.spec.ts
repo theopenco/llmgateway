@@ -35,6 +35,7 @@ describe("chat completion proxy", () => {
 		authorization: string | null;
 		sponsor: string | null;
 		source: string | null;
+		headers: Headers;
 		body: Record<string, unknown>;
 	}[] = [];
 	let gatewayStatus = 200;
@@ -76,6 +77,7 @@ describe("chat completion proxy", () => {
 				authorization: headers.get("authorization"),
 				sponsor: headers.get(ONBOARDING_SPONSOR_HEADER),
 				source: headers.get("x-source"),
+				headers,
 				body: JSON.parse(String(init?.body ?? "{}")),
 			});
 
@@ -126,6 +128,7 @@ describe("chat completion proxy", () => {
 
 	afterEach(async () => {
 		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
 		if (previousSecret === undefined) {
 			Reflect.deleteProperty(process.env, "ONBOARDING_SPONSOR_SECRET");
 		} else {
@@ -154,6 +157,35 @@ describe("chat completion proxy", () => {
 			token,
 		);
 	}
+
+	test.each(["192.0.2.1", undefined])(
+		"forwards only the configured client IP: %s",
+		async (ip) => {
+			vi.stubEnv("CLIENT_IP_HEADER", "X-Client-Ip");
+			vi.stubEnv("GATEWAY_BACKEND_URL", "http://localhost:4301");
+			const res = await app.request("/chat/completion", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+					"x-forwarded-for": "198.51.100.1",
+					...(ip ? { "x-client-ip": ip } : {}),
+				},
+				body: JSON.stringify({
+					model: "auto",
+					apiKey: "test-token",
+					messages: [{ role: "user", content: "Hello" }],
+				}),
+			});
+			expect(res.status).toBe(200);
+			expect(gatewayRequests).toHaveLength(1);
+			expect(gatewayRequests[0].url).toBe(
+				"http://localhost:4301/v1/chat/completions",
+			);
+			expect(gatewayRequests[0].headers.get("x-client-ip")).toBe(ip ?? null);
+			expect(gatewayRequests[0].headers.get("x-forwarded-for")).toBeNull();
+		},
+	);
 
 	test("rejects an unauthenticated request", async () => {
 		const res = await request({ model: "auto", apiKey: "test-token" });

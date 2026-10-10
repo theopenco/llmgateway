@@ -4,6 +4,7 @@ slug: "organization-analytics"
 date: "2026-06-26"
 title: "Organization-Wide Analytics"
 summary: "Roll cost, requests, and tokens up across every project in your organization, then break the spend down by model, project, or API key over any date range. Read from pre-aggregated rollups, so it stays fast on any window. Available to owners and admins on the Enterprise plan."
+tags: ["llmgateway"]
 image:
   src: "/changelog/organization-analytics.png"
   alt: "Organization-wide analytics on LLM Gateway: total spend, requests, and tokens across every project, broken down by model, project, and API key"

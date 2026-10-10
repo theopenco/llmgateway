@@ -1,6 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
+import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
@@ -115,7 +116,9 @@ export default async function ProviderListingRequestDetailPage({
 					<Badge variant={getStatusBadgeVariant(data.spamFilterStatus)}>
 						{getStatusLabel(data.spamFilterStatus)}
 					</Badge>
-					<DeleteRequestButton id={data.id} archivedAt={data.archivedAt} />
+					<AdminOnly>
+						<DeleteRequestButton id={data.id} archivedAt={data.archivedAt} />
+					</AdminOnly>
 				</div>
 				<p className="text-sm text-muted-foreground">
 					Submitted {formatDate(data.createdAt)}

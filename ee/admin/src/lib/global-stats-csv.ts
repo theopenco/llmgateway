@@ -13,12 +13,21 @@ export interface GlobalStatsCsvMetrics {
 	cacheCount: number;
 	inputTokens: number;
 	cachedTokens: number;
+	cacheWriteTokens: number;
 	outputTokens: number;
+	reasoningTokens: number;
 	totalTokens: number;
 	cost: number;
 	inputCost: number;
 	cachedInputCost: number;
+	cacheWriteInputCost: number;
 	outputCost: number;
+	requestCost: number;
+	imageInputCost: number;
+	imageOutputCost: number;
+	audioInputCost: number;
+	audioOutputCost: number;
+	videoOutputCost: number;
 }
 
 export interface GlobalStatsCsvTimeseriesPoint extends GlobalStatsCsvMetrics {
@@ -51,12 +60,14 @@ export interface GlobalStatsCsvScope {
 	start: string;
 	end: string;
 	allTime: boolean;
+	granularity?: "hour" | "day";
 	traffic: string;
 	organization: string;
 	groupBy: string;
 	modelView: string | null;
-	providerKeyId: string | null;
-	providerKeyLabel: string | null;
+	/** Selected provider credentials; their traffic is summed. */
+	providerKeys: { id: string; label: string }[];
+	provider: string | null;
 	metric: GlobalStatsChartMetric;
 }
 
@@ -66,12 +77,21 @@ export const GLOBAL_STATS_METRIC_COLUMNS = [
 	"cacheCount",
 	"inputTokens",
 	"cachedTokens",
+	"cacheWriteTokens",
 	"outputTokens",
+	"reasoningTokens",
 	"totalTokens",
 	"cost",
 	"inputCost",
 	"cachedInputCost",
+	"cacheWriteInputCost",
 	"outputCost",
+	"requestCost",
+	"imageInputCost",
+	"imageOutputCost",
+	"audioInputCost",
+	"audioOutputCost",
+	"videoOutputCost",
 ] as const satisfies readonly (keyof GlobalStatsCsvMetrics)[];
 
 export const GLOBAL_STATS_METRIC_LABELS: Record<
@@ -101,7 +121,7 @@ export function buildGlobalStatsTimeseriesCsv(
 }
 
 /**
- * One line per day and dimension, in rank order within each day, carrying
+ * One line per bucket and dimension, in rank order within each bucket, carrying
  * requests, tokens and cost — the stacked chart without the "Other" bucket.
  */
 export function buildGlobalStatsTimeseriesBreakdownCsv(
@@ -195,7 +215,7 @@ function compositionCsv(
 }
 
 /**
- * Whole-page report: scope header, totals, compositions, the daily
+ * Whole-page report: scope header, totals, compositions, the
  * timeseries and the per-dimension tables, as blank-line separated CSV
  * sections in a single file.
  */
@@ -224,6 +244,7 @@ export function buildGlobalStatsReportCsv(
 	},
 	format: CsvFormat = DEFAULT_CSV_FORMAT,
 ): string {
+	const cadence = scope.granularity === "hour" ? "Hourly" : "Daily";
 	const sections: { title: string; csv: string }[] = [
 		{
 			title: "Global stats report",
@@ -232,18 +253,19 @@ export function buildGlobalStatsReportCsv(
 				[
 					["generated", generatedAt.toISOString()],
 					["range", scope.allTime ? "All time" : "Custom"],
+					["timeZone", "UTC"],
+					["granularity", scope.granularity ?? "day"],
 					["start", scope.start],
 					["end", scope.end],
 					["traffic", scope.traffic],
 					["organization", scope.organization],
 					["breakDownBy", scope.groupBy],
+					...(scope.provider ? [["provider", scope.provider]] : []),
 					...(scope.modelView ? [["modelView", scope.modelView]] : []),
-					...(scope.providerKeyId
-						? [
-								["providerKeyId", scope.providerKeyId],
-								["providerKey", scope.providerKeyLabel ?? scope.providerKeyId],
-							]
-						: []),
+					...scope.providerKeys.flatMap((key) => [
+						["providerKeyId", key.id],
+						["providerKey", key.label],
+					]),
 					["measure", GLOBAL_STATS_METRIC_LABELS[scope.metric]],
 				],
 				format,
@@ -275,11 +297,11 @@ export function buildGlobalStatsReportCsv(
 	}
 	sections.push(
 		{
-			title: "Daily timeseries",
+			title: `${cadence} timeseries`,
 			csv: buildGlobalStatsTimeseriesCsv(timeseries, format),
 		},
 		{
-			title: `Daily timeseries by ${dimension}`,
+			title: `${cadence} timeseries by ${dimension}`,
 			csv: buildGlobalStatsTimeseriesBreakdownCsv(
 				{
 					dimension,
@@ -310,10 +332,19 @@ export function globalStatsExportFilename(
 	section: string,
 	scope: Pick<
 		GlobalStatsCsvScope,
-		"start" | "end" | "allTime" | "providerKeyId"
+		"start" | "end" | "allTime" | "providerKeys" | "provider"
 	>,
 ): string {
-	const range = scope.allTime ? "all-time" : `${scope.start}_${scope.end}`;
-	const key = scope.providerKeyId ? `-key-${scope.providerKeyId}` : "";
-	return `global-stats-${section}-${range}${key}.csv`;
+	const range = scope.allTime
+		? "all-time"
+		: `${scope.start}_${scope.end}`.replaceAll(":", "-");
+	const provider = scope.provider ? `-provider-${scope.provider}` : "";
+	const [firstKey] = scope.providerKeys;
+	const key =
+		scope.providerKeys.length > 1
+			? `-keys-${scope.providerKeys.length}`
+			: firstKey
+				? `-key-${firstKey.id}`
+				: "";
+	return `global-stats-${section}-${range}${provider}${key}.csv`;
 }

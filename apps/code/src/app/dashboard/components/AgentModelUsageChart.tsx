@@ -27,6 +27,10 @@ import {
 	formatBucketLabelWithZone,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
 import type { TooltipProps } from "recharts";
@@ -157,7 +161,7 @@ function ChartTooltipContent({
 			<div className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
 				<div>
 					<span className="font-medium text-foreground">
-						{first.totalRequests.toLocaleString()}
+						{formatNumber(first.totalRequests)}
 					</span>{" "}
 					requests
 				</div>
@@ -210,7 +214,7 @@ function ChartTooltipContent({
 									? `$${Number(p.value).toFixed(4)}`
 									: metric === "tokens"
 										? formatTokens(Number(p.value))
-										: Number(p.value).toLocaleString()}
+										: formatNumber(Number(p.value))}
 							</span>
 						</div>
 					))}
@@ -471,10 +475,7 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 										if (metric === "cost") {
 											return `$${value.toFixed(2)}`;
 										}
-										if (metric === "tokens") {
-											return formatTokens(value);
-										}
-										return value.toLocaleString();
+										return formatCompactNumber(value);
 									}}
 								/>
 								<Tooltip

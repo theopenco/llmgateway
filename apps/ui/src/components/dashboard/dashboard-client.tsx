@@ -64,6 +64,10 @@ import { applyUsageModeToDaily } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import { useDisplayTimeZone } from "@llmgateway/shared";
+import {
+	formatCompactNumber as formatTokens,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type {
@@ -85,16 +89,6 @@ function formatCredits(credits: number) {
 		minimumFractionDigits: 2,
 		maximumFractionDigits: credits !== 0 && Math.abs(credits) < 1 ? 4 : 2,
 	});
-}
-
-function formatTokens(tokens: number) {
-	if (tokens >= 1_000_000) {
-		return `${(tokens / 1_000_000).toFixed(1)}M`;
-	}
-	if (tokens >= 1_000) {
-		return `${(tokens / 1_000).toFixed(1)}k`;
-	}
-	return tokens.toString();
 }
 
 function pctChange(current: number, previous: number): number | null {
@@ -658,10 +652,10 @@ export function DashboardClient({
 						)}
 						<MetricCard
 							label="Total Requests"
-							value={totalRequests.toLocaleString()}
+							value={formatNumber(totalRequests)}
 							subtitle={
 								totalRequests > 0
-									? `${cacheHitRate.toFixed(1)}% cache hit rate • ${totalErrors.toLocaleString()} errors`
+									? `${cacheHitRate.toFixed(1)}% cache hit rate • ${formatNumber(totalErrors)} errors`
 									: `${format(from, "MMM d")} – ${format(to, "MMM d")}`
 							}
 							icon={<Zap className="h-4 w-4" />}

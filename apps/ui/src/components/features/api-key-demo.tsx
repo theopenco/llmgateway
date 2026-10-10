@@ -14,6 +14,8 @@ import {
 } from "@/lib/components/card";
 import { mockApiKeys } from "@/lib/mock-feature-data";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 export function ApiKeyDemo() {
 	return (
 		<Card>
@@ -46,7 +48,7 @@ export function ApiKeyDemo() {
 											{apiKey.keyPrefix}••••{apiKey.lastFour}
 										</code>
 										<span>•</span>
-										<span>{apiKey.usageCount.toLocaleString()} requests</span>
+										<span>{formatNumber(apiKey.usageCount)} requests</span>
 										<span>•</span>
 										<span>
 											Last used{" "}

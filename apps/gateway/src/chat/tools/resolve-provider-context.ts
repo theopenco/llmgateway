@@ -13,6 +13,7 @@ import { posthog } from "@/posthog.js";
 import {
 	getGcpServiceAccountAccessToken,
 	getProviderApiTransport,
+	getUpstreamModelId,
 	getProviderEndpoint,
 	getProviderHeaders,
 	isPremiumServiceTier,
@@ -53,6 +54,7 @@ import {
 } from "@llmgateway/shared";
 
 import { clampTemperature } from "./clamp-temperature.js";
+import { resolveAirsideProviderBaseUrl } from "./resolve-airside-model.js";
 import { resolvePlatformCredential } from "./resolve-platform-credential.js";
 import {
 	assertServiceTierHonored,
@@ -63,6 +65,7 @@ import {
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
 export interface ProviderContext {
+	airsideCustomBaseUrl?: string;
 	usedProvider: Provider;
 	transportProvider: Provider;
 	/**
@@ -142,12 +145,6 @@ export interface ProviderContextOptions {
 	 * the flaky-provider branch, so it fails intermittently and invisibly.
 	 */
 	sponsoredOnboarding?: boolean;
-	/**
-	 * Custom Airside carriers have no catalogue endpoint definition: retries
-	 * and credential failover route to the OpenAI-compatible base URL on the
-	 * approved registration, exactly like the first attempt in chat.ts.
-	 */
-	airsideCustomBaseUrl?: string;
 	stream: boolean;
 	effectiveStream: boolean;
 	messages: BaseMessage[];
@@ -189,6 +186,7 @@ export interface ProviderContextOptions {
 	excludedProviderKeyIds?: ReadonlySet<string>;
 	n?: number;
 	providerCacheControlMode: ProviderCacheControlMode;
+	providerCacheAutoTtl?: "5m" | "1h";
 	service_tier?: "auto" | "default" | "flex" | "priority";
 	/**
 	 * The premium tier the client asked for itself, or null when `service_tier`
@@ -887,7 +885,14 @@ export async function resolveProviderContext(
 		usedProvider === "azure"
 			? credentialOptions?.azure_deployment_name
 			: undefined;
-	const upstreamModelName = azureDeploymentName || usedExternalId;
+	const upstreamModelName =
+		azureDeploymentName ||
+		getUpstreamModelId(
+			usedProvider,
+			usedInternalModel,
+			usedExternalId,
+			usedRegion,
+		);
 
 	// --- URL resolution ---
 	// Resolve the Google Vertex token type once and feed it to both the endpoint
@@ -907,13 +912,14 @@ export async function resolveProviderContext(
 						envVariant,
 					)
 				: undefined;
+	const airsideCustomBaseUrl =
+		await resolveAirsideProviderBaseUrl(usedProvider);
 	const url = getProviderEndpoint(
-		options.airsideCustomBaseUrl ? "custom" : (usedProvider as Provider),
-		options.airsideCustomBaseUrl ?? credentialBaseUrl,
+		airsideCustomBaseUrl ? "custom" : (usedProvider as Provider),
+		airsideCustomBaseUrl ?? credentialBaseUrl,
 		upstreamModelName,
 		usedProvider === "google-ai-studio" ||
 			usedProvider === "glacier" ||
-			usedProvider === "iceberg" ||
 			usedProvider === "google-vertex" ||
 			usedProvider === "quartz" ||
 			usedProvider === "vertex-anthropic" ||
@@ -1082,6 +1088,9 @@ export async function resolveProviderContext(
 		options.session_id,
 		undefined,
 		organization.safetyIdentifier,
+		providerMappingForSelected,
+		undefined,
+		options.providerCacheAutoTtl,
 	);
 
 	// Post-validation of max_tokens in request body
@@ -1147,6 +1156,7 @@ export async function resolveProviderContext(
 	}
 
 	return {
+		airsideCustomBaseUrl,
 		usedProvider,
 		transportProvider,
 		usedInternalModel,

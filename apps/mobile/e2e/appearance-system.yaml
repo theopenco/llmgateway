@@ -1,0 +1,11 @@
+appId: io.llmgateway.lounge
+---
+- assertVisible:
+    id: appearance-light
+    text: "radio button, checked"
+- takeScreenshot: artifacts/appearance-light-override
+- tapOn: "System appearance"
+- assertVisible:
+    id: appearance-system
+    text: "radio button, checked"
+- takeScreenshot: artifacts/appearance-system-dark

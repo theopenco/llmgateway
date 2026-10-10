@@ -20,6 +20,8 @@ import {
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 const LIMIT_TYPES = [
 	"rpm",
 	"concurrency",
@@ -114,7 +116,7 @@ export default async function LimitHitsPage({
 					<CardHeader className="pb-2">
 						<CardDescription>Rejected requests (shown)</CardDescription>
 						<CardTitle className="text-2xl">
-							{totals.hits.toLocaleString()}
+							{formatNumber(totals.hits)}
 						</CardTitle>
 					</CardHeader>
 				</Card>
@@ -204,19 +206,19 @@ export default async function LimitHitsPage({
 										</div>
 									</TableCell>
 									<TableCell className="text-right font-medium tabular-nums">
-										{o.totalHits.toLocaleString()}
+										{formatNumber(o.totalHits)}
 									</TableCell>
 									<TableCell className="text-muted-foreground text-right tabular-nums">
-										{o.rpmHits.toLocaleString()}
+										{formatNumber(o.rpmHits)}
 									</TableCell>
 									<TableCell className="text-muted-foreground text-right tabular-nums">
-										{o.concurrencyHits.toLocaleString()}
+										{formatNumber(o.concurrencyHits)}
 									</TableCell>
 									<TableCell className="text-muted-foreground text-right tabular-nums">
-										{o.spendCapHits.toLocaleString()}
+										{formatNumber(o.spendCapHits)}
 									</TableCell>
 									<TableCell className="text-muted-foreground text-right tabular-nums">
-										{o.topUpHits.toLocaleString()}
+										{formatNumber(o.topUpHits)}
 									</TableCell>
 									<TableCell className="text-right tabular-nums">
 										{o.topUpBlockedUsd > 0 ? usd(o.topUpBlockedUsd) : "—"}

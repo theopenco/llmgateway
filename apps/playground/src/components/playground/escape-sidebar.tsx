@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { CreditsDisplay } from "@/components/credits/credits-display";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { SidebarLoungePoints } from "@/components/lounge/sidebar-points";
+import { ProductSwitcher } from "@/components/product-switcher";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -26,7 +27,6 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
-import { Wordmark } from "@/components/ui/wordmark";
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
@@ -84,13 +84,9 @@ export function EscapeSidebar({
 			<Sidebar className={className}>
 				<SidebarHeader>
 					<div className="mb-4 flex flex-col items-center gap-4">
-						<Link
-							href="/"
-							className="my-2 flex items-center gap-2 self-start"
-							prefetch={true}
-						>
-							<Wordmark />
-						</Link>
+						<div className="flex w-full items-center gap-2">
+							<ProductSwitcher />
+						</div>
 						<div className="w-full rounded-md border p-4 text-sm">
 							<div className="mb-2 font-medium">Sign in to play</div>
 							<p className="text-muted-foreground mb-3">
@@ -115,11 +111,7 @@ export function EscapeSidebar({
 			<SidebarHeader>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton size="lg" asChild tooltip="Lounge">
-							<Link href="/" prefetch={true}>
-								<Wordmark size="sm" iconBox />
-							</Link>
-						</SidebarMenuButton>
+						<ProductSwitcher />
 					</SidebarMenuItem>
 				</SidebarMenu>
 				<StudioNav />

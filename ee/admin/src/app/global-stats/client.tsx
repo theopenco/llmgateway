@@ -1,6 +1,5 @@
 "use client";
 
-import { format, parseISO } from "date-fns";
 import {
 	BarChart3,
 	Building2,
@@ -32,17 +31,20 @@ import {
 	ChartTypeToggle,
 	type ChartType,
 } from "@/components/chart-type-toggle";
-import {
-	GlobalStatsRangePicker,
-	resolveGlobalStatsRange,
-} from "@/components/global-stats-range-picker";
+import { GlobalStatsBreakdownDetails } from "@/components/global-stats-breakdown-details";
+import { GlobalStatsRangePicker } from "@/components/global-stats-range-picker";
+import { GlobalStatsTimeZone } from "@/components/global-stats-time-zone";
 import { OrgKindSelector, useOrgKind } from "@/components/org-kind-selector";
 import {
 	ProviderKeySelector,
 	providerKeyLabel,
 	useGlobalStatsProviderKeys,
-	useProviderKeyId,
+	useProviderKeyIds,
 } from "@/components/provider-key-selector";
+import {
+	ProviderSelector,
+	useProviderFilter,
+} from "@/components/provider-selector";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -70,11 +72,14 @@ import {
 	buildGlobalStatsTimeseriesCsv,
 	globalStatsExportFilename,
 } from "@/lib/global-stats-csv";
+import { resolveGlobalStatsRange } from "@/lib/global-stats-range";
 import { orgKindDescription, orgKindLabel } from "@/lib/org-kind";
 import { usageModeDescription, usageModeLabel } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
+import { formatDateTime } from "@llmgateway/shared";
 import { detectCsvFormat } from "@llmgateway/shared";
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
 import type { ChartConfig } from "@/components/ui/chart";
 import type { ReactNode } from "react";
@@ -139,12 +144,6 @@ const compactCurrencyFormatter = new Intl.NumberFormat("en-US", {
 
 const numberFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 0,
-});
-
-const compactNumberFormatter = new Intl.NumberFormat("en-US", {
-	notation: "compact",
-	compactDisplay: "short",
-	maximumFractionDigits: 1,
 });
 
 const timeseriesChartConfig = {
@@ -296,23 +295,33 @@ function compactMetricFormatter(metric: TimeseriesMetric) {
 		case "totalTokens":
 		case "requestCount":
 		default:
-			return (v: number) => compactNumberFormatter.format(v);
+			return (v: number) => formatCompactNumber(v);
 	}
 }
 
-export function GlobalStatsClient() {
+export function GlobalStatsClient({
+	initialTimeZone = "UTC",
+}: {
+	initialTimeZone?: string;
+}) {
+	const [timeZone, setTimeZone] = useState(initialTimeZone);
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 
-	const { allTime, from, to } = resolveGlobalStatsRange(searchParams);
+	const { allTime, range, from, to } = resolveGlobalStatsRange(searchParams);
 	const usageMode = useUsageMode();
 	const orgKind = useOrgKind();
-	const providerKeyId = useProviderKeyId();
-	// The per-credential rollup has no x-source dimension (see the API).
+	const providerKeyIds = useProviderKeyIds();
+	const byKey = providerKeyIds.length > 0;
+	const provider = useProviderFilter();
+	// The per-model rollups have no x-source dimension (see the API).
+	const sourceUnavailable = byKey || provider !== null;
 	const requestedGroupBy = parseGroupBy(searchParams.get("groupBy"));
 	const groupBy =
-		providerKeyId && requestedGroupBy === "source" ? "model" : requestedGroupBy;
+		sourceUnavailable && requestedGroupBy === "source"
+			? "model"
+			: requestedGroupBy;
 	const chartMetric = parseMetric(searchParams.get("metric"));
 	const modelView = parseModelView(searchParams.get("modelView"));
 	const showTimeseriesBreakdown = parseBreakdown(searchParams.get("breakdown"));
@@ -333,7 +342,7 @@ export function GlobalStatsClient() {
 	// The range picker and the mode/kind selectors write to the URL directly, so
 	// reset pagination during render when any of them changes (each also
 	// re-sorts the breakdown).
-	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}|${providerKeyId ?? ""}`;
+	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}|${providerKeyIds.join(",")}|${provider ?? ""}`;
 	const [lastViewKey, setLastViewKey] = useState(viewKey);
 	if (viewKey !== lastViewKey) {
 		setLastViewKey(viewKey);
@@ -377,37 +386,42 @@ export function GlobalStatsClient() {
 		{
 			params: {
 				query: {
-					...(allTime ? { range: "all" as const } : { from, to }),
+					...(range ? { range } : { from, to }),
 					groupBy,
 					modelView,
 					mode: usageMode,
 					kind: orgKind,
-					...(providerKeyId ? { providerKeyId } : {}),
+					...(byKey ? { providerKeyId: providerKeyIds.join(",") } : {}),
+					...(provider ? { provider } : {}),
 				},
 			},
 		},
 	);
 	const { data: providerKeysData } = useGlobalStatsProviderKeys();
-	const selectedProviderKey = providerKeyId
-		? providerKeysData?.providerKeys.find((key) => key.id === providerKeyId)
-		: undefined;
-	const providerKeyName = selectedProviderKey
-		? providerKeyLabel(selectedProviderKey)
-		: providerKeyId;
+	const selectedProviderKeys = useMemo(
+		() =>
+			providerKeyIds.map((id) => {
+				const key = providerKeysData?.providerKeys.find((k) => k.id === id);
+				return { id, label: key ? providerKeyLabel(key) : id };
+			}),
+		[providerKeyIds, providerKeysData?.providerKeys],
+	);
+	const providerKeyNames = selectedProviderKeys
+		.map((key) => key.label)
+		.join(", ");
 
+	const hourly = range === "24h";
 	const rangeLabel = useMemo(() => {
 		const start = from ?? data?.start;
 		const end = to ?? data?.end;
 		if (!start || !end) {
-			return "all time";
+			return hourly ? "last 24 hours" : "all time";
 		}
-		const startDate = parseISO(start);
-		const endDate = parseISO(end);
-		if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-			return allTime ? "all time" : "selected range";
+		if (hourly) {
+			return `${formatDateTime(start, timeZone, "monthDayYearHourMinuteZone")} – ${formatDateTime(end, timeZone, "monthDayYearHourMinuteZone")}`;
 		}
-		return `${format(startDate, "MMM d, yyyy")} – ${format(endDate, "MMM d, yyyy")}`;
-	}, [allTime, from, to, data?.start, data?.end]);
+		return `${formatDateTime(start, "UTC", "monthDayYear")} – ${formatDateTime(end, "UTC", "monthDayYear")} (UTC dates)`;
+	}, [hourly, timeZone, from, to, data?.start, data?.end]);
 
 	const totals = data?.totals;
 	const timeseries = useMemo(() => data?.timeseries ?? [], [data?.timeseries]);
@@ -558,14 +572,20 @@ export function GlobalStatsClient() {
 	const scopeNotes = [
 		usageModeDescription(usageMode),
 		orgKindDescription(orgKind),
-		providerKeyId
-			? `Only requests served by provider key ${providerKeyName}; traffic served by env-var credentials is never attributed to a key.`
+		provider ? `Only requests served by provider ${provider}.` : null,
+		byKey
+			? `Only requests served by provider ${providerKeyIds.length > 1 ? "keys" : "key"} ${providerKeyNames}${providerKeyIds.length > 1 ? ", summed" : ""}; traffic served by env-var credentials is never attributed to a key.`
 			: null,
 	].filter(Boolean);
 	const scopeParts = [
 		orgKind === "all" ? null : orgKindLabel(orgKind),
 		usageMode === "total" ? null : usageModeLabel(usageMode),
-		providerKeyId ? `Key ${providerKeyName}` : null,
+		provider,
+		providerKeyIds.length > 1
+			? `${providerKeyIds.length} keys`
+			: byKey
+				? `Key ${providerKeyNames}`
+				: null,
 	].filter((part): part is string => part !== null);
 	const scopeSuffix = scopeParts.map((label) => ` · ${label}`).join("");
 	// Stat-card headings are uppercase and narrow; name the key in the
@@ -573,7 +593,8 @@ export function GlobalStatsClient() {
 	const statScopeParts = [
 		orgKind === "all" ? null : orgKindLabel(orgKind),
 		usageMode === "total" ? null : usageModeLabel(usageMode),
-		providerKeyId ? "Key" : null,
+		provider,
+		byKey ? "Key" : null,
 	].filter((part): part is string => part !== null);
 	const scopeLabel =
 		statScopeParts.length > 0 ? statScopeParts.join(" · ") : "Total";
@@ -602,6 +623,7 @@ export function GlobalStatsClient() {
 			start: from ?? data?.start ?? "",
 			end: to ?? data?.end ?? "",
 			allTime,
+			granularity: data?.granularity,
 			traffic: usageModeLabel(usageMode),
 			organization: orgKindLabel(orgKind),
 			groupBy:
@@ -611,8 +633,8 @@ export function GlobalStatsClient() {
 					? (MODEL_VIEW_OPTIONS.find((opt) => opt.value === modelView)?.label ??
 						modelView)
 					: null,
-			providerKeyId,
-			providerKeyLabel: providerKeyName,
+			providerKeys: selectedProviderKeys,
+			provider,
 			metric: chartMetric,
 		}),
 		[
@@ -620,13 +642,14 @@ export function GlobalStatsClient() {
 			to,
 			data?.start,
 			data?.end,
+			data?.granularity,
 			allTime,
 			usageMode,
 			orgKind,
 			groupBy,
 			modelView,
-			providerKeyId,
-			providerKeyName,
+			selectedProviderKeys,
+			provider,
 			chartMetric,
 		],
 	);
@@ -648,13 +671,16 @@ export function GlobalStatsClient() {
 		downloadCsv(
 			globalStatsExportFilename(
 				showTimeseriesBreakdown
-					? `daily-by-${exportDimension.replace(/\s+/g, "-")}`
-					: "daily",
+					? `${hourly ? "hourly" : "daily"}-by-${exportDimension.replace(/\s+/g, "-")}`
+					: hourly
+						? "hourly"
+						: "daily",
 				exportScope,
 			),
 			csv,
 		);
 	}, [
+		hourly,
 		showTimeseriesBreakdown,
 		sortedBreakdown,
 		timeseries,
@@ -723,9 +749,15 @@ export function GlobalStatsClient() {
 							Global Stats
 						</h1>
 						<p className="mt-1 text-sm text-muted-foreground">
-							Cross-organization usage aggregated by day, grouped by model,
-							x-source header, billing mode or organization kind.
+							Cross-organization usage aggregated by{" "}
+							{hourly ? "hour" : "UTC day"}, grouped by model, x-source header,
+							billing mode or organization kind.
 							{scopeNotes.length > 0 ? ` ${scopeNotes.join(" ")}` : ""}
+						</p>
+						<p className="mt-1 text-xs text-muted-foreground">
+							{hourly
+								? `24 complete hours · ${rangeLabel}. Updated hourly; recent hours may still be processing.`
+								: `Calendar ranges and daily buckets use UTC. Bucket start times are displayed in ${timeZone}.`}
 						</p>
 						{unattributedNote ? (
 							<p className="mt-1 text-xs text-muted-foreground">
@@ -756,6 +788,9 @@ export function GlobalStatsClient() {
 						<ToolbarGroup label="Organization">
 							<OrgKindSelector compact className="w-fit max-w-full flex-wrap" />
 						</ToolbarGroup>
+						<ToolbarGroup label="Provider">
+							<ProviderSelector />
+						</ToolbarGroup>
 						<ToolbarGroup label="Provider key">
 							<ProviderKeySelector />
 						</ToolbarGroup>
@@ -768,7 +803,7 @@ export function GlobalStatsClient() {
 								{GROUP_OPTIONS.map((opt) => {
 									const Icon = opt.icon;
 									const unavailable =
-										opt.value === "source" && providerKeyId !== null;
+										opt.value === "source" && sourceUnavailable;
 									return (
 										<Button
 											key={opt.value}
@@ -779,7 +814,7 @@ export function GlobalStatsClient() {
 											disabled={unavailable}
 											title={
 												unavailable
-													? "x-source is not tracked per provider key"
+													? "x-source is not tracked per provider or provider key"
 													: undefined
 											}
 											onClick={() => setGroupBy(opt.value)}
@@ -791,7 +826,10 @@ export function GlobalStatsClient() {
 								})}
 							</div>
 						</ToolbarGroup>
-						<ToolbarGroup label="Range" className="ml-auto">
+						<ToolbarGroup label="Display time zone" className="ml-auto">
+							<GlobalStatsTimeZone value={timeZone} onChange={setTimeZone} />
+						</ToolbarGroup>
+						<ToolbarGroup label="Range (UTC)">
 							<GlobalStatsRangePicker />
 						</ToolbarGroup>
 					</div>
@@ -837,7 +875,7 @@ export function GlobalStatsClient() {
 					value={totals ? numberFormatter.format(totals.totalTokens) : "—"}
 					subtitle={
 						totals
-							? `In: ${compactNumberFormatter.format(totals.inputTokens)} · Cached: ${compactNumberFormatter.format(totals.cachedTokens)} · Out: ${compactNumberFormatter.format(totals.outputTokens)}`
+							? `In: ${formatCompactNumber(totals.inputTokens)} · Cached: ${formatCompactNumber(totals.cachedTokens)} · Out: ${formatCompactNumber(totals.outputTokens)}`
 							: undefined
 					}
 					icon={<Layers className="h-4 w-4" />}
@@ -873,7 +911,7 @@ export function GlobalStatsClient() {
 			<Card>
 				<CardHeader className="gap-0 space-y-0 border-b p-0">
 					<div className="p-4 sm:p-6">
-						<CardTitle>Daily timeseries</CardTitle>
+						<CardTitle>{hourly ? "Hourly" : "Daily"} timeseries</CardTitle>
 						<CardDescription>
 							Aggregate{" "}
 							{chartMetric === "cost"
@@ -881,7 +919,7 @@ export function GlobalStatsClient() {
 								: chartMetric === "totalTokens"
 									? "total tokens"
 									: "request count"}{" "}
-							per day
+							per {hourly ? "hour" : "UTC day"}
 							{showTimeseriesBreakdown
 								? ` broken down by ${
 										groupBy === "model"
@@ -1017,11 +1055,17 @@ export function GlobalStatsClient() {
 											if (typeof value !== "string" || !value) {
 												return "";
 											}
-											const date = parseISO(value);
+											const date = new Date(
+												value.length === 10 ? `${value}T00:00:00Z` : value,
+											);
 											if (Number.isNaN(date.getTime())) {
 												return value;
 											}
-											return format(date, "MMM d");
+											return formatDateTime(
+												date,
+												timeZone,
+												hourly ? "hourMinute" : "monthDayHourMinute",
+											);
 										}}
 									/>
 									<YAxis
@@ -1039,11 +1083,17 @@ export function GlobalStatsClient() {
 													if (typeof value !== "string" || !value) {
 														return "";
 													}
-													const date = parseISO(value);
+													const date = new Date(
+														value.length === 10 ? `${value}T00:00:00Z` : value,
+													);
 													if (Number.isNaN(date.getTime())) {
 														return value;
 													}
-													return format(date, "MMM d, yyyy");
+													return formatDateTime(
+														date,
+														timeZone,
+														"monthDayYearHourMinuteZone",
+													);
 												}}
 												formatter={(value, name, item) =>
 													showTimeseriesBreakdown ? (
@@ -1318,11 +1368,11 @@ export function GlobalStatsClient() {
 													}
 												>
 													{chartMetric === "totalTokens"
-														? compactNumberFormatter.format(b.totalTokens)
+														? formatCompactNumber(b.totalTokens)
 														: metricFormatter(chartMetric)(b[chartMetric])}
 													{chartMetric === "totalTokens" ? (
 														<span className="block whitespace-nowrap text-xs font-normal text-muted-foreground">
-															{`(in ${compactNumberFormatter.format(b.inputTokens)} · cached ${compactNumberFormatter.format(b.cachedTokens)} · out ${compactNumberFormatter.format(b.outputTokens)})`}
+															{`(in ${formatCompactNumber(b.inputTokens)} · cached ${formatCompactNumber(b.cachedTokens)} · out ${formatCompactNumber(b.outputTokens)})`}
 														</span>
 													) : null}
 												</td>
@@ -1370,6 +1420,27 @@ export function GlobalStatsClient() {
 							</div>
 						) : null}
 					</div>
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>
+						Token and cost details — {breakdownNoun}
+						{scopeSuffix}
+					</CardTitle>
+					<CardDescription>
+						{`Every rolled-up token and cost column per ${breakdownNounSingular.toLowerCase()} across ${rangeLabel}, ranked by ${(timeseriesChartConfig[chartMetric].label as string).toLowerCase()}. Columns that are zero for every row are hidden.`}
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<GlobalStatsBreakdownDetails
+						key={`${viewKey}|${groupBy}|${modelView}|${chartMetric}`}
+						rows={sortedBreakdown}
+						totals={totals}
+						dimensionLabel={breakdownNounSingular}
+						isLoading={isLoading}
+					/>
 				</CardContent>
 			</Card>
 		</div>

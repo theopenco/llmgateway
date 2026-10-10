@@ -4,6 +4,7 @@ slug: "cli-browser-login-organization-skills"
 date: "2026-09-05"
 title: "CLI Browser Login and Organization Skills"
 summary: "Sign in to the LLM Gateway CLI from your browser or enterprise SSO instead of typing a password, and pull your organization's shared skills into Claude Code, Codex, OpenCode, Cursor, and other agents with one command. Browser login works on every plan; organization skills are available on the Enterprise plan."
+tags: ["llmgateway"]
 image:
   src: "/changelog/cli-browser-login-organization-skills.png"
   alt: "A glowing terminal window linked by a beam of light to a browser window holding a key, surrounded by books, a shield, and robot figures on a circuit board"

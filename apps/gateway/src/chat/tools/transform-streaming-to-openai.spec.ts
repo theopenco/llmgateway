@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { anthropicThinkingBlocksFor } from "@llmgateway/actions";
+
+import { extractReasoning } from "./extract-reasoning.js";
 import { extractTokenUsage } from "./extract-token-usage.js";
 import { transformStreamingToOpenai } from "./transform-streaming-to-openai.js";
+
+import type { Provider } from "@llmgateway/models";
 
 const { warn, error, setexMock } = vi.hoisted(() => ({
 	warn: vi.fn(),
@@ -10,6 +15,7 @@ const { warn, error, setexMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@llmgateway/cache", () => ({
+	setSwrSchemaVersion: vi.fn(),
 	redisClient: {
 		get: vi.fn(),
 		// The caller chains .catch() on this, so it must be thenable.
@@ -67,6 +73,24 @@ describe("transformStreamingToOpenai", () => {
 			});
 		},
 	);
+
+	it("treats Airside carriers as OpenAI-compatible without warning", () => {
+		warn.mockClear();
+		const result = transformStreamingToOpenai(
+			"carrier-only-provider" as Provider,
+			"carrier-only-provider/some-model",
+			{
+				id: "chatcmpl-test",
+				object: "chat.completion.chunk",
+				created: 1234567890,
+				choices: [{ index: 0, delta: {}, finish_reason: "tool_use" }],
+			},
+			[],
+		);
+
+		expect(result.choices[0].finish_reason).toBe("tool_calls");
+		expect(warn).not.toHaveBeenCalled();
+	});
 
 	it("replaces upstream model ids with the canonical mapping", () => {
 		const result = transformStreamingToOpenai(
@@ -182,6 +206,58 @@ describe("transformStreamingToOpenai", () => {
 		}
 	});
 
+	it("keeps Google tool indices distinct across chunks and candidates", () => {
+		const googleToolCallIndices = new Map<number, number>();
+		const transform = (indices: number[]) =>
+			transformStreamingToOpenai(
+				"google-ai-studio",
+				"gemini-3.8-flash",
+				{
+					candidates: indices.map((index) => ({
+						index,
+						content: {
+							parts: [
+								{ text: "Looking up files." },
+								{
+									functionCall: { name: "read_file", args: { path: "a.txt" } },
+									thoughtSignature: `signature-${index}`,
+								},
+								{
+									functionCall: { name: "read_file", args: { path: "b.txt" } },
+								},
+							],
+						},
+					})),
+				},
+				[],
+				undefined,
+				true,
+				undefined,
+				undefined,
+				{ googleToolCallIndices },
+			);
+
+		const first = transform([0, 1]);
+		const second = transform([1, 0]);
+		for (const choice of first.choices) {
+			expect(choice.delta.tool_calls).toMatchObject([
+				{
+					index: 0,
+					extra_content: {
+						google: { thought_signature: `signature-${choice.index}` },
+					},
+				},
+				{ index: 1 },
+			]);
+		}
+		for (const choice of second.choices) {
+			expect(choice.delta.tool_calls).toMatchObject([
+				{ index: 2 },
+				{ index: 3 },
+			]);
+		}
+	});
+
 	it("keeps streamed thought signatures inline without caching them", () => {
 		setexMock.mockClear();
 		const result = transformStreamingToOpenai(
@@ -251,6 +327,28 @@ describe("transformStreamingToOpenai", () => {
 		expect(delta).toMatchObject({
 			choices: [{ index: 0, delta: { content: "ok" } }],
 		});
+	});
+
+	it("tolerates an Anthropic web search error result", () => {
+		const result = transformStreamingToOpenai(
+			"anthropic",
+			"claude-sonnet-5",
+			{
+				type: "content_block_start",
+				index: 6,
+				content_block: {
+					type: "web_search_tool_result",
+					tool_use_id: "srvtoolu_1",
+					content: {
+						type: "web_search_tool_result_error",
+						error_code: "max_uses_exceeded",
+					},
+				},
+			},
+			[],
+		);
+
+		expect(result.choices[0].delta).toEqual({ role: "assistant" });
 	});
 
 	it("maps Anthropic message_start usage with cache creation details", () => {
@@ -448,6 +546,48 @@ describe("transformStreamingToOpenai", () => {
 		expect(warn).not.toHaveBeenCalled();
 	});
 
+	it("emits AWS Bedrock thinking as a replayable signed detail", () => {
+		const anthropicThinkingText = new Map<number, string>();
+		const chunks = [
+			{ text: "Compare the " },
+			{ text: "constraints." },
+			{ signature: "upstream-signature" },
+			{ redactedContent: "upstream-redacted-payload" },
+		].map((reasoningContent) =>
+			transformStreamingToOpenai(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-6",
+				{
+					__aws_event_type: "contentBlockDelta",
+					contentBlockIndex: "redactedContent" in reasoningContent ? 1 : 0,
+					delta: { reasoningContent },
+				},
+				[],
+				undefined,
+				true,
+				undefined,
+				undefined,
+				{ anthropicThinkingText },
+			),
+		);
+		const details = chunks.flatMap(
+			(chunk) => chunk.choices[0].delta.reasoning_details ?? [],
+		);
+
+		expect(
+			chunks.map((chunk) => extractReasoning(chunk, "aws-bedrock")).join(""),
+		).toBe("Compare the constraints.");
+		expect(anthropicThinkingBlocksFor("aws-bedrock", details)).toEqual([
+			{
+				type: "thinking",
+				thinking: "Compare the constraints.",
+				signature: "upstream-signature",
+			},
+			{ type: "redacted_thinking", data: "upstream-redacted-payload" },
+		]);
+		expect(anthropicThinkingBlocksFor("anthropic", details)).toEqual([]);
+	});
+
 	it("maps AWS Bedrock messageStop refusal to content_filter", () => {
 		warn.mockClear();
 
@@ -515,28 +655,6 @@ describe("transformStreamingToOpenai", () => {
 				},
 			},
 		});
-		expect(warn).not.toHaveBeenCalled();
-	});
-
-	it("treats non-text AWS Bedrock contentBlockDelta members as handled", () => {
-		warn.mockClear();
-
-		const result = transformStreamingToOpenai(
-			"aws-bedrock",
-			"anthropic.claude-sonnet-4-6",
-			{
-				__aws_event_type: "contentBlockDelta",
-				contentBlockIndex: 0,
-				delta: {
-					reasoningContent: {
-						signature: "sig_123",
-					},
-				},
-			},
-			[],
-		);
-
-		expect(result).toBeNull();
 		expect(warn).not.toHaveBeenCalled();
 	});
 
@@ -958,6 +1076,107 @@ describe("transformStreamingToOpenai", () => {
 				index: 0,
 				google_part: { text_offset: 5 },
 			},
+		]);
+	});
+});
+
+describe("perplexity agent api streaming", () => {
+	it("emits sources with dates on the search_results item", () => {
+		const result = transformStreamingToOpenai(
+			"perplexity",
+			"perplexity/sonar",
+			{
+				type: "response.output_item.done",
+				output_index: 0,
+				response: { id: "resp_1", created_at: 1789819970 },
+				item: {
+					type: "search_results",
+					queries: ["artemis"],
+					results: [
+						{
+							id: 1,
+							url: "https://www.nasa.gov/artemis",
+							title: "Artemis News",
+							snippet: "Artemis II flew.",
+							date: "2026-09-16",
+							last_updated: "2026-09-17",
+							source: "web",
+						},
+					],
+				},
+			},
+			[],
+		);
+
+		expect(result.search_results).toEqual([
+			{
+				url: "https://www.nasa.gov/artemis",
+				title: "Artemis News",
+				snippet: "Artemis II flew.",
+				date: "2026-09-16",
+				last_updated: "2026-09-17",
+				source: "web",
+			},
+		]);
+		expect(result.citations).toEqual(["https://www.nasa.gov/artemis"]);
+		expect(result.choices[0].delta.annotations).toEqual([
+			{
+				type: "url_citation",
+				url_citation: {
+					url: "https://www.nasa.gov/artemis",
+					title: "Artemis News",
+					date: "2026-09-16",
+					last_updated: "2026-09-17",
+				},
+			},
+		]);
+	});
+
+	it("maps output_text deltas to content", () => {
+		const result = transformStreamingToOpenai(
+			"perplexity",
+			"perplexity/sonar",
+			{
+				type: "response.output_text.delta",
+				delta: "Artemis",
+				response: { id: "resp_1", created_at: 1789819970 },
+			},
+			[],
+		);
+
+		expect(result.choices[0].delta.content).toBe("Artemis");
+	});
+
+	it("drops Perplexity's search progress events", () => {
+		expect(
+			transformStreamingToOpenai(
+				"perplexity",
+				"perplexity/sonar",
+				{ type: "response.reasoning.search_queries", queries: ["artemis"] },
+				[],
+			),
+		).toBeNull();
+	});
+
+	it("still handles Sonar chat/completions chunks", () => {
+		const result = transformStreamingToOpenai(
+			"perplexity",
+			"perplexity/sonar-pro",
+			{
+				id: "chunk-1",
+				object: "chat.completion.chunk",
+				created: 1234567890,
+				model: "sonar-pro",
+				choices: [{ index: 0, delta: { content: "hi" }, finish_reason: null }],
+				search_results: [{ url: "https://example.com", date: "2026-09-01" }],
+			},
+			[],
+		);
+
+		expect(result.choices[0].delta.content).toBe("hi");
+		// Top-level passthrough is how Sonar callers already receive sources.
+		expect(result.search_results).toEqual([
+			{ url: "https://example.com", date: "2026-09-01" },
 		]);
 	});
 });

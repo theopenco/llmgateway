@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 
+import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { AllModels } from "@/components/models/all-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
@@ -25,13 +26,14 @@ export default async function WebSearchModelsPage() {
 	return (
 		<Suspense>
 			<AllModels
+				footer={<Footer />}
 				models={models}
 				providers={providers}
 				title="Web Search Models"
 				description="Models with built-in web search for real-time, internet-grounded responses"
 				categoryFilter="web-search"
 			>
-				<HeroRSC navbarOnly sticky={false} />
+				<HeroRSC sticky={false} />
 			</AllModels>
 		</Suspense>
 	);

@@ -4,6 +4,7 @@ slug: "devpass-card-removal"
 date: "2026-08-28"
 title: "Remove Your DevPass Payment Card"
 summary: "DevPass subscribers can now remove their saved card after canceling, or whenever a subscription is inactive. The card details leave Stripe while a privacy-safe fingerprint remains to enforce the one-card-per-account rule."
+tags: ["devpass"]
 image:
   src: "/changelog/devpass-card-removal.png"
   alt: "A payment card lifting away from a circuit board while a glowing fingerprint shield remains"

@@ -16,6 +16,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
 import { getModelFamilyIcon } from "@llmgateway/shared/components";
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
 import type { CodingModelCard } from "@/lib/coding-models";
 
@@ -30,13 +31,7 @@ interface CodingModelsShowcaseProps {
 }
 
 function formatContextSize(size: number): string {
-	if (size >= 1000000) {
-		return `${(size / 1000000).toFixed(1)}M`;
-	}
-	if (size >= 1000) {
-		return `${(size / 1000).toFixed(0)}K`;
-	}
-	return size.toString();
+	return formatCompactNumber(size);
 }
 
 function formatPrice(price: number): string {

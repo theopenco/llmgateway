@@ -27,6 +27,8 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { Route } from "next";
 
 interface ApiKeyStatsClientProps {
@@ -161,8 +163,8 @@ export function ApiKeyStatsClient({
 
 	const stats = [
 		{ label: "Total Cost", value: currencyFormatter.format(summary.cost) },
-		{ label: "Total Tokens", value: summary.totalTokens.toLocaleString() },
-		{ label: "Requests", value: summary.requestCount.toLocaleString() },
+		{ label: "Total Tokens", value: formatNumber(summary.totalTokens) },
+		{ label: "Requests", value: formatNumber(summary.requestCount) },
 		{ label: "Error Rate", value: `${errorRate.toFixed(1)}%` },
 	];
 

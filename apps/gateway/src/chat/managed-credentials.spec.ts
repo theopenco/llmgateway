@@ -168,6 +168,42 @@ describe("managed provider credentials", () => {
 		expect(captured[0].authorization).toBe("Bearer sk-managed-only");
 	});
 
+	test("serves a flex request from a managed credential with no env var set", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-openai-flex",
+			provider: "openai",
+			token: "sk-managed-flex",
+		});
+
+		const previousEnvKey = process.env.LLM_OPENAI_API_KEY;
+		delete process.env.LLM_OPENAI_API_KEY;
+		const captured = captureUpstream(chatCompletion);
+
+		try {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					Authorization: "Bearer real-token",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "gpt-5.1",
+					service_tier: "flex",
+					messages: [{ role: "user", content: "Hi" }],
+				}),
+			});
+			expect(res.status).toBe(200);
+		} finally {
+			if (previousEnvKey !== undefined) {
+				process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+			}
+		}
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].authorization).toBe("Bearer sk-managed-flex");
+	});
+
 	test("falls back to the env var for providers with no managed credential", async () => {
 		await seedApiKey();
 		await seedManagedCredential({
@@ -479,9 +515,10 @@ describe("managed provider credentials", () => {
 	 * provider's default region, so the credential pinned to that region is the
 	 * one that serves it. Falling through to "no managed credential" 500s every
 	 * region-less request the moment the last region-agnostic credential goes
-	 * away. Uses `qwen-omni-turbo`, whose mapping has no regional variants at
-	 * all, so the request genuinely resolves no region — a model with regional
-	 * variants routes over those instead (see the cheapest-region test below).
+	 * away. Uses `qwen3.8-max`, whose mapping lists regions without per-region
+	 * pricing, so the request genuinely resolves no region — a model with
+	 * regional variants routes over those instead (see the cheapest-region test
+	 * below).
 	 */
 	test("serves a region-less request from the default-region credential", async () => {
 		await seedApiKey();
@@ -501,7 +538,7 @@ describe("managed provider credentials", () => {
 		const captured = captureUpstream(chatCompletion);
 
 		// Bare model id: no provider prefix and no `:region` suffix.
-		const res = await completions("qwen-omni-turbo");
+		const res = await completions("qwen3.8-max");
 		expect(res.status).toBe(200);
 
 		expect(captured).toHaveLength(1);

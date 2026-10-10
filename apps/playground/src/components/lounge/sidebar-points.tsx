@@ -7,6 +7,8 @@ import Link from "next/link";
 import { useLoungePoints } from "@/hooks/useLoungePoints";
 import { useUser } from "@/hooks/useUser";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 // Compact points pill for sidebar footers; links to the member profile.
 export function SidebarLoungePoints() {
 	const { user } = useUser();
@@ -47,7 +49,7 @@ export function SidebarLoungePoints() {
 						}
 						transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
 					>
-						{stats.totalPoints.toLocaleString()}
+						{formatNumber(stats.totalPoints)}
 					</motion.span>
 				</AnimatePresence>
 			</span>

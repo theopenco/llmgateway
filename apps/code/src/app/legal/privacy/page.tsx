@@ -94,9 +94,9 @@ export default function PrivacyPage() {
 				and routing information listed above, and full request and response{" "}
 				<strong>payloads</strong> (your prompts and the model output) are not
 				retained in your DevPass logs or dashboard. There is no setting to turn
-				payload storage on, on any DevPass plan — the configurable data
-				retention available on pay-as-you-go LLM Gateway organizations does not
-				apply to DevPass.
+				payload storage on, on any DevPass plan — the Retain All Data setting
+				available to Enterprise LLM Gateway organizations does not apply to
+				DevPass.
 			</p>
 			<p>
 				<strong>Exception — the Responses API.</strong> Requests to{" "}

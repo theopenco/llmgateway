@@ -20,6 +20,7 @@ import { useApi } from "@/lib/fetch-client";
 import Spinner from "@/lib/icons/Spinner";
 
 import { CREDIT_TOP_UP_MAX_AMOUNT } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 function AutoTopUpSettings() {
 	const { toast } = useToast();
@@ -216,14 +217,13 @@ function AutoTopUpSettings() {
 							disabled={!isOwner || !enabled}
 						/>
 						<p className="text-xs text-muted-foreground">
-							Minimum $10. Maximum $
-							{CREDIT_TOP_UP_MAX_AMOUNT.toLocaleString("en-US")}. Amount to add
-							when auto top-up triggers.
+							Minimum $10. Maximum ${formatNumber(CREDIT_TOP_UP_MAX_AMOUNT)}.
+							Amount to add when auto top-up triggers.
 						</p>
 						{amount > CREDIT_TOP_UP_MAX_AMOUNT ? (
 							<p className="text-xs text-destructive">
 								Maximum top-up amount is $
-								{CREDIT_TOP_UP_MAX_AMOUNT.toLocaleString("en-US")}.
+								{formatNumber(CREDIT_TOP_UP_MAX_AMOUNT)}.
 							</p>
 						) : !Number.isInteger(amount) ? (
 							<p className="text-xs text-destructive">

@@ -13,10 +13,13 @@ import {
 	scoreGame,
 } from "@llmgateway/shared/sandbox-escape";
 
+import { escapeMove } from "./escape-move.js";
+
 import type { ServerTypes } from "@/vars.js";
 import type { Direction } from "@llmgateway/shared/sandbox-escape";
 
 export const escape = new OpenAPIHono<ServerTypes>();
+escape.route("/", escapeMove);
 
 const runSchema = z.object({
 	id: z.string(),
@@ -28,6 +31,70 @@ const runSchema = z.object({
 	score: z.number(),
 	cost: z.number(),
 	createdAt: z.string(),
+});
+
+const listRuns = createRoute({
+	method: "get",
+	path: "/runs",
+	request: {
+		query: z.object({
+			organizationId: z.string().optional(),
+			limit: z.coerce.number().int().min(1).max(100).default(25),
+			offset: z.coerce.number().int().min(0).default(0),
+		}),
+	},
+	responses: {
+		200: {
+			description: "The caller's saved Escape runs",
+			content: {
+				"application/json": {
+					schema: z.object({
+						runs: z.array(runSchema),
+						hasMore: z.boolean(),
+					}),
+				},
+			},
+		},
+	},
+});
+escape.openapi(listRuns, async (c) => {
+	const user = c.get("user")!;
+	const { organizationId, limit, offset } = c.req.valid("query");
+	const organization = organizationId
+		? await db.query.organization.findFirst({
+				where: { id: { eq: organizationId } },
+			})
+		: undefined;
+	const runs = await db.query.sandboxEscapeRun.findMany({
+		where: {
+			userId: { eq: user.id },
+			...(organizationId && {
+				OR: [
+					{ organizationId: { eq: organizationId } },
+					...(!organization || organization.kind === "chat"
+						? [{ organizationId: { isNull: true as const } }]
+						: []),
+				],
+			}),
+		},
+		orderBy: { createdAt: "desc", id: "desc" },
+		limit: limit + 1,
+		offset,
+	});
+	return c.json({
+		runs: runs.slice(0, limit).map((run) => ({
+			id: run.id,
+			levelId: run.levelId,
+			model: run.model,
+			outcome: run.outcome,
+			steps: run.steps,
+			par: run.par,
+			score: run.score,
+			cost: run.cost,
+			createdAt: run.createdAt.toISOString(),
+		})),
+		hasMore: runs.length > limit,
+	});
 });
 
 const postRun = createRoute({

@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	eachDay,
 	MAX_ORG_ACTIVITY_RANGE_DAYS,
 	rangeDaysInclusive,
 	resolveDateRange,
@@ -14,6 +15,10 @@ import {
 } from "@/lib/mode-split.js";
 import { getOrgProjectIds } from "@/lib/org-projects.js";
 import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
+import {
+	getRoutingSavings,
+	routingSavingsSchema,
+} from "@/lib/routing-savings.js";
 import { getUserUsageBreakdown } from "@/lib/user-usage-breakdown.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
 import { bucketDate, timezoneQueryField } from "@/utils/timezone.js";
@@ -159,12 +164,17 @@ analytics.openapi(getMembersUsage, async (c) => {
 			requestCount: sql<number>`SUM(${apiKeyHourlyStats.requestCount})`.as(
 				"request_count",
 			),
-			errorCount: sql<number>`SUM(${apiKeyHourlyStats.errorCount})`.as(
-				"error_count",
-			),
 			clientErrorCount:
 				sql<number>`SUM(${apiKeyHourlyStats.clientErrorCount})`.as(
 					"client_error_count",
+				),
+			gatewayErrorCount:
+				sql<number>`SUM(${apiKeyHourlyStats.gatewayErrorCount})`.as(
+					"gateway_error_count",
+				),
+			upstreamErrorCount:
+				sql<number>`SUM(${apiKeyHourlyStats.upstreamErrorCount})`.as(
+					"upstream_error_count",
 				),
 			...modeSplitFields(apiKeyHourlyStats),
 		})
@@ -184,8 +194,9 @@ analytics.openapi(getMembersUsage, async (c) => {
 			cost: number;
 			totalTokens: number;
 			requestCount: number;
-			errorCount: number;
 			clientErrorCount: number;
+			gatewayErrorCount: number;
+			upstreamErrorCount: number;
 			creditsRequestCount: number;
 			apiKeysRequestCount: number;
 			creditsCost: number;
@@ -201,8 +212,9 @@ analytics.openapi(getMembersUsage, async (c) => {
 			cost: 0,
 			totalTokens: 0,
 			requestCount: 0,
-			errorCount: 0,
 			clientErrorCount: 0,
+			gatewayErrorCount: 0,
+			upstreamErrorCount: 0,
 			creditsRequestCount: 0,
 			apiKeysRequestCount: 0,
 			creditsCost: 0,
@@ -211,8 +223,9 @@ analytics.openapi(getMembersUsage, async (c) => {
 		agg.cost += Number(row.cost ?? 0);
 		agg.totalTokens += Number(row.totalTokens ?? 0);
 		agg.requestCount += Number(row.requestCount ?? 0);
-		agg.errorCount += Number(row.errorCount ?? 0);
 		agg.clientErrorCount += Number(row.clientErrorCount ?? 0);
+		agg.gatewayErrorCount += Number(row.gatewayErrorCount ?? 0);
+		agg.upstreamErrorCount += Number(row.upstreamErrorCount ?? 0);
 		agg.creditsRequestCount += Number(row.creditsRequestCount ?? 0);
 		agg.apiKeysRequestCount += Number(row.apiKeysRequestCount ?? 0);
 		agg.creditsCost += Number(row.creditsCost ?? 0);
@@ -223,11 +236,12 @@ analytics.openapi(getMembersUsage, async (c) => {
 	const result = members
 		.map((m) => {
 			const agg = usageByCreator.get(m.userId);
-			const stability = deriveStabilityMetrics(
-				agg?.requestCount ?? 0,
-				agg?.errorCount ?? 0,
-				agg?.clientErrorCount ?? 0,
-			);
+			const stability = deriveStabilityMetrics({
+				logsCount: agg?.requestCount ?? 0,
+				clientErrorsCount: agg?.clientErrorCount ?? 0,
+				gatewayErrorsCount: agg?.gatewayErrorCount ?? 0,
+				upstreamErrorsCount: agg?.upstreamErrorCount ?? 0,
+			});
 			return {
 				userId: m.userId,
 				name: m.user?.name ?? null,
@@ -289,6 +303,10 @@ const memberDetailSchema = z.object({
 		requestCount: z.number(),
 		errorCount: z.number(),
 		clientErrorCount: z.number(),
+		// Gateway + upstream errors over non-client-error requests; client errors
+		// are excluded from both sides so a member sending bad requests does not
+		// read as provider downtime.
+		errorRate: z.number(),
 		cacheCount: z.number(),
 		apiKeyCount: z.number(),
 		...modeSplitSchema,
@@ -379,6 +397,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 		requestCount: 0,
 		errorCount: 0,
 		clientErrorCount: 0,
+		errorRate: 0,
 		cacheCount: 0,
 		apiKeyCount: 0,
 		creditsRequestCount: 0,
@@ -441,13 +460,17 @@ analytics.openapi(getMemberDetail, async (c) => {
 				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
 					"request_count",
 				),
-			errorCount:
-				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.errorCount}), 0)`.as(
-					"error_count",
-				),
 			clientErrorCount:
 				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.clientErrorCount}), 0)`.as(
 					"client_error_count",
+				),
+			gatewayErrorCount:
+				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.gatewayErrorCount}), 0)`.as(
+					"gateway_error_count",
+				),
+			upstreamErrorCount:
+				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.upstreamErrorCount}), 0)`.as(
+					"upstream_error_count",
 				),
 			cacheCount:
 				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cacheCount}), 0)`.as(
@@ -465,11 +488,12 @@ analytics.openapi(getMemberDetail, async (c) => {
 		);
 
 	const summaryRow = summaryRows[0];
-	const stability = deriveStabilityMetrics(
-		Number(summaryRow?.requestCount ?? 0),
-		Number(summaryRow?.errorCount ?? 0),
-		Number(summaryRow?.clientErrorCount ?? 0),
-	);
+	const stability = deriveStabilityMetrics({
+		logsCount: Number(summaryRow?.requestCount ?? 0),
+		clientErrorsCount: Number(summaryRow?.clientErrorCount ?? 0),
+		gatewayErrorsCount: Number(summaryRow?.gatewayErrorCount ?? 0),
+		upstreamErrorsCount: Number(summaryRow?.upstreamErrorCount ?? 0),
+	});
 	const summary = {
 		cost: Number(summaryRow?.cost ?? 0),
 		inputTokens: Number(summaryRow?.inputTokens ?? 0),
@@ -478,6 +502,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 		requestCount: Number(summaryRow?.requestCount ?? 0),
 		errorCount: stability.errorsCount,
 		clientErrorCount: Number(summaryRow?.clientErrorCount ?? 0),
+		errorRate: stability.errorRate ?? 0,
 		cacheCount: Number(summaryRow?.cacheCount ?? 0),
 		apiKeyCount: keyIds.length,
 		creditsRequestCount: Number(summaryRow?.creditsRequestCount ?? 0),
@@ -916,17 +941,6 @@ function canonicalModelId(usedModel: string): string {
 // Inclusive list of UTC calendar dates between two YYYY-MM-DD strings, used to
 // pad the activity series so charts render a continuous axis even on idle days.
 // Callers must validate the span first (see MAX_ORG_ACTIVITY_RANGE_DAYS).
-function eachDay(fromStr: string, toStr: string): string[] {
-	const slots: string[] = [];
-	const cur = new Date(`${fromStr}T00:00:00Z`);
-	const end = new Date(`${toStr}T00:00:00Z`);
-	while (cur.getTime() <= end.getTime()) {
-		slots.push(cur.toISOString().slice(0, 10));
-		cur.setUTCDate(cur.getUTCDate() + 1);
-	}
-	return slots;
-}
-
 const orgGroupBySchema = z.enum(["model", "project", "apiKey", "user"]);
 
 const orgActivityBreakdownSchema = z.object({
@@ -1285,4 +1299,42 @@ analytics.openapi(getOrgActivity, async (c) => {
 	});
 
 	return c.json({ activity, groupBy });
+});
+
+const getOrgRoutingSavings = createRoute({
+	method: "get",
+	path: "/routing-savings",
+	request: {
+		query: z.object(dateRangeQuery),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: routingSavingsSchema,
+				},
+			},
+			description:
+				"Organization-wide spend of auto, smart and dynamic route requests vs. the priciest model the router could have picked",
+		},
+	},
+});
+
+analytics.openapi(getOrgRoutingSavings, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId, from, to, timezone } = c.req.valid("query");
+	await requireEnterpriseAdmin(authUser.id, organizationId);
+
+	const timeZone = timezone ?? "UTC";
+	return c.json(
+		await getRoutingSavings({
+			projectIds: await getOrgProjectIds(organizationId),
+			timeZone,
+			...resolveDateRange(from, to, timeZone),
+		}),
+	);
 });

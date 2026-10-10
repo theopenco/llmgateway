@@ -1,95 +1,92 @@
 ---
-id: devpass-vs-opencode-go
-slug: opencode-go
-date: 2026-08-24
-title: DevPass vs OpenCode Go
-metaTitle: "DevPass vs OpenCode Go: Best AI Coding Plan in 2026?"
-description: "DevPass vs OpenCode Go compared after Go's pricing change — $10/mo now buys up to $60 of dollar-metered usage across ~20 models; DevPass includes $58–$358 of usage and adds Claude Opus 5, GPT-5.6 Sol and Gemini across 200+ models under one key."
-competitor: OpenCode Go
-competitorLogo: opencode-go
-competitorTagline: Low-cost dollar-metered plan for open coding models
-tagline: "Both hand you a flat monthly coding subscription. Only one includes Claude Opus 5, GPT-5.6 Sol and Gemini 3.1 Pro next to the open-weight coders — with a per-request cost dashboard."
+id: "devpass-vs-opencode-go"
+slug: "opencode-go"
+date: "2026-10-10"
+title: "DevPass vs OpenCode Go"
+metaTitle: "DevPass vs OpenCode Go: Pricing, Limits and Token Rates (2026)"
+description: "Compare OpenCode Go and Go Plus per-model limits, 5-hour and weekly windows, and token rates with DevPass’s shared 2× allowance across open and frontier models."
+competitor: "OpenCode Go"
+competitorLogo: "opencode-go"
+competitorTagline: "Low-cost plans with per-model allowances"
+tagline: "OpenCode Go is the cheapest way into open coding models, with a separate limit for each model. DevPass includes one allowance for every model, including Claude, GPT and Gemini, at LLM Gateway’s multi-provider rates."
 devpassPrice: "$29–$179/mo"
-competitorPrice: "$10/mo"
-verdict: "OpenCode Go is still the cheapest seat at the table: $10/month now buys up to $60 of dollar-metered usage, and the catalog even squeezes in Grok 4.5 and GPT-5.6 Luna at $15/month each. DevPass costs more but raises every ceiling — $58 to $358 of monthly usage, plus the frontier models Go still lacks: Claude, Gemini and GPT-5.6 Sol, with per-request cost analytics. Choose Go to spend the least; choose DevPass when the ceiling or the catalog gets in your way."
+competitorPrice: "$10 or $40/mo"
+verdict: "Choose OpenCode Go if you mostly use cheap open models and your month fits inside each model’s limit: $10 for up to $60 on DeepSeek V4.1 Flash, GLM-5.3-Flash or MiniMax M2.7 is the best ratio of any flat plan. Choose DevPass if you also need frontier models, want one shared allowance instead of per-model limits, or want open models at lower per-token rates. Go’s premium open models (Kimi K3, Qwen3.8 Max, GLM-5.3) stop at 1.5× on the $10 plan."
 features:
-  - label: Starting price
-    devpass: "$29/mo (Lite)"
-    competitor: "$10/mo"
-  - label: Pricing model
-    devpass: Flat rate + usage allowance
-    competitor: Flat rate, dollar-metered
-  - label: Monthly usage included
-    devpass: "$58–$358"
-    competitor: "$60 max"
-    highlight: true
-  - label: Models included
-    devpass: "200+"
-    competitor: "~20"
-    highlight: true
-  - label: "Claude Opus 5, GPT-5.6 Sol, Gemini 3.1 Pro"
+  - label: "Monthly price"
+    devpass: "$29 / $79 / $179"
+    competitor: "$10 (Go) / $40 (Go Plus)"
+  - label: "Included usage"
+    devpass: "2× the plan price, shared by every model ($58 / $158 / $358) for subscriptions from October 15; existing ones keep 3× until their first renewal after that date"
+    competitor: "Separate limit per model: Go $15–$60 (1.5–6×), Go Plus $60–$240 (1.5–6×)"
+  - label: "Short-window caps"
+    devpass: "Daily 8% / 9% / 10%; premium weekly 10% / 12% / 15%"
+    competitor: "20% per 5 hours and 50% per week, per model"
+  - label: "Claude Opus / Sonnet, GPT Sol, Gemini"
     devpass: true
     competitor: false
-    highlight: true
-  - label: "Grok 4.5 & GPT-5.6 Luna"
-    devpass: true
-    competitor: "$15/mo cap each"
-  - label: "Open-weight coders (GLM, Kimi, Qwen, DeepSeek, MiniMax)"
-    devpass: true
-    competitor: true
-  - label: Overflow past the cap
-    devpass: Opt-in PAYG credits
-    competitor: Opt-in Zen balance
-  - label: Per-request cost & latency dashboard
-    devpass: true
-    competitor: Usage totals in console
-  - label: OpenAI + Anthropic-compatible API
-    devpass: true
-    competitor: true
-  - label: "Works with Claude Code, Cursor, Cline, Aider"
-    devpass: true
-    competitor: OpenCode & any agent
-  - label: Switch models without switching keys
-    devpass: true
-    competitor: true
+  - label: "GLM-5.3 rate (per 1M in / out)"
+    devpass: "From $0.82 / $2.77"
+    competitor: "$1.40 / $4.40"
+  - label: "DeepSeek V4.1 Flash rate (per 1M in / out)"
+    devpass: "From $0.12 / $0.47"
+    competitor: "$0.15 / $0.60 off-peak; $0.30 / $1.20 peak"
+  - label: "Over the limit"
+    devpass: "Opt-in pay as you go; Reset Pass ($5 / $15 / $45, Max includes 2 per cycle) restores the premium weekly cap only"
+    competitor: "Opt-in Zen balance"
+  - label: "Client requirements"
+    devpass: "OpenAI- or Anthropic-compatible endpoint"
+    competitor: "Coding-agent traffic with its own user agent; stable session ID recommended"
+  - label: "Shared team subscription"
+    devpass: false
+    competitor: false
 faqs:
-  - question: Is OpenCode Go cheaper than DevPass?
-    answer: "Yes. OpenCode Go is $10/month while DevPass starts at $29/month on the Lite plan. The difference is what each dollar unlocks: Go caps out at $60 of metered usage per month across ~20 models; DevPass Lite includes $58 across 200+ models — including Claude Opus 5, GPT-5.6 and Gemini 3.1 Pro, which Go does not carry — and Pro and Max raise the ceiling to $158 and $358."
-  - question: How do OpenCode Go's usage limits work?
-    answer: "Since its 2026 pricing update, Go meters usage in dollars at listed per-token rates instead of counting requests: $12 per rolling 5-hour window, $30 per week and $60 per month. Premium models — including Grok 4.5, GPT-5.6 Luna, Kimi K3 and Qwen3.8 Max — are additionally capped at $15 of usage per month each. Past the limits you drop to free models, or opt in to spending your Zen pay-as-you-go balance."
-  - question: Can I use Claude or GPT with OpenCode Go?
-    answer: "Partly, now. Go's update added its first closed models — Grok 4.5 and GPT-5.6 Luna, OpenAI's cost-optimized variant — each capped at $15/month of usage. There is still no Claude, no Gemini, and no frontier-tier GPT-5.6 Sol. DevPass includes all of them on every plan under a single API key."
-  - question: Which should I choose — DevPass or OpenCode Go?
-    answer: "If $60 of monthly usage covers your workflow and open models plus a taste of Grok and GPT-5.6 Luna is enough, OpenCode Go is hard to beat on price. If you want the frontier models from Anthropic, OpenAI and Google alongside the open-weight coders — in any tool, with a higher ceiling and a real cost breakdown per request — DevPass is the better fit."
+  - question: "How do OpenCode Go’s limits work?"
+    answer: "Each model has its own monthly dollar limit, metered at Go’s per-token rates. The 5-hour window allows 20% and the weekly window 50% of that model’s monthly limit. On Go ($10) the limits are $60 for models like DeepSeek V4.1 Flash, GLM-5.3-Flash and MiniMax M2.7, and $15 for Kimi K3, Qwen3.8 Max and GLM-5.3. Go Plus ($40) raises them to $60–$240."
+  - question: "Why are some Go models limited to $15?"
+    answer: "OpenCode says Go’s higher limits come from bulk discounts and reserved GPU capacity. Models without a negotiated discount, or whose public price is already discounted, get a lower limit: slightly more than paying the provider directly."
+  - question: "Is DevPass better value than OpenCode Go?"
+    answer: "On cheap open models, no: Go’s $10 plan includes up to 6× against DevPass’s 2×. On premium open models DevPass includes more per dollar (2× against Go’s 1.5×) at lower token rates (for example $1.60 / $4.80 against $2 / $6 on Qwen3.8 Max), and DevPass is the only one of the two that includes Claude Opus, Sonnet, GPT Sol and Gemini."
+  - question: "What happens when I reach a Go limit?"
+    answer: "You wait for the window to reset, switch to another model, or enable Use balance to pay from your Zen balance at Zen rates."
 ---
 
-## What is OpenCode Go?
+## Compare the shape of the allowance
 
-OpenCode Go is a low-cost subscription from the team behind the open-source [OpenCode](https://opencode.ai/docs) coding agent. In its 2026 pricing update it switched from request-count tiers to **dollar metering**: $10/month buys usage billed at listed per-token rates, capped at **$12 per 5-hour window, $30 per week and $60 per month**. The catalog is now roughly **20 models** — the open-weight coders (GLM-5.x, Kimi K3, Qwen3.8, DeepSeek V4, MiniMax, MiMo, LongCat) plus its first closed models, **Grok 4.5 and GPT-5.6 Luna**, each held to its own $15/month allocation. Hit a limit and you drop to the free models, or opt in to drawing on a Zen pay-as-you-go balance.
+OpenCode Go costs **$10/month**, or **$40/month** for Go Plus. Each model has its own monthly limit, set by how cheaply OpenCode can serve it, and 5-hour and weekly windows of 20% and 50% of that limit ([Go docs](https://opencode.ai/docs/go/#usage-limits)):
 
-It's a genuinely good deal for one specific developer: someone whose month fits inside $60 of usage and who is happy with the curated catalog.
+| Model               | Go ($10)    | Go Plus ($40) | DevPass Lite ($29) |
+| ------------------- | ----------- | ------------- | ------------------ |
+| DeepSeek V4.1 Flash | $60 (6×)    | $120 (3×)     | Shared $58 (2×)    |
+| GLM-5.3-Flash       | $60 (6×)    | $180 (4.5×)   | Shared $58 (2×)    |
+| MiniMax M2.7        | $60 (6×)    | $240 (6×)     | Shared $58 (2×)    |
+| GLM-5.3             | $15 (1.5×)  | $120 (3×)     | Shared $58 (2×)    |
+| Kimi K3             | $15 (1.5×)  | $60 (1.5×)    | Shared $58 (2×)    |
+| Claude Opus 5.5     | Not offered | Not offered   | Shared $58 (2×)    |
 
-## What is DevPass?
+Unused allowance on one Go model can’t be spent on another. DevPass meters every model against one monthly allowance, with a daily cap and a weekly cap on premium models.
 
-DevPass by LLM Gateway is a flat-rate coding plan that bundles **200+ models behind one API key** — the open-weight coders _and_ the frontier flagships (Claude Opus 5, GPT-5.6 Sol, Gemini 3.1 Pro). Every dollar you pay turns into **$2 of model usage at provider rates**, and every request shows its exact dollar cost in a real-time dashboard. It speaks the OpenAI and Anthropic APIs, so it drops into Claude Code, Cursor, Cline, Aider, Continue — or OpenCode itself.
+## Compare token rates
 
-## Pricing compared
+Both plans meter usage in dollars, so the per-token rate decides how many tokens the allowance buys. Go lists one rate per model; DevPass usage is metered at the rate of the provider LLM Gateway routes to, from the lowest listed:
 
-OpenCode Go wins on raw price. DevPass wins on ceiling and breadth:
+| Per 1M tokens, input / output | DevPass (lowest listed) | OpenCode Go                                |
+| ----------------------------- | ----------------------- | ------------------------------------------ |
+| GLM-5.3-Flash                 | $0.07 / $0.20           | $0.15 / $0.50                              |
+| GLM-5.3                       | $0.82 / $2.77           | $1.40 / $4.40                              |
+| DeepSeek V4.1 Flash           | $0.12 / $0.47           | $0.15 / $0.60 off-peak, $0.30 / $1.20 peak |
+| MiniMax M2.7                  | $0.08 / $0.32           | $0.30 / $1.20                              |
+| Kimi K3                       | $2.80 / $14.13          | $3.00 / $15.00                             |
+| Qwen3.8 Max                   | $1.60 / $4.80           | $2.00 / $6.00                              |
 
-- **OpenCode Go** — $10/mo, up to $60 of metered usage ($12/5h, $30/week), premium models capped at $15/mo each.
-- **DevPass Lite** — $29/mo, includes $58 of usage across all 200+ models.
-- **DevPass Pro** — $79/mo, $158 of usage. Where most developers ship from.
-- **DevPass Max** — $179/mo, $358 of usage. Built for all-day agent runs.
+Routing weighs uptime and speed as well as price, so a request can land on a pricier provider. Compare the live [coding catalog](/coding-models) before deciding.
 
-Both plans pace usage — Go with per-model monthly allocations ($15 on the frontier names, $30–$60 on the standard coders) and rolling 5-hour and weekly windows, DevPass with a published daily pacing allowance across all models plus a weekly fair-use allowance on premium models that scales with your tier (plus Reset Passes and opt-in PAYG overflow when a heavy day needs more). The difference is the height of the ceiling: Go's plan includes at most $60 of usage — past it you're spending your own Zen balance — while DevPass scales from $58 on Lite to $358 on Max.
+## Check your client and overflow settings
 
-## The real difference: model coverage
+Go expects typical coding-agent traffic from a client that identifies itself with its own user agent, and recommends a stable session ID per conversation for routing and prompt caching. Only one member per workspace can subscribe. With **Use balance** enabled, Go falls back to your Zen balance at Zen rates after a limit. DevPass works with any client that supports an OpenAI- or Anthropic-compatible endpoint; past a cap you can wait or opt into pay-as-you-go overflow. A Reset Pass restores only the premium weekly cap; Lite and Pro include none, Max includes two per billing cycle.
 
-Go's update crossed the open-weight line — Grok 4.5 and GPT-5.6 Luna are in the catalog now. But Luna is OpenAI's cost-optimized 5.6 variant, not the frontier Sol tier, both closed models are capped at $15/month, and there is still **no Claude and no Gemini at all**. Open models have come a long way, but a tricky refactor, a long-context review or a reasoning-heavy plan still tends to land on a frontier model. DevPass gives you both worlds and lets you switch between them mid-session without changing keys.
+## DevPass pricing and limits
 
-## Who should choose which
+DevPass costs **$29/month for Lite, $79 for Pro, or $179 for Max**, for one developer. From **October 15, 2026**, new subscriptions include 2× the plan price in monthly usage ($58, $158, $358); existing subscriptions move to 2× at their first renewal on or after that date. Daily caps (8%, 9%, 10% of the monthly allowance), premium weekly caps (10%, 12%, 15%) and Reset Pass prices ($5, $15, $45) take effect October 15, including within existing billing cycles. Read the [plan-change terms](/legal/terms#october-2026-plan-changes) before subscribing.
 
-**Choose OpenCode Go if** your month fits inside $60 of usage, the curated catalog covers your models, and you want the lowest flat rate available.
-
-**Choose DevPass if** you want every model — open and frontier — under one key, in any tool, with a higher usage ceiling and a per-request cost breakdown.
+For the three-way breakdown with OpenCode Zen, read [DevPass vs OpenCode Go vs OpenCode Zen](https://llmgateway.io/blog/devpass-vs-opencode-go-vs-zen).

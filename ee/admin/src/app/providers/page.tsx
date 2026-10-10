@@ -1,11 +1,17 @@
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { CatalogFiltersBar } from "@/components/catalog-filters";
+import {
+	FilterNavigationProvider,
+	FilterNavigationResults,
+} from "@/components/filter-navigation";
 import { ProvidersTable } from "@/components/providers-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import { UsageModeSelector } from "@/components/usage-mode-selector";
+import { catalogFilterQuery, parseCatalogFilters } from "@/lib/catalog-filters";
 import {
 	CATALOG_PAGE_WINDOW_DEFAULT,
 	pageWindowOptionsWithMinutes,
@@ -14,6 +20,8 @@ import {
 } from "@/lib/page-window";
 import { createServerApiClient } from "@/lib/server-api";
 import { parseUsageMode } from "@/lib/usage-mode";
+
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -42,19 +50,6 @@ function SignInPrompt() {
 	);
 }
 
-function formatCompactNumber(value: number): string {
-	if (value >= 1_000_000_000) {
-		return `${(value / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (value >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		return `${(value / 1_000).toFixed(1)}k`;
-	}
-	return value.toLocaleString("en-US");
-}
-
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
@@ -64,12 +59,7 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 export default async function ProvidersPage({
 	searchParams,
 }: {
-	searchParams?: Promise<{
-		sortBy?: string;
-		sortOrder?: string;
-		window?: string;
-		mode?: string;
-	}>;
+	searchParams?: Promise<Partial<Record<string, string>>>;
 }) {
 	const params = await searchParams;
 	const sortBy = (params?.sortBy as ProviderSortBy) ?? "logsCount";
@@ -80,10 +70,13 @@ export default async function ProvidersPage({
 	);
 	const usageMode = parseUsageMode(params?.mode);
 	const { from, to } = windowToFromTo(pageWindow);
+	const filters = parseCatalogFilters(params);
 
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/providers", {
-		params: { query: { sortBy, sortOrder, from, to, mode: usageMode } },
+		params: {
+			query: { sortBy, sortOrder, from, to, mode: usageMode, ...filters },
+		},
 	});
 
 	if (!data) {
@@ -91,60 +84,71 @@ export default async function ProvidersPage({
 	}
 
 	return (
-		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 overflow-hidden px-4 py-8 md:px-8">
-			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-				<div>
-					<h1 className="text-3xl font-semibold tracking-tight">Providers</h1>
-					<p className="mt-1 text-sm text-muted-foreground">
-						{data.total} providers — click a row to view history
-					</p>
-				</div>
-			</header>
+		<FilterNavigationProvider>
+			<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 overflow-hidden px-4 py-8 md:px-8">
+				<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+					<div>
+						<h1 className="text-3xl font-semibold tracking-tight">Providers</h1>
+						<p className="mt-1 text-sm text-muted-foreground">
+							{data.total} providers — click a row to view history
+						</p>
+					</div>
+				</header>
 
-			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-				<div className="flex flex-wrap items-center gap-6 text-sm">
-					<div>
-						<span className="text-muted-foreground">Total Requests</span>
-						<p className="text-xl font-semibold tabular-nums">
-							{formatCompactNumber(
-								data.providers.reduce((s, p) => s + p.logsCount, 0),
-							)}
-						</p>
-					</div>
-					<div>
-						<span className="text-muted-foreground">Total Tokens</span>
-						<p className="text-xl font-semibold tabular-nums">
-							{formatCompactNumber(data.totalTokens)}
-						</p>
-						<TokenBreakdown breakdown={data} short className="mt-0.5" />
-					</div>
-					<div>
-						<span className="text-muted-foreground">Total Cost</span>
-						<p className="text-xl font-semibold tabular-nums">
-							{currencyFormatter.format(data.totalCost)}
-						</p>
-					</div>
+				<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+					<FilterNavigationResults message={null}>
+						<div className="flex flex-wrap items-center gap-6 text-sm">
+							<div>
+								<span className="text-muted-foreground">Total Requests</span>
+								<p className="text-xl font-semibold tabular-nums">
+									{formatCompactNumber(
+										data.providers.reduce((s, p) => s + p.logsCount, 0),
+									)}
+								</p>
+							</div>
+							<div>
+								<span className="text-muted-foreground">Total Tokens</span>
+								<p className="text-xl font-semibold tabular-nums">
+									{formatCompactNumber(data.totalTokens)}
+								</p>
+								<TokenBreakdown breakdown={data} short className="mt-0.5" />
+							</div>
+							<div>
+								<span className="text-muted-foreground">Total Cost</span>
+								<p className="text-xl font-semibold tabular-nums">
+									{currencyFormatter.format(data.totalCost)}
+								</p>
+							</div>
+						</div>
+					</FilterNavigationResults>
+					<Suspense>
+						<div className="flex flex-wrap items-center gap-2">
+							<UsageModeSelector compact />
+							<TimeWindowSelector
+								current={pageWindow}
+								options={pageWindowOptionsWithMinutes}
+							/>
+						</div>
+					</Suspense>
 				</div>
+
 				<Suspense>
-					<div className="flex flex-wrap items-center gap-2">
-						<UsageModeSelector compact />
-						<TimeWindowSelector
-							current={pageWindow}
-							options={pageWindowOptionsWithMinutes}
+					<CatalogFiltersBar filters={filters} />
+				</Suspense>
+
+				<FilterNavigationResults>
+					<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
+						<ProvidersTable
+							providers={data.providers}
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							pageWindow={pageWindow}
+							usageMode={usageMode}
+							filterQuery={catalogFilterQuery(filters)}
 						/>
 					</div>
-				</Suspense>
+				</FilterNavigationResults>
 			</div>
-
-			<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
-				<ProvidersTable
-					providers={data.providers}
-					sortBy={sortBy}
-					sortOrder={sortOrder}
-					pageWindow={pageWindow}
-					usageMode={usageMode}
-				/>
-			</div>
-		</div>
+		</FilterNavigationProvider>
 	);
 }

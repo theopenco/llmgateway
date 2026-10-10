@@ -20,6 +20,8 @@ import {
 } from "@/lib/components/table";
 import { mockModelUsage } from "@/lib/mock-feature-data";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 export function ModelBreakdownDemo() {
 	return (
 		<Card>
@@ -52,10 +54,10 @@ export function ModelBreakdownDemo() {
 										<Badge variant="outline">{model.provider}</Badge>
 									</TableCell>
 									<TableCell className="text-right font-medium">
-										{model.requests.toLocaleString()}
+										{formatNumber(model.requests)}
 									</TableCell>
 									<TableCell className="text-right">
-										{model.tokens.toLocaleString()}
+										{formatNumber(model.tokens)}
 									</TableCell>
 									<TableCell className="text-right font-semibold">
 										${model.cost.toFixed(2)}
@@ -82,9 +84,9 @@ export function ModelBreakdownDemo() {
 						<div>
 							<p className="text-sm text-muted-foreground">Total Requests</p>
 							<p className="text-2xl font-bold">
-								{mockModelUsage
-									.reduce((sum, m) => sum + m.requests, 0)
-									.toLocaleString()}
+								{formatNumber(
+									mockModelUsage.reduce((sum, m) => sum + m.requests, 0),
+								)}
 							</p>
 						</div>
 					</div>

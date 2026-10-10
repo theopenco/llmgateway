@@ -63,7 +63,23 @@ const textImageModel = (() => {
 
 // gemma-4-31b-it has runware (supportsAssistantPrefill: false) alongside
 // providers that accept a trailing assistant message.
-const mixedPrefillModel = getModel("gemma-4-31b-it");
+// Runware serves gemma-4-31b-it as an Airside listing, merged into the static
+// model the way the gateway merges listings.
+const staticGemma = getModel("gemma-4-31b-it");
+const mixedPrefillModel: ModelDefinition = {
+	...staticGemma,
+	providers: [
+		...staticGemma.providers,
+		{
+			providerId: "runware",
+			externalId: "google:gemma@4-31b-it",
+			inputPrice: "0.13e-6",
+			outputPrice: "0.38e-6",
+			streaming: true,
+			supportsAssistantPrefill: false,
+		},
+	],
+};
 
 // JSON capability fixtures — looked up by capability combination so the tests
 // don't pin to a specific model id that may churn. Only chat-servable models
@@ -75,7 +91,12 @@ function getModelByJsonCapability(
 	const isChat = (m: ModelDefinition) =>
 		(m.output ?? ["text"]).some((o) => o === "text" || o === "image");
 	const m = (models as readonly ModelDefinition[]).find((model) => {
-		if (!isChat(model) || model.id === "auto" || model.id === "custom") {
+		if (
+			!isChat(model) ||
+			model.id === "auto" ||
+			model.id === "smart" ||
+			model.id === "custom"
+		) {
 			return false;
 		}
 		const soft = model.providers.some(
@@ -413,6 +434,43 @@ describe("validateModelCapabilities - reasoning.max_tokens", () => {
 				reasoning_max_tokens: 2048,
 			}),
 		).toThrow(HTTPException);
+	});
+});
+
+describe("validateModelCapabilities - reasoning.mode", () => {
+	const proModel = getModel("gpt-5.6-sol");
+	const nonProModel = getModel("gpt-4o-mini");
+
+	it("rejects reasoning.mode for a model no mapping serves in that mode", () => {
+		expect(() =>
+			validateModelCapabilities(nonProModel, nonProModel.id, undefined, {
+				reasoning_mode: "pro",
+			}),
+		).toThrow(/does not support reasoning.mode "pro"/);
+	});
+
+	it("accepts reasoning.mode when some mapping declares it", () => {
+		expect(() =>
+			validateModelCapabilities(proModel, proModel.id, undefined, {
+				reasoning_mode: "pro",
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects reasoning.mode on a pinned provider that does not declare it", () => {
+		expect(() =>
+			validateModelCapabilities(proModel, proModel.id, "aws-mantle", {
+				reasoning_mode: "pro",
+			}),
+		).toThrow(HTTPException);
+	});
+
+	it("accepts reasoning.mode on a pinned provider that declares it", () => {
+		expect(() =>
+			validateModelCapabilities(proModel, proModel.id, "openai", {
+				reasoning_mode: "standard",
+			}),
+		).not.toThrow();
 	});
 });
 

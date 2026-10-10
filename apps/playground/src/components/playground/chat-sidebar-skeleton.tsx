@@ -1,8 +1,8 @@
 "use client";
 import { Loader2 } from "lucide-react";
-import Link from "next/link";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
+import { ProductSwitcher } from "@/components/product-switcher";
 import {
 	Sidebar,
 	SidebarContent,
@@ -12,7 +12,6 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { Wordmark } from "@/components/ui/wordmark";
 
 import { StudioNav } from "./studio-nav";
 
@@ -22,25 +21,19 @@ interface ChatSidebarSkeletonProps {
 	className?: string;
 	onNewChat?: () => void;
 	organization: Organization | null;
-	isOrgLoading: boolean;
 }
 
 export const ChatSidebarSkeleton = ({
 	className,
 	onNewChat,
 	organization,
-	isOrgLoading,
 }: ChatSidebarSkeletonProps) => {
 	return (
 		<Sidebar collapsible="icon" className={className}>
 			<SidebarHeader>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton size="lg" asChild tooltip="Lounge">
-							<Link href="/" prefetch={true}>
-								<Wordmark size="sm" iconBox />
-							</Link>
-						</SidebarMenuButton>
+						<ProductSwitcher />
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton
@@ -64,10 +57,9 @@ export const ChatSidebarSkeleton = ({
 			</SidebarContent>
 			<SidebarFooter className="border-t">
 				<div className="group-data-[collapsible=icon]:hidden">
-					<CreditsDisplay
-						organization={organization}
-						isLoading={isOrgLoading}
-					/>
+					{/* Never interactive: the real sidebar replaces this skeleton, which
+					    would unmount a top-up dialog opened from here. */}
+					<CreditsDisplay organization={organization} isLoading />
 				</div>
 			</SidebarFooter>
 		</Sidebar>

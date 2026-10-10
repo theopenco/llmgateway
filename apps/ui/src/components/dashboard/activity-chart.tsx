@@ -38,6 +38,10 @@ import {
 	formatBucketLabelWithZone,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { TimeRangeValue } from "@/components/time-range-picker";
 import type { GroupBy } from "@/components/usage/group-by";
@@ -188,6 +192,9 @@ const CustomTooltip = ({
 	if (active && payload && payload.length) {
 		const data = payload[0].payload;
 		const items = pickBreakdown(data, groupBy);
+		const sortedPayload = payload
+			.filter((entry) => entry.dataKey !== "requestCount" && entry.value > 0)
+			.sort((a, b) => b.value - a.value);
 		return (
 			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
 				<p className="font-medium">
@@ -199,12 +206,11 @@ const CustomTooltip = ({
 						)}
 				</p>
 				<p className="text-sm">
-					<span className="font-medium">{data.requestCount}</span> requests
+					<span className="font-medium">{formatNumber(data.requestCount)}</span>{" "}
+					requests
 				</p>
 				<p className="text-sm">
-					<span className="font-medium">
-						{data.totalTokens.toLocaleString()}
-					</span>{" "}
+					<span className="font-medium">{formatNumber(data.totalTokens)}</span>{" "}
 					tokens
 				</p>
 				<p className="text-sm">
@@ -222,12 +228,7 @@ const CustomTooltip = ({
 						<p className="text-sm font-medium">
 							{DIMENSION_LABELS[groupBy].entity} Breakdown:
 						</p>
-						{payload.map((entry, index) => {
-							// Skip the entry if it's not a model (e.g., it's the total requestCount)
-							if (entry.dataKey === "requestCount") {
-								return null;
-							}
-
+						{sortedPayload.map((entry, index) => {
 							// Calculate percentage based on the selected breakdown field
 							let total = data.requestCount;
 							if (breakdownField === "cost") {
@@ -251,7 +252,7 @@ const CustomTooltip = ({
 									{entry.name}:{" "}
 									{breakdownField === "cost"
 										? `$${Number(entry.value).toFixed(4)}`
-										: entry.value}{" "}
+										: formatNumber(entry.value)}{" "}
 									{breakdownField === "tokens"
 										? "tokens"
 										: breakdownField === "cost"
@@ -633,7 +634,7 @@ export function ActivityChart({
 								if (breakdownField === "cost") {
 									return `$${Number(value).toFixed(2)}`;
 								}
-								return `${value}`;
+								return formatCompactNumber(value);
 							}}
 						/>
 						<Tooltip

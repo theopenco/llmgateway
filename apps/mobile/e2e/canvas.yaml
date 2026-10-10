@@ -1,0 +1,86 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Canvas"
+- assertVisible: "No canvas yet"
+- runFlow: helpers/close-chat-options.yaml
+- tapOn: "Model: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-4o-mini"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-4o Mini"
+- tapOn:
+    id: "field-describe-your-canvas"
+- inputText: ${"NATIVE_CANVAS_GENERATE " + Date.now()}
+- tapOn: "Done typing"
+- tapOn: "Generate canvas"
+- extendedWaitUntil:
+    visible: "Native canvas fixture"
+    timeout: 30000
+- assertVisible: "Display name"
+- tapOn: "Confirm canvas"
+- assertVisible: "Canvas confirmed"
+- tapOn: "JSON"
+- assertVisible: "Apply JSON"
+- tapOn:
+    id: "field-canvas-json"
+# Put the caret in trailing whitespace before opening the text selection menu.
+- tapOn:
+    point: 85%, 23%
+- longPressOn:
+    point: 85%, 23%
+- tapOn: "Select All"
+- inputText: '{"root":"text","elements":{"text":{"type":"Text","props":{"text":"Edited canvas preview"}}}}'
+- tapOn: "Done typing"
+- tapOn: "Apply JSON"
+- assertVisible: "Edited canvas preview"
+- tapOn: "JSON"
+- tapOn:
+    id: "field-canvas-json"
+# Put the caret in trailing whitespace before opening the text selection menu.
+- tapOn:
+    point: 85%, 23%
+- longPressOn:
+    point: 85%, 23%
+- tapOn: "Select All"
+- inputText: '{"root":"missing","elements":{}}'
+- tapOn: "Done typing"
+- tapOn: "Apply JSON"
+- assertVisible: "Canvas is missing the element: missing"
+- tapOn: "Close editor"
+- assertVisible: "Edited canvas preview"
+- tapOn: "Templates"
+- tapOn: "Charts"
+- extendedWaitUntil:
+    visible: "Chart Gallery"
+    timeout: 20000
+- takeScreenshot: artifacts/canvas-charts
+- tapOn: "Templates"
+- tapOn: "Form"
+- assertVisible: "Contact Us"
+- tapOn: "(?s)Select.*"
+- tapOn: "(?s)Technical Support.*"
+- assertVisible: "(?s)Technical Support.*"
+- tapOn: "Prompt"
+- assertVisible: "Model: gpt-4o-mini"
+- tapOn:
+    id: "field-describe-your-canvas"
+- eraseText: 100
+- inputText: ${"NATIVE_CANVAS_SLOW " + Date.now()}
+- tapOn: "Done typing"
+- tapOn: "Generate canvas"
+- tapOn: "Stop generation"
+- assertVisible: ".*Generation stopped.*"
+- assertVisible: "Contact Us"
+- launchApp
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Canvas"
+- assertVisible: "Model: gpt-4o-mini"
+- assertVisible: "No canvas yet"

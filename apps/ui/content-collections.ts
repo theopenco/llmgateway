@@ -1,6 +1,33 @@
 import { defineCollection, defineConfig } from "@content-collections/core";
 import * as z from "zod";
 
+import { interpolateRoutingDefaults } from "@llmgateway/shared/routing-defaults";
+
+import { changelogTags } from "./src/lib/changelog";
+
+/**
+ * Resolves `%routing.<path>%` tokens in every string field (body and
+ * frontmatter) so evergreen content always quotes the live routing defaults.
+ * Changelog entries are point-in-time records and are left untouched.
+ */
+function withRoutingDefaults<T>(value: T): T {
+	if (typeof value === "string") {
+		return interpolateRoutingDefaults(value) as T;
+	}
+	if (Array.isArray(value)) {
+		return value.map(withRoutingDefaults) as T;
+	}
+	if (value !== null && typeof value === "object") {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, entry]) => [
+				key,
+				withRoutingDefaults(entry),
+			]),
+		) as T;
+	}
+	return value;
+}
+
 const changelog = defineCollection({
 	name: "changelog",
 	directory: "src/content/changelog",
@@ -11,6 +38,7 @@ const changelog = defineCollection({
 		date: z.string(),
 		title: z.string(),
 		summary: z.string(),
+		tags: z.array(z.enum(changelogTags)).min(1),
 		draft: z.boolean().optional(),
 		image: z.object({
 			src: z.string(),
@@ -30,6 +58,9 @@ const blog = defineCollection({
 		slug: z.string(),
 		date: z.string(),
 		updatedAt: z.string().optional(),
+		author: z
+			.object({ name: z.string(), url: z.string().url().optional() })
+			.optional(),
 		title: z.string(),
 		summary: z.string(),
 		draft: z.boolean().optional(),
@@ -55,6 +86,7 @@ const blog = defineCollection({
 			})
 			.optional(),
 	}),
+	transform: (document) => withRoutingDefaults(document),
 });
 
 const legal = defineCollection({
@@ -92,6 +124,7 @@ const guides = defineCollection({
 			})
 			.optional(),
 	}),
+	transform: (document) => withRoutingDefaults(document),
 });
 
 const migrations = defineCollection({
@@ -104,8 +137,10 @@ const migrations = defineCollection({
 		title: z.string(),
 		description: z.string(),
 		date: z.string(),
+		updatedAt: z.string().optional(),
 		fromProvider: z.string(),
 	}),
+	transform: (document) => withRoutingDefaults(document),
 });
 
 const useCases = defineCollection({
@@ -139,6 +174,7 @@ const useCases = defineCollection({
 			)
 			.default([]),
 	}),
+	transform: (document) => withRoutingDefaults(document),
 });
 
 export default defineConfig({

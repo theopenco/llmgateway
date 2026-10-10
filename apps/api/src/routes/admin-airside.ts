@@ -5,27 +5,66 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	ICON_MAX_BYTES,
+	imageDataUrl,
+	LOGO_MAX_BYTES,
+} from "@/lib/airside-branding.js";
+import { discardPendingProviderKey } from "@/lib/airside-carrier-keys.js";
+import {
 	dematerializeAirsideModel,
 	materializeAirsideModel,
 	syncAirsideModelMetadata,
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
-import { verifiedWebsiteDomain } from "@/lib/airside-domains.js";
 import {
 	airsideModelMetadataSchema,
 	type AirsideModelMetadataInput,
 	currentMetadataFor,
 } from "@/lib/airside-metadata.js";
+import {
+	incidentErrorTypesSchema,
+	incidentsResponseSchema,
+	incidentsWindowSchema,
+	incidentErrorsClause,
+	byokClauseFor,
+	notRetriedClause,
+	queryIncidentErrorTypes,
+	buildErrorTimeline,
+	errorTimelineSchema,
+	queryIncidentMappings,
+	resolveMappingErrorWindow,
+} from "@/lib/mapping-error-shapes.js";
+import {
+	clearClaimVerificationKey,
+	saveClaimVerificationKey,
+} from "@/lib/model-verification.js";
+import {
+	bucketLabel,
+	hourBucketStarts,
+	utcDayBucketStarts,
+} from "@/lib/series-buckets.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import {
+	collectProviderEnvCredentials,
+	readProviderEnvInventory,
+} from "@llmgateway/actions";
+import {
 	AIRSIDE_BASELINE_MARGIN,
+	AIRSIDE_DISCOUNT_MAX,
+	AIRSIDE_MARGIN_MAX,
+	AIRSIDE_MARGIN_MIN,
 	and,
 	cdb,
 	computeAirsideAdjustment,
+	count,
 	db,
 	eq,
+	excludeRegionalMappingRows,
+	gte,
 	inArray,
+	isNotNull,
+	isNull,
 	ne,
 	sql,
 	tables,
@@ -35,6 +74,12 @@ import {
 	providers as catalogueProviders,
 	PROVIDER_API_FORMATS,
 } from "@llmgateway/models";
+import {
+	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
+	providerBaseUrlHasEndpointPath,
+} from "@llmgateway/shared";
+import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
+import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -132,6 +177,8 @@ const adminRoutingFilingSchema = z.object({
 	providerId: z.string(),
 	modelId: z.string().nullable(),
 	status: z.enum(["pending", "approved", "rejected"]),
+	initiatedBy: z.enum(["carrier", "admin"]),
+	clearsOverride: z.boolean(),
 	discountPercent: z.number(),
 	marginPercent: z.number(),
 	routingAdjustment: z.number(),
@@ -164,6 +211,8 @@ function serializeAdminRoutingFiling(
 		providerId: row.providerId,
 		modelId: row.modelId,
 		status: row.status,
+		initiatedBy: row.initiatedBy,
+		clearsOverride: row.clearsOverride,
 		discountPercent,
 		marginPercent,
 		routingAdjustment: computeAirsideAdjustment(discountPercent, marginPercent),
@@ -267,6 +316,7 @@ const listFilings = createRoute({
 			status: z.enum(["pending", "approved", "rejected"]).optional(),
 			limit: z.coerce.number().min(1).max(100).default(50).optional(),
 			offset: z.coerce.number().min(0).default(0).optional(),
+			routingOffset: z.coerce.number().min(0).default(0).optional(),
 		}),
 	},
 	responses: {
@@ -275,45 +325,64 @@ const listFilings = createRoute({
 				"application/json": {
 					schema: z.object({
 						filings: z.array(adminFilingSchema),
+						total: z.number(),
 						pendingCount: z.number(),
 						routingFilings: z.array(adminRoutingFilingSchema),
+						routingTotal: z.number(),
 						routingPendingCount: z.number(),
 					}),
 				},
 			},
 			description:
-				"Airside price and fare-change filings, oldest pending first.",
+				"Airside price and fare-change filings, newest first. `offset` pages price filings, `routingOffset` pages fare-change filings.",
 		},
 	},
 });
 
 adminAirside.openapi(listFilings, async (c) => {
 	const query = c.req.valid("query");
+	const limit = query.limit ?? 50;
+	type FilingStatus = NonNullable<typeof query.status>;
+	const countPrice = async (status: FilingStatus | undefined) => {
+		const table = tables.providerPriceFiling;
+		const [row] = await db
+			.select({ count: count() })
+			.from(table)
+			.where(status ? eq(table.status, status) : undefined);
+		return row?.count ?? 0;
+	};
+	const countRouting = async (status: FilingStatus | undefined) => {
+		const table = tables.providerRoutingFiling;
+		const [row] = await db
+			.select({ count: count() })
+			.from(table)
+			.where(status ? eq(table.status, status) : undefined);
+		return row?.count ?? 0;
+	};
 	const rows = await db.query.providerPriceFiling.findMany({
 		where: query.status ? { status: { eq: query.status } } : undefined,
 		with: {
 			draftModel: { with: { priceFilings: true } },
 			providerCompany: true,
 		},
-		orderBy: { createdAt: "asc" },
-		limit: query.limit ?? 50,
+		orderBy: { createdAt: "desc", id: "desc" },
+		limit,
 		offset: query.offset ?? 0,
-	});
-	const pending = await db.query.providerPriceFiling.findMany({
-		where: { status: { eq: "pending" } },
-		columns: { id: true },
 	});
 	const routingRows = await db.query.providerRoutingFiling.findMany({
 		where: query.status ? { status: { eq: query.status } } : undefined,
 		with: { providerCompany: true },
-		orderBy: { createdAt: "asc" },
-		limit: query.limit ?? 50,
-		offset: query.offset ?? 0,
+		orderBy: { createdAt: "desc", id: "desc" },
+		limit,
+		offset: query.routingOffset ?? 0,
 	});
-	const routingPending = await db.query.providerRoutingFiling.findMany({
-		where: { status: { eq: "pending" } },
-		columns: { id: true },
-	});
+	const [total, pendingCount, routingTotal, routingPendingCount] =
+		await Promise.all([
+			countPrice(query.status),
+			countPrice("pending"),
+			countRouting(query.status),
+			countRouting("pending"),
+		]);
 	const currentSettings = routingRows.length
 		? await db.query.providerRoutingSettings.findMany({
 				where: {
@@ -335,7 +404,8 @@ adminAirside.openapi(listFilings, async (c) => {
 		filings: rows.map((row) =>
 			serializeAdminFiling(row as FilingWithRelations),
 		),
-		pendingCount: pending.length,
+		total,
+		pendingCount,
 		routingFilings: routingRows.map((row) =>
 			serializeAdminRoutingFiling(
 				row as RoutingFilingWithCompany,
@@ -343,7 +413,8 @@ adminAirside.openapi(listFilings, async (c) => {
 					currentByScope.get(routingScopeKey(row.providerId, null)),
 			),
 		),
-		routingPendingCount: routingPending.length,
+		routingTotal,
+		routingPendingCount,
 	});
 });
 
@@ -391,6 +462,17 @@ adminAirside.openapi(approveFiling, async (c) => {
 	const filing = await getPendingFiling(id);
 	// cdb: approval flips a model live — the gateway's cached lookup must see it.
 	await cdb.transaction(async (tx) => {
+		// Lock and re-read the model so a concurrent pause/resume serializes
+		// with this approval and its pausedAt decides the mapping status.
+		const [model] = await tx
+			.select()
+			.from(tables.providerDraftModel)
+			.where(eq(tables.providerDraftModel.id, filing.draftModelId))
+			.for("update")
+			.$withCache(false);
+		if (!model) {
+			throw new HTTPException(404, { message: "Model not found" });
+		}
 		// Guard on status inside the UPDATE so two concurrent reviews cannot
 		// both apply — the loser sees zero rows and conflicts.
 		const updated = await tx
@@ -413,11 +495,30 @@ adminAirside.openapi(approveFiling, async (c) => {
 			});
 		}
 		if (filing.kind === "initial") {
-			await tx
+			const [activated] = await tx
 				.update(tables.providerDraftModel)
 				.set({ status: "active" })
-				.where(eq(tables.providerDraftModel.id, filing.draftModelId));
-			await materializeAirsideModel(filing.draftModel, filing, tx);
+				.where(eq(tables.providerDraftModel.id, filing.draftModelId))
+				.returning();
+			await materializeAirsideModel(activated, filing, tx);
+			// A registered carrier's first provider key was filed with its first
+			// model and smoke-tested against it; approving the model approves it.
+			const [claim] = await tx
+				.select()
+				.from(tables.providerClaim)
+				.where(
+					and(
+						eq(tables.providerClaim.providerId, model.providerId),
+						eq(tables.providerClaim.providerCompanyId, model.providerCompanyId),
+						eq(tables.providerClaim.status, "active"),
+						eq(tables.providerClaim.kind, "custom"),
+					),
+				)
+				.limit(1)
+				.$withCache(false);
+			if (claim?.pendingProviderKeyId && !claim.providerKeyId) {
+				await promotePendingProviderKey(tx, claim, claim.pendingProviderKeyId);
+			}
 		} else if (filing.kind === "metadata") {
 			const [row] = await tx
 				.update(tables.providerDraftModel)
@@ -426,7 +527,7 @@ adminAirside.openapi(approveFiling, async (c) => {
 				.returning();
 			await syncAirsideModelMetadata(row, tx);
 		} else {
-			await updateAirsideMappingPrices(filing.draftModel, filing, tx);
+			await updateAirsideMappingPrices(model, filing, tx);
 		}
 	});
 	const updated = await db.query.providerPriceFiling.findFirst({
@@ -518,6 +619,11 @@ adminAirside.openapi(rejectFiling, async (c) => {
 // Carrier claims — new carriers only go live once approved here.
 // ---------------------------------------------------------------------------
 
+const carrierKeySchema = z.object({
+	masked: z.string(),
+	submittedAt: z.string(),
+});
+
 const adminClaimSchema = z.object({
 	id: z.string(),
 	providerId: z.string(),
@@ -541,14 +647,20 @@ const adminClaimSchema = z.object({
 			iconUrl: z.string().nullable().optional(),
 		})
 		.nullable(),
+	billingMode: z.enum(AIRSIDE_BILLING_MODES),
+	// Custom carriers only: the provider key serving traffic, and a
+	// replacement awaiting approval here.
+	providerKey: carrierKeySchema.nullable(),
+	pendingProviderKey: carrierKeySchema.nullable(),
 	company: z.object({
 		id: z.string(),
 		name: z.string(),
 		website: z.string().nullable(),
-		// The registrable domain the company proved over DNS, if the proof
-		// still covers the current website. A reviewer weighs a claim very
-		// differently when the company demonstrably controls the domain.
-		websiteVerifiedDomain: z.string().nullable(),
+		// Domains the company has proven and how. A reviewer weighs a claim
+		// very differently when the company demonstrably controls the domain.
+		verifiedDomains: z.array(
+			z.object({ domain: z.string(), method: z.enum(["dns", "email"]) }),
+		),
 	}),
 });
 
@@ -563,6 +675,29 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 				columns: { email: true },
 			})
 		: null;
+	const domains = await db.query.providerCompanyDomain.findMany({
+		where: { providerCompanyId: { eq: row.providerCompanyId } },
+		orderBy: { createdAt: "asc" },
+	});
+	const keyIds = [row.providerKeyId, row.pendingProviderKeyId].filter(
+		(keyId): keyId is string => keyId !== null,
+	);
+	const keys =
+		keyIds.length > 0
+			? await db.query.providerKey.findMany({
+					where: { id: { in: keyIds }, status: { ne: "deleted" } },
+					columns: { id: true, tokenMasked: true, createdAt: true },
+				})
+			: [];
+	const keySummary = (keyId: string | null) => {
+		const key = keys.find((k) => k.id === keyId);
+		return key
+			? {
+					masked: key.tokenMasked ?? "",
+					submittedAt: key.createdAt.toISOString(),
+				}
+			: null;
+	};
 	return {
 		id: row.id,
 		providerId: row.providerId,
@@ -583,11 +718,18 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 		logoUrl: row.logoUrl,
 		iconUrl: row.iconUrl,
 		pendingBranding: row.pendingBranding ?? null,
+		billingMode: row.billingMode,
+		providerKey: keySummary(row.providerKeyId),
+		pendingProviderKey: keySummary(row.pendingProviderKeyId),
 		company: {
 			id: row.providerCompany.id,
 			name: row.providerCompany.name,
 			website: row.providerCompany.website,
-			websiteVerifiedDomain: verifiedWebsiteDomain(row.providerCompany) ?? null,
+			verifiedDomains: domains.flatMap((d) =>
+				d.verifiedAt
+					? [{ domain: d.domain, method: d.verificationMethod }]
+					: [],
+			),
 		},
 	};
 }
@@ -603,6 +745,13 @@ const listClaims = createRoute({
 				.enum(["true", "false"])
 				.transform((value) => value === "true")
 				.optional(),
+			// Only claims with a provider key replacement awaiting review.
+			pendingProviderKey: z
+				.enum(["true", "false"])
+				.transform((value) => value === "true")
+				.optional(),
+			limit: z.coerce.number().min(1).max(100).default(100).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
 		}),
 	},
 	responses: {
@@ -611,11 +760,12 @@ const listClaims = createRoute({
 				"application/json": {
 					schema: z.object({
 						claims: z.array(adminClaimSchema),
+						total: z.number(),
 						pendingCount: z.number(),
 					}),
 				},
 			},
-			description: "Carrier claims, oldest pending first.",
+			description: "Carrier claims, newest first.",
 		},
 	},
 });
@@ -628,20 +778,38 @@ adminAirside.openapi(listClaims, async (c) => {
 			...(query.pendingBranding
 				? { pendingBranding: { isNotNull: true } }
 				: {}),
+			...(query.pendingProviderKey
+				? { pendingProviderKeyId: { isNotNull: true } }
+				: {}),
 		},
 		with: { providerCompany: true },
-		orderBy: { createdAt: "asc" },
-		limit: 100,
+		orderBy: { createdAt: "desc", id: "desc" },
+		limit: query.limit ?? 100,
+		offset: query.offset ?? 0,
 	});
-	const pending = await db.query.providerClaim.findMany({
-		where: { status: { eq: "pending" } },
-		columns: { id: true },
-	});
+	const claimTable = tables.providerClaim;
+	const countClaims = async (where: Parameters<typeof and>) => {
+		const [row] = await db
+			.select({ count: count() })
+			.from(claimTable)
+			.where(and(...where));
+		return row?.count ?? 0;
+	};
+	const [total, pendingCount] = await Promise.all([
+		countClaims([
+			query.status ? eq(claimTable.status, query.status) : undefined,
+			query.pendingBranding ? isNotNull(claimTable.pendingBranding) : undefined,
+			query.pendingProviderKey
+				? isNotNull(claimTable.pendingProviderKeyId)
+				: undefined,
+		]),
+		countClaims([eq(claimTable.status, "pending")]),
+	]);
 	const claims = [];
 	for (const row of rows) {
 		claims.push(await serializeAdminClaim(row as ClaimWithRelations));
 	}
-	return c.json({ claims, pendingCount: pending.length });
+	return c.json({ claims, total, pendingCount });
 });
 
 async function getPendingClaim(id: string) {
@@ -743,6 +911,41 @@ adminAirside.openapi(rejectBranding, async (c) => {
 	});
 });
 
+type CacheTransaction = Parameters<Parameters<typeof cdb.transaction>[0]>[0];
+
+/** Puts a carrier's approved provider key into service and retires the old one. */
+async function promotePendingProviderKey(
+	tx: CacheTransaction,
+	claim: typeof tables.providerClaim.$inferSelect,
+	pendingId: string,
+) {
+	const updated = await tx
+		.update(tables.providerClaim)
+		.set({ providerKeyId: pendingId, pendingProviderKeyId: null })
+		.where(
+			and(
+				eq(tables.providerClaim.id, claim.id),
+				eq(tables.providerClaim.pendingProviderKeyId, pendingId),
+			),
+		)
+		.returning({ id: tables.providerClaim.id });
+	if (updated.length === 0) {
+		throw new HTTPException(409, {
+			message: "The provider key changed in the meantime — reload.",
+		});
+	}
+	await tx
+		.update(tables.providerKey)
+		.set({ status: "active" })
+		.where(eq(tables.providerKey.id, pendingId));
+	if (claim.providerKeyId) {
+		await tx
+			.update(tables.providerKey)
+			.set({ status: "deleted" })
+			.where(eq(tables.providerKey.id, claim.providerKeyId));
+	}
+}
+
 const approveClaim = createRoute({
 	method: "post",
 	path: "/airside/claims/{id}/approve",
@@ -828,6 +1031,83 @@ adminAirside.openapi(approveClaim, async (c) => {
 				.where(eq(tables.providerRoutingSettings.id, settings.id));
 		}
 	});
+	const updated = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	return c.json({
+		claim: await serializeAdminClaim(updated as ClaimWithRelations),
+	});
+});
+
+// A carrier's replacement provider key only serves traffic once approved
+// here. Airside smoke-tested it before filing it for review.
+async function getClaimWithPendingProviderKey(id: string) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	if (claim.status !== "active" || !claim.pendingProviderKeyId) {
+		throw new HTTPException(409, {
+			message: "This claim has no provider key awaiting review.",
+		});
+	}
+	return claim as ClaimWithRelations & { pendingProviderKeyId: string };
+}
+
+const approveProviderKey = createRoute({
+	method: "post",
+	path: "/airside/claims/{id}/provider-key/approve",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ claim: adminClaimSchema }) },
+			},
+			description:
+				"The claim with the new provider key serving and the old one retired.",
+		},
+	},
+});
+
+adminAirside.openapi(approveProviderKey, async (c) => {
+	const { id } = c.req.valid("param");
+	const claim = await getClaimWithPendingProviderKey(id);
+	const pendingId = claim.pendingProviderKeyId;
+	// cdb: managed provider_key rows feed the gateway's credential cache.
+	await cdb.transaction(async (tx) => {
+		await promotePendingProviderKey(tx, claim, pendingId);
+	});
+	const updated = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	return c.json({
+		claim: await serializeAdminClaim(updated as ClaimWithRelations),
+	});
+});
+
+const rejectProviderKey = createRoute({
+	method: "post",
+	path: "/airside/claims/{id}/provider-key/reject",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ claim: adminClaimSchema }) },
+			},
+			description: "The claim with the replacement discarded.",
+		},
+	},
+});
+
+adminAirside.openapi(rejectProviderKey, async (c) => {
+	const { id } = c.req.valid("param");
+	const claim = await getClaimWithPendingProviderKey(id);
+	await discardPendingProviderKey(claim, claim.pendingProviderKeyId);
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
 		with: { providerCompany: true },
@@ -975,6 +1255,22 @@ adminAirside.openapi(revokeClaim, async (c) => {
 		await tx
 			.delete(tables.providerRoutingSettings)
 			.where(eq(tables.providerRoutingSettings.providerId, claim.providerId));
+		// A custom carrier's credentials are the carrier's own keys.
+		if (claim.kind === "custom") {
+			await tx
+				.update(tables.providerKey)
+				.set({ status: "deleted" })
+				.where(
+					and(
+						eq(tables.providerKey.provider, claim.providerId),
+						eq(tables.providerKey.managed, true),
+					),
+				);
+			await tx
+				.update(tables.providerClaim)
+				.set({ providerKeyId: null, pendingProviderKeyId: null })
+				.where(eq(tables.providerClaim.id, id));
+		}
 		// A pending fare change would otherwise survive as a zombie and block
 		// the provider's next owner (one pending filing per provider).
 		await tx
@@ -1027,11 +1323,30 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				);
 			await tx
 				.update(tables.providerDraftModel)
-				.set({ status: "delisted", delistedAt: new Date() })
+				.set({
+					status: "delisted",
+					delistedAt: new Date(),
+					delistReason: "claim_revoked",
+					pausedAt: null,
+				})
 				.where(inArray(tables.providerDraftModel.id, modelIds));
-			for (const model of companyModels) {
-				await dematerializeAirsideModel(claim.providerId, model.modelName, tx);
-			}
+		}
+		// Hand every pair the carrier owned back to the static catalogue,
+		// including the ones it delisted itself.
+		const ownedMappings = await tx
+			.selectDistinct({ modelId: tables.modelProviderMapping.modelId })
+			.from(tables.modelProviderMapping)
+			.where(
+				and(
+					eq(tables.modelProviderMapping.providerId, claim.providerId),
+					eq(tables.modelProviderMapping.source, "airside"),
+				),
+			)
+			.$withCache(false);
+		for (const mapping of ownedMappings) {
+			await dematerializeAirsideModel(claim.providerId, mapping.modelId, tx, {
+				restoreStatic: true,
+			});
 		}
 		if (claim.kind === "custom") {
 			// The provider row only existed for this registration; drop it once no
@@ -1054,6 +1369,106 @@ adminAirside.openapi(revokeClaim, async (c) => {
 	});
 	return c.json({
 		claim: await serializeAdminClaim(updated as ClaimWithRelations),
+	});
+});
+
+const listIncidents = createRoute({
+	method: "get",
+	path: "/airside/incidents",
+	request: {
+		query: z.object({
+			providerId: z.string(),
+			/** Exact `used_model` (`provider/model[:region]`). */
+			mapping: z.string().optional(),
+			window: incidentsWindowSchema.default("24h").optional(),
+			/** Include errors and requests served by customers' own keys. */
+			includeByok: z.enum(["true", "false"]).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: incidentsResponseSchema.openapi({}),
+				},
+			},
+			description:
+				"Per-mapping upstream + gateway error counts of one provider — the carrier's Incidents view.",
+		},
+	},
+});
+
+adminAirside.openapi(listIncidents, async (c) => {
+	const query = c.req.valid("query");
+	const { hours: windowHours } = resolveMappingErrorWindow(query.window, "24h");
+	const mapping = query.mapping ?? null;
+	const providerIds = [query.providerId];
+	return c.json({
+		windowHours,
+		providerIds,
+		mapping,
+		mappings: await queryIncidentMappings({
+			providerIds,
+			windowHours,
+			mapping,
+			includeByok: query.includeByok === "true",
+		}),
+	});
+});
+
+const listIncidentErrorTypes = createRoute({
+	method: "get",
+	path: "/airside/incidents/error-types",
+	request: {
+		query: z.object({
+			providerId: z.string(),
+			/** Exact `used_model` (`provider/model[:region]`). */
+			mapping: z.string().optional(),
+			window: incidentsWindowSchema.default("24h").optional(),
+			/** Include errors and requests served by customers' own keys. */
+			includeByok: z.enum(["true", "false"]).optional(),
+			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: incidentErrorTypesSchema
+						.extend({ timeline: errorTimelineSchema })
+						.openapi({}),
+				},
+			},
+			description:
+				"Top error shapes across one provider's mappings, each with its per-mapping, streaming, and per-bucket counts.",
+		},
+	},
+});
+
+adminAirside.openapi(listIncidentErrorTypes, async (c) => {
+	const query = c.req.valid("query");
+	const {
+		hours: windowHours,
+		interval: windowInterval,
+		bucketSeconds,
+	} = resolveMappingErrorWindow(query.window, "24h");
+	return c.json({
+		timeline: buildErrorTimeline(windowHours, bucketSeconds),
+		...(await queryIncidentErrorTypes({
+			bucketSeconds,
+			mappings: await queryIncidentMappings({
+				providerIds: [query.providerId],
+				windowHours,
+				mapping: query.mapping ?? null,
+				includeByok: query.includeByok === "true",
+			}),
+			windowInterval,
+			extraClauses: [
+				incidentErrorsClause,
+				byokClauseFor(query.includeByok),
+				query.includeRetried === "false" ? notRetriedClause : sql``,
+			],
+		})),
 	});
 });
 
@@ -1128,18 +1543,60 @@ adminAirside.openapi(listCompanies, async (c) => {
 	});
 });
 
+const carrierWindowSchema = z.enum(["24h", "7d", "30d"]);
+
+const carrierSeriesPointSchema = z.object({
+	date: z.string(),
+	cost: z.number(),
+	requestCount: z.number(),
+	clientErrorCount: z.number(),
+	gatewayErrorCount: z.number(),
+	upstreamErrorCount: z.number(),
+});
+
+/**
+ * Bucket grid for the carriers table's traffic window: 24 hours ending with the
+ * hour in progress, or whole UTC days ending today.
+ */
+function carrierWindowBuckets(window: z.infer<typeof carrierWindowSchema>) {
+	if (window === "24h") {
+		return { bucket: "hour" as const, starts: hourBucketStarts(24) };
+	}
+	return {
+		bucket: "day" as const,
+		starts: utcDayBucketStarts(window === "7d" ? 7 : 30),
+	};
+}
+
 const listRoutingSettings = createRoute({
 	method: "get",
 	path: "/airside/routing-settings",
+	request: {
+		query: z.object({
+			window: carrierWindowSchema.default("7d").optional(),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
 					schema: z.object({
+						window: carrierWindowSchema,
+						bucket: z.enum(["hour", "day"]),
 						providers: z.array(
 							z.object({
 								providerId: z.string(),
 								company: z.object({ id: z.string(), name: z.string() }),
+								// Inactive = no active root mapping left to route to.
+								status: z.enum(["active", "inactive"]),
+								activeMappingCount: z.number(),
+								airsideMappingCount: z.number(),
+								// Who added the key serving the carrier, null without one.
+								// Admin keys (incl. LLM_* env vars) bill our account
+								// pay-as-you-go; carrier keys bill the carrier's own account.
+								keySource: z.enum(["admin", "carrier"]).nullable(),
+								// From the active claim; payg when none is left.
+								billingMode: z.enum(AIRSIDE_BILLING_MODES),
 								discountPercent: z.number(),
 								marginPercent: z.number(),
 								// Signed routing-price adjustment (negative = boosted).
@@ -1148,6 +1605,14 @@ const listRoutingSettings = createRoute({
 								// global_model_stats.provider_margin_amount.
 								marginAmount30d: z.number(),
 								marginAmountTotal: z.number(),
+								// Traffic over `window`, from the hourly mapping rollup.
+								routedCost: z.number(),
+								requestCount: z.number(),
+								clientErrorCount: z.number(),
+								gatewayErrorCount: z.number(),
+								upstreamErrorCount: z.number(),
+								// Zero-filled, oldest first; the last bucket is in progress.
+								series: z.array(carrierSeriesPointSchema),
 								updatedAt: z.string(),
 							}),
 						),
@@ -1155,12 +1620,87 @@ const listRoutingSettings = createRoute({
 				},
 			},
 			description:
-				"Every Airside carrier's routing settings plus accrued gateway margin.",
+				"Every Airside carrier's routing settings, traffic, and accrued gateway margin.",
 		},
 	},
 });
 
+/** Per-carrier traffic series over the window, one grouped query. */
+async function getCarrierTrafficSeries(
+	providerIds: string[],
+	{ bucket, starts }: ReturnType<typeof carrierWindowBuckets>,
+) {
+	const series = new Map<string, z.infer<typeof carrierSeriesPointSchema>[]>();
+	if (providerIds.length === 0) {
+		return series;
+	}
+
+	const history = tables.modelProviderMappingHistoryHourly;
+	const bucketExpr =
+		bucket === "hour"
+			? sql<Date>`${history.hourTimestamp}`
+			: sql<Date>`date_trunc('day', ${history.hourTimestamp})`;
+	const rows = await db
+		.select({
+			providerId: history.providerId,
+			bucket: bucketLabel(bucketExpr).as("bucket"),
+			cost: sql<number>`coalesce(sum(cast(${history.totalCost} as double precision)), 0)`.as(
+				"cost",
+			),
+			requestCount: sql<number>`coalesce(sum(${history.logsCount}), 0)`.as(
+				"request_count",
+			),
+			clientErrorCount:
+				sql<number>`coalesce(sum(${history.clientErrorsCount}), 0)`.as(
+					"client_error_count",
+				),
+			gatewayErrorCount:
+				sql<number>`coalesce(sum(${history.gatewayErrorsCount}), 0)`.as(
+					"gateway_error_count",
+				),
+			upstreamErrorCount:
+				sql<number>`coalesce(sum(${history.upstreamErrorsCount}), 0)`.as(
+					"upstream_error_count",
+				),
+		})
+		.from(history)
+		.where(
+			and(
+				inArray(history.providerId, providerIds),
+				gte(history.hourTimestamp, starts[0]),
+				excludeRegionalMappingRows(history),
+			),
+		)
+		.groupBy(history.providerId, bucketExpr);
+
+	const byProviderAndBucket = new Map<string, (typeof rows)[number]>();
+	for (const row of rows) {
+		byProviderAndBucket.set(`${row.providerId}:${row.bucket}`, row);
+	}
+	for (const providerId of providerIds) {
+		series.set(
+			providerId,
+			starts.map((start) => {
+				const date = start.toISOString();
+				const row = byProviderAndBucket.get(`${providerId}:${date}`);
+				return {
+					date,
+					cost: Number(row?.cost ?? 0),
+					requestCount: Number(row?.requestCount ?? 0),
+					clientErrorCount: Number(row?.clientErrorCount ?? 0),
+					gatewayErrorCount: Number(row?.gatewayErrorCount ?? 0),
+					upstreamErrorCount: Number(row?.upstreamErrorCount ?? 0),
+				};
+			}),
+		);
+	}
+	return series;
+}
+
 adminAirside.openapi(listRoutingSettings, async (c) => {
+	const window = c.req.valid("query").window ?? "7d";
+	const buckets = carrierWindowBuckets(window);
+
 	const rows = await db
 		.select({
 			providerId: tables.providerRoutingSettings.providerId,
@@ -1169,6 +1709,7 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 			updatedAt: tables.providerRoutingSettings.updatedAt,
 			companyId: tables.providerCompany.id,
 			companyName: tables.providerCompany.name,
+			billingMode: tables.providerClaim.billingMode,
 		})
 		.from(tables.providerRoutingSettings)
 		.innerJoin(
@@ -1176,6 +1717,16 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 			eq(
 				tables.providerRoutingSettings.providerCompanyId,
 				tables.providerCompany.id,
+			),
+		)
+		.leftJoin(
+			tables.providerClaim,
+			and(
+				eq(
+					tables.providerClaim.providerId,
+					tables.providerRoutingSettings.providerId,
+				),
+				eq(tables.providerClaim.status, "active"),
 			),
 		)
 		.where(sql`${tables.providerRoutingSettings.modelId} IS NULL`)
@@ -1189,40 +1740,124 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 		.toISOString()
 		.slice(0, 19)
 		.replace("T", " ");
-	const totals = providerIds.length
-		? await db
-				.select({
-					usedProvider: tables.globalModelStats.usedProvider,
-					total:
-						sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)), 0)`.as(
-							"total",
+	const mapping = tables.modelProviderMapping;
+	const providerKey = tables.providerKey;
+	const [totals, mappingCounts, traffic, primaryKeys, envInventory] =
+		providerIds.length
+			? await Promise.all([
+					db
+						.select({
+							usedProvider: tables.globalModelStats.usedProvider,
+							total:
+								sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)), 0)`.as(
+									"total",
+								),
+							last30d:
+								sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)) filter (where ${tables.globalModelStats.dayTimestamp} >= ${cutoff}::timestamp), 0)`.as(
+									"last30d",
+								),
+						})
+						.from(tables.globalModelStats)
+						.where(
+							and(
+								inArray(tables.globalModelStats.usedProvider, providerIds),
+								eq(tables.globalModelStats.usedMode, "credits"),
+							),
+						)
+						.groupBy(tables.globalModelStats.usedProvider),
+					db
+						.select({
+							providerId: mapping.providerId,
+							active: count(),
+							airside:
+								sql<number>`count(*) filter (where ${mapping.source} = 'airside')`.as(
+									"airside",
+								),
+						})
+						.from(mapping)
+						.where(
+							and(
+								inArray(mapping.providerId, providerIds),
+								eq(mapping.status, "active"),
+								isNull(mapping.region),
+							),
+						)
+						.groupBy(mapping.providerId),
+					getCarrierTrafficSeries(providerIds, buckets),
+					// The gateway's primary key: first active managed key in its
+					// selection order (see listManagedProviderKeys).
+					db
+						.selectDistinctOn([providerKey.provider], {
+							provider: providerKey.provider,
+							carrierSubmitted: providerKey.carrierSubmitted,
+						})
+						.from(providerKey)
+						.where(
+							and(
+								inArray(providerKey.provider, providerIds),
+								eq(providerKey.managed, true),
+								eq(providerKey.status, "active"),
+							),
+						)
+						.orderBy(
+							providerKey.provider,
+							providerKey.sortOrder,
+							providerKey.createdAt,
+							providerKey.id,
 						),
-					last30d:
-						sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)) filter (where ${tables.globalModelStats.dayTimestamp} >= ${cutoff}::timestamp), 0)`.as(
-							"last30d",
-						),
-				})
-				.from(tables.globalModelStats)
-				.where(
-					and(
-						inArray(tables.globalModelStats.usedProvider, providerIds),
-						eq(tables.globalModelStats.usedMode, "credits"),
-					),
-				)
-				.groupBy(tables.globalModelStats.usedProvider)
-		: [];
+					readProviderEnvInventory(),
+				])
+			: [
+					[],
+					[],
+					new Map<string, z.infer<typeof carrierSeriesPointSchema>[]>(),
+					[],
+					null,
+				];
 	const totalsByProvider = new Map(
 		totals.map((row) => [row.usedProvider, row]),
 	);
+	const countsByProvider = new Map(
+		mappingCounts.map((row) => [row.providerId, row]),
+	);
+	const primaryKeyByProvider = new Map(
+		primaryKeys.map((row) => [row.provider, row]),
+	);
+	const keySourceFor = (providerId: string) => {
+		const primary = primaryKeyByProvider.get(providerId);
+		if (primary) {
+			return primary.carrierSubmitted ? "carrier" : "admin";
+		}
+		// Managed keys supersede LLM_* env vars, which serve only without one.
+		// Same fallback as the credentials catalog: local env when the gateway
+		// has not published its inventory.
+		const envKeys = envInventory
+			? (envInventory.providers[providerId] ?? [])
+			: collectProviderEnvCredentials(providerId);
+		return envKeys.length > 0 ? "admin" : null;
+	};
 
 	return c.json({
+		window,
+		bucket: buckets.bucket,
 		providers: rows.map((row) => {
 			const discountPercent = Number(row.discountPercent);
 			const marginPercent = Number(row.marginPercent);
 			const accrued = totalsByProvider.get(row.providerId);
+			const counts = countsByProvider.get(row.providerId);
+			const activeMappingCount = Number(counts?.active ?? 0);
+			const series = traffic.get(row.providerId) ?? [];
+			const sum = (key: Exclude<keyof (typeof series)[number], "date">) =>
+				series.reduce((total, point) => total + point[key], 0);
 			return {
 				providerId: row.providerId,
 				company: { id: row.companyId, name: row.companyName },
+				status:
+					activeMappingCount > 0 ? ("active" as const) : ("inactive" as const),
+				activeMappingCount,
+				airsideMappingCount: Number(counts?.airside ?? 0),
+				keySource: keySourceFor(row.providerId),
+				billingMode: row.billingMode ?? "payg",
 				discountPercent,
 				marginPercent,
 				routingAdjustment: computeAirsideAdjustment(
@@ -1231,6 +1866,12 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 				),
 				marginAmount30d: Number(accrued?.last30d ?? 0),
 				marginAmountTotal: Number(accrued?.total ?? 0),
+				routedCost: sum("cost"),
+				requestCount: sum("requestCount"),
+				clientErrorCount: sum("clientErrorCount"),
+				gatewayErrorCount: sum("gatewayErrorCount"),
+				upstreamErrorCount: sum("upstreamErrorCount"),
+				series,
 				updatedAt: row.updatedAt.toISOString(),
 			};
 		}),
@@ -1416,6 +2057,407 @@ adminAirside.openapi(rejectRoutingFiling, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// Direct carrier settings edits. Admin changes skip the filing and branding
+// review queues the carrier portal goes through.
+// ---------------------------------------------------------------------------
+
+async function getActiveClaim(id: string) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	if (claim.status !== "active") {
+		throw new HTTPException(409, {
+			message: "Only an active claim's settings can be edited.",
+		});
+	}
+	return claim as ClaimWithRelations;
+}
+
+const updateClaimSettings = createRoute({
+	method: "patch",
+	path: "/airside/claims/{id}/settings",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						name: z.string().trim().min(2).max(100).optional(),
+						// Custom carriers only.
+						baseUrl: z.string().url().max(500).optional(),
+						description: z.string().max(2000).nullable().optional(),
+						// null clears the image; omitted keeps the current one.
+						logoUrl: imageDataUrl(LOGO_MAX_BYTES).nullish(),
+						iconUrl: imageDataUrl(ICON_MAX_BYTES).nullish(),
+						billingMode: z.enum(AIRSIDE_BILLING_MODES).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ claim: adminClaimSchema }) },
+			},
+			description: "The claim with the changes applied immediately.",
+		},
+	},
+});
+
+adminAirside.openapi(updateClaimSettings, async (c) => {
+	const { id } = c.req.valid("param");
+	const body = c.req.valid("json");
+	const claim = await getActiveClaim(id);
+	if (
+		claim.kind !== "custom" &&
+		(body.baseUrl !== undefined || body.description !== undefined)
+	) {
+		throw new HTTPException(400, {
+			message: "Only custom carriers have a base URL and description.",
+		});
+	}
+	if (body.baseUrl !== undefined) {
+		if (providerBaseUrlHasEndpointPath(body.baseUrl)) {
+			throw new HTTPException(400, {
+				message: PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
+			});
+		}
+		await assertSafeProviderUrl(body.baseUrl);
+	}
+	const changes = {
+		...(body.name !== undefined ? { customName: body.name } : {}),
+		...(body.baseUrl !== undefined ? { customBaseUrl: body.baseUrl } : {}),
+		...(body.description !== undefined
+			? { customDescription: body.description }
+			: {}),
+		...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}),
+		...(body.iconUrl !== undefined ? { iconUrl: body.iconUrl } : {}),
+		...(body.billingMode !== undefined
+			? { billingMode: body.billingMode }
+			: {}),
+	};
+	if (Object.keys(changes).length === 0) {
+		return c.json({ claim: await serializeAdminClaim(claim) });
+	}
+	// cdb: the gateway resolves custom carriers (base URL, branding) from
+	// cached claim rows.
+	const [updated] = await cdb
+		.update(tables.providerClaim)
+		.set(changes)
+		.where(eq(tables.providerClaim.id, id))
+		.returning();
+	return c.json({
+		claim: await serializeAdminClaim({
+			...updated,
+			providerCompany: claim.providerCompany,
+		}),
+	});
+});
+
+const adminVerificationKeySchema = z.object({
+	verificationKeyMasked: z.string().nullable(),
+	verificationKeySetAt: z.string().nullable(),
+});
+
+const setClaimVerificationKey = createRoute({
+	method: "put",
+	path: "/airside/claims/{id}/verification-key",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ apiKey: z.string().min(1).max(20_000) }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: { "application/json": { schema: adminVerificationKeySchema } },
+			description: "The saved verification key, masked.",
+		},
+	},
+});
+
+adminAirside.openapi(setClaimVerificationKey, async (c) => {
+	const { id } = c.req.valid("param");
+	const { apiKey } = c.req.valid("json");
+	const claim = await getActiveClaim(id);
+	return c.json(await saveClaimVerificationKey(claim, apiKey));
+});
+
+const deleteClaimVerificationKey = createRoute({
+	method: "delete",
+	path: "/airside/claims/{id}/verification-key",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: { "application/json": { schema: adminVerificationKeySchema } },
+			description: "The cleared verification key.",
+		},
+	},
+});
+
+adminAirside.openapi(deleteClaimVerificationKey, async (c) => {
+	const { id } = c.req.valid("param");
+	await getActiveClaim(id);
+	await clearClaimVerificationKey(id);
+	return c.json({ verificationKeyMasked: null, verificationKeySetAt: null });
+});
+
+const updateCompanySettings = createRoute({
+	method: "patch",
+	path: "/airside/companies/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						website: z.string().url().max(500).nullable(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						id: z.string(),
+						website: z.string().nullable(),
+					}),
+				},
+			},
+			description: "The updated company.",
+		},
+	},
+});
+
+adminAirside.openapi(updateCompanySettings, async (c) => {
+	const { id } = c.req.valid("param");
+	const { website } = c.req.valid("json");
+	const [updated] = await db
+		.update(tables.providerCompany)
+		.set({ website })
+		.where(eq(tables.providerCompany.id, id))
+		.returning({
+			id: tables.providerCompany.id,
+			website: tables.providerCompany.website,
+		});
+	if (!updated) {
+		throw new HTTPException(404, { message: "Company not found" });
+	}
+	return c.json(updated);
+});
+
+async function getActiveCarrierClaim(providerId: string) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { providerId: { eq: providerId }, status: { eq: "active" } },
+	});
+	if (!claim) {
+		throw new HTTPException(404, {
+			message: "This provider has no active carrier.",
+		});
+	}
+	return claim;
+}
+
+function routingScope(providerId: string, modelId: string | null) {
+	return and(
+		eq(tables.providerRoutingSettings.providerId, providerId),
+		modelId
+			? eq(tables.providerRoutingSettings.modelId, modelId)
+			: sql`${tables.providerRoutingSettings.modelId} IS NULL`,
+	);
+}
+
+// A carrier filing still pending for the scope would overwrite the admin's
+// fare (or recreate a removed override) once approved, so it is rejected.
+function rejectPendingFilings(
+	tx: Pick<typeof db, "update">,
+	providerId: string,
+	modelId: string | null,
+	userId: string | null,
+	reviewNote: string,
+) {
+	return tx
+		.update(tables.providerRoutingFiling)
+		.set({
+			status: "rejected",
+			reviewedBy: userId,
+			reviewNote,
+			reviewedAt: new Date(),
+		})
+		.where(
+			and(
+				eq(tables.providerRoutingFiling.providerId, providerId),
+				modelId
+					? eq(tables.providerRoutingFiling.modelId, modelId)
+					: sql`${tables.providerRoutingFiling.modelId} IS NULL`,
+				eq(tables.providerRoutingFiling.status, "pending"),
+			),
+		);
+}
+
+// Admin fare changes skip review, so their filing is born approved.
+function adminFilingFields(userId: string | null) {
+	return {
+		status: "approved" as const,
+		initiatedBy: "admin" as const,
+		requestedBy: userId,
+		reviewedBy: userId,
+		reviewedAt: new Date(),
+	};
+}
+
+const setRoutingSettings = createRoute({
+	method: "put",
+	path: "/airside/routing-settings/{providerId}",
+	request: {
+		params: z.object({ providerId: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						// null/omitted sets the carrier default.
+						modelId: z.string().min(1).max(200).nullable().optional(),
+						discountPercent: z.number().min(0).max(AIRSIDE_DISCOUNT_MAX),
+						marginPercent: z
+							.number()
+							.min(AIRSIDE_MARGIN_MIN)
+							.max(AIRSIDE_MARGIN_MAX),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ ok: z.boolean() }) },
+			},
+			description: "The fare is live immediately.",
+		},
+	},
+});
+
+adminAirside.openapi(setRoutingSettings, async (c) => {
+	const { providerId } = c.req.valid("param");
+	const body = c.req.valid("json");
+	const modelId = body.modelId ?? null;
+	const claim = await getActiveCarrierClaim(providerId);
+	if (modelId) {
+		const model = await db.query.providerDraftModel.findFirst({
+			where: {
+				providerId: { eq: providerId },
+				modelName: { eq: modelId },
+				status: { eq: "active" },
+			},
+			columns: { id: true },
+		});
+		if (!model) {
+			throw new HTTPException(404, { message: "Active model not found." });
+		}
+	}
+	const values = {
+		providerCompanyId: claim.providerCompanyId,
+		discountPercent: String(body.discountPercent),
+		marginPercent: String(body.marginPercent),
+	};
+	const userId = c.get("user")?.id ?? null;
+	// cdb: the gateway prices the routing election from provider_routing_settings.
+	await cdb.transaction(async (tx) => {
+		await rejectPendingFilings(
+			tx,
+			providerId,
+			modelId,
+			userId,
+			"Superseded by an admin fare change.",
+		);
+		const updated = await tx
+			.update(tables.providerRoutingSettings)
+			.set(values)
+			.where(routingScope(providerId, modelId))
+			.returning({ id: tables.providerRoutingSettings.id });
+		if (updated.length === 0) {
+			await tx
+				.insert(tables.providerRoutingSettings)
+				.values({ ...values, providerId, modelId });
+		}
+		await tx.insert(tables.providerRoutingFiling).values({
+			...values,
+			...adminFilingFields(userId),
+			providerId,
+			modelId,
+		});
+	});
+	return c.json({ ok: true });
+});
+
+const deleteRoutingOverride = createRoute({
+	method: "delete",
+	path: "/airside/routing-settings/{providerId}/override",
+	request: {
+		params: z.object({ providerId: z.string() }),
+		query: z.object({ modelId: z.string().min(1) }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ ok: z.boolean() }) },
+			},
+			description: "The model falls back to the carrier default fare.",
+		},
+	},
+});
+
+adminAirside.openapi(deleteRoutingOverride, async (c) => {
+	const { providerId } = c.req.valid("param");
+	const { modelId } = c.req.valid("query");
+	const userId = c.get("user")?.id ?? null;
+	await cdb.transaction(async (tx) => {
+		const deleted = await tx
+			.delete(tables.providerRoutingSettings)
+			.where(routingScope(providerId, modelId))
+			.returning();
+		if (deleted.length === 0) {
+			throw new HTTPException(404, { message: "Override not found" });
+		}
+		await rejectPendingFilings(
+			tx,
+			providerId,
+			modelId,
+			userId,
+			"Superseded by an admin override removal.",
+		);
+		const [fallback] = await tx
+			.select()
+			.from(tables.providerRoutingSettings)
+			.where(routingScope(providerId, null))
+			.limit(1);
+		// Record the default fare the model now inherits.
+		await tx.insert(tables.providerRoutingFiling).values({
+			...adminFilingFields(userId),
+			providerCompanyId: deleted[0].providerCompanyId,
+			providerId,
+			modelId,
+			discountPercent: fallback?.discountPercent ?? "0",
+			marginPercent: fallback?.marginPercent ?? String(AIRSIDE_BASELINE_MARGIN),
+			clearsOverride: true,
+		});
+	});
+	return c.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
 // Listing invite codes — minted here, redeemed in the carrier onboarding to
 // skip the listing fee.
 // ---------------------------------------------------------------------------
@@ -1462,11 +2504,20 @@ function serializeInviteCode(
 const listInviteCodes = createRoute({
 	method: "get",
 	path: "/airside/invite-codes",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().min(1).max(200).default(200).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({ codes: z.array(adminInviteCodeSchema) }),
+					schema: z.object({
+						codes: z.array(adminInviteCodeSchema),
+						total: z.number(),
+					}),
 				},
 			},
 			description: "Listing invite codes, newest first.",
@@ -1475,10 +2526,15 @@ const listInviteCodes = createRoute({
 });
 
 adminAirside.openapi(listInviteCodes, async (c) => {
+	const query = c.req.valid("query");
 	const rows = await db.query.airsideInviteCode.findMany({
-		orderBy: { createdAt: "desc" },
-		limit: 200,
+		orderBy: { createdAt: "desc", id: "desc" },
+		limit: query.limit ?? 200,
+		offset: query.offset ?? 0,
 	});
+	const [totalRow] = await db
+		.select({ count: count() })
+		.from(tables.airsideInviteCode);
 	const codes = rows.map((row) => row.code);
 	const redeemers = codes.length
 		? await db.query.providerCompany.findMany({
@@ -1495,6 +2551,7 @@ adminAirside.openapi(listInviteCodes, async (c) => {
 					.map((company) => ({ id: company.id, name: company.name })),
 			),
 		),
+		total: totalRow?.count ?? 0,
 	});
 });
 

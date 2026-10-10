@@ -4,8 +4,11 @@ slug: portkey
 title: Migrate from Portkey
 description: Switch from Portkey to LLM Gateway. Same OpenAI-compatible API, no virtual keys or special headers, fully open-source self-hosting.
 date: 2026-05-26
+updatedAt: 2026-09-20
 fromProvider: Portkey
 ---
+
+Portkey was acquired by Palo Alto Networks in May 2026 and is now sold as the Prisma AIRS AI Gateway; the MIT-licensed gateway stays on GitHub, but the hosted product now sits inside a security vendor's platform and sales motion. If that changes your plans, the migration is small.
 
 Portkey wraps your provider calls in virtual keys, config IDs, and `x-portkey-*` headers. LLM Gateway keeps the OpenAI-compatible interface but drops the extra ceremony: standard Bearer auth, provider keys managed in a dashboard, and the option to self-host the entire platform under AGPLv3. Migration is mostly a base URL change.
 
@@ -32,7 +35,7 @@ Both services are OpenAI-compatible, so the core change is the base URL and drop
 | Automatic provider routing    | Manual config                 | Live scoring, automatic               |
 | Response caching              | Simple + semantic             | Built-in, one toggle                  |
 | Image & video generation      | Limited                       | Same API as chat                      |
-| Pricing                       | Usage/seat-based tiers        | 5% platform fee, or 0% with your keys |
+| Pricing                       | $49/mo + $9 per 100k logs     | 5% platform fee, or 0% with your keys |
 
 Want a feature-by-feature breakdown? See [LLM Gateway vs Portkey](/compare/portkey).
 
@@ -49,17 +52,17 @@ LLM Gateway supports two model ID formats:
 **Canonical Model IDs** (without provider prefix) — uses smart routing to automatically select the best provider based on uptime, throughput, price, and latency:
 
 ```text
-gpt-5.2
-claude-opus-4-5-20251101
-gemini-3-flash-preview
+gpt-6-astra
+claude-sonnet-5
+gemini-3.1-pro-preview
 ```
 
 **Provider-Prefixed Model IDs** — routes to a specific provider with automatic failover if uptime drops:
 
 ```text
-openai/gpt-5.2
-anthropic/claude-opus-4-5-20251101
-google-ai-studio/gemini-3-flash-preview
+openai/gpt-6-astra
+anthropic/claude-sonnet-5
+google-ai-studio/gemini-3.1-pro-preview
 ```
 
 In Portkey, the provider is usually selected by the virtual key or config attached to the request. With LLM Gateway, you select the provider in the model ID itself (or let smart routing choose) — there's no separate virtual key to manage.
@@ -92,7 +95,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="gpt-5.2",  # or "openai/gpt-5.2" to target a specific provider
+    model="gpt-6-astra",  # or "openai/gpt-6-astra" to target a specific provider
     messages=[{"role": "user", "content": "Hello!"}],
 )
 ```
@@ -111,7 +114,7 @@ portkey = Portkey(
 )
 
 response = portkey.chat.completions.create(
-    model="gpt-5.2",
+    model="gpt-6-astra",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 
@@ -124,7 +127,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="gpt-5.2",
+    model="gpt-6-astra",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 ```
@@ -153,7 +156,7 @@ const llmgateway = new OpenAI({
 });
 
 const completion = await llmgateway.chat.completions.create({
-  model: "gpt-5.2", // or "openai/gpt-5.2" to target a specific provider
+  model: "gpt-6-astra", // or "openai/gpt-6-astra" to target a specific provider
   messages: [{ role: "user", content: "Hello!" }],
 });
 ```
@@ -167,7 +170,7 @@ curl https://api.portkey.ai/v1/chat/completions \
   -H "x-portkey-virtual-key: $PORTKEY_VIRTUAL_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-5.2",
+    "model": "gpt-6-astra",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 
@@ -176,10 +179,10 @@ curl https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-5.2",
+    "model": "gpt-6-astra",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
-# Use "openai/gpt-5.2" to target a specific provider
+# Use "openai/gpt-6-astra" to target a specific provider
 ```
 
 ### 4. Replace Virtual Keys and Configs
@@ -202,7 +205,7 @@ client = OpenAI(
 )
 
 stream = client.chat.completions.create(
-    model="openai/gpt-5.2",
+    model="openai/gpt-6-astra",
     messages=[{"role": "user", "content": "Write a story"}],
     stream=True,
 )
@@ -231,7 +234,7 @@ tools = [{
 }]
 
 response = client.chat.completions.create(
-    model="openai/gpt-5.2",
+    model="openai/gpt-6-astra",
     messages=[{"role": "user", "content": "What's the weather in Tokyo?"}],
     tools=tools,
 )
@@ -253,7 +256,7 @@ Prefer to run it yourself? Unlike Portkey, where only the gateway is open source
 git clone https://github.com/theopenco/llmgateway
 cd llmgateway
 pnpm install
-pnpm setup
+pnpm run setup
 pnpm dev
 ```
 

@@ -8,7 +8,7 @@ import { db, tables } from "@llmgateway/db";
 const ORG_ID = "admin-devpass-payg-org";
 const OTHER_ORG_ID = "admin-devpass-payg-other-org";
 const PROJECT_ID = "admin-devpass-payg-project";
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 interface PaygSubscriber {
 	id: string;
@@ -47,7 +47,7 @@ describe("admin devpass PAYG overflow reporting", () => {
 	const cycleStart = new Date(Date.now() - fiveDaysMs);
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 
 		// Pro org with an exhausted pool: $237 drawn from the plan, and $3 of
@@ -108,9 +108,9 @@ describe("admin devpass PAYG overflow reporting", () => {
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		await db.delete(tables.transaction);
 		await db.delete(tables.projectHourlyStats);
@@ -217,6 +217,50 @@ describe("admin devpass PAYG overflow reporting", () => {
 			gross: 26.25,
 			refunds: 5,
 			net: 21.25,
+		});
+	});
+
+	it("uses UTC month and day boundaries for top-ups and refunds", async () => {
+		await db.delete(tables.transaction);
+		const now = new Date();
+		const monthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+		const dayMs = 24 * 60 * 60 * 1000;
+		const offsets = [-1, 0, 30 * 60 * 1000, dayMs - 1, dayMs];
+		const topups = await db
+			.insert(tables.transaction)
+			.values(
+				offsets.map((offset, index) => ({
+					organizationId: ORG_ID,
+					type: "credit_topup" as const,
+					amount: String(2 ** index),
+					creditAmount: String(2 ** index),
+					status: "completed" as const,
+					createdAt: new Date(monthStart + offset),
+				})),
+			)
+			.returning();
+		await db.insert(tables.transaction).values(
+			topups.map((topup) => ({
+				organizationId: ORG_ID,
+				type: "credit_refund" as const,
+				amount: "1",
+				creditAmount: "0",
+				status: "completed" as const,
+				relatedTransactionId: topup.id,
+				createdAt: topup.createdAt,
+			})),
+		);
+		const day = new Date(monthStart).toISOString().slice(0, 10);
+		const response = await app.request(
+			`/admin/devpass/payg?from=${day}&to=${day}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as { topups: unknown };
+		expect(body.topups).toEqual({
+			allTime: { gross: 31, refunds: 5, net: 26 },
+			thisMonth: { gross: 30, refunds: 4, net: 26 },
+			range: { from: day, to: day, gross: 14, refunds: 3, net: 11 },
 		});
 	});
 

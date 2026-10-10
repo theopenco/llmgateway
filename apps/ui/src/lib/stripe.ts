@@ -15,12 +15,16 @@ function getStripePromise() {
 	return stripePromise;
 }
 
-export function useStripe() {
+// Pass `false` to skip loading Stripe.js (~200KB, phones home) until needed.
+export function useStripe(enabled = true) {
 	const [stripe, setStripe] = useState<Stripe | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState<Error | null>(null);
 
 	useEffect(() => {
+		if (!enabled) {
+			return;
+		}
 		getStripePromise()
 			.then((stripeInstance) => {
 				setStripe(stripeInstance);
@@ -30,7 +34,7 @@ export function useStripe() {
 				setError(err);
 				setIsLoading(false);
 			});
-	}, []);
+	}, [enabled]);
 
 	return { stripe, isLoading, error };
 }

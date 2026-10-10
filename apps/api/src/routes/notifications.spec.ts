@@ -36,9 +36,40 @@ describe("notifications API", () => {
 			headers: headers(),
 		});
 		expect(response.status).toBe(200);
-		expect((await response.json()).preferences).toHaveLength(3);
+		const { email, preferences } = await response.json();
+		expect(email).toBe("admin@example.com");
+		expect(preferences).toHaveLength(9);
+		expect(
+			preferences
+				.filter((p: { inApp: boolean | null }) => p.inApp)
+				.map((p: { category: string }) => p.category),
+		).toEqual([
+			"model_available",
+			"compliance_downgrade",
+			"org_limit",
+			"data_stream",
+		]);
+		// The two email-only categories are on by default; the notification ones
+		// stay opt-in apart from the org alerts.
+		expect(
+			preferences
+				.filter((p: { email: boolean }) => p.email)
+				.map((p: { category: string }) => p.category),
+		).toEqual([
+			"model_available",
+			"compliance_downgrade",
+			"org_limit",
+			"data_stream",
+			"marketing",
+			"credit_alerts",
+		]);
+		expect(
+			preferences
+				.filter((p: { inApp: boolean | null }) => p.inApp === null)
+				.map((p: { category: string }) => p.category),
+		).toEqual(["marketing", "credit_alerts"]);
 		const value = {
-			type: "budget",
+			category: "budget",
 			inApp: true,
 			email: false,
 			budgetThreshold: 90,
@@ -57,6 +88,83 @@ describe("notifications API", () => {
 		});
 		expect(invalid.status).toBe(400);
 	});
+	it("records an email-only opt-out on the suppression list and clears it", async () => {
+		const off = await app.request("/notifications/preferences", {
+			method: "PUT",
+			headers: headers(),
+			body: JSON.stringify({
+				category: "marketing",
+				inApp: null,
+				email: false,
+				budgetThreshold: null,
+			}),
+		});
+		expect(off.status).toBe(200);
+		expect(
+			await db.query.emailUnsubscribe.findFirst({
+				where: { email: "admin@example.com", category: "marketing" },
+			}),
+		).toMatchObject({ source: "dashboard" });
+		// No preference row: email-only categories live solely on the list.
+		expect(await db.select().from(tables.notificationPreference)).toHaveLength(
+			0,
+		);
+
+		const { preferences } = await (
+			await app.request("/notifications/preferences", { headers: headers() })
+		).json();
+		expect(
+			preferences.find((p: { category: string }) => p.category === "marketing"),
+		).toMatchObject({ email: false });
+
+		const on = await app.request("/notifications/preferences", {
+			method: "PUT",
+			headers: headers(),
+			body: JSON.stringify({
+				category: "marketing",
+				inApp: null,
+				email: true,
+				budgetThreshold: null,
+			}),
+		});
+		expect(on.status).toBe(200);
+		expect(await db.select().from(tables.emailUnsubscribe)).toHaveLength(0);
+	});
+	it("reports a suppressed notification category as off and re-enabling clears it", async () => {
+		await db.insert(tables.emailUnsubscribe).values({
+			email: "admin@example.com",
+			category: "budget",
+			source: "one_click",
+		});
+		await db.insert(tables.notificationPreference).values({
+			userId: "test-user-id",
+			type: "budget",
+			inApp: true,
+			email: true,
+			budgetThreshold: 80,
+		});
+
+		const { preferences } = await (
+			await app.request("/notifications/preferences", { headers: headers() })
+		).json();
+		// The preference still says yes; the suppression list overrides it.
+		expect(
+			preferences.find((p: { category: string }) => p.category === "budget"),
+		).toMatchObject({ inApp: true, email: false });
+
+		const saved = await app.request("/notifications/preferences", {
+			method: "PUT",
+			headers: headers(),
+			body: JSON.stringify({
+				category: "budget",
+				inApp: true,
+				email: true,
+				budgetThreshold: 80,
+			}),
+		});
+		expect(saved.status).toBe(200);
+		expect(await db.select().from(tables.emailUnsubscribe)).toHaveLength(0);
+	});
 	it("enforces verified email on the server", async () => {
 		await db
 			.update(tables.user)
@@ -66,13 +174,32 @@ describe("notifications API", () => {
 			method: "PUT",
 			headers: headers(),
 			body: JSON.stringify({
-				type: "budget",
+				category: "budget",
 				inApp: true,
 				email: true,
 				budgetThreshold: 80,
 			}),
 		});
 		expect(response.status).toBe(403);
+	});
+	it("defaults compliance email off for unverified users so in-app toggles save", async () => {
+		await db
+			.update(tables.user)
+			.set({ emailVerified: false })
+			.where(eq(tables.user.id, "test-user-id"));
+		const { preferences } = await (
+			await app.request("/notifications/preferences", { headers: headers() })
+		).json();
+		const preference = preferences.find(
+			(p: { category: string }) => p.category === "model_available",
+		);
+		expect(preference).toMatchObject({ inApp: true, email: false });
+		const saved = await app.request("/notifications/preferences", {
+			method: "PUT",
+			headers: headers(),
+			body: JSON.stringify({ ...preference, inApp: false }),
+		});
+		expect(saved.status).toBe(200);
 	});
 	it("scopes the inbox and read mutations to the recipient and current project access", async () => {
 		await db
@@ -123,6 +250,28 @@ describe("notifications API", () => {
 		await db.delete(tables.userOrganization);
 		const removed = await app.request("/notifications", { headers: headers() });
 		expect((await removed.json()).notifications).toHaveLength(0);
+	});
+	it("shows organization limit alerts to admins without compliance settings", async () => {
+		await db.insert(tables.notification).values({
+			userId: "test-user-id",
+			organizationId: "notification-org",
+			eventKey: "notification-org:org_limit:seats:scim:2026-09-30",
+			type: "org_limit",
+			title: "Seat limit reached",
+			message: "Contact us to add seats",
+			href: "/dashboard/notification-org/org/audit-logs",
+			inApp: true,
+			email: false,
+		});
+		const visible = await app.request("/notifications", { headers: headers() });
+		expect((await visible.json()).notifications).toHaveLength(1);
+
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "developer" })
+			.where(eq(tables.userOrganization.userId, "test-user-id"));
+		const hidden = await app.request("/notifications", { headers: headers() });
+		expect((await hidden.json()).notifications).toHaveLength(0);
 	});
 	it("marks older alerts read without changing another recipient's inbox", async () => {
 		await db

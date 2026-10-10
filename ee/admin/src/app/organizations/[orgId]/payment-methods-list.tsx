@@ -11,6 +11,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -31,6 +32,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 export interface AdminPaymentMethod {
 	id: string;
@@ -55,14 +58,10 @@ export interface AdminDevPlanCardFingerprint {
 }
 
 interface DeletePaymentMethodDialogProps {
+	orgId: string;
 	paymentMethod: AdminPaymentMethod;
 	paymentMethods: AdminPaymentMethod[];
 	autoTopUpEnabled: boolean;
-	onDelete: (
-		paymentMethodId: string,
-		replacementPaymentMethodId?: string,
-		releaseDevPlanCardFingerprint?: boolean,
-	) => Promise<{ success: boolean; error?: string }>;
 }
 
 function formatBrand(brand: string) {
@@ -80,18 +79,32 @@ function paymentMethodLabel(paymentMethod: AdminPaymentMethod) {
 }
 
 function DeletePaymentMethodDialog({
+	orgId,
 	paymentMethod,
 	paymentMethods,
 	autoTopUpEnabled,
-	onDelete,
 }: DeletePaymentMethodDialogProps) {
 	const router = useRouter();
+	const $api = useApi();
 	const replacementOptions = paymentMethods.filter(
 		(candidate) => candidate.id !== paymentMethod.id,
 	);
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const deleteMutation = $api.useMutation(
+		"delete",
+		"/admin/organizations/{orgId}/payment-methods/{paymentMethodId}",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
+				setOpen(false);
+				router.refresh();
+			},
+		},
+	);
+	const loading = deleteMutation.isPending;
+	const error = deleteMutation.isError
+		? apiErrorMessage(deleteMutation.error, "Failed to delete payment method")
+		: null;
 	const [replacementPaymentMethodId, setReplacementPaymentMethodId] = useState(
 		replacementOptions[0]?.id ?? "",
 	);
@@ -101,32 +114,16 @@ function DeletePaymentMethodDialog({
 	const requiresReplacement =
 		paymentMethod.isDefault && replacementOptions.length > 0;
 
-	const handleDelete = async () => {
-		setLoading(true);
-		setError(null);
-
-		try {
-			const result = await onDelete(
-				paymentMethod.id,
-				requiresReplacement ? replacementPaymentMethodId : undefined,
+	const handleDelete = () => {
+		deleteMutation.mutate({
+			params: { path: { orgId, paymentMethodId: paymentMethod.id } },
+			body: {
+				replacementPaymentMethodId: requiresReplacement
+					? replacementPaymentMethodId
+					: undefined,
 				releaseDevPlanCardFingerprint,
-			);
-			if (!result.success) {
-				setError(result.error ?? "Failed to delete payment method");
-				return;
-			}
-
-			setOpen(false);
-			router.refresh();
-		} catch (deleteError) {
-			setError(
-				deleteError instanceof Error
-					? deleteError.message
-					: "Failed to delete payment method",
-			);
-		} finally {
-			setLoading(false);
-		}
+			},
+		});
 	};
 
 	return (
@@ -137,13 +134,10 @@ function DeletePaymentMethodDialog({
 					return;
 				}
 				setOpen(nextOpen);
+				deleteMutation.reset();
 				if (nextOpen) {
-					setError(null);
 					setReplacementPaymentMethodId(replacementOptions[0]?.id ?? "");
 					setReleaseDevPlanCardFingerprint(false);
-				}
-				if (!nextOpen) {
-					setError(null);
 				}
 			}}
 		>
@@ -279,39 +273,38 @@ function DeletePaymentMethodDialog({
 }
 
 function ReleaseFingerprintDialog({
+	orgId,
 	fingerprint,
-	onRelease,
 }: {
+	orgId: string;
 	fingerprint: AdminDevPlanCardFingerprint;
-	onRelease: (
-		fingerprintId: string,
-	) => Promise<{ success: boolean; error?: string }>;
 }) {
 	const router = useRouter();
+	const $api = useApi();
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const releaseMutation = $api.useMutation(
+		"delete",
+		"/admin/organizations/{orgId}/dev-plan-card-fingerprints/{fingerprintId}",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
+				setOpen(false);
+				router.refresh();
+			},
+		},
+	);
+	const loading = releaseMutation.isPending;
+	const error = releaseMutation.isError
+		? apiErrorMessage(
+				releaseMutation.error,
+				"Failed to release card fingerprint",
+			)
+		: null;
 
-	const handleRelease = async () => {
-		setLoading(true);
-		setError(null);
-		try {
-			const result = await onRelease(fingerprint.id);
-			if (!result.success) {
-				setError(result.error ?? "Failed to release card fingerprint");
-				return;
-			}
-			setOpen(false);
-			router.refresh();
-		} catch (releaseError) {
-			setError(
-				releaseError instanceof Error
-					? releaseError.message
-					: "Failed to release card fingerprint",
-			);
-		} finally {
-			setLoading(false);
-		}
+	const handleRelease = () => {
+		releaseMutation.mutate({
+			params: { path: { orgId, fingerprintId: fingerprint.id } },
+		});
 	};
 
 	return (
@@ -320,7 +313,7 @@ function ReleaseFingerprintDialog({
 			onOpenChange={(nextOpen) => {
 				if (!loading) {
 					setOpen(nextOpen);
-					setError(null);
+					releaseMutation.reset();
 				}
 			}}
 		>
@@ -371,25 +364,17 @@ function ReleaseFingerprintDialog({
 }
 
 export function PaymentMethodsList({
+	orgId,
 	paymentMethods,
 	devPlanCardFingerprints,
 	loadError,
 	autoTopUpEnabled,
-	onDelete,
-	onReleaseFingerprint,
 }: {
+	orgId: string;
 	paymentMethods: AdminPaymentMethod[] | null;
 	devPlanCardFingerprints: AdminDevPlanCardFingerprint[];
 	loadError: boolean;
 	autoTopUpEnabled: boolean;
-	onDelete: (
-		paymentMethodId: string,
-		replacementPaymentMethodId?: string,
-		releaseDevPlanCardFingerprint?: boolean,
-	) => Promise<{ success: boolean; error?: string }>;
-	onReleaseFingerprint: (
-		fingerprintId: string,
-	) => Promise<{ success: boolean; error?: string }>;
 }) {
 	const router = useRouter();
 
@@ -437,12 +422,14 @@ export function PaymentMethodsList({
 										{paymentMethod.id}
 									</p>
 								</div>
-								<DeletePaymentMethodDialog
-									paymentMethod={paymentMethod}
-									paymentMethods={paymentMethods}
-									autoTopUpEnabled={autoTopUpEnabled}
-									onDelete={onDelete}
-								/>
+								<AdminOnly>
+									<DeletePaymentMethodDialog
+										orgId={orgId}
+										paymentMethod={paymentMethod}
+										paymentMethods={paymentMethods}
+										autoTopUpEnabled={autoTopUpEnabled}
+									/>
+								</AdminOnly>
 							</div>
 						);
 					})}
@@ -491,10 +478,12 @@ export function PaymentMethodsList({
 											: " · End the DevPass subscription before release"}
 									</p>
 								</div>
-								<ReleaseFingerprintDialog
-									fingerprint={fingerprint}
-									onRelease={onReleaseFingerprint}
-								/>
+								<AdminOnly>
+									<ReleaseFingerprintDialog
+										orgId={orgId}
+										fingerprint={fingerprint}
+									/>
+								</AdminOnly>
 							</div>
 						))}
 					</div>

@@ -4,6 +4,10 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import {
+	completeConnectorAuthorization,
+	connectorCallbackQuery,
+} from "@/lib/connectors/authorization.js";
+import {
 	assertConnectorAvailable,
 	connectorAvailable,
 	shopDomain,
@@ -12,15 +16,13 @@ import { openConnector, sealConnector } from "@/lib/connectors/crypto.js";
 import {
 	beginAuthorization,
 	credentialsSchema,
-	finishAuthorization,
 } from "@/lib/connectors/oauth.js";
 import {
 	callConnectorTool,
 	listConnectorTools,
 } from "@/lib/connectors/tools.js";
 
-import { and, db, eq, gt, lt, tables, shortid } from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
+import { and, db, eq, lt, tables } from "@llmgateway/db";
 import {
 	loungeConnectorIds,
 	loungeConnectors,
@@ -122,6 +124,7 @@ connectors.openapi(
 						schema: z
 							.object({
 								shop: z.string().max(255).optional(),
+								platform: z.literal("ios").optional(),
 								returnTo: z
 									.string()
 									.max(2048)
@@ -164,6 +167,7 @@ connectors.openapi(
 		const credentials: ConnectorCredentials = {
 			client: previous?.client,
 			returnTo: c.req.valid("json").returnTo,
+			platform: c.req.valid("json").platform,
 		};
 		if (id === "shopify") {
 			credentials.shop = shopDomain(
@@ -194,11 +198,7 @@ connectors.openapi(
 		tags: ["Connectors"],
 		request: {
 			params,
-			query: z.object({
-				state: z.string().min(32).max(128),
-				code: z.string().min(1).max(4096).optional(),
-				error: z.string().max(255).optional(),
-			}),
+			query: connectorCallbackQuery,
 		},
 		responses: {
 			...errorResponses,
@@ -207,97 +207,66 @@ connectors.openapi(
 	}),
 	async (c) => {
 		const { connectorId: id } = c.req.valid("param");
-		const { state, code, error } = c.req.valid("query");
-		assertConnectorAvailable(id);
-		const userId = c.get("user")!.id;
-		const stateHash = createHash("sha256").update(state).digest("hex");
-		const [pending] = await db
-			.update(tables.loungeConnectorAuthorization)
-			.set({ consumed: true })
-			.where(
-				and(
-					eq(tables.loungeConnectorAuthorization.consumed, false),
-					eq(tables.loungeConnectorAuthorization.id, stateHash),
-					eq(tables.loungeConnectorAuthorization.userId, userId),
-					eq(
-						tables.loungeConnectorAuthorization.sessionId,
-						c.get("session")!.id,
-					),
-					eq(tables.loungeConnectorAuthorization.connectorId, id),
-					gt(tables.loungeConnectorAuthorization.expiresAt, new Date()),
-				),
-			)
-			.returning();
-		if (!pending) {
-			throw new HTTPException(400, {
-				message: "Authorization expired or already used. Try connecting again.",
-			});
-		}
-		const pendingCredentials = credentialsSchema.parse(
-			openConnector(pending.credentials, userId, pending.id),
-		);
+		const result = await completeConnectorAuthorization({
+			id,
+			userId: c.get("user")!.id,
+			sessionId: c.get("session")!.id,
+			query: new URL(c.req.url).searchParams,
+		});
 		const returnUrl = new URL(
-			pendingCredentials.returnTo ?? "/",
+			result.returnTo ?? "/",
 			process.env.PLAYGROUND_URL ?? "http://localhost:3003",
 		);
 		returnUrl.searchParams.set("connector", id);
+		returnUrl.searchParams.set("connector_status", result.status);
 		c.header("Cache-Control", "no-store");
 		c.header("Referrer-Policy", "no-referrer");
-		if (error) {
-			returnUrl.searchParams.set("connector_status", "cancelled");
-			return c.redirect(returnUrl.toString(), 302);
-		}
-		if (!code) {
-			throw new HTTPException(400, { message: "Missing authorization code" });
-		}
-		const credentials = credentialsSchema.parse(
-			openConnector(pending.credentials, userId, pending.id),
-		);
-		try {
-			await finishAuthorization(
-				id,
-				credentials,
-				code,
-				new URL(c.req.url).searchParams,
-			);
-		} catch {
-			logger.warn("Lounge connector authorization failed", { connector: id });
-			returnUrl.searchParams.set("connector_status", "failed");
-			return c.redirect(returnUrl.toString(), 302);
-		}
-		await db.transaction(async (tx) => {
-			const [active] = await tx
-				.delete(tables.loungeConnectorAuthorization)
-				.where(eq(tables.loungeConnectorAuthorization.id, pending.id))
-				.returning();
-			if (!active) {
-				throw new HTTPException(409, {
-					message: "Authorization was cancelled. Connect again.",
-				});
-			}
-			const connectionId = shortid();
-			await tx
-				.insert(tables.loungeConnection)
-				.values({
-					id: connectionId,
-					userId,
-					connectorId: id,
-					credentials: sealConnector(credentials, userId, id),
-				})
-				.onConflictDoUpdate({
-					target: [
-						tables.loungeConnection.userId,
-						tables.loungeConnection.connectorId,
-					],
-					set: {
-						credentials: sealConnector(credentials, userId, id),
-						enabled: true,
-						updatedAt: new Date(),
-					},
-				});
-		});
-		returnUrl.searchParams.set("connector_status", "connected");
 		return c.redirect(returnUrl.toString(), 302);
+	},
+);
+
+connectors.openapi(
+	createRoute({
+		method: "post",
+		path: "/{connectorId}/complete",
+		tags: ["Connectors"],
+		request: {
+			params,
+			body: {
+				required: true,
+				content: {
+					"application/json": {
+						schema: z
+							.object({ callbackQuery: z.string().min(1).max(16_384) })
+							.strict(),
+					},
+				},
+			},
+		},
+		responses: {
+			...errorResponses,
+			200: {
+				description: "Native connector authorization result",
+				content: {
+					"application/json": {
+						schema: z.object({
+							status: z.enum(["connected", "cancelled", "failed"]),
+						}),
+					},
+				},
+			},
+		},
+	}),
+	async (c) => {
+		const result = await completeConnectorAuthorization({
+			id: c.req.valid("param").connectorId,
+			userId: c.get("user")!.id,
+			sessionId: c.get("session")!.id,
+			query: new URLSearchParams(c.req.valid("json").callbackQuery),
+			platform: "ios",
+		});
+		c.header("Cache-Control", "no-store");
+		return c.json({ status: result.status }, 200);
 	},
 );
 

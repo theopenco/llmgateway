@@ -39,6 +39,7 @@ import {
 	formatBucketLabel,
 	formatBucketLabelWithZone,
 } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { MyMemberBudgetData } from "@/hooks/useTeam";
 
@@ -147,17 +148,17 @@ export function DeveloperDashboardClient({
 		},
 		{
 			label: "Requests",
-			value: (summary ? pickRequests(summary, usageMode) : 0).toLocaleString(),
+			value: formatNumber(summary ? pickRequests(summary, usageMode) : 0),
 			icon: Zap,
 		},
 		{
 			label: "Tokens",
-			value: (summary?.totalTokens ?? 0).toLocaleString(),
+			value: formatNumber(summary?.totalTokens ?? 0),
 			icon: Hash,
 		},
 		{
 			label: "Active API keys",
-			value: (summary?.apiKeyCount ?? 0).toLocaleString(),
+			value: formatNumber(summary?.apiKeyCount ?? 0),
 			icon: KeyRound,
 		},
 	];

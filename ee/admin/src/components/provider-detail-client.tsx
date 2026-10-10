@@ -1,21 +1,31 @@
 "use client";
 
+import { keepPreviousData } from "@tanstack/react-query";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
+import {
+	AirsideSettingsSection,
+	FareBadge,
+	formatPercent,
+} from "@/components/airside-settings-section";
 import { DetailStatCards } from "@/components/detail-stat-cards";
 import { HistoryChart, windowOptions } from "@/components/history-chart";
 import { ProviderModelsTable } from "@/components/provider-models-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getProviderDetail, getProviderHistory } from "@/lib/admin-history";
+import { useApi } from "@/lib/fetch-client";
+import { useHistoryClient } from "@/lib/history-client";
 
 import { getProviderIcon } from "@llmgateway/shared";
 
 import type { HistoryWindow } from "@/components/history-chart";
+import type { ModelVerification } from "@/components/model-verification-dialog";
 import type { ProviderDetailResponse, ProviderModelStats } from "@/lib/types";
 
 type ProviderInfo = ProviderDetailResponse["provider"];
+type AirsideCarrier = ProviderDetailResponse["airside"];
 
 const validWindows = new Set<HistoryWindow>(windowOptions.map((o) => o.value));
 
@@ -26,53 +36,137 @@ function parseHistoryWindow(value: string | null): HistoryWindow {
 	return "4h";
 }
 
+function AirsideCarrierCard({
+	providerId,
+	carrier,
+}: {
+	providerId: string;
+	carrier: NonNullable<AirsideCarrier>;
+}) {
+	return (
+		<section
+			className="rounded-lg border border-border/60 bg-card p-4"
+			data-testid="provider-airside-card"
+		>
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<div>
+					<h2 className="text-sm font-semibold">Airside carrier</h2>
+					<p className="text-xs text-muted-foreground">
+						Operated by {carrier.company.name} · {carrier.claimKind} claim
+					</p>
+				</div>
+				<div className="flex gap-2">
+					<Button variant="outline" size="sm" asChild>
+						<Link
+							href={`/providers/${encodeURIComponent(providerId)}/incidents`}
+						>
+							Incidents
+						</Link>
+					</Button>
+					<Button variant="outline" size="sm" asChild>
+						<Link href="/airside-carriers">All carriers</Link>
+					</Button>
+				</div>
+			</div>
+			<dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+				<div>
+					<dt className="text-xs text-muted-foreground">Discount</dt>
+					<dd className="text-sm tabular-nums">
+						{formatPercent(carrier.discountPercent)}
+					</dd>
+				</div>
+				{carrier.marginPercent !== undefined && (
+					<div>
+						<dt className="text-xs text-muted-foreground">Margin</dt>
+						<dd className="text-sm tabular-nums">
+							{formatPercent(carrier.marginPercent)}
+						</dd>
+					</div>
+				)}
+				{carrier.routingAdjustment !== undefined && (
+					<div>
+						<dt className="text-xs text-muted-foreground">
+							Routing adjustment
+						</dt>
+						<dd className="text-sm">
+							<FareBadge adjustment={carrier.routingAdjustment} />
+						</dd>
+					</div>
+				)}
+				<div>
+					<dt className="text-xs text-muted-foreground">Settings updated</dt>
+					<dd className="text-sm">
+						{new Date(carrier.settingsUpdatedAt).toLocaleDateString()}
+					</dd>
+				</div>
+			</dl>
+		</section>
+	);
+}
+
 export function ProviderDetailClient({
 	providerId,
 	providerInfo,
 	models: initialModels,
+	airside,
 }: {
 	providerId: string;
 	providerInfo: ProviderInfo;
 	models: ProviderModelStats[];
+	airside: AirsideCarrier;
 }) {
 	const searchParams = useSearchParams();
 	const router = useRouter();
 	const pathname = usePathname();
 	const window = parseHistoryWindow(searchParams.get("window"));
-	const [loading, setLoading] = useState(false);
-	const [info, setInfo] = useState<ProviderInfo>(providerInfo);
-	const [models, setModels] = useState<ProviderModelStats[]>(initialModels);
-	const initialWindowRef = useRef(window);
-
-	const loadDetail = useCallback(
-		async (w: HistoryWindow) => {
-			setLoading(true);
-			try {
-				const data = await getProviderDetail(providerId, w);
-				if (data) {
-					setInfo(data.provider);
-					setModels(data.models);
-				}
-			} finally {
-				setLoading(false);
-			}
-		},
-		[providerId],
+	// The server rendered the stats for the initial window; only refetch for others.
+	const [initialWindow] = useState(window);
+	const $api = useApi();
+	const detailQuery = $api.useQuery(
+		"get",
+		"/admin/providers/{providerId}",
+		{ params: { path: { providerId }, query: { window } } },
+		{ enabled: window !== initialWindow, placeholderData: keepPreviousData },
 	);
+	const detail = window === initialWindow ? undefined : detailQuery.data;
+	const info: ProviderInfo = detail?.provider ?? providerInfo;
+	const models: ProviderModelStats[] = detail?.models ?? initialModels;
+	const loading = window !== initialWindow && detailQuery.isFetching;
 
-	useEffect(() => {
-		if (window === initialWindowRef.current) {
-			return;
-		}
-		void loadDetail(window);
-	}, [loadDetail, window]);
-
+	const history = useHistoryClient();
 	const fetchHistory = useCallback(
 		async (w: HistoryWindow) => {
-			return await getProviderHistory(providerId, w);
+			return await history.providerHistory(providerId, w);
 		},
-		[providerId],
+		[history, providerId],
 	);
+
+	const verificationsQuery = $api.useQuery(
+		"get",
+		"/admin/model-verifications",
+		{ params: { query: { providerId } } },
+		{
+			// Follow queued and running runs so per-check progress lands in the
+			// table without a manual refresh.
+			refetchInterval: (query) =>
+				query.state.data?.entries.some(
+					(entry) =>
+						entry.verification.status === "queued" ||
+						entry.verification.status === "running",
+				)
+					? 2_000
+					: false,
+		},
+	);
+	const verifications = useMemo(() => {
+		const byMapping = new Map<string, ModelVerification>();
+		for (const entry of verificationsQuery.data?.entries ?? []) {
+			if (entry.mappingId) {
+				byMapping.set(entry.mappingId, entry.verification as ModelVerification);
+			}
+		}
+		return byMapping;
+	}, [verificationsQuery.data]);
 
 	const ProviderIcon = getProviderIcon(providerId);
 
@@ -87,9 +181,16 @@ export function ProviderDetailClient({
 						<Badge variant={info.status === "active" ? "secondary" : "outline"}>
 							{info.status}
 						</Badge>
+						{airside ? (
+							<Badge variant="outline">Airside · {airside.company.name}</Badge>
+						) : null}
 					</div>
 				</div>
 			</header>
+
+			{airside ? (
+				<AirsideCarrierCard providerId={providerId} carrier={airside} />
+			) : null}
 
 			<div className="flex flex-wrap items-center gap-1">
 				{windowOptions.map((opt) => (
@@ -122,6 +223,10 @@ export function ProviderDetailClient({
 				/>
 			</section>
 
+			{airside ? (
+				<AirsideSettingsSection providerId={providerId} carrier={airside} />
+			) : null}
+
 			<section className="space-y-4">
 				<h2 className="text-xl font-semibold">
 					Models{" "}
@@ -130,7 +235,12 @@ export function ProviderDetailClient({
 					</span>
 				</h2>
 				<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
-					<ProviderModelsTable providerId={providerId} models={models} />
+					<ProviderModelsTable
+						providerId={providerId}
+						models={models}
+						verifications={verifications}
+						onVerificationSettled={() => void verificationsQuery.refetch()}
+					/>
 				</div>
 			</section>
 		</>

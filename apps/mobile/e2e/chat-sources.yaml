@@ -1,0 +1,55 @@
+appId: io.llmgateway.lounge
+---
+- evalScript: ${output.chatTitle = "TRIGGER_SOURCES native " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- tapOn: "New conversation"
+- runFlow: helpers/close-chat-options.yaml
+- tapOn: "Model: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-5-nano"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-5 Nano"
+- runFlow: helpers/chat-options.yaml
+- tapOn: "Chat settings"
+- scrollUntilVisible:
+    element: "Search the web"
+    direction: DOWN
+- tapOn:
+    id: "web-search-switch"
+- scrollUntilVisible:
+    element: "Save settings"
+    direction: DOWN
+- tapOn: "Save settings"
+- runFlow: helpers/close-chat-options.yaml
+- tapOn: "Message.*"
+- inputText: ${output.chatTitle}
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: "Retry last response"
+    timeout: 30000
+- assertVisible: "1. Lounge test source"
+- launchApp
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
+- tapOn:
+    id: "field-search-conversations"
+- inputText: ${output.chatTitle}
+- tapOn: "Done typing"
+- tapOn: ".*2 messages"
+- scrollUntilVisible:
+    element: "1. Lounge test source"
+    direction: DOWN
+- assertVisible: "1. Lounge test source"
+- runFlow: helpers/chat-options.yaml
+- tapOn: "Chat settings"
+- scrollUntilVisible:
+    element: "Search the web"
+    direction: DOWN
+- assertVisible:
+    id: "web-search-switch"
+    checked: true

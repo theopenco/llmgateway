@@ -1,16 +1,17 @@
 "use client";
 
-import { format } from "date-fns";
+import { addHours, format } from "date-fns";
 import {
 	Activity,
 	AlertTriangle,
 	Clock,
 	Gauge,
+	Layers,
 	RefreshCw,
 	Zap,
 } from "lucide-react";
 import { useState } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
 
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -38,16 +39,20 @@ import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 import { getProviderIcon } from "@llmgateway/shared/components";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
 
-type ActiveMetric = "requests" | "errors" | "latency" | "tokens";
+type ActiveMetric = "tokens" | "requests" | "errors" | "latency";
 
 type UptimeResponse =
 	paths["/internal/models/{modelId}/uptime"]["get"]["responses"]["200"]["content"]["application/json"];
 type UptimeProvider = UptimeResponse["providers"][number];
 
 const chartConfigs: Record<ActiveMetric, ChartConfig> = {
+	tokens: {
+		totalTokens: { label: "Tokens", color: "hsl(32 95% 44%)" },
+	},
 	requests: {
 		logsCount: { label: "Requests", color: "hsl(221 83% 53%)" },
 		cachedCount: { label: "Cached", color: "hsl(142 71% 45%)" },
@@ -61,23 +66,35 @@ const chartConfigs: Record<ActiveMetric, ChartConfig> = {
 		avgTtft: { label: "Avg TTFT (ms)", color: "hsl(262 83% 58%)" },
 		avgDuration: { label: "Avg Duration (ms)", color: "hsl(221 83% 53%)" },
 	},
-	tokens: {
-		totalTokens: { label: "Tokens", color: "hsl(32 95% 44%)" },
-	},
 };
 
+// Error sources are disjoint, so they stack into the hour's total. The other
+// multi-series metrics overlap (cached is a subset of requests, TTFT is part of
+// the duration) and are drawn side by side instead.
+const stackedMetrics = new Set<ActiveMetric>(["errors"]);
+
 const metricTabs: { key: ActiveMetric; label: string }[] = [
+	{ key: "tokens", label: "Tokens" },
 	{ key: "requests", label: "Requests" },
 	{ key: "errors", label: "Errors" },
 	{ key: "latency", label: "Latency" },
-	{ key: "tokens", label: "Tokens" },
 ];
 
+function formatHourRange(timestamp: string): string {
+	const start = new Date(timestamp);
+	return `${format(start, "MMM d, HH:mm")} – ${format(addHours(start, 1), "HH:mm")}`;
+}
+
 function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
-	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("requests");
+	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("tokens");
 	const ProviderIcon = getProviderIcon(provider.providerId);
 	const config = chartConfigs[activeMetric];
 	const dataKeys = Object.keys(config);
+	const stacked = stackedMetrics.has(activeMetric);
+	// The newest bucket is the hour still in progress; it is drawn faded so a
+	// partial hour does not read as a drop in traffic.
+	const currentHourIndex = provider.points.length - 1;
+	const currentHourTimestamp = provider.points[currentHourIndex]?.timestamp;
 
 	const hasEnoughData = hasEnoughRequestsForStats(provider.logsCount);
 	// TTFT only has samples from streamed requests, so on top of the request
@@ -85,14 +102,18 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 	const hasEnoughTtftData =
 		hasEnoughData && hasEnoughTtftSamplesForStats(provider.ttftCount);
 
+	const stability = deriveStabilityMetrics({
+		logsCount: provider.logsCount,
+		clientErrorsCount: provider.clientErrorsCount,
+		gatewayErrorsCount: provider.gatewayErrorsCount,
+		upstreamErrorsCount: provider.upstreamErrorsCount,
+	});
+	// Same numerator and base as uptime (gateway + upstream errors over
+	// non-client-error requests), so the two headline numbers sum to 100%.
 	const errorRate =
-		Math.round(
-			(deriveStabilityMetrics(
-				provider.logsCount,
-				provider.errorsCount + provider.clientErrorsCount,
-				provider.clientErrorsCount,
-			).errorRate ?? 0) * 10,
-		) / 10;
+		stability.errorRate !== null
+			? Math.round(stability.errorRate * 10) / 10
+			: null;
 
 	const uptimeColor =
 		!hasEnoughData || provider.uptime === null
@@ -123,7 +144,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 								</Badge>
 							</CardTitle>
 							<CardDescription className="text-xs">
-								Last 4 hours · {provider.points.length} data points
+								Last 24 hours · hourly
 								{!hasEnoughData &&
 									` · stats hidden until ${formatCompact(MIN_REQUESTS_FOR_STATS)} requests`}
 							</CardDescription>
@@ -145,14 +166,10 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 
 				<div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
 					<Stat
-						icon={Activity}
-						label="Requests"
-						value={formatCompact(provider.logsCount)}
-						sub={
-							hasEnoughData
-								? `${formatCompact(provider.errorsCount)} errors (${errorRate}%)`
-								: `${formatCompact(provider.errorsCount)} errors`
-						}
+						icon={Layers}
+						label="Tokens"
+						value={formatCompact(provider.totalTokens)}
+						sub={`${formatCompact(provider.logsCount)} requests`}
 					/>
 					<Stat
 						icon={Clock}
@@ -173,22 +190,17 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						label="Throughput"
 						value={
 							hasEnoughData && provider.tokensPerSecond !== null
-								? `${provider.tokensPerSecond.toLocaleString()} t/s`
+								? `${formatNumber(provider.tokensPerSecond)} t/s`
 								: "—"
 						}
 					/>
 					<Stat
 						icon={AlertTriangle}
-						label="Upstream errors"
-						value={formatCompact(provider.upstreamErrorsCount)}
+						label="Errors"
+						value={formatCompact(stability.errorsCount)}
 						sub={
-							hasEnoughData && provider.logsCount > 0
-								? `${(
-										Math.round(
-											(provider.upstreamErrorsCount / provider.logsCount) *
-												10000,
-										) / 100
-									).toFixed(2)}% rate`
+							hasEnoughData && errorRate !== null
+								? `${errorRate.toFixed(1)}% rate`
 								: undefined
 						}
 					/>
@@ -226,16 +238,16 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 				aria-labelledby={`metric-tab-${provider.providerId}-${activeMetric}`}
 				className="px-2 pb-4 sm:px-6"
 			>
-				{provider.points.length === 0 ? (
+				{provider.logsCount === 0 && provider.totalTokens === 0 ? (
 					<div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
-						No traffic in the last 4 hours
+						No traffic in the last 24 hours
 					</div>
 				) : (
 					<ChartContainer
 						config={config}
 						className="aspect-auto h-[200px] w-full"
 					>
-						<AreaChart
+						<BarChart
 							data={provider.points}
 							margin={{ left: 0, right: 8, top: 4, bottom: 0 }}
 						>
@@ -245,7 +257,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 								tickLine={false}
 								axisLine={false}
 								tickMargin={8}
-								minTickGap={40}
+								minTickGap={24}
 								tickFormatter={(value: string) =>
 									format(new Date(value), "HH:mm")
 								}
@@ -254,47 +266,52 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 								tickLine={false}
 								axisLine={false}
 								tickMargin={4}
-								width={50}
-								tickFormatter={(value: number) =>
-									value >= 1000
-										? `${(value / 1000).toFixed(1)}k`
-										: String(value)
-								}
+								width={60}
+								allowDecimals={false}
+								tickFormatter={formatCompact}
 							/>
 							<ChartTooltip
+								cursor={{
+									fill: "color-mix(in srgb, currentColor 8%, transparent)",
+								}}
 								content={
 									<ChartTooltipContent
 										labelFormatter={(value: string) =>
-											format(new Date(value), "MMM d, HH:mm")
+											value === currentHourTimestamp
+												? `${formatHourRange(value)} (so far)`
+												: formatHourRange(value)
 										}
-										formatter={(value, name) => {
-											const label = config[name as string]?.label ?? name;
-											const formatted =
-												activeMetric === "latency"
-													? `${Math.round(Number(value))}ms`
-													: Number(value).toLocaleString();
-											return (
-												<span>
-													{label}: <strong>{formatted}</strong>
-												</span>
-											);
-										}}
+										valueFormatter={(value) =>
+											activeMetric === "latency"
+												? `${Math.round(value)}ms`
+												: formatNumber(value)
+										}
 									/>
 								}
 							/>
 							{dataKeys.map((key, i) => (
-								<Area
+								<Bar
 									key={key}
 									dataKey={key}
-									type="monotone"
-									stroke={`var(--color-${key})`}
 									fill={`var(--color-${key})`}
-									fillOpacity={i === 0 ? 0.15 : 0.05}
-									strokeWidth={2}
+									stackId={stacked ? activeMetric : undefined}
+									radius={
+										!stacked || i === dataKeys.length - 1
+											? [3, 3, 0, 0]
+											: [0, 0, 0, 0]
+									}
+									maxBarSize={stacked || dataKeys.length === 1 ? 28 : 14}
 									isAnimationActive={false}
-								/>
+								>
+									{provider.points.map((point, index) => (
+										<Cell
+											key={point.timestamp}
+											fillOpacity={index === currentHourIndex ? 0.45 : 1}
+										/>
+									))}
+								</Bar>
 							))}
-						</AreaChart>
+						</BarChart>
 					</ChartContainer>
 				)}
 			</CardContent>
@@ -380,7 +397,7 @@ export function ModelUptimeCharts({ modelId }: { modelId: string }) {
 			<Card>
 				<CardContent className="flex h-40 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
 					<Zap className="h-6 w-6" />
-					No uptime data is available for this model in the last 4 hours.
+					No uptime data is available for this model in the last 24 hours.
 				</CardContent>
 			</Card>
 		);

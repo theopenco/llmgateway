@@ -5,7 +5,7 @@ import { logger } from "@llmgateway/logger";
 
 import { findEffectiveRateLimit } from "./cached-queries.js";
 
-import type { RateLimitSource } from "@llmgateway/db";
+import type { RateLimitMode, RateLimitSource } from "@llmgateway/db";
 
 export const providerRateLimitWindows = {
 	rpm: {
@@ -31,12 +31,16 @@ export interface ProviderRateLimitWindowState {
 	rateLimited: boolean;
 	retryAfter?: number;
 	source: RateLimitSource;
+	mode: RateLimitMode;
 }
 
 export interface ProviderRateLimitResult {
 	allowed: boolean;
 	rateLimited: boolean;
 	blockedBy: ProviderRateLimitWindow[];
+	// Every blocking window permits an existing session pin.
+	sessionExemptible?: boolean;
+	bypassReason?: "session_pin" | "explicit_provider";
 	retryAfter?: number;
 	limits: Record<ProviderRateLimitWindow, ProviderRateLimitWindowState>;
 }
@@ -88,14 +92,20 @@ async function readWindowState(
 	limit: number,
 	now: number,
 	source: RateLimitSource,
+	mode: RateLimitMode,
 ): Promise<ProviderRateLimitWindowState> {
-	if (limit === 0) {
+	// Carrier zero means unlimited; an admin zero cap is already exhausted.
+	if (
+		limit === 0 &&
+		(source === "none" || source === "carrier_provider_model")
+	) {
 		return {
 			currentCount: 0,
 			limit: 0,
 			remaining: 0,
 			rateLimited: false,
 			source,
+			mode,
 		};
 	}
 
@@ -125,6 +135,7 @@ async function readWindowState(
 			rateLimited: true,
 			retryAfter,
 			source,
+			mode,
 		};
 	}
 
@@ -134,6 +145,7 @@ async function readWindowState(
 		remaining: Math.max(0, limit - currentCount),
 		rateLimited: false,
 		source,
+		mode,
 	};
 }
 
@@ -178,6 +190,7 @@ function buildFallbackResult(): ProviderRateLimitResult {
 				remaining: 0,
 				rateLimited: false,
 				source: "none",
+				mode: "strict",
 			},
 			rpd: {
 				currentCount: 0,
@@ -185,6 +198,7 @@ function buildFallbackResult(): ProviderRateLimitResult {
 				remaining: 0,
 				rateLimited: false,
 				source: "none",
+				mode: "strict",
 			},
 		},
 	};
@@ -232,6 +246,7 @@ async function getProviderRateLimitStates(
 			effectiveRateLimit.maxRpm,
 			now,
 			effectiveRateLimit.rpmSource,
+			effectiveRateLimit.rpmMode ?? "strict",
 		),
 		rpd: await readWindowState(
 			keys.rpd,
@@ -239,10 +254,70 @@ async function getProviderRateLimitStates(
 			effectiveRateLimit.maxRpd,
 			now,
 			effectiveRateLimit.rpdSource,
+			effectiveRateLimit.rpdMode ?? "strict",
 		),
 	};
 
 	return { keys, limits };
+}
+
+function getBlockedWindows(
+	limits: Record<ProviderRateLimitWindow, ProviderRateLimitWindowState>,
+): ProviderRateLimitWindow[] {
+	return (
+		Object.entries(limits) as Array<
+			[ProviderRateLimitWindow, ProviderRateLimitWindowState]
+		>
+	)
+		.filter(([, limit]) => limit.rateLimited)
+		.map(([window]) => window);
+}
+
+function isSessionExemptible(
+	limits: Record<ProviderRateLimitWindow, ProviderRateLimitWindowState>,
+	blockedBy: ProviderRateLimitWindow[],
+): boolean {
+	return (
+		getProviderRateLimitBypassReason(
+			{ limits, blockedBy },
+			{ sessionPinned: true },
+		) !== undefined
+	);
+}
+
+export interface ProviderRateLimitExemption {
+	sessionPinned?: boolean;
+	explicitProvider?: boolean;
+}
+
+export function getProviderRateLimitBypassReason(
+	result: Pick<ProviderRateLimitResult, "limits" | "blockedBy">,
+	options: ProviderRateLimitExemption,
+): ProviderRateLimitResult["bypassReason"] {
+	if (result.blockedBy.length === 0) {
+		return undefined;
+	}
+	const allowed = result.blockedBy.every((window) => {
+		const { mode } = result.limits[window];
+		return (
+			(mode === "soft" || mode === "lax") &&
+			(options.sessionPinned || (mode === "lax" && options.explicitProvider))
+		);
+	});
+	return allowed
+		? options.sessionPinned
+			? "session_pin"
+			: "explicit_provider"
+		: undefined;
+}
+
+export function mustEnforceProviderRateLimit(
+	result: Pick<ProviderRateLimitResult, "limits" | "blockedBy">,
+): boolean {
+	return result.blockedBy.some(
+		(window) =>
+			result.limits[window].mode === "lax" || result.limits[window].limit === 0,
+	);
 }
 
 export function getExceededProviderRateLimitLabels(
@@ -268,18 +343,13 @@ export async function peekProviderRateLimit(
 			provider,
 			model,
 		);
-		const blockedBy = (
-			Object.entries(limits) as Array<
-				[ProviderRateLimitWindow, ProviderRateLimitWindowState]
-			>
-		)
-			.filter(([, limit]) => limit.rateLimited)
-			.map(([window]) => window);
+		const blockedBy = getBlockedWindows(limits);
 
 		return {
 			allowed: blockedBy.length === 0,
 			rateLimited: blockedBy.length > 0,
 			blockedBy,
+			sessionExemptible: isSessionExemptible(limits, blockedBy),
 			retryAfter: getCombinedRetryAfter(limits, blockedBy),
 			limits,
 		};
@@ -291,7 +361,7 @@ export async function peekProviderRateLimit(
 
 /**
  * Batch check which providers are rate-limited (read-only, no slot consumed).
- * Returns a Set of rate-limited provider IDs.
+ * `sessionExemptible` permits session pins; `enforcedLimits` must never fail open.
  */
 export async function filterRateLimitedProviders(
 	organizationId: string,
@@ -299,7 +369,11 @@ export async function filterRateLimitedProviders(
 		providerId: string;
 		model: string;
 	}>,
-): Promise<Set<string>> {
+): Promise<{
+	rateLimited: Set<string>;
+	sessionExemptible: Set<string>;
+	enforcedLimits: Map<string, ProviderRateLimitResult>;
+}> {
 	const results = await Promise.all(
 		candidates.map(async (candidate) => ({
 			providerId: candidate.providerId,
@@ -311,19 +385,27 @@ export async function filterRateLimitedProviders(
 		})),
 	);
 
-	return new Set(
-		results
-			.filter((result) => result.rateLimited)
-			.map((result) => result.providerId),
-	);
+	const limited = results.filter((result) => result.rateLimited);
+	return {
+		rateLimited: new Set(limited.map((result) => result.providerId)),
+		enforcedLimits: new Map(
+			limited
+				.filter(mustEnforceProviderRateLimit)
+				.map((result) => [result.providerId, result]),
+		),
+		sessionExemptible: new Set(
+			limited
+				.filter((result) => result.sessionExemptible)
+				.map((result) => result.providerId),
+		),
+	};
 }
 
 /**
  * Pick fallback candidates that are not at their RPM/RPD cap.
  * Dedupes peeks by providerId since rate limits are keyed by org+provider+root
  * model id, so region-expanded variants share the same window. Falls open to
- * the original candidates if every one is capped, so callers always get a
- * non-empty list when input was non-empty.
+ * original candidates if every one is capped, except exhausted lax or zero caps.
  */
 export async function pickNonRateLimitedCandidates<
 	T extends { providerId: string },
@@ -344,7 +426,7 @@ export async function pickNonRateLimitedCandidates<
 		).values(),
 	);
 
-	const rateLimited = await filterRateLimitedProviders(
+	const { rateLimited, enforcedLimits } = await filterRateLimitedProviders(
 		organizationId,
 		uniquePeekCandidates,
 	);
@@ -353,17 +435,21 @@ export async function pickNonRateLimitedCandidates<
 		(p) => !rateLimited.has(p.providerId),
 	);
 
-	return nonRateLimited.length > 0 ? nonRateLimited : candidates;
+	return nonRateLimited.length > 0
+		? nonRateLimited
+		: candidates.filter((p) => !enforcedLimits.has(p.providerId));
 }
 
 /**
  * Check configurable provider/model caps stored in the database.
  * Uses a Redis sliding window approach identical to free model rate limiting.
+ * Exempt requests still count toward every configured window.
  */
 export async function checkProviderRateLimit(
 	organizationId: string,
 	provider: string,
 	model: string,
+	options: ProviderRateLimitExemption = {},
 ): Promise<ProviderRateLimitResult> {
 	try {
 		const { keys, limits } = await getProviderRateLimitStates(
@@ -371,15 +457,15 @@ export async function checkProviderRateLimit(
 			provider,
 			model,
 		);
-		const blockedBy = (
-			Object.entries(limits) as Array<
-				[ProviderRateLimitWindow, ProviderRateLimitWindowState]
-			>
-		)
-			.filter(([, limit]) => limit.rateLimited)
-			.map(([window]) => window);
+		const blockedBy = getBlockedWindows(limits);
 
-		if (blockedBy.length > 0) {
+		const sessionExemptible = isSessionExemptible(limits, blockedBy);
+		const bypassReason = getProviderRateLimitBypassReason(
+			{ limits, blockedBy },
+			options,
+		);
+
+		if (blockedBy.length > 0 && !bypassReason) {
 			const retryAfter = getCombinedRetryAfter(limits, blockedBy);
 
 			logger.info(`Provider rate limit exceeded`, {
@@ -395,6 +481,7 @@ export async function checkProviderRateLimit(
 				allowed: false,
 				rateLimited: true,
 				blockedBy,
+				sessionExemptible,
 				retryAfter,
 				limits,
 			};
@@ -406,7 +493,7 @@ export async function checkProviderRateLimit(
 			Object.entries(limits) as Array<
 				[ProviderRateLimitWindow, ProviderRateLimitWindowState]
 			>
-		).filter(([, limit]) => limit.limit > 0);
+		).filter(([, limit]) => limit.limit > 0 || limit.rateLimited);
 
 		await Promise.all(
 			configuredWindows.map(([window]) =>
@@ -440,6 +527,7 @@ export async function checkProviderRateLimit(
 			allowed: true,
 			rateLimited: false,
 			blockedBy: [],
+			...(bypassReason && { bypassReason }),
 			limits: updatedLimits,
 		};
 	} catch (error) {

@@ -11,6 +11,7 @@ import {
 	UTC_TIME_ZONE,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 interface ActivityHeatmapProps {
 	projectId: string | null;
@@ -209,8 +210,8 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 							Coding activity
 						</h2>
 						<p className="text-xs text-muted-foreground">
-							{totalRequests.toLocaleString()} requests across {activeDays}{" "}
-							active days in the last year
+							{formatNumber(totalRequests)} requests across {activeDays} active
+							days in the last year
 						</p>
 					</div>
 				</div>

@@ -5,6 +5,9 @@ import {
 	log,
 	organization,
 	globalModelStats,
+	globalHourlyModelStats,
+	globalHourlySourceStats,
+	globalHourlyProviderKeyModelStats,
 	globalProviderKeyModelStats,
 	globalSourceStats,
 	globalAggregationState,
@@ -60,10 +63,11 @@ if (DAY_MS % BUCKET_MS !== 0) {
 	);
 }
 
-type AggregationScope = "global" | "provider-key";
+type AggregationScope = "global" | "provider-key" | "hourly";
 
 const STATE_ROW_IDS = {
 	global: "singleton",
+	hourly: "hourly",
 	"provider-key": "provider-key-model",
 } as const;
 
@@ -107,13 +111,6 @@ const AGGREGATE_KEYS = [
 
 type AnyTable = Parameters<typeof getTableColumns>[0];
 
-// Drizzle's `casing: "snake_case"` applies at SQL emission time. The Column
-// metadata (`col.name`) still holds the JS-side camelCase identifier when no
-// explicit name was passed. We mirror drizzle's casing by converting here.
-function toSnakeCase(s: string): string {
-	return s.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
-}
-
 // Build the SET clause for an ADD-style upsert: each metric column becomes
 // `col = "table"."col" + excluded.col`, so each hour's aggregated values
 // accumulate into the daily totals.
@@ -125,20 +122,10 @@ function buildAddUpsertSet(table: AnyTable, extraKeys: string[] = []) {
 	const set: Record<string, ReturnType<typeof sql>> = {};
 	for (const key of [...AGGREGATE_KEYS, ...extraKeys]) {
 		const col = cols[key];
-		const snakeName = toSnakeCase(key);
-		set[key] = sql`${col} + excluded.${sql.identifier(snakeName)}`;
+		set[key] = sql`${col} + excluded.${sql.identifier(col.name)}`;
 	}
 	return set;
 }
-
-// Only the model table carries the provider-keyed margin column.
-const MODEL_ADD_SET = buildAddUpsertSet(globalModelStats, [
-	"providerMarginAmount",
-]);
-const SOURCE_ADD_SET = buildAddUpsertSet(globalSourceStats);
-const PROVIDER_KEY_MODEL_ADD_SET = buildAddUpsertSet(
-	globalProviderKeyModelStats,
-);
 
 // Snap to the nearest bucket boundary at or below `d`. Works in UTC because
 // JS timestamps are unix-epoch milliseconds and bucketMs evenly divides a day.
@@ -165,12 +152,25 @@ export async function aggregateWindowIntoStats(
 	database: Tx,
 	windowStart: Date,
 	windowMs: number,
+	hourly = false,
 ): Promise<void> {
+	const modelTable = hourly ? globalHourlyModelStats : globalModelStats;
+	const modelTableTimestamp = hourly
+		? globalHourlyModelStats.hourTimestamp
+		: globalModelStats.dayTimestamp;
+	const modelTableSet = buildAddUpsertSet(modelTable, ["providerMarginAmount"]);
+	const sourceTable = hourly ? globalHourlySourceStats : globalSourceStats;
+	const sourceTableTimestamp = hourly
+		? globalHourlySourceStats.hourTimestamp
+		: globalSourceStats.dayTimestamp;
+	const sourceTableSet = buildAddUpsertSet(sourceTable, []);
 	const startTimestamp = formatUTCTimestamp(windowStart);
 	const endTimestamp = formatUTCTimestamp(
 		new Date(windowStart.getTime() + windowMs),
 	);
-	const dayTimestamp = formatUTCTimestamp(floorToDay(windowStart));
+	const bucketTimestamp = formatUTCTimestamp(
+		hourly ? floorToBucket(windowStart, HOUR_MS) : floorToDay(windowStart),
+	);
 
 	const window = and(
 		sql`${log.createdAt} >= ${startTimestamp}::timestamp`,
@@ -197,9 +197,11 @@ export async function aggregateWindowIntoStats(
 	for (const row of modelRows) {
 		const { usedModel, usedProvider, usedMode, orgKind, ...stats } = row;
 		await database
-			.insert(globalModelStats)
+			.insert(modelTable)
 			.values({
-				dayTimestamp: sql`${dayTimestamp}::timestamp`,
+				...(hourly
+					? { hourTimestamp: sql`${bucketTimestamp}::timestamp` }
+					: { dayTimestamp: sql`${bucketTimestamp}::timestamp` }),
 				usedModel,
 				usedProvider,
 				usedMode,
@@ -208,14 +210,14 @@ export async function aggregateWindowIntoStats(
 			})
 			.onConflictDoUpdate({
 				target: [
-					globalModelStats.dayTimestamp,
-					globalModelStats.usedModel,
-					globalModelStats.usedProvider,
-					globalModelStats.usedMode,
-					globalModelStats.orgKind,
+					modelTableTimestamp,
+					modelTable.usedModel,
+					modelTable.usedProvider,
+					modelTable.usedMode,
+					modelTable.orgKind,
 				],
 				set: {
-					...MODEL_ADD_SET,
+					...modelTableSet,
 					updatedAt: new Date(),
 				},
 			});
@@ -240,9 +242,11 @@ export async function aggregateWindowIntoStats(
 	for (const row of sourceRows) {
 		const { source, usedMode, orgKind, ...stats } = row;
 		await database
-			.insert(globalSourceStats)
+			.insert(sourceTable)
 			.values({
-				dayTimestamp: sql`${dayTimestamp}::timestamp`,
+				...(hourly
+					? { hourTimestamp: sql`${bucketTimestamp}::timestamp` }
+					: { dayTimestamp: sql`${bucketTimestamp}::timestamp` }),
 				source,
 				usedMode,
 				orgKind,
@@ -250,13 +254,13 @@ export async function aggregateWindowIntoStats(
 			})
 			.onConflictDoUpdate({
 				target: [
-					globalSourceStats.dayTimestamp,
-					globalSourceStats.source,
-					globalSourceStats.usedMode,
-					globalSourceStats.orgKind,
+					sourceTableTimestamp,
+					sourceTable.source,
+					sourceTable.usedMode,
+					sourceTable.orgKind,
 				],
 				set: {
-					...SOURCE_ADD_SET,
+					...sourceTableSet,
 					updatedAt: new Date(),
 				},
 			});
@@ -267,12 +271,22 @@ export async function aggregateProviderKeyWindowIntoStats(
 	database: Tx,
 	windowStart: Date,
 	windowMs: number,
+	hourly = false,
 ): Promise<void> {
+	const keyTable = hourly
+		? globalHourlyProviderKeyModelStats
+		: globalProviderKeyModelStats;
+	const keyTableTimestamp = hourly
+		? globalHourlyProviderKeyModelStats.hourTimestamp
+		: globalProviderKeyModelStats.dayTimestamp;
+	const keyTableSet = buildAddUpsertSet(keyTable, []);
 	const startTimestamp = formatUTCTimestamp(windowStart);
 	const endTimestamp = formatUTCTimestamp(
 		new Date(windowStart.getTime() + windowMs),
 	);
-	const dayTimestamp = formatUTCTimestamp(floorToDay(windowStart));
+	const bucketTimestamp = formatUTCTimestamp(
+		hourly ? floorToBucket(windowStart, HOUR_MS) : floorToDay(windowStart),
+	);
 	const window = and(
 		sql`${log.createdAt} >= ${startTimestamp}::timestamp`,
 		sql`${log.createdAt} < ${endTimestamp}::timestamp`,
@@ -310,9 +324,11 @@ export async function aggregateProviderKeyWindowIntoStats(
 			...stats
 		} = row;
 		await database
-			.insert(globalProviderKeyModelStats)
+			.insert(keyTable)
 			.values({
-				dayTimestamp: sql`${dayTimestamp}::timestamp`,
+				...(hourly
+					? { hourTimestamp: sql`${bucketTimestamp}::timestamp` }
+					: { dayTimestamp: sql`${bucketTimestamp}::timestamp` }),
 				providerKeyId,
 				usedModel,
 				usedProvider,
@@ -322,15 +338,15 @@ export async function aggregateProviderKeyWindowIntoStats(
 			})
 			.onConflictDoUpdate({
 				target: [
-					globalProviderKeyModelStats.dayTimestamp,
-					globalProviderKeyModelStats.providerKeyId,
-					globalProviderKeyModelStats.usedModel,
-					globalProviderKeyModelStats.usedProvider,
-					globalProviderKeyModelStats.usedMode,
-					globalProviderKeyModelStats.orgKind,
+					keyTableTimestamp,
+					keyTable.providerKeyId,
+					keyTable.usedModel,
+					keyTable.usedProvider,
+					keyTable.usedMode,
+					keyTable.orgKind,
 				],
 				set: {
-					...PROVIDER_KEY_MODEL_ADD_SET,
+					...keyTableSet,
 					updatedAt: new Date(),
 				},
 			});
@@ -380,7 +396,23 @@ async function recomputeDayFully(
 	scope: AggregationScope,
 ): Promise<void> {
 	const dayStr = formatUTCTimestamp(day);
-	if (scope === "global") {
+	if (scope === "hourly") {
+		const end = formatUTCTimestamp(new Date(day.getTime() + DAY_MS));
+		for (const table of [
+			globalHourlyModelStats,
+			globalHourlySourceStats,
+			globalHourlyProviderKeyModelStats,
+		]) {
+			await tx
+				.delete(table)
+				.where(
+					and(
+						sql`${table.hourTimestamp} >= ${dayStr}::timestamp`,
+						sql`${table.hourTimestamp} < ${end}::timestamp`,
+					),
+				);
+		}
+	} else if (scope === "global") {
 		await tx
 			.delete(globalModelStats)
 			.where(sql`${globalModelStats.dayTimestamp} = ${dayStr}::timestamp`);
@@ -440,6 +472,10 @@ async function runSafetyNetIfNeeded(
 
 const AGGREGATORS = {
 	global: aggregateWindowIntoStats,
+	hourly: async (tx: Tx, start: Date, duration: number) => {
+		await aggregateWindowIntoStats(tx, start, duration, true);
+		await aggregateProviderKeyWindowIntoStats(tx, start, duration, true);
+	},
 	"provider-key": aggregateProviderKeyWindowIntoStats,
 };
 
@@ -500,13 +536,14 @@ async function processScopeClosedHours(
 	scope: AggregationScope,
 ): Promise<boolean> {
 	const start = Date.now();
+	const bucketMs = scope === "hourly" ? HOUR_MS : BUCKET_MS;
 	const settlingMs = SETTLING_BUFFER_MINUTES * 60 * 1000;
-	const cutoffMs = now.getTime() - BUCKET_MS - settlingMs;
-	const latestSafeBucket = floorToBucket(new Date(cutoffMs), BUCKET_MS);
+	const cutoffMs = now.getTime() - bucketMs - settlingMs;
+	const latestSafeBucket = floorToBucket(new Date(cutoffMs), bucketMs);
 
 	const state = await readState(scope);
 	let nextBucket = state?.lastProcessedHour
-		? new Date(state.lastProcessedHour.getTime() + BUCKET_MS)
+		? new Date(state.lastProcessedHour.getTime() + bucketMs)
 		: undefined;
 	let caughtUp = false;
 	let processed = 0;
@@ -536,12 +573,13 @@ async function processScopeClosedHours(
 			// so replicas cannot issue duplicate startup lookups.
 			let bucket: Date | undefined;
 			if (currentState.lastProcessedHour) {
-				bucket = new Date(currentState.lastProcessedHour.getTime() + BUCKET_MS);
+				bucket = new Date(currentState.lastProcessedHour.getTime() + bucketMs);
 			} else if (scope === "provider-key") {
 				bucket = await initialProviderKeyBucket(tx);
 			} else {
-				const lookbackMs = INITIAL_LOOKBACK_DAYS * DAY_MS;
-				bucket = floorToBucket(new Date(now.getTime() - lookbackMs), BUCKET_MS);
+				const lookbackMs =
+					(scope === "hourly" ? 2 : INITIAL_LOOKBACK_DAYS) * DAY_MS;
+				bucket = floorToBucket(new Date(now.getTime() - lookbackMs), bucketMs);
 				logger.info(
 					`[global-global] No watermark, seeding from ${formatUTCTimestamp(bucket)}`,
 				);
@@ -564,7 +602,7 @@ async function processScopeClosedHours(
 						sql`${globalProviderKeyModelStats.dayTimestamp} = ${dayStr}::timestamp`,
 					);
 			}
-			await AGGREGATORS[scope](tx, bucket, BUCKET_MS);
+			await AGGREGATORS[scope](tx, bucket, bucketMs);
 			await setLastProcessedHour(tx, bucket, scope);
 			return bucket;
 		});
@@ -574,7 +612,7 @@ async function processScopeClosedHours(
 		}
 
 		processed++;
-		nextBucket = new Date(lastProcessed.getTime() + BUCKET_MS);
+		nextBucket = new Date(lastProcessed.getTime() + bucketMs);
 	}
 
 	if (
@@ -588,7 +626,7 @@ async function processScopeClosedHours(
 	}
 
 	if (processed > 0 && nextBucket) {
-		const lastProcessed = new Date(nextBucket.getTime() - BUCKET_MS);
+		const lastProcessed = new Date(nextBucket.getTime() - bucketMs);
 		logger.info(
 			`[global-${scope}] Processed ${processed} closed bucket(s) in ${Date.now() - start}ms (watermark now ${formatUTCTimestamp(lastProcessed)})`,
 		);
@@ -616,13 +654,25 @@ async function processScopeClosedHours(
 
 export async function processClosedHours(): Promise<boolean> {
 	const now = new Date();
+	const hourlyPending = await processScopeClosedHours(now, "hourly");
+	const retentionMs = 7 * DAY_MS;
+	const retainFrom = formatUTCTimestamp(new Date(now.getTime() - retentionMs));
+	for (const table of [
+		globalHourlyModelStats,
+		globalHourlySourceStats,
+		globalHourlyProviderKeyModelStats,
+	]) {
+		await db
+			.delete(table)
+			.where(sql`${table.hourTimestamp} < ${retainFrom}::timestamp`);
+	}
 	const globalPending = await processScopeClosedHours(now, "global");
 	if (!isStopRequested()) {
 		const providerKeyPending = await processScopeClosedHours(
 			now,
 			"provider-key",
 		);
-		return globalPending || providerKeyPending;
+		return hourlyPending || globalPending || providerKeyPending;
 	}
-	return globalPending;
+	return hourlyPending || globalPending;
 }

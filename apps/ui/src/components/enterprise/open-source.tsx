@@ -3,6 +3,8 @@ import Link from "next/link";
 
 import { Button } from "@/lib/components/button";
 
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
 const GITHUB_REPO = "theopenco/llmgateway";
 
 interface Contributor {
@@ -68,18 +70,7 @@ async function fetchGitHubContributors(
 }
 
 function formatNumber(num: number | null): string {
-	if (num === null) {
-		return "20K+";
-	}
-	if (num >= 1000) {
-		const thousands = Math.floor(num / 1000);
-		const hundreds = Math.floor((num % 1000) / 100);
-		if (hundreds === 0) {
-			return `${thousands}K`;
-		}
-		return `${thousands}.${hundreds}K`;
-	}
-	return num.toLocaleString();
+	return num === null ? "20K+" : formatCompactNumber(num);
 }
 
 export async function OpenSourceEnterprise() {

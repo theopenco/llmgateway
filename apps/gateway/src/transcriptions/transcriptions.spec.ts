@@ -5,7 +5,7 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("transcriptions", () => {
@@ -157,5 +157,52 @@ describe("transcriptions", () => {
 		const log = logs.find((l) => l.usedModel === "xai/grok-stt-1-0");
 		expect(log).toBeDefined();
 		expect(log?.hasError).toBe(true);
+	});
+
+	test("/v1/audio/transcriptions persists the payload for a retaining org", async () => {
+		await seedKeys("real-token-stt-retain", "token-id-stt-retain");
+
+		const res = await app.request("/v1/audio/transcriptions", {
+			method: "POST",
+			headers: {
+				Authorization: "Bearer real-token-stt-retain",
+			},
+			body: buildForm("grok-stt-1-0"),
+		});
+
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "xai/grok-stt-1-0");
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		// The org retains payloads, so the transcript summary survives insertLog.
+		expect(log?.content).toBeTruthy();
+	});
+
+	test("/v1/audio/transcriptions does not persist payload when retention is disabled", async () => {
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await seedKeys("real-token-stt-none", "token-id-stt-none");
+
+		const res = await app.request("/v1/audio/transcriptions", {
+			method: "POST",
+			headers: {
+				Authorization: "Bearer real-token-stt-none",
+			},
+			body: buildForm("grok-stt-1-0"),
+		});
+
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "xai/grok-stt-1-0");
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		expect(log?.content).toBeNull();
+		expect(log?.messages).toBeNull();
 	});
 });

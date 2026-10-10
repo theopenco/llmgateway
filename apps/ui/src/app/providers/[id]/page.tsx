@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { CompareFaq } from "@/components/compare/compare-faq";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { adaptProviderMapping } from "@/components/models/adapt-model";
@@ -18,12 +19,15 @@ import {
 import { isPremiumModel } from "@llmgateway/shared";
 import { isMappingDeactivated } from "@llmgateway/shared/components";
 
+import type { CompareFaqItem } from "@/components/compare/compare-faq";
 import type {
 	ApiModel,
 	ApiModelProviderMapping,
 	ApiProvider,
 } from "@/lib/fetch-models";
 import type { Metadata } from "next";
+
+const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
 
 interface ModelWithProviders extends ApiModel {
 	providerDetails: Array<{
@@ -63,6 +67,7 @@ async function renderDynamicProviderPage(id: string) {
 				.map((mapping) => ({ provider: mapping, providerInfo: apiProvider })),
 		}));
 	const uploadedLogo = apiProvider.airsideLogoUrl ?? undefined;
+	const providerName = apiProvider.name ?? id;
 	const description =
 		apiProvider.description && apiProvider.description !== "(empty)"
 			? apiProvider.description
@@ -75,7 +80,8 @@ async function renderDynamicProviderPage(id: string) {
 				<Hero
 					providerId={id as (typeof providerDefinitions)[number]["id"]}
 					uploadedLogo={uploadedLogo}
-					dynamicProvider={{ name: apiProvider.name ?? id, description }}
+					dynamicProvider={{ name: providerName, description }}
+					airsideProfile={apiProvider.airsideProfile ?? null}
 				/>
 				<ProviderStatsRow providerId={id} />
 				<section className="py-12 bg-background">
@@ -84,6 +90,17 @@ async function renderDynamicProviderPage(id: string) {
 						<ProviderModelsGrid models={providerModels} />
 					</div>
 				</section>
+				<CompareFaq
+					heading={`${providerName} API questions`}
+					faqs={buildProviderFaqs(
+						{ id, name: providerName },
+						providerModels.filter((model) =>
+							model.providerDetails.some(
+								({ provider: mapping }) => !isMappingDeactivated(mapping),
+							),
+						),
+					)}
+				/>
 			</main>
 			<Footer />
 		</div>
@@ -198,7 +215,6 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			createdAt: new Date().toISOString(),
 			name: provider.name,
 			description: provider.description ?? null,
-			streaming: provider.streaming ?? null,
 			cancellation: provider.cancellation ?? null,
 			color: provider.color ?? null,
 			website: provider.website ?? null,
@@ -225,9 +241,18 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 				})),
 		}));
 	const apiModelIds = new Set(apiProviderModels.map((model) => model.id));
+	// A listing the carrier paused or delisted stays off the page: its static
+	// mapping must not stand in for it.
+	const unlistedModelIds = new Set(
+		apiModels
+			.filter((model) => model.unlistedProviderIds?.includes(provider.id))
+			.map((model) => model.id),
+	);
 	const providerModels = [
 		...apiProviderModels,
-		...staticProviderModels.filter((model) => !apiModelIds.has(model.id)),
+		...staticProviderModels.filter(
+			(model) => !apiModelIds.has(model.id) && !unlistedModelIds.has(model.id),
+		),
 	].sort((a, b) => {
 		const aDate = a.releasedAt ? new Date(a.releasedAt).getTime() : 0;
 		const bDate = b.releasedAt ? new Date(b.releasedAt).getTime() : 0;
@@ -299,7 +324,11 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			<JsonLd data={[organizationSchema, itemListSchema, breadcrumbSchema]} />
 			<main>
 				<Navbar />
-				<Hero providerId={provider.id} uploadedLogo={uploadedLogo} />
+				<Hero
+					providerId={provider.id}
+					uploadedLogo={uploadedLogo}
+					airsideProfile={apiProvider?.airsideProfile ?? null}
+				/>
 
 				<ProviderStatsRow providerId={provider.id} />
 
@@ -309,6 +338,10 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 						<ProviderModelsGrid models={providerModels} />
 					</div>
 				</section>
+				<CompareFaq
+					heading={`${provider.name} API questions`}
+					faqs={buildProviderFaqs(provider, activeProviderModels)}
+				/>
 			</main>
 			<Footer />
 		</div>
@@ -360,7 +393,9 @@ export async function generateMetadata({
 				(p) => p.providerId === provider.id && !isMappingDeactivated(p),
 			),
 		).length;
-	const description = `Access ${modelCount} ${provider.name} models through LLM Gateway's OpenAI-compatible API with per-token pricing, automatic fallback, caching, and cost analytics.`;
+	const description = `Access ${modelCount} ${provider.name} ${
+		modelCount === 1 ? "model" : "models"
+	} through LLM Gateway's OpenAI-compatible API with per-token pricing, automatic fallback, caching, and cost analytics.`;
 
 	return {
 		title: `${provider.name} API — Models & Pricing`,
@@ -378,4 +413,62 @@ export async function generateMetadata({
 			description,
 		},
 	};
+}
+function buildProviderFaqs(
+	provider: ProviderFaqSource,
+	models: ModelWithProviders[],
+): CompareFaqItem[] {
+	const names = models.slice(0, 5).map((model) => model.name ?? model.id);
+	const example = models[0]?.id;
+	const faqs: CompareFaqItem[] = [
+		{
+			question: `How do I use the ${provider.name} API?`,
+			answer: `Create an LLM Gateway API key and point any OpenAI-compatible SDK at https://api.llmgateway.io/v1.${
+				example
+					? ` Set the model to ${example}. On pay-as-you-go keys, ${provider.id}/${example} pins every request to ${provider.name}; DevPass coding plans do not support provider pinning.`
+					: ""
+			} You do not need a separate ${provider.name} account or SDK.`,
+		},
+	];
+	if (names.length) {
+		faqs.push({
+			question: `Which ${provider.name} models are available?`,
+			answer: `LLM Gateway serves ${models.length} ${provider.name} ${
+				models.length === 1 ? "model" : "models"
+			}${
+				models.length > names.length ? ", including" : ":"
+			} ${names.join(", ")}. Each model page lists per-token pricing, context window and capabilities.`,
+		});
+	}
+	if (
+		provider.dataPolicy &&
+		provider.dataPolicy.apiTraining !== null &&
+		provider.dataPolicy.apiTraining !== undefined
+	) {
+		faqs.push({
+			question: `Does ${provider.name} train on API data?`,
+			answer: provider.dataPolicy.apiTraining
+				? `Yes. ${provider.name}'s published policy allows training on API traffic. Use provider routing rules in LLM Gateway to keep sensitive workloads on providers that do not.`
+				: `No. ${provider.name}'s published policy states that API traffic is not used for model training.`,
+		});
+	}
+	if (provider.headquarters) {
+		faqs.push({
+			question: `Where is ${provider.name} based?`,
+			answer: `${provider.name} is headquartered in ${
+				regionNames.of(provider.headquarters) ?? provider.headquarters
+			}. LLM Gateway shows each provider's location and data policy so you can route by compliance requirements.`,
+		});
+	}
+	faqs.push({
+		question: `What happens if the ${provider.name} API is down?`,
+		answer: `When you request a model without a provider prefix, LLM Gateway retries failed requests on other providers that serve the same model, so an outage at ${provider.name} does not have to take your app down. Send X-No-Fallback: true with a provider-pinned model when every request must reach ${provider.name}.`,
+	});
+	return faqs;
+}
+interface ProviderFaqSource {
+	id: string;
+	name: string;
+	dataPolicy?: { apiTraining?: boolean | null } | null;
+	headquarters?: string | null;
 }

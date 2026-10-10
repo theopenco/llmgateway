@@ -22,6 +22,8 @@ const REQUIRED_OUTPUT_BY_FLAG: {
 	{ flag: "ocr", output: "ocr" },
 	{ flag: "transcriptions", output: "transcription" },
 	{ flag: "rerank", output: "rerank" },
+	{ flag: "decisions", output: "decision" },
+	{ flag: "search", output: "search" },
 ];
 
 describe("model metadata", () => {
@@ -66,7 +68,6 @@ describe("model metadata", () => {
 		const expectedMappings = [
 			["google-ai-studio", "gemini-3-pro-image"],
 			["glacier", "gemini-3-pro-image-preview"],
-			["iceberg", "gemini-3-pro-image-preview"],
 			["google-vertex", "gemini-3-pro-image"],
 			["quartz", "gemini-3-pro-image"],
 		];

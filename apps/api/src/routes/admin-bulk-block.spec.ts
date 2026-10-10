@@ -6,7 +6,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { db, tables } from "@llmgateway/db";
 import { MAX_BULK_BLOCK_ORGANIZATIONS } from "@llmgateway/shared";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 interface PreviewResponse {
 	search: string;
@@ -69,15 +69,15 @@ describe("admin bulk block organizations", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 	});
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		await deleteAll();
 	});
@@ -88,7 +88,7 @@ describe("admin bulk block organizations", () => {
 			(await bulkBlock({ search: "fraud", expectedCount: 1 })).status,
 		).toBe(401);
 
-		process.env.ADMIN_EMAILS = "someone-else@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "someone-else@example.com";
 		expect((await preview("fraud", cookie)).status).toBe(403);
 		expect(
 			(await bulkBlock({ search: "fraud", expectedCount: 1 }, cookie)).status,

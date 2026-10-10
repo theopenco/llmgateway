@@ -74,6 +74,26 @@ describe("getProviderFilterReasons", () => {
 		).toEqual([exclusionReason("reasoning_max_tokens")]);
 	});
 
+	it("drops mappings that do not declare the requested reasoning.mode", () => {
+		expect(
+			getProviderFilterReasons(mapping({ reasoning: true }), {
+				reasoningMode: "pro",
+			}),
+		).toEqual([exclusionReason("reasoning_mode")]);
+		expect(
+			getProviderFilterReasons(
+				mapping({ reasoning: true, reasoningModes: ["standard"] }),
+				{ reasoningMode: "pro" },
+			),
+		).toEqual([exclusionReason("reasoning_mode")]);
+		expect(
+			getProviderFilterReasons(
+				mapping({ reasoning: true, reasoningModes: ["standard", "pro"] }),
+				{ reasoningMode: "pro" },
+			),
+		).toEqual([]);
+	});
+
 	it('treats reasoning_effort "none" as not requiring reasoning support', () => {
 		expect(
 			getProviderFilterReasons(mapping(), { reasoningEffort: "none" }),

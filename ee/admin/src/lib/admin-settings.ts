@@ -1,5 +1,3 @@
-"use server";
-
 import { createServerApiClient } from "./server-api";
 
 import type { SystemBannerSeverity } from "@llmgateway/shared";
@@ -10,35 +8,10 @@ export async function getCreditPurchaseBlock() {
 	return data ?? null;
 }
 
-export async function updateCreditPurchaseBlock(blocked: boolean) {
-	const $api = await createServerApiClient();
-	const { data } = await $api.PUT("/admin/settings/credit-purchase-block", {
-		body: { blocked },
-	});
-	return data ?? null;
-}
-
 export async function getBlockedSignupCountries() {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/settings/blocked-signup-countries");
 	return data ?? null;
-}
-
-export async function updateBlockedSignupCountries(countries: string[]) {
-	const $api = await createServerApiClient();
-	const { data, error } = await $api.PUT(
-		"/admin/settings/blocked-signup-countries",
-		{ body: { countries } },
-	);
-	if (!data) {
-		return {
-			countries: null,
-			message:
-				(error as { message?: string } | undefined)?.message ??
-				"Failed to update the blocked countries.",
-		};
-	}
-	return { countries: data.countries, message: null };
 }
 
 export type ForceThreeDSecureMode = "off" | "any" | "challenge";
@@ -47,22 +20,6 @@ export async function getForceThreeDSecure() {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/settings/force-3ds");
 	return data ?? null;
-}
-
-export async function updateForceThreeDSecure(mode: ForceThreeDSecureMode) {
-	const $api = await createServerApiClient();
-	const { data, error } = await $api.PUT("/admin/settings/force-3ds", {
-		body: { mode },
-	});
-	if (!data) {
-		return {
-			state: null,
-			message:
-				(error as { message?: string } | undefined)?.message ??
-				"Failed to update the 3D Secure setting.",
-		};
-	}
-	return { state: data, message: null };
 }
 
 export interface SystemBannerSettingInput {
@@ -85,6 +42,9 @@ export interface ContentFilterSettingsInput {
 	sampleRatePercent: number;
 	enforce: boolean;
 	enforceEnterprise: boolean;
+	classifier: "openai" | "jev" | "internal";
+	internalScope: "full" | "latest_turn";
+	moderateImages: boolean;
 }
 
 export async function getContentFilterSettings() {
@@ -93,36 +53,16 @@ export async function getContentFilterSettings() {
 	return data ?? null;
 }
 
-export async function updateContentFilterSettings(
-	input: ContentFilterSettingsInput,
-) {
+export async function getBlockedSignupEmailDomains() {
 	const $api = await createServerApiClient();
-	const { data, error } = await $api.PUT("/admin/settings/content-filter", {
-		body: input,
-	});
-	if (!data) {
-		return {
-			settings: null,
-			message:
-				(error as { message?: string } | undefined)?.message ??
-				"Failed to update the content filter settings.",
-		};
-	}
-	return { settings: data, message: null };
+	const { data } = await $api.GET(
+		"/admin/settings/blocked-signup-email-domains",
+	);
+	return data ?? null;
 }
 
-export async function updateSystemBanner(input: SystemBannerSettingInput) {
+export async function getModelErrorRateAlerts() {
 	const $api = await createServerApiClient();
-	const { data, error } = await $api.PUT("/admin/settings/banner", {
-		body: input,
-	});
-	if (!data) {
-		return {
-			banner: null,
-			message:
-				(error as { message?: string } | undefined)?.message ??
-				"Failed to update the banner.",
-		};
-	}
-	return { banner: data, message: null };
+	const { data } = await $api.GET("/admin/settings/model-error-rate-alerts");
+	return data ?? null;
 }

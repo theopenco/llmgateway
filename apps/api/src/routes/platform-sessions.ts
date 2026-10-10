@@ -152,6 +152,25 @@ async function ensureCustomerAndWallet(
 		throw new HTTPException(500, { message: "Failed to create end customer" });
 	}
 
+	// Email/name are otherwise written only on insert, so an integration that
+	// started with a bare `customer: "user_123"` could never acquire an address
+	// — and without one we cannot send the payer a receipt. Only overwrite when
+	// the caller actually supplied a value.
+	const identityChanges: Partial<typeof tables.endCustomer.$inferInsert> = {};
+	if (email !== undefined && email !== endCustomer.email) {
+		identityChanges.email = email;
+	}
+	if (name !== undefined && name !== endCustomer.name) {
+		identityChanges.name = name;
+	}
+	if (Object.keys(identityChanges).length > 0) {
+		[endCustomer] = await db
+			.update(tables.endCustomer)
+			.set(identityChanges)
+			.where(eq(tables.endCustomer.id, endCustomer.id))
+			.returning();
+	}
+
 	if (endCustomer.status === "blocked") {
 		throw new HTTPException(403, { message: "End customer is blocked" });
 	}

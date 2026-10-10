@@ -5,6 +5,8 @@ import * as RechartsPrimitive from "recharts";
 
 import { cn } from "@/lib/utils";
 
+import { formatChartValue } from "@llmgateway/shared/number-format";
+
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const;
 
@@ -119,12 +121,19 @@ const ChartTooltipContent = ({
 	label,
 	labelFormatter,
 	labelClassName,
+	// `formatter` replaces the WHOLE row (color indicator + series label +
+	// value), not just the value: `formatter={(v) => format(v)}` silently drops
+	// the series labels, a regression that has recurred several times. To only
+	// format the number, use `valueFormatter`.
 	formatter,
+	valueFormatter,
 	color,
 	nameKey,
 	labelKey,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
 	React.ComponentProps<"div"> & {
+		/** Formats only the value; keeps the indicator and series label. */
+		valueFormatter?: (value: number) => React.ReactNode;
 		hideLabel?: boolean;
 		hideIndicator?: boolean;
 		indicator?: "line" | "dot" | "dashed";
@@ -240,11 +249,18 @@ const ChartTooltipContent = ({
 													{itemConfig?.label ?? item.name}
 												</span>
 											</div>
-											{item.value && (
-												<span className="font-mono font-medium tabular-nums text-foreground">
-													{item.value.toLocaleString()}
-												</span>
-											)}
+											{valueFormatter
+												? item.value !== undefined &&
+													item.value !== null && (
+														<span className="font-mono font-medium tabular-nums text-foreground">
+															{valueFormatter(Number(item.value))}
+														</span>
+													)
+												: item.value && (
+														<span className="font-mono font-medium tabular-nums text-foreground">
+															{formatChartValue(item.value)}
+														</span>
+													)}
 										</div>
 									</>
 								)}

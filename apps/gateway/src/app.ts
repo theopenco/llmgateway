@@ -20,6 +20,10 @@ import {
 } from "@llmgateway/instrumentation";
 import { logger, toError } from "@llmgateway/logger";
 import { HealthChecker } from "@llmgateway/shared";
+import {
+	getClientIpFromContext,
+	getClientIpHeaderName,
+} from "@llmgateway/shared/client-ip";
 
 import { aisdk } from "./aisdk/aisdk.js";
 import { creditsRoute } from "./aisdk/credits.js";
@@ -32,9 +36,11 @@ import { imagesRoute } from "./images/route.js";
 import { keyRoute } from "./key/route.js";
 import { backpressureMiddleware } from "./lib/backpressure.js";
 import { renderGatewayError } from "./lib/error-response.js";
+import { ExpectedHTTPException } from "./lib/expected-http-exception.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { orgRateLimitMiddleware } from "./middleware/org-rate-limit.js";
+import { rejectionLogMiddleware } from "./middleware/rejection-log.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { moderationsRoute } from "./moderations/route.js";
@@ -42,7 +48,9 @@ import { ocrRoute } from "./ocr/route.js";
 import { realtimeClientSecretsRoute } from "./realtime/client-secrets-route.js";
 import { rerankRoute } from "./rerank/route.js";
 import { responses } from "./responses/responses.js";
+import { searchRoute } from "./search/route.js";
 import { speechRoute } from "./speech/route.js";
+import { systemoneRoute } from "./systemone/route.js";
 import { transcriptionsRoute } from "./transcriptions/route.js";
 import { videosRoute } from "./videos/route.js";
 
@@ -61,7 +69,7 @@ export const config = {
 	info: {
 		version: "1.0.0",
 		title: "LLM Gateway API",
-		description: `OpenAI-compatible LLM gateway: chat completions, embeddings, images, audio, video, moderation, OCR and rerank across providers with one API key.
+		description: `OpenAI-compatible LLM gateway: chat completions, embeddings, images, audio, video, moderation, OCR, rerank, web search and typed decisions across providers with one API key.
 
 **Authentication**: create an API key at https://llmgateway.io/dashboard and send it as \`Authorization: Bearer <key>\` (or \`x-api-key\`).
 
@@ -111,6 +119,7 @@ app.use("*", corsMiddleware);
 // Access-Control-* headers browser clients need to surface the 529, and
 // before the org limiter so pod protection costs no Redis/DB lookups.
 app.use("*", backpressureMiddleware);
+app.use("*", rejectionLogMiddleware);
 
 // Per-organization, per-path rate limiting plus the per-org in-flight
 // concurrency cap. Registered before the other request gates (content-type
@@ -190,6 +199,11 @@ app.onError((error, c) => {
 				status,
 				message: error.message,
 			});
+		} else if (error instanceof ExpectedHTTPException) {
+			logger.warn("Expected server error", {
+				status,
+				message: error.message,
+			});
 		} else if (status >= 500) {
 			logger.error("HTTP 500 exception", error);
 		} else {
@@ -263,6 +277,8 @@ const root = createRoute({
 						.object({
 							message: z.string(),
 							version: z.string(),
+							clientIp: z.string().nullable(),
+							clientIpHeader: z.string(),
 							health: z.object({
 								status: z.string(),
 								redis: z.object({
@@ -287,6 +303,8 @@ const root = createRoute({
 						.object({
 							message: z.string(),
 							version: z.string(),
+							clientIp: z.string().nullable(),
+							clientIpHeader: z.string(),
 							health: z.object({
 								status: z.string(),
 								redis: z.object({
@@ -344,7 +362,16 @@ app.openapi(root, async (c) => {
 
 	const { response, statusCode } = healthChecker.createHealthResponse(health);
 
-	return c.json(response, statusCode as 200 | 503);
+	// Echo the address this service resolves for the caller so a deployment can
+	// be checked against a known client IP before any per-IP limit is relied on.
+	return c.json(
+		{
+			...response,
+			clientIp: getClientIpFromContext(c),
+			clientIpHeader: getClientIpHeaderName(),
+		},
+		statusCode as 200 | 503,
+	);
 });
 
 const v1 = new OpenAPIHono<ServerTypes>();
@@ -357,6 +384,8 @@ v1.route("/models", models);
 v1.route("/moderations", moderationsRoute);
 v1.route("/ocr", ocrRoute);
 v1.route("/rerank", rerankRoute);
+v1.route("/search", searchRoute);
+v1.route("/systemone", systemoneRoute);
 v1.route("/messages", anthropic);
 v1.route("/responses", responses);
 v1.route("/audio/speech", speechRoute);

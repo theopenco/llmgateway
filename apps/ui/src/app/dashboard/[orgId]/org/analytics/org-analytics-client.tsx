@@ -1,6 +1,6 @@
 "use client";
 
-import { Coins, Mail, Zap, Hash } from "lucide-react";
+import { Coins, Zap, Hash } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
@@ -11,6 +11,8 @@ import {
 import { currencyFormatter } from "@/components/analytics/chart-helpers";
 import { DimensionUsageCard } from "@/components/analytics/dimension-usage-card";
 import { DimensionUsageOverTimeCard } from "@/components/analytics/dimension-usage-over-time-card";
+import { RoutingSavingsCard } from "@/components/analytics/routing-savings-card";
+import { EnterpriseFeatureCard } from "@/components/contact-sales";
 import {
 	UsageModeSelector,
 	useUsageMode,
@@ -19,7 +21,6 @@ import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
 import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
-import { Button } from "@/lib/components/button";
 import {
 	Card,
 	CardContent,
@@ -36,6 +37,8 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode } from "@/lib/usage-mode";
+
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { DimensionRow } from "@/components/analytics/chart-helpers";
 import type { Route } from "next";
@@ -84,27 +87,11 @@ const COPY: Record<GroupBy, { noun: string; overTime: string; top: string }> = {
 
 function EnterpriseUpgradeCard() {
 	return (
-		<Card className="max-w-2xl">
-			<CardHeader>
-				<CardTitle>Enterprise Feature</CardTitle>
-				<CardDescription>
-					Organization-wide analytics are available on the Enterprise plan
-				</CardDescription>
-			</CardHeader>
-			<CardContent className="space-y-6">
-				<p className="text-muted-foreground">
-					Roll cost, tokens, and requests up across every project in your
-					organization, and break the spend down by model, project, or API key
-					over any time period.
-				</p>
-				<Button asChild>
-					<a href="mailto:contact@llmgateway.io">
-						<Mail className="mr-2 h-4 w-4" />
-						Contact Sales
-					</a>
-				</Button>
-			</CardContent>
-		</Card>
+		<EnterpriseFeatureCard description="Organization-wide analytics are available on the Enterprise plan">
+			Roll cost, tokens, and requests up across every project in your
+			organization, and break the spend down by model, project, or API key over
+			any time period.
+		</EnterpriseFeatureCard>
 	);
 }
 
@@ -235,6 +222,26 @@ export function OrgAnalyticsClient() {
 		},
 	);
 
+	const routingSavings = api.useQuery(
+		"get",
+		"/analytics/routing-savings",
+		{
+			params: {
+				query: {
+					organizationId,
+					from: fromStr,
+					to: toStr,
+					timezone: displayTimeZone,
+				},
+			},
+		},
+		{
+			enabled: !!organizationId && isEnterprise && isAdmin,
+			refetchOnWindowFocus: false,
+			staleTime: 1000 * 60 * 5,
+		},
+	);
+
 	const usageMode = useUsageMode();
 	const rows = ((data?.activity ?? []) as OrgActivityRow[]).map((row) => ({
 		...applyUsageMode(row, usageMode),
@@ -303,12 +310,12 @@ export function OrgAnalyticsClient() {
 							/>
 							<SummaryStat
 								label="Requests"
-								value={totals.requestCount.toLocaleString()}
+								value={formatNumber(totals.requestCount)}
 								icon={Zap}
 							/>
 							<SummaryStat
 								label="Tokens"
-								value={totals.totalTokens.toLocaleString()}
+								value={formatNumber(totals.totalTokens)}
 								icon={Hash}
 							/>
 						</div>
@@ -342,6 +349,11 @@ export function OrgAnalyticsClient() {
 							loading={isLoading}
 							title={`Cost by ${copy.noun}`}
 							description={copy.top}
+						/>
+						<RoutingSavingsCard
+							data={routingSavings.data}
+							loading={routingSavings.isLoading}
+							showProject
 						/>
 					</>
 				)}

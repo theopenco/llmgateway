@@ -14,11 +14,15 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 interface BlockOrgButtonProps {
 	orgId: string;
@@ -31,11 +35,6 @@ interface BlockOrgButtonProps {
 	 */
 	disabledReason?: string;
 	variant?: "icon" | "full";
-	onBlock: (orgId: string) => Promise<{
-		success: boolean;
-		error?: string;
-		cancelledSubscriptionIds?: string[];
-	}>;
 }
 
 export function BlockOrgButton({
@@ -44,33 +43,36 @@ export function BlockOrgButton({
 	disabled,
 	disabledReason,
 	variant = "icon",
-	onBlock,
 }: BlockOrgButtonProps) {
 	const router = useRouter();
+	const $api = useApi();
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [reason, setReason] = useState("");
 	const actionTitle =
 		"Block organization, deactivate every member, and cancel all subscriptions";
 
-	const handleConfirm = async () => {
-		setLoading(true);
-		setError(null);
-		try {
-			const result = await onBlock(orgId);
-			if (result.success) {
+	const blockMutation = $api.useMutation(
+		"post",
+		"/admin/organizations/{orgId}/block",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
 				setOpen(false);
+				setReason("");
 				router.refresh();
-			} else {
-				setError(result.error ?? "Failed to block organization");
-			}
-		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "Failed to block organization",
-			);
-		} finally {
-			setLoading(false);
-		}
+			},
+		},
+	);
+	const loading = blockMutation.isPending;
+	const error = blockMutation.isError
+		? apiErrorMessage(blockMutation.error, "Failed to block organization")
+		: null;
+
+	const handleConfirm = () => {
+		blockMutation.mutate({
+			params: { path: { orgId } },
+			body: { reason: reason.trim() || undefined },
+		});
 	};
 
 	return (
@@ -82,7 +84,8 @@ export function BlockOrgButton({
 				}
 				setOpen(next);
 				if (!next) {
-					setError(null);
+					blockMutation.reset();
+					setReason("");
 				}
 			}}
 		>
@@ -147,6 +150,22 @@ export function BlockOrgButton({
 						</div>
 					</DialogDescription>
 				</DialogHeader>
+
+				<div className="space-y-2">
+					<Label htmlFor="block-reason">Reason (optional)</Label>
+					<Textarea
+						id="block-reason"
+						value={reason}
+						onChange={(event) => setReason(event.target.value)}
+						maxLength={1000}
+						disabled={loading}
+						aria-describedby="block-reason-help"
+						placeholder="Explain why this account is being blocked"
+					/>
+					<p id="block-reason-help" className="text-sm text-muted-foreground">
+						Shown to members when they sign in and in API and gateway errors.
+					</p>
+				</div>
 
 				{error && (
 					<p className="text-sm text-destructive" role="alert">

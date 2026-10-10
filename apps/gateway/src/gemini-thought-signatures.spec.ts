@@ -39,6 +39,7 @@ describe("Gemini thought signature replay", () => {
 	let server: Server;
 	let baseUrl = "";
 	let toolResponse = false;
+	let parallelToolResponse = false;
 	let jsonResponse = false;
 	let captured: Array<{
 		contents: Array<{ role: string; parts: MockGooglePart[] }>;
@@ -82,6 +83,23 @@ describe("Gemini thought signature replay", () => {
 							}
 						: {}),
 				});
+				if (parallelToolResponse) {
+					res.writeHead(200, { "Content-Type": "text/event-stream" });
+					for (const [index, item] of ["alpha", "beta", "gamma"].entries()) {
+						res.write(
+							`data: ${JSON.stringify(
+								response([
+									{
+										functionCall: { name: "lookup", args: { item } },
+										...(index === 0 ? { thoughtSignature: signature } : {}),
+									},
+								]),
+							)}\n\n`,
+						);
+					}
+					res.end(`data: ${JSON.stringify(response([], true))}\n\n`);
+					return;
+				}
 				if (toolResponse) {
 					const payload = response(
 						[
@@ -153,6 +171,7 @@ describe("Gemini thought signature replay", () => {
 	async function setup(retention: "retain" | "none") {
 		captured = [];
 		toolResponse = false;
+		parallelToolResponse = false;
 		jsonResponse = false;
 		await db
 			.update(tables.organization)
@@ -328,6 +347,85 @@ describe("Gemini thought signature replay", () => {
 			{ text: "42", thoughtSignature: signature },
 		]);
 	});
+
+	test.each(["retain", "none"] as const)(
+		"replays parallel streamed tools with retention %s",
+		async (retention) => {
+			await setup(retention);
+			parallelToolResponse = true;
+			const initial = {
+				role: "user",
+				content: "Look up alpha, beta and gamma.",
+			};
+			const first = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers,
+				body: JSON.stringify({ model, stream: true, messages: [initial] }),
+			});
+			expect(first.status).toBe(200);
+			interface ToolCall {
+				index: number;
+				id: string;
+				type: "function";
+				function: { name: string; arguments: string };
+				extra_content?: { google: { thought_signature: string } };
+			}
+			const calls: ToolCall[] = [];
+			for (const event of parseEvents(await first.text())) {
+				const chunk = event as unknown as {
+					choices: Array<{ delta: { tool_calls?: ToolCall[] } }>;
+				};
+				for (const call of chunk.choices[0]?.delta.tool_calls ?? []) {
+					expect(calls[call.index]).toBeUndefined();
+					calls[call.index] = call;
+				}
+			}
+			expect(calls.map((call) => JSON.parse(call.function.arguments))).toEqual([
+				{ item: "alpha" },
+				{ item: "beta" },
+				{ item: "gamma" },
+			]);
+			parallelToolResponse = false;
+			const next = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					model,
+					messages: [
+						initial,
+						{
+							role: "assistant",
+							content: null,
+							tool_calls: calls.map(
+								({ index: _index, extra_content, ...call }) => ({
+									...call,
+									...(retention === "none" ? { extra_content } : {}),
+								}),
+							),
+						},
+						...calls.map((call) => ({
+							role: "tool",
+							tool_call_id: call.id,
+							content: "Found.",
+						})),
+					],
+				}),
+			});
+			expect(next.status).toBe(200);
+			await next.text();
+			expect(
+				captured[1]!.contents.find((content) => content.role === "model")
+					?.parts,
+			).toEqual([
+				{
+					functionCall: { name: "lookup", args: { item: "alpha" } },
+					thoughtSignature: signature,
+				},
+				{ functionCall: { name: "lookup", args: { item: "beta" } } },
+				{ functionCall: { name: "lookup", args: { item: "gamma" } } },
+			]);
+		},
+	);
 
 	test("preserves explicit text and tool signatures instead of a cached signature", async () => {
 		await setup("retain");

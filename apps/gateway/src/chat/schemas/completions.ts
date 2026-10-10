@@ -258,6 +258,21 @@ export const completionsRequestSchema = z.object({
 				"How many chat completion choices to generate for each input message. Only accepted when the resolved model supports it upstream (currently OpenAI Chat Completions models and Google Gemini 2.5 models via `candidateCount`); requests for unsupported models are rejected with 400. Streaming is supported for OpenAI models: choice deltas are demultiplexed by `choices[].index` on a single SSE stream. Exceptions rejected with 400: `n > 1` with `stream: true` **and** function `tools` (the streaming tool-call aggregator can't disambiguate concurrent calls across choices; native `web_search` tools and the `web_search: true` flag are exempt), `n > 1` with `stream: true` on Google models (Gemini rejects candidateCount on streamGenerateContent), and `n > 8` on Google models (Gemini caps candidateCount at 8).",
 			example: 1,
 		}),
+	prompt: z
+		.object({
+			id: z.string(),
+			version: z.number().int().min(1).optional(),
+			label: z.string().optional(),
+			variables: z
+				.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+				.optional(),
+		})
+		.optional()
+		.openapi({
+			description:
+				"Managed prompt to expand before routing, by id or name. Its rendered messages are prepended to `messages`, and its model and parameters fill fields you leave unset. Pin a `version`, or pick a `label` (`production` by default; `latest` is the newest version). A prompt without variables can also be referenced through `model` as `@prompt/<name>`, `@prompt/<name>@<label>` or `@prompt/<name>@<version>`.",
+			example: { id: "support-reply", variables: { customer: "Ada" } },
+		}),
 	prompt_cache_key: z
 		.string()
 		.nullable()
@@ -408,6 +423,11 @@ export const completionsRequestSchema = z.object({
 						"How much replayed reasoning the model considers (OpenAI Responses API models only). Omitting the field is equivalent to 'auto'. Forwarded upstream as reasoning.context; ignored by other providers.",
 					example: "current_turn",
 				}),
+			mode: z.enum(["standard", "pro"]).optional().openapi({
+				description:
+					"Execution strategy: `pro` performs additional model work for difficult tasks at higher latency and token usage. Independent of effort, which controls how much reasoning happens within the mode. Only accepted by mappings that list it under `reasoning_modes` on `/v1/models` (OpenAI GPT-5.6 models); the request is rejected for any other model instead of the field being dropped.",
+				example: "pro",
+			}),
 		})
 		.optional()
 		.openapi({
@@ -441,6 +461,16 @@ export const completionsRequestSchema = z.object({
 			description:
 				"Processing tier for the request. `flex` and `priority` are forwarded only for provider/model mappings that explicitly support the requested tier, such as supported OpenAI and Google mappings. `auto`/`default` use the standard on-demand tier. Unsupported tier requests return a 400 `unsupported_service_tier` error. On coding (dev) plans only `auto`, `default` and `flex` are allowed.",
 			example: "flex",
+		}),
+	anthropic_safeguards: z
+		.object({
+			safeguards: z.array(z.object({ type: z.string() }).passthrough()).min(1),
+			betas: z.array(z.string()).min(1),
+		})
+		.optional()
+		.openapi({
+			description:
+				"Anthropic server-side safeguard review (Claude Code auto mode): the Messages API `safeguards` field and its paired beta values. Valid pairs restrict routing and fallback to compatible providers; unsupported provider pins return 400. Verdicts are returned as `anthropic_safeguard_results` on the assistant message.",
 		}),
 	routing: z
 		.enum(["auto", "price", "throughput", "latency"])

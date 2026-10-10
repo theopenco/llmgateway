@@ -4,9 +4,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 
 import { CostByModelTimeseriesChart } from "@/components/cost-by-model-timeseries-chart";
-import { getProjectCostByModelTimeseries } from "@/lib/admin-history";
+import { useHistoryClient } from "@/lib/history-client";
 
 import type {
+	CostTimeseriesBucket,
 	CostTimeseriesGroupBy,
 	ModelView,
 	ProjectCostTimeseriesGroupBy,
@@ -48,18 +49,25 @@ export function ProjectCostByModelTimeseries({
 
 	const window = parseWindow(searchParams.get("window"));
 	const groupBy = parseGroupBy(searchParams.get("breakdown"));
+	const history = useHistoryClient();
 
 	const fetchData = useCallback(
-		async (w: TokenWindow, modelView: ModelView, g: CostTimeseriesGroupBy) => {
-			return await getProjectCostByModelTimeseries(
+		async (
+			w: TokenWindow,
+			modelView: ModelView,
+			g: CostTimeseriesGroupBy,
+			bucket: CostTimeseriesBucket | undefined,
+		) => {
+			return await history.projectCostByModelTimeseries(
 				orgId,
 				projectId,
 				w,
 				modelView,
 				g === "source" ? "source" : "model",
+				bucket,
 			);
 		},
-		[orgId, projectId],
+		[history, orgId, projectId],
 	);
 
 	const handleGroupByChange = useCallback(

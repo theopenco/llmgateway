@@ -5,11 +5,16 @@ import { logger, toError } from "@llmgateway/logger";
 import {
 	customModelRef,
 	customProviderRef,
+	getAttestationComplianceFailures,
+	getModelPolicyListFailures,
+	getProviderComplianceFailures,
 	getProviderDefinition,
+	getProviderRefPolicyListFailures,
 	isAttestationCompliant,
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
+	type ComplianceFailureReason,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -99,6 +104,43 @@ export function isModelIdCompliant(
 		? [modelId, customModelRef(context.customProviderName, modelId)]
 		: [modelId];
 	return isModelAllowedByPolicy(modelRefs, policy);
+}
+
+/**
+ * Every policy rule a (provider, model) pair fails, so a routing exclusion can
+ * say which constraint dropped the mapping rather than just "compliance".
+ * Mirrors the checks `isProviderIdCompliant` / `isModelIdCompliant` run, and
+ * never returns empty for a non-compliant pair: a provider id with no catalogue
+ * entry fails closed as `unknownProvider`.
+ */
+export function getComplianceFailureReasons(
+	providerId: string,
+	modelId: string,
+	policy: ProviderCompliancePolicy,
+	context?: ComplianceCheckContext,
+): ComplianceFailureReason[] {
+	const failures: ComplianceFailureReason[] = [];
+	if (providerId === "custom") {
+		const providerRef = context?.customProviderName
+			? customProviderRef(context.customProviderName)
+			: providerId;
+		failures.push(
+			...getProviderRefPolicyListFailures(providerRef, policy),
+			...getAttestationComplianceFailures(context?.customAttestation, policy),
+		);
+	} else {
+		const definition = getProviderDefinition(providerId);
+		failures.push(
+			...(definition
+				? getProviderComplianceFailures(definition, policy)
+				: ["unknownProvider" as const]),
+		);
+	}
+	const modelRefs = context?.customProviderName
+		? [modelId, customModelRef(context.customProviderName, modelId)]
+		: [modelId];
+	failures.push(...getModelPolicyListFailures(modelRefs, policy));
+	return Array.from(new Set(failures));
 }
 
 /** Drop provider mappings that don't satisfy the policy. */

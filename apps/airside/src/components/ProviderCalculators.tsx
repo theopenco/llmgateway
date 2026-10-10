@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 function NumberField({
 	id,
 	label,
@@ -193,7 +195,7 @@ export function RateLimitCalculator() {
 								data-testid="daily-capacity"
 								className="mt-1 font-mono text-2xl"
 							>
-								{daily.toLocaleString("en-US")}
+								{formatNumber(daily)}
 							</dd>
 						</div>
 						<div>
@@ -204,7 +206,7 @@ export function RateLimitCalculator() {
 								data-testid="capacity-concurrency"
 								className="mt-1 font-mono text-2xl"
 							>
-								{concurrency.toLocaleString("en-US")}
+								{formatNumber(concurrency)}
 							</dd>
 						</div>
 					</dl>

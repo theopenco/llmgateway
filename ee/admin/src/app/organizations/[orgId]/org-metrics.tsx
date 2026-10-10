@@ -10,18 +10,19 @@ import {
 	TrendingDown,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
 
 import { TokenTimeRangeToggle } from "@/components/token-time-range-toggle";
 import {
 	UsageModeSelector,
 	useUsageMode,
 } from "@/components/usage-mode-selector";
-import { loadMetricsAction } from "@/lib/admin-organizations";
+import { useApi } from "@/lib/fetch-client";
 import { pickCost, pickRequests } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
-import type { OrganizationMetrics, TokenWindow } from "@/lib/types";
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
+import type { TokenWindow } from "@/lib/types";
 
 const validWindows = new Set<TokenWindow>([
 	"1h",
@@ -39,22 +40,6 @@ function parseWindow(value: string | null): TokenWindow {
 		return value as TokenWindow;
 	}
 	return "1d";
-}
-
-function formatCompactNumber(value: number): string {
-	if (value >= 1_000_000_000) {
-		const formatted = value / 1_000_000_000;
-		return `${formatted % 1 === 0 ? formatted.toFixed(0) : formatted.toFixed(1)}B`;
-	}
-	if (value >= 1_000_000) {
-		const formatted = value / 1_000_000;
-		return `${formatted % 1 === 0 ? formatted.toFixed(0) : formatted.toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		const formatted = value / 1_000;
-		return `${formatted % 1 === 0 ? formatted.toFixed(0) : formatted.toFixed(1)}k`;
-	}
-	return value.toLocaleString("en-US");
 }
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -117,23 +102,14 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 
 	const window = parseWindow(searchParams.get("window"));
 	const usageMode = useUsageMode();
-	const [metrics, setMetrics] = useState<OrganizationMetrics | null>(null);
-	const [loading, setLoading] = useState(true);
-
-	const loadMetrics = useCallback(
-		async (w: TokenWindow) => {
-			setLoading(true);
-			const data = await loadMetricsAction(orgId, w);
-			setMetrics(data);
-			setLoading(false);
-		},
-		[orgId],
+	const $api = useApi();
+	const { data: metrics, isLoading: loading } = $api.useQuery(
+		"get",
+		"/admin/organizations/{orgId}",
+		{ params: { path: { orgId }, query: { window } } },
+		// Live usage: refetch on every visit, as the page did before.
+		{ staleTime: 0 },
 	);
-
-	// Load metrics automatically on mount and when window changes
-	useEffect(() => {
-		void loadMetrics(window);
-	}, [loadMetrics, window]);
 
 	if (loading) {
 		return (

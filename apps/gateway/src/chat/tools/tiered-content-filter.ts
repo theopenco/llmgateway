@@ -10,6 +10,8 @@ import type {
 	tables,
 } from "@llmgateway/db";
 import type {
+	ContentFilterClassifier,
+	ContentFilterInternalScope,
 	ContentFilterLevel,
 	ContentFilterSettings,
 } from "@llmgateway/shared";
@@ -33,6 +35,12 @@ export interface TieredContentFilterPlan {
 	level: ContentFilterLevel;
 	enforce: boolean;
 	exemptReason?: GatewayContentFilterEvaluation["exemptReason"];
+	/** Classifier whose scores decide the outcome. */
+	classifier: ContentFilterClassifier;
+	/** What the internal classifier reads; ignored by the others. */
+	internalScope: ContentFilterInternalScope;
+	/** Whether a text-only classifier delegates image parts to OpenAI. */
+	moderateImages: boolean;
 }
 
 export interface TieredContentFilterEvaluation {
@@ -150,6 +158,9 @@ export async function resolveTieredContentFilterPlan(
 		level,
 		enforce: exemptReason === undefined,
 		...(exemptReason ? { exemptReason } : {}),
+		classifier: settings.classifier,
+		internalScope: settings.internalScope,
+		moderateImages: settings.moderateImages,
 	};
 }
 
@@ -200,10 +211,16 @@ export function buildGatewayContentFilterEvaluation(
 	plan: TieredContentFilterPlan,
 	evaluation: TieredContentFilterEvaluation,
 	moderationFailed: boolean,
+	durationMs: number,
+	breakdown: Pick<
+		GatewayContentFilterEvaluation,
+		"classifierDurationMs" | "classifierRequests" | "imageDurationMs"
+	> = {},
 ): GatewayContentFilterEvaluation {
 	const blocked = plan.enforce && evaluation.violation;
 	return {
 		sampled: true,
+		classifier: plan.classifier,
 		provider: plan.provider,
 		tier: plan.tier,
 		overridden: plan.overridden,
@@ -216,5 +233,18 @@ export function buildGatewayContentFilterEvaluation(
 		matchedCategories: evaluation.matchedCategories,
 		categoryScores: evaluation.categoryScores,
 		moderationFailed,
+		durationMs,
+		...(breakdown.classifierDurationMs !== undefined
+			? { classifierDurationMs: breakdown.classifierDurationMs }
+			: {}),
+		...(breakdown.classifierRequests !== undefined
+			? { classifierRequests: breakdown.classifierRequests }
+			: {}),
+		...(breakdown.imageDurationMs !== undefined
+			? { imageDurationMs: breakdown.imageDurationMs }
+			: {}),
+		...(plan.classifier === "internal"
+			? { internalScope: plan.internalScope }
+			: {}),
 	};
 }

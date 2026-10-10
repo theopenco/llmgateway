@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import Link from "next/link";
 
 import { useCompany } from "@/components/dashboard/company-context";
+import { RelativeDate } from "@/components/RelativeDate";
 import { Badge } from "@/components/ui/badge";
 import {
 	Card,
@@ -127,11 +128,8 @@ export default function FilingsPage() {
 												{filing.status}
 											</Badge>
 										</TableCell>
-										<TableCell className="text-muted-foreground font-mono text-xs">
-											{new Date(filing.createdAt).toLocaleDateString("en-US", {
-												month: "short",
-												day: "numeric",
-											})}
+										<TableCell className="text-muted-foreground text-xs">
+											<RelativeDate date={filing.createdAt} />
 										</TableCell>
 										<TableCell className="text-muted-foreground max-w-56 truncate text-xs">
 											{filing.reviewNote ?? filing.note ?? "—"}
@@ -162,6 +160,7 @@ export default function FilingsPage() {
 							<TableHeader>
 								<TableRow>
 									<TableHead>Carrier</TableHead>
+									<TableHead>Scope</TableHead>
 									<TableHead className="text-right">Discount</TableHead>
 									<TableHead className="text-right">Landing fee</TableHead>
 									<TableHead>Status</TableHead>
@@ -175,6 +174,14 @@ export default function FilingsPage() {
 										<TableCell className="font-mono">
 											{filing.providerId}
 										</TableCell>
+										<TableCell className="font-mono text-xs">
+											{filing.modelId ?? "All models"}
+											{filing.clearsOverride ? (
+												<span className="text-muted-foreground block font-sans">
+													override removed
+												</span>
+											) : null}
+										</TableCell>
 										<TableCell className="text-right font-mono">
 											{Math.round(filing.discountPercent * 100)}%
 										</TableCell>
@@ -182,15 +189,17 @@ export default function FilingsPage() {
 											{Math.round(filing.marginPercent * 100)}%
 										</TableCell>
 										<TableCell>
-											<Badge variant={STATUS_VARIANT[filing.status]}>
-												{filing.status}
-											</Badge>
+											<div className="flex items-center gap-1">
+												<Badge variant={STATUS_VARIANT[filing.status]}>
+													{filing.status}
+												</Badge>
+												{filing.initiatedBy === "admin" ? (
+													<Badge variant="outline">set by LLMGateway</Badge>
+												) : null}
+											</div>
 										</TableCell>
-										<TableCell className="text-muted-foreground font-mono text-xs">
-											{new Date(filing.createdAt).toLocaleDateString("en-US", {
-												month: "short",
-												day: "numeric",
-											})}
+										<TableCell className="text-muted-foreground text-xs">
+											<RelativeDate date={filing.createdAt} />
 										</TableCell>
 										<TableCell className="text-muted-foreground max-w-56 truncate text-xs">
 											{filing.reviewNote ?? "—"}

@@ -12,3 +12,38 @@ export function isProjectScopedRole(role: string | undefined): boolean {
 export function canManageProject(role: string | undefined): boolean {
 	return isOrganizationAdmin(role) || role === "project_admin";
 }
+
+/**
+ * Lowest organization role that receives an alert. Each level implies every
+ * higher one: "admin" means owners and admins, "member" means everyone.
+ */
+export const alertAudiences = ["owner", "admin", "member"] as const;
+
+export type AlertAudience = (typeof alertAudiences)[number];
+
+/**
+ * Audience of an org-scoped alert: limit alerts always go to owners and
+ * admins; compliance alerts follow the organization's configured audience.
+ */
+export function orgAlertAudience(
+	type: string,
+	complianceAudience: AlertAudience | null | undefined,
+): AlertAudience | null {
+	return type === "org_limit" || type === "data_stream"
+		? "admin"
+		: (complianceAudience ?? null);
+}
+
+export function isInAlertAudience(
+	role: string | undefined,
+	audience: AlertAudience,
+): boolean {
+	switch (audience) {
+		case "owner":
+			return role === "owner";
+		case "admin":
+			return isOrganizationAdmin(role);
+		case "member":
+			return isOrganizationAdmin(role) || isProjectScopedRole(role);
+	}
+}

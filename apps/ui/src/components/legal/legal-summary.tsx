@@ -50,9 +50,10 @@ const privacyCards: SummaryCard[] = [
 			<>
 				Out of the box we store usage metadata only — tokens, cost, latency and
 				which provider was used — never the content of your prompts or
-				responses. You can optionally turn on full request retention under{" "}
-				<span className="text-foreground font-medium">Settings → Policies</span>{" "}
-				if you want it.
+				responses. Enterprise organizations can optionally turn on full request
+				retention under{" "}
+				<span className="text-foreground font-medium">Settings → Policies</span>
+				.
 			</>
 		),
 	},
@@ -161,7 +162,9 @@ const termsCards: SummaryCard[] = [
 		body: (
 			<>
 				No illegal or harmful use, no circumventing rate limits or auth.
-				Accounts abusing the Service may be suspended or terminated.
+				Accounts abusing the Service may be suspended or terminated. From
+				October 15, 2026, so may accounts that trigger a high rate of content
+				filter violations — a call we make at our discretion.
 			</>
 		),
 	},

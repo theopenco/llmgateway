@@ -1,0 +1,420 @@
+diff --git a/common/cpp/audioapi/AudioAPIModuleInstaller.h b/common/cpp/audioapi/AudioAPIModuleInstaller.h
+index 44be8101b17c2385161a295cb911bfa63e130f4c..e42389215b22b8322838e6f56a04e73ae84bdf38 100644
+--- a/common/cpp/audioapi/AudioAPIModuleInstaller.h
++++ b/common/cpp/audioapi/AudioAPIModuleInstaller.h
+@@ -135,14 +135,19 @@ class AudioAPIModuleInstaller {
+     return jsi::Function::createFromHostFunction(
+         *jsiRuntime,
+         jsi::PropNameID::forAscii(*jsiRuntime, "createAudioRecorder"),
+-        0,
++        1,
+         [jsCallInvoker, audioEventHandlerRegistry](
+             jsi::Runtime &runtime,
+             const jsi::Value &thisValue,
+             const jsi::Value *args,
+             size_t count) -> jsi::Value {
++          bool iosVoiceProcessing = false;
++          if (count > 0 && args[0].isObject()) {
++            auto value = args[0].asObject(runtime).getProperty(runtime, "iosVoiceProcessing");
++            iosVoiceProcessing = value.isBool() && value.getBool();
++          }
+           auto audioRecorderHostObject = std::make_shared<AudioRecorderHostObject>(
+-              audioEventHandlerRegistry, &runtime, jsCallInvoker);
++              audioEventHandlerRegistry, &runtime, jsCallInvoker, iosVoiceProcessing);
+ 
+           auto jsiObject = jsi::Object::createFromHostObject(runtime, audioRecorderHostObject);
+ 
+diff --git a/common/cpp/audioapi/HostObjects/inputs/AudioRecorderHostObject.cpp b/common/cpp/audioapi/HostObjects/inputs/AudioRecorderHostObject.cpp
+index ecf5f28bbe1c7dbe60f54dbd371de0fd0bfc2ad9..1d675489edc9d00e20ebf9e8b5b84a6e0c07a89e 100644
+--- a/common/cpp/audioapi/HostObjects/inputs/AudioRecorderHostObject.cpp
++++ b/common/cpp/audioapi/HostObjects/inputs/AudioRecorderHostObject.cpp
+@@ -22,11 +22,12 @@ namespace audioapi {
+ AudioRecorderHostObject::AudioRecorderHostObject(
+     const std::shared_ptr<AudioEventHandlerRegistry> &audioEventHandlerRegistry,
+     jsi::Runtime *runtime,
+-    const std::shared_ptr<react::CallInvoker> &callInvoker) {
++    const std::shared_ptr<react::CallInvoker> &callInvoker,
++    bool iosVoiceProcessing) {
+ #ifdef ANDROID
+   audioRecorder_ = std::make_shared<AndroidAudioRecorder>(audioEventHandlerRegistry);
+ #else
+-  audioRecorder_ = std::make_shared<IOSAudioRecorder>(audioEventHandlerRegistry);
++  audioRecorder_ = std::make_shared<IOSAudioRecorder>(audioEventHandlerRegistry, iosVoiceProcessing);
+ #endif
+ 
+   promiseVendor_ = std::make_shared<PromiseVendor>(runtime, callInvoker);
+diff --git a/common/cpp/audioapi/HostObjects/inputs/AudioRecorderHostObject.h b/common/cpp/audioapi/HostObjects/inputs/AudioRecorderHostObject.h
+index ac5085ff74fc60d57e01e3a7548af788af51d1c7..aba61c284eca434421bcb4baab59f6c3c3f807e2 100644
+--- a/common/cpp/audioapi/HostObjects/inputs/AudioRecorderHostObject.h
++++ b/common/cpp/audioapi/HostObjects/inputs/AudioRecorderHostObject.h
+@@ -17,7 +17,8 @@ class AudioRecorderHostObject : public JsiHostObject {
+   AudioRecorderHostObject(
+       const std::shared_ptr<AudioEventHandlerRegistry> &audioEventHandlerRegistry,
+       jsi::Runtime *runtime,
+-      const std::shared_ptr<react::CallInvoker> &callInvoker);
++      const std::shared_ptr<react::CallInvoker> &callInvoker,
++      bool iosVoiceProcessing = false);
+ 
+   JSI_HOST_FUNCTION_DECL(start);
+   JSI_HOST_FUNCTION_DECL(stop);
+diff --git a/common/cpp/audioapi/core/utils/worklets/WorkletsRunner.cpp b/common/cpp/audioapi/core/utils/worklets/WorkletsRunner.cpp
+index 3e4300c50fd247f5aa4da7d2e3302b3c18e9f882..a23a208e8e7384431ac17c67b776a01b36b25924 100644
+--- a/common/cpp/audioapi/core/utils/worklets/WorkletsRunner.cpp
++++ b/common/cpp/audioapi/core/utils/worklets/WorkletsRunner.cpp
+@@ -15,7 +15,7 @@ WorkletsRunner::WorkletsRunner(
+   }
+ #if RN_AUDIO_API_ENABLE_WORKLETS
+   unsafeRuntimePtr = &strongRuntime->getJSIRuntime();
+-  strongRuntime->executeSync([this, shareableWorklet](jsi::Runtime &rt) -> jsi::Value {
++  strongRuntime->runSync([this, shareableWorklet](jsi::Runtime &rt) -> jsi::Value {
+     /// Placement new to avoid dynamic memory allocation
+     new (reinterpret_cast<jsi::Function *>(&unsafeWorklet))
+         jsi::Function(shareableWorklet->toJSValue(*unsafeRuntimePtr)
+@@ -62,7 +62,7 @@ std::optional<jsi::Value> WorkletsRunner::executeOnRuntimeGuarded(
+     return std::nullopt;
+   }
+ #if RN_AUDIO_API_ENABLE_WORKLETS
+-  return strongRuntime->executeSync(std::move(job));
++  return strongRuntime->runSync(std::move(job));
+ #else
+   return std::nullopt;
+ #endif
+diff --git a/ios/audioapi/ios/core/IOSAudioRecorder.h b/ios/audioapi/ios/core/IOSAudioRecorder.h
+index e8990a5cff49656df1c0a95a1d9c6cb0f095a5c0..0903d3e379aa141216a953d275308f529226d857 100644
+--- a/ios/audioapi/ios/core/IOSAudioRecorder.h
++++ b/ios/audioapi/ios/core/IOSAudioRecorder.h
+@@ -26,7 +26,8 @@ class AudioFileWriter;
+ 
+ class IOSAudioRecorder : public AudioRecorder {
+  public:
+-  IOSAudioRecorder(const std::shared_ptr<AudioEventHandlerRegistry> &audioEventHandlerRegistry);
++  IOSAudioRecorder(const std::shared_ptr<AudioEventHandlerRegistry> &audioEventHandlerRegistry,
++                   bool iosVoiceProcessing = false);
+   ~IOSAudioRecorder() override;
+ 
+   Result<NoneType, std::string> start(const std::string &fileNameOverride = "") override;
+diff --git a/ios/audioapi/ios/core/IOSAudioRecorder.mm b/ios/audioapi/ios/core/IOSAudioRecorder.mm
+index 6ea50f757568a77918af0abb4ab11b21375c950f..577cab51663586107745c05f5c6ae319ac9dd672 100644
+--- a/ios/audioapi/ios/core/IOSAudioRecorder.mm
++++ b/ios/audioapi/ios/core/IOSAudioRecorder.mm
+@@ -99,7 +99,8 @@ static std::string withStartDiagnostics(
+ /// This "method" should be called from the JS thread only.
+ /// @param audioEventHandlerRegistry Shared pointer to the AudioEventHandlerRegistry for event handling.
+ IOSAudioRecorder::IOSAudioRecorder(
+-    const std::shared_ptr<AudioEventHandlerRegistry> &audioEventHandlerRegistry)
++    const std::shared_ptr<AudioEventHandlerRegistry> &audioEventHandlerRegistry,
++    bool iosVoiceProcessing)
+     : AudioRecorder(audioEventHandlerRegistry)
+ {
+   AudioReceiverBlock receiverBlock = ^(const AudioBufferList *inputBuffer, int numFrames) {
+@@ -127,7 +128,8 @@ IOSAudioRecorder::IOSAudioRecorder(
+     }
+   };
+ 
+-  nativeRecorder_ = [[NativeAudioRecorder alloc] initWithReceiverBlock:receiverBlock];
++  nativeRecorder_ = [[NativeAudioRecorder alloc] initWithReceiverBlock:receiverBlock
++                                                 voiceProcessingEnabled:iosVoiceProcessing];
+ }
+ 
+ IOSAudioRecorder::~IOSAudioRecorder()
+diff --git a/ios/audioapi/ios/core/NativeAudioRecorder.h b/ios/audioapi/ios/core/NativeAudioRecorder.h
+index 576f3ac8a7d4432ba9be98b1895af7daa31d813b..abc65e80eac48ec8d64b55b9be96f63d1cd68855 100644
+--- a/ios/audioapi/ios/core/NativeAudioRecorder.h
++++ b/ios/audioapi/ios/core/NativeAudioRecorder.h
+@@ -12,8 +12,10 @@ typedef void (^AudioReceiverBlock)(const AudioBufferList *inputBuffer, int numFr
+ @property (nonatomic, strong) AVAudioFormat *resolvedInputFormat;
+ @property (nonatomic, assign) int resolvedBufferSize;
+ @property (atomic, assign) BOOL inputArmed;
++@property (nonatomic, assign) BOOL voiceProcessingEnabled;
+ 
+-- (instancetype)initWithReceiverBlock:(AudioReceiverBlock)receiverBlock;
++- (instancetype)initWithReceiverBlock:(AudioReceiverBlock)receiverBlock
++              voiceProcessingEnabled:(BOOL)voiceProcessingEnabled;
+ 
+ - (int)getBufferSize;
+ - (AVAudioFormat *)getResolvedInputFormat;
+diff --git a/ios/audioapi/ios/core/NativeAudioRecorder.m b/ios/audioapi/ios/core/NativeAudioRecorder.m
+index d5724728d9f64db6991cbdba39497cf3aab42f16..1e78b8d6c3deea66bb14b4669fea85f9278ab6bf 100644
+--- a/ios/audioapi/ios/core/NativeAudioRecorder.m
++++ b/ios/audioapi/ios/core/NativeAudioRecorder.m
+@@ -26,9 +26,11 @@ static inline uint32_t nextPowerOfTwo(uint32_t x)
+ }
+ 
+ - (instancetype)initWithReceiverBlock:(AudioReceiverBlock)receiverBlock
++              voiceProcessingEnabled:(BOOL)voiceProcessingEnabled
+ {
+   if (self = [super init]) {
+     self.receiverBlock = [receiverBlock copy];
++    self.voiceProcessingEnabled = voiceProcessingEnabled;
+     self.inputArmed = NO;
+     self.resolvedBufferSize = 0;
+ 
+@@ -93,7 +95,8 @@ static inline uint32_t nextPowerOfTwo(uint32_t x)
+   self.resolvedBufferSize = 0;
+ 
+   [audioEngine stopIfNecessary];
+-  [audioEngine attachInputNodeWithReceiverBlock:self.receiverSinkBlock];
++  [audioEngine attachInputNodeWithReceiverBlock:self.receiverSinkBlock
++                           voiceProcessingEnabled:self.voiceProcessingEnabled];
+ 
+   if (![audioEngine startIfNecessary]) {
+     [audioEngine detachInputNode];
+diff --git a/ios/audioapi/ios/system/AudioEngine.h b/ios/audioapi/ios/system/AudioEngine.h
+index e4f9fdd3916e7f3ab4cd5ccc22c1b7aa302adb88..fc8feb68f7cb359dcbc59dae7afb3a2cc384aec0 100644
+--- a/ios/audioapi/ios/system/AudioEngine.h
++++ b/ios/audioapi/ios/system/AudioEngine.h
+@@ -33,7 +33,8 @@ typedef NS_ENUM(NSInteger, AudioEngineState) {
+                                  channelCount:(AVAudioChannelCount)channelCount;
+ - (void)detachSourceNodeWithId:(NSString *)sourceNodeId;
+ 
+-- (void)attachInputNodeWithReceiverBlock:(AVAudioSinkNodeReceiverBlock)receiverBlock;
++- (void)attachInputNodeWithReceiverBlock:(AVAudioSinkNodeReceiverBlock)receiverBlock
++                  voiceProcessingEnabled:(BOOL)voiceProcessingEnabled;
+ - (void)detachInputNode;
+ - (AVAudioFormat *)getLiveInputFormat;
+ 
+@@ -52,6 +53,7 @@ typedef NS_ENUM(NSInteger, AudioEngineState) {
+ - (void)stopIfPossible;
+ 
+ - (void)restartAudioEngine;
++- (void)resumeAfterConfigurationChange:(AVAudioEngine *)changedEngine;
+ 
+ - (void)logAudioEngineState;
+ 
+diff --git a/ios/audioapi/ios/system/AudioEngine.mm b/ios/audioapi/ios/system/AudioEngine.mm
+index d91ed60f974d3bc7d166b9803105be2e145745e4..c49ae219327fc6665ff2202e2c4045400df5c9fc 100644
+--- a/ios/audioapi/ios/system/AudioEngine.mm
++++ b/ios/audioapi/ios/system/AudioEngine.mm
+@@ -17,6 +17,7 @@
+ @interface AudioEngineInputRegistration : NSObject
+ 
+ @property (nonatomic, copy) AVAudioSinkNodeReceiverBlock receiverBlock;
++@property (nonatomic, assign) BOOL voiceProcessingEnabled;
+ 
+ @end
+ 
+@@ -26,6 +27,7 @@
+ @interface AudioEngine () {
+   std::mutex _engineLock;
+   BOOL _isRebuildingAudioEngine;
++  BOOL _voiceProcessingApplied;
+ }
+ 
+ @property (nonatomic, strong)
+@@ -38,6 +40,7 @@
+ - (AVAudioFormat *)currentInputConnectionFormat;
+ - (void)materializeSourceNodeWithId:(NSString *)sourceNodeId;
+ - (BOOL)materializeInputNodeIfNeeded;
++- (BOOL)applyVoiceProcessing;
+ - (void)materializeTrackedNodesIfNeeded;
+ 
+ - (AVAudioFormat *)liveInputFormat;
+@@ -57,6 +60,7 @@ static AudioEngine *_sharedInstance = nil;
+   }
+ 
+   self.audioEngine = [[AVAudioEngine alloc] init];
++  _voiceProcessingApplied = NO;
+ }
+ 
+ - (void)destroyAudioEngine
+@@ -186,6 +190,14 @@ static AudioEngine *_sharedInstance = nil;
+     return YES;
+   }
+ 
++  if (![self applyVoiceProcessing]) {
++    return NO;
++  }
++  NSError *sessionError = nil;
++  if (![self.sessionManager ensureActive:true error:&sessionError]) {
++    NSLog(@"[AudioEngine] Could not activate voice input: %@", sessionError);
++    return NO;
++  }
+   AVAudioFormat *inputFormat = [self currentInputConnectionFormat];
+ 
+   if (inputFormat == nil) {
+@@ -199,8 +211,39 @@ static AudioEngine *_sharedInstance = nil;
+   return YES;
+ }
+ 
++// Adapted from upstream #1210: configure AEC before reading the input format.
++- (BOOL)applyVoiceProcessing
++{
++  BOOL requested = self.inputRegistration.voiceProcessingEnabled;
++  if (!requested && !_voiceProcessingApplied) {
++    return YES;
++  }
++  if (self.audioEngine == nil) {
++    return NO;
++  }
++  AVAudioInputNode *node = self.audioEngine.inputNode;
++  if (node.isVoiceProcessingEnabled == requested) {
++    _voiceProcessingApplied = requested;
++    return YES;
++  }
++  if ([self.audioEngine isRunning]) {
++    [self.audioEngine stop];
++  }
++  NSError *error = nil;
++  if (![node setVoiceProcessingEnabled:requested error:&error]) {
++    NSLog(@"[AudioEngine] Could not configure voice processing: %@", error);
++    return NO;
++  }
++  _voiceProcessingApplied = requested;
++  return YES;
++}
++
+ - (void)materializeTrackedNodesIfNeeded
+ {
++  if (![self applyVoiceProcessing]) {
++    return;
++  }
++
+   NSArray<NSString *> *sourceNodeIds =
+       [[self.sourceRegistrations allKeys] sortedArrayUsingSelector:@selector(compare:)];
+   for (NSString *sourceNodeId in sourceNodeIds) {
+@@ -253,6 +296,7 @@ static AudioEngine *_sharedInstance = nil;
+ }
+ 
+ - (void)attachInputNodeWithReceiverBlock:(AVAudioSinkNodeReceiverBlock)receiverBlock
++                  voiceProcessingEnabled:(BOOL)voiceProcessingEnabled
+ {
+   std::scoped_lock lock(_engineLock);
+   [self createAudioEngineIfNeeded];
+@@ -263,6 +307,7 @@ static AudioEngine *_sharedInstance = nil;
+ 
+   AudioEngineInputRegistration *registration = [[AudioEngineInputRegistration alloc] init];
+   registration.receiverBlock = receiverBlock;
++  registration.voiceProcessingEnabled = voiceProcessingEnabled;
+   self.inputRegistration = registration;
+ 
+   [self materializeInputNodeIfNeeded];
+@@ -380,6 +425,10 @@ static AudioEngine *_sharedInstance = nil;
+     return;
+   }
+ 
++  if (![self applyVoiceProcessing]) {
++    return;
++  }
++
+   [self.audioEngine prepare];
+   [self.audioEngine startAndReturnError:&error];
+ 
+@@ -466,6 +515,10 @@ static AudioEngine *_sharedInstance = nil;
+     return false;
+   }
+ 
++  if (![self applyVoiceProcessing]) {
++    return false;
++  }
++
+   [self.audioEngine prepare];
+   [self.audioEngine startAndReturnError:&error];
+ 
+@@ -542,6 +595,34 @@ static AudioEngine *_sharedInstance = nil;
+   }
+ }
+ 
++- (void)resumeAfterConfigurationChange:(AVAudioEngine *)changedEngine
++{
++  std::scoped_lock lock(_engineLock);
++  if (changedEngine != self.audioEngine) {
++    return;
++  }
++  if (!_voiceProcessingApplied) {
++    [self rebuildAudioEngineAndResumeIfNeeded];
++    return;
++  }
++  if (self.state != AudioEngineState::AudioEngineStateRunning || self.audioEngine.isRunning) {
++    return;
++  }
++  // Keep the voice-processing unit: recreating it triggers another configuration notification.
++  AVAudioFormat *liveFormat = [self liveInputFormat];
++  AVAudioFormat *connectedFormat = [self.inputNode inputFormatForBus:0];
++  if (self.inputNode != nil && liveFormat != nil && ![liveFormat isEqual:connectedFormat]) {
++    [self.audioEngine disconnectNodeInput:self.inputNode];
++    [self.audioEngine connect:self.audioEngine.inputNode to:self.inputNode format:liveFormat];
++  }
++  NSError *error = nil;
++  [self.audioEngine prepare];
++  if (![self.audioEngine startAndReturnError:&error]) {
++    NSLog(@"[AudioEngine] Could not resume voice processing: %@", error);
++    self.state = AudioEngineState::AudioEngineStateIdle;
++  }
++}
++
+ - (void)restartAudioEngine
+ {
+   std::scoped_lock lock(_engineLock);
+diff --git a/ios/audioapi/ios/system/SystemNotificationManager.mm b/ios/audioapi/ios/system/SystemNotificationManager.mm
+index 6761a43693a018bedbc5eda313ba1ded071c5cb0..f0e40bba32f18e9f9cdc9e6c01f449ea1afe7f79 100644
+--- a/ios/audioapi/ios/system/SystemNotificationManager.mm
++++ b/ios/audioapi/ios/system/SystemNotificationManager.mm
+@@ -237,11 +237,8 @@ static NSString *NotificationManagerContext = @"SystemNotificationManagerContext
+ - (void)handleEngineConfigurationChange:(NSNotification *)notification
+ {
+   AudioEngine *audioEngine = self.audioAPIModule.audioEngine;
+-  AudioSessionManager *sessionManager = self.audioAPIModule.audioSessionManager;
+-
+   dispatch_async(dispatch_get_main_queue(), ^{
+-    [sessionManager markInactive];
+-    [audioEngine restartAudioEngine];
++    [audioEngine resumeAfterConfigurationChange:notification.object];
+   });
+ }
+ 
+diff --git a/lib/module/core/AudioRecorder.js b/lib/module/core/AudioRecorder.js
+index a1f965b35c81780fb01c7ead14dad27f7d8a3dd5..834df3ccd47f4c1ac8786a03754dc9e92b862ac9 100644
+--- a/lib/module/core/AudioRecorder.js
++++ b/lib/module/core/AudioRecorder.js
+@@ -26,8 +26,8 @@ export default class AudioRecorder {
+   options_ = null;
+   isFileOutputEnabled = false;
+   audioEventEmitter = new AudioEventEmitter(globalThis.AudioEventEmitter);
+-  constructor() {
+-    this.recorder = globalThis.createAudioRecorder();
++  constructor(options) {
++    this.recorder = globalThis.createAudioRecorder(options ?? {});
+   }
+   enableFileOutput(options) {
+     this.options_ = options || {};
+diff --git a/lib/typescript/core/AudioRecorder.d.ts b/lib/typescript/core/AudioRecorder.d.ts
+index 2e97b781a8553b19b7b6b8443ab37a0ce0b52667..fbcfbc56767daf455391ae2e26071fa309cc108f 100644
+--- a/lib/typescript/core/AudioRecorder.d.ts
++++ b/lib/typescript/core/AudioRecorder.d.ts
+@@ -10,7 +10,7 @@ export default class AudioRecorder {
+     protected options_: AudioRecorderFileOptions | null;
+     private isFileOutputEnabled;
+     protected readonly audioEventEmitter: AudioEventEmitter;
+-    constructor();
++    constructor(options?: { iosVoiceProcessing?: boolean });
+     enableFileOutput(options?: AudioRecorderFileOptions): Result<{}>;
+     get options(): AudioRecorderFileOptions | null;
+     disableFileOutput(): void;
+diff --git a/src/AudioAPIModule/globals.d.ts b/src/AudioAPIModule/globals.d.ts
+index b5503d244b359ac49e4d8ec864f7ab5244a66255..bbbaf905e25acb2e946b89866338e1bc6aa87dbb 100644
+--- a/src/AudioAPIModule/globals.d.ts
++++ b/src/AudioAPIModule/globals.d.ts
+@@ -23,7 +23,7 @@ declare global {
+     audioWorkletRuntime: any
+   ) => IOfflineAudioContext;
+ 
+-  var createAudioRecorder: () => IAudioRecorder;
++  var createAudioRecorder: (options?: { iosVoiceProcessing?: boolean }) => IAudioRecorder;
+ 
+   var createAudioBuffer: (
+     numberOfChannels: number,
+diff --git a/src/core/AudioRecorder.ts b/src/core/AudioRecorder.ts
+index a4639ce7ada91f05e8d7776631ad71d1cff6ded2..682d4d1d82a7031f275750e9384062daf1a3be7b 100644
+--- a/src/core/AudioRecorder.ts
++++ b/src/core/AudioRecorder.ts
+@@ -47,8 +47,8 @@ export default class AudioRecorder {
+     globalThis.AudioEventEmitter
+   );
+ 
+-  constructor() {
+-    this.recorder = globalThis.createAudioRecorder();
++  constructor(options?: { iosVoiceProcessing?: boolean }) {
++    this.recorder = globalThis.createAudioRecorder(options ?? {});
+   }
+ 
+   enableFileOutput(options?: AudioRecorderFileOptions): Result<{}> {

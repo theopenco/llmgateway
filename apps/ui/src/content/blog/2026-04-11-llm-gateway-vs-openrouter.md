@@ -20,10 +20,10 @@ This is an honest comparison. We built LLM Gateway, so we're biased — but we'l
 
 | Feature               | LLM Gateway                                           | OpenRouter                          |
 | --------------------- | ----------------------------------------------------- | ----------------------------------- |
-| Models                | 200+ models, 40+ providers                            | 400+ models, 70+ providers          |
+| Models                | 200+ models, 40+ providers                            | 400+ models, 80+ providers          |
 | API compatibility     | OpenAI-compatible                                     | OpenAI-compatible                   |
 | Self-hosting          | Yes (AGPLv3, Docker)                                  | No                                  |
-| Bring Your Own Keys   | Yes (zero gateway markup)                             | Yes (1M free, then 5%)              |
+| Bring Your Own Keys   | Yes (zero gateway markup)                             | Free to $25k/mo, then 5%            |
 | Smart routing         | Weighted scoring (uptime, throughput, price, latency) | Provider-based routing              |
 | Auto retry & failover | Yes (up to 2 retries, transparent)                    | Yes                                 |
 | Response caching      | Yes (configurable TTL, 10s to 1 year)                 | Yes (beta)                          |

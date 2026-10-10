@@ -7,6 +7,7 @@ import {
 	DiscountForm,
 	RoutingScoreMultiplierForm,
 } from "@/components/discount-form";
+import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,10 +19,6 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import {
-	createGlobalDiscount,
-	createRoutingScoreMultiplier,
-	deleteGlobalDiscount,
-	deleteRoutingScoreMultiplier,
 	getAllOrganizationDiscounts,
 	getDiscountOptions,
 	getGlobalDiscounts,
@@ -280,88 +277,6 @@ export default async function DiscountsPage({
 	const discounts = discountsData?.discounts ?? [];
 	const multipliers = multipliersData?.multipliers ?? [];
 
-	// Server action to create discount
-	async function handleCreateDiscount(data: {
-		provider: string | null;
-		model: string | null;
-		discountPercent: number;
-		reason: string | null;
-		expiresAt: string | null;
-	}): Promise<{ success: boolean; error?: string }> {
-		"use server";
-
-		try {
-			const result = await createGlobalDiscount({
-				provider: data.provider,
-				model: data.model,
-				discountPercent: data.discountPercent,
-				reason: data.reason,
-				expiresAt: data.expiresAt,
-			});
-
-			if (!result) {
-				return {
-					success: false,
-					error: "Failed to create discount. It may already exist.",
-				};
-			}
-
-			return { success: true };
-		} catch (error) {
-			console.error("Error creating discount:", error);
-			return {
-				success: false,
-				error: "An error occurred while creating the discount",
-			};
-		}
-	}
-
-	// Server action to delete discount
-	async function handleDeleteDiscount(
-		discountId: string,
-	): Promise<{ success: boolean }> {
-		"use server";
-
-		const success = await deleteGlobalDiscount(discountId);
-		return { success };
-	}
-
-	async function handleCreateRoutingScoreMultiplier(data: {
-		provider: string | null;
-		model: string | null;
-		scoreMultiplier: number;
-		reason: string | null;
-		expiresAt: string | null;
-	}): Promise<{ success: boolean; error?: string }> {
-		"use server";
-
-		try {
-			const result = await createRoutingScoreMultiplier(data);
-			return result
-				? { success: true }
-				: {
-						success: false,
-						error: "Failed to create multiplier. It may already exist.",
-					};
-		} catch (error) {
-			console.error("Error creating routing score multiplier:", error);
-			return {
-				success: false,
-				error: "An error occurred while creating the multiplier",
-			};
-		}
-	}
-
-	async function handleDeleteRoutingScoreMultiplier(
-		multiplierId: string,
-	): Promise<{ success: boolean }> {
-		"use server";
-
-		return {
-			success: await deleteRoutingScoreMultiplier(multiplierId),
-		};
-	}
-
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
@@ -383,11 +298,12 @@ export default async function DiscountsPage({
 				<div className="flex flex-wrap items-center gap-3">
 					<ViewToggle active="global" />
 					{options && (
-						<DiscountForm
-							providers={options.providers}
-							mappings={options.mappings}
-							onSubmit={handleCreateDiscount}
-						/>
+						<AdminOnly>
+							<DiscountForm
+								providers={options.providers}
+								mappings={options.mappings}
+							/>
+						</AdminOnly>
 					)}
 				</div>
 			</header>
@@ -426,10 +342,9 @@ export default async function DiscountsPage({
 								<TableRow key={discount.id}>
 									<DiscountCells discount={discount} />
 									<TableCell>
-										<DeleteDiscountButton
-											discountId={discount.id}
-											onDelete={handleDeleteDiscount}
-										/>
+										<AdminOnly>
+											<DeleteDiscountButton discountId={discount.id} />
+										</AdminOnly>
 									</TableCell>
 								</TableRow>
 							))
@@ -452,11 +367,12 @@ export default async function DiscountsPage({
 						</div>
 					</div>
 					{options && (
-						<RoutingScoreMultiplierForm
-							providers={options.providers}
-							mappings={options.mappings}
-							onSubmit={handleCreateRoutingScoreMultiplier}
-						/>
+						<AdminOnly>
+							<RoutingScoreMultiplierForm
+								providers={options.providers}
+								mappings={options.mappings}
+							/>
+						</AdminOnly>
 					)}
 				</div>
 
@@ -511,10 +427,11 @@ export default async function DiscountsPage({
 												}
 											/>
 											<TableCell>
-												<DeleteRoutingScoreMultiplierButton
-													multiplierId={multiplier.id}
-													onDelete={handleDeleteRoutingScoreMultiplier}
-												/>
+												<AdminOnly>
+													<DeleteRoutingScoreMultiplierButton
+														multiplierId={multiplier.id}
+													/>
+												</AdminOnly>
 											</TableCell>
 										</TableRow>
 									);

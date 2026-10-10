@@ -8,6 +8,7 @@ import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
+import { ibmModels } from "./models/ibm.js";
 import { inclusionaiModels } from "./models/inclusionai.js";
 import { kinfraModels } from "./models/kinfra.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
@@ -23,7 +24,10 @@ import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
+import { stepfunModels } from "./models/stepfun.js";
 import { tencentModels } from "./models/tencent.js";
+import { thinkingmachinesModels } from "./models/thinkingmachines.js";
+import { typesafeModels } from "./models/typesafe.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
@@ -46,8 +50,26 @@ export type Price = string;
  * in ascending order of effort. Which subset a given provider mapping
  * actually supports is declared per mapping via `reasoningEfforts`.
  */
-export type ReasoningEffort =
-	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export const REASONING_EFFORTS = [
+	"none",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+/**
+ * Execution strategy accepted by the unified `reasoning.mode` parameter.
+ * `pro` spends additional model work on hard problems, at higher latency and
+ * token usage. Orthogonal to `reasoning_effort`, which controls how much
+ * reasoning happens within the selected mode. Which subset a given provider
+ * mapping supports is declared per mapping via `reasoningModes`.
+ */
+export type ReasoningMode = "standard" | "pro";
 
 export const PROVIDER_API_FORMATS = [
 	"provider-native",
@@ -104,6 +126,13 @@ export interface PricingTier {
 	 * fall back to `cacheWriteInputPrice` (the 5-minute rate).
 	 */
 	cacheWriteInputPrice1h?: Price;
+	/**
+	 * Peak/off-peak rates for this tier, for providers that price each
+	 * context-length band by time of day. The schedule comes from the
+	 * mapping's (or region's) `peakPricing`, which MUST be set; without this
+	 * block the tier bills its flat rates at every hour.
+	 */
+	peakPricing?: Pick<PeakPricing, "peak" | "offPeak">;
 }
 
 /**
@@ -155,16 +184,10 @@ export interface PeakPricing {
 	 */
 	hoursUtc: readonly [start: number, end: number][];
 	/**
-	 * Local calendar days that are always billed off-peak. Days use
-	 * JavaScript's numbering (Sunday = 0, Saturday = 6), shifted from UTC by
-	 * `utcOffsetMinutes`.
+	 * UTC days of the week that are always billed off-peak, using JavaScript's
+	 * numbering (Sunday = 0, Saturday = 6).
 	 */
-	offPeakDays?: {
-		daysOfWeek: readonly number[];
-		utcOffsetMinutes: number;
-		/** Human-readable time zone used in pricing disclosures. */
-		timeZoneLabel: string;
-	};
+	offPeakDaysUtc?: readonly number[];
 }
 
 /**
@@ -256,7 +279,14 @@ export interface ProviderRegion {
  * The distinct `tool_choice` modes a provider/model mapping may accept.
  * "function" represents a named function choice (`{type:"function",...}`).
  */
-export type ToolChoiceMode = "auto" | "none" | "required" | "function";
+export const TOOL_CHOICE_MODES = [
+	"auto",
+	"none",
+	"required",
+	"function",
+] as const;
+
+export type ToolChoiceMode = (typeof TOOL_CHOICE_MODES)[number];
 
 export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
@@ -400,8 +430,7 @@ export interface ProviderModelMapping {
 	/**
 	 * Peak/off-peak time-of-day pricing. When present, `peak` applies while the
 	 * current UTC hour falls inside `hoursUtc` and `offPeak` applies otherwise.
-	 * `offPeakDays` can override those windows for provider-defined local
-	 * calendar days.
+	 * `offPeakDaysUtc` makes whole UTC days off-peak.
 	 */
 	peakPricing?: PeakPricing;
 	/**
@@ -514,6 +543,20 @@ export interface ProviderModelMapping {
 	 */
 	apiFormat?: ProviderApiFormat;
 	/**
+	 * AWS Bedrock OpenAI-format mappings only: the cross-region regions
+	 * (`global`, `us`, …) are real inference profiles, served by
+	 * bedrock-runtime under the region-prefixed model id. Without it every
+	 * region is served in-region by Mantle under the bare id.
+	 */
+	crossRegionProfiles?: boolean;
+	/**
+	 * Route this Perplexity mapping to the Agent API (`POST /v1/agent`,
+	 * Responses-shaped) instead of Sonar's chat/completions, which Perplexity
+	 * retires on 2026-09-27. Per mapping rather than per provider so the
+	 * mappings still on Sonar keep working until that date.
+	 */
+	usesPerplexityAgentApi?: boolean;
+	/**
 	 * Provider service tier IDs supported by this specific model mapping.
 	 * Provider definitions own the tier metadata and default multipliers;
 	 * mappings opt in to the subset actually supported by the upstream model.
@@ -584,6 +627,15 @@ export interface ProviderModelMapping {
 	 * supported values are not (yet) declared for this mapping.
 	 */
 	reasoningEfforts?: ReasoningEffort[];
+	/**
+	 * Exact `reasoning.mode` values this provider mapping supports. Only
+	 * OpenAI's Responses API documents this parameter, and only for the GPT-5.6
+	 * family; every other deployment rejects an unknown `reasoning.mode`, so a
+	 * mapping that does not declare it makes the gateway reject the request
+	 * rather than drop the field on the way upstream. When unset, the mapping
+	 * accepts no explicit mode.
+	 */
+	reasoningModes?: ReasoningMode[];
 	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */
@@ -688,6 +740,13 @@ export interface ProviderModelMapping {
 	 */
 	supportsAssistantPrefill?: boolean;
 	/**
+	 * Whether this mapping's upstream accepts `system` messages inside the
+	 * Anthropic `messages` array (Claude Opus 4.8 and later). When unset, a
+	 * system message that arrives mid-conversation is sent in place as a user
+	 * `<system-reminder>` instead.
+	 */
+	midConversationSystem?: boolean;
+	/**
 	 * Test skip/only functionality
 	 */
 	test?: "skip" | "only";
@@ -773,6 +832,19 @@ export interface ProviderModelMapping {
 	 * When true, requests are routed to the gateway's /v1/rerank endpoint.
 	 */
 	rerank?: boolean;
+	/**
+	 * Whether this model uses a dedicated typed-decision API (TypeSafe System
+	 * One). When true, requests are routed to the gateway's /v1/systemone
+	 * endpoint, which answers named questions with probabilities instead of
+	 * generated text. Billed on input tokens only.
+	 */
+	decisions?: boolean;
+	/**
+	 * Whether this model uses a dedicated web search API that returns ranked
+	 * results instead of generated text. When true, requests are routed to the
+	 * gateway's /v1/search endpoint and billed per request via requestPrice.
+	 */
+	search?: boolean;
 	/**
 	 * Prebuilt voices supported for speech generation models. The first entry is
 	 * used as the default when the caller does not specify a `voice`.
@@ -876,6 +948,8 @@ export interface ModelDefinition {
 		| "ocr"
 		| "transcription"
 		| "rerank"
+		| "decision"
+		| "search"
 	)[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
@@ -937,4 +1011,8 @@ export const models = [
 	...openbmbModels,
 	...zaiModels,
 	...elevenlabsModels,
+	...typesafeModels,
+	...thinkingmachinesModels,
+	...stepfunModels,
+	...ibmModels,
 ] as const satisfies ModelDefinition[];

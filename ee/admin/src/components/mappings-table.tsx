@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 
+import { ErrorBreakdownCell } from "@/components/error-breakdown";
 import { HistoryChart } from "@/components/history-chart";
+import { SortHeaderLink } from "@/components/sort-header-link";
 import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,10 +17,10 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { getMappingHistory } from "@/lib/admin-history";
-import { cn } from "@/lib/utils";
+import { useHistoryClient } from "@/lib/history-client";
 
 import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
@@ -56,6 +57,7 @@ type MappingSortBy =
 	| "upstreamErrorsCount"
 	| "cost"
 	| "avgTimeToFirstToken"
+	| "throughput"
 	| "updatedAt";
 
 type SortOrder = "asc" | "desc";
@@ -68,6 +70,7 @@ function SortableHeader({
 	search,
 	pageWindow,
 	usageMode,
+	filterQuery,
 }: {
 	label: string;
 	sortKey: MappingSortBy;
@@ -76,56 +79,27 @@ function SortableHeader({
 	search: string;
 	pageWindow?: PageWindow;
 	usageMode: UsageMode;
+	filterQuery: string;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
 	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
-	const href = `/model-provider-mappings?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}`;
+	const href = `/model-provider-mappings?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}${filterQuery}`;
 
 	return (
-		<Link
+		<SortHeaderLink
+			label={label}
 			href={href}
-			className={cn(
-				"flex items-center gap-1 hover:text-foreground transition-colors",
-				isActive ? "text-foreground" : "text-muted-foreground",
-			)}
-		>
-			{label}
-			{isActive ? (
-				currentSortOrder === "asc" ? (
-					<ArrowUp className="h-3.5 w-3.5" />
-				) : (
-					<ArrowDown className="h-3.5 w-3.5" />
-				)
-			) : (
-				<ArrowUpDown className="h-3.5 w-3.5 opacity-50" />
-			)}
-		</Link>
+			active={isActive}
+			order={currentSortOrder}
+		/>
 	);
-}
-
-function formatNumber(n: number) {
-	return new Intl.NumberFormat("en-US").format(n);
 }
 
 function formatCost(n: number) {
 	return `$${n.toFixed(4)}`;
-}
-
-function formatPrice(price: string | null) {
-	if (!price) {
-		return "\u2014";
-	}
-	const num = parseFloat(price);
-	if (num === 0) {
-		return "Free";
-	}
-	if (num < 0.001) {
-		return `$${(num * 1_000_000).toFixed(2)}/M`;
-	}
-	return `$${num.toFixed(4)}`;
 }
 
 function MappingRow({
@@ -139,16 +113,18 @@ function MappingRow({
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const ProviderIcon = getProviderIcon(mapping.providerId);
-	const stability = deriveStabilityMetrics(
-		mapping.logsCount,
-		mapping.errorsCount + mapping.clientErrorsCount,
-		mapping.clientErrorsCount,
-	);
+	const stability = deriveStabilityMetrics({
+		logsCount: mapping.logsCount,
+		clientErrorsCount: mapping.clientErrorsCount,
+		gatewayErrorsCount: mapping.gatewayErrorsCount,
+		upstreamErrorsCount: mapping.upstreamErrorsCount,
+	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
+	const history = useHistoryClient();
 	const fetchData = useCallback(
 		async (window: HistoryWindow) => {
-			return await getMappingHistory(
+			return await history.mappingHistory(
 				mapping.providerId,
 				mapping.modelId,
 				window,
@@ -157,7 +133,7 @@ function MappingRow({
 				usageMode,
 			);
 		},
-		[mapping.providerId, mapping.modelId, usageMode],
+		[history, mapping.providerId, mapping.modelId, usageMode],
 	);
 
 	return (
@@ -192,6 +168,11 @@ function MappingRow({
 						>
 							{mapping.providerId}/{mapping.modelId}
 						</Link>
+						{mapping.status !== "active" && (
+							<Badge variant="outline" className="ml-2">
+								{mapping.status}
+							</Badge>
+						)}
 						{mapping.externalId !== mapping.modelId && (
 							<p className="text-xs text-muted-foreground">
 								{mapping.externalId}
@@ -208,13 +189,6 @@ function MappingRow({
 						<span className="text-xs text-muted-foreground">—</span>
 					)}
 				</TableCell>
-				<TableCell>
-					<Badge
-						variant={mapping.status === "active" ? "secondary" : "outline"}
-					>
-						{mapping.status}
-					</Badge>
-				</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(mapping.logsCount)}
 				</TableCell>
@@ -224,17 +198,15 @@ function MappingRow({
 				<TableCell>
 					<TokenBreakdownCell breakdown={mapping} />
 				</TableCell>
-				<TableCell className="tabular-nums">
-					{formatNumber(stability.errorsCount)}
+				<TableCell>
+					<ErrorBreakdownCell
+						errorsCount={stability.errorsCount}
+						upstreamErrorsCount={mapping.upstreamErrorsCount}
+						gatewayErrorsCount={mapping.gatewayErrorsCount}
+					/>
 				</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(mapping.clientErrorsCount)}
-				</TableCell>
-				<TableCell className="tabular-nums">
-					{formatNumber(mapping.gatewayErrorsCount)}
-				</TableCell>
-				<TableCell className="tabular-nums">
-					{formatNumber(mapping.upstreamErrorsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">{errorRate}%</TableCell>
 				<TableCell className="tabular-nums">
@@ -242,15 +214,9 @@ function MappingRow({
 						? `${Math.round(mapping.avgTimeToFirstToken)}ms`
 						: "\u2014"}
 				</TableCell>
-				<TableCell className="tabular-nums text-xs">
-					{formatPrice(mapping.inputPrice)}
-				</TableCell>
-				<TableCell className="tabular-nums text-xs">
-					{formatPrice(mapping.outputPrice)}
-				</TableCell>
-				<TableCell className="tabular-nums text-xs">
-					{mapping.contextSize
-						? `${(mapping.contextSize / 1000).toFixed(0)}K`
+				<TableCell className="tabular-nums">
+					{mapping.throughput !== null
+						? `${mapping.throughput.toFixed(1)} tok/s`
 						: "\u2014"}
 				</TableCell>
 				<TableCell>
@@ -272,7 +238,7 @@ function MappingRow({
 			{expanded && (
 				<TableRow>
 					<TableCell
-						colSpan={17}
+						colSpan={12}
 						className="p-4"
 						id={`mapping-history-${mapping.providerId}-${mapping.modelId}`}
 					>
@@ -296,6 +262,7 @@ export function MappingsTable({
 	search = "",
 	pageWindow,
 	usageMode = "total",
+	filterQuery = "",
 }: {
 	mappings: ModelProviderMappingEntry[];
 	sortBy?: MappingSortBy;
@@ -303,6 +270,7 @@ export function MappingsTable({
 	search?: string;
 	pageWindow?: PageWindow;
 	usageMode?: UsageMode;
+	filterQuery?: string;
 }) {
 	const externalWindow = pageWindow ? toHistoryWindow(pageWindow) : undefined;
 
@@ -316,6 +284,7 @@ export function MappingsTable({
 				search={search}
 				pageWindow={pageWindow}
 				usageMode={usageMode}
+				filterQuery={filterQuery}
 			/>
 		</TableHead>
 	);
@@ -327,19 +296,14 @@ export function MappingsTable({
 					{sh("Provider", "providerId")}
 					{sh("Model", "modelId")}
 					<TableHead>Region</TableHead>
-					<TableHead>Status</TableHead>
 					{sh("Requests", "logsCount")}
 					{sh("Cost", "cost")}
 					<TableHead>Tokens</TableHead>
 					{sh("Errors", "errorsCount")}
 					{sh("Client", "clientErrorsCount")}
-					{sh("Gateway", "gatewayErrorsCount")}
-					{sh("Upstream", "upstreamErrorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
-					<TableHead>Input Price</TableHead>
-					<TableHead>Output Price</TableHead>
-					<TableHead>Context</TableHead>
+					{sh("Throughput", "throughput")}
 					<TableHead></TableHead>
 				</TableRow>
 			</TableHeader>
@@ -347,7 +311,7 @@ export function MappingsTable({
 				{mappings.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={17}
+							colSpan={12}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No mappings found

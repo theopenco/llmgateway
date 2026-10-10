@@ -34,6 +34,7 @@ import {
 	type ProviderModelMapping,
 	type StabilityLevel,
 } from "@llmgateway/models";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { Route } from "next";
 
@@ -567,7 +568,7 @@ function renderRowValue(
 		}
 		case "maxOutput": {
 			const out = selectedProvider?.maxOutput ?? detail.aggregated.maxOutput;
-			return out ? out.toLocaleString() : PLACEHOLDER;
+			return out ? formatNumber(out) : PLACEHOLDER;
 		}
 		case "inputPrice": {
 			const summary =

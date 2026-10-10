@@ -21,7 +21,15 @@ import {
 import type { LookupAllOptions } from "node:dns";
 import type { LookupFunction } from "node:net";
 
-const safeUserUrlLookup: LookupFunction = (hostname, options, callback) => {
+/**
+ * DNS lookup for sockets to tenant-controlled hosts: rejects private/reserved
+ * addresses at connect time, so the address used is the address checked.
+ */
+export const safeOutboundLookup: LookupFunction = (
+	hostname,
+	options,
+	callback,
+) => {
 	const lookupOptions: LookupAllOptions = {
 		...options,
 		all: true,
@@ -38,7 +46,7 @@ const safeUserUrlLookup: LookupFunction = (hostname, options, callback) => {
 		);
 		if (blockedAddress) {
 			const lookupError = new Error(
-				`User-provided URL host ${hostname} resolves to a disallowed address (${blockedAddress.address})`,
+				`URL host ${hostname} resolves to a disallowed address (${blockedAddress.address})`,
 			) as NodeJS.ErrnoException;
 			lookupError.code = "EACCES";
 			callback(lookupError, []);
@@ -53,7 +61,7 @@ const safeUserUrlLookup: LookupFunction = (hostname, options, callback) => {
 		const [address] = addresses;
 		if (!address) {
 			const lookupError = new Error(
-				`User-provided URL host ${hostname} did not resolve`,
+				`URL host ${hostname} did not resolve`,
 			) as NodeJS.ErrnoException;
 			lookupError.code = "ENOTFOUND";
 			callback(lookupError, []);
@@ -68,7 +76,7 @@ let safeUserUrlAgent: Agent | undefined;
 
 function getSafeUserUrlAgent(): Agent {
 	safeUserUrlAgent ??= new Agent({
-		connect: { lookup: safeUserUrlLookup },
+		connect: { lookup: safeOutboundLookup },
 	});
 	return safeUserUrlAgent;
 }

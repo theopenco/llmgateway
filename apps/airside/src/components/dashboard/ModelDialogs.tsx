@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	AlertTriangle,
 	CheckCircle2,
 	Clock3,
 	Loader2,
@@ -10,6 +11,7 @@ import {
 	X,
 	XCircle,
 } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -18,6 +20,7 @@ import {
 	FamilyField,
 	useCatalogue,
 } from "@/components/dashboard/CatalogueFields";
+import { useCompany } from "@/components/dashboard/company-context";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -42,8 +45,78 @@ import { Textarea } from "@/components/ui/textarea";
 import { useApi } from "@/lib/fetch-client";
 import { perMillionToPerToken, perTokenToPerMillion } from "@/lib/format";
 
+import {
+	isValidModelId,
+	modelIdProblem,
+	suggestModelId,
+} from "@llmgateway/models";
+
 import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
+
+/**
+ * The key a carrier saved in settings for this provider, masked. When one
+ * exists preflight no longer needs the key pasted — the server reads it off
+ * the claim.
+ */
+function useSavedVerificationKey(
+	providerCompanyId: string,
+	providerId: string,
+): string | null {
+	const { companies } = useCompany();
+	const claim = companies
+		.find((company) => company.id === providerCompanyId)
+		?.claims.find(
+			(candidate) =>
+				candidate.providerId === providerId && candidate.status === "active",
+		);
+	return claim?.verificationKeyMasked ?? null;
+}
+
+/**
+ * A registered carrier with no provider key on file files one with its first
+ * model: the server smoke-tests it against that model and it goes live once
+ * the model is approved.
+ */
+function useNeedsFirstProviderKey(
+	providerCompanyId: string,
+	providerId: string,
+): boolean {
+	const { companies } = useCompany();
+	const claim = companies
+		.find((company) => company.id === providerCompanyId)
+		?.claims.find(
+			(candidate) =>
+				candidate.providerId === providerId && candidate.status === "active",
+		);
+	return (
+		claim?.kind === "custom" && !claim.providerKey && !claim.pendingProviderKey
+	);
+}
+
+function VerificationKeyHint({ savedKey }: { savedKey: string | null }) {
+	return savedKey ? (
+		<>
+			Leave blank to use the encrypted test key saved in{" "}
+			<Link href="/dashboard/settings" className="underline">
+				settings
+			</Link>{" "}
+			(<span className="font-mono">{savedKey}</span>). A key pasted here
+			replaces it.
+		</>
+	) : (
+		<>
+			The preflight calls your endpoint with this key. We store it encrypted as
+			this carrier's test key so later runs reuse it — replace or remove it any
+			time in{" "}
+			<Link href="/dashboard/settings" className="underline">
+				settings
+			</Link>
+			. Use a key separate from your live integration: this traffic is billed by
+			your own platform and is not tracked in LLMGateway usage or billing.
+		</>
+	);
+}
 
 function QuantizationField({
 	id,
@@ -108,6 +181,10 @@ function useInvalidateModels(providerCompanyId: string) {
 				params: { query: { providerCompanyId } },
 			}).queryKey,
 		});
+		// Claims carry the provider key a first model files.
+		await queryClient.invalidateQueries({
+			queryKey: api.queryOptions("get", "/airside/companies", {}).queryKey,
+		});
 	};
 }
 
@@ -124,15 +201,90 @@ const CAPABILITIES = [
 ] as const;
 
 type Verification = NonNullable<AirsideModel["latestVerification"]>;
+type VerificationProbe = NonNullable<Verification["checks"][number]["probes"]>;
+
+/**
+ * The individual requests a check sent. A tool or reasoning check walks a
+ * ladder of variants, so the list is what tells a carrier which ones the
+ * deployment served and which it refused.
+ */
+function VerificationProbes({ probes }: { probes?: VerificationProbe }) {
+	if (!probes?.length) {
+		return null;
+	}
+	return (
+		<ul className="mt-1 space-y-0.5" data-testid="verification-probes">
+			{probes.map((probe) => (
+				<li key={probe.label} className="flex items-start gap-1.5">
+					{probe.status === "passed" ? (
+						<CheckCircle2
+							className="text-signal mt-0.5 size-3 shrink-0"
+							aria-hidden="true"
+						/>
+					) : (
+						<XCircle
+							className="text-destructive mt-0.5 size-3 shrink-0"
+							aria-hidden="true"
+						/>
+					)}
+					<span className="min-w-0">
+						<span className="sr-only">
+							{probe.status === "passed" ? "Passed" : "Failed"}:{" "}
+						</span>
+						<span className="font-mono">{probe.label}</span>
+						{probe.feedback ? (
+							<span className="text-muted-foreground"> — {probe.feedback}</span>
+						) : null}
+					</span>
+				</li>
+			))}
+		</ul>
+	);
+}
+
+function hasWarning(check: Verification["checks"][number]): boolean {
+	return (
+		check.status === "passed" &&
+		Boolean(check.warning || check.optionalWarnings?.length)
+	);
+}
+
+/**
+ * Optional checks a check missed. Labelled so a carrier can tell them from a
+ * failure, and knows they may become required.
+ */
+function OptionalWarnings({ warnings }: { warnings?: string[] }) {
+	if (!warnings?.length) {
+		return null;
+	}
+	return (
+		<ul className="mt-1 space-y-1" data-testid="verification-optional-warnings">
+			{warnings.map((warning) => (
+				<li key={warning} className="text-amber-600 dark:text-amber-400">
+					<span className="mr-1.5 inline-block rounded border border-current px-1 font-mono text-[0.6rem] tracking-wider uppercase">
+						Optional
+					</span>
+					{warning}
+				</li>
+			))}
+		</ul>
+	);
+}
 
 function VerificationResults({ verification }: { verification: Verification }) {
+	const warned = verification.checks.some(hasWarning);
+	const optionalWarned = verification.checks.some(
+		(check) => check.status === "passed" && check.optionalWarnings?.length,
+	);
 	const statusLabel =
 		verification.status === "queued"
 			? "Queued"
 			: verification.status === "running"
 				? "Running"
 				: verification.status === "passed"
-					? "Passed"
+					? warned
+						? "Passed with warnings"
+						: "Passed"
 					: "Failed";
 	return (
 		<div
@@ -152,7 +304,9 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			<ul className="divide-border divide-y">
 				{verification.checks.map((check) => (
 					<li key={check.id} className="flex items-start gap-2 py-2 text-xs">
-						{check.status === "passed" ? (
+						{hasWarning(check) ? (
+							<AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+						) : check.status === "passed" ? (
 							<CheckCircle2 className="text-signal mt-0.5 size-3.5 shrink-0" />
 						) : check.status === "failed" ? (
 							<XCircle className="text-destructive mt-0.5 size-3.5 shrink-0" />
@@ -161,11 +315,23 @@ function VerificationResults({ verification }: { verification: Verification }) {
 						) : (
 							<Clock3 className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
 						)}
-						<div>
+						<div className="min-w-0">
 							<p className="font-medium">{check.label}</p>
 							{check.feedback ? (
 								<p className="text-muted-foreground mt-0.5">{check.feedback}</p>
 							) : null}
+							{check.warning ? (
+								<p
+									className="mt-0.5 text-amber-600 dark:text-amber-400"
+									data-testid="verification-warning"
+								>
+									{check.warning}
+								</p>
+							) : null}
+							{check.status === "passed" ? (
+								<OptionalWarnings warnings={check.optionalWarnings} />
+							) : null}
+							<VerificationProbes probes={check.probes} />
 						</div>
 					</li>
 				))}
@@ -173,6 +339,104 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			{verification.summary ? (
 				<p className="text-muted-foreground text-xs">{verification.summary}</p>
 			) : null}
+			{optionalWarned ? (
+				<p
+					className="text-xs text-amber-600 dark:text-amber-400"
+					data-testid="verification-optional-note"
+				>
+					Checks marked Optional do not block this listing for now, but may
+					become required later.
+				</p>
+			) : null}
+			{verification.status === "failed" ? (
+				<p
+					className="text-muted-foreground text-xs"
+					data-testid="verification-unchanged"
+				>
+					This run left the listing unchanged. Fix the endpoint and verify
+					again, or switch the capability off yourself if it is not something
+					this deployment does.
+				</p>
+			) : null}
+		</div>
+	);
+}
+
+interface VerificationHistoryEntry extends Verification {
+	initiatedBy: "carrier" | "admin";
+	actorName: string | null;
+}
+
+/** UTC, so a run reads the same for every crew member's time zone. */
+function formatRunTime(value: string): string {
+	const [date, time] = new Date(value).toISOString().split("T");
+	return `${date} ${time.slice(0, 5)} UTC`;
+}
+
+/**
+ * Past preflights for one listing, so a capability that broke and was later
+ * fixed stays on the record instead of being replaced by the newest run.
+ * Runs we started show as "LLM Gateway" — the crew sees which side ran it.
+ */
+function VerificationHistory({
+	entries,
+	selectedId,
+	onSelect,
+}: {
+	entries: VerificationHistoryEntry[];
+	selectedId: string;
+	onSelect: (id: string) => void;
+}) {
+	if (entries.length === 0) {
+		return null;
+	}
+	return (
+		<div className="space-y-2" data-testid="verification-history">
+			<p className="text-muted-foreground text-xs font-semibold">Run history</p>
+			<ul className="divide-border border-border divide-y rounded-lg border">
+				{entries.map((entry) => {
+					const passed = entry.checks.filter(
+						(check) => check.status === "passed",
+					).length;
+					return (
+						<li key={entry.id}>
+							<button
+								type="button"
+								onClick={() => onSelect(entry.id)}
+								aria-current={entry.id === selectedId}
+								className={`hover:bg-muted/50 flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs ${
+									entry.id === selectedId ? "bg-muted/60" : ""
+								}`}
+							>
+								<span className="min-w-0">
+									<span className="block font-medium">
+										{formatRunTime(entry.createdAt)}
+									</span>
+									<span className="text-muted-foreground block truncate">
+										{entry.initiatedBy === "admin"
+											? "LLM Gateway"
+											: (entry.actorName ?? "Crew")}
+									</span>
+								</span>
+								<span className="flex shrink-0 items-center gap-2">
+									<span className="text-muted-foreground">
+										{passed}/{entry.checks.length}
+									</span>
+									{entry.checks.some(hasWarning) ? (
+										<AlertTriangle
+											className="size-3 text-amber-600 dark:text-amber-400"
+											aria-label="Passed with warnings"
+										/>
+									) : null}
+									<span className="font-mono text-[0.65rem] tracking-wider uppercase">
+										{entry.status}
+									</span>
+								</span>
+							</button>
+						</li>
+					);
+				})}
+			</ul>
 		</div>
 	);
 }
@@ -372,9 +636,29 @@ const REASONING_EFFORTS = [
 ] as const;
 type ReasoningEffortOption = (typeof REASONING_EFFORTS)[number];
 
+// tool_choice modes a deployment can accept. All of them selected means no
+// restriction, which the API stores as null.
+const TOOL_CHOICE_MODES = ["auto", "none", "required", "function"] as const;
+type ToolChoiceModeOption = (typeof TOOL_CHOICE_MODES)[number];
+
+/** Null (no restriction) reads as every mode selected. */
+function toolChoiceSelection(
+	value: ToolChoiceModeOption[] | null | undefined,
+): ToolChoiceModeOption[] {
+	return value?.length ? value : [...TOOL_CHOICE_MODES];
+}
+
+/** Every mode selected is "unrestricted", which the API stores as null. */
+function toolChoicePayload(
+	selection: ToolChoiceModeOption[],
+): ToolChoiceModeOption[] | null {
+	return selection.length === TOOL_CHOICE_MODES.length ? null : selection;
+}
+
 type CapabilityKey = (typeof CAPABILITIES)[number]["key"];
 
 type RateLimitScope = "global" | "per_org";
+type RateLimitMode = "strict" | "soft";
 
 const API_FORMATS: Array<{
 	value: AirsideModel["apiFormat"];
@@ -429,6 +713,43 @@ function RateLimitScopeField({
 	);
 }
 
+function RateLimitModeField({
+	id,
+	value,
+	onChange,
+}: {
+	id: string;
+	value: RateLimitMode;
+	onChange: (value: RateLimitMode) => void;
+}) {
+	return (
+		<div className="space-y-2 sm:col-span-2">
+			<Label htmlFor={id}>When the cap is reached</Label>
+			<Select
+				value={value}
+				onValueChange={(next) => onChange(next as RateLimitMode)}
+			>
+				<SelectTrigger id={id} data-testid={id}>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="strict">
+						Strict (route all traffic elsewhere)
+					</SelectItem>
+					<SelectItem value="soft">
+						Soft (keep ongoing sessions, route new ones elsewhere)
+					</SelectItem>
+				</SelectContent>
+			</Select>
+			<p className="text-muted-foreground text-xs">
+				{value === "strict"
+					? "Sessions in progress move to another provider and lose their warm prompt cache."
+					: "Sessions already on your deployment stay on it, so traffic can exceed the cap until they finish."}
+			</p>
+		</div>
+	);
+}
+
 export function RegisterModelDialog({
 	providerCompanyId,
 	providerIds,
@@ -443,9 +764,24 @@ export function RegisterModelDialog({
 	const [open, setOpen] = useState(false);
 	const catalogue = useCatalogue(open);
 	const [modelName, setModelName] = useState("");
+	const trimmedModelName = modelName.trim();
 	const canonicalModel = catalogue.data?.models.find(
-		(entry) => entry.id === modelName.trim(),
+		(entry) => entry.id === trimmedModelName,
 	);
+	const modelIdValid = isValidModelId(trimmedModelName);
+	const modelIdError =
+		trimmedModelName && !modelIdValid
+			? (modelIdProblem(trimmedModelName) ?? "").replace(
+					/ Did you mean ".*"\?$/,
+					"",
+				)
+			: null;
+	const modelIdSuggestion = modelIdError
+		? suggestModelId(
+				trimmedModelName,
+				catalogue.data?.models.map((entry) => entry.id),
+			)
+		: null;
 
 	const [externalId, setExternalId] = useState("");
 	const [apiFormat, setApiFormat] =
@@ -469,6 +805,7 @@ export function RegisterModelDialog({
 	const [maxRpd, setMaxRpd] = useState("");
 	const [rateLimitScope, setRateLimitScope] =
 		useState<RateLimitScope>("global");
+	const [rateLimitMode, setRateLimitMode] = useState<RateLimitMode>("strict");
 	const [capabilities, setCapabilities] = useState<
 		Record<CapabilityKey, boolean>
 	>({
@@ -485,11 +822,23 @@ export function RegisterModelDialog({
 	const [reasoningEfforts, setReasoningEfforts] = useState<
 		ReasoningEffortOption[]
 	>([]);
+	const [toolChoices, setToolChoices] = useState<ToolChoiceModeOption[]>([
+		...TOOL_CHOICE_MODES,
+	]);
 	const sortedProviderIds = [...providerIds].sort();
 	const [providerId, setProviderId] = useState(sortedProviderIds[0] ?? "");
 	const effectiveProviderId = sortedProviderIds.includes(providerId)
 		? providerId
 		: (sortedProviderIds[0] ?? "");
+	const savedVerificationKey = useSavedVerificationKey(
+		providerCompanyId,
+		effectiveProviderId,
+	);
+	const needsProviderKey = useNeedsFirstProviderKey(
+		providerCompanyId,
+		effectiveProviderId,
+	);
+	const [providerKey, setProviderKey] = useState("");
 	const verificationQuery = api.useQuery(
 		"get",
 		"/airside/model-verifications/{id}",
@@ -548,6 +897,7 @@ export function RegisterModelDialog({
 			setRegionFares([]);
 			setNote("");
 			setApiKey("");
+			setProviderKey("");
 			setVerificationId("");
 		},
 		onError: (error) => {
@@ -566,7 +916,12 @@ export function RegisterModelDialog({
 		modelName: modelName.trim(),
 		externalId: externalId || undefined,
 		apiFormat,
+		contextSize: Number(contextSize) || undefined,
+		maxOutput: Number(maxOutput) || undefined,
 		...capabilities,
+		supportedToolChoices: capabilities.tools
+			? toolChoicePayload(toolChoices)
+			: null,
 		reasoningEfforts:
 			capabilities.reasoning && reasoningEfforts.length > 0
 				? reasoningEfforts
@@ -610,6 +965,9 @@ export function RegisterModelDialog({
 					className="space-y-4"
 					onSubmit={(e) => {
 						e.preventDefault();
+						if (!modelIdValid) {
+							return;
+						}
 						if (!catalogue.isSuccess) {
 							toast.error("Load the catalogue before saving.");
 							return;
@@ -626,6 +984,7 @@ export function RegisterModelDialog({
 						createModel.mutate({
 							body: {
 								verificationId: verification.id,
+								providerKey: needsProviderKey ? providerKey : undefined,
 								providerCompanyId,
 								providerId: effectiveProviderId,
 								modelName: modelName.trim(),
@@ -642,6 +1001,9 @@ export function RegisterModelDialog({
 								contextSize: Number(contextSize) || undefined,
 								maxOutput: Number(maxOutput) || undefined,
 								...capabilities,
+								supportedToolChoices: capabilities.tools
+									? toolChoicePayload(toolChoices)
+									: null,
 								reasoningEfforts:
 									capabilities.reasoning && reasoningEfforts.length > 0
 										? reasoningEfforts
@@ -649,6 +1011,7 @@ export function RegisterModelDialog({
 								maxRpm: Number(maxRpm) || undefined,
 								maxRpd: Number(maxRpd) || undefined,
 								rateLimitScope,
+								rateLimitMode,
 								pricing: {
 									inputPrice: perMillionToPerToken(inputPrice),
 									outputPrice: perMillionToPerToken(outputPrice),
@@ -699,8 +1062,66 @@ export function RegisterModelDialog({
 								}}
 								disabled={verificationInProgress}
 								placeholder="acme-large-2"
+								autoCapitalize="none"
+								autoCorrect="off"
+								spellCheck={false}
+								aria-invalid={modelIdError ? true : undefined}
+								aria-describedby="model-name-feedback"
 								required
 							/>
+							<div id="model-name-feedback" aria-live="polite">
+								{modelIdError ? (
+									<div className="space-y-1.5">
+										<p
+											className="text-destructive text-xs"
+											data-testid="model-name-error"
+										>
+											{modelIdError}
+										</p>
+										{modelIdSuggestion ? (
+											<Button
+												type="button"
+												size="sm"
+												variant="outline"
+												className="h-7 font-mono text-xs"
+												data-testid="model-id-suggestion"
+												disabled={verificationInProgress}
+												onClick={() => {
+													if (
+														!externalId.trim() &&
+														!/\s/.test(trimmedModelName)
+													) {
+														setExternalId(trimmedModelName);
+													}
+													setModelName(modelIdSuggestion);
+													resetVerification();
+												}}
+											>
+												Use {modelIdSuggestion}
+											</Button>
+										) : null}
+									</div>
+								) : canonicalModel ? (
+									<p
+										className="flex items-start gap-1 text-xs text-emerald-600 dark:text-emerald-400"
+										data-testid="model-name-match"
+									>
+										<CheckCircle2
+											className="mt-px size-3.5 shrink-0"
+											aria-hidden
+										/>
+										<span>
+											Matches catalogue model{" "}
+											<span className="font-mono">{canonicalModel.id}</span>
+										</span>
+									</p>
+								) : (
+									<p className="text-muted-foreground text-xs">
+										Lowercase letters, digits, dots and hyphens — no provider
+										prefix.
+									</p>
+								)}
+							</div>
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="model-external-id">Upstream model ID</Label>
@@ -763,7 +1184,11 @@ export function RegisterModelDialog({
 							<Input
 								id="model-context"
 								value={contextSize}
-								onChange={(e) => setContextSize(e.target.value)}
+								onChange={(e) => {
+									setContextSize(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 							/>
@@ -773,7 +1198,11 @@ export function RegisterModelDialog({
 							<Input
 								id="model-max-output"
 								value={maxOutput}
-								onChange={(e) => setMaxOutput(e.target.value)}
+								onChange={(e) => {
+									setMaxOutput(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 								placeholder="optional"
@@ -830,6 +1259,46 @@ export function RegisterModelDialog({
 								</label>
 							))}
 						</div>
+						{capabilities.tools ? (
+							<div className="space-y-1 pt-1">
+								<Label className="text-muted-foreground text-xs">
+									Accepted tool_choice modes
+								</Label>
+								<div className="flex flex-wrap gap-1.5">
+									{TOOL_CHOICE_MODES.map((mode) => {
+										const active = toolChoices.includes(mode);
+										return (
+											<button
+												key={mode}
+												type="button"
+												aria-pressed={active}
+												disabled={verificationInProgress}
+												data-testid={`tool-choice-${mode}`}
+												onClick={() => {
+													setToolChoices((prev) =>
+														prev.includes(mode)
+															? prev.filter((m) => m !== mode)
+															: [...prev, mode],
+													);
+													resetVerification();
+												}}
+												className={
+													active
+														? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
+														: "border-border text-muted-foreground hover:text-foreground rounded-full border px-2.5 py-1 font-mono text-xs"
+												}
+											>
+												{mode}
+											</button>
+										);
+									})}
+								</div>
+								<p className="text-muted-foreground text-xs">
+									Deselect a mode your endpoint mishandles — requests asking for
+									it fall back to auto instead of reaching the deployment.
+								</p>
+							</div>
+						) : null}
 						{capabilities.reasoning ? (
 							<div className="space-y-1 pt-1">
 								<Label className="text-muted-foreground text-xs">
@@ -891,11 +1360,21 @@ export function RegisterModelDialog({
 								placeholder="e.g. 20000"
 							/>
 						</div>
-						<RateLimitScopeField
-							id="model-rate-limit-scope"
-							value={rateLimitScope}
-							onChange={setRateLimitScope}
-						/>
+						{/* Scope and mode only mean something once a cap is set. */}
+						{maxRpm || maxRpd ? (
+							<>
+								<RateLimitScopeField
+									id="model-rate-limit-scope"
+									value={rateLimitScope}
+									onChange={setRateLimitScope}
+								/>
+								<RateLimitModeField
+									id="model-rate-limit-mode"
+									value={rateLimitMode}
+									onChange={setRateLimitMode}
+								/>
+							</>
+						) : null}
 					</div>
 
 					<div className="border-primary/40 bg-primary/5 space-y-4 rounded-lg border border-dashed p-4">
@@ -981,23 +1460,45 @@ export function RegisterModelDialog({
 					</div>
 
 					<div className="border-border space-y-2 rounded-lg border p-3">
-						<Label htmlFor="verification-api-key">
-							Provider API key{" "}
-							<span className="text-muted-foreground">(if needed)</span>
-						</Label>
+						<Label htmlFor="verification-api-key">Provider test key</Label>
 						<Input
 							id="verification-api-key"
 							type="password"
 							autoComplete="off"
 							value={apiKey}
 							onChange={(event) => setApiKey(event.target.value)}
-							placeholder="Uses the managed carrier key when left blank"
+							placeholder={
+								savedVerificationKey
+									? "Paste a key to replace the saved one"
+									: "A key that can call this model"
+							}
 							disabled={verificationInProgress}
 						/>
 						<p className="text-muted-foreground text-xs">
-							Used only by the queued preflight and erased when it finishes.
+							<VerificationKeyHint savedKey={savedVerificationKey} />
 						</p>
 					</div>
+
+					{needsProviderKey ? (
+						<div className="border-border space-y-2 rounded-lg border p-3">
+							<Label htmlFor="first-provider-key">Provider key</Label>
+							<Input
+								id="first-provider-key"
+								data-testid="first-provider-key-input"
+								type="password"
+								autoComplete="off"
+								value={providerKey}
+								onChange={(event) => setProviderKey(event.target.value)}
+								placeholder="The key we serve your traffic with"
+							/>
+							<p className="text-muted-foreground text-xs">
+								Your first model brings the key LLM Gateway serves your live
+								traffic with. It must differ from the test key: we smoke-test it
+								against this model when you file, and it goes live once the
+								model is approved. Stored encrypted.
+							</p>
+						</div>
+					) : null}
 
 					{verification ? (
 						<VerificationResults verification={verification} />
@@ -1010,7 +1511,14 @@ export function RegisterModelDialog({
 								createModel.isPending ||
 								queueVerification.isPending ||
 								verificationInProgress ||
-								!effectiveProviderId
+								!effectiveProviderId ||
+								!modelIdValid ||
+								(verification?.status !== "passed" &&
+									!apiKey.trim() &&
+									!savedVerificationKey) ||
+								(verification?.status === "passed" &&
+									needsProviderKey &&
+									!providerKey.trim())
 							}
 							data-testid="register-model-submit"
 							className="font-semibold"
@@ -1041,6 +1549,10 @@ export function VerifyModelDialog({
 }) {
 	const api = useApi();
 	const invalidate = useInvalidateModels(model.providerCompanyId);
+	const savedVerificationKey = useSavedVerificationKey(
+		model.providerCompanyId,
+		model.providerId,
+	);
 	const [open, setOpen] = useState(false);
 	const [apiKey, setApiKey] = useState("");
 	const [verificationId, setVerificationId] = useState(
@@ -1059,6 +1571,22 @@ export function VerifyModelDialog({
 		},
 	);
 	const verification = verificationQuery.data?.verification;
+	const historyQuery = api.useQuery(
+		"get",
+		"/airside/models/{id}/verifications",
+		{ params: { path: { id: model.id }, query: {} } },
+		{
+			enabled: open,
+			refetchInterval: (query) =>
+				query.state.data?.verifications.some(
+					(entry) => entry.status === "queued" || entry.status === "running",
+				)
+					? 2_000
+					: false,
+		},
+	);
+	const history = (historyQuery.data?.verifications ??
+		[]) as VerificationHistoryEntry[];
 	const queueVerification = api.useMutation(
 		"post",
 		"/airside/models/{id}/verifications",
@@ -1067,6 +1595,7 @@ export function VerifyModelDialog({
 				setVerificationId(data.verification.id);
 				setApiKey("");
 				await invalidate();
+				void historyQuery.refetch();
 				toast.success("Mapping verification queued.");
 			},
 			onError: (error) => {
@@ -1098,14 +1627,17 @@ export function VerifyModelDialog({
 					</DialogTitle>
 					<DialogDescription>
 						Run the declared capabilities against the upstream model. Checks run
-						in the background and do not change the listing.
+						in the background and report what your endpoint answered; the
+						listing itself is left as you declared it.
+						{model.pendingFiling?.kind === "metadata"
+							? " Capabilities awaiting review are included, so a filed change is verified before it goes live."
+							: ""}
 					</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-4">
 					<div className="space-y-2">
 						<Label htmlFor={`verify-api-key-${model.id}`}>
-							Provider API key{" "}
-							<span className="text-muted-foreground">(if needed)</span>
+							Provider test key
 						</Label>
 						<Input
 							id={`verify-api-key-${model.id}`}
@@ -1113,23 +1645,34 @@ export function VerifyModelDialog({
 							autoComplete="off"
 							value={apiKey}
 							onChange={(event) => setApiKey(event.target.value)}
-							placeholder="Uses the managed carrier key when left blank"
+							placeholder={
+								savedVerificationKey
+									? "Paste a key to replace the saved one"
+									: "A key that can call this model"
+							}
 						/>
 						<p className="text-muted-foreground text-xs">
-							The key is scoped to this run and erased at completion.
+							<VerificationKeyHint savedKey={savedVerificationKey} />
 						</p>
 					</div>
 					{verification ? (
 						<VerificationResults verification={verification} />
-					) : model.latestVerification ? (
+					) : verificationId === (model.latestVerification?.id ?? "") &&
+					  model.latestVerification ? (
 						<VerificationResults verification={model.latestVerification} />
 					) : null}
+					<VerificationHistory
+						entries={history}
+						selectedId={verificationId}
+						onSelect={setVerificationId}
+					/>
 				</div>
 				<DialogFooter>
 					<Button
 						type="button"
 						disabled={
 							queueVerification.isPending ||
+							(!apiKey.trim() && !savedVerificationKey) ||
 							verification?.status === "queued" ||
 							verification?.status === "running"
 						}
@@ -1158,6 +1701,10 @@ export function EditModelDialog({
 }) {
 	const api = useApi();
 	const invalidate = useInvalidateModels(model.providerCompanyId);
+	const savedVerificationKey = useSavedVerificationKey(
+		model.providerCompanyId,
+		model.providerId,
+	);
 	const [open, setOpen] = useState(false);
 	// A pending change is what the listing becomes once approved, so the form
 	// starts from it; saving replaces that filing.
@@ -1196,6 +1743,9 @@ export function EditModelDialog({
 	const [reasoningEfforts, setReasoningEfforts] = useState<
 		ReasoningEffortOption[]
 	>((proposed.reasoningEfforts ?? []) as ReasoningEffortOption[]);
+	const [toolChoices, setToolChoices] = useState<ToolChoiceModeOption[]>(
+		toolChoiceSelection(proposed.supportedToolChoices),
+	);
 	const [maxRpm, setMaxRpm] = useState(
 		proposed.maxRpm ? String(proposed.maxRpm) : "",
 	);
@@ -1204,6 +1754,9 @@ export function EditModelDialog({
 	);
 	const [rateLimitScope, setRateLimitScope] = useState<RateLimitScope>(
 		proposed.rateLimitScope,
+	);
+	const [rateLimitMode, setRateLimitMode] = useState<RateLimitMode>(
+		proposed.rateLimitMode,
 	);
 
 	function resetFromModel() {
@@ -1227,9 +1780,64 @@ export function EditModelDialog({
 		setReasoningEfforts(
 			(proposed.reasoningEfforts ?? []) as ReasoningEffortOption[],
 		);
+		setToolChoices(toolChoiceSelection(proposed.supportedToolChoices));
 		setMaxRpm(proposed.maxRpm ? String(proposed.maxRpm) : "");
 		setMaxRpd(proposed.maxRpd ? String(proposed.maxRpd) : "");
 		setRateLimitScope(proposed.rateLimitScope);
+		setRateLimitMode(proposed.rateLimitMode);
+	}
+
+	// The proposed capabilities, preflighted before they are filed. The pair
+	// itself never changes here, so the server takes it from the saved row.
+	const proposedCapabilities = {
+		contextSize: contextSize ? Number(contextSize) : null,
+		maxOutput: maxOutput ? Number(maxOutput) : null,
+		...capabilities,
+		supportedToolChoices: capabilities.tools
+			? toolChoicePayload(toolChoices)
+			: null,
+		reasoningEfforts:
+			capabilities.reasoning && reasoningEfforts.length > 0
+				? reasoningEfforts
+				: null,
+	};
+	const [apiKey, setApiKey] = useState("");
+	const [verificationId, setVerificationId] = useState("");
+	const verificationQuery = api.useQuery(
+		"get",
+		"/airside/model-verifications/{id}",
+		{ params: { path: { id: verificationId } } },
+		{
+			enabled: open && Boolean(verificationId),
+			refetchInterval: (query) => {
+				const status = query.state.data?.verification.status;
+				return status === "queued" || status === "running" ? 1_000 : false;
+			},
+		},
+	);
+	const verification = verificationQuery.data?.verification;
+	const verificationInProgress =
+		verification?.status === "queued" || verification?.status === "running";
+	const queueVerification = api.useMutation(
+		"post",
+		"/airside/models/{id}/verifications",
+		{
+			onSuccess: async (data) => {
+				setVerificationId(data.verification.id);
+				setApiKey("");
+				await invalidate();
+			},
+			onError: (error) => {
+				toast.error(
+					(error as { message?: string })?.message ??
+						"Failed to queue preflight",
+				);
+			},
+		},
+	);
+	/** A capability edit invalidates results proving the previous shape. */
+	function resetVerification() {
+		setVerificationId("");
 	}
 
 	const updateModel = api.useMutation("patch", "/airside/models/{id}", {
@@ -1315,6 +1923,9 @@ export function EditModelDialog({
 								contextSize: contextSize ? Number(contextSize) : null,
 								maxOutput: maxOutput ? Number(maxOutput) : null,
 								...capabilities,
+								supportedToolChoices: capabilities.tools
+									? toolChoicePayload(toolChoices)
+									: null,
 								reasoningEfforts:
 									capabilities.reasoning && reasoningEfforts.length > 0
 										? reasoningEfforts
@@ -1322,6 +1933,7 @@ export function EditModelDialog({
 								maxRpm: maxRpm ? Number(maxRpm) : null,
 								maxRpd: maxRpd ? Number(maxRpd) : null,
 								rateLimitScope,
+								rateLimitMode,
 							},
 						});
 					}}
@@ -1356,7 +1968,11 @@ export function EditModelDialog({
 							<Input
 								id="edit-context"
 								value={contextSize}
-								onChange={(e) => setContextSize(e.target.value)}
+								onChange={(e) => {
+									setContextSize(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 							/>
@@ -1366,7 +1982,11 @@ export function EditModelDialog({
 							<Input
 								id="edit-max-output"
 								value={maxOutput}
-								onChange={(e) => setMaxOutput(e.target.value)}
+								onChange={(e) => {
+									setMaxOutput(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								type="number"
 								min={1}
 							/>
@@ -1407,16 +2027,58 @@ export function EditModelDialog({
 									{cap.label}
 									<Switch
 										checked={capabilities[cap.key]}
-										onCheckedChange={(checked) =>
+										disabled={verificationInProgress}
+										onCheckedChange={(checked) => {
 											setCapabilities((prev) => ({
 												...prev,
 												[cap.key]: checked,
-											}))
-										}
+											}));
+											resetVerification();
+										}}
 									/>
 								</label>
 							))}
 						</div>
+						{capabilities.tools ? (
+							<div className="space-y-1 pt-1">
+								<Label className="text-muted-foreground text-xs">
+									Accepted tool_choice modes
+								</Label>
+								<div className="flex flex-wrap gap-1.5">
+									{TOOL_CHOICE_MODES.map((mode) => {
+										const active = toolChoices.includes(mode);
+										return (
+											<button
+												key={mode}
+												type="button"
+												aria-pressed={active}
+												disabled={verificationInProgress}
+												data-testid={`edit-tool-choice-${mode}`}
+												onClick={() => {
+													setToolChoices((prev) =>
+														prev.includes(mode)
+															? prev.filter((m) => m !== mode)
+															: [...prev, mode],
+													);
+													resetVerification();
+												}}
+												className={
+													active
+														? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
+														: "border-border text-muted-foreground hover:text-foreground rounded-full border px-2.5 py-1 font-mono text-xs"
+												}
+											>
+												{mode}
+											</button>
+										);
+									})}
+								</div>
+								<p className="text-muted-foreground text-xs">
+									Deselect a mode your endpoint mishandles — requests asking for
+									it fall back to auto instead of reaching the deployment.
+								</p>
+							</div>
+						) : null}
 						{capabilities.reasoning ? (
 							<div className="space-y-1 pt-1">
 								<Label className="text-muted-foreground text-xs">
@@ -1430,14 +2092,16 @@ export function EditModelDialog({
 												key={effort}
 												type="button"
 												aria-pressed={active}
+												disabled={verificationInProgress}
 												data-testid={`effort-${effort}`}
-												onClick={() =>
+												onClick={() => {
 													setReasoningEfforts((prev) =>
 														prev.includes(effort)
 															? prev.filter((e) => e !== effort)
 															: [...prev, effort],
-													)
-												}
+													);
+													resetVerification();
+												}}
 												className={
 													active
 														? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
@@ -1476,16 +2140,80 @@ export function EditModelDialog({
 								placeholder="unlimited"
 							/>
 						</div>
-						<RateLimitScopeField
-							id="edit-rate-limit-scope"
-							value={rateLimitScope}
-							onChange={setRateLimitScope}
+						{/* Scope and mode only mean something once a cap is set. */}
+						{maxRpm || maxRpd ? (
+							<>
+								<RateLimitScopeField
+									id="edit-rate-limit-scope"
+									value={rateLimitScope}
+									onChange={setRateLimitScope}
+								/>
+								<RateLimitModeField
+									id="edit-rate-limit-mode"
+									value={rateLimitMode}
+									onChange={setRateLimitMode}
+								/>
+							</>
+						) : null}
+					</div>
+					<div className="border-border space-y-2 rounded-lg border p-3">
+						<Label htmlFor={`edit-verify-api-key-${model.id}`}>
+							Preflight these capabilities (optional)
+						</Label>
+						<Input
+							id={`edit-verify-api-key-${model.id}`}
+							data-testid="edit-verify-api-key"
+							type="password"
+							autoComplete="off"
+							value={apiKey}
+							onChange={(event) => setApiKey(event.target.value)}
+							placeholder={
+								savedVerificationKey
+									? "Paste a key to replace the saved one"
+									: "A key that can call this model"
+							}
+							disabled={verificationInProgress}
 						/>
+						<p className="text-muted-foreground text-xs">
+							Runs the capabilities selected above against your endpoint before
+							you file them. Required before saving when you add a capability or
+							raise a limit; a failed check reports what the endpoint refused.{" "}
+							<VerificationKeyHint savedKey={savedVerificationKey} />
+						</p>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							data-testid="edit-run-preflight"
+							disabled={
+								queueVerification.isPending ||
+								verificationInProgress ||
+								(!apiKey.trim() && !savedVerificationKey)
+							}
+							onClick={() =>
+								queueVerification.mutate({
+									params: { path: { id: model.id } },
+									body: {
+										apiKey: apiKey || undefined,
+										proposed: proposedCapabilities,
+									},
+								})
+							}
+						>
+							{queueVerification.isPending
+								? "Queueing…"
+								: verification
+									? "Run preflight again"
+									: "Run preflight"}
+						</Button>
+						{verification ? (
+							<VerificationResults verification={verification} />
+						) : null}
 					</div>
 					<DialogFooter>
 						<Button
 							type="submit"
-							disabled={updateModel.isPending}
+							disabled={updateModel.isPending || verificationInProgress}
 							data-testid="edit-model-submit"
 							className="font-semibold"
 						>

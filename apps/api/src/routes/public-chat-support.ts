@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
 	streamText,
 	convertToModelMessages,
@@ -11,17 +13,24 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import { redisClient } from "@/auth/config.js";
+import { ChatSupportDiagnostics } from "@/utils/chat-support-diagnostics.js";
 import {
 	fetchKnowledgePage,
+	getCatalogueSummary,
 	getKnowledgeOverviews,
+	getKnowledgeReferenceDocs,
 	getKnowledgeUrls,
+	type CatalogueSummary,
 } from "@/utils/chat-support-knowledge.js";
 import { notifyChatSupportEscalation } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
+import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { and, db, desc, eq, isNull, tables } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
+import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 import { replyToEmail } from "@llmgateway/shared/email";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
@@ -37,6 +46,11 @@ function escapeHtml(text: string): string {
 	};
 	return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
 }
+
+// Upstream messages can name internal deployments and regions, so the client
+// only ever sees this fixed message.
+const STREAM_ERROR_MESSAGE =
+	"The assistant could not answer right now. Please try again.";
 
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
@@ -84,15 +98,56 @@ When answering:
 3. Use the \`fetchPage\` tool for exact or uncertain details and ground the answer in the fetched page.
 4. If the question is unrelated to LLM Gateway, politely decline and invite a product question.
 5. Never invent features or capabilities. If the docs do not answer the question, link to ${DOCS_BASE_URL} or suggest contact@llmgateway.io.
-6. Keep responses under 200 words when possible.`;
+6. Keep responses under 200 words when possible.
+
+Model and provider counts:
+- Quote the exact numbers from the "Live catalogue" section below. They come from the production database and override any count in your training data, marketing copy, blog posts, comparison pages, or fetched pages ("200+ models", "40+ providers", and similar round figures are floors, not the current total).
+- For a specific provider, check the live provider list, then link to https://llmgateway.io/providers for details and pricing.
+- For a specific model, the live catalogue has no model names: use \`fetchPage\` on its model page from the "Available pages" list when one exists, otherwise link to https://llmgateway.io/models. Never claim a model is or is not supported without checking a page.
+
+Billing, refunds, and invoices:
+- Answer from the "Billing reference" docs below. Quote refund windows, usage thresholds, and eligibility rules exactly as written there, and say which product (AI Gateway credits, DevPass, Lounge, Reset Pass) the rule applies to.
+- Before saying a purchase can be refunded, check every condition for that product against what the visitor said: convert the time since purchase to days and compare it with the window (3 weeks is 21 days, which is past a 14-day window), and compare usage with the threshold. If any condition fails, say plainly that it cannot be self-refunded and which rule blocks it. If a condition is unknown, state it as a requirement instead of assuming it is met.
+- You cannot see accounts, payments, or balances, and you cannot issue refunds, change invoices, or make exceptions. Never promise a refund or an outcome. Point to the self-service steps instead.
+- When a request falls outside the documented rules (a charge older than the window, a disputed or duplicate charge, a missing invoice, a billing error), tell the visitor to ask for a human in this chat so the support team can review it, or to email contact@llmgateway.io.`;
+
+function formatCatalogueSummary(summary: CatalogueSummary): string {
+	const outputs = Object.entries(summary.outputCounts)
+		.sort(([, a], [, b]) => b - a)
+		.map(([output, count]) => `${count} with ${output} output`)
+		.join(", ");
+	return `Live catalogue (from the production database, as of ${summary.generatedAt}):
+- ${summary.modelCount} models are available across ${summary.providerCount} providers.
+- Free models: ${summary.freeModelCount}.${outputs ? `\n- By output type: ${outputs}.` : ""}
+- Providers: ${summary.providers.join(", ")}.`;
+}
 
 async function buildSystemPrompt(): Promise<string> {
-	const [urls, overviews] = await Promise.all([
+	const [urls, overviews, referenceDocs, catalogue] = await Promise.all([
 		getKnowledgeUrls(),
 		getKnowledgeOverviews(),
+		getKnowledgeReferenceDocs(),
+		getCatalogueSummary(),
 	]);
 
-	let prompt = BASE_SYSTEM_PROMPT;
+	let prompt = `${BASE_SYSTEM_PROMPT}
+
+Today's date: ${new Date().toISOString().slice(0, 10)}.`;
+
+	if (catalogue) {
+		prompt += `\n\n${formatCatalogueSummary(catalogue)}`;
+	}
+
+	if (referenceDocs.length > 0) {
+		const docSections = referenceDocs
+			.map((doc) => `--- ${doc.url} ---\n${doc.content}`)
+			.join("\n\n");
+		prompt += `
+
+Billing reference (live documentation — authoritative on billing, transactions, invoices, credit notes, refunds, Reset Passes, pay-as-you-go overflow, and Lounge memberships):
+
+${docSections}`;
+	}
 
 	// Inline each product's llms.txt overview so scope and plan questions are
 	// answerable without a tool call.
@@ -118,37 +173,17 @@ ${urlList}`;
 	return prompt;
 }
 
-function extractClientIP(c: {
-	req: { header: (name: string) => string | undefined };
-}): string | null {
-	const cfConnectingIP = c.req.header("CF-Connecting-IP");
-	if (cfConnectingIP) {
-		return cfConnectingIP;
-	}
-	const xForwardedFor = c.req.header("X-Forwarded-For");
-	if (xForwardedFor) {
-		return xForwardedFor.split(",")[0]?.trim() ?? null;
-	}
-	return c.req.header("X-Real-IP") ?? null;
-}
-
 async function checkRateLimit(
 	identifier: string,
 	bucket: string,
 	max: number,
 	windowSeconds: number,
 ): Promise<boolean> {
-	const key = `chat_support_rate_limit:${bucket}:${identifier}`;
-	try {
-		const count = await redisClient.incr(key);
-		if (count === 1) {
-			await redisClient.expire(key, windowSeconds);
-		}
-		return count <= max;
-	} catch (error) {
-		logger.error("Chat support rate limit check failed", toError(error));
-		return true;
-	}
+	return await consumeRateLimit(
+		`chat_support_rate_limit:${bucket}:${identifier}`,
+		max,
+		windowSeconds,
+	);
 }
 
 // Enforces the burst, hourly and daily windows per IP and per clientId, then
@@ -380,6 +415,7 @@ async function persistMessage(
 	conversationId: string,
 	role: "user" | "assistant",
 	content: string,
+	diagnostics?: ChatSupportDiagnostics,
 ): Promise<void> {
 	if (!content) {
 		return;
@@ -403,7 +439,14 @@ async function persistMessage(
 				.where(eq(t.id, conversationId));
 		});
 	} catch (error) {
-		logger.error("Failed to persist chat support message", toError(error));
+		if (diagnostics) {
+			diagnostics.fail("Failed to persist chat support message", error);
+		} else {
+			logger.error("Failed to persist chat support message", toError(error), {
+				conversationId,
+				role,
+			});
+		}
 	}
 }
 
@@ -433,10 +476,27 @@ const chatSupportRequestSchema = z.object({
 	clientId: z.string().min(1).max(64),
 });
 
-export const publicChatSupport = new Hono<ServerTypes>();
+export const publicChatSupport = new Hono<{
+	Variables: ServerTypes["Variables"] & {
+		supportDiagnostics: ChatSupportDiagnostics;
+	};
+}>();
+
+publicChatSupport.use("/", async (c, next) => {
+	const diagnostics = new ChatSupportDiagnostics();
+	c.set("supportDiagnostics", diagnostics);
+	diagnostics.info("Chat support request started");
+	await next();
+	if (c.error) {
+		diagnostics.fail("Chat support request failed", c.error);
+	} else if (c.res.status >= 400) {
+		diagnostics.finish("rejected", { statusCode: c.res.status });
+	}
+});
 
 publicChatSupport.post("/", async (c) => {
-	const ipAddress = extractClientIP(c) ?? "unknown";
+	const diagnostics = c.get("supportDiagnostics");
+	const ipAddress = getClientIpFromContext(c) ?? "unknown";
 
 	const parsed = chatSupportRequestSchema.safeParse(
 		await c.req.json().catch(() => null),
@@ -462,6 +522,7 @@ publicChatSupport.post("/", async (c) => {
 
 	// Checked only after validation so malformed requests can't consume the
 	// per-identifier buckets — or worse, trip the global breaker for free.
+	diagnostics.stage = "rate_limit";
 	const rateLimit = await checkMessageRateLimit(ipAddress, clientId);
 	if (!rateLimit.ok) {
 		return c.json({ error: rateLimit.message }, 429);
@@ -469,6 +530,7 @@ publicChatSupport.post("/", async (c) => {
 
 	const contextMessages = messages.slice(-MAX_CONTEXT_MESSAGES);
 
+	diagnostics.stage = "conversation";
 	const userAgent = c.req.header("User-Agent");
 	const conversationId = await getOrCreateConversation(
 		clientId,
@@ -478,6 +540,13 @@ publicChatSupport.post("/", async (c) => {
 		email,
 	);
 
+	diagnostics.conversationId = conversationId;
+	diagnostics.info("Chat support conversation loaded", {
+		messageCount: messages.length,
+		contextMessageCount: contextMessages.length,
+	});
+	diagnostics.stage = "persist_user";
+
 	// Persist the visitor's message up front so it is never lost if the assistant
 	// errors or a human has taken the conversation over.
 	const newUserMessage = [...messages].reverse().find((m) => m.role === "user");
@@ -486,6 +555,7 @@ publicChatSupport.post("/", async (c) => {
 			conversationId,
 			"user",
 			getTextFromUIMessage(newUserMessage),
+			diagnostics,
 		);
 	}
 
@@ -493,6 +563,7 @@ publicChatSupport.post("/", async (c) => {
 	// reply from here on. We still persist the visitor's message above so the
 	// support team sees it, then return an empty stream so the widget settles
 	// without producing an assistant turn.
+	diagnostics.stage = "escalation";
 	const ct = tables.chatSupportConversation;
 	const [escalationRow] = await db
 		.select({ escalatedAt: ct.escalatedAt })
@@ -500,13 +571,16 @@ publicChatSupport.post("/", async (c) => {
 		.where(eq(ct.id, conversationId))
 		.limit(1);
 	if (escalationRow?.escalatedAt) {
+		diagnostics.finish("escalated");
 		const noopStream = createUIMessageStream<UIMessage>({
 			execute: () => {
 				// Intentionally empty — escalated conversations get no AI reply.
 			},
 		});
 		return new Response(
-			noopStream.pipeThrough(new JsonToSseTransformStream()),
+			noopStream
+				.pipeThrough(new JsonToSseTransformStream())
+				.pipeThrough(new TextEncoderStream()),
 			{
 				headers: {
 					"content-type": "text/event-stream",
@@ -519,26 +593,53 @@ publicChatSupport.post("/", async (c) => {
 		);
 	}
 
+	diagnostics.stage = "configuration";
 	const supportApiKey = process.env.SUPPORT_CHAT_API_KEY;
 	if (!supportApiKey) {
-		logger.error("SUPPORT_CHAT_API_KEY not configured");
+		diagnostics.fail(
+			"SUPPORT_CHAT_API_KEY not configured",
+			new Error("Chat support is not configured"),
+		);
 		return c.json({ error: "Chat support is not configured" }, 503);
 	}
 
 	const llmgateway = createLLMGateway({
 		apiKey: supportApiKey,
 		baseURL: getGatewayApiBaseUrl(),
+		fetch: async (input, init) => {
+			const gatewayRequestId = randomUUID();
+			diagnostics.gatewayRequestId = gatewayRequestId;
+			const startedAt = Date.now();
+			const headers = new Headers(init?.headers);
+			headers.set("x-request-id", gatewayRequestId);
+			diagnostics.info("Chat support gateway request started");
+			const response = await fetch(input, { ...init, headers });
+			diagnostics.info("Chat support gateway response received", {
+				gatewayRequestId,
+				statusCode: response.status,
+				headerLatencyMs: Date.now() - startedAt,
+				selectedModel: response.headers.get("x-llmgateway-smart-model"),
+			});
+			return response;
+		},
 		headers: {
+			...forwardedIpHeaders(c.req.raw.headers),
 			"x-source": "support-chat",
 		},
 	});
 
+	diagnostics.stage = "knowledge";
 	const system = await buildSystemPrompt();
+	diagnostics.stage = "message_conversion";
+	const modelMessages = await convertToModelMessages(contextMessages);
+	diagnostics.stage = "generation";
 
+	let generationOutcome: "completed" | "empty" = "empty";
+	let completionDetails: Record<string, unknown> = {};
 	const result = streamText({
-		model: llmgateway.chat("auto"),
+		model: llmgateway.chat("smart"),
 		instructions: system,
-		messages: await convertToModelMessages(contextMessages),
+		messages: modelMessages,
 		maxOutputTokens: 1024,
 		stopWhen: isStepCount(4),
 		tools: {
@@ -553,8 +654,34 @@ publicChatSupport.post("/", async (c) => {
 				execute: async ({ url }) => await fetchKnowledgePage(url),
 			}),
 		},
-		async onEnd({ text }) {
-			await persistMessage(conversationId, "assistant", text);
+		onError: ({ error }) => {
+			diagnostics.fail("Chat support streaming error", error);
+		},
+		onStepEnd: ({ stepNumber, finishReason, response, usage, toolCalls }) => {
+			diagnostics.info("Chat support step finished", {
+				stepNumber,
+				finishReason,
+				model: response.modelId,
+				responseId: response.id,
+				inputTokens: usage.inputTokens,
+				outputTokens: usage.outputTokens,
+				toolCallCount: toolCalls.length,
+			});
+		},
+		onAbort: () => {
+			diagnostics.finish("aborted");
+		},
+		async onEnd({ text, finishReason, steps, usage }) {
+			diagnostics.stage = "persist_assistant";
+			await persistMessage(conversationId, "assistant", text, diagnostics);
+			generationOutcome = text.trim() ? "completed" : "empty";
+			completionDetails = {
+				finishReason,
+				stepCount: steps.length,
+				textLength: text.length,
+				inputTokens: usage.inputTokens,
+				outputTokens: usage.outputTokens,
+			};
 		},
 	});
 
@@ -564,8 +691,8 @@ publicChatSupport.post("/", async (c) => {
 	// surface as "Load failed" errors on iOS.
 	const uiStream = result.toUIMessageStream({
 		onError: (error) => {
-			logger.error("Chat support streaming error", toError(error));
-			return "Something went wrong. Please try again.";
+			diagnostics.fail("Chat support UI stream error", error);
+			return STREAM_ERROR_MESSAGE;
 		},
 	});
 	const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
@@ -575,9 +702,11 @@ publicChatSupport.post("/", async (c) => {
 	const KEEPALIVE_INTERVAL_MS = 15_000;
 	const encoder = new TextEncoder();
 	const reader = sseStream.getReader();
+	let keepalive: ReturnType<typeof setInterval>;
+	let canceled = false;
 	const streamWithKeepalive = new ReadableStream<Uint8Array>({
 		start(controller) {
-			const keepalive = setInterval(() => {
+			keepalive = setInterval(() => {
 				try {
 					controller.enqueue(encoder.encode(": ping\n\n"));
 				} catch {
@@ -589,7 +718,11 @@ publicChatSupport.post("/", async (c) => {
 				try {
 					while (true) {
 						const { done, value } = await reader.read();
+						if (canceled) {
+							return;
+						}
 						if (done) {
+							diagnostics.finish(generationOutcome, completionDetails);
 							clearInterval(keepalive);
 							controller.close();
 							return;
@@ -598,12 +731,19 @@ publicChatSupport.post("/", async (c) => {
 					}
 				} catch (err) {
 					clearInterval(keepalive);
-					controller.error(err);
+					if (!canceled) {
+						diagnostics.stage = "delivery";
+						diagnostics.fail("Chat support stream delivery failed", err);
+						controller.error(err);
+					}
 				}
 			})();
 		},
-		cancel() {
-			void reader.cancel();
+		async cancel() {
+			canceled = true;
+			clearInterval(keepalive);
+			diagnostics.finish("aborted");
+			await reader.cancel();
 		},
 	});
 
@@ -622,7 +762,7 @@ publicChatSupport.post("/", async (c) => {
 // can restore history across reloads and surface admin replies. Archived
 // conversations resolve to an empty result — they are hidden from the visitor.
 publicChatSupport.get("/conversation", async (c) => {
-	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+	if (!(await checkMetaRateLimit(getClientIpFromContext(c) ?? "unknown"))) {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
@@ -689,7 +829,7 @@ publicChatSupport.get("/conversation", async (c) => {
 
 // Records a thumbs up/down on a specific assistant message.
 publicChatSupport.post("/reaction", async (c) => {
-	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+	if (!(await checkMetaRateLimit(getClientIpFromContext(c) ?? "unknown"))) {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
@@ -737,7 +877,7 @@ publicChatSupport.post("/reaction", async (c) => {
 
 // Lets the visitor resolve their conversation and rate it from 0 to 5 stars.
 publicChatSupport.post("/resolve", async (c) => {
-	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+	if (!(await checkMetaRateLimit(getClientIpFromContext(c) ?? "unknown"))) {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
@@ -774,7 +914,7 @@ publicChatSupport.post("/resolve", async (c) => {
 });
 
 publicChatSupport.post("/escalate", async (c) => {
-	const ipAddress = extractClientIP(c) ?? "unknown";
+	const ipAddress = getClientIpFromContext(c) ?? "unknown";
 	// Throttle escalation on its own buckets — never the message buckets — so a
 	// visitor who has used up their hourly message quota can still reach a human.
 	const hourOk = await checkRateLimit(

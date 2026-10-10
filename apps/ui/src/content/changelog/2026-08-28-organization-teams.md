@@ -4,6 +4,7 @@ slug: "organization-teams"
 date: "2026-08-28"
 title: "Organization Teams and Directory Sync"
 summary: "Group developers under one shared policy — a project ceiling, per-developer budgets, and IAM rules — instead of configuring each person by hand. Microsoft Entra groups map onto teams over SCIM, and a default team catches everyone who joins without one. Available on the Enterprise plan."
+tags: ["llmgateway"]
 image:
   src: "/changelog/organization-teams.png"
   alt: "Organization teams: developer figures grouped under one glowing policy shield on a circuit board, with a directory sync arrow feeding into it"

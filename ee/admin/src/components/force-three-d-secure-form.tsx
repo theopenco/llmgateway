@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 
 import { Label } from "@/components/ui/label";
 import {
@@ -11,6 +11,10 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 import type { ForceThreeDSecureMode } from "@/lib/admin-settings";
 
@@ -23,39 +27,41 @@ const modeLabels: Record<ForceThreeDSecureMode, string> = {
 interface ForceThreeDSecureFormProps {
 	mode: ForceThreeDSecureMode;
 	envOverride: ForceThreeDSecureMode | null;
-	onSave: (
-		mode: ForceThreeDSecureMode,
-	) => Promise<{ ok: boolean; message: string | null }>;
 }
 
 export function ForceThreeDSecureForm({
 	mode,
 	envOverride,
-	onSave,
 }: ForceThreeDSecureFormProps) {
 	const router = useRouter();
-	const [pending, startTransition] = useTransition();
-	const [error, setError] = useState<string | null>(null);
+	const readOnly = !canWrite(useAdminRole());
+	const $api = useApi();
 	const [saved, setSaved] = useState(false);
-
-	const handleChange = (next: string) => {
-		setError(null);
-		setSaved(false);
-		startTransition(async () => {
-			const result = await onSave(next as ForceThreeDSecureMode);
-			if (!result.ok) {
-				setError(result.message);
-				return;
-			}
+	const mutation = $api.useMutation("put", "/admin/settings/force-3ds", {
+		meta: { inlineError: true },
+		onSuccess: () => {
 			setSaved(true);
 			router.refresh();
-		});
+		},
+	});
+	const pending = mutation.isPending;
+	const error = mutation.isError
+		? apiErrorMessage(mutation.error, "Failed to update the 3D Secure setting.")
+		: null;
+
+	const handleChange = (next: string) => {
+		setSaved(false);
+		mutation.mutate({ body: { mode: next as ForceThreeDSecureMode } });
 	};
 
 	return (
 		<div className="flex flex-col gap-2">
 			<Label htmlFor="force-3ds">Requested level</Label>
-			<Select value={mode} disabled={pending} onValueChange={handleChange}>
+			<Select
+				value={mode}
+				disabled={pending || readOnly}
+				onValueChange={handleChange}
+			>
 				<SelectTrigger id="force-3ds" className="w-full">
 					<SelectValue />
 				</SelectTrigger>

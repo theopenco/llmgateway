@@ -33,11 +33,11 @@ describe("formatUsd", () => {
 });
 
 describe("formatTokenCount", () => {
-	it("formats counts with K/M suffixes", () => {
+	it("formats counts with compact suffixes", () => {
 		expect(formatTokenCount(950)).toBe("950");
-		expect(formatTokenCount(1_500)).toBe("1.5K");
-		expect(formatTokenCount(12_000)).toBe("12K");
-		expect(formatTokenCount(2_000_000)).toBe("2.0M");
+		expect(formatTokenCount(1_500)).toBe("1.5k");
+		expect(formatTokenCount(12_000)).toBe("12k");
+		expect(formatTokenCount(2_000_000)).toBe("2M");
 	});
 });
 

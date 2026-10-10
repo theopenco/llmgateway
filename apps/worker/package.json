@@ -24,6 +24,7 @@
 	},
 	"dependencies": {
 		"@llmgateway/actions": "workspace:*",
+		"@llmgateway/benchmarks": "workspace:*",
 		"@llmgateway/cache": "workspace:*",
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/logger": "workspace:*",

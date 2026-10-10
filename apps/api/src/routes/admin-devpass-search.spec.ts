@@ -6,7 +6,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { db, eq, tables } from "@llmgateway/db";
 
 const ORG_ID = "admin-devpass-search-org";
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 interface ListResponse {
 	subscribers: {
@@ -50,7 +50,7 @@ describe("admin devpass search", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await db
 			.update(tables.user)
@@ -61,9 +61,9 @@ describe("admin devpass search", () => {
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		await db.delete(tables.transaction);
 		await deleteAll();

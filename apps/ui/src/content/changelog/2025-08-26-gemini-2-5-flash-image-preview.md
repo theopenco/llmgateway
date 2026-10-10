@@ -4,6 +4,7 @@ slug: "gemini-2-5-flash-image-preview"
 date: "2025-08-26"
 title: "Introducing Our First Image Generation Model: Gemini 2.5 Flash Image Preview"
 summary: "Generate stunning images with Google's Gemini 2.5 Flash Image Preview - our first image generation model with 32.8k context window and competitive pricing."
+tags: ["llmgateway"]
 image:
   src: "/changelog/gemini-2-5-flash-image-preview.png"
   alt: "Gemini 2.5 Flash Image Preview - First image generation model on LLM Gateway"

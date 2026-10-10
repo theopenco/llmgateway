@@ -1,0 +1,58 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- launchApp:
+    permissions:
+      microphone: deny
+- runFlow: helpers/organization.yaml
+- runFlow: helpers/transcription-model.yaml
+- scrollUntilVisible:
+    element: "Start transcription"
+    direction: DOWN
+- tapOn: "Start transcription"
+- assertVisible: "Allow microphone access in iOS Settings to transcribe speech."
+- tapOn: "Open microphone settings"
+- runFlow:
+    when:
+      notVisible: "Microphone"
+    commands:
+      - scrollUntilVisible:
+          element: "Apps"
+          direction: DOWN
+      - tapOn: "Apps"
+      - scrollUntilVisible:
+          element: "The Lounge"
+          direction: DOWN
+      - tapOn: "The Lounge"
+- assertVisible: "Microphone"
+- tapOn:
+    text: "0"
+    childOf:
+      id: "Microphone"
+- assertVisible:
+    text: "1"
+    childOf:
+      id: "Microphone"
+- launchApp:
+    stopApp: false
+- runFlow:
+    when:
+      visible: "New conversation"
+    commands:
+      - runFlow: helpers/organization.yaml
+      - runFlow: helpers/transcription-model.yaml
+- scrollUntilVisible:
+    element: "Start transcription"
+    direction: DOWN
+- tapOn:
+    text: "Start transcription"
+    waitToSettleTimeoutMs: 200
+- extendedWaitUntil:
+    visible: "Stop transcription"
+    timeout: 30000
+- tapOn:
+    text: "Stop transcription"
+    waitToSettleTimeoutMs: 200
+- extendedWaitUntil:
+    visible: "Start transcription"
+    timeout: 15000

@@ -1,0 +1,32 @@
+appId: io.llmgateway.lounge
+---
+- evalScript: ${output.title = "TRIGGER_TIMEOUT_20000 compare gardens " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- runFlow: helpers/comparison.yaml
+- tapOn:
+    id: "field-message-to-all-models"
+- inputText: ${output.title}
+- tapOn: "Done typing"
+- tapOn: "Send to all models"
+- tapOn: "Stop all models"
+- extendedWaitUntil:
+    visible: "Retry this model"
+    timeout: 30000
+- assertVisible: "Response stopped."
+- tapOn: "Model 2"
+- assertVisible: "Response stopped."
+- launchApp
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
+- tapOn:
+    id: "field-search-conversations"
+- inputText: ${output.title}
+- tapOn: "Done typing"
+- tapOn: ".*gpt-4o-mini, 2 messages"
+- assertVisible: "Response stopped."
+- tapOn: "Model 2"
+- assertVisible: "Response stopped."

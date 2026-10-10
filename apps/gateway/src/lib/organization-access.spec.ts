@@ -21,6 +21,30 @@ describe("getOrganizationBlockReason", () => {
 		).toEqual({ status: 410, message: ORGANIZATION_DISABLED_MESSAGE });
 	});
 
+	test("includes a stored reason in the gateway error", () => {
+		expect(
+			getOrganizationBlockReason({
+				status: "deleted",
+				riskFlagged: false,
+				blockReason: "Key sharing violates our terms.",
+			}),
+		).toEqual({
+			status: 410,
+			message:
+				"Your account has been blocked. Reason: Key sharing violates our terms.",
+		});
+	});
+
+	test("does not apply a stale reason to an active organization", () => {
+		expect(
+			getOrganizationBlockReason({
+				status: "active",
+				riskFlagged: false,
+				blockReason: "Previous block",
+			}),
+		).toBeNull();
+	});
+
 	test("blocks a high-risk organization with 403", () => {
 		expect(
 			getOrganizationBlockReason({ status: "active", riskFlagged: true }),

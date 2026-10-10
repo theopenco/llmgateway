@@ -10,9 +10,12 @@ import {
 	and,
 	cdb,
 	effectiveTtftTotals,
+	eq,
 	excludeRegionalMappingRows,
+	gt,
 	gte,
 	sql,
+	tables,
 } from "@llmgateway/db";
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 
@@ -108,8 +111,9 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		.select({
 			providerId: mph.providerId,
 			logsCount: sql<string>`COALESCE(SUM(${mph.logsCount}), 0)`,
-			errorsCount: sql<string>`COALESCE(SUM(${mph.errorsCount}), 0)`,
 			clientErrorsCount: sql<string>`COALESCE(SUM(${mph.clientErrorsCount}), 0)`,
+			gatewayErrorsCount: sql<string>`COALESCE(SUM(${mph.gatewayErrorsCount}), 0)`,
+			upstreamErrorsCount: sql<string>`COALESCE(SUM(${mph.upstreamErrorsCount}), 0)`,
 			cachedCount: sql<string>`COALESCE(SUM(${mph.cachedCount}), 0)`,
 			totalTimeToFirstToken: sql<string>`COALESCE(SUM(${mph.totalTimeToFirstToken}), 0)`,
 			timeToFirstTokenCount: sql<string>`COALESCE(SUM(${mph.timeToFirstTokenCount}), 0)`,
@@ -121,9 +125,21 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 			updatedAt: sql<Date | null>`MAX(${mphTs})`,
 		})
 		.from(mph)
+		.innerJoin(tables.provider, eq(mph.providerId, tables.provider.id))
 		// Grouped per provider, so the regional rows have to be dropped: the
 		// region-less root row of a mapping already includes their traffic.
-		.where(and(gte(mphTs, startDate), excludeRegionalMappingRows(mph)))
+		// Platform-credential traffic only; BYOK failures reflect the customer's
+		// key, not the provider.
+		// `logs_count > 0` changes no sum: it is what lets the planner use the
+		// partial covering index that skips the idle mappings' zero rows.
+		.where(
+			and(
+				gte(mphTs, startDate),
+				gt(mph.logsCount, 0),
+				eq(mph.usedMode, "credits"),
+				excludeRegionalMappingRows(mph),
+			),
+		)
 		.groupBy(mph.providerId)
 		// Pin a stable, window-scoped cache tag. Without it Drizzle keys the
 		// cache on the rendered SQL + params, and `startDate` is derived from
@@ -132,20 +148,21 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		// so the result expires on the TTL alone rather than being busted by the
 		// worker's continuous minute-row inserts.
 		.$withCache({
-			// The version prefix is bumped whenever the selected columns change so
+			// The version prefix is bumped whenever the selected rows change so
 			// a rolling deploy doesn't serve rows cached in the previous shape.
-			tag: `publicProviderStats:v6:${window}`,
+			tag: `publicProviderStats:v9:${window}`,
 			autoInvalidate: false,
 			config: { ex: STATS_CACHE_TTL_SECONDS },
 		});
 
 	const providers = rows.map((r) => {
 		const logsCount = Number(r.logsCount) || 0;
-		const { errorsCount, uptime } = deriveStabilityMetrics(
+		const { errorsCount, uptime } = deriveStabilityMetrics({
 			logsCount,
-			Number(r.errorsCount) || 0,
-			Number(r.clientErrorsCount) || 0,
-		);
+			clientErrorsCount: Number(r.clientErrorsCount) || 0,
+			gatewayErrorsCount: Number(r.gatewayErrorsCount) || 0,
+			upstreamErrorsCount: Number(r.upstreamErrorsCount) || 0,
+		});
 		const cachedCount = Number(r.cachedCount) || 0;
 		const totalOutputTokens = Number(r.totalOutputTokens) || 0;
 		const totalDuration = Number(r.totalDuration) || 0;

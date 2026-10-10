@@ -5,7 +5,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 const ORG_ID = "org-plan-term-test";
 
@@ -42,7 +42,7 @@ describe("admin organization plan term", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
@@ -54,9 +54,9 @@ describe("admin organization plan term", () => {
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		await deleteAll();
 	});

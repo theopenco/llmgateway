@@ -4,62 +4,66 @@ const apiUrl = process.env.API_URL ?? "http://localhost:4002";
 const dashboardUrl = process.env.PW_BASE_URL ?? "http://localhost:3002";
 const headers = { Origin: dashboardUrl };
 
-test("browser approval returns a revocable CLI session without dashboard onboarding", async ({
-	page,
-	request,
-}) => {
-	const started = await request.post(`${apiUrl}/auth/device/code`, {
-		headers,
-		data: { client_id: "llmgateway-cli" },
+for (const clientId of ["llmgateway-cli", "llmgateway-lounge-ios"]) {
+	test(`browser approval returns a revocable ${clientId} session without dashboard onboarding`, async ({
+		page,
+		request,
+	}) => {
+		const started = await request.post(`${apiUrl}/auth/device/code`, {
+			headers,
+			data: { client_id: clientId },
+		});
+		expect(started.ok()).toBe(true);
+		const code = await started.json();
+		await page.goto(`/connect/device?user_code=${code.user_code}`);
+		await page.getByRole("link", { name: "Sign in", exact: true }).click();
+		await page.getByLabel("Email", { exact: true }).fill("admin@example.com");
+		await page.locator('input[type="password"]').fill("admin@example.com");
+		await page.getByRole("button", { name: "Sign in", exact: true }).click();
+		await expect(page).toHaveURL(
+			new RegExp(`/connect/device\\?user_code=${code.user_code}`),
+		);
+		const authorize = page.getByRole("button", {
+			name: "Authorize device",
+			exact: true,
+		});
+		await expect(authorize).toBeDisabled();
+		await page.getByRole("checkbox").check();
+		await authorize.click();
+		await expect(
+			page.getByText("Device authorized", { exact: true }),
+		).toBeVisible();
+		const issued = await request.post(`${apiUrl}/auth/device/token`, {
+			headers,
+			data: {
+				client_id: clientId,
+				device_code: code.device_code,
+				grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+			},
+		});
+		expect(issued.ok()).toBe(true);
+		const { access_token: token } = await issued.json();
+		const authorized = { ...headers, Authorization: `Bearer ${token}` };
+		expect(
+			(await request.get(`${apiUrl}/orgs`, { headers: authorized })).ok(),
+		).toBe(true);
+		expect(
+			(
+				await request.post(`${apiUrl}/auth/sign-out`, {
+					headers: authorized,
+					data: {},
+				})
+			).ok(),
+		).toBe(true);
+		expect(
+			await (
+				await request.get(`${apiUrl}/auth/get-session`, { headers: authorized })
+			).json(),
+		).toBeNull();
 	});
-	expect(started.ok()).toBe(true);
-	const code = await started.json();
-	await page.goto(`/connect/device?user_code=${code.user_code}`);
-	await page.getByRole("link", { name: "Sign in", exact: true }).click();
-	await page.getByLabel("Email", { exact: true }).fill("admin@example.com");
-	await page.locator('input[type="password"]').fill("admin@example.com");
-	await page.getByRole("button", { name: "Sign in", exact: true }).click();
-	await expect(page).toHaveURL(
-		new RegExp(`/connect/device\\?user_code=${code.user_code}`),
-	);
-	const authorize = page.getByRole("button", {
-		name: "Authorize CLI",
-		exact: true,
-	});
-	await expect(authorize).toBeDisabled();
-	await page.getByRole("checkbox").check();
-	await authorize.click();
-	await expect(page.getByText("CLI authorized", { exact: true })).toBeVisible();
-	const issued = await request.post(`${apiUrl}/auth/device/token`, {
-		headers,
-		data: {
-			client_id: "llmgateway-cli",
-			device_code: code.device_code,
-			grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-		},
-	});
-	expect(issued.ok()).toBe(true);
-	const { access_token: token } = await issued.json();
-	const authorized = { ...headers, Authorization: `Bearer ${token}` };
-	expect(
-		(await request.get(`${apiUrl}/orgs`, { headers: authorized })).ok(),
-	).toBe(true);
-	expect(
-		(
-			await request.post(`${apiUrl}/auth/sign-out`, {
-				headers: authorized,
-				data: {},
-			})
-		).ok(),
-	).toBe(true);
-	expect(
-		await (
-			await request.get(`${apiUrl}/auth/get-session`, { headers: authorized })
-		).json(),
-	).toBeNull();
-});
+}
 
-test("SSO preserves the CLI return path and work email through errors", async ({
+test("SSO preserves the device return path and work email through errors", async ({
 	page,
 }) => {
 	const target = "/connect/device?user_code=ABCDEFGH";

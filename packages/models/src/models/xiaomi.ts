@@ -2,6 +2,118 @@ import type { ModelDefinition } from "@/models.js";
 
 export const xiaomiModels = [
 	{
+		id: "mimo-v2.6-pro",
+		name: "MiMo V2.6 Pro",
+		description:
+			"Xiaomi's flagship trillion-parameter omni-modal reasoning model with 1M context, built for complex, long-horizon agentic work.",
+		family: "xiaomi",
+		releasedAt: new Date("2026-09-22"),
+		providers: [
+			{
+				providerId: "xiaomi" as const,
+				externalId: "mimo-v2.6-pro",
+				inputPrice: "0.435e-6",
+				outputPrice: "0.87e-6",
+				cachedInputPrice: "0.0036e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				maxTemperature: 1.5,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				vision: true,
+				audio: true,
+				tools: true,
+				supportedToolChoices: ["auto"],
+				jsonOutput: true,
+			},
+			{
+				providerId: "deepinfra",
+				externalId: "XiaomiMiMo/MiMo-V2.6-Pro",
+				inputPrice: "0.435e-6",
+				outputPrice: "0.87e-6",
+				cachedInputPrice: "0.0036e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 65536,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				audio: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
+		id: "mimo-v2.6-flash",
+		name: "MiMo V2.6 Flash",
+		description:
+			"Xiaomi's low-cost omni-modal reasoning model with 1M context, balancing intelligence and price for high-volume workloads.",
+		family: "xiaomi",
+		releasedAt: new Date("2026-09-22"),
+		providers: [
+			{
+				providerId: "xiaomi" as const,
+				externalId: "mimo-v2.6-flash",
+				inputPrice: "0.14e-6",
+				outputPrice: "0.28e-6",
+				cachedInputPrice: "0.0028e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				maxTemperature: 1.5,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				vision: true,
+				audio: true,
+				tools: true,
+				supportedToolChoices: ["auto"],
+				jsonOutput: true,
+			},
+			{
+				providerId: "deepinfra",
+				externalId: "XiaomiMiMo/MiMo-V2.6-Flash",
+				inputPrice: "0.14e-6",
+				outputPrice: "0.28e-6",
+				cachedInputPrice: "0.0028e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 65536,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				audio: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
 		id: "mimo-v2.5-pro",
 		name: "MiMo V2.5 Pro",
 		description:
@@ -12,6 +124,12 @@ export const xiaomiModels = [
 			{
 				providerId: "xiaomi" as const,
 				externalId: "mimo-v2.5-pro",
+				// Xiaomi auto-routes this ID to mimo-v2.6-pro (billed at the new
+				// model's rates) from Beijing 2026-10-14 18:00 and retires it at
+				// 2026-10-21 10:00. Deactivate at the switch so requests error
+				// instead of silently routing to a different model.
+				deprecatedAt: new Date("2026-10-09"),
+				deactivatedAt: new Date("2026-10-14T10:00:00Z"),
 				inputPrice: "0.435e-6",
 				outputPrice: "0.87e-6",
 				cachedInputPrice: "0.0036e-6",
@@ -46,6 +164,9 @@ export const xiaomiModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "XiaomiMiMo/MiMo-V2.5-Pro",
+				// DeepInfra retires this deployment and redirects it to the
+				// V2.6 model, which is a different model with different prices.
+				deactivatedAt: new Date("2026-09-29"),
 				inputPrice: "1e-6",
 				outputPrice: "3e-6",
 				cachedInputPrice: "0.2e-6",
@@ -75,6 +196,8 @@ export const xiaomiModels = [
 			{
 				providerId: "tencent",
 				externalId: "mimo-v2.5-pro",
+				// TokenHub retires this model at 2026-10-20 23:59:59 Beijing time.
+				deactivatedAt: new Date("2026-10-20T16:00:00Z"),
 				inputPrice: "0.435e-6",
 				cachedInputPrice: "0.0036e-6",
 				outputPrice: "0.87e-6",
@@ -134,6 +257,12 @@ export const xiaomiModels = [
 			{
 				providerId: "xiaomi" as const,
 				externalId: "mimo-v2.5",
+				// Xiaomi auto-routes this ID to mimo-v2.6-flash (billed at the new
+				// model's rates) from Beijing 2026-10-14 18:00 and retires it at
+				// 2026-10-21 10:00. Deactivate at the switch so requests error
+				// instead of silently routing to a different model.
+				deprecatedAt: new Date("2026-10-09"),
+				deactivatedAt: new Date("2026-10-14T10:00:00Z"),
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
 				cachedInputPrice: "0.0028e-6",
@@ -169,6 +298,9 @@ export const xiaomiModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "XiaomiMiMo/MiMo-V2.5",
+				// DeepInfra retires this deployment and redirects it to the
+				// V2.6 model, which is a different model with different prices.
+				deactivatedAt: new Date("2026-09-29"),
 				inputPrice: "0.4e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.08e-6",

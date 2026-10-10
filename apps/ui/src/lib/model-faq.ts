@@ -1,5 +1,7 @@
 import { perMillion } from "@/lib/discount";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { ModelDefinition } from "@llmgateway/models";
 
 export interface ModelFaq {
@@ -83,7 +85,7 @@ export function buildModelFaqs(
 	if (maxContext > 0) {
 		faqs.push({
 			question: `What is the context length of ${displayName}?`,
-			answer: `${displayName} supports a context window of up to ${maxContext.toLocaleString()} tokens on its largest provider deployment.`,
+			answer: `${displayName} supports a context window of up to ${formatNumber(maxContext)} tokens on its largest provider deployment.`,
 		});
 	}
 

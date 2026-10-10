@@ -1,0 +1,21 @@
+appId: io.llmgateway.lounge
+---
+- runFlow:
+    file: navigate.yaml
+    env:
+      DESTINATION: "Compare models"
+- tapOn: "Model 1: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-4o-mini"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-4o Mini"
+- scrollUntilVisible:
+    element: "Model 2: Auto"
+    direction: DOWN
+- tapOn: "Model 2: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-5-nano"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-5 Nano"

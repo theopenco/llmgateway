@@ -74,6 +74,22 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		chatDefaultRpm: 120,
 	},
 	{
+		// TypeSafe's own ceiling is 1,200 requests/minute across our whole
+		// account, so the per-org limit stays below it.
+		key: "systemone",
+		prefix: "/v1/systemone",
+		defaultRpm: 600,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 60,
+	},
+	{
+		key: "search",
+		prefix: "/v1/search",
+		defaultRpm: 600,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 120,
+	},
+	{
 		key: "models",
 		prefix: "/v1/models",
 		defaultRpm: 1200,
@@ -635,6 +651,8 @@ export const INFLIGHT_LIMITED_KEYS: ReadonlySet<string> = new Set([
 	"embeddings",
 	"moderations",
 	"rerank",
+	"systemone",
+	"search",
 	"ocr",
 	"images",
 	"audio_speech",
@@ -651,8 +669,8 @@ export function orgInflightKey(organizationId: string): string {
 /**
  * How long an in-flight slot may live before it is considered leaked and
  * reaped (a pod that crashed mid-stream never releases its slots). Must stay
- * above the longest legitimate request — streams get a 20-minute grace
- * (`SHUTDOWN_GRACE_PERIOD_MS`/`AI_STREAMING_TIMEOUT_MS`) — so a legit
+ * above the longest legitimate request — streams run up to 20 minutes
+ * (`AI_STREAMING_TIMEOUT_MS`) — so a legit
  * long-runner at worst frees its slot early, which only errs permissive.
  */
 export function getOrgInflightStaleSeconds(): number {

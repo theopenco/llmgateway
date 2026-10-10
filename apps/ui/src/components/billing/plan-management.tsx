@@ -15,16 +15,18 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 import { useToast } from "@/lib/components/use-toast";
+import { useAppConfig } from "@/lib/config";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 
 import { getOrganizationTerm } from "@llmgateway/shared";
+import { useRerenderAt } from "@llmgateway/shared/components";
 
 const ENTERPRISE_FEATURES = [
 	"Dedicated support & SLA",
 	"Provider compliance policies",
 	"SSO & audit logs",
-	"Extended data retention",
+	"Full request & response retention",
 	"Custom models & guardrails",
 	"Volume pricing",
 ];
@@ -37,6 +39,7 @@ export function PlanManagement() {
 	const queryClient = useQueryClient();
 	const api = useApi();
 	const posthog = usePostHog();
+	const { hosted } = useAppConfig();
 
 	const { data: subscriptionStatus } = api.useQuery(
 		"get",
@@ -44,6 +47,15 @@ export function PlanManagement() {
 		{ params: { query: { organizationId } } },
 		{ enabled: Boolean(organizationId) },
 	);
+
+	// Resolved above the early returns so the boundary timer is an unconditional
+	// hook call. `renewalProcessing` below is clock-derived and the org/status
+	// queries keep returning the same row until the paid invoice advances it, so
+	// nothing else would re-render the card when the renewal moment passes.
+	const planExpiresAt = selectedOrganization?.planExpiresAt
+		? new Date(selectedOrganization.planExpiresAt)
+		: null;
+	useRerenderAt(planExpiresAt);
 
 	// Keep cancel/resume mutations for existing Pro subscribers (backward compatibility)
 	const cancelSubscriptionMutation = api.useMutation(
@@ -120,9 +132,14 @@ export function PlanManagement() {
 
 	// Legacy Pro subscribers may still exist
 	const isLegacyPro = selectedOrganization.plan === "pro";
-	const planExpiresAt = selectedOrganization.planExpiresAt
-		? new Date(selectedOrganization.planExpiresAt)
-		: null;
+	const paymentPastDue =
+		subscriptionStatus?.subscriptionPaymentStatus === "past_due";
+	const renewalProcessing =
+		isLegacyPro &&
+		!paymentPastDue &&
+		!subscriptionStatus?.subscriptionCancelled &&
+		planExpiresAt !== null &&
+		planExpiresAt <= new Date();
 
 	if (selectedOrganization.plan === "enterprise") {
 		const resolved = getOrganizationTerm({
@@ -186,6 +203,13 @@ export function PlanManagement() {
 				<CardDescription>Manage your billing preferences</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-6">
+				{paymentPastDue && (
+					<div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+						We could not collect the renewal payment. Update the subscription
+						payment method below; the next renewal date appears after payment
+						succeeds.
+					</div>
+				)}
 				<div className="flex items-center justify-between">
 					<div>
 						<div className="flex items-center gap-2">
@@ -193,15 +217,25 @@ export function PlanManagement() {
 							<Badge variant="default">
 								{isLegacyPro ? "Pro (Legacy)" : "Free"}
 							</Badge>
+							{paymentPastDue && (
+								<Badge variant="destructive">Payment failed</Badge>
+							)}
+							{renewalProcessing && (
+								<Badge variant="secondary">Renewal processing</Badge>
+							)}
 						</div>
 						<p className="text-sm text-muted-foreground mt-1">
 							All features included
 						</p>
 						{isLegacyPro && planExpiresAt && (
 							<p className="text-sm text-muted-foreground mt-1">
-								{subscriptionStatus?.subscriptionCancelled
-									? `Expires on ${planExpiresAt.toDateString()}`
-									: `Renews on ${planExpiresAt.toDateString()}`}
+								{paymentPastDue
+									? `Payment due ${planExpiresAt.toDateString()}`
+									: renewalProcessing
+										? `Renewal payment processing since ${planExpiresAt.toDateString()}`
+										: subscriptionStatus?.subscriptionCancelled
+											? `Expires on ${planExpiresAt.toDateString()}`
+											: `Renews on ${planExpiresAt.toDateString()}`}
 							</p>
 						)}
 					</div>
@@ -233,7 +267,13 @@ export function PlanManagement() {
 							</div>
 							<div className="flex items-center gap-2">
 								<div className="w-2 h-2 rounded-full bg-green-500" />
-								<span>30-day data retention</span>
+								<span>
+									{selectedOrganization.retentionLevel !== "retain"
+										? "Metadata-only request logs"
+										: hosted
+											? "Full request & response retention (until November 8, 2026)"
+											: "Full request & response retention"}
+								</span>
 							</div>
 							<div className="flex items-center gap-2">
 								<div className="w-2 h-2 rounded-full bg-green-500" />

@@ -10,6 +10,7 @@ import { getConfig } from "@/lib/config-server";
 import { FIRST_SURVEY_YEAR, fetchModelSurveyResults } from "@/lib/model-survey";
 
 import { models as catalogueModels, providers } from "@llmgateway/models";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import {
 	BoardingPass,
@@ -320,7 +321,7 @@ export default async function CensusPage({
 	});
 	const summary =
 		results && bestValue && bestQuality && fastest && mostRated
-			? `As of ${asOf}, ${bestValue.name} leads the ${year} DevPass Model Census on value for money (${formatScore(bestValue.avgValueScore)}/5 across ${bestValue.responseCount} verified ratings), ${bestQuality.name} leads on output quality (${formatScore(bestQuality.avgQualityScore)}/5), and ${fastest.name} leads on speed (${formatScore(fastest.avgSpeedScore)}/5). ${results.totalRespondents.toLocaleString("en-US")} DevPass developers have filed ${results.totalResponses.toLocaleString("en-US")} verified ratings across ${results.totalModelsRated} models. The most-rated model is ${mostRated.name} with ${mostRated.responseCount} ratings and a ${mostRated.recommendPercent}% recommend rate.`
+			? `As of ${asOf}, ${bestValue.name} leads the ${year} DevPass Model Census on value for money (${formatScore(bestValue.avgValueScore)}/5 across ${bestValue.responseCount} verified ratings), ${bestQuality.name} leads on output quality (${formatScore(bestQuality.avgQualityScore)}/5), and ${fastest.name} leads on speed (${formatScore(fastest.avgSpeedScore)}/5). ${formatNumber(results.totalRespondents)} DevPass developers have filed ${formatNumber(results.totalResponses)} verified ratings across ${results.totalModelsRated} models. The most-rated model is ${mostRated.name} with ${mostRated.responseCount} ratings and a ${mostRated.recommendPercent}% recommend rate.`
 			: null;
 
 	const faq = buildFaq(year, minResponses);

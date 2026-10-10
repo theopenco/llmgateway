@@ -216,6 +216,26 @@ test("quantization edits stay pending on live models and can be withdrawn", asyn
 	await expect(active).not.toContainText("Change filed");
 });
 
+test("a delisted model needs a fresh preflight to relist", async ({ page }) => {
+	await login(page);
+	await page.goto("/dashboard/fleet");
+	const status = page.getByTestId("status-codestral-3");
+	await expect(page.getByTestId("relist-codestral-3")).toHaveCount(0);
+
+	await page.getByTestId("delete-codestral-3").click();
+	await page.getByTestId("confirm-delete-codestral-3").click();
+	await expect(status).toContainText("Delisted by your crew");
+	// Relisting needs a preflight that passed since delisting, so the
+	// delisted row offers Verify next to Relist.
+	await expect(page.getByTestId("verify-codestral-3")).toBeVisible();
+
+	await page.getByTestId("relist-codestral-3").click();
+	await expect(page.getByText(/before you relist/)).toBeVisible({
+		timeout: 15_000,
+	});
+	await expect(status).toContainText("Delisted by your crew");
+});
+
 test("registering a model requires provider preflight", async ({ page }) => {
 	let statusReads = 0;
 	await page.route("**/airside/model-verifications**", async (route) => {
@@ -267,7 +287,7 @@ test("registering a model requires provider preflight", async ({ page }) => {
 	// Prices are entered as dollars per million tokens.
 	await page.getByTestId("input-price").fill("1");
 	await page.getByTestId("output-price").fill("3");
-	await expect(page.getByLabel("Provider API key (if needed)")).toHaveAttribute(
+	await expect(page.getByLabel("Provider test key")).toHaveAttribute(
 		"type",
 		"password",
 	);
@@ -275,7 +295,7 @@ test("registering a model requires provider preflight", async ({ page }) => {
 		"Run preflight",
 	);
 	await expect(page.getByTestId("verification-results")).not.toBeVisible();
-	await page.getByLabel("Provider API key (if needed)").fill("pw-provider-key");
+	await page.getByLabel("Provider test key").fill("pw-provider-key");
 	await page.getByTestId("register-model-submit").click();
 	await expect(page.getByTestId("verification-results")).toContainText(
 		"Passed",
@@ -293,6 +313,11 @@ test("existing mappings report failed verification checks", async ({
 	await page.route("**/airside/models/*/verifications", async (route) => {
 		if (route.request().method() === "OPTIONS") {
 			await route.fulfill({ status: 204, headers: corsHeaders(route) });
+			return;
+		}
+		// The history list shares this path; only the queueing POST is mocked.
+		if (route.request().method() !== "POST") {
+			await route.fallback();
 			return;
 		}
 		await route.fulfill({
@@ -346,7 +371,7 @@ test("existing mappings report failed verification checks", async ({
 	await login(page);
 	await page.goto("/dashboard/fleet");
 	await page.getByTestId("verify-mistral-medium-4").click();
-	await page.getByLabel("Provider API key (if needed)").fill("pw-provider-key");
+	await page.getByLabel("Provider test key").fill("pw-provider-key");
 	await page.getByRole("button", { name: "Run verification" }).click();
 	await expect(page.getByTestId("verification-results")).toContainText(
 		"The required tool call was not returned.",
@@ -402,6 +427,8 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 	await page.fill('input[name="name"]', "Deepseek Ops");
 	await page.fill('input[name="email"]', email);
 	await page.fill('input[name="password"]', "a-very-long-password-1");
+	await expect(page.locator('button[type="submit"]')).toBeDisabled();
+	await page.getByTestId("signup-accept-terms").check();
 	await page.click('button[type="submit"]');
 	await page.waitForURL("**/onboarding**", { timeout: 45_000 });
 
@@ -412,7 +439,12 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 
 	// Self-hosted dev auto-verifies email, so company creation is unlocked.
 	await page.fill("#company-name", "Deepseek Test Co");
-	await page.getByRole("button", { name: "Register company" }).click();
+	const registerCompany = page.getByRole("button", {
+		name: "Register company",
+	});
+	await expect(registerCompany).toBeDisabled();
+	await page.getByTestId("company-accept-terms").check();
+	await registerCompany.click();
 	await expect(page.getByText("Registered", { exact: true })).toBeVisible({
 		timeout: 15_000,
 	});
@@ -424,7 +456,18 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 	const claimButton = page.getByTestId("open-claim-dialog");
 	if (await claimButton.isVisible()) {
 		await claimButton.click();
-		// Claiming opens the branding dialog; the claim is filed from there.
+		// Claiming opens a dialog with the public profile links (prefilled from
+		// the catalogue where known) and optional branding.
+		for (const [field, url] of [
+			["website", "https://www.deepseek.com"],
+			["privacyPolicyUrl", "https://www.deepseek.com/privacy"],
+			["termsUrl", "https://www.deepseek.com/terms"],
+		] as const) {
+			const input = page.getByTestId(`claim-profile-${field}`);
+			if (!(await input.inputValue())) {
+				await input.fill(url);
+			}
+		}
 		await page.getByTestId("confirm-claim").click();
 		// Claims are reviewed by the team before the carrier goes live.
 		await expect(page.getByText("Under review")).toBeVisible({
@@ -454,6 +497,19 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 	await page
 		.getByTestId("carrier-base-url-input")
 		.fill("https://api.deepseek.com");
+	// Website, privacy policy and terms of use are required for new carriers.
+	await expect(page.getByTestId("confirm-register-carrier")).toBeDisabled();
+	await page
+		.getByTestId("carrier-profile-website")
+		.fill("https://www.deepseek.com");
+	await page
+		.getByTestId("carrier-profile-privacyPolicyUrl")
+		.fill("https://www.deepseek.com/privacy");
+	await page.getByTestId("carrier-profile-termsUrl").fill("not a url");
+	await expect(page.getByTestId("confirm-register-carrier")).toBeDisabled();
+	await page
+		.getByTestId("carrier-profile-termsUrl")
+		.fill("https://www.deepseek.com/terms");
 	await expect(page.getByTestId("confirm-register-carrier")).toBeEnabled();
 	await page.keyboard.press("Escape");
 
@@ -465,4 +521,140 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 		timeout: 15_000,
 	});
 	await expect(page.getByTestId("crew-channel-card")).toContainText(email);
+});
+
+test("settings saves and removes the carrier's test key", async ({ page }) => {
+	await login(page);
+	await page.goto("/dashboard/settings");
+	const card = page.getByTestId("verification-key-mistral");
+	await expect(card).toContainText("No test key saved");
+
+	await page
+		.getByTestId("verification-key-input-mistral")
+		.fill("pw-carrier-test-key");
+	await page.getByTestId("verification-key-save-mistral").click();
+	await expect(
+		page.getByTestId("verification-key-masked-mistral"),
+	).toBeVisible();
+	await expect(card).not.toContainText("pw-carrier-test-key");
+
+	// With a saved key, preflight no longer needs one pasted.
+	await page.goto("/dashboard/fleet");
+	await page.getByTestId("verify-mistral-medium-4").click();
+	await expect(
+		page.getByRole("button", { name: "Run verification" }),
+	).toBeEnabled();
+	await page.keyboard.press("Escape");
+
+	await page.goto("/dashboard/settings");
+	await page.getByTestId("verification-key-remove-mistral").click();
+	await expect(card).toContainText("No test key saved");
+});
+
+test("brand page preview reflects a typed name before saving", async ({
+	page,
+}) => {
+	await login(page);
+	await page.goto("/dashboard/brand?carrier=mistral");
+	await expect(page.getByTestId("brand-page")).toBeVisible({
+		timeout: 20_000,
+	});
+	const preview = page.getByTestId("brand-preview");
+	await expect(preview).toBeVisible();
+	await expect(page.getByTestId("brand-save")).toHaveCount(0);
+
+	await page.getByTestId("brand-name-input").fill("Preview Carrier Name");
+	await expect(preview).toContainText("Preview Carrier Name API");
+	await preview.getByRole("tab", { name: "Directory card" }).click();
+	await expect(preview).toContainText("Preview Carrier Name");
+	await expect(preview).toContainText("View models");
+	await preview.getByRole("button", { name: "Dark" }).click();
+	await expect(preview.getByRole("button", { name: "Dark" })).toHaveAttribute(
+		"aria-pressed",
+		"true",
+	);
+
+	// Nothing is saved until the sticky save bar is used.
+	await expect(page.getByTestId("brand-save")).toBeEnabled();
+	await page.getByTestId("brand-discard").click();
+	await expect(page.getByTestId("brand-save")).toHaveCount(0);
+	await expect(preview).not.toContainText("Preview Carrier Name");
+});
+
+test("model ID field suggests the catalogue-style id", async ({ page }) => {
+	await login(page);
+	await page.goto("/dashboard/fleet");
+	await expect(page.getByTestId("fleet-page")).toBeVisible({
+		timeout: 20_000,
+	});
+	await page.getByTestId("register-model-button").click();
+	const input = page.getByTestId("model-name-input");
+	await input.fill("deepseek/DeepSeek V4.1 Flash");
+	await expect(page.getByTestId("model-name-error")).toBeVisible();
+	await expect(input).toHaveAttribute("aria-invalid", "true");
+	const suggestion = page.getByTestId("model-id-suggestion");
+	await expect(suggestion).toHaveText("Use deepseek-v4.1-flash");
+	await expect(page.getByTestId("register-model-submit")).toBeDisabled();
+	await suggestion.click();
+	await expect(input).toHaveValue("deepseek-v4.1-flash");
+	await expect(page.getByTestId("model-name-error")).toHaveCount(0);
+});
+
+test("profile reminder banner and bell flag missing carrier links", async ({
+	page,
+}) => {
+	type CompaniesResponse =
+		paths["/airside/companies"]["get"]["responses"]["200"]["content"]["application/json"];
+	await page.route("**/airside/companies", async (route) => {
+		if (route.request().method() !== "GET") {
+			await route.fallback();
+			return;
+		}
+		const response = await route.fetch();
+		const data = (await response.json()) as CompaniesResponse;
+		await route.fulfill({
+			response,
+			json: {
+				companies: data.companies.map((company) => ({
+					...company,
+					termsAcceptedAt: company.termsAcceptedAt ?? new Date().toISOString(),
+					claims: company.claims.map((claim, index) =>
+						index === 0
+							? {
+									...claim,
+									status: "active" as const,
+									profileMissing: ["privacyPolicyUrl", "termsUrl"],
+								}
+							: claim,
+					),
+				})),
+			},
+		});
+	});
+	await login(page);
+	const banner = page.getByTestId("profile-reminder-banner");
+	await expect(banner).toBeVisible({ timeout: 20_000 });
+	await expect(banner).toContainText(
+		"is missing its privacy policy and terms of use",
+	);
+
+	const bell = page.getByTestId("notifications-bell");
+	await expect(bell).toHaveAccessibleName(/Notifications, \d+ unread/);
+	await bell.click();
+	const menu = page.getByTestId("notifications-menu");
+	await expect(menu).toContainText(
+		"is missing its privacy policy and terms of use",
+	);
+	await page.keyboard.press("Escape");
+
+	await banner
+		.getByRole("button", { name: "Dismiss reminder for this session" })
+		.click();
+	await expect(banner).toHaveCount(0);
+	await page.reload();
+	await expect(page.getByTestId("operations-page")).toBeVisible({
+		timeout: 20_000,
+	});
+	await expect(banner).toHaveCount(0);
+	await expect(bell).toHaveAccessibleName(/Notifications, \d+ unread/);
 });

@@ -10,6 +10,8 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { DailyActivity } from "@/types/activity";
 
 interface RecentActivityCardProps {
@@ -77,8 +79,8 @@ export function RecentActivityCard({
 										{format(parseISO(day.date), "MMM d, yyyy")}
 									</p>
 									<p className="truncate text-xs text-muted-foreground">
-										{day.requestCount.toLocaleString()} requests •{" "}
-										{day.totalTokens.toLocaleString()} tokens
+										{formatNumber(day.requestCount)} requests •{" "}
+										{formatNumber(day.totalTokens)} tokens
 									</p>
 								</div>
 								<div className="shrink-0 text-right">

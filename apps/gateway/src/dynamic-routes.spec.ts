@@ -1,12 +1,20 @@
-import { beforeAll, describe, expect, test } from "vitest";
+import {
+	afterAll,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+} from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { redisClient } from "@llmgateway/cache";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
-import { waitForLogs } from "./test-utils/test-helpers.js";
+import { requestLogs, waitForLogs } from "./test-utils/test-helpers.js";
 
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 
@@ -19,8 +27,22 @@ describe("dynamic routes request path", () => {
 	const harness = createGatewayApiTestHarness();
 	let mockServerUrl = "";
 
+	// The classifier credential is a platform credential, so an LLM_* value left
+	// in the developer .env would send these tests upstream.
+	const originalTypesafeKey = process.env.LLM_TYPESAFE_API_KEY;
+
 	beforeAll(() => {
 		mockServerUrl = harness.mockServerUrl;
+	});
+
+	beforeEach(() => {
+		delete process.env.LLM_TYPESAFE_API_KEY;
+	});
+
+	afterAll(() => {
+		if (originalTypesafeKey !== undefined) {
+			process.env.LLM_TYPESAFE_API_KEY = originalTypesafeKey;
+		}
 	});
 
 	async function seedBase(suffix: string, providers: string[] = ["openai"]) {
@@ -214,6 +236,13 @@ describe("dynamic routes request path", () => {
 			version: 1,
 			path: ["tier", "premium"],
 		});
+
+		// The cheap branch is priced against the priciest model in the route.
+		const basicLog = logs.find((l) => l.usedModel.includes("gpt-5-nano"));
+		expect(basicLog?.routingBaselineModel).toMatch(/\/gpt-4o-mini$/);
+		expect(Number(basicLog?.routingBaselineCost)).toBeGreaterThan(
+			Number(basicLog?.cost),
+		);
 	});
 
 	test("body conditions read the raw request body, not the stripped copy", async () => {
@@ -284,6 +313,77 @@ describe("dynamic routes request path", () => {
 		});
 		expect(pinned.status).toBe(200);
 		expect((await pinned.json()).metadata.used_provider).toBe("openai");
+	});
+
+	test.each(["openai", "azure"])(
+		"respects a model node preferring %s",
+		async (first) => {
+			const token = await seedBase(`order-${first}`, ["openai", "azure"]);
+			const providers =
+				first === "openai" ? ["openai", "azure"] : ["azure", "openai"];
+			const route = await seedRoute(`order-${first}`, {
+				entry: "m",
+				nodes: [modelNode("m", "gpt-5.5", providers)],
+			} as DynamicRouteGraph);
+			const response = await chatCompletion(token, {
+				model: `dynamic/${route}`,
+				messages: [{ role: "user", content: "Say hi" }],
+			});
+			expect(response.status).toBe(200);
+			expect((await response.json()).metadata.used_provider).toBe(first);
+		},
+	);
+
+	test("dynamic provider order does not bypass lax caps", async () => {
+		const token = await seedBase("lax-order", ["openai", "azure"]);
+		const routeName = await seedRoute("lax-order", {
+			entry: "m",
+			nodes: [modelNode("m", "gpt-5.5", ["openai", "azure"])],
+		} as DynamicRouteGraph);
+		await db.insert(tables.rateLimit).values({
+			id: "lax-order",
+			organizationId: "org-id",
+			provider: "openai",
+			model: "gpt-5.5",
+			maxRpm: 1,
+			mode: "lax",
+		});
+		const key = "rate_limit:provider_cap:rpm:org-id:openai:gpt-5.5";
+		await redisClient.zadd(key, Date.now(), "seed");
+		const response = await chatCompletion(
+			token,
+			{
+				model: `dynamic/${routeName}`,
+				messages: [{ role: "user", content: "lax ordered route" }],
+			},
+			{ "x-session-id": "lax-order-new" },
+		);
+		expect(response.status).toBe(200);
+		expect((await response.json()).metadata.used_provider).toBe("azure");
+		expect(await redisClient.zcard(key)).toBe(1);
+	});
+
+	test("keeps a healthy session pin when a dynamic route changes provider order", async () => {
+		const token = await seedBase("order-session", ["openai", "azure"]);
+		for (const providers of [
+			["openai", "azure"],
+			["azure", "openai"],
+		]) {
+			const route = await seedRoute(`order-session-${providers[0]}`, {
+				entry: "m",
+				nodes: [modelNode("m", "gpt-5.5", providers)],
+			} as DynamicRouteGraph);
+			const response = await chatCompletion(
+				token,
+				{
+					model: `dynamic/${route}`,
+					messages: [{ role: "user", content: "Say hi" }],
+				},
+				{ "x-session-id": "ordered-route-session" },
+			);
+			expect(response.status).toBe(200);
+			expect((await response.json()).metadata.used_provider).toBe("openai");
+		}
 	});
 
 	test("routes to a custom-provider catalog model", async () => {
@@ -433,5 +533,94 @@ describe("dynamic routes request path", () => {
 		expect(res.status).toBe(400);
 		const json = await res.json();
 		expect(json.error.message).toContain("free_models_only");
+	});
+	test("classifier node branches on the rated difficulty", async () => {
+		const token = await seedBase("classify");
+		await cdb.insert(tables.providerKey).values({
+			id: "pk-dyn-typesafe-classify",
+			...encryptProviderKeyForStorage(
+				"ts-test-key",
+				"pk-dyn-typesafe-classify",
+				null,
+			),
+			provider: "typesafe",
+			organizationId: null,
+			managed: true,
+			config: { baseUrl: mockServerUrl },
+		});
+		const routeName = await seedRoute("classify", {
+			entry: "rate",
+			nodes: [
+				{
+					id: "rate",
+					type: "classifier",
+					kind: "jev",
+					on: "difficulty",
+					cases: [
+						{ value: "high", next: "big" },
+						{ value: "low", next: "small" },
+					],
+					else: "mid",
+				},
+				modelNode("big", "gpt-4o"),
+				modelNode("mid", "gpt-4o-mini"),
+				modelNode("small", "gpt-6-luna"),
+			],
+		} as DynamicRouteGraph);
+
+		const hard = await chatCompletion(token, {
+			model: `dynamic/${routeName}`,
+			messages: [
+				{ role: "user", content: "HARD_TASK design a distributed scheduler" },
+			],
+		});
+		expect(hard.status).toBe(200);
+		expect((await hard.json()).model).toBe("openai/gpt-4o");
+
+		const easy = await chatCompletion(token, {
+			model: `dynamic/${routeName}`,
+			messages: [{ role: "user", content: "EASY_TASK say hi" }],
+		});
+		expect(easy.status).toBe(200);
+		expect((await easy.json()).model).toBe("openai/gpt-6-luna");
+
+		// Four rows: two requests, each with its own billed classifier call.
+		const decisions = requestLogs(await waitForLogs(4)).map(
+			(log) => log.routingMetadata?.dynamicRoute?.classifier,
+		);
+		expect(decisions.map((d) => d?.kind)).toEqual(["jev", "jev"]);
+		expect(decisions.map((d) => d?.difficulty).sort()).toEqual(["high", "low"]);
+	});
+
+	test("classifier node takes else when no credential is configured", async () => {
+		// Fail-open: a route must not break because the classifier is unreachable.
+		const token = await seedBase("classify-nocred");
+		const routeName = await seedRoute("classify-nocred", {
+			entry: "rate",
+			nodes: [
+				{
+					id: "rate",
+					type: "classifier",
+					kind: "jev",
+					on: "difficulty",
+					cases: [{ value: "high", next: "big" }],
+					else: "mid",
+				},
+				modelNode("big", "gpt-4o"),
+				modelNode("mid", "gpt-4o-mini"),
+			],
+		} as DynamicRouteGraph);
+
+		const res = await chatCompletion(token, {
+			model: `dynamic/${routeName}`,
+			messages: [
+				{ role: "user", content: "HARD_TASK design a distributed scheduler" },
+			],
+		});
+		expect(res.status).toBe(200);
+		expect((await res.json()).model).toBe("openai/gpt-4o-mini");
+
+		const log = (await waitForLogs(1))[0];
+		expect(log?.routingMetadata?.dynamicRoute?.classifier).toBeUndefined();
 	});
 });

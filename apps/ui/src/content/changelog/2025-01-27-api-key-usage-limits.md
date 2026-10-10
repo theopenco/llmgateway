@@ -4,6 +4,7 @@ slug: "api-key-usage-limits"
 date: "2025-08-11"
 title: "API Key Usage Limits & Credit Controls"
 summary: "Set individual credit limits for API keys to better control spending and prevent unexpected overages."
+tags: ["llmgateway"]
 image:
   src: "/changelog/api-key-usage-limits.png"
   alt: "API Keys dashboard showing usage limits and credit controls"

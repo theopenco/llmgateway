@@ -1,0 +1,14 @@
+appId: io.llmgateway.lounge
+---
+- launchApp
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Canvas"
+- tapOn: "Templates"
+- tapOn: "Form"
+- assertVisible: "Contact Us"
+- tapOn: "(?s)Select.*"
+- tapOn: "(?s)Technical Support.*"
+- assertVisible: "(?s)Technical Support.*"
+- takeScreenshot: artifacts/appearance-canvas-light

@@ -2,11 +2,14 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { getDynamicRouteProviderOptions } from "@/lib/dynamic-route-providers.js";
+
 import { and, cdb, db, eq, sql, tables } from "@llmgateway/db";
 import {
 	DYNAMIC_ROUTE_NAME_MESSAGE,
 	DYNAMIC_ROUTE_NAME_REGEX,
-	dynamicRouteGraphSchema,
+	dynamicRouteGraphInputSchema as dynamicRouteGraphSchema,
+	createDynamicRouteGraphSchema,
 	parseCustomDynamicRouteModelRef,
 } from "@llmgateway/shared/dynamic-route";
 
@@ -92,10 +95,24 @@ async function routeDetail(routeId: string) {
 	};
 }
 
-async function assertCustomModelsAvailable(
+async function assertRouteModelsAvailable(
 	organizationId: string,
 	graph: DynamicRouteGraph,
 ) {
+	const options = await getDynamicRouteProviderOptions();
+	const providerIds = new Map(
+		options.map((model) => [
+			model.modelId,
+			new Set(model.providers.map((provider) => provider.id)),
+		]),
+	);
+	const parsed = createDynamicRouteGraphSchema(providerIds).safeParse(graph);
+	if (!parsed.success) {
+		throw new HTTPException(400, {
+			message: parsed.error.issues[0]?.message ?? "Invalid routing providers",
+		});
+	}
+
 	const references = graph.nodes.flatMap((node) => {
 		if (node.type !== "model") {
 			return [];
@@ -136,6 +153,44 @@ async function assertCustomModelsAvailable(
 		});
 	}
 }
+
+const providerOptionsRoute = createRoute({
+	method: "get",
+	path: "/{projectId}/catalogue/providers",
+	request: { params: z.object({ projectId: z.string() }) },
+	responses: {
+		200: {
+			description: "Active provider options for dynamic route models",
+			content: {
+				"application/json": {
+					schema: z.object({
+						models: z.array(
+							z.object({
+								modelId: z.string(),
+								providers: z.array(
+									z.object({
+										id: z.string(),
+										name: z.string(),
+										color: z.string().optional(),
+									}),
+								),
+							}),
+						),
+					}),
+				},
+			},
+		},
+	},
+});
+
+dynamicRoutes.openapi(providerOptionsRoute, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+	await checkProjectEnterpriseAccess(user.id, c.req.param("projectId"));
+	return c.json({ models: await getDynamicRouteProviderOptions() });
+});
 
 const listRoutes = createRoute({
 	method: "get",
@@ -221,7 +276,7 @@ dynamicRoutes.openapi(createRouteEndpoint, async (c) => {
 	const { project } = await checkProjectEnterpriseAccess(user.id, projectId);
 	const body = c.req.valid("json");
 	if (body.graph) {
-		await assertCustomModelsAvailable(project.organizationId, body.graph);
+		await assertRouteModelsAvailable(project.organizationId, body.graph);
 	}
 
 	// The insert itself is the authoritative duplicate check: concurrent
@@ -388,7 +443,7 @@ dynamicRoutes.openapi(updateDraft, async (c) => {
 	const { project } = await checkProjectEnterpriseAccess(user.id, projectId);
 	const route = await findRouteOrThrow(projectId, name);
 	const body = c.req.valid("json");
-	await assertCustomModelsAvailable(project.organizationId, body.graph);
+	await assertRouteModelsAvailable(project.organizationId, body.graph);
 
 	await cdb
 		.update(tables.dynamicRoute)
@@ -434,7 +489,7 @@ dynamicRoutes.openapi(publishRoute, async (c) => {
 			message: `Draft graph is no longer valid: ${parsed.error.issues[0]?.message}`,
 		});
 	}
-	await assertCustomModelsAvailable(project.organizationId, parsed.data);
+	await assertRouteModelsAvailable(project.organizationId, parsed.data);
 
 	// Version insert and pointer re-point must land together (no orphan
 	// version rows), and the next version number is derived inside the
@@ -516,7 +571,7 @@ dynamicRoutes.openapi(rollbackRoute, async (c) => {
 			message: `Version ${version.version} is no longer valid: ${parsed.error.issues[0]?.message}`,
 		});
 	}
-	await assertCustomModelsAvailable(project.organizationId, parsed.data);
+	await assertRouteModelsAvailable(project.organizationId, parsed.data);
 
 	await cdb
 		.update(tables.dynamicRoute)

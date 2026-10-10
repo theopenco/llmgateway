@@ -9,6 +9,7 @@ import {
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { db, tables, eq, and } from "@llmgateway/db";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 import type { ServerTypes } from "@/vars.js";
@@ -387,7 +388,8 @@ skills.openapi(generateSkill, async (c) => {
 
 	const { prompt } = c.req.valid("json");
 
-	const token = await resolvePlaygroundToken(c, user);
+	const token =
+		c.req.header("x-llmgateway-key") ?? (await resolvePlaygroundToken(c, user));
 
 	const gatewayUrl = getGatewayUrl();
 
@@ -395,6 +397,7 @@ skills.openapi(generateSkill, async (c) => {
 		apiKey: token,
 		baseURL: gatewayUrl,
 		headers: {
+			...forwardedIpHeaders(c.req.raw.headers),
 			"x-source": LOUNGE_SOURCE,
 		},
 	});
@@ -410,7 +413,10 @@ skills.openapi(generateSkill, async (c) => {
 			}),
 		},
 		toolChoice: "required",
-		abortSignal: AbortSignal.timeout(SKILL_GENERATION_TIMEOUT_MS),
+		abortSignal: AbortSignal.any([
+			c.req.raw.signal,
+			AbortSignal.timeout(SKILL_GENERATION_TIMEOUT_MS),
+		]),
 	});
 
 	const saveCall = result.toolCalls.find(

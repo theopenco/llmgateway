@@ -1,4 +1,4 @@
-import { Fraunces, Inter, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 
 import { Providers } from "@/components/providers";
 import { BRAND } from "@/lib/brand";
@@ -11,22 +11,25 @@ import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
-const inter = Inter({
+const inter = localFont({
 	variable: "--font-inter",
-	subsets: ["latin"],
+	src: "../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2",
+	weight: "100 900",
 	display: "swap",
 });
 
-const fraunces = Fraunces({
+const fraunces = localFont({
 	variable: "--font-fraunces",
-	subsets: ["latin"],
+	src: "../../node_modules/@fontsource-variable/fraunces/files/fraunces-latin-opsz-normal.woff2",
+	weight: "100 900",
+	adjustFontFallback: "Times New Roman",
 	display: "swap",
-	axes: ["opsz"],
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
 	variable: "--font-mono",
-	subsets: ["latin"],
+	src: "../../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2",
+	weight: "100 900",
 	display: "swap",
 });
 
@@ -39,7 +42,7 @@ export const metadata: Metadata = {
 		template: `%s | ${BRAND.fullName}`,
 	},
 	description:
-		"The members' lounge for AI. Chat with GPT, Claude, and Gemini, generate images and video, and run multi-model group chats — every frontier model, one membership.",
+		"The members' lounge for AI. Compare model answers, generate images and video, and host multi-model council debates — your AI workspace with one membership.",
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},
@@ -57,7 +60,7 @@ export const metadata: Metadata = {
 	openGraph: {
 		title: `${BRAND.name} — Chat with 200+ AI Models (GPT, Claude, Gemini)`,
 		description:
-			"The members' lounge for AI. Chat, generate images and videos, and run multi-model group chats — every frontier model, one membership.",
+			"The members' lounge for AI. Chat, generate images and videos, and host multi-model council debates — every frontier model, one membership.",
 		images: ["/opengraph.png?v=3"],
 		type: "website",
 		url: BRAND.url,
@@ -68,7 +71,7 @@ export const metadata: Metadata = {
 		card: "summary_large_image",
 		title: `${BRAND.name} — Chat with 200+ AI Models (GPT, Claude, Gemini)`,
 		description:
-			"The members' lounge for AI. Chat, generate images and videos, and run multi-model group chats — every frontier model, one membership.",
+			"The members' lounge for AI. Chat, generate images and videos, and host multi-model council debates — every frontier model, one membership.",
 		creator: "@llmgateway",
 	},
 };
@@ -79,7 +82,7 @@ const webSiteSchema = {
 	name: BRAND.fullName,
 	url: BRAND.url,
 	description:
-		"The members' lounge for AI — chat with 200+ models, generate images and videos, and run multi-model group chats.",
+		"The members' lounge for AI — chat with 200+ models, generate images and videos, and host multi-model council debates.",
 	publisher: {
 		"@type": "Organization",
 		name: BRAND.publisher,

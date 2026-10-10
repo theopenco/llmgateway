@@ -19,9 +19,10 @@ interface GuidePageProps {
 }
 
 export default async function GuidePage({ params }: GuidePageProps) {
-	const { allGuides } = await import("content-collections");
-
-	const { slug } = await params;
+	const [{ allGuides }, { slug }] = await Promise.all([
+		import("content-collections"),
+		params,
+	]);
 
 	const guide = allGuides.find((guide: Guide) => guide.slug === slug);
 
@@ -107,7 +108,7 @@ export default async function GuidePage({ params }: GuidePageProps) {
 					__html: JSON.stringify(breadcrumbSchema),
 				}}
 			/>
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white pt-30">
 				<main className="container mx-auto px-4 py-8">
 					<div className="max-w-4xl mx-auto">
@@ -172,9 +173,10 @@ export async function generateStaticParams() {
 export async function generateMetadata({
 	params,
 }: GuidePageProps): Promise<Metadata> {
-	const { allGuides } = await import("content-collections");
-
-	const { slug } = await params;
+	const [{ allGuides }, { slug }] = await Promise.all([
+		import("content-collections"),
+		params,
+	]);
 
 	const guide = allGuides.find((guide: Guide) => guide.slug === slug);
 

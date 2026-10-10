@@ -7,6 +7,8 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { fetchServerData } from "@/lib/server-api";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -37,19 +39,34 @@ interface AppsResponse {
 	totalRequests: number;
 }
 
-const numberFormatter = new Intl.NumberFormat("en-US");
+const BIG_NUMBER_UNITS = [
+	"K",
+	"M",
+	"B",
+	"T",
+	"Q",
+	"Qi",
+	"Sx",
+	"Sp",
+	"Oc",
+	"No",
+	"Dc",
+] as const;
 
 function formatBigNumber(n: number): string {
-	if (n >= 1_000_000_000) {
-		return `${(n / 1_000_000_000).toFixed(2)}B`;
+	if (n < 1_000) {
+		return formatNumber(n);
 	}
-	if (n >= 1_000_000) {
-		return `${(n / 1_000_000).toFixed(2)}M`;
+	const last = BIG_NUMBER_UNITS.length - 1;
+	let unit = Math.min(Math.floor(Math.log10(n) / 3) - 1, last);
+	const divisor = 1_000 ** (unit + 1);
+	let value = n / divisor;
+	const digits = () => (unit === 0 ? 1 : 2);
+	if (Number(value.toFixed(digits())) >= 1_000 && unit < last) {
+		unit += 1;
+		value /= 1_000;
 	}
-	if (n >= 1_000) {
-		return `${(n / 1_000).toFixed(1)}K`;
-	}
-	return numberFormatter.format(n);
+	return `${value.toFixed(digits())}${BIG_NUMBER_UNITS[unit]}`;
 }
 
 function HeroStat({
@@ -90,7 +107,7 @@ export default async function AppsPage() {
 	return (
 		<div className="min-h-screen bg-background text-foreground">
 			<main>
-				<HeroRSC navbarOnly />
+				<HeroRSC />
 
 				<section className="relative overflow-hidden pt-36 md:pt-44 pb-12">
 					<div
@@ -126,7 +143,7 @@ export default async function AppsPage() {
 
 							<div className="mt-14 flex flex-wrap items-center justify-center gap-x-12 md:gap-x-20 gap-y-8">
 								<HeroStat
-									value={numberFormatter.format(totalApps)}
+									value={formatNumber(totalApps)}
 									label="apps tracked"
 								/>
 								<span

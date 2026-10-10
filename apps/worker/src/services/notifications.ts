@@ -7,6 +7,7 @@ import {
 	eq,
 	gte,
 	inArray,
+	isEmailSuppressed,
 	isNull,
 	lt,
 	sql,
@@ -20,6 +21,16 @@ import {
 	getResendClient,
 	replyToEmail,
 } from "@llmgateway/shared/email";
+import {
+	buildUnsubscribeHeaders,
+	renderFooterText,
+	signUnsubscribeToken,
+} from "@llmgateway/shared/email-unsubscribe";
+
+import {
+	isOrgAlertRecipient,
+	processComplianceAlerts,
+} from "./compliance-alerts.js";
 
 import type { ApiKeyScope } from "@llmgateway/actions";
 import type { notificationPreference } from "@llmgateway/db";
@@ -71,6 +82,9 @@ function canReadEvent(
 	scope: ApiKeyScope,
 	event: Pick<Event, "projectId" | "apiKeyId">,
 ): boolean {
+	if (!event.projectId) {
+		return false;
+	}
 	return (
 		scope.privilegedProjectIds.includes(event.projectId) ||
 		(scope.restrictedProjectIds.includes(event.projectId) &&
@@ -264,6 +278,14 @@ export async function processNotifications(now = new Date()): Promise<void> {
 			}
 		}
 	}
+	try {
+		await processComplianceAlerts(now);
+	} catch (error) {
+		logger.error(
+			"Compliance alert processing failed",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
 	await deliverNotificationEmails(now);
 }
 
@@ -287,27 +309,74 @@ export async function deliverNotificationEmails(
 		const recipient = await db.query.user.findFirst({
 			where: { id: item.userId, status: "active", emailVerified: true },
 		});
-		const preference = await db.query.notificationPreference.findFirst({
-			where: { userId: item.userId, type: item.type, email: true },
-		});
-		if (!recipient || !preference) {
-			continue;
-		}
-		const scope = await getApiKeyScope(
-			item.userId,
-			await getUserProjectIds(item.userId),
-		);
-		if (!canReadEvent(scope, item)) {
-			continue;
+		// The address, not the user, owns the suppression: unsubscribing from an
+		// inbox must stick even if the same person holds several accounts.
+		const suppressed = recipient
+			? await isEmailSuppressed(recipient.email, item.type)
+			: false;
+		if (item.organizationId) {
+			// Org alerts: the org enabled email; recipients opt out via their own
+			// preference. Skips are final, so the row leaves the pending queue.
+			const optedOut = await db.query.notificationPreference.findFirst({
+				where: { userId: item.userId, type: item.type, email: false },
+			});
+			if (
+				!recipient ||
+				optedOut ||
+				suppressed ||
+				!(await isOrgAlertRecipient(
+					item.userId,
+					item.organizationId,
+					item.type,
+				))
+			) {
+				await db
+					.update(notification)
+					.set({ email: false })
+					.where(eq(notification.id, item.id));
+				continue;
+			}
+		} else {
+			if (!recipient) {
+				continue;
+			}
+			if (suppressed) {
+				// Terminal: an unsubscribed address never becomes eligible again
+				// without an explicit resubscribe, which clears the row anyway.
+				await db
+					.update(notification)
+					.set({ email: false })
+					.where(eq(notification.id, item.id));
+				continue;
+			}
+			const preference = await db.query.notificationPreference.findFirst({
+				where: { userId: item.userId, type: item.type, email: true },
+			});
+			if (!preference) {
+				continue;
+			}
+			const scope = await getApiKeyScope(
+				item.userId,
+				await getUserProjectIds(item.userId),
+			);
+			if (!canReadEvent(scope, item)) {
+				continue;
+			}
 		}
 		try {
+			const uiUrl = process.env.UI_URL ?? "https://llmgateway.io";
+			const token = signUnsubscribeToken({
+				email: recipient.email,
+				category: item.type,
+			});
 			const { error } = await client.emails.send(
 				{
 					from: fromEmail,
 					replyTo: replyToEmail,
 					to: recipient.email,
 					subject: item.title,
-					text: `${item.message}\n\n${process.env.UI_URL ?? "https://llmgateway.io"}${item.href}\n\nManage delivery from Notifications in your dashboard.`,
+					text: `${item.message}\n\n${uiUrl}${item.href}${renderFooterText(item.type, token)}`,
+					headers: buildUnsubscribeHeaders(token),
 				},
 				{ idempotencyKey: `notification/${item.id}` },
 			);

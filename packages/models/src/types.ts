@@ -33,6 +33,8 @@ export interface CacheControl {
  *   that should not pay the cache-write premium.
  * - `off`: strip every marker so the project never writes to a provider cache.
  */
+export type ProviderCacheAutoTtl = "5m" | "1h";
+
 export type ProviderCacheControlMode = "auto" | "passthrough" | "off";
 
 // Base content types
@@ -205,7 +207,8 @@ export interface OpenAIMessage extends BaseMessage {
 }
 
 export interface AnthropicMessage {
-	role: "user" | "assistant";
+	// `system` only on mappings that declare `midConversationSystem`.
+	role: "user" | "assistant" | "system";
 	content: (MessageContent | AnthropicNativeBlock)[];
 }
 
@@ -455,6 +458,7 @@ export interface OpenAIResponsesRequestBody {
 		effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 		summary: "auto" | "detailed";
 		context?: "auto" | "current_turn" | "all_turns";
+		mode?: "standard" | "pro";
 	};
 	/**
 	 * Provider-side response storage (Responses API statefulness). The gateway
@@ -565,10 +569,46 @@ export interface GoogleRequestBody {
 	};
 }
 
+/**
+ * Perplexity Agent API (`POST /v1/agent`) request body. Responses-shaped, but
+ * with its own tool configuration and without the `reasoning` block the
+ * OpenAI Responses body requires, so it gets its own type rather than bending
+ * `OpenAIResponsesRequestBody`.
+ */
+export interface PerplexityAgentRequestBody {
+	/** Agent model id in `provider/model` form, e.g. `perplexity/sonar`. */
+	model: string;
+	input: OpenAIResponsesInputItem[];
+	tools?: Array<{
+		type: "web_search";
+		max_results?: number;
+		user_location?: unknown;
+		search_context_size?: string;
+		filters?: {
+			search_domain_filter?: string[];
+		};
+	}>;
+	tool_choice?: "required";
+	stream?: boolean;
+	temperature?: number;
+	top_p?: number;
+	max_output_tokens?: number;
+	text?: {
+		format?:
+			| { type: "json_object" }
+			| {
+					type: "json_schema";
+					name: string;
+					schema: Record<string, unknown>;
+			  };
+	};
+}
+
 // Generic request body type
 export type ProviderRequestBody =
 	| OpenAIRequestBody
 	| OpenAIResponsesRequestBody
+	| PerplexityAgentRequestBody
 	| AnthropicRequestBody
 	| GoogleRequestBody;
 
@@ -604,6 +644,7 @@ export interface ModelWithPricing {
 		externalId: string;
 		region?: string;
 		stability?: string;
+		reasoning?: boolean;
 	}>;
 }
 

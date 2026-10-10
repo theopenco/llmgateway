@@ -4,6 +4,7 @@ slug: "video-gen-sessions-and-more"
 date: "2026-03-23"
 title: "Video Generation, Sessions & More"
 summary: "Generate videos via the API, track conversations with sessions, and more — plus new models and providers."
+tags: ["llmgateway", "devpass"]
 image:
   src: "/changelog/video-gen-update.png"
   alt: "Video generation and sessions now available on LLM Gateway"

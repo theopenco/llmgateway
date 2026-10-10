@@ -6,6 +6,8 @@ export interface ActivityModelUsage {
 	requestCount: number;
 	inputTokens: number;
 	outputTokens: number;
+	cachedTokens: number;
+	cacheWriteTokens: number;
 	totalTokens: number;
 	cost: number;
 	creditsRequestCount: number;
@@ -98,3 +100,5 @@ export type SourceActivityData =
 	paths["/activity/sources"]["get"]["responses"][200]["content"]["application/json"];
 
 export type SourceUsage = SourceActivityData["sources"][number];
+
+export type SourceModelUsage = SourceActivityData["sourceModels"][number];

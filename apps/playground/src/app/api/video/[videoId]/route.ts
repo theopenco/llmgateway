@@ -8,6 +8,7 @@ import {
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
@@ -60,6 +61,7 @@ export async function GET(
 			{
 				headers: {
 					Authorization: `Bearer ${apiKey}`,
+					...forwardedIpHeaders(req.headers),
 					"x-source": LOUNGE_SOURCE,
 				},
 				cache: "no-store",

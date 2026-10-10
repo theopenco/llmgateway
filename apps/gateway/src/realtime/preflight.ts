@@ -302,6 +302,7 @@ async function runRealtimePreflightInner(
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
+		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: match.modelId,
 		requestedProvider: providerId,
 		activeModelInfo: match.modelDef,
@@ -343,6 +344,7 @@ async function runRealtimePreflightInner(
 		const validation = await validateRequestModelAccess({
 			apiKey,
 			organizationId: project.organizationId,
+			providerAccessRestriction: organization.providerAccessRestriction,
 			requestedModel: candidate.modelId,
 			requestedProvider: providerId,
 			activeModelInfo: candidate.modelDef,

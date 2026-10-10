@@ -1,25 +1,161 @@
 "use client";
 
+import { ArrowUpRight, Menu } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
+import {
+	Sheet,
+	SheetContent,
+	SheetDescription,
+	SheetHeader,
+	SheetTitle,
+	SheetTrigger,
+} from "@/components/ui/sheet";
+import { UserMenu } from "@/components/UserMenu";
 import { useUser } from "@/hooks/useUser";
 import { useAppConfig } from "@/lib/config";
+
+interface HeaderLink {
+	href: string;
+	label: string;
+	external?: boolean;
+}
+
+function useHeaderLinks(): HeaderLink[] {
+	const config = useAppConfig();
+	return [
+		{ href: "/#how-it-works", label: "How it works" },
+		{ href: "/#dispatch", label: "Dispatch" },
+		{ href: "/#faq", label: "FAQ" },
+		{ href: "/resources", label: "Guides & tools" },
+		{
+			href: `${config.uiUrl}/rankings`,
+			label: "Model rankings",
+			external: true,
+		},
+	];
+}
+
+function HeaderNavLink({
+	link,
+	className,
+	onNavigate,
+}: {
+	link: HeaderLink;
+	className: string;
+	onNavigate?: () => void;
+}) {
+	if (link.external) {
+		return (
+			<a href={link.href} className={className} onClick={onNavigate}>
+				{link.label}
+			</a>
+		);
+	}
+	return (
+		<Link href={link.href} className={className} onClick={onNavigate}>
+			{link.label}
+		</Link>
+	);
+}
+
+function MobileMenu({
+	links,
+	signedIn,
+}: {
+	links: HeaderLink[];
+	signedIn: boolean;
+}) {
+	const [open, setOpen] = useState(false);
+	const close = () => setOpen(false);
+
+	return (
+		<Sheet open={open} onOpenChange={setOpen}>
+			<SheetTrigger asChild>
+				<Button
+					variant="ghost"
+					size="icon"
+					aria-label="Open menu"
+					className="lg:hidden"
+				>
+					<Menu className="size-5" />
+				</Button>
+			</SheetTrigger>
+			<SheetContent side="right" className="w-72 gap-0 p-0">
+				<SheetHeader className="border-b px-5 py-4">
+					<SheetTitle className="flex items-center gap-2.5">
+						<Logo className="size-6" />
+						<span className="font-display text-base font-black tracking-tight">
+							AIRSIDE
+						</span>
+					</SheetTitle>
+					<SheetDescription className="sr-only">
+						Site navigation
+					</SheetDescription>
+				</SheetHeader>
+				<nav
+					aria-label="Mobile navigation"
+					className="flex flex-col gap-1 px-3 py-4"
+				>
+					{links.map((link) => (
+						<HeaderNavLink
+							key={link.href}
+							link={link}
+							onNavigate={close}
+							className="text-muted-foreground hover:text-foreground hover:bg-accent flex items-center rounded-md px-3 py-2.5 text-sm font-medium transition-colors"
+						/>
+					))}
+				</nav>
+				<div className="mt-auto flex flex-col gap-3 border-t px-5 py-5">
+					<div className="flex items-center justify-between">
+						<span className="text-muted-foreground font-mono text-[0.7rem] tracking-wider uppercase">
+							Theme
+						</span>
+						<ThemeToggle size="compact" />
+					</div>
+					{signedIn ? (
+						<Button asChild>
+							<Link href="/dashboard" onClick={close}>
+								Open console
+							</Link>
+						</Button>
+					) : (
+						<>
+							<Button asChild>
+								<Link href="/signup" onClick={close}>
+									Claim your carrier code
+								</Link>
+							</Button>
+							<Button asChild variant="outline">
+								<Link href="/login" onClick={close}>
+									Sign in
+								</Link>
+							</Button>
+						</>
+					)}
+				</div>
+			</SheetContent>
+		</Sheet>
+	);
+}
 
 export function Header() {
 	const { user } = useUser();
 	const config = useAppConfig();
+	const links = useHeaderLinks();
 
 	return (
-		<header className="border-border/60 bg-background sticky top-0 z-40 border-b">
-			<div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-x-4 px-4 py-3 sm:px-6 xl:h-16 xl:flex-nowrap xl:py-0">
-				<div className="flex items-center gap-3">
+		<header className="border-border/60 bg-background/85 supports-backdrop-filter:bg-background/70 sticky top-0 z-40 border-b backdrop-blur">
+			<div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-4 sm:px-6">
+				<div className="flex min-w-0 items-center gap-3">
 					<Link
 						href="/"
 						aria-label="Airside home"
-						className="flex items-center gap-2.5"
+						className="flex shrink-0 items-center gap-2.5"
 					>
 						<Logo />
 						<span className="font-display hidden text-lg font-black tracking-tight sm:inline">
@@ -28,45 +164,43 @@ export function Header() {
 					</Link>
 					<a
 						href={config.uiUrl}
-						className="text-muted-foreground hover:text-foreground hidden text-xs sm:block"
+						className="text-muted-foreground hover:text-foreground hidden items-center gap-0.5 whitespace-nowrap font-mono text-[0.7rem] tracking-wider uppercase transition-colors md:inline-flex"
 					>
 						by LLM Gateway
+						<ArrowUpRight className="size-3" />
 					</a>
 				</div>
 
 				<nav
 					aria-label="Main navigation"
-					className="text-muted-foreground order-last flex w-full flex-wrap items-center justify-center gap-x-4 gap-y-2 pt-3 text-sm xl:order-none xl:w-auto xl:pt-0"
+					className="hidden flex-1 items-center justify-center gap-1 lg:flex"
 				>
-					<Link href="/#how-it-works" className="hover:text-foreground">
-						How it works
-					</Link>
-					<Link href="/#dispatch" className="hover:text-foreground">
-						Dispatch
-					</Link>
-					<Link href="/#faq" className="hover:text-foreground">
-						FAQ
-					</Link>
-					<Link href="/resources" className="hover:text-foreground">
-						Guides & tools
-					</Link>
-					<a
-						href={`${config.uiUrl}/rankings`}
-						className="hover:text-foreground"
-					>
-						Model rankings
-					</a>
+					{links.map((link) => (
+						<HeaderNavLink
+							key={link.href}
+							link={link}
+							className="text-muted-foreground hover:text-foreground hover:bg-accent/60 whitespace-nowrap rounded-md px-3 py-2 text-sm transition-colors"
+						/>
+					))}
 				</nav>
 
-				<div className="flex items-center gap-2">
-					<ThemeToggle />
+				<div className="ml-auto flex shrink-0 items-center gap-2 lg:ml-0">
+					<ThemeToggle size="compact" className="hidden md:inline-flex" />
 					{user ? (
-						<Button asChild size="sm">
-							<Link href="/dashboard">Operations</Link>
-						</Button>
+						<>
+							<Button asChild size="sm">
+								<Link href="/dashboard">Open console</Link>
+							</Button>
+							<UserMenu variant="compact" />
+						</>
 					) : (
 						<>
-							<Button asChild variant="ghost" size="sm">
+							<Button
+								asChild
+								variant="ghost"
+								size="sm"
+								className="hidden sm:inline-flex"
+							>
 								<Link href="/login">Sign in</Link>
 							</Button>
 							<Button asChild size="sm">
@@ -79,6 +213,7 @@ export function Header() {
 							</Button>
 						</>
 					)}
+					<MobileMenu links={links} signedIn={!!user} />
 				</div>
 			</div>
 		</header>

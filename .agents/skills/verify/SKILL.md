@@ -11,10 +11,10 @@ another worktree.
 
 ## Isolate the workspace
 
-1. Read **Running an isolated stack per worktree** in `AGENTS.md`.
+1. Follow the `local-stack` skill.
 2. Reuse the worktree's exported `STACK_SUFFIX`, database URLs, Redis ports, app
    ports, and service URLs only if they are complete. Otherwise choose an unused
-   slot and export the full block from `AGENTS.md`.
+   slot and export the full block from the `local-stack` skill.
 3. Confirm the selected ports are free. Never start or reset the default shared
    Docker stack from a Conductor worktree.
 
@@ -28,6 +28,43 @@ pnpm push-test
 pnpm push-dev
 pnpm seed
 ```
+
+Run these as separate commands. Never pipe one whose failure must stop the
+chain into `tail` or `head`: a pipeline reports the _last_ command's status, so
+`docker compose up -d | tail && pnpm wait-for-services | tail && pnpm push-dev`
+runs the schema push even when the stack never came up.
+
+Then confirm your own containers are serving the ports before any
+`push-*`, `seed`, or test command:
+
+```bash
+docker compose ps --format '{{.Name}}\t{{.State}}\t{{.Ports}}'
+```
+
+A port that was free when the slot was chosen is not a guarantee. Worktrees
+come and go, and another one can claim the port while this stack is down, so a
+`DATABASE_URL` that answers is not necessarily this worktree's database — a
+`push-dev` or `seed` against another worktree's Postgres destroys its data
+silently. If `docker ps` shows the port held by a container whose name lacks
+this worktree's `STACK_SUFFIX`, move to a different slot; never stop or reuse
+the other container.
+
+If `docker compose up` fails with `all predefined address pools have been fully
+subnetted`, pin this worktree's subnet rather than pruning networks, which
+other worktrees depend on:
+
+```yaml
+# docker-compose-override-<worktree>.yml (gitignored)
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.99.<slot>.0/24
+```
+
+Pass it alongside the base file on every compose command for the worktree,
+including `down`:
+`docker compose -f docker-compose.yml -f docker-compose-override-<worktree>.yml up -d`.
 
 Use `pnpm setup` only when a full reset is required and `STACK_SUFFIX` is set;
 it removes the selected stack's volumes.
@@ -45,8 +82,7 @@ the selected ports rather than the defaults.
 
 ## Drive and capture
 
-- Use seeded accounts and identifiers from `packages/db/src/seed.ts`; passwords
-  equal their seeded email addresses.
+- Use seeded accounts and tokens from the `testing` skill.
 - Verify the changed behavior through the same surface a user exercises. Pin a
   gateway provider and set `x-no-fallback: true` when provider-specific behavior
   matters.

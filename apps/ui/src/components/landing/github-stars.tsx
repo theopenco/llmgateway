@@ -2,6 +2,8 @@ import { Github, Star } from "lucide-react";
 
 import { getConfig } from "@/lib/config-server";
 
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
 async function fetchGitHubStars(repo: string): Promise<number | null> {
 	try {
 		const res = await fetch(`https://api.github.com/repos/${repo}`, {
@@ -30,16 +32,7 @@ async function fetchGitHubStars(repo: string): Promise<number | null> {
 const REPO = "theopenco/llmgateway";
 
 function formatNumber(num: number | null): string {
-	if (num === null) {
-		return "★";
-	}
-	if (num >= 1_000_000) {
-		return (num / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
-	}
-	if (num >= 1_000) {
-		return (num / 1_000).toFixed(1).replace(/\.0$/, "") + "k";
-	}
-	return num.toLocaleString();
+	return num === null ? "★" : formatCompactNumber(num);
 }
 
 export async function GitHubStars() {

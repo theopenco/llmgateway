@@ -77,4 +77,82 @@ export const inclusionaiModels = [
 			},
 		],
 	},
+	{
+		id: "ling-3.1-flash",
+		name: "Ling 3.1 Flash",
+		description:
+			"InclusionAI's hybrid-reasoning MoE model (560B total, 25B active) with tool calling and a 262K context window.",
+		family: "inclusionai",
+		free: true,
+		// Free upstream; Novita frequently answers "server overload".
+		stability: "unstable",
+		releasedAt: new Date("2026-10-02"),
+		providers: [
+			{
+				providerId: "novita",
+				externalId: "inclusionai/ling-3.1-flash",
+				inputPrice: "0",
+				// Cache hits are reported only intermittently, so caching is left
+				// undeclared; the rate would be 0 either way.
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 32768,
+				streaming: true,
+				reasoning: true,
+				// `none` turns thinking off; every other tier is accepted but
+				// reasons identically.
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				vision: false,
+				tools: true,
+				// With thinking on, "required" returns the call as text inside
+				// reasoning_content and no tool_calls.
+				supportedToolChoices: ["auto", "none", "function"],
+				supportedToolChoicesWithThinkingDisabled: ["required"],
+				// Novita rejects response_format for this model, both json_object
+				// and json_schema, and silently ignores `stop`.
+				jsonOutput: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stream",
+					"reasoning_effort",
+					"tools",
+					"tool_choice",
+				],
+			},
+		],
+	},
+	{
+		id: "ling-3.0-flash-vl",
+		name: "Ling 3.0 Flash VL",
+		description:
+			"InclusionAI's Ling 3.0 Flash MoE with native image and video understanding added on top of its language capabilities.",
+		family: "inclusionai",
+		releasedAt: new Date("2026-09-10"),
+		providers: [
+			{
+				providerId: "deepinfra",
+				externalId: "inclusionAI/Ling-3.0-flash-VL",
+				inputPrice: "0.06e-6",
+				cachedInputPrice: "0.012e-6",
+				outputPrice: "0.18e-6",
+				requestPrice: "0",
+				contextSize: 131072,
+				maxOutput: 32768,
+				quantization: "fp16",
+				maxTemperature: 1,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

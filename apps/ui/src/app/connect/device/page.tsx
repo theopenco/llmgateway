@@ -3,7 +3,7 @@ import { DeviceApproval } from "./device-approval";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Authorize LLM Gateway CLI",
+	title: "Authorize your device",
 	robots: { index: false, follow: false },
 };
 

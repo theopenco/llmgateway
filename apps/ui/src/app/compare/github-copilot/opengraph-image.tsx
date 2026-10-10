@@ -10,7 +10,7 @@ export default async function CompareGitHubCopilotOgImage() {
 	return compareOgImage({
 		competitor: "GitHub Copilot",
 		subtitle:
-			"Zero token markup, hard budget caps, and 200+ models for any coding agent",
+			"Model routing, usage analytics, and budgets for compatible coding tools",
 		Icon: GitHubCopilotOgIcon,
 	});
 }

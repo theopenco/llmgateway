@@ -4,6 +4,7 @@ slug: "dashboard-ui-improvements"
 date: "2025-06-22"
 title: "Dashboard UI Improvements & Project Context"
 summary: "Introducing organizations and projects for clearer controls and statistics."
+tags: ["llmgateway"]
 image:
   src: "/changelog/dashboard-ui.png"
   alt: "Updated dashboard showing organization and project selection"

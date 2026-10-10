@@ -4,6 +4,7 @@ slug: "gpt-5-models-support"
 date: "2025-08-07"
 title: "GPT-5 Model Family Now Available"
 summary: "Get instant access to OpenAI's powerful new GPT-5 model family including gpt-5, gpt-5-mini, gpt-5-nano, and gpt-5-chat-latest with 400k context windows."
+tags: ["llmgateway"]
 image:
   src: "/changelog/gpt-5-models.png"
   alt: "GPT-5 models now available on LLM Gateway"

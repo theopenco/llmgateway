@@ -69,6 +69,8 @@ import {
 } from "@/lib/realtime-model-value";
 import { cn } from "@/lib/utils";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type {
 	ApiModel,
 	ApiModelProviderMapping,
@@ -1323,18 +1325,17 @@ export default function RealtimePageClient({
 													{transcriptionUsage.audioSeconds > 0 &&
 														` · ${transcriptionUsage.audioSeconds.toFixed(1)}s of audio billed`}
 													{transcriptionUsage.totalTokens > 0 &&
-														` · ${transcriptionUsage.inputTokens.toLocaleString()} in / ${transcriptionUsage.outputTokens.toLocaleString()} out tokens (${transcriptionUsage.audioInputTokens.toLocaleString()} audio)`}
+														` · ${formatNumber(transcriptionUsage.inputTokens)} in / ${formatNumber(transcriptionUsage.outputTokens)} out tokens (${formatNumber(transcriptionUsage.audioInputTokens)} audio)`}
 												</div>
 											)
 										: displayedUsage && (
 												<div className="text-muted-foreground mx-auto w-full max-w-3xl px-6 pb-3 text-center text-xs">
 													{displayedUsage.responses} response
 													{displayedUsage.responses === 1 ? "" : "s"} ·{" "}
-													{displayedUsage.inputTokens.toLocaleString()} in /{" "}
-													{displayedUsage.outputTokens.toLocaleString()} out
-													tokens (
-													{displayedUsage.audioInputTokens.toLocaleString()} /{" "}
-													{displayedUsage.audioOutputTokens.toLocaleString()}{" "}
+													{formatNumber(displayedUsage.inputTokens)} in /{" "}
+													{formatNumber(displayedUsage.outputTokens)} out tokens
+													({formatNumber(displayedUsage.audioInputTokens)} /{" "}
+													{formatNumber(displayedUsage.audioOutputTokens)}{" "}
 													audio)
 												</div>
 											)}

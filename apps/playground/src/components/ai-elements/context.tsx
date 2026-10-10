@@ -12,6 +12,8 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
 import type { LanguageModelUsage } from "ai";
 
 const PERCENT_MAX = 100;
@@ -22,7 +24,7 @@ const percentFormat = new Intl.NumberFormat("en-US", {
 	style: "percent",
 	maximumFractionDigits: 1,
 });
-const compactFormat = new Intl.NumberFormat("en-US", { notation: "compact" });
+
 const usdFormat = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
@@ -161,8 +163,8 @@ export const ContextContentHeader = ({
 	const { usedTokens, maxOutputTokens } = useContextValue();
 	const usedPercent = usedTokens / maxOutputTokens;
 	const displayPct = percentFormat.format(usedPercent);
-	const used = compactFormat.format(usedTokens);
-	const total = compactFormat.format(maxOutputTokens);
+	const used = formatCompactNumber(usedTokens);
+	const total = formatCompactNumber(maxOutputTokens);
 
 	return (
 		<div className={cn("w-full space-y-2 p-3", className)} {...props}>
@@ -388,7 +390,7 @@ const TokensWithCost = ({
 	costText?: string;
 }) => (
 	<span>
-		{tokens === undefined ? "—" : compactFormat.format(tokens)}
+		{tokens === undefined ? "—" : formatCompactNumber(tokens)}
 		{costText ? (
 			<span className="ml-2 text-muted-foreground">• {costText}</span>
 		) : null}

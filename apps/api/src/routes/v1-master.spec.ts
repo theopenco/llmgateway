@@ -5,7 +5,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import {
 	redisClient,
-	SWR_PREFIX,
+	swrMirrorKey,
 	swrWrap,
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
@@ -35,11 +35,11 @@ function setHashSecret(value: string | undefined) {
 async function primeSwrEntry<T>(key: string, table: string, value: T) {
 	await swrWrap(key, [table], async () => value);
 	await waitForSwrMirrorWrites();
-	expect(await redisClient.get(SWR_PREFIX + key)).not.toBeNull();
+	expect(await redisClient.get(swrMirrorKey(key))).not.toBeNull();
 }
 
 async function assertSwrCleared(key: string) {
-	expect(await redisClient.get(SWR_PREFIX + key)).toBeNull();
+	expect(await redisClient.get(swrMirrorKey(key))).toBeNull();
 }
 
 async function readActiveIamRules(apiKeyId: string) {
@@ -123,6 +123,24 @@ describe("v1/master cache invalidation", () => {
 			...extra,
 		};
 	}
+
+	test("returns the organization block reason", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				status: "deleted",
+				blockReason: "Key sharing violates our terms.",
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+		const response = await app.request("/v1/master/keys", {
+			headers: { Authorization: `Bearer ${masterToken}` },
+		});
+		expect(response.status).toBe(403);
+		expect(await response.json()).toMatchObject({
+			message:
+				"Your account has been blocked. Reason: Key sharing violates our terms.",
+		});
+	});
 
 	test("authenticates master keys hashed with a retained secret", async () => {
 		setHashSecret("retained-secret");
@@ -473,6 +491,37 @@ describe("v1/master cache invalidation", () => {
 		expect(await res.json()).toMatchObject({
 			message: expect.stringContaining("Provider prompt caching"),
 		});
+	});
+
+	test("master project APIs persist and validate automatic cache duration", async () => {
+		const headers = {
+			Authorization: `Bearer ${masterToken}`,
+			"Content-Type": "application/json",
+		};
+		const created = await app.request("/v1/master/projects", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				name: "Cache duration",
+				providerCacheAutoTtl: "1h",
+			}),
+		});
+		expect(created.status).toBe(201);
+		const { project } = await created.json();
+		expect(project.providerCacheAutoTtl).toBe("1h");
+		const updated = await app.request(`/v1/master/projects/${project.id}`, {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify({ providerCacheAutoTtl: "5m" }),
+		});
+		expect(updated.status).toBe(200);
+		expect((await updated.json()).project.providerCacheAutoTtl).toBe("5m");
+		const invalid = await app.request(`/v1/master/projects/${project.id}`, {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify({ providerCacheAutoTtl: "2h" }),
+		});
+		expect(invalid.status).toBe(400);
 	});
 
 	test("DELETE /projects/{id} invalidates the gateway project cache", async () => {

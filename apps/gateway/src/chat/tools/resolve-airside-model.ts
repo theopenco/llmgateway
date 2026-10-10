@@ -1,7 +1,8 @@
+import { HTTPException } from "hono/http-exception";
+
 import {
 	findAirsideCustomProvider,
-	findAirsideModel,
-	findAirsideModelsByBareName,
+	findAirsidePairsByBareName,
 } from "@/lib/cached-queries.js";
 
 import {
@@ -11,9 +12,16 @@ import {
 	providers,
 } from "@llmgateway/models";
 
-import type { ParseModelInputResult } from "./parse-model-input.js";
-import type { ResolveModelInfoResult } from "./resolve-model-info.js";
-import type { AirsideListedModel } from "@/lib/cached-queries.js";
+import {
+	parseModelInput,
+	type ParseModelInputResult,
+} from "./parse-model-input.js";
+import {
+	resolveModelInfo,
+	type ResolveModelInfoResult,
+} from "./resolve-model-info.js";
+
+import type { AirsideListedModel, AirsidePair } from "@/lib/cached-queries.js";
 import type {
 	Model,
 	ModelDefinition,
@@ -27,34 +35,14 @@ export interface AirsideResolution {
 	/** The synthesized mapping carrying the approved filing's prices — thread
 	 *  it into calculateCosts so the request is billed at the canonical rates. */
 	pricingMappings: ProviderModelMapping[];
-	/** Set for custom carriers (providers that exist only as an approved
-	 *  Airside registration): the OpenAI-compatible endpoint to route to.
-	 *  Undefined for listings on catalogue providers, which use the
-	 *  provider's normal endpoint machinery. */
-	customBaseUrl?: string;
 }
 
-/**
- * Resolve a "provider/model" request against Airside carrier listings.
- *
- * Only consulted when the provider prefix IS a catalogue provider but the
- * model is NOT in the static catalogue — the case parseModelInput would
- * reject. An active listing with an approved price filing becomes a
- * synthetic single-mapping model definition; everything downstream (pinned
- * provider selection, capability validation, endpoint resolution, billing)
- * treats it like a catalogue model of that provider.
- *
- * Returns null when the input is not an Airside-listed model, so the caller
- * falls back to the normal (throwing) parse path.
- */
+/** Resolve Airside listings alongside static mappings for routing and fallback. */
 export async function resolveAirsideModel(
 	modelInput: string,
 ): Promise<AirsideResolution | null> {
 	const slash = modelInput.indexOf("/");
 	if (slash <= 0) {
-		// /v1/models advertises listings under their bare id, so a prefix-less
-		// request resolves when no static model claims the name and exactly
-		// one carrier lists it; ambiguity falls back to the (throwing) parse.
 		if (modelInput.includes(":")) {
 			return null;
 		}
@@ -66,24 +54,24 @@ export async function resolveAirsideModel(
 		);
 		if (staticModel) {
 			if (staticModel.id !== modelInput) {
-				const exactListings = await findAirsideModelsByBareName(modelInput);
-				if (exactListings.length === 1) {
-					return await buildResolution(exactListings[0]);
-				}
-				if (exactListings.length > 1) {
-					return null;
+				const exactListings = (await findAirsidePairsByBareName(modelInput))
+					.listings;
+				if (exactListings.length > 0) {
+					return buildRoutingResolution(exactListings);
 				}
 			}
-			const listings = (
-				await findAirsideModelsByBareName(staticModel.id)
-			).filter((listed) =>
-				providers.some((provider) => provider.id === listed.mapping.providerId),
-			);
-			if (listings.length === 0) {
+			const owned = await findAirsidePairsByBareName(staticModel.id);
+			const listings = owned.listings;
+			if (listings.length === 0 && owned.unlisted.length === 0) {
 				return null;
 			}
 			const { modelInfo, allModelProviders, pricingMappings } =
-				mergeAirsideListingsIntoModel(staticModel, listings);
+				mergeAirsideListingsIntoModel(staticModel, listings, owned.unlisted);
+			if (modelInfo.providers.length === 0) {
+				throw new HTTPException(400, {
+					message: `Requested model ${modelInput} not supported`,
+				});
+			}
 			return {
 				parseResult: {
 					requestedModel: staticModel.id as Model,
@@ -100,20 +88,17 @@ export async function resolveAirsideModel(
 				pricingMappings,
 			};
 		}
-		const listings = await findAirsideModelsByBareName(modelInput);
-		if (listings.length !== 1) {
+		const { listings } = await findAirsidePairsByBareName(modelInput);
+		if (listings.length === 0) {
 			return null;
 		}
-		return await buildResolution(listings[0]);
+		return buildRoutingResolution(listings);
 	}
 	const providerCandidate = modelInput.slice(0, slash);
 	let modelName = modelInput.slice(slash + 1);
 	let requestedRegion: string | undefined;
 	const colonIdx = modelName.indexOf(":");
 	if (colonIdx !== -1) {
-		// A region suffix resolves here only when the listing filed that region;
-		// otherwise fall through to the static parse, which owns catalogue
-		// regions.
 		requestedRegion = modelName.slice(colonIdx + 1);
 		modelName = modelName.slice(0, colonIdx);
 		if (!requestedRegion || requestedRegion.includes(":")) {
@@ -133,7 +118,6 @@ export async function resolveAirsideModel(
 		return null;
 	}
 	const isCatalogueProvider = providers.some((p) => p.id === providerCandidate);
-	let customBaseUrl: string | undefined;
 	if (!isCatalogueProvider) {
 		// Not a catalogue provider: only routable when the prefix is an
 		// approved custom-carrier registration.
@@ -141,7 +125,6 @@ export async function resolveAirsideModel(
 		if (!carrier) {
 			return null;
 		}
-		customBaseUrl = carrier.baseUrl;
 	}
 	// An active listing wins over the static catalogue mapping of the same
 	// pair. That is the catalogue -> DB migration switch: a carrier imports
@@ -151,60 +134,123 @@ export async function resolveAirsideModel(
 	// through admin-approved filings, so the handover cannot reprice traffic
 	// on its own.
 
-	const listed = await findAirsideModel(providerCandidate, modelName);
+	const owned = await findAirsidePairsByBareName(modelName);
+	const listed = owned.listings.find(
+		(candidate) => candidate.mapping.providerId === providerCandidate,
+	);
 	if (!listed) {
-		return null;
+		if (owned.unlisted.length === 0 && owned.listings.length === 0) {
+			return null;
+		}
+		if (owned.unlisted.some((pair) => pair.providerId === providerCandidate)) {
+			throw new HTTPException(400, {
+				message: `Provider ${providerCandidate} does not support model ${modelName}`,
+			});
+		}
+		// Another provider's listing is out of service: keep its static mapping
+		// out of this request's fallback candidates.
+		return staticResolutionWithAirside(
+			modelInput,
+			owned.listings,
+			owned.unlisted,
+		);
 	}
 	if (
 		requestedRegion &&
-		!(listed.regionMappings ?? []).some(
+		!activeAirsideRegions(listed).some(
 			(regionRow) => regionRow.region === requestedRegion,
 		)
 	) {
-		return null;
+		throw new HTTPException(400, {
+			message: `Region '${requestedRegion}' is not available for model ${modelName}`,
+		});
 	}
-	return await buildResolution(listed, customBaseUrl, requestedRegion);
+	return buildRoutingResolution(
+		owned.listings,
+		owned.unlisted,
+		providerCandidate as Provider,
+		requestedRegion,
+	);
 }
 
-/** The synthesized parse/model-info results for one resolved listing. */
-async function buildResolution(
-	listed: AirsideListedModel,
-	knownCustomBaseUrl?: string,
-	requestedRegion?: string,
-): Promise<AirsideResolution> {
-	const providerId = listed.mapping.providerId;
-	let customBaseUrl = knownCustomBaseUrl;
-	if (
-		customBaseUrl === undefined &&
-		!providers.some((p) => p.id === providerId)
-	) {
-		const carrier = await findAirsideCustomProvider(providerId);
-		customBaseUrl = carrier?.baseUrl;
-	}
-	const { mapping, modelInfo } = airsideListingToModelDefinition(listed);
+/** Add Airside siblings even when the explicitly requested pair is static. */
+function staticResolutionWithAirside(
+	modelInput: string,
+	listings: AirsideListedModel[],
+	unlisted: AirsidePair[],
+): AirsideResolution {
+	const parseResult = parseModelInput(modelInput);
+	const resolved = resolveModelInfo(
+		parseResult.requestedModel,
+		parseResult.requestedProvider,
+	);
+	const { modelInfo, allModelProviders, pricingMappings } =
+		mergeAirsideListingsIntoModel(resolved.modelInfo, listings, unlisted);
+	return {
+		parseResult,
+		modelInfoResult: {
+			...resolved,
+			modelInfo,
+			activeProviders: modelInfo.providers,
+			allModelProviders,
+		},
+		pricingMappings,
+	};
+}
 
+/** Resolve the endpoint for the current attempt, never the original provider. */
+export async function resolveAirsideProviderBaseUrl(
+	providerId: string,
+): Promise<string | undefined> {
+	if (providers.some((provider) => provider.id === providerId)) {
+		return undefined;
+	}
+	const carrier = await findAirsideCustomProvider(providerId);
+	if (!carrier) {
+		throw new HTTPException(400, {
+			message: `Provider ${providerId} is not active`,
+		});
+	}
+	return carrier.baseUrl;
+}
+
+/** Keep every eligible mapping available even when the first attempt is pinned. */
+function buildRoutingResolution(
+	listings: AirsideListedModel[],
+	unlisted: AirsidePair[] = [],
+	requestedProvider?: Provider,
+	requestedRegion?: string,
+): AirsideResolution {
+	const listed = listings[0];
+	const base = models.find((model) => model.id === listed.model.id) ?? {
+		...airsideListingToModelDefinition(listed).modelInfo,
+		providers: [],
+	};
+	const { modelInfo, allModelProviders, pricingMappings } =
+		mergeAirsideListingsIntoModel(base, listings, unlisted);
 	return {
 		parseResult: {
 			requestedModel: listed.model.id as Model,
-			requestedProvider: providerId as Provider,
+			requestedProvider,
 			customProviderName: undefined,
 			requestedRegion,
 		},
 		modelInfoResult: {
 			modelInfo,
-			activeProviders: [mapping],
-			allModelProviders: [mapping],
-			requestedProvider: providerId as Provider,
+			activeProviders: modelInfo.providers,
+			allModelProviders,
+			requestedProvider,
 		},
-		pricingMappings: expandProviderRegions(mapping),
-		customBaseUrl,
+		pricingMappings,
 	};
 }
 
-/** Replace the static mappings owned by approved Airside listings. */
+/** Replace the static mappings owned by approved Airside listings, and drop
+ *  the ones whose listing the carrier took out of service. */
 export function mergeAirsideListingsIntoModel(
 	staticModel: ModelDefinition,
 	listings: AirsideListedModel[],
+	unlisted: AirsidePair[] = [],
 ): {
 	modelInfo: ModelDefinition;
 	allModelProviders: ProviderModelMapping[];
@@ -216,9 +262,12 @@ export function mergeAirsideListingsIntoModel(
 	const pricingMappings = listingMappings.flatMap((mapping) =>
 		expandProviderRegions(mapping),
 	);
-	const ownedProviderIds = new Set(
-		listingMappings.map((mapping) => mapping.providerId),
-	);
+	const ownedProviderIds = new Set([
+		...listingMappings.map((mapping) => mapping.providerId),
+		...unlisted
+			.filter((pair) => pair.modelId === staticModel.id)
+			.map((pair) => pair.providerId),
+	]);
 	const allModelProviders = [
 		...staticModel.providers.filter(
 			(mapping) => !ownedProviderIds.has(mapping.providerId),
@@ -234,6 +283,13 @@ export function mergeAirsideListingsIntoModel(
 		allModelProviders,
 		pricingMappings,
 	};
+}
+
+function activeAirsideRegions(listed: AirsideListedModel) {
+	const now = new Date();
+	return (listed.regionMappings ?? []).filter(
+		(row) => !row.deactivatedAt || row.deactivatedAt > now,
+	);
 }
 
 /** Build the synthetic catalogue entry a listing represents — shared by the
@@ -257,7 +313,7 @@ export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 					candidate.region === undefined,
 			)
 		: undefined;
-	const regionRows = listed.regionMappings ?? [];
+	const regionRows = activeAirsideRegions(listed);
 	const mapping: ProviderModelMapping = {
 		...staticMapping,
 		// A filing carries one flat price pair; inherited context-length tiers
@@ -301,10 +357,45 @@ export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 		vision: listed.mapping.vision ?? undefined,
 		audio: listed.mapping.audio ?? undefined,
 		tools: listed.mapping.tools ?? undefined,
+		supportedToolChoices: listed.mapping.supportedToolChoices ?? undefined,
 		jsonOutput: listed.mapping.jsonOutput,
+		jsonOutputSchema: listed.mapping.jsonOutputSchema,
 		reasoning: listed.mapping.reasoning ?? undefined,
+		reasoningMaxTokens: listed.mapping.reasoningMaxTokens,
 		reasoningEfforts: (listed.mapping.reasoningEfforts ??
 			undefined) as ProviderModelMapping["reasoningEfforts"],
+		webSearch: listed.mapping.webSearch,
+		quantization: listed.mapping.quantization ?? undefined,
+		// Catalogue-only fields the listing carries in its DB row; a static
+		// entry still in the catalogue covers rows not synced yet.
+		supportsDeveloperRole:
+			listed.mapping.supportsDeveloperRole ??
+			staticMapping?.supportsDeveloperRole,
+		supportsAssistantPrefill:
+			listed.mapping.supportsAssistantPrefill ??
+			staticMapping?.supportsAssistantPrefill,
+		maxTemperature:
+			listed.mapping.maxTemperature ?? staticMapping?.maxTemperature,
+		minCacheableTokens:
+			listed.mapping.minCacheableTokens ?? staticMapping?.minCacheableTokens,
+		supportedParameters:
+			listed.mapping.supportedParameters ?? staticMapping?.supportedParameters,
+		reasoningOutput:
+			(listed.mapping.reasoningOutput as "omit" | null) ??
+			staticMapping?.reasoningOutput,
+		stability: listed.mapping.stability,
+		webSearchPrice:
+			listed.mapping.webSearchPrice ?? staticMapping?.webSearchPrice,
+		webSearchForcedOnly:
+			listed.mapping.webSearchForcedOnly ?? staticMapping?.webSearchForcedOnly,
+		cacheWriteInputPrice:
+			listed.mapping.cacheWriteInputPrice ??
+			staticMapping?.cacheWriteInputPrice,
+		cacheWriteInputPrice1h:
+			listed.mapping.cacheWriteInputPrice1h ??
+			staticMapping?.cacheWriteInputPrice1h,
+		cacheReadInputPrice:
+			listed.mapping.cacheReadInputPrice ?? staticMapping?.cacheReadInputPrice,
 		deactivatedAt: listed.mapping.deactivatedAt ?? undefined,
 	};
 	const modelInfo: ModelDefinition = {

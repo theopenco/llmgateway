@@ -1,0 +1,147 @@
+appId: io.llmgateway.lounge
+env:
+  API_URL: http://localhost:4902
+  FIXTURE_URL: http://localhost:4909
+---
+- evalScript: ${output.email = "native-account-" + Date.now() + "@example.test"}
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- scrollUntilVisible:
+    element: "Create an account"
+    direction: DOWN
+- tapOn: "Create an account"
+- scrollUntilVisible:
+    element:
+      id: "field-name"
+    direction: UP
+- tapOn:
+    id: "field-name"
+- inputText: "Native Account Test"
+- tapOn: "Done typing"
+- tapOn:
+    id: "field-email"
+- inputText: ${output.email}
+- tapOn: "Done typing"
+- tapOn:
+    id: "field-password"
+- inputText: "Lounge-demo-password-2026"
+- tapOn: "Done typing"
+- tapOn: "Create account"
+- extendedWaitUntil:
+    visible: "Check your email to verify your account, then sign in."
+    timeout: 20000
+- evalScript: ${output.verification = JSON.parse(http.get(FIXTURE_URL + "/fixture-accounts/mail?email=" + output.email).body).verify}
+- assertTrue: ${!!output.verification}
+- openLink: ${output.verification}
+- retry:
+    maxRetries: 3
+    commands:
+      - evalScript: |
+          ${output.proof = JSON.parse(http.post(API_URL + "/auth/sign-in/email", {
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({email: output.email, password: "Lounge-demo-password-2026"})
+          }).body)}
+      - assertTrue: ${output.proof.user.emailVerified === true}
+- launchApp
+- tapOn:
+    id: "field-email"
+- inputText: ${output.email}
+- tapOn: "Done typing"
+- tapOn:
+    id: "field-password"
+- inputText: "Lounge-demo-password-2026"
+- tapOn: "Done typing"
+- tapOn: "Enter the Lounge"
+- extendedWaitUntil:
+    visible: "New conversation"
+    timeout: 20000
+- launchApp
+- assertVisible: "New conversation"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
+- assertVisible: "Native Account Test"
+- scrollUntilVisible:
+    element: "Sign out"
+    direction: DOWN
+- tapOn: "Sign out"
+- scrollUntilVisible:
+    element: "Forgot password?"
+    direction: DOWN
+- tapOn: "Forgot password?"
+- tapOn:
+    id: "field-email"
+- inputText: ${output.email}
+- tapOn: "Done typing"
+- tapOn: "Send reset link"
+- extendedWaitUntil:
+    visible: "If an account exists for this email, you will receive a password reset link."
+    timeout: 20000
+- evalScript: ${output.reset = JSON.parse(http.get(FIXTURE_URL + "/fixture-accounts/mail?email=" + output.email).body).reset}
+- assertTrue: ${!!output.reset}
+- openLink: ${output.reset}
+- runFlow: helpers/reset-account-password.yaml
+- evalScript: |
+    ${output.revoked = http.get(API_URL + "/user/me", {
+      headers: {Authorization: "Bearer " + output.proof.token}
+    }).status}
+- assertTrue: ${output.revoked === 401}
+- launchApp
+- tapOn:
+    id: "field-email"
+- inputText: ${output.email}
+- tapOn: "Done typing"
+- tapOn:
+    id: "field-password"
+- inputText: "Lounge-demo-password-2026"
+- tapOn: "Done typing"
+- tapOn: "Enter the Lounge"
+- assertVisible: "Invalid email or password"
+- tapOn:
+    id: "field-password"
+- eraseText
+- inputText: "Lounge-reset-password-2026"
+- tapOn: "Done typing"
+- tapOn: "Enter the Lounge"
+- extendedWaitUntil:
+    visible: "New conversation"
+    timeout: 20000
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
+- scrollUntilVisible:
+    element: "Delete account"
+    direction: DOWN
+- tapOn: "Delete account"
+- assertVisible: "The following workspaces will close:"
+- tapOn:
+    id: "field-type-delete-to-confirm"
+- inputText: "DELETE"
+- tapOn: "Done typing"
+- tapOn: "Permanently delete account"
+- tapOn: "Keep account"
+- assertVisible: "Permanently delete account"
+- takeScreenshot: account-deletion-preview
+- tapOn: "Permanently delete account"
+- tapOn:
+    text: "Delete account"
+    below: "Your account and its personal data cannot be recovered."
+- extendedWaitUntil:
+    visible: "Enter the Lounge"
+    timeout: 30000
+- launchApp
+- assertVisible: "Enter the Lounge"
+- tapOn:
+    id: "field-email"
+- inputText: ${output.email}
+- tapOn: "Done typing"
+- tapOn:
+    id: "field-password"
+- inputText: "Lounge-reset-password-2026"
+- tapOn: "Done typing"
+- tapOn: "Enter the Lounge"
+- assertVisible: "Invalid email or password"
+- takeScreenshot: account-deleted

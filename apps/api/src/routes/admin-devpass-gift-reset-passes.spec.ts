@@ -8,7 +8,7 @@ import { DEV_PLAN_INCLUDED_RESET_PASSES } from "@llmgateway/shared";
 
 const ORG_ID = "admin-gift-reset-pass-org";
 const originalMultiplier = process.env.DEV_PLAN_CREDITS_MULTIPLIER;
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
 
@@ -81,7 +81,7 @@ describe("admin devpass gift reset passes", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		process.env.DEV_PLAN_CREDITS_MULTIPLIER = "3";
 		cookie = await createTestUser();
 	});
@@ -93,9 +93,9 @@ describe("admin devpass gift reset passes", () => {
 			process.env.DEV_PLAN_CREDITS_MULTIPLIER = originalMultiplier;
 		}
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		await db.delete(tables.transaction);
 		await deleteAll();
@@ -109,7 +109,7 @@ describe("admin devpass gift reset passes", () => {
 
 	it("rejects non-admin users", async () => {
 		await insertOrg();
-		process.env.ADMIN_EMAILS = "someone-else@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "someone-else@example.com";
 		const res = await giftRequest({ tier: "pro", count: 1 }, cookie);
 		expect(res.status).toBe(403);
 	});

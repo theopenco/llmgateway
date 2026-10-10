@@ -4,6 +4,7 @@ slug: "gpt-oss-models-groq"
 date: "2025-08-05"
 title: "New GPT-OSS Models: 120B and 20B via Groq"
 summary: "Added support for GPT-OSS-120B and GPT-OSS-20B models via Groq, offering powerful open-source alternatives with extensive context windows and competitive pricing."
+tags: ["llmgateway"]
 image:
   src: "/changelog/gpt-oss-models.png"
   alt: "Dashboard showing new GPT-OSS models via Groq provider"

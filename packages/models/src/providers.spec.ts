@@ -30,6 +30,17 @@ const getRegionIds = (provider: unknown) =>
 		: [];
 
 describe("provider legal metadata", () => {
+	it("has no definitions or mappings for removed providers", () => {
+		for (const id of ["iceberg", "granite"]) {
+			expect(providers.some((provider) => provider.id === id)).toBe(false);
+			expect(
+				models.some((model) =>
+					model.providers.some((mapping) => mapping.providerId === id),
+				),
+			).toBe(false);
+		}
+	});
+
 	it("is complete for providers with websites", () => {
 		const incompleteProviders = providers
 			.filter((provider) => provider.website)
@@ -62,6 +73,11 @@ describe("getServiceTier", () => {
 		expect(getServiceTier("google-ai-studio", "priority")?.multiplier).toBe(
 			1.8,
 		);
+	});
+
+	it("returns the configured Azure Priority tier and no Flex tier", () => {
+		expect(getServiceTier("azure", "priority")?.multiplier).toBe(2);
+		expect(getServiceTier("azure", "flex")).toBeUndefined();
 	});
 
 	it("returns undefined for unknown tiers or providers without tiers", () => {
@@ -143,6 +159,54 @@ describe("model service tier support", () => {
 				(tier) => tier.id === "priority",
 			)?.multiplier,
 		).toBe(2);
+	});
+
+	it("returns explicit Azure tiers for supported models", () => {
+		// Azure sells Priority processing only — never Flex — and the premium is
+		// 2x except on gpt-4.1 (1.75x) and gpt-5.5 (2.5x).
+		for (const model of [
+			"gpt-5.1",
+			"gpt-5.2",
+			"gpt-5.4",
+			"gpt-5.4-mini",
+			"gpt-5.5",
+			"gpt-5.6-sol",
+			"gpt-5.6-terra",
+			"gpt-6-sol",
+			"gpt-4.1",
+		]) {
+			expect(
+				getSupportedServiceTiers(model, "azure").map((tier) => tier.id),
+				`azure ${model} tiers`,
+			).toEqual(["priority"]);
+		}
+		expect(
+			getSupportedServiceTiers("gpt-4.1", "azure").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(1.75);
+		expect(
+			getSupportedServiceTiers("gpt-5.5", "azure").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(2.5);
+		expect(
+			getSupportedServiceTiers("gpt-5.1", "azure").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(2);
+	});
+
+	it("returns no Azure tiers for unsupported models", () => {
+		// gpt-4o predates priority processing. Sol is the only family member of
+		// its generation that Azure sells the tier for — luna and astra have no
+		// priority meter and downgrade a priority request to standard.
+		expect(getSupportedServiceTiers("gpt-4o", "azure")).toEqual([]);
+		expect(getSupportedServiceTiers("gpt-6-luna", "azure")).toEqual([]);
+		expect(getSupportedServiceTiers("gpt-6-astra", "azure")).toEqual([]);
+		expect(getSupportedServiceTiers("gpt-5.6-luna", "azure")).toEqual([]);
+		expect(supportsServiceTier("gpt-5.5", "azure", "flex")).toBe(false);
+		expect(supportsServiceTier("gpt-5.5", "azure", "priority")).toBe(true);
 	});
 
 	it("returns explicit Google Vertex tiers for supported models", () => {
@@ -281,7 +345,7 @@ describe("model service tier support", () => {
 
 describe("isStealthProvider", () => {
 	it("flags providers that require a baseUrl env var (no default endpoint)", () => {
-		for (const id of ["glacier", "iceberg", "granite", "quartz"]) {
+		for (const id of ["glacier", "quartz"]) {
 			expect(isStealthProvider(id)).toBe(true);
 		}
 	});
@@ -455,7 +519,7 @@ describe("AWS Bedrock Anthropic regions", () => {
 		});
 	});
 
-	it("exposes Grok 4.6 in us-west-2 at in-region prices", () => {
+	it("exposes Grok 4.6 cross-region profiles and us-west-2 in-region", () => {
 		const grok46 = xaiModels.find((candidate) => candidate.id === "grok-4-6");
 		const bedrockMapping = grok46?.providers.find(
 			(provider) => provider.providerId === "aws-bedrock",
@@ -464,7 +528,21 @@ describe("AWS Bedrock Anthropic regions", () => {
 			bedrockMapping ? [bedrockMapping] : [],
 		);
 
-		expect(getRegionIds(bedrockMapping)).toEqual(["us-west-2"]);
+		expect(getRegionIds(bedrockMapping)).toEqual(["global", "us", "us-west-2"]);
+		expect(
+			expandedMappings.find((provider) => provider.region === "global"),
+		).toMatchObject({
+			inputPrice: "2.0e-6",
+			outputPrice: "6.0e-6",
+			cachedInputPrice: "0.5e-6",
+		});
+		expect(
+			expandedMappings.find((provider) => provider.region === "us"),
+		).toMatchObject({
+			inputPrice: "2.2e-6",
+			outputPrice: "6.6e-6",
+			cachedInputPrice: "0.55e-6",
+		});
 		expect(
 			expandedMappings.find((provider) => provider.region === "us-west-2"),
 		).toMatchObject({

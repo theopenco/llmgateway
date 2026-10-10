@@ -6,6 +6,7 @@ import { getUser } from "@/lib/getUser";
 import { describeImageGenerationError } from "@/lib/image-gen";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
@@ -39,6 +40,7 @@ interface ImageRequestBody {
 		n?: number;
 	};
 	input_images?: { url: string; mediaType: string }[];
+	service_tier?: "default" | "flex";
 }
 
 export async function POST(req: Request) {
@@ -58,6 +60,7 @@ export async function POST(req: Request) {
 		provider,
 		image_config,
 		input_images,
+		service_tier,
 	}: ImageRequestBody = body;
 
 	if (!prompt?.trim()) {
@@ -83,6 +86,7 @@ export async function POST(req: Request) {
 		apiKey: finalApiKey,
 		baseURL: getGatewayApiBaseUrl(),
 		headers: {
+			...forwardedIpHeaders(req.headers),
 			"x-source": LOUNGE_SOURCE,
 			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
 		},
@@ -98,6 +102,16 @@ export async function POST(req: Request) {
 			selectedModel = `${provider}/${selectedModel}`;
 		}
 	}
+
+	// Gateway-specific fields travel as llmgateway provider options, which the
+	// provider spreads into the /images request body.
+	const llmgatewayOptions = {
+		...(image_config?.image_quality && {
+			quality: image_config.image_quality,
+		}),
+		...(image_config?.moderation && { moderation: image_config.moderation }),
+		...(service_tier === "flex" && { service_tier }),
+	};
 
 	let generation: ReturnType<typeof generateImage>;
 	try {
@@ -117,19 +131,8 @@ export async function POST(req: Request) {
 			...(image_config?.aspect_ratio && image_config.aspect_ratio !== "auto"
 				? { aspectRatio: image_config.aspect_ratio }
 				: {}),
-			...(image_config?.image_quality || image_config?.moderation
-				? {
-						providerOptions: {
-							llmgateway: {
-								...(image_config.image_quality && {
-									quality: image_config.image_quality,
-								}),
-								...(image_config.moderation && {
-									moderation: image_config.moderation,
-								}),
-							},
-						},
-					}
+			...(Object.keys(llmgatewayOptions).length > 0
+				? { providerOptions: { llmgateway: llmgatewayOptions } }
 				: {}),
 		});
 	} catch (error: unknown) {

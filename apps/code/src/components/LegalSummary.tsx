@@ -10,11 +10,7 @@ import {
 	UserRound,
 	Wallet,
 } from "lucide-react";
-
-import {
-	SELF_REFUND_USAGE_PERCENT,
-	SELF_REFUND_WINDOW_DAYS,
-} from "@llmgateway/shared";
+import Link from "next/link";
 
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
@@ -46,9 +42,30 @@ const termsCards: SummaryCard[] = [
 				provider cost, paced by a daily allowance and a weekly premium-model
 				allowance published on the pricing page. Allowances reset every cycle
 				and don&rsquo;t roll over, except when you upgrade mid-cycle. Fees are
-				generally non-refundable once usage begins; a first-payment refund
-				within {SELF_REFUND_WINDOW_DAYS} days may be offered as goodwill only
-				while usage remains below {SELF_REFUND_USAGE_PERCENT}%.
+				generally non-refundable once usage begins; an eligible payment may be
+				refunded within 14 days as goodwill while usage remains below 20% of the
+				monthly allowance. For payments made from October 15, 2026, at 00:00
+				UTC, that limit is 10%. Earlier payments retain the 20% limit.
+			</>
+		),
+	},
+	{
+		icon: Clock,
+		title: "Plan changes from October 15, 2026",
+		body: (
+			<>
+				The price stays the same, but included usage decreases. Monthly
+				allowance falls from 3&times; to 2&times; your plan price at the first
+				renewal on or after that date; new subscriptions from that date start at
+				2&times;. Daily and weekly caps and Reset Pass benefits change on
+				October 15, including for existing cycles. Read the&nbsp;
+				<Link
+					href="#october-2026-plan-changes"
+					className="underline underline-offset-4"
+				>
+					full plan-change notice
+				</Link>
+				.
 			</>
 		),
 	},
@@ -59,7 +76,9 @@ const termsCards: SummaryCard[] = [
 			<>
 				Your key works from whitelisted tools like Claude Code, Codex, Cursor
 				and Cline — not from your own apps, backends or scripts. Embeddings,
-				image and video generation aren&rsquo;t included.
+				image and video generation aren&rsquo;t included. From October 15, 2026,
+				for billing periods starting on or after that date, non-coding use such
+				as role play, companion chat or content generation is out of scope too.
 			</>
 		),
 	},
@@ -92,7 +111,8 @@ const termsCards: SummaryCard[] = [
 			<>
 				Abuse, fraud, key sharing or bad-faith payment disputes can get every
 				related account banned immediately, with no refund for the cycle in
-				progress.
+				progress. From October 15, 2026, API, automation or non-coding use
+				counts too.
 			</>
 		),
 	},

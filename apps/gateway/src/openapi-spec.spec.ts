@@ -58,6 +58,17 @@ describe("openapi document", () => {
 					if (Number(status) < 400) {
 						continue;
 					}
+					if (
+						status === "416" &&
+						[
+							"/v1/videos/{video_id}/content",
+							"/v1/videos/logs/{log_id}/content",
+						].includes(path)
+					) {
+						// Byte-range failures use Content-Range rather than a JSON envelope.
+						expect(response.headers).toHaveProperty("Content-Range");
+						continue;
+					}
 					expect(response, `${method} ${path} ${status}`).toMatchObject({
 						content: {
 							"application/json": {

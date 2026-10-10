@@ -10,8 +10,11 @@ fi
 base_ref=$1
 head_ref=$2
 
+# `*` also matches `/`, so this covers flat and folder layouts. Keep both in
+# the pathspec: git pairs renames only within it, and a moved migration must
+# not count as new.
 mapfile -t new_migrations < <(
-  git diff --name-only --diff-filter=A "$base_ref" "$head_ref" -- 'packages/db/migrations/*.sql'
+  git diff --name-only --find-renames --diff-filter=A "$base_ref" "$head_ref" -- 'packages/db/migrations/*.sql'
 )
 
 count=${#new_migrations[@]}

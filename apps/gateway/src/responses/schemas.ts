@@ -5,6 +5,8 @@ import {
 	reasoningDetailsSchema,
 } from "@/chat/schemas/completions.js";
 
+import { parsePromptModelReference } from "@llmgateway/shared/prompt-template";
+
 /**
  * Flatten a Zod error into `path: message` pairs a client can act on.
  *
@@ -306,137 +308,177 @@ const inputItemSchema = z.preprocess(
 	]),
 );
 
-export const responsesRequestSchema = z.object({
-	model: z.string().openapi({
-		example: "gpt-4o-mini",
-	}),
-	input: z.union([z.string(), z.array(inputItemSchema)]),
-	instructions: z.string().optional(),
-	previous_response_id: z.string().optional(),
-	stream: z.boolean().optional().default(false),
-	prompt_cache_key: z
-		.string()
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val)),
-	prompt_cache_retention: z
-		.enum(["in_memory", "24h"])
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val)),
-	prompt_cache_options: z
-		.object({
-			mode: z.enum(["implicit", "explicit"]).optional(),
-			ttl: z.enum(["30m"]).optional(),
-		})
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val)),
-	routing: z.enum(["auto", "price", "throughput", "latency"]).optional(),
-	service_tier: z
-		.enum(["auto", "default", "flex", "priority"])
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val)),
-	temperature: z
-		.number()
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val)),
-	max_output_tokens: z
-		.number()
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val)),
-	tools: z
-		.array(
-			z.union([
+const nullToUndefined = <T>(val: T | null) => (val === null ? undefined : val);
+
+// OpenAI's native `prompt` reference. `version` arrives as a string there;
+// `label` is a gateway extension. The chat handler resolves and renders it.
+const promptReferenceSchema = z
+	.object({
+		id: z.string().min(1),
+		version: z
+			.union([z.number().int().min(1), z.string().regex(/^[1-9]\d*$/)])
+			.nullable()
+			.optional()
+			.transform(nullToUndefined),
+		label: z.string().nullable().optional().transform(nullToUndefined),
+		variables: z
+			.record(z.union([z.string(), z.number(), z.boolean()]))
+			.nullable()
+			.optional()
+			.transform(nullToUndefined),
+	})
+	.nullable()
+	.optional()
+	.transform(nullToUndefined);
+
+export const responsesRequestSchema = z
+	.object({
+		model: z.string().optional().openapi({
+			example: "gpt-4o-mini",
+		}),
+		input: z.union([z.string(), z.array(inputItemSchema)]).optional(),
+		prompt: promptReferenceSchema,
+		instructions: z.string().optional(),
+		previous_response_id: z.string().optional(),
+		stream: z.boolean().optional().default(false),
+		prompt_cache_key: z
+			.string()
+			.nullable()
+			.optional()
+			.transform((val) => (val === null ? undefined : val)),
+		prompt_cache_retention: z
+			.enum(["in_memory", "24h"])
+			.nullable()
+			.optional()
+			.transform((val) => (val === null ? undefined : val)),
+		prompt_cache_options: z
+			.object({
+				mode: z.enum(["implicit", "explicit"]).optional(),
+				ttl: z.enum(["30m"]).optional(),
+			})
+			.nullable()
+			.optional()
+			.transform((val) => (val === null ? undefined : val)),
+		routing: z.enum(["auto", "price", "throughput", "latency"]).optional(),
+		service_tier: z
+			.enum(["auto", "default", "flex", "priority"])
+			.nullable()
+			.optional()
+			.transform((val) => (val === null ? undefined : val)),
+		temperature: z
+			.number()
+			.nullable()
+			.optional()
+			.transform((val) => (val === null ? undefined : val)),
+		max_output_tokens: z
+			.number()
+			.nullable()
+			.optional()
+			.transform((val) => (val === null ? undefined : val)),
+		tools: z
+			.array(
+				z.union([
+					z.object({
+						type: z.literal("function"),
+						name: z.string(),
+						description: z.string().optional(),
+						parameters: z.record(z.any()).optional(),
+						strict: z.boolean().optional(),
+					}),
+					z.object({
+						type: z.literal("web_search"),
+						user_location: z
+							.object({
+								city: z.string().optional(),
+								region: z.string().optional(),
+								country: z.string().optional(),
+								timezone: z.string().optional(),
+							})
+							.optional(),
+						search_context_size: z.enum(["low", "medium", "high"]).optional(),
+						max_uses: z.number().optional(),
+						allowed_domains: z.array(z.string()).optional(),
+						blocked_domains: z.array(z.string()).optional(),
+					}),
+					z.object({
+						type: z.literal("image_generation"),
+						size: z.enum(["1024x1024", "1024x1536", "1536x1024"]).optional(),
+					}),
+					// catch-all for unknown tool types (e.g. computer_use, code_interpreter)
+					z.record(z.any()),
+				]),
+			)
+			.optional(),
+		tool_choice: z
+			.union([
+				z.literal("auto"),
+				z.literal("none"),
+				z.literal("required"),
+				// Canonical Responses API shape: the function name is flat.
 				z.object({
 					type: z.literal("function"),
 					name: z.string(),
-					description: z.string().optional(),
-					parameters: z.record(z.any()).optional(),
-					strict: z.boolean().optional(),
 				}),
+				// Chat Completions shape, still accepted because clients that port a
+				// chat-completions payload over to this endpoint keep sending it.
+				z.object({
+					type: z.literal("function"),
+					function: z.object({
+						name: z.string(),
+					}),
+				}),
+				// Demands a web search rather than offering one. See the Chat
+				// Completions schema for what this unlocks.
 				z.object({
 					type: z.literal("web_search"),
-					user_location: z
-						.object({
-							city: z.string().optional(),
-							region: z.string().optional(),
-							country: z.string().optional(),
-							timezone: z.string().optional(),
-						})
-						.optional(),
-					search_context_size: z.enum(["low", "medium", "high"]).optional(),
-					max_uses: z.number().optional(),
-					allowed_domains: z.array(z.string()).optional(),
-					blocked_domains: z.array(z.string()).optional(),
 				}),
-				z.object({
-					type: z.literal("image_generation"),
-					size: z.enum(["1024x1024", "1024x1536", "1536x1024"]).optional(),
-				}),
-				// catch-all for unknown tool types (e.g. computer_use, code_interpreter)
-				z.record(z.any()),
-			]),
-		)
-		.optional(),
-	tool_choice: z
-		.union([
-			z.literal("auto"),
-			z.literal("none"),
-			z.literal("required"),
-			// Canonical Responses API shape: the function name is flat.
-			z.object({
-				type: z.literal("function"),
-				name: z.string(),
-			}),
-			// Chat Completions shape, still accepted because clients that port a
-			// chat-completions payload over to this endpoint keep sending it.
-			z.object({
-				type: z.literal("function"),
-				function: z.object({
-					name: z.string(),
-				}),
-			}),
-			// Demands a web search rather than offering one. See the Chat
-			// Completions schema for what this unlocks.
-			z.object({
-				type: z.literal("web_search"),
-			}),
-		])
-		.optional(),
-	reasoning: z
-		.object({
-			effort: z
-				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
-				.optional(),
-			summary: z.enum(["detailed", "auto"]).optional(),
-			context: z.enum(["auto", "current_turn", "all_turns"]).optional(),
-		})
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val)),
-	text: z.record(z.any()).optional(),
-	store: z.boolean().optional(),
-	// Additional output data to include. Only "reasoning.encrypted_content" has
-	// gateway-level behavior (returns encrypted reasoning payloads on reasoning
-	// output items so they can be replayed statelessly); other values are
-	// accepted and ignored.
-	include: z
-		.array(z.string())
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val)),
-	metadata: z.record(z.string()).optional(),
-	top_p: z
-		.number()
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val)),
-	truncation: z.enum(["auto", "disabled"]).optional().default("disabled"),
-});
+			])
+			.optional(),
+		reasoning: z
+			.object({
+				effort: z
+					.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
+					.optional(),
+				summary: z.enum(["detailed", "auto"]).optional(),
+				context: z.enum(["auto", "current_turn", "all_turns"]).optional(),
+				mode: z.enum(["standard", "pro"]).optional(),
+			})
+			.nullable()
+			.optional()
+			.transform((val) => (val === null ? undefined : val)),
+		text: z.record(z.any()).optional(),
+		store: z.boolean().optional(),
+		// Additional output data to include. Only "reasoning.encrypted_content" has
+		// gateway-level behavior (returns encrypted reasoning payloads on reasoning
+		// output items so they can be replayed statelessly); other values are
+		// accepted and ignored.
+		include: z
+			.array(z.string())
+			.nullable()
+			.optional()
+			.transform((val) => (val === null ? undefined : val)),
+		metadata: z.record(z.string()).optional(),
+		top_p: z
+			.number()
+			.nullable()
+			.optional()
+			.transform((val) => (val === null ? undefined : val)),
+		truncation: z.enum(["auto", "disabled"]).optional().default("disabled"),
+	})
+	.refine((req) => req.model !== undefined || req.prompt !== undefined, {
+		message: "Required unless prompt is set",
+		path: ["model"],
+	})
+	.refine(
+		(req) =>
+			req.input !== undefined ||
+			req.prompt !== undefined ||
+			parsePromptModelReference(req.model) !== undefined,
+		{
+			message: "Required unless a prompt is referenced",
+			path: ["input"],
+		},
+	);
 
 export type ResponsesRequest = z.infer<typeof responsesRequestSchema>;
 

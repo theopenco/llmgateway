@@ -1,0 +1,12 @@
+appId: io.llmgateway.lounge
+---
+- launchApp:
+    stopApp: false
+- assertVisible: "The model could not take a turn. Try again."
+- tapOn: "One step"
+- extendedWaitUntil:
+    visible: "Step 1 /.*"
+    timeout: 30000
+- assertVisible: "Resume run"
+- assertNotVisible: "The model could not take a turn. Try again."
+- takeScreenshot: artifacts/escape-recovered

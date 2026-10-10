@@ -83,7 +83,7 @@ const tools: Tool[] = [
 		parameters: ["prompt", "model", "size", "n"],
 		example: `{
   "prompt": "A serene mountain landscape at sunset",
-  "model": "qwen-image-plus",
+  "model": "qwen-image-3.0",
   "size": "1024x1024"
 }`,
 	},
@@ -229,7 +229,7 @@ Generate images from text prompts.
 
 **Parameters:**
 - \`prompt\` (string, required): Image description
-- \`model\` (string, optional): Default "qwen-image-plus"
+- \`model\` (string, optional): Default "qwen-image-3.0"
 - \`size\` (string, optional): Default "1024x1024"
 - \`n\` (number, optional): 1-4 images, default 1
 
@@ -239,7 +239,7 @@ Generate images from text prompts.
   "name": "generate-image",
   "arguments": {
     "prompt": "A sunset over mountains",
-    "model": "qwen-image-max"
+    "model": "qwen-image-3.0-pro"
   }
 }
 \`\`\`

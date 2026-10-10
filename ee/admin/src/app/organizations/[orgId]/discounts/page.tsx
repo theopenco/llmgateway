@@ -14,11 +14,11 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import {
-	createOrganizationDiscount,
-	deleteOrganizationDiscount,
 	getDiscountOptions,
 	getOrganizationDiscounts,
 } from "@/lib/admin-discounts";
+import { canWrite } from "@/lib/admin-role";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
@@ -64,6 +64,7 @@ export default async function OrganizationDiscountsPage({
 
 	const { orgId } = await params;
 
+	const isAdmin = canWrite(await getSessionAdminRole());
 	const $api = await createServerApiClient();
 	const [discountsData, options, metricsRes] = await Promise.all([
 		getOrganizationDiscounts(orgId),
@@ -84,52 +85,6 @@ export default async function OrganizationDiscountsPage({
 
 	const discounts = discountsData?.discounts ?? [];
 	const org = metrics.organization;
-
-	// Server action to create discount
-	async function handleCreateDiscount(data: {
-		provider: string | null;
-		model: string | null;
-		discountPercent: number;
-		reason: string | null;
-		expiresAt: string | null;
-	}): Promise<{ success: boolean; error?: string }> {
-		"use server";
-
-		try {
-			const result = await createOrganizationDiscount(orgId, {
-				provider: data.provider,
-				model: data.model,
-				discountPercent: data.discountPercent,
-				reason: data.reason,
-				expiresAt: data.expiresAt,
-			});
-
-			if (!result) {
-				return {
-					success: false,
-					error: "Failed to create discount. It may already exist.",
-				};
-			}
-
-			return { success: true };
-		} catch (error) {
-			console.error("Error creating discount:", error);
-			return {
-				success: false,
-				error: "An error occurred while creating the discount",
-			};
-		}
-	}
-
-	// Server action to delete discount
-	async function handleDeleteDiscount(
-		discountId: string,
-	): Promise<{ success: boolean }> {
-		"use server";
-
-		const success = await deleteOrganizationDiscount(orgId, discountId);
-		return { success };
-	}
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
@@ -156,11 +111,11 @@ export default async function OrganizationDiscountsPage({
 						</div>
 					</div>
 				</div>
-				{options && (
+				{isAdmin && options && (
 					<DiscountForm
 						providers={options.providers}
 						mappings={options.mappings}
-						onSubmit={handleCreateDiscount}
+						orgId={orgId}
 					/>
 				)}
 			</header>
@@ -175,22 +130,24 @@ export default async function OrganizationDiscountsPage({
 							<TableHead>Reason</TableHead>
 							<TableHead>Expires</TableHead>
 							<TableHead>Created</TableHead>
-							<TableHead className="w-[50px]" />
+							{isAdmin ? <TableHead className="w-[50px]" /> : null}
 						</TableRow>
 					</TableHeader>
 					<TableBody>
 						{discounts.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={7}
+									colSpan={isAdmin ? 7 : 6}
 									className="h-24 text-center text-muted-foreground"
 								>
 									<div className="flex flex-col items-center gap-2">
 										<Tag className="h-8 w-8 text-muted-foreground/50" />
 										<p>No discounts configured for this organization</p>
-										<p className="text-xs">
-											Add a discount to give this organization special pricing
-										</p>
+										{isAdmin ? (
+											<p className="text-xs">
+												Add a discount to give this organization special pricing
+											</p>
+										) : null}
 									</div>
 								</TableCell>
 							</TableRow>
@@ -237,12 +194,14 @@ export default async function OrganizationDiscountsPage({
 									<TableCell className="text-muted-foreground">
 										{formatDate(discount.createdAt)}
 									</TableCell>
-									<TableCell>
-										<DeleteDiscountButton
-											discountId={discount.id}
-											onDelete={handleDeleteDiscount}
-										/>
-									</TableCell>
+									{isAdmin ? (
+										<TableCell>
+											<DeleteDiscountButton
+												discountId={discount.id}
+												orgId={orgId}
+											/>
+										</TableCell>
+									) : null}
 								</TableRow>
 							))
 						)}

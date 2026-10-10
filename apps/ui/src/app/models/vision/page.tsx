@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 
+import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { AllModels } from "@/components/models/all-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
@@ -25,13 +26,14 @@ export default async function VisionModelsPage() {
 	return (
 		<Suspense>
 			<AllModels
+				footer={<Footer />}
 				models={models}
 				providers={providers}
 				title="Vision Models"
 				description="Models with image understanding capabilities — analyze, describe, and extract information from images"
 				categoryFilter="vision"
 			>
-				<HeroRSC navbarOnly sticky={false} />
+				<HeroRSC sticky={false} />
 			</AllModels>
 		</Suspense>
 	);

@@ -4,6 +4,7 @@ slug: "mcp-usage-analytics"
 date: "2026-09-05"
 title: "Usage Analytics in the MCP Server"
 summary: "The LLM Gateway MCP server gains get-account, get-usage, and get-usage-breakdown, so Claude Code, Codex, Cursor, or any MCP client can check spending limits, request and token totals, costs, trends, and your most-used providers, models, coding apps, and API keys without opening the dashboard."
+tags: ["llmgateway"]
 image:
   src: "/changelog/mcp-usage-analytics.png"
   alt: "A glowing bar chart with a plug connector docked into it on a circuit board, surrounded by pie charts, coins, and terminal windows"

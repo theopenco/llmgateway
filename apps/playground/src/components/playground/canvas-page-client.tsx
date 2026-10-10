@@ -64,8 +64,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useUser } from "@/hooks/useUser";
-import { registry } from "@/lib/canvas/registry";
-import { emptySpec, templates } from "@/lib/canvas/templates";
+import { registry } from "@/lib/canvas/registry-web";
 import { canvasSuggestions, sampleSuggestions } from "@/lib/hero-suggestions";
 import {
 	CANVAS_MODEL_COOKIE,
@@ -73,6 +72,8 @@ import {
 	setModelPreferenceCookie,
 } from "@/lib/model-preferences";
 import { getErrorMessage } from "@/lib/utils";
+
+import { emptySpec, templates } from "@llmgateway/canvas/templates";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { Organization, Project } from "@/lib/types";
@@ -107,6 +108,9 @@ function isRenderableSpec(value: unknown): value is Spec {
 }
 
 const DEFAULT_CANVAS_MODEL = "anthropic/claude-sonnet-4-20250514";
+
+const EMPTY_SPEC_JSON = JSON.stringify(emptySpec, null, 2);
+const EMPTY_SPEC_COMPACT_JSON = JSON.stringify(emptySpec);
 
 function CanvasSpecSkeleton() {
 	return (
@@ -309,9 +313,7 @@ export default function CanvasPageClient({
 	});
 
 	const [spec, setSpec] = useState<Spec>(emptySpec);
-	const [editorValue, setEditorValue] = useState(
-		JSON.stringify(emptySpec, null, 2),
-	);
+	const [editorValue, setEditorValue] = useState(EMPTY_SPEC_JSON);
 	const [parseError, setParseError] = useState<string | null>(null);
 	const [selectedTemplateName, setSelectedTemplateName] = useState<string>("");
 	const [showResetDialog, setShowResetDialog] = useState(false);
@@ -624,7 +626,7 @@ export default function CanvasPageClient({
 		[spec],
 	);
 	const isDefaultSpec = useMemo(
-		() => JSON.stringify(spec) === JSON.stringify(emptySpec),
+		() => JSON.stringify(spec) === EMPTY_SPEC_COMPACT_JSON,
 		[spec],
 	);
 	const specStateKey = useMemo(
@@ -635,7 +637,7 @@ export default function CanvasPageClient({
 
 	const handleResetCanvas = useCallback(() => {
 		setSpec(emptySpec);
-		setEditorValue(JSON.stringify(emptySpec, null, 2));
+		setEditorValue(EMPTY_SPEC_JSON);
 		setParseError(null);
 		setHasStreamingSpec(false);
 		setSelectedTemplateName("");

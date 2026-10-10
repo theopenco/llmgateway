@@ -1,0 +1,60 @@
+---
+title: OpenCode Desktop Integration
+icon: OpenCode
+description: Connect OpenCode Desktop to LLM Gateway or DevPass, open a project, and verify an agent task.
+---
+
+[OpenCode Desktop](https://opencode.ai/download) is a desktop interface for agent sessions in local projects. Its built-in provider picker includes LLM Gateway and DevPass.
+
+## Video walkthrough
+
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/uHqIMWG4MQw"
+		title="OpenCode Desktop with LLM Gateway walkthrough"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
+
+## Install and connect
+
+Download OpenCode Desktop from the&nbsp;[official site](https://opencode.ai/download).
+
+1. Open the provider connection control on the start screen.
+2. Search for **LLM Gateway**.
+3. Choose **LLM Gateway** for pay-as-you-go usage or **DevPass (LLM Gateway)** for a coding plan.
+4. Enter an API key from the matching dashboard and click **Continue**.
+
+The built-in provider supplies the endpoint. You do not need a manual base URL for the hosted gateway.
+
+## Open a project
+
+Use the project picker below the composer and select **Add project**. Choose the local folder where you want the agent to work.
+
+Check the project name before submitting a task. Start with a small repository whose changes you can review.
+
+## Choose a model
+
+Use the model picker in the composer to select a tool-capable model from your connected provider. The&nbsp;[live catalogue](https://llmgateway.io/models?features=tools) lists current capabilities and availability.
+
+For DevPass, choose a canonical model included in your plan. Upstream provider prefixes pin routing and are not supported on coding plans.
+
+## Verify a small change
+
+Ask OpenCode to inspect a function, fix a failing test case, and run the existing tests without changing them. Review permissions before approving requested actions.
+
+Expand the tool activity to inspect edits and shell output. Check the test result and resulting diff before keeping the change. Requests appear in the workspace that issued your API key.
+
+## Troubleshooting
+
+**The provider is missing:** update OpenCode Desktop and search the complete provider list.
+
+**Authentication fails:** check that your key is active and matches the selected billing mode.
+
+**The agent works in the wrong folder:** use the project picker before starting a session.
+
+**A model is unavailable:** confirm its exact ID, tool support, and availability to your account or plan.

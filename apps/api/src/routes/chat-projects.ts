@@ -12,6 +12,7 @@ import {
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { db, tables, eq, and, count, desc, asc } from "@llmgateway/db";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 import type { ServerTypes } from "@/vars.js";
@@ -558,8 +559,10 @@ chatProjects.openapi(uploadFile, async (c) => {
 		.returning();
 
 	try {
-		const token = await resolvePlaygroundToken(c, user);
-		const embeddings = await embedTexts(token, chunks);
+		const token =
+			c.req.header("x-llmgateway-key") ??
+			(await resolvePlaygroundToken(c, user));
+		const embeddings = await embedTexts(token, chunks, c.req.raw.headers);
 
 		await db.insert(tables.chatProjectFileChunk).values(
 			chunks.map((content, index) => ({
@@ -728,7 +731,7 @@ chatProjects.openapi(retrieve, async (c) => {
 	// gateway key the chat request uses, so retrieval bills the same org.
 	const headerKey = c.req.header("x-llmgateway-key");
 	const token = headerKey ?? (await resolvePlaygroundToken(c, user));
-	const [queryEmbedding] = await embedTexts(token, [query]);
+	const [queryEmbedding] = await embedTexts(token, [query], c.req.raw.headers);
 
 	const scored = chunks
 		.map((chunk) => ({
@@ -1018,6 +1021,7 @@ chatProjects.openapi(extractMemories, async (c) => {
 		apiKey: token,
 		baseURL: getGatewayUrl(),
 		headers: {
+			...forwardedIpHeaders(c.req.raw.headers),
 			"x-source": LOUNGE_SOURCE,
 		},
 	});

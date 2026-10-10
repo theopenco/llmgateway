@@ -56,7 +56,7 @@ describe("admin — credits vs BYOK mode split", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 
 		await db.insert(tables.organization).values([
@@ -80,6 +80,13 @@ describe("admin — credits vs BYOK mode split", () => {
 				type: "credit_topup",
 				amount: "105",
 				creditAmount: "100",
+				status: "completed",
+			},
+			// $20 gifted on top.
+			{
+				organizationId: ORG_ID,
+				type: "credit_gift",
+				creditAmount: "20",
 				status: "completed",
 			},
 			// A plan transaction so the DevPass org's usage is excluded from the
@@ -176,7 +183,11 @@ describe("admin — credits vs BYOK mode split", () => {
 			totalSpent: number;
 			totalCreditsSpent: number;
 			totalApiKeysSpent: number;
+			totalDebitedSpend: number;
+			totalToppedUp: number;
+			totalToppedUpGifted: number;
 			unusedCredits: number;
+			unusedCreditsExcludingGifts: number;
 			overage: number;
 		};
 
@@ -184,10 +195,49 @@ describe("admin — credits vs BYOK mode split", () => {
 		expect(body.totalSpent).toBeCloseTo(50, 3);
 		expect(body.totalCreditsSpent).toBeCloseTo(10, 3);
 		expect(body.totalApiKeysSpent).toBeCloseTo(40, 3);
+		expect(body.totalToppedUp).toBeCloseTo(120, 3);
+		expect(body.totalToppedUpGifted).toBeCloseTo(20, 3);
+		expect(body.totalDebitedSpend).toBeCloseTo(10.5, 3);
 		// Only debited spend counts against topped-up credits:
-		// 100 - (10 credits + 0.5 BYOK storage) = 89.5 — NOT 100 - 50.5.
-		expect(body.unusedCredits).toBeCloseTo(89.5, 3);
+		// 120 - (10 credits + 0.5 BYOK storage) = 109.5 — NOT 120 - 50.5.
+		expect(body.unusedCredits).toBeCloseTo(109.5, 3);
+		// Without the $20 gift.
+		expect(body.unusedCreditsExcludingGifts).toBeCloseTo(89.5, 3);
 		expect(body.overage).toBe(0);
+	});
+
+	test("legacy Pro history only excludes DevPass spend", async () => {
+		await db
+			.update(tables.transaction)
+			.set({ type: "subscription_start" })
+			.where(eq(tables.transaction.organizationId, DEVPASS_ORG_ID));
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "subscription_start",
+			amount: "10",
+		});
+		const response = await app.request("/admin/metrics", {
+			headers: { Cookie: cookie },
+		});
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			totalSpent: 50,
+			totalDebitedSpend: 10.5,
+		});
+
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "chat_plan_renewal",
+			amount: "10",
+		});
+		const withChatHistory = await app.request("/admin/metrics", {
+			headers: { Cookie: cookie },
+		});
+		expect(withChatHistory.status).toBe(200);
+		expect(await withChatHistory.json()).toMatchObject({
+			totalSpent: 0,
+			totalDebitedSpend: 0,
+		});
 	});
 
 	test("GET /admin/organizations returns per-org spend splits", async () => {
@@ -443,6 +493,58 @@ describe("admin — credits vs BYOK mode split", () => {
 			).toBeCloseTo(50, 3);
 		},
 	);
+
+	test("organization cost timeseries honors the bucket override", async () => {
+		const defaultRes = await app.request(
+			`/admin/organizations/${ORG_ID}/cost-by-model-timeseries?window=7d`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(defaultRes.status).toBe(200);
+		const defaultBody = (await defaultRes.json()) as {
+			bucket: string;
+			data: { timestamp: string; entries: { cost: number }[] }[];
+		};
+		expect(defaultBody.bucket).toBe("day");
+		expect(
+			defaultBody.data.every((point) => point.timestamp.endsWith("T00:00:00Z")),
+		).toBe(true);
+
+		const hourlyRes = await app.request(
+			`/admin/organizations/${ORG_ID}/cost-by-model-timeseries?window=7d&bucket=hour`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(hourlyRes.status).toBe(200);
+		const hourlyBody = (await hourlyRes.json()) as {
+			bucket: string;
+			data: { timestamp: string; entries: { cost: number }[] }[];
+		};
+		expect(hourlyBody.bucket).toBe("hour");
+		expect(hourlyBody.data.length).toBeGreaterThan(defaultBody.data.length);
+		expect(
+			hourlyBody.data
+				.flatMap((point) => point.entries)
+				.reduce((sum, entry) => sum + entry.cost, 0),
+		).toBeCloseTo(
+			defaultBody.data
+				.flatMap((point) => point.entries)
+				.reduce((sum, entry) => sum + entry.cost, 0),
+			3,
+		);
+	});
+
+	test("project cost timeseries honors the bucket override", async () => {
+		const res = await app.request(
+			`/admin/organizations/${ORG_ID}/projects/${PROJECT_ID}/cost-by-model-timeseries?window=7d&bucket=hour`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			bucket: string;
+			data: { timestamp: string }[];
+		};
+		expect(body.bucket).toBe("hour");
+		expect(body.data.length).toBeGreaterThan(7);
+	});
 
 	test("DevPass real provider cost excludes BYOK usage", async () => {
 		const res = await app.request(`/admin/devpass/${DEVPASS_ORG_ID}`, {

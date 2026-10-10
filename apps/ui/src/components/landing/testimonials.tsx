@@ -25,9 +25,6 @@ export const Testimonials = async () => {
 
 			<div className="relative">
 				<div className="mx-auto max-w-7xl px-6 lg:px-8 mb-16">
-					<p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4">
-						Community
-					</p>
 					<h2 className="font-display text-4xl md:text-5xl font-bold tracking-tight text-foreground">
 						Trusted by developers worldwide
 					</h2>

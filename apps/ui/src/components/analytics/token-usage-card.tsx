@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import {
 	Bar,
 	CartesianGrid,
@@ -9,11 +10,15 @@ import {
 	YAxis,
 } from "recharts";
 
+import { modelKey } from "@/components/analytics/chart-helpers";
 import {
 	ChartStyleSelector,
 	useChartStyle,
 } from "@/components/analytics/chart-style";
-import { tokenBreakdown } from "@/components/analytics/token-usage";
+import {
+	modelTokenBreakdown,
+	tokenBreakdown,
+} from "@/components/analytics/token-usage";
 import {
 	Card,
 	CardContent,
@@ -28,6 +33,14 @@ import {
 } from "@/lib/components/chart";
 
 import { formatBucketLabel } from "@llmgateway/shared";
+import {
+	getProviderIcon,
+	SearchableSelect,
+} from "@llmgateway/shared/components";
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { DailyActivity } from "@/types/activity";
 
@@ -36,7 +49,13 @@ const config = {
 	cache: { label: "Cache reads", color: "hsl(142 71% 45%)" },
 	output: { label: "Output", color: "hsl(262 83% 58%)" },
 };
-const compact = new Intl.NumberFormat("en-US", { notation: "compact" });
+
+const ALL_MODELS = "__all__";
+
+function ModelProviderIcon({ model }: { model: string }) {
+	const Icon = getProviderIcon(model.split("/")[0] ?? "");
+	return <Icon className="h-4 w-4 shrink-0" />;
+}
 
 export function TokenUsageCard({
 	activity,
@@ -46,9 +65,34 @@ export function TokenUsageCard({
 	loading: boolean;
 }) {
 	const { style } = useChartStyle();
+	const [requestedModel, setRequestedModel] = useState(ALL_MODELS);
+
+	// Only populated when the page asks /activity for the model breakdown, so the
+	// selector stays out of the way on the API-key and member groupings.
+	const models = useMemo(() => {
+		const totals = new Map<string, number>();
+		for (const day of activity) {
+			for (const entry of day.modelBreakdown) {
+				const key = modelKey(entry, "mapping");
+				totals.set(key, (totals.get(key) ?? 0) + entry.totalTokens);
+			}
+		}
+		return Array.from(totals.entries())
+			.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+			.map(([key]) => key);
+	}, [activity]);
+
+	// A model drops out of the range whenever the dates move, so the selection
+	// falls back to all traffic instead of charting an empty series.
+	const selectedModel = models.includes(requestedModel)
+		? requestedModel
+		: ALL_MODELS;
+
 	const data = activity.map((day) => ({
 		date: day.date,
-		...tokenBreakdown(day),
+		...(selectedModel === ALL_MODELS
+			? tokenBreakdown(day)
+			: modelTokenBreakdown(day, selectedModel)),
 	}));
 	const totals = data.reduce(
 		(sum, row) => ({
@@ -66,10 +110,32 @@ export function TokenUsageCard({
 					<div>
 						<CardTitle className="text-base">Tokens over time</CardTitle>
 						<CardDescription>
-							Input, cache reads, and output across all traffic
+							{selectedModel === ALL_MODELS
+								? "Input, cache reads, and output across all traffic"
+								: `Input, cache reads, and output for ${selectedModel}`}
 						</CardDescription>
 					</div>
-					<ChartStyleSelector />
+					<div className="flex flex-wrap items-center gap-2">
+						{models.length > 0 && (
+							<SearchableSelect
+								value={selectedModel}
+								onValueChange={setRequestedModel}
+								options={[
+									{ value: ALL_MODELS, label: "All models" },
+									...models.map((model) => ({
+										value: model,
+										label: model,
+										icon: <ModelProviderIcon model={model} />,
+									})),
+								]}
+								searchPlaceholder="Search models..."
+								emptyMessage="No models in this range."
+								aria-label="Filter tokens by model"
+								className="h-8 w-full text-xs sm:w-[220px]"
+							/>
+						)}
+						<ChartStyleSelector />
+					</div>
 				</div>
 				<div className="grid grid-cols-3 gap-4">
 					{(Object.keys(config) as (keyof typeof config)[]).map((key) => (
@@ -83,9 +149,9 @@ export function TokenUsageCard({
 							</p>
 							<p
 								className="mt-1 text-xl font-semibold tabular-nums"
-								title={totals[key].toLocaleString()}
+								title={formatNumber(totals[key])}
 							>
-								{loading ? "—" : compact.format(totals[key])}
+								{loading ? "—" : formatCompactNumber(totals[key])}
 							</p>
 						</div>
 					))}
@@ -99,7 +165,9 @@ export function TokenUsageCard({
 				) : !data.length ||
 				  !data.some((row) => row.input + row.cache + row.output > 0) ? (
 					<div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">
-						No token usage for this time period
+						{selectedModel === ALL_MODELS
+							? "No token usage for this time period"
+							: `No token usage for ${selectedModel} in this time period`}
 					</div>
 				) : (
 					<ChartContainer
@@ -124,7 +192,7 @@ export function TokenUsageCard({
 								minTickGap={40}
 							/>
 							<YAxis
-								tickFormatter={(value: number) => compact.format(value)}
+								tickFormatter={(value: number) => formatCompactNumber(value)}
 								tickLine={false}
 								axisLine={false}
 								width={60}
@@ -169,8 +237,8 @@ export function TokenUsageCard({
 				)}
 				<p className="mt-3 text-xs text-muted-foreground">
 					Input excludes cache reads and includes{" "}
-					{compact.format(totals.cacheWrites)} cache-write tokens. Token counts
-					include both credits and BYOK requests.
+					{formatCompactNumber(totals.cacheWrites)} cache-write tokens. Token
+					counts include both credits and BYOK requests.
 				</p>
 			</CardContent>
 		</Card>

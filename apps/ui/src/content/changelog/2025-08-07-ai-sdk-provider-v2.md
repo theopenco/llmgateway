@@ -4,6 +4,7 @@ slug: "ai-sdk-provider-v2"
 date: "2025-08-07"
 title: "AI SDK Provider v2.0 Released"
 summary: "Released v2.0 of our @llmgateway/ai-sdk-provider npm package with improved Vercel AI SDK integration and simplified model access."
+tags: ["llmgateway"]
 image:
   src: "/changelog/ai-sdk-provider-v2.png"
   alt: "AI SDK Provider v2.0 package integration with code examples"

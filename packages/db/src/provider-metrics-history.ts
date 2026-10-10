@@ -20,8 +20,9 @@ interface HistoryRow {
 	region: string | null;
 	totalLogs: string | number | null;
 	weightedLogs: string | number | null;
-	weightedErrors: string | number | null;
 	weightedClientErrors: string | number | null;
+	weightedGatewayErrors: string | number | null;
+	weightedUpstreamErrors: string | number | null;
 	weightedDuration: string | number | null;
 	weightedOutputTokens: string | number | null;
 	weightedTTFT: string | number | null;
@@ -33,8 +34,9 @@ interface HistoryRow {
 function rowToMetrics(row: HistoryRow): ProviderMetrics | undefined {
 	const totalLogs = Number(row.totalLogs ?? 0);
 	const weightedLogs = Number(row.weightedLogs ?? 0);
-	const weightedErrors = Number(row.weightedErrors ?? 0);
 	const weightedClientErrors = Number(row.weightedClientErrors ?? 0);
+	const weightedGatewayErrors = Number(row.weightedGatewayErrors ?? 0);
+	const weightedUpstreamErrors = Number(row.weightedUpstreamErrors ?? 0);
 	const weightedDuration = Number(row.weightedDuration ?? 0);
 	const weightedOutputTokens = Number(row.weightedOutputTokens ?? 0);
 	const weightedTTFT = Number(row.weightedTTFT ?? 0);
@@ -46,11 +48,12 @@ function rowToMetrics(row: HistoryRow): ProviderMetrics | undefined {
 		return undefined;
 	}
 
-	const { uptime } = deriveStabilityMetrics(
-		weightedLogs,
-		weightedErrors,
-		weightedClientErrors,
-	);
+	const { uptime } = deriveStabilityMetrics({
+		logsCount: weightedLogs,
+		clientErrorsCount: weightedClientErrors,
+		gatewayErrorsCount: weightedGatewayErrors,
+		upstreamErrorsCount: weightedUpstreamErrors,
+	});
 	if (uptime === null) {
 		return undefined;
 	}
@@ -123,7 +126,7 @@ export async function getProviderMetricsFromHistory(
 
 	// The version segment is bumped whenever the selected columns change so a
 	// rolling deploy doesn't read rows cached in the previous shape.
-	const cacheKey = `providerMetrics:history:v4:${routingHistoryCacheKey(history)}:${modelIds.join(",")}`;
+	const cacheKey = `providerMetrics:history:v5:${routingHistoryCacheKey(history)}:${modelIds.join(",")}`;
 
 	const rows = await swrWrap<HistoryRow[]>(
 		cacheKey,
@@ -157,13 +160,17 @@ export async function getProviderMetricsFromHistory(
 						sql<string>`coalesce(sum(${modelProviderMappingHistory.logsCount} * ${weightExpr}), 0)::bigint`.as(
 							"weighted_logs",
 						),
-					weightedErrors:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.errorsCount} * ${weightExpr}), 0)::bigint`.as(
-							"weighted_errors",
-						),
 					weightedClientErrors:
 						sql<string>`coalesce(sum(${modelProviderMappingHistory.clientErrorsCount} * ${weightExpr}), 0)::bigint`.as(
 							"weighted_client_errors",
+						),
+					weightedGatewayErrors:
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.gatewayErrorsCount} * ${weightExpr}), 0)::bigint`.as(
+							"weighted_gateway_errors",
+						),
+					weightedUpstreamErrors:
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.upstreamErrorsCount} * ${weightExpr}), 0)::bigint`.as(
+							"weighted_upstream_errors",
 						),
 					weightedDuration:
 						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalDuration} * ${weightExpr}), 0)::bigint`.as(

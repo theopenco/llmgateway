@@ -6,6 +6,9 @@ import {
 } from "@llmgateway/models";
 import { isMappingDeactivated } from "@llmgateway/shared/components";
 
+import type { ExtraGridProvider } from "@/components/providers/providers-grid";
+import type { ApiModel, ApiProvider } from "@llmgateway/shared/components";
+
 function getActiveModelCountsByProvider(): Record<string, number> {
 	const counts: Record<string, number> = {};
 	for (const model of modelDefinitions as readonly ModelDefinition[]) {
@@ -22,6 +25,18 @@ function getActiveModelCountsByProvider(): Record<string, number> {
 
 export const activeModelCounts = getActiveModelCountsByProvider();
 
+/** Providers with at least one active mapping that supports streaming. */
+export const streamingProviderIds = new Set(
+	(modelDefinitions as readonly ModelDefinition[]).flatMap((model) =>
+		model.providers
+			.filter(
+				(mapping) =>
+					!isMappingDeactivated(mapping) && mapping.streaming !== false,
+			)
+			.map((mapping) => mapping.providerId),
+	),
+);
+
 /**
  * Providers shown in the public directory: public catalogue entries with at
  * least one routable model mapping. Gateway, custom, and stealth providers are
@@ -35,5 +50,78 @@ export const publicProviderDefinitions = providerDefinitions.filter(
 );
 
 export const listedProviders = publicProviderDefinitions.filter(
-	(provider) => (activeModelCounts[provider.id] ?? 0) > 0,
+	(provider) =>
+		(activeModelCounts[provider.id] ?? 0) > 0 ||
+		("managedInAirside" in provider && provider.managedInAirside === true),
+);
+
+/** Active models per provider in the API catalogue, Airside listings included. */
+export function countApiModelsByProvider(
+	apiModels: ApiModel[],
+): Record<string, number> {
+	const counts: Record<string, number> = {};
+	for (const model of apiModels) {
+		const providerIds = new Set(
+			model.mappings
+				.filter(
+					(mapping) =>
+						mapping.status === "active" && !isMappingDeactivated(mapping),
+				)
+				.map((mapping) => mapping.providerId),
+		);
+		for (const providerId of Array.from(providerIds)) {
+			counts[providerId] = (counts[providerId] ?? 0) + 1;
+		}
+	}
+	return counts;
+}
+
+/**
+ * DB-only providers (custom Airside carriers) with at least one active model.
+ * Every static catalogue id — listed or not — stays owned by the static config.
+ */
+export function customCarrierGridProviders(
+	apiProviders: ApiProvider[],
+	modelCounts: Record<string, number>,
+): ExtraGridProvider[] {
+	const staticIds = new Set(providerDefinitions.map((p) => p.id as string));
+	return apiProviders
+		.filter((p) => !staticIds.has(p.id) && (modelCounts[p.id] ?? 0) > 0)
+		.map((p) => {
+			const profile = p.airsideProfile;
+			const policy = profile?.dataPolicy;
+			return {
+				id: p.id,
+				name: p.name ?? p.id,
+				description:
+					p.description && p.description !== "(empty)" ? p.description : null,
+				modelsCount: modelCounts[p.id] ?? 0,
+				headquarters: profile?.headquarters ?? null,
+				website: profile?.website ?? p.website ?? null,
+				dataPolicy: policy
+					? {
+							apiTraining: policy.apiTraining,
+							promptLogging: policy.promptLogging,
+							retentionPeriod: policy.retentionPeriod,
+							gdpr: policy.gdpr,
+							iso27001: policy.iso27001,
+							soc2: policy.soc2 === 0 ? null : policy.soc2,
+						}
+					: null,
+			};
+		});
+}
+
+/** Distinct models routable through at least one of the given providers. */
+export function countModelsForProviders(providerIds: Set<string>) {
+	return (modelDefinitions as readonly ModelDefinition[]).filter((model) =>
+		model.providers.some(
+			(mapping) =>
+				!isMappingDeactivated(mapping) && providerIds.has(mapping.providerId),
+		),
+	).length;
+}
+
+export const listedModelCount = countModelsForProviders(
+	new Set(listedProviders.map((provider) => provider.id)),
 );

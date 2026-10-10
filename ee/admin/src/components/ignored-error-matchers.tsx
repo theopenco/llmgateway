@@ -2,9 +2,9 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { ListFilter, Loader2, Plus, Trash2 } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 
+import { useFilterNavigation } from "@/components/filter-navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,49 +16,11 @@ import {
 	DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 import { useApi } from "@/lib/fetch-client";
 
-export function IgnoredErrorsToggle({
-	ignoreExpected,
-}: {
-	ignoreExpected: boolean;
-}) {
-	const router = useRouter();
-	const pathname = usePathname();
-	const searchParams = useSearchParams();
-
-	const handleSelect = useCallback(
-		(value: boolean) => {
-			const params = new URLSearchParams(searchParams.toString());
-			if (value) {
-				params.delete("ignoreExpected");
-			} else {
-				params.set("ignoreExpected", "false");
-			}
-			router.push(`${pathname}?${params.toString()}`);
-		},
-		[router, pathname, searchParams],
-	);
-
-	return (
-		<div className="flex flex-wrap items-center gap-1">
-			<Button
-				variant={ignoreExpected ? "default" : "outline"}
-				size="sm"
-				onClick={() => handleSelect(true)}
-			>
-				Ignore expected
-			</Button>
-			<Button
-				variant={ignoreExpected ? "outline" : "default"}
-				size="sm"
-				onClick={() => handleSelect(false)}
-			>
-				Show all errors
-			</Button>
-		</div>
-	);
-}
+const REFRESH_KEY = "ignoredErrors";
 
 export function IgnoredErrorMatchersDialog({
 	matcherCount,
@@ -67,7 +29,8 @@ export function IgnoredErrorMatchersDialog({
 }) {
 	const $api = useApi();
 	const queryClient = useQueryClient();
-	const router = useRouter();
+	const readOnly = !canWrite(useAdminRole());
+	const { isPending, pendingKey, refresh } = useFilterNavigation();
 	const [open, setOpen] = useState(false);
 	const [pattern, setPattern] = useState("");
 	const [statusCode, setStatusCode] = useState("");
@@ -87,7 +50,9 @@ export function IgnoredErrorMatchersDialog({
 				"/admin/unstable-mappings/ignored-errors",
 			).queryKey,
 		});
-		router.refresh();
+		// The page data is server-rendered from a slow log scan, so route the
+		// refresh through the shared pending state instead of refreshing silently.
+		refresh(REFRESH_KEY);
 	};
 
 	const createMutation = $api.useMutation(
@@ -155,8 +120,12 @@ export function IgnoredErrorMatchersDialog({
 			}}
 		>
 			<DialogTrigger asChild>
-				<Button variant="outline" size="sm">
-					<ListFilter className="h-4 w-4" />
+				<Button variant="outline" size="sm" disabled={isPending}>
+					{pendingKey === REFRESH_KEY ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : (
+						<ListFilter className="h-4 w-4" />
+					)}
 					Ignored errors ({matcherCount})
 				</Button>
 			</DialogTrigger>
@@ -171,35 +140,37 @@ export function IgnoredErrorMatchersDialog({
 					</DialogDescription>
 				</DialogHeader>
 
-				<form onSubmit={handleAdd} className="flex items-center gap-2">
-					<Input
-						value={pattern}
-						onChange={(e) => setPattern(e.target.value)}
-						placeholder="Substring, e.g. overloaded_error"
-						maxLength={500}
-					/>
-					<Input
-						value={statusCode}
-						onChange={(e) => setStatusCode(e.target.value)}
-						placeholder="Status"
-						inputMode="numeric"
-						className="w-20 shrink-0"
-						aria-label="Upstream status code"
-						aria-invalid={statusCodeInvalid}
-					/>
-					<Button
-						type="submit"
-						size="sm"
-						disabled={createMutation.isPending || !canAdd}
-					>
-						{createMutation.isPending ? (
-							<Loader2 className="h-4 w-4 animate-spin" />
-						) : (
-							<Plus className="h-4 w-4" />
-						)}
-						Add
-					</Button>
-				</form>
+				{!readOnly && (
+					<form onSubmit={handleAdd} className="flex items-center gap-2">
+						<Input
+							value={pattern}
+							onChange={(e) => setPattern(e.target.value)}
+							placeholder="Substring, e.g. overloaded_error"
+							maxLength={500}
+						/>
+						<Input
+							value={statusCode}
+							onChange={(e) => setStatusCode(e.target.value)}
+							placeholder="Status"
+							inputMode="numeric"
+							className="w-20 shrink-0"
+							aria-label="Upstream status code"
+							aria-invalid={statusCodeInvalid}
+						/>
+						<Button
+							type="submit"
+							size="sm"
+							disabled={createMutation.isPending || !canAdd}
+						>
+							{createMutation.isPending ? (
+								<Loader2 className="h-4 w-4 animate-spin" />
+							) : (
+								<Plus className="h-4 w-4" />
+							)}
+							Add
+						</Button>
+					</form>
+				)}
 
 				{error && (
 					<p className="text-sm text-destructive" role="alert">
@@ -236,20 +207,22 @@ export function IgnoredErrorMatchersDialog({
 										</code>
 									)}
 								</span>
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									className="shrink-0 text-destructive hover:text-destructive"
-									aria-label={`Remove matcher ${matcher.pattern ?? matcher.statusCode}`}
-									disabled={deleteMutation.isPending}
-									onClick={() =>
-										deleteMutation.mutate({
-											params: { path: { id: matcher.id } },
-										})
-									}
-								>
-									<Trash2 className="h-4 w-4" />
-								</Button>
+								{!readOnly && (
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										className="shrink-0 text-destructive hover:text-destructive"
+										aria-label={`Remove matcher ${matcher.pattern ?? matcher.statusCode}`}
+										disabled={deleteMutation.isPending}
+										onClick={() =>
+											deleteMutation.mutate({
+												params: { path: { id: matcher.id } },
+											})
+										}
+									>
+										<Trash2 className="h-4 w-4" />
+									</Button>
+								)}
 							</li>
 						))}
 					</ul>

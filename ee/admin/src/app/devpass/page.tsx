@@ -1,6 +1,5 @@
 import { Search } from "lucide-react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { DateRangePicker } from "@/components/date-range-picker";
@@ -11,15 +10,19 @@ import {
 } from "@/components/devpass-subscribers-table";
 import { DevpassTimeseriesChart } from "@/components/devpass-timeseries-chart";
 import { DevpassUsage } from "@/components/devpass-usage";
+import { SearchForm } from "@/components/search-form";
 import { Button } from "@/components/ui/button";
+import { canWrite } from "@/lib/admin-role";
 import {
 	DEVPASS_USAGE_DEFAULT_RANGE,
 	resolveDateRange,
 } from "@/lib/date-range";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { requireSession } from "@/lib/require-session";
 import { cn } from "@/lib/utils";
 
 import type { DevpassListQuery } from "@/components/devpass-subscribers-table";
+import type { SearchFormParam } from "@/components/search-form";
 
 const SORT_BY_VALUES = [
 	"name",
@@ -166,6 +169,7 @@ export default async function DevpassPage({
 	}>;
 }) {
 	await requireSession();
+	const isAdmin = canWrite(await getSessionAdminRole());
 
 	const params = await searchParams;
 	const range = typeof params?.range === "string" ? params?.range : undefined;
@@ -263,62 +267,15 @@ export default async function DevpassPage({
 	queryParams.set("sortOrder", sortOrder);
 	const queryString = queryParams.toString();
 
-	async function handleSearch(formData: FormData) {
-		"use server";
-		const searchValue = formData.get("search") as string;
-		const sortByValue = formData.get("sortBy") as string;
-		const sortOrderValue = formData.get("sortOrder") as string;
-		const tierValue = formData.get("tier") as string;
-		const statusValue = formData.get("status") as string;
-		const utilValue = formData.get("utilization") as string;
-		const marginValue = formData.get("marginNegative") as string;
-		const churnValue = formData.get("showChurned") as string;
-		const rangeValue = formData.get("range") as string;
-		const fromValue = formData.get("from") as string;
-		const toValue = formData.get("to") as string;
-		const usageRangeValue = formData.get("usageRange") as string;
-		const usageFromValue = formData.get("usageFrom") as string;
-		const usageToValue = formData.get("usageTo") as string;
-		const sp = new URLSearchParams();
-		if (searchValue) {
-			sp.set("search", searchValue);
-		}
-		if (tierValue) {
-			sp.set("tier", tierValue);
-		}
-		if (statusValue) {
-			sp.set("status", statusValue);
-		}
-		if (utilValue) {
-			sp.set("utilization", utilValue);
-		}
-		if (marginValue) {
-			sp.set("marginNegative", "true");
-		}
-		if (churnValue) {
-			sp.set("showChurned", "true");
-		}
-		if (rangeValue) {
-			sp.set("range", rangeValue);
-		} else {
-			if (fromValue) {
-				sp.set("from", fromValue);
-			}
-			if (toValue) {
-				sp.set("to", toValue);
-			}
-		}
-		if (usageRangeValue) {
-			sp.set("usageRange", usageRangeValue);
-		} else if (usageFromValue && usageToValue) {
-			sp.set("usageFrom", usageFromValue);
-			sp.set("usageTo", usageToValue);
-		}
-		sp.set("sortBy", sortByValue);
-		sp.set("sortOrder", sortOrderValue);
-		sp.set("page", "1");
-		redirect(`/devpass?${sp.toString()}`);
-	}
+	// The search box replaces only `search`; every other filter is carried over
+	// as-is and the result list restarts at page 1.
+	const searchFormParams: SearchFormParam[] = [
+		{ name: "search" },
+		...Array.from(queryParams.entries())
+			.filter(([name]) => name !== "search")
+			.map(([name, value]) => ({ name, value })),
+		{ name: "page", value: "1" },
+	];
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
@@ -330,50 +287,29 @@ export default async function DevpassPage({
 						real provider cost, and margin.
 					</p>
 				</div>
-				<Suspense>
-					<DateRangePicker />
-				</Suspense>
+				{isAdmin && (
+					<Suspense>
+						<DateRangePicker />
+					</Suspense>
+				)}
 			</header>
 
-			<DevpassKpis from={from} to={to} />
+			{isAdmin && (
+				<>
+					<DevpassKpis from={from} to={to} />
 
-			<DevpassTimeseriesChart from={from} to={to} />
+					<DevpassTimeseriesChart from={from} to={to} />
 
-			<DevpassUsage from={usageFrom} to={usageTo} />
+					<DevpassUsage from={usageFrom} to={usageTo} />
+				</>
+			)}
 
-			<form
-				action={handleSearch}
+			<SearchForm
+				pathname="/devpass"
+				params={searchFormParams}
+				encoding="form"
 				className="flex flex-col gap-3 rounded-lg border border-border/60 bg-card p-4"
 			>
-				<input type="hidden" name="sortBy" value={sortBy} />
-				<input type="hidden" name="sortOrder" value={sortOrder} />
-				<input type="hidden" name="tier" value={tier} />
-				<input type="hidden" name="status" value={status} />
-				<input type="hidden" name="utilization" value={utilization} />
-				<input
-					type="hidden"
-					name="marginNegative"
-					value={marginNegative ? "true" : ""}
-				/>
-				<input
-					type="hidden"
-					name="showChurned"
-					value={showChurned ? "true" : ""}
-				/>
-				<input type="hidden" name="range" value={range ?? ""} />
-				<input type="hidden" name="from" value={range ? "" : (from ?? "")} />
-				<input type="hidden" name="to" value={range ? "" : (to ?? "")} />
-				<input type="hidden" name="usageRange" value={usageRange ?? ""} />
-				<input
-					type="hidden"
-					name="usageFrom"
-					value={usageRange ? "" : (usageFromParam ?? "")}
-				/>
-				<input
-					type="hidden"
-					name="usageTo"
-					value={usageRange ? "" : (usageToParam ?? "")}
-				/>
 				<div className="flex flex-col gap-2 sm:flex-row sm:items-center">
 					<div className="relative flex-1">
 						<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -499,7 +435,7 @@ export default async function DevpassPage({
 					/>
 				</div>
 				<DevpassResultCount query={listQuery} />
-			</form>
+			</SearchForm>
 
 			<DevpassSubscribersTable
 				query={listQuery}

@@ -1,3 +1,4 @@
+import { changelogPath, changelogTags } from "@/lib/changelog";
 import { enterpriseFeatures } from "@/lib/enterprise-features";
 import { features } from "@/lib/features";
 import { slugify } from "@/lib/slugify";
@@ -177,6 +178,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			url: `${baseUrl}/migration`,
 			changeFrequency: "monthly",
 			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/si-gateway`,
+			changeFrequency: "monthly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/super-intelligence`,
+			changeFrequency: "monthly",
+			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/reliability`,
@@ -375,6 +386,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		},
 	];
 
+	// DB-only catalogue entries (Airside carriers and their listings) are not
+	// in the static definitions, so pull them from the API.
+	const { fetchModels, fetchProviders } = await import("@/lib/fetch-models");
+	const { publicModelDefinition } =
+		await import("@/lib/airside-model-fallback");
+	const [apiModels, apiProviders] = await Promise.all([
+		fetchModels(),
+		fetchProviders(),
+	]);
+	const apiModelById = new Map(apiModels.map((model) => [model.id, model]));
+
 	// Model pages
 	const modelPages: MetadataRoute.Sitemap = [];
 	const listedModelIds = new Set<string>();
@@ -385,6 +407,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			model.providers.length > 0 &&
 			model.providers.every((p) => isMappingDeactivated(p))
 		) {
+			continue;
+		}
+		// Every provider's listing is paused or delisted: the page is a 404.
+		const apiModel = apiModelById.get(model.id);
+		if (apiModel && !publicModelDefinition(apiModel, model)) {
 			continue;
 		}
 
@@ -402,16 +429,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		// to the base model page. Google still discovers both via internal links.
 	}
 
-	// DB-only catalogue entries (Airside carriers and their listings) are not
-	// in the static definitions, so pull them from the API.
-	const { fetchModels, fetchProviders } = await import("@/lib/fetch-models");
 	const staticProviderIds = new Set(
 		providerDefinitions.map((p) => p.id as string),
 	);
-	const [apiModels, apiProviders] = await Promise.all([
-		fetchModels(),
-		fetchProviders(),
-	]);
 	for (const model of apiModels) {
 		if (
 			listedModelIds.has(model.id) ||
@@ -527,6 +547,30 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.5,
 		}));
 
+	const changelogTagPages: MetadataRoute.Sitemap = changelogTags.flatMap(
+		(tag) => {
+			const entries = allChangelogs.filter(
+				(entry) => !entry.draft && entry.tags.includes(tag),
+			);
+			if (!entries.length) {
+				return [];
+			}
+			return [
+				{
+					url: `${baseUrl}${changelogPath(tag)}`,
+					lastModified: new Date(
+						entries
+							.map((entry) => entry.date)
+							.sort()
+							.at(-1)!,
+					),
+					changeFrequency: "weekly" as const,
+					priority: 0.5,
+				},
+			];
+		},
+	);
+
 	// Legal pages
 	const legalPages: MetadataRoute.Sitemap = allLegals.map((legal) => ({
 		url: `${baseUrl}/legal/${legal.slug}`,
@@ -578,6 +622,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		...blogCategoryPages,
 		...guidePages,
 		...changelogPages,
+		...changelogTagPages,
 		...legalPages,
 		...migrationPages,
 		...useCasePages,

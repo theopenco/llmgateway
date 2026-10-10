@@ -22,6 +22,11 @@ import {
 } from "@/lib/components/card";
 import { generateMockActivityData, mockMetrics } from "@/lib/mock-feature-data";
 
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
+
 function ChartTooltipContent({
 	active,
 	payload,
@@ -34,7 +39,8 @@ function ChartTooltipContent({
 			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
 				<p className="font-medium">{payload[0].payload.formattedDate}</p>
 				<p className="text-sm">
-					<span className="font-medium">{payload[0].value}</span> requests
+					<span className="font-medium">{formatNumber(payload[0].value)}</span>{" "}
+					requests
 				</p>
 			</div>
 		);
@@ -95,6 +101,7 @@ export function PerformanceMonitoringDemo() {
 								axisLine={false}
 							/>
 							<YAxis
+								tickFormatter={formatCompactNumber}
 								stroke="#888888"
 								fontSize={12}
 								tickLine={false}

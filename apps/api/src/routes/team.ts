@@ -74,6 +74,8 @@ const teamMemberSchema = z.object({
 	id: z.string(),
 	userId: z.string(),
 	role: roleSchema,
+	// "sso" = granted by a group → role mapping and revoked on directory sync.
+	roleAssignmentSource: z.enum(["manual", "sso"]),
 	createdAt: z.date(),
 	user: z.object({
 		id: z.string(),
@@ -605,6 +607,7 @@ team.openapi(getMembers, async (c) => {
 				id: m.id,
 				userId: m.userId,
 				role: m.role,
+				roleAssignmentSource: m.roleAssignmentSource,
 				createdAt: m.createdAt,
 				user: m.user!,
 				budget: isPrivileged ? budgetFromRow(m) : null,
@@ -1207,6 +1210,11 @@ team.openapi(updateMember, async (c) => {
 			.update(tables.userOrganization)
 			.set({
 				role,
+				// Saving other access for an unchanged role keeps a mapped role
+				// revocable.
+				...(role === targetMember.role
+					? {}
+					: { roleAssignmentSource: "manual" as const, manualRole: null }),
 				...(role === "developer"
 					? {}
 					: { teamId: null, teamAssignmentSource: "manual" as const }),
@@ -1280,6 +1288,7 @@ team.openapi(updateMember, async (c) => {
 			id: updatedMember.id,
 			userId: updatedMember.userId,
 			role: updatedMember.role,
+			roleAssignmentSource: updatedMember.roleAssignmentSource,
 			createdAt: updatedMember.createdAt,
 			user: targetMember.user!,
 			budget: budgetFromRow(updatedMember),
@@ -1535,6 +1544,7 @@ team.openapi(updateMemberBudget, async (c) => {
 			id: updatedMember.id,
 			userId: updatedMember.userId,
 			role: updatedMember.role,
+			roleAssignmentSource: updatedMember.roleAssignmentSource,
 			createdAt: updatedMember.createdAt,
 			user: targetMember.user!,
 			budget: budgetFromRow(updatedMember),

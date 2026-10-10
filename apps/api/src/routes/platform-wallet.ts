@@ -110,9 +110,14 @@ platformWallet.openapi(createTopUp, async (c) => {
 	const paymentIntent = await getStripe(session.mode).paymentIntents.create({
 		amount: Math.round(feeBreakdown.totalAmount * 100),
 		currency: "usd",
-		description: `Credit top-up for wallet ${session.walletId}`,
+		description: `${session.brandName} — credit top-up (wallet ${session.walletId})`,
 		customer: stripeCustomerId,
 		automatic_payment_methods: { enabled: true },
+		// Cardholders recognise the developer's product, not ours. The value is
+		// normalized to a Stripe-safe suffix on write (see projects.ts).
+		...(session.statementDescriptorSuffix
+			? { statement_descriptor_suffix: session.statementDescriptorSuffix }
+			: {}),
 		metadata: {
 			kind: "end_user_topup",
 			walletId: session.walletId,

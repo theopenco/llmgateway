@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, Terminal } from "lucide-react";
+import { CheckCircle2, Loader2, MonitorSmartphone } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -66,10 +66,10 @@ export function DeviceApproval({ initialCode }: { initialCode: string }) {
 				<CardHeader>
 					<CheckCircle2 className="mb-2 size-8 text-primary" />
 					<CardTitle>
-						{decision.data ? "CLI authorized" : "Request denied"}
+						{decision.data ? "Device authorized" : "Request denied"}
 					</CardTitle>
 					<CardDescription>
-						You can close this tab and return to your terminal.
+						You can close this tab and return to the app on your device.
 					</CardDescription>
 				</CardHeader>
 			</Card>
@@ -79,15 +79,15 @@ export function DeviceApproval({ initialCode }: { initialCode: string }) {
 	return (
 		<Card>
 			<CardHeader>
-				<Terminal className="mb-2 size-8 text-primary" />
-				<CardTitle>Authorize LLM Gateway CLI</CardTitle>
+				<MonitorSmartphone className="mb-2 size-8 text-primary" />
+				<CardTitle>Authorize your device</CardTitle>
 				<CardDescription>
-					Connect the terminal on your device to your LLM Gateway account.
+					Sign in to The Lounge or the LLM Gateway CLI on your device.
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-4">
 				<div className="space-y-2">
-					<Label htmlFor="device-code">Code from your terminal</Label>
+					<Label htmlFor="device-code">Code from your device</Label>
 					<Input
 						id="device-code"
 						value={code}
@@ -109,9 +109,10 @@ export function DeviceApproval({ initialCode }: { initialCode: string }) {
 							Signed in as <strong>{session.user.email}</strong>.
 						</p>
 						<p className="text-sm text-muted-foreground">
-							The CLI can manage your organizations, projects, API keys, skills,
-							and usage with your existing permissions. To sign out later, run{" "}
-							<code>llmgateway auth logout</code> in your terminal.
+							The app on your device can access your account, organizations,
+							projects, API keys, conversations, skills, and usage with your
+							existing permissions. Sign out in the app, or run{" "}
+							<code>llmgateway auth logout</code> for the CLI.
 						</p>
 						<label className="flex items-start gap-2 text-sm">
 							<input
@@ -121,7 +122,7 @@ export function DeviceApproval({ initialCode }: { initialCode: string }) {
 								className="mt-1"
 								onChange={(event) => setConfirmed(event.target.checked)}
 							/>
-							The code above matches the code in my terminal.
+							The code above matches the code on my device.
 						</label>
 					</>
 				) : (
@@ -152,7 +153,7 @@ export function DeviceApproval({ initialCode }: { initialCode: string }) {
 							{decision.isPending && (
 								<Loader2 className="mr-2 size-4 animate-spin" />
 							)}
-							Authorize CLI
+							Authorize device
 						</Button>
 						<Button
 							variant="outline"

@@ -5,6 +5,7 @@ import {
 	EnterpriseSeatLimitError,
 	withEnterpriseSeatForOrganization,
 } from "@/lib/enterprise-seats.js";
+import { licenseSeatDetail, notifyOrgLimit } from "@/lib/org-limit-alerts.js";
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
 import { recomputeUserRole as applyUserRole } from "@/lib/sso-roles.js";
@@ -114,6 +115,42 @@ function scimError(status: number, detail: string, scimType?: string) {
 		},
 		{ status, headers: { "Content-Type": SCIM_CONTENT_TYPE } },
 	);
+}
+
+// Rejected provisioning otherwise surfaces only in the IdP's own error log, so
+// record it on the organization's audit log. Seat counts stay in the server
+// log: they span every organization under the deployment license.
+async function rejectProvisioning(
+	c: Context<ScimVars>,
+	user: { id: string; email: string },
+	operation: "create" | "activate",
+	error: EnterpriseSeatLimitError | null,
+): Promise<Response> {
+	const reason = error ? "seat_limit" : "already_provisioned";
+	logger.warn("SCIM: user provisioning rejected", {
+		organizationId: c.get("scimOrgId"),
+		userId: user.id,
+		operation,
+		reason,
+		...(error ? { maxSeats: error.maxSeats, seatsUsed: error.seatsUsed } : {}),
+	});
+	if (error) {
+		await notifyOrgLimit(c.get("scimOrgId"), {
+			limit: "seats",
+			source: "scim",
+			detail: licenseSeatDetail(error),
+		});
+	}
+	await logScimAudit(c, {
+		action: "scim.user.provision_failed",
+		resourceType: "scim_user",
+		resourceId: user.id,
+		targetUser: user,
+		metadata: { resourceName: user.email, operation, reason },
+	});
+	return error
+		? scimError(409, error.message, "tooMany")
+		: scimError(409, "User already provisioned in this organization");
 }
 
 function scimJson(body: unknown, status = 200) {
@@ -475,7 +512,7 @@ scim.post("/Users", async (c) => {
 	});
 
 	if (user && (await isMember(user.id, orgId))) {
-		return scimError(409, "User already provisioned in this organization");
+		return await rejectProvisioning(c, user, "create", null);
 	}
 
 	const isNewUser = !user;
@@ -528,7 +565,7 @@ scim.post("/Users", async (c) => {
 			);
 		} catch (error) {
 			if (error instanceof EnterpriseSeatLimitError) {
-				return scimError(409, error.message, "tooMany");
+				return await rejectProvisioning(c, user, "create", error);
 			}
 			throw error;
 		}
@@ -767,7 +804,7 @@ scim.put("/Users/:id", async (c) => {
 		);
 	} catch (error) {
 		if (error instanceof EnterpriseSeatLimitError) {
-			return scimError(409, error.message, "tooMany");
+			return await rejectProvisioning(c, user, "activate", error);
 		}
 		throw error;
 	}
@@ -870,7 +907,7 @@ scim.patch("/Users/:id", async (c) => {
 			membershipCreated = await ensureMembership(user.id, orgId);
 		} catch (error) {
 			if (error instanceof EnterpriseSeatLimitError) {
-				return scimError(409, error.message, "tooMany");
+				return await rejectProvisioning(c, user, "activate", error);
 			}
 			throw error;
 		}

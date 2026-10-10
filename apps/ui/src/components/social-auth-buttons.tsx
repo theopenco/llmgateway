@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/lib/auth-client";
+import { getAuthPagePath } from "@/lib/auth-redirect";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -164,7 +165,7 @@ export function SocialAuthButtons({
 										requestSignUp: true,
 									});
 								} else {
-									router.push("/signup");
+									router.push(getAuthPagePath("/signup", callbackPath));
 								}
 								setSignupDisabledState(null);
 							}}

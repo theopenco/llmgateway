@@ -18,6 +18,7 @@ import {
 	Globe,
 	Eye,
 	FileText,
+	Info,
 	Linkedin,
 	ListFilter,
 	Radio,
@@ -56,6 +57,7 @@ import {
 } from "@/deactivation";
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
+import { formatNumber } from "@/number-format";
 
 import { getDefaultProviderMapping } from "./default-provider-mapping";
 import {
@@ -69,6 +71,7 @@ import { ModelCodeExampleDialog } from "./model-code-example-dialog";
 import { ModelStatusBadge } from "./model-status-badge";
 import {
 	effectiveUnitPrice,
+	formatLocalPeakWindows,
 	formatPeakPricingSchedule,
 } from "./pricing-schedule";
 import { XIcon } from "./x-icon";
@@ -146,6 +149,30 @@ function StabilityDot({ stability }: { stability: string | null | undefined }) {
 				{level.charAt(0).toUpperCase() + level.slice(1)}
 			</TooltipContent>
 		</Tooltip>
+	);
+}
+
+/** Rendered only inside an open tooltip, so reading the browser clock cannot cause a hydration mismatch. */
+function LocalPeakPricingSchedule({
+	peakPricing,
+}: {
+	peakPricing: NonNullable<ApiModelProviderMapping["peakPricing"]>;
+}) {
+	const now = new Date();
+	const utcOffsetMinutes = -now.getTimezoneOffset();
+	const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	const offsetLabel =
+		new Intl.DateTimeFormat("en-US", { timeZoneName: "shortOffset" })
+			.formatToParts(now)
+			.find((part) => part.type === "timeZoneName")?.value ?? "";
+	return (
+		<div className="max-w-64 space-y-1">
+			<p className="font-medium">
+				In your time zone ({timeZone}, {offsetLabel})
+			</p>
+			<p>Peak: {formatLocalPeakWindows(peakPricing, utcOffsetMinutes)}.</p>
+			<p>All other times are off-peak.</p>
+		</div>
 	);
 }
 
@@ -1270,14 +1297,29 @@ export function ProviderSection({
 								/>
 							</div>
 						</div>
-						{pricingSchedule && (
+						{activeMapping.peakPricing && pricingSchedule && (
 							<div className="flex items-start gap-2 px-0.5 pt-0.5 text-[11px] leading-relaxed text-muted-foreground">
 								<CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-foreground/65" />
 								<div>
 									<p>
 										<span className="font-medium text-foreground">Peak:</span>{" "}
-										{pricingSchedule.peakDays}, {pricingSchedule.peakHours}{" "}
-										{pricingSchedule.timeZoneLabel}.
+										{pricingSchedule.peakDays}, {pricingSchedule.peakHours} UTC.
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<button
+													type="button"
+													className="ml-1 inline-flex align-middle text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+													aria-label="Show schedule in your time zone"
+												>
+													<Info className="h-3 w-3" />
+												</button>
+											</TooltipTrigger>
+											<TooltipContent side="top" className="text-xs">
+												<LocalPeakPricingSchedule
+													peakPricing={activeMapping.peakPricing}
+												/>
+											</TooltipContent>
+										</Tooltip>
 									</p>
 									<p>
 										<span className="font-medium text-foreground">
@@ -1285,7 +1327,7 @@ export function ProviderSection({
 										</span>{" "}
 										{pricingSchedule.peakDays} outside those hours
 										{pricingSchedule.offPeakDays
-											? `, plus all day ${pricingSchedule.offPeakDays}`
+											? `, plus all day ${pricingSchedule.offPeakDays} UTC`
 											: ""}
 										.
 									</p>
@@ -1363,7 +1405,9 @@ export function ProviderSection({
 						<div className="space-y-2">
 							{(() => {
 								const hasCached = activeMapping.pricingTiers!.some(
-									(t) => t.cachedInputPrice,
+									(t) =>
+										t.peakPricing?.[timeBasedPricingMode].cachedInputPrice ??
+										t.cachedInputPrice,
 								);
 								return (
 									<>
@@ -1375,7 +1419,11 @@ export function ProviderSection({
 											{hasCached && <div>CACHED</div>}
 											<div>OUT</div>
 										</div>
-										{activeMapping.pricingTiers!.map((tier, index) => {
+										{activeMapping.pricingTiers!.map((pricingTier, index) => {
+											const tier = {
+												...pricingTier,
+												...pricingTier.peakPricing?.[timeBasedPricingMode],
+											};
 											const discountNum = discountFraction(
 												activeMapping.discount,
 											);
@@ -1383,8 +1431,8 @@ export function ProviderSection({
 												activeMapping.pricingTiers![index - 1]?.upToTokens ?? 0;
 											const label =
 												tier.upToTokens === null
-													? `>${(prevTokens / 1000).toLocaleString()}K tokens`
-													: `≤${(tier.upToTokens / 1000).toLocaleString()}K tokens`;
+													? `>${formatNumber(prevTokens / 1000)}K tokens`
+													: `≤${formatNumber(tier.upToTokens / 1000)}K tokens`;
 											return (
 												<div
 													key={index}

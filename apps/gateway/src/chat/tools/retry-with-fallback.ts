@@ -1,5 +1,6 @@
 import { hasInvalidProviderCredentialError } from "@/lib/provider-auth-errors.js";
 
+import { compareProviderOrder } from "@llmgateway/actions";
 import { DEFAULT_ROUTING_RETRY } from "@llmgateway/shared/routing-config";
 
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
@@ -138,11 +139,10 @@ export function sameKeyRetryDelay(attempt: number): Promise<void> {
  * (and re-firing a 429 would amplify rate-limit pressure). BYOK/custom
  * providers (envVarName unset) are also excluded.
  *
- * Session-sticky requests are the exception to the `hasOtherProvider` gate:
- * they pin the conversation to a single provider to keep the upstream prompt
- * cache warm, and cross-provider fallback is disabled for them (see
- * `shouldRetryRequest`), so the pinned provider is retried on the same key even
- * when other providers exist.
+ * Provider-pinned requests are the exception to the `hasOtherProvider` gate:
+ * cross-provider fallback is disabled for them (see `shouldRetryRequest`), so
+ * the pinned provider is retried on the same key even when other providers
+ * exist.
  */
 export function shouldRetrySameKey(opts: {
 	usedProvider: string;
@@ -153,12 +153,12 @@ export function shouldRetrySameKey(opts: {
 	hasOtherProvider: boolean;
 	retryCount: number;
 	maxRetries: number;
-	sessionSticky?: boolean;
+	providerPinned?: boolean;
 }): boolean {
 	if (opts.retryCount >= opts.maxRetries) {
 		return false;
 	}
-	if (opts.hasOtherProvider && !opts.sessionSticky) {
+	if (opts.hasOtherProvider && !opts.providerPinned) {
 		return false;
 	}
 	if (opts.usedProvider === "custom" || opts.usedProvider === "llmgateway") {
@@ -194,11 +194,11 @@ export function shouldRetrySameKey(opts: {
  * Only retries when no specific provider was requested, the error is retryable,
  * retry count hasn't been exceeded, and alternative providers are available.
  *
- * Cross-provider fallback is disabled for session-sticky requests: they pin the
- * conversation to a single provider so the upstream prompt cache stays warm, and
- * switching providers mid-session would break that pin. Transient failures on a
- * sticky request are instead retried against the pinned provider (via the
- * alternate-key and same-key retry paths).
+ * Cross-provider fallback is disabled for provider-pinned requests: session-
+ * sticky requests, whose pin keeps the upstream prompt cache warm, and
+ * requests replaying provider-bound reasoning that another provider rejects.
+ * Transient failures on a pinned request are instead retried against
+ * the same provider (via the alternate-key and same-key retry paths).
  */
 export function shouldRetryRequest(opts: {
 	requestedProvider: string | undefined;
@@ -208,7 +208,7 @@ export function shouldRetryRequest(opts: {
 	remainingProviders: number;
 	usedProvider: string;
 	maxRetries?: number;
-	sessionSticky?: boolean;
+	providerPinned?: boolean;
 }): boolean {
 	if (opts.requestedProvider) {
 		return false;
@@ -216,7 +216,7 @@ export function shouldRetryRequest(opts: {
 	if (opts.noFallback) {
 		return false;
 	}
-	if (opts.sessionSticky) {
+	if (opts.providerPinned) {
 		return false;
 	}
 	if (!isRetryableErrorType(opts.errorType)) {
@@ -261,8 +261,13 @@ export function selectNextProvider(
 		externalId: string;
 		region?: string;
 	}>,
+	providerOrder?: readonly string[],
 ): { providerId: string; externalId: string; region?: string } | null {
-	const sorted = [...providerScores].sort((a, b) => a.score - b.score);
+	const sorted = [...providerScores].sort(
+		(a, b) =>
+			compareProviderOrder(a.providerId, b.providerId, providerOrder) ||
+			a.score - b.score,
+	);
 	for (const score of sorted) {
 		if (score.excludedByContentFilter) {
 			continue;

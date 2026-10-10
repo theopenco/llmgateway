@@ -31,6 +31,7 @@ import {
 	CREDIT_TOP_UP_MIN_AMOUNT,
 	isCreditTopUpAmountInRange,
 } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type React from "react";
@@ -288,7 +289,7 @@ function AmountStep({
 	const isAmountValid = isCreditTopUpAmountInRange(amount);
 	const amountValidationMessage =
 		amount > CREDIT_TOP_UP_MAX_AMOUNT
-			? `Maximum top-up amount is $${CREDIT_TOP_UP_MAX_AMOUNT.toLocaleString("en-US")}.`
+			? `Maximum top-up amount is $${formatNumber(CREDIT_TOP_UP_MAX_AMOUNT)}.`
 			: amount < CREDIT_TOP_UP_MIN_AMOUNT
 				? `Minimum top-up amount is $${CREDIT_TOP_UP_MIN_AMOUNT}.`
 				: !Number.isInteger(amount)
@@ -360,7 +361,7 @@ function AmountStep({
 					/>
 					<p className="text-xs text-muted-foreground">
 						Minimum ${CREDIT_TOP_UP_MIN_AMOUNT}. Maximum $
-						{CREDIT_TOP_UP_MAX_AMOUNT.toLocaleString("en-US")}.
+						{formatNumber(CREDIT_TOP_UP_MAX_AMOUNT)}.
 					</p>
 					{amountValidationMessage ? (
 						<p className="text-xs text-destructive">

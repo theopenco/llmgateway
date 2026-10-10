@@ -58,7 +58,7 @@ describe("admin provider credentials", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		// The catalog prefers the gateway's published snapshot, so the tests that
 		// assert the env fallback must start without one.
@@ -97,8 +97,8 @@ describe("admin provider credentials", () => {
 		});
 	}
 
-	async function list(): Promise<Credential[]> {
-		const res = await app.request("/admin/provider-credentials", {
+	async function list(query = ""): Promise<Credential[]> {
+		const res = await app.request(`/admin/provider-credentials${query}`, {
 			headers: { Cookie: cookie },
 		});
 		expect(res.status).toBe(200);
@@ -422,6 +422,25 @@ describe("admin provider credentials", () => {
 		expect(row?.status).toBe("deleted");
 	});
 
+	test("lists soft-deleted credentials only when asked", async () => {
+		await create({ provider: "openai", token: "sk-deleted-one" });
+		await create({ provider: "openai", token: "sk-kept-one" });
+		const [deleted, kept] = await list();
+
+		const res = await app.request(`/admin/provider-credentials/${deleted.id}`, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+
+		expect((await list()).map((c) => c.id)).toEqual([kept.id]);
+		const withDeleted = await list("?includeDeleted=true");
+		expect(withDeleted.map((c) => [c.id, c.status])).toEqual([
+			[deleted.id, "deleted"],
+			[kept.id, "active"],
+		]);
+	});
+
 	test("does not manage organization-owned provider keys", async () => {
 		await db.insert(tables.organization).values({
 			id: "byok-org",
@@ -651,7 +670,7 @@ describe("managed credential region scoping", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 	});
 
@@ -774,7 +793,7 @@ describe("managed credential token confidentiality", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 	});
 
@@ -860,7 +879,7 @@ describe("managed credential ordering", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 	});
 
@@ -993,7 +1012,7 @@ describe("managed credential reorder cache invalidation", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		// The managed SWR key is keyed only on the provider, so a cached entry
 		// from an earlier run outlives deleteAll() and would decide this test.
@@ -1074,6 +1093,13 @@ describe("managed credential reorder cache invalidation", () => {
 				providerKeyId: string | null;
 				cost: number;
 				cached?: boolean;
+				error?: "upstream_error" | "gateway_error" | "client_error";
+				errorDetails?: {
+					statusCode: number;
+					statusText: string;
+					responseText: string;
+				};
+				usedModel?: string;
 			}[],
 		) {
 			await db.insert(tables.organization).values({
@@ -1116,11 +1142,14 @@ describe("managed credential reorder cache invalidation", () => {
 					providerKeyId: entry.providerKeyId,
 					cost: entry.cost,
 					cached: entry.cached ?? false,
+					hasError: entry.error !== undefined,
+					unifiedFinishReason: entry.error ?? "completed",
+					errorDetails: entry.errorDetails,
 					duration: 1000,
 					usedMode: "credits",
 					requestedModel: "openai/gpt-4o-mini",
 					requestedProvider: "openai",
-					usedModel: "gpt-4o-mini",
+					usedModel: entry.usedModel ?? "gpt-4o-mini",
 					usedProvider: "openai",
 					responseSize: 100,
 					mode: "credits",
@@ -1194,6 +1223,33 @@ describe("managed credential reorder cache invalidation", () => {
 			expect(body.data.length).toBeGreaterThan(0);
 		});
 
+		test("scopes calendar-month windows to their UTC month", async () => {
+			await seedTraffic([{ providerKeyId, cost: 0.05 }]);
+
+			const month = await app.request(
+				`/admin/provider-keys/${providerKeyId}/spend?window=month`,
+				{ headers: { Cookie: cookie } },
+			);
+			const monthBody = (await month.json()) as {
+				bucket: string;
+				totalCost: number;
+			};
+			expect(monthBody.bucket).toBe("day");
+			expect(monthBody.totalCost).toBeCloseTo(0.05, 6);
+
+			// Today's traffic sits past the previous month's exclusive end.
+			const lastMonth = await app.request(
+				`/admin/provider-keys/${providerKeyId}/spend?window=last_month`,
+				{ headers: { Cookie: cookie } },
+			);
+			const lastMonthBody = (await lastMonth.json()) as {
+				totalCost: number;
+				buckets: string[];
+			};
+			expect(lastMonthBody.totalCost).toBe(0);
+			expect(lastMonthBody.buckets.length).toBeGreaterThanOrEqual(28);
+		});
+
 		test("splits spend by consuming organization", async () => {
 			await seedTraffic([
 				{ providerKeyId, cost: 0.04 },
@@ -1215,6 +1271,65 @@ describe("managed credential reorder cache invalidation", () => {
 			expect(body.organizations[0].cost).toBeCloseTo(0.1, 6);
 		});
 
+		test("splits spend by model from the daily model rollup", async () => {
+			await db.insert(tables.providerKey).values({
+				id: "model-split-cred",
+				...encryptProviderKeyForStorage(
+					"sk-model-split",
+					"model-split-cred",
+					null,
+				),
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+			});
+			const day = new Date();
+			day.setUTCHours(0, 0, 0, 0);
+			await db.insert(tables.globalProviderKeyModelStats).values(
+				[
+					{ usedModel: "openai/gpt-4o-mini", cost: 0.2, requestCount: 10 },
+					{ usedModel: "openai/gpt-4o", cost: 0.5, requestCount: 2 },
+					// Different mode, same model: summed into one row.
+					{
+						usedModel: "openai/gpt-4o",
+						cost: 0.25,
+						requestCount: 1,
+						usedMode: "api-keys" as const,
+					},
+				].map((row) => ({
+					dayTimestamp: day,
+					providerKeyId: "model-split-cred",
+					usedModel: row.usedModel,
+					usedProvider: "openai",
+					usedMode: row.usedMode ?? ("credits" as const),
+					orgKind: "default" as const,
+					requestCount: row.requestCount,
+					cost: row.cost,
+					totalTokens: "100",
+				})),
+			);
+
+			const res = await getSpend("model-split-cred");
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				modelsSince: string;
+				models: {
+					usedModel: string;
+					cost: number;
+					requestCount: number;
+					totalTokens: string;
+				}[];
+			};
+			expect(new Date(body.modelsSince).getUTCHours()).toBe(0);
+			expect(body.models.map((model) => model.usedModel)).toEqual([
+				"openai/gpt-4o",
+				"openai/gpt-4o-mini",
+			]);
+			expect(body.models[0].cost).toBeCloseTo(0.75, 6);
+			expect(body.models[0].requestCount).toBe(3);
+			expect(body.models[0].totalTokens).toBe("200");
+		});
+
 		test("reports zeroes for a key with no attributed traffic", async () => {
 			await db.insert(tables.providerKey).values({
 				id: "quiet-cred",
@@ -1231,13 +1346,68 @@ describe("managed credential reorder cache invalidation", () => {
 				buckets: string[];
 				data: unknown[];
 				organizations: unknown[];
+				models: unknown[];
 			};
 			expect(body.totalCost).toBe(0);
 			expect(body.data).toEqual([]);
 			expect(body.organizations).toEqual([]);
+			expect(body.models).toEqual([]);
 			// The chart still spans the whole window: the grid is returned even when
 			// nothing was spent, so the axis does not collapse to nothing.
 			expect(body.buckets).toHaveLength(25);
+		});
+
+		test("splits errors by class per bucket and organization", async () => {
+			await seedTraffic([
+				{ providerKeyId, cost: 0.01 },
+				{ providerKeyId, cost: 0, error: "upstream_error" },
+				{ providerKeyId, cost: 0, error: "gateway_error" },
+				{ providerKeyId, cost: 0, error: "client_error" },
+			]);
+
+			const res = await getSpend();
+			const body = (await res.json()) as {
+				key: { maskedToken: string; variant: string };
+				data: Record<string, number>[];
+				organizations: Record<string, number>[];
+			};
+
+			const expected = {
+				requestCount: 4,
+				errorCount: 3,
+				upstreamErrorCount: 1,
+				gatewayErrorCount: 1,
+				clientErrorCount: 1,
+			};
+			expect(body.data).toEqual([expect.objectContaining(expected)]);
+			expect(body.organizations).toEqual([expect.objectContaining(expected)]);
+			expect(body.key.variant).toBe("default");
+			expect(body.key.maskedToken).not.toContain("sk-spend-cred");
+		});
+
+		test("overrides the bucket grain, except past a month", async () => {
+			await seedTraffic([{ providerKeyId, cost: 0.01 }]);
+
+			const hourly = await app.request(
+				`/admin/provider-keys/${providerKeyId}/spend?window=7d&bucket=hour`,
+				{ headers: { Cookie: cookie } },
+			);
+			const hourlyBody = (await hourly.json()) as {
+				bucket: string;
+				buckets: string[];
+				data: { timestamp: string }[];
+			};
+			expect(hourlyBody.bucket).toBe("hour");
+			// One per hour of the week, plus the hour in progress.
+			const weekHours = 7 * 24;
+			expect(hourlyBody.buckets).toHaveLength(weekHours + 1);
+			expect(hourlyBody.buckets).toContain(hourlyBody.data[0].timestamp);
+
+			const tooLong = await app.request(
+				`/admin/provider-keys/${providerKeyId}/spend?window=90d&bucket=hour`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(((await tooLong.json()) as { bucket: string }).bucket).toBe("day");
 		});
 
 		test("returns a bucket grid covering the whole window", async () => {
@@ -1259,6 +1429,160 @@ describe("managed credential reorder cache invalidation", () => {
 				expect(body.buckets).toContain(point.timestamp);
 			}
 		});
+
+		test("groups a key's errors by type across models", async () => {
+			const unavailable = {
+				statusCode: 503,
+				statusText: "Service Unavailable",
+				responseText: "overloaded",
+			};
+			await seedTraffic([
+				{ providerKeyId, cost: 0.01 },
+				{
+					providerKeyId,
+					cost: 0,
+					error: "upstream_error",
+					errorDetails: unavailable,
+				},
+				{
+					providerKeyId,
+					cost: 0,
+					error: "upstream_error",
+					errorDetails: unavailable,
+					usedModel: "gpt-4o",
+				},
+				{
+					providerKeyId,
+					cost: 0,
+					error: "gateway_error",
+					errorDetails: {
+						statusCode: 500,
+						statusText: "Internal",
+						responseText: "boom",
+					},
+				},
+				// Excluded: a caller's mistake, and another credential's failure.
+				{ providerKeyId, cost: 0, error: "client_error" },
+				{
+					providerKeyId: null,
+					cost: 0,
+					error: "upstream_error",
+					errorDetails: unavailable,
+				},
+			]);
+
+			const res = await app.request(
+				`/admin/provider-keys/${providerKeyId}/error-types`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				sampledErrors: number;
+				timeline: { bucketSeconds: number; start: number; end: number };
+				errors: {
+					statusCode: number | null;
+					classification: string | null;
+					count: number;
+					buckets: { start: number; count: number }[];
+					models: { usedModel: string; count: number }[];
+				}[];
+			};
+
+			expect(body.sampledErrors).toBe(3);
+			expect(body.errors).toHaveLength(2);
+			expect(body.errors[0]).toMatchObject({
+				statusCode: 503,
+				classification: "upstream_error",
+				count: 2,
+			});
+			expect(
+				body.errors[0].models.map((model) => model.usedModel).sort(),
+			).toEqual(["gpt-4o", "gpt-4o-mini"]);
+			expect(body.errors[1]).toMatchObject({ statusCode: 500, count: 1 });
+			const [bucket] = body.errors[0].buckets;
+			expect(bucket.count).toBe(2);
+			expect(bucket.start).toBeGreaterThanOrEqual(body.timeline.start);
+			const bucketMs = body.timeline.bucketSeconds * 1000;
+			expect(bucket.start).toBeLessThanOrEqual(body.timeline.end + bucketMs);
+
+			const yearly = await app.request(
+				`/admin/provider-keys/${providerKeyId}/error-types?window=365d`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(yearly.status).toBe(200);
+			const yearlyBody = (await yearly.json()) as {
+				sampledErrors: number;
+				timeline: { bucketSeconds: number };
+			};
+			expect(yearlyBody.sampledErrors).toBe(3);
+			expect(yearlyBody.timeline.bucketSeconds).toBe(86400);
+
+			const missing = await app.request(
+				"/admin/provider-keys/does-not-exist/error-types",
+				{ headers: { Cookie: cookie } },
+			);
+			expect(missing.status).toBe(404);
+		});
+	});
+
+	test("samples a key's failing mapping the provider rollup misses", async () => {
+		// The key's daily rollup saw errors on this mapping, but the provider-wide
+		// hourly rollup has no row for it, as when it lags or ranks it out.
+		await db.insert(tables.providerKey).values({
+			id: "rollup-gap-cred",
+			...encryptProviderKeyForStorage("sk-rollup-gap", "rollup-gap-cred", null),
+			provider: "openai",
+			managed: true,
+			organizationId: null,
+		});
+		const day = new Date();
+		day.setUTCHours(0, 0, 0, 0);
+		await db.insert(tables.globalProviderKeyModelStats).values({
+			dayTimestamp: day,
+			providerKeyId: "rollup-gap-cred",
+			usedModel: "openai/gpt-4o",
+			usedProvider: "openai",
+			usedMode: "credits",
+			orgKind: "default",
+			requestCount: 1,
+			errorCount: 1,
+			upstreamErrorCount: 1,
+		});
+		await db.insert(tables.log).values({
+			id: "rollup-gap-log",
+			requestId: "rollup-gap-request",
+			organizationId: "test-org-id",
+			projectId: "test-project-id",
+			apiKeyId: "test-api-key-id",
+			providerKeyId: "rollup-gap-cred",
+			hasError: true,
+			unifiedFinishReason: "upstream_error",
+			errorDetails: {
+				statusCode: 503,
+				statusText: "Service Unavailable",
+				responseText: "overloaded",
+			},
+			duration: 100,
+			usedMode: "credits",
+			requestedModel: "gpt-4o",
+			requestedProvider: "openai",
+			usedModel: "openai/gpt-4o",
+			usedProvider: "openai",
+			responseSize: 10,
+			mode: "credits",
+		});
+
+		const res = await app.request(
+			"/admin/provider-keys/rollup-gap-cred/error-types",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			errors: { statusCode: number | null; count: number }[];
+		};
+		expect(body.errors).toEqual([
+			expect.objectContaining({ statusCode: 503, count: 1 }),
+		]);
 	});
 
 	describe("spend overview", () => {
@@ -1509,13 +1833,544 @@ describe("managed credential reorder cache invalidation", () => {
 			expect(quiet?.totalTokens).toBe("0");
 		});
 	});
+	describe("recent error rate", () => {
+		const providerKeyId = "errors-cred";
+		const orgId = "errors-org";
+		const projectId = "errors-project";
+		const apiKeyId = "errors-api-key";
+
+		async function seedTraffic(
+			entries: { hasError: boolean; finishReason: string }[],
+		) {
+			await db.insert(tables.organization).values({
+				id: orgId,
+				name: "Errors Org",
+				billingEmail: "errors@example.com",
+				credits: "100",
+			});
+			await db.insert(tables.project).values({
+				id: projectId,
+				name: "Errors Project",
+				organizationId: orgId,
+				mode: "credits",
+			});
+			await db.insert(tables.apiKey).values({
+				id: apiKeyId,
+				...hashApiKeyForStorage("errors-api-key-token"),
+				projectId,
+				description: "Errors Key",
+				createdBy: "test-user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: providerKeyId,
+				...encryptProviderKeyForStorage("sk-errors-cred", providerKeyId, null),
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+			});
+
+			let index = 0;
+			for (const entry of entries) {
+				await db.insert(tables.log).values({
+					id: `errors-log-${index}`,
+					requestId: `errors-request-${index}`,
+					organizationId: orgId,
+					projectId,
+					apiKeyId,
+					providerKeyId,
+					cost: 0.01,
+					duration: 1000,
+					usedMode: "credits",
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 100,
+					mode: "credits",
+					hasError: entry.hasError,
+					unifiedFinishReason: entry.finishReason,
+				});
+				index++;
+			}
+
+			await aggregateLogsForTesting();
+		}
+
+		interface ErrorCounts {
+			requestCount: number;
+			errorCount: number;
+			clientErrorCount: number;
+			gatewayErrorCount: number;
+			upstreamErrorCount: number;
+		}
+
+		async function listCredential(errorWindow?: string) {
+			const query = errorWindow ? `?errorWindow=${errorWindow}` : "";
+			const res = await app.request(`/admin/provider-credentials${query}`, {
+				headers: { Cookie: cookie },
+			});
+			const body = (await res.json()) as {
+				credentials: {
+					id: string;
+					last24h: ErrorCounts;
+					errorSeries: (ErrorCounts & { date: string })[];
+				}[];
+			};
+			return body.credentials.find(
+				(credential) => credential.id === providerKeyId,
+			);
+		}
+
+		test("reports 24h request and error counts per credential", async () => {
+			await seedTraffic([
+				{ hasError: false, finishReason: "completed" },
+				{ hasError: false, finishReason: "completed" },
+				{ hasError: true, finishReason: "upstream_error" },
+				{ hasError: true, finishReason: "gateway_error" },
+				{ hasError: true, finishReason: "client_error" },
+			]);
+
+			expect((await listCredential())?.last24h).toEqual({
+				requestCount: 5,
+				errorCount: 3,
+				clientErrorCount: 1,
+				gatewayErrorCount: 1,
+				upstreamErrorCount: 1,
+			});
+		});
+
+		test("reports zeroes for a credential with no attributed traffic", async () => {
+			await seedTraffic([]);
+
+			expect((await listCredential())?.last24h).toEqual({
+				requestCount: 0,
+				errorCount: 0,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 0,
+			});
+		});
+
+		test.each([
+			["4h", 4, 60 * 60 * 1000],
+			["1d", 24, 60 * 60 * 1000],
+			["7d", 7, 24 * 60 * 60 * 1000],
+		])(
+			"returns a zero-filled %s error series ending in the current bucket",
+			async (errorWindow, length, stepMs) => {
+				const before = Date.now();
+				await seedTraffic([
+					{ hasError: false, finishReason: "completed" },
+					{ hasError: true, finishReason: "upstream_error" },
+					{ hasError: true, finishReason: "client_error" },
+				]);
+
+				const series = (await listCredential(errorWindow))?.errorSeries;
+				expect(series).toHaveLength(length);
+				const starts = series!.map((point) => Date.parse(point.date));
+				expect(starts.every((start) => start % stepMs === 0)).toBe(true);
+				expect(
+					starts
+						.slice(1)
+						.every((start, index) => start - starts[index] === stepMs),
+				).toBe(true);
+				expect(starts.at(-1)).toBeLessThanOrEqual(Date.now());
+
+				// A bucket boundary can pass between seeding and listing, so the
+				// traffic sits in whichever bucket was open when it was written.
+				const total = series!.reduce(
+					(sum, point) => ({
+						requestCount: sum.requestCount + point.requestCount,
+						errorCount: sum.errorCount + point.errorCount,
+						clientErrorCount: sum.clientErrorCount + point.clientErrorCount,
+						gatewayErrorCount: sum.gatewayErrorCount + point.gatewayErrorCount,
+						upstreamErrorCount:
+							sum.upstreamErrorCount + point.upstreamErrorCount,
+					}),
+					{
+						requestCount: 0,
+						errorCount: 0,
+						clientErrorCount: 0,
+						gatewayErrorCount: 0,
+						upstreamErrorCount: 0,
+					},
+				);
+				expect(total).toEqual({
+					requestCount: 3,
+					errorCount: 2,
+					clientErrorCount: 1,
+					gatewayErrorCount: 0,
+					upstreamErrorCount: 1,
+				});
+				const busy = series!.filter((point) => point.requestCount > 0);
+				expect(
+					busy.every(
+						(point) => Date.parse(point.date) >= before - (before % stepMs),
+					),
+				).toBe(true);
+			},
+		);
+
+		test("defaults the error series to 24 hourly buckets", async () => {
+			await seedTraffic([]);
+
+			expect((await listCredential())?.errorSeries).toHaveLength(24);
+		});
+
+		test("rejects an unknown error window", async () => {
+			const res = await app.request(
+				"/admin/provider-credentials?errorWindow=2h",
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(400);
+		});
+	});
+
+	describe("7d daily series", () => {
+		const providerKeyId = "daily-cred";
+		const projectId = "daily-project";
+		const orgId = "daily-org";
+
+		/** Start of a UTC day, `daysAgo` days back from today. */
+		const DAY_MS = 24 * 60 * 60 * 1000;
+		const HOUR_MS = 60 * 60 * 1000;
+
+		function utcDay(daysAgo: number) {
+			const day = new Date();
+			day.setUTCHours(0, 0, 0, 0);
+			const offsetMs = daysAgo * DAY_MS;
+			return new Date(day.getTime() - offsetMs);
+		}
+
+		/** `hour` hours into the UTC day `daysAgo` days back. */
+		function utcHour(daysAgo: number, hour: number) {
+			const offsetMs = hour * HOUR_MS;
+			return new Date(utcDay(daysAgo).getTime() + offsetMs);
+		}
+
+		async function seedHourlyStats(
+			rows: {
+				hourTimestamp: Date;
+				cost: number;
+				requestCount: number;
+				errorCount?: number;
+				clientErrorCount?: number;
+				upstreamErrorCount?: number;
+			}[],
+		) {
+			await db.insert(tables.organization).values({
+				id: orgId,
+				name: "Daily Org",
+				billingEmail: "daily@example.com",
+				credits: "100",
+			});
+			await db.insert(tables.project).values({
+				id: projectId,
+				name: "Daily Project",
+				organizationId: orgId,
+				mode: "credits",
+			});
+			await db.insert(tables.providerKey).values({
+				id: providerKeyId,
+				...encryptProviderKeyForStorage("sk-daily-cred", providerKeyId, null),
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+			});
+			// Written straight into the rollup: the series has to cover days the log
+			// aggregator cannot be made to backdate.
+			if (rows.length > 0) {
+				await db.insert(tables.providerKeyHourlyStats).values(
+					rows.map((row) => ({
+						providerKeyId,
+						projectId,
+						hourTimestamp: row.hourTimestamp,
+						cost: row.cost,
+						requestCount: row.requestCount,
+						errorCount: row.errorCount ?? 0,
+						clientErrorCount: row.clientErrorCount ?? 0,
+						upstreamErrorCount: row.upstreamErrorCount ?? 0,
+					})),
+				);
+			}
+		}
+
+		async function listDaily() {
+			const res = await app.request("/admin/provider-credentials", {
+				headers: { Cookie: cookie },
+			});
+			const body = (await res.json()) as {
+				credentials: {
+					id: string;
+					last7dDaily: {
+						date: string;
+						cost: number;
+						requestCount: number;
+						errorCount: number;
+						clientErrorCount: number;
+						gatewayErrorCount: number;
+						upstreamErrorCount: number;
+					}[];
+				}[];
+			};
+			return body.credentials.find(
+				(credential) => credential.id === providerKeyId,
+			)?.last7dDaily;
+		}
+
+		test("returns one zero-filled entry per UTC day, oldest first", async () => {
+			await seedHourlyStats([
+				{
+					hourTimestamp: utcHour(6, 3),
+					cost: 0.5,
+					requestCount: 10,
+					errorCount: 1,
+				},
+				// Two buckets on the same day must collapse into one point.
+				{
+					hourTimestamp: utcHour(0, 1),
+					cost: 0.25,
+					requestCount: 4,
+					errorCount: 2,
+					clientErrorCount: 1,
+					upstreamErrorCount: 1,
+				},
+				{
+					hourTimestamp: utcHour(0, 2),
+					cost: 0.25,
+					requestCount: 6,
+					errorCount: 0,
+				},
+			]);
+
+			const daily = await listDaily();
+			expect(daily).toHaveLength(7);
+			expect(daily?.map((point) => point.date)).toEqual(
+				Array.from({ length: 7 }, (_, index) =>
+					utcDay(6 - index).toISOString(),
+				),
+			);
+			expect(daily?.[0]).toEqual({
+				date: utcDay(6).toISOString(),
+				cost: 0.5,
+				requestCount: 10,
+				errorCount: 1,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 0,
+			});
+			expect(daily?.slice(1, 6).map((point) => point.requestCount)).toEqual([
+				0, 0, 0, 0, 0,
+			]);
+			expect(daily?.[6]).toEqual({
+				date: utcDay(0).toISOString(),
+				cost: 0.5,
+				requestCount: 10,
+				errorCount: 2,
+				clientErrorCount: 1,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 1,
+			});
+		});
+
+		test("excludes days older than the window", async () => {
+			await seedHourlyStats([
+				{
+					hourTimestamp: utcHour(7, 12),
+					cost: 9,
+					requestCount: 99,
+					errorCount: 9,
+				},
+			]);
+
+			const daily = await listDaily();
+			expect(daily).toHaveLength(7);
+			expect(daily?.every((point) => point.requestCount === 0)).toBe(true);
+			expect(daily?.every((point) => point.cost === 0)).toBe(true);
+		});
+
+		test("zero-fills the whole window for a credential with no traffic", async () => {
+			await seedHourlyStats([]);
+
+			const daily = await listDaily();
+			expect(daily).toHaveLength(7);
+			expect(daily?.map((point) => point.date)).toEqual(
+				Array.from({ length: 7 }, (_, index) =>
+					utcDay(6 - index).toISOString(),
+				),
+			);
+			expect(daily?.every((point) => point.errorCount === 0)).toBe(true);
+		});
+	});
+
+	describe("per-model error breakdown", () => {
+		const providerKeyId = "model-errors-cred";
+
+		/** Start of today UTC, which is inside the route's day window. */
+		function today() {
+			const day = new Date();
+			day.setUTCHours(0, 0, 0, 0);
+			return day;
+		}
+
+		async function seedCredential() {
+			await db.insert(tables.providerKey).values({
+				id: providerKeyId,
+				...encryptProviderKeyForStorage("sk-model-errors", providerKeyId, null),
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+			});
+		}
+
+		async function seedModelStats(
+			rows: {
+				usedModel: string;
+				requestCount: number;
+				errorCount: number;
+				clientErrorCount?: number;
+				upstreamErrorCount?: number;
+			}[],
+		) {
+			if (rows.length === 0) {
+				return;
+			}
+			await db.insert(tables.globalProviderKeyModelStats).values(
+				rows.map((row) => ({
+					dayTimestamp: today(),
+					providerKeyId,
+					usedModel: row.usedModel,
+					usedProvider: "openai",
+					usedMode: "credits" as const,
+					orgKind: "default" as const,
+					requestCount: row.requestCount,
+					errorCount: row.errorCount,
+					clientErrorCount: row.clientErrorCount ?? 0,
+					upstreamErrorCount: row.upstreamErrorCount ?? 0,
+				})),
+			);
+		}
+
+		async function fetchBreakdown(id = providerKeyId) {
+			const res = await app.request(`/admin/provider-keys/${id}/model-errors`, {
+				headers: { Cookie: cookie },
+			});
+			return {
+				status: res.status,
+				body: (await res.json().catch(() => null)) as {
+					since: string;
+					models: {
+						usedModel: string;
+						usedProvider: string;
+						requestCount: number;
+						errorCount: number;
+						clientErrorCount: number;
+						gatewayErrorCount: number;
+						upstreamErrorCount: number;
+					}[];
+					rest: {
+						modelCount: number;
+						requestCount: number;
+						errorCount: number;
+						clientErrorCount: number;
+						gatewayErrorCount: number;
+						upstreamErrorCount: number;
+					} | null;
+				} | null,
+			};
+		}
+
+		test("returns per-model counts sorted by error rate, excluding client errors", async () => {
+			await seedCredential();
+			await seedModelStats([
+				// Highest volume, lowest rate — must not lead just because it has
+				// the most errors in absolute terms.
+				{
+					usedModel: "openai/gpt-4o-mini",
+					requestCount: 1000,
+					errorCount: 10,
+					clientErrorCount: 6,
+					upstreamErrorCount: 4,
+				},
+				{
+					usedModel: "openai/gpt-4o",
+					requestCount: 20,
+					errorCount: 10,
+					upstreamErrorCount: 10,
+				},
+				// Only client errors: not a failing model, so it sorts last.
+				{
+					usedModel: "openai/o3",
+					requestCount: 4,
+					errorCount: 4,
+					clientErrorCount: 4,
+				},
+			]);
+
+			const { status, body } = await fetchBreakdown();
+			expect(status).toBe(200);
+			expect(body?.models.map((row) => row.usedModel)).toEqual([
+				"openai/gpt-4o",
+				"openai/gpt-4o-mini",
+				"openai/o3",
+			]);
+			expect(body?.models[0]).toEqual({
+				usedModel: "openai/gpt-4o",
+				usedProvider: "openai",
+				requestCount: 20,
+				errorCount: 10,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 10,
+			});
+			expect(body?.rest).toBeNull();
+		});
+
+		test("folds everything past the tenth model into rest", async () => {
+			await seedCredential();
+			await seedModelStats(
+				Array.from({ length: 12 }, (_, index) => ({
+					usedModel: `openai/model-${String(index).padStart(2, "0")}`,
+					requestCount: 100,
+					// Descending rate, so the two lowest-rate models are the ones cut.
+					errorCount: 12 - index,
+					upstreamErrorCount: 12 - index,
+				})),
+			);
+
+			const { body } = await fetchBreakdown();
+			expect(body?.models).toHaveLength(10);
+			expect(body?.models[0]?.usedModel).toBe("openai/model-00");
+			expect(body?.rest).toEqual({
+				modelCount: 2,
+				requestCount: 200,
+				errorCount: 3,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 3,
+			});
+		});
+
+		test("returns an empty breakdown for a credential with no model rows", async () => {
+			await seedCredential();
+
+			const { status, body } = await fetchBreakdown();
+			expect(status).toBe(200);
+			expect(body?.models).toEqual([]);
+			expect(body?.rest).toBeNull();
+		});
+
+		test("404s for an unknown credential", async () => {
+			expect((await fetchBreakdown("does-not-exist")).status).toBe(404);
+		});
+	});
 });
 
 describe("managed credential allowed models", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 	});
 
@@ -1979,6 +2834,159 @@ describe("managed credential allowed models", () => {
 		expect(result?.valid).toBeNull();
 		expect(result?.error).toContain("video generation");
 		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+	});
+
+	test("removed models are excluded from the daily sync until re-added", async () => {
+		const [first, second, third] = await catalogModels("openai");
+		const createRes = await create({
+			provider: "openai",
+			token: "sk-exclusions",
+			allowedModels: [first, second, third],
+		});
+		const { credential } = (await createRes.json()) as {
+			credential: { id: string };
+		};
+		const excluded = async () =>
+			(
+				await db.query.providerKey.findFirst({
+					where: { id: { eq: credential.id } },
+					columns: { modelSyncExcluded: true },
+				})
+			)?.modelSyncExcluded;
+
+		await patch(credential.id, { allowedModels: [first] });
+		expect(await excluded()).toEqual([second, third]);
+
+		await patch(credential.id, { allowedModels: [first, second] });
+		expect(await excluded()).toEqual([third]);
+
+		await patch(credential.id, { allowedModels: null });
+		expect(await excluded()).toBeNull();
+	});
+
+	test("model sync defaults on and can be toggled per credential", async () => {
+		const [first] = await catalogModels("openai");
+		const createRes = await create({
+			provider: "openai",
+			token: "sk-sync-toggle",
+			allowedModels: [first],
+			modelSyncEnabled: false,
+		});
+		const { credential } = (await createRes.json()) as {
+			credential: { id: string; modelSyncEnabled: boolean };
+		};
+		expect(credential.modelSyncEnabled).toBe(false);
+
+		const res = await patch(credential.id, { modelSyncEnabled: true });
+		expect(
+			((await res.json()) as { credential: { modelSyncEnabled: boolean } })
+				.credential.modelSyncEnabled,
+		).toBe(true);
+
+		const defaultRes = await create({
+			provider: "openai",
+			token: "sk-sync-default",
+		});
+		expect(
+			(
+				(await defaultRes.json()) as {
+					credential: { modelSyncEnabled: boolean };
+				}
+			).credential.modelSyncEnabled,
+		).toBe(true);
+	});
+
+	test("a stale edit keeps models the sync enabled since it loaded", async () => {
+		const [first, second, third] = await catalogModels("openai");
+		const createRes = await create({
+			provider: "openai",
+			token: "sk-stale-edit",
+			allowedModels: [first, second],
+		});
+		const { credential } = (await createRes.json()) as {
+			credential: { id: string };
+		};
+		// The daily sync enables a model after the editor loaded the list.
+		await db
+			.update(tables.providerKey)
+			.set({ allowedModels: [first, second, third] })
+			.where(eq(tables.providerKey.id, credential.id));
+
+		await patch(credential.id, {
+			allowedModels: [first],
+			allowedModelsBase: [first, second],
+		});
+
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+			columns: { allowedModels: true, modelSyncExcluded: true },
+		});
+		expect(row?.allowedModels).toEqual([first, third]);
+		expect(row?.modelSyncExcluded).toEqual([second]);
+	});
+
+	test("model-sync-history lists a credential's sync runs, newest first", async () => {
+		const createRes = await create({ provider: "openai", token: "sk-history" });
+		const { credential } = (await createRes.json()) as {
+			credential: { id: string };
+		};
+		await db.insert(tables.platformAuditLog).values([
+			{
+				createdAt: new Date("2026-01-01T00:00:00Z"),
+				action: "provider_key.models_synced",
+				resourceType: "provider_key",
+				resourceId: credential.id,
+				metadata: {
+					provider: "openai",
+					probed: 1,
+					skipped: 0,
+					added: [],
+					failed: [],
+				},
+			},
+			{
+				createdAt: new Date("2026-01-02T00:00:00Z"),
+				action: "provider_key.models_synced",
+				resourceType: "provider_key",
+				resourceId: credential.id,
+				metadata: {
+					provider: "openai",
+					probed: 2,
+					skipped: 3,
+					added: ["model-a"],
+					failed: [{ model: "model-b", statusCode: 404 }],
+				},
+			},
+			{
+				action: "provider_key.models_synced",
+				resourceType: "provider_key",
+				resourceId: "another-credential",
+				metadata: {
+					provider: "openai",
+					probed: 0,
+					skipped: 0,
+					added: [],
+					failed: [],
+				},
+			},
+		]);
+
+		const res = await app.request(
+			`/admin/provider-credentials/${credential.id}/model-sync-history`,
+			{ headers: { Cookie: cookie } },
+		);
+
+		expect(res.status).toBe(200);
+		const { entries } = (await res.json()) as {
+			entries: { probed: number; added: string[]; failed: unknown[] }[];
+		};
+		expect(entries).toHaveLength(2);
+		expect(entries[0]).toMatchObject({
+			probed: 2,
+			skipped: 3,
+			added: ["model-a"],
+			failed: [{ model: "model-b", statusCode: 404 }],
+		});
 	});
 
 	test("verify-models accepts more than 50 models", async () => {

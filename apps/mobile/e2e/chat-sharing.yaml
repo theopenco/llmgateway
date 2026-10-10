@@ -1,0 +1,98 @@
+appId: io.llmgateway.lounge
+---
+- evalScript: ${output.chatTitle = "Native sharing " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- tapOn: "New conversation"
+- runFlow: helpers/close-chat-options.yaml
+- tapOn: "Model: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-4o-mini"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-4o Mini"
+- runFlow: helpers/close-chat-options.yaml
+- tapOn: "Message.*"
+- inputText: ${output.chatTitle}
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: "Retry last response"
+    timeout: 30000
+- runFlow: helpers/chat-options.yaml
+- tapOn: "Share"
+- tapOn:
+    id: "share-fork-switch"
+- tapOn: "Create share link"
+- extendedWaitUntil:
+    visible: "Snapshot is shared"
+    timeout: 15000
+- assertVisible: "Readers can fork this conversation."
+- assertVisible: "Unlisted."
+- copyTextFrom:
+    id: "share-link"
+- evalScript: ${output.publicLink = maestro.copiedText}
+- assertTrue: ${output.publicLink.startsWith("http://localhost:3903/share/")}
+- tapOn: "Copy share link"
+- assertVisible: "Link copied"
+- launchApp
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Shared conversations"
+- tapOn:
+    id: "field-shared-conversation-link"
+- inputText: ${output.publicLink}
+- tapOn: "Done typing"
+- tapOn: "Open shared conversation"
+- extendedWaitUntil:
+    visible: "Fork into my conversations"
+    timeout: 15000
+- assertVisible: ".*This is a mock response.*"
+- launchApp
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
+- tapOn:
+    id: "field-search-conversations"
+- inputText: ${output.chatTitle}
+- tapOn: "Done typing"
+- tapOn: ".*2 messages"
+- runFlow: helpers/chat-options.yaml
+- tapOn: "Share"
+- scrollUntilVisible:
+    element: "Revoke share link"
+    direction: DOWN
+- tapOn: "Revoke share link"
+- tapOn: "Revoke link"
+- extendedWaitUntil:
+    visible: "Create share link"
+    timeout: 15000
+- scrollUntilVisible:
+    element: "Audience: public"
+    direction: UP
+- tapOn: "Audience: public"
+- tapOn: "organization"
+- tapOn:
+    id: "share-fork-switch"
+- tapOn: "Create share link"
+- extendedWaitUntil:
+    visible: "Snapshot is shared"
+    timeout: 15000
+- assertVisible: "Members of this workspace can read the snapshot."
+- assertVisible: "Readers can fork this conversation."
+- launchApp
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Shared conversations"
+- tapOn: ${output.chatTitle}
+- assertVisible: ".*This is a mock response.*"
+- tapOn: "Fork into my conversations"
+- extendedWaitUntil:
+    visible: "Retry last response"
+    timeout: 15000
+- assertVisible: ".*This is a mock response.*"

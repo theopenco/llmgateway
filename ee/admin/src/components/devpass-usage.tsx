@@ -15,21 +15,16 @@ import { DEVPASS_USAGE_DEFAULT_RANGE } from "@/lib/date-range";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import {
+	formatCompactNumber as formatTokens,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
+
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
 	maximumFractionDigits: 2,
 });
-
-function formatTokens(count: number): string {
-	if (count >= 1_000_000) {
-		return `${(count / 1_000_000).toFixed(1)}M`;
-	}
-	if (count >= 1_000) {
-		return `${(count / 1_000).toFixed(1)}K`;
-	}
-	return count.toLocaleString();
-}
 
 interface UsageRow {
 	id: string;
@@ -106,7 +101,7 @@ function UsageList({
 											/>
 										</div>
 										<span className="w-32 shrink-0 text-right text-[11px] text-muted-foreground tabular-nums">
-											{row.requestCount.toLocaleString()} req ·{" "}
+											{formatNumber(row.requestCount)} req ·{" "}
 											{formatTokens(row.totalTokens)} tok
 										</span>
 									</div>

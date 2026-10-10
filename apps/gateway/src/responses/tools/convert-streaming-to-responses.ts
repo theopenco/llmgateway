@@ -195,6 +195,7 @@ function buildResponsePayload(
 		reasoning: {
 			effort: req?.reasoning?.effort ?? null,
 			summary: req?.reasoning?.summary ?? null,
+			...(req?.reasoning?.mode && { mode: req.reasoning.mode }),
 			...(resolveReasoningContext(state.usedReasoningContext) ?? {}),
 		},
 		usage,

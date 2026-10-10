@@ -1,0 +1,2 @@
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "retried_gateway_errors_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN "retried_upstream_errors_count" integer DEFAULT 0 NOT NULL;

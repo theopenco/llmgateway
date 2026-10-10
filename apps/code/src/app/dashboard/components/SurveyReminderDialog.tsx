@@ -19,6 +19,8 @@ import { useAppConfig } from "@/lib/config";
 import { getCookie, setCookie } from "@/lib/cookies";
 import { useApi } from "@/lib/fetch-client";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 // "Maybe later" keeps the census quiet for two weeks within the current
 // quarterly wave; a submission silences it for the rest of the quarter
 // server-side (eligibility flips to false). The cookie is scoped per wave so
@@ -133,7 +135,7 @@ export default function SurveyReminderDialog({ active }: { active: boolean }) {
 						You and {topModel.modelId} have been logging serious miles
 					</DialogTitle>
 					<DialogDescription className="pr-10">
-						{topModel.requestCount.toLocaleString()} requests in the last{" "}
+						{formatNumber(topModel.requestCount)} requests in the last{" "}
 						{data.windowDays} days. Got a minute to rate it for the Q
 						{data.quarter} census wave? A free Reset Pass is stamped into your
 						passport the moment you do — every quarter you take part.

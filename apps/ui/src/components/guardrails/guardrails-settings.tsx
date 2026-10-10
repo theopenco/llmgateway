@@ -71,7 +71,7 @@ const SYSTEM_RULES = [
 		id: "pii_detection",
 		name: "PII Detection",
 		description:
-			"Detect and optionally redact personal identifiable information",
+			"Detect and optionally redact personally identifiable information",
 	},
 	{
 		id: "secrets",

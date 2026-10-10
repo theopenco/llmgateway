@@ -8,7 +8,10 @@ import { z } from "zod";
 import {
 	checkAndReserveTopUp,
 	flushLimitHits,
+	listActiveDataStreams,
+	loadActiveDataStream,
 	releaseTopUpReservation,
+	runDataStream,
 } from "@llmgateway/actions";
 import {
 	closeRedisClient,
@@ -59,20 +62,31 @@ import {
 } from "@llmgateway/shared/log-retention";
 
 import { posthog } from "./posthog.js";
+import { backfillPauseMs } from "./services/backfill-pacing.js";
+import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
 import {
 	runFollowUpEmailsLoop,
+	canSendFollowUp,
 	sendLowBalanceEmail,
 } from "./services/follow-up-emails.js";
 import {
 	GLOBAL_STATS_INTERVAL_SECONDS,
 	processClosedHours,
 } from "./services/global-stats-aggregator.js";
+import { startHistoryAfterRecovery } from "./services/history-startup.js";
+import {
+	runModelStatsByokErrorsBackfillStep,
+	runSourceModelStatsBackfillStep,
+} from "./services/hourly-stats-backfill.js";
+import { checkModelErrorRateAlerts } from "./services/model-error-rate-alerts.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
 import { processNotifications } from "./services/notifications.js";
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
 	refreshProjectHourlyStats,
 } from "./services/project-stats-aggregator.js";
+import { syncProviderKeyModels } from "./services/provider-key-model-sync.js";
+import { runRoutingBaselineBackfillStep } from "./services/routing-baseline-backfill.js";
 import {
 	backfillHistoryIfNeeded,
 	backfillHourlyHistoryIfNeeded,
@@ -80,6 +94,8 @@ import {
 	calculateCurrentMinuteHistory,
 	calculateHourlyHistory,
 	calculateMinutelyHistory,
+	getModelHistoryRetentionCutoff,
+	MODEL_HISTORY_RETENTION_DAYS,
 } from "./services/stats-calculator.js";
 import { syncProvidersAndModels } from "./services/sync-models.js";
 import {
@@ -87,6 +103,7 @@ import {
 	processPendingWebhookDeliveries,
 } from "./services/video-jobs.js";
 import {
+	getStopSignal,
 	interruptibleSleep,
 	isStopRequested,
 	requestStop,
@@ -125,6 +142,11 @@ const LIMIT_HIT_FLUSH_LOCK_KEY = "limit_hit_flush";
 const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
+const MODEL_ERROR_RATE_ALERTS_LOCK_KEY = "model_error_rate_alerts";
+const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
+const SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY = "source_model_stats_backfill";
+const MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY =
+	"model_stats_byok_errors_backfill";
 const LOCK_DURATION_MINUTES = 5;
 // LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
@@ -162,6 +184,8 @@ const MODEL_VERIFICATION_POLL_INTERVAL_SECONDS =
 	configuredModelVerificationPollIntervalSeconds > 0
 		? configuredModelVerificationPollIntervalSeconds
 		: 2;
+const BENCHMARK_RUN_POLL_INTERVAL_SECONDS =
+	Number(process.env.BENCHMARK_RUN_POLL_INTERVAL_SECONDS) || 10;
 
 interface ApiKeyUsageEvent {
 	cost: Decimal;
@@ -279,11 +303,16 @@ const schema = z.object({
 });
 
 export async function acquireLock(key: string): Promise<boolean> {
+	return (await acquireLease(key)) !== null;
+}
+
+/** Takes the lock and returns its row id, the owner token; null when held. */
+export async function acquireLease(key: string): Promise<string | null> {
 	// eslint-disable-next-line no-mixed-operators
 	const lockExpiry = new Date(Date.now() - LOCK_DURATION_MINUTES * 60 * 1000);
 
 	try {
-		await db.transaction(async (tx) => {
+		return await db.transaction(async (tx) => {
 			// First, delete any expired locks with the same key
 			await tx
 				.delete(tables.lock)
@@ -293,9 +322,11 @@ export async function acquireLock(key: string): Promise<boolean> {
 
 			// Then try to insert the new lock
 			try {
-				await tx.insert(tables.lock).values({
-					key,
-				});
+				const [lease] = await tx
+					.insert(tables.lock)
+					.values({ key })
+					.returning({ id: tables.lock.id });
+				return lease.id;
 			} catch (insertError) {
 				// If the insert failed due to a unique constraint violation within the transaction,
 				// another process holds the lock - throw a special error to be caught outside
@@ -306,12 +337,10 @@ export async function acquireLock(key: string): Promise<boolean> {
 				throw insertError;
 			}
 		});
-
-		return true;
 	} catch (error) {
-		// If we threw our special error, return false
+		// If we threw our special error, the lock is held
 		if (error instanceof Error && error.message === "LOCK_EXISTS") {
-			return false;
+			return null;
 		}
 		// Re-throw unexpected errors so they can be handled upstream
 		throw error;
@@ -379,6 +408,31 @@ async function resolveDevPassStripePaymentMethodId(org: {
 		}
 	}
 	return null;
+}
+
+/**
+ * Whether auto top-up will actually refill this org. Enabled alone is not
+ * enough: risk-flagged and DevPass-without-PAYG orgs are skipped by
+ * `processAutoTopUp`, and an org in payment-failure backoff may never get
+ * charged before it runs dry.
+ */
+export function isAutoTopUpEffective(org: {
+	autoTopUpEnabled: boolean;
+	riskFlagged?: boolean | null;
+	kind?: string | null;
+	devPlanPaygEnabled?: boolean | null;
+	paymentFailureStartedAt?: Date | null;
+}): boolean {
+	if (!org.autoTopUpEnabled) {
+		return false;
+	}
+	if (org.riskFlagged) {
+		return false;
+	}
+	if (org.kind === "devpass" && !org.devPlanPaygEnabled) {
+		return false;
+	}
+	return !org.paymentFailureStartedAt;
 }
 
 export async function processAutoTopUp(): Promise<void> {
@@ -926,7 +980,6 @@ export async function cleanupExpiredLogData(): Promise<void> {
 // forever and now serve every window beyond 24h (7d/30d/90d public stats), so
 // the only readers of the minute tables are short windows (<=24h). 30 days
 // leaves a comfortable buffer over the largest minute-level reader.
-const MODEL_HISTORY_RETENTION_DAYS = 30;
 const MODEL_HISTORY_CLEANUP_BATCH_SIZE = 10000;
 // Cap the work per run (per table) so a single cleanup reliably finishes well
 // within the lock TTL (LOCK_DURATION_MINUTES), even on a large initial backlog.
@@ -998,9 +1051,7 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 	try {
 		logger.info("Starting model history retention cleanup...");
 
-		const cutoffDate = new Date(
-			Date.now() - MODEL_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000, // eslint-disable-line no-mixed-operators
-		);
+		const cutoffDate = getModelHistoryRetentionCutoff();
 
 		const mapping = await cleanupModelHistoryTable(
 			tables.modelProviderMappingHistory,
@@ -1021,6 +1072,29 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 				`Model history retention cleanup deleted ${mappingDeleted} model_provider_mapping_history and ${modelDeleted} model_history rows (older than ${MODEL_HISTORY_RETENTION_DAYS} days)`,
 			);
 		}
+
+		await db
+			.delete(tables.aggregationProgress)
+			.where(
+				and(
+					eq(tables.aggregationProgress.job, "minute-usage"),
+					lt(tables.aggregationProgress.bucketTimestamp, cutoffDate),
+				),
+			);
+		await db
+			.delete(tables.aggregationProgress)
+			.where(
+				and(
+					inArray(tables.aggregationProgress.job, [
+						"routing",
+						"content-filter",
+					]),
+					lt(
+						tables.aggregationProgress.bucketTimestamp,
+						getLogRetentionCutoff(),
+					),
+				),
+			);
 
 		logger.info("Model history retention cleanup completed successfully");
 	} catch (error) {
@@ -1923,7 +1997,7 @@ export async function batchProcessLogs(): Promise<number> {
 	return processedCount;
 }
 
-async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
+export async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
 	try {
 		const orgs = await db
 			.select()
@@ -1932,6 +2006,12 @@ async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
 
 		for (const org of orgs) {
 			try {
+				// The whole point of these emails is "top up / enable auto-reload";
+				// an org whose auto top-up will refill it does not need either.
+				if (isAutoTopUpEffective(org)) {
+					continue;
+				}
+
 				const lastTopUp = Number(org.lastTopUpAmount ?? 0);
 				if (lastTopUp <= 0) {
 					continue;
@@ -1985,6 +2065,16 @@ async function enqueueLowBalanceEmail(
 	});
 
 	if (existing) {
+		return;
+	}
+
+	// Checked before the dry-run log and the dedup insert so a suppressed
+	// recipient never burns this cycle's slot or emits a "sent" event.
+	if (!(await canSendFollowUp(email, "credit_alerts"))) {
+		logger.info("Low balance alert suppressed by email preferences", {
+			emailType,
+			organizationId,
+		});
 		return;
 	}
 
@@ -2427,6 +2517,33 @@ async function runModelVerificationLoop() {
 	}
 }
 
+async function runBenchmarkRunLoop() {
+	activeLoops++;
+	const interval = BENCHMARK_RUN_POLL_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting benchmark run loop (interval: ${BENCHMARK_RUN_POLL_INTERVAL_SECONDS} seconds)...`,
+	);
+	try {
+		while (!isStopRequested()) {
+			try {
+				const processed = await processNextBenchmarkRun();
+				if (!processed) {
+					await interruptibleSleep(interval);
+				}
+			} catch (error) {
+				logger.error(
+					"Error in benchmark run loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Benchmark run loop stopped");
+	}
+}
+
 async function runVideoWebhookLoop() {
 	activeLoops++;
 	const interval = VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS * 1000;
@@ -2533,6 +2650,47 @@ async function runProjectStatsLoop() {
 	}
 }
 
+/**
+ * Drives a one-off, resumable backfill: runs `step` under `lockKey` until it
+ * reports no hours remain, pausing between steps (see backfill-pacing.ts).
+ */
+async function runBackfillLoop(
+	name: string,
+	lockKey: string,
+	step: () => Promise<boolean>,
+) {
+	activeLoops++;
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (!(await acquireLock(lockKey))) {
+					await interruptibleSleep(60_000);
+					continue;
+				}
+				let pending: boolean;
+				const startedAt = Date.now();
+				try {
+					pending = await step();
+				} finally {
+					await releaseLock(lockKey);
+				}
+				if (!pending) {
+					break;
+				}
+				await interruptibleSleep(backfillPauseMs(Date.now() - startedAt));
+			} catch (error) {
+				logger.error(
+					`Error in ${name} backfill loop`,
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+	}
+}
+
 async function runGlobalStatsLoop() {
 	activeLoops++;
 	const interval = GLOBAL_STATS_INTERVAL_SECONDS * 1000;
@@ -2570,6 +2728,7 @@ async function runDataRetentionLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
+				await enforceRetentionPlanGating();
 				await cleanupExpiredLogData();
 
 				await interruptibleSleep(interval);
@@ -2597,6 +2756,11 @@ async function runModelHistoryRetentionLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
+				// Retry capped recovery and diagnostics before allowing minute pruning.
+				hourlyBackfillComplete =
+					(await backfillHistoryIfNeeded()) &&
+					(await backfillHourlyHistoryIfNeeded());
+
 				if (hourlyBackfillComplete) {
 					await cleanupExpiredModelHistory();
 				} else {
@@ -3196,6 +3360,199 @@ async function runNotificationsLoop() {
 	}
 }
 
+async function runModelErrorRateAlertsLoop() {
+	activeLoops++;
+	const interval = 60 * 1000;
+	logger.info(
+		`Starting model error-rate alerts loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(MODEL_ERROR_RATE_ALERTS_LOCK_KEY)) {
+					try {
+						await checkModelErrorRateAlerts();
+					} finally {
+						await releaseLock(MODEL_ERROR_RATE_ALERTS_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in model error-rate alerts loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Model error-rate alerts loop stopped");
+	}
+}
+
+const DATA_STREAMS_LOCK_KEY = "data_streams";
+
+class DataStreamLeaseLost extends Error {}
+
+/** Keeps the lease fresh; false once it expired and another worker took it. */
+export async function touchLease(id: string): Promise<boolean> {
+	const touched = await db
+		.update(tables.lock)
+		.set({ updatedAt: new Date() })
+		.where(eq(tables.lock.id, id))
+		.returning({ id: tables.lock.id });
+	return touched.length > 0;
+}
+
+/** Releases the lease only if it is still ours. */
+export async function releaseLease(id: string): Promise<void> {
+	await db.delete(tables.lock).where(eq(tables.lock.id, id));
+}
+
+/**
+ * Forwards audit and request log metadata to each enabled data stream. Each
+ * stream is re-read right before it runs, so a pause, credential rotation, or
+ * revoked access made during the pass is honored by the rest of it. Stream
+ * state is written only while `leaseId` is held; the pass stops once it is
+ * lost.
+ */
+export async function processDataStreams(leaseId: string): Promise<void> {
+	const onProgress = async () => {
+		if (!(await touchLease(leaseId))) {
+			throw new DataStreamLeaseLost(
+				"Data streams lease lost to another worker",
+			);
+		}
+	};
+	const streams = await listActiveDataStreams();
+	for (const listed of streams) {
+		if (isStopRequested()) {
+			return;
+		}
+		const stream = await loadActiveDataStream(listed.id);
+		if (!stream) {
+			continue;
+		}
+		// A pass can outlast the lock TTL with slow destinations; keep the lock
+		// fresh so a second worker never runs the same streams concurrently.
+		await onProgress();
+		// One broken stream must never hold up delivery for the others.
+		try {
+			const result = await runDataStream(stream, { onProgress, leaseId });
+			if (result.paused) {
+				logger.warn("Data stream paused after repeated failures", {
+					streamId: stream.id,
+					error: result.error,
+				});
+			} else if (result.error) {
+				logger.warn("Data stream delivery failed", {
+					streamId: stream.id,
+					failureCount: stream.failureCount + 1,
+					error: result.error,
+				});
+			}
+		} catch (error) {
+			if (error instanceof DataStreamLeaseLost) {
+				throw error;
+			}
+			logger.error("Data stream run crashed", {
+				streamId: stream.id,
+				error: error instanceof Error ? error : new Error(String(error)),
+			});
+		}
+	}
+}
+
+async function runDataStreamsLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 30 : 10) * 1000;
+	logger.info(
+		`Starting data streams loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				const leaseId = await acquireLease(DATA_STREAMS_LOCK_KEY);
+				if (leaseId) {
+					try {
+						await processDataStreams(leaseId);
+					} finally {
+						await releaseLease(leaseId);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in data streams loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Data streams loop stopped");
+	}
+}
+
+const PROVIDER_KEY_MODEL_SYNC_LOCK_KEY = "provider_key_model_sync";
+
+async function runProviderKeyModelSyncLoop() {
+	activeLoops++;
+	// Hourly check; each credential is itself synced at most once a day.
+	const interval = 60 * 60 * 1000;
+	logger.info("Starting provider key model sync loop...");
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(PROVIDER_KEY_MODEL_SYNC_LOCK_KEY)) {
+					try {
+						await syncProviderKeyModels({
+							signal: getStopSignal(),
+							// A run outlasts the lock TTL, so keep the lock fresh.
+							onProgress: async () => {
+								await db
+									.update(tables.lock)
+									.set({ updatedAt: new Date() })
+									.where(eq(tables.lock.key, PROVIDER_KEY_MODEL_SYNC_LOCK_KEY));
+							},
+						});
+					} finally {
+						await releaseLock(PROVIDER_KEY_MODEL_SYNC_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in provider key model sync loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Provider key model sync loop stopped");
+	}
+}
+
+async function runHistoryStartupLoop() {
+	activeLoops++;
+	try {
+		await startHistoryAfterRecovery(() => {
+			void runMinutelyHistoryLoop();
+			void runCurrentMinuteHistoryLoop();
+			void runModelHistoryRetentionLoop();
+		});
+	} finally {
+		activeLoops--;
+	}
+}
+
 export async function startWorker() {
 	if (isWorkerRunning) {
 		logger.error("Worker is already running");
@@ -3231,25 +3588,7 @@ export async function startWorker() {
 		);
 	}
 
-	void backfillHistoryIfNeeded()
-		.then(() => {
-			logger.info("History backfill check completed");
-			// Hourly summaries roll up the minute history, so backfill them only
-			// after the minute backfill has had a chance to fill recent gaps.
-			return backfillHourlyHistoryIfNeeded();
-		})
-		.then(() => {
-			logger.info("Hourly history backfill check completed");
-			// Hourly rollups are now populated, so minute-history pruning is safe.
-			hourlyBackfillComplete = true;
-		})
-		.catch((error) => {
-			logger.error(
-				"Error during history backfill",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-		});
-
+	void runHistoryStartupLoop();
 	// Start all worker loops (all sequential — each waits for completion before scheduling next run)
 	logger.info("Starting worker loops...");
 	logger.info(
@@ -3275,6 +3614,9 @@ export async function startWorker() {
 		`- Model verification: runs every ${MODEL_VERIFICATION_POLL_INTERVAL_SECONDS} seconds`,
 	);
 	logger.info(
+		`- Benchmark runs: runs every ${BENCHMARK_RUN_POLL_INTERVAL_SECONDS} seconds for admin-queued benchmarks`,
+	);
+	logger.info(
 		"- Aggregated stats: runs every 1 minute at the start of each minute",
 	);
 	logger.info(
@@ -3284,27 +3626,43 @@ export async function startWorker() {
 		`- Global stats: runs every ${GLOBAL_STATS_INTERVAL_SECONDS} seconds, processes closed buckets incrementally`,
 	);
 	logger.info(
+		"- Routing baseline backfill: prices routed requests of the last 30 days once, then stops",
+	);
+	logger.info(
 		"- Follow-up emails: runs every hour to check for lifecycle emails",
 	);
 	logger.info(
 		"- API key expiration: runs every 5 minutes to disable keys whose TTL passed",
 	);
 
-	void runMinutelyHistoryLoop();
-	void runCurrentMinuteHistoryLoop();
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
 	void runModelVerificationLoop();
+	void runBenchmarkRunLoop();
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
 	void runGlobalStatsLoop();
+	void runBackfillLoop(
+		"routing baseline",
+		ROUTING_BASELINE_BACKFILL_LOCK_KEY,
+		runRoutingBaselineBackfillStep,
+	);
+	void runBackfillLoop(
+		"source model stats",
+		SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY,
+		runSourceModelStatsBackfillStep,
+	);
+	void runBackfillLoop(
+		"model stats BYOK errors",
+		MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY,
+		runModelStatsByokErrorsBackfillStep,
+	);
 	for (let i = 0; i < LOG_QUEUE_CONCURRENCY; i++) {
 		void runLogQueueLoop(i);
 	}
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();
-	void runModelHistoryRetentionLoop();
 	void runEndUserSessionCleanupLoop();
 	void runApiKeyExpirationLoop();
 	void runLimitHitFlushLoop();
@@ -3312,6 +3670,9 @@ export async function startWorker() {
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
 	void runNotificationsLoop();
+	void runModelErrorRateAlertsLoop();
+	void runDataStreamsLoop();
+	void runProviderKeyModelSyncLoop();
 	void runFollowUpEmailsLoop({
 		shouldStop: isStopRequested,
 		acquireLock,
@@ -3386,4 +3747,54 @@ export async function stopWorker(): Promise<boolean> {
 
 	logger.info("Worker stopped gracefully");
 	return true;
+}
+// Retain All Data moved to Enterprise on 2026-10-09 with a 30-day transition
+// window. Non-Enterprise organizations on the hosted platform that still retain
+// payloads are switched to Metadata Only once the window closes. Self-hosted
+// installs are never downgraded.
+const RETENTION_PLAN_GATING_CUTOFF = new Date("2026-11-08T00:00:00Z");
+const RETENTION_PLAN_GATING_LOCK_KEY = "retention_plan_gating";
+
+export async function enforceRetentionPlanGating(
+	now: Date = new Date(),
+): Promise<number> {
+	if (process.env.HOSTED !== "true" || now < RETENTION_PLAN_GATING_CUTOFF) {
+		return 0;
+	}
+
+	const lockAcquired = await acquireLock(RETENTION_PLAN_GATING_LOCK_KEY);
+	if (!lockAcquired) {
+		return 0;
+	}
+
+	try {
+		const switched = await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none", updatedAt: now })
+			.where(
+				and(
+					eq(tables.organization.retentionLevel, "retain"),
+					eq(tables.organization.kind, "default"),
+					sql`${tables.organization.plan} <> 'enterprise'`,
+				),
+			)
+			.returning({ id: tables.organization.id });
+
+		if (switched.length > 0) {
+			await invalidateOrganizationsCache(switched.map((org) => org.id));
+			logger.info(
+				`Retention plan gating switched ${switched.length} organizations to Metadata Only`,
+			);
+		}
+
+		return switched.length;
+	} catch (error) {
+		logger.error(
+			"Error enforcing retention plan gating",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		return 0;
+	} finally {
+		await releaseLock(RETENTION_PLAN_GATING_LOCK_KEY);
+	}
 }

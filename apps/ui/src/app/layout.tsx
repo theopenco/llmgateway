@@ -1,34 +1,38 @@
-import { Inter, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
+import localFont from "next/font/local";
 
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
 import { fetchSystemBanner } from "@/lib/system-banner";
 import { getTimeZonePreference } from "@/lib/timezone-server";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 import "./globals.css";
 
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
-const inter = Inter({
+const inter = localFont({
 	variable: "--font-inter",
-	subsets: ["latin"],
+	src: "../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2",
+	weight: "100 900",
 	display: "swap",
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
 	// globals.css maps the Tailwind token: --font-mono: var(--font-geist-mono).
 	// Registering the font under --font-mono directly would leave that theme
 	// mapping dangling and every `font-mono` element falls back to sans.
 	variable: "--font-geist-mono",
-	subsets: ["latin"],
+	src: "../../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2",
+	weight: "100 900",
 	display: "swap",
 });
 
-const plusJakarta = Plus_Jakarta_Sans({
+const plusJakarta = localFont({
 	variable: "--font-display",
-	subsets: ["latin"],
-	weight: ["500", "600", "700", "800"],
+	src: "../../node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2",
+	weight: "200 800",
 	display: "swap",
 });
 
@@ -37,11 +41,10 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
 	metadataBase: new URL("https://llmgateway.io"),
 	title: {
-		default: "LLM Gateway - Unified API for Multiple LLM Providers",
+		default: `LLM Gateway — Open-Source LLM API Gateway for ${MARKETING_STATS.models} Models`,
 		template: "%s | LLM Gateway",
 	},
-	description:
-		"Route, manage, and analyze LLM requests across OpenAI, Anthropic, Google, and 40+ providers through one unified, OpenAI-compatible API. Free and open source.",
+	description: `Open-source LLM API gateway: route requests to ${MARKETING_STATS.models} models from ${MARKETING_STATS.providers} providers, including OpenAI, Anthropic and Google, through one OpenAI-compatible API.`,
 	authors: [{ name: "LLM Gateway" }],
 	creator: "LLM Gateway",
 	publisher: "LLM Gateway",
@@ -66,10 +69,8 @@ export const metadata: Metadata = {
 		canonical: "./",
 	},
 	openGraph: {
-		title: "LLM Gateway - Unified API for Multiple LLM Providers",
-		description:
-			"Route, manage, and analyze LLM requests across OpenAI, Anthropic, Google, and 40+ providers through one unified, OpenAI-compatible API. Free and open source.",
-		images: ["/opengraph.png?v=2"],
+		title: `LLM Gateway — Open-Source LLM API Gateway for ${MARKETING_STATS.models} Models`,
+		description: `Open-source LLM API gateway: route requests to ${MARKETING_STATS.models} models from ${MARKETING_STATS.providers} providers, including OpenAI, Anthropic and Google, through one OpenAI-compatible API.`,
 		type: "website",
 		url: "https://llmgateway.io",
 		siteName: "LLM Gateway",
@@ -77,9 +78,8 @@ export const metadata: Metadata = {
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "LLM Gateway - Unified API for Multiple LLM Providers",
-		description:
-			"Route, manage, and analyze LLM requests across 40+ providers through one unified API.",
+		title: `LLM Gateway — Open-Source LLM API Gateway for ${MARKETING_STATS.models} Models`,
+		description: `Open-source LLM API gateway: route requests to ${MARKETING_STATS.models} models from ${MARKETING_STATS.providers} providers through one OpenAI-compatible API.`,
 		creator: "@llmgateway",
 	},
 	robots: {
@@ -143,7 +143,7 @@ const websiteSchema = {
 		"@type": "SearchAction",
 		target: {
 			"@type": "EntryPoint",
-			urlTemplate: "https://llmgateway.io/models?search={search_term_string}",
+			urlTemplate: "https://llmgateway.io/models?q={search_term_string}",
 		},
 		"query-input": "required name=search_term_string",
 	},

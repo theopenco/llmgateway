@@ -1,6 +1,8 @@
 import { ChevronDown, Gauge, SlidersHorizontal, Users } from "lucide-react";
 import Link from "next/link";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import {
 	AGENT_TASK_TOKENS,
 	CHAT_SESSION_TOKENS,
@@ -32,8 +34,8 @@ const STEPS = [
 ];
 
 const ASSUMPTIONS = [
-	`A chat session is a ~5-turn conversation totaling ${CHAT_SESSION_TOKENS.input.toLocaleString("en-US")} input and ${CHAT_SESSION_TOKENS.output.toLocaleString("en-US")} output tokens — history is resent every turn, which is why sessions cost more than single prompts.`,
-	`An agent task is a multi-step run totaling ${AGENT_TASK_TOKENS.input.toLocaleString("en-US")} input and ${AGENT_TASK_TOKENS.output.toLocaleString("en-US")} output tokens, dominated by repeatedly resent repo context.`,
+	`A chat session is a ~5-turn conversation totaling ${formatNumber(CHAT_SESSION_TOKENS.input)} input and ${formatNumber(CHAT_SESSION_TOKENS.output)} output tokens — history is resent every turn, which is why sessions cost more than single prompts.`,
+	`An agent task is a multi-step run totaling ${formatNumber(AGENT_TASK_TOKENS.input)} input and ${formatNumber(AGENT_TASK_TOKENS.output)} output tokens, dominated by repeatedly resent repo context.`,
 	`A month is ${WORKING_DAYS_PER_MONTH} working days.`,
 	"Both sides are priced from the same token volumes at the same per-million-token rates (premium $5/$25, efficient $0.25/$2, balanced in between), so the comparison isolates structure — seats and included credits versus caching and the platform fee.",
 	"Cached input tokens are billed at roughly 10% of the input rate. The cache hit rate slider controls how much of your input traffic is cached; 60% is a conservative default for coding tools.",

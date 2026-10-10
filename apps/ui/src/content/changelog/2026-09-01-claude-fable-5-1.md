@@ -4,6 +4,7 @@ slug: "claude-fable-5-1"
 date: "2026-09-01"
 title: "Claude Fable 5.1"
 summary: "Anthropic's Claude Fable 5.1 is live on the gateway with a 1M context window, always-on adaptive thinking, stronger long-horizon agentic work, and cache reads at a quarter of Fable 5's price."
+tags: ["llmgateway"]
 image:
   src: "/changelog/claude-fable-5-1.png"
   alt: "Anthropic's logo on a glowing chip surrounded by a storybook, a crystal, a brain, and a sealed envelope on a circuit board"

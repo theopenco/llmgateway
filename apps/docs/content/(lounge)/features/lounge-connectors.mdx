@@ -1,0 +1,29 @@
+---
+title: Lounge connectors
+description: Connect your apps to Lounge chats with OAuth
+icon: Plug
+---
+
+Open **Connectors** in the Lounge to connect an account through OAuth. Connections are private to your account, and tool calls require your approval before they run.
+
+On iOS, open **Connectors** from the home screen. Sign-in opens in the system browser and returns to the app. You can search connections, pause them, reconnect, or disconnect from this screen.
+
+In an iOS conversation, review each proposed tool and its arguments, then choose **Approve** or **Decline**. The response continues once all pending requests are answered. Saved conversations retain pending approvals and completed results across restarts; temporary conversations keep them only for the current session.
+
+In an iOS model comparison, connected apps are available to **Model 1**. Approve or decline its pending requests before sending another message to all models. Other models keep separate conversations and can be retried without running connector actions. Pending requests and results survive restarts.
+
+If a tool's result cannot be confirmed, check the connected app before asking to run it again. **Continue response** lets the model respond to that uncertainty without repeating the tool call.
+
+A connector stays **Not configured** until the deployment has both its OAuth client ID and secret. Missing credentials also disable existing connections: you cannot enable, reconnect, or use their tools until configuration is restored. You can still disconnect an account.
+
+Pausing a configured connection retains its credentials and stops tool access. Disconnecting deletes its stored credentials and pending authorizations. Tool results used in a chat are sent to the selected model and saved with that conversation.
+
+Authorization must finish in the same session that started it and expires after ten minutes. If you sign out or the request expires during consent, start connecting again. Cancelling reconnection keeps the existing connection.
+
+## Client integrations
+
+Authenticated clients can stream chat and signed tool proposals from `POST /lounge/chat`, using `x-llmgateway-key` to select the billing key. The endpoint accepts AI SDK UI messages and connector IDs. It does not execute tools or save conversations.
+
+After the user approves a proposal, execute it through `POST /connectors/{connectorId}/tools/{toolName}` and record its result before continuing. Send completed, failed, or denied tool parts with the next chat request. Pending approvals must be resolved first; never automatically retry a tool whose outcome is unknown.
+
+For deployment variables and callback setup, see the [connector setup guide](https://github.com/theopenco/llmgateway/blob/main/docs/lounge-connectors.md).

@@ -5,7 +5,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, inArray, tables } from "@llmgateway/db";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 const DAY_MS = 86_400_000;
 const MODEL_PREFIX = "admin-regional-mapping-totals";
 const BEDROCK_MODEL = `${MODEL_PREFIX}-bedrock`;
@@ -17,6 +17,13 @@ const MAPPING_IDS = [
 	`${MANTLE_MODEL}-root`,
 	`${MANTLE_MODEL}-region`,
 ];
+
+interface CatalogRows {
+	mappings?: { modelId: string }[];
+	models?: { id: string }[];
+	providers?: { id: string }[];
+	total: number;
+}
 
 interface CatalogTotals {
 	totalRequests?: number;
@@ -62,7 +69,7 @@ describe("admin model-provider mapping totals", () => {
 	let toDate: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await clearFixtures();
 
@@ -132,6 +139,7 @@ describe("admin model-provider mapping totals", () => {
 			totalCachedInputCost: 0.5,
 			totalOutputCost: 1.5,
 			totalCost: 5,
+			upstreamErrorsCount: 5,
 		};
 		await db.insert(tables.modelProviderMappingHistoryHourly).values([
 			{
@@ -187,9 +195,9 @@ describe("admin model-provider mapping totals", () => {
 		await clearFixtures();
 		await deleteAll();
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 	});
 
@@ -233,5 +241,83 @@ describe("admin model-provider mapping totals", () => {
 			totalTokens: 200,
 			totalCost: 5,
 		});
+	});
+
+	test("narrows to an exact model and provider", async () => {
+		const window = `from=${fromDate}&to=${toDate}`;
+		const models = await getJson<CatalogRows>(
+			cookie,
+			`/admin/models?modelId=${BEDROCK_MODEL}&limit=100&${window}`,
+		);
+		expect(models.models!.map((m) => m.id)).toEqual([BEDROCK_MODEL]);
+
+		// A substring of a real id must not match the exact filter.
+		const partial = await getJson<CatalogRows>(
+			cookie,
+			`/admin/models?modelId=${MODEL_PREFIX}&limit=100&${window}`,
+		);
+		expect(partial.models).toEqual([]);
+
+		const mappings = await getJson<CatalogRows & CatalogTotals>(
+			cookie,
+			`/admin/model-provider-mappings?providerId=aws-mantle&modelId=${MANTLE_MODEL}&${window}`,
+		);
+		expect(mappings.mappings!.length).toBeGreaterThan(0);
+		expect(mappings.mappings!.every((m) => m.modelId === MANTLE_MODEL)).toBe(
+			true,
+		);
+		expect(mappings.totalRequests).toBe(20);
+
+		const mismatched = await getJson<CatalogRows>(
+			cookie,
+			`/admin/model-provider-mappings?providerId=aws-bedrock&modelId=${MANTLE_MODEL}&${window}`,
+		);
+		expect(mismatched.mappings).toEqual([]);
+	});
+
+	test("filters rows by status and usage thresholds", async () => {
+		const window = `from=${fromDate}&to=${toDate}`;
+		const modelIds = async (filter: string) => {
+			const res = await getJson<CatalogRows>(
+				cookie,
+				`/admin/models?search=${MODEL_PREFIX}&limit=100&${window}&${filter}`,
+			);
+			return res.models!.map((m) => m.id).sort();
+		};
+
+		expect(await modelIds("minRequests=15")).toEqual([MANTLE_MODEL]);
+		expect(await modelIds("minTokens=150")).toEqual([MANTLE_MODEL]);
+		expect(await modelIds("minCachedTokens=15")).toEqual([MANTLE_MODEL]);
+		expect(await modelIds("minCost=3")).toEqual([MANTLE_MODEL]);
+		expect(await modelIds("minErrorRate=10")).toEqual([MANTLE_MODEL]);
+		expect(await modelIds("maxErrorRate=10")).toEqual([BEDROCK_MODEL]);
+
+		await db
+			.update(tables.model)
+			.set({ status: "inactive" })
+			.where(inArray(tables.model.id, [BEDROCK_MODEL]));
+		expect(await modelIds("status=active")).toEqual([MANTLE_MODEL]);
+		expect(await modelIds("status=inactive")).toEqual([BEDROCK_MODEL]);
+		expect(await modelIds("status=all")).toEqual(
+			[BEDROCK_MODEL, MANTLE_MODEL].sort(),
+		);
+
+		const mappings = await getJson<CatalogRows>(
+			cookie,
+			`/admin/model-provider-mappings?search=${MODEL_PREFIX}&${window}&minCost=3`,
+		);
+		expect(mappings.total).toBe(mappings.mappings!.length);
+		expect(mappings.mappings!.length).toBeGreaterThan(0);
+		expect(mappings.mappings!.every((m) => m.modelId === MANTLE_MODEL)).toBe(
+			true,
+		);
+
+		const providers = await getJson<CatalogRows>(
+			cookie,
+			`/admin/providers?${window}&minTokens=150`,
+		);
+		const providerIds = providers.providers!.map((p) => p.id);
+		expect(providerIds).toContain("aws-mantle");
+		expect(providerIds).not.toContain("aws-bedrock");
 	});
 });

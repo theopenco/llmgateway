@@ -106,9 +106,6 @@ export function Graph() {
 				<div className="container mx-auto px-4">
 					<div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-8 mb-4">
 						<div>
-							<p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4">
-								How It Works
-							</p>
 							<h2 className="font-display text-4xl md:text-5xl font-bold tracking-tight text-foreground">
 								One request. Any model.
 							</h2>

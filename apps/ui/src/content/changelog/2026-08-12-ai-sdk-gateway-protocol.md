@@ -4,6 +4,7 @@ slug: "ai-sdk-gateway-protocol"
 date: "2026-08-12"
 title: "Drop-In For The Vercel AI Gateway"
 summary: "LLM Gateway now speaks the AI SDK's own gateway protocol, so an app built on the Vercel AI Gateway runs here with one line changed. Bare model strings, provider-native web search with citations, and the model picker all keep working."
+tags: ["llmgateway"]
 image:
   src: "/changelog/ai-sdk-gateway-protocol.png"
   alt: "A circuit board with a glowing portal on the central chip and two connectors clicking together in front of it, representing a drop-in gateway swap for the AI SDK"

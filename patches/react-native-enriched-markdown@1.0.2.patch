@@ -1,0 +1,16 @@
+diff --git a/ios/utils/MarkdownAccessibilityElementBuilder.m b/ios/utils/MarkdownAccessibilityElementBuilder.m
+index ea2680928501c071d3089d2aec9bd5f6678ac87c..2c3344c47b5ef0824bfc86cf51ab8636986e03a3 100644
+--- a/ios/utils/MarkdownAccessibilityElementBuilder.m
++++ b/ios/utils/MarkdownAccessibilityElementBuilder.m
+@@ -162,10 +162,9 @@ static const CGFloat kFocusRectPadding = 2.0;
+     element.accessibilityLabel = text;
+ 
+   UIBezierPath *path = [self accessibilityPathForRange:range inTextView:textView];
++  element.accessibilityFrameInContainerSpace = [self frameForRange:range inTextView:textView container:container];
+   if (path) {
+     element.accessibilityPath = path;
+-  } else {
+-    element.accessibilityFrameInContainerSpace = [self frameForRange:range inTextView:textView container:container];
+   }
+ 
+   if (type == ElementTypeImage) {

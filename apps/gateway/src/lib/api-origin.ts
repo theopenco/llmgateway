@@ -9,6 +9,7 @@ import type { Context } from "hono";
  * and `/v1/images` perform, so their logs are not attributed to chat completions.
  */
 export const API_ORIGIN_HEADER = "x-internal-api-origin";
+const CLIENT_CACHE_MARKERS_HEADER = "x-internal-client-cache-markers";
 
 /**
  * Proves the header was set by this process on an internal re-dispatch rather
@@ -32,8 +33,14 @@ const PROXIED_API_ORIGINS: readonly ApiOrigin[] = [
  */
 export function internalApiOriginHeaders(
 	origin: ApiOrigin,
+	options?: { hasClientCacheMarkers: boolean },
 ): Record<string, string> {
-	return { [API_ORIGIN_HEADER]: `${INTERNAL_ORIGIN_TOKEN}:${origin}` };
+	return {
+		[API_ORIGIN_HEADER]: `${INTERNAL_ORIGIN_TOKEN}:${origin}`,
+		...(options?.hasClientCacheMarkers && {
+			[CLIENT_CACHE_MARKERS_HEADER]: "true",
+		}),
+	};
 }
 
 /**
@@ -77,4 +84,14 @@ export function resolveChatApiOrigin(c: Context): ApiOrigin {
 	const origin = header.slice(separator + 1) as ApiOrigin;
 
 	return PROXIED_API_ORIGINS.includes(origin) ? origin : "chat-completions";
+}
+
+/** Keeps marker presence across native request lowering without trusting client headers. */
+export function hasInternalClientCacheMarkers(
+	c: Pick<Context, "req">,
+): boolean {
+	return (
+		isInternalApiOrigin(c) &&
+		c.req.header(CLIENT_CACHE_MARKERS_HEADER) === "true"
+	);
 }

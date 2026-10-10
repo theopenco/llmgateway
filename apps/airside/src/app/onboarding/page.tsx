@@ -14,10 +14,19 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import {
+	CarrierLinksFields,
+	carrierLinksBody,
+	carrierLinksValid,
+	EMPTY_CARRIER_LINKS,
+} from "@/components/brand/CarrierLinksFields";
+import { CompanyDomainsCard } from "@/components/CompanyDomainsCard";
 import { CrewChannelCard } from "@/components/CrewChannelCard";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { Logo } from "@/components/Logo";
 import { ProviderBrandingFields } from "@/components/ProviderBrandingFields";
+import { RelativeDate } from "@/components/RelativeDate";
+import { TermsAgreement } from "@/components/TermsAgreement";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,29 +41,62 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { WebsiteVerificationCard } from "@/components/WebsiteVerificationCard";
 import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 
 import { providerBaseUrlHasEndpointPath } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
+
+import type { CarrierLinks } from "@/components/brand/CarrierLinksFields";
+
+type CarrierProfileBody = ReturnType<typeof carrierLinksBody>;
+
+function linksFromDefaults(
+	defaults: Partial<Record<keyof CarrierLinks, string | null>> | undefined,
+): CarrierLinks {
+	return {
+		website: defaults?.website ?? "",
+		privacyPolicyUrl: defaults?.privacyPolicyUrl ?? "",
+		termsUrl: defaults?.termsUrl ?? "",
+		statusPageUrl: defaults?.statusPageUrl ?? "",
+	};
+}
 
 function ClaimDialog({
 	providerName,
+	profileDefaults,
 	disabled,
 	pending,
 	onClaim,
 }: {
 	providerName: string;
+	profileDefaults?: Partial<Record<keyof CarrierLinks, string | null>>;
 	disabled: boolean;
 	pending: boolean;
-	onClaim: (branding: { logoUrl?: string; iconUrl?: string }) => void;
+	onClaim: (values: {
+		logoUrl?: string;
+		iconUrl?: string;
+		profile: CarrierProfileBody;
+	}) => void;
 }) {
 	const [open, setOpen] = useState(false);
 	const [logoUrl, setLogoUrl] = useState<string | undefined>(undefined);
 	const [iconUrl, setIconUrl] = useState<string | undefined>(undefined);
+	const [links, setLinks] = useState<CarrierLinks>(() =>
+		linksFromDefaults(profileDefaults),
+	);
+	const linksValid = carrierLinksValid(links);
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog
+			open={open}
+			onOpenChange={(next) => {
+				if (next) {
+					setLinks(linksFromDefaults(profileDefaults));
+				}
+				setOpen(next);
+			}}
+		>
 			<DialogTrigger asChild>
 				<Button size="sm" disabled={disabled} data-testid="open-claim-dialog">
 					Claim
@@ -66,10 +108,16 @@ function ClaimDialog({
 						Claim {providerName}
 					</DialogTitle>
 					<DialogDescription>
-						Optionally upload your carrier branding — it appears on the public
-						providers and models pages once your claim is approved.
+						Confirm your public links — we prefilled what the catalogue knows.
+						Branding is optional and appears on the public providers and models
+						pages once your claim is approved.
 					</DialogDescription>
 				</DialogHeader>
+				<CarrierLinksFields
+					idPrefix="claim-profile"
+					value={links}
+					onChange={setLinks}
+				/>
 				<ProviderBrandingFields
 					logoInputId="claim-logo"
 					iconInputId="claim-icon"
@@ -82,10 +130,10 @@ function ClaimDialog({
 				<DialogFooter>
 					<Button
 						className="font-semibold"
-						disabled={pending}
+						disabled={pending || !linksValid}
 						data-testid="confirm-claim"
 						onClick={() => {
-							onClaim({ logoUrl, iconUrl });
+							onClaim({ logoUrl, iconUrl, profile: carrierLinksBody(links) });
 							setOpen(false);
 						}}
 					>
@@ -141,9 +189,12 @@ function RegisterCarrierDialog({
 		description?: string;
 		logoUrl?: string;
 		iconUrl?: string;
+		profile: CarrierProfileBody;
 	}) => void;
 }) {
 	const [open, setOpen] = useState(false);
+	const [links, setLinks] = useState<CarrierLinks>(EMPTY_CARRIER_LINKS);
+	const linksValid = carrierLinksValid(links);
 	const [providerId, setProviderId] = useState("");
 	const [name, setName] = useState("");
 	const [baseUrl, setBaseUrl] = useState("");
@@ -198,6 +249,7 @@ function RegisterCarrierDialog({
 							description: description || undefined,
 							logoUrl,
 							iconUrl,
+							profile: carrierLinksBody(links),
 						});
 						setOpen(false);
 					}}
@@ -253,7 +305,8 @@ function RegisterCarrierDialog({
 								<>
 									Must be on{" "}
 									<span className="font-mono">{claimDomains.join(" or ")}</span>{" "}
-									— we only list an endpoint on a domain you proved.
+									— we only list an endpoint on a domain you proved. Hosted
+									elsewhere? Add and verify that domain in step 1.
 								</>
 							) : domainState === "endpoint-path" ? (
 								<>
@@ -280,6 +333,11 @@ function RegisterCarrierDialog({
 							rows={2}
 						/>
 					</div>
+					<CarrierLinksFields
+						idPrefix="carrier-profile"
+						value={links}
+						onChange={setLinks}
+					/>
 					<ProviderBrandingFields
 						logoInputId="carrier-logo"
 						iconInputId="carrier-icon"
@@ -293,7 +351,7 @@ function RegisterCarrierDialog({
 						<Button
 							type="submit"
 							className="font-semibold"
-							disabled={pending || domainState !== "ok"}
+							disabled={pending || domainState !== "ok" || !linksValid}
 							data-testid="confirm-register-carrier"
 						>
 							{pending ? "Filing…" : "File the registration"}
@@ -318,6 +376,7 @@ function OnboardingContent() {
 
 	const [companyName, setCompanyName] = useState("");
 	const [companyWebsite, setCompanyWebsite] = useState("");
+	const [acceptTerms, setAcceptTerms] = useState(false);
 
 	const createCompany = api.useMutation("post", "/airside/companies", {
 		onSuccess: async () => {
@@ -444,13 +503,13 @@ function OnboardingContent() {
 	const paymentDue =
 		!!company && company.paymentRequired && company.paymentStatus === "unpaid";
 	const emailDomain = user?.email.split("@")[1] ?? "";
-	// Every domain this account may claim on: the verified email's, plus a
-	// company domain proved over DNS.
+	// Every domain this account may claim on: the verified email's, plus the
+	// company domains proved over DNS.
 	const claimDomains = Array.from(
 		new Set(
 			[
 				isFreemail ? null : emailDomain,
-				company?.websiteVerifiedDomain ?? null,
+				...(company?.verifiedDomains ?? []),
 			].filter((d): d is string => !!d),
 		),
 	);
@@ -516,17 +575,21 @@ function OnboardingContent() {
 										<BadgeCheck className="size-3" /> Registered
 									</Badge>
 								</div>
-								<WebsiteVerificationCard companyId={company.id} />
+								<CompanyDomainsCard companyId={company.id} />
 							</>
 						) : (
 							<form
 								className="grid gap-4 sm:grid-cols-2"
 								onSubmit={(e) => {
 									e.preventDefault();
+									if (!acceptTerms) {
+										return;
+									}
 									createCompany.mutate({
 										body: {
 											name: companyName,
 											website: companyWebsite || undefined,
+											acceptTerms: true,
 										},
 									});
 								}}
@@ -579,9 +642,20 @@ function OnboardingContent() {
 									)}
 								</div>
 								<div className="sm:col-span-2">
+									<TermsAgreement
+										id="company-accept-terms"
+										checked={acceptTerms}
+										onChange={setAcceptTerms}
+									/>
+								</div>
+								<div className="sm:col-span-2">
 									<Button
 										type="submit"
-										disabled={createCompany.isPending || !user.emailVerified}
+										disabled={
+											createCompany.isPending ||
+											!user.emailVerified ||
+											!acceptTerms
+										}
 										className="font-semibold"
 									>
 										{createCompany.isPending
@@ -617,7 +691,7 @@ function OnboardingContent() {
 													className="text-foreground font-mono font-semibold"
 													data-testid="listing-fee-amount"
 												>
-													${company.listingFeeAmount.toLocaleString("en-US")}
+													${formatNumber(company.listingFeeAmount)}
 												</span>
 											</>
 										) : null}{" "}
@@ -746,6 +820,13 @@ function OnboardingContent() {
 											claim.providerId === p.providerId &&
 											claim.status === "rejected",
 									);
+									const myClaim = p.claimedByMyCompany
+										? company?.claims.find(
+												(claim) =>
+													claim.providerId === p.providerId &&
+													claim.status === p.myClaimStatus,
+											)
+										: undefined;
 									return (
 										<li
 											key={p.providerId}
@@ -756,6 +837,11 @@ function OnboardingContent() {
 												<div className="text-muted-foreground font-mono text-xs">
 													{p.providerId} · matched {p.matchedDomain}
 												</div>
+												{myClaim ? (
+													<div className="text-muted-foreground mt-1 text-xs">
+														Filed <RelativeDate date={myClaim.createdAt} />
+													</div>
+												) : null}
 												{rejectedClaim && !p.claimedByMyCompany ? (
 													<div className="text-destructive mt-1 text-xs">
 														Previous claim rejected
@@ -782,6 +868,7 @@ function OnboardingContent() {
 											) : (
 												<ClaimDialog
 													providerName={p.name}
+													profileDefaults={p.profileDefaults}
 													disabled={
 														!company ||
 														!user.emailVerified ||
@@ -789,7 +876,7 @@ function OnboardingContent() {
 														createClaim.isPending
 													}
 													pending={createClaim.isPending}
-													onClaim={(branding) => {
+													onClaim={(values) => {
 														if (!company) {
 															return;
 														}
@@ -797,7 +884,7 @@ function OnboardingContent() {
 															body: {
 																providerCompanyId: company.id,
 																providerId: p.providerId,
-																...branding,
+																...values,
 															},
 														});
 													}}
@@ -819,6 +906,9 @@ function OnboardingContent() {
 										<div className="font-medium">{claim.providerName}</div>
 										<div className="text-muted-foreground font-mono text-xs">
 											{claim.providerId} · {claim.customBaseUrl}
+										</div>
+										<div className="text-muted-foreground mt-1 text-xs">
+											Filed <RelativeDate date={claim.createdAt} />
 										</div>
 										{claim.status === "rejected" ? (
 											<div className="text-destructive mt-1 text-xs">

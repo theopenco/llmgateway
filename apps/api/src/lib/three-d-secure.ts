@@ -61,8 +61,8 @@ export function getThreeDSecureEnvOverride():
  * still approve silently or acknowledge the attempt without authenticating.
  *
  * Apply this ONLY where a customer is present *and* the card is being stored
- * for later use: SetupIntents, `mode: "setup"` Checkout, and the first payment
- * of a subscription. That one authentication is what lets Stripe claim an SCA
+ * for later use: SetupIntents and `mode: "setup"` / `mode: "subscription"`
+ * Checkout. That one authentication is what lets Stripe claim an SCA
  * exemption on the merchant-initiated charges that follow, so authenticating
  * once here makes later off-session charges more likely to succeed, not less.
  *
@@ -70,6 +70,9 @@ export function getThreeDSecureEnvOverride():
  *   - Off-session charges (auto top-up, DevPass PAYG top-ups, Reset Passes)
  *     have nobody present to answer a challenge, so requesting one would turn
  *     them into `authentication_required` declines.
+ *   - Subscription `payment_settings`: Stripe copies them onto every invoice
+ *     the subscription creates, so a level set there challenges each
+ *     off-session renewal and fails it the same way.
  *   - Repeat on-session charges (credit top-ups on a saved card) were already
  *     authenticated when the card was saved, so a second challenge adds
  *     friction without adding protection.
@@ -136,26 +139,6 @@ export function threeDSecureOptions(request: ThreeDSecureRequest | undefined): {
 	};
 }
 
-/** Same, in the nested shape `subscriptions.create` expects. */
-export function threeDSecureSubscriptionSettings(
-	request: ThreeDSecureRequest | undefined,
-): {
-	payment_settings?: {
-		payment_method_options: {
-			card: { request_three_d_secure: ThreeDSecureRequest };
-		};
-	};
-} {
-	if (!request) {
-		return {};
-	}
-	return {
-		payment_settings: {
-			payment_method_options: { card: { request_three_d_secure: request } },
-		},
-	};
-}
-
 /**
  * Resolves the configured 3DS level and shapes it for a card-setup
  * SetupIntent or Checkout Session. Await this before building the params
@@ -165,4 +148,24 @@ export async function forcedThreeDSecureOptions(): Promise<
 	ReturnType<typeof threeDSecureOptions>
 > {
 	return threeDSecureOptions(await getForcedThreeDSecure());
+}
+
+/**
+ * `STRIPE_DEV_PLAN_FORCE_3DS=true` forces a challenge when a DevPass card is
+ * set up, regardless of the account-wide level.
+ */
+export async function getForcedDevPlanThreeDSecure(): Promise<
+	ForcedThreeDSecureLevel | undefined
+> {
+	if (process.env.STRIPE_DEV_PLAN_FORCE_3DS === "true") {
+		return "challenge";
+	}
+	return await getForcedThreeDSecure();
+}
+
+/** DevPass card-setup counterpart of `forcedThreeDSecureOptions`. */
+export async function forcedDevPlanThreeDSecureOptions(): Promise<
+	ReturnType<typeof threeDSecureOptions>
+> {
+	return threeDSecureOptions(await getForcedDevPlanThreeDSecure());
 }

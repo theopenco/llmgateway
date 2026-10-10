@@ -6,6 +6,7 @@ import {
 	ProviderIcons,
 	type ProviderIconKey,
 } from "@llmgateway/shared/components";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import { formatScore, labelForUseCase } from "./census-shared";
 
@@ -182,7 +183,7 @@ export function PassportDataPage({
 							{field.label}
 						</dt>
 						<dd className="mt-1 font-mono text-2xl font-bold tabular-nums sm:text-3xl">
-							{field.value.toLocaleString("en-US")}
+							{formatNumber(field.value)}
 						</dd>
 					</div>
 				))}

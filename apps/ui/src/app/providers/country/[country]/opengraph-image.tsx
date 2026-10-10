@@ -1,10 +1,18 @@
-import { ogContentType, ogImage, ogSize } from "@/lib/og";
-import { listedProviders } from "@/lib/providers-catalog";
+import { getOgProviderIcon } from "@/lib/og-icons";
+import {
+	providerOgCard,
+	providerOgContentType,
+	providerOgSize,
+} from "@/lib/provider-og";
+import {
+	countModelsForProviders,
+	listedProviders,
+} from "@/lib/providers-catalog";
 
 import { getProviderCountries } from "@llmgateway/models";
 
-export const size = ogSize;
-export const contentType = ogContentType;
+export const size = providerOgSize;
+export const contentType = providerOgContentType;
 
 // Satori cannot run at request time in production; prerender every country.
 export const dynamicParams = false;
@@ -24,14 +32,27 @@ export default async function ProviderCountryOgImage({
 	const match = getProviderCountries().find(
 		(c) => c.code.toLowerCase() === country.toLowerCase(),
 	);
-	const providerCount = match
-		? listedProviders.filter((p) => p.headquarters === match.code).length
-		: 0;
-	return ogImage({
-		eyebrow: "Providers",
-		title: match ? `AI Providers in ${match.name}` : "AI Providers",
+	const countryProviders = match
+		? listedProviders.filter((p) => p.headquarters === match.code)
+		: [];
+	const modelCount = countModelsForProviders(
+		new Set(countryProviders.map((provider) => provider.id)),
+	);
+
+	return providerOgCard({
+		eyebrow: match ? `Providers · ${match.code}` : "Provider directory",
+		title: match ? `AI providers in ${match.name}` : "AI providers by country",
 		subtitle: match
-			? `${providerCount} AI ${providerCount === 1 ? "provider" : "providers"} headquartered in ${match.name}, available through one OpenAI-compatible API.`
+			? `Route to providers headquartered in ${match.name} — or pin your traffic to them with a data-residency policy.`
 			: "Browse AI providers by headquarters country on LLM Gateway.",
+		logos: countryProviders.map((provider) => ({
+			id: provider.id,
+			Icon: getOgProviderIcon(provider.id),
+		})),
+		stats: [
+			{ label: "Providers", value: String(countryProviders.length) },
+			{ label: "Models", value: String(modelCount) },
+			{ label: "Endpoints", value: "1" },
+		],
 	});
 }

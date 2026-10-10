@@ -1,4 +1,5 @@
 import { CompareFaq } from "@/components/compare/compare-faq";
+import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonGitHubCopilot } from "@/components/landing/comparison-github-copilot";
 import Footer from "@/components/landing/footer";
@@ -7,35 +8,34 @@ import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
 const copilotFaqs: CompareFaqItem[] = [
 	{
-		question: "Is LLM Gateway a GitHub Copilot alternative?",
+		question: "Is LLM Gateway a replacement for GitHub Copilot?",
 		answer:
-			"Yes, for chat and agentic coding. LLM Gateway routes any coding agent — Claude Code, Cline, Continue, Aider, or DevPass Code — to 200+ models with zero token markup, hard budget caps, and prompt caching. Copilot remains a fine choice for inline completions, which stay flat-fee.",
+			"LLM Gateway supplies model access for compatible coding tools. Copilot supplies editor completions, chat, CLI and agent workflows integrated with GitHub. You can use a gateway with supported Copilot BYOK clients rather than replacing the entire coding experience.",
 	},
 	{
-		question: "What changed with GitHub Copilot pricing in June 2026?",
+		question: "What does GitHub Copilot cost?",
 		answer:
-			"On June 1, 2026, GitHub replaced Premium Request Units with usage-based AI Credits (1 credit = $0.01). Base seats stayed at $10–$39 per user per month, but Copilot Chat, agent mode, code review, and CLI now bill by tokens consumed — with no spending ceiling unless you manually configure a budget.",
+			"Monthly prices are Pro $10, Pro+ $39, Max $100, Business $19 per seat and Enterprise $39 per seat. Current individual allowances total 1,500, 7,000 and 20,000 AI credits, including a variable flex allotment. Business and Enterprise contribute 1,900 and 3,900 credits per seat to a shared pool. One AI credit equals $0.01. Free and Student plans are also available.",
 	},
 	{
-		question: "How much does GitHub Copilot cost after the change?",
+		question: "Can Copilot spending be capped?",
 		answer:
-			"The seat price is unchanged — Pro $10, Pro+ $39, Business $19, and Enterprise $39 per user per month — but included credits run out fast under real usage. Heavy chat users on premium models report $150–$250 per month in overages, and agentic teams have projected 10–50x cost increases.",
+			"Yes. Organization and enterprise paid additional usage is enabled by default, but administrators can disable it or configure spending controls. User budgets stop that user at their limit. Individual paid plans require an additional-usage budget to continue beyond included credits. Check whether a broader budget stops usage or only sends alerts.",
 	},
 	{
-		question: "How does LLM Gateway keep AI coding costs predictable?",
+		question: "Does Copilot support BYOK and prompt caching?",
 		answer:
-			"Provider token rates pass through with no markup (a flat 5% fee on credits, or 0% with your own provider keys), prompt caching cuts repeat-token spend automatically, and budgets with hard limits can be set per organization, project, and API key — so a runaway agent can never blow the budget.",
+			"Yes. Supported clients offer local BYOK, and enterprise-managed custom models are in public preview. Feature availability depends on the client and organization policy. Copilot also accounts for cached tokens, so prompt caching is not a gateway-only saving.",
 	},
 	{
-		question:
-			"Can I keep Copilot for completions and use LLM Gateway for everything else?",
+		question: "What stays included without AI-credit billing?",
 		answer:
-			"Yes, that hybrid setup is common: keep a $10 Copilot Pro seat for inline completions, and route chat and agent workloads through LLM Gateway with a flat DevPass plan (from $29/month) or pay-as-you-go usage. You get frontier models at pass-through prices with a hard cap on spend.",
+			"Code completions and next-edit suggestions remain unlimited on paid Copilot plans. Chat and agent features consume credits. Compare the tool experience and your actual workload as well as the subscription price.",
 	},
 	{
-		question: "What are the best GitHub Copilot alternatives in 2026?",
+		question: "How does LLM Gateway charge for coding usage?",
 		answer:
-			"Teams leaving Copilot's usage billing typically evaluate LLM Gateway with the coding agent of their choice (DevPass Code, Claude Code, Cline, Continue, or Aider), plus flat-fee IDE products like Cursor and Windsurf. The right pick depends on whether you want an editor, an agent, or infrastructure you control.",
+			"Pay-as-you-go usage has no token markup, with a 5% credit-purchase fee or no BYOK platform fee. DevPass is a separate subscription with a monthly allowance and premium weekly fair-use limits. Optional overflow spends additional credits; it is not unlimited flat-fee usage.",
 	},
 ];
 
@@ -47,12 +47,12 @@ export default function CompareGitHubCopilotPage() {
 					content={{
 						heading: "The Cost-Controlled GitHub Copilot Alternative",
 						description:
-							"Copilot's June 2026 switch to usage-based AI Credits removed the ceiling on your AI bill. LLM Gateway routes any coding agent to 200+ models with zero token markup, prompt caching, and hard budget caps per team, project, and key.",
+							"Compare Copilot's integrated coding tools, included AI credits and BYOK support with LLM Gateway's cross-provider API, per-request analytics and organization, project and key budgets.",
 						badges: [
 							"No Token Markup",
 							"Hard Budget Caps",
 							"200+ Models",
-							"Any Coding Agent",
+							"Compatible Coding Tools",
 						],
 						cta: {
 							primary: {
@@ -67,6 +67,7 @@ export default function CompareGitHubCopilotPage() {
 					}}
 				/>
 				<ComparisonGitHubCopilot />
+				<ComparisonSources slug="github-copilot" />
 				<CompareFaq
 					heading="LLM Gateway vs GitHub Copilot"
 					description="Common questions about moving off GitHub Copilot's usage-based billing."
@@ -82,12 +83,12 @@ export async function generateMetadata() {
 	return {
 		title: "LLM Gateway vs GitHub Copilot — Costs Compared (2026)",
 		description:
-			"Copilot now bills chat and agents by usage-based AI Credits. Compare it with LLM Gateway: zero token markup, hard budget caps, prompt caching, and 200+ models for any coding agent.",
+			"Copilot now bills chat and agents by usage-based AI Credits. Compare it with LLM Gateway: zero token markup, hard budget caps, prompt caching, and 200+ models for compatible coding tools.",
 		alternates: { canonical: "/compare/github-copilot" },
 		openGraph: {
 			title: "LLM Gateway vs GitHub Copilot — Costs Compared (2026)",
 			description:
-				"Copilot bills chat and agents by usage-based AI Credits. LLM Gateway: zero token markup, hard budget caps, and 200+ models for any coding agent.",
+				"Copilot bills chat and agents by usage-based AI Credits. LLM Gateway: zero token markup, hard budget caps, and 200+ models for compatible coding tools.",
 			type: "website",
 			url: "https://llmgateway.io/compare/github-copilot",
 		},
@@ -95,7 +96,7 @@ export async function generateMetadata() {
 			card: "summary_large_image",
 			title: "LLM Gateway vs GitHub Copilot — Costs Compared (2026)",
 			description:
-				"Copilot bills chat and agents by usage-based AI Credits. LLM Gateway: zero token markup, hard budget caps, and 200+ models for any coding agent.",
+				"Copilot bills chat and agents by usage-based AI Credits. LLM Gateway: zero token markup, hard budget caps, and 200+ models for compatible coding tools.",
 		},
 	};
 }

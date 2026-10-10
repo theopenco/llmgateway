@@ -6,6 +6,8 @@ import Link from "next/link";
 import { useLoungePoints } from "@/hooks/useLoungePoints";
 import { useUser } from "@/hooks/useUser";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 // Signed-in banner above the public leaderboard: your points, level, and
 // global rank, plus the opt-in nudge when the profile is still private.
 export function MyLoungeRank() {
@@ -24,14 +26,14 @@ export function MyLoungeRank() {
 			<div className="flex flex-1 flex-wrap items-center gap-x-4 gap-y-1 text-sm">
 				<span className="inline-flex items-center gap-1.5 font-semibold">
 					<Sparkles className="h-4 w-4 text-lounge-gold" />
-					{stats.totalPoints.toLocaleString()} points
+					{formatNumber(stats.totalPoints)} points
 				</span>
 				<span className="text-muted-foreground">
 					Lv {stats.level} · {stats.levelTitle}
 				</span>
 				{stats.rank ? (
 					<span className="text-muted-foreground">
-						Rank #{stats.rank.toLocaleString()}
+						Rank #{formatNumber(stats.rank)}
 					</span>
 				) : null}
 				{stats.currentStreak > 1 ? (

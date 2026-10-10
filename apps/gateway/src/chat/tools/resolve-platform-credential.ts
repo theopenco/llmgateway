@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import {
 	findManagedProviderKey,
 	hasManagedProviderCredential,
+	listManagedProviderKeys,
 } from "@/lib/cached-queries.js";
 
 import { readProviderKey } from "@llmgateway/actions";
@@ -12,6 +13,7 @@ import { getProviderEnvValue, providers } from "@llmgateway/models";
 import {
 	getProviderEnv,
 	getServiceTierIneligibleEnvIndices,
+	hasServiceTierEligibleEnvCredential,
 } from "./get-provider-env.js";
 import { providerKeySupportsServiceTier } from "./service-tier.js";
 
@@ -43,6 +45,29 @@ function combineFilters(
 		return undefined;
 	}
 	return (key) => active.every((filter) => filter(key));
+}
+
+/**
+ * Whether the platform holds a credential that can carry a Flex/Priority
+ * request for the provider. Managed credentials supersede the environment, so
+ * the env vars are only read for a provider that has none.
+ */
+export async function hasServiceTierEligiblePlatformCredential(
+	provider: Provider,
+	variant: EnvVarVariant | undefined,
+): Promise<boolean> {
+	const managedKeys = await listManagedProviderKeys(provider);
+	if (managedKeys.length === 0) {
+		return hasServiceTierEligibleEnvCredential(provider, variant);
+	}
+	const variantMatches = managedKeys.filter(
+		(key) => key.variant === (variant ?? "default"),
+	);
+	const byVariant =
+		variantMatches.length > 0
+			? variantMatches
+			: managedKeys.filter((key) => key.variant === "default");
+	return byVariant.some(providerKeySupportsServiceTier);
 }
 
 export interface ResolvePlatformCredentialOptions {
@@ -90,6 +115,14 @@ export async function resolvePlatformCredential(
 	provider: Provider,
 	options: ResolvePlatformCredentialOptions,
 ): Promise<PlatformCredential> {
+	// Custom providers are only ever served with the organization's own key.
+	if (provider === "custom") {
+		throw new HTTPException(400, {
+			message:
+				"Custom providers require a provider key configured in your organization settings.",
+		});
+	}
+
 	const restrictedToModel = options.model;
 	const managedKey = await findManagedProviderKey(provider, {
 		variant: options.variant,

@@ -102,11 +102,16 @@ export async function authorizeAccount(
 		};
 	}
 
-	if (!freshOrg || getOrganizationBlockReason(freshOrg)) {
+	const organizationBlock = freshOrg
+		? getOrganizationBlockReason(freshOrg)
+		: null;
+	if (!freshOrg || organizationBlock) {
 		return {
 			ok: false,
 			code: "organization_unavailable",
-			message: "The organization for this session is no longer active.",
+			message:
+				organizationBlock?.message ??
+				"The organization for this session is no longer active.",
 			severity: "close",
 		};
 	}
@@ -127,6 +132,7 @@ export async function authorizeAccount(
 	const iamValidation = await validateRequestModelAccess({
 		apiKey: freshKey,
 		organizationId: preflight.project.organizationId,
+		providerAccessRestriction: freshOrg.providerAccessRestriction,
 		requestedModel: match.modelId,
 		requestedProvider: match.mapping.providerId,
 		activeModelInfo: match.modelDef,

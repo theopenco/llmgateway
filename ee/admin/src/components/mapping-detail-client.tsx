@@ -1,17 +1,29 @@
 "use client";
 
+import { keepPreviousData } from "@tanstack/react-query";
+import { AlertTriangle, ExternalLink, ShieldCheck } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { DetailStatCards, StatCard } from "@/components/detail-stat-cards";
 import { HistoryChart, windowOptions } from "@/components/history-chart";
+import {
+	ModelVerificationDialog,
+	VerificationStatusBadge,
+} from "@/components/model-verification-dialog";
+import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getMappingDetail, getMappingHistory } from "@/lib/admin-history";
+import { useApi } from "@/lib/fetch-client";
+import { useHistoryClient } from "@/lib/history-client";
+import { publicModelUrl } from "@/lib/public-urls";
 
 import { getProviderIcon } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { HistoryWindow } from "@/components/history-chart";
+import type { ModelVerification } from "@/components/model-verification-dialog";
 import type { MappingDetail } from "@/lib/types";
 
 function formatPrice(price: string | null) {
@@ -52,38 +64,56 @@ export function MappingDetailClient({
 	const router = useRouter();
 	const pathname = usePathname();
 	const window = parseHistoryWindow(searchParams.get("window"));
-	const [loading, setLoading] = useState(false);
-	const [mapping, setMapping] = useState<MappingDetail>(initialMapping);
-	const initialWindowRef = useRef(window);
-
-	const loadDetail = useCallback(
-		async (w: HistoryWindow) => {
-			setLoading(true);
-			try {
-				const data = await getMappingDetail(providerId, modelId, w, region);
-				if (data) {
-					setMapping(data.mapping);
-				}
-			} finally {
-				setLoading(false);
-			}
+	// The server rendered the stats for the initial window; only refetch for others.
+	const [initialWindow] = useState(window);
+	const $api = useApi();
+	const detailQuery = $api.useQuery(
+		"get",
+		"/admin/providers/{providerId}/models/{modelId}",
+		{
+			params: {
+				path: { providerId, modelId: encodeURIComponent(modelId) },
+				query: { window, ...(region ? { region } : {}) },
+			},
 		},
-		[providerId, modelId, region],
+		{ enabled: window !== initialWindow, placeholderData: keepPreviousData },
 	);
+	const detail = window === initialWindow ? undefined : detailQuery.data;
+	const mapping: MappingDetail = detail?.mapping ?? initialMapping;
+	const loading = window !== initialWindow && detailQuery.isFetching;
 
-	useEffect(() => {
-		if (window === initialWindowRef.current) {
-			return;
-		}
-		void loadDetail(window);
-	}, [loadDetail, window]);
-
+	const history = useHistoryClient();
 	const fetchHistory = useCallback(
 		async (w: HistoryWindow) => {
-			return await getMappingHistory(providerId, modelId, w, undefined, region);
+			return await history.mappingHistory(
+				providerId,
+				modelId,
+				w,
+				undefined,
+				region,
+			);
 		},
-		[providerId, modelId, region],
+		[history, providerId, modelId, region],
 	);
+
+	const verificationsQuery = $api.useQuery(
+		"get",
+		"/admin/model-verifications",
+		{ params: { query: { providerId } } },
+		{
+			refetchInterval: (query) =>
+				query.state.data?.entries.some(
+					(entry) =>
+						entry.verification.status === "queued" ||
+						entry.verification.status === "running",
+				)
+					? 2_000
+					: false,
+		},
+	);
+	const latestVerification = (verificationsQuery.data?.entries.find(
+		(entry) => entry.mappingId === mapping.id,
+	)?.verification ?? null) as ModelVerification | null;
 
 	const ProviderIcon = getProviderIcon(providerId);
 	const displayName =
@@ -91,11 +121,19 @@ export function MappingDetailClient({
 			? mapping.externalId
 			: mapping.modelId;
 
+	// Match the history chart's scope: it counts BYOK traffic, and a region-less
+	// mapping's history also rolls up its regional rows, which only the
+	// model-wide filter covers.
+	const recentErrorsScope = mapping.region
+		? `mapping=${encodeURIComponent(`${mapping.providerId}/${mapping.modelId}:${mapping.region}`)}`
+		: `modelId=${encodeURIComponent(mapping.modelId)}`;
+	const recentErrorsHref = `/unstable-mappings?${recentErrorsScope}&includeByok=true`;
+
 	return (
 		<>
 			<header className="flex items-start gap-3">
 				<ProviderIcon className="mt-1 h-8 w-8 shrink-0 dark:text-white" />
-				<div>
+				<div className="flex-1">
 					<h1 className="text-3xl font-semibold tracking-tight">
 						{mapping.providerId}/{mapping.modelId}
 					</h1>
@@ -112,8 +150,36 @@ export function MappingDetailClient({
 							<Badge variant="outline">{mapping.region}</Badge>
 						)}
 						{mapping.streaming && <Badge variant="outline">streaming</Badge>}
+						<VerificationStatusBadge verification={latestVerification} />
 					</div>
 				</div>
+				<Button asChild variant="outline" size="sm">
+					<a
+						href={publicModelUrl(mapping.modelId, mapping.providerId)}
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						<ExternalLink className="mr-1 h-4 w-4" />
+						Model card
+					</a>
+				</Button>
+				<Button asChild variant="outline" size="sm">
+					<Link href={recentErrorsHref}>
+						<AlertTriangle className="mr-1 h-4 w-4" />
+						Recent errors
+					</Link>
+				</Button>
+				<ModelVerificationDialog
+					title={`${mapping.providerId}/${mapping.modelId}${mapping.region ? `:${mapping.region}` : ""}`}
+					mappingId={mapping.id}
+					latest={latestVerification}
+					onSettled={() => void verificationsQuery.refetch()}
+				>
+					<Button variant="outline" size="sm" data-testid="verify-mapping">
+						<ShieldCheck className="mr-1 h-4 w-4" />
+						<AdminOnly fallback="Verification">Verify</AdminOnly>
+					</Button>
+				</ModelVerificationDialog>
 			</header>
 
 			<div className="flex flex-wrap items-center gap-1">
@@ -160,9 +226,7 @@ export function MappingDetailClient({
 				<StatCard
 					label="Max Output"
 					value={
-						mapping.maxOutput
-							? `${mapping.maxOutput.toLocaleString("en-US")}`
-							: "\u2014"
+						mapping.maxOutput ? `${formatNumber(mapping.maxOutput)}` : "\u2014"
 					}
 				/>
 			</section>

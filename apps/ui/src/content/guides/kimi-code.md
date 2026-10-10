@@ -2,147 +2,68 @@
 id: kimi-code
 slug: kimi-code
 title: Kimi Code Integration
-seoTitle: "Kimi Code CLI: Install, Run 200+ Models"
-description: Install Kimi Code CLI on macOS, Linux, or Windows, then point it at GPT-5, Claude, Kimi K3, or 200+ models through LLM Gateway. Provider setup in six steps.
-date: 2026-06-08
+seoTitle: Use Kimi Code with LLM Gateway
+description: Connect Kimi Code to LLM Gateway, discover models, and verify a coding task.
+date: 2026-09-23
 ---
 
-[Kimi Code CLI](https://github.com/MoonshotAI/kimi-code) is an open-source, AI-powered coding agent developed by Moonshot AI designed to automate software development tasks directly within your terminal. It can read and edit code, execute shell commands, search files, and autonomously manage complex coding workflows.
+[Kimi Code](https://github.com/MoonshotAI/kimi-code) is a terminal coding agent. Its provider manager can discover LLM Gateway models and save the connection for future sessions.
 
-Kimi Code features first-class support for the **models.dev** registry, a community-maintained model catalog. This allows Kimi Code to query and configure LLM Gateway dynamically — fetching all compatible models, capabilities (such as thinking or vision), and pricing without requiring manual TOML editing.
+## Video walkthrough
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/BhJPdUAXhpE"
+		title="Kimi Code setup and coding demo with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
 
-## Prerequisites
-
-- An LLM Gateway API key — [sign up free](/signup) (no credit card required)
-
-## Setup
-
-### Step 1: Install Kimi Code CLI
-
-If you haven't already, install Kimi Code CLI.
-
-- **macOS or Linux**:
-
-  ```bash
-  curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
-  ```
-
-- **Homebrew (macOS/Linux)**:
-
-  ```bash
-  brew install kimi-code
-  ```
-
-- **Windows (PowerShell)**:
-  ```powershell
-  irm https://code.kimi.com/kimi-code/install.ps1 | iex
-  ```
-
-Confirm the installation:
+## Install
 
 ```bash
+pnpm add -g @moonshot-ai/kimi-code
 kimi --version
 ```
 
-### Step 2: Launch Kimi Code and Open the Provider Manager
+Use the current Kimi Code package. Additional installation options are in the&nbsp;[official documentation](https://github.com/MoonshotAI/kimi-code).
 
-Start the interactive terminal in your project directory:
+## Connect your account
 
-```bash
-kimi
-```
+Create an API key in your LLM Gateway or DevPass dashboard, then launch `kimi` from your project. Review the workspace trust prompt before continuing.
 
-Once loaded, type the `/provider` command and press Enter. Select **Known third-party provider** to fetch the catalog from the registry:
+1. Run `/provider`.
+2. Select **Add New Platform**, then **Known third-party provider**.
+3. Search for **LLM Gateway**.
+4. Choose **LLM Gateway** for pay-as-you-go usage or **DevPass (LLM Gateway)** for a coding plan.
+5. Enter your key when prompted, then choose a tool-capable model.
 
-![Opening Provider Manager in Kimi Code](https://docs.llmgateway.io/guides/kimi-code/0-add-provider.png)
+The provider registry supplies model metadata. Use the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools) to check capabilities and account availability.
 
-### Step 3: Select LLM Gateway
+> **Using DevPass?** Choose a canonical model ID included in your plan. An upstream provider prefix pins routing and is not supported by coding plans. A local provider name in Kimi's model alias is separate from the model ID sent to the gateway.
 
-Type `llm` to filter the providers and select **LLM Gateway** from the list:
+## Verify a small task
 
-![Selecting LLM Gateway in Kimi Code](https://docs.llmgateway.io/guides/kimi-code/1-select-provider.png)
+Ask Kimi to inspect a function, fix one failing test case, and run the existing tests without changing them. Review the diff and command output. Use `/model` to change the selected model for later work.
 
-### Step 4: Enter Your API Key
+The key determines which workspace receives the requests. Check usage in that workspace's dashboard.
 
-When prompted, paste your LLM Gateway API key and press Enter. Kimi Code will save it securely to your local configuration:
+## Manual configuration
 
-![Entering LLM Gateway API Key](https://docs.llmgateway.io/guides/kimi-code/2-enter-key.png)
+Kimi stores its configuration in `~/.kimi-code/config.toml`. A custom OpenAI-compatible provider uses `type = "openai"` and `base_url = "https://api.llmgateway.io/v1"`. Keep the file private because it can contain your API key.
 
-_Your credentials are saved locally to `~/.kimi-code/config.toml`._
+Model entries refer to the local provider name and specify the gateway model ID. Match their context limits, output limits, and capabilities to the selected model. Prefer the provider manager when you want the registry to populate those values.
 
-### Step 5: Select a Model and Toggle Thinking
+## Troubleshooting
 
-The LLM Gateway catalog is now loaded. Use the arrow keys to browse or type to search for your desired model. Select the `llmgateway` tab to view only LLM Gateway models.
+**The provider list is unavailable:** check network access to the registry or use a custom provider configuration.
 
-You can also toggle the **Thinking** option (On/Off) at the bottom depending on the model's capabilities:
+**Authentication fails:** check that the key is active and belongs to the intended workspace.
 
-![Browsing LLM Gateway Models](https://docs.llmgateway.io/guides/kimi-code/3-select-model.png)
+**A model is unavailable:** verify its exact ID and that your account or plan can use it.
 
-For example, type `gpt-5.5` to find the latest reasoning model, select it, and press Enter:
-
-![Selecting GPT-5.5 Model](https://docs.llmgateway.io/guides/kimi-code/4-select-gpt-model.png)
-
-### Step 6: Start Coding
-
-All set! Kimi Code is now configured. Your requests will be securely routed through LLM Gateway, allowing you to use advanced models for local autonomous coding while showing real-time usage and cost statistics on your LLM Gateway dashboard.
-
-![Running Kimi Code CLI session](https://docs.llmgateway.io/guides/kimi-code/5-chat.png)
-
-Use `/model` in the terminal session at any time to switch models.
-
-## Manual Configuration (Advanced)
-
-If you prefer to configure your environment manually without using the interactive provider manager, you can write settings directly to your configuration file at `~/.kimi-code/config.toml` (or `C:\Users\<YourUsername>\.kimi-code\config.toml` on Windows).
-
-Here is an example TOML configuration that registers **GPT-5.5**, **Claude 3.7 Sonnet**, **DeepSeek R1**, and **Qwen3.7 Max** manually:
-
-```toml
-default_model = "llmgateway/gpt-5.5"
-
-[providers.llmgateway]
-type = "openai"
-api_key = "llmgtwy_your_api_key_here"
-base_url = "https://api.llmgateway.io/v1"
-
-[models."llmgateway/gpt-5.5"]
-provider = "llmgateway"
-model = "gpt-5.5"
-max_context_size = 1050000
-max_output_size = 128000
-capabilities = [ "thinking", "tool_use" ]
-display_name = "GPT-5.5"
-
-[models."llmgateway/claude-3.7-sonnet"]
-provider = "llmgateway"
-model = "claude-3.7-sonnet"
-max_context_size = 200000
-max_output_size = 8192
-capabilities = [ "image_in", "thinking", "tool_use" ]
-display_name = "Claude 3.7 Sonnet"
-
-[models."llmgateway/deepseek-r1"]
-provider = "llmgateway"
-model = "deepseek-r1"
-max_context_size = 131072
-max_output_size = 8192
-capabilities = [ "thinking", "tool_use" ]
-display_name = "DeepSeek R1"
-
-[models."llmgateway/qwen3.7-max"]
-provider = "llmgateway"
-model = "qwen3.7-max"
-max_context_size = 1000000
-max_output_size = 65536
-capabilities = [ "thinking", "tool_use" ]
-display_name = "Qwen3.7 Max"
-```
-
-## Why Use LLM Gateway with Kimi Code CLI?
-
-- **200+ models** — Access GPT-5.5, Gemini, Llama, DeepSeek, and more in a single CLI configuration.
-- **Unified cost tracking** — Get a detailed breakdown of costs per prompt and session in your dashboard.
-- **Response caching** — Automatically cache repeated requests (such as parsing or building commands) to save API costs.
-- **Automatic fallback** — Keep coding even if a provider encounters temporary downtime.
-- **Volume discounts** — Access selected models with up to 90% savings compared to standard pricing.
+**Tool calls fail:** choose a model with tool support and check the model metadata in your configuration.

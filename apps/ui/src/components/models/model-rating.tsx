@@ -11,6 +11,8 @@ import { Textarea } from "@/lib/components/textarea";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 interface ModelRatingProps {
 	modelId: string;
 }
@@ -139,7 +141,7 @@ export function ModelRating({ modelId }: ModelRatingProps) {
 				{aggregate && aggregate.ratingCount > 0 ? (
 					<span className="text-sm text-muted-foreground">
 						{aggregate.averageRating?.toFixed(1)} ·{" "}
-						{aggregate.ratingCount.toLocaleString()}{" "}
+						{formatNumber(aggregate.ratingCount)}{" "}
 						{aggregate.ratingCount === 1 ? "rating" : "ratings"}
 					</span>
 				) : (
@@ -156,8 +158,8 @@ export function ModelRating({ modelId }: ModelRatingProps) {
 				{user && !canRate && eligibility && (
 					<span className="text-sm text-muted-foreground ml-auto">
 						Make {eligibility.minimumRequests} requests to rate (
-						{eligibility.requestCount.toLocaleString()}/
-						{eligibility.minimumRequests.toLocaleString()})
+						{formatNumber(eligibility.requestCount)}/
+						{formatNumber(eligibility.minimumRequests)})
 					</span>
 				)}
 				{user && canRate && ownRating && !editing && (

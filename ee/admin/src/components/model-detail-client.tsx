@@ -1,14 +1,18 @@
 "use client";
 
+import { keepPreviousData } from "@tanstack/react-query";
+import { ExternalLink } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { DetailStatCards } from "@/components/detail-stat-cards";
 import { HistoryChart, windowOptions } from "@/components/history-chart";
 import { ModelProviderCharts } from "@/components/model-provider-charts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getModelDetail, getModelHistory } from "@/lib/admin-history";
+import { useApi } from "@/lib/fetch-client";
+import { useHistoryClient } from "@/lib/history-client";
+import { publicModelUrl } from "@/lib/public-urls";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { ModelDetailResponse, ModelProviderStats } from "@/lib/types";
@@ -37,40 +41,31 @@ export function ModelDetailClient({
 	const router = useRouter();
 	const pathname = usePathname();
 	const window = parseHistoryWindow(searchParams.get("window"));
-	const [loading, setLoading] = useState(false);
-	const [info, setInfo] = useState<ModelInfo>(allTimeStats);
-	const [providers, setProviders] =
-		useState<ModelProviderStats[]>(initialProviders);
-	const initialWindowRef = useRef(window);
-
-	const loadStats = useCallback(
-		async (w: HistoryWindow) => {
-			setLoading(true);
-			try {
-				const detailData = await getModelDetail(modelId, w);
-				if (detailData) {
-					setInfo(detailData.model);
-					setProviders(detailData.providers);
-				}
-			} finally {
-				setLoading(false);
-			}
+	// The server rendered the stats for the initial window; only refetch for others.
+	const [initialWindow] = useState(window);
+	const $api = useApi();
+	const detailQuery = $api.useQuery(
+		"get",
+		"/admin/models/{modelId}",
+		{
+			params: {
+				path: { modelId: encodeURIComponent(modelId) },
+				query: { window },
+			},
 		},
-		[modelId],
+		{ enabled: window !== initialWindow, placeholderData: keepPreviousData },
 	);
+	const detail = window === initialWindow ? undefined : detailQuery.data;
+	const info: ModelInfo = detail?.model ?? allTimeStats;
+	const providers: ModelProviderStats[] = detail?.providers ?? initialProviders;
+	const loading = window !== initialWindow && detailQuery.isFetching;
 
-	useEffect(() => {
-		if (window === initialWindowRef.current) {
-			return;
-		}
-		void loadStats(window);
-	}, [loadStats, window]);
-
+	const history = useHistoryClient();
 	const fetchHistory = useCallback(
 		async (w: HistoryWindow) => {
-			return await getModelHistory(modelId, w);
+			return await history.modelHistory(modelId, w);
 		},
-		[modelId],
+		[history, modelId],
 	);
 
 	const displayName =
@@ -78,22 +73,38 @@ export function ModelDetailClient({
 
 	return (
 		<>
-			<header>
-				<h1 className="text-3xl font-semibold tracking-tight">{displayName}</h1>
-				{allTimeStats.name !== allTimeStats.id && (
-					<p className="mt-1 text-sm text-muted-foreground">
-						{allTimeStats.id}
-					</p>
-				)}
-				<div className="mt-3 flex flex-wrap items-center gap-2">
-					<Badge variant="outline">{allTimeStats.family}</Badge>
-					<Badge
-						variant={allTimeStats.status === "active" ? "secondary" : "outline"}
-					>
-						{allTimeStats.status}
-					</Badge>
-					{allTimeStats.free && <Badge variant="default">Free</Badge>}
+			<header className="flex items-start gap-3">
+				<div className="flex-1">
+					<h1 className="text-3xl font-semibold tracking-tight">
+						{displayName}
+					</h1>
+					{allTimeStats.name !== allTimeStats.id && (
+						<p className="mt-1 text-sm text-muted-foreground">
+							{allTimeStats.id}
+						</p>
+					)}
+					<div className="mt-3 flex flex-wrap items-center gap-2">
+						<Badge variant="outline">{allTimeStats.family}</Badge>
+						<Badge
+							variant={
+								allTimeStats.status === "active" ? "secondary" : "outline"
+							}
+						>
+							{allTimeStats.status}
+						</Badge>
+						{allTimeStats.free && <Badge variant="default">Free</Badge>}
+					</div>
 				</div>
+				<Button asChild variant="outline" size="sm">
+					<a
+						href={publicModelUrl(allTimeStats.id)}
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						<ExternalLink className="mr-1 h-4 w-4" />
+						Model card
+					</a>
+				</Button>
 			</header>
 
 			<div className="flex flex-wrap items-center gap-1">

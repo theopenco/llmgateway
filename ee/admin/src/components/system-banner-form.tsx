@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,10 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 import {
 	SYSTEM_BANNER_DEFAULT_LINK_LABEL,
@@ -34,14 +38,12 @@ const severityLabels: Record<SystemBannerSeverity, string> = {
 
 interface SystemBannerFormProps {
 	banner: SystemBannerSettingInput;
-	onSave: (
-		input: SystemBannerSettingInput,
-	) => Promise<{ ok: boolean; message: string | null }>;
 }
 
-export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
+export function SystemBannerForm({ banner }: SystemBannerFormProps) {
 	const router = useRouter();
-	const [pending, startTransition] = useTransition();
+	const readOnly = !canWrite(useAdminRole());
+	const $api = useApi();
 	const [enabled, setEnabled] = useState(banner.enabled);
 	const [message, setMessage] = useState(banner.message);
 	const [severity, setSeverity] = useState<SystemBannerSeverity>(
@@ -49,31 +51,38 @@ export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 	);
 	const [linkUrl, setLinkUrl] = useState(banner.linkUrl ?? "");
 	const [linkLabel, setLinkLabel] = useState(banner.linkLabel ?? "");
-	const [error, setError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
+	const mutation = $api.useMutation("put", "/admin/settings/banner", {
+		meta: { inlineError: true },
+	});
+	const pending = mutation.isPending;
+	const error = mutation.isError
+		? apiErrorMessage(mutation.error, "Failed to update the banner.")
+		: null;
 
 	const trimmedMessage = message.trim();
 	const trimmedLink = linkUrl.trim();
 
 	const save = (nextEnabled: boolean) => {
-		setError(null);
 		setSaved(false);
-		startTransition(async () => {
-			const result = await onSave({
-				enabled: nextEnabled,
-				message,
-				severity,
-				linkUrl: trimmedLink || null,
-				linkLabel: linkLabel.trim() || null,
-			});
-			if (!result.ok) {
-				setError(result.message);
-				return;
-			}
-			setEnabled(nextEnabled);
-			setSaved(true);
-			router.refresh();
-		});
+		mutation.mutate(
+			{
+				body: {
+					enabled: nextEnabled,
+					message,
+					severity,
+					linkUrl: trimmedLink || null,
+					linkLabel: linkLabel.trim() || null,
+				},
+			},
+			{
+				onSuccess: () => {
+					setEnabled(nextEnabled);
+					setSaved(true);
+					router.refresh();
+				},
+			},
+		);
 	};
 
 	return (
@@ -88,7 +97,7 @@ export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 				<Switch
 					id="system-banner-enabled"
 					checked={enabled}
-					disabled={pending || (!enabled && !trimmedMessage)}
+					disabled={pending || readOnly || (!enabled && !trimmedMessage)}
 					onCheckedChange={(checked) => {
 						setEnabled(checked);
 						save(checked);
@@ -107,7 +116,7 @@ export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 					maxLength={SYSTEM_BANNER_MESSAGE_MAX_LENGTH}
 					placeholder="e.g. Some providers are returning errors. We're on it."
 					value={message}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onChange={(event) => {
 						setMessage(event.target.value);
 						setSaved(false);
@@ -122,7 +131,7 @@ export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 				<Label htmlFor="system-banner-severity">Severity</Label>
 				<Select
 					value={severity}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onValueChange={(value) => {
 						setSeverity(value as SystemBannerSeverity);
 						setSaved(false);
@@ -150,7 +159,7 @@ export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 						inputMode="url"
 						placeholder="https://status.llmgateway.io"
 						value={linkUrl}
-						disabled={pending}
+						disabled={pending || readOnly}
 						onChange={(event) => {
 							setLinkUrl(event.target.value);
 							setSaved(false);
@@ -164,7 +173,7 @@ export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 						maxLength={SYSTEM_BANNER_LINK_LABEL_MAX_LENGTH}
 						placeholder={SYSTEM_BANNER_DEFAULT_LINK_LABEL}
 						value={linkLabel}
-						disabled={pending || !trimmedLink}
+						disabled={pending || readOnly || !trimmedLink}
 						onChange={(event) => {
 							setLinkLabel(event.target.value);
 							setSaved(false);
@@ -195,9 +204,11 @@ export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 			</div>
 
 			<div className="flex items-center gap-3">
-				<Button type="submit" disabled={pending}>
-					{pending ? "Saving…" : "Save"}
-				</Button>
+				{!readOnly && (
+					<Button type="submit" disabled={pending}>
+						{pending ? "Saving…" : "Save"}
+					</Button>
+				)}
 				{error && <p className="text-sm text-destructive">{error}</p>}
 				{saved && !error && (
 					<p className="text-sm text-muted-foreground">Saved.</p>

@@ -220,6 +220,12 @@ export const filteredModels = models
 		(model) =>
 			!model.providers.some((p) => (p as ProviderModelMapping).rerank === true),
 	)
+	// Filter out search models (they use the dedicated /v1/search endpoint,
+	// not chat completions, and are covered by search.e2e.ts)
+	.filter(
+		(model) =>
+			!model.providers.some((p) => (p as ProviderModelMapping).search === true),
+	)
 	// Filter out unstable models if not in full mode, unless they have test: "only" or are in TEST_MODELS
 	// Note: This only filters models with model-level stability, not provider-level stability
 	.filter((model) => {
@@ -937,6 +943,88 @@ export const rerankModels = models
 		return testCases;
 	});
 
+// Search models use the dedicated /v1/search endpoint, so they are excluded
+// from filteredModels above. Built with the same filters as rerankModels.
+export const searchModels = models
+	.filter((model) => !["custom", "auto"].includes(model.id))
+	.filter((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) => provider.search === true,
+		),
+	)
+	// If any model has test: "only", only include those models
+	.filter((model) => {
+		if (hasOnlyModels) {
+			return model.providers.some(
+				(provider: ProviderModelMapping) => provider.test === "only",
+			);
+		}
+		return true;
+	})
+	.flatMap((model) => {
+		const testCases = [];
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
+			if (!provider.search) {
+				continue;
+			}
+
+			// Skip deactivated / deprecated provider mappings
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
+						continue;
+					}
+				}
+			} else {
+				if (provider.test === "skip") {
+					continue;
+				}
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
+				if (
+					(provider.stability === "unstable" ||
+						provider.stability === "experimental") &&
+					!fullMode &&
+					provider.test !== "only"
+				) {
+					continue;
+				}
+			}
+
+			// If we have any "only" providers, skip those not marked as "only"
+			if (hasOnlyModels && provider.test !== "only") {
+				continue;
+			}
+
+			testCases.push({
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+				provider,
+				originalModel: model.id,
+			});
+		}
+		return testCases;
+	});
+
 // OCR models use the dedicated /v1/ocr endpoint, so they are excluded from
 // filteredModels above. Build a separate list for ocr.e2e.ts with the same
 // TEST_MODELS/TEST_PROVIDERS, deactivation, env-var, and stability filters as
@@ -1031,17 +1119,11 @@ console.log(
 	`Testing ${transcriptionModels.length} transcription model configurations`,
 );
 console.log(`Testing ${rerankModels.length} rerank model configurations`);
+console.log(`Testing ${searchModels.length} search model configurations`);
 console.log(`Testing ${ocrModels.length} ocr model configurations`);
 
 export const streamingModels = testModels.filter((m) =>
-	m.providers.some((p: ProviderModelMapping) => {
-		// Check model-level streaming first, then fall back to provider-level
-		if (p.streaming !== undefined) {
-			return p.streaming;
-		}
-		const provider = providers.find((pr) => pr.id === p.providerId);
-		return provider?.streaming;
-	}),
+	m.providers.some((p: ProviderModelMapping) => p.streaming !== false),
 );
 
 export const reasoningModels = testModels.filter((m) =>
@@ -1119,14 +1201,7 @@ export const serviceTierModels = testModels.flatMap((m) =>
 );
 
 export const streamingReasoningModels = reasoningModels.filter((m) =>
-	m.providers.some((p: ProviderModelMapping) => {
-		// Check model-level streaming first, then fall back to provider-level
-		if (p.streaming !== undefined) {
-			return p.streaming;
-		}
-		const provider = providers.find((pr) => pr.id === p.providerId);
-		return provider?.streaming;
-	}),
+	m.providers.some((p: ProviderModelMapping) => p.streaming !== false),
 );
 
 export const toolCallModels = testModels
@@ -1137,14 +1212,7 @@ export const toolCallModels = testModels
 	.filter((m) => m.model !== "novita/minimax-m2.1");
 
 export const streamingToolCallModels = toolCallModels.filter((m) =>
-	m.providers.some((p: ProviderModelMapping) => {
-		// Check model-level streaming first, then fall back to provider-level
-		if (p.streaming !== undefined) {
-			return p.streaming;
-		}
-		const provider = providers.find((pr) => pr.id === p.providerId);
-		return provider?.streaming;
-	}),
+	m.providers.some((p: ProviderModelMapping) => p.streaming !== false),
 );
 
 export const imageModels = testModels.filter((m) => {
@@ -1153,14 +1221,7 @@ export const imageModels = testModels.filter((m) => {
 });
 
 export const streamingImageModels = imageModels.filter((m) =>
-	m.providers.some((p: ProviderModelMapping) => {
-		// Check model-level streaming first, then fall back to provider-level
-		if (p.streaming !== undefined) {
-			return p.streaming;
-		}
-		const provider = providers.find((pr) => pr.id === p.providerId);
-		return provider?.streaming;
-	}),
+	m.providers.some((p: ProviderModelMapping) => p.streaming !== false),
 );
 
 export const webSearchModels = testModels.filter((m) =>
@@ -1168,14 +1229,7 @@ export const webSearchModels = testModels.filter((m) =>
 );
 
 export const streamingWebSearchModels = webSearchModels.filter((m) =>
-	m.providers.some((p: ProviderModelMapping) => {
-		// Check model-level streaming first, then fall back to provider-level
-		if (p.streaming !== undefined) {
-			return p.streaming;
-		}
-		const provider = providers.find((pr) => pr.id === p.providerId);
-		return provider?.streaming;
-	}),
+	m.providers.some((p: ProviderModelMapping) => p.streaming !== false),
 );
 
 export const jsonOutputModels = testModels.filter((m) =>
@@ -1183,14 +1237,7 @@ export const jsonOutputModels = testModels.filter((m) =>
 );
 
 export const streamingJsonOutputModels = jsonOutputModels.filter((m) =>
-	m.providers.some((p: ProviderModelMapping) => {
-		// Check model-level streaming first, then fall back to provider-level
-		if (p.streaming !== undefined) {
-			return p.streaming;
-		}
-		const provider = providers.find((pr) => pr.id === p.providerId);
-		return provider?.streaming;
-	}),
+	m.providers.some((p: ProviderModelMapping) => p.streaming !== false),
 );
 
 export const jsonSchemaOutputModels = testModels.filter((m) =>
@@ -1198,15 +1245,7 @@ export const jsonSchemaOutputModels = testModels.filter((m) =>
 );
 
 export const streamingJsonSchemaOutputModels = jsonSchemaOutputModels.filter(
-	(m) =>
-		m.providers.some((p: ProviderModelMapping) => {
-			// Check model-level streaming first, then fall back to provider-level
-			if (p.streaming !== undefined) {
-				return p.streaming;
-			}
-			const provider = providers.find((pr) => pr.id === p.providerId);
-			return provider?.streaming;
-		}),
+	(m) => m.providers.some((p: ProviderModelMapping) => p.streaming !== false),
 );
 
 export async function createProviderKey(

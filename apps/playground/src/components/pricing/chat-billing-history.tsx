@@ -166,12 +166,15 @@ const REFUND_INELIGIBILITY_COPY: Record<string, string> = {
 	not_owner: "Only the organization owner can request a refund",
 	not_latest_purchase: "Only your most recent payment can be self-refunded",
 	plan_inactive: "The plan for this payment is no longer active",
-	credits_frozen: "Refunds are unavailable while credits are frozen",
 	usage_exceeded: `More than ${SELF_REFUND_USAGE_PERCENT}% of these credits have been used`,
 };
 
 function isPlanPayment(type: Transaction["type"]): boolean {
-	return type === "chat_plan_start" || type === "chat_plan_renewal";
+	return (
+		type === "chat_plan_start" ||
+		type === "chat_plan_renewal" ||
+		type === "chat_plan_upgrade"
+	);
 }
 
 function RefundButton({

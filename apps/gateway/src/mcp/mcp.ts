@@ -25,7 +25,7 @@ import {
 } from "@/lib/cached-queries.js";
 import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
-import { assertMcpHttpsUrl } from "@/mcp/request-url.js";
+import { getMcpGatewayUrl } from "@/mcp/request-url.js";
 import { registerUsageTools } from "@/mcp/usage-tools.js";
 import { isAllowedOrigin, parseAllowedOrigins } from "@/middleware/cors.js";
 
@@ -36,6 +36,8 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ServerTypes } from "@/vars.js";
 import type { OpenAPIHono } from "@hono/zod-openapi";
@@ -106,9 +108,9 @@ const generateImageInputSchema = z.object({
 	model: z
 		.string()
 		.optional()
-		.default("qwen-image-plus")
+		.default("qwen-image-3.0")
 		.describe(
-			'Image generation model to use (e.g., "qwen-image-plus", "qwen-image-max")',
+			'Image generation model to use (e.g., "qwen-image-3.0", "qwen-image-3.0-pro")',
 		),
 	size: z
 		.string()
@@ -165,7 +167,7 @@ function createMcpServer(
 		name: "llmgateway",
 		version: "1.0.0",
 	});
-	registerUsageTools(server, apiKey);
+	registerUsageTools(server, apiKey, clientHeaders);
 	const generationHeaders = {
 		...clientHeaders,
 		"Content-Type": "application/json",
@@ -192,13 +194,7 @@ function createMcpServer(
 			try {
 				await assertGenerationAllowed();
 				// Call the internal chat completions endpoint
-				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ??
-					process.env.GATEWAY_URL ??
-					(process.env.NODE_ENV === "production"
-						? "https://api.llmgateway.io"
-						: "http://localhost:4001");
-				assertMcpHttpsUrl(gatewayUrl);
+				const gatewayUrl = getMcpGatewayUrl();
 
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
 					method: "POST",
@@ -415,7 +411,7 @@ function createMcpServer(
 						responseText += `  - Providers: ${model.providers.join(", ")}\n`;
 						responseText += `  - Pricing: ${model.pricing.input} input, ${model.pricing.output} output\n`;
 						if (model.context_length) {
-							responseText += `  - Context: ${model.context_length.toLocaleString()} tokens\n`;
+							responseText += `  - Context: ${formatNumber(model.context_length)} tokens\n`;
 						}
 						if (capabilities.length > 0) {
 							responseText += `  - Capabilities: ${capabilities.join(", ")}\n`;
@@ -459,13 +455,7 @@ function createMcpServer(
 		async (input: GenerateImageInput) => {
 			try {
 				await assertGenerationAllowed();
-				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ??
-					process.env.GATEWAY_URL ??
-					(process.env.NODE_ENV === "production"
-						? "https://api.llmgateway.io"
-						: "http://localhost:4001");
-				assertMcpHttpsUrl(gatewayUrl);
+				const gatewayUrl = getMcpGatewayUrl();
 
 				// Call the chat completions endpoint with image generation model
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
@@ -600,13 +590,7 @@ function createMcpServer(
 		async (input: GenerateNanoBananaInput) => {
 			try {
 				await assertGenerationAllowed();
-				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ??
-					process.env.GATEWAY_URL ??
-					(process.env.NODE_ENV === "production"
-						? "https://api.llmgateway.io"
-						: "http://localhost:4001");
-				assertMcpHttpsUrl(gatewayUrl);
+				const gatewayUrl = getMcpGatewayUrl();
 
 				const body: Record<string, unknown> = {
 					model: "gemini-3-pro-image",
@@ -887,7 +871,7 @@ function createMcpServer(
 				responseText += `\`\`\`\n`;
 				responseText += `generate-image(\n`;
 				responseText += `  prompt: "A serene mountain landscape at sunset",\n`;
-				responseText += `  model: "qwen-image-plus",\n`;
+				responseText += `  model: "qwen-image-3.0",\n`;
 				responseText += `  size: "1024x1024"\n`;
 				responseText += `)\n`;
 				responseText += `\`\`\`\n`;
@@ -1320,7 +1304,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				405,
 			);
 		}
-		const clientHeaders: Record<string, string> = {};
+		const clientHeaders = forwardedIpHeaders(c.req.raw.headers);
 		for (const header of [
 			"x-source",
 			"user-agent",
@@ -1449,7 +1433,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	if (method === "POST") {
-		const clientHeaders: Record<string, string> = {};
+		const clientHeaders = forwardedIpHeaders(c.req.raw.headers);
 		for (const header of [
 			"x-source",
 			"user-agent",

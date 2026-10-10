@@ -10,18 +10,19 @@ import {
 	TrendingDown,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
 
 import { TokenTimeRangeToggle } from "@/components/token-time-range-toggle";
 import {
 	UsageModeSelector,
 	useUsageMode,
 } from "@/components/usage-mode-selector";
-import { loadProjectMetricsAction } from "@/lib/admin-organizations";
+import { useApi } from "@/lib/fetch-client";
 import { pickCost, pickRequests } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
-import type { ProjectMetrics, TokenWindow } from "@/lib/types";
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
+import type { TokenWindow } from "@/lib/types";
 
 const validWindows = new Set<TokenWindow>([
 	"1h",
@@ -39,22 +40,6 @@ function parseWindow(value: string | null): TokenWindow {
 		return value as TokenWindow;
 	}
 	return "1d";
-}
-
-function formatCompactNumber(value: number): string {
-	if (value >= 1_000_000_000) {
-		const formatted = value / 1_000_000_000;
-		return `${formatted % 1 === 0 ? formatted.toFixed(0) : formatted.toFixed(1)}B`;
-	}
-	if (value >= 1_000_000) {
-		const formatted = value / 1_000_000;
-		return `${formatted % 1 === 0 ? formatted.toFixed(0) : formatted.toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		const formatted = value / 1_000;
-		return `${formatted % 1 === 0 ? formatted.toFixed(0) : formatted.toFixed(1)}k`;
-	}
-	return value.toLocaleString("en-US");
 }
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -123,30 +108,25 @@ export function ProjectMetricsSection({
 
 	const selectedWindow = parseWindow(searchParams.get("window"));
 	const usageMode = useUsageMode();
-	const [metrics, setMetrics] = useState<ProjectMetrics | null>(null);
-	const [loading, setLoading] = useState(true);
-	const [loadError, setLoadError] = useState<string | null>(null);
-
-	const loadMetrics = useCallback(
-		async (w: TokenWindow) => {
-			setLoading(true);
-			setLoadError(null);
-			try {
-				const data = await loadProjectMetricsAction(orgId, projectId, w);
-				setMetrics(data);
-			} catch {
-				setMetrics(null);
-				setLoadError("Unable to load usage data. Try again shortly.");
-			} finally {
-				setLoading(false);
-			}
+	const $api = useApi();
+	const {
+		data: metrics,
+		isLoading: loading,
+		isError,
+	} = $api.useQuery(
+		"get",
+		"/admin/organizations/{orgId}/projects/{projectId}/metrics",
+		{
+			params: {
+				path: { orgId, projectId },
+				query: { window: selectedWindow },
+			},
 		},
-		[orgId, projectId],
+		{ staleTime: 0 },
 	);
-
-	useEffect(() => {
-		void loadMetrics(selectedWindow);
-	}, [loadMetrics, selectedWindow]);
+	const loadError = isError
+		? "Unable to load usage data. Try again shortly."
+		: null;
 
 	if (loading) {
 		return (

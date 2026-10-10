@@ -4,6 +4,7 @@ slug: "upgrade-rollover-new-providers"
 date: "2026-07-22"
 title: "Upgrade Rollover, New Providers & Gemini TTS"
 summary: "DevPass upgrades now roll your unspent allowance into the new tier — or schedule the switch for your next renewal. Plus two new providers including SCX.ai's Turbo inference (up to 4x faster), Gemini 3.6 Flash and 3.5 Flash Lite, Gemini TTS on two providers, and Empryo as a first-class coding agent."
+tags: ["llmgateway", "devpass"]
 image:
   src: "/changelog/upgrade-rollover-new-providers.png"
   alt: "Product roundup: DevPass upgrade rollover, new inference providers, and Gemini TTS on LLM Gateway"

@@ -102,7 +102,7 @@ const steps = [
 export default function ShipPage() {
 	return (
 		<div>
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 
 			{/* Hero */}
 			<section className="py-20 sm:py-28">

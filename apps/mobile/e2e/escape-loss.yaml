@@ -1,0 +1,23 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Sandbox Escape"
+- scrollUntilVisible:
+    element: "Start run"
+    direction: DOWN
+- tapOn: "Start run"
+- extendedWaitUntil:
+    notVisible: "Pause run"
+    timeout: 90000
+- scrollUntilVisible:
+    element: "Replay and share"
+    direction: DOWN
+    timeout: 90000
+- assertVisible: "Compute budget exhausted|Terminated"
+- takeScreenshot: artifacts/escape-loss
+- tapOn: "Replay and share"
+- assertVisible: "Hello, World · timeout|Hello, World · terminated"

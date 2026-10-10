@@ -1,0 +1,90 @@
+appId: io.llmgateway.lounge
+env:
+  FIXTURE_URL: http://localhost:4909
+---
+- evalScript: ${output.chatTitle = "NATIVE_CONNECTOR_READ " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- runFlow: helpers/connect-mailbox.yaml
+- evalScript: ${output.callsBefore = JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls}
+- launchApp
+- runFlow: helpers/organization.yaml
+- runFlow: helpers/comparison.yaml
+- tapOn:
+    id: "field-message-to-all-models"
+- inputText: ${output.chatTitle}
+- tapOn: "Done typing"
+- tapOn: "Send to all models"
+- extendedWaitUntil:
+    visible: "Approve Gmail: search messages"
+    timeout: 30000
+- assertTrue: ${JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls === output.callsBefore}
+- tapOn: "Model 2"
+- assertNotVisible: "Approve Gmail:.*"
+- assertVisible: ".*This is a mock response from the test server.*"
+- tapOn: "Retry this model"
+- extendedWaitUntil:
+    visible: "Retry this model"
+    timeout: 30000
+- assertNotVisible: "Approve Gmail:.*"
+- assertTrue: ${JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls === output.callsBefore}
+- launchApp
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
+- tapOn:
+    id: "field-search-conversations"
+- inputText: ${output.chatTitle}
+- tapOn: "Done typing"
+- tapOn: ".*gpt-4o-mini, 2 messages"
+- scrollUntilVisible:
+    element: "Approve Gmail: search messages"
+    direction: DOWN
+- assertTrue: ${JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls === output.callsBefore}
+- tapOn: "Approve Gmail: search messages"
+- scrollUntilVisible:
+    element: "Approve Gmail: read message"
+    direction: DOWN
+    timeout: 30000
+- assertTrue: ${JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls === output.callsBefore + 1}
+- tapOn: "Approve Gmail: read message"
+- scrollUntilVisible:
+    element: "The demo meeting starts at noon."
+    direction: UP
+    timeout: 30000
+- assertTrue: ${JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls === output.callsBefore + 2}
+- launchApp
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
+- tapOn:
+    id: "field-search-conversations"
+- inputText: ${output.chatTitle}
+- tapOn: "Done typing"
+- tapOn: ".*gpt-4o-mini, 2 messages"
+- assertNotVisible: "Approve Gmail:.*"
+- scrollUntilVisible:
+    element: "The demo meeting starts at noon."
+    direction: UP
+- tapOn:
+    id: "field-message-to-all-models"
+- inputText: ${"NATIVE_CONNECTOR_REJECT " + Date.now()}
+- tapOn: "Done typing"
+- tapOn: "Send to all models"
+- scrollUntilVisible:
+    element: "Decline Gmail: search messages"
+    direction: DOWN
+    timeout: 30000
+- tapOn: "Decline Gmail: search messages"
+- extendedWaitUntil:
+    visible: "Request declined. No mailbox access was performed."
+    timeout: 30000
+- assertTrue: ${JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls === output.callsBefore + 2}
+- extendedWaitUntil:
+    visible: "Retry this model"
+    timeout: 30000
+- takeScreenshot: comparison-tools-complete

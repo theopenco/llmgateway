@@ -46,7 +46,7 @@ export default async function ProviderDetailPage({
 		);
 	}
 
-	const { provider, models } = data;
+	const { provider, models, airside } = data;
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
@@ -63,6 +63,7 @@ export default async function ProviderDetailPage({
 					providerId={providerId}
 					providerInfo={provider}
 					models={models}
+					airside={airside}
 				/>
 			</Suspense>
 		</div>

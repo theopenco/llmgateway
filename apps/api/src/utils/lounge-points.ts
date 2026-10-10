@@ -4,17 +4,9 @@ import { computeStreaks } from "@/utils/profile.js";
 
 import { and, db, desc, eq, gte, sql, tables } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
+import { LOUNGE_ACTIVITIES } from "@llmgateway/shared/lounge-points";
 
-export const LOUNGE_POINT_VALUES = {
-	chat_message: 5,
-	chat_created: 10,
-	image_generation: 10,
-	video_generation: 15,
-	audio_generation: 10,
-	sandbox_escape: 25,
-} as const;
-
-export type LoungePointKind = keyof typeof LOUNGE_POINT_VALUES;
+import type { LoungePointKind } from "@llmgateway/shared/lounge-points";
 
 // Per-kind daily earning caps so grinding a single action can't farm the
 // leaderboard.
@@ -66,7 +58,7 @@ export async function awardLoungePoints(
 	userId: string,
 	kind: LoungePointKind,
 ): Promise<void> {
-	const points = LOUNGE_POINT_VALUES[kind];
+	const points = LOUNGE_ACTIVITIES[kind].points;
 
 	try {
 		// Advisory lock serializes concurrent awards for the same user+kind so

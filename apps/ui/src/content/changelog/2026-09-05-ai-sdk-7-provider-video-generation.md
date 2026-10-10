@@ -4,6 +4,7 @@ slug: "ai-sdk-7-provider-video-generation"
 date: "2026-09-05"
 title: "AI SDK 7 Provider with Video Generation"
 summary: "@llmgateway/ai-sdk-provider 4.0 targets Vercel AI SDK 7 and adds llmgateway.video() for experimental_generateVideo: the provider submits a gateway video job, the SDK polls it, and you get the MP4 bytes back, with image-to-video, first and last frames, reference inputs, and audio control. Stay on 3.x for AI SDK 6."
+tags: ["llmgateway"]
 image:
   src: "/changelog/ai-sdk-7-provider-video-generation.png"
   alt: "A glowing film clapperboard with a play-button lens on a circuit board chip, surrounded by film reels, a video camera, and code brackets"

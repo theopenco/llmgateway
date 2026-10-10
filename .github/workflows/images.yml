@@ -64,17 +64,33 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     steps:
       - name: Prepare
         run: |
           platform=${{ matrix.platform }}
           echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+          # Layer cache lives in GHCR: the Actions cache evicts blobs at its
+          # 10 GB cap while the index still references them (BlobNotFound).
+          echo "CACHE_REF=ghcr.io/${{ github.repository }}-${{ matrix.app }}:buildcache-${platform//\//-}" >> $GITHUB_ENV
 
       - name: Checkout
         uses: actions/checkout@v7.0.1
+        with:
+          # Docs modification dates come from Git history, which the Docker
+          # build context excludes.
+          fetch-depth: ${{ matrix.app == 'docs' && '0' || '1' }}
+          filter: ${{ matrix.app == 'docs' && 'blob:none' || '' }}
+
+      - name: Generate docs modification dates
+        if: matrix.app == 'docs'
+        run: node apps/docs/scripts/update-content-modified.mjs
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.3.0
+        uses: docker/setup-buildx-action@v4.4.1
+        with:
+          # The runner is discarded after the job; removing the builder costs up to a minute.
+          cleanup: false
 
       - name: Login to GitHub Container Registry (main branch only)
         if: github.event_name != 'pull_request'
@@ -90,9 +106,18 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}-${{ matrix.app }}
 
+      - name: Set up Turborepo Remote Cache
+        # Fork PRs get no OIDC token; they fall back to building cold.
+        if: vars.TURBO_TEAM != ''
+        continue-on-error: true
+        uses: vercel/setup-turborepo-remote-cache-action@v1.1.0
+        with:
+          team: ${{ vars.TURBO_TEAM }}
+
       - name: Build and conditionally push by digest
         id: build
-        uses: docker/build-push-action@v7.3.0
+        continue-on-error: true
+        uses: docker/build-push-action@v7.4.0
         with:
           context: .
           file: infra/split.dockerfile
@@ -101,8 +126,30 @@ jobs:
           tags: ghcr.io/${{ github.repository }}-${{ matrix.app }}
           target: ${{ matrix.app }}
           outputs: ${{ github.event_name == 'pull_request' && 'type=image,push=false,load=true' || 'type=image,push-by-digest=true,name-canonical=true,push=true' }}
-          cache-from: type=gha,scope=${{ matrix.app }}-${{ env.PLATFORM_PAIR }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.app }}-${{ env.PLATFORM_PAIR }}
+          cache-from: type=registry,ref=${{ env.CACHE_REF }}
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0},mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true', env.CACHE_REF) || '' }}
+          secret-envs: |
+            TURBO_TOKEN=TURBO_TOKEN
+            TURBO_TEAM=TURBO_TEAM
+          build-args: |
+            APP_VERSION=${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }}
+
+      - name: Retry build without layer cache
+        id: retry
+        if: steps.build.outcome == 'failure'
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: infra/split.dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ghcr.io/${{ github.repository }}-${{ matrix.app }}
+          target: ${{ matrix.app }}
+          outputs: ${{ github.event_name == 'pull_request' && 'type=image,push=false,load=true' || 'type=image,push-by-digest=true,name-canonical=true,push=true' }}
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0},mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true', env.CACHE_REF) || '' }}
+          secret-envs: |
+            TURBO_TOKEN=TURBO_TOKEN
+            TURBO_TEAM=TURBO_TEAM
           build-args: |
             APP_VERSION=${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }}
 
@@ -110,7 +157,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           mkdir -p ${{ runner.temp }}/digests
-          digest="${{ steps.build.outputs.digest }}"
+          digest="${{ steps.retry.outputs.digest || steps.build.outputs.digest }}"
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
       - name: Upload digest (main branch only)
@@ -150,7 +197,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.3.0
+        uses: docker/setup-buildx-action@v4.4.1
+        with:
+          # The runner is discarded after the job; removing the builder costs up to a minute.
+          cleanup: false
 
       - name: Docker meta
         id: meta
@@ -184,17 +234,32 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     steps:
       - name: Prepare
         run: |
           platform=${{ matrix.platform }}
           echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+          # Layer cache lives in GHCR: the Actions cache evicts blobs at its
+          # 10 GB cap while the index still references them (BlobNotFound).
+          echo "CACHE_REF=ghcr.io/${{ github.repository }}-unified:buildcache-${platform//\//-}" >> $GITHUB_ENV
 
       - name: Checkout
         uses: actions/checkout@v7.0.1
+        with:
+          # Docs modification dates come from Git history, which the Docker
+          # build context excludes.
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Generate docs modification dates
+        run: node apps/docs/scripts/update-content-modified.mjs
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.3.0
+        uses: docker/setup-buildx-action@v4.4.1
+        with:
+          # The runner is discarded after the job; removing the builder costs up to a minute.
+          cleanup: false
 
       - name: Login to GitHub Container Registry (main branch only)
         if: github.event_name != 'pull_request'
@@ -210,9 +275,18 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}-unified
 
+      - name: Set up Turborepo Remote Cache
+        # Fork PRs get no OIDC token; they fall back to building cold.
+        if: vars.TURBO_TEAM != ''
+        continue-on-error: true
+        uses: vercel/setup-turborepo-remote-cache-action@v1.1.0
+        with:
+          team: ${{ vars.TURBO_TEAM }}
+
       - name: Build and conditionally push by digest
         id: build
-        uses: docker/build-push-action@v7.3.0
+        continue-on-error: true
+        uses: docker/build-push-action@v7.4.0
         with:
           context: .
           file: infra/unified.dockerfile
@@ -220,8 +294,29 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tags: ghcr.io/${{ github.repository }}-unified
           outputs: ${{ github.event_name == 'pull_request' && 'type=image,push=false,load=true' || 'type=image,push-by-digest=true,name-canonical=true,push=true' }}
-          cache-from: type=gha,scope=unified-${{ env.PLATFORM_PAIR }}
-          cache-to: type=gha,mode=max,scope=unified-${{ env.PLATFORM_PAIR }}
+          cache-from: type=registry,ref=${{ env.CACHE_REF }}
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0},mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true', env.CACHE_REF) || '' }}
+          secret-envs: |
+            TURBO_TOKEN=TURBO_TOKEN
+            TURBO_TEAM=TURBO_TEAM
+          build-args: |
+            APP_VERSION=${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }}
+
+      - name: Retry build without layer cache
+        id: retry
+        if: steps.build.outcome == 'failure'
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: infra/unified.dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ghcr.io/${{ github.repository }}-unified
+          outputs: ${{ github.event_name == 'pull_request' && 'type=image,push=false,load=true' || 'type=image,push-by-digest=true,name-canonical=true,push=true' }}
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0},mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true', env.CACHE_REF) || '' }}
+          secret-envs: |
+            TURBO_TOKEN=TURBO_TOKEN
+            TURBO_TEAM=TURBO_TEAM
           build-args: |
             APP_VERSION=${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }}
 
@@ -229,7 +324,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           mkdir -p ${{ runner.temp }}/digests
-          digest="${{ steps.build.outputs.digest }}"
+          digest="${{ steps.retry.outputs.digest || steps.build.outputs.digest }}"
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
       - name: Upload digest (main branch only)
@@ -266,7 +361,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.3.0
+        uses: docker/setup-buildx-action@v4.4.1
+        with:
+          # The runner is discarded after the job; removing the builder costs up to a minute.
+          cleanup: false
 
       - name: Docker meta
         id: meta

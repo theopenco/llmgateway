@@ -21,10 +21,10 @@ import {
 	TableRow,
 } from "@/lib/components/table";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-
-const numberFormatter = new Intl.NumberFormat("en-US");
 
 const mockProjects = [
 	{ key: "prod-api", label: "Production API", base: 168, wave: 24, phase: 0.9 },
@@ -156,12 +156,12 @@ function OrgAnalyticsShowcase() {
 				/>
 				<SummaryStat
 					label="Requests"
-					value={numberFormatter.format(mockTotals.totalRequests)}
+					value={formatNumber(mockTotals.totalRequests)}
 					icon={Zap}
 				/>
 				<SummaryStat
 					label="Tokens"
-					value={numberFormatter.format(mockTotals.totalTokens)}
+					value={formatNumber(mockTotals.totalTokens)}
 					icon={Hash}
 				/>
 			</div>

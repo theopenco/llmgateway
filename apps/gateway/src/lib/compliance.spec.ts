@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
+	getComplianceFailureReasons,
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
@@ -360,5 +361,61 @@ describe("isModelIdCompliant", () => {
 		expect(
 			isModelIdCompliant("my-model", policy, { customProviderName: "acme" }),
 		).toBe(false);
+	});
+});
+
+describe("getComplianceFailureReasons", () => {
+	it("names the requirement a catalogue provider misses", () => {
+		// deepseek does not hold SOC 2 in the catalogue.
+		expect(getComplianceFailureReasons("deepseek", "gpt-5.2", POLICY)).toEqual([
+			"requireSoc2",
+		]);
+		expect(getComplianceFailureReasons("openai", "gpt-5.2", POLICY)).toEqual(
+			[],
+		);
+	});
+
+	it("reports every rule that fired, provider and model lists included", () => {
+		expect(
+			getComplianceFailureReasons("deepseek", "gpt-5.2", {
+				enabled: true,
+				requireSoc2: true,
+				blockedProviders: ["deepseek"],
+				blockedModels: ["gpt-5.2"],
+			}),
+		).toEqual(["blockedProviders", "requireSoc2", "blockedModels"]);
+	});
+
+	it("fails closed with a reason for an unknown provider", () => {
+		expect(
+			getComplianceFailureReasons("not-a-provider", "gpt-5.2", POLICY),
+		).toEqual(["unknownProvider"]);
+	});
+
+	it("reports a missing custom attestation", () => {
+		expect(
+			getComplianceFailureReasons("custom", "my-model", POLICY, {
+				customProviderName: "acme",
+			}),
+		).toEqual(["noAttestation"]);
+		expect(
+			getComplianceFailureReasons("custom", "my-model", POLICY, {
+				customProviderName: "acme",
+				customAttestation: { soc2: 2 },
+			}),
+		).toEqual([]);
+	});
+
+	// Every non-compliant pair must yield at least one reason, or the routing
+	// analytics would show a compliance drop with nothing under it.
+	it("never returns empty for a blocked custom model ref", () => {
+		expect(
+			getComplianceFailureReasons(
+				"custom",
+				"my-model",
+				{ enabled: true, blockedModels: ["acme/my-model"] },
+				{ customProviderName: "acme", customAttestation: { soc2: 2 } },
+			),
+		).toEqual(["blockedModels"]);
 	});
 });

@@ -4,7 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 interface MappingEntry {
@@ -15,12 +15,17 @@ interface MappingEntry {
 	providerKeyManaged: boolean | null;
 	logsCount: number;
 	errorsCount: number;
+	errorRate: number;
 }
 
 interface ListBody {
 	mappings: MappingEntry[];
+	sampledLogs: number;
 	splitByKey: boolean;
 	includeByok: boolean;
+	mapping: string | null;
+	modelId: string | null;
+	errorMessage: string | null;
 }
 
 interface ErrorsBody {
@@ -28,11 +33,16 @@ interface ErrorsBody {
 	sampledErrors: number;
 }
 
+interface ScopeOptionsBody {
+	modelIds: { id: string; source: string }[];
+	mappings: { id: string; source: string }[];
+}
+
 describe("admin unstable mappings", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 
 		await db.insert(tables.organization).values({
@@ -88,11 +98,23 @@ describe("admin unstable mappings", () => {
 		hasError = false,
 		statusCode = 500,
 		classification,
+		usedModel = "openai/gpt-4o-mini",
+		usedProvider = "openai",
+		createdAt,
+		responseText,
+		internalResponseText,
+		streamed,
 	}: {
 		providerKeyId?: string | null;
 		hasError?: boolean;
 		statusCode?: number;
+		usedModel?: string;
+		usedProvider?: string;
 		classification?: "client_error" | "gateway_error" | "upstream_error";
+		createdAt?: Date;
+		responseText?: string;
+		internalResponseText?: string;
+		streamed?: boolean;
 	}) {
 		logIndex++;
 		await db.insert(tables.log).values({
@@ -108,17 +130,26 @@ describe("admin unstable mappings", () => {
 				? {
 						statusCode,
 						statusText: "err",
-						responseText: `failed ${statusCode}`,
+						responseText: responseText ?? `failed ${statusCode}`,
+					}
+				: null,
+			internalErrorDetails: internalResponseText
+				? {
+						statusCode,
+						statusText: "err",
+						responseText: internalResponseText,
 					}
 				: null,
 			duration: 100,
 			usedMode: providerKeyId === "um-key-b" ? "api-keys" : "credits",
-			requestedModel: "openai/gpt-4o-mini",
-			requestedProvider: "openai",
-			usedModel: "gpt-4o-mini",
-			usedProvider: "openai",
+			requestedModel: usedModel,
+			requestedProvider: usedProvider,
+			usedModel,
+			usedProvider,
 			responseSize: 10,
 			mode: "credits",
+			streamed,
+			...(createdAt ? { createdAt } : {}),
 		});
 	}
 
@@ -187,6 +218,83 @@ describe("admin unstable mappings", () => {
 		expect(body.mappings).toHaveLength(0);
 	});
 
+	test("error scope selects which error classes count", async () => {
+		await seedLog({
+			hasError: true,
+			statusCode: 400,
+			classification: "client_error",
+		});
+		await seedLog({
+			hasError: true,
+			statusCode: 502,
+			classification: "upstream_error",
+		});
+		await seedLog({ hasError: false });
+
+		async function getErrors(scope: string): Promise<ErrorsBody> {
+			const res = await app.request(
+				`/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai&errorScope=${scope}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			return (await res.json()) as ErrorsBody;
+		}
+
+		for (const [scope, logsCount, statusCodes] of [
+			["non_client", 2, [502]],
+			["all", 3, [400, 502]],
+			["client", 2, [400]],
+		] as const) {
+			const body = await getMappings(`?errorScope=${scope}`);
+			expect(body.mappings[0]).toMatchObject({
+				logsCount,
+				errorsCount: statusCodes.length,
+			});
+			const errors = await getErrors(scope);
+			expect(errors.errors.map((e) => e.statusCode).sort()).toEqual(
+				statusCodes,
+			);
+		}
+	});
+
+	test("includes BYOK speech failures only when BYOK traffic is requested", async () => {
+		await db
+			.update(tables.providerKey)
+			.set({ provider: "alibaba" })
+			.where(eq(tables.providerKey.id, "um-key-b"));
+		const usedModel = "alibaba/qwen-audio-3.0-tts-flash";
+		await seedLog({
+			usedModel,
+			usedProvider: "alibaba",
+			providerKeyId: "um-key-b",
+			hasError: true,
+			statusCode: 200,
+			classification: "upstream_error",
+		});
+
+		for (const includeByok of [false, true]) {
+			const query = `ignoreExpected=false&includeByok=${includeByok}`;
+			const body = await getMappings(`?${query}`);
+			expect(body.mappings).toHaveLength(includeByok ? 1 : 0);
+			if (includeByok) {
+				expect(body.mappings[0]).toMatchObject({
+					usedModel,
+					providerId: "alibaba",
+					logsCount: 1,
+					errorsCount: 1,
+					errorRate: 1,
+				});
+			}
+			const res = await app.request(
+				`/admin/unstable-mappings/errors?model=${usedModel}&provider=alibaba&${query}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			const errors = (await res.json()) as ErrorsBody;
+			expect(errors.sampledErrors).toBe(includeByok ? 1 : 0);
+		}
+	});
+
 	test("splits the mapping per provider key with labels", async () => {
 		await seedMixedTraffic();
 
@@ -222,7 +330,7 @@ describe("admin unstable mappings", () => {
 
 		async function getErrors(extra = ""): Promise<ErrorsBody> {
 			const res = await app.request(
-				`/admin/unstable-mappings/errors?model=gpt-4o-mini&provider=openai${extra}`,
+				`/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai${extra}`,
 				{ headers: { Cookie: cookie } },
 			);
 			expect(res.status).toBe(200);
@@ -242,5 +350,308 @@ describe("admin unstable mappings", () => {
 		const unattributed = await getErrors("&providerKeyId=__unattributed__");
 		expect(unattributed.sampledErrors).toBe(1);
 		expect(unattributed.errors[0].statusCode).toBe(503);
+	});
+
+	test("drilldown groups error shapes per provider key", async () => {
+		await seedMixedTraffic();
+		await seedLog({
+			providerKeyId: "um-key-a",
+			hasError: true,
+			statusCode: 502,
+		});
+		await seedLog({
+			providerKeyId: "um-key-a",
+			hasError: true,
+			statusCode: 500,
+		});
+
+		async function getErrors(extra: string) {
+			const res = await app.request(
+				`/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai&includeByok=true${extra}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			return (await res.json()) as ErrorsBody & {
+				groupByKey: boolean;
+				keys: {
+					providerKeyId: string | null;
+					providerKeyLabel: string | null;
+					errorsCount: number;
+				}[];
+			};
+		}
+
+		const grouped = await getErrors("&groupByKey=true");
+		expect(grouped.groupByKey).toBe(true);
+		expect(grouped.sampledErrors).toBe(5);
+		expect(grouped.keys).toEqual([
+			expect.objectContaining({
+				providerKeyId: "um-key-a",
+				providerKeyLabel: "Primary account",
+				errorsCount: 3,
+			}),
+			expect.objectContaining({
+				providerKeyId: "um-key-b",
+				providerKeyLabel: "Customer production",
+				errorsCount: 1,
+			}),
+			expect.objectContaining({ providerKeyId: null, errorsCount: 1 }),
+		]);
+		expect(grouped.errors).toHaveLength(4);
+		expect(grouped.errors[0]).toMatchObject({
+			providerKeyId: "um-key-a",
+			statusCode: 500,
+			count: 2,
+		});
+
+		// A drilldown already narrowed to one key has nothing to group.
+		const narrowed = await getErrors("&groupByKey=true&providerKeyId=um-key-a");
+		expect(narrowed.groupByKey).toBe(false);
+		expect(narrowed.keys).toEqual([]);
+	});
+
+	test("drilldown merges stream modes unless grouped by stream", async () => {
+		await seedLog({ hasError: true, streamed: true });
+		await seedLog({ hasError: true, streamed: true });
+		await seedLog({ hasError: true, streamed: false });
+		await seedLog({ hasError: true, statusCode: 502 });
+
+		async function getErrors(extra = "") {
+			const res = await app.request(
+				`/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai${extra}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			return (await res.json()) as {
+				groupByStream: boolean;
+				errors: {
+					statusCode: number | null;
+					streamed: boolean | null;
+					count: number;
+					streamedCount: number;
+				}[];
+			};
+		}
+
+		const merged = await getErrors();
+		expect(merged.groupByStream).toBe(false);
+		expect(merged.errors).toEqual([
+			expect.objectContaining({
+				statusCode: 500,
+				streamed: null,
+				count: 3,
+				streamedCount: 2,
+			}),
+			expect.objectContaining({
+				statusCode: 502,
+				streamed: null,
+				count: 1,
+				streamedCount: 0,
+			}),
+		]);
+
+		const split = await getErrors("&groupByStream=true");
+		expect(split.groupByStream).toBe(true);
+		expect(split.errors).toHaveLength(3);
+		expect(split.errors[0]).toMatchObject({
+			statusCode: 500,
+			streamed: true,
+			count: 2,
+			streamedCount: 2,
+		});
+	});
+
+	test("drilldown buckets each error shape across the window", async () => {
+		const bucketMs = 60_000;
+		const tenBucketsMs = 10 * bucketMs;
+		const now = Date.now();
+		const currentBucket = Math.floor(now / bucketMs) * bucketMs;
+		const olderBucket = currentBucket - tenBucketsMs;
+		await seedLog({ hasError: true, createdAt: new Date(now) });
+		await seedLog({ hasError: true, createdAt: new Date(olderBucket + 1000) });
+		await seedLog({ hasError: true, createdAt: new Date(olderBucket + 2000) });
+
+		const res = await app.request(
+			"/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai&window=1h",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as ErrorsBody & {
+			timeline: { bucketSeconds: number; start: number; end: number };
+			errors: { buckets: { start: number; count: number }[] }[];
+		};
+		expect(body.timeline.bucketSeconds).toBe(60);
+		const windowMs = 60 * bucketMs;
+		expect(body.timeline.end - body.timeline.start).toBe(windowMs);
+		expect(body.errors).toHaveLength(1);
+		expect(body.errors[0].buckets).toEqual([
+			{ start: olderBucket, count: 2 },
+			{ start: currentBucket, count: 1 },
+		]);
+	});
+
+	test("filters errors by a message in public or internal details", async () => {
+		await seedLog({});
+		await seedLog({
+			hasError: true,
+			statusCode: 400,
+			responseText: "The request was rejected by policy",
+		});
+		await seedLog({
+			hasError: true,
+			statusCode: 403,
+			responseText: "redacted",
+			internalResponseText: "the REQUEST was rejected upstream",
+		});
+		await seedLog({ hasError: true, statusCode: 500 });
+		await seedLog({ hasError: true, statusCode: 502, responseText: "100%" });
+
+		const unfiltered = await getMappings();
+		expect(unfiltered.errorMessage).toBeNull();
+		expect(unfiltered.mappings[0].errorsCount).toBe(4);
+
+		const message = encodeURIComponent("The request was rejected");
+		const filtered = await getMappings(`?errorMessage=${message}`);
+		expect(filtered.errorMessage).toBe("The request was rejected");
+		// Non-matching logs stay in the sample; only matching errors count.
+		expect(filtered.sampledLogs).toBe(5);
+		expect(filtered.mappings).toHaveLength(1);
+		expect(filtered.mappings[0].logsCount).toBe(5);
+		expect(filtered.mappings[0].errorsCount).toBe(2);
+
+		// LIKE metacharacters are literal, not wildcards.
+		const literal = await getMappings(
+			`?errorMessage=${encodeURIComponent("%")}`,
+		);
+		expect(literal.mappings[0].errorsCount).toBe(1);
+
+		const res = await app.request(
+			`/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai&errorMessage=${message}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const errors = (await res.json()) as ErrorsBody;
+		expect(errors.sampledErrors).toBe(2);
+		expect(errors.errors.map((e) => e.statusCode).sort()).toEqual([400, 403]);
+	});
+
+	test("filters the ranking to one mapping", async () => {
+		await seedLog({ hasError: true });
+		await seedLog({});
+		await seedLog({
+			usedModel: "openai/gpt-4o",
+			hasError: true,
+		});
+
+		const unfiltered = await getMappings();
+		expect(unfiltered.mapping).toBeNull();
+		expect(unfiltered.mappings).toHaveLength(2);
+		expect(unfiltered.sampledLogs).toBe(3);
+
+		const body = await getMappings("?model=openai/gpt-4o-mini&provider=openai");
+		expect(body.mapping).toBe("openai/gpt-4o-mini");
+		expect(body.mappings).toHaveLength(1);
+		expect(body.mappings[0]).toMatchObject({
+			usedModel: "openai/gpt-4o-mini",
+			logsCount: 2,
+			errorsCount: 1,
+		});
+		expect(body.sampledLogs).toBe(2);
+	});
+
+	test("filters the ranking to every mapping of a canonical model", async () => {
+		await seedLog({ usedModel: "openai/gpt-5.6-sol", hasError: true });
+		await seedLog({
+			usedModel: "aws-mantle/gpt-5.6-sol:global",
+			usedProvider: "aws-mantle",
+			hasError: true,
+		});
+		await seedLog({
+			usedModel: "aws-mantle/gpt-5.6-sol:global",
+			usedProvider: "aws-mantle",
+		});
+		await seedLog({ usedModel: "openai/gpt-4o-mini", hasError: true });
+
+		const body = await getMappings("?modelId=gpt-5.6-sol");
+		expect(body.modelId).toBe("gpt-5.6-sol");
+		expect(body.sampledLogs).toBe(3);
+		expect(body.mappings.map((m) => m.usedModel).sort()).toEqual([
+			"aws-mantle/gpt-5.6-sol:global",
+			"openai/gpt-5.6-sol",
+		]);
+
+		const unknown = await getMappings("?modelId=um-unknown-model");
+		expect(unknown.sampledLogs).toBe(0);
+	});
+
+	test("scope options cover airside listings and the catalogue", async () => {
+		const providerId = "um-airside-carrier";
+		const modelId = "um-airside-model";
+		async function clearAirsideFixtures() {
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.providerId, providerId));
+			await db.delete(tables.model).where(eq(tables.model.id, modelId));
+			await db
+				.delete(tables.provider)
+				.where(eq(tables.provider.id, providerId));
+		}
+
+		await clearAirsideFixtures();
+		await db.insert(tables.provider).values({
+			id: providerId,
+			name: "UM Airside Carrier",
+			description: "test",
+		});
+		await db.insert(tables.model).values({
+			id: modelId,
+			name: "UM Airside Model",
+			family: "test",
+		});
+		await db.insert(tables.modelProviderMapping).values([
+			{
+				id: "um-airside-mapping",
+				modelId,
+				providerId,
+				externalId: modelId,
+				source: "airside",
+			},
+			{
+				id: "um-airside-mapping-eu",
+				modelId,
+				providerId,
+				externalId: modelId,
+				region: "eu-west",
+				source: "airside",
+			},
+		]);
+
+		try {
+			const res = await app.request("/admin/unstable-mappings/scope-options", {
+				headers: { Cookie: cookie },
+			});
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as ScopeOptionsBody;
+
+			expect(body.mappings).toContainEqual({
+				id: `${providerId}/${modelId}`,
+				source: "airside",
+			});
+			// Regional listings are addressable: the filter matches `used_model`.
+			expect(body.mappings).toContainEqual({
+				id: `${providerId}/${modelId}:eu-west`,
+				source: "airside",
+			});
+			expect(body.modelIds).toContainEqual({
+				id: modelId,
+				source: "airside",
+			});
+			expect(body.mappings).toContainEqual({
+				id: "openai/gpt-4o-mini",
+				source: "catalogue",
+			});
+		} finally {
+			await clearAirsideFixtures();
+		}
 	});
 });

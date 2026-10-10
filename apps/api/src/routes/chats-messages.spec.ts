@@ -94,4 +94,59 @@ describe("chat assistant message ids", () => {
 		expect(stored?.role).toBe("user");
 		expect(stored?.content).toBe("hello");
 	});
+
+	test("saves tool-only replies and clears text when replacing an assistant", async () => {
+		const tools = JSON.stringify([
+			{
+				type: "dynamic-tool",
+				toolName: "gmail__search_messages",
+				toolCallId: "call",
+				state: "approval-requested",
+				input: { query: "demo" },
+				approval: { id: "approval" },
+			},
+		]);
+		expect(
+			(
+				await post(chatId, {
+					id: "tool-reply",
+					content: "Previous answer",
+					reasoning: "Previous reasoning",
+					sources: '[{"url":"https://example.com"}]',
+				})
+			).status,
+		).toBe(201);
+		const response = await post(chatId, {
+			id: "tool-reply",
+			content: "",
+			reasoning: "",
+			sources: "[]",
+			tools,
+		});
+		expect(response.status).toBe(201);
+		const saved = await db.query.message.findMany({ where: { chatId } });
+		expect(saved).toHaveLength(1);
+		expect(saved[0]).toMatchObject({
+			content: "",
+			reasoning: "",
+			sources: "[]",
+			tools,
+		});
+		expect(
+			(await post(chatId, { content: "", reasoning: "", tools })).status,
+		).toBe(201);
+	});
+
+	test("rejects a reply with only empty fields", async () => {
+		const response = await post(chatId, {
+			content: "",
+			reasoning: "",
+			sources: "",
+			tools: "",
+		});
+		expect(response.status).toBe(400);
+		expect(await db.query.message.findMany({ where: { chatId } })).toHaveLength(
+			0,
+		);
+	});
 });

@@ -1,4 +1,5 @@
 "use client";
+
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
 	isToolUIPart,
@@ -114,6 +115,8 @@ import {
 } from "@/lib/message-metadata";
 import { getFallbackReasoningEffortOptions } from "@/lib/model-utils";
 import { cn } from "@/lib/utils";
+
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ReasoningEffortOption } from "@/lib/fetch-models";
 import type { PropsWithChildren } from "react";
@@ -393,7 +396,6 @@ function getFinishReasonLabel(reason: string): string {
 	}
 }
 
-const tokenCountFormat = new Intl.NumberFormat("en-US");
 const smallCostFormat = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
@@ -408,7 +410,7 @@ const costFormat = new Intl.NumberFormat("en-US", {
 });
 
 function formatTokenCount(value?: number): string {
-	return value === undefined ? "-" : tokenCountFormat.format(value);
+	return value === undefined ? "-" : formatNumber(value);
 }
 
 function formatCost(value?: number): string {
@@ -1175,7 +1177,6 @@ export const ChatUI = ({
 	// shared with the image playground so both surfaces offer the same options.
 	const {
 		isGptImage,
-		isMuseImage,
 		usesPixelDimensions,
 		availableSizes,
 		supportsQuality,
@@ -2127,18 +2128,7 @@ export const ChatUI = ({
 										<SelectValue placeholder="Image Size" />
 									</SelectTrigger>
 									<SelectContent>
-										{(isMuseImage
-											? availableSizes
-											: [
-													"1024x1024",
-													"720x1280",
-													"1280x720",
-													"1024x1536",
-													"1536x1024",
-													"2048x1024",
-													"1024x2048",
-												]
-										).map((size) => (
+										{availableSizes.map((size) => (
 											<SelectItem key={size} value={size}>
 												{size}
 											</SelectItem>

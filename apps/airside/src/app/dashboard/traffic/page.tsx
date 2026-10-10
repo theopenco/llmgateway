@@ -150,7 +150,7 @@ export default function TrafficPage() {
 					<CardTitle className="font-display">Daily requests</CardTitle>
 					<CardDescription>
 						{stats
-							? `${formatCompact(stats.totals.requestCount)} requests · ${formatCompact(stats.totals.errorCount)} errors · ${formatUsd(stats.totals.cost)} billed`
+							? `${formatCompact(stats.totals.requestCount)} request${stats.totals.requestCount === 1 ? "" : "s"} · ${formatCompact(stats.totals.errorCount)} error${stats.totals.errorCount === 1 ? "" : "s"} · ${formatUsd(stats.totals.cost)} billed`
 							: "Loading…"}
 					</CardDescription>
 				</CardHeader>
@@ -194,7 +194,16 @@ export default function TrafficPage() {
 											{formatCompact(row.requestCount)}
 										</TableCell>
 										<TableCell className="text-right font-mono">
-											{formatCompact(row.errorCount)}
+											{row.errorCount > 0 ? (
+												<Link
+													href={`/dashboard/incidents?mapping=${encodeURIComponent(`${row.providerId}/${row.model}`)}`}
+													className="text-primary hover:underline"
+												>
+													{formatCompact(row.errorCount)}
+												</Link>
+											) : (
+												formatCompact(row.errorCount)
+											)}
 										</TableCell>
 										<TableCell className="text-right font-mono">
 											{formatCompact(row.outputTokens)}

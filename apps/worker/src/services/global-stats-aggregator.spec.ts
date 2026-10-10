@@ -7,6 +7,9 @@ import {
 	db,
 	eq,
 	globalModelStats,
+	globalHourlyModelStats,
+	globalHourlySourceStats,
+	globalHourlyProviderKeyModelStats,
 	globalProviderKeyModelStats,
 	globalSourceStats,
 	log,
@@ -146,6 +149,15 @@ describe("global stats aggregation", () => {
 
 	afterEach(async () => {
 		await db
+			.delete(globalHourlyModelStats)
+			.where(eq(globalHourlyModelStats.usedModel, ids.model));
+		await db
+			.delete(globalHourlySourceStats)
+			.where(eq(globalHourlySourceStats.source, ids.source));
+		await db
+			.delete(globalHourlyProviderKeyModelStats)
+			.where(eq(globalHourlyProviderKeyModelStats.usedModel, ids.model));
+		await db
 			.delete(globalModelStats)
 			.where(eq(globalModelStats.usedModel, ids.model));
 		await db
@@ -162,6 +174,51 @@ describe("global stats aggregation", () => {
 		await db.delete(organization).where(eq(organization.id, ids.paygOrgId));
 		await db.delete(organization).where(eq(organization.id, ids.devpassOrgId));
 		await db.delete(user).where(eq(user.id, ids.userId));
+	});
+
+	test("retains hour, billing mode, kind, source and credential in hourly rollups", async () => {
+		for (const usedMode of ["credits", "api-keys"] as const) {
+			await insertLog({
+				organizationId: ids.devpassOrgId,
+				projectId: ids.devpassProjectId,
+				usedMode,
+				cost: 0.25,
+				providerKeyId: "hourly-fixture-key",
+			});
+		}
+		await db.transaction(async (tx) => {
+			await aggregateWindowIntoStats(tx, WINDOW_START, HOUR_MS, true);
+			await aggregateProviderKeyWindowIntoStats(
+				tx,
+				WINDOW_START,
+				HOUR_MS,
+				true,
+			);
+		});
+		for (const table of [
+			globalHourlyModelStats,
+			globalHourlySourceStats,
+			globalHourlyProviderKeyModelStats,
+		]) {
+			const rows = await db
+				.select()
+				.from(table)
+				.where(eq(table.hourTimestamp, WINDOW_START));
+			expect(rows).toHaveLength(2);
+			expect(rows.map((row) => row.usedMode).sort()).toEqual([
+				"api-keys",
+				"credits",
+			]);
+			expect(
+				rows.every(
+					(row) => row.orgKind === "devpass" && row.requestCount === 1,
+				),
+			).toBe(true);
+			expect(
+				rows.every((row) => row.cost === 0.25 && row.totalTokens === "30"),
+			).toBe(true);
+		}
+		expect(await readModelStats()).toEqual([]);
 	});
 
 	test("keys one row per billing mode and organization kind", async () => {

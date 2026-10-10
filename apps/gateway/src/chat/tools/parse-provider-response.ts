@@ -1,4 +1,10 @@
-import { isToolSearchBlock } from "@llmgateway/actions";
+import {
+	fromConverseReasoningContent,
+	isToolSearchBlock,
+	sealAnthropicThinkingBlock,
+	toAnthropicReasoningDetail,
+	type AnthropicThinkingBlock,
+} from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -10,18 +16,42 @@ import {
 	normalizeCompletionTokens,
 } from "./extract-token-usage.js";
 import { dedupeGoogleCandidateParts } from "./google-candidates.js";
+import { normalizeMistralContent } from "./mistral-content.js";
 import {
 	buildEncryptedReasoningDetail,
 	extractReasoningDetailsText,
 	splitReasoningFromTaggedContent,
 } from "./reasoning-details.js";
 
-import type { Annotation, ImageObject } from "./types.js";
+import type {
+	Annotation,
+	ImageObject,
+	SearchResult,
+	ToolCall,
+} from "./types.js";
 import type {
 	AnthropicNativeBlock,
 	Provider,
 	ReasoningDetail,
 } from "@llmgateway/models";
+
+// `content` holds the turn's thinking at its content positions, null elsewhere.
+function sealedThinkingDetails(
+	provider: string,
+	content: Array<AnthropicThinkingBlock | null>,
+): ReasoningDetail[] | null {
+	const details = content.flatMap((block, index) =>
+		block
+			? [
+					toAnthropicReasoningDetail(
+						sealAnthropicThinkingBlock(provider, block),
+						index,
+					),
+				]
+			: [],
+	);
+	return details.length > 0 ? details : null;
+}
 
 /**
  * Parses response content and metadata from different providers
@@ -68,8 +98,10 @@ export function parseProviderResponse(
 	let cachedAudioInputTokens: number | null = null;
 	let toolResults = null;
 	let anthropicNativeBlocks: AnthropicNativeBlock[] | null = null;
+	let anthropicSafeguardResults: unknown = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
+	const searchResults: SearchResult[] = [];
 	let webSearchCount = 0;
 
 	const hasInputImages = messages.some((m: any) => {
@@ -80,7 +112,16 @@ export function parseProviderResponse(
 	});
 	const imageLabel = hasInputImages ? "Image edited" : "Image generated";
 
-	switch (usedProvider) {
+	// Perplexity serves two upstream shapes until Sonar's chat/completions
+	// retires on 2026-09-27: the Agent API's `output` items, and the
+	// OpenAI-shaped Sonar body. Only the former needs its own case; the latter
+	// is parsed like any other OpenAI-compatible provider.
+	const responseShape: Provider | "perplexity-agent" =
+		usedProvider === "perplexity" && Array.isArray(json.output)
+			? "perplexity-agent"
+			: usedProvider;
+
+	switch (responseShape) {
 		case "aws-bedrock": {
 			if (Array.isArray(json.choices)) {
 				const allChoices = json.choices;
@@ -159,6 +200,12 @@ export function parseProviderResponse(
 					})
 					.filter((value: string | null): value is string => value !== null)
 					.join("") ?? null;
+			reasoningDetails = sealedThinkingDetails(
+				usedProvider,
+				contentBlocks.map((block: any) =>
+					fromConverseReasoningContent(block.reasoningContent),
+				),
+			);
 
 			// Map Bedrock stop reasons to OpenAI finish reasons
 			const stopReason = json.stopReason;
@@ -234,29 +281,45 @@ export function parseProviderResponse(
 			content = textBlocks.map((block: any) => block.text).join("") ?? null;
 			reasoningContent =
 				thinkingBlocks.map((block: any) => block.thinking).join("") ?? null;
+			reasoningDetails = sealedThinkingDetails(
+				usedProvider,
+				contentBlocks.map((block: any): AnthropicThinkingBlock | null =>
+					block.type === "thinking" && typeof block.signature === "string"
+						? {
+								type: "thinking",
+								thinking: block.thinking ?? "",
+								signature: block.signature,
+							}
+						: block.type === "redacted_thinking" &&
+							  typeof block.data === "string"
+							? { type: "redacted_thinking", data: block.data }
+							: null,
+				),
+			);
 
 			finishReason = json.stop_reason ?? null;
 
 			// Extract web search citations from Anthropic response
 			// Anthropic returns web_search_tool_result blocks with content that includes source info
+			// Errored searches carry an object instead of an array and are not billed
 			const webSearchBlocks = contentBlocks.filter(
-				(block: any) => block.type === "web_search_tool_result",
+				(block: any) =>
+					block.type === "web_search_tool_result" &&
+					Array.isArray(block.content),
 			);
 			if (webSearchBlocks.length > 0) {
 				webSearchCount = webSearchBlocks.length;
 				// Extract citations from each web search result
 				for (const block of webSearchBlocks) {
-					if (block.content && Array.isArray(block.content)) {
-						for (const item of block.content) {
-							if (item.type === "web_search_result") {
-								annotations.push({
-									type: "url_citation",
-									url_citation: {
-										url: item.url ?? "",
-										title: item.title,
-									},
-								});
-							}
+					for (const item of block.content) {
+						if (item.type === "web_search_result") {
+							annotations.push({
+								type: "url_citation",
+								url_citation: {
+									url: item.url ?? "",
+									title: item.title,
+								},
+							});
 						}
 					}
 				}
@@ -323,6 +386,14 @@ export function parseProviderResponse(
 			if (toolSearchBlocks.length > 0) {
 				anthropicNativeBlocks = toolSearchBlocks;
 			}
+			// Server-side safeguard verdicts, present when the request carried
+			// `safeguards` (Claude Code auto mode). Opaque to the gateway.
+			if (
+				Array.isArray(json.safeguard_results) &&
+				json.safeguard_results.length > 0
+			) {
+				anthropicSafeguardResults = json.safeguard_results;
+			}
 
 			// Extract tool calls from Anthropic format
 			toolResults =
@@ -343,7 +414,6 @@ export function parseProviderResponse(
 		}
 		case "google-ai-studio":
 		case "glacier":
-		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			// A response with no candidates used to be assigned "content_filter"
@@ -580,7 +650,10 @@ export function parseProviderResponse(
 		}
 		case "mistral":
 		case "novita": {
-			content = json.choices?.[0]?.message?.content ?? null;
+			const mistralChunks = normalizeMistralContent(
+				json.choices?.[0]?.message?.content,
+			);
+			content = mistralChunks.content;
 			// Extract reasoning content - check both reasoning and reasoning_content fields
 			reasoningContent =
 				json.choices?.[0]?.message?.reasoning ??
@@ -588,6 +661,7 @@ export function parseProviderResponse(
 				extractReasoningDetailsText(
 					json.choices?.[0]?.message?.reasoning_details,
 				) ??
+				mistralChunks.reasoning ??
 				null;
 			finishReason = json.choices?.[0]?.finish_reason ?? null;
 			promptTokens = json.usage?.prompt_tokens ?? null;
@@ -740,6 +814,108 @@ export function parseProviderResponse(
 			}
 			break;
 		}
+		case "perplexity-agent": {
+			// Responses-shaped: one `output` item per step the model took, with
+			// `message` carrying the answer and `search_results` the sources.
+			const outputItems = Array.isArray(json.output) ? json.output : [];
+			const textParts: string[] = [];
+			const calls: ToolCall[] = [];
+			for (const item of outputItems) {
+				switch (item?.type) {
+					case "message": {
+						for (const part of item.content ?? []) {
+							if (typeof part?.text === "string") {
+								textParts.push(part.text);
+							}
+						}
+						break;
+					}
+					case "search_results": {
+						for (const result of item.results ?? []) {
+							if (typeof result?.url !== "string") {
+								continue;
+							}
+							// Dates are reported per result and are often absent; a
+							// missing one stays missing rather than being inferred.
+							const searchResult: SearchResult = { url: result.url };
+							if (result.title) {
+								searchResult.title = result.title;
+							}
+							if (result.snippet) {
+								searchResult.snippet = result.snippet;
+							}
+							if (result.date) {
+								searchResult.date = result.date;
+							}
+							if (result.last_updated) {
+								searchResult.last_updated = result.last_updated;
+							}
+							if (result.source) {
+								searchResult.source = result.source;
+							}
+							searchResults.push(searchResult);
+							annotations.push({
+								type: "url_citation",
+								url_citation: {
+									url: searchResult.url,
+									title: searchResult.title,
+									date: searchResult.date,
+									last_updated: searchResult.last_updated,
+								},
+							});
+						}
+						break;
+					}
+					case "function_call": {
+						calls.push({
+							id: item.call_id ?? item.id ?? "",
+							type: "function",
+							index: calls.length,
+							function: {
+								name: item.name ?? "",
+								arguments: item.arguments ?? "",
+							},
+						});
+						break;
+					}
+				}
+			}
+
+			content = textParts.length > 0 ? textParts.join("") : null;
+			toolResults = calls.length > 0 ? calls : null;
+
+			if (calls.length > 0) {
+				finishReason = "tool_calls";
+			} else if (json.status === "incomplete") {
+				finishReason =
+					json.incomplete_details?.reason === "max_output_tokens"
+						? "length"
+						: "stop";
+			} else {
+				finishReason = "stop";
+			}
+
+			const agentUsage = json.usage;
+			if (agentUsage) {
+				promptTokens = agentUsage.input_tokens ?? null;
+				completionTokens = agentUsage.output_tokens ?? null;
+				totalTokens = agentUsage.total_tokens ?? null;
+				reasoningTokens =
+					agentUsage.output_tokens_details?.reasoning_tokens ?? null;
+				cachedTokens = agentUsage.input_tokens_details?.cached_tokens ?? null;
+				const agentCacheCreation =
+					agentUsage.input_tokens_details?.cache_creation_input_tokens ?? 0;
+				if (agentCacheCreation > 0) {
+					cacheCreationTokens = agentCacheCreation;
+					cacheCreation5mTokens = agentCacheCreation;
+				}
+				// Billed per invocation, and a run can search more than once, so take
+				// the count the provider reports rather than assuming one per request.
+				webSearchCount =
+					agentUsage.tool_calls_details?.search_web?.invocation ?? 0;
+			}
+			break;
+		}
 		default: // OpenAI format
 			// Check if this is an OpenAI / Azure image generation response (e.g. gpt-image-2)
 			// Format: { created: number, data: [{ b64_json?: string, url?: string, revised_prompt?: string }], usage?: {...} }
@@ -840,6 +1016,34 @@ export function parseProviderResponse(
 					completionTokens = 0;
 					totalTokens = 0;
 				}
+				break;
+			}
+			// Check if this is a Tencent Hy Image generation response
+			// Format: { object: "image.chat.completion.chunk", choices: [{ delta: { image: { url } }, finish_reason }], tokenhub_usage: { total_tokens }, error? }
+			if (
+				usedProvider === "tencent" &&
+				json.object === "image.chat.completion.chunk"
+			) {
+				const imageUrl = json.choices?.[0]?.delta?.image?.url;
+				if (typeof imageUrl === "string" && imageUrl) {
+					images = [{ type: "image_url", image_url: { url: imageUrl } }];
+					content = imageLabel;
+					finishReason = "stop";
+				} else {
+					// Failures arrive as a 200 with finish_reason "error" and an
+					// OpenAI-style error object, e.g. code "content_filter".
+					finishReason =
+						json.error?.code === "content_filter"
+							? "content_filter"
+							: "upstream_error";
+				}
+				// v3.5 reports only a total; TokenHub bills it as image output.
+				const billedTokens =
+					json.tokenhub_usage?.total_tokens ?? json.usage?.total_tokens ?? 0;
+				promptTokens = 0;
+				completionTokens = billedTokens;
+				imageOutputTokens = billedTokens > 0 ? billedTokens : null;
+				totalTokens = billedTokens;
 				break;
 			}
 			// Check if this is a Reve image generation response
@@ -1348,8 +1552,10 @@ export function parseProviderResponse(
 		cachedAudioInputTokens,
 		toolResults,
 		anthropicNativeBlocks,
+		anthropicSafeguardResults,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,
+		searchResults: searchResults.length > 0 ? searchResults : null,
 		webSearchCount: webSearchCount > 0 ? webSearchCount : null,
 	};
 }

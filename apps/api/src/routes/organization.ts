@@ -2,11 +2,20 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import {
+	cancelOrganizationSubscriptions,
+	getCancelledOrganizationPlanState,
+} from "@/lib/account-deletion.js";
 import { isUserHighRisk } from "@/lib/account-risk.js";
+import {
+	getOrganizationDeletionBlockers,
+	ORGANIZATION_DELETE_IDLE_DAYS,
+	ORGANIZATION_DELETE_MAX_CREDITS,
+} from "@/lib/organization-deletion.js";
 import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
-	isSelfRefundCandidateType,
+	hasRefundAction,
 	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
 import {
@@ -21,8 +30,15 @@ import {
 	isInvoiceableTransaction,
 	isRefundTransaction,
 } from "@/utils/invoice.js";
-import { providerCacheControlModeSchema } from "@/utils/provider-cache-control.js";
+import {
+	providerCacheAutoTtlSchema,
+	providerCacheControlModeSchema,
+} from "@/utils/provider-cache-control.js";
 import { serializeOrganization } from "@/utils/serialize-organization.js";
+import {
+	smartRoutingConfigInputSchema,
+	normalizeSmartRoutingConfig,
+} from "@/utils/smart-routing.js";
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
 import {
 	isZeroDataRetentionEnabled,
@@ -69,8 +85,10 @@ import {
 } from "@llmgateway/shared";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+import { isSmartRoutingAvailable } from "@llmgateway/shared/smart-routing";
 
 import type { ServerTypes } from "@/vars.js";
+import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
 export const organization = new OpenAPIHono<ServerTypes>();
 
@@ -171,14 +189,18 @@ const organizationSchema = z
 		projectLimit: z.number().nullable(),
 		retentionLevel: z.enum(["retain", "none"]),
 		providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
+		smartRoutingConfig: smartRoutingConfigInputSchema.nullable(),
 		ssoAutoJoinDomain: z.string().nullable(),
 		status: z.enum(["active", "inactive", "deleted"]).nullable(),
+		blockReason: z.string().nullable(),
 		autoTopUpEnabled: z.boolean(),
 		autoTopUpThreshold: z.string().nullable(),
 		autoTopUpAmount: z.string().nullable(),
 		referralEarnings: z.string(),
 		referralBonusEnabled: z.boolean(),
 		referralBonusPercent: z.string(),
+		dataStreamsEnabled: z.boolean(),
+		requestLogExportEnabled: z.boolean(),
 		// Organization kind: "default" (regular dashboard org), "devpass" (per-user
 		// Dev Plans org), or "chat" (per-user lounge.llmgateway.io org).
 		kind: z.enum(["default", "chat", "devpass"]),
@@ -231,6 +253,7 @@ const projectSchema = z.object({
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
 	providerCacheControlMode: providerCacheControlModeSchema,
+	providerCacheAutoTtl: providerCacheAutoTtlSchema,
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -239,6 +262,10 @@ const projectSchema = z.object({
 	endUserMarkupPercent: z.string(),
 	endUserTopUpBonusPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),
+	endUserBrandName: z.string().nullable(),
+	endUserSupportEmail: z.string().nullable(),
+	endUserStatementDescriptorSuffix: z.string().nullable(),
+	smartRoutingConfig: smartRoutingConfigInputSchema.nullable(),
 });
 
 const createOrganizationSchema = z.object({
@@ -272,6 +299,7 @@ const updateOrganizationSchema = z.object({
 	providerCompliancePolicy: providerCompliancePolicySchema
 		.nullable()
 		.optional(),
+	smartRoutingConfig: smartRoutingConfigInputSchema.nullable().optional(),
 	ssoAutoJoinDomain: z.string().max(253).nullable().optional(),
 	autoTopUpEnabled: z.boolean().optional(),
 	autoTopUpThreshold: z.number().min(5).optional(),
@@ -300,7 +328,6 @@ const refundEligibilitySchema = z.object({
 			"not_owner",
 			"not_latest_purchase",
 			"plan_inactive",
-			"credits_frozen",
 			"usage_exceeded",
 			"pass_already_used",
 		])
@@ -675,6 +702,7 @@ organization.openapi(updateOrganization, async (c) => {
 		billingNotes,
 		retentionLevel,
 		providerCompliancePolicy,
+		smartRoutingConfig,
 		ssoAutoJoinDomain,
 		autoTopUpEnabled,
 		autoTopUpThreshold,
@@ -740,6 +768,28 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
+	// Payload retention is Enterprise-only. Turning it off, or re-saving a
+	// setting kept from before a downgrade, stays allowed until the transition
+	// window closes.
+	const retentionEnterpriseAccess = hasOrganizationEnterpriseAccess(
+		userOrganization.organization?.id,
+		userOrganization.organization?.plan,
+	);
+	if (
+		retentionLevel === "retain" &&
+		userOrganization.organization?.retentionLevel !== "retain" &&
+		!retentionEnterpriseAccess
+	) {
+		throw new HTTPException(403, {
+			message: "Retain All Data requires an Enterprise plan",
+		});
+	}
+	// A kept setting may only be re-saved while it is still stored: the write
+	// re-checks the column so a concurrent switch to Metadata Only (owner or
+	// transition worker) cannot be reverted by an earlier read.
+	const grandfatheredRetain =
+		retentionLevel === "retain" && !retentionEnterpriseAccess;
+
 	// DevPass accepts only the no-API-training requirement, regardless of plan.
 	// Other organizations retain the enterprise gate for enabling a policy.
 	if (providerCompliancePolicy !== undefined) {
@@ -784,6 +834,23 @@ organization.openapi(updateOrganization, async (c) => {
 				message: "Provider compliance policies require an enterprise plan",
 			});
 		}
+	}
+
+	// Auto-routing configuration is an enterprise feature. Clearing it stays
+	// allowed without enterprise access so a downgraded org can drop a leftover
+	// config and fall back to the built-in candidate set.
+	let normalizedSmartRoutingConfig: SmartRoutingConfig | null | undefined;
+	if (smartRoutingConfig !== undefined) {
+		if (
+			smartRoutingConfig !== null &&
+			!isSmartRoutingAvailable(userOrganization.organization?.kind)
+		) {
+			throw new HTTPException(403, {
+				message: "Smart routing is not available for this organization",
+			});
+		}
+		normalizedSmartRoutingConfig =
+			normalizeSmartRoutingConfig(smartRoutingConfig);
 	}
 
 	const effectiveCompliancePolicy =
@@ -887,6 +954,9 @@ organization.openapi(updateOrganization, async (c) => {
 	if (providerCompliancePolicy !== undefined) {
 		updateData.providerCompliancePolicy = providerCompliancePolicy;
 	}
+	if (normalizedSmartRoutingConfig !== undefined) {
+		updateData.smartRoutingConfig = normalizedSmartRoutingConfig;
+	}
 	if (normalizedSsoDomain !== undefined) {
 		updateData.ssoAutoJoinDomain = normalizedSsoDomain;
 	}
@@ -928,6 +998,9 @@ organization.openapi(updateOrganization, async (c) => {
 		) {
 			updateConditions.push(eq(tables.organization.retentionLevel, "none"));
 		}
+		if (grandfatheredRetain) {
+			updateConditions.push(eq(tables.organization.retentionLevel, "retain"));
+		}
 
 		try {
 			// Cached client so gateway policy gates see compliance changes
@@ -949,6 +1022,12 @@ organization.openapi(updateOrganization, async (c) => {
 			throw err;
 		}
 		if (!updatedOrganization) {
+			if (grandfatheredRetain) {
+				throw new HTTPException(409, {
+					message:
+						"Retain All Data is no longer enabled for this organization and requires an Enterprise plan to turn back on",
+				});
+			}
 			throw new HTTPException(400, {
 				message: zdrRetentionConflictMessage,
 			});
@@ -1013,6 +1092,16 @@ organization.openapi(updateOrganization, async (c) => {
 		changes.providerCompliancePolicy = {
 			old: oldOrg.providerCompliancePolicy,
 			new: providerCompliancePolicy,
+		};
+	}
+	if (
+		normalizedSmartRoutingConfig !== undefined &&
+		JSON.stringify(oldOrg.smartRoutingConfig ?? null) !==
+			JSON.stringify(normalizedSmartRoutingConfig)
+	) {
+		changes.smartRoutingConfig = {
+			old: oldOrg.smartRoutingConfig,
+			new: normalizedSmartRoutingConfig,
 		};
 	}
 	if (
@@ -1104,6 +1193,26 @@ organization.openapi(updateOrganization, async (c) => {
 	});
 });
 
+/** Refuses (409) when credits are positive or the org served requests recently. */
+async function assertOrganizationDeletionAllowed(org: {
+	id: string;
+	credits: string | null;
+}): Promise<void> {
+	const blockers = await getOrganizationDeletionBlockers(org);
+
+	if (blockers.blockingCredits) {
+		throw new HTTPException(409, {
+			message: `This organization still holds a credit balance of $${ORGANIZATION_DELETE_MAX_CREDITS} or more and cannot be deleted. Please contact support instead.`,
+		});
+	}
+
+	if (blockers.recentActivity) {
+		throw new HTTPException(409, {
+			message: `This organization had spend activity within the last ${ORGANIZATION_DELETE_IDLE_DAYS} days and cannot be deleted yet. Stop all traffic and try again later.`,
+		});
+	}
+}
+
 const deleteOrganization = createRoute({
 	method: "delete",
 	path: "/{id}",
@@ -1133,6 +1242,16 @@ const deleteOrganization = createRoute({
 			},
 			description: "Unauthorized.",
 		},
+		403: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Only owners can delete a regular organization.",
+		},
 		404: {
 			content: {
 				"application/json": {
@@ -1142,6 +1261,17 @@ const deleteOrganization = createRoute({
 				},
 			},
 			description: "Organization not found.",
+		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description:
+				"Organization still holds credits or served requests recently.",
 		},
 	},
 });
@@ -1201,12 +1331,59 @@ organization.openapi(deleteOrganization, async (c) => {
 		});
 	}
 
-	await db
-		.update(tables.organization)
-		.set({
-			status: "deleted",
-		})
-		.where(eq(tables.organization.id, id));
+	const org = userOrganization.organization!;
+	await assertOrganizationDeletionAllowed(org);
+
+	// Stripe first: a failed cancel aborts the delete instead of leaving a
+	// subscription billing an organization nobody can reach anymore.
+	const cancelledSubscriptionIds = await cancelOrganizationSubscriptions(org);
+
+	// Re-validate at the write boundary: a top-up, a request, or an ownership
+	// change can land while the Stripe call is in flight. The update itself is
+	// conditional on the balance so a concurrent credit write cannot slip past
+	// the check. If this refuses after Stripe already cancelled, the trailing
+	// `customer.subscription.deleted` webhook still clears the plan state.
+	const deleted = await db.transaction(async (tx) => {
+		const membership = await tx.query.userOrganization.findFirst({
+			where: {
+				userId: { eq: user.id },
+				organizationId: { eq: id },
+			},
+			with: { organization: true },
+		});
+		const current = membership?.organization;
+		if (
+			!current ||
+			current.status === "deleted" ||
+			membership.role !== "owner"
+		) {
+			return false;
+		}
+		await assertOrganizationDeletionAllowed(current);
+
+		const rows = await tx
+			.update(tables.organization)
+			.set({
+				status: "deleted",
+				...getCancelledOrganizationPlanState(),
+			})
+			.where(
+				and(
+					eq(tables.organization.id, id),
+					sql`${tables.organization.status} IS DISTINCT FROM 'deleted'`,
+					sql`CAST(${tables.organization.credits} AS NUMERIC) < ${ORGANIZATION_DELETE_MAX_CREDITS}`,
+				),
+			)
+			.returning({ id: tables.organization.id });
+		return rows.length === 1;
+	});
+
+	if (!deleted) {
+		throw new HTTPException(409, {
+			message:
+				"The organization changed while it was being deleted. Refresh and try again.",
+		});
+	}
 
 	await logAuditEvent({
 		organizationId: id,
@@ -1214,12 +1391,120 @@ organization.openapi(deleteOrganization, async (c) => {
 		action: "organization.delete",
 		resourceType: "organization",
 		resourceId: id,
-		metadata: { resourceName: userOrganization.organization?.name },
+		metadata: { resourceName: org.name, cancelledSubscriptionIds },
 	});
 
 	return c.json({
 		message: "Organization deleted successfully",
 	});
+});
+
+const getDeletionEligibility = createRoute({
+	method: "get",
+	path: "/{id}/deletion-eligibility",
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						canDelete: z.boolean(),
+						blockingCredits: z.boolean(),
+						recentActivity: z.boolean(),
+						idleDays: z.number(),
+						maxCredits: z.number(),
+					}),
+				},
+			},
+			description: "Whether the organization can currently be deleted.",
+		},
+		401: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Unauthorized.",
+		},
+		403: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Only owners can check deletion eligibility.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+organization.openapi(getDeletionEligibility, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { id } = c.req.valid("param");
+
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: user.id },
+			organizationId: { eq: id },
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	if (
+		!userOrganization ||
+		userOrganization.organization?.status === "deleted"
+	) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	if (userOrganization.role !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can delete organizations",
+		});
+	}
+
+	const org = userOrganization.organization!;
+	const blockers = await getOrganizationDeletionBlockers(org);
+
+	return c.json(
+		{
+			canDelete:
+				org.kind === "default" &&
+				!blockers.blockingCredits &&
+				!blockers.recentActivity,
+			...blockers,
+			idleDays: ORGANIZATION_DELETE_IDLE_DAYS,
+			maxCredits: ORGANIZATION_DELETE_MAX_CREDITS,
+		},
+		200,
+	);
 });
 
 const getTransactions = createRoute({
@@ -1289,7 +1574,7 @@ organization.openapi(getTransactions, async (c) => {
 	const org = userOrganization.organization;
 	return c.json({
 		transactions: transactions.map((t) =>
-			isSelfRefundCandidateType(t.type)
+			hasRefundAction(t)
 				? {
 						...t,
 						refund: computeSelfRefundEligibility({
@@ -1481,7 +1766,7 @@ organization.openapi(downloadTransactionInvoice, async (c) => {
 				})
 			: null;
 
-	const pdf = generateInvoicePDF(
+	const pdf = await generateInvoicePDF(
 		buildInvoiceDataForTransaction(transaction, org, originalTransaction),
 	);
 

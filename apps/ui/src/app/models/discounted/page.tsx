@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 
+import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { AllModels } from "@/components/models/all-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
@@ -25,13 +26,14 @@ export default async function DiscountedModelsPage() {
 	return (
 		<Suspense>
 			<AllModels
+				footer={<Footer />}
 				models={models}
 				providers={providers}
 				title="Discounted Models"
 				description="Models with active discounts — save on API costs"
 				categoryFilter="discounted"
 			>
-				<HeroRSC navbarOnly sticky={false} />
+				<HeroRSC sticky={false} />
 			</AllModels>
 		</Suspense>
 	);

@@ -17,6 +17,7 @@ import { CostByModelCard } from "@/components/analytics/cost-by-model-card";
 import { CostByModelOverTimeCard } from "@/components/analytics/cost-by-model-over-time-card";
 import { DimensionUsageCard } from "@/components/analytics/dimension-usage-card";
 import { DimensionUsageOverTimeCard } from "@/components/analytics/dimension-usage-over-time-card";
+import { RoutingSavingsCard } from "@/components/analytics/routing-savings-card";
 import { TokenUsageCard } from "@/components/analytics/token-usage-card";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import {
@@ -41,6 +42,8 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
+
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
 import type { DailyActivity } from "@/types/activity";
 
@@ -71,8 +74,6 @@ const COPY: Record<
 		description: UNATTRIBUTED_NOTE,
 	},
 };
-
-const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact" });
 
 export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 	const router = useRouter();
@@ -169,6 +170,26 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 		},
 	);
 
+	const routingSavings = api.useQuery(
+		"get",
+		"/activity/routing-savings",
+		{
+			params: {
+				query: {
+					projectId: projectId ?? "",
+					from: fromStr,
+					to: toStr,
+					timezone: displayTimeZone,
+				},
+			},
+		},
+		{
+			enabled: !!projectId,
+			refetchOnWindowFocus: false,
+			staleTime: 1000 * 60 * 5,
+		},
+	);
+
 	const usageMode = useUsageMode();
 	const activity: DailyActivity[] = useMemo(
 		() =>
@@ -245,7 +266,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 					/>
 					<MetricCard
 						label="Requests"
-						value={compactNumber.format(totals.requestCount)}
+						value={formatCompactNumber(totals.requestCount)}
 						accent="blue"
 						icon={<Hash className="h-4 w-4" />}
 						trend={activity.map((day) => day.requestCount)}
@@ -253,7 +274,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 					/>
 					<MetricCard
 						label="Tokens"
-						value={compactNumber.format(totals.totalTokens)}
+						value={formatCompactNumber(totals.totalTokens)}
 						accent="purple"
 						icon={<Layers className="h-4 w-4" />}
 						trend={activity.map((day) => day.totalTokens)}
@@ -280,6 +301,12 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 						loading={isLoading}
 						title={copy.ranked}
 						description={`Ranked ${dimensionNoun} totals across the selected range`}
+					/>
+				)}
+				{!routingSavings.isError && (
+					<RoutingSavingsCard
+						data={routingSavings.data}
+						loading={routingSavings.isLoading}
 					/>
 				)}
 			</div>

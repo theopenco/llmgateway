@@ -8,6 +8,7 @@ export const PROVIDER_MODEL_KINDS = [
 	"ocr",
 	"embedding",
 	"video",
+	"decision",
 ] as const;
 
 export type ProviderModelKind = (typeof PROVIDER_MODEL_KINDS)[number];
@@ -21,13 +22,14 @@ export function createEmptyProviderModelsByKind(): ProviderModelsByKind {
 		ocr: [],
 		embedding: [],
 		video: [],
+		decision: [],
 	};
 }
 
 /**
  * The one operational surface a provider mapping uses. Model output metadata
  * catches multimodal image models while mapping flags catch dedicated APIs.
- * Audio, transcription, rerank, and realtime mappings intentionally remain
+ * Audio, transcription, rerank, search, and realtime mappings intentionally remain
  * unclassified until the admin verifier knows how to probe them.
  */
 export function getProviderModelKind(
@@ -47,13 +49,19 @@ export function getProviderModelKind(
 	if (mapping.imageGenerations || output.includes("image")) {
 		return "image";
 	}
+	if (mapping.decisions || output.includes("decision")) {
+		return "decision";
+	}
 	if (
 		mapping.speechGenerations ||
 		mapping.transcriptions ||
 		mapping.rerank ||
+		mapping.search ||
 		mapping.realtime ||
 		mapping.realtimeTranscription ||
-		output.some((kind) => ["audio", "transcription", "rerank"].includes(kind))
+		output.some((kind) =>
+			["audio", "transcription", "rerank", "search"].includes(kind),
+		)
 	) {
 		return null;
 	}
@@ -136,3 +144,16 @@ export function getProviderModelIds(
 	}
 	return ids;
 }
+
+/**
+ * Providers whose accounts only serve the models deployed or enabled in them,
+ * so a managed credential's `allowedModels` goes stale as the account grows.
+ * The worker re-probes these daily and enables models that started working.
+ */
+export const MODEL_SYNC_PROVIDERS: readonly string[] = [
+	"aws-bedrock",
+	"aws-mantle",
+	"azure",
+	"azure-ai-foundry",
+	"azure-anthropic",
+];

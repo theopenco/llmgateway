@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 
+import { ErrorBreakdownCell } from "@/components/error-breakdown";
 import { HistoryChart } from "@/components/history-chart";
+import { SortHeaderLink } from "@/components/sort-header-link";
 import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,10 +17,10 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { getProviderHistory } from "@/lib/admin-history";
-import { cn } from "@/lib/utils";
+import { useHistoryClient } from "@/lib/history-client";
 
 import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
@@ -55,6 +56,7 @@ type ProviderSortBy =
 	| "cachedCount"
 	| "totalCost"
 	| "avgTimeToFirstToken"
+	| "throughput"
 	| "modelCount"
 	| "updatedAt";
 
@@ -67,6 +69,7 @@ function SortableHeader({
 	currentSortOrder,
 	pageWindow,
 	usageMode,
+	filterQuery,
 }: {
 	label: string;
 	sortKey: ProviderSortBy;
@@ -74,38 +77,23 @@ function SortableHeader({
 	currentSortOrder: SortOrder;
 	pageWindow?: PageWindow;
 	usageMode: UsageMode;
+	filterQuery: string;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
 	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
-	const href = `/providers?sortBy=${sortKey}&sortOrder=${nextOrder}${windowParam}${modeParam}`;
+	const href = `/providers?sortBy=${sortKey}&sortOrder=${nextOrder}${windowParam}${modeParam}${filterQuery}`;
 
 	return (
-		<Link
+		<SortHeaderLink
+			label={label}
 			href={href}
-			className={cn(
-				"flex items-center gap-1 hover:text-foreground transition-colors",
-				isActive ? "text-foreground" : "text-muted-foreground",
-			)}
-		>
-			{label}
-			{isActive ? (
-				currentSortOrder === "asc" ? (
-					<ArrowUp className="h-3.5 w-3.5" />
-				) : (
-					<ArrowDown className="h-3.5 w-3.5" />
-				)
-			) : (
-				<ArrowUpDown className="h-3.5 w-3.5 opacity-50" />
-			)}
-		</Link>
+			active={isActive}
+			order={currentSortOrder}
+		/>
 	);
-}
-
-function formatNumber(n: number) {
-	return new Intl.NumberFormat("en-US").format(n);
 }
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -134,20 +122,22 @@ function ProviderRow({
 	usageMode: UsageMode;
 }) {
 	const [expanded, setExpanded] = useState(false);
-	const stability = deriveStabilityMetrics(
-		provider.logsCount,
-		provider.errorsCount + provider.clientErrorsCount,
-		provider.clientErrorsCount,
-	);
+	const stability = deriveStabilityMetrics({
+		logsCount: provider.logsCount,
+		clientErrorsCount: provider.clientErrorsCount,
+		gatewayErrorsCount: provider.gatewayErrorsCount,
+		upstreamErrorsCount: provider.upstreamErrorsCount,
+	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	const ProviderIcon = getProviderIcon(provider.id);
 
+	const history = useHistoryClient();
 	const fetchData = useCallback(
 		async (window: HistoryWindow) => {
-			return await getProviderHistory(provider.id, window, usageMode);
+			return await history.providerHistory(provider.id, window, usageMode);
 		},
-		[provider.id, usageMode],
+		[history, provider.id, usageMode],
 	);
 
 	return (
@@ -169,21 +159,21 @@ function ProviderRow({
 							</Link>
 							<p className="text-xs text-muted-foreground">{provider.id}</p>
 						</div>
+						{provider.status !== "active" && (
+							<Badge variant="outline">{provider.status}</Badge>
+						)}
 					</div>
-				</TableCell>
-				<TableCell>
-					<Badge
-						variant={provider.status === "active" ? "secondary" : "outline"}
-					>
-						{provider.status}
-					</Badge>
 				</TableCell>
 				<TableCell className="tabular-nums">{provider.modelCount}</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(provider.logsCount)}
 				</TableCell>
-				<TableCell className="tabular-nums">
-					{formatNumber(stability.errorsCount)}
+				<TableCell>
+					<ErrorBreakdownCell
+						errorsCount={stability.errorsCount}
+						upstreamErrorsCount={provider.upstreamErrorsCount}
+						gatewayErrorsCount={provider.gatewayErrorsCount}
+					/>
 				</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(provider.clientErrorsCount)}
@@ -201,6 +191,11 @@ function ProviderRow({
 				<TableCell className="tabular-nums">
 					{provider.avgTimeToFirstToken !== null
 						? `${Math.round(provider.avgTimeToFirstToken)}ms`
+						: "\u2014"}
+				</TableCell>
+				<TableCell className="tabular-nums">
+					{provider.throughput !== null
+						? `${provider.throughput.toFixed(1)} tok/s`
 						: "\u2014"}
 				</TableCell>
 				<TableCell className="text-muted-foreground">
@@ -222,7 +217,7 @@ function ProviderRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={12} className="p-4">
+					<TableCell colSpan={13} className="p-4">
 						<HistoryChart
 							title={`${provider.name} — History`}
 							description="Request volume, errors, latency, and tokens over time"
@@ -242,12 +237,14 @@ export function ProvidersTable({
 	sortOrder = "desc",
 	pageWindow,
 	usageMode = "total",
+	filterQuery = "",
 }: {
 	providers: ProviderStats[];
 	sortBy?: ProviderSortBy;
 	sortOrder?: SortOrder;
 	pageWindow?: PageWindow;
 	usageMode?: UsageMode;
+	filterQuery?: string;
 }) {
 	const externalWindow = pageWindow ? toHistoryWindow(pageWindow) : undefined;
 
@@ -260,6 +257,7 @@ export function ProvidersTable({
 				currentSortOrder={sortOrder}
 				pageWindow={pageWindow}
 				usageMode={usageMode}
+				filterQuery={filterQuery}
 			/>
 		</TableHead>
 	);
@@ -269,7 +267,6 @@ export function ProvidersTable({
 			<TableHeader>
 				<TableRow>
 					{sh("Provider", "name")}
-					{sh("Status", "status")}
 					{sh("Models", "modelCount")}
 					{sh("Requests", "logsCount")}
 					{sh("Errors", "errorsCount")}
@@ -279,6 +276,7 @@ export function ProvidersTable({
 					{sh("Cost", "totalCost")}
 					<TableHead>Tokens</TableHead>
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
+					{sh("Throughput", "throughput")}
 					{sh("Last Updated", "updatedAt")}
 					<TableHead></TableHead>
 				</TableRow>
