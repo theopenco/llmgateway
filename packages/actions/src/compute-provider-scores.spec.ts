@@ -12,14 +12,19 @@ import { computeWeightedProviderScores } from "./compute-provider-scores.js";
 const cfg = resolveRoutingConfig(null, buildProviderPriorityDefaults());
 const flags = { isStreaming: true, isImageModel: false, cacheRelevant: false };
 
-function candidate(price: string, throughput: number, latency: number) {
+function candidate(
+	price: string,
+	throughput: number,
+	latency: number,
+	priority = 1,
+) {
 	return {
 		price: new Decimal(price),
 		uptime: 100,
 		throughput,
 		latency,
 		cacheSupported: true,
-		priority: 1,
+		priority,
 	};
 }
 
@@ -49,6 +54,15 @@ describe("computeWeightedProviderScores", () => {
 			flags,
 		);
 		expect(stalled.throughputScore.toNumber()).toBe(MAX_THROUGHPUT_SCORE);
+	});
+
+	it("lets a much faster provider beat a priority-2 provider", () => {
+		const [fast, preferredSlow] = computeWeightedProviderScores(
+			[candidate("1", 1000, 1000), candidate("1", 10, 1000, 2)],
+			cfg,
+			{ ...flags, isStreaming: false },
+		);
+		expect(fast.score.lt(preferredSlow.score)).toBe(true);
 	});
 
 	it("prefers a 2x faster provider that costs ~25% more by default", () => {

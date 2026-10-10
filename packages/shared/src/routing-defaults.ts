@@ -170,9 +170,12 @@ export const ROUTING_HISTORY_MAX_WINDOW_MINUTES = 120;
  * Upper bound on the throughput sub-score (maxThroughput / throughput - 1).
  * The ratio is unbounded as throughput approaches zero, so a single slow or
  * sparsely sampled window could otherwise dominate the weighted score. A cap of
- * 3 means anything 4x slower than the fastest candidate is penalised equally.
+ * 10 means anything 11x slower than the fastest candidate is penalised equally.
+ * It must stay high enough that the capped throughput contribution can still
+ * outweigh a catalogue priority bonus (priority 2 = -1): with the default
+ * weights a priority-2 provider loses once it is roughly 5-7x slower.
  */
-export const MAX_THROUGHPUT_SCORE = 3;
+export const MAX_THROUGHPUT_SCORE = 10;
 
 /**
  * Extra score added for providers below the uptime-penalty threshold. Quadratic
