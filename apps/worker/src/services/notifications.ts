@@ -32,6 +32,7 @@ import {
 	processComplianceAlerts,
 } from "./compliance-alerts.js";
 import { canReadEvent, recordEvent } from "./notification-events.js";
+import { processPromptCacheAlerts } from "./prompt-cache-alerts.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 const USAGE_WINDOW_MS = 30 * DAY;
@@ -245,6 +246,14 @@ export async function processNotifications(now = new Date()): Promise<void> {
 	} catch (error) {
 		logger.error(
 			"Compliance alert processing failed",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
+	try {
+		await processPromptCacheAlerts(now);
+	} catch (error) {
+		logger.error(
+			"Prompt cache alert processing failed",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 	}

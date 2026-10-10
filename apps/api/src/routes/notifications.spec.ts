@@ -38,7 +38,17 @@ describe("notifications API", () => {
 		expect(response.status).toBe(200);
 		const { email, preferences } = await response.json();
 		expect(email).toBe("admin@example.com");
-		expect(preferences).toHaveLength(9);
+		expect(preferences).toHaveLength(10);
+		expect(
+			preferences.find(
+				(p: { category: string }) => p.category === "prompt_cache",
+			),
+		).toEqual({
+			category: "prompt_cache",
+			inApp: false,
+			email: false,
+			budgetThreshold: null,
+		});
 		expect(
 			preferences
 				.filter((p: { inApp: boolean | null }) => p.inApp)

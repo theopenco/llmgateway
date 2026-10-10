@@ -7,7 +7,7 @@ icon: Mail
 import { Callout } from "fumadocs-ui/components/callout";
 
 Every email we send is either account email, which you cannot turn off, or one
-of seven optional categories, all of which you can.
+of ten optional categories, all of which you can.
 
 ## Account email
 
@@ -30,17 +30,21 @@ so your mail client can opt you out without opening the message:
   organization's policy.
 - **Organization limits** — a seat or API key limit blocked directory sync, an
   SSO sign-in, an invite, or a new API key (owners and admins).
+- **Data streams** — a data stream was paused after repeated delivery failures
+  (owners and admins).
+- **Prompt cache misses** — an API key keeps paying full input price on a model
+  because follow-up requests miss the provider's prompt cache.
 - **Product tips and offers** — onboarding nudges, feature announcements and
   occasional campaigns.
 - **Credit balance reminders** — your balance dropped below 20% or 5% of your
   last top-up, or your credits have not been topped up in a while.
 
-The first five are also delivered in the dashboard's notification feed, which
+The first eight are also delivered in the dashboard's notification feed, which
 you can leave on after turning their email off.
 
 ## Managing them
 
-**Notifications** in the dashboard lists all seven categories with an in-app and
+**Notifications** in the dashboard lists all ten categories with an in-app and
 an email switch each. The settings are yours rather than your organization's, so
 they follow you across every organization you belong to.
 

@@ -209,9 +209,9 @@ function stripSchemaDefaults(
 	return schema;
 }
 
-function getProviderMapping(
+export function getProviderMapping(
 	mappings: ProviderModelMapping[] | undefined,
-	usedProvider: ProviderId,
+	usedProvider: string,
 	usedRegion: string | null,
 ): ProviderModelMapping | undefined {
 	if (!mappings) {

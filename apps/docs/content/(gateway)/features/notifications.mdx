@@ -1,6 +1,6 @@
 ---
 title: Notifications
-description: Receive budget, model retirement, provider health, compliance, and organization limit alerts
+description: Receive budget, model retirement, provider health, compliance, organization limit, and prompt cache alerts
 icon: Bell
 ---
 
@@ -14,8 +14,11 @@ Open the **Notifications** bell in the dashboard header, then select **Notificat
 | Compliance: models available | A model your organization watches becomes routable under its [compliance policy](/features/compliance#compliance-alerts).                                                         |
 | Compliance: downgrades       | A provider, or a watched model, stops meeting your organization's compliance policy.                                                                                              |
 | Organization limits          | A seat or API key limit blocks directory sync (SCIM), an SSO sign-in, an invite, or a new API key. Sent to owners and admins.                                                     |
+| Prompt cache misses          | An API key keeps paying full input price on a model because follow-up requests miss the provider's prompt cache.                                                                  |
 
 Organization limit alerts are sent at most once per day for each kind of limit; rejected directory sync pushes are also listed in the [audit log](/features/audit-logs). Budget alerts repeat for each new recurring period, or when you change the limit or alert threshold. Unlimited keys do not trigger budget warnings. Each scheduled model retirement is announced once; ongoing provider issues produce at most one alert per day per project, or per accessible key for developers.
+
+Prompt cache alerts look at the last 24 completed hours for each API key and model. An alert needs at least 20 requests that reached the provider, less than 50% of input tokens read from the provider's prompt cache, and at least $5 that cached input could have saved. You get at most one alert per key and model every 7 days. To raise the cache hit rate, see [Provider cache control](/features/caching/provider-cache-control).
 
 Provider alerts require at least 20 non-cached, non-client-error requests and an upstream error rate of at least 20% in the latest hourly statistics window. Stale statistics do not trigger alerts. Checks run about once a minute; these warnings are not a guarantee that every outage or budget crossing will be caught before a request fails.
 

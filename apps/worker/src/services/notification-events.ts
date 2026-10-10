@@ -3,7 +3,10 @@ import { db, notification } from "@llmgateway/db";
 import type { ApiKeyScope } from "@llmgateway/actions";
 import type { notificationPreference } from "@llmgateway/db";
 
-export type Preference = typeof notificationPreference.$inferSelect;
+export type Channels = Pick<
+	typeof notificationPreference.$inferSelect,
+	"inApp" | "email"
+>;
 export type NotificationEvent = Pick<
 	typeof notification.$inferInsert,
 	"projectId" | "apiKeyId" | "type" | "eventKey" | "title" | "message" | "href"
@@ -26,7 +29,7 @@ export function canReadEvent(
 
 export async function recordEvent(
 	userId: string,
-	preference: Preference,
+	channels: Channels,
 	event: NotificationEvent,
 ): Promise<boolean> {
 	const inserted = await db
@@ -34,8 +37,8 @@ export async function recordEvent(
 		.values({
 			...event,
 			userId,
-			inApp: preference.inApp,
-			email: preference.email,
+			inApp: channels.inApp,
+			email: channels.email,
 		})
 		.onConflictDoNothing()
 		.returning({ id: notification.id });
