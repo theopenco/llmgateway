@@ -2,12 +2,13 @@
 id: "blog-llm-routing-carriers-guide"
 slug: "llm-routing-carriers-guide"
 date: "2026-09-13"
+updatedAt: "2026-10-10"
 title: "How LLM Routing Picks a Provider: A Carrier's Guide"
 summary: "LLM routing on LLM Gateway is an election: every provider listing a model is scored on effective price, uptime, throughput, and latency, and the lowest score wins. This guide explains the scoring from the provider's side, with the fare formula, the uptime penalty, cache-aware pricing, and the levers a carrier controls from Airside."
 categories: ["Guides", "Engineering"]
 faqs:
   - question: "How does LLM Gateway decide which provider serves a request?"
-    answer: "Every provider listing the requested model that supports the request's features is scored on price after discount and landing fee (weight 0.6), uptime (0.5), throughput (0.05), and time to first token (0.025, streaming only). Each factor is a ratio against the best candidate, weights are normalized, and the lowest total score wins. There is no paid placement."
+    answer: "Every provider listing the requested model that supports the request's features is scored on price after discount and landing fee (weight %routing.weights.price%), uptime (%routing.weights.uptime%), throughput (%routing.weights.throughput%), and time to first token (%routing.weights.latency%, streaming only). Each factor is a ratio against the best candidate, weights are normalized, and the lowest total score wins. There is no paid placement."
   - question: "Does accepting a higher landing fee guarantee more traffic?"
     answer: "No. It lowers your effective price in the election by the same percentage points above the 20% baseline, so a 30% landing fee competes like a 10% price cut. Whether that wins depends on how close the other candidates are and on your uptime, which carries almost as much weight as price."
   - question: "How does a new provider get traffic before it has metrics?"
@@ -35,15 +36,15 @@ Developers can also skip the election. A request for `provider/model` pins your 
 
 Each remaining candidate is scored on four factors by default. The factor is a ratio against the best candidate in the set, so the cheapest provider scores 0 on price and one twice as expensive scores 1.0. Each ratio is multiplied by its weight divided by the sum of the active weights, and the lowest total wins.
 
-| Factor     | Weight  | Measured as                                             |
-| ---------- | ------- | ------------------------------------------------------- |
-| Price      | `0.6`   | Expected token cost after your discount and landing fee |
-| Uptime     | `0.5`   | Success rate over a rolling window                      |
-| Throughput | `0.05`  | Output tokens per second                                |
-| Latency    | `0.025` | Time to first token, streaming requests only            |
-| Cache      | `0`     | Optional cache-support preference, off by default       |
+| Factor     | Weight                         | Measured as                                             |
+| ---------- | ------------------------------ | ------------------------------------------------------- |
+| Price      | `%routing.weights.price%`      | Expected token cost after your discount and landing fee |
+| Uptime     | `%routing.weights.uptime%`     | Success rate over a rolling window                      |
+| Throughput | `%routing.weights.throughput%` | Output tokens per second                                |
+| Latency    | `%routing.weights.latency%`    | Time to first token, streaming requests only            |
+| Cache      | `%routing.weights.cache%`      | Optional cache-support preference, off by default       |
 
-Cache-read savings already count toward price, so the separate cache factor defaults to zero; Enterprise projects can enable it under `auto`, and only then does cache support score on its own for cache-relevant requests. Price and uptime share over 90% of the weight between them. Throughput and latency break ties between providers that are otherwise close. For non-streaming requests the latency weight is dropped and its share is spread across the others. Developers can also send `routing: "price"`, `"throughput"`, or `"latency"` to give one factor 90% of the weight, which is how a fast deployment wins requests it would lose on price.
+Cache-read savings already count toward price, so the separate cache factor defaults to zero; Enterprise projects can enable it under `auto`, and only then does cache support score on its own for cache-relevant requests. Price and uptime carry most of the weight, but throughput and latency are more than tie-breakers: a carrier that generates twice as fast as the next can file a noticeably higher price and still win. The throughput ratio is capped at %routing.maxThroughputScore%, so a carrier far slower than the fastest takes a bounded penalty rather than an unbounded one. For non-streaming requests the latency weight is dropped and its share is spread across the others. Developers can also send `routing: "price"`, `"throughput"`, or `"latency"` to give one factor 90% of the weight, which is how a fast deployment wins requests it would lose on price.
 
 ## The fare formula
 
@@ -55,15 +56,15 @@ effective price = filed price × (1 − discount) × (1 + 0.20 − landing fee)
 
 The landing fee is the gateway margin you accept, from 5% to 50% with a 20% baseline. At the baseline with no discount the factor is 1. Every percentage point of landing fee above 20% is a point off your effective price; every point below adds one. A traffic discount lowers both the effective price and what developers pay, and it appears on your model cards once approved.
 
-Take two carriers serving the same model. Carrier A files $0.50 per million tokens, Carrier B files $0.40, both at the baseline landing fee. B is cheapest and scores 0 on price; A is 25% more expensive and scores 0.25. If A accepts a 30% landing fee, A competes at $0.45 and its price score drops to 0.125. If A also offers a 10% discount, it competes at $0.405 and the price gap nearly closes, with A still keeping 63 cents of every filed dollar. Whether A then wins comes down to uptime.
+Take two carriers serving the same model. Carrier A files $0.50 per million tokens, Carrier B files $0.40, both at the baseline landing fee. B is cheapest and scores 0 on price; A is 25% more expensive and scores 0.25. If A accepts a 30% landing fee, A competes at $0.45 and its price score drops to 0.125. If A also offers a 10% discount, it competes at $0.405 and the price gap nearly closes, with A still keeping 63 cents of every filed dollar. Whether A then wins comes down to uptime and speed.
 
 Fare changes are filed for review like price changes and only reach routing once approved, so plan them rather than toggling them.
 
 ## The uptime penalty
 
-Uptime is measured over a rolling 60-minute window with time decay: the last minute counts 10×, the last five minutes 3×, and the rest 1×. A bad five minutes shows up in routing immediately and fades out within the hour.
+Uptime is measured over a rolling %routing.history.windowMinutes%-minute window with time decay: the last %routing.history.tier1Minutes% minute counts %routing.history.tier1Weight%×, the last %routing.history.tier2Minutes% minutes %routing.history.tier2Weight%×, and the rest %routing.history.tier3Weight%×. A bad five minutes shows up in routing immediately and fades out within the hour.
 
-Above 95% uptime there is no extra penalty beyond the weighted factor. Below it, an exponential penalty is added to the score:
+Above %routing.thresholds.uptimePenalty%% uptime there is no extra penalty beyond the weighted factor. Below it, an exponential penalty is added to the score:
 
 | Uptime | Added penalty |
 | ------ | ------------- |
@@ -79,7 +80,7 @@ Rate limits work differently. A listing at its `maxRpm` or `maxRpd` cap is skipp
 
 ## Cache-aware pricing
 
-Small requests outside a session weight input and output prices equally. For prompts the gateway estimates at **5,000 tokens or more**, and whenever a session chooses its provider, the price factor becomes:
+Small requests outside a session weight input and output prices equally. For prompts the gateway estimates at **%routing.thresholds.cachePromptTokens% tokens or more**, and whenever a session chooses its provider, the price factor becomes:
 
 ```text
 price = (cachedInputPrice × h + inputPrice × (1 − h) + outputPrice × r) / 2
