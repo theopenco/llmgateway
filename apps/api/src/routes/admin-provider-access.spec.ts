@@ -88,8 +88,7 @@ describe("admin provider access restriction", () => {
 			},
 		});
 		expect(audits).toHaveLength(2);
-		// Org owners can read the audit log; the staff-only note must stay out.
-		expect(JSON.stringify(audits)).not.toContain("Customer request");
+		expect(JSON.stringify(audits)).toContain("Customer request");
 	});
 
 	test("rejects unknown entries and empty restrictions", async () => {

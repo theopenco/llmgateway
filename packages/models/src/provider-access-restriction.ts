@@ -16,7 +16,7 @@ export interface ProviderAccessRestriction {
 	models: string[];
 	/** Single provider mappings as `<providerId>/<modelId>` refs. */
 	mappings: string[];
-	/** Staff-only note explaining why the restriction exists. */
+	/** Why the restriction exists; recorded in the organization's audit log. */
 	note?: string;
 }
 

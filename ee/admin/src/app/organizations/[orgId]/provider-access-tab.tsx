@@ -340,12 +340,12 @@ function ProviderAccessForm({
 						/>
 					</div>
 					<div className="space-y-2">
-						<Label htmlFor="provider-access-note">Internal note</Label>
+						<Label htmlFor="provider-access-note">Reason</Label>
 						<Textarea
 							id="provider-access-note"
 							value={note}
 							onChange={(event) => setNote(event.target.value)}
-							placeholder="Why this restriction exists (staff only)"
+							placeholder="Why this restriction exists (visible in the organization's audit log)"
 							maxLength={1000}
 							disabled={readOnly}
 						/>

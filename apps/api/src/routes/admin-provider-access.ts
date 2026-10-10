@@ -252,15 +252,6 @@ adminProviderAccess.openapi(updateProviderAccess, async (c) => {
 		.where(eq(tables.organization.id, orgId));
 	await invalidateOrganizationsCache([orgId]);
 
-	// The organization's owners can read its audit log, so the staff-only note
-	// stays out of it.
-	const withoutNote = (value: ProviderAccessRestriction | null) => {
-		if (!value) {
-			return null;
-		}
-		const { note: _note, ...rest } = value;
-		return rest;
-	};
 	await logAuditEvent({
 		organizationId: orgId,
 		userId: user!.id,
@@ -271,8 +262,8 @@ adminProviderAccess.openapi(updateProviderAccess, async (c) => {
 			resourceName: org.name,
 			changes: {
 				providerAccessRestriction: {
-					old: withoutNote(org.providerAccessRestriction),
-					new: withoutNote(restriction),
+					old: org.providerAccessRestriction ?? null,
+					new: restriction,
 				},
 			},
 		},
