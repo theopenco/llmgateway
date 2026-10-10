@@ -174,6 +174,25 @@ export const ROUTING_HISTORY_MAX_WINDOW_MINUTES = 120;
  */
 export const MAX_THROUGHPUT_SCORE = 3;
 
+/**
+ * Extra score added for providers below the uptime-penalty threshold. Quadratic
+ * in the normalised deficit, so small dips cost little and large dips dominate:
+ * with the default threshold of 95, 90% -> ~0.07, 80% -> ~0.62, 50% -> ~5.61.
+ */
+export function calculateUptimePenalty(
+	uptime: number,
+	threshold: number = DEFAULT_ROUTING_THRESHOLDS.uptimePenalty,
+): number {
+	if (uptime >= threshold) {
+		return 0;
+	}
+	const deficit = (threshold - uptime) / threshold;
+	return Math.pow(deficit * 5, 2);
+}
+
+/** Uptime levels the docs use to illustrate the default uptime penalty. */
+const UPTIME_PENALTY_EXAMPLES = [90, 80, 70, 60, 50];
+
 const ROUTING_CONTENT_VALUES = {
 	weights: DEFAULT_ROUTING_WEIGHTS,
 	thresholds: DEFAULT_ROUTING_THRESHOLDS,
@@ -185,6 +204,12 @@ const ROUTING_CONTENT_VALUES = {
 	sticky: DEFAULT_ROUTING_STICKY,
 	session: DEFAULT_ROUTING_SESSION,
 	maxThroughputScore: MAX_THROUGHPUT_SCORE,
+	uptimePenaltyAt: Object.fromEntries(
+		UPTIME_PENALTY_EXAMPLES.map((uptime) => [
+			String(uptime),
+			Math.round(calculateUptimePenalty(uptime) * 100) / 100,
+		]),
+	),
 };
 
 const ROUTING_DEFAULT_TOKEN = /%routing\.([A-Za-z0-9.]+)%/g;
@@ -193,10 +218,16 @@ const ROUTING_DEFAULT_TOKEN = /%routing\.([A-Za-z0-9.]+)%/g;
  * Replaces `%routing.<path>%` tokens in docs, blog posts and other content with
  * the live default, e.g. `%routing.weights.throughput%`. Paths mirror the
  * routing config groups (weights, thresholds, retry, timeouts, history, sticky,
- * session, cachePricing.<orgKind>) plus `historyMaxWindowMinutes` and
- * `maxThroughputScore`. Unknown paths throw so typos fail the content build.
+ * session, cachePricing.<orgKind>) plus `historyMaxWindowMinutes`,
+ * `maxThroughputScore` and `uptimePenaltyAt.<90|80|70|60|50>` (the default
+ * penalty at that uptime, rounded to two decimals). Numbers use en-US digit
+ * grouping for prose; pass `{ grouping: false }` for config-style code where
+ * `3600` must not read as `3,600`. Unknown paths throw so typos fail the build.
  */
-export function interpolateRoutingDefaults(text: string): string {
+export function interpolateRoutingDefaults(
+	text: string,
+	options: { grouping?: boolean } = {},
+): string {
 	return text.replace(ROUTING_DEFAULT_TOKEN, (token, path: string) => {
 		let value: unknown = ROUTING_CONTENT_VALUES;
 		for (const key of path.split(".")) {
@@ -208,7 +239,10 @@ export function interpolateRoutingDefaults(text: string): string {
 					: undefined;
 		}
 		if (typeof value === "number") {
-			return value.toLocaleString("en-US", { maximumFractionDigits: 6 });
+			return value.toLocaleString("en-US", {
+				maximumFractionDigits: 6,
+				useGrouping: options.grouping ?? true,
+			});
 		}
 		if (typeof value === "boolean") {
 			return String(value);

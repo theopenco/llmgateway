@@ -42,6 +42,15 @@ describe("computeWeightedProviderScores", () => {
 		expect(slower.throughputScore.toNumber()).toBe(1);
 	});
 
+	it("gives providers without throughput the capped penalty", () => {
+		const [, stalled] = computeWeightedProviderScores(
+			[candidate("1", 200, 1000), candidate("1", 0, 1000)],
+			cfg,
+			flags,
+		);
+		expect(stalled.throughputScore.toNumber()).toBe(MAX_THROUGHPUT_SCORE);
+	});
+
 	it("prefers a 2x faster provider that costs ~25% more by default", () => {
 		const [cheapSlow, pricierFast] = computeWeightedProviderScores(
 			[candidate("1", 80, 2000), candidate("1.25", 160, 1000)],

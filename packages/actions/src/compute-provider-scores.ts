@@ -1,6 +1,9 @@
 import { Decimal } from "decimal.js";
 
-import { MAX_THROUGHPUT_SCORE } from "@llmgateway/shared/routing-config";
+import {
+	calculateUptimePenalty,
+	MAX_THROUGHPUT_SCORE,
+} from "@llmgateway/shared/routing-config";
 
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 
@@ -46,16 +49,7 @@ export function getEffectiveScoringWeights(
 	};
 }
 
-export function calculateUptimePenalty(
-	uptime: number,
-	threshold: number,
-): number {
-	if (uptime >= threshold) {
-		return 0;
-	}
-	const deficit = (threshold - uptime) / threshold;
-	return Math.pow(deficit * 5, 2);
-}
+export { calculateUptimePenalty };
 
 export interface CandidateScoreInput {
 	price: Decimal;

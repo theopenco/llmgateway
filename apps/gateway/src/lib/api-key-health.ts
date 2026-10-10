@@ -1,5 +1,11 @@
+import {
+	calculateUptimePenalty as calculateRoutingUptimePenalty,
+	DEFAULT_ROUTING_THRESHOLDS,
+} from "@llmgateway/shared/routing-config";
+
 import { hasInvalidProviderCredentialError } from "./provider-auth-errors.js";
 import { hasExhaustedProviderAccountError } from "./provider-funding-errors.js";
+
 
 /**
  * In-memory API key health tracking for uptime-aware routing
@@ -91,7 +97,8 @@ const UPTIME_RELEVANT_4XX_CODES = new Set([
 /**
  * Uptime threshold below which exponential penalty kicks in
  */
-export const UPTIME_PENALTY_THRESHOLD = 95;
+export const UPTIME_PENALTY_THRESHOLD =
+	DEFAULT_ROUTING_THRESHOLDS.uptimePenalty;
 
 function appendSelectionScope(
 	baseKey: string,
@@ -174,24 +181,11 @@ function calculateUptime(health: KeyHealth, now: number): number {
 }
 
 /**
- * Calculate exponential penalty for low uptime.
- * - 95-100% uptime: no penalty (returns 0)
- * - Below 95%: exponential penalty that increases rapidly
- *   - 90% -> ~0.07 penalty
- *   - 80% -> ~0.62 penalty
- *   - 70% -> ~1.73 penalty
- *   - 60% -> ~3.39 penalty
- *   - 50% -> ~5.61 penalty
+ * Exponential penalty for low key uptime; shares the routing formula and
+ * threshold (see calculateUptimePenalty in @llmgateway/shared/routing-defaults).
  */
 export function calculateUptimePenalty(uptime: number): number {
-	if (uptime >= UPTIME_PENALTY_THRESHOLD) {
-		return 0;
-	}
-	// Calculate how far below threshold (0-95 range, normalized to 0-1)
-	const deficit =
-		(UPTIME_PENALTY_THRESHOLD - uptime) / UPTIME_PENALTY_THRESHOLD;
-	// Quadratic penalty: small dips = small penalty, large dips = large penalty
-	return Math.pow(deficit * 5, 2);
+	return calculateRoutingUptimePenalty(uptime, UPTIME_PENALTY_THRESHOLD);
 }
 
 /**
