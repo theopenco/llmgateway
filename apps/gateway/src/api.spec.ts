@@ -780,6 +780,141 @@ describe("api", () => {
 		}
 	});
 
+	test("/v1/messages keeps an image inside a tool_result on the wire", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
+			provider: "anthropic",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: any = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.includes(`${mockServerUrl}/v1/messages`)) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+
+					return new Response(
+						JSON.stringify({
+							id: "msg_tool_result_image",
+							type: "message",
+							role: "assistant",
+							model: "claude-opus-4-8",
+							content: [{ type: "text", text: "A chart." }],
+							stop_reason: "end_turn",
+							stop_sequence: null,
+							usage: { input_tokens: 100, output_tokens: 5 },
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-opus-4-8",
+					max_tokens: 1024,
+					messages: [
+						{ role: "user", content: "Chart the data." },
+						{
+							role: "assistant",
+							content: [
+								{
+									type: "tool_use",
+									id: "toolu_1",
+									name: "render_chart",
+									input: { series: [1, 2, 3] },
+								},
+							],
+						},
+						{
+							role: "user",
+							content: [
+								{
+									type: "tool_result",
+									tool_use_id: "toolu_1",
+									content: [
+										{ type: "text", text: "Rendered." },
+										{
+											type: "image",
+											source: {
+												type: "base64",
+												media_type: "image/png",
+												data: "iVBORw0KGgo=",
+											},
+										},
+									],
+								},
+							],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(upstreamBody).toBeTruthy();
+
+			// A screenshot-returning tool answers with an image block inside the
+			// tool_result, which is valid Anthropic input. The lowered tool
+			// message carries the content as JSON text (the only shape the
+			// OpenAI-format request has), so the native blocks are what Anthropic
+			// upstreams receive instead; keeping only `tool_reference` entries
+			// there sent the image to the provider as text.
+			const toolResultBlocks = upstreamBody.messages.flatMap((m: any) =>
+				Array.isArray(m.content)
+					? m.content.filter((b: any) => b.type === "tool_result")
+					: [],
+			);
+			expect(toolResultBlocks).toHaveLength(1);
+			expect(toolResultBlocks[0].content).toEqual([
+				{ type: "text", text: "Rendered." },
+				{
+					type: "image",
+					source: {
+						type: "base64",
+						media_type: "image/png",
+						data: "iVBORw0KGgo=",
+					},
+				},
+			]);
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
 	test("/v1/messages keeps a caller's tool cache_control on the wire", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
