@@ -65,6 +65,42 @@ import { transformGoogleMessages } from "./transform-google-messages.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto";
 type OpenAIImageModeration = "auto" | "low";
+/**
+ * Bedrock Converse renders a turn's toolResult blocks in the preceding
+ * assistant turn's toolUse order, not the order they were sent. Claude Code
+ * and other agents send results in completion order, so a cachePoint after the
+ * last result sent can land mid-group once Bedrock reorders, leaving the
+ * results moved behind it uncached on every turn. Sort the results into toolUse
+ * order and move the group's cachePoints after them, which is where the stable
+ * prefix actually ends. Groups already in toolUse order are left untouched.
+ */
+function orderBedrockToolResults(
+	blocks: any[],
+	previousMessage: { role?: string; content?: unknown } | undefined,
+): any[] {
+	if (
+		previousMessage?.role !== "assistant" ||
+		!Array.isArray(previousMessage.content)
+	) {
+		return blocks;
+	}
+	const toolUseOrder = new Map<string, number>();
+	for (const block of previousMessage.content) {
+		const id = block?.toolUse?.toolUseId;
+		if (typeof id === "string" && !toolUseOrder.has(id)) {
+			toolUseOrder.set(id, toolUseOrder.size);
+		}
+	}
+	const results = blocks.filter((block) => block?.toolResult);
+	const rank = (block: any) =>
+		toolUseOrder.get(block.toolResult.toolUseId) ?? Number.MAX_SAFE_INTEGER;
+	const sorted = [...results].sort((a, b) => rank(a) - rank(b));
+	if (sorted.every((block, i) => block === results[i])) {
+		return blocks;
+	}
+	const rest = blocks.filter((block) => !block?.toolResult);
+	return [...sorted, ...rest];
+}
 
 export { RequestError } from "./request-error.js";
 
@@ -3838,6 +3874,10 @@ export async function prepareRequestBody(
 
 			const flushPendingToolResults = () => {
 				if (pendingToolResultMessage?.content?.length) {
+					pendingToolResultMessage.content = orderBedrockToolResults(
+						pendingToolResultMessage.content,
+						bedrockMessages[bedrockMessages.length - 1],
+					);
 					bedrockMessages.push(pendingToolResultMessage);
 				}
 				pendingToolResultMessage = null;
