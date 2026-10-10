@@ -127,7 +127,7 @@ describe("staff-managed provider access restriction", () => {
 		});
 		await restrict({ providers: ["anthropic"] });
 
-		expect((await chat("auto")).status).toBe(403);
+		await expectRestricted(await chat("auto"));
 	});
 
 	test("applies to organization custom providers", async () => {

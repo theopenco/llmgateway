@@ -81,7 +81,11 @@ import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
 } from "@/lib/gcp-token.js";
-import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
+import {
+	evaluateProviderAccessRestriction,
+	throwIamException,
+	validateRequestModelAccess,
+} from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
 	errorFinishReasonDetails,
@@ -4931,8 +4935,16 @@ chat.openapi(completions, async (c) => {
 			allowedProviders &&
 			!allowedProviders.includes(usedProvider)
 		) {
+			const restricted = organization.providerAccessRestriction
+				? evaluateProviderAccessRestriction(
+						organization.providerAccessRestriction,
+						modelInfo,
+						usedProvider,
+					)
+				: undefined;
 			throwIamException(
-				`Provider ${usedProvider} is not allowed for model ${modelInfo.id}`,
+				(!restricted?.allowed && restricted?.reason) ||
+					`Provider ${usedProvider} is not allowed for model ${modelInfo.id}`,
 			);
 		}
 		iamFilteredModelProviders = allowedProviders
