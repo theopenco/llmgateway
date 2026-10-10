@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { models } from "./models.js";
 import {
 	isProviderMappingAllowedByRestriction,
 	parseProviderAccessMappingRef,
@@ -21,6 +22,27 @@ describe("isProviderMappingAllowedByRestriction", () => {
 		expect(
 			isProviderMappingAllowedByRestriction(null, "openai", "gpt-4o"),
 		).toBe(true);
+	});
+
+	it("allows every catalogue mapping without a restriction", () => {
+		for (const model of models) {
+			for (const mapping of model.providers) {
+				expect(
+					isProviderMappingAllowedByRestriction(
+						undefined,
+						mapping.providerId,
+						model.id,
+					),
+				).toBe(true);
+				expect(
+					isProviderMappingAllowedByRestriction(
+						null,
+						mapping.providerId,
+						model.id,
+					),
+				).toBe(true);
+			}
+		}
 	});
 
 	it("deny mode blocks matching providers, models and mappings", () => {

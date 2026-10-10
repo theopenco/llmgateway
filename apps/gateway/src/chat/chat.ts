@@ -4929,23 +4929,17 @@ chat.openapi(completions, async (c) => {
 		}
 		const allowedProviders = resolvedIamValidation.allowedProviders;
 		// The no-candidate fallback above pins its provider without consulting
-		// IAM, so the resolved provider itself must be among the survivors.
-		if (
-			usedProvider !== "custom" &&
-			allowedProviders &&
-			!allowedProviders.includes(usedProvider)
-		) {
-			const restricted = organization.providerAccessRestriction
-				? evaluateProviderAccessRestriction(
-						organization.providerAccessRestriction,
-						modelInfo,
-						usedProvider,
-					)
-				: undefined;
-			throwIamException(
-				(!restricted?.allowed && restricted?.reason) ||
-					`Provider ${usedProvider} is not allowed for model ${modelInfo.id}`,
+		// the staff-managed restriction. Only an org with a restriction set can
+		// be refused here; every other org keeps the existing behavior.
+		if (organization.providerAccessRestriction && usedProvider !== "custom") {
+			const restricted = evaluateProviderAccessRestriction(
+				organization.providerAccessRestriction,
+				modelInfo,
+				usedProvider,
 			);
+			if (!restricted.allowed) {
+				throwIamException(restricted.reason ?? "Model access denied");
+			}
 		}
 		iamFilteredModelProviders = allowedProviders
 			? modelInfo.providers.filter((p) =>

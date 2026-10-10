@@ -74,6 +74,65 @@ describe("staff-managed provider access restriction", () => {
 		expect((await chat("gpt-4o-mini")).status).toBe(200);
 	});
 
+	test("a restriction on another organization never affects this one", async () => {
+		await db.insert(tables.organization).values({
+			id: "other-restricted-org",
+			name: "Other Restricted Org",
+			billingEmail: "other-restricted@example.com",
+			providerAccessRestriction: {
+				mode: "allow",
+				providers: ["anthropic"],
+				models: [],
+				mappings: [],
+			},
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-anthropic",
+			...encryptProviderKeyForStorage(
+				"anthropic-test-key",
+				"provider-key-anthropic",
+				"org-id",
+			),
+			provider: "anthropic",
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+		});
+
+		expect((await chat("gpt-4o-mini")).status).toBe(200);
+		expect((await chat("openai/gpt-4o-mini")).status).toBe(200);
+		expect((await chat("auto")).status).toBe(200);
+		const embeddings = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({ input: "Hello", model: "text-embedding-3-small" }),
+		});
+		expect(embeddings.status).toBe(200);
+	});
+
+	test("an unrestricted organization sees the same models as before", async () => {
+		const list = async () => {
+			const res = await app.request("/v1/models", {
+				headers: { Authorization: "Bearer restriction-token" },
+			});
+			expect(res.status).toBe(200);
+			return ((await res.json()) as { data: { id: string }[] }).data.map(
+				(model) => model.id,
+			);
+		};
+		const unrestricted = await list();
+		expect(unrestricted.length).toBeGreaterThan(50);
+
+		await restrict({ models: ["gpt-4o-mini"] });
+		const restricted = await list();
+		expect(restricted).not.toContain("gpt-4o-mini");
+
+		await db
+			.update(tables.organization)
+			.set({ providerAccessRestriction: null })
+			.where(eq(tables.organization.id, "org-id"));
+		expect(await list()).toEqual(unrestricted);
+	});
+
 	test("deny list blocks a model", async () => {
 		await restrict({ models: ["gpt-4o-mini"] });
 

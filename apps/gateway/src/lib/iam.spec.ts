@@ -2164,6 +2164,23 @@ describe("validateRequestModelAccess — provider access restriction", () => {
 		expect(result.allowedProviders).toHaveLength(3);
 	});
 
+	it("a null restriction changes nothing for any model or provider", async () => {
+		for (const model of [threeProviderModel, freeModel, paidModel]) {
+			const baseline = await validateModelAccess(
+				"key-1",
+				model.id,
+				undefined,
+				model,
+			);
+			expect(await validate(null, model)).toEqual(baseline);
+			for (const provider of model.providers) {
+				expect((await validate(null, model, provider.providerId)).allowed).toBe(
+					true,
+				);
+			}
+		}
+	});
+
 	it("deny mode drops a denied provider from routing", async () => {
 		const result = await validate(
 			restriction({ providers: ["openai"] }),
