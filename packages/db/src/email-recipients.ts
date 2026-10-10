@@ -1,4 +1,11 @@
+import { and, eq } from "drizzle-orm";
+
+import { normalizeEmail } from "@llmgateway/shared/email-unsubscribe";
+
 import { db } from "./db.js";
+import { emailUnsubscribe } from "./schema.js";
+
+import type { EmailCategory } from "@llmgateway/shared/email-unsubscribe";
 
 // Policy: org-scoped transactional and lifecycle emails must only be sent when
 // the organization has at least one owner whose account email is verified.
@@ -69,4 +76,54 @@ export async function resolveVerifiedOrgRecipient(
 	});
 
 	return org?.billingEmail ?? verifiedOwner.user?.email ?? null;
+}
+
+/**
+ * True when the address has unsubscribed from this category. Address-keyed
+ * because org recipients are often `billingEmail`, which need not be a user.
+ */
+export async function isEmailSuppressed(
+	email: string,
+	category: EmailCategory,
+): Promise<boolean> {
+	const row = await db.query.emailUnsubscribe.findFirst({
+		where: { email: { eq: normalizeEmail(email) }, category: { eq: category } },
+	});
+	return Boolean(row);
+}
+
+/** Every category this address has unsubscribed from. */
+export async function getSuppressedCategories(
+	email: string,
+): Promise<EmailCategory[]> {
+	const rows = await db.query.emailUnsubscribe.findMany({
+		columns: { category: true },
+		where: { email: { eq: normalizeEmail(email) } },
+	});
+	return rows.map((row) => row.category);
+}
+
+export async function suppressEmailCategory(
+	email: string,
+	category: EmailCategory,
+	source: "one_click" | "dashboard" | "admin",
+): Promise<void> {
+	await db
+		.insert(emailUnsubscribe)
+		.values({ email: normalizeEmail(email), category, source })
+		.onConflictDoNothing();
+}
+
+export async function unsuppressEmailCategory(
+	email: string,
+	category: EmailCategory,
+): Promise<void> {
+	await db
+		.delete(emailUnsubscribe)
+		.where(
+			and(
+				eq(emailUnsubscribe.email, normalizeEmail(email)),
+				eq(emailUnsubscribe.category, category),
+			),
+		);
 }

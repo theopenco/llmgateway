@@ -3,19 +3,22 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.chatTitle = "A native garden " + Date.now(); output.search = "Sunflowers " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
+- tapOn: "New conversation"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: Auto"
 - tapOn:
     id: "field-search-models"
 - inputText: "gpt-4o-mini"
 - tapOn: "Done typing"
 - tapOn: "Choose GPT-4o Mini"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${output.chatTitle}
 - tapOn: "Send message"
 - extendedWaitUntil:
     visible: "Retry last response"
     timeout: 30000
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${output.search}
 - tapOn: "Send message"
@@ -24,7 +27,10 @@ appId: io.llmgateway.lounge
     timeout: 30000
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
 - tapOn:
     id: "field-search-conversations"
 - inputText: ${output.search}

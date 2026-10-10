@@ -364,9 +364,6 @@ export default function Features() {
 
 			<div className="container relative mx-auto px-4">
 				<div className="mb-16">
-					<p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4">
-						Platform Capabilities
-					</p>
 					<h2 className="font-display text-4xl md:text-5xl font-bold tracking-tight text-foreground">
 						Everything you need to
 						<br />

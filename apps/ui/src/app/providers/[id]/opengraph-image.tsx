@@ -5,7 +5,10 @@ import {
 	providerOgContentType,
 	providerOgSize,
 } from "@/lib/provider-og";
-import { activeModelCounts } from "@/lib/providers-catalog";
+import {
+	activeModelCounts,
+	streamingProviderIds,
+} from "@/lib/providers-catalog";
 
 import {
 	getProviderCountries,
@@ -66,8 +69,9 @@ export default async function ProviderOgImage({ params }: ImageProps) {
 		? (countryNames.get(provider.headquarters) ?? provider.headquarters)
 		: "—";
 	const dataPolicy = provider.dataPolicy;
+	const streaming = streamingProviderIds.has(provider.id);
 	const chips = [
-		provider.streaming ? "Streaming" : null,
+		streaming ? "Streaming" : null,
 		provider.cancellation ? "Cancellation" : null,
 		dataPolicy?.soc2 ? `SOC 2 Type ${dataPolicy.soc2}` : null,
 		dataPolicy?.iso27001 ? "ISO 27001" : null,
@@ -75,7 +79,7 @@ export default async function ProviderOgImage({ params }: ImageProps) {
 	].filter((chip): chip is string => chip !== null);
 	const trainingStat =
 		dataPolicy?.apiTraining === undefined || dataPolicy?.apiTraining === null
-			? { label: "Streaming", value: provider.streaming ? "Yes" : "No" }
+			? { label: "Streaming", value: streaming ? "Yes" : "No" }
 			: {
 					label: "Trains on API data",
 					value: dataPolicy.apiTraining ? "Yes" : "No",
@@ -89,10 +93,12 @@ export default async function ProviderOgImage({ params }: ImageProps) {
 		mark: <Icon {...ogIconSize(Icon, 68)} />,
 		chips,
 		stats: [
-			{
-				label: modelCount === 1 ? "Model" : "Models",
-				value: String(modelCount),
-			},
+			"managedInAirside" in provider && provider.managedInAirside
+				? { label: "Models", value: "Airside" }
+				: {
+						label: modelCount === 1 ? "Model" : "Models",
+						value: String(modelCount),
+					},
 			{ label: "Headquarters", value: headquarters },
 			trainingStat,
 		],

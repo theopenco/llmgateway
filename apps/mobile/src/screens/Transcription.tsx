@@ -99,6 +99,7 @@ export function Transcription({ projectId }: { projectId: string }) {
 						Automatic speech detection
 					</Text>
 					<Switch
+						trackColor={{ false: colors.subtle, true: colors.accent }}
 						testID="transcription-automatic"
 						accessibilityLabel="Automatic speech detection"
 						value={!manual}
@@ -182,7 +183,13 @@ export function Transcription({ projectId }: { projectId: string }) {
 									? "Stop transcription"
 									: "Cancel connection"
 						}
-						onPress={() => session.stop()}
+						onPress={() => {
+							if (state.status === "ending") {
+								void session.finish();
+							} else {
+								session.stop();
+							}
+						}}
 					/>
 				)}
 				{live && (

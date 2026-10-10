@@ -38,6 +38,7 @@ vi.mock("@llmgateway/db", async (importOriginal) => {
 });
 
 vi.mock("@llmgateway/cache", () => ({
+	setSwrSchemaVersion: vi.fn(),
 	redisClient: {},
 	storageRedisClient: {},
 	swrWrap: async <T>(

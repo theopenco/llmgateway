@@ -62,6 +62,10 @@ export default function SettingsPage() {
 					defaultRoutingStrategy={
 						devPlanStatus.defaultRoutingStrategy ?? "auto"
 					}
+					providerCacheAutoTtl={devPlanStatus.providerCacheAutoTtl ?? "5m"}
+					zeroDataRetentionEnabled={
+						devPlanStatus.zeroDataRetentionEnabled ?? false
+					}
 					providerCacheControlMode={
 						devPlanStatus.providerCacheControlMode ?? "auto"
 					}

@@ -1,12 +1,13 @@
-import { jsPDF } from "jspdf";
+import { renderInvoicePdf } from "@/pdf/invoice-document.js";
 
 import { logger } from "@llmgateway/logger";
+import { renderFooterNoticeHtml } from "@llmgateway/shared/email-unsubscribe";
 
 import { sendTransactionalEmail } from "./email.js";
 
 const invoiceFrom = process.env.INVOICE_FROM ?? "Fake Company\\nUnited States";
 
-function escapeHtml(unsafe: string): string {
+export function escapeHtml(unsafe: string): string {
 	return unsafe
 		.replace(/&/g, "&amp;")
 		.replace(/</g, "&lt;")
@@ -20,17 +21,21 @@ export interface InvoiceLineItem {
 	amount: number;
 }
 
-// "invoice" for a charge, "credit_note" for a refund. A credit note renders the
-// same layout but titled as a refund document.
-export type InvoiceDocumentType = "invoice" | "credit_note";
+// "invoice" for an organization charge, "receipt" for a payer who is not an
+// organization member (Payments SDK end-users, Airside carriers), and
+// "credit_note" for a refund. All three render the same layout; only the title
+// and the number's label differ.
+export type InvoiceDocumentType = "invoice" | "credit_note" | "receipt";
 
 export interface InvoiceData {
 	invoiceNumber: string;
 	invoiceDate: Date;
 	organizationName: string;
 	// Organization the invoice belongs to. Used to gate delivery on the owner's
-	// verified email; see sendTransactionalEmail.
-	organizationId: string;
+	// verified email; see sendTransactionalEmail. Omitted for receipts addressed
+	// to someone who is not an organization member (Payments SDK end-users,
+	// Airside carriers) — that gate is about the org owner, not the payer.
+	organizationId?: string;
 	billingEmail: string;
 	billingCompany?: string | null;
 	billingAddress?: string | null;
@@ -44,6 +49,10 @@ export interface InvoiceData {
 	// percentage of it that this refund covers. Shown above the line items.
 	originalAmount?: number;
 	refundPercentage?: number;
+	// Payments SDK: the developer's brand, printed under the FROM block so the
+	// end-user recognises who they bought from. LLM Gateway stays the seller.
+	merchantBrandName?: string | null;
+	merchantSupportEmail?: string | null;
 }
 
 // Human-readable fallback labels used when a transaction has no stored
@@ -174,7 +183,7 @@ export function buildInvoiceDataForTransaction(
 	};
 }
 
-export function generateInvoicePDF(data: InvoiceData): Buffer {
+export async function generateInvoicePDF(data: InvoiceData): Promise<Buffer> {
 	const isCreditNote = data.documentType === "credit_note";
 
 	// Validate required fields
@@ -187,178 +196,15 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 		throw new Error("Line item amounts must be non-negative");
 	}
 
-	// Use empty strings for optional fields if not provided
-	const invoiceNumber = data.invoiceNumber || "";
-	const organizationName = data.organizationName || "";
-	const billingEmail = data.billingEmail || "";
-
-	// eslint-disable-next-line new-cap
-	const doc = new jsPDF();
-	const pageWidth = doc.internal.pageSize.getWidth();
-	let yPos = 20;
-
-	doc.setFontSize(24);
-	doc.setFont("helvetica", "bold");
-	doc.text(isCreditNote ? "CREDIT NOTE" : "INVOICE", pageWidth / 2, yPos, {
-		align: "center",
+	return await renderInvoicePdf({
+		data: {
+			...data,
+			invoiceNumber: data.invoiceNumber || "",
+			organizationName: data.organizationName || "",
+			billingEmail: data.billingEmail || "",
+		},
+		from: invoiceFrom.replace(/\\n/g, "\n").split("\n"),
 	});
-
-	yPos += 15;
-	doc.setFontSize(10);
-	doc.setFont("helvetica", "normal");
-	doc.text(
-		`${isCreditNote ? "Credit Note" : "Invoice"} Number: ${invoiceNumber}`,
-		20,
-		yPos,
-	);
-	yPos += 6;
-	doc.text(
-		`Date: ${data.invoiceDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`,
-		20,
-		yPos,
-	);
-
-	// Credit-note context: the original purchase amount and the refunded portion.
-	if (isCreditNote && data.originalAmount !== undefined) {
-		yPos += 6;
-		doc.text(
-			`Original amount: ${data.currency} ${data.originalAmount.toFixed(2)}`,
-			20,
-			yPos,
-		);
-		if (data.refundPercentage !== undefined) {
-			yPos += 6;
-			doc.text(
-				`Refunded: ${data.refundPercentage.toFixed(1)}% of original purchase`,
-				20,
-				yPos,
-			);
-		}
-	}
-
-	yPos += 15;
-	const fromYPos = yPos;
-
-	// Render FROM column (left side)
-	doc.setFontSize(12);
-	doc.setFont("helvetica", "bold");
-	doc.text("FROM:", 20, yPos);
-	yPos += 7;
-	doc.setFontSize(10);
-	doc.setFont("helvetica", "normal");
-
-	const fromLines = invoiceFrom.replace(/\\n/g, "\n").split("\n");
-	for (const line of fromLines) {
-		doc.text(line, 20, yPos);
-		yPos += 6;
-	}
-	const fromEndY = yPos;
-
-	// Render BILL TO column (right side)
-	yPos = fromYPos;
-	doc.setFontSize(12);
-	doc.setFont("helvetica", "bold");
-	// eslint-disable-next-line no-mixed-operators
-	doc.text("BILL TO:", pageWidth / 2 + 10, yPos);
-	yPos += 7;
-	doc.setFontSize(10);
-	doc.setFont("helvetica", "normal");
-
-	// eslint-disable-next-line no-mixed-operators
-	const billToX = pageWidth / 2 + 10;
-
-	if (data.billingCompany) {
-		doc.text(data.billingCompany, billToX, yPos);
-		yPos += 6;
-	}
-
-	doc.text(organizationName, billToX, yPos);
-	yPos += 6;
-	doc.text(billingEmail, billToX, yPos);
-	yPos += 6;
-
-	if (data.billingAddress) {
-		const addressLines = data.billingAddress.split("\n");
-		for (const line of addressLines) {
-			doc.text(line, billToX, yPos);
-			yPos += 6;
-		}
-	}
-
-	if (data.billingTaxId) {
-		doc.text(`Tax ID: ${data.billingTaxId}`, billToX, yPos);
-		yPos += 6;
-	}
-	const billToEndY = yPos;
-
-	// Set yPos to the bottom of the taller column
-	yPos = Math.max(fromEndY, billToEndY);
-
-	yPos += 10;
-	doc.setFontSize(12);
-	doc.setFont("helvetica", "bold");
-	doc.text("DESCRIPTION", 20, yPos);
-	doc.text("AMOUNT", pageWidth - 20, yPos, { align: "right" });
-	yPos += 2;
-
-	doc.setLineWidth(0.5);
-	doc.line(20, yPos, pageWidth - 20, yPos);
-	yPos += 8;
-
-	doc.setFontSize(10);
-	doc.setFont("helvetica", "normal");
-
-	let total = 0;
-	for (const item of data.lineItems) {
-		doc.text(item.description, 20, yPos);
-		doc.text(
-			`${data.currency} ${item.amount.toFixed(2)}`,
-			pageWidth - 20,
-			yPos,
-			{ align: "right" },
-		);
-		total += item.amount;
-		yPos += 7;
-	}
-
-	yPos += 5;
-	doc.setLineWidth(0.5);
-	doc.line(20, yPos, pageWidth - 20, yPos);
-	yPos += 8;
-
-	doc.setFontSize(12);
-	doc.setFont("helvetica", "bold");
-	// total is negative for a credit note (net refund), e.g. "USD -50.00".
-	doc.text("TOTAL", 20, yPos);
-	doc.text(`${data.currency} ${total.toFixed(2)}`, pageWidth - 20, yPos, {
-		align: "right",
-	});
-
-	yPos += 15;
-	doc.setFontSize(9);
-	doc.setFont("helvetica", "italic");
-	doc.text(
-		"If applicable, customer should account for the respective VAT reverse charge.",
-		20,
-		yPos,
-	);
-
-	if (data.billingNotes) {
-		yPos += 20;
-		doc.setFontSize(10);
-		doc.setFont("helvetica", "normal");
-		doc.text("Notes:", 20, yPos);
-		yPos += 6;
-
-		const notesLines = data.billingNotes.split("\n");
-		for (const line of notesLines) {
-			doc.text(line, 20, yPos);
-			yPos += 6;
-		}
-	}
-
-	const pdfBuffer = Buffer.from(doc.output("arraybuffer"));
-	return pdfBuffer;
 }
 
 export async function generateAndEmailInvoice(
@@ -374,7 +220,7 @@ export async function generateAndEmailInvoice(
 			return;
 		}
 
-		const pdfBuffer = generateInvoicePDF(data);
+		const pdfBuffer = await generateInvoicePDF(data);
 
 		const escapedInvoiceNumber = escapeHtml(data.invoiceNumber);
 		const escapedCurrency = escapeHtml(data.currency);
@@ -428,9 +274,7 @@ export async function generateAndEmailInvoice(
 								<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
 									If you have any questions about this invoice, please contact us at <a href="mailto:contact@llmgateway.io" style="color: #000000; text-decoration: none;">contact@llmgateway.io</a>
 								</p>
-								<p style="margin: 0; color: #999999; font-size: 12px;">
-									© 2025 LLM Gateway. All rights reserved.
-								</p>
+								${renderFooterNoticeHtml("transactional")}
 							</td>
 						</tr>
 					</table>

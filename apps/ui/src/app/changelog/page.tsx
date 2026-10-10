@@ -1,43 +1,18 @@
-import { Changelog } from "@/components/changelog";
-import { HeroRSC } from "@/components/landing/hero-rsc";
+import { ChangelogPageContent } from "@/components/changelog-page";
+import { changelogMetadata, getChangelogListing } from "@/lib/changelog-server";
 
-import type { Changelog as ChangelogType } from "content-collections";
+import type { ChangelogSearchParams } from "@/lib/changelog-server";
 
-export default async function ChangelogPage() {
-	const { allChangelogs } = await import("content-collections");
-
-	const sortedEntries = allChangelogs
-		.filter((entry: ChangelogType) => !entry?.draft)
-		.sort(
-			(a: ChangelogType, b: ChangelogType) =>
-				new Date(b.date).getTime() - new Date(a.date).getTime(),
-		)
-		.map(({ ...entry }: ChangelogType) => entry);
-
-	return (
-		<div>
-			<HeroRSC navbarOnly />
-			<Changelog entries={sortedEntries} />
-		</div>
-	);
+interface Props {
+	searchParams: ChangelogSearchParams;
 }
 
-export async function generateMetadata() {
-	return {
-		title: "Changelog — New Features, Improvements, and Fixes",
-		description:
-			"Stay up to date with the latest features, improvements, and fixes in LLM Gateway.",
-		openGraph: {
-			title: "Changelog — New Features, Improvements, and Fixes",
-			description:
-				"Stay up to date with the latest features, improvements, and fixes in LLM Gateway.",
-			type: "website",
-		},
-		twitter: {
-			card: "summary_large_image",
-			title: "Changelog — New Features, Improvements, and Fixes",
-			description:
-				"Stay up to date with the latest features, improvements, and fixes in LLM Gateway.",
-		},
-	};
+export default async function ChangelogPage({ searchParams }: Props) {
+	const listing = getChangelogListing((await searchParams).page);
+	return <ChangelogPageContent {...listing} />;
+}
+
+export async function generateMetadata({ searchParams }: Props) {
+	const { page } = getChangelogListing((await searchParams).page);
+	return changelogMetadata(page);
 }

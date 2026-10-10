@@ -3,13 +3,15 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.reasoningPrompt = "TRIGGER_REASONING native " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
+- tapOn: "New conversation"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: Auto"
 - tapOn:
     id: "field-search-models"
 - inputText: "gpt-5-nano"
 - tapOn: "Done typing"
 - tapOn: "Choose GPT-5 Nano"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${output.reasoningPrompt}
 - tapOn: "Send message"
@@ -20,13 +22,24 @@ appId: io.llmgateway.lounge
 - assertVisible: "Let me think about this step by step."
 - tapOn: "Hide reasoning"
 - assertNotVisible: "Let me think about this step by step."
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: "Pending next question"
+- runFlow:
+    when:
+      visible: "Dismiss keyboard"
+    commands:
+      - tapOn: "Dismiss keyboard"
+- scrollUntilVisible:
+    element: "Retry last response"
+    direction: DOWN
+    timeout: 30000
 - tapOn: "Retry last response"
 - extendedWaitUntil:
     visible: "Retry last response"
     timeout: 30000
 - assertVisible: ".*Pending next question.*"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - eraseText
 - inputText: "TRIGGER_TIMEOUT_20000 native stop check"

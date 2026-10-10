@@ -198,4 +198,10 @@ describe("prepareRequestBody - Bedrock Opus 4.8 deprecated params", () => {
 		const body = await buildBedrockBody({ effort: "high", top_p: 0.95 });
 		expect(body.inferenceConfig?.topP).toBe(0.95);
 	});
+
+	test("defaults maxTokens to the model maxOutput in adaptive mode", async () => {
+		// Converse otherwise caps output + thinking at 4096 tokens.
+		const body = await buildBedrockBody({ effort: "high" });
+		expect(body.inferenceConfig?.maxTokens).toBe(128000);
+	});
 });

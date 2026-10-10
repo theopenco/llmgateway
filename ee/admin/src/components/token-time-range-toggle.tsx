@@ -15,6 +15,11 @@ import type { TokenWindow } from "@/lib/types";
 
 interface TimeRangeToggleProps {
 	initial: TokenWindow;
+	/**
+	 * Window represented by the param being absent. Pages whose natural default
+	 * is not 24h pass their own so the canonical URL stays clean.
+	 */
+	defaultWindow?: TokenWindow;
 }
 
 const windowOptions: { value: TokenWindow; label: string }[] = [
@@ -28,7 +33,10 @@ const windowOptions: { value: TokenWindow; label: string }[] = [
 	{ value: "365d", label: "Last 365 days" },
 ];
 
-export function TokenTimeRangeToggle({ initial }: TimeRangeToggleProps) {
+export function TokenTimeRangeToggle({
+	initial,
+	defaultWindow = "1d",
+}: TimeRangeToggleProps) {
 	const searchParams = useSearchParams();
 	const router = useRouter();
 	const pathname = usePathname();
@@ -42,7 +50,7 @@ export function TokenTimeRangeToggle({ initial }: TimeRangeToggleProps) {
 
 	function setWindow(value: TokenWindow) {
 		const params = new URLSearchParams(searchParams.toString());
-		if (value === "1d") {
+		if (value === defaultWindow) {
 			params.delete("window");
 		} else {
 			params.set("window", value);

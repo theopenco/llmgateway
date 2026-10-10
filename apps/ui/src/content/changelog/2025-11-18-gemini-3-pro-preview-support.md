@@ -4,6 +4,7 @@ slug: "gemini-3-pro-preview-support"
 date: "2025-11-18"
 title: "Gemini 3 Pro Preview: 20% Off Launch Discount"
 summary: "Google's latest Gemini 3 Pro Preview is now available with an exclusive 20% launch discount, featuring 1M context window and prompt caching."
+tags: ["llmgateway"]
 image:
   src: "/changelog/gemini-3-pro-preview.png"
   alt: "Gemini 3 Pro Preview: 20% Off Launch Discount"

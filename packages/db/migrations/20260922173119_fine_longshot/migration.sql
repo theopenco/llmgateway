@@ -1,0 +1,1 @@
+CREATE INDEX "video_job_org_pending_idx" ON "video_job" ("organization_id") WHERE "log_id" is null;

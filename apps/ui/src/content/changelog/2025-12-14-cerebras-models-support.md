@@ -4,6 +4,7 @@ slug: "cerebras-models-support"
 date: "2025-12-14"
 title: "Cerebras: Ultra-Fast Inference with 6 New Models"
 summary: "New Cerebras provider with six high-performance models, including GPT-OSS 120B and Qwen 3, now available through LLM Gateway."
+tags: ["llmgateway"]
 image:
   src: "/changelog/cerebras-models-support.png"
   alt: "Cerebras: Ultra-Fast Inference with 6 New Models"

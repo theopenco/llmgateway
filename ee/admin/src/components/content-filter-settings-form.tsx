@@ -1,12 +1,24 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 import { MultiProviderSelector } from "@llmgateway/shared/components";
 
@@ -19,25 +31,40 @@ interface ContentFilterProvider {
 	enabled: boolean;
 }
 
+type Classifier = ContentFilterSettingsInput["classifier"];
+
+const CLASSIFIER_LABELS: Record<Classifier, string> = {
+	openai: "OpenAI moderation",
+	jev: "Jev (TypeSafe)",
+	internal: "Internal classifier",
+};
+
+type InternalScope = ContentFilterSettingsInput["internalScope"];
+
+const INTERNAL_SCOPE_LABELS: Record<InternalScope, string> = {
+	full: "Whole conversation",
+	latest_turn: "Latest turn only",
+};
+
 interface ContentFilterSettingsFormProps {
 	settings: {
 		enabled: boolean;
 		sampleRatePercent: number;
 		enforce: boolean;
 		enforceEnterprise: boolean;
+		classifier: Classifier;
+		internalScope: InternalScope;
+		moderateImages: boolean;
 		providers: ContentFilterProvider[];
 	};
-	onSave: (
-		input: ContentFilterSettingsInput,
-	) => Promise<{ ok: boolean; message: string | null }>;
 }
 
 export function ContentFilterSettingsForm({
 	settings,
-	onSave,
 }: ContentFilterSettingsFormProps) {
 	const router = useRouter();
-	const [pending, startTransition] = useTransition();
+	const readOnly = !canWrite(useAdminRole());
+	const $api = useApi();
 	const [enabled, setEnabled] = useState(settings.enabled);
 	const [sampleRate, setSampleRate] = useState(
 		String(settings.sampleRatePercent),
@@ -46,41 +73,65 @@ export function ContentFilterSettingsForm({
 	const [enforceEnterprise, setEnforceEnterprise] = useState(
 		settings.enforceEnterprise,
 	);
+	const [classifier, setClassifier] = useState<Classifier>(settings.classifier);
+	const [internalScope, setInternalScope] = useState<InternalScope>(
+		settings.internalScope,
+	);
+	const [moderateImages, setModerateImages] = useState(settings.moderateImages);
 	const [providerIds, setProviderIds] = useState<string[]>(() =>
 		settings.providers.filter((p) => p.enabled).map((p) => p.id),
 	);
 	const allSelected =
 		settings.providers.length > 0 &&
 		providerIds.length >= settings.providers.length;
-	const [error, setError] = useState<string | null>(null);
+	// Client-side validation; API failures come from the mutation.
+	const [validationError, setValidationError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
+	const mutation = $api.useMutation("put", "/admin/settings/content-filter", {
+		meta: { inlineError: true },
+	});
+	const pending = mutation.isPending;
+	const error =
+		validationError ??
+		(mutation.isError
+			? apiErrorMessage(
+					mutation.error,
+					"Failed to update the content filter settings.",
+				)
+			: null);
 
 	const handleSubmit = (event: React.FormEvent) => {
 		event.preventDefault();
-		setError(null);
+		setValidationError(null);
 		setSaved(false);
 		const rate = Number(sampleRate);
 		if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
-			setError("Sample rate must be between 0 and 100.");
+			mutation.reset();
+			setValidationError("Sample rate must be between 0 and 100.");
 			return;
 		}
-		startTransition(async () => {
-			const savedEnforceEnterprise = enforce && enforceEnterprise;
-			const result = await onSave({
-				enabled,
-				sampleRatePercent: rate,
-				enforce,
-				enforceEnterprise: savedEnforceEnterprise,
-				providerIds,
-			});
-			if (!result.ok) {
-				setError(result.message);
-				return;
-			}
-			setEnforceEnterprise(savedEnforceEnterprise);
-			setSaved(true);
-			router.refresh();
-		});
+		const savedEnforceEnterprise = enforce && enforceEnterprise;
+		mutation.mutate(
+			{
+				body: {
+					enabled,
+					sampleRatePercent: rate,
+					enforce,
+					enforceEnterprise: savedEnforceEnterprise,
+					classifier,
+					internalScope,
+					moderateImages,
+					providerIds,
+				},
+			},
+			{
+				onSuccess: () => {
+					setEnforceEnterprise(savedEnforceEnterprise);
+					setSaved(true);
+					router.refresh();
+				},
+			},
+		);
 	};
 
 	return (
@@ -89,7 +140,7 @@ export function ContentFilterSettingsForm({
 				<Switch
 					id="content-filter-enabled"
 					checked={enabled}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onCheckedChange={(checked) => {
 						setSaved(false);
 						setEnabled(checked);
@@ -116,7 +167,7 @@ export function ContentFilterSettingsForm({
 					step={1}
 					className="w-32"
 					value={sampleRate}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onChange={(event) => {
 						setSaved(false);
 						setSampleRate(event.target.value);
@@ -132,7 +183,7 @@ export function ContentFilterSettingsForm({
 				<Switch
 					id="content-filter-enforce"
 					checked={enforce}
-					disabled={pending}
+					disabled={pending || readOnly}
 					onCheckedChange={(checked) => {
 						setSaved(false);
 						setEnforce(checked);
@@ -146,6 +197,8 @@ export function ContentFilterSettingsForm({
 						Off records violations as metadata only. On returns the gateway
 						content filter response for requests over their tier&apos;s
 						thresholds. Organizations marked log-only are never blocked.
+						Requests that cannot be blocked are classified in the background and
+						add no latency; only blocking checks run before the provider call.
 					</p>
 				</div>
 			</div>
@@ -154,7 +207,7 @@ export function ContentFilterSettingsForm({
 				<Switch
 					id="content-filter-enforce-enterprise"
 					checked={enforce && enforceEnterprise}
-					disabled={pending || !enforce}
+					disabled={pending || readOnly || !enforce}
 					onCheckedChange={(checked) => {
 						setSaved(false);
 						setEnforceEnterprise(checked);
@@ -172,42 +225,148 @@ export function ContentFilterSettingsForm({
 			</div>
 
 			<div className="space-y-2">
-				<div className="flex items-center justify-between gap-3">
-					<p className="text-sm font-medium">Providers</p>
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						disabled={pending || settings.providers.length === 0}
-						onClick={() => {
+				<Label htmlFor="content-filter-classifier">Classifier</Label>
+				<Select
+					value={classifier}
+					disabled={pending || readOnly}
+					onValueChange={(value) => {
+						setSaved(false);
+						setClassifier(value as Classifier);
+					}}
+				>
+					<SelectTrigger id="content-filter-classifier" className="w-64">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						{(Object.keys(CLASSIFIER_LABELS) as Classifier[]).map((option) => (
+							<SelectItem key={option} value={option}>
+								{CLASSIFIER_LABELS[option]}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+				<p className="text-xs text-muted-foreground">
+					Model that scores sampled requests and decides the outcome. Jev and
+					the internal classifier are text-only. The internal classifier runs in
+					our own infrastructure and blocks only on its own verdict; its topic
+					tags are recorded, never enforced. Thresholds are per classifier, so
+					re-measure before switching an enforcing filter.
+				</p>
+			</div>
+
+			{classifier === "internal" && (
+				<div className="space-y-2">
+					<Label htmlFor="content-filter-internal-scope">
+						Internal classifier input
+					</Label>
+					<Select
+						value={internalScope}
+						disabled={pending || readOnly}
+						onValueChange={(value) => {
 							setSaved(false);
-							setProviderIds(
-								allSelected ? [] : settings.providers.map((p) => p.id),
-							);
+							setInternalScope(value as InternalScope);
 						}}
 					>
-						{allSelected ? "Unselect all" : "Select all"}
-					</Button>
+						<SelectTrigger id="content-filter-internal-scope" className="w-64">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{(Object.keys(INTERNAL_SCOPE_LABELS) as InternalScope[]).map(
+								(option) => (
+									<SelectItem key={option} value={option}>
+										{INTERNAL_SCOPE_LABELS[option]}
+									</SelectItem>
+								),
+							)}
+						</SelectContent>
+					</Select>
+					<p className="text-xs text-muted-foreground">
+						Whole conversation classifies every message, in as many requests as
+						its size needs; long agent histories can take seconds, which only
+						delays requests when blocking is on. Latest turn only sends the
+						system prompt plus the messages after the last assistant reply, in
+						one request.
+					</p>
+				</div>
+			)}
+
+			{classifier !== "openai" && (
+				<div className="flex items-center gap-3">
+					<Switch
+						id="content-filter-moderate-images"
+						checked={moderateImages}
+						disabled={pending || readOnly}
+						onCheckedChange={(checked) => {
+							setSaved(false);
+							setModerateImages(checked);
+						}}
+					/>
+					<div className="space-y-0.5">
+						<Label htmlFor="content-filter-moderate-images">
+							Moderate images with OpenAI
+						</Label>
+						<p className="text-xs text-muted-foreground">
+							{CLASSIFIER_LABELS[classifier]} is text-only. On sends image parts
+							to OpenAI moderation and merges the verdicts; off moderates text
+							only and leaves images unchecked.
+						</p>
+					</div>
+				</div>
+			)}
+
+			<div className="space-y-2">
+				<div className="flex items-center justify-between gap-3">
+					<p className="text-sm font-medium">Providers</p>
+					{!readOnly && (
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							disabled={pending || settings.providers.length === 0}
+							onClick={() => {
+								setSaved(false);
+								setProviderIds(
+									allSelected ? [] : settings.providers.map((p) => p.id),
+								);
+							}}
+						>
+							{allSelected ? "Unselect all" : "Select all"}
+						</Button>
+					)}
 				</div>
 				<p className="text-xs text-muted-foreground">
 					Only requests routed to an enabled provider are moderated.{" "}
 					{providerIds.length} of {settings.providers.length} selected.
 				</p>
-				<MultiProviderSelector
-					providers={settings.providers}
-					selectedProviders={providerIds}
-					onProvidersChange={(next) => {
-						setSaved(false);
-						setProviderIds(next);
-					}}
-					placeholder="Search and select providers..."
-				/>
+				{readOnly ? (
+					<div className="flex flex-wrap gap-2">
+						{settings.providers
+							.filter((p) => p.enabled)
+							.map((p) => (
+								<Badge key={p.id} variant="secondary">
+									{p.name}
+								</Badge>
+							))}
+					</div>
+				) : (
+					<MultiProviderSelector
+						providers={settings.providers}
+						selectedProviders={providerIds}
+						onProvidersChange={(next) => {
+							setSaved(false);
+							setProviderIds(next);
+						}}
+						placeholder="Search and select providers..."
+					/>
+				)}
 			</div>
 
 			<div className="flex items-center gap-3">
-				<Button type="submit" disabled={pending}>
-					{pending ? "Saving…" : "Save"}
-				</Button>
+				{!readOnly && (
+					<Button type="submit" disabled={pending}>
+						{pending ? "Saving…" : "Save"}
+					</Button>
+				)}
 				{error && <p className="text-sm text-destructive">{error}</p>}
 				{saved && !error && (
 					<p className="text-sm text-muted-foreground">Saved.</p>

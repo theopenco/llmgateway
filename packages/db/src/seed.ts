@@ -579,10 +579,16 @@ function generateApiKeys(projects: ProjectDef[]): ApiKeyDef[] {
 	const keys: ApiKeyDef[] = [];
 	let keyIdx = 0;
 	for (const proj of projects) {
-		const orgOwner = USER_ORG_MAP.find(
-			(m) => m.orgId === proj.orgId && m.role === "owner",
-		);
-		const createdBy = orgOwner?.userId ?? "user-alice";
+		const orgMembers = USER_ORG_MAP.filter((m) => m.orgId === proj.orgId);
+		// Owner first, then the remaining seats: keys round-robin across members so
+		// per-seat log filtering has more than one owner to filter on.
+		const creators = [
+			...orgMembers.filter((m) => m.role === "owner"),
+			...orgMembers.filter((m) => m.role !== "owner"),
+		].map((m) => m.userId);
+		if (creators.length === 0) {
+			creators.push("user-alice");
+		}
 		const numKeys = randomInt(1, 3);
 		for (let i = 0; i < numKeys; i++) {
 			keys.push({
@@ -591,7 +597,7 @@ function generateApiKeys(projects: ProjectDef[]): ApiKeyDef[] {
 				projectId: proj.id,
 				description:
 					i === 0 ? "Primary Key" : i === 1 ? "CI/CD Key" : "Development Key",
-				createdBy,
+				createdBy: creators[i % creators.length],
 				usage: String(randomFloat(0, 50)),
 			});
 			keyIdx++;
@@ -946,6 +952,11 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 		const isHighVolume = org?.plan === "enterprise";
 		const isMedVolume = org?.plan === "pro";
 		const numHours = isHighVolume ? 720 : isMedVolume ? 360 : 72;
+		// A project's latency is a property of what it runs, so it gets one
+		// baseline and hourly wobble around it. Redrawing it per hour would make
+		// every series on the load chart the same white noise.
+		const baseDurationMs = randomInt(900, 7000);
+		const baseTtftMs = randomInt(180, 900);
 		for (let h = 0; h < numHours; h++) {
 			const hourTs = hoursAgo(h);
 			hourTs.setMinutes(0, 0, 0);
@@ -963,6 +974,10 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 			const totalCost = baseRequests * costPerReq;
 			const creditsReqCount = Math.floor(baseRequests * 0.6);
 			const apiKeysReqCount = baseRequests - creditsReqCount;
+			const avgDurationMs = Math.round(
+				baseDurationMs * randomFloat(0.75, 1.35),
+			);
+			const avgTtftMs = Math.round(baseTtftMs * randomFloat(0.8, 1.3));
 
 			stats.push({
 				id: `phs-${statIdx}`,
@@ -987,6 +1002,12 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 				totalTokens: String(inputTokens + outputTokens),
 				reasoningTokens: String(randomInt(0, Math.floor(outputTokens * 0.3))),
 				cachedTokens: String(randomInt(0, Math.floor(inputTokens * 0.2))),
+				totalDuration: baseRequests * avgDurationMs,
+				durationCount: baseRequests,
+				// Only streamed requests record a first-token time, which is what
+				// makes the seeded TTFT denominator differ from requestCount.
+				totalTimeToFirstToken: streamedCount * avgTtftMs,
+				timeToFirstTokenCount: streamedCount,
 				cost: Number(totalCost.toFixed(4)),
 				inputCost: Number((totalCost * 0.4).toFixed(4)),
 				outputCost: Number((totalCost * 0.5).toFixed(4)),
@@ -1007,6 +1028,13 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 		}
 	}
 	return stats;
+}
+
+// Bigger models are slower. Derived from the model's own price so the seeded
+// latency ranking matches the seeded cost ranking instead of contradicting it.
+function modelBaseDurationMs(modelDef: { outputPrice: number }): number {
+	const priceComponent = modelDef.outputPrice * 80_000;
+	return 900 + priceComponent;
 }
 
 function generateProjectHourlyModelStats(projects: ProjectDef[]) {
@@ -1034,6 +1062,11 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 				const errCount = secureRandom() < 0.1 ? randomInt(1, 3) : 0;
 				const inputTok = reqCount * randomInt(100, 1500);
 				const outputTok = reqCount * randomInt(50, 1000);
+				const streamedReqs = Math.floor(reqCount * 0.6);
+				const avgDurationMs = Math.round(
+					modelBaseDurationMs(modelDef) * randomFloat(0.75, 1.35),
+				);
+				const avgTtftMs = randomInt(180, 900);
 				/* eslint-disable no-mixed-operators */
 				const costVal =
 					(inputTok / 1000) * modelDef.inputPrice +
@@ -1065,6 +1098,10 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 					totalTokens: String(inputTok + outputTok),
 					reasoningTokens: "0",
 					cachedTokens: "0",
+					totalDuration: reqCount * avgDurationMs,
+					durationCount: reqCount,
+					totalTimeToFirstToken: streamedReqs * avgTtftMs,
+					timeToFirstTokenCount: streamedReqs,
 					cost: Number(costVal.toFixed(6)),
 					inputCost: Number(
 						((inputTok / 1000) * modelDef.inputPrice).toFixed(6),
@@ -1199,7 +1236,6 @@ function generateSeedProviders() {
 		id: p.id,
 		name: p.name,
 		description: p.description ?? "",
-		streaming: p.streaming ?? null,
 		cancellation: p.cancellation ?? null,
 		color: p.color ?? null,
 		website: p.website ?? null,
@@ -3078,6 +3114,95 @@ async function seed() {
 	}
 	await bulkInsert(tables.projectHourlySourceStats, testProjectSourceStats);
 
+	// Split each Test Project agent bucket across models so the agents
+	// dashboard's per-model breakdown adds up to the source totals.
+	const agentModels = [
+		["anthropic", "claude-sonnet-4-5"],
+		["openai", "gpt-5"],
+		["google-ai-studio", "gemini-2.5-pro"],
+		["anthropic", "claude-haiku-4-5"],
+	] as const;
+	const testProjectSourceModelStats: Array<
+		typeof tables.projectHourlySourceModelStats.$inferInsert
+	> = [];
+	for (const row of testProjectSourceStats) {
+		let remainingRequests = row.requestCount as number;
+		// Rotate per agent so each one favours a different model.
+		const offset = (row.source as string).length % agentModels.length;
+		const models = [
+			...agentModels.slice(offset),
+			...agentModels.slice(0, offset),
+		].slice(0, Math.min(randomInt(1, agentModels.length), remainingRequests));
+		let remainingShare = 1;
+		models.forEach(([provider, model], i) => {
+			const modelsAfter = models.length - 1 - i;
+			const share = modelsAfter === 0 ? remainingShare : remainingShare * 0.6;
+			// Leave at least one request for every model after this one.
+			const requests =
+				modelsAfter === 0
+					? remainingRequests
+					: Math.max(
+							1,
+							Math.min(
+								remainingRequests - modelsAfter,
+								Math.round(remainingRequests * 0.6),
+							),
+						);
+			remainingShare -= share;
+			remainingRequests -= requests;
+			testProjectSourceModelStats.push({
+				id: `${row.id}-${model}`,
+				projectId: row.projectId,
+				hourTimestamp: row.hourTimestamp,
+				source: row.source,
+				usedModel: `${provider}/${model}`,
+				usedProvider: provider,
+				requestCount: requests,
+				inputTokens: String(Math.round(Number(row.inputTokens) * share)),
+				outputTokens: String(Math.round(Number(row.outputTokens) * share)),
+				totalTokens: String(Math.round(Number(row.totalTokens) * share)),
+				cost: Number((row.cost * share).toFixed(6)),
+				creditsRequestCount: Math.floor(requests * 0.6),
+				apiKeysRequestCount: requests - Math.floor(requests * 0.6),
+				creditsCost: Number((row.cost * share * 0.6).toFixed(6)),
+				apiKeysCost: Number((row.cost * share * 0.4).toFixed(6)),
+			});
+		});
+	}
+	await bulkInsert(
+		tables.projectHourlySourceModelStats,
+		testProjectSourceModelStats,
+	);
+
+	// Routed traffic for the Test Project, so the routing savings card renders.
+	const testProjectRoutingStats: Array<
+		typeof tables.projectHourlyRoutingStats.$inferInsert
+	> = [];
+	for (let h = 0; h < 30 * 24; h++) {
+		const hourTs = hoursAgo(h);
+		hourTs.setMinutes(0, 0, 0);
+		for (const routeKey of ["auto", "smart", "dynamic/support"]) {
+			if (secureRandom() < 0.5) {
+				continue;
+			}
+			const reqCount = randomInt(1, 20);
+			const cost = reqCount * randomFloat(0.001, 0.02);
+			testProjectRoutingStats.push({
+				id: `test-phrs-${testProjectRoutingStats.length}`,
+				projectId: "test-project-id",
+				hourTimestamp: hourTs,
+				routeKey,
+				requestCount: reqCount,
+				inputTokens: String(reqCount * randomInt(200, 4000)),
+				outputTokens: String(reqCount * randomInt(100, 2500)),
+				cachedTokens: "0",
+				cost: Number(cost.toFixed(6)),
+				baselineCost: Number((cost * randomFloat(1.5, 5)).toFixed(6)),
+			});
+		}
+	}
+	await bulkInsert(tables.projectHourlyRoutingStats, testProjectRoutingStats);
+
 	// Seed providers, models, and mappings
 	const seedProviders = generateSeedProviders();
 	await bulkInsert(tables.provider, seedProviders);
@@ -3327,6 +3452,167 @@ async function seedAirside() {
 		inputPrice: "4e-7",
 		outputPrice: "2e-6",
 	});
+
+	// Preflight history for the fleet screens: a failure the carrier fixed, then
+	// a spot check from our side.
+	const mediumTarget = {
+		providerId: "mistral",
+		modelName: "mistral-medium-4",
+		externalId: "mistral-medium-4",
+		apiFormat: "openai-chat-completions" as const,
+		region: null,
+		streaming: true,
+		vision: false,
+		audio: false,
+		tools: true,
+		supportedToolChoices: null,
+		jsonOutput: true,
+		jsonOutputSchema: false,
+		reasoning: false,
+		reasoningMaxTokens: false,
+		reasoningEfforts: null,
+		webSearch: false,
+		contextSize: 128000,
+		maxOutput: 16384,
+	};
+	await upsert(tables.providerModelVerification, {
+		id: "airside-verification-medium-1",
+		providerCompanyId: "airside-company-mistral",
+		draftModelId: "airside-model-medium",
+		initiatedBy: "carrier",
+		requestedBy: "airside-user-mistral",
+		credentialSource: "carrier",
+		target: mediumTarget,
+		checks: [
+			{ id: "basic", label: "Basic completion", status: "passed" },
+			{ id: "streaming", label: "Streaming", status: "passed" },
+			{
+				id: "tools",
+				label: "Tool calls",
+				status: "failed",
+				feedback: "The model answered in prose instead of calling the tool.",
+			},
+			{ id: "json_output", label: "JSON output", status: "passed" },
+			{
+				id: "context_size",
+				label: "Context size",
+				status: "failed",
+				feedback:
+					'Your endpoint refused a test prompt filling about 70% of the declared 128,000-token context size. It answered: "This model\'s maximum context length is 65536 tokens. However, your messages resulted in 68211 tokens."',
+			},
+			{ id: "max_output", label: "Max output", status: "passed" },
+		],
+		status: "failed",
+		summary: "2 of 6 verification checks failed.",
+		startedAt: daysAgo(14),
+		completedAt: daysAgo(14),
+		createdAt: daysAgo(14),
+	});
+	await upsert(tables.providerModelVerification, {
+		id: "airside-verification-medium-2",
+		providerCompanyId: "airside-company-mistral",
+		draftModelId: "airside-model-medium",
+		initiatedBy: "carrier",
+		requestedBy: "airside-user-mistral",
+		credentialSource: "carrier",
+		target: mediumTarget,
+		checks: [
+			{ id: "basic", label: "Basic completion", status: "passed" },
+			{ id: "streaming", label: "Streaming", status: "passed" },
+			{ id: "tools", label: "Tool calls", status: "passed" },
+			{ id: "json_output", label: "JSON output", status: "passed" },
+			{ id: "context_size", label: "Context size", status: "passed" },
+			{ id: "max_output", label: "Max output", status: "passed" },
+		],
+		status: "passed",
+		summary: "All declared capabilities answered as expected.",
+		startedAt: daysAgo(13),
+		completedAt: daysAgo(13),
+		createdAt: daysAgo(13),
+	});
+	await upsert(tables.providerModelVerification, {
+		id: "airside-verification-medium-3",
+		providerCompanyId: "airside-company-mistral",
+		draftModelId: "airside-model-medium",
+		initiatedBy: "admin",
+		requestedBy: "test-user-id",
+		credentialSource: "carrier",
+		target: mediumTarget,
+		checks: [
+			{ id: "basic", label: "Basic completion", status: "passed" },
+			{ id: "streaming", label: "Streaming", status: "passed" },
+			{ id: "tools", label: "Tool calls", status: "passed" },
+			{ id: "json_output", label: "JSON output", status: "passed" },
+			{ id: "context_size", label: "Context size", status: "passed" },
+			{ id: "max_output", label: "Max output", status: "passed" },
+		],
+		status: "passed",
+		summary: "All declared capabilities answered as expected.",
+		startedAt: daysAgo(2),
+		completedAt: daysAgo(2),
+		createdAt: daysAgo(2),
+	});
+
+	// The same mapping, verified from the admin dashboard against the live
+	// catalogue row rather than the listing.
+	const [mediumMapping] = await db
+		.select({ id: tables.modelProviderMapping.id })
+		.from(tables.modelProviderMapping)
+		.where(
+			and(
+				eq(tables.modelProviderMapping.modelId, "mistral-medium-4"),
+				eq(tables.modelProviderMapping.providerId, "mistral"),
+				isNull(tables.modelProviderMapping.region),
+			),
+		)
+		.limit(1);
+	if (mediumMapping) {
+		await upsert(tables.providerModelVerification, {
+			id: "airside-verification-medium-mapping-1",
+			providerCompanyId: "airside-company-mistral",
+			modelProviderMappingId: mediumMapping.id,
+			initiatedBy: "admin",
+			requestedBy: "test-user-id",
+			credentialSource: "carrier",
+			target: mediumTarget,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "streaming", label: "Streaming", status: "passed" },
+				{
+					id: "tools",
+					label: "Tool calls",
+					status: "failed",
+					feedback: "The model answered in prose instead of calling the tool.",
+				},
+				{ id: "json_output", label: "JSON output", status: "skipped" },
+			],
+			status: "failed",
+			summary: "Tool calling did not answer with a tool call.",
+			startedAt: daysAgo(6),
+			completedAt: daysAgo(6),
+			createdAt: daysAgo(6),
+		});
+		await upsert(tables.providerModelVerification, {
+			id: "airside-verification-medium-mapping",
+			providerCompanyId: "airside-company-mistral",
+			modelProviderMappingId: mediumMapping.id,
+			initiatedBy: "admin",
+			requestedBy: "test-user-id",
+			credentialSource: "carrier",
+			target: mediumTarget,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "streaming", label: "Streaming", status: "passed" },
+				{ id: "tools", label: "Tool calls", status: "passed" },
+				{ id: "json_output", label: "JSON output", status: "passed" },
+			],
+			status: "passed",
+			summary: "All declared capabilities answered as expected.",
+			startedAt: daysAgo(1),
+			completedAt: daysAgo(1),
+			createdAt: daysAgo(1),
+		});
+	}
 
 	await upsert(tables.providerDraftModel, {
 		id: "airside-model-codestral",

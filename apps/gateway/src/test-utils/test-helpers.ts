@@ -81,6 +81,17 @@ export async function cleanupTestOrganization(
  * @param intervalMs Interval between checks in milliseconds
  * @returns Promise that resolves with true if logs are found, false if timed out
  */
+/**
+ * Drop the rows the request classifier bills its own calls on. Routing
+ * assertions want the request's own log entry, and a classified request now
+ * writes two.
+ */
+export function requestLogs<T extends { usedProvider: string }>(
+	logs: T[],
+): T[] {
+	return logs.filter((log) => log.usedProvider !== "typesafe");
+}
+
 export async function waitForLogs(
 	expectedCount = 1,
 	maxWaitMs = 10000,

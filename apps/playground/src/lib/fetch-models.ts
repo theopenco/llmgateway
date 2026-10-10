@@ -7,7 +7,6 @@ export interface ApiProvider {
 	createdAt: string;
 	name: string | null;
 	description: string | null;
-	streaming: boolean | null;
 	cancellation: boolean | null;
 	color: string | null;
 	website: string | null;
@@ -68,6 +67,7 @@ export interface ApiModelProviderMapping {
 	supportsVideoWithoutAudio: boolean | null;
 	perSecondPrice: Record<string, string> | null;
 	perImagePrice: Record<string, string> | null;
+	serviceTiers?: string[] | null;
 	deprecatedAt: string | null;
 	deactivatedAt: string | null;
 	status: "active" | "inactive";

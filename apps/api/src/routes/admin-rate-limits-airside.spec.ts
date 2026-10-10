@@ -5,7 +5,7 @@ import { createTestUser } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 const CARRIER_ID = "airside-rate-limit-carrier";
 const COMPANY_ID = "airside-rate-limit-company";
 const CLAIM_ID = "airside-rate-limit-claim";
@@ -46,15 +46,23 @@ async function clearFixtures() {
 		.delete(tables.providerCompany)
 		.where(eq(tables.providerCompany.id, COMPANY_ID));
 	await db.delete(tables.provider).where(eq(tables.provider.id, CARRIER_ID));
+	await db
+		.delete(tables.organization)
+		.where(eq(tables.organization.id, "test-org"));
 }
 
 describe("admin rate limits for airside listings", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await clearFixtures();
+		await db.insert(tables.organization).values({
+			id: "test-org",
+			name: "Test Organization",
+			billingEmail: "admin@example.com",
+		});
 
 		await db.insert(tables.provider).values({
 			id: CARRIER_ID,
@@ -91,7 +99,44 @@ describe("admin rate limits for airside listings", () => {
 
 	afterEach(async () => {
 		await clearFixtures();
-		process.env.ADMIN_EMAILS = originalAdminEmails;
+		process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
+	});
+
+	test("updates an existing limit to an airside target", async () => {
+		const headers = { Cookie: cookie, "Content-Type": "application/json" };
+		const created = await app.request("/admin/rate-limits", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				provider: "openai",
+				limitType: "rpm",
+				maxRequests: 10,
+			}),
+		});
+		expect(created.status).toBe(201);
+		const { id } = await created.json();
+		const updated = await app.request(`/admin/rate-limits/${id}`, {
+			method: "PUT",
+			headers,
+			body: JSON.stringify({
+				provider: CARRIER_ID,
+				model: MODEL_ID,
+				limitType: "rpd",
+				maxRequests: 100,
+				enforcement: "global",
+				mode: "soft",
+			}),
+		});
+		expect(updated.status).toBe(200);
+		expect(await updated.json()).toMatchObject({
+			id,
+			provider: CARRIER_ID,
+			model: MODEL_ID,
+			limitType: "rpd",
+			maxRequests: 100,
+			enforcement: "global",
+			mode: "soft",
+		});
 	});
 
 	test("options list airside carriers and their models", async () => {
@@ -166,6 +211,141 @@ describe("admin rate limits for airside listings", () => {
 		});
 		expect(response.status).toBe(201);
 	});
+
+	test.each(["rpm", "rpd"] as const)(
+		"accepts zero global %s caps with either enforcement",
+		async (limitType) => {
+			for (const enforcement of ["global", "per_org"]) {
+				const response = await app.request("/admin/rate-limits", {
+					method: "POST",
+					headers: { Cookie: cookie, "Content-Type": "application/json" },
+					body: JSON.stringify({
+						provider: CARRIER_ID,
+						limitType,
+						maxRequests: 0,
+						enforcement,
+					}),
+				});
+				expect(response.status).toBe(201);
+				expect(await response.json()).toMatchObject({
+					maxRequests: 0,
+					enforcement,
+				});
+				await db
+					.delete(tables.rateLimit)
+					.where(eq(tables.rateLimit.provider, CARRIER_ID));
+			}
+		},
+	);
+
+	test.each([-1, 0.5])(
+		"rejects invalid global limit %s",
+		async (maxRequests) => {
+			const response = await app.request("/admin/rate-limits", {
+				method: "POST",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					provider: CARRIER_ID,
+					limitType: "rpd",
+					maxRequests,
+				}),
+			});
+			expect(response.status).toBe(400);
+		},
+	);
+
+	test("mode defaults to strict and round-trips soft", async () => {
+		const strict = await app.request("/admin/rate-limits", {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				provider: CARRIER_ID,
+				limitType: "rpm",
+				maxRequests: 10,
+			}),
+		});
+		expect(strict.status).toBe(201);
+		expect(await strict.json()).toMatchObject({ mode: "strict" });
+
+		const soft = await app.request("/admin/rate-limits", {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				provider: CARRIER_ID,
+				model: MODEL_ID,
+				limitType: "rpm",
+				maxRequests: 10,
+				mode: "soft",
+			}),
+		});
+		expect(soft.status).toBe(201);
+		expect(await soft.json()).toMatchObject({ mode: "soft" });
+	});
+
+	test.each([
+		["/admin/rate-limits", "rpm"],
+		["/admin/rate-limits", "rpd"],
+		["/admin/organizations/test-org/rate-limits", "rpm"],
+		["/admin/organizations/test-org/rate-limits", "rpd"],
+	])("round-trips lax on %s for %s", async (path, limitType) => {
+		const response = await app.request(path, {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				provider: CARRIER_ID,
+				limitType,
+				maxRequests: 10,
+				mode: "lax",
+			}),
+		});
+		expect(response.status).toBe(201);
+		const created = await response.json();
+		expect(created).toMatchObject({ mode: "lax", limitType });
+		const listed = await app.request(path, { headers: { Cookie: cookie } });
+		expect(listed.status).toBe(200);
+		expect((await listed.json()).rateLimits).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: created.id, mode: "lax" }),
+			]),
+		);
+	});
+
+	test.each(["strict", "soft", "lax"])(
+		"round-trips zero %s caps globally and per organization",
+		async (mode) => {
+			for (const path of [
+				"/admin/rate-limits",
+				"/admin/organizations/test-org/rate-limits",
+			]) {
+				for (const limitType of ["rpm", "rpd"]) {
+					const response = await app.request(path, {
+						method: "POST",
+						headers: { Cookie: cookie, "Content-Type": "application/json" },
+						body: JSON.stringify({
+							provider: CARRIER_ID,
+							limitType,
+							maxRequests: 0,
+							mode,
+						}),
+					});
+					expect(response.status).toBe(201);
+					const created = await response.json();
+					expect(created).toMatchObject({ maxRequests: 0, mode, limitType });
+					const listed = await app.request(path, {
+						headers: { Cookie: cookie },
+					});
+					expect((await listed.json()).rateLimits).toEqual(
+						expect.arrayContaining([
+							expect.objectContaining({ id: created.id, maxRequests: 0, mode }),
+						]),
+					);
+					await db
+						.delete(tables.rateLimit)
+						.where(eq(tables.rateLimit.id, created.id));
+				}
+			}
+		},
+	);
 
 	test("unknown providers and models are still rejected", async () => {
 		const unknownProvider = await app.request("/admin/rate-limits", {

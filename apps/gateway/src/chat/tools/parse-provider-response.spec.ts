@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 
+import { anthropicThinkingBlocksFor } from "@llmgateway/actions";
+
 import { parseProviderResponse } from "./parse-provider-response.js";
 
 const { setexMock } = vi.hoisted(() => ({
@@ -7,6 +9,7 @@ const { setexMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@llmgateway/cache", () => ({
+	setSwrSchemaVersion: vi.fn(),
 	redisClient: {
 		setex: setexMock,
 	},
@@ -51,6 +54,57 @@ describe("parseProviderResponse", () => {
 
 			expect(result.content).toBe("Current news summary.");
 			expect(result.webSearchCount).toBe(1);
+		});
+	});
+
+	describe("tencent hy image generation", () => {
+		it("extracts the delivered image and bills TokenHub's token count", () => {
+			const result = parseProviderResponse("tencent", "hy-image-v3.5-preview", {
+				object: "image.chat.completion.chunk",
+				choices: [
+					{
+						index: 0,
+						delta: {
+							type: "image",
+							image: {
+								url: "https://example.cos.ap-guangzhou.myqcloud.com/main.png",
+								width: 4096,
+								height: 4096,
+							},
+						},
+						finish_reason: null,
+					},
+				],
+				usage: { total_tokens: 20000 },
+				tokenhub_usage: { total_tokens: 20000 },
+			});
+
+			expect(result.images).toEqual([
+				{
+					type: "image_url",
+					image_url: {
+						url: "https://example.cos.ap-guangzhou.myqcloud.com/main.png",
+					},
+				},
+			]);
+			expect(result.finishReason).toBe("stop");
+			expect(result.completionTokens).toBe(20000);
+			expect(result.imageOutputTokens).toBe(20000);
+		});
+
+		it("maps a moderation failure to content_filter", () => {
+			const result = parseProviderResponse("tencent", "hy-image-v3.5-preview", {
+				object: "image.chat.completion.chunk",
+				choices: [{ index: 0, delta: {}, finish_reason: "error" }],
+				error: {
+					type: "invalid_request_error",
+					code: "content_filter",
+					message: "input moderation rejected",
+				},
+			});
+
+			expect(result.images).toEqual([]);
+			expect(result.finishReason).toBe("content_filter");
 		});
 	});
 
@@ -592,6 +646,72 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("anthropic thinking replay", () => {
+		const thinking = {
+			type: "thinking",
+			thinking: "Compare the constraints.",
+			signature: "upstream-signature",
+		};
+		const redacted = {
+			type: "redacted_thinking",
+			data: "upstream-redacted-payload",
+		};
+
+		it("returns Anthropic thinking as details only Anthropic replays", () => {
+			const result = parseProviderResponse("anthropic", "claude-sonnet-4-6", {
+				content: [thinking, redacted, { type: "text", text: "Done." }],
+				stop_reason: "end_turn",
+			});
+
+			expect(
+				anthropicThinkingBlocksFor("anthropic", result.reasoningDetails ?? []),
+			).toEqual([thinking, redacted]);
+			expect(
+				anthropicThinkingBlocksFor(
+					"aws-bedrock",
+					result.reasoningDetails ?? [],
+				),
+			).toEqual([]);
+		});
+
+		it("returns Bedrock Converse reasoning as details only Bedrock replays", () => {
+			const result = parseProviderResponse(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-6",
+				{
+					output: {
+						message: {
+							role: "assistant",
+							content: [
+								{
+									reasoningContent: {
+										reasoningText: {
+											text: thinking.thinking,
+											signature: thinking.signature,
+										},
+									},
+								},
+								{ reasoningContent: { redactedContent: redacted.data } },
+								{ text: "Done." },
+							],
+						},
+					},
+					stopReason: "end_turn",
+				},
+			);
+
+			expect(
+				anthropicThinkingBlocksFor(
+					"aws-bedrock",
+					result.reasoningDetails ?? [],
+				),
+			).toEqual([thinking, redacted]);
+			expect(
+				anthropicThinkingBlocksFor("anthropic", result.reasoningDetails ?? []),
+			).toEqual([]);
+		});
+	});
+
 	describe("aws-bedrock cachedTokens", () => {
 		it("parses OpenAI-compatible Bedrock Mantle chat responses", () => {
 			const json = {
@@ -1130,6 +1250,44 @@ describe("parseProviderResponse", () => {
 
 			expect(result.finishReason).toBe("refusal");
 		});
+
+		it("does not count errored anthropic web searches", () => {
+			const json = {
+				content: [
+					{
+						type: "web_search_tool_result",
+						tool_use_id: "srvtoolu_1",
+						content: [
+							{
+								type: "web_search_result",
+								url: "https://example.com",
+								title: "Example",
+							},
+						],
+					},
+					{
+						type: "web_search_tool_result",
+						tool_use_id: "srvtoolu_2",
+						content: {
+							type: "web_search_tool_result_error",
+							error_code: "max_uses_exceeded",
+						},
+					},
+					{ type: "text", text: "ok" },
+				],
+				stop_reason: "end_turn",
+				usage: { input_tokens: 100, output_tokens: 5 },
+			};
+
+			const result = parseProviderResponse(
+				"anthropic",
+				"claude-sonnet-5",
+				json,
+			);
+
+			expect(result.webSearchCount).toBe(1);
+			expect(result.annotations).toHaveLength(1);
+		});
 	});
 
 	describe("azure-anthropic", () => {
@@ -1605,6 +1763,159 @@ describe("parseProviderResponse", () => {
 
 			expect(result.completionTokens).toBe(314);
 			expect(result.reasoningTokens).toBe(310);
+		});
+	});
+	describe("perplexity agent api", () => {
+		const agentJson = {
+			id: "resp_1",
+			object: "response",
+			status: "completed",
+			model: "perplexity/sonar",
+			output: [
+				{
+					type: "search_results",
+					queries: ["artemis news"],
+					results: [
+						{
+							id: 1,
+							url: "https://www.nasa.gov/artemis",
+							title: "Artemis News",
+							snippet: "Artemis II flew around the Moon.",
+							date: "2026-09-16",
+							last_updated: "2026-09-17",
+							source: "web",
+						},
+						{
+							id: 2,
+							url: "https://example.org/undated",
+							title: "Undated",
+						},
+					],
+				},
+				{
+					type: "message",
+					role: "assistant",
+					content: [{ type: "output_text", text: "Artemis II flew." }],
+				},
+			],
+			usage: {
+				input_tokens: 2428,
+				output_tokens: 130,
+				total_tokens: 2558,
+				input_tokens_details: {
+					cached_tokens: 12,
+					cache_creation_input_tokens: 1880,
+				},
+				output_tokens_details: { reasoning_tokens: 0 },
+				tool_calls_details: { search_web: { invocation: 2, cost_usd: 0.005 } },
+			},
+		};
+
+		it("extracts the answer, sources and usage", () => {
+			const result = parseProviderResponse(
+				"perplexity",
+				"sonar",
+				agentJson,
+				[],
+				false,
+			);
+
+			expect(result.content).toBe("Artemis II flew.");
+			expect(result.finishReason).toBe("stop");
+			expect(result.promptTokens).toBe(2428);
+			expect(result.completionTokens).toBe(130);
+			expect(result.cachedTokens).toBe(12);
+			expect(result.cacheCreationTokens).toBe(1880);
+			// Billed per invocation, so the provider's own count is authoritative.
+			expect(result.webSearchCount).toBe(2);
+		});
+
+		it("keeps per-source dates and leaves missing ones out", () => {
+			const result = parseProviderResponse(
+				"perplexity",
+				"sonar",
+				agentJson,
+				[],
+				false,
+			);
+
+			expect(result.searchResults).toEqual([
+				{
+					url: "https://www.nasa.gov/artemis",
+					title: "Artemis News",
+					snippet: "Artemis II flew around the Moon.",
+					date: "2026-09-16",
+					last_updated: "2026-09-17",
+					source: "web",
+				},
+				{ url: "https://example.org/undated", title: "Undated" },
+			]);
+			expect(result.annotations).toEqual([
+				{
+					type: "url_citation",
+					url_citation: {
+						url: "https://www.nasa.gov/artemis",
+						title: "Artemis News",
+						date: "2026-09-16",
+						last_updated: "2026-09-17",
+					},
+				},
+				{
+					type: "url_citation",
+					url_citation: {
+						url: "https://example.org/undated",
+						title: "Undated",
+						date: undefined,
+						last_updated: undefined,
+					},
+				},
+			]);
+		});
+
+		it("still parses Sonar chat/completions until it retires", () => {
+			const result = parseProviderResponse(
+				"perplexity",
+				"sonar-pro",
+				{
+					id: "chatcmpl-1",
+					object: "chat.completion",
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: "Artemis II flew." },
+							finish_reason: "stop",
+						},
+					],
+					search_results: [
+						{ url: "https://www.nasa.gov/artemis", date: "2026-09-16" },
+					],
+					usage: { prompt_tokens: 15, completion_tokens: 59, total_tokens: 74 },
+				},
+				[],
+				false,
+			);
+
+			expect(result.content).toBe("Artemis II flew.");
+			expect(result.promptTokens).toBe(15);
+			expect(result.completionTokens).toBe(59);
+			// Sources ride along as a top-level passthrough field on this path.
+			expect(result.searchResults).toBeNull();
+		});
+
+		it("maps a truncated response to finish_reason length", () => {
+			const result = parseProviderResponse(
+				"perplexity",
+				"sonar",
+				{
+					...agentJson,
+					status: "incomplete",
+					incomplete_details: { reason: "max_output_tokens" },
+				},
+				[],
+				false,
+			);
+
+			expect(result.finishReason).toBe("length");
 		});
 	});
 });

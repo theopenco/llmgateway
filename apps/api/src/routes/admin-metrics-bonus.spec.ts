@@ -19,7 +19,7 @@ describe("admin /metrics — end-user bonus accounting", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		// createTestUser seeds admin@example.com and returns a session cookie.
 		cookie = await createTestUser();
 

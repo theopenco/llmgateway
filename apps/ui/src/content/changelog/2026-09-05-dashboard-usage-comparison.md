@@ -4,6 +4,7 @@ slug: "dashboard-usage-comparison"
 date: "2026-09-05"
 title: "Compare Usage Across Periods"
 summary: "The dashboard usage chart now overlays a comparison period, whether the previous period, a chosen week or month, or an exact custom range, and switches between a total view and a token-cost breakdown. Bars are grouped and stacked with an explicit legend, and rankings gain a hover-isolating legend and an all-time top apps panel."
+tags: ["llmgateway"]
 image:
   src: "/changelog/dashboard-usage-comparison.png"
   alt: "Two overlapping glowing bar charts, one solid and one translucent, with a calendar tile on a circuit board chip, surrounded by clocks and coins"

@@ -4,6 +4,7 @@ slug: "dev-plans-web-search-minimax"
 date: "2026-01-29"
 title: "Dev Plans, Native Web Search, and MiniMax Provider"
 summary: "Ship faster with Dev Plans — AI-powered development planning now in beta. Plus native web search for real-time data, MiniMax provider, structured outputs for Anthropic & Perplexity, and a redesigned models experience."
+tags: ["llmgateway", "devpass", "lounge"]
 image:
   src: "/changelog/dev-plans-web-search.png"
   alt: "Dev Plans dashboard and web search capabilities"

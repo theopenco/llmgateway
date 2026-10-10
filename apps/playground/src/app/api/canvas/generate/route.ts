@@ -6,6 +6,7 @@ import { getUser } from "@/lib/getUser";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { catalog } from "@llmgateway/canvas/catalog";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
@@ -59,6 +60,7 @@ export async function POST(req: Request) {
 		apiKey: finalApiKey,
 		baseURL: getGatewayApiBaseUrl(),
 		headers: {
+			...forwardedIpHeaders(req.headers),
 			"x-source": LOUNGE_SOURCE,
 		},
 	});

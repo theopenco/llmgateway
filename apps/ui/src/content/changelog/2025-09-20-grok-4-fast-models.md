@@ -4,6 +4,7 @@ slug: "grok-4-fast-models"
 date: "2025-09-20"
 title: "Grok 4 Fast Models: Flagship and Fast Variants Now Available"
 summary: "Added support for Grok 4 Fast Reasoning, and Grok 4 Fast Non-Reasoning models via xAI provider."
+tags: ["llmgateway"]
 image:
   src: "/changelog/grok-4-fast-models.png"
   alt: "Dashboard showing new Grok 4 Fast models via xAI provider"

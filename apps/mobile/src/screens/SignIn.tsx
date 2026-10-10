@@ -5,7 +5,15 @@ import { Linking, Text, View } from "react-native";
 import { startBrowserSignIn } from "@/auth/browser-sign-in";
 import { auth, signIn } from "@/auth/session";
 import { AppearancePicker } from "@/components/AppearancePicker";
-import { Button, ErrorNotice, Field, Screen, styles } from "@/components/ui";
+import {
+	Button,
+	colors,
+	ErrorNotice,
+	Field,
+	Icon,
+	Screen,
+	styles,
+} from "@/components/ui";
 import { config } from "@/config";
 import { BrowserSignIn } from "@/screens/BrowserSignIn";
 
@@ -20,6 +28,7 @@ export function SignIn({
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [notice, setNotice] = useState("");
+	const [showAppearance, setShowAppearance] = useState(false);
 	const browserControllerRef = useRef<AbortController | null>(null);
 	useEffect(
 		() => () =>
@@ -102,13 +111,40 @@ export function SignIn({
 	}
 	return (
 		<Screen fullScreen>
-			<View style={{ paddingVertical: 32, gap: 20 }}>
-				<Text style={styles.eyebrow}>LLM GATEWAY PRESENTS</Text>
-				<Text style={[styles.title, { fontSize: 58 }]}>The Lounge</Text>
-				<Text style={styles.body}>A little room for your biggest ideas.</Text>
-				<Text style={styles.muted}>
-					Your models, conversations, and creative projects. Together, wherever
-					you go.
+			<View
+				style={{
+					paddingTop: 28,
+					paddingBottom: 16,
+					gap: 14,
+					alignItems: "center",
+				}}
+			>
+				<View
+					style={{
+						width: 60,
+						height: 60,
+						borderRadius: 20,
+						backgroundColor: colors.accent,
+						alignItems: "center",
+						justifyContent: "center",
+						marginBottom: 8,
+					}}
+				>
+					<Icon name="sparkles" size={30} color="ink" />
+				</View>
+				<Text style={[styles.title, { fontSize: 36, textAlign: "center" }]}>
+					{mode === "signin"
+						? "The Lounge"
+						: mode === "signup"
+							? "Create your account"
+							: "Reset your password"}
+				</Text>
+				<Text style={[styles.muted, { fontSize: 16, textAlign: "center" }]}>
+					{mode === "signin"
+						? "Make room for your ideas."
+						: mode === "signup"
+							? "Your models and ideas, all together."
+							: "We’ll email you a link to get back in."}
 				</Text>
 			</View>
 			{mode === "signup" && (
@@ -157,9 +193,10 @@ export function SignIn({
 				</Text>
 			)}
 			<Button
+				accessibilityLabel={mode === "signin" ? "Enter the Lounge" : undefined}
 				title={
 					mode === "signin"
-						? "Enter the Lounge"
+						? "Continue"
 						: mode === "signup"
 							? "Create account"
 							: "Send reset link"
@@ -182,6 +219,15 @@ export function SignIn({
 			/>
 			{mode === "signin" ? (
 				<>
+					<View style={[styles.row, { gap: 14 }]}>
+						<View
+							style={{ height: 1, backgroundColor: colors.subtle, flex: 1 }}
+						/>
+						<Text style={styles.muted}>or</Text>
+						<View
+							style={{ height: 1, backgroundColor: colors.subtle, flex: 1 }}
+						/>
+					</View>
 					<Button
 						title="Sign in with browser"
 						secondary
@@ -189,24 +235,29 @@ export function SignIn({
 						disabled={busy}
 						onPress={startBrowser}
 					/>
-					<Text style={styles.muted}>
+					<Text style={[styles.muted, { textAlign: "center", marginTop: -8 }]}>
 						Use a passkey, social sign-in, or SSO.
 					</Text>
-					<Button
-						title="Create an account"
-						secondary
-						disabled={busy}
-						onPress={() => changeMode("signup")}
-					/>
-					<Button
-						title="Forgot password?"
-						secondary
-						disabled={busy}
-						onPress={() => changeMode("reset")}
-					/>
-					<Text style={styles.muted}>
-						Your existing Lounge membership works here.
-					</Text>
+					<View
+						style={{
+							flexDirection: "row",
+							justifyContent: "center",
+							flexWrap: "wrap",
+						}}
+					>
+						<Button
+							title="Create an account"
+							quiet
+							disabled={busy}
+							onPress={() => changeMode("signup")}
+						/>
+						<Button
+							title="Forgot password?"
+							quiet
+							disabled={busy}
+							onPress={() => changeMode("reset")}
+						/>
+					</View>
 				</>
 			) : (
 				<Button
@@ -220,26 +271,40 @@ export function SignIn({
 				<View style={styles.row}>
 					<Button
 						title="Terms"
-						secondary
+						quiet
 						onPress={() =>
 							openWebsite.mutate(`${config.accountUrl}/legal/terms`)
 						}
 					/>
 					<Button
 						title="Privacy"
-						secondary
+						quiet
 						onPress={() =>
 							openWebsite.mutate(`${config.accountUrl}/legal/privacy`)
 						}
 					/>
 				</View>
 			)}
-			<Button
-				title="Visit the Lounge website"
-				secondary
-				onPress={() => openWebsite.mutate(config.webUrl)}
-			/>
-			<AppearancePicker />
+			<View
+				style={{
+					marginTop: "auto",
+					alignItems: "center",
+					gap: 2,
+					paddingTop: 12,
+				}}
+			>
+				<Button
+					title="Visit the Lounge website"
+					quiet
+					onPress={() => openWebsite.mutate(config.webUrl)}
+				/>
+				<Button
+					title="Appearance"
+					quiet
+					onPress={() => setShowAppearance(!showAppearance)}
+				/>
+			</View>
+			{showAppearance && <AppearancePicker />}
 		</Screen>
 	);
 }

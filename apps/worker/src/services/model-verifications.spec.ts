@@ -14,6 +14,7 @@ import {
 } from "./model-verifications.js";
 
 import type {
+	AirsideModelMetadataChanges,
 	ProviderModelVerificationCheck,
 	ProviderModelVerificationTarget,
 } from "@llmgateway/db";
@@ -62,7 +63,7 @@ afterEach(async () => {
 
 async function enqueueVerification(
 	options: {
-		credentialSource?: "supplied" | "managed";
+		credentialSource?: "supplied" | "carrier" | "managed";
 		allowedModels?: string[];
 	} = {},
 ) {
@@ -134,13 +135,13 @@ async function enqueueVerification(
 		checks,
 		credentialSource,
 		credentialCiphertext:
-			credentialSource === "supplied"
-				? encryptModelVerificationCredential(
+			credentialSource === "managed"
+				? null
+				: encryptModelVerificationCredential(
 						"single-use-provider-key",
 						verificationId,
 						companyId,
-					)
-				: null,
+					),
 	});
 	return verificationId;
 }
@@ -154,8 +155,12 @@ async function seedActiveListing(
 		reasoning?: boolean;
 		reasoningMaxTokens?: boolean;
 		reasoningEfforts?: string[];
+		pendingMetadata?: AirsideModelMetadataChanges;
+		targetReasoningEfforts?: string[] | null;
 	} = {},
 ) {
+	const { pendingMetadata, targetReasoningEfforts, ...listingOverrides } =
+		overrides;
 	const suffix = randomUUID();
 	const userId = `verification-user-${suffix}`;
 	const companyId = `verification-company-${suffix}`;
@@ -190,7 +195,7 @@ async function seedActiveListing(
 		reasoning: true,
 		reasoningMaxTokens: true,
 		reasoningEfforts: ["low", "high"],
-		...overrides,
+		...listingOverrides,
 	};
 	const [draftModel] = await db
 		.insert(tables.providerDraftModel)
@@ -220,6 +225,17 @@ async function seedActiveListing(
 		source: "airside",
 		...listingValues,
 	});
+	if (pendingMetadata) {
+		await db.insert(tables.providerPriceFiling).values({
+			draftModelId: draftModel.id,
+			providerCompanyId: companyId,
+			kind: "metadata",
+			inputPrice: "2e-6",
+			outputPrice: "6e-6",
+			metadata: pendingMetadata,
+			requestedBy: userId,
+		});
+	}
 	process.env.GATEWAY_API_KEY_HASH_SECRET = "model-verification-test-secret";
 	await db.insert(tables.providerModelVerification).values({
 		id: verificationId,
@@ -238,7 +254,10 @@ async function seedActiveListing(
 			jsonOutputSchema: false,
 			reasoning: true,
 			reasoningMaxTokens: true,
-			reasoningEfforts: ["low", "high"],
+			reasoningEfforts:
+				targetReasoningEfforts === undefined
+					? ["low", "high"]
+					: targetReasoningEfforts,
 			webSearch: false,
 		},
 		checks: [{ id: "basic", label: "Basic completion", status: "queued" }],
@@ -249,10 +268,28 @@ async function seedActiveListing(
 			companyId,
 		),
 	});
-	return { draftModelId: draftModel.id, modelName, providerId };
+	return { draftModelId: draftModel.id, modelName, providerId, verificationId };
 }
 
 describe("model verification worker", () => {
+	it("runs a carrier-stored credential off the run's own copy", async () => {
+		const verificationId = await enqueueVerification({
+			credentialSource: "carrier",
+		});
+		let seenToken: string | undefined;
+		const processed = await processNextModelVerification(async (options) => {
+			seenToken = options.token;
+			return { passed: true, checks: [], summary: "ok" };
+		});
+
+		expect(processed).toBe(true);
+		expect(seenToken).toBe("single-use-provider-key");
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verificationId } },
+		});
+		expect(stored?.credentialCiphertext).toBeNull();
+	});
+
 	it("claims a queued check, persists feedback, and erases its credential", async () => {
 		const verificationId = await enqueueVerification();
 		const processed = await processNextModelVerification(async (options) => {
@@ -377,8 +414,9 @@ describe("model verification worker", () => {
 		expect(stored?.status).toBe("passed");
 	});
 
-	it("drops the capabilities a failed re-verification disproved", async () => {
-		const { draftModelId, modelName, providerId } = await seedActiveListing();
+	it("leaves the listing alone when checks fail", async () => {
+		const { draftModelId, modelName, providerId, verificationId } =
+			await seedActiveListing();
 		await processNextModelVerification(async () => ({
 			passed: false,
 			checks: [
@@ -406,28 +444,74 @@ describe("model verification worker", () => {
 			summary: "2 of 5 verification checks failed.",
 		}));
 
+		// One refused request does not prove the deployment cannot do it, so the
+		// run only reports the failure.
 		const listing = await db.query.providerDraftModel.findFirst({
 			where: { id: { eq: draftModelId } },
 		});
 		expect(listing).toMatchObject({
 			streaming: true,
-			tools: false,
-			reasoning: false,
-			// Effort tiers and the budget go with the reasoning they describe,
-			// even though only the reasoning check itself failed.
-			reasoningMaxTokens: false,
-			reasoningEfforts: null,
+			tools: true,
+			reasoning: true,
+			reasoningMaxTokens: true,
+			reasoningEfforts: ["low", "high"],
 		});
 		const mapping = await db.query.modelProviderMapping.findFirst({
 			where: { modelId: { eq: modelName }, providerId: { eq: providerId } },
 		});
 		expect(mapping).toMatchObject({
 			streaming: true,
-			tools: false,
+			tools: true,
+			reasoning: true,
+			reasoningMaxTokens: true,
+			reasoningEfforts: ["low", "high"],
+		});
+		const run = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verificationId } },
+		});
+		expect(run?.status).toBe("failed");
+		expect(run?.demotedCapabilities).toBeNull();
+	});
+
+	it("leaves a filing awaiting review intact when its capability fails", async () => {
+		const { draftModelId, verificationId } = await seedActiveListing({
 			reasoning: false,
 			reasoningMaxTokens: false,
-			reasoningEfforts: null,
+			reasoningEfforts: undefined,
+			pendingMetadata: {
+				reasoning: true,
+				reasoningEfforts: ["low", "high"],
+				maxOutput: 4096,
+			},
 		});
+		await processNextModelVerification(async () => ({
+			passed: false,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{
+					id: "reasoning",
+					label: "Reasoning",
+					status: "failed",
+					feedback: "No reasoning content was returned.",
+				},
+			],
+			summary: "1 of 2 verification checks failed.",
+		}));
+
+		// The reviewer sees the filing as the carrier proposed it, with the run's
+		// failure next to it, rather than a change silently pruned.
+		const filing = await db.query.providerPriceFiling.findFirst({
+			where: { draftModelId: { eq: draftModelId }, status: { eq: "pending" } },
+		});
+		expect(filing?.metadata).toEqual({
+			reasoning: true,
+			reasoningEfforts: ["low", "high"],
+			maxOutput: 4096,
+		});
+		const run = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verificationId } },
+		});
+		expect(run?.demotedCapabilities).toBeNull();
 	});
 
 	it("narrows tool_choice support without dropping tool calls", async () => {
@@ -473,6 +557,93 @@ describe("model verification worker", () => {
 			where: { id: { eq: draftModelId } },
 		});
 		expect(listing?.supportedToolChoices).toEqual(["auto"]);
+	});
+
+	it("narrows reasoning efforts without dropping reasoning", async () => {
+		const { draftModelId, modelName, providerId } = await seedActiveListing({
+			reasoningEfforts: ["none", "low", "medium", "high"],
+			targetReasoningEfforts: ["none", "low", "medium", "high"],
+		});
+		await processNextModelVerification(async () => ({
+			passed: true,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "reasoning", label: "Reasoning", status: "passed" },
+			],
+			summary: "2 verification checks passed.",
+			unsupportedReasoningEfforts: ["medium"],
+		}));
+
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: draftModelId } },
+		});
+		expect(listing).toMatchObject({
+			reasoning: true,
+			reasoningEfforts: ["none", "low", "high"],
+		});
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: { modelId: { eq: modelName }, providerId: { eq: providerId } },
+		});
+		expect(mapping?.reasoningEfforts).toEqual(["none", "low", "high"]);
+	});
+
+	it("enumerates the effort tiers a listing left undeclared", async () => {
+		const { draftModelId } = await seedActiveListing({
+			targetReasoningEfforts: null,
+		});
+		await db
+			.update(tables.providerDraftModel)
+			.set({ reasoningEfforts: null })
+			.where(eq(tables.providerDraftModel.id, draftModelId));
+		await processNextModelVerification(async () => ({
+			passed: true,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "reasoning", label: "Reasoning", status: "passed" },
+			],
+			summary: "2 verification checks passed.",
+			unsupportedReasoningEfforts: ["medium", "minimal"],
+		}));
+
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: draftModelId } },
+		});
+		expect(listing?.reasoningEfforts).toEqual([
+			"none",
+			"low",
+			"high",
+			"xhigh",
+			"max",
+		]);
+	});
+
+	it("narrows a pending filing's proposed effort tiers", async () => {
+		const { draftModelId } = await seedActiveListing({
+			pendingMetadata: {
+				reasoning: true,
+				reasoningEfforts: ["none", "minimal", "low", "high"],
+			},
+			targetReasoningEfforts: ["none", "minimal", "low", "high"],
+		});
+		await processNextModelVerification(async () => ({
+			passed: true,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "reasoning", label: "Reasoning", status: "passed" },
+			],
+			summary: "2 verification checks passed.",
+			unsupportedReasoningEfforts: ["minimal"],
+		}));
+
+		const filing = await db.query.providerPriceFiling.findFirst({
+			where: { draftModelId: { eq: draftModelId } },
+		});
+		expect(filing?.metadata?.reasoningEfforts).toEqual(["none", "low", "high"]);
+		// The row declared a different set, so the refusal says nothing about it.
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: draftModelId } },
+		});
+		expect(listing?.reasoningEfforts).toEqual(["low", "high"]);
 	});
 
 	it("does not let a stale attempt overwrite a reclaimed job", async () => {

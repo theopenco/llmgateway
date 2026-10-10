@@ -12,7 +12,15 @@ import { fetchModels } from "./fetch-models";
 import type {
 	ApiModel,
 	ApiModelProviderMapping,
+	TimeBasedTokenPrices,
 } from "@llmgateway/shared/components";
+
+function fromTimeBasedPrices(prices: TimeBasedTokenPrices) {
+	return {
+		...prices,
+		cachedInputPrice: optional(prices.cachedInputPrice),
+	};
+}
 
 function optional<T>(value: T | null | undefined): T | undefined {
 	return value ?? undefined;
@@ -104,23 +112,19 @@ function apiMappingToDefinition(
 			cacheReadInputPrice: optional(tier.cacheReadInputPrice),
 			cacheWriteInputPrice: optional(tier.cacheWriteInputPrice),
 			cacheWriteInputPrice1h: optional(tier.cacheWriteInputPrice1h),
+			peakPricing: tier.peakPricing
+				? {
+						peak: fromTimeBasedPrices(tier.peakPricing.peak),
+						offPeak: fromTimeBasedPrices(tier.peakPricing.offPeak),
+					}
+				: undefined,
 		})),
 		peakPricing: mapping.peakPricing
 			? {
-					peak: {
-						...mapping.peakPricing.peak,
-						cachedInputPrice: optional(
-							mapping.peakPricing.peak.cachedInputPrice,
-						),
-					},
-					offPeak: {
-						...mapping.peakPricing.offPeak,
-						cachedInputPrice: optional(
-							mapping.peakPricing.offPeak.cachedInputPrice,
-						),
-					},
+					peak: fromTimeBasedPrices(mapping.peakPricing.peak),
+					offPeak: fromTimeBasedPrices(mapping.peakPricing.offPeak),
 					hoursUtc: mapping.peakPricing.hoursUtc,
-					offPeakDays: optional(mapping.peakPricing.offPeakDays),
+					offPeakDaysUtc: optional(mapping.peakPricing.offPeakDaysUtc),
 				}
 			: undefined,
 		serviceTiers: optional(
@@ -138,7 +142,8 @@ function apiMappingToDefinition(
 
 /** Merge the API-backed catalogue into a static definition. API mappings are
  * authoritative because they also contain approved Airside listings, while
- * unmatched static mappings remain as a safe fallback during DB sync. */
+ * unmatched static mappings remain as a safe fallback during DB sync — except
+ * for a provider whose listing the carrier paused or delisted. */
 export function mergeApiModelDefinition(
 	apiModel: ApiModel,
 	staticModel?: ModelDefinition,
@@ -155,6 +160,7 @@ export function mergeApiModelDefinition(
 			.filter((mapping) => (mapping.region ?? null) === null)
 			.map((mapping) => mapping.providerId),
 	);
+	const unlistedProviderIds = new Set(apiModel.unlistedProviderIds);
 	const providers = [
 		...apiModel.mappings
 			.filter((mapping) => mapping.status === "active")
@@ -164,7 +170,8 @@ export function mergeApiModelDefinition(
 		...staticMappings.filter(
 			(mapping) =>
 				!apiKeys.has(mappingKey(mapping)) &&
-				!globalApiProviderIds.has(mapping.providerId),
+				!globalApiProviderIds.has(mapping.providerId) &&
+				!unlistedProviderIds.has(mapping.providerId),
 		),
 	];
 
@@ -187,6 +194,16 @@ export function mergeApiModelDefinition(
 	};
 }
 
+/** The merged definition, or null when every mapping belongs to a listing
+ * that is out of service: the model has no public page until a relist. */
+export function publicModelDefinition(
+	apiModel: ApiModel,
+	staticModel?: ModelDefinition,
+): ModelDefinition | null {
+	const merged = mergeApiModelDefinition(apiModel, staticModel);
+	return merged.providers.length > 0 ? merged : null;
+}
+
 /** Public model definition from both catalogue sources. */
 export const findPublicModelDefinition = cache(
 	async (modelId: string): Promise<ModelDefinition | null> => {
@@ -196,7 +213,7 @@ export const findPublicModelDefinition = cache(
 		const apiModels = await fetchModels();
 		const apiModel = apiModels.find((model) => model.id === modelId);
 		if (apiModel) {
-			return mergeApiModelDefinition(apiModel, staticModel);
+			return publicModelDefinition(apiModel, staticModel);
 		}
 		return staticModel ?? null;
 	},

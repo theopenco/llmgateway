@@ -4,6 +4,7 @@ import { logger } from "@llmgateway/logger";
 import { models, providers } from "@llmgateway/models";
 import { getProviderModelKind } from "@llmgateway/shared";
 
+import { managedCredentialValidationOptions } from "./provider-key/managed.js";
 import {
 	getPinnedValidationModel,
 	getValidationModel,
@@ -22,11 +23,14 @@ describe("getPinnedValidationModel", () => {
 		expect(
 			getPinnedValidationModel("mistral", "mistral-ocr-latest")?.kind,
 		).toBe("ocr");
+		expect(getPinnedValidationModel("typesafe", "jev-1.13.0")?.kind).toBe(
+			"decision",
+		);
 	});
 });
 
 describe("getValidationModel", () => {
-	it("only selects text models for automatic validation", () => {
+	it("selects text models, falling back to decision models", () => {
 		for (const provider of providers) {
 			const selected = getValidationModel(provider.id);
 			if (!selected) {
@@ -35,8 +39,10 @@ describe("getValidationModel", () => {
 			expect(
 				getPinnedValidationModel(provider.id, selected.modelId)?.kind,
 				provider.id,
-			).toBe("text");
+			).toBe(selected.kind);
+			expect(["text", "decision"], provider.id).toContain(selected.kind);
 		}
+		expect(getValidationModel("typesafe")?.kind).toBe("decision");
 	});
 
 	it("never selects an OCR model for provider key validation", () => {
@@ -52,6 +58,37 @@ describe("getValidationModel", () => {
 			(p) => p.providerId === "mistral" && (p as { ocr?: boolean }).ocr,
 		);
 		expect(usesOcr).toBeFalsy();
+	});
+
+	// Providers whose whole catalog is a single free preview model are unstable
+	// by design. Filtering them out left no probe model, so saving a key for
+	// such a provider failed with "No suitable validation model found".
+	it("falls back to unstable models when a provider has no stable one", () => {
+		for (const provider of providers) {
+			const hasProbeableMapping = models.some((model) =>
+				model.providers.some(
+					(p) =>
+						p.providerId === provider.id &&
+						["text", "decision"].includes(
+							getProviderModelKind(model, p) ?? "",
+						) &&
+						!(
+							"deprecatedAt" in p &&
+							p.deprecatedAt &&
+							new Date() >= p.deprecatedAt
+						) &&
+						!(
+							"deactivatedAt" in p &&
+							p.deactivatedAt &&
+							new Date() >= p.deactivatedAt
+						),
+				),
+			);
+			if (hasProbeableMapping) {
+				expect(getValidationModel(provider.id), provider.id).not.toBeNull();
+			}
+		}
+		expect(getValidationModel("atria")?.modelId).toBe("atria-dawn-preview");
 	});
 
 	it("selects a model from the newer half of the provider's text releases", () => {
@@ -327,6 +364,24 @@ describe("validateProviderKey model-specific probes", () => {
 		);
 	});
 
+	it("probes a decision-only provider via System One", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey("typesafe", "ts-test");
+
+		expect(result).toEqual({ valid: true, model: "jev-1.13.0" });
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"https://api.typesafe.ai/v1/systemone",
+		);
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+			model: "jev-1.13.0",
+			state: "Hello",
+			questions: {
+				greeting: { type: "noul", instructions: "Is this a greeting?" },
+			},
+		});
+	});
+
 	it("sends a minimal inline image to the OCR endpoint", async () => {
 		const fetchMock = mockSuccess();
 
@@ -410,14 +465,23 @@ describe("validateProviderKey model-specific probes", () => {
 	it("includes a reference image for image-edit mappings", async () => {
 		const fetchMock = mockSuccess();
 
-		const result = await validateProviderKey(
-			"alibaba",
-			"alibaba-test",
-			undefined,
-			false,
-			{ env_config: { region: "singapore" } },
-			"qwen-image-edit-plus",
-		);
+		// Alibaba retired its last image-edit mappings on 2026-10-10; pin the
+		// clock before that so the probe shape stays covered.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-01T00:00:00Z"));
+		let result: Awaited<ReturnType<typeof validateProviderKey>>;
+		try {
+			result = await validateProviderKey(
+				"alibaba",
+				"alibaba-test",
+				undefined,
+				false,
+				{ env_config: { region: "singapore" } },
+				"qwen-image-edit-plus",
+			);
+		} finally {
+			vi.useRealTimers();
+		}
 
 		expect(result.valid).toBe(true);
 		const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
@@ -427,9 +491,9 @@ describe("validateProviderKey model-specific probes", () => {
 		expect(body.parameters.size).toBe("1024*1024");
 	});
 
-	it("constructs probes for every active image, OCR, and embedding mapping", async () => {
+	it("constructs probes for every active image, OCR, embedding, and decision mapping", async () => {
 		const fetchMock = mockSuccess();
-		const supportedKinds = new Set(["image", "ocr", "embedding"]);
+		const supportedKinds = new Set(["image", "ocr", "embedding", "decision"]);
 		const seen = new Set<string>();
 
 		for (const model of models) {
@@ -511,6 +575,47 @@ describe("validateProviderKey region resolution", () => {
 			expect(fetchMock.mock.calls[0][0]).toBe(
 				`https://bedrock-mantle.${region}.api.aws/openai/v1/responses`,
 			);
+		},
+	);
+
+	// Kimi K3 exists on Bedrock only as a cross-region inference profile, so
+	// the probe must name the profile; the bare id is rejected upstream.
+	it.each([
+		{ options: undefined, model: "global.moonshotai.kimi-k3" },
+		{
+			options: { aws_bedrock_region: "us" as const },
+			model: "us.moonshotai.kimi-k3",
+		},
+		{
+			options: managedCredentialValidationOptions(
+				"aws-bedrock",
+				{ region: "us." },
+				null,
+			),
+			model: "us.moonshotai.kimi-k3",
+		},
+	])(
+		"probes a pinned Bedrock profile model as $model",
+		async ({ options, model }) => {
+			const fetchMock = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValue(new Response("{}", { status: 200 }));
+
+			const result = await validateProviderKey(
+				"aws-bedrock",
+				"ABSKtest",
+				"https://bedrock-proxy.example.com",
+				false,
+				options,
+				"kimi-k3",
+			);
+
+			expect(result.valid).toBe(true);
+			expect(fetchMock.mock.calls[0][0]).toBe(
+				"https://bedrock-proxy.example.com/openai/v1/chat/completions",
+			);
+			const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+			expect(body.model).toBe(model);
 		},
 	);
 

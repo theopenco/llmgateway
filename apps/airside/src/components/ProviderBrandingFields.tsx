@@ -1,12 +1,11 @@
 "use client";
 
-import { X } from "lucide-react";
-import { useRef } from "react";
+import { ImageUp, RefreshCw, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 import { CarrierMark } from "@llmgateway/shared/carrier-mark";
 
@@ -34,100 +33,144 @@ function readSvgAsDataUrl(file: File, maxBytes: number): Promise<string> {
 	});
 }
 
-function ThemePreview({
+function UploadTile({
+	inputId,
+	title,
+	usage,
+	hint,
+	maxBytes,
 	src,
 	providerName,
-	theme,
-	type,
+	kind,
+	onChange,
 }: {
-	src: string;
+	inputId: string;
+	title: string;
+	usage: string;
+	hint: string;
+	maxBytes: number;
+	src?: string | null;
 	providerName: string;
-	theme: "light" | "dark";
-	type: "logo" | "icon";
+	kind: "logo" | "icon";
+	onChange: (value: string | null) => void;
 }) {
-	const isDark = theme === "dark";
-	const themeClasses = isDark
-		? "border-slate-800 bg-slate-950 text-slate-50"
-		: "border-slate-200 bg-white text-slate-950";
-	const mutedClasses = isDark ? "text-slate-400" : "text-slate-500";
+	const input = useRef<HTMLInputElement>(null);
+	const [dragging, setDragging] = useState(false);
+	const descriptionId = `${inputId}-description`;
+
+	async function accept(file: File | undefined) {
+		if (!file) {
+			return;
+		}
+		try {
+			onChange(await readSvgAsDataUrl(file, maxBytes));
+		} catch (error) {
+			toast.error((error as Error).message);
+		} finally {
+			if (input.current) {
+				input.current.value = "";
+			}
+		}
+	}
+
+	const markClass =
+		kind === "logo" ? "h-10 w-28 object-contain" : "size-8 object-contain";
 
 	return (
-		<div className={`min-w-0 border p-3 ${themeClasses}`}>
-			<p className={`mb-3 text-[10px] font-semibold uppercase ${mutedClasses}`}>
-				{isDark ? "Dark" : "Light"}
-			</p>
-			{type === "logo" ? (
-				<div className="flex min-w-0 items-center gap-3">
-					<div className="flex size-12 shrink-0 items-center justify-center overflow-hidden">
-						<CarrierMark
-							src={src}
-							alt={`${providerName} logo on ${theme} background`}
-							className="size-12 object-contain"
-						/>
-					</div>
-					<div className="min-w-0">
-						<p className="truncate text-sm font-semibold">{providerName}</p>
-						<p className={`text-xs ${mutedClasses}`}>View models</p>
-					</div>
-				</div>
-			) : (
-				<div className="flex min-w-0 items-center gap-2 py-2">
-					<div className="flex size-5 shrink-0 items-center justify-center">
-						<CarrierMark
-							src={src}
-							alt={`${providerName} icon on ${theme} background`}
-							className="size-4 object-contain"
-						/>
-					</div>
-					<p className="truncate text-sm font-semibold">{providerName}</p>
-				</div>
+		<div
+			className={cn(
+				"border-border bg-card flex min-w-0 flex-col overflow-hidden rounded-lg border transition-colors",
+				dragging && "border-primary bg-primary/5",
 			)}
-		</div>
-	);
-}
-
-function AssetPreview({
-	src,
-	providerName,
-	type,
-	onRemove,
-}: {
-	src: string;
-	providerName: string;
-	type: "logo" | "icon";
-	onRemove: () => void;
-}) {
-	const isLogo = type === "logo";
-
-	return (
-		<div className="border-border overflow-hidden rounded-lg border">
-			<div className="flex items-start justify-between gap-3 p-3">
+			data-testid={`${inputId}-tile`}
+			onDragOver={(event) => {
+				event.preventDefault();
+				setDragging(true);
+			}}
+			onDragLeave={() => setDragging(false)}
+			onDrop={(event) => {
+				event.preventDefault();
+				setDragging(false);
+				void accept(event.dataTransfer.files[0]);
+			}}
+		>
+			<div className="grid h-24 grid-cols-2" aria-live="polite">
+				{(["light", "dark"] as const).map((theme) => (
+					<div
+						key={theme}
+						className={cn(
+							"flex items-center justify-center",
+							theme === "light"
+								? "bg-white text-slate-950"
+								: "bg-slate-950 text-slate-50",
+						)}
+					>
+						{src ? (
+							<CarrierMark
+								src={src}
+								alt={`${providerName} ${kind} on ${theme} background`}
+								className={markClass}
+							/>
+						) : (
+							<ImageUp
+								aria-hidden
+								className={cn(
+									"size-6",
+									theme === "light" ? "text-slate-300" : "text-slate-600",
+								)}
+							/>
+						)}
+					</div>
+				))}
+			</div>
+			<div className="flex flex-1 flex-col gap-3 border-t p-3">
 				<div>
-					<p className="text-sm font-semibold">
-						{isLogo ? "Provider logo" : "Square icon"}
-					</p>
-					<p className="text-muted-foreground text-xs">
-						{isLogo ? "Provider directory card" : "Model card header"}
+					<label htmlFor={inputId} className="text-sm font-semibold">
+						{title}
+					</label>
+					<p
+						id={descriptionId}
+						className="text-muted-foreground mt-0.5 text-xs leading-relaxed"
+					>
+						{usage}{" "}
+						<span className="font-mono text-[0.65rem] tracking-wide uppercase">
+							{hint}
+						</span>
 					</p>
 				</div>
-				<Button type="button" size="sm" variant="ghost" onClick={onRemove}>
-					<X aria-hidden />
-					Remove
-				</Button>
-			</div>
-			<div className="grid grid-cols-2">
-				<ThemePreview
-					src={src}
-					providerName={providerName}
-					theme="light"
-					type={type}
+				<input
+					ref={input}
+					id={inputId}
+					type="file"
+					accept="image/svg+xml"
+					className="sr-only"
+					aria-describedby={descriptionId}
+					onChange={(event) => void accept(event.currentTarget.files?.[0])}
 				/>
-				<ThemePreview
-					src={src}
-					providerName={providerName}
-					theme="dark"
-					type={type}
-				/>
+				<div className="mt-auto flex flex-wrap gap-2">
+					<Button
+						type="button"
+						size="sm"
+						variant={src ? "outline" : "default"}
+						onClick={() => input.current?.click()}
+						data-testid={`${inputId}-upload`}
+					>
+						{src ? <RefreshCw aria-hidden /> : <ImageUp aria-hidden />}
+						{src ? "Replace" : "Upload SVG"}
+					</Button>
+					{src ? (
+						<Button
+							type="button"
+							size="sm"
+							variant="ghost"
+							onClick={() => onChange(null)}
+							data-testid={`${inputId}-remove`}
+						>
+							<Trash2 aria-hidden />
+							Remove
+						</Button>
+					) : null}
+				</div>
 			</div>
 		</div>
 	);
@@ -150,118 +193,32 @@ export function ProviderBrandingFields({
 	onLogoChange: (value: string | null) => void;
 	onIconChange: (value: string | null) => void;
 }) {
-	const logoInput = useRef<HTMLInputElement>(null);
-	const iconInput = useRef<HTMLInputElement>(null);
 	const displayName = providerName.trim() || "Your provider";
 
-	async function handleFile(
-		input: HTMLInputElement,
-		maxBytes: number,
-		onChange: (value: string) => void,
-	) {
-		const file = input.files?.[0];
-		if (!file) {
-			return;
-		}
-		try {
-			onChange(await readSvgAsDataUrl(file, maxBytes));
-		} catch (error) {
-			input.value = "";
-			toast.error((error as Error).message);
-		}
-	}
-
-	function removeLogo() {
-		if (logoInput.current) {
-			logoInput.current.value = "";
-		}
-		onLogoChange(null);
-	}
-
-	function removeIcon() {
-		if (iconInput.current) {
-			iconInput.current.value = "";
-		}
-		onIconChange(null);
-	}
-
 	return (
-		<div className="space-y-4">
-			<div className="grid gap-4 sm:grid-cols-2">
-				<div className="space-y-2">
-					<div>
-						<Label htmlFor={logoInputId}>Provider logo</Label>
-						<p
-							id={`${logoInputId}-description`}
-							className="text-muted-foreground mt-1 text-xs leading-relaxed"
-						>
-							Shown on provider directory cards and at the top of your provider
-							page. Wide or horizontal SVGs work best. Max 200KB.
-						</p>
-					</div>
-					<Input
-						ref={logoInput}
-						id={logoInputId}
-						type="file"
-						accept="image/svg+xml"
-						aria-describedby={`${logoInputId}-description`}
-						onChange={(event) =>
-							void handleFile(event.currentTarget, LOGO_MAX_BYTES, onLogoChange)
-						}
-					/>
-				</div>
-				<div className="space-y-2">
-					<div>
-						<Label htmlFor={iconInputId}>Square icon</Label>
-						<p
-							id={`${iconInputId}-description`}
-							className="text-muted-foreground mt-1 text-xs leading-relaxed"
-						>
-							Shown beside your provider name on compact model cards. Use a
-							square SVG with a simple mark. Max 64KB.
-						</p>
-					</div>
-					<Input
-						ref={iconInput}
-						id={iconInputId}
-						type="file"
-						accept="image/svg+xml"
-						aria-describedby={`${iconInputId}-description`}
-						onChange={(event) =>
-							void handleFile(event.currentTarget, ICON_MAX_BYTES, onIconChange)
-						}
-					/>
-				</div>
-			</div>
-
-			{logoUrl || iconUrl ? (
-				<section className="space-y-3" aria-live="polite" aria-atomic="true">
-					<div>
-						<h3 className="text-sm font-semibold">Preview in context</h3>
-						<p className="text-muted-foreground text-xs">
-							Check how each asset reads on light and dark backgrounds.
-						</p>
-					</div>
-					<div className="grid gap-3 lg:grid-cols-2">
-						{logoUrl ? (
-							<AssetPreview
-								src={logoUrl}
-								providerName={displayName}
-								type="logo"
-								onRemove={removeLogo}
-							/>
-						) : null}
-						{iconUrl ? (
-							<AssetPreview
-								src={iconUrl}
-								providerName={displayName}
-								type="icon"
-								onRemove={removeIcon}
-							/>
-						) : null}
-					</div>
-				</section>
-			) : null}
+		<div className="grid gap-3 sm:grid-cols-2">
+			<UploadTile
+				inputId={logoInputId}
+				title="Provider logo"
+				usage="Directory cards and the top of your provider page. Wide marks work best."
+				hint="SVG · max 200KB"
+				maxBytes={LOGO_MAX_BYTES}
+				src={logoUrl}
+				providerName={displayName}
+				kind="logo"
+				onChange={onLogoChange}
+			/>
+			<UploadTile
+				inputId={iconInputId}
+				title="Square icon"
+				usage="Beside your name on compact model cards. Use a simple square mark."
+				hint="SVG · square · max 64KB"
+				maxBytes={ICON_MAX_BYTES}
+				src={iconUrl}
+				providerName={displayName}
+				kind="icon"
+				onChange={onIconChange}
+			/>
 		</div>
 	);
 }

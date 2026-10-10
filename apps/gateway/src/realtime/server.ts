@@ -6,9 +6,9 @@ import {
 	reportTrackedKeyError,
 	reportTrackedKeySuccess,
 } from "@/lib/api-key-health.js";
-import { getClientIpFromForwardedFor } from "@/lib/client-ip.js";
 
 import { logger } from "@llmgateway/logger";
+import { getClientIpFromNodeHeaders } from "@llmgateway/shared/client-ip";
 
 import {
 	closeRealtimeSessionRecord,
@@ -192,15 +192,12 @@ function extractSource(req: IncomingMessage): string | null {
 
 /**
  * Originating client IP for IAM evaluation. Deliberately identical to the HTTP
- * endpoints' resolution (the shared X-Forwarded-For helper) and with no
+ * endpoints' resolution (the one header named by CLIENT_IP_HEADER) and with no
  * socket-address fallback: behind a load balancer that fallback is the balancer
  * itself, which must never be matched against a customer's CIDR allowlist.
  */
 function extractClientIp(req: IncomingMessage): string | undefined {
-	const forwarded = req.headers["x-forwarded-for"];
-	return getClientIpFromForwardedFor(
-		Array.isArray(forwarded) ? forwarded.join(",") : forwarded,
-	);
+	return getClientIpFromNodeHeaders(req.headers);
 }
 
 export interface RealtimeServer {

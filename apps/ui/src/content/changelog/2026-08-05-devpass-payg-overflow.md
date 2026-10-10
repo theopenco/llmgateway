@@ -4,6 +4,7 @@ slug: "devpass-payg-overflow"
 date: "2026-08-05"
 title: "DevPass Pay-As-You-Go Overflow"
 summary: "DevPass no longer has to stop at 100%: opt into pay-as-you-go overflow and, once your monthly allowance is used, requests keep flowing from a credits balance billed at provider rates. Top up from the dashboard with your saved card, set auto-reload so the balance refills itself, and track it all on the new Usage page."
+tags: ["devpass"]
 image:
   src: "/changelog/devpass-payg-overflow.png"
   alt: "A circuit board with a glowing overflowing coin reservoir on the central chip, representing DevPass credits overflow past the plan allowance"

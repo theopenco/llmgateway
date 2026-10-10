@@ -10,12 +10,16 @@ describe("provider promo schedule", () => {
 		expect(getActiveProviderPromo(cutoff + 1)?.id).toBe("scx");
 	});
 
-	it("shows SCX for exactly 15 days and then removes the banner", () => {
+	it("shows SCX for the extended 30 days and then removes the banner", () => {
 		const start = Date.parse(SCX_PROMO.startsAt);
 		const end = Date.parse(SCX_PROMO.endsAt);
-		const week = 7 * 24 * 60 * 60 * 1000;
-		expect(end - start).toBe(15 * 24 * 60 * 60 * 1000);
+		const day = 24 * 60 * 60 * 1000;
+		const week = 7 * day;
+		const originalDuration = 15 * day;
+		expect(SCX_PROMO.endsAt).toBe("2026-10-09T23:59:59.000Z");
+		expect(end - start).toBe(30 * day);
 		expect(getActiveProviderPromo(start + week)?.id).toBe("scx");
+		expect(getActiveProviderPromo(start + originalDuration)?.id).toBe("scx");
 		expect(getActiveProviderPromo(end - 1)?.id).toBe("scx");
 		expect(getActiveProviderPromo(end)).toBeNull();
 		expect(getActiveProviderPromo(end + 1)).toBeNull();

@@ -1,0 +1,62 @@
+diff --git a/dist/commonjs/index.d.ts b/dist/commonjs/index.d.ts
+index 1d86e5ec52083b00be390eefad66a03f54c1bffa..fd5c52a3c2f9f85800bfa6282437e8bd9fce286d 100644
+--- a/dist/commonjs/index.d.ts
++++ b/dist/commonjs/index.d.ts
+@@ -9,4 +9,7 @@ export type BraceExpansionOptions = {
+     maxRewrites?: number;
+ };
+ export declare function expand(str: string, options?: BraceExpansionOptions): string[];
++// The runtime patch exposes `expand` as the callable default export;
++// declare it so `import expand from "brace-expansion"` type-checks too.
++export default expand;
+ //# sourceMappingURL=index.d.ts.map
+\ No newline at end of file
+diff --git a/dist/commonjs/index.js b/dist/commonjs/index.js
+index 48cf0d3dabc885249c65909c4912712c834786f5..97bf7c470576a79f7400588a3525311ae0166cf7 100644
+--- a/dist/commonjs/index.js
++++ b/dist/commonjs/index.js
+@@ -330,4 +330,18 @@ function expand_(str, max, maxLength, maxDepth, depth, maxRewrites, isTop) {
+     }
+     return acc;
+ }
++// Backward-compat: expose the callable `expand` as the CommonJS default export.
++// brace-expansion <5 used `module.exports = expand`, and consumers such as
++// minimatch@3.x do `const expand = require('brace-expansion')` then call it
++// directly. 5.x switched to a named-only `exports.expand`, which breaks them
++// ("expand is not a function"). Re-attach the named members onto the function
++// and export it as the default while keeping `.expand` for modern callers.
++expand.expand = expand;
++expand.default = expand;
++expand.EXPANSION_MAX = exports.EXPANSION_MAX;
++expand.EXPANSION_MAX_LENGTH = exports.EXPANSION_MAX_LENGTH;
++expand.EXPANSION_MAX_DEPTH = exports.EXPANSION_MAX_DEPTH;
++expand.EXPANSION_MAX_REWRITES = exports.EXPANSION_MAX_REWRITES;
++Object.defineProperty(expand, "__esModule", { value: true });
++module.exports = expand;
+ //# sourceMappingURL=index.js.map
+\ No newline at end of file
+diff --git a/dist/esm/index.d.ts b/dist/esm/index.d.ts
+index 1d86e5ec52083b00be390eefad66a03f54c1bffa..fd5c52a3c2f9f85800bfa6282437e8bd9fce286d 100644
+--- a/dist/esm/index.d.ts
++++ b/dist/esm/index.d.ts
+@@ -9,4 +9,7 @@ export type BraceExpansionOptions = {
+     maxRewrites?: number;
+ };
+ export declare function expand(str: string, options?: BraceExpansionOptions): string[];
++// The runtime patch exposes `expand` as the callable default export;
++// declare it so `import expand from "brace-expansion"` type-checks too.
++export default expand;
+ //# sourceMappingURL=index.d.ts.map
+\ No newline at end of file
+diff --git a/dist/esm/index.js b/dist/esm/index.js
+index 0e0cc962307eb697dc8139ef4c1f86b82380e5cc..e2131fff80c15684e781f7e951fb76492b0b8139 100644
+--- a/dist/esm/index.js
++++ b/dist/esm/index.js
+@@ -326,4 +326,7 @@ function expand_(str, max, maxLength, maxDepth, depth, maxRewrites, isTop) {
+     }
+     return acc;
+ }
++// Provide a default export mirroring the pre-5.x callable export so consumers
++// doing `import expand from 'brace-expansion'` keep working.
++export default expand;
+ //# sourceMappingURL=index.js.map

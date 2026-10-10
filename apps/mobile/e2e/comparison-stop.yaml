@@ -18,7 +18,10 @@ appId: io.llmgateway.lounge
 - assertVisible: "Response stopped."
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
 - tapOn:
     id: "field-search-conversations"
 - inputText: ${output.title}

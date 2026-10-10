@@ -115,6 +115,50 @@ describe("project admin access", () => {
 		expect((await request(`/dynamic-routes/${projectId}`)).status).toBe(200);
 	});
 
+	test("normalizes the statement descriptor suffix it stores", async () => {
+		const response = await request(`/projects/${projectId}`, "PATCH", {
+			endUserBrandName: "Acme AI",
+			endUserSupportEmail: "support@acme.test",
+			// Lowercase, over-long and full of characters Stripe rejects: what we
+			// persist has to be safe to send on every PaymentIntent.
+			endUserStatementDescriptorSuffix: "acme*ai <superstore>",
+		});
+		expect(response.status).toBe(200);
+		expect((await response.json()).project).toMatchObject({
+			endUserBrandName: "Acme AI",
+			endUserSupportEmail: "support@acme.test",
+			endUserStatementDescriptorSuffix: "ACME AI SUPER",
+		});
+	});
+
+	test("clears the branding fields when set to null", async () => {
+		await request(`/projects/${projectId}`, "PATCH", {
+			endUserBrandName: "Acme AI",
+		});
+		const response = await request(`/projects/${projectId}`, "PATCH", {
+			endUserBrandName: null,
+		});
+		expect(response.status).toBe(200);
+		expect((await response.json()).project.endUserBrandName).toBeNull();
+	});
+
+	test("rejects branding writes when the Payments SDK preview is off", async () => {
+		await db
+			.update(tables.project)
+			.set({ paymentsSdkEnabled: false })
+			.where(eq(tables.project.id, projectId));
+
+		const response = await request(`/projects/${projectId}`, "PATCH", {
+			endUserBrandName: "Acme AI",
+		});
+		expect(response.status).toBe(403);
+
+		await db
+			.update(tables.project)
+			.set({ paymentsSdkEnabled: true })
+			.where(eq(tables.project.id, projectId));
+	});
+
 	test("manages project guardrails and reads inherited policy", async () => {
 		await db.insert(tables.guardrailConfig).values({
 			organizationId: orgId,
@@ -354,6 +398,48 @@ describe("project admin access", () => {
 			where: { id: { eq: "peer-membership" } },
 		});
 		expect(member?.teamId).toBeNull();
+	});
+
+	test("only a role change makes a mapped role manual", async () => {
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "owner" })
+			.where(eq(tables.userOrganization.id, membershipId));
+		await db.insert(tables.userOrganization).values({
+			id: "peer-membership",
+			organizationId: orgId,
+			userId: "project-peer",
+			role: "project_admin",
+			roleAssignmentSource: "sso",
+		});
+		const getPeer = () =>
+			db.query.userOrganization.findFirst({
+				where: { id: { eq: "peer-membership" } },
+				columns: { role: true, roleAssignmentSource: true },
+			});
+
+		const granted = await request(
+			`/team/${orgId}/members/peer-membership`,
+			"PATCH",
+			{ role: "project_admin", projectIds: [projectId] },
+		);
+		expect(granted.status).toBe(200);
+		expect(await getUserProjectIds("project-peer")).toEqual([projectId]);
+		expect(await getPeer()).toEqual({
+			role: "project_admin",
+			roleAssignmentSource: "sso",
+		});
+
+		const promoted = await request(
+			`/team/${orgId}/members/peer-membership`,
+			"PATCH",
+			{ role: "admin" },
+		);
+		expect(promoted.status).toBe(200);
+		expect(await getPeer()).toEqual({
+			role: "admin",
+			roleAssignmentSource: "manual",
+		});
 	});
 
 	test("accepts invitations with only the invited project grants", async () => {

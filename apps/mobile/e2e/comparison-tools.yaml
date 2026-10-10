@@ -30,7 +30,10 @@ env:
 - assertTrue: ${JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls === output.callsBefore}
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
 - tapOn:
     id: "field-search-conversations"
 - inputText: ${output.chatTitle}
@@ -54,7 +57,10 @@ env:
 - assertTrue: ${JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls === output.callsBefore + 2}
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
 - tapOn:
     id: "field-search-conversations"
 - inputText: ${output.chatTitle}

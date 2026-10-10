@@ -7,3 +7,5 @@ export * from "./types.js";
 export * from "./type-guards.js";
 export * from "./helpers.js";
 export * from "./region-helpers.js";
+export * from "./model-id.js";
+export * from "./provider-access-restriction.js";

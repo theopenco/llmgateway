@@ -1,10 +1,10 @@
 appId: io.llmgateway.lounge
 ---
 - runFlow: helpers/sign-in.yaml
-- scrollUntilVisible:
-    element: "Your profile"
-    direction: DOWN
-- tapOn: "Your profile"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
 - scrollUntilVisible:
     element: "View leaderboard"
     direction: DOWN
@@ -27,10 +27,10 @@ appId: io.llmgateway.lounge
 - assertVisible: "@native-member · You"
 - takeScreenshot: artifacts/profile-leaderboard
 - launchApp
-- scrollUntilVisible:
-    element: "Your profile"
-    direction: DOWN
-- tapOn: "Your profile"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
 - scrollUntilVisible:
     element: "View leaderboard"
     direction: DOWN
@@ -63,10 +63,10 @@ appId: io.llmgateway.lounge
     direction: DOWN
 - assertVisible: "Escape the sandbox"
 - launchApp
-- scrollUntilVisible:
-    element: "Your profile"
-    direction: DOWN
-- tapOn: "Your profile"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
 - scrollUntilVisible:
     element: "View leaderboard"
     direction: DOWN
@@ -80,10 +80,10 @@ appId: io.llmgateway.lounge
 - assertVisible: "Lounge leaderboard"
 - assertNotVisible: "@native-member · You"
 - launchApp
-- scrollUntilVisible:
-    element: "Your profile"
-    direction: DOWN
-- tapOn: "Your profile"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
 - scrollUntilVisible:
     element: "View leaderboard"
     direction: DOWN

@@ -2,70 +2,66 @@
 id: cline
 slug: cline
 title: Cline Integration
-seoTitle: "Cline Setup: Kimi K3 and 200+ Models"
-description: Run Cline, the autonomous VS Code coding agent, on Kimi K3 or 200+ models through LLM Gateway. One OpenAI-compatible endpoint, full cost tracking.
-date: 2026-07-03
+seoTitle: Use Cline with LLM Gateway
+description: Configure Cline's OpenAI-compatible provider, choose a model, and verify a coding task through LLM Gateway.
+date: 2026-09-23
 ---
 
-[Cline](https://cline.bot) is an autonomous AI coding assistant that lives in VS Code. It creates and edits files, runs terminal commands, and works through multi-step tasks on its own. Unlike Cursor, Cline routes **everything** through the endpoint you give it — so with LLM Gateway you get a full coding agent on any model in our catalog, with every request tracked and billed in one place.
+[Cline](https://cline.bot) is a coding agent for VS Code. Configure its OpenAI-compatible provider to send model requests through LLM Gateway with a pay-as-you-go or DevPass key.
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+## Video walkthrough
 
-## Quick Start
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/zpCUxe7ml48"
+		title="Cline setup and coding demo with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
 
-### 1. Install the Cline extension
+## Install Cline
 
-Search for "Cline" in the VS Code Extensions view (Cmd/Ctrl + Shift + X) and install it.
+Open the VS Code Extensions view with **Cmd/Ctrl + Shift + X**, search for **Cline**, and install the extension published by Cline.
 
-![Install Cline Extension](https://docs.llmgateway.io/guides/cline/clineinstall.webp)
+## Connect LLM Gateway
 
-### 2. Configure the API provider
+On first launch, choose **Bring my own API key** and continue. For an existing installation, open Cline's settings using the gear icon.
 
-Open the Cline panel, click the settings gear, and set:
+Set these fields:
 
-- **API Provider**: `OpenAI Compatible`
-- **Base URL**: `https://api.llmgateway.io/v1`
-- **API Key**: your key from the [LLM Gateway dashboard](/dashboard)
-- **Model ID**: any model from the [catalog](https://llmgateway.io/models), e.g. `claude-sonnet-4-6`, `gpt-5.2`, or `deepseek-v3.2`
+| Field        | Value                                            |
+| ------------ | ------------------------------------------------ |
+| API Provider | `OpenAI Compatible`                              |
+| Base URL     | `https://api.llmgateway.io/v1`                   |
+| API Key      | A key from your LLM Gateway or DevPass dashboard |
+| Model ID     | A tool-capable model ID from the live catalogue  |
 
-![Configure API Provider](https://docs.llmgateway.io/guides/cline/modelsetup.webp)
+Create a key in your&nbsp;[dashboard](https://llmgateway.io/dashboard). Find model IDs, context limits, and capabilities on the&nbsp;[models page](https://llmgateway.io/models?features=tools).
 
-### 3. Test it
+Cline's model configuration also lets you set context and capability information. Match those settings to your selected model. A default or zero cost shown inside Cline is not the gateway's bill; check actual usage in your dashboard.
 
-Ask Cline to do something concrete — "Create a hello world function in Python". It should respond and offer to create the file.
+> **Using DevPass?** Use a canonical model ID included in your plan, without an upstream provider prefix. The gateway selects the provider. See the&nbsp;[DevPass site](https://devpass.llmgateway.io).
 
-![Test Cline](https://docs.llmgateway.io/guides/cline/clineexec.webp)
+## Verify a small task
 
-All requests — planning, edits, terminal commands — now route through LLM Gateway.
+Open a project and ask Cline to fix one function with an existing test. **Plan** mode can inspect the project and propose a change. Switch to **Act** to apply it.
 
-## Picking the right model
+Review the proposed diff before approving the edit. Approve the test command when prompted, then inspect its output. Keep the scope small until you are comfortable with the tool permissions.
 
-Cline works the codebase hard: long contexts, lots of tool calls. A few tips:
-
-- **Frontier coding models** (`claude-sonnet-4-6`, `gpt-5.2`, `gemini-3-pro-preview`) give the best autonomous results
-- **Discounted models**: check the [discounted list](https://llmgateway.io/models?view=grid&filters=1&discounted=true) — same models, lower price through partner providers
-- **Provider pinning**: prefix with a provider (e.g. `openai/gpt-5.2`) to pin routing; otherwise LLM Gateway picks the best available provider with automatic failover
-- **Free models**: try [free models](https://llmgateway.io/models?view=grid&filters=1&free=true) for low-stakes tasks
-
-## Switching models mid-project
-
-Because Cline just sees one OpenAI-compatible endpoint, swapping models is a one-line change in its settings — no new accounts or API keys. Use a fast, cheap model for boilerplate and switch to a frontier model for the hard parts, keeping one bill and one usage dashboard the whole time.
+Cline can keep separate models for Plan and Act. If you enable that option, configure both modes to use the intended gateway endpoint and key.
 
 ## Troubleshooting
 
-**Authentication errors** — Double-check the key and that the base URL is exactly `https://api.llmgateway.io/v1`.
+**Authentication fails:** confirm the key is active and the base URL includes `/v1`.
 
-**Model not found** — Copy the model ID exactly from the [models page](https://llmgateway.io/models).
+**A model is unavailable:** copy its exact ID from the live catalogue and check that your account can use it.
 
-**Context overflow on big tasks** — Switch to a model with a larger context window; the catalog lists context sizes per model.
+**Cline plans without editing:** switch to Act mode and approve the proposed edit.
 
-Need help? Join our [Discord](https://llmgateway.io/discord).
+**Terminal output is missing:** check VS Code shell integration. Interactive shell startup prompts can interrupt commands; dismiss them or use a terminal profile with a clean startup, then rerun the test.
 
-## Why route Cline through LLM Gateway
-
-- **Full agent support** — unlike Cursor, every Cline feature works through the gateway
-- **Any model, one key** — OpenAI, Anthropic, Google, Meta, DeepSeek, and open-source models
-- **Cost control** — per-request cost tracking and spend limits in the [dashboard](/dashboard)
-- **Caching and failover** — repeated requests hit cache; failing providers fall over automatically
-
-[Get started for free](/signup) — no credit card required.
+**The context limit is wrong:** match Cline's model configuration to the model's documented context window and start a fresh task if the conversation is already too large.

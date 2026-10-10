@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { processPendingVideoJobs } from "worker";
 
 import { app } from "@/app.js";
+import { waitForPendingWork } from "@/lib/pending-work.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import {
 	getMockVideo,
@@ -1203,6 +1204,134 @@ describe("videos", () => {
 		}
 	});
 
+	test("/v1/videos forwards MiniMax H3 Max frames to the v2 API and bills per second", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-minimax",
+			...encryptProviderKeyForStorage(
+				"minimax-test-token",
+				"provider-key-minimax",
+				"org-id",
+			),
+			provider: "minimax",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "minimax/minimax-h3-max",
+				prompt: "Morph the first frame into the last frame",
+				size: "1366x768",
+				seconds: 7,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+				last_frame: { image_url: "data:image/png;base64,d29ybGQ=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.requestBody).toEqual({
+			model: "MiniMax-H3-Max",
+			content: [
+				{ type: "text", text: "Morph the first frame into the last frame" },
+				{
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,aGVsbG8=" },
+					role: "first_frame",
+				},
+				{
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,d29ybGQ=" },
+					role: "last_frame",
+				},
+			],
+			resolution: "768P",
+			duration: 7,
+			ratio: "adaptive",
+		});
+
+		setMockVideoStatus(videoJob!.upstreamId, "completed");
+		await processPendingVideoJobs();
+
+		const completedJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(completedJob?.status).toBe("completed");
+		expect(completedJob?.contentUrl).toBe(
+			`${mockServerUrl}/mock-assets/${videoJob!.upstreamId}`,
+		);
+
+		const logs = await db.query.log.findMany({
+			where: { usedModel: { eq: "minimax/minimax-h3-max" } },
+		});
+		expect(logs).toHaveLength(1);
+		expect(logs[0].videoOutputCost).toBe(0.56);
+	});
+
+	test("/v1/videos sends MiniMax H3 Max portrait text-to-video at 480P", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-minimax",
+			...encryptProviderKeyForStorage(
+				"minimax-test-token",
+				"provider-key-minimax",
+				"org-id",
+			),
+			provider: "minimax",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "minimax/minimax-h3-max",
+				prompt: "A paper boat drifting on a pond",
+				size: "480x854",
+				seconds: 5,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(getMockVideo(videoJob!.upstreamId)?.requestBody).toMatchObject({
+			resolution: "480P",
+			duration: 5,
+			ratio: "9:16",
+		});
+	});
+
 	test("/v1/videos bills xAI 480p video and image input separately", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -1256,6 +1385,15 @@ describe("videos", () => {
 		expect(logs[0].imageInputCost).toBe(0.01);
 		expect(logs[0].videoOutputCost).toBe(0.48);
 		expect(logs[0].cost).toBe(0.49);
+
+		const getRes = await app.request(`/v1/videos/${created.id}`, {
+			headers: { Authorization: "Bearer real-token" },
+		});
+		expect(getRes.status).toBe(200);
+		const retrieved = await getRes.json();
+		expect(retrieved.usage.cost).toBeCloseTo(0.49, 6);
+		expect(retrieved.usage.cost_details.video_output_cost).toBeCloseTo(0.48, 6);
+		expect(retrieved.usage.cost_details.image_input_cost).toBeCloseTo(0.01, 6);
 	});
 
 	test("/v1/videos bills xAI 720p at the 720p rate", async () => {
@@ -1484,7 +1622,7 @@ describe("videos", () => {
 			});
 		}
 
-		function spyModeration() {
+		function spyModeration(release?: Promise<void>) {
 			moderationInputs = [];
 			const originalFetch = globalThis.fetch;
 			return vi
@@ -1498,6 +1636,7 @@ describe("videos", () => {
 								: input.url;
 					if (url === MODERATION_URL) {
 						moderationInputs.push(JSON.parse(String(init?.body)).input);
+						await release;
 						return new Response(
 							JSON.stringify({
 								id: "modr-video",
@@ -1542,6 +1681,8 @@ describe("videos", () => {
 				const createRes = await createVideo("video-tier-logged");
 				expect(createRes.status).toBe(200);
 				const created = await createRes.json();
+				// Log-only evaluations run in the background.
+				expect(await waitForPendingWork(5000)).toBe(0);
 
 				// Prompt text plus one image part each get their own moderation call.
 				expect(moderationInputs).toHaveLength(2);
@@ -1573,6 +1714,54 @@ describe("videos", () => {
 					matchedCategories: ["violence"],
 				});
 			} finally {
+				fetchSpy.mockRestore();
+				if (previousKey === undefined) {
+					delete process.env.LLM_OPENAI_API_KEY;
+				} else {
+					process.env.LLM_OPENAI_API_KEY = previousKey;
+				}
+			}
+		});
+
+		test("does not hold a log-only submission for the classifier", async () => {
+			await seedXai();
+			await harness.setContentFilterSettings({ providerIds: ["xai"] });
+			const previousKey = process.env.LLM_OPENAI_API_KEY;
+			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+			let releaseModeration = () => {};
+			const fetchSpy = spyModeration(
+				new Promise<void>((resolve) => {
+					releaseModeration = resolve;
+				}),
+			);
+
+			try {
+				// The job is created while every moderation call is still open.
+				const createRes = await createVideo("video-tier-background");
+				expect(createRes.status).toBe(200);
+				const created = await createRes.json();
+				const findJob = async () =>
+					await db.query.videoJob.findFirst({
+						where: { id: { eq: created.id } },
+					});
+				expect(await findJob()).toMatchObject({
+					upstreamCreateResponse: expect.not.objectContaining({
+						llmgateway_content_filter_evaluation: expect.anything(),
+					}),
+				});
+
+				releaseModeration();
+				expect(await waitForPendingWork(5000)).toBe(0);
+				expect(await findJob()).toMatchObject({
+					upstreamCreateResponse: {
+						llmgateway_content_filter_evaluation: {
+							violation: true,
+							action: "logged",
+						},
+					},
+				});
+			} finally {
+				releaseModeration();
 				fetchSpy.mockRestore();
 				if (previousKey === undefined) {
 					delete process.env.LLM_OPENAI_API_KEY;

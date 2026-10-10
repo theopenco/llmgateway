@@ -1,6 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
+import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
@@ -103,7 +104,9 @@ export default async function ContactSubmissionDetailPage({
 					<Badge variant={getStatusBadgeVariant(data.spamFilterStatus)}>
 						{getStatusLabel(data.spamFilterStatus)}
 					</Badge>
-					<DeleteSubmissionButton id={data.id} archivedAt={data.archivedAt} />
+					<AdminOnly>
+						<DeleteSubmissionButton id={data.id} archivedAt={data.archivedAt} />
+					</AdminOnly>
 				</div>
 				<p className="text-sm text-muted-foreground">
 					Submitted {formatDate(data.createdAt)}
@@ -179,14 +182,16 @@ export default async function ContactSubmissionDetailPage({
 					</dl>
 				</div>
 
-				<ReplyForm
-					submissionId={data.id}
-					name={data.name}
-					email={data.email}
-					country={data.country}
-					size={data.size}
-					message={data.message}
-				/>
+				<AdminOnly>
+					<ReplyForm
+						submissionId={data.id}
+						name={data.name}
+						email={data.email}
+						country={data.country}
+						size={data.size}
+						message={data.message}
+					/>
+				</AdminOnly>
 			</div>
 		</div>
 	);

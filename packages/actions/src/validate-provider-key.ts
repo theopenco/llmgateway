@@ -19,6 +19,7 @@ import {
 } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
+import { getUpstreamModelId } from "./provider-api-format.js";
 import { describeNetworkFailure } from "./provider-key/network-error.js";
 import { redactToken } from "./provider-key/redact.js";
 
@@ -58,12 +59,24 @@ function resolveSelectedRegion(
 ): string | undefined {
 	const providerDef = providers.find((p) => p.id === provider) as
 		ProviderDefinition | undefined;
-	const regionKey = providerDef?.regionConfig?.optionsKey;
-	return regionKey
-		? ((providerKeyOptions as Record<string, string | undefined> | undefined)?.[
-				regionKey
-			] ?? providerDef?.regionConfig?.defaultRegion)
-		: undefined;
+	const regionConfig = providerDef?.regionConfig;
+	const regionKey = regionConfig?.optionsKey;
+	if (!regionKey) {
+		return undefined;
+	}
+	const selected = (
+		providerKeyOptions as Record<string, string | undefined> | undefined
+	)?.[regionKey];
+	if (!selected) {
+		return regionConfig.defaultRegion;
+	}
+	// A managed AWS Bedrock credential may carry its region as the model-id
+	// prefix (`us.`), the form the Converse endpoint reads; map it back to the
+	// region id.
+	const prefixedRegion = Object.entries(regionConfig.modelPrefixMap ?? {}).find(
+		([, prefix]) => prefix !== "" && prefix === selected,
+	)?.[0];
+	return prefixedRegion ?? selected;
 }
 
 /**
@@ -85,13 +98,19 @@ function findRegionAwareMapping(
 	);
 }
 
+type ValidationModelKind = "text" | "decision";
+
+/**
+ * Cheap model to probe a key with. Prefers text models; providers that only
+ * serve decision models (e.g. TypeSafe) are probed via System One instead.
+ */
 export function getValidationModel(
 	provider: ProviderId,
 	providerKeyOptions?: ProviderKeyOptions,
-): { modelId: string; externalId: string } | null {
+): { modelId: string; externalId: string; kind: ValidationModelKind } | null {
 	if (provider === "azure" && providerKeyOptions?.azure_validation_model) {
 		const azureModel = providerKeyOptions.azure_validation_model;
-		return { modelId: azureModel, externalId: azureModel };
+		return { modelId: azureModel, externalId: azureModel, kind: "text" };
 	}
 
 	const selectedRegion = resolveSelectedRegion(provider, providerKeyOptions);
@@ -133,11 +152,11 @@ export function getValidationModel(
 				providerMapping.deactivatedAt &&
 				currentDate >= providerMapping.deactivatedAt;
 
+			const kind = getProviderModelKind(model, providerMapping);
 			if (
-				!isStable ||
 				isDeprecated ||
 				isDeactivated ||
-				getProviderModelKind(model, providerMapping) !== "text"
+				(kind !== "text" && kind !== "decision")
 			) {
 				return [];
 			}
@@ -155,6 +174,8 @@ export function getValidationModel(
 				{
 					modelId: model.id,
 					externalId: providerMapping.externalId,
+					kind,
+					isStable,
 					price: averagePrice,
 					releasedAt:
 						"releasedAt" in model
@@ -172,8 +193,19 @@ export function getValidationModel(
 		? regionModels
 		: collectModels(false);
 
-	const best = pickCheapestRecentModel(providerModels);
-	return best ? { modelId: best.modelId, externalId: best.externalId } : null;
+	// Prefer stable mappings, but never let stability empty the list: a provider
+	// whose entire catalog is a single free preview model (unstable by design)
+	// still has to be probeable, otherwise its keys can never be validated.
+	const stableModels = providerModels.filter((m) => m.isStable);
+	const candidates = stableModels.length ? stableModels : providerModels;
+
+	const textModels = candidates.filter((m) => m.kind === "text");
+	const best = pickCheapestRecentModel(
+		textModels.length ? textModels : candidates,
+	);
+	return best
+		? { modelId: best.modelId, externalId: best.externalId, kind: best.kind }
+		: null;
 }
 
 export interface PinnedValidationModel {
@@ -323,7 +355,11 @@ export async function validateProviderKey(
 
 	let validationModel:
 		| PinnedValidationModel
-		| { modelId: string; externalId: string; kind: "text" }
+		| {
+				modelId: string;
+				externalId: string;
+				kind: ValidationModelKind;
+		  }
 		| undefined;
 	// Hoisted so the catch can name the host that could not be reached.
 	let endpoint: string | undefined;
@@ -341,10 +377,7 @@ export async function validateProviderKey(
 						pinnedModelId,
 						providerKeyOptions,
 					) ?? undefined)
-			: (() => {
-					const selected = getValidationModel(provider, providerKeyOptions);
-					return selected ? { ...selected, kind: "text" as const } : undefined;
-				})();
+			: (getValidationModel(provider, providerKeyOptions) ?? undefined);
 		if (!validationModel) {
 			if (pinnedModelId) {
 				return {
@@ -353,9 +386,14 @@ export async function validateProviderKey(
 					model: pinnedModelId,
 				};
 			}
-			throw new Error(
-				`No suitable validation model found for provider ${provider}`,
-			);
+			// Nothing in the catalog can answer a probe for this provider (e.g. it
+			// only maps image or video models). The key was never judged, so
+			// rejecting it would be wrong — accept it unprobed, like a custom
+			// provider without a pinned model.
+			logger.warn("Skipping provider key validation: no probe model", {
+				provider,
+			});
+			return { valid: true };
 		}
 
 		logger.debug("Using validation model", {
@@ -434,6 +472,18 @@ export async function validateProviderKey(
 				);
 				payload = { input: "Hello", model: validationModel.externalId };
 			}
+		} else if (validationModel.kind === "decision") {
+			endpoint = appendPath(
+				getValidationBaseUrl(provider, baseUrl, providerKeyOptions),
+				"v1/systemone",
+			);
+			payload = {
+				model: validationModel.externalId,
+				state: "Hello",
+				questions: {
+					greeting: { type: "noul", instructions: "Is this a greeting?" },
+				},
+			};
 		} else if (validationModel.kind === "ocr") {
 			endpoint = appendPath(
 				getValidationBaseUrl(provider, baseUrl, providerKeyOptions),
@@ -486,7 +536,6 @@ export async function validateProviderKey(
 				effectiveModelId,
 				provider === "google-ai-studio" ||
 					provider === "glacier" ||
-					provider === "iceberg" ||
 					provider === "google-vertex" ||
 					provider === "quartz" ||
 					provider === "vertex-anthropic"
@@ -510,7 +559,12 @@ export async function validateProviderKey(
 				provider,
 				validationModel.modelId,
 				validationRegion ?? null,
-				validationModel.externalId,
+				getUpstreamModelId(
+					provider,
+					validationModel.modelId,
+					validationModel.externalId,
+					validationRegion,
+				),
 				messages,
 				false,
 				undefined,

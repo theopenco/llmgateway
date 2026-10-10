@@ -1,8 +1,9 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback } from "react";
-
+import {
+	FilterPendingSpinner,
+	useFilterNavigation,
+} from "@/components/filter-navigation";
 import { Button } from "@/components/ui/button";
 import { pageBucketSource, pageWindowOptions } from "@/lib/page-window";
 
@@ -15,21 +16,15 @@ export function TimeWindowSelector({
 	current: PageWindow;
 	options?: { value: PageWindow; label: string }[];
 }) {
-	const router = useRouter();
-	const pathname = usePathname();
-	const searchParams = useSearchParams();
+	const { isPending, pendingKey, navigate } = useFilterNavigation();
 
-	const handleSelect = useCallback(
-		(w: PageWindow) => {
-			const params = new URLSearchParams(searchParams.toString());
+	const handleSelect = (w: PageWindow) =>
+		navigate(`window:${w}`, (params) => {
 			params.set("window", w);
 			params.delete("from");
 			params.delete("to");
 			params.delete("page");
-			router.push(`${pathname}?${params.toString()}`);
-		},
-		[router, pathname, searchParams],
-	);
+		});
 
 	return (
 		<div className="flex flex-wrap items-center gap-2">
@@ -39,8 +34,12 @@ export function TimeWindowSelector({
 						key={opt.value}
 						variant={current === opt.value ? "default" : "outline"}
 						size="sm"
+						disabled={isPending}
 						onClick={() => handleSelect(opt.value)}
 					>
+						{pendingKey === `window:${opt.value}` && (
+							<FilterPendingSpinner className="h-3.5 w-3.5" />
+						)}
 						{opt.label}
 					</Button>
 				))}

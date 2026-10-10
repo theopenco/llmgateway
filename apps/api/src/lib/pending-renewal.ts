@@ -4,6 +4,41 @@ import { logger } from "@llmgateway/logger";
 
 import type Stripe from "stripe";
 
+async function listInvoicesByStatus(
+	subscriptionId: string,
+	status: "draft" | "open",
+): Promise<Stripe.Invoice[]> {
+	const invoices: Stripe.Invoice[] = [];
+	let startingAfter: string | undefined;
+	while (true) {
+		const page = await getStripe().invoices.list({
+			subscription: subscriptionId,
+			status,
+			limit: 100,
+			...(startingAfter ? { starting_after: startingAfter } : {}),
+		});
+		invoices.push(...page.data);
+		if (!page.has_more) {
+			return invoices;
+		}
+		const lastId = page.data.at(-1)?.id;
+		if (!lastId || lastId === startingAfter) {
+			throw new Error("Stripe invoice pagination did not advance");
+		}
+		startingAfter = lastId;
+	}
+}
+
+export async function getPendingSubscriptionInvoices(
+	subscriptionId: string,
+): Promise<Stripe.Invoice[]> {
+	const [drafts, open] = await Promise.all([
+		listInvoicesByStatus(subscriptionId, "draft"),
+		listInvoicesByStatus(subscriptionId, "open"),
+	]);
+	return [...drafts, ...open];
+}
+
 // Stripe drafts a subscription's cycle-renewal invoice at the period boundary
 // and only finalizes and charges it about an hour later. An immediate tier
 // upgrade re-anchors the billing cycle (`billing_cycle_anchor: "now"`) and
@@ -19,32 +54,45 @@ import type Stripe from "stripe";
 export async function voidPendingCycleRenewalInvoices(
 	subscriptionId: string,
 ): Promise<void> {
+	await voidSubscriptionInvoices(subscriptionId, {
+		cycleRenewalsOnly: true,
+		reason: "superseded by an immediate upgrade",
+	});
+}
+
+// Voids every pending invoice on a subscription that is being ended while
+// unpaid, so Stripe's retry schedule stops charging the card for a cycle the
+// customer never received.
+export async function voidOpenSubscriptionInvoices(
+	subscriptionId: string,
+): Promise<void> {
+	await voidSubscriptionInvoices(subscriptionId, {
+		cycleRenewalsOnly: false,
+		reason: "cancelled while unpaid",
+	});
+}
+
+async function voidSubscriptionInvoices(
+	subscriptionId: string,
+	{ cycleRenewalsOnly, reason }: { cycleRenewalsOnly: boolean; reason: string },
+): Promise<void> {
 	const stripe = getStripe();
 	let pending: Stripe.Invoice[];
 	try {
-		const [drafts, open] = await Promise.all([
-			stripe.invoices.list({
-				subscription: subscriptionId,
-				status: "draft",
-				limit: 10,
-			}),
-			stripe.invoices.list({
-				subscription: subscriptionId,
-				status: "open",
-				limit: 10,
-			}),
-		]);
-		pending = [...drafts.data, ...open.data];
+		pending = await getPendingSubscriptionInvoices(subscriptionId);
 	} catch (error) {
 		logger.error(
-			`Failed to list pending invoices for subscription ${subscriptionId} before re-anchoring its billing cycle`,
+			`Failed to list pending invoices for subscription ${subscriptionId} (${reason})`,
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		return;
 	}
 
 	for (const invoice of pending) {
-		if (invoice.billing_reason !== "subscription_cycle" || !invoice.id) {
+		if (
+			!invoice.id ||
+			(cycleRenewalsOnly && invoice.billing_reason !== "subscription_cycle")
+		) {
 			continue;
 		}
 		try {
@@ -57,12 +105,12 @@ export async function voidPendingCycleRenewalInvoices(
 			if (finalized.status === "open") {
 				await stripe.invoices.voidInvoice(invoice.id);
 				logger.info(
-					`Voided pending cycle-renewal invoice ${invoice.id} on subscription ${subscriptionId} superseded by an immediate upgrade`,
+					`Voided pending invoice ${invoice.id} on subscription ${subscriptionId} ${reason}`,
 				);
 			}
 		} catch (error) {
 			logger.error(
-				`Failed to void pending cycle-renewal invoice ${invoice.id} on subscription ${subscriptionId}; the renewal webhook's staleness guard will skip its credit reset`,
+				`Failed to void pending invoice ${invoice.id} on subscription ${subscriptionId} (${reason}); the renewal webhook's staleness guard will skip its credit reset`,
 				error instanceof Error ? error : new Error(String(error)),
 			);
 		}

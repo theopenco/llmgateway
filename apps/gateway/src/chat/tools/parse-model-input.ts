@@ -61,12 +61,23 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 	}
 
 	// check if there is an exact model match
-	if (modelInput === "auto" || modelInput === "custom") {
+	if (
+		modelInput === "auto" ||
+		modelInput === "smart" ||
+		modelInput === "custom"
+	) {
 		requestedProvider = "llmgateway";
 		requestedModel = modelInput as Model;
 	} else if (modelInput.includes("/")) {
 		const split = modelInput.split("/");
 		const providerCandidate = split[0];
+
+		// Custom provider keys are always addressed by their configured name.
+		if (providerCandidate === "custom" || providerCandidate === "") {
+			throw new HTTPException(400, {
+				message: `Invalid model "${modelInput}". Address a custom provider by its configured name, e.g. "my-provider/model-name".`,
+			});
+		}
 
 		// Check if the provider exists
 		const knownProvider = providers.find((p) => p.id === providerCandidate);

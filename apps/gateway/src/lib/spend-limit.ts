@@ -1,6 +1,10 @@
 import { HTTPException } from "hono/http-exception";
 
-import { recordLimitHit, recordOrgSpend } from "@llmgateway/actions";
+import {
+	markOrgRequestActivity,
+	recordLimitHit,
+	recordOrgSpend,
+} from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 import {
@@ -186,13 +190,17 @@ export async function assertSpendLimit(
 
 /**
  * Add the actual cost of a completed request to the org's daily and monthly
- * spend counters. Called from the single `insertLog` chokepoint, so it is DRY
- * across every request path. Recording for non-capped orgs is harmless — those
- * counters are never read.
+ * spend counters and stamp the org's request-activity marker. Called from the
+ * `insertLog` chokepoint plus the realtime and video paths that bypass it, so
+ * it is DRY across every request path. Recording for non-capped orgs is
+ * harmless — those counters are never read.
  */
 export async function recordSpend(
 	organizationId: string,
 	cost: number,
 ): Promise<void> {
-	await recordOrgSpend(organizationId, cost);
+	await Promise.all([
+		markOrgRequestActivity(organizationId),
+		recordOrgSpend(organizationId, cost),
+	]);
 }

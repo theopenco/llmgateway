@@ -4,6 +4,7 @@ slug: "agents-templates-cli"
 date: "2026-01-30"
 title: "AI Agent skills, Agents, Templates & CLI"
 summary: "Build AI-powered applications faster with pre-built agents, production-ready templates, and a new CLI tool for scaffolding projects."
+tags: ["llmgateway"]
 image:
   src: "/changelog/agents-templates.png"
   alt: "LLM Gateway agents and templates showcase"

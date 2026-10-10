@@ -11,7 +11,6 @@ export const providerLogoUrls: Partial<
 	elevenlabs: ProviderIcons.elevenlabs,
 	"google-ai-studio": ProviderIcons["google-ai-studio"],
 	glacier: ProviderIcons.glacier,
-	iceberg: ProviderIcons.iceberg,
 	"google-vertex": ProviderIcons["google-vertex"],
 	"vertex-anthropic": ProviderIcons["vertex-anthropic"],
 	"vertex-openai": ProviderIcons["vertex-openai"],

@@ -4,15 +4,14 @@ import {
 	ArrowUpDown,
 	ChevronLeft,
 	ChevronRight,
-	Search,
 } from "lucide-react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { BlockOrgButton } from "@/components/block-org-button";
 import { BulkBlockOrgsButton } from "@/components/bulk-block-orgs-button";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { OrgStatusToggleButton } from "@/components/org-status-toggle-button";
+import { OrganizationFiltersBar } from "@/components/organization-filters";
 import { PlanTermBadge } from "@/components/plan-term-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,17 +23,17 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import {
-	blockOrganization,
-	bulkBlockOrganizations,
-	previewBulkBlockOrganizations,
-	setOrganizationStatus,
-} from "@/lib/admin-organizations";
+import { canWrite } from "@/lib/admin-role";
 import {
 	ORGANIZATIONS_DEFAULT_RANGE,
 	resolveDateRangeFromSearchParams,
 } from "@/lib/date-range";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { getOrgDeletionBlockedReason } from "@/lib/org-deletion";
+import {
+	parseOrganizationFilters,
+	planFilterQuery,
+} from "@/lib/organization-filters";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -45,58 +44,11 @@ import {
 	formatCompactNumber,
 } from "@llmgateway/shared/number-format";
 
-type SortBy =
-	| "name"
-	| "billingEmail"
-	| "plan"
-	| "devPlan"
-	| "credits"
-	| "createdAt"
-	| "status"
-	| "totalCreditsAllTime"
-	| "totalSpent"
-	| "totalRequests"
-	| "totalTokens";
-type SortOrder = "asc" | "desc";
+import { buildOrganizationsHref } from "./organizations-href";
+import { OrganizationsSearchForm } from "./search-form";
 
-// The date-range picker writes `range` (relative preset) or `from`/`to`
-// (custom span) into the URL, so every link on this page has to carry them
-// along or navigating would silently reset the window to all time.
-interface DateRangeParams {
-	range?: string;
-	from?: string;
-	to?: string;
-}
-
-function buildOrganizationsHref({
-	page,
-	sortBy,
-	sortOrder,
-	search,
-	dateRange,
-}: {
-	page: number;
-	sortBy: SortBy;
-	sortOrder: SortOrder;
-	search: string;
-	dateRange: DateRangeParams;
-}) {
-	const params = new URLSearchParams();
-	params.set("page", String(page));
-	params.set("sortBy", sortBy);
-	params.set("sortOrder", sortOrder);
-	if (search) {
-		params.set("search", search);
-	}
-	if (dateRange.range) {
-		params.set("range", dateRange.range);
-	}
-	if (dateRange.from && dateRange.to) {
-		params.set("from", dateRange.from);
-		params.set("to", dateRange.to);
-	}
-	return `/organizations?${params.toString()}`;
-}
+import type { DateRangeParams, SortBy, SortOrder } from "./organizations-href";
+import type { OrganizationFilters } from "@/lib/organization-filters";
 
 function SortableHeader({
 	label,
@@ -105,6 +57,7 @@ function SortableHeader({
 	currentSortOrder,
 	search,
 	dateRange,
+	filters,
 }: {
 	label: string;
 	sortKey: SortBy;
@@ -112,6 +65,7 @@ function SortableHeader({
 	currentSortOrder: SortOrder;
 	search: string;
 	dateRange: DateRangeParams;
+	filters: OrganizationFilters;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
@@ -122,6 +76,7 @@ function SortableHeader({
 		sortOrder: nextOrder,
 		search,
 		dateRange,
+		filters,
 	});
 
 	return (
@@ -221,6 +176,9 @@ export default async function OrganizationsPage({
 		range?: string;
 		from?: string;
 		to?: string;
+		kind?: string;
+		plan?: string;
+		minSpent?: string;
 	}>;
 }) {
 	await requireSession();
@@ -230,6 +188,7 @@ export default async function OrganizationsPage({
 	const search = params?.search ?? "";
 	const sortBy = (params?.sortBy as SortBy) || "createdAt";
 	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
+	const filters = parseOrganizationFilters(params ?? {});
 	const limit = 25;
 	const offset = (page - 1) * limit;
 
@@ -250,7 +209,20 @@ export default async function OrganizationsPage({
 
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/organizations", {
-		params: { query: { limit, offset, search, sortBy, sortOrder, from, to } },
+		params: {
+			query: {
+				limit,
+				offset,
+				search,
+				sortBy,
+				sortOrder,
+				from,
+				to,
+				kind: filters.kind,
+				...planFilterQuery(filters.plan),
+				minSpent: filters.minSpent ? Number(filters.minSpent) : undefined,
+			},
+		},
 	});
 
 	if (!data) {
@@ -258,53 +230,7 @@ export default async function OrganizationsPage({
 	}
 
 	const totalPages = Math.ceil(data.total / limit);
-
-	async function handleSearch(formData: FormData) {
-		"use server";
-		const searchValue = formData.get("search") as string;
-		const sortByValue = formData.get("sortBy") as SortBy;
-		const sortOrderValue = formData.get("sortOrder") as SortOrder;
-		redirect(
-			buildOrganizationsHref({
-				page: 1,
-				sortBy: sortByValue,
-				sortOrder: sortOrderValue,
-				search: searchValue,
-				dateRange: {
-					range: (formData.get("range") as string) || undefined,
-					from: (formData.get("from") as string) || undefined,
-					to: (formData.get("to") as string) || undefined,
-				},
-			}),
-		);
-	}
-
-	async function handleToggleOrgStatus(
-		orgId: string,
-		status: "active" | "deleted",
-	): Promise<{ success: boolean; error?: string }> {
-		"use server";
-
-		return await setOrganizationStatus(orgId, status);
-	}
-
-	async function handleBlockOrganization(orgId: string, reason?: string) {
-		"use server";
-
-		return await blockOrganization(orgId, reason);
-	}
-
-	async function handlePreviewBulkBlock(searchValue: string) {
-		"use server";
-
-		return await previewBulkBlockOrganizations(searchValue);
-	}
-
-	async function handleBulkBlock(searchValue: string, expectedCount: number) {
-		"use server";
-
-		return await bulkBlockOrganizations(searchValue, expectedCount);
-	}
+	const showActions = canWrite(await getSessionAdminRole());
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
@@ -324,38 +250,24 @@ export default async function OrganizationsPage({
 				<div className="flex w-full flex-wrap items-start gap-2 sm:w-auto sm:items-center">
 					<div className="flex min-w-0 flex-1 flex-col flex-wrap items-stretch gap-2 sm:flex-initial sm:flex-row sm:items-center">
 						<DateRangePicker defaultRange={ORGANIZATIONS_DEFAULT_RANGE} />
-						<form
-							action={handleSearch}
-							className="flex w-full items-center gap-2 sm:w-auto"
-						>
-							<input type="hidden" name="sortBy" value={sortBy} />
-							<input type="hidden" name="sortOrder" value={sortOrder} />
-							<input type="hidden" name="range" value={dateRange.range ?? ""} />
-							<input type="hidden" name="from" value={dateRange.from ?? ""} />
-							<input type="hidden" name="to" value={dateRange.to ?? ""} />
-							<div className="relative min-w-0 flex-1 sm:max-w-64">
-								<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-								<input
-									type="text"
-									name="search"
-									placeholder="Search by name, email, member email, ID, or safety identifier..."
-									defaultValue={search}
-									className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-								/>
-							</div>
-							<Button type="submit" size="sm">
-								Search
-							</Button>
-						</form>
+						<OrganizationsSearchForm
+							search={search}
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							dateRange={dateRange}
+							filters={filters}
+						/>
 					</div>
-					<BulkBlockOrgsButton
-						search={search}
-						minSearchLength={MIN_BULK_BLOCK_SEARCH_LENGTH}
-						onPreview={handlePreviewBulkBlock}
-						onBulkBlock={handleBulkBlock}
-					/>
+					{showActions ? (
+						<BulkBlockOrgsButton
+							search={search}
+							minSearchLength={MIN_BULK_BLOCK_SEARCH_LENGTH}
+						/>
+					) : null}
 				</div>
 			</header>
+
+			<OrganizationFiltersBar filters={filters} />
 
 			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
 				<Table>
@@ -369,6 +281,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -379,9 +292,20 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
-							<TableHead>Kind</TableHead>
+							<TableHead>
+								<SortableHeader
+									label="Kind"
+									sortKey="kind"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									search={search}
+									dateRange={dateRange}
+									filters={filters}
+								/>
+							</TableHead>
 							<TableHead>
 								<SortableHeader
 									label="Plan"
@@ -390,6 +314,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -400,6 +325,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -410,6 +336,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -420,6 +347,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -430,6 +358,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -440,6 +369,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -450,6 +380,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -460,6 +391,7 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
 							<TableHead>
@@ -470,16 +402,17 @@ export default async function OrganizationsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									dateRange={dateRange}
+									filters={filters}
 								/>
 							</TableHead>
-							<TableHead>Actions</TableHead>
+							{showActions ? <TableHead>Actions</TableHead> : null}
 						</TableRow>
 					</TableHeader>
 					<TableBody>
 						{data.organizations.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={13}
+									colSpan={showActions ? 13 : 12}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No organizations found
@@ -581,30 +514,31 @@ export default async function OrganizationsPage({
 											)}
 										</div>
 									</TableCell>
-									<TableCell>
-										<div className="flex items-center gap-1">
-											<OrgStatusToggleButton
-												orgId={org.id}
-												orgName={org.name}
-												currentStatus={org.status}
-												disableBlockedReason={getOrgDeletionBlockedReason(
-													org.credits,
-												)}
-												onToggle={handleToggleOrgStatus}
-											/>
-											<BlockOrgButton
-												orgId={org.id}
-												orgName={org.name}
-												disabled={
-													getOrgDeletionBlockedReason(org.credits) !== null
-												}
-												disabledReason={
-													getOrgDeletionBlockedReason(org.credits) ?? undefined
-												}
-												onBlock={handleBlockOrganization}
-											/>
-										</div>
-									</TableCell>
+									{showActions ? (
+										<TableCell>
+											<div className="flex items-center gap-1">
+												<OrgStatusToggleButton
+													orgId={org.id}
+													orgName={org.name}
+													currentStatus={org.status}
+													disableBlockedReason={getOrgDeletionBlockedReason(
+														org.credits,
+													)}
+												/>
+												<BlockOrgButton
+													orgId={org.id}
+													orgName={org.name}
+													disabled={
+														getOrgDeletionBlockedReason(org.credits) !== null
+													}
+													disabledReason={
+														getOrgDeletionBlockedReason(org.credits) ??
+														undefined
+													}
+												/>
+											</div>
+										</TableCell>
+									) : null}
 								</TableRow>
 							))
 						)}
@@ -627,6 +561,7 @@ export default async function OrganizationsPage({
 									sortOrder,
 									search,
 									dateRange,
+									filters,
 								})}
 								className={page <= 1 ? "pointer-events-none opacity-50" : ""}
 							>
@@ -650,6 +585,7 @@ export default async function OrganizationsPage({
 									sortOrder,
 									search,
 									dateRange,
+									filters,
 								})}
 								className={
 									page >= totalPages ? "pointer-events-none opacity-50" : ""

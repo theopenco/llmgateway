@@ -1,9 +1,10 @@
 import { createServer, type Server } from "node:http";
 
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { and, db, eq, tables } from "@llmgateway/db";
+import { models } from "@llmgateway/models";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -21,7 +22,11 @@ import {
 	waitForLogByRequestId,
 } from "./test-utils/test-helpers.js";
 
-import type { ProviderApiFormat, ToolChoiceMode } from "@llmgateway/models";
+import type {
+	BaseMessage,
+	ProviderApiFormat,
+	ToolChoiceMode,
+} from "@llmgateway/models";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 
 interface CapturedRequest {
@@ -54,6 +59,46 @@ describe("airside-listed models", () => {
 					headers: req.headers,
 					body: parsed,
 				});
+				if (req.url?.startsWith("/deepseek-rule/")) {
+					const messages = parsed.messages;
+					const missingReasoning =
+						Array.isArray(messages) &&
+						messages.some(
+							(message: Record<string, unknown>) =>
+								message.role === "assistant" &&
+								Array.isArray(message.tool_calls) &&
+								message.tool_calls.length > 0 &&
+								typeof message.reasoning_content !== "string",
+						);
+					const duplicateReasoning =
+						Array.isArray(messages) &&
+						messages.some(
+							(message: Record<string, unknown>) =>
+								message.reasoning !== undefined &&
+								message.reasoning_content !== undefined,
+						);
+					if (missingReasoning || duplicateReasoning) {
+						res.writeHead(400, { "content-type": "application/json" });
+						res.end(
+							JSON.stringify({
+								error: {
+									message: duplicateReasoning
+										? "duplicate field 'reasoning_content'"
+										: "The `reasoning_content` in the thinking mode must be passed back to the API.",
+									type: "invalid_request_error",
+								},
+							}),
+						);
+						return;
+					}
+				}
+				if (req.url?.startsWith("/fail/")) {
+					res.writeHead(503, { "content-type": "application/json" });
+					res.end(
+						JSON.stringify({ error: { message: "Service unavailable" } }),
+					);
+					return;
+				}
 				if (req.url?.startsWith("/v1/responses")) {
 					if (parsed.stream === true) {
 						const response = {
@@ -144,6 +189,34 @@ describe("airside-listed models", () => {
 							},
 						}),
 					);
+					return;
+				}
+				if (parsed.stream === true) {
+					res.writeHead(200, { "content-type": "text/event-stream" });
+					for (const chunk of [
+						{
+							choices: [
+								{
+									index: 0,
+									delta: { role: "assistant", content: "Hello from Luna" },
+									finish_reason: null,
+								},
+							],
+						},
+						{
+							choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+							usage: {
+								prompt_tokens: 1000,
+								completion_tokens: 500,
+								total_tokens: 1500,
+							},
+						},
+					]) {
+						res.write(
+							`data: ${JSON.stringify({ id: "chatcmpl-test", object: "chat.completion.chunk", model: parsed.model, ...chunk })}\n\n`,
+						);
+					}
+					res.end("data: [DONE]\n\n");
 					return;
 				}
 				res.writeHead(200, { "content-type": "application/json" });
@@ -275,7 +348,7 @@ describe("airside-listed models", () => {
 
 	test("resolves an Airside listing registered under a static alias", async () => {
 		await materializeTestMapping({
-			providerId: "iceberg",
+			providerId: "glacier",
 			modelId: "nano banana pro",
 			externalId: "gemini-3-pro-image-carrier",
 			inputPrice: "2e-6",
@@ -287,11 +360,11 @@ describe("airside-listed models", () => {
 		expect(resolution).toBeTruthy();
 		expect(resolution?.parseResult).toMatchObject({
 			requestedModel: "nano banana pro",
-			requestedProvider: "iceberg",
+			requestedProvider: undefined,
 		});
 		expect(resolution?.pricingMappings).toHaveLength(1);
 		expect(resolution?.pricingMappings[0]).toMatchObject({
-			providerId: "iceberg",
+			providerId: "glacier",
 			externalId: "gemini-3-pro-image-carrier",
 		});
 	});
@@ -434,6 +507,45 @@ describe("airside-listed models", () => {
 		expect(Number(log!.cost)).toBeCloseTo(0.007, 6);
 	});
 
+	test("shapes requests from the listing's own catalogue metadata", async () => {
+		// No static entry exists for this listing, so these fields can only
+		// come from its DB row.
+		await setup("airside-metadata-token", { modelName: "carrier-metadata" });
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ supportsDeveloperRole: false, maxTemperature: 0.7 })
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, "carrier-metadata"),
+					eq(tables.modelProviderMapping.providerId, "mistral"),
+				),
+			);
+		await clearCache();
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-metadata-token",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "mistral/carrier-metadata",
+				temperature: 1.5,
+				messages: [
+					{ role: "developer", content: "Be brief." },
+					{ role: "user", content: "Say hi" },
+				],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(captured).toHaveLength(1);
+		const messages = captured[0].body.messages as { role: string }[];
+		expect(messages.map((message) => message.role)).toEqual(["system", "user"]);
+		expect(captured[0].body.temperature).toBe(0.7);
+	});
+
 	test("routes a region-pinned listing and bills its regional fare", async () => {
 		await setup("airside-region-token");
 		await db.insert(tables.modelProviderMapping).values({
@@ -460,10 +572,10 @@ describe("airside-listed models", () => {
 		);
 		expect(Number(regionalPricing?.inputPrice)).toBeCloseTo(4e-6);
 		expect(Number(regionalPricing?.outputPrice)).toBeCloseTo(2e-5);
-		// An unfiled region falls through to the (throwing) static parse.
+		// An unfiled region cannot fall back to catalogue metadata.
 		await expect(
 			resolveAirsideModel("mistral/gpt-5.6-luna:mars"),
-		).resolves.toBeNull();
+		).rejects.toThrow("Region 'mars' is not available");
 
 		// Unpinned traffic routes to the cheaper default deployment and pays
 		// the default fare.
@@ -508,6 +620,99 @@ describe("airside-listed models", () => {
 		expect(Number(log!.inputCost)).toBeCloseTo(0.004, 6);
 		expect(Number(log!.outputCost)).toBeCloseTo(0.01, 6);
 	});
+
+	test("expires Airside regions while the listing cache is warm", async () => {
+		await setup("airside-expiring-region-token");
+		const expiresAt = new Date(Date.now() + 60_000);
+		await db.insert(tables.modelProviderMapping).values({
+			modelId: "gpt-5.6-luna",
+			providerId: "mistral",
+			region: "au",
+			externalId: "gpt-5.6-luna",
+			source: "airside",
+			status: "active",
+			deactivatedAt: expiresAt,
+		});
+		await clearCache();
+		const active = await resolveAirsideModel("mistral/gpt-5.6-luna:au");
+		expect(
+			active?.pricingMappings.some((mapping) => mapping.region === "au"),
+		).toBe(true);
+
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			vi.setSystemTime(expiresAt);
+			await expect(
+				resolveAirsideModel("mistral/gpt-5.6-luna:au"),
+			).rejects.toThrow("Region 'au' is not available");
+			const bare = await resolveAirsideModel("gpt-5.6-luna");
+			expect(
+				bare?.pricingMappings.some((mapping) => mapping.region === "au"),
+			).toBe(false);
+			expect(
+				bare?.pricingMappings.some(
+					(mapping) =>
+						mapping.providerId === "mistral" && mapping.region === undefined,
+				),
+			).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test.each(["missing", "inactive"])(
+		"rejects a %s Airside region instead of reviving the static mapping",
+		async (status) => {
+			await setup("airside-owned-region-token");
+			await materializeTestMapping({
+				providerId: "alibaba",
+				modelId: "qwen-max",
+				inputPrice: "2e-6",
+				outputPrice: "1e-5",
+			});
+			if (status === "inactive") {
+				await db.insert(tables.modelProviderMapping).values({
+					modelId: "qwen-max",
+					providerId: "alibaba",
+					region: "cn-beijing",
+					externalId: "qwen-max",
+					source: "airside",
+					status: "inactive",
+				});
+			}
+			await db.insert(tables.providerKey).values({
+				id: "airside-owned-region-key",
+				...encryptProviderKeyForStorage(
+					"mock-region-key",
+					"airside-owned-region-key",
+					"org-id",
+				),
+				provider: "alibaba",
+				organizationId: "org-id",
+				baseUrl: upstreamUrl,
+			});
+			await clearCache();
+
+			const response = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer airside-owned-region-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "alibaba/qwen-max:cn-beijing",
+					messages: [{ role: "user", content: "Say hi" }],
+				}),
+			});
+
+			expect(response.status).toBe(400);
+			expect(await response.text()).toContain(
+				"Region 'cn-beijing' is not available",
+			);
+			expect(captured).toHaveLength(0);
+		},
+	);
 
 	test("bills an approved Airside discount once", async () => {
 		await setup("airside-discount-token");
@@ -628,6 +833,134 @@ describe("airside-listed models", () => {
 		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
 	});
 
+	/** Mirror the API's pause/delist (inactive) and resume/relist (active). */
+	async function setListingServing(
+		providerId: string,
+		modelId: string,
+		serving: boolean,
+	) {
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ status: serving ? "active" : "inactive" })
+			.where(
+				and(
+					eq(tables.modelProviderMapping.providerId, providerId),
+					eq(tables.modelProviderMapping.modelId, modelId),
+					eq(tables.modelProviderMapping.source, "airside"),
+				),
+			);
+		await clearCache();
+	}
+
+	async function mappedModelIds(): Promise<string[]> {
+		const res = await app.request("/v1/models?mapped=true");
+		const { data } = (await res.json()) as { data: { id: string }[] };
+		return data.map((model) => model.id);
+	}
+
+	test("an unlisted listing is not served by its static catalogue mapping", async () => {
+		// mistral-small-2506 is also a static catalogue mapping. Once the carrier
+		// owns the pair, taking the listing out of service must not hand the
+		// traffic back to the hardcoded mapping.
+		const token = "airside-unlisted-token";
+		await setup(token, { modelName: "mistral-small-2506" });
+		const request = async (model: string) =>
+			await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model,
+					messages: [{ role: "user", content: `Say hi to ${model}` }],
+				}),
+			});
+		expect(await mappedModelIds()).toContain("mistral/mistral-small-2506");
+
+		await setListingServing("mistral", "mistral-small-2506", false);
+		captured = [];
+
+		const pinned = await request("mistral/mistral-small-2506");
+		expect(pinned.status).toBe(400);
+		const bare = await request("mistral-small-2506");
+		expect(bare.status).toBe(400);
+		expect(captured).toHaveLength(0);
+		expect(await findAirsideModel("mistral", "mistral-small-2506")).toBe(
+			undefined,
+		);
+		expect(await mappedModelIds()).not.toContain("mistral/mistral-small-2506");
+		const listRes = await app.request("/v1/models");
+		const list = (await listRes.json()) as { data: { id: string }[] };
+		expect(list.data.some((m) => m.id === "mistral-small-2506")).toBe(false);
+
+		// Relisting puts the pair back in service.
+		await setListingServing("mistral", "mistral-small-2506", true);
+		const relisted = await request("mistral/mistral-small-2506");
+		expect(relisted.status).toBe(200);
+		expect(captured).toHaveLength(1);
+		expect(await mappedModelIds()).toContain("mistral/mistral-small-2506");
+	});
+
+	test("an unlisted listing drops only its own provider from the model", async () => {
+		const staticProviderIds = models
+			.find((model) => model.id === "deepseek-v4-flash")!
+			.providers.map((mapping) => mapping.providerId);
+		expect(staticProviderIds).toContain("novita");
+		try {
+			await materializeTestMapping({
+				providerId: "novita",
+				modelId: "deepseek-v4-flash",
+				inputPrice: "1e-6",
+				outputPrice: "2e-6",
+			});
+			const routedProviderIds = async () =>
+				(
+					await resolveAirsideModel("deepseek-v4-flash")
+				)?.modelInfoResult.modelInfo.providers.map(
+					(mapping) => mapping.providerId,
+				);
+			expect(await routedProviderIds()).toContain("novita");
+
+			await setListingServing("novita", "deepseek-v4-flash", false);
+
+			const unlisted = await routedProviderIds();
+			expect(unlisted).not.toContain("novita");
+			expect(unlisted).toContain("deepinfra");
+			await expect(
+				resolveAirsideModel("novita/deepseek-v4-flash"),
+			).rejects.toThrow("Provider novita does not support model");
+			// Pinning another provider must not fall back onto the unlisted one.
+			const sibling = await resolveAirsideModel("deepinfra/deepseek-v4-flash");
+			expect(sibling?.parseResult.requestedProvider).toBe("deepinfra");
+			expect(
+				sibling?.modelInfoResult.allModelProviders.map(
+					(mapping) => mapping.providerId,
+				),
+			).not.toContain("novita");
+			const mapped = await mappedModelIds();
+			expect(mapped).not.toContain("novita/deepseek-v4-flash");
+			expect(mapped).toContain("deepinfra/deepseek-v4-flash");
+
+			await setListingServing("novita", "deepseek-v4-flash", true);
+			expect(await routedProviderIds()).toContain("novita");
+			expect(await mappedModelIds()).toContain("novita/deepseek-v4-flash");
+		} finally {
+			// The catalogue tables outlive the harness reset.
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(
+					and(
+						eq(tables.modelProviderMapping.providerId, "novita"),
+						eq(tables.modelProviderMapping.modelId, "deepseek-v4-flash"),
+						eq(tables.modelProviderMapping.source, "airside"),
+					),
+				);
+			await clearCache();
+		}
+	});
+
 	test("downgrades a tool_choice the listing does not accept", async () => {
 		// The carrier's deployment mishandles "required" — it answers with the
 		// model's raw tool markup instead of tool_calls — so the listing drops
@@ -696,7 +1029,11 @@ describe("airside-listed models", () => {
 		expect(captured).toHaveLength(0);
 	});
 
-	async function createDynamicRoute(token: string) {
+	async function createDynamicRoute(
+		token: string,
+		model = "mistral-small-2506",
+		provider: string | string[] = "mistral",
+	) {
 		await db
 			.update(tables.organization)
 			.set({ plan: "enterprise" })
@@ -707,8 +1044,8 @@ describe("airside-listed models", () => {
 				{
 					id: "m",
 					type: "model" as const,
-					model: "mistral-small-2506",
-					providers: ["mistral"],
+					model,
+					providers: typeof provider === "string" ? [provider] : provider,
 				},
 			],
 		} as DynamicRouteGraph;
@@ -935,9 +1272,13 @@ describe("airside-listed models", () => {
 			managedCredential?: boolean;
 			apiFormat?: ProviderApiFormat;
 			modelId?: string;
+			providerId?: string;
+			basePath?: string;
+			externalId?: string;
 		} = {},
 	) {
 		const modelId = options.modelId ?? "sky-large";
+		const providerId = options.providerId ?? "acme-sky";
 		captured = [];
 		await clearCache();
 		await db.insert(tables.apiKey).values({
@@ -960,17 +1301,17 @@ describe("airside-listed models", () => {
 		await db.insert(tables.providerClaim).values({
 			id: `${token}-claim`,
 			providerCompanyId: `${token}-company`,
-			providerId: "acme-sky",
+			providerId,
 			kind: "custom",
 			matchedDomain: "acme-sky.ai",
 			customName: "Acme Sky",
-			customBaseUrl: upstreamUrl,
+			customBaseUrl: upstreamUrl + (options.basePath ?? ""),
 			status: "active",
 		});
 		await db.insert(tables.providerDraftModel).values({
 			id: `${token}-model`,
 			providerCompanyId: `${token}-company`,
-			providerId: "acme-sky",
+			providerId,
 			modelName: modelId,
 			externalId: modelId,
 			apiFormat: options.apiFormat ?? "openai-chat-completions",
@@ -989,8 +1330,9 @@ describe("airside-listed models", () => {
 			status: "approved",
 		});
 		await materializeTestMapping({
-			providerId: "acme-sky",
+			providerId,
 			modelId,
+			externalId: options.externalId,
 			apiFormat: options.apiFormat ?? "openai-chat-completions",
 			inputPrice: "3e-6",
 			outputPrice: "9e-6",
@@ -1003,15 +1345,800 @@ describe("airside-listed models", () => {
 				id: `${token}-managed-key`,
 				managed: true,
 				organizationId: null,
-				provider: "acme-sky",
+				provider: providerId,
 				...encryptProviderKeyForStorage(
-					"mock-acme-key",
+					`mock-${providerId}-key`,
 					`${token}-managed-key`,
 					null,
 				),
 			});
 		}
 	}
+
+	async function restrictCarriers(token: string, providerIds: string[]) {
+		await db.insert(tables.apiKeyIamRule).values({
+			apiKeyId: `${token}-id`,
+			ruleType: "allow_providers",
+			ruleValue: { providers: providerIds },
+			status: "active",
+		});
+		await clearCache();
+	}
+
+	async function carrierRequest(
+		token: string,
+		model: string,
+		options: { stream?: boolean; noFallback?: boolean; session?: string } = {},
+	) {
+		return await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-request-id": `${token}-request`,
+				...(options.noFallback ? { "x-no-fallback": "true" } : {}),
+				...(options.session ? { "x-session-id": options.session } : {}),
+			},
+			body: JSON.stringify({
+				model,
+				stream: options.stream ?? false,
+				messages: [{ role: "user", content: "Say hi" }],
+			}),
+		});
+	}
+
+	test.each(["bare", "auto", "smart", "dynamic"])(
+		"selects a database-only carrier through %s routing",
+		async (mode) => {
+			const token = `airside-routing-${mode}`;
+			const model = "claude-haiku-4-5";
+			await setupCustomCarrier(token, { modelId: model });
+			await restrictCarriers(token, ["acme-sky", "llmgateway"]);
+			if (mode === "smart") {
+				await db
+					.update(tables.project)
+					.set({ smartRoutingConfig: { classifier: "none", models: [model] } })
+					.where(eq(tables.project.id, "project-id"));
+			}
+			if (mode === "dynamic") {
+				await createDynamicRoute(token, model, "acme-sky");
+			}
+			await clearCache();
+			const res = await carrierRequest(
+				token,
+				mode === "bare"
+					? model
+					: mode === "dynamic"
+						? "dynamic/airside-owned"
+						: mode,
+			);
+			expect(res.status, await res.text()).toBe(200);
+			expect(captured).toHaveLength(1);
+			expect(
+				captured[0].headers.authorization === "Bearer mock-acme-sky-key",
+			).toBe(true);
+			const log = await waitForLogByRequestId(`${token}-request`);
+			expect(log?.usedProvider).toBe("acme-sky");
+			expect(Number(log?.inputCost)).toBeCloseTo(0.003, 6);
+			expect(log?.routingMetadata?.selectionReason).not.toBe(
+				"direct-provider-specified",
+			);
+		},
+	);
+
+	test("scores multiple carriers for a database-only model and retains its session", async () => {
+		const token = "airside-multiple";
+		await setupCustomCarrier(token);
+		await setupCustomCarrier("airside-second", { providerId: "acme-cloud" });
+		await materializeTestMapping({
+			providerId: "acme-cloud",
+			modelId: "sky-large",
+			apiFormat: "openai-chat-completions",
+			inputPrice: "30e-6",
+			outputPrice: "90e-6",
+			contextSize: 64000,
+		});
+		await setRoutingUptime("sky-large", "acme-sky", 100);
+		await setRoutingUptime("sky-large", "acme-cloud", 100);
+		await clearCache();
+		const first = await carrierRequest(token, "sky-large", {
+			session: "airside-session",
+		});
+		expect(first.status, await first.text()).toBe(200);
+		const firstLog = await waitForLogByRequestId(`${token}-request`);
+		expect(
+			firstLog?.routingMetadata?.providerScores
+				?.map((score) => score.providerId)
+				.sort(),
+		).toEqual(["acme-cloud", "acme-sky"]);
+		expect(firstLog?.usedProvider).toBe("acme-sky");
+		const second = await carrierRequest("airside-second", "sky-large", {
+			session: "airside-session",
+		});
+		expect(second.status, await second.text()).toBe(200);
+		const secondLog = await waitForLogByRequestId("airside-second-request");
+		expect(secondLog?.usedProvider).toBe("acme-sky");
+		expect(secondLog?.routingMetadata?.selectionReason).toBe("session-sticky");
+	});
+
+	test.each([false, true])(
+		"fallback switches Airside endpoints and credentials (stream=%s)",
+		async (stream) => {
+			const token = `airside-failover-${stream}`;
+			await setupCustomCarrier(token, { basePath: "/fail" });
+			await setupCustomCarrier(`airside-next-${stream}`, {
+				providerId: "acme-cloud",
+				basePath: "/second",
+			});
+			await materializeTestMapping({
+				providerId: "acme-cloud",
+				modelId: "sky-large",
+				apiFormat: "openai-chat-completions",
+				inputPrice: "30e-6",
+				outputPrice: "90e-6",
+				contextSize: 64000,
+			});
+			await setRoutingUptime("sky-large", "acme-sky", 100);
+			await setRoutingUptime("sky-large", "acme-cloud", 100);
+			await clearCache();
+			const res = await carrierRequest(token, "sky-large", { stream });
+			expect(res.status).toBe(200);
+			expect(await res.text()).toContain("Hello from Luna");
+			expect(
+				captured.some(
+					(request) =>
+						request.url.startsWith("/fail/") &&
+						request.headers.authorization === "Bearer mock-acme-sky-key",
+				),
+			).toBe(true);
+			expect(
+				captured.some(
+					(request) =>
+						request.url.startsWith("/second/") &&
+						request.headers.authorization === "Bearer mock-acme-cloud-key",
+				),
+			).toBe(true);
+			expect(
+				captured.every(
+					(request) =>
+						request.headers.authorization ===
+						(request.url.startsWith("/fail/")
+							? "Bearer mock-acme-sky-key"
+							: "Bearer mock-acme-cloud-key"),
+				),
+			).toBe(true);
+		},
+	);
+
+	test.each([false, true])(
+		"honors dynamic provider order for selection and fallback (stream=%s)",
+		async (stream) => {
+			const token = `airside-ordered-${stream}`;
+			const model = "claude-haiku-4-5";
+			await setupCustomCarrier(token, {
+				modelId: model,
+				basePath: "/fail/first",
+			});
+			await setupCustomCarrier(`${token}-second`, {
+				modelId: model,
+				providerId: "acme-cloud",
+				basePath: "/second",
+			});
+			await setupCustomCarrier(`${token}-third`, {
+				modelId: model,
+				providerId: "acme-last",
+				basePath: "/third",
+			});
+			for (const [providerId, price] of [
+				["acme-sky", "90e-6"],
+				["acme-cloud", "30e-6"],
+				["acme-last", "1e-6"],
+			]) {
+				await materializeTestMapping({
+					providerId,
+					modelId: model,
+					apiFormat: "openai-chat-completions",
+					inputPrice: price,
+					outputPrice: price,
+					contextSize: 64000,
+				});
+				await setRoutingUptime(model, providerId, 100);
+			}
+			await createDynamicRoute(token, model, [
+				"acme-sky",
+				"acme-cloud",
+				"acme-last",
+			]);
+			await clearCache();
+			const res = await carrierRequest(token, "dynamic/airside-owned", {
+				stream,
+			});
+			expect(res.status).toBe(200);
+			expect(await res.text()).toContain("Hello from Luna");
+			expect(captured.map((request) => request.url)).toEqual([
+				"/fail/first/v1/chat/completions",
+				"/second/v1/chat/completions",
+			]);
+			expect(
+				captured[0].headers.authorization === "Bearer mock-acme-sky-key",
+			).toBe(true);
+			expect(
+				captured[1].headers.authorization === "Bearer mock-acme-cloud-key",
+			).toBe(true);
+		},
+	);
+
+	test("replays reasoning_content on DeepSeek V4 tool turns to a carrier", async () => {
+		const token = "airside-deepseek-v4";
+		await setupCustomCarrier(token, {
+			providerId: "acme-deep",
+			modelId: "deepseek-v4.1-flash",
+		});
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "acme-deep/deepseek-v4.1-flash",
+				messages: [
+					{ role: "user", content: "Weather in Paris?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: '{"city":"Paris"}',
+								},
+							},
+						],
+					},
+					{ role: "tool", tool_call_id: "call_1", content: "sunny" },
+				],
+			}),
+		});
+		expect(res.status, await res.text()).toBe(200);
+		expect(captured).toHaveLength(1);
+		const messages = captured[0].body.messages as Record<string, unknown>[];
+		expect(messages[1].reasoning_content).toBe(" ");
+	});
+
+	const deepseekModel = "deepseek-v4.1-flash";
+	const deepseekHistory: BaseMessage[] = [
+		{ role: "user", content: "Weather in Paris, then Rome?" },
+		...["Paris", "Rome"].flatMap<BaseMessage>((city, index) => [
+			{
+				role: "assistant",
+				content: "",
+				tool_calls: [
+					{
+						id: `call_${index}`,
+						type: "function",
+						function: {
+							name: "get_weather",
+							arguments: JSON.stringify({ city }),
+						},
+					},
+				],
+			},
+			{ role: "tool", tool_call_id: `call_${index}`, content: "sunny" },
+		]),
+		{ role: "assistant", content: "Both cities are sunny." },
+		{ role: "user", content: "Thanks!" },
+	];
+
+	function deepseekPayload(
+		endpoint: string,
+		model: string,
+		stream: boolean,
+		withReasoning = false,
+	) {
+		const history = deepseekHistory.map((message) =>
+			withReasoning && message.tool_calls?.length
+				? { ...message, reasoning: "call the weather tool" }
+				: message,
+		);
+		if (endpoint.endsWith("/language-model")) {
+			return {
+				maxOutputTokens: 128,
+				prompt: history.map((message) => ({
+					role: message.role,
+					content: message.tool_calls?.length
+						? [
+								...(message.reasoning
+									? [{ type: "reasoning", text: message.reasoning }]
+									: []),
+								...message.tool_calls.map((call) => ({
+									type: "tool-call",
+									toolCallId: call.id,
+									toolName: call.function.name,
+									input: JSON.parse(call.function.arguments),
+								})),
+							]
+						: message.tool_call_id
+							? [
+									{
+										type: "tool-result",
+										toolCallId: message.tool_call_id,
+										toolName: "get_weather",
+										output: { type: "text", value: message.content },
+									},
+								]
+							: [{ type: "text", text: message.content }],
+				})),
+			};
+		}
+		if (endpoint === "/v1/messages") {
+			return {
+				model,
+				stream,
+				max_tokens: 128,
+				messages: history.map((message) => {
+					if (message.tool_calls?.length) {
+						return {
+							role: "assistant",
+							content: [
+								...(message.reasoning
+									? [{ type: "thinking", thinking: message.reasoning }]
+									: []),
+								...message.tool_calls.map((call) => ({
+									type: "tool_use",
+									id: call.id,
+									name: call.function.name,
+									input: JSON.parse(call.function.arguments),
+								})),
+							],
+						};
+					}
+					if (message.tool_call_id) {
+						return {
+							role: "user",
+							content: [
+								{
+									type: "tool_result",
+									tool_use_id: message.tool_call_id,
+									content: message.content,
+								},
+							],
+						};
+					}
+					return message;
+				}),
+			};
+		}
+		if (endpoint.startsWith("/v1/responses")) {
+			return {
+				model,
+				stream,
+				max_output_tokens: 128,
+				store: false,
+				input: history.flatMap<Record<string, unknown>>((message) => {
+					if (message.tool_calls?.length) {
+						return [
+							...(message.reasoning
+								? [
+										{
+											type: "reasoning",
+											summary: [
+												{ type: "summary_text", text: message.reasoning },
+											],
+										},
+									]
+								: []),
+							...message.tool_calls.map((call) => ({
+								type: "function_call",
+								call_id: call.id,
+								name: call.function.name,
+								arguments: call.function.arguments,
+							})),
+						];
+					}
+					if (message.tool_call_id) {
+						return [
+							{
+								type: "function_call_output",
+								call_id: message.tool_call_id,
+								output: message.content,
+							},
+						];
+					}
+					return [{ role: message.role, content: message.content }];
+				}),
+			};
+		}
+		return { model, stream, max_tokens: 128, messages: history };
+	}
+
+	function expectDeepseekReplay(withReasoning = false) {
+		for (const request of captured) {
+			const messages = request.body.messages as Record<string, unknown>[];
+			const toolTurns = messages.filter((message) =>
+				Array.isArray(message.tool_calls),
+			);
+			expect(toolTurns.map((message) => message.reasoning_content)).toEqual([
+				withReasoning ? "call the weather tool" : " ",
+				withReasoning ? "call the weather tool" : " ",
+			]);
+			expect(
+				toolTurns.every((message) => message.reasoning === undefined),
+			).toBe(true);
+			expect(
+				messages
+					.filter((message) => !Array.isArray(message.tool_calls))
+					.every((message) => message.reasoning_content === undefined),
+			).toBe(true);
+			expect(request.body.model).toBe("vendor/deployment");
+		}
+	}
+
+	describe.each([false, true])(
+		"tool reasoning supplied=%s",
+		(withReasoning) => {
+			test.each([
+				["/v1/chat/completions", false],
+				["/v1/chat/completions", true],
+				["/v1/messages", false],
+				["/v1/messages", true],
+				["/v1/responses", false],
+				["/v1/responses", true],
+				["/v4/ai/language-model", false],
+				["/v4/ai/language-model", true],
+				["/v1/responses/compact", false],
+			])(
+				"DeepSeek V4 replay passes enforcing carrier from %s (stream=%s)",
+				async (endpoint, stream) => {
+					const token = "airside-deepseek-entrypoint";
+					await setupCustomCarrier(token, {
+						providerId: "acme-deep",
+						modelId: deepseekModel,
+						basePath: "/deepseek-rule",
+						externalId: "vendor/deployment",
+					});
+					const res = await app.request(endpoint, {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: `Bearer ${token}`,
+							"x-no-fallback": "true",
+							"ai-language-model-id": `acme-deep/${deepseekModel}`,
+							"ai-language-model-specification-version": "4",
+							"ai-language-model-streaming": String(stream),
+						},
+						body: JSON.stringify(
+							deepseekPayload(
+								endpoint,
+								`acme-deep/${deepseekModel}`,
+								stream,
+								withReasoning,
+							),
+						),
+					});
+					const body = await res.text();
+					expect(res.status, body).toBe(200);
+					expect(body).toContain(
+						endpoint.endsWith("/compact")
+							? "response.compaction"
+							: "Hello from Luna",
+					);
+					expect(captured).toHaveLength(1);
+					expectDeepseekReplay(withReasoning && endpoint !== "/v1/messages");
+				},
+			);
+		},
+	);
+
+	test.each(["bare", "auto", "smart", "dynamic", "region", "custom"])(
+		"DeepSeek V4 replay honors %s routing",
+		async (mode) => {
+			const token = "airside-deepseek-routing";
+			await setupCustomCarrier(token, {
+				providerId: "acme-deep",
+				modelId: deepseekModel,
+				basePath: "/deepseek-rule",
+				externalId: "vendor/deployment",
+			});
+			await restrictCarriers(token, ["acme-deep", "llmgateway", "custom"]);
+			if (mode === "smart") {
+				await db
+					.update(tables.project)
+					.set({
+						smartRoutingConfig: { classifier: "none", models: [deepseekModel] },
+					})
+					.where(eq(tables.project.id, "project-id"));
+			}
+			if (mode === "dynamic") {
+				await createDynamicRoute(token, deepseekModel, "acme-deep");
+			}
+			if (mode === "region") {
+				await db.insert(tables.modelProviderMapping).values({
+					modelId: deepseekModel,
+					providerId: "acme-deep",
+					region: "au",
+					source: "airside",
+					externalId: "vendor/deployment",
+					inputPrice: "3e-6",
+					outputPrice: "9e-6",
+					streaming: true,
+					status: "active",
+				});
+			}
+			if (mode === "custom") {
+				await db
+					.update(tables.project)
+					.set({ mode: "api-keys" })
+					.where(eq(tables.project.id, "project-id"));
+				const id = `${token}-custom-key`;
+				await db.insert(tables.providerKey).values({
+					id,
+					provider: "custom",
+					name: "review-host",
+					organizationId: "org-id",
+					baseUrl: `${upstreamUrl}/deepseek-rule`,
+					...encryptProviderKeyForStorage("mock-custom-key", id, "org-id"),
+				});
+			}
+			await clearCache();
+			const model =
+				mode === "bare"
+					? deepseekModel
+					: mode === "dynamic"
+						? "dynamic/airside-owned"
+						: mode === "region"
+							? `acme-deep/${deepseekModel}:au`
+							: mode === "custom"
+								? `review-host/${deepseekModel}`
+								: mode;
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify(
+					deepseekPayload("/v1/chat/completions", model, false),
+				),
+			});
+			if (mode === "auto") {
+				expect(res.status, await res.text()).toBe(403);
+				expect(captured).toHaveLength(0);
+				return;
+			}
+			expect(res.status, await res.text()).toBe(200);
+			expect(captured).toHaveLength(1);
+			if (mode === "custom") {
+				expect(captured[0].body.model).toBe(deepseekModel);
+				const history = captured[0].body.messages as Record<string, unknown>[];
+				expect(
+					history
+						.filter((message) => message.tool_calls)
+						.map((message) => message.reasoning_content),
+				).toEqual([" ", " "]);
+			} else {
+				expectDeepseekReplay();
+			}
+		},
+	);
+
+	test.each([false, true])(
+		"DeepSeek V4 replay survives provider fallback (stream=%s)",
+		async (stream) => {
+			const token = "airside-deepseek-fallback";
+			await setupCustomCarrier(token, {
+				providerId: "acme-deep",
+				modelId: deepseekModel,
+				basePath: "/fail/first",
+				externalId: "vendor/deployment",
+			});
+			await setupCustomCarrier(`${token}-second`, {
+				providerId: "acme-next",
+				modelId: deepseekModel,
+				basePath: "/deepseek-rule/second",
+				externalId: "vendor/deployment",
+			});
+			await restrictCarriers(token, ["acme-deep", "acme-next", "llmgateway"]);
+			await createDynamicRoute(token, deepseekModel, [
+				"acme-deep",
+				"acme-next",
+			]);
+			await setRoutingUptime(deepseekModel, "acme-deep", 100);
+			await setRoutingUptime(deepseekModel, "acme-next", 100);
+			await clearCache();
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify(
+					deepseekPayload(
+						"/v1/chat/completions",
+						"dynamic/airside-owned",
+						stream,
+					),
+				),
+			});
+			expect(res.status, await res.text()).toBe(200);
+			expect(captured.map((request) => request.url)).toEqual([
+				"/fail/first/v1/chat/completions",
+				"/deepseek-rule/second/v1/chat/completions",
+			]);
+			expectDeepseekReplay();
+		},
+	);
+
+	test.each([
+		"google-vertex",
+		"openai-responses",
+	] satisfies ProviderApiFormat[])(
+		"DeepSeek V4 replay uses native %s carrier fields",
+		async (apiFormat) => {
+			const token = "airside-deepseek-wire";
+			await setupCustomCarrier(token, {
+				providerId: "acme-deep",
+				modelId: deepseekModel,
+				apiFormat,
+			});
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify(
+					deepseekPayload(
+						"/v1/chat/completions",
+						`acme-deep/${deepseekModel}`,
+						false,
+					),
+				),
+			});
+			expect(res.status, await res.text()).toBe(200);
+			expect(captured).toHaveLength(1);
+			expect(captured[0].body).not.toHaveProperty("messages");
+			expect(JSON.stringify(captured[0].body)).not.toContain(
+				'"reasoning_content"',
+			);
+			expect(JSON.stringify(captured[0].body)).toContain("get_weather");
+		},
+	);
+
+	test.each(["pin", "no-fallback"])(
+		"keeps the chosen Airside carrier for %s requests",
+		async (restriction) => {
+			const token = `airside-fixed-${restriction}`;
+			await setupCustomCarrier(token, { basePath: "/fail" });
+			await setupCustomCarrier(`airside-fixed-next-${restriction}`, {
+				providerId: "acme-cloud",
+				basePath: "/second",
+			});
+			await materializeTestMapping({
+				providerId: "acme-cloud",
+				modelId: "sky-large",
+				apiFormat: "openai-chat-completions",
+				inputPrice: "30e-6",
+				outputPrice: "90e-6",
+				contextSize: 64000,
+			});
+			const res = await carrierRequest(
+				token,
+				restriction === "pin" ? "acme-sky/sky-large" : "sky-large",
+				{ noFallback: restriction === "no-fallback" },
+			);
+			expect(res.status).toBeGreaterThanOrEqual(400);
+			expect(captured.length).toBeGreaterThan(0);
+			expect(
+				captured.every((request) => request.url.startsWith("/fail/")),
+			).toBe(true);
+		},
+	);
+
+	test.each([
+		{ fromAirside: true, stream: false },
+		{ fromAirside: false, stream: false },
+		{ fromAirside: true, stream: true },
+		{ fromAirside: false, stream: true },
+	])(
+		"fallback crosses catalogue and Airside providers ($fromAirside, stream=$stream)",
+		async ({ fromAirside, stream }) => {
+			const token = `airside-catalogue-${fromAirside}-${stream}`;
+			const modelId = "gpt-5.6-luna";
+			await setupCustomCarrier(token, {
+				modelId,
+				basePath: fromAirside ? "/fail" : "/carrier",
+			});
+			await materializeTestMapping({
+				providerId: "openai",
+				modelId,
+				apiFormat: "openai-chat-completions",
+				inputPrice: fromAirside ? "30e-6" : "0.3e-6",
+				outputPrice: fromAirside ? "90e-6" : "0.9e-6",
+				contextSize: 64000,
+			});
+			await db.insert(tables.providerKey).values({
+				id: `${token}-openai`,
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+				config: {
+					baseUrl: upstreamUrl + (fromAirside ? "/catalogue" : "/fail"),
+				},
+				...encryptProviderKeyForStorage(
+					"mock-catalogue-key",
+					`${token}-openai`,
+					null,
+				),
+			});
+			await restrictCarriers(token, ["acme-sky", "openai"]);
+			await setRoutingUptime(modelId, "acme-sky", 100);
+			await setRoutingUptime(modelId, "openai", 100);
+			await clearCache();
+			const res = await carrierRequest(token, modelId, { stream });
+			expect(res.status).toBe(200);
+			expect(await res.text()).toContain("Hello from Luna");
+			expect(captured.some((request) => request.url.startsWith("/fail/"))).toBe(
+				true,
+			);
+			expect(
+				captured.some((request) =>
+					request.url.startsWith(fromAirside ? "/catalogue/" : "/carrier/"),
+				),
+			).toBe(true);
+			expect(
+				captured.every(
+					(request) =>
+						request.headers.authorization ===
+						((request.url.startsWith("/fail/") ? fromAirside : !fromAirside)
+							? "Bearer mock-acme-sky-key"
+							: "Bearer mock-catalogue-key"),
+				),
+			).toBe(true);
+		},
+	);
+
+	test.each(["revoked", "inactive", "credential", "capability", "iam"])(
+		"excludes a custom carrier with %s restrictions",
+		async (restriction) => {
+			const token = `airside-exclusion-${restriction}`;
+			await setupCustomCarrier(token, {
+				managedCredential: restriction !== "credential",
+			});
+			if (restriction === "revoked") {
+				await db
+					.update(tables.providerClaim)
+					.set({ status: "revoked" })
+					.where(eq(tables.providerClaim.providerId, "acme-sky"));
+			}
+			if (restriction === "inactive") {
+				await db
+					.update(tables.modelProviderMapping)
+					.set({ status: "inactive" })
+					.where(eq(tables.modelProviderMapping.providerId, "acme-sky"));
+			}
+			if (restriction === "capability") {
+				await db
+					.update(tables.modelProviderMapping)
+					.set({ streaming: false })
+					.where(eq(tables.modelProviderMapping.providerId, "acme-sky"));
+			}
+			if (restriction === "iam") {
+				await restrictCarriers(token, ["openai"]);
+			}
+			await clearCache();
+			const res = await carrierRequest(token, "sky-large", {
+				stream: restriction === "capability",
+			});
+			expect(res.status).toBeGreaterThanOrEqual(400);
+			expect(captured).toHaveLength(0);
+		},
+	);
 
 	test("routes a streaming Airside model through OpenAI Responses", async () => {
 		await setupCustomCarrier("airside-responses-token", {
@@ -1076,7 +2203,7 @@ describe("airside-listed models", () => {
 		expect(body.choices[0].finish_reason).toBe("stop");
 		expect(captured).toHaveLength(1);
 		expect(captured[0].url).toBe(
-			"/v1/publishers/google/models/gpt-5.6-luna:generateContent?key=mock-acme-key",
+			"/v1/publishers/google/models/gpt-5.6-luna:generateContent?key=mock-acme-sky-key",
 		);
 		expect(captured[0].body).toMatchObject({
 			contents: expect.any(Array),
@@ -1116,7 +2243,7 @@ describe("airside-listed models", () => {
 		expect(captured).toHaveLength(1);
 		expect(captured[0].url).toBe("/v1/chat/completions");
 		expect(captured[0].body.model).toBe("sky-large");
-		expect(captured[0].headers.authorization).toBe("Bearer mock-acme-key");
+		expect(captured[0].headers.authorization).toBe("Bearer mock-acme-sky-key");
 
 		const log = await waitForLogByRequestId(requestId);
 		expect(log).toBeTruthy();
@@ -1352,6 +2479,40 @@ describe("airside-listed models", () => {
 		expect((await send("first")).status).toBe(200);
 		expect((await send("second")).status).toBe(429);
 	});
+
+	test.each(["global", "per_org"] as const)(
+		"zero global caps block the only provider with %s enforcement",
+		async (enforcement) => {
+			await setupCustomCarrier("airside-rate-limit-token");
+			await db.insert(tables.rateLimit).values({
+				organizationId: null,
+				provider: "acme-sky",
+				maxRpd: 0,
+				enforcement,
+			});
+			await clearCache();
+
+			for (const model of ["sky-large", "acme-sky/sky-large"]) {
+				for (const stream of [false, true]) {
+					const response = await app.request("/v1/chat/completions", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: "Bearer airside-rate-limit-token",
+						},
+						body: JSON.stringify({
+							model,
+							stream,
+							messages: [{ role: "user", content: "Say hi" }],
+						}),
+					});
+					expect(response.status).toBe(429);
+					expect(await response.text()).toContain("maximum 0 requests per day");
+				}
+			}
+			expect(captured).toHaveLength(0);
+		},
+	);
 
 	test("does not route an unregistered provider prefix", async () => {
 		await setupCustomCarrier("airside-unknown-token");

@@ -4,6 +4,7 @@ slug: "moderations-flat-request-pricing"
 date: "2026-08-03"
 title: "Moderations Pricing From August 7"
 summary: "Starting Friday, August 7, 2026, the /v1/moderations endpoint is billed at a flat $0.00001 per successful request — no token metering, no per-model rates, and no charge for failed or retried attempts. Because it becomes paid, it also starts requiring a credit balance: top up before August 7 or moderation stops working for organizations with no credits."
+tags: ["llmgateway"]
 image:
   src: "/changelog/moderations-flat-request-pricing.png"
   alt: "A circuit board with a glowing shield on the central chip surrounded by coin and checkmark icons, representing per-request moderation pricing"

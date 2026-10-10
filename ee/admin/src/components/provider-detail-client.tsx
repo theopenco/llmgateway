@@ -1,16 +1,22 @@
 "use client";
 
+import { keepPreviousData } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
+import {
+	AirsideSettingsSection,
+	FareBadge,
+	formatPercent,
+} from "@/components/airside-settings-section";
 import { DetailStatCards } from "@/components/detail-stat-cards";
 import { HistoryChart, windowOptions } from "@/components/history-chart";
 import { ProviderModelsTable } from "@/components/provider-models-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getProviderDetail, getProviderHistory } from "@/lib/admin-history";
 import { useApi } from "@/lib/fetch-client";
+import { useHistoryClient } from "@/lib/history-client";
 
 import { getProviderIcon } from "@llmgateway/shared";
 
@@ -30,13 +36,11 @@ function parseHistoryWindow(value: string | null): HistoryWindow {
 	return "4h";
 }
 
-function formatPercent(fraction: number): string {
-	return `${(fraction * 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
-}
-
 function AirsideCarrierCard({
+	providerId,
 	carrier,
 }: {
+	providerId: string;
 	carrier: NonNullable<AirsideCarrier>;
 }) {
 	return (
@@ -51,9 +55,18 @@ function AirsideCarrierCard({
 						Operated by {carrier.company.name} · {carrier.claimKind} claim
 					</p>
 				</div>
-				<Button variant="outline" size="sm" asChild>
-					<Link href="/airside-carriers">All carriers</Link>
-				</Button>
+				<div className="flex gap-2">
+					<Button variant="outline" size="sm" asChild>
+						<Link
+							href={`/providers/${encodeURIComponent(providerId)}/incidents`}
+						>
+							Incidents
+						</Link>
+					</Button>
+					<Button variant="outline" size="sm" asChild>
+						<Link href="/airside-carriers">All carriers</Link>
+					</Button>
+				</div>
 			</div>
 			<dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
 				<div>
@@ -62,29 +75,24 @@ function AirsideCarrierCard({
 						{formatPercent(carrier.discountPercent)}
 					</dd>
 				</div>
-				<div>
-					<dt className="text-xs text-muted-foreground">Margin</dt>
-					<dd className="text-sm tabular-nums">
-						{formatPercent(carrier.marginPercent)}
-					</dd>
-				</div>
-				<div>
-					<dt className="text-xs text-muted-foreground">Routing adjustment</dt>
-					<dd className="text-sm">
-						<Badge
-							variant={
-								carrier.routingAdjustment < 0
-									? "secondary"
-									: carrier.routingAdjustment > 0
-										? "destructive"
-										: "outline"
-							}
-						>
-							{carrier.routingAdjustment > 0 ? "+" : ""}
-							{formatPercent(carrier.routingAdjustment)}
-						</Badge>
-					</dd>
-				</div>
+				{carrier.marginPercent !== undefined && (
+					<div>
+						<dt className="text-xs text-muted-foreground">Margin</dt>
+						<dd className="text-sm tabular-nums">
+							{formatPercent(carrier.marginPercent)}
+						</dd>
+					</div>
+				)}
+				{carrier.routingAdjustment !== undefined && (
+					<div>
+						<dt className="text-xs text-muted-foreground">
+							Routing adjustment
+						</dt>
+						<dd className="text-sm">
+							<FareBadge adjustment={carrier.routingAdjustment} />
+						</dd>
+					</div>
+				)}
 				<div>
 					<dt className="text-xs text-muted-foreground">Settings updated</dt>
 					<dd className="text-sm">
@@ -111,42 +119,28 @@ export function ProviderDetailClient({
 	const router = useRouter();
 	const pathname = usePathname();
 	const window = parseHistoryWindow(searchParams.get("window"));
-	const [loading, setLoading] = useState(false);
-	const [info, setInfo] = useState<ProviderInfo>(providerInfo);
-	const [models, setModels] = useState<ProviderModelStats[]>(initialModels);
-	const initialWindowRef = useRef(window);
-
-	const loadDetail = useCallback(
-		async (w: HistoryWindow) => {
-			setLoading(true);
-			try {
-				const data = await getProviderDetail(providerId, w);
-				if (data) {
-					setInfo(data.provider);
-					setModels(data.models);
-				}
-			} finally {
-				setLoading(false);
-			}
-		},
-		[providerId],
+	// The server rendered the stats for the initial window; only refetch for others.
+	const [initialWindow] = useState(window);
+	const $api = useApi();
+	const detailQuery = $api.useQuery(
+		"get",
+		"/admin/providers/{providerId}",
+		{ params: { path: { providerId }, query: { window } } },
+		{ enabled: window !== initialWindow, placeholderData: keepPreviousData },
 	);
+	const detail = window === initialWindow ? undefined : detailQuery.data;
+	const info: ProviderInfo = detail?.provider ?? providerInfo;
+	const models: ProviderModelStats[] = detail?.models ?? initialModels;
+	const loading = window !== initialWindow && detailQuery.isFetching;
 
-	useEffect(() => {
-		if (window === initialWindowRef.current) {
-			return;
-		}
-		void loadDetail(window);
-	}, [loadDetail, window]);
-
+	const history = useHistoryClient();
 	const fetchHistory = useCallback(
 		async (w: HistoryWindow) => {
-			return await getProviderHistory(providerId, w);
+			return await history.providerHistory(providerId, w);
 		},
-		[providerId],
+		[history, providerId],
 	);
 
-	const $api = useApi();
 	const verificationsQuery = $api.useQuery(
 		"get",
 		"/admin/model-verifications",
@@ -194,7 +188,9 @@ export function ProviderDetailClient({
 				</div>
 			</header>
 
-			{airside ? <AirsideCarrierCard carrier={airside} /> : null}
+			{airside ? (
+				<AirsideCarrierCard providerId={providerId} carrier={airside} />
+			) : null}
 
 			<div className="flex flex-wrap items-center gap-1">
 				{windowOptions.map((opt) => (
@@ -226,6 +222,10 @@ export function ProviderDetailClient({
 					externalWindow={window}
 				/>
 			</section>
+
+			{airside ? (
+				<AirsideSettingsSection providerId={providerId} carrier={airside} />
+			) : null}
 
 			<section className="space-y-4">
 				<h2 className="text-xl font-semibold">

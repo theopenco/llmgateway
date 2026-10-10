@@ -3,10 +3,11 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.imagePrompt = "Native image " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Image Studio"
-    direction: DOWN
-- tapOn: "Image Studio"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Images"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: Auto"
 - tapOn:
     id: "field-search-models"
@@ -56,10 +57,10 @@ appId: io.llmgateway.lounge
 - assertVisible: "Generated image 1.1"
 - launchApp
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Image Studio"
-    direction: DOWN
-- tapOn: "Image Studio"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Images"
 - scrollUntilVisible:
     element:
       id: "field-search-images"

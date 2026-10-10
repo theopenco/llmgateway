@@ -1,0 +1,22 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: close-chat-options.yaml
+- retry:
+    maxRetries: 3
+    commands:
+      - runFlow:
+          when:
+            visible:
+              id: "BackButton"
+          commands:
+            - tapOn:
+                id: "BackButton"
+      - extendedWaitUntil:
+          visible: "Open sidebar|Close sidebar"
+          timeout: 5000
+- runFlow:
+    when:
+      visible: "Open sidebar"
+    commands:
+      - tapOn: "Open sidebar"
+- assertVisible: "Close sidebar"

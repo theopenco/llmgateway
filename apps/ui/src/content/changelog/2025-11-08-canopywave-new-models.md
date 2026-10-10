@@ -4,6 +4,7 @@ slug: "canopywave-new-models"
 date: "2025-11-08"
 title: "CanopyWave: 3 New Models with 75% Off"
 summary: "CanopyWave brings Qwen3 Coder, MiniMax M2, and GLM-4.6 to LLM Gateway with an exclusive 75% discount on all three models."
+tags: ["llmgateway"]
 image:
   src: "/changelog/canopywave75-off.png"
   alt: "CanopyWave: 3 New Models with 75% Off"

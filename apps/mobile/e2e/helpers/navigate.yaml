@@ -1,0 +1,25 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: open-sidebar.yaml
+- scrollUntilVisible:
+    element: "New conversation"
+    direction: UP
+    timeout: 15000
+- runFlow:
+    when:
+      true: ${["Compare models", "Group discussion", "Canvas", "Audio Studio", "Live transcription", "Skills", "Connectors", "Shared conversations", "Sandbox Escape"].includes(DESTINATION)}
+    commands:
+      - scrollUntilVisible:
+          element: "All tools|Fewer tools"
+          direction: DOWN
+          timeout: 15000
+      - runFlow:
+          when:
+            visible: "All tools"
+          commands:
+            - tapOn: "All tools"
+- scrollUntilVisible:
+    element: ${DESTINATION}
+    direction: DOWN
+    timeout: 15000
+- tapOn: ${DESTINATION}

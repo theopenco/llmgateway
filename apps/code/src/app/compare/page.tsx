@@ -2,6 +2,7 @@ import { ArrowRight, Layers, Scale } from "lucide-react";
 import Link from "next/link";
 
 import { BrandTile } from "@/components/brand-logos";
+import { DevPassPlanChangeNotice } from "@/components/DevPassPlanChangeNotice";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 
@@ -58,9 +59,9 @@ export default function CompareIndexPage() {
 							DevPass vs the alternatives
 						</h1>
 						<p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-pretty text-muted-foreground">
-							Single-vendor plans and single-model deals each do one thing well.
-							DevPass gives you all 200+ models — frontier and open-weight —
-							under one key. Here&apos;s how it stacks up.
+							Compare coding subscriptions, editor bundles, and pay-as-you-go
+							services by price, supported tools, and usage limits. Each page
+							links to current vendor sources.
 						</p>
 
 						{/* Logo lineup */}
@@ -79,6 +80,10 @@ export default function CompareIndexPage() {
 							))}
 						</div>
 					</div>
+				</section>
+
+				<section className="container mx-auto max-w-4xl px-4 pt-8">
+					<DevPassPlanChangeNotice />
 				</section>
 
 				{/* Cards */}
@@ -139,13 +144,12 @@ export default function CompareIndexPage() {
 						<div className="mt-10 flex items-start gap-3 rounded-2xl border border-dashed bg-muted/30 p-5 text-sm text-muted-foreground">
 							<Layers className="mt-0.5 h-4 w-4 shrink-0 text-foreground/70" />
 							<p>
-								Every comparison weighs the same trade: a single-vendor or
-								single-tool plan versus{" "}
+								DevPass gives a single developer{" "}
 								<span className="font-medium text-foreground">
-									one key to 200+ models
+									one key for the live coding catalog
 								</span>{" "}
-								at provider rates, with a per-request cost dashboard and
-								commercial use on every tier.
+								at provider rates, with a per-request cost dashboard and monthly
+								and premium weekly limits.
 							</p>
 						</div>
 					</div>

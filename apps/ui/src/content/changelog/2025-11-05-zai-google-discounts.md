@@ -4,6 +4,7 @@ slug: "zai-google-discounts"
 date: "2025-11-05"
 title: "Z.ai 10% Off & Google 20% Off All Models"
 summary: "Save on all Z.ai models with 10% off and get 20% off all Google models through LLM Gateway."
+tags: ["llmgateway"]
 image:
   src: "/changelog/zai-google-discounts.png"
   alt: "Z.ai 10% off and Google 20% off all models"

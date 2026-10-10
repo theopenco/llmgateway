@@ -142,7 +142,6 @@ const REFUND_INELIGIBILITY_COPY: Record<string, string> = {
 	not_owner: "Only the organization owner can request a refund",
 	not_latest_purchase: "Only your most recent payment can be self-refunded",
 	plan_inactive: "Your DevPass is no longer active",
-	credits_frozen: "Refunds are unavailable while credits are frozen",
 	pass_already_used: "This Reset Pass has already been redeemed",
 };
 
@@ -356,7 +355,12 @@ function formatCredits(creditAmount: string | null): string {
 
 export default function DevPassInvoices() {
 	const api = useApi();
-	const { data } = api.useQuery("get", "/dev-plans/invoices", {});
+	const { data } = api.useQuery(
+		"get",
+		"/dev-plans/invoices",
+		{},
+		{ refetchOnMount: "always" },
+	);
 	const [page, setPage] = useState(0);
 
 	if (!data || data.invoices.length === 0) {

@@ -7,13 +7,17 @@ import {
 	type RoutingExclusionReason,
 } from "@llmgateway/shared";
 
+import { providerSupportsAnthropicSafeguards } from "./anthropic-safeguards.js";
+
 import type {
 	ProviderModelMapping,
+	ReasoningMode,
 	ToolChoiceType,
 	WebSearchTool,
 } from "@llmgateway/models";
 
 export interface ProviderFilterOptions {
+	anthropicSafeguards?: boolean;
 	webSearchTool?: WebSearchTool | boolean;
 	/**
 	 * Whether the caller sent `tool_choice: {type: "web_search"}`. Passed
@@ -33,6 +37,7 @@ export interface ProviderFilterOptions {
 	strictToolChoice?: boolean;
 	reasoningEffort?: string;
 	reasoningMaxTokens?: number;
+	reasoningMode?: ReasoningMode;
 	noReasoning?: boolean;
 	maxTokens?: number;
 	n?: number;
@@ -164,6 +169,13 @@ export function getProviderFilterReasons(
 ): ProviderFilterReason[] {
 	const reasons: ProviderFilterReason[] = [];
 
+	if (
+		options.anthropicSafeguards &&
+		!providerSupportsAnthropicSafeguards(provider.providerId)
+	) {
+		reasons.push(exclusionReason("anthropic_safeguards"));
+	}
+
 	if (options.noReasoning && provider.reasoning === true) {
 		reasons.push(exclusionReason("no_reasoning_variant"));
 	}
@@ -181,6 +193,12 @@ export function getProviderFilterReasons(
 		provider.reasoningMaxTokens !== true
 	) {
 		reasons.push(exclusionReason("reasoning_max_tokens"));
+	}
+	if (
+		options.reasoningMode !== undefined &&
+		!provider.reasoningModes?.includes(options.reasoningMode)
+	) {
+		reasons.push(exclusionReason("reasoning_mode"));
 	}
 	if (options.hasTools && provider.tools !== true) {
 		reasons.push(exclusionReason("tools"));

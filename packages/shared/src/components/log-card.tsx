@@ -170,6 +170,7 @@ export interface LogCardData {
 	audioInputCost?: number | string | null;
 	discount?: number | null;
 	pricingTier?: string | null;
+	pricingPeriod?: string | null;
 	requestedServiceTier?: string | null;
 	usedServiceTier?: string | null;
 	dataStorageCost?: number | string | null;
@@ -177,12 +178,17 @@ export interface LogCardData {
 	requestId?: string | null;
 	traceId?: string | null;
 	sessionId?: string | null;
+	promptId?: string | null;
+	promptVersion?: number | null;
+	promptLabel?: string | null;
 	projectId?: string | null;
 	projectName?: string | null;
 	organizationId?: string | null;
 	organizationName?: string | null;
 	apiKeyId?: string | null;
 	apiKeyName?: string | null;
+	/** Email of the user who created the API key that served the request. */
+	apiKeyUserEmail?: string | null;
 	source?: string | null;
 	apiOrigin?: string | null;
 	mode?: string | null;
@@ -199,6 +205,7 @@ export interface LogCardData {
 	effort?: string | null;
 	plugins?: string[] | null;
 	routingMetadata?: unknown;
+	errorCategory?: string | null;
 	errorDetails?: unknown;
 	pluginResults?: unknown;
 	toolResults?: unknown;
@@ -255,6 +262,8 @@ export const API_ORIGIN_LABELS: Record<string, string> = {
 	speech: "Speech",
 	transcriptions: "Transcriptions",
 	rerank: "Rerank",
+	systemone: "System One",
+	search: "Search",
 };
 
 function formatDuration(ms: number) {
@@ -507,8 +516,8 @@ export function LogCard({
 										</TooltipTrigger>
 										<TooltipContent>
 											<p>
-												Enable retention in organization policies to store
-												response content
+												Retain All Data (Enterprise) must be enabled in
+												organization policies to store response content
 											</p>
 										</TooltipContent>
 									</Tooltip>
@@ -1008,6 +1017,12 @@ export function LogCard({
 									Unified Finish Reason
 								</div>
 								<div>{log.unifiedFinishReason}</div>
+								{log.errorCategory && (
+									<>
+										<div className="text-muted-foreground">Error Category</div>
+										<div>{log.errorCategory}</div>
+									</>
+								)}
 								<div className="text-muted-foreground">Streamed</div>
 								<div className="flex items-center gap-1">
 									{log.streamed ? (
@@ -1142,6 +1157,14 @@ export function LogCard({
 												<div>{log.pricingTier}</div>
 											</>
 										)}
+										{log.pricingPeriod && (
+											<>
+												<div>Pricing Period</div>
+												<div>
+													{log.pricingPeriod === "peak" ? "Peak" : "Off-peak"}
+												</div>
+											</>
+										)}
 										{log.requestedServiceTier && (
 											<>
 												<div>Requested Service Tier</div>
@@ -1235,6 +1258,30 @@ export function LogCard({
 										/>
 									)}
 								</div>
+								{log.promptId && (
+									<>
+										<div className="text-muted-foreground">Prompt</div>
+										<div className="flex flex-wrap items-center gap-1 font-mono text-xs break-all">
+											<span>{log.promptId}</span>
+											{typeof log.promptVersion === "number" && (
+												<Badge variant="secondary" className="text-xs">
+													v{log.promptVersion}
+												</Badge>
+											)}
+											{log.promptLabel && (
+												<Badge variant="outline" className="text-xs">
+													{log.promptLabel}
+												</Badge>
+											)}
+											{showCopyButtons && (
+												<CopyMetadataButton
+													value={log.promptId}
+													label="Copy prompt ID"
+												/>
+											)}
+										</div>
+									</>
+								)}
 								{showLogId && (
 									<>
 										<div className="text-muted-foreground">Log ID</div>
@@ -1282,6 +1329,14 @@ export function LogCard({
 									copyLabel="Copy API key ID"
 									showCopyButton={showCopyButtons}
 								/>
+								{log.apiKeyUserEmail && (
+									<>
+										<div className="text-muted-foreground">Key Owner</div>
+										<div className="font-mono text-xs break-all">
+											{log.apiKeyUserEmail}
+										</div>
+									</>
+								)}
 								<div className="text-muted-foreground">API Origin</div>
 								<div>
 									{log.apiOrigin
@@ -1768,8 +1823,8 @@ export function LogCard({
 								</pre>
 							) : !retentionEnabled && isUserFacing ? (
 								<p className="text-sm text-muted-foreground italic">
-									Message data not retained. Enable retention in organization
-									policies to store request messages.
+									Message data not retained. Retain All Data (Enterprise) must
+									be enabled in organization policies to store request messages.
 								</p>
 							) : (
 								<p className="text-sm text-muted-foreground italic">
@@ -1872,8 +1927,9 @@ export function LogCard({
 								</pre>
 							) : !retentionEnabled && isUserFacing ? (
 								<p className="text-sm text-muted-foreground italic">
-									Response content not retained. Enable retention in
-									organization policies to store response data.
+									Response content not retained. Retain All Data (Enterprise)
+									must be enabled in organization policies to store response
+									data.
 								</p>
 							) : (
 								<p className="text-sm text-muted-foreground italic">

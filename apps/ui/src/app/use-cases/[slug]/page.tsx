@@ -114,7 +114,7 @@ export default async function UseCasePage({ params }: UseCasePageProps) {
 					dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
 				/>
 			)}
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<div className="min-h-screen bg-background text-foreground pt-30">
 				<main className="container mx-auto px-4 py-8">
 					<div className="mx-auto max-w-4xl">

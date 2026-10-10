@@ -1,11 +1,13 @@
 import { Hono } from "hono";
 
 import { app } from "@/app.js";
+import { forwardedCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
 import { findApiKeyByToken } from "@/lib/cached-queries.js";
 import { streamSSE } from "@/lib/pending-work.js";
 
 import { logger } from "@llmgateway/logger";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import {
 	asStatusCode,
@@ -69,6 +71,8 @@ function forwardedHeaders(c: Context<ServerTypes>): Record<string, string> {
 		"User-Agent": c.req.header("User-Agent") ?? "",
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("ai-sdk"),
+		...forwardedIpHeaders(c.req.raw.headers),
+		...forwardedCustomHeaders(c.req.raw.headers),
 		...Object.fromEntries(
 			passthrough
 				.map((name) => [name, c.req.header(name)])

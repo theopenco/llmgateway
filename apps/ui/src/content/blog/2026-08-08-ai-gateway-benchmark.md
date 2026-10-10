@@ -21,7 +21,7 @@ image:
 
 Every AI gateway sits between your application and the model provider, and every one of them adds a hop. So the question any platform team should ask before adopting one is blunt: how much does that hop cost, and how predictable is it?
 
-Vendor-published numbers are close to worthless here, because the vendor picks the conditions. An independent AI gateway benchmark is worth more — and one exists. [computesdk](https://www.computesdk.com/benchmarks/ai-gateway/) runs an open-source harness that measures six gateways against a direct-to-provider control, on the same model, from the same machine, in the same round. In the August 7 run, **LLM Gateway** ranked first with a composite score of 90.8.
+Vendor-published numbers are close to worthless here, because the vendor picks the conditions. An independent AI gateway benchmark is worth more — and one exists. computesdk runs an open-source harness that measures six gateways against a direct-to-provider control, on the same model, from the same machine, in the same round. In the August 7 run, **LLM Gateway** ranked first with a composite score of 90.8.
 
 The more useful part isn't the ranking. It's which axis produced it.
 
@@ -104,7 +104,6 @@ Results land in `results/ai-gateway/`, and the composite weighting is in `benchm
 
 **[Try LLM Gateway free](https://llmgateway.io/signup)** — one API across every major provider, with automatic failover.
 
-- **[See the live benchmark →](https://www.computesdk.com/benchmarks/ai-gateway/)** — current numbers, not this snapshot
 - **[Routing and fallback docs →](https://docs.llmgateway.io/features/routing)** — how requests move across providers
 - **[Portkey alternatives →](/blog/portkey-alternatives)** — how the AI gateway landscape compares
 

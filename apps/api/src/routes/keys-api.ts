@@ -11,6 +11,7 @@ import {
 	iamRuleValueSchema,
 	validateIamRuleInput,
 } from "@/lib/iam-rules.js";
+import { notifyOrgLimit } from "@/lib/org-limit-alerts.js";
 import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import {
 	getUserProjectIds,
@@ -56,6 +57,18 @@ export function assertApiKeyIsUserManaged(apiKey: {
 	if (isPlaygroundApiKey(apiKey)) {
 		throw new HTTPException(403, {
 			message: "The playground API key is managed automatically.",
+		});
+	}
+}
+
+// DevPass orgs have exactly one key, created and rolled via /dev-plans.
+export function assertOrgAllowsManualApiKeys(organization: {
+	kind: string;
+}): void {
+	if (organization.kind === "devpass") {
+		throw new HTTPException(403, {
+			message:
+				"DevPass includes a single API key. Roll it from the DevPass dashboard instead.",
 		});
 	}
 }
@@ -1094,6 +1107,8 @@ export async function createApiKeyForProject(
 		});
 	}
 
+	assertOrgAllowsManualApiKeys(project.organization);
+
 	const orgProjects = await db.query.project.findMany({
 		where: { organizationId: { eq: project.organization.id } },
 		columns: { id: true },
@@ -1119,6 +1134,11 @@ export async function createApiKeyForProject(
 	);
 
 	if (orgActiveApiKeys.length >= maxApiKeys) {
+		await notifyOrgLimit(project.organization.id, {
+			limit: "api_keys",
+			projectId: project.id,
+			maxApiKeys,
+		});
 		throw new HTTPException(400, {
 			message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization. Contact us at contact@llmgateway.io to unlock more.`,
 		});
@@ -1741,6 +1761,15 @@ keysApi.openapi(updateStatus, async (c) => {
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
+
+	// Reactivating a DevPass key would add a second active key.
+	if (
+		status === "active" &&
+		apiKey.status !== "active" &&
+		userOrg?.organization
+	) {
+		assertOrgAllowsManualApiKeys(userOrg.organization);
+	}
 	const userRole = userOrg?.role as
 		"owner" | "admin" | "project_admin" | "developer" | undefined;
 

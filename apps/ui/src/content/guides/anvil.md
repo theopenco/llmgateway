@@ -3,67 +3,61 @@ id: anvil
 slug: anvil
 title: Anvil Integration
 seoTitle: Use Anvil with LLM Gateway
-description: Connect Anvil to LLM Gateway with one-click browser login — DevPass or pay-as-you-go — and run repo-aware agent sessions with any model.
-date: 2026-09-13
+description: Connect Anvil to LLM Gateway, choose DevPass or pay-as-you-go billing, and configure its local coding engine.
+date: 2026-09-23
 ---
 
-[Anvil](https://anvil.dev) is a chat-first desktop workspace for repo-aware agent delivery. It keeps conversations, repositories, work items, Git state, reviews, and terminals together while agents do the work. LLM Gateway is a built-in provider with one-click browser login — no keys to copy.
+[Anvil](https://anvilstack.dev) is a desktop workspace for repository-based agent work. Its built-in LLM Gateway connector supports browser authorization and API keys.
 
-## Two Billing Modes
+## Video walkthrough
 
-Anvil's LLM Gateway connector has two billing modes sharing one login flow. **DevPass** lists canonical models (`claude-opus-5`) that the gateway routes for you on a flat coding plan; **Pay as you go** lists provider-pinned models (`anthropic/claude-opus-5`) billed against your credits. Pick the mode matching your account before connecting.
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/Kw93PYoV67I"
+		title="Anvil setup walkthrough with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
 
-> **Using DevPass?** Keep the default **DevPass** mode. Provider-pinned routing is not available on coding plans, so canonical model IDs are the ones that work.
+## Install Anvil
 
-## Prerequisites
+Download the desktop app from the&nbsp;[official releases](https://github.com/anthonyhumphreys/anvil-stack/releases). On first launch, choose your role and open **Primary agent**. You can also configure providers later in **Settings**.
 
-- Anvil installed — [download the macOS Apple Silicon DMG](https://github.com/anthonyhumphreys/anvil-stack/releases/latest/download/Anvil-latest-arm64.dmg) or build from the [anvil-stack repository](https://github.com/anthonyhumphreys/anvil-stack)
-- An LLM Gateway account — [sign up free](/signup) (no credit card required)
+## Connect LLM Gateway
 
-## Setup
+Select **LLMGateway**, then choose the billing mode matching your account:
 
-### 1. Open the LLMGateway Connector
+| Mode          | Use it with                                               |
+| ------------- | --------------------------------------------------------- |
+| DevPass       | A coding plan and canonical models supported by that plan |
+| Pay as you go | A workspace billed against gateway credits                |
 
-Launch Anvil and open **Settings**. In the provider list, select **LLMGateway** ("DevPass or pay-as-you-go models through one gateway connection"). The same connector is also offered during first-run onboarding.
+Click **Connect in browser**. Review the account and organization on the authorization page, then approve the connection while Anvil stays open. Alternatively, paste an existing key into **API key (alternative)**.
 
-### 2. Pick a Billing Mode
+The selected mode determines which model catalogue Anvil loads. Keep DevPass models canonical; provider-pinned routing is not available on coding plans.
 
-Choose **DevPass** for a coding plan or **Pay as you go** for credits. The mode decides which model catalog Anvil loads.
+## Check the coding engine
 
-### 3. Connect in Browser
+Anvil uses a local Codex coding engine to edit files and run commands. Models and billing still come through LLM Gateway; this connector does not require a separate ChatGPT account.
 
-Click **Connect in browser**. Anvil opens the LLM Gateway authorization page — check the account and organization, then approve the connection. Approval creates an API key and returns it to Anvil through a local callback; keep Anvil running until the callback finishes (the login times out after 5 minutes).
+If Anvil reports that the engine is missing or unavailable, use its **Install coding engine** or **Repair coding engine** control, then check the status again.
 
-Prefer a key you already have? Paste it into the **API key (alternative)** field instead — keys start with `llmgtwy_`.
+## Select a model and test
 
-### 4. Select a Model
+After connecting, choose a tool-capable model from the validated catalogue and click **Test Connection**. Check capabilities on the&nbsp;[models page](https://llmgateway.io/models?features=tools).
 
-Pick a model for the session. Anvil lists the gateway's agent-capable (tool-calling) models for the selected billing mode, with per-turn reasoning-effort controls where the model supports them. Check the [live catalogue](/models?features=tools) for current capabilities.
-
-### 5. Start Building
-
-Run planning, implementation, or review sessions grounded in your checked-out repositories. All requests route through LLM Gateway and show up as **Anvil** in your [dashboard](/dashboard)'s agents view, with usage, costs, and logs.
-
-## Why Use LLM Gateway with Anvil
-
-- **One login for every model** — Claude, GPT, Gemini, DeepSeek, and more through a single connection
-- **DevPass or credits** — flat-price coding plan or pay-as-you-go, switchable in Settings
-- **Cost tracking** — see exactly what each agent session costs in your dashboard
-- **Automatic fallback** — if a provider is down, requests route to an alternative
-- **Volume discounts** — check [discounted models](/models?discounted=true) for savings
+Start a small task in your repository, review the proposed changes, and run the relevant tests. Inspect usage in the gateway workspace you authorized.
 
 ## Troubleshooting
 
-### Login times out
+**Browser authorization times out:** start the connection again and finish the approval while Anvil remains open.
 
-The browser login expires after 5 minutes. Click **Connect in browser** again to get a fresh authorization link, and complete the approval while Anvil is running.
+**No models appear:** check the connected key and billing mode, then refresh the connector status.
 
-### No models listed
+**The coding engine is unavailable:** use the install or repair control before starting an agent task.
 
-Anvil only lists agent-capable (tool-calling) models for the selected billing mode. Switch the billing mode to match your account type, or refresh the connector status from Settings.
-
-### Authentication errors
-
-Make sure the connected key is active — manage your organization's API keys in the [dashboard](/dashboard). Disconnect and reconnect from Settings to mint a fresh key.
-
-> Need help? Join our [Discord community](https://llmgateway.io/discord) for support and troubleshooting assistance.
+**Authentication fails:** verify that the key is active, or reconnect in the browser to authorize a new connection.

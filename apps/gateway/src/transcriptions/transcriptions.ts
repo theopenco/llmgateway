@@ -33,7 +33,6 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
-import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	assertProviderCompliant,
 	getEffectiveRetentionLevel,
@@ -66,6 +65,7 @@ import {
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { models as modelDefinitions } from "@llmgateway/models";
+import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";
@@ -503,6 +503,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
+		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: modelDefId,
 		requestedProvider: providerId,
 		activeModelInfo: modelDef,
@@ -592,6 +593,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 		configIndex: number;
 		envVarName: string | undefined;
 		upstreamUrl: string;
+		tenantBaseUrl: string | null;
 	}
 
 	async function resolveAttempt(): Promise<TranscriptionAttempt> {
@@ -721,6 +723,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			configIndex,
 			envVarName,
 			upstreamUrl: `${resolvedBaseUrl}/v1/stt`,
+			tenantBaseUrl: providerKey?.baseUrl ?? null,
 		};
 	}
 
@@ -800,18 +803,22 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				const fetchSignal = createCombinedSignal(controller);
 				// No explicit Content-Type: fetch derives the multipart boundary
 				// from the FormData body.
-				upstreamResponse = await fetchProvider(attempt.upstreamUrl, {
-					method: "POST",
-					// SSRF: never follow redirects on an authenticated provider request. A
-					// tenant-supplied baseUrl could 3xx to an internal host at request
-					// time, and a redirect would also leak the upstream token.
-					redirect: "error",
-					headers: getProviderHeaders(providerId, attempt.usedToken, {
-						requestId,
-					}),
-					body: buildUpstreamForm(),
-					signal: fetchSignal,
-				});
+				upstreamResponse = await fetchProvider(
+					attempt.upstreamUrl,
+					{
+						method: "POST",
+						// SSRF: never follow redirects on an authenticated provider request. A
+						// tenant-supplied baseUrl could 3xx to an internal host at request
+						// time, and a redirect would also leak the upstream token.
+						redirect: "error",
+						headers: getProviderHeaders(providerId, attempt.usedToken, {
+							requestId,
+						}),
+						body: buildUpstreamForm(),
+						signal: fetchSignal,
+					},
+					attempt.tenantBaseUrl,
+				);
 			} catch (error) {
 				const isCanceled =
 					error instanceof Error && error.name === "AbortError";
@@ -879,61 +886,64 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 					);
 				}
 
-				await insertLog({
-					...baseLogEntry,
-					id: willRetry ? attemptLogId : finalLogId,
-					routingMetadata: buildTranscriptionRoutingMetadata(
-						usedApiKeyHash,
-						credentialSource,
-						usedProviderKey,
-					),
-					duration,
-					timeToFirstToken: null,
-					timeToFirstReasoningToken: null,
-					responseSize: 0,
-					content: null,
-					reasoningContent: null,
-					finishReason: isCanceled ? "canceled" : "upstream_error",
-					promptTokens: null,
-					completionTokens: null,
-					totalTokens: null,
-					reasoningTokens: null,
-					cachedTokens: null,
-					hasError: !isCanceled,
-					streamed: false,
-					canceled: isCanceled,
-					errorDetails: isCanceled
-						? null
-						: {
-								statusCode: 0,
-								statusText: fetchError.name,
-								responseText: fetchError.message,
-							},
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					webSearchCost: 0,
-					imageInputTokens: null,
-					imageOutputTokens: null,
-					imageInputCost: null,
-					imageOutputCost: null,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
-					pricingTier: null,
-					dataStorageCost: calculateDataStorageCost(
-						null,
-						null,
-						null,
-						null,
-						retentionLevel,
-					),
-					cached: false,
-					toolResults: null,
-					retried: willRetry,
-					retriedByLogId: willRetry ? finalLogId : null,
-				});
+				await insertLog(
+					{
+						...baseLogEntry,
+						id: willRetry ? attemptLogId : finalLogId,
+						routingMetadata: buildTranscriptionRoutingMetadata(
+							usedApiKeyHash,
+							credentialSource,
+							usedProviderKey,
+						),
+						duration,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize: 0,
+						content: null,
+						reasoningContent: null,
+						finishReason: isCanceled ? "canceled" : "upstream_error",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: !isCanceled,
+						streamed: false,
+						canceled: isCanceled,
+						errorDetails: isCanceled
+							? null
+							: {
+									statusCode: 0,
+									statusText: fetchError.name,
+									responseText: fetchError.message,
+								},
+						inputCost: 0,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost: 0,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost: 0,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						dataStorageCost: calculateDataStorageCost(
+							null,
+							null,
+							null,
+							null,
+							retentionLevel,
+						),
+						cached: false,
+						toolResults: null,
+						retried: willRetry,
+						retriedByLogId: willRetry ? finalLogId : null,
+					},
+					{ retentionLevel },
+				);
 
 				if (willRetry && nextAttempt) {
 					attempt = nextAttempt;
@@ -1031,59 +1041,62 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 					),
 				);
 
-				await insertLog({
-					...baseLogEntry,
-					id: willRetry ? attemptLogId : finalLogId,
-					routingMetadata: buildTranscriptionRoutingMetadata(
-						usedApiKeyHash,
-						credentialSource,
-						usedProviderKey,
-					),
-					duration,
-					timeToFirstToken: null,
-					timeToFirstReasoningToken: null,
-					responseSize,
-					content: null,
-					reasoningContent: null,
-					finishReason,
-					promptTokens: null,
-					completionTokens: null,
-					totalTokens: null,
-					reasoningTokens: null,
-					cachedTokens: null,
-					hasError: true,
-					streamed: false,
-					canceled: false,
-					errorDetails: {
-						statusCode: status,
-						statusText: upstreamResponse.statusText,
-						responseText: upstreamText,
+				await insertLog(
+					{
+						...baseLogEntry,
+						id: willRetry ? attemptLogId : finalLogId,
+						routingMetadata: buildTranscriptionRoutingMetadata(
+							usedApiKeyHash,
+							credentialSource,
+							usedProviderKey,
+						),
+						duration,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize,
+						content: null,
+						reasoningContent: null,
+						finishReason,
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: true,
+						streamed: false,
+						canceled: false,
+						errorDetails: {
+							statusCode: status,
+							statusText: upstreamResponse.statusText,
+							responseText: upstreamText,
+						},
+						inputCost: 0,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost: 0,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost: 0,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						dataStorageCost: calculateDataStorageCost(
+							null,
+							null,
+							null,
+							null,
+							retentionLevel,
+						),
+						cached: false,
+						toolResults: null,
+						retried: willRetry,
+						retriedByLogId: willRetry ? finalLogId : null,
 					},
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					webSearchCost: 0,
-					imageInputTokens: null,
-					imageOutputTokens: null,
-					imageInputCost: null,
-					imageOutputCost: null,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
-					pricingTier: null,
-					dataStorageCost: calculateDataStorageCost(
-						null,
-						null,
-						null,
-						null,
-						retentionLevel,
-					),
-					cached: false,
-					toolResults: null,
-					retried: willRetry,
-					retriedByLogId: willRetry ? finalLogId : null,
-				});
+					{ retentionLevel },
+				);
 
 				if (willRetry && nextAttempt) {
 					attempt = nextAttempt;
@@ -1171,56 +1184,59 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				),
 			);
 
-			await insertLog({
-				...baseLogEntry,
-				id: finalLogId,
-				routingMetadata: buildTranscriptionRoutingMetadata(
-					usedApiKeyHash,
-					credentialSource,
-					usedProviderKey,
-				),
-				duration,
-				timeToFirstToken: null,
-				timeToFirstReasoningToken: null,
-				responseSize,
-				content:
-					transcriptText !== null
-						? `[transcript: ${transcriptText.length} chars, ${audioDurationSeconds ?? "?"}s audio]`
-						: null,
-				reasoningContent: null,
-				finishReason: "stop",
-				promptTokens: null,
-				completionTokens: null,
-				totalTokens: null,
-				reasoningTokens: null,
-				cachedTokens: null,
-				hasError: false,
-				streamed: false,
-				canceled: false,
-				errorDetails: null,
-				inputCost: audioCost,
-				outputCost: 0,
-				cachedInputCost: 0,
-				requestCost,
-				webSearchCost: 0,
-				imageInputTokens: null,
-				imageOutputTokens: null,
-				imageInputCost: null,
-				imageOutputCost: null,
-				cost,
-				estimatedCost: audioDurationSeconds === null,
-				discount: null,
-				pricingTier: null,
-				dataStorageCost: calculateDataStorageCost(
-					null,
-					null,
-					null,
-					null,
-					retentionLevel,
-				),
-				cached: false,
-				toolResults: null,
-			});
+			await insertLog(
+				{
+					...baseLogEntry,
+					id: finalLogId,
+					routingMetadata: buildTranscriptionRoutingMetadata(
+						usedApiKeyHash,
+						credentialSource,
+						usedProviderKey,
+					),
+					duration,
+					timeToFirstToken: null,
+					timeToFirstReasoningToken: null,
+					responseSize,
+					content:
+						transcriptText !== null
+							? `[transcript: ${transcriptText.length} chars, ${audioDurationSeconds ?? "?"}s audio]`
+							: null,
+					reasoningContent: null,
+					finishReason: "stop",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: false,
+					streamed: false,
+					canceled: false,
+					errorDetails: null,
+					inputCost: audioCost,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost,
+					estimatedCost: audioDurationSeconds === null,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: calculateDataStorageCost(
+						null,
+						null,
+						null,
+						null,
+						retentionLevel,
+					),
+					cached: false,
+					toolResults: null,
+				},
+				{ retentionLevel },
+			);
 
 			return c.json(
 				(responseObject && typeof responseObject.model === "string"

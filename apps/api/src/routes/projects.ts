@@ -5,9 +5,14 @@ import { z } from "zod";
 import { resolveProjectLimit } from "@/lib/project-limit.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
 import {
+	providerCacheAutoTtlSchema,
 	providerCacheControlModeSchema,
 	resolveProviderCacheControlMode,
 } from "@/utils/provider-cache-control.js";
+import {
+	smartRoutingConfigInputSchema,
+	normalizeSmartRoutingConfig,
+} from "@/utils/smart-routing.js";
 import {
 	isZeroDataRetentionEnabled,
 	zdrCachingConflictMessage,
@@ -16,10 +21,13 @@ import {
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { normalizeStatementDescriptorSuffix } from "@llmgateway/shared";
 import { canManageProject } from "@llmgateway/shared/organization-roles";
+import { isSmartRoutingAvailable } from "@llmgateway/shared/smart-routing";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderCacheControlMode } from "@llmgateway/models";
+import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
 export const projects = new OpenAPIHono<ServerTypes>();
 
@@ -37,6 +45,7 @@ const projectSchema = z.object({
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
 	providerCacheControlMode: providerCacheControlModeSchema,
+	providerCacheAutoTtl: providerCacheAutoTtlSchema,
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -45,6 +54,10 @@ const projectSchema = z.object({
 	endUserMarkupPercent: z.string(),
 	endUserTopUpBonusPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),
+	endUserBrandName: z.string().nullable(),
+	endUserSupportEmail: z.string().nullable(),
+	endUserStatementDescriptorSuffix: z.string().nullable(),
+	smartRoutingConfig: smartRoutingConfigInputSchema.nullable(),
 });
 
 const createProjectSchema = z.object({
@@ -53,6 +66,7 @@ const createProjectSchema = z.object({
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
 	providerCacheControlMode: providerCacheControlModeSchema.optional(),
+	providerCacheAutoTtl: providerCacheAutoTtlSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
 });
@@ -62,6 +76,7 @@ const updateProjectSchema = z.object({
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(), // Min 10 seconds, max 1 year
 	providerCacheControlMode: providerCacheControlModeSchema.optional(),
+	providerCacheAutoTtl: providerCacheAutoTtlSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
 	defaultRoutingStrategy: z
@@ -71,6 +86,18 @@ const updateProjectSchema = z.object({
 	endUserMarkupPercent: z.number().min(0).max(100).optional(),
 	endUserTopUpBonusPercent: z.number().min(0).max(1000).optional(),
 	allowedOrigins: z.array(z.string().trim().min(1)).max(20).optional(),
+	endUserBrandName: z.string().trim().min(1).max(64).nullable().optional(),
+	endUserSupportEmail: z.string().trim().email().nullable().optional(),
+	// Length is enforced by normalizeStatementDescriptorSuffix rather than zod:
+	// what we persist has to be Stripe-safe no matter what arrives here.
+	endUserStatementDescriptorSuffix: z
+		.string()
+		.trim()
+		.max(64)
+		.nullable()
+		.optional(),
+	// Null clears the override so the project inherits the organization default.
+	smartRoutingConfig: smartRoutingConfigInputSchema.nullable().optional(),
 });
 
 function normalizeAllowedOrigins(origins: string[]) {
@@ -218,12 +245,17 @@ projects.openapi(updateProject, async (c) => {
 		name,
 		cachingEnabled,
 		cacheDurationSeconds,
+		providerCacheAutoTtl,
 		mode,
 		defaultRoutingStrategy,
 		endUserEnabled,
 		endUserMarkupPercent,
 		endUserTopUpBonusPercent,
 		allowedOrigins,
+		endUserBrandName,
+		endUserSupportEmail,
+		endUserStatementDescriptorSuffix,
+		smartRoutingConfig,
 	} = c.req.valid("json");
 	const providerCacheControlMode = resolveProviderCacheControlMode(
 		c.req.valid("json"),
@@ -271,7 +303,10 @@ projects.openapi(updateProject, async (c) => {
 		endUserEnabled !== undefined ||
 		endUserMarkupPercent !== undefined ||
 		endUserTopUpBonusPercent !== undefined ||
-		allowedOrigins !== undefined;
+		allowedOrigins !== undefined ||
+		endUserBrandName !== undefined ||
+		endUserSupportEmail !== undefined ||
+		endUserStatementDescriptorSuffix !== undefined;
 	const projectUserOrg = userOrgs.find(
 		(userOrg) => userOrg.organizationId === project.organizationId,
 	);
@@ -295,6 +330,7 @@ projects.openapi(updateProject, async (c) => {
 
 	const updateData: Partial<typeof tables.project.$inferInsert> = {};
 	let normalizedAllowedOrigins: string[] | undefined;
+	let normalizedStatementDescriptorSuffix: string | null | undefined;
 
 	if (name !== undefined) {
 		updateData.name = name;
@@ -306,6 +342,10 @@ projects.openapi(updateProject, async (c) => {
 
 	if (cacheDurationSeconds !== undefined) {
 		updateData.cacheDurationSeconds = cacheDurationSeconds;
+	}
+
+	if (providerCacheAutoTtl !== undefined) {
+		updateData.providerCacheAutoTtl = providerCacheAutoTtl;
 	}
 
 	if (providerCacheControlMode !== undefined) {
@@ -351,6 +391,40 @@ projects.openapi(updateProject, async (c) => {
 	if (allowedOrigins !== undefined) {
 		normalizedAllowedOrigins = normalizeAllowedOrigins(allowedOrigins);
 		updateData.allowedOrigins = normalizedAllowedOrigins;
+	}
+
+	if (endUserBrandName !== undefined) {
+		updateData.endUserBrandName = endUserBrandName || null;
+	}
+
+	if (endUserSupportEmail !== undefined) {
+		updateData.endUserSupportEmail = endUserSupportEmail || null;
+	}
+
+	if (endUserStatementDescriptorSuffix !== undefined) {
+		normalizedStatementDescriptorSuffix = normalizeStatementDescriptorSuffix(
+			endUserStatementDescriptorSuffix,
+		);
+		updateData.endUserStatementDescriptorSuffix =
+			normalizedStatementDescriptorSuffix;
+	}
+
+	// Auto-routing overrides are an enterprise feature. Clearing the override
+	// stays allowed without enterprise access so a downgraded org can drop a
+	// leftover project override.
+	let normalizedSmartRoutingConfig: SmartRoutingConfig | null | undefined;
+	if (smartRoutingConfig !== undefined) {
+		if (
+			smartRoutingConfig !== null &&
+			!isSmartRoutingAvailable(projectUserOrg?.organization?.kind)
+		) {
+			throw new HTTPException(403, {
+				message: "Smart routing is not available for this organization",
+			});
+		}
+		normalizedSmartRoutingConfig =
+			normalizeSmartRoutingConfig(smartRoutingConfig);
+		updateData.smartRoutingConfig = normalizedSmartRoutingConfig;
 	}
 
 	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
@@ -411,6 +485,16 @@ projects.openapi(updateProject, async (c) => {
 		};
 	}
 	if (
+		providerCacheAutoTtl !== undefined &&
+		providerCacheAutoTtl !== project.providerCacheAutoTtl
+	) {
+		changes.providerCacheAutoTtl = {
+			old: project.providerCacheAutoTtl,
+			new: providerCacheAutoTtl,
+		};
+	}
+
+	if (
 		providerCacheControlMode !== undefined &&
 		providerCacheControlMode !== project.providerCacheControlMode
 	) {
@@ -458,6 +542,16 @@ projects.openapi(updateProject, async (c) => {
 			new: String(endUserTopUpBonusPercent),
 		};
 	}
+	if (
+		normalizedSmartRoutingConfig !== undefined &&
+		JSON.stringify(project.smartRoutingConfig ?? null) !==
+			JSON.stringify(normalizedSmartRoutingConfig)
+	) {
+		changes.smartRoutingConfig = {
+			old: project.smartRoutingConfig,
+			new: normalizedSmartRoutingConfig,
+		};
+	}
 	if (normalizedAllowedOrigins !== undefined) {
 		const previousAllowedOrigins = project.allowedOrigins ?? [];
 		if (
@@ -469,6 +563,34 @@ projects.openapi(updateProject, async (c) => {
 				new: normalizedAllowedOrigins,
 			};
 		}
+	}
+	if (
+		endUserBrandName !== undefined &&
+		(endUserBrandName || null) !== project.endUserBrandName
+	) {
+		changes.endUserBrandName = {
+			old: project.endUserBrandName,
+			new: endUserBrandName || null,
+		};
+	}
+	if (
+		endUserSupportEmail !== undefined &&
+		(endUserSupportEmail || null) !== project.endUserSupportEmail
+	) {
+		changes.endUserSupportEmail = {
+			old: project.endUserSupportEmail,
+			new: endUserSupportEmail || null,
+		};
+	}
+	if (
+		normalizedStatementDescriptorSuffix !== undefined &&
+		normalizedStatementDescriptorSuffix !==
+			project.endUserStatementDescriptorSuffix
+	) {
+		changes.endUserStatementDescriptorSuffix = {
+			old: project.endUserStatementDescriptorSuffix,
+			new: normalizedStatementDescriptorSuffix,
+		};
 	}
 
 	if (Object.keys(changes).length > 0) {
@@ -539,6 +661,7 @@ export interface CreateProjectInput {
 	cachingEnabled?: boolean;
 	cacheDurationSeconds?: number;
 	providerCacheControlMode?: ProviderCacheControlMode;
+	providerCacheAutoTtl?: "5m" | "1h";
 	providerCacheControlEnabled?: boolean;
 	mode?: "api-keys" | "credits" | "hybrid";
 }
@@ -553,6 +676,7 @@ export async function createProjectForOrg(
 		name,
 		cachingEnabled = false,
 		cacheDurationSeconds = 60,
+		providerCacheAutoTtl = "5m",
 		mode = DEFAULT_PROJECT_MODE,
 	} = input;
 	const providerCacheControlMode =
@@ -638,6 +762,7 @@ export async function createProjectForOrg(
 			organizationId,
 			cachingEnabled,
 			cacheDurationSeconds,
+			providerCacheAutoTtl,
 			providerCacheControlMode,
 			mode,
 		})

@@ -24,11 +24,11 @@ const faqData = [
 	{
 		question: "What is your uptime guarantee?",
 		answer:
-			"Our public status page posts real-time metrics. Enterprise instances come with a 99.9% uptime SLA; self-host installations depend on your infrastructure.",
+			"Our public status page posts real-time metrics. Enterprise Cloud contracts include a 99.9% uptime SLA; pay-as-you-go has no SLA, and self-host installations depend on your infrastructure.",
 	},
 	{
 		question: "How much does it cost?",
-		answer: `Credits: Pay-as-you-go with a flat 5% platform fee. BYOK: Use your own provider API keys for free. Enterprise: Custom SLA, dedicated infrastructure, and volume discounts. Self-host: Deploy free forever under AGPLv3 license. Optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice} in both credits and BYOK modes.`,
+		answer: `Credits: Pay-as-you-go with a flat 5% platform fee. BYOK: Use your own provider API keys for free. Enterprise: Custom SLA, dedicated infrastructure, and volume discounts. Self-host: Deploy the core gateway free under AGPLv3; enterprise features need a license. Request logs are metadata only by default; on Enterprise, full data retention is billed at ${MARKETING_STATS.dataStoragePrice} in both credits and BYOK modes.`,
 	},
 ];
 
@@ -59,9 +59,6 @@ export function Faq() {
 				<div className="grid grid-cols-1 lg:grid-cols-5 gap-12 lg:gap-16">
 					{/* Left column: sticky heading */}
 					<div className="lg:col-span-2 lg:sticky lg:top-24 lg:self-start">
-						<p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4">
-							FAQ
-						</p>
 						<h2 className="font-display text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight text-foreground">
 							Common questions
 						</h2>
@@ -164,8 +161,9 @@ export function Faq() {
 								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
 									<div className="border-l-2 border-foreground/10 pl-4">
 										Our public status page posts real-time metrics. Enterprise
-										instances come with a <strong>99.9% uptime SLA</strong>;
-										self-host installations depend on your infrastructure.
+										Cloud contracts include a <strong>99.9% uptime SLA</strong>;
+										pay-as-you-go has no SLA, and self-host installations depend
+										on your infrastructure.
 									</div>
 								</AccordionContent>
 							</AccordionItem>
@@ -206,11 +204,12 @@ export function Faq() {
 											</li>
 											<li>
 												<strong>Self-host:</strong> Deploy the AGPLv3-licensed
-												gateway on your own infrastructure—free forever.
+												gateway on your own infrastructure for free. Enterprise
+												features need a license.
 											</li>
 										</ul>
 										<p className="mt-2">
-											Optional{" "}
+											Request logs are metadata only by default. On Enterprise,{" "}
 											<a
 												href="https://docs.llmgateway.io/features/data-retention#storage-pricing"
 												className="underline"

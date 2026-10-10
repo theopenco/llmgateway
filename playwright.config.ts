@@ -21,8 +21,9 @@ export default defineConfig({
 	workers: 1,
 	forbidOnly: !!process.env.CI,
 	timeout: 90_000,
+	// CI shards emit blobs that the workflow merges into one HTML report.
 	reporter: process.env.CI
-		? [["github"], ["html", { open: "never" }]]
+		? [["github"], ["blob"]]
 		: [["list"], ["html", { open: "never" }]],
 	use: {
 		trace: "retain-on-failure",
@@ -51,6 +52,10 @@ export default defineConfig({
 			name: "worker",
 			command: "node apps/worker/dist/index.js",
 			wait: { stdout: /Starting worker loops/ },
+			// The loops only start after the initial provider/model sync writes the
+			// whole catalogue, which routinely outlasts the 60s default while the
+			// other seven servers are booting alongside it.
+			timeout: 300_000,
 			env: backendEnv,
 		},
 		...[

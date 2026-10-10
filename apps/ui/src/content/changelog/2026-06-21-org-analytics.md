@@ -4,6 +4,7 @@ slug: "org-analytics"
 date: "2026-06-21"
 title: "Usage Analytics by Model, Key and Member"
 summary: "See exactly where your spend goes. Every project gets a Cost by Model analytics page, every API key gets its own statistics page, and Enterprise orgs get per-member usage breakdowns — all on the date-range picker you already use. Member analytics are available on Enterprise."
+tags: ["llmgateway"]
 image:
   src: "/changelog/org-analytics.png"
   alt: "Usage analytics on LLM Gateway: cost by model, per-API-key statistics, and per-member spend breakdowns"

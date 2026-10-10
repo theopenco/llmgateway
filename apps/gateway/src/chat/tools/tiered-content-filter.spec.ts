@@ -17,7 +17,9 @@ vi.mock("@/lib/org-rate-limit.js", () => ({
 	getOrganizationLifetimeSpend: vi.fn(async () => 0),
 }));
 
-const NOW = Date.parse("2026-09-13T00:00:00Z");
+// Relative to now: the resolved tier is a function of account age, so a
+// hard-coded creation date silently ages into the next tier as time passes.
+const NOW = Date.now();
 
 function org(
 	overrides: Partial<Parameters<typeof resolveTieredContentFilterPlan>[0]> = {},
@@ -67,6 +69,15 @@ describe("resolveTieredContentFilterPlan", () => {
 		).toBeNull();
 	});
 
+	test("carries the configured classifier", async () => {
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", {
+				...enabledSettings,
+				classifier: "jev",
+			}),
+		).toMatchObject({ classifier: "jev" });
+	});
+
 	test("is log-only by default and reports the inherited tier", async () => {
 		expect(
 			await resolveTieredContentFilterPlan(org(), "openai", enabledSettings),
@@ -77,6 +88,9 @@ describe("resolveTieredContentFilterPlan", () => {
 			level: "strict",
 			enforce: false,
 			exemptReason: "global_log_only",
+			classifier: "openai",
+			internalScope: "full",
+			moderateImages: true,
 		});
 	});
 
@@ -233,6 +247,9 @@ describe("buildGatewayContentFilterEvaluation", () => {
 		overridden: false,
 		level: "strict" as const,
 		enforce: true,
+		classifier: "openai" as const,
+		internalScope: "full" as const,
+		moderateImages: true,
 	};
 	const violation = {
 		violation: true,
@@ -241,23 +258,40 @@ describe("buildGatewayContentFilterEvaluation", () => {
 		categoryScores: { violence: 0.9 },
 	};
 
+	test("records the internal classifier's input scope", () => {
+		expect(
+			buildGatewayContentFilterEvaluation(
+				{
+					...plan,
+					classifier: "internal",
+					internalScope: "latest_turn",
+				},
+				violation,
+				false,
+				5,
+			),
+		).toMatchObject({ classifier: "internal", internalScope: "latest_turn" });
+	});
+
 	test("marks enforced violations as blocked", () => {
-		expect(buildGatewayContentFilterEvaluation(plan, violation, false)).toEqual(
-			{
-				sampled: true,
-				provider: "openai",
-				tier: 1,
-				overridden: false,
-				level: "strict",
-				violation: true,
-				action: "blocked",
-				enforced: true,
-				flagged: true,
-				matchedCategories: ["violence"],
-				categoryScores: { violence: 0.9 },
-				moderationFailed: false,
-			},
-		);
+		expect(
+			buildGatewayContentFilterEvaluation(plan, violation, false, 42),
+		).toEqual({
+			sampled: true,
+			classifier: "openai",
+			provider: "openai",
+			tier: 1,
+			overridden: false,
+			level: "strict",
+			violation: true,
+			action: "blocked",
+			enforced: true,
+			flagged: true,
+			matchedCategories: ["violence"],
+			categoryScores: { violence: 0.9 },
+			moderationFailed: false,
+			durationMs: 42,
+		});
 	});
 
 	test("marks log-only violations as logged and clean requests as passed", () => {
@@ -266,6 +300,7 @@ describe("buildGatewayContentFilterEvaluation", () => {
 				{ ...plan, enforce: false, exemptReason: "global_log_only" },
 				violation,
 				false,
+				10,
 			),
 		).toMatchObject({ action: "logged", exemptReason: "global_log_only" });
 		expect(
@@ -273,6 +308,7 @@ describe("buildGatewayContentFilterEvaluation", () => {
 				plan,
 				{ ...violation, violation: false, matchedCategories: [] },
 				true,
+				10,
 			),
 		).toMatchObject({ action: "passed", moderationFailed: true });
 	});

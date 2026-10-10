@@ -4,6 +4,7 @@ slug: "claude-fable-5-reve-and-new-models"
 date: "2026-06-10"
 title: "Claude Fable 5, Reve Image Gen & More New Models"
 summary: "Anthropic's next-generation Claude Fable 5 lands with 1M context, Reve joins as a new image provider, xAI's Grok Imagine Video 1.5 turns images into 15-second clips, and NVIDIA's Nemotron 3 Ultra 550B arrives."
+tags: ["llmgateway"]
 image:
   src: "/changelog/claude-fable-5-reve-and-new-models.png"
   alt: "Claude Fable 5, Reve, Grok Imagine Video and Nemotron 3 Ultra joining LLM Gateway"

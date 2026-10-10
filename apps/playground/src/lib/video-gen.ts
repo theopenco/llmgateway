@@ -23,7 +23,35 @@ const TERMINAL_STATUSES = new Set([
 	"expired",
 ]);
 
-const MAX_POLL_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+export const POLL_TIMEOUT_ERROR_CODE = "poll_timeout";
+
+export class VideoPollError extends Error {
+	public constructor(
+		message: string,
+		public readonly status?: number,
+	) {
+		super(message);
+		this.name = "VideoPollError";
+	}
+}
+
+export function videoContentUrl(jobId: string): string {
+	return `/api/video/${jobId}/content`;
+}
+
+// A saved model result whose job was created but has neither finished nor
+// failed; the page resumes polling it.
+export function isPendingVideoModel(model: {
+	jobId?: string | null;
+	videoUrl: string | null;
+	error?: string;
+}): boolean {
+	return !!model.jobId && model.videoUrl === null && !model.error;
+}
+
+// Matches the worker's job timeout, so a live page keeps polling for as long
+// as the gateway can still complete the job.
+const MAX_POLL_DURATION_MS = 60 * 60 * 1000;
 const MAX_CONSECUTIVE_ERRORS = 10;
 const TRANSIENT_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
@@ -66,8 +94,9 @@ export async function* pollVideoJob(
 				completed_at: null,
 				expires_at: null,
 				error: {
+					code: POLL_TIMEOUT_ERROR_CODE,
 					message:
-						"Video generation timed out. The video may still be processing - try refreshing the page.",
+						"Video generation is taking longer than expected. It will show up in your history once it finishes.",
 				},
 			};
 			return;
@@ -86,7 +115,7 @@ export async function* pollVideoJob(
 			}
 			consecutiveErrors++;
 			if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-				throw new Error(
+				throw new VideoPollError(
 					`Poll failed after ${consecutiveErrors} consecutive network errors`,
 				);
 			}
@@ -98,14 +127,18 @@ export async function* pollVideoJob(
 			if (TRANSIENT_STATUS_CODES.has(result.response.status)) {
 				consecutiveErrors++;
 				if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-					throw new Error(
+					throw new VideoPollError(
 						`Poll failed: ${result.response.status} (after ${consecutiveErrors} retries)`,
+						result.response.status,
 					);
 				}
 				await pollDelay(Math.min(consecutiveErrors * 2_000, 10_000), signal);
 				continue;
 			}
-			throw new Error(`Poll failed: ${result.response.status}`);
+			throw new VideoPollError(
+				`Poll failed: ${result.response.status}`,
+				result.response.status,
+			);
 		}
 
 		consecutiveErrors = 0;

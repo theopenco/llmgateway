@@ -28,24 +28,48 @@ jobs:
   lint:
     uses: ./.github/workflows/run.yml
     secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
     with:
       cmd: pnpm build && pnpm lint
+
+  migrations:
+    # Fails when this PR's migrations and ones merged since it branched touch
+    # the same objects. The migrator applies them out of order, and git no
+    # longer conflicts, so this is the only guard.
+    uses: ./.github/workflows/run.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      cmd: pnpm migrations:check
 
   generate:
     uses: ./.github/workflows/run.yml
     secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
     with:
       cmd: pnpm build && git diff --exit-code
 
   build:
     uses: ./.github/workflows/run.yml
     secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
     with:
       cmd: pnpm build && pnpm run setup && bash .github/start.sh
 
   test:
     uses: ./.github/workflows/test-unit.yml
     secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
 
   playwright:
     uses: ./.github/workflows/test-playwright.yml

@@ -6,15 +6,19 @@ appId: io.llmgateway.lounge
 - extendedWaitUntil:
     visible: "Your saved workspace or project is no longer available.*"
     timeout: 20000
-- assertNotVisible: "Start a conversation"
-- assertNotVisible: "Current workspace: Personal Lounge"
+- assertNotVisible: "New conversation"
+- assertNotVisible: ".*Current workspace: Personal Lounge"
 - tapOn: "Choose workspace"
 - scrollUntilVisible:
     element: "Use Personal Lounge"
     direction: DOWN
 - tapOn: "Use Personal Lounge"
+- runFlow: helpers/open-sidebar.yaml
 - extendedWaitUntil:
-    visible: "Current workspace: Personal Lounge"
+    visible: ".*Current workspace: Personal Lounge"
     timeout: 20000
+- tapOn: "Close sidebar"
 - launchApp
-- assertVisible: "Current workspace: Personal Lounge"
+- runFlow: helpers/open-sidebar.yaml
+- assertVisible: ".*Current workspace: Personal Lounge"
+- tapOn: "Close sidebar"

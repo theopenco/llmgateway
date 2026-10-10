@@ -16,6 +16,8 @@ import {
 	DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 import { useApi } from "@/lib/fetch-client";
 
 const REFRESH_KEY = "ignoredErrors";
@@ -27,6 +29,7 @@ export function IgnoredErrorMatchersDialog({
 }) {
 	const $api = useApi();
 	const queryClient = useQueryClient();
+	const readOnly = !canWrite(useAdminRole());
 	const { isPending, pendingKey, refresh } = useFilterNavigation();
 	const [open, setOpen] = useState(false);
 	const [pattern, setPattern] = useState("");
@@ -137,35 +140,37 @@ export function IgnoredErrorMatchersDialog({
 					</DialogDescription>
 				</DialogHeader>
 
-				<form onSubmit={handleAdd} className="flex items-center gap-2">
-					<Input
-						value={pattern}
-						onChange={(e) => setPattern(e.target.value)}
-						placeholder="Substring, e.g. overloaded_error"
-						maxLength={500}
-					/>
-					<Input
-						value={statusCode}
-						onChange={(e) => setStatusCode(e.target.value)}
-						placeholder="Status"
-						inputMode="numeric"
-						className="w-20 shrink-0"
-						aria-label="Upstream status code"
-						aria-invalid={statusCodeInvalid}
-					/>
-					<Button
-						type="submit"
-						size="sm"
-						disabled={createMutation.isPending || !canAdd}
-					>
-						{createMutation.isPending ? (
-							<Loader2 className="h-4 w-4 animate-spin" />
-						) : (
-							<Plus className="h-4 w-4" />
-						)}
-						Add
-					</Button>
-				</form>
+				{!readOnly && (
+					<form onSubmit={handleAdd} className="flex items-center gap-2">
+						<Input
+							value={pattern}
+							onChange={(e) => setPattern(e.target.value)}
+							placeholder="Substring, e.g. overloaded_error"
+							maxLength={500}
+						/>
+						<Input
+							value={statusCode}
+							onChange={(e) => setStatusCode(e.target.value)}
+							placeholder="Status"
+							inputMode="numeric"
+							className="w-20 shrink-0"
+							aria-label="Upstream status code"
+							aria-invalid={statusCodeInvalid}
+						/>
+						<Button
+							type="submit"
+							size="sm"
+							disabled={createMutation.isPending || !canAdd}
+						>
+							{createMutation.isPending ? (
+								<Loader2 className="h-4 w-4 animate-spin" />
+							) : (
+								<Plus className="h-4 w-4" />
+							)}
+							Add
+						</Button>
+					</form>
+				)}
 
 				{error && (
 					<p className="text-sm text-destructive" role="alert">
@@ -202,20 +207,22 @@ export function IgnoredErrorMatchersDialog({
 										</code>
 									)}
 								</span>
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									className="shrink-0 text-destructive hover:text-destructive"
-									aria-label={`Remove matcher ${matcher.pattern ?? matcher.statusCode}`}
-									disabled={deleteMutation.isPending}
-									onClick={() =>
-										deleteMutation.mutate({
-											params: { path: { id: matcher.id } },
-										})
-									}
-								>
-									<Trash2 className="h-4 w-4" />
-								</Button>
+								{!readOnly && (
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										className="shrink-0 text-destructive hover:text-destructive"
+										aria-label={`Remove matcher ${matcher.pattern ?? matcher.statusCode}`}
+										disabled={deleteMutation.isPending}
+										onClick={() =>
+											deleteMutation.mutate({
+												params: { path: { id: matcher.id } },
+											})
+										}
+									>
+										<Trash2 className="h-4 w-4" />
+									</Button>
+								)}
 							</li>
 						))}
 					</ul>

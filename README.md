@@ -105,6 +105,10 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
 - `packages/models`: Model and provider definitions
 - `packages/shared`: Shared types and utilities
 
+## Adding a provider
+
+We do not accept pull requests that add new providers. Inference providers onboard through [Airside](https://airside.llmgateway.io), our self-serve provider portal, where you register and manage your model listings.
+
 ## License
 
 LLMGateway is available under a dual license:
@@ -115,7 +119,7 @@ LLMGateway is available under a dual license:
 ### Enterprise features include:
 
 - Advanced billing and subscription management
-- Extended data retention (unlimited vs 30 days)
+- Full request and response payload retention (Retain All Data); other plans are metadata only
 - Custom provider key configurations
 - Team and organization management
 - Priority support

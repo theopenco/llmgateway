@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 
+import { ErrorBreakdownCell } from "@/components/error-breakdown";
 import { HistoryChart } from "@/components/history-chart";
+import { SortHeaderLink } from "@/components/sort-header-link";
 import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,8 +17,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { getModelHistory } from "@/lib/admin-history";
-import { cn } from "@/lib/utils";
+import { useHistoryClient } from "@/lib/history-client";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -60,6 +60,7 @@ type ModelSortBy =
 	| "upstreamErrorsCount"
 	| "cachedCount"
 	| "avgTimeToFirstToken"
+	| "throughput"
 	| "providerCount"
 	| "updatedAt";
 
@@ -73,6 +74,7 @@ function SortableHeader({
 	search,
 	pageWindow,
 	usageMode,
+	filterQuery,
 }: {
 	label: string;
 	sortKey: ModelSortBy;
@@ -81,6 +83,7 @@ function SortableHeader({
 	search: string;
 	pageWindow?: PageWindow;
 	usageMode: UsageMode;
+	filterQuery: string;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
@@ -88,27 +91,15 @@ function SortableHeader({
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
 	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
-	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}`;
+	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}${filterQuery}`;
 
 	return (
-		<Link
+		<SortHeaderLink
+			label={label}
 			href={href}
-			className={cn(
-				"flex items-center gap-1 hover:text-foreground transition-colors",
-				isActive ? "text-foreground" : "text-muted-foreground",
-			)}
-		>
-			{label}
-			{isActive ? (
-				currentSortOrder === "asc" ? (
-					<ArrowUp className="h-3.5 w-3.5" />
-				) : (
-					<ArrowDown className="h-3.5 w-3.5" />
-				)
-			) : (
-				<ArrowUpDown className="h-3.5 w-3.5 opacity-50" />
-			)}
-		</Link>
+			active={isActive}
+			order={currentSortOrder}
+		/>
 	);
 }
 
@@ -120,20 +111,6 @@ function formatDate(dateString: string) {
 		hour: "2-digit",
 		minute: "2-digit",
 	});
-}
-
-function formatPrice(price: string | null) {
-	if (!price) {
-		return "\u2014";
-	}
-	const num = parseFloat(price);
-	if (num === 0) {
-		return "Free";
-	}
-	if (num < 0.001) {
-		return `$${(num * 1_000_000).toFixed(2)}/M`;
-	}
-	return `$${num.toFixed(4)}`;
 }
 
 function ModelRow({
@@ -154,14 +131,13 @@ function ModelRow({
 	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
+	const history = useHistoryClient();
 	const fetchData = useCallback(
 		async (window: HistoryWindow) => {
-			return await getModelHistory(model.id, window, usageMode);
+			return await history.modelHistory(model.id, window, usageMode);
 		},
-		[model.id, usageMode],
+		[history, model.id, usageMode],
 	);
-
-	const hasTokenPricing = model.inputPrice && parseFloat(model.inputPrice) > 0;
 
 	return (
 		<>
@@ -182,14 +158,14 @@ function ModelRow({
 							<p className="text-xs text-muted-foreground">{model.id}</p>
 						)}
 					</Link>
+					{model.status !== "active" && (
+						<Badge variant="outline" className="ml-2">
+							{model.status}
+						</Badge>
+					)}
 				</TableCell>
 				<TableCell>
 					<Badge variant="outline">{model.family}</Badge>
-				</TableCell>
-				<TableCell>
-					<Badge variant={model.status === "active" ? "secondary" : "outline"}>
-						{model.status}
-					</Badge>
 				</TableCell>
 				<TableCell>
 					{model.free ? (
@@ -208,21 +184,12 @@ function ModelRow({
 				<TableCell>
 					<TokenBreakdownCell breakdown={model} />
 				</TableCell>
-				<TableCell className="tabular-nums text-xs">
-					{hasTokenPricing ? (
-						<>
-							{formatPrice(model.inputPrice)} / {formatPrice(model.outputPrice)}
-						</>
-					) : model.requestPrice && parseFloat(model.requestPrice) > 0 ? (
-						<span className="text-amber-500">
-							{formatPrice(model.requestPrice)}/req
-						</span>
-					) : (
-						<span className="text-muted-foreground">{"\u2014"}</span>
-					)}
-				</TableCell>
-				<TableCell className="tabular-nums">
-					{formatNumber(stability.errorsCount)}
+				<TableCell>
+					<ErrorBreakdownCell
+						errorsCount={stability.errorsCount}
+						upstreamErrorsCount={model.upstreamErrorsCount}
+						gatewayErrorsCount={model.gatewayErrorsCount}
+					/>
 				</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(model.clientErrorsCount)}
@@ -234,6 +201,11 @@ function ModelRow({
 				<TableCell className="tabular-nums">
 					{model.avgTimeToFirstToken !== null
 						? `${Math.round(model.avgTimeToFirstToken)}ms`
+						: "\u2014"}
+				</TableCell>
+				<TableCell className="tabular-nums">
+					{model.throughput !== null
+						? `${model.throughput.toFixed(1)} tok/s`
 						: "\u2014"}
 				</TableCell>
 				<TableCell className="text-muted-foreground">
@@ -270,7 +242,7 @@ function ModelRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={16} className="p-4">
+					<TableCell colSpan={15} className="p-4">
 						<HistoryChart
 							title={`${model.name !== model.id ? model.name : model.id} — History`}
 							description="Request volume, errors, latency, and tokens over time"
@@ -291,6 +263,7 @@ export function ModelsTable({
 	search = "",
 	pageWindow,
 	usageMode = "total",
+	filterQuery = "",
 }: {
 	models: ModelStats[];
 	sortBy?: ModelSortBy;
@@ -298,6 +271,7 @@ export function ModelsTable({
 	search?: string;
 	pageWindow?: PageWindow;
 	usageMode?: UsageMode;
+	filterQuery?: string;
 }) {
 	const externalWindow = pageWindow ? toHistoryWindow(pageWindow) : undefined;
 
@@ -311,6 +285,7 @@ export function ModelsTable({
 				search={search}
 				pageWindow={pageWindow}
 				usageMode={usageMode}
+				filterQuery={filterQuery}
 			/>
 		</TableHead>
 	);
@@ -321,18 +296,17 @@ export function ModelsTable({
 				<TableRow>
 					{sh("Model", "name")}
 					{sh("Family", "family")}
-					{sh("Status", "status")}
 					{sh("Free", "free")}
 					{sh("Providers", "providerCount")}
 					{sh("Requests", "logsCount")}
 					{sh("Cost", "totalCost")}
 					<TableHead>Tokens</TableHead>
-					<TableHead>Pricing</TableHead>
 					{sh("Errors", "errorsCount")}
 					{sh("Client", "clientErrorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Cached", "cachedCount")}
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
+					{sh("Throughput", "throughput")}
 					{sh("Last Updated", "updatedAt")}
 					<TableHead></TableHead>
 				</TableRow>
@@ -341,7 +315,7 @@ export function ModelsTable({
 				{models.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={17}
+							colSpan={15}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No models found

@@ -43,12 +43,19 @@ export async function deleteAll() {
 	for (let attempt = 1; ; attempt++) {
 		try {
 			await db.delete(tables.log);
+			await db.delete(tables.crmActivity);
+			await db.delete(tables.crmContact);
+			await db.delete(tables.crmAccount);
+			await db.delete(tables.enterpriseContactSubmission);
 			await db.delete(tables.auditLog);
+			await db.delete(tables.platformAuditLog);
 			await db.delete(tables.contentFilterHourlyModelStats);
 			await db.delete(tables.contentFilterHourlyStats);
 			await db.delete(projectHourlyStats);
 			await db.delete(projectHourlyModelStats);
 			await db.delete(projectHourlySourceStats);
+			await db.delete(tables.projectHourlySourceModelStats);
+			await db.delete(tables.projectHourlyRoutingStats);
 			await db.delete(apiKeyHourlyStats);
 			await db.delete(apiKeyHourlyModelStats);
 			await db.delete(apiKeyHourlySourceStats);
@@ -61,6 +68,7 @@ export async function deleteAll() {
 			await db.delete(tables.providerClaim);
 			await db.delete(tables.providerCompanyMember);
 			await db.delete(tables.providerRoutingSettings);
+			await db.delete(tables.providerListingPayment);
 			await db.delete(tables.providerCompany);
 			await db.delete(tables.routingScoreMultiplier);
 			await db.delete(tables.organizationInvite);
@@ -72,6 +80,8 @@ export async function deleteAll() {
 			await db.delete(tables.organization);
 			await db.delete(tables.user);
 			await db.delete(tables.systemSetting);
+			// No foreign keys, so nothing cascades it away.
+			await db.delete(tables.emailUnsubscribe);
 			return;
 		} catch (error) {
 			if (attempt >= 3 || !isDeadlockError(error)) {
@@ -162,6 +172,29 @@ function getCommonAggregationFields() {
 		cacheWriteTokens:
 			sql<string>`coalesce(sum(cast(${tables.log.cacheWriteTokens} as numeric)), 0)`.as(
 				"cacheWriteTokens",
+			),
+		totalDuration:
+			sql<number>`coalesce(sum(${tables.log.duration}), 0)::bigint`.as(
+				"totalDuration",
+			),
+		durationCount: sql<number>`count(${tables.log.duration})::int`.as(
+			"durationCount",
+		),
+		totalTimeToFirstToken:
+			sql<number>`coalesce(sum(${tables.log.timeToFirstToken}), 0)::bigint`.as(
+				"totalTimeToFirstToken",
+			),
+		timeToFirstTokenCount:
+			sql<number>`count(${tables.log.timeToFirstToken})::int`.as(
+				"timeToFirstTokenCount",
+			),
+		totalTimeToFirstReasoningToken:
+			sql<number>`coalesce(sum(${tables.log.timeToFirstReasoningToken}), 0)::bigint`.as(
+				"totalTimeToFirstReasoningToken",
+			),
+		timeToFirstReasoningTokenCount:
+			sql<number>`count(${tables.log.timeToFirstReasoningToken})::int`.as(
+				"timeToFirstReasoningTokenCount",
 			),
 		cost: sql<number>`coalesce(sum(cast(${tables.log.cost} as double precision)), 0)`.as(
 			"cost",
@@ -316,6 +349,14 @@ export async function aggregateLogsForTesting() {
 			usedModel: tables.log.usedModel,
 			usedProvider: tables.log.usedProvider,
 			...getCommonAggregationFields(),
+			apiKeysGatewayErrorCount:
+				sql<number>`sum(case when ${tables.log.usedMode} = 'api-keys' and ${tables.log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
+					"apiKeysGatewayErrorCount",
+				),
+			apiKeysUpstreamErrorCount:
+				sql<number>`sum(case when ${tables.log.usedMode} = 'api-keys' and ${tables.log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
+					"apiKeysUpstreamErrorCount",
+				),
 		})
 		.from(tables.log)
 		.groupBy(
@@ -459,6 +500,14 @@ export async function aggregateLogsForTesting() {
 			errorCount:
 				sql<number>`sum(case when ${tables.log.hasError} = true then 1 else 0 end)::int`.as(
 					"errorCount",
+				),
+			clientErrorCount:
+				sql<number>`sum(case when ${tables.log.unifiedFinishReason} = 'client_error' then 1 else 0 end)::int`.as(
+					"clientErrorCount",
+				),
+			gatewayErrorCount:
+				sql<number>`sum(case when ${tables.log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
+					"gatewayErrorCount",
 				),
 			upstreamErrorCount:
 				sql<number>`sum(case when ${tables.log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(

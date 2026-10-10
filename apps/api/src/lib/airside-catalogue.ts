@@ -1,5 +1,7 @@
 import {
 	and,
+	catalogueMetadataColumns,
+	catalogueMetadataFromMapping,
 	cdb,
 	eq,
 	isNotNull,
@@ -114,7 +116,8 @@ export async function materializeAirsideModel(
 			reasoningMaxTokens: model.reasoningMaxTokens,
 			reasoningEfforts: model.reasoningEfforts,
 			webSearch: model.webSearch,
-			status: "active" as const,
+			...catalogueMetadataColumns(model.catalogueMetadata),
+			status: model.pausedAt ? ("inactive" as const) : ("active" as const),
 			deactivatedAt: null,
 		};
 		if (existingMapping.length > 0) {
@@ -283,8 +286,6 @@ function staticMappingValues(mapping: ProviderModelMapping) {
 		inputPrice: mapping.inputPrice?.toString() ?? null,
 		outputPrice: mapping.outputPrice?.toString() ?? null,
 		cachedInputPrice: mapping.cachedInputPrice?.toString() ?? null,
-		cacheWriteInputPrice: mapping.cacheWriteInputPrice?.toString() ?? null,
-		cacheWriteInputPrice1h: mapping.cacheWriteInputPrice1h?.toString() ?? null,
 		imageInputPrice: mapping.imageInputPrice?.toString() ?? null,
 		requestPrice: mapping.requestPrice?.toString() ?? null,
 		quantization: mapping.quantization ?? null,
@@ -295,16 +296,12 @@ function staticMappingValues(mapping: ProviderModelMapping) {
 		audio: mapping.audio ?? null,
 		reasoning: mapping.reasoning ?? null,
 		reasoningMaxTokens: mapping.reasoningMaxTokens ?? false,
-		reasoningOutput: mapping.reasoningOutput ?? null,
 		reasoningEfforts: null,
 		tools: mapping.tools ?? null,
 		jsonOutput: mapping.jsonOutput ?? false,
 		jsonOutputSchema: mapping.jsonOutputSchema ?? false,
 		webSearch: mapping.webSearch ?? false,
-		webSearchPrice: mapping.webSearchPrice?.toString() ?? null,
-		stability: mapping.stability ?? "stable",
-		supportedParameters:
-			(mapping.supportedParameters as string[] | undefined) ?? null,
+		...catalogueMetadataColumns(catalogueMetadataFromMapping(mapping)),
 		test: mapping.test ?? null,
 		deprecatedAt: mapping.deprecatedAt ?? null,
 		deactivatedAt: mapping.deactivatedAt ?? null,
@@ -312,11 +309,18 @@ function staticMappingValues(mapping: ProviderModelMapping) {
 	};
 }
 
-/** Restore the static mapping(s), or remove a DB-only mapping, on delist. */
+/**
+ * Take a delisted listing out of the catalogue. A DB-only mapping is removed.
+ * A pair the static catalogue also maps keeps its row, out of service: the
+ * carrier still owns the pair, so the hardcoded mapping must not show or
+ * route it until a relist. `restoreStatic` hands the pair back to the static
+ * catalogue instead, for a carrier that lost the provider.
+ */
 export async function dematerializeAirsideModel(
 	providerId: string,
 	modelName: string,
 	transaction?: CatalogueTransaction,
+	options: { restoreStatic?: boolean } = {},
 ): Promise<void> {
 	const staticEntry = findStaticMappings(providerId, modelName);
 	const remove = async (tx: CatalogueTransaction) => {
@@ -338,7 +342,12 @@ export async function dematerializeAirsideModel(
 			isNull(tables.modelProviderMapping.region),
 			eq(tables.modelProviderMapping.source, "airside"),
 		);
-		if (staticEntry) {
+		if (staticEntry && !options.restoreStatic) {
+			await tx
+				.update(tables.modelProviderMapping)
+				.set({ status: "inactive" })
+				.where(mappingWhere);
+		} else if (staticEntry) {
 			await tx
 				.update(tables.modelProviderMapping)
 				.set(staticMappingValues(staticEntry.mapping))
@@ -380,4 +389,21 @@ export async function dematerializeAirsideModel(
 		return;
 	}
 	await cdb.transaction(remove);
+}
+/** Take a listing's catalogue mappings out of (or back into) service. */
+export async function setAirsideModelServing(
+	model: DraftModelRow,
+	serving: boolean,
+	transaction: CatalogueTransaction,
+): Promise<void> {
+	await transaction
+		.update(tables.modelProviderMapping)
+		.set({ status: serving ? "active" : "inactive" })
+		.where(
+			and(
+				eq(tables.modelProviderMapping.modelId, model.modelName),
+				eq(tables.modelProviderMapping.providerId, model.providerId),
+				eq(tables.modelProviderMapping.source, "airside"),
+			),
+		);
 }

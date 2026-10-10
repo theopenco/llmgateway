@@ -1,6 +1,6 @@
 "use client";
 
-import { ImagePlus, Loader2, Sparkles, X } from "lucide-react";
+import { ImagePlus, Loader2, Sparkles, X, Zap } from "lucide-react";
 import {
 	type Dispatch,
 	type SetStateAction,
@@ -20,9 +20,18 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { getModelImageConfig } from "@/lib/image-gen";
+import { cn } from "@/lib/utils";
 
 import type { AspectRatio } from "@/lib/image-gen";
+
+export type ImageServiceTier = "default" | "flex";
 
 interface InputImage {
 	dataUrl: string;
@@ -45,6 +54,10 @@ interface ImageControlsProps {
 	setImageModeration: (value: string) => void;
 	imageCount: 1 | 2 | 3 | 4;
 	setImageCount: (value: 1 | 2 | 3 | 4) => void;
+	serviceTier: ImageServiceTier;
+	setServiceTier: (value: ImageServiceTier) => void;
+	// Whether any model in the current selection offers the flex tier.
+	supportsFlex: boolean;
 	isGenerating: boolean;
 	onGenerate: () => void;
 	isEditModel: boolean;
@@ -87,6 +100,9 @@ export function ImageControls({
 	setImageModeration,
 	imageCount,
 	setImageCount,
+	serviceTier,
+	setServiceTier,
+	supportsFlex,
 	isGenerating,
 	onGenerate,
 	isEditModel,
@@ -444,6 +460,40 @@ export function ImageControls({
 							<SelectItem value="4">4 images</SelectItem>
 						</SelectContent>
 					</Select>
+					{supportsFlex && (
+						<TooltipProvider>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Button
+										type="button"
+										variant={serviceTier === "flex" ? "secondary" : "outline"}
+										size="sm"
+										aria-pressed={serviceTier === "flex"}
+										disabled={isGenerating}
+										onClick={() =>
+											setServiceTier(
+												serviceTier === "flex" ? "default" : "flex",
+											)
+										}
+									>
+										<Zap
+											className={cn(
+												"h-4 w-4 mr-1.5",
+												serviceTier === "flex" &&
+													"text-lounge-gold fill-lounge-gold",
+											)}
+										/>
+										Flex
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent className="max-w-xs">
+									Flex processing costs about half as much, but runs slower and
+									is best-effort under load. Applies to the selected models that
+									support it.
+								</TooltipContent>
+							</Tooltip>
+						</TooltipProvider>
+					)}
 					<div className="flex-1" />
 					<Button
 						onClick={onGenerate}

@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 
+import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { AllModels } from "@/components/models/all-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
@@ -25,13 +26,14 @@ export default async function ImageToImageModelsPage() {
 	return (
 		<Suspense>
 			<AllModels
+				footer={<Footer />}
 				models={models}
 				providers={providers}
 				title="Image-to-Image Models"
 				description="Models that accept images as input and generate new images — for editing, style transfer, and visual transformation"
 				categoryFilter="image-to-image"
 			>
-				<HeroRSC navbarOnly sticky={false} />
+				<HeroRSC sticky={false} />
 			</AllModels>
 		</Suspense>
 	);

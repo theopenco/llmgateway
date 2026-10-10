@@ -11,13 +11,14 @@ const capabilities = [
 	{
 		icon: Lock,
 		title: "Enterprise SSO",
-		description: "SAML & OIDC single sign-on with role-based access control",
+		description:
+			"SAML 2.0 single sign-on and SCIM provisioning with role-based access control",
 	},
 	{
 		icon: Server,
 		title: "Self-hosted or Managed",
 		description:
-			"Deploy on your infrastructure or let us handle it with 99.9% SLA",
+			"Deploy on your infrastructure or let us run it, with a 99.9% SLA on Enterprise Cloud",
 	},
 	{
 		icon: Zap,
@@ -45,11 +46,6 @@ export function EnterpriseCTA() {
 				<div className="max-w-6xl mx-auto">
 					{/* Header */}
 					<AnimatedGroup preset="blur-slide" className="text-center mb-16">
-						<div className="inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/5 px-4 py-1.5 mb-6">
-							<span className="text-xs font-mono font-medium text-blue-500 tracking-wider uppercase">
-								Enterprise
-							</span>
-						</div>
 						<h2 className="font-display text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight text-foreground">
 							Built for teams that
 							<br />
@@ -119,7 +115,7 @@ export function EnterpriseCTA() {
 						<span className="h-3 w-px bg-border" />
 						<span>Priority support</span>
 						<span className="h-3 w-px bg-border" />
-						<span>SOC 2 Type II certified</span>
+						<span>SOC 2 Type II compliant</span>
 						<span className="h-3 w-px bg-border hidden sm:block" />
 						<span className="hidden sm:inline">On-boarding assistance</span>
 					</AnimatedGroup>

@@ -4,6 +4,7 @@ slug: "referrals-cache-controls-product-updates"
 date: "2026-06-01"
 title: "Referrals, Cache Controls & Product Updates"
 summary: "Share a referral link and reward new signups, toggle provider cache writes per project, see cache and audio costs in your logs, plus a faster Chat and more."
+tags: ["llmgateway", "lounge"]
 image:
   src: "/changelog/referrals-cache-controls-product-updates.png"
   alt: "Referrals, cache controls and product updates on LLM Gateway"

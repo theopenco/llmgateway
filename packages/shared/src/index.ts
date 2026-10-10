@@ -43,6 +43,13 @@ export {
 } from "./fees.js";
 
 export {
+	formatStatementDescriptor,
+	normalizeStatementDescriptorSuffix,
+	STATEMENT_DESCRIPTOR_PREFIX,
+	STATEMENT_DESCRIPTOR_SUFFIX_MAX_LENGTH,
+} from "./statement-descriptor.js";
+
+export {
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
@@ -111,6 +118,7 @@ export {
 export {
 	buildGatewayVideoLogContentUrl,
 	getGatewayApiBaseUrl,
+	getGatewayBackendBaseUrl,
 	getGatewayPublicBaseUrl,
 } from "./gateway-url.js";
 
@@ -186,6 +194,7 @@ export {
 	PROVIDER_MODEL_KINDS,
 	type ProviderModelKind,
 	type ProviderModelsByKind,
+	MODEL_SYNC_PROVIDERS,
 } from "./provider-model-ids.js";
 
 export {
@@ -230,6 +239,24 @@ export {
 } from "./marketing.js";
 
 export {
+	type DiscordEmbed,
+	type DiscordWebhookPayload,
+	postDiscordWebhook,
+} from "./discord.js";
+
+export {
+	DEFAULT_MODEL_ERROR_RATE_ALERT_RULES,
+	DEFAULT_MODEL_ERROR_RATE_ALERTS_SETTINGS,
+	MODEL_ERROR_RATE_ALERTS_MAX_RULES,
+	MODEL_ERROR_RATE_ALERTS_SETTING_ID,
+	type ModelErrorRateAlertRule,
+	modelErrorRateAlertRuleSchema,
+	type ModelErrorRateAlertsSettings,
+	modelErrorRateAlertsSettingsSchema,
+	parseModelErrorRateAlertsSettings,
+} from "./model-error-rate-alerts.js";
+
+export {
 	deriveStabilityMetrics,
 	type StabilityCounts,
 	type StabilityMetrics,
@@ -244,16 +271,31 @@ export {
 } from "./onboarding.js";
 
 export {
+	CONTENT_FILTER_CLASSIFIERS,
+	CONTENT_FILTER_INTERNAL_SCOPES,
 	CONTENT_FILTER_SETTING_ID,
 	contentFilterSettingsSchema,
 	DEFAULT_CONTENT_FILTER_SETTINGS,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
 	isContentFilterErrorText,
 	parseContentFilterSettings,
+	type ContentFilterClassifier,
+	type ContentFilterInternalScope,
 	type ContentFilterSettings,
 } from "./content-filter.js";
 
 export { FAILURE_LABELS, failureLabel } from "./compliance-failure-labels.js";
+export {
+	ERROR_CLASSIFICATIONS,
+	INCIDENT_BREAKDOWN_DESCRIPTION,
+	isLogErrorType,
+	LOG_ERROR_TYPE_LABELS,
+	LOG_ERROR_TYPES,
+} from "./error-classification.js";
+export type {
+	ErrorClassification,
+	LogErrorType,
+} from "./error-classification.js";
 
 export {
 	MAX_BULK_BLOCK_ORGANIZATIONS,
@@ -297,6 +339,8 @@ export {
 	getDefaultCachePricing,
 	getDefaultRoutingConfig,
 	historyMatchesDefaults,
+	interpolateRoutingDefaults,
+	MAX_THROUGHPUT_SCORE,
 	type ProviderPriorityOverrides,
 	resolveRoutingConfig,
 	type ResolvedRoutingConfig,
@@ -452,3 +496,5 @@ export {
 	type SystemBanner,
 	type SystemBannerSeverity,
 } from "./system-banner.js";
+
+export { buildVideoUsage, type VideoUsage } from "./video-usage.js";

@@ -1,7 +1,14 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, ShieldCheck, X } from "lucide-react";
+import {
+	Check,
+	ChevronLeft,
+	ChevronRight,
+	Loader2,
+	ShieldCheck,
+	X,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -35,12 +42,71 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useApi } from "@/lib/fetch-client";
 
 import type { ModelVerification } from "@/components/model-verification-dialog";
 
 type FilingStatus = "pending" | "approved" | "rejected";
+
+const PAGE_SIZE = 50;
+
+function Pager({
+	page,
+	total,
+	onPageChange,
+	testId,
+}: {
+	page: number;
+	total: number;
+	onPageChange: (page: number) => void;
+	testId: string;
+}) {
+	const totalPages = Math.ceil(total / PAGE_SIZE);
+	// Still render past the last page (e.g. after approving its only row)
+	// so the reviewer can step back.
+	if (totalPages <= 1 && page <= 1) {
+		return null;
+	}
+	const offset = (page - 1) * PAGE_SIZE;
+	return (
+		<div
+			className="flex items-center justify-between pt-4"
+			data-testid={testId}
+		>
+			<p className="text-muted-foreground text-sm">
+				{offset < total
+					? `Showing ${offset + 1} to ${Math.min(offset + PAGE_SIZE, total)} of ${total}`
+					: null}
+			</p>
+			<div className="flex items-center gap-2">
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={page <= 1}
+					onClick={() => onPageChange(page - 1)}
+				>
+					<ChevronLeft className="h-4 w-4" />
+					Previous
+				</Button>
+				<span className="text-sm">
+					Page {page} of {totalPages}
+				</span>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={page >= totalPages}
+					onClick={() => onPageChange(page + 1)}
+				>
+					Next
+					<ChevronRight className="h-4 w-4" />
+				</Button>
+			</div>
+		</div>
+	);
+}
 
 function formatMetadataValue(value: unknown): string {
 	if (value === null || value === undefined) {
@@ -72,7 +138,19 @@ const STATUS_BADGE: Record<
 export function AirsideFilingsClient() {
 	const $api = useApi();
 	const queryClient = useQueryClient();
+	const isAdmin = canWrite(useAdminRole());
 	const [status, setStatus] = useState<FilingStatus | "all">("pending");
+	const [filingsPage, setFilingsPage] = useState(1);
+	const [routingPage, setRoutingPage] = useState(1);
+	const [claimsPage, setClaimsPage] = useState(1);
+	const [activeClaimsPage, setActiveClaimsPage] = useState(1);
+	const [brandingPage, setBrandingPage] = useState(1);
+	const [providerKeyPage, setProviderKeyPage] = useState(1);
+	const [codesPage, setCodesPage] = useState(1);
+	const pageQuery = (page: number) => ({
+		limit: PAGE_SIZE,
+		offset: (page - 1) * PAGE_SIZE,
+	});
 	const [rejecting, setRejecting] = useState<{
 		kind: "filing" | "claim" | "revoke" | "routing";
 		id: string;
@@ -83,16 +161,20 @@ export function AirsideFilingsClient() {
 
 	const query = $api.useQuery("get", "/admin/airside/filings", {
 		params: {
-			query: status === "all" ? {} : { status },
+			query: {
+				...(status === "all" ? {} : { status }),
+				...pageQuery(filingsPage),
+				routingOffset: (routingPage - 1) * PAGE_SIZE,
+			},
 		},
 	});
 	const claimsQuery = $api.useQuery("get", "/admin/airside/claims", {
-		params: { query: { status: "pending" } },
+		params: { query: { status: "pending", ...pageQuery(claimsPage) } },
 	});
 	const activeClaimsQuery = $api.useQuery(
 		"get",
 		"/admin/airside/claims",
-		{ params: { query: { status: "active" } } },
+		{ params: { query: { status: "active", ...pageQuery(activeClaimsPage) } } },
 		{ enabled: status === "approved" },
 	);
 
@@ -149,7 +231,9 @@ export function AirsideFilingsClient() {
 	);
 
 	const brandingQuery = $api.useQuery("get", "/admin/airside/claims", {
-		params: { query: { pendingBranding: "true" } },
+		params: {
+			query: { pendingBranding: "true", ...pageQuery(brandingPage) },
+		},
 	});
 	const approveBrandingMutation = $api.useMutation(
 		"post",
@@ -170,6 +254,38 @@ export function AirsideFilingsClient() {
 		{
 			onSuccess: () => {
 				toast.success("Branding change rejected.");
+				invalidate();
+			},
+			onError: (error) => {
+				toast.error(apiErrorMessage(error, "The review action failed"));
+			},
+		},
+	);
+
+	const providerKeyQuery = $api.useQuery("get", "/admin/airside/claims", {
+		params: {
+			query: { pendingProviderKey: "true", ...pageQuery(providerKeyPage) },
+		},
+	});
+	const approveProviderKeyMutation = $api.useMutation(
+		"post",
+		"/admin/airside/claims/{id}/provider-key/approve",
+		{
+			onSuccess: () => {
+				toast.success("Provider key approved — it now serves traffic.");
+				invalidate();
+			},
+			onError: (error) => {
+				toast.error(apiErrorMessage(error, "The review action failed"));
+			},
+		},
+	);
+	const rejectProviderKeyMutation = $api.useMutation(
+		"post",
+		"/admin/airside/claims/{id}/provider-key/reject",
+		{
+			onSuccess: () => {
+				toast.success("Provider key rejected.");
 				invalidate();
 			},
 			onError: (error) => {
@@ -240,7 +356,9 @@ export function AirsideFilingsClient() {
 		},
 	);
 
-	const codesQuery = $api.useQuery("get", "/admin/airside/invite-codes", {});
+	const codesQuery = $api.useQuery("get", "/admin/airside/invite-codes", {
+		params: { query: pageQuery(codesPage) },
+	});
 
 	const mintCodeMutation = $api.useMutation(
 		"post",
@@ -323,7 +441,12 @@ export function AirsideFilingsClient() {
 							key={s}
 							size="sm"
 							variant={status === s ? "default" : "outline"}
-							onClick={() => setStatus(s)}
+							onClick={() => {
+								setStatus(s);
+								setFilingsPage(1);
+								setRoutingPage(1);
+								setActiveClaimsPage(1);
+							}}
 						>
 							{s}
 						</Button>
@@ -353,7 +476,9 @@ export function AirsideFilingsClient() {
 									<TableHead>Matched domain</TableHead>
 									<TableHead>Requested by</TableHead>
 									<TableHead>Filed</TableHead>
-									<TableHead className="text-right">Actions</TableHead>
+									{isAdmin && (
+										<TableHead className="text-right">Actions</TableHead>
+									)}
 								</TableRow>
 							</TableHeader>
 							<TableBody>
@@ -377,6 +502,11 @@ export function AirsideFilingsClient() {
 													<div className="text-muted-foreground mt-0.5 text-xs">
 														{claim.customName} · {claim.customBaseUrl}
 													</div>
+													{claim.pendingProviderKey ? (
+														<div className="text-muted-foreground text-xs">
+															provider key {claim.pendingProviderKey.masked}
+														</div>
+													) : null}
 												</>
 											) : claim.customName ? (
 												<div className="text-muted-foreground mt-0.5 text-xs">
@@ -386,6 +516,12 @@ export function AirsideFilingsClient() {
 										</TableCell>
 										<TableCell className="font-mono text-xs">
 											{claim.matchedDomain}
+											<div className="text-muted-foreground font-sans">
+												{claim.company.verifiedDomains
+													.filter((d) => d.domain === claim.matchedDomain)
+													.map((d) => (d.method === "dns" ? "DNS" : "email"))
+													.join(" + ") || "unrecorded"}
+											</div>
 										</TableCell>
 										<TableCell className="text-muted-foreground text-xs">
 											{claim.claimedByEmail ?? "—"}
@@ -393,39 +529,47 @@ export function AirsideFilingsClient() {
 										<TableCell className="text-muted-foreground text-xs">
 											{new Date(claim.createdAt).toLocaleDateString()}
 										</TableCell>
-										<TableCell className="text-right">
-											<div className="flex justify-end gap-1">
-												<Button
-													size="sm"
-													disabled={approveClaimMutation.isPending}
-													data-testid={`approve-claim-${claim.providerId}`}
-													onClick={() =>
-														approveClaimMutation.mutate({
-															params: { path: { id: claim.id } },
-														})
-													}
-												>
-													<Check className="size-3.5" /> Approve
-												</Button>
-												<Button
-													size="sm"
-													variant="destructive"
-													disabled={rejectClaimMutation.isPending}
-													data-testid={`reject-claim-${claim.providerId}`}
-													onClick={() =>
-														setRejecting({ kind: "claim", id: claim.id })
-													}
-												>
-													<X className="size-3.5" /> Reject
-												</Button>
-											</div>
-										</TableCell>
+										{isAdmin && (
+											<TableCell className="text-right">
+												<div className="flex justify-end gap-1">
+													<Button
+														size="sm"
+														disabled={approveClaimMutation.isPending}
+														data-testid={`approve-claim-${claim.providerId}`}
+														onClick={() =>
+															approveClaimMutation.mutate({
+																params: { path: { id: claim.id } },
+															})
+														}
+													>
+														<Check className="size-3.5" /> Approve
+													</Button>
+													<Button
+														size="sm"
+														variant="destructive"
+														disabled={rejectClaimMutation.isPending}
+														data-testid={`reject-claim-${claim.providerId}`}
+														onClick={() =>
+															setRejecting({ kind: "claim", id: claim.id })
+														}
+													>
+														<X className="size-3.5" /> Reject
+													</Button>
+												</div>
+											</TableCell>
+										)}
 									</TableRow>
 								))}
 							</TableBody>
 						</Table>
 					)}
-					{activeClaims.length > 0 ? (
+					<Pager
+						page={claimsPage}
+						total={claimsQuery.data?.total ?? 0}
+						onPageChange={setClaimsPage}
+						testId="claims-pager"
+					/>
+					{status === "approved" && (activeClaimsQuery.data?.total ?? 0) > 0 ? (
 						<div className="mt-6">
 							<p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
 								Approved carriers
@@ -436,7 +580,9 @@ export function AirsideFilingsClient() {
 										<TableHead>Company</TableHead>
 										<TableHead>Provider</TableHead>
 										<TableHead>Approved</TableHead>
-										<TableHead className="text-right">Actions</TableHead>
+										{isAdmin && (
+											<TableHead className="text-right">Actions</TableHead>
+										)}
 									</TableRow>
 								</TableHeader>
 								<TableBody>
@@ -453,29 +599,37 @@ export function AirsideFilingsClient() {
 													? new Date(claim.reviewedAt).toLocaleDateString()
 													: "—"}
 											</TableCell>
-											<TableCell className="text-right">
-												<Button
-													size="sm"
-													variant="destructive"
-													disabled={revokeClaimMutation.isPending}
-													data-testid={`revoke-claim-${claim.providerId}`}
-													onClick={() =>
-														setRejecting({ kind: "revoke", id: claim.id })
-													}
-												>
-													<X className="size-3.5" /> Revoke
-												</Button>
-											</TableCell>
+											{isAdmin && (
+												<TableCell className="text-right">
+													<Button
+														size="sm"
+														variant="destructive"
+														disabled={revokeClaimMutation.isPending}
+														data-testid={`revoke-claim-${claim.providerId}`}
+														onClick={() =>
+															setRejecting({ kind: "revoke", id: claim.id })
+														}
+													>
+														<X className="size-3.5" /> Revoke
+													</Button>
+												</TableCell>
+											)}
 										</TableRow>
 									))}
 								</TableBody>
 							</Table>
+							<Pager
+								page={activeClaimsPage}
+								total={activeClaimsQuery.data?.total ?? 0}
+								onPageChange={setActiveClaimsPage}
+								testId="active-claims-pager"
+							/>
 						</div>
 					) : null}
 				</CardContent>
 			</Card>
 
-			{(brandingQuery.data?.claims.length ?? 0) > 0 ? (
+			{(brandingQuery.data?.total ?? 0) > 0 ? (
 				<Card>
 					<CardHeader>
 						<CardTitle>Branding changes</CardTitle>
@@ -493,7 +647,9 @@ export function AirsideFilingsClient() {
 									<TableHead>Name</TableHead>
 									<TableHead>Logo</TableHead>
 									<TableHead>Icon</TableHead>
-									<TableHead className="text-right">Actions</TableHead>
+									{isAdmin && (
+										<TableHead className="text-right">Actions</TableHead>
+									)}
 								</TableRow>
 							</TableHeader>
 							<TableBody>
@@ -554,39 +710,147 @@ export function AirsideFilingsClient() {
 												)}
 											</TableCell>
 										))}
-										<TableCell className="text-right">
-											<div className="flex justify-end gap-1">
-												<Button
-													size="sm"
-													disabled={approveBrandingMutation.isPending}
-													data-testid={`approve-branding-${claim.providerId}`}
-													onClick={() =>
-														approveBrandingMutation.mutate({
-															params: { path: { id: claim.id } },
-														})
-													}
-												>
-													<Check className="size-3.5" /> Approve
-												</Button>
-												<Button
-													size="sm"
-													variant="destructive"
-													disabled={rejectBrandingMutation.isPending}
-													data-testid={`reject-branding-${claim.providerId}`}
-													onClick={() =>
-														rejectBrandingMutation.mutate({
-															params: { path: { id: claim.id } },
-														})
-													}
-												>
-													<X className="size-3.5" /> Reject
-												</Button>
-											</div>
-										</TableCell>
+										{isAdmin && (
+											<TableCell className="text-right">
+												<div className="flex justify-end gap-1">
+													<Button
+														size="sm"
+														disabled={approveBrandingMutation.isPending}
+														data-testid={`approve-branding-${claim.providerId}`}
+														onClick={() =>
+															approveBrandingMutation.mutate({
+																params: { path: { id: claim.id } },
+															})
+														}
+													>
+														<Check className="size-3.5" /> Approve
+													</Button>
+													<Button
+														size="sm"
+														variant="destructive"
+														disabled={rejectBrandingMutation.isPending}
+														data-testid={`reject-branding-${claim.providerId}`}
+														onClick={() =>
+															rejectBrandingMutation.mutate({
+																params: { path: { id: claim.id } },
+															})
+														}
+													>
+														<X className="size-3.5" /> Reject
+													</Button>
+												</div>
+											</TableCell>
+										)}
 									</TableRow>
 								))}
 							</TableBody>
 						</Table>
+						<Pager
+							page={brandingPage}
+							total={brandingQuery.data?.total ?? 0}
+							onPageChange={setBrandingPage}
+							testId="branding-pager"
+						/>
+					</CardContent>
+				</Card>
+			) : null}
+
+			{(providerKeyQuery.data?.total ?? 0) > 0 ? (
+				<Card>
+					<CardHeader>
+						<CardTitle>Provider key changes</CardTitle>
+						<CardDescription>
+							Custom carriers&apos; provider keys, smoke-tested against one of
+							their listings when submitted. Approving swaps the key in and
+							retires the old one. A carrier&apos;s first key also goes live
+							when the model it was filed with is approved.
+						</CardDescription>
+					</CardHeader>
+					<CardContent>
+						<Table>
+							<TableHeader>
+								<TableRow>
+									<TableHead>Company</TableHead>
+									<TableHead>Provider</TableHead>
+									<TableHead>Current key</TableHead>
+									<TableHead>Proposed key</TableHead>
+									{isAdmin && (
+										<TableHead className="text-right">Actions</TableHead>
+									)}
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{(providerKeyQuery.data?.claims ?? []).map((claim) => (
+									<TableRow
+										key={claim.id}
+										data-testid={`provider-key-${claim.id}`}
+									>
+										<TableCell className="font-medium">
+											{claim.company.name}
+										</TableCell>
+										<TableCell className="font-mono text-sm">
+											{claim.providerId}
+										</TableCell>
+										<TableCell className="font-mono text-sm">
+											{claim.providerKey?.masked ?? (
+												<span className="text-muted-foreground text-xs">
+													none
+												</span>
+											)}
+										</TableCell>
+										<TableCell className="font-mono text-sm">
+											{claim.pendingProviderKey?.masked}
+										</TableCell>
+										{isAdmin && (
+											<TableCell className="text-right">
+												<div className="flex justify-end gap-1">
+													<Button
+														size="sm"
+														disabled={approveProviderKeyMutation.isPending}
+														data-testid={`approve-provider-key-${claim.providerId}`}
+														onClick={() =>
+															approveProviderKeyMutation.mutate({
+																params: { path: { id: claim.id } },
+															})
+														}
+													>
+														<Check className="size-3.5" /> Approve
+													</Button>
+													{claim.providerKey ? (
+														<Button
+															size="sm"
+															variant="destructive"
+															disabled={rejectProviderKeyMutation.isPending}
+															data-testid={`reject-provider-key-${claim.providerId}`}
+															onClick={() =>
+																rejectProviderKeyMutation.mutate({
+																	params: { path: { id: claim.id } },
+																})
+															}
+														>
+															<X className="size-3.5" /> Reject
+														</Button>
+													) : (
+														<span
+															className="text-muted-foreground self-center text-xs"
+															title="A carrier's first key is reviewed with its first model."
+														>
+															with first model
+														</span>
+													)}
+												</div>
+											</TableCell>
+										)}
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+						<Pager
+							page={providerKeyPage}
+							total={providerKeyQuery.data?.total ?? 0}
+							onPageChange={setProviderKeyPage}
+							testId="provider-key-pager"
+						/>
 					</CardContent>
 				</Card>
 			) : null}
@@ -612,6 +876,7 @@ export function AirsideFilingsClient() {
 						<Table>
 							<TableHeader>
 								<TableRow>
+									<TableHead>Filed</TableHead>
 									<TableHead>Company</TableHead>
 									<TableHead>Model</TableHead>
 									<TableHead>Kind</TableHead>
@@ -628,6 +893,9 @@ export function AirsideFilingsClient() {
 										key={filing.id}
 										data-testid={`filing-${filing.model.providerId}-${filing.model.modelName}`}
 									>
+										<TableCell className="text-muted-foreground text-xs whitespace-nowrap">
+											{new Date(filing.createdAt).toLocaleString()}
+										</TableCell>
 										<TableCell>
 											<div className="font-medium">{filing.company.name}</div>
 											<div className="text-muted-foreground text-xs">
@@ -782,31 +1050,33 @@ export function AirsideFilingsClient() {
 										</TableCell>
 										<TableCell className="text-right">
 											{filing.status === "pending" ? (
-												<div className="flex justify-end gap-1">
-													<Button
-														size="sm"
-														disabled={approveMutation.isPending}
-														data-testid={`approve-${filing.id}`}
-														onClick={() =>
-															approveMutation.mutate({
-																params: { path: { id: filing.id } },
-															})
-														}
-													>
-														<Check className="size-3.5" /> Approve
-													</Button>
-													<Button
-														size="sm"
-														variant="destructive"
-														disabled={rejectMutation.isPending}
-														data-testid={`reject-${filing.id}`}
-														onClick={() =>
-															setRejecting({ kind: "filing", id: filing.id })
-														}
-													>
-														<X className="size-3.5" /> Reject
-													</Button>
-												</div>
+												isAdmin && (
+													<div className="flex justify-end gap-1">
+														<Button
+															size="sm"
+															disabled={approveMutation.isPending}
+															data-testid={`approve-${filing.id}`}
+															onClick={() =>
+																approveMutation.mutate({
+																	params: { path: { id: filing.id } },
+																})
+															}
+														>
+															<Check className="size-3.5" /> Approve
+														</Button>
+														<Button
+															size="sm"
+															variant="destructive"
+															disabled={rejectMutation.isPending}
+															data-testid={`reject-${filing.id}`}
+															onClick={() =>
+																setRejecting({ kind: "filing", id: filing.id })
+															}
+														>
+															<X className="size-3.5" /> Reject
+														</Button>
+													</div>
+												)
 											) : (
 												<span className="text-muted-foreground text-xs">
 													{filing.reviewedAt
@@ -820,6 +1090,12 @@ export function AirsideFilingsClient() {
 							</TableBody>
 						</Table>
 					)}
+					<Pager
+						page={filingsPage}
+						total={query.data?.total ?? 0}
+						onPageChange={setFilingsPage}
+						testId="filings-pager"
+					/>
 				</CardContent>
 			</Card>
 
@@ -827,8 +1103,9 @@ export function AirsideFilingsClient() {
 				<CardHeader>
 					<CardTitle>Fare changes</CardTitle>
 					<CardDescription>
-						Carrier requests to move their routing discount or accepted gateway
-						margin. Approving writes the values into the live routing settings.
+						{isAdmin
+							? "Carrier requests to move their routing discount or accepted gateway margin. Approving writes the values into the live routing settings."
+							: "Carrier requests to move their routing discount. Approving writes the values into the live routing settings."}
 						{query.data ? ` ${query.data.routingPendingCount} pending.` : ""}
 					</CardDescription>
 				</CardHeader>
@@ -841,12 +1118,13 @@ export function AirsideFilingsClient() {
 						<Table data-testid="routing-filings-table">
 							<TableHeader>
 								<TableRow>
+									<TableHead>Filed</TableHead>
 									<TableHead>Company</TableHead>
 									<TableHead>Provider</TableHead>
 									<TableHead>Scope</TableHead>
 									<TableHead>Discount</TableHead>
-									<TableHead>Margin</TableHead>
-									<TableHead>Adjustment</TableHead>
+									{isAdmin && <TableHead>Margin</TableHead>}
+									{isAdmin && <TableHead>Adjustment</TableHead>}
 									<TableHead>Status</TableHead>
 									<TableHead className="text-right">Actions</TableHead>
 								</TableRow>
@@ -857,6 +1135,9 @@ export function AirsideFilingsClient() {
 										key={filing.id}
 										data-testid={`routing-filing-${filing.providerId}-${filing.modelId ?? "all"}`}
 									>
+										<TableCell className="text-muted-foreground text-xs whitespace-nowrap">
+											{new Date(filing.createdAt).toLocaleString()}
+										</TableCell>
 										<TableCell className="font-medium">
 											{filing.company.name}
 										</TableCell>
@@ -865,51 +1146,67 @@ export function AirsideFilingsClient() {
 										</TableCell>
 										<TableCell className="font-mono text-xs">
 											{filing.modelId ?? "All models"}
+											{filing.clearsOverride ? (
+												<span className="text-muted-foreground block font-sans">
+													override removed
+												</span>
+											) : null}
 										</TableCell>
 										<TableCell className="font-mono text-xs">
 											{Math.round(filing.currentDiscountPercent * 100)}% →{" "}
 											{Math.round(filing.discountPercent * 100)}%
 										</TableCell>
-										<TableCell className="font-mono text-xs">
-											{Math.round(filing.currentMarginPercent * 100)}% →{" "}
-											{Math.round(filing.marginPercent * 100)}%
-										</TableCell>
-										<TableCell className="font-mono text-xs">
-											{filing.routingAdjustment > 0 ? "+" : ""}
-											{Math.round(filing.routingAdjustment * 100)}%
-										</TableCell>
+										{isAdmin && (
+											<TableCell className="font-mono text-xs">
+												{Math.round(filing.currentMarginPercent * 100)}% →{" "}
+												{Math.round(filing.marginPercent * 100)}%
+											</TableCell>
+										)}
+										{isAdmin && (
+											<TableCell className="font-mono text-xs">
+												{filing.routingAdjustment > 0 ? "+" : ""}
+												{Math.round(filing.routingAdjustment * 100)}%
+											</TableCell>
+										)}
 										<TableCell>
-											<Badge variant={STATUS_BADGE[filing.status]}>
-												{filing.status}
-											</Badge>
+											<div className="flex items-center gap-1">
+												<Badge variant={STATUS_BADGE[filing.status]}>
+													{filing.status}
+												</Badge>
+												{filing.initiatedBy === "admin" ? (
+													<Badge variant="outline">by admin</Badge>
+												) : null}
+											</div>
 										</TableCell>
 										<TableCell className="text-right">
 											{filing.status === "pending" ? (
-												<div className="flex justify-end gap-1">
-													<Button
-														size="sm"
-														disabled={approveRoutingMutation.isPending}
-														data-testid={`approve-routing-${filing.id}`}
-														onClick={() =>
-															approveRoutingMutation.mutate({
-																params: { path: { id: filing.id } },
-															})
-														}
-													>
-														<Check className="size-3.5" /> Approve
-													</Button>
-													<Button
-														size="sm"
-														variant="destructive"
-														disabled={rejectRoutingMutation.isPending}
-														data-testid={`reject-routing-${filing.id}`}
-														onClick={() =>
-															setRejecting({ kind: "routing", id: filing.id })
-														}
-													>
-														<X className="size-3.5" /> Reject
-													</Button>
-												</div>
+												isAdmin && (
+													<div className="flex justify-end gap-1">
+														<Button
+															size="sm"
+															disabled={approveRoutingMutation.isPending}
+															data-testid={`approve-routing-${filing.id}`}
+															onClick={() =>
+																approveRoutingMutation.mutate({
+																	params: { path: { id: filing.id } },
+																})
+															}
+														>
+															<Check className="size-3.5" /> Approve
+														</Button>
+														<Button
+															size="sm"
+															variant="destructive"
+															disabled={rejectRoutingMutation.isPending}
+															data-testid={`reject-routing-${filing.id}`}
+															onClick={() =>
+																setRejecting({ kind: "routing", id: filing.id })
+															}
+														>
+															<X className="size-3.5" /> Reject
+														</Button>
+													</div>
+												)
 											) : (
 												<span className="text-muted-foreground text-xs">
 													{filing.reviewedAt
@@ -923,6 +1220,12 @@ export function AirsideFilingsClient() {
 							</TableBody>
 						</Table>
 					)}
+					<Pager
+						page={routingPage}
+						total={query.data?.routingTotal ?? 0}
+						onPageChange={setRoutingPage}
+						testId="routing-filings-pager"
+					/>
 				</CardContent>
 			</Card>
 
@@ -930,48 +1233,51 @@ export function AirsideFilingsClient() {
 				<CardHeader>
 					<CardTitle>Listing invite codes</CardTitle>
 					<CardDescription>
-						Mint a code for a provider we already work with — redeeming it in
-						carrier onboarding waives the listing fee.
+						{isAdmin ? "Mint a code for" : "Codes for"} providers we already
+						work with — redeeming one in carrier onboarding waives the listing
+						fee.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-4">
-					<form
-						className="flex flex-wrap items-center gap-2"
-						onSubmit={(event) => {
-							event.preventDefault();
-							mintCodeMutation.mutate({
-								body: {
-									...(codeNote.trim() ? { note: codeNote.trim() } : {}),
-									maxUses: Math.max(1, Number(codeMaxUses) || 1),
-								},
-							});
-						}}
-					>
-						<Input
-							value={codeNote}
-							onChange={(e) => setCodeNote(e.target.value)}
-							placeholder="Who is this for? (optional)"
-							className="max-w-64"
-							data-testid="invite-code-note"
-						/>
-						<Input
-							value={codeMaxUses}
-							onChange={(e) => setCodeMaxUses(e.target.value)}
-							type="number"
-							min={1}
-							max={100}
-							className="w-24"
-							aria-label="Max uses"
-							data-testid="invite-code-max-uses"
-						/>
-						<Button
-							type="submit"
-							disabled={mintCodeMutation.isPending}
-							data-testid="mint-invite-code"
+					{isAdmin && (
+						<form
+							className="flex flex-wrap items-center gap-2"
+							onSubmit={(event) => {
+								event.preventDefault();
+								mintCodeMutation.mutate({
+									body: {
+										...(codeNote.trim() ? { note: codeNote.trim() } : {}),
+										maxUses: Math.max(1, Number(codeMaxUses) || 1),
+									},
+								});
+							}}
 						>
-							{mintCodeMutation.isPending ? "Minting…" : "Mint code"}
-						</Button>
-					</form>
+							<Input
+								value={codeNote}
+								onChange={(e) => setCodeNote(e.target.value)}
+								placeholder="Who is this for? (optional)"
+								className="max-w-64"
+								data-testid="invite-code-note"
+							/>
+							<Input
+								value={codeMaxUses}
+								onChange={(e) => setCodeMaxUses(e.target.value)}
+								type="number"
+								min={1}
+								max={100}
+								className="w-24"
+								aria-label="Max uses"
+								data-testid="invite-code-max-uses"
+							/>
+							<Button
+								type="submit"
+								disabled={mintCodeMutation.isPending}
+								data-testid="mint-invite-code"
+							>
+								{mintCodeMutation.isPending ? "Minting…" : "Mint code"}
+							</Button>
+						</form>
+					)}
 					{inviteCodes.length === 0 ? (
 						<p className="text-muted-foreground py-4 text-center text-sm">
 							No invite codes minted yet.
@@ -985,7 +1291,9 @@ export function AirsideFilingsClient() {
 									<TableHead>Uses</TableHead>
 									<TableHead>Redeemed by</TableHead>
 									<TableHead>Status</TableHead>
-									<TableHead className="text-right">Actions</TableHead>
+									{isAdmin && (
+										<TableHead className="text-right">Actions</TableHead>
+									)}
 								</TableRow>
 							</TableHeader>
 							<TableBody>
@@ -1034,29 +1342,37 @@ export function AirsideFilingsClient() {
 															: "active"}
 												</Badge>
 											</TableCell>
-											<TableCell className="text-right">
-												{!code.revokedAt && !exhausted ? (
-													<Button
-														size="sm"
-														variant="destructive"
-														disabled={revokeCodeMutation.isPending}
-														data-testid={`revoke-code-${code.code}`}
-														onClick={() =>
-															revokeCodeMutation.mutate({
-																params: { path: { id: code.id } },
-															})
-														}
-													>
-														<X className="size-3.5" /> Revoke
-													</Button>
-												) : null}
-											</TableCell>
+											{isAdmin && (
+												<TableCell className="text-right">
+													{!code.revokedAt && !exhausted ? (
+														<Button
+															size="sm"
+															variant="destructive"
+															disabled={revokeCodeMutation.isPending}
+															data-testid={`revoke-code-${code.code}`}
+															onClick={() =>
+																revokeCodeMutation.mutate({
+																	params: { path: { id: code.id } },
+																})
+															}
+														>
+															<X className="size-3.5" /> Revoke
+														</Button>
+													) : null}
+												</TableCell>
+											)}
 										</TableRow>
 									);
 								})}
 							</TableBody>
 						</Table>
 					)}
+					<Pager
+						page={codesPage}
+						total={codesQuery.data?.total ?? 0}
+						onPageChange={setCodesPage}
+						testId="invite-codes-pager"
+					/>
 				</CardContent>
 			</Card>
 

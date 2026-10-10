@@ -293,12 +293,13 @@ export async function recordRealtimeResponse(
 			realtimeSessionId: input.sessionId,
 			usageKey,
 		});
-	} else if (preflight.usedMode === "credits") {
+	} else {
 		// Realtime bypasses insertLog, so advance the daily/monthly spend-cap
-		// counters here; the account gate reads them on the next turn.
+		// counters here; the account gate reads them on the next turn. BYOK
+		// turns bill nothing but still count as org activity.
 		await recordSpend(
 			preflight.project.organizationId,
-			costs.totalCost.toNumber(),
+			preflight.usedMode === "credits" ? costs.totalCost.toNumber() : 0,
 		);
 	}
 	return { inserted };
@@ -448,11 +449,11 @@ export async function recordRealtimeTranscription(
 			realtimeSessionId: input.sessionId,
 			usageKey,
 		});
-	} else if (preflight.usedMode === "credits") {
-		// Same spend-cap accounting as recordRealtimeResponse above.
+	} else {
+		// Same spend-cap and activity accounting as recordRealtimeResponse above.
 		await recordSpend(
 			preflight.project.organizationId,
-			costs.totalCost.toNumber(),
+			preflight.usedMode === "credits" ? costs.totalCost.toNumber() : 0,
 		);
 	}
 	return { inserted };

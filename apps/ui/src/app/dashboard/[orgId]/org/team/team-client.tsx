@@ -4,7 +4,6 @@ import {
 	BarChart3Icon,
 	Info,
 	KeyRound,
-	Mail,
 	MoreHorizontal,
 	TrendingUp,
 } from "lucide-react";
@@ -13,6 +12,10 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { currencyFormatter } from "@/components/analytics/chart-helpers";
+import {
+	ContactSalesButton,
+	ContactSalesLink,
+} from "@/components/contact-sales";
 import { DateRangePicker } from "@/components/date-range-picker";
 import {
 	ProjectMultiSelect,
@@ -207,12 +210,7 @@ function MemberUsageUpsell() {
 						</p>
 					</div>
 				</div>
-				<Button asChild variant="outline" className="shrink-0">
-					<a href="mailto:contact@llmgateway.io">
-						<Mail className="mr-2 h-4 w-4" />
-						Contact Sales
-					</a>
-				</Button>
+				<ContactSalesButton variant="outline" className="shrink-0" />
 			</div>
 		</div>
 	);
@@ -599,10 +597,7 @@ function EnterpriseProjectAccessNote() {
 	return (
 		<p className="text-muted-foreground text-xs">
 			Project-scoped access requires the Enterprise plan.{" "}
-			<a href="mailto:contact@llmgateway.io" className="underline">
-				Contact sales
-			</a>
-			.
+			<ContactSalesLink className="underline" />.
 		</p>
 	);
 }
@@ -685,6 +680,13 @@ function ManageAccessDialog({
 							</SelectContent>
 						</Select>
 						{!isEnterprise && <EnterpriseProjectAccessNote />}
+						{member.roleAssignmentSource === "sso" && (
+							<p className="text-xs text-muted-foreground">
+								This role comes from an SSO group mapping. A role you set here
+								is manual: directory sync no longer lowers it, but a mapped
+								group can still raise it.
+							</p>
+						)}
 					</div>
 
 					{isProjectScopedRole(role) && isEnterprise && (
@@ -1038,15 +1040,9 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 											<AlertDescription>
 												<p>
 													Organizations can have up to {data?.seatLimit ?? 5}{" "}
-													team members. Contact us at{" "}
-													<a
-														href="mailto:contact@llmgateway.io"
-														className="underline"
-													>
-														contact@llmgateway.io
-													</a>{" "}
-													to unlock more seats and role-based access control
-													(RBAC).
+													team members.{" "}
+													<ContactSalesLink className="underline" /> to unlock
+													more seats and role-based access control (RBAC).
 												</p>
 											</AlertDescription>
 										</Alert>
@@ -1212,9 +1208,22 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 														</TableCell>
 														<TableCell>{member.user.email}</TableCell>
 														<TableCell>
-															<Badge variant="secondary" className="capitalize">
-																{member.role.replace("_", " ")}
-															</Badge>
+															<div className="flex flex-wrap items-center gap-1.5">
+																<Badge
+																	variant="secondary"
+																	className="capitalize"
+																>
+																	{member.role.replace("_", " ")}
+																</Badge>
+																{member.roleAssignmentSource === "sso" && (
+																	<Badge
+																		variant="outline"
+																		title="Granted by an SSO group mapping. Directory sync revokes it when the member leaves the mapped group."
+																	>
+																		via SSO
+																	</Badge>
+																)}
+															</div>
 														</TableCell>
 														<TableCell>
 															{member.team ? (

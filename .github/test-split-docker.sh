@@ -185,7 +185,7 @@ EOF
 echo -e "${YELLOW}Starting services using docker-compose...${NC}"
 
 # Start services using existing compose file with image overrides
-docker compose -f infra/docker-compose.split.local.yml -f "$TEMP_OVERRIDE_FILE" up -d
+docker compose -f infra/docker-compose.split.local.yml -f "$TEMP_OVERRIDE_FILE" up -d --no-build
 
 echo -e "${YELLOW}Waiting for all services to be ready...${NC}"
 

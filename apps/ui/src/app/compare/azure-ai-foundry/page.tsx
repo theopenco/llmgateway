@@ -1,36 +1,41 @@
 import { CompareFaq } from "@/components/compare/compare-faq";
+import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonAzureFoundry } from "@/components/landing/comparison-azure-foundry";
 import Footer from "@/components/landing/footer";
-
-import { MARKETING_STATS } from "@llmgateway/shared";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
 const foundryFaqs: CompareFaqItem[] = [
 	{
-		question: "Is LLM Gateway a good Azure AI Foundry alternative?",
+		question: "Is Microsoft Foundry the same as Azure AI Foundry?",
 		answer:
-			"Yes — if you want frontier models without committing to one cloud. LLM Gateway puts 200+ models from 40+ providers behind a single OpenAI-compatible API, with automatic routing, failover, caching, and per-request cost analytics. It's fully open source (AGPLv3) and self-hostable, and there are no deployments or TPM quotas to manage.",
+			"Microsoft Foundry is the current name for the platform previously called Azure AI Foundry. It combines model deployment, agents, evaluation, observability and governance. We retain the original comparison URL for existing links.",
 	},
 	{
-		question: "Can I keep using Azure with LLM Gateway?",
+		question: "What has Foundry model router added?",
 		answer:
-			"Yes. Azure OpenAI and Azure AI Foundry are built-in LLM Gateway providers. Bring your Azure credentials and route your Azure traffic through the gateway with 0% markup — you keep your Microsoft agreements and compliance posture while gaining cross-provider failover, caching, and unified analytics on top.",
+			"Foundry offers model selection and automatic fallback within its supported model pool. September 2026 updates add preview session affinity and per-request routing metadata, including model attempts and errors. These are genuine routing capabilities, not just manual deployment management.",
 	},
 	{
-		question: "Doesn't Foundry already have OpenAI and Claude models?",
+		question: "How does Foundry pricing work?",
 		answer:
-			"It does — Foundry hosts OpenAI's models and Anthropic's Claude family, among a large Azure-hosted catalog. But everything runs inside Azure: there's no Google Gemini and no fast independent hosts like Groq or Cerebras, and each model needs a deployment with quota. LLM Gateway routes across all of them, including Azure itself, from one API with no provisioning.",
+			"Foundry bills the services and model deployments you use through Azure. Model, region, deployment type and additional services affect the total. Pay-as-you-go and provisioned throughput are alternatives where supported; a PTU reservation is not required for every request.",
 	},
 	{
-		question: "How does pricing compare to Azure AI Foundry?",
-		answer: `Foundry bills model rates through your Azure subscription, with provisioned-throughput (PTU) reservations for guaranteed capacity. LLM Gateway charges the same provider rates with a flat 5% platform fee on credits — or 0% when you bring your own provider keys, including Azure credentials. Optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}. Self-hosting the open-source gateway is free.`,
+		question: "How does LLM Gateway pricing compare?",
+		answer:
+			"LLM Gateway charges a 5% fee on credits or no platform fee with your own provider keys. Optional request storage and enterprise features are separate. Azure credentials keep provider charges on your Azure account, subject to the underlying deployment and agreement.",
 	},
 	{
-		question: "How hard is it to migrate from Azure AI Foundry to LLM Gateway?",
+		question: "Does a gateway remove Azure quotas?",
 		answer:
-			"Minimal effort. LLM Gateway exposes an OpenAI-compatible API, so most apps switch by changing the base URL and API key. There are no resources to create, models to deploy, or regional quotas to plan — sign up, create a key, and every supported model is available immediately.",
+			"No. Managed LLM Gateway credits avoid setting up your own deployment for supported routes. When you bring Azure credentials, your deployments, permissions and capacity limits still apply. Foundry is a better fit when Azure governance and managed agent services are the priority.",
+	},
+	{
+		question: "What needs to change during migration?",
+		answer:
+			"Map deployment names to supported model IDs and verify the API surface your application uses. OpenAI-compatible chat calls are straightforward to move, but Foundry agents, tools, identity, networking and evaluation workflows need separate migration work.",
 	},
 ];
 
@@ -40,13 +45,13 @@ export default function CompareAzureFoundryPage() {
 			<main>
 				<HeroCompare
 					content={{
-						heading: "Looking Beyond Azure AI Foundry?",
+						heading: "Looking Beyond Microsoft Foundry?",
 						description:
-							"Foundry gives you the models Azure hosts — after you create resources, deployments, and quotas. LLM Gateway gives you every major lab and cloud — including Azure itself — behind one open-source, OpenAI-compatible API. No provisioning required.",
+							"Foundry gives you the models Azure hosts — after you create resources, deployments, and quotas. LLM Gateway gives you multiple labs and clouds — including Azure itself — behind one open-source, OpenAI-compatible API. Managed access for supported routes.",
 						badges: [
 							"Cloud-Neutral",
-							"Fully Open Source",
-							"No Deployments or Quotas",
+							"Open-Source Core",
+							"Managed Model Access",
 							"Azure Built In",
 						],
 						cta: {
@@ -63,9 +68,10 @@ export default function CompareAzureFoundryPage() {
 					}}
 				/>
 				<ComparisonAzureFoundry />
+				<ComparisonSources slug="azure-ai-foundry" />
 				<CompareFaq
-					heading="LLM Gateway vs Azure AI Foundry"
-					description="Common questions about using LLM Gateway alongside or instead of Azure AI Foundry."
+					heading="LLM Gateway vs Microsoft Foundry"
+					description="Common questions about using LLM Gateway alongside or instead of Microsoft Foundry, formerly Azure AI Foundry."
 					faqs={foundryFaqs}
 				/>
 			</main>
@@ -76,22 +82,23 @@ export default function CompareAzureFoundryPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "LLM Gateway vs Azure AI Foundry — The Cloud-Neutral Alternative",
+		title:
+			"LLM Gateway vs Microsoft Foundry (Azure AI Foundry) — The Cloud-Neutral Alternative",
 		description:
-			"Compare 40+ providers behind one OpenAI-compatible API vs Azure AI Foundry. Keep Azure with 0% markup plus failover, caching, and cost analytics.",
+			"Compare multiple providers behind one OpenAI-compatible API vs Microsoft Foundry, formerly Azure AI Foundry. Keep Azure with 0% markup plus failover, caching, and cost analytics.",
 		alternates: { canonical: "/compare/azure-ai-foundry" },
 		openGraph: {
-			title: "LLM Gateway vs Azure AI Foundry — Feature Comparison",
+			title: "LLM Gateway vs Microsoft Foundry — Feature Comparison",
 			description:
-				"Cloud-neutral gateway vs Azure AI Foundry. Route to Azure and 40+ providers from one API with failover and analytics.",
+				"Cloud-neutral gateway vs Microsoft Foundry (formerly Azure AI Foundry). Route to Azure and multiple providers from one API with failover and analytics.",
 			type: "website",
 			url: "https://llmgateway.io/compare/azure-ai-foundry",
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: "LLM Gateway vs Azure AI Foundry — Feature Comparison",
+			title: "LLM Gateway vs Microsoft Foundry — Feature Comparison",
 			description:
-				"Cloud-neutral gateway vs Azure AI Foundry. Route to Azure and 40+ providers from one API.",
+				"Cloud-neutral gateway vs Microsoft Foundry (formerly Azure AI Foundry). Route to Azure and multiple providers from one API.",
 		},
 	};
 }

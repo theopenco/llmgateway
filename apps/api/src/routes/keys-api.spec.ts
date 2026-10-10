@@ -5,7 +5,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import {
 	redisClient,
-	SWR_PREFIX,
+	swrMirrorKey,
 	swrWrap,
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
@@ -544,7 +544,7 @@ describe("keys route", () => {
 			token: "test-token",
 		}));
 		await waitForSwrMirrorWrites();
-		expect(await redisClient.get(SWR_PREFIX + swrCacheKey)).not.toBeNull();
+		expect(await redisClient.get(swrMirrorKey(swrCacheKey))).not.toBeNull();
 
 		const res = await app.request("/keys/api/test-api-key-id/roll", {
 			method: "POST",
@@ -555,7 +555,7 @@ describe("keys route", () => {
 		expect(res.status).toBe(200);
 
 		// The cached lookup for the old token must be gone after the roll.
-		expect(await redisClient.get(SWR_PREFIX + swrCacheKey)).toBeNull();
+		expect(await redisClient.get(swrMirrorKey(swrCacheKey))).toBeNull();
 	});
 
 	test("POST /keys/api/{id}/iam busts the gateway's cached IAM rule lookups", async () => {
@@ -597,7 +597,7 @@ describe("keys route", () => {
 		// Prime both cache layers with the "no rules" result.
 		expect(await readActiveIamRules()).toHaveLength(0);
 		expect(
-			await redisClient.get(SWR_PREFIX + `iamRules:${apiKeyId}`),
+			await redisClient.get(swrMirrorKey(`iamRules:${apiKeyId}`)),
 		).not.toBeNull();
 
 		const res = await app.request(`/keys/api/${apiKeyId}/iam`, {
@@ -615,7 +615,7 @@ describe("keys route", () => {
 
 		// The SWR mirror for the api_key_iam_rule table must be gone...
 		expect(
-			await redisClient.get(SWR_PREFIX + `iamRules:${apiKeyId}`),
+			await redisClient.get(swrMirrorKey(`iamRules:${apiKeyId}`)),
 		).toBeNull();
 		// ...and the cached select must serve the new rule, not the stale miss.
 		expect(await readActiveIamRules()).toHaveLength(1);
@@ -1402,6 +1402,62 @@ describe("keys route", () => {
 		expect(json.message).toContain(
 			"Maximum 5 active API keys per organization",
 		);
+	});
+
+	test("POST /keys/api rejects extra keys on a DevPass org", async () => {
+		await db
+			.update(tables.organization)
+			.set({ kind: "devpass" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Second DevPass Key",
+				projectId: "test-project-id",
+				usageLimit: null,
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const activeKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: "test-project-id" },
+				status: { eq: "active" },
+				kind: { ne: "playground" },
+			},
+		});
+		expect(activeKeys).toHaveLength(1);
+	});
+
+	test("PATCH /keys/api/{id} cannot reactivate a DevPass key", async () => {
+		await db
+			.update(tables.organization)
+			.set({ kind: "devpass" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db
+			.update(tables.apiKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.apiKey.id, "test-api-key-id"));
+
+		const res = await app.request("/keys/api/test-api-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ status: "active" }),
+		});
+
+		expect(res.status).toBe(403);
+		const key = await db.query.apiKey.findFirst({
+			where: { id: { eq: "test-api-key-id" } },
+		});
+		expect(key?.status).toBe("inactive");
 	});
 
 	test("POST /keys/api respects the admin apiKeyLimit override", async () => {

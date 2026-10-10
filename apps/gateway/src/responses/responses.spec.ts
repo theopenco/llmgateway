@@ -42,6 +42,7 @@ vi.mock("@llmgateway/db", async (importOriginal) => {
 
 const redisGet = vi.fn();
 vi.mock("@llmgateway/cache", () => ({
+	setSwrSchemaVersion: vi.fn(),
 	redisClient: {
 		get: vi.fn(),
 		set: vi.fn().mockResolvedValue("OK"),
@@ -210,6 +211,27 @@ describe("responsesRequestSchema", () => {
 
 		expect(result.success).toBe(true);
 		expect(result.data?.reasoning?.effort).toBe("max");
+	});
+
+	it("preserves reasoning.mode so it reaches the provider", () => {
+		const result = responsesRequestSchema.safeParse({
+			model: "gpt-5.6-sol",
+			input: "hello",
+			reasoning: { effort: "medium", mode: "pro" },
+		});
+
+		expect(result.success).toBe(true);
+		expect(result.data?.reasoning).toEqual({ effort: "medium", mode: "pro" });
+	});
+
+	it("rejects an unknown reasoning.mode", () => {
+		const result = responsesRequestSchema.safeParse({
+			model: "gpt-5.6-sol",
+			input: "hello",
+			reasoning: { mode: "turbo" },
+		});
+
+		expect(result.success).toBe(false);
 	});
 
 	it("accepts service_tier and normalizes explicit null to undefined", () => {
@@ -1072,6 +1094,38 @@ describe("convertChatResponseToResponses", () => {
 			"function_call",
 			"message",
 		]);
+	});
+
+	it("echoes the requested reasoning.mode and omits it when unset", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: { role: "assistant", content: "Hi" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+		};
+
+		const pro = convertChatResponseToResponses(
+			chatResponse,
+			"gpt-5.6-sol",
+			undefined,
+			{ reasoning: { effort: "high", mode: "pro" } },
+		);
+		expect(pro.reasoning).toEqual({
+			effort: "high",
+			summary: null,
+			mode: "pro",
+		});
+
+		const unset = convertChatResponseToResponses(
+			chatResponse,
+			"gpt-5.6-sol",
+			undefined,
+			{ reasoning: { effort: "high" } },
+		);
+		expect(unset.reasoning).toEqual({ effort: "high", summary: null });
 	});
 
 	it("reports the effective reasoning.context and never echoes auto", () => {

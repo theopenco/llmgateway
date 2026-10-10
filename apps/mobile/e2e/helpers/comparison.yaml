@@ -1,6 +1,9 @@
 appId: io.llmgateway.lounge
 ---
-- tapOn: "Compare models"
+- runFlow:
+    file: navigate.yaml
+    env:
+      DESTINATION: "Compare models"
 - tapOn: "Model 1: Auto"
 - tapOn:
     id: "field-search-models"

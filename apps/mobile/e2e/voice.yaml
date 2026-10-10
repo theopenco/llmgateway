@@ -2,10 +2,11 @@ appId: io.llmgateway.lounge
 ---
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Voice calls"
-    direction: DOWN
-- tapOn: "Voice calls"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Voice calls"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: Choose"
 - tapOn:
     id: "field-search-models"
@@ -110,10 +111,10 @@ appId: io.llmgateway.lounge
 - tapOn: "OK"
 - launchApp
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Voice calls"
-    direction: DOWN
-- tapOn: "Voice calls"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Voice calls"
 - scrollUntilVisible:
     element: "Open saved call: Native voice conversation"
     direction: DOWN

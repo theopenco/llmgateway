@@ -385,6 +385,46 @@ describe("logs route", () => {
 			expect(json.logs[0].id).toBe("test-log-id-region");
 		});
 
+		test("should filter logs by a model id that contains a slash", async () => {
+			await db.insert(tables.log).values({
+				id: "test-log-id-nested",
+				requestId: "test-log-id-nested",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 100,
+				requestedModel: "meta-llama/llama-4",
+				requestedProvider: "custom",
+				usedModel: "custom/meta-llama/llama-4",
+				usedProvider: "custom",
+				responseSize: 1000,
+				content: "Test response with nested model id",
+				finishReason: "stop",
+				promptTokens: "10",
+				completionTokens: "20",
+				totalTokens: "30",
+				messages: JSON.stringify([{ role: "user", content: "Hello nested" }]),
+				mode: "api-keys",
+				usedMode: "api-keys",
+			});
+
+			const params = new URLSearchParams({
+				projectId: "test-project-id",
+				model: "meta-llama/llama-4",
+			});
+			const res = await app.request("/logs?" + params, {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.logs.length).toBe(1);
+			expect(json.logs[0].id).toBe("test-log-id-nested");
+		});
+
 		test("should filter logs by custom header", async () => {
 			// First, add a log with a custom header
 			await db.insert(tables.log).values({
@@ -818,6 +858,7 @@ describe("logs route", () => {
 				finishReason: "upstream_error",
 				unifiedFinishReason: "upstream_error",
 				hasError: true,
+				errorCategory: "upstream",
 				errorDetails: {
 					statusCode: 0,
 					statusText: "TypeError",
@@ -845,6 +886,7 @@ describe("logs route", () => {
 				(entry: { id: string }) => entry.id === "fetch-failed-log-id",
 			);
 			expect(log.errorDetails.cause).toBe(CAUSE);
+			expect(log.errorCategory).toBe("upstream");
 		});
 
 		test("detail endpoint serves the error cause", async () => {
@@ -857,6 +899,7 @@ describe("logs route", () => {
 
 			expect(res.status).toBe(200);
 			const json = await res.json();
+			expect(json.log.errorCategory).toBe("upstream");
 			expect(json.log.errorDetails).toEqual({
 				statusCode: 0,
 				statusText: "TypeError",
@@ -980,6 +1023,82 @@ describe("logs route", () => {
 			const json = await res.json();
 			const ids = json.logs.map((log: { id: string }) => log.id);
 			expect(ids).toContain("teammate-log-id");
+		});
+	});
+
+	describe("error type filter", () => {
+		beforeEach(async () => {
+			const base = {
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "api-keys" as const,
+				usedMode: "api-keys" as const,
+			};
+			await db.insert(tables.log).values([
+				{
+					...base,
+					id: "log-client-error",
+					requestId: "log-client-error",
+					unifiedFinishReason: "client_error",
+				},
+				{
+					...base,
+					id: "log-gateway-error",
+					requestId: "log-gateway-error",
+					unifiedFinishReason: "gateway_error",
+				},
+				{
+					...base,
+					id: "log-upstream-error",
+					requestId: "log-upstream-error",
+					unifiedFinishReason: "upstream_error",
+					hasError: false,
+				},
+				{
+					...base,
+					id: "log-flagged-error",
+					requestId: "log-flagged-error",
+					unifiedFinishReason: "completed",
+					hasError: true,
+				},
+			]);
+		});
+
+		const fetchIds = async (errorType: string) => {
+			const res = await app.request(
+				`/logs?projectId=test-project-id&errorType=${errorType}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			return json.logs.map((log: { id: string }) => log.id) as string[];
+		};
+
+		test("any matches the error flag and error finish reasons", async () => {
+			const ids = await fetchIds("any");
+			expect(ids.sort()).toEqual([
+				"log-client-error",
+				"log-flagged-error",
+				"log-gateway-error",
+				"log-upstream-error",
+			]);
+		});
+
+		test("narrows to a single error class", async () => {
+			expect(await fetchIds("gateway_error")).toEqual(["log-gateway-error"]);
+			expect(await fetchIds("upstream_error")).toEqual(["log-upstream-error"]);
+			expect(await fetchIds("client_error")).toEqual(["log-client-error"]);
+		});
+
+		test("all does not filter", async () => {
+			expect((await fetchIds("all")).length).toBeGreaterThan(4);
 		});
 	});
 });

@@ -4,6 +4,7 @@ slug: "pro-subscription-launch"
 date: "2025-06-15"
 title: "Pro Subscription Launch"
 summary: "Bring your own LLM provider keys or use credits with reduced gateway fees (2.5% vs 5%). Includes premium analytics, higher rate limits, and priority email support."
+tags: ["llmgateway"]
 image:
   src: "/changelog/pricing.png"
   alt: "Pro subscription dashboard showing provider key management and billing controls"

@@ -48,7 +48,7 @@ describe.skipIf(!hasStripeTestKey)(
 		let adminCookie: string;
 
 		beforeEach(async () => {
-			process.env.ADMIN_EMAILS = "admin@example.com";
+			process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 			// Seeds admin@example.com + returns an admin session cookie (also wipes DB).
 			adminCookie = await createTestUser();
 

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
+import { redisClient } from "@/auth/config.js";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
@@ -17,6 +18,12 @@ describe("chat sharing permissions", () => {
 	let chatId: string;
 
 	beforeEach(async () => {
+		// The public share endpoints are rate limited per IP and every request
+		// here shares one address, so clear the windows between tests.
+		const keys = await redisClient.keys("chat_share_rate_limit:*");
+		if (keys.length > 0) {
+			await redisClient.del(...keys);
+		}
 		token = await createTestUser();
 		const [chat] = await db
 			.insert(tables.chat)

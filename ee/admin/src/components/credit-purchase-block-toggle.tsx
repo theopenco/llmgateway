@@ -1,35 +1,44 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
 
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { canWrite } from "@/lib/admin-role";
+import { useAdminRole } from "@/lib/admin-role-context";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 interface CreditPurchaseBlockToggleProps {
 	blocked: boolean;
 	envForced: boolean;
-	onToggle: (blocked: boolean) => Promise<{ success: boolean }>;
 }
 
 export function CreditPurchaseBlockToggle({
 	blocked,
 	envForced,
-	onToggle,
 }: CreditPurchaseBlockToggleProps) {
 	const router = useRouter();
-	const [pending, startTransition] = useTransition();
-	const [error, setError] = useState<string | null>(null);
+	const readOnly = !canWrite(useAdminRole());
+	const $api = useApi();
+	const mutation = $api.useMutation(
+		"put",
+		"/admin/settings/credit-purchase-block",
+		{
+			meta: { inlineError: true },
+			onSettled: () => router.refresh(),
+		},
+	);
+	const pending = mutation.isPending;
+	const error = mutation.isError
+		? apiErrorMessage(
+				mutation.error,
+				"Failed to update the setting. Try again.",
+			)
+		: null;
 
 	const handleChange = (checked: boolean) => {
-		setError(null);
-		startTransition(async () => {
-			const result = await onToggle(checked);
-			if (!result.success) {
-				setError("Failed to update the setting. Try again.");
-			}
-			router.refresh();
-		});
+		mutation.mutate({ body: { blocked: checked } });
 	};
 
 	return (
@@ -38,7 +47,7 @@ export function CreditPurchaseBlockToggle({
 				<Switch
 					id="credit-purchase-block"
 					checked={blocked}
-					disabled={envForced || pending}
+					disabled={envForced || pending || readOnly}
 					onCheckedChange={handleChange}
 				/>
 				<Label htmlFor="credit-purchase-block">

@@ -6,12 +6,12 @@ import { db, tables } from "@llmgateway/db";
 
 import {
 	FORCE_3DS_SETTING_ID,
+	getForcedDevPlanThreeDSecure,
 	getForcedThreeDSecure,
 	getForcedThreeDSecureMode,
 	parseThreeDSecureRequest,
 	setForcedThreeDSecureMode,
 	threeDSecureOptions,
-	threeDSecureSubscriptionSettings,
 } from "./three-d-secure.js";
 
 describe("parseThreeDSecureRequest", () => {
@@ -35,19 +35,11 @@ describe("parseThreeDSecureRequest", () => {
 describe("parameter shapes", () => {
 	it("spread to nothing when 3DS is not forced", () => {
 		expect(threeDSecureOptions(undefined)).toEqual({});
-		expect(threeDSecureSubscriptionSettings(undefined)).toEqual({});
 	});
 
-	it("nest the request where each Stripe resource expects it", () => {
+	it("nest the request where Stripe expects it", () => {
 		expect(threeDSecureOptions("any")).toEqual({
 			payment_method_options: { card: { request_three_d_secure: "any" } },
-		});
-		expect(threeDSecureSubscriptionSettings("challenge")).toEqual({
-			payment_settings: {
-				payment_method_options: {
-					card: { request_three_d_secure: "challenge" },
-				},
-			},
 		});
 	});
 });
@@ -101,5 +93,32 @@ describe("admin setting", () => {
 
 		expect(await getForcedThreeDSecureMode()).toBe("off");
 		expect(await getForcedThreeDSecure()).toBe("any");
+	});
+});
+
+describe("DevPass card setup", () => {
+	beforeEach(async () => {
+		vi.stubEnv("STRIPE_FORCE_3DS", undefined);
+		vi.stubEnv("STRIPE_DEV_PLAN_FORCE_3DS", undefined);
+		await db.delete(tables.systemSetting);
+	});
+
+	afterEach(async () => {
+		vi.unstubAllEnvs();
+		await deleteAll();
+	});
+
+	it("follows the account-wide level by default", async () => {
+		expect(await getForcedDevPlanThreeDSecure()).toBeUndefined();
+
+		await setForcedThreeDSecureMode("any");
+		expect(await getForcedDevPlanThreeDSecure()).toBe("any");
+	});
+
+	it("forces a challenge with STRIPE_DEV_PLAN_FORCE_3DS", async () => {
+		vi.stubEnv("STRIPE_DEV_PLAN_FORCE_3DS", "true");
+
+		expect(await getForcedDevPlanThreeDSecure()).toBe("challenge");
+		expect(await getForcedThreeDSecure()).toBeUndefined();
 	});
 });

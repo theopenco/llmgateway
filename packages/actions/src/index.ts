@@ -1,3 +1,4 @@
+export * from "./anthropic-thinking.js";
 export * from "./anthropic-tool-search.js";
 export * from "./transform-anthropic-messages.js";
 export * from "./parse-data-url.js";
@@ -8,11 +9,14 @@ export * from "./transform-google-messages.js";
 export * from "./google-thought-signatures.js";
 export * from "./get-provider-headers.js";
 export * from "./apply-service-tier.js";
+export * from "./costs.js";
+export * from "./routing-baseline.js";
 export * from "./prepare-request-body.js";
 export * from "./get-provider-endpoint.js";
 export * from "./compute-provider-scores.js";
 export * from "./get-cheapest-from-available-providers.js";
 export * from "./validate-provider-key.js";
+export * from "./probe-provider-key-model.js";
 export * from "./get-cheapest-model-for-provider.js";
 export * from "./provider-key/index.js";
 export * from "./select-provider-mapping.js";
@@ -21,9 +25,13 @@ export * from "./gcp-access-token.js";
 export * from "./topup-velocity.js";
 export * from "./limit-hits.js";
 export * from "./org-spend.js";
+export * from "./org-activity.js";
 export * from "./model-verification.js";
 export * from "./provider-api-format.js";
 
 export { fetchNoRedirect, RedirectError } from "./fetch-no-redirect.js";
 
 export * from "./notification-access.js";
+export * from "./compliance-alerts.js";
+export * from "./data-streams.js";
+export * from "./data-stream-runner.js";

@@ -40,6 +40,7 @@ import {
 } from "@llmgateway/shared/components";
 
 import { CreateProviderKeyDialog } from "./create-provider-key-dialog";
+import { CustomProviderEnterpriseNotice } from "./custom-provider-enterprise-notice";
 import { EditProviderKeyDescriptionDialog } from "./edit-provider-key-description-dialog";
 import { ProviderKeyLimitDialog } from "./provider-key-limit-dialog";
 import { ProviderKeyModelsDialog } from "./provider-key-models-dialog";
@@ -100,6 +101,7 @@ export function ProviderKeysList({
 	const api = useApi();
 	const { buildOrgUrl } = useDashboardNavigation();
 	const [search, setSearch] = useState("");
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
 	// Must be built with the same init argument useQuery passes below: the key
 	// includes it, and setQueryData needs an exact match (invalidateQueries
@@ -323,6 +325,8 @@ export function ProviderKeysList({
 								{configuredProviders.map((provider) => {
 									const LogoComponent = getProviderIcon(provider.id);
 									const providerKeys = keysByProvider.get(provider.id) ?? [];
+									const customLocked =
+										provider.id === "custom" && !isEnterprise;
 
 									return (
 										<div
@@ -347,20 +351,33 @@ export function ProviderKeysList({
 													</div>
 												</div>
 
-												<CreateProviderKeyDialog
-													selectedOrganization={selectedOrganization}
-													preselectedProvider={provider.id}
-												>
-													<Button
-														variant="ghost"
-														size="sm"
-														className="shrink-0"
+												{customLocked ? (
+													<Badge variant="outline" className="shrink-0 text-xs">
+														Enterprise
+													</Badge>
+												) : (
+													<CreateProviderKeyDialog
+														selectedOrganization={selectedOrganization}
+														preselectedProvider={provider.id}
 													>
-														<Plus className="mr-1.5 h-4 w-4" />
-														Add key
-													</Button>
-												</CreateProviderKeyDialog>
+														<Button
+															variant="ghost"
+															size="sm"
+															className="shrink-0"
+														>
+															<Plus className="mr-1.5 h-4 w-4" />
+															Add key
+														</Button>
+													</CreateProviderKeyDialog>
+												)}
 											</div>
+
+											{customLocked && (
+												<CustomProviderEnterpriseNotice
+													hasExistingKeys
+													className="mx-3 mb-3 w-auto"
+												/>
+											)}
 
 											{providerKeys.length > 1 && (
 												<p className="px-3 pb-2 text-xs text-muted-foreground">
@@ -511,34 +528,40 @@ export function ProviderKeysList({
 																		<DropdownMenuLabel>
 																			Actions
 																		</DropdownMenuLabel>
-																		<EditProviderKeyDescriptionDialog
-																			providerKeyId={providerKey.id}
-																			currentDescription={
-																				providerKey.description
-																			}
-																		>
-																			<DropdownMenuItem
-																				onSelect={(event) =>
-																					event.preventDefault()
+																		{!customLocked && (
+																			<EditProviderKeyDescriptionDialog
+																				providerKeyId={providerKey.id}
+																				currentDescription={
+																					providerKey.description
 																				}
 																			>
-																				{providerKey.description
-																					? "Edit description"
-																					: "Add description"}
-																			</DropdownMenuItem>
-																		</EditProviderKeyDescriptionDialog>
+																				<DropdownMenuItem
+																					onSelect={(event) =>
+																						event.preventDefault()
+																					}
+																				>
+																					{providerKey.description
+																						? "Edit description"
+																						: "Add description"}
+																				</DropdownMenuItem>
+																			</EditProviderKeyDescriptionDialog>
+																		)}
 																		{provider.id === "custom" && (
 																			<>
-																				<RenameProviderKeyDialog
-																					providerKeyId={providerKey.id}
-																					currentName={providerKey.name}
-																				>
-																					<DropdownMenuItem
-																						onSelect={(e) => e.preventDefault()}
+																				{!customLocked && (
+																					<RenameProviderKeyDialog
+																						providerKeyId={providerKey.id}
+																						currentName={providerKey.name}
 																					>
-																						Rename
-																					</DropdownMenuItem>
-																				</RenameProviderKeyDialog>
+																						<DropdownMenuItem
+																							onSelect={(e) =>
+																								e.preventDefault()
+																							}
+																						>
+																							Rename
+																						</DropdownMenuItem>
+																					</RenameProviderKeyDialog>
+																				)}
 																				<DropdownMenuItem asChild>
 																					<Link
 																						href={
@@ -568,19 +591,21 @@ export function ProviderKeysList({
 																				</DropdownMenuItem>
 																			</ProviderKeyModelsDialog>
 																		)}
-																		<ProviderKeyLimitDialog
-																			providerKeyId={providerKey.id}
-																			currentLimit={providerKey.usageLimit}
-																			currentUsage={providerKey.usage}
-																		>
-																			<DropdownMenuItem
-																				onSelect={(e) => e.preventDefault()}
+																		{!customLocked && (
+																			<ProviderKeyLimitDialog
+																				providerKeyId={providerKey.id}
+																				currentLimit={providerKey.usageLimit}
+																				currentUsage={providerKey.usage}
 																			>
-																				{providerKey.usageLimit !== null
-																					? "Edit spend limit"
-																					: "Set spend limit"}
-																			</DropdownMenuItem>
-																		</ProviderKeyLimitDialog>
+																				<DropdownMenuItem
+																					onSelect={(e) => e.preventDefault()}
+																				>
+																					{providerKey.usageLimit !== null
+																						? "Edit spend limit"
+																						: "Set spend limit"}
+																				</DropdownMenuItem>
+																			</ProviderKeyLimitDialog>
+																		)}
 																		<DropdownMenuItem
 																			onClick={() =>
 																				toggleStatus(
@@ -677,7 +702,13 @@ export function ProviderKeysList({
 												<span className="min-w-0 flex-1 truncate text-sm font-medium">
 													{provider.name}
 												</span>
-												<Plus className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+												{provider.id === "custom" && !isEnterprise ? (
+													<Badge variant="outline" className="shrink-0 text-xs">
+														Enterprise
+													</Badge>
+												) : (
+													<Plus className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+												)}
 											</button>
 										</CreateProviderKeyDialog>
 									);

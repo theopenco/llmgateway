@@ -30,6 +30,7 @@ import {
 import { createServerApiClient, fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import {
 	loungeConnectorIds,
@@ -416,6 +417,7 @@ export async function POST(req: Request) {
 		baseURL: getGatewayApiBaseUrl(),
 		fetch: gatewayFetch,
 		headers: {
+			...forwardedIpHeaders(req.headers),
 			"x-source": LOUNGE_SOURCE,
 			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
 		},

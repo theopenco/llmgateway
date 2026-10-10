@@ -4,7 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 
 import { CostByModelTimeseriesChart } from "@/components/cost-by-model-timeseries-chart";
-import { getOrgCostByModelTimeseries } from "@/lib/admin-history";
+import { useHistoryClient } from "@/lib/history-client";
 
 import type {
 	CostTimeseriesBucket,
@@ -71,6 +71,7 @@ export function OrgCostByModelTimeseries({ orgId }: { orgId: string }) {
 	const groupBy = parseGroupBy(searchParams.get("breakdown"));
 	const modelView = parseModelView(searchParams.get("modelView"));
 	const breakdownNoun = breakdownNouns[groupBy];
+	const history = useHistoryClient();
 
 	const fetchData = useCallback(
 		async (
@@ -79,7 +80,7 @@ export function OrgCostByModelTimeseries({ orgId }: { orgId: string }) {
 			group: CostTimeseriesGroupBy,
 			bucket: CostTimeseriesBucket | undefined,
 		) => {
-			return await getOrgCostByModelTimeseries(
+			return await history.orgCostByModelTimeseries(
 				orgId,
 				w,
 				view,
@@ -87,7 +88,7 @@ export function OrgCostByModelTimeseries({ orgId }: { orgId: string }) {
 				bucket,
 			);
 		},
-		[orgId],
+		[history, orgId],
 	);
 
 	const updateView = useCallback(

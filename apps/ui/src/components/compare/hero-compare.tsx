@@ -1,34 +1,10 @@
-"use client";
 import Link from "next/link";
-import React from "react";
 
-import { AnimatedGroup } from "@/components/landing/animated-group";
 import { Navbar } from "@/components/landing/navbar";
 import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 
-import type { Variants } from "@/components/motion-wrapper";
 import type { Route } from "next";
-
-const transitionVariants: { item: Variants } = {
-	item: {
-		hidden: {
-			opacity: 0,
-			filter: "blur(12px)",
-			y: 12,
-		},
-		visible: {
-			opacity: 1,
-			filter: "blur(0px)",
-			y: 0,
-			transition: {
-				type: "spring" as const,
-				bounce: 0.3,
-				duration: 1.5,
-			},
-		},
-	},
-};
 
 interface HeroContent {
 	heading: string;
@@ -55,7 +31,7 @@ interface HeroCompareProps {
 const defaultContent: HeroContent = {
 	heading: "Why Choose LLM Gateway Over OpenRouter?",
 	description:
-		"Compare our unified API gateway with advanced routing, analytics, and cost optimization against OpenRouter's basic proxy service.",
+		"Compare our open-source, self-hostable gateway — routing, analytics, and cost optimization included — against OpenRouter's hosted model marketplace.",
 	badges: [
 		"Advanced Analytics",
 		"Smart Routing",
@@ -98,7 +74,7 @@ export function HeroCompare({ content }: HeroCompareProps) {
 						/>
 						<div className="mx-auto max-w-7xl px-6">
 							<div className="text-center sm:mx-auto lg:mr-auto lg:mt-0">
-								<AnimatedGroup variants={transitionVariants}>
+								<div className="animate-hero-enter">
 									<h1 className="mt-8 max-w-4xl mx-auto text-balance text-2xl md:text-7xl lg:mt-16 xl:text-[5.25rem]">
 										{heroContent.heading}
 									</h1>
@@ -118,22 +94,9 @@ export function HeroCompare({ content }: HeroCompareProps) {
 											))}
 										</div>
 									)}
-								</AnimatedGroup>
+								</div>
 
-								<AnimatedGroup
-									variants={{
-										container: {
-											visible: {
-												transition: {
-													staggerChildren: 0.05,
-													delayChildren: 0.75,
-												},
-											},
-										},
-										...transitionVariants,
-									}}
-									className="mt-12 flex flex-col items-center justify-center gap-2 md:flex-row"
-								>
+								<div className="animate-hero-enter hero-enter-delay-1 mt-12 flex flex-col items-center justify-center gap-2 md:flex-row">
 									<div
 										key={1}
 										className="bg-foreground/10 rounded-[14px] border p-0.5"
@@ -190,7 +153,7 @@ export function HeroCompare({ content }: HeroCompareProps) {
 											</Link>
 										)}
 									</Button>
-								</AnimatedGroup>
+								</div>
 							</div>
 						</div>
 					</div>

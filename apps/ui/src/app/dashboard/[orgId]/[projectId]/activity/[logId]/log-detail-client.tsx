@@ -53,6 +53,11 @@ import {
 } from "@llmgateway/shared/components";
 import { isRoutingMetadataExpired } from "@llmgateway/shared/log-retention";
 import { formatNumber } from "@llmgateway/shared/number-format";
+import {
+	describeSmartRoutingDecision,
+	formatSmartRoutingProbabilities,
+	SMART_ROUTING_DIFFICULTIES,
+} from "@llmgateway/shared/smart-routing";
 
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
@@ -699,6 +704,195 @@ export function LogDetailClient({
 											mono
 										/>
 									)}
+									{log.routingMetadata.dynamicRoute && (
+										<>
+											<Field
+												label="Dynamic route"
+												value={`${log.routingMetadata.dynamicRoute.name} (v${log.routingMetadata.dynamicRoute.version})`}
+												mono
+											/>
+											{log.routingMetadata.dynamicRoute.path &&
+												log.routingMetadata.dynamicRoute.path.length > 0 && (
+													<Field
+														label="Route path"
+														value={log.routingMetadata.dynamicRoute.path.join(
+															" → ",
+														)}
+														mono
+													/>
+												)}
+											{log.routingMetadata.dynamicRoute.classifier && (
+												<Field
+													label="Route classifier"
+													value={`${log.routingMetadata.dynamicRoute.classifier.kind}: ${
+														[
+															log.routingMetadata.dynamicRoute.classifier
+																.difficulty,
+															log.routingMetadata.dynamicRoute.classifier.task,
+															log.routingMetadata.dynamicRoute.classifier
+																.outputType,
+														]
+															.filter(Boolean)
+															.join(" / ") || "no verdict"
+													}`}
+													mono
+												/>
+											)}
+										</>
+									)}
+									{log.routingMetadata.smartRouting && (
+										<>
+											<div className="py-1.5 border-b border-border/50">
+												<span className="text-sm text-muted-foreground">
+													Why this model
+												</span>
+												<ol className="mt-1 list-decimal space-y-0.5 pl-5 text-xs">
+													{describeSmartRoutingDecision(
+														log.routingMetadata.smartRouting,
+													).map((step) => (
+														<li key={step}>{step}</li>
+													))}
+												</ol>
+											</div>
+											<Field
+												label="Smart routing"
+												value={`${log.routingMetadata.smartRouting.selectedModel} (${log.routingMetadata.smartRouting.classifier} classifier${
+													log.routingMetadata.smartRouting.classifierFailed
+														? ", failed open"
+														: log.routingMetadata.smartRouting.classifierReused
+															? ", reused for session"
+															: ""
+												})`}
+												mono
+											/>
+											{log.routingMetadata.smartRouting.effort && (
+												<Field
+													label="Effort"
+													value={log.routingMetadata.smartRouting.effort}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting.trigger && (
+												<Field
+													label="Session check"
+													value={`${log.routingMetadata.smartRouting.trigger}${
+														log.routingMetadata.smartRouting.workChange
+															? ` (work ${log.routingMetadata.smartRouting.workChange})`
+															: ""
+													}${
+														log.routingMetadata.smartRouting.keptReason
+															? `, kept: ${log.routingMetadata.smartRouting.keptReason}`
+															: ""
+													}`}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting.switch && (
+												<>
+													<Field
+														label="Switched"
+														value={`${log.routingMetadata.smartRouting.switch.fromModel}${
+															log.routingMetadata.smartRouting.switch.fromEffort
+																? ` (${log.routingMetadata.smartRouting.switch.fromEffort})`
+																: ""
+														} → ${log.routingMetadata.smartRouting.switch.toModel}${
+															log.routingMetadata.smartRouting.switch.toEffort
+																? ` (${log.routingMetadata.smartRouting.switch.toEffort})`
+																: ""
+														}`}
+														mono
+													/>
+													<Field
+														label="Switch reason"
+														value={`${log.routingMetadata.smartRouting.switch.reason}${
+															log.routingMetadata.smartRouting.switch.direction
+																? ` (${log.routingMetadata.smartRouting.switch.direction})`
+																: ""
+														}`}
+														mono
+													/>
+												</>
+											)}
+											{log.routingMetadata.smartRouting.difficulty && (
+												<Field
+													label="Difficulty"
+													value={`${log.routingMetadata.smartRouting.difficulty}${log.routingMetadata.smartRouting.band ? ` → ${log.routingMetadata.smartRouting.band} band` : ""}`}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting
+												.difficultyProbabilities && (
+												<Field
+													label="Difficulty probabilities"
+													value={formatSmartRoutingProbabilities(
+														log.routingMetadata.smartRouting
+															.difficultyProbabilities,
+														SMART_ROUTING_DIFFICULTIES,
+													)}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting.task && (
+												<Field
+													label="Task"
+													value={`${log.routingMetadata.smartRouting.task}${log.routingMetadata.smartRouting.outputType ? ` / ${log.routingMetadata.smartRouting.outputType}` : ""}`}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting.bestModel && (
+												<Field
+													label="Classifier pick"
+													value={`${log.routingMetadata.smartRouting.bestModel}${
+														log.routingMetadata.smartRouting
+															.bestModelConfidence !== undefined
+															? ` (${Math.round(log.routingMetadata.smartRouting.bestModelConfidence * 100)}% confident)`
+															: ""
+													}`}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting
+												.bestModelProbabilities && (
+												<Field
+													label="Model probabilities"
+													value={formatSmartRoutingProbabilities(
+														log.routingMetadata.smartRouting
+															.bestModelProbabilities,
+													)}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting.candidateModels &&
+												log.routingMetadata.smartRouting.candidateModels
+													.length > 0 && (
+													<Field
+														label="Candidates"
+														value={log.routingMetadata.smartRouting.candidateModels.join(
+															", ",
+														)}
+														mono
+													/>
+												)}
+											{log.routingMetadata.smartRouting.classifierLatencyMs !==
+												undefined && (
+												<Field
+													label="Classifier latency"
+													value={`${log.routingMetadata.smartRouting.classifierLatencyMs} ms`}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting.classifierCost !==
+												undefined && (
+												<Field
+													label="Classifier cost"
+													value={`$${Number(
+														log.routingMetadata.smartRouting.classifierCost,
+													).toFixed(8)}`}
+													mono
+												/>
+											)}
+										</>
+									)}
 									{log.routingMetadata.usedApiKeyHash && (
 										<Field
 											label="Key"
@@ -1006,18 +1200,37 @@ export function LogDetailClient({
 											value={log.cost ? `$${log.cost.toFixed(8)}` : "$0"}
 											muted
 										/>
-										{log.discount && log.discount !== 1 && (
-											<Field
-												label="Discount"
-												value={
-													<span className="text-emerald-500">
-														{(log.discount * 100).toFixed(0)}% off
-													</span>
-												}
-											/>
-										)}
+										{log.discount !== null &&
+											log.discount !== undefined &&
+											log.discount > 0 &&
+											log.discount !== 1 && (
+												<Field
+													label="Discount"
+													value={
+														<span className="text-emerald-500">
+															{(log.discount * 100).toFixed(0)}% off
+														</span>
+													}
+												/>
+											)}
+										{log.routingBaselineCost !== null &&
+											log.routingBaselineCost !== undefined && (
+												<Field
+													label="Priciest Routing Candidate"
+													value={`$${log.routingBaselineCost.toFixed(8)} (${log.routingBaselineModel ?? "unknown"})`}
+													muted
+												/>
+											)}
 										{log.pricingTier && (
 											<Field label="Pricing Tier" value={log.pricingTier} />
+										)}
+										{log.pricingPeriod && (
+											<Field
+												label="Pricing Period"
+												value={
+													log.pricingPeriod === "peak" ? "Peak" : "Off-peak"
+												}
+											/>
 										)}
 										{log.requestedServiceTier && (
 											<Field
@@ -1169,6 +1382,9 @@ export function LogDetailClient({
 										label="Unified Finish Reason"
 										value={log.unifiedFinishReason ?? "-"}
 									/>
+									{log.errorCategory && (
+										<Field label="Error Category" value={log.errorCategory} />
+									)}
 								</TooltipProvider>
 							</div>
 						</Section>

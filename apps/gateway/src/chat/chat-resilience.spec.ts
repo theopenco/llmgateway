@@ -4,7 +4,7 @@ import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { redisClient } from "@llmgateway/cache";
+import { redisClient, swrMirrorKey } from "@llmgateway/cache";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
@@ -236,7 +236,7 @@ describe("chat resilience under DB outage", () => {
 		expect((await buildChatRequest("resilience-token-5")).status).toBe(200);
 
 		const mirrorBefore = await redisClient.get(
-			"swr:providerKey:org-id:llmgateway",
+			swrMirrorKey(`providerKey:org-id:llmgateway`),
 		);
 		expect(mirrorBefore).not.toBeNull();
 
@@ -246,7 +246,7 @@ describe("chat resilience under DB outage", () => {
 			.where(eq(tables.providerKey.id, "resilience-provider-key-5"));
 
 		const mirrorAfter = await redisClient.get(
-			"swr:providerKey:org-id:llmgateway",
+			swrMirrorKey(`providerKey:org-id:llmgateway`),
 		);
 		expect(mirrorAfter).toBeNull();
 	});
@@ -264,7 +264,7 @@ describe("chat resilience under DB outage", () => {
 		);
 
 		const mirror = await redisClient.get(
-			"swr:project:cachingEnabled:project-id",
+			swrMirrorKey(`project:cachingEnabled:project-id`),
 		);
 		expect(mirror).not.toBeNull();
 

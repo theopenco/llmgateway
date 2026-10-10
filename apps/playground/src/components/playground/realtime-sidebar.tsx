@@ -2,12 +2,13 @@
 
 import { ChevronUp, CreditCard, ExternalLink, LogOut } from "lucide-react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { SidebarLoungePoints } from "@/components/lounge/sidebar-points";
+import { ProductSwitcher } from "@/components/product-switcher";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,12 +28,10 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
-import { Wordmark } from "@/components/ui/wordmark";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
-import { withOrgParam } from "@/lib/utils";
 
 import { CallHistoryList } from "./call-history-list";
 import { OrganizationSwitcher } from "./organization-switcher";
@@ -74,11 +73,6 @@ export function RealtimeSidebar({
 		switcherOrganizations.find((org) => org.id === selectedOrganization?.id) ??
 		null;
 	const router = useRouter();
-	const searchParams = useSearchParams();
-	// Preserve the selected organization across playground navigation so users
-	// don't have to re-pick their org on every page.
-	const orgIdParam = searchParams.get("orgId");
-	const withOrg = (path: string) => withOrgParam(path, orgIdParam);
 	const posthog = usePostHog();
 	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
@@ -110,14 +104,10 @@ export function RealtimeSidebar({
 			<Sidebar className={className}>
 				<SidebarHeader>
 					<div className="flex flex-col items-center gap-4 mb-4">
-						<Link
-							href="/"
-							className="flex self-start items-center gap-2 my-2"
-							prefetch={true}
-						>
-							<Wordmark />
+						<div className="flex w-full items-center gap-2">
+							<ProductSwitcher />
 							<Badge>Voice</Badge>
-						</Link>
+						</div>
 					</div>
 					<StudioNav />
 				</SidebarHeader>
@@ -130,14 +120,10 @@ export function RealtimeSidebar({
 			<Sidebar className={className}>
 				<SidebarHeader>
 					<div className="flex flex-col items-center gap-4 mb-4">
-						<Link
-							href="/"
-							className="flex self-start items-center gap-2 my-2"
-							prefetch={true}
-						>
-							<Wordmark />
+						<div className="flex w-full items-center gap-2">
+							<ProductSwitcher />
 							<Badge>Voice</Badge>
-						</Link>
+						</div>
 						<div className="w-full rounded-md border p-4 text-sm">
 							<div className="font-medium mb-2">Sign in required</div>
 							<p className="text-muted-foreground mb-3">
@@ -167,11 +153,7 @@ export function RealtimeSidebar({
 			<SidebarHeader>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton size="lg" asChild tooltip="Lounge">
-							<Link href={withOrg("/")} prefetch={true}>
-								<Wordmark size="sm" iconBox />
-							</Link>
-						</SidebarMenuButton>
+						<ProductSwitcher />
 					</SidebarMenuItem>
 					<SidebarChatSearch disabled />
 					<SidebarNewAction label="New Call" onAction={onNewCall} />

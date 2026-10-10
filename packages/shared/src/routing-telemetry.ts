@@ -23,6 +23,7 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	no_reasoning_variant: "no_reasoning requested but provider has reasoning",
 	reasoning_effort: "reasoning_effort not supported",
 	reasoning_max_tokens: "reasoning_max_tokens not supported",
+	reasoning_mode: "reasoning.mode not supported",
 	tools: "tools not supported",
 	tool_choice: "requested tool_choice not supported",
 	web_search: "web_search not supported",
@@ -42,6 +43,7 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	context_size: "context_size too small",
 	// Request-shape constraints that are not per-mapping capabilities.
 	service_tier: "service tier not supported by this mapping",
+	anthropic_safeguards: "Anthropic server-side safeguards not supported",
 	service_tier_key: "no service-tier-eligible credential for this provider",
 	coding_plan_cache: "no cached input pricing (coding plan)",
 	// Credential / configuration reachability.
@@ -53,6 +55,7 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	// retry-time rate limits may still annotate providerScores. Content filters also
 	// retain their summary field for compatibility. The hourly rollup reads all forms.
 	rate_limited: "provider is rate limited",
+	low_uptime: "custom provider uptime is below the fallback threshold",
 	content_filter: "excluded by content-filter routing",
 	compliance: "excluded by the organization's compliance policy",
 	// Which compliance rule fired. These are details of `compliance`, not
@@ -96,6 +99,7 @@ export const ROUTING_EXCLUSION_REASON_LABELS: Record<
 	no_reasoning_variant: "No-reasoning requested",
 	reasoning_effort: "Reasoning effort",
 	reasoning_max_tokens: "Reasoning max tokens",
+	reasoning_mode: "Reasoning mode",
 	tools: "Tools",
 	tool_choice: "Tool choice",
 	web_search: "Web search",
@@ -113,12 +117,14 @@ export const ROUTING_EXCLUSION_REASON_LABELS: Record<
 	max_tokens: "max_tokens",
 	context_size: "Context size",
 	service_tier: "Service tier",
+	anthropic_safeguards: "Anthropic safeguards",
 	service_tier_key: "Service-tier key",
 	coding_plan_cache: "Coding plan caching",
 	no_provider_key: "No key",
 	locked_region: "Locked region",
 	deprecated: "Deprecated",
 	rate_limited: "Rate limited",
+	low_uptime: "Low uptime",
 	content_filter: "Content filter",
 	compliance: "Compliance",
 	compliance_soc2: "SOC 2",
@@ -217,6 +223,7 @@ export function routingExclusionReasonMessage(
  */
 export const ROUTING_SELECTION_REASONS = [
 	"weighted-score",
+	"provider-order",
 	"price-only",
 	"price-only-no-metrics",
 	"session-sticky",
@@ -267,6 +274,7 @@ const SELECTION_KIND_BY_REASON: Record<
 	RoutingSelectionKind
 > = {
 	"weighted-score": "scored",
+	"provider-order": "pinned",
 	"price-only": "scored",
 	"price-only-no-metrics": "scored",
 	"session-sticky": "sticky",
@@ -307,6 +315,7 @@ export const ROUTING_SELECTION_REASON_LABELS: Record<
 	string
 > = {
 	"weighted-score": "Weighted score",
+	"provider-order": "Provider order",
 	"price-only": "Price only",
 	"price-only-no-metrics": "Price only (no metrics)",
 	"session-sticky": "Session sticky",

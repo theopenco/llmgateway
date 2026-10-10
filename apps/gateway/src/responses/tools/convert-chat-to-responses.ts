@@ -180,6 +180,7 @@ export interface ResponsesEchoRequest {
 		effort?: string | null;
 		summary?: string | null;
 		context?: string | null;
+		mode?: string | null;
 	} | null;
 	max_output_tokens?: number;
 	max_tool_calls?: number;
@@ -536,8 +537,9 @@ export function convertChatResponseToResponses(
 		reasoning: {
 			effort: request?.reasoning?.effort ?? null,
 			summary: request?.reasoning?.summary ?? null,
-			// Only the validated effective mode the provider applied is reported;
-			// the requested value is never echoed.
+			...(request?.reasoning?.mode && { mode: request.reasoning.mode }),
+			// Only the validated effective context the provider applied is
+			// reported; the requested value is never echoed.
 			...(resolveReasoningContext(chatResponse.reasoning_context) ?? {}),
 		},
 		usage,

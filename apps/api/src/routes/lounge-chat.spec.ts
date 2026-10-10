@@ -208,6 +208,7 @@ describe("native Lounge chat proposals", () => {
 		expect(upstream).toHaveBeenCalledTimes(1);
 	});
 	it("uses a bearer session and preserves the selected billing key and model settings", async () => {
+		vi.stubEnv("CLIENT_IP_HEADER", "X-Client-Ip");
 		const session = await db.query.session.findFirst();
 		const fallback = vi.spyOn(playgroundKey, "resolvePlaygroundToken");
 		const response = await request(
@@ -221,6 +222,8 @@ describe("native Lounge chat proposals", () => {
 			{
 				Authorization: `Bearer ${session!.token}`,
 				"x-llmgateway-key": "test-token-no-retention",
+				"x-client-ip": "192.0.2.1",
+				"x-forwarded-for": "198.51.100.1",
 			},
 		);
 		await response.text();
@@ -229,6 +232,8 @@ describe("native Lounge chat proposals", () => {
 		const init = upstream.mock.calls[0][1];
 		const headers = new Headers(init?.headers);
 		expect(headers.get("Authorization")).toBe("Bearer test-token-no-retention");
+		expect(headers.get("x-client-ip")).toBe("192.0.2.1");
+		expect(headers.get("x-forwarded-for")).toBeNull();
 		expect(headers.get("x-no-fallback")).toBe("true");
 		expect(headers.get("x-source")).toBe("lounge.llmgateway.io");
 		const payload = JSON.parse(String(init?.body));

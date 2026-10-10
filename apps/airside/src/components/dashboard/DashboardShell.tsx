@@ -1,135 +1,78 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
-import { LogOut } from "lucide-react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 
-import { useCompany } from "@/components/dashboard/company-context";
-import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
-import { Logo } from "@/components/Logo";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { Button } from "@/components/ui/button";
+import { AirsideSidebar } from "@/components/dashboard/AirsideSidebar";
+import { findActiveNav, getNavGroups } from "@/components/dashboard/nav";
+import { ShellBanners } from "@/components/dashboard/ShellBanners";
+import { TopBarActions } from "@/components/dashboard/TopBarActions";
+import { useNavBadges } from "@/components/dashboard/useNavBadges";
+import { Separator } from "@/components/ui/separator";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
-import { useAuth } from "@/lib/auth-client";
+	SidebarInset,
+	SidebarProvider,
+	SidebarTrigger,
+} from "@/components/ui/sidebar";
 import { useAppConfig } from "@/lib/config";
-import { cn } from "@/lib/utils";
 
 import type { ReactNode } from "react";
 
-const NAV = [
-	{ href: "/dashboard", label: "Operations", exact: true },
-	{ href: "/dashboard/fleet", label: "Fleet", exact: false },
-	{ href: "/dashboard/traffic", label: "Traffic", exact: false },
-	{ href: "/dashboard/fares", label: "Fares", exact: false },
-	{ href: "/dashboard/filings", label: "Filings", exact: false },
-	{ href: "/dashboard/crew", label: "Crew", exact: false },
-];
-
-export function DashboardShell({ children }: { children: ReactNode }) {
+function TopBarTitle() {
 	const pathname = usePathname();
 	const config = useAppConfig();
-	const router = useRouter();
-	const queryClient = useQueryClient();
-	const { signOut } = useAuth();
-	const { companies, company, setCompanyId } = useCompany();
-
-	async function handleSignOut() {
-		await signOut();
-		queryClient.clear();
-		router.push("/login");
-	}
+	const active = findActiveNav(getNavGroups(config.uiUrl), pathname);
 
 	return (
-		<div className="flex min-h-screen flex-col">
-			<header className="border-border/60 bg-background sticky top-0 z-40 border-b">
-				<div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
-					<div className="flex min-w-0 items-center gap-3">
-						<Link href="/" className="flex shrink-0 items-center gap-2">
-							<Logo className="size-6" />
-							<span className="font-display hidden font-black tracking-tight sm:inline">
-								AIRSIDE
-							</span>
-						</Link>
-						{companies.length > 0 ? (
-							<Select
-								value={company?.id ?? ""}
-								onValueChange={(value) => setCompanyId(value)}
-							>
-								<SelectTrigger
-									size="sm"
-									className="max-w-44 font-mono text-xs"
-									data-testid="company-select"
-								>
-									<SelectValue placeholder="Company" />
-								</SelectTrigger>
-								<SelectContent>
-									{companies.map((c) => (
-										<SelectItem key={c.id} value={c.id}>
-											{c.displayName}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						) : null}
-					</div>
-
-					<nav className="flex items-center gap-0.5 overflow-x-auto">
-						{NAV.map((item) => {
-							const active = item.exact
-								? pathname === item.href
-								: pathname.startsWith(item.href);
-							return (
-								<Link
-									key={item.href}
-									href={item.href}
-									className={cn(
-										"rounded-md px-2.5 py-1.5 font-mono text-[0.7rem] tracking-wider uppercase transition-colors sm:text-xs",
-										active
-											? "bg-primary/15 text-primary"
-											: "text-muted-foreground hover:text-foreground",
-									)}
-								>
-									{item.label}
-								</Link>
-							);
-						})}
-						<a
-							href={`${config.uiUrl}/rankings`}
-							target="_blank"
-							rel="noopener noreferrer"
-							className="text-muted-foreground hover:text-foreground whitespace-nowrap rounded-md px-3 py-2 text-sm"
+		<nav aria-label="Breadcrumb" className="min-w-0 flex-1">
+			<ol className="flex min-w-0 items-center gap-2">
+				<li className="text-muted-foreground hidden shrink-0 font-mono text-[0.7rem] tracking-wider uppercase sm:block">
+					{active?.group.label ?? "Console"}
+				</li>
+				{active ? (
+					<>
+						<li
+							aria-hidden="true"
+							className="text-muted-foreground/60 hidden font-mono text-xs sm:block"
 						>
-							Model rankings ↗
-						</a>
-					</nav>
-
-					<div className="flex shrink-0 items-center gap-1">
-						<ThemeToggle />
-						<Button
-							variant="ghost"
-							size="icon"
-							aria-label="Sign out"
-							onClick={handleSignOut}
+							/
+						</li>
+						<li
+							aria-current="page"
+							className="font-display truncate text-sm font-bold tracking-tight"
 						>
-							<LogOut className="size-4" />
-						</Button>
-					</div>
-				</div>
-			</header>
+							{active.item.label}
+						</li>
+					</>
+				) : null}
+			</ol>
+		</nav>
+	);
+}
 
-			<main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">
-				<div className="mb-4 empty:hidden">
-					<EmailVerificationBanner />
+export function DashboardShell({
+	children,
+	defaultSidebarOpen = true,
+}: {
+	children: ReactNode;
+	defaultSidebarOpen?: boolean;
+}) {
+	const badges = useNavBadges();
+
+	return (
+		<SidebarProvider defaultOpen={defaultSidebarOpen}>
+			<AirsideSidebar badges={badges} />
+			<SidebarInset className="min-w-0">
+				<header className="bg-background/90 supports-backdrop-filter:bg-background/75 sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b px-4 backdrop-blur sm:px-6 md:rounded-t-xl">
+					<SidebarTrigger className="-ml-1" />
+					<Separator orientation="vertical" className="mr-1 h-4!" />
+					<TopBarTitle />
+					<TopBarActions />
+				</header>
+				<div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-6 sm:px-6">
+					<ShellBanners />
+					<div className="min-w-0 flex-1">{children}</div>
 				</div>
-				{children}
-			</main>
-		</div>
+			</SidebarInset>
+		</SidebarProvider>
 	);
 }

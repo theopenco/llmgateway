@@ -11,10 +11,14 @@ import {
 import { db, eq, inArray, tables } from "@llmgateway/db";
 
 import {
+	acquireLease,
 	acquireLock,
 	cleanupExpiredLogData,
 	cleanupExpiredModelHistory,
 	processAutoTopUp,
+	releaseLease,
+	touchLease,
+	enforceRetentionPlanGating,
 } from "./worker.js";
 
 const stripeMock = vi.hoisted(() => ({
@@ -50,11 +54,13 @@ describe("worker", () => {
 		apiKeyId: "retention-test-api-key",
 		lockKeys: [
 			"data_retention_cleanup",
+			"retention_plan_gating",
 			"test-lock-1",
 			"test-lock-2",
 			"test-lock-3",
 			"test-lock-4a",
 			"test-lock-4b",
+			"test-lease-1",
 		],
 		logId: "retention-test-log",
 		orgId: "retention-test-org",
@@ -201,6 +207,36 @@ describe("worker", () => {
 
 			const lockKeys = locks.map((lock) => lock.key).sort();
 			expect(lockKeys).toEqual([lockKey1, lockKey2].sort());
+		});
+	});
+
+	describe("leases", () => {
+		test("a stale holder cannot touch or release a lease taken over after expiry", async () => {
+			const key = "test-lease-1";
+			const stale = await acquireLease(key);
+			expect(stale).toBeTruthy();
+			// eslint-disable-next-line no-mixed-operators
+			const expired = new Date(Date.now() - 15 * 60 * 1000);
+			await db
+				.update(tables.lock)
+				.set({ updatedAt: expired })
+				.where(eq(tables.lock.key, key));
+
+			const current = await acquireLease(key);
+			expect(current).toBeTruthy();
+			expect(current).not.toBe(stale);
+			expect(await touchLease(stale!)).toBe(false);
+			await releaseLease(stale!);
+			const held = await db.query.lock.findMany({
+				where: { key: { eq: key } },
+			});
+			expect(held.map((lock) => lock.id)).toEqual([current]);
+
+			expect(await touchLease(current!)).toBe(true);
+			await releaseLease(current!);
+			expect(
+				await db.query.lock.findMany({ where: { key: { eq: key } } }),
+			).toHaveLength(0);
 		});
 	});
 
@@ -627,7 +663,26 @@ describe("worker", () => {
 					rawRequest: { input: "hello" },
 					upstreamResponse: { output: "response content" },
 					userAgent: "test-user-agent",
-					routingMetadata: { selectedProvider: "openai" },
+					routingMetadata: {
+						selectedProvider: "openai",
+						// Classifier verdicts are derived from the prompt, so they must
+						// not outlive the payloads they were derived from.
+						smartRouting: {
+							classifier: "jev",
+							eligibleModels: ["gpt-4o"],
+							candidateModels: ["gpt-4o"],
+							difficulty: "high",
+							task: "coding",
+							selectedModel: "gpt-4o",
+							classifierFailed: false,
+						},
+						dynamicRoute: {
+							name: "smart",
+							version: 1,
+							path: ["rate", "big"],
+							classifier: { kind: "jev", difficulty: "high", task: "coding" },
+						},
+					},
 					gatewayContentFilterResponse: [
 						{
 							id: "modr-retention-test",
@@ -674,6 +729,7 @@ describe("worker", () => {
 			expect(cleanedLog?.upstreamResponse).toBeNull();
 			expect(cleanedLog?.userAgent).toBeNull();
 			expect(cleanedLog?.gatewayContentFilterResponse).toBeNull();
+			// Nulling the whole column is what clears the classifier verdicts too.
 			expect(cleanedLog?.routingMetadata).toBeNull();
 			expect(cleanedLog?.dataRetentionCleanedUp).toBe(true);
 
@@ -735,6 +791,124 @@ describe("worker", () => {
 
 			expect(mappingRows.map((r) => r.id)).toEqual(["mph-recent"]);
 			expect(modelRows.map((r) => r.id)).toEqual(["mh-recent"]);
+		});
+	});
+
+	describe("enforceRetentionPlanGating", () => {
+		const gatingOrgIds = [
+			"gating-free-retain",
+			"gating-free-metadata",
+			"gating-enterprise-retain",
+			"gating-pro-retain",
+		];
+
+		const seedGatingOrgs = async () => {
+			await db.insert(tables.organization).values([
+				{
+					id: "gating-free-retain",
+					name: "Gating Free Retain",
+					billingEmail: "gating-free@example.com",
+					plan: "free",
+					retentionLevel: "retain",
+				},
+				{
+					id: "gating-free-metadata",
+					name: "Gating Free Metadata",
+					billingEmail: "gating-free-metadata@example.com",
+					plan: "free",
+					retentionLevel: "none",
+				},
+				{
+					id: "gating-enterprise-retain",
+					name: "Gating Enterprise Retain",
+					billingEmail: "gating-enterprise@example.com",
+					plan: "enterprise",
+					retentionLevel: "retain",
+				},
+				{
+					id: "gating-pro-retain",
+					name: "Gating Pro Retain",
+					billingEmail: "gating-pro@example.com",
+					plan: "pro",
+					retentionLevel: "retain",
+				},
+			]);
+		};
+
+		const retentionByOrg = async () => {
+			const rows = await db
+				.select({
+					id: tables.organization.id,
+					retentionLevel: tables.organization.retentionLevel,
+				})
+				.from(tables.organization)
+				.where(inArray(tables.organization.id, gatingOrgIds));
+			return Object.fromEntries(rows.map((r) => [r.id, r.retentionLevel]));
+		};
+
+		const previousHosted = process.env.HOSTED;
+
+		afterEach(() => {
+			if (previousHosted === undefined) {
+				delete process.env.HOSTED;
+			} else {
+				process.env.HOSTED = previousHosted;
+			}
+		});
+
+		test("leaves every organization alone before the cutoff", async () => {
+			process.env.HOSTED = "true";
+			await seedGatingOrgs();
+
+			const switched = await enforceRetentionPlanGating(
+				new Date("2026-11-07T23:59:59Z"),
+			);
+
+			expect(switched).toBe(0);
+			expect(await retentionByOrg()).toEqual({
+				"gating-free-retain": "retain",
+				"gating-free-metadata": "none",
+				"gating-enterprise-retain": "retain",
+				"gating-pro-retain": "retain",
+			});
+		});
+
+		test("switches every non-Enterprise organization to Metadata Only after the cutoff", async () => {
+			process.env.HOSTED = "true";
+			await seedGatingOrgs();
+
+			const switched = await enforceRetentionPlanGating(
+				new Date("2026-11-08T00:00:00Z"),
+			);
+
+			expect(switched).toBe(2);
+			expect(await retentionByOrg()).toEqual({
+				"gating-free-retain": "none",
+				"gating-free-metadata": "none",
+				"gating-enterprise-retain": "retain",
+				"gating-pro-retain": "none",
+			});
+
+			expect(
+				await enforceRetentionPlanGating(new Date("2026-11-09T00:00:00Z")),
+			).toBe(0);
+		});
+
+		test("never downgrades self-hosted installs", async () => {
+			delete process.env.HOSTED;
+			await seedGatingOrgs();
+
+			const switched = await enforceRetentionPlanGating(
+				new Date("2026-11-08T00:00:00Z"),
+			);
+
+			expect(switched).toBe(0);
+			expect(await retentionByOrg()).toEqual({
+				"gating-free-retain": "retain",
+				"gating-free-metadata": "none",
+				"gating-enterprise-retain": "retain",
+				"gating-pro-retain": "retain",
+			});
 		});
 	});
 });

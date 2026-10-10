@@ -23,65 +23,30 @@ describe("validateEmail", () => {
 		});
 	});
 
-	describe("blacklisted domain validation", () => {
-		it("should reject emails from duck.com", () => {
-			const result = validateEmail("user@duck.com");
-			expect(result.valid).toBe(false);
-			expect(result.reason).toBe("blacklisted_domain");
-			expect(result.message).toBe("This email domain is not allowed");
-		});
-
-		it("should reject emails from duckduckgo.com", () => {
-			const result = validateEmail("user@duckduckgo.com");
-			expect(result.valid).toBe(false);
-			expect(result.reason).toBe("blacklisted_domain");
-		});
-
-		it("should be case insensitive for blacklisted domains", () => {
-			const result = validateEmail("user@DUCK.COM");
-			expect(result.valid).toBe(false);
-			expect(result.reason).toBe("blacklisted_domain");
-		});
-
-		it("should reject emails from keemail.me", () => {
-			const result = validateEmail("user@keemail.me");
-			expect(result.valid).toBe(false);
-			expect(result.reason).toBe("blacklisted_domain");
-		});
-
-		it("should reject emails from web.id", () => {
-			const result = validateEmail("user@web.id");
-			expect(result.valid).toBe(false);
-			expect(result.reason).toBe("blacklisted_domain");
-		});
-
-		it("should reject emails from any web.id subdomain", () => {
+	describe("configured domain validation", () => {
+		it("blocks configured domains and their subdomains case-insensitively", () => {
 			for (const email of [
-				"user@1nawaks.web.id",
-				"user@2nawaks.web.id",
-				"user@a.b.web.id",
+				"user@example.com",
+				"user@EXAMPLE.COM",
+				"user@mail.example.com",
+				"user@a.b.example.com",
 			]) {
-				const result = validateEmail(email);
-				expect(result.valid).toBe(false);
-				expect(result.reason).toBe("blacklisted_domain");
+				expect(validateEmail(email, ["example.com"])).toEqual({
+					valid: false,
+					reason: "blacklisted_domain",
+					message: "This email domain is not allowed",
+				});
 			}
 		});
 
-		it("should reject emails from web-library.net", () => {
-			const result = validateEmail("llmgwtest1@web-library.net");
-			expect(result.valid).toBe(false);
-			expect(result.reason).toBe("blacklisted_domain");
-		});
-
-		it("should reject subdomains of blacklisted domains", () => {
-			const result = validateEmail("user@mail.web-library.net");
-			expect(result.valid).toBe(false);
-			expect(result.reason).toBe("blacklisted_domain");
-		});
-
-		it("should not reject domains that merely end with a blacklisted domain string", () => {
-			const result = validateEmail("user@notduck.com");
-			expect(result.valid).toBe(true);
+		it("allows unconfigured domains and suffix lookalikes", () => {
+			expect(validateEmail("user@example.com", [])).toEqual({ valid: true });
+			expect(validateEmail("user@notexample.com", ["example.com"])).toEqual({
+				valid: true,
+			});
+			expect(validateEmail("user@example.com.org", ["example.com"])).toEqual({
+				valid: true,
+			});
 		});
 	});
 
@@ -138,7 +103,7 @@ describe("validateEmail", () => {
 		});
 
 		it("should check blacklisted domain before disposable domain", () => {
-			const result = validateEmail("test@duck.com");
+			const result = validateEmail("test@mailinator.com", ["mailinator.com"]);
 			expect(result.valid).toBe(false);
 			expect(result.reason).toBe("blacklisted_domain");
 		});

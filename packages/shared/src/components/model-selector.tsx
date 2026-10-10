@@ -435,8 +435,9 @@ export function ModelSelector({
 				searchText: canonicalSearchText,
 			});
 
-			// Skip provider entries for auto model - it should only appear as canonical
-			if (m.id === "auto") {
+			// Skip provider entries for the routing pseudo-models - they should only
+			// appear as canonical entries
+			if (m.id === "auto" || m.id === "smart") {
 				continue;
 			}
 

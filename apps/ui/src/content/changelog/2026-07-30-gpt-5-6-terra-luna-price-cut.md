@@ -4,6 +4,7 @@ slug: "gpt-5-6-terra-luna-price-cut"
 date: "2026-07-30"
 title: "GPT-5.6 Terra & Luna Price Cuts"
 summary: "OpenAI cut GPT-5.6 Terra to $2.00/$12.00 and Luna to $0.20/$1.20 per 1M tokens — Terra is 20% cheaper, Luna 80%. The new rates are live on LLM Gateway and apply automatically to every request, including cached input, cache writes, and long-context pricing."
+tags: ["llmgateway"]
 image:
   src: "/changelog/gpt-5-6-terra-luna-price-cut.png"
   alt: "Glowing price-cut arrow and coins beside earth and moon icons on a circuit board, announcing GPT-5.6 Terra and Luna price cuts"

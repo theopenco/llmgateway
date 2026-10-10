@@ -1,4 +1,3 @@
-import { getGithubLastEdit } from "fumadocs-core/content/github";
 import { createRelativeLink } from "fumadocs-ui/mdx";
 import {
 	DocsPage,
@@ -78,21 +77,7 @@ export default async function Page(props: {
 		notFound();
 	}
 
-	let time: Date | null = null;
-	try {
-		time = await getGithubLastEdit({
-			owner: "theopenco",
-			repo: "llmgateway",
-			path: `apps/docs/content/${page.path}`,
-		});
-	} catch {
-		// Ignore errors (rate limits, network issues, missing auth in Docker builds)
-	}
-
-	// Left undefined when the GitHub lookup fails: fumadocs then omits the line
-	// entirely, which is better than stamping the build date on a page that was
-	// not edited — "Last updated" must only ever reflect a real content edit.
-	const lastUpdate = time ? new Date(time) : undefined;
+	const lastUpdate = page.data.lastModified;
 
 	const MDXContent = page.data.body;
 
@@ -103,7 +88,7 @@ export default async function Page(props: {
 		headline: page.data.title,
 		description: page.data.description,
 		url: marketingGuideCanonical(page.url) ?? `${docsBaseUrl}${path}`,
-		...(time ? { dateModified: new Date(time).toISOString() } : {}),
+		...(lastUpdate ? { dateModified: lastUpdate.toISOString() } : {}),
 		author: {
 			"@type": "Organization",
 			name: "LLM Gateway",

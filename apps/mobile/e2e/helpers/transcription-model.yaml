@@ -1,9 +1,10 @@
 appId: io.llmgateway.lounge
 ---
-- scrollUntilVisible:
-    element: "Live transcription"
-    direction: DOWN
-- tapOn: "Live transcription"
+- runFlow:
+    file: navigate.yaml
+    env:
+      DESTINATION: "Live transcription"
+- runFlow: close-chat-options.yaml
 - tapOn: "Model: Choose"
 - tapOn:
     id: "field-search-models"

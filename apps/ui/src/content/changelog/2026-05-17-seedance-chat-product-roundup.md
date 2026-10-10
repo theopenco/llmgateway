@@ -4,6 +4,7 @@ slug: "seedance-chat-product-roundup"
 date: "2026-05-17"
 title: "Seedance Video Models, Pinned Chats, Sharing Across Orgs & More"
 summary: "ByteDance Seedance video models land in the gateway, Chat gets pinning and cross-org sharing, plus vertex-anthropic, grok-4.20, and a stack of fixes."
+tags: ["llmgateway", "lounge"]
 image:
   src: "/changelog/seedance-video-models.png"
   alt: "LLM Gateway now supports all ByteDance Seedance video generation models"

@@ -1,10 +1,10 @@
 appId: io.llmgateway.lounge
 ---
 - launchApp
-- scrollUntilVisible:
-    element: "Canvas"
-    direction: DOWN
-- tapOn: "Canvas"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Canvas"
 - tapOn: "Templates"
 - tapOn: "Form"
 - assertVisible: "Contact Us"

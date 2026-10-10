@@ -4,6 +4,7 @@ slug: "org-models-directory"
 date: "2026-07-31"
 title: "Org Models Directory"
 summary: "The dashboard's Custom Models page is now a full Models directory: every catalog model plus your organization's custom models in one searchable table, with per-model compliance eligibility so your team sees exactly what they can route to."
+tags: ["llmgateway"]
 image:
   src: "/changelog/org-models-directory.png"
   alt: "A glowing model catalog grid on a circuit-board chip with allowed and blocked model tiles, representing the org models directory with compliance eligibility"

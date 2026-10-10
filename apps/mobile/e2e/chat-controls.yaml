@@ -3,7 +3,8 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.chatTitle = "Native controls " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
+- tapOn: "New conversation"
+- runFlow: helpers/chat-options.yaml
 - tapOn: "Chat settings"
 - tapOn:
     id: "field-system-instructions"
@@ -21,12 +22,14 @@ appId: io.llmgateway.lounge
     element: "Save settings"
     direction: DOWN
 - tapOn: "Save settings"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: Auto"
 - tapOn:
     id: "field-search-models"
 - inputText: "gpt-4o-mini"
 - tapOn: "Done typing"
 - tapOn: "Choose GPT-4o Mini"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${output.chatTitle}
 - tapOn: "Send message"
@@ -51,10 +54,12 @@ appId: io.llmgateway.lounge
     visible: "Retry last response"
     timeout: 30000
 - assertVisible: "Revised native question"
+- runFlow: helpers/chat-options.yaml
 - tapOn: "Fork"
 - extendedWaitUntil:
     visible: ${output.chatTitle + " v2"}
     timeout: 15000
+- runFlow: helpers/chat-options.yaml
 - tapOn: "Rename"
 - eraseText
 - inputText: ${output.chatTitle + " renamed"}
@@ -64,7 +69,8 @@ appId: io.llmgateway.lounge
     timeout: 15000
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
+- tapOn: "New conversation"
+- runFlow: helpers/chat-options.yaml
 - tapOn: "Chat settings"
 - assertVisible: "Be concise."
 - assertVisible: "0.7"
@@ -73,13 +79,16 @@ appId: io.llmgateway.lounge
     element: "Reset settings"
     direction: DOWN
 - tapOn: "Reset settings"
+- runFlow: helpers/chat-options.yaml
 - tapOn: "Temporary conversation"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: Auto"
 - tapOn:
     id: "field-search-models"
 - inputText: "gpt-4o-mini"
 - tapOn: "Done typing"
 - tapOn: "Choose GPT-4o Mini"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${"Temporary " + output.chatTitle}
 - tapOn: "Send message"
@@ -88,9 +97,12 @@ appId: io.llmgateway.lounge
     timeout: 30000
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
 - tapOn:
     id: "field-search-conversations"
 - inputText: ${"Temporary " + output.chatTitle}
 - tapOn: "Done typing"
-- assertVisible: "Your conversations will appear here."
+- assertVisible: "No matching conversations."

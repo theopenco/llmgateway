@@ -10,7 +10,7 @@ export default async function CompareLiteLLMOgImage() {
 	return compareOgImage({
 		competitor: "LiteLLM",
 		subtitle:
-			"A managed, production-ready gateway instead of a proxy you operate yourself",
+			"Managed hosting or a self-operated gateway: compare costs and controls",
 		Icon: LiteLLMOgIcon,
 		iconSize: 64,
 	});

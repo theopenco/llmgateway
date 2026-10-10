@@ -4,6 +4,7 @@ slug: "api-key-expiration-ttl"
 date: "2026-06-09"
 title: "API Key Expiration (TTL)"
 summary: "Give any API key a time-to-live when you create it — minutes, hours, or days. Expired keys are disabled automatically, and you can bring them back online anytime with a fresh expiration."
+tags: ["llmgateway"]
 image:
   src: "/changelog/api-key-expiration-ttl.png"
   alt: "API key expiration with TTL on LLM Gateway"

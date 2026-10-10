@@ -3,11 +3,17 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	activeProviderClaim,
 	buildVerificationTarget,
 	enqueueModelVerification,
 	modelVerificationSchema,
+	pendingFiledCapabilities,
+	resolveVerificationCredential,
 	serializeVerification,
-	verificationCredentialSource,
+	serializeVerificationHistoryEntry,
+	verificationActors,
+	verificationHistoryEntrySchema,
+	type CapabilityOverrides,
 	type ModelVerificationRow,
 } from "@/lib/model-verification.js";
 import { adminMiddleware } from "@/middleware/admin.js";
@@ -91,11 +97,16 @@ function mappingTarget(mapping: MappingRow): ProviderModelVerificationTarget {
 			mapping.reasoningEfforts ??
 			null,
 		webSearch: mapping.webSearch,
+		contextSize: mapping.contextSize,
+		maxOutput: mapping.maxOutput,
 	});
 }
 
+/** Capabilities awaiting review are part of what the listing claims, so an
+ *  admin spot-check before approving a filing exercises them too. */
 function draftModelTarget(
 	model: DraftModelRow,
+	filed: CapabilityOverrides,
 ): ProviderModelVerificationTarget {
 	return buildVerificationTarget({
 		providerId: model.providerId,
@@ -113,6 +124,9 @@ function draftModelTarget(
 		reasoningMaxTokens: model.reasoningMaxTokens,
 		reasoningEfforts: model.reasoningEfforts,
 		webSearch: model.webSearch,
+		contextSize: model.contextSize,
+		maxOutput: model.maxOutput,
+		...filed,
 	});
 }
 
@@ -123,7 +137,7 @@ const verificationEntrySchema = z.object({
 	modelName: z.string(),
 	region: z.string().nullable(),
 	initiatedBy: z.enum(["carrier", "admin"]),
-	credentialSource: z.enum(["supplied", "managed", "environment"]),
+	credentialSource: z.enum(["supplied", "carrier", "managed", "environment"]),
 	verification: modelVerificationSchema,
 });
 
@@ -201,11 +215,17 @@ adminModelVerifications.openapi(queueVerification, async (c) => {
 				message: "Delisted mappings cannot be verified.",
 			});
 		}
-		target = draftModelTarget(model);
+		target = draftModelTarget(model, await pendingFiledCapabilities(model.id));
 		providerCompanyId = model.providerCompanyId;
 	}
 
-	const credentialSource = await verificationCredentialSource(target, apiKey);
+	// A carrier-claimed provider runs on the carrier's own credential, so our
+	// managed keys never pay for testing a listing we do not bill for.
+	const credential = await resolveVerificationCredential(
+		target,
+		apiKey,
+		await activeProviderClaim(target.providerId),
+	);
 	let verification: ModelVerificationRow;
 	try {
 		verification = await enqueueModelVerification({
@@ -214,9 +234,9 @@ adminModelVerifications.openapi(queueVerification, async (c) => {
 			draftModelId: draftModelId ?? null,
 			modelProviderMappingId: mappingId ?? null,
 			target,
-			apiKey,
+			apiKey: credential.apiKey,
 			requestedBy: user?.id ?? null,
-			credentialSource,
+			credentialSource: credential.credentialSource,
 		});
 	} catch (error) {
 		if (isUniqueViolation(error)) {
@@ -227,6 +247,53 @@ adminModelVerifications.openapi(queueVerification, async (c) => {
 		throw error;
 	}
 	return c.json({ entry: serializeEntry(verification) }, 202);
+});
+
+const listVerificationHistory = createRoute({
+	method: "get",
+	path: "/model-verifications/history",
+	request: {
+		query: z.object({
+			// Exactly one anchor, mirroring the queue route.
+			mappingId: z.string().optional(),
+			draftModelId: z.string().optional(),
+			limit: z.coerce.number().int().min(1).max(100).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						entries: z.array(verificationHistoryEntrySchema),
+					}),
+				},
+			},
+			description: "Past verification runs, newest first.",
+		},
+	},
+});
+
+adminModelVerifications.openapi(listVerificationHistory, async (c) => {
+	const { mappingId, draftModelId, limit } = c.req.valid("query");
+	if (Boolean(mappingId) === Boolean(draftModelId)) {
+		throw new HTTPException(400, {
+			message: "Provide exactly one of mappingId or draftModelId.",
+		});
+	}
+	const rows = await db.query.providerModelVerification.findMany({
+		where: mappingId
+			? { modelProviderMappingId: { eq: mappingId } }
+			: { draftModelId: { eq: draftModelId! } },
+		orderBy: { createdAt: "desc" },
+		limit: limit ?? 20,
+	});
+	const actors = await verificationActors(rows);
+	return c.json({
+		entries: rows.map((row) =>
+			serializeVerificationHistoryEntry(row, actors, { audience: "admin" }),
+		),
+	});
 });
 
 const getVerification = createRoute({

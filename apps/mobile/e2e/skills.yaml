@@ -3,7 +3,10 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.skillName = "Native writing " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- tapOn: "Skills"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Skills"
 - tapOn: "Generate skill"
 - tapOn:
     id: "field-what-should-this-skill-do-"
@@ -44,8 +47,9 @@ appId: io.llmgateway.lounge
 - assertVisible: ${output.skillName}
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
+- tapOn: "New conversation"
 - runFlow: helpers/chat-model.yaml
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${"SKILL_ENABLED_PROBE " + output.skillName}
 - tapOn: "Send message"
@@ -53,12 +57,16 @@ appId: io.llmgateway.lounge
     visible: "Enabled skill verified.*HARBOR."
     timeout: 30000
 - launchApp
-- tapOn: "Skills"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Skills"
 - tapOn: ${"Enable " + output.skillName}
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
+- tapOn: "New conversation"
 - runFlow: helpers/chat-model.yaml
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${"SKILL_DISABLED_PROBE " + output.skillName}
 - tapOn: "Send message"
@@ -66,7 +74,10 @@ appId: io.llmgateway.lounge
     visible: "Skill excluded from context."
     timeout: 30000
 - launchApp
-- tapOn: "Skills"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Skills"
 - tapOn: ${"Edit " + output.skillName}
 - scrollUntilVisible:
     element:
@@ -86,8 +97,9 @@ appId: io.llmgateway.lounge
 - tapOn: ${"Enable " + output.skillName}
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
+- tapOn: "New conversation"
 - runFlow: helpers/chat-model.yaml
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${"SKILL_EDITED_PROBE " + output.skillName}
 - tapOn: "Send message"
@@ -95,14 +107,18 @@ appId: io.llmgateway.lounge
     visible: "Enabled skill verified.*LIGHTHOUSE."
     timeout: 30000
 - launchApp
-- tapOn: "Skills"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Skills"
 - tapOn: ${"Delete " + output.skillName}
 - tapOn: "Delete"
 - assertNotVisible: ${output.skillName}
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
+- tapOn: "New conversation"
 - runFlow: helpers/chat-model.yaml
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${"SKILL_DELETED_PROBE " + output.skillName}
 - tapOn: "Send message"

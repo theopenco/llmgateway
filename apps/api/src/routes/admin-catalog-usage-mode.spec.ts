@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
+import { setAirsideModelServing } from "@/lib/airside-catalogue.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { and, db, eq, tables } from "@llmgateway/db";
+import { and, db, eq, gt, tables } from "@llmgateway/db";
 
 const MODEL_ID = "catalog-mode-model";
 const PROVIDER_ID = "catalog-mode-provider";
@@ -21,9 +22,13 @@ interface CatalogResponse {
 	tokens: number;
 	cost: number;
 	avgTimeToFirstToken: number | null;
+	throughput: number | null;
 }
 
 async function clearFixtures() {
+	await db
+		.delete(tables.providerCompany)
+		.where(eq(tables.providerCompany.id, "history-company"));
 	await db
 		.delete(tables.modelProviderMappingHistory)
 		.where(eq(tables.modelProviderMappingHistory.modelId, MODEL_ID));
@@ -41,7 +46,7 @@ describe("admin catalog usage mode", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await clearFixtures();
 
@@ -72,6 +77,7 @@ describe("admin catalog usage mode", () => {
 				tokens: 30,
 				cost: 0.3,
 				totalTimeToFirstToken: 300,
+				outputTokens: 30,
 			},
 			{
 				usedMode: "api-keys" as const,
@@ -79,6 +85,7 @@ describe("admin catalog usage mode", () => {
 				tokens: 20,
 				cost: 0.2,
 				totalTimeToFirstToken: 400,
+				outputTokens: 40,
 			},
 			{
 				usedMode: "unknown" as const,
@@ -86,6 +93,7 @@ describe("admin catalog usage mode", () => {
 				tokens: 10,
 				cost: 0.1,
 				totalTimeToFirstToken: 300,
+				outputTokens: 10,
 			},
 		];
 		await db.insert(tables.modelHistory).values(
@@ -100,6 +108,8 @@ describe("admin catalog usage mode", () => {
 				totalInputCost: bucket.cost,
 				totalTimeToFirstToken: bucket.totalTimeToFirstToken,
 				timeToFirstTokenCount: bucket.requests,
+				totalOutputTokens: bucket.outputTokens,
+				totalDuration: 1000,
 			})),
 		);
 		await db.insert(tables.modelProviderMappingHistory).values(
@@ -116,6 +126,8 @@ describe("admin catalog usage mode", () => {
 				totalInputCost: bucket.cost,
 				totalTimeToFirstToken: bucket.totalTimeToFirstToken,
 				timeToFirstTokenCount: bucket.requests,
+				totalOutputTokens: bucket.outputTokens,
+				totalDuration: 1000,
 			})),
 		);
 	});
@@ -140,18 +152,21 @@ describe("admin catalog usage mode", () => {
 				totalTokens: number;
 				totalCost: number;
 				avgTimeToFirstToken: number | null;
+				throughput: number | null;
 			}[];
 			providers?: {
 				logsCount: number;
 				totalTokens: number;
 				totalCost: number;
 				avgTimeToFirstToken: number | null;
+				throughput: number | null;
 			}[];
 			mappings?: {
 				logsCount: number;
 				inputTokens: number;
 				cost: number;
 				avgTimeToFirstToken: number | null;
+				throughput: number | null;
 			}[];
 		};
 		const row =
@@ -164,6 +179,7 @@ describe("admin catalog usage mode", () => {
 			tokens: "totalTokens" in row! ? row!.totalTokens : row!.inputTokens,
 			cost: "cost" in row! ? row!.cost : row!.totalCost,
 			avgTimeToFirstToken: row!.avgTimeToFirstToken,
+			throughput: row!.throughput,
 		};
 	}
 
@@ -178,21 +194,47 @@ describe("admin catalog usage mode", () => {
 				tokens: 30,
 				cost: expect.closeTo(0.3),
 				avgTimeToFirstToken: 100,
+				throughput: 30,
 			});
 			await expect(fetchCatalog(path, "api-keys")).resolves.toEqual({
 				requests: 2,
 				tokens: 20,
 				cost: expect.closeTo(0.2),
 				avgTimeToFirstToken: 200,
+				throughput: 40,
 			});
 			await expect(fetchCatalog(path)).resolves.toEqual({
 				requests: 6,
 				tokens: 60,
 				cost: expect.closeTo(0.6),
 				avgTimeToFirstToken: expect.closeTo(1000 / 6),
+				throughput: expect.closeTo(80 / 3),
 			});
 		});
 	}
+
+	it("sorts by throughput with empty rows last", async () => {
+		for (const path of [
+			"models",
+			"providers",
+			"model-provider-mappings",
+		] as const) {
+			for (const sortOrder of ["asc", "desc"]) {
+				const response = await app.request(
+					`/admin/${path}?${RANGE}&sortBy=throughput&sortOrder=${sortOrder}`,
+					{ headers: { Cookie: cookie } },
+				);
+				expect(response.status).toBe(200);
+				const body = (await response.json()) as Record<
+					string,
+					{ throughput: number | null }[]
+				>;
+				const rows =
+					body[path === "model-provider-mappings" ? "mappings" : path];
+				expect(rows[0]?.throughput).toEqual(expect.closeTo(80 / 3));
+			}
+		}
+	});
 
 	it("keeps filtered latency null without a mode sample", async () => {
 		await Promise.all([
@@ -309,4 +351,247 @@ describe("admin catalog usage mode", () => {
 			"unknown",
 		]);
 	});
+	it.each(
+		[false, true].flatMap((hourly) => [
+			{
+				hourly,
+				paused: false,
+				deactivated: false,
+				delisted: false,
+				idleOnly: false,
+			},
+			{
+				hourly,
+				paused: true,
+				deactivated: false,
+				delisted: false,
+				idleOnly: false,
+			},
+			{
+				hourly,
+				paused: true,
+				deactivated: false,
+				delisted: false,
+				idleOnly: true,
+			},
+			{
+				hourly,
+				paused: false,
+				deactivated: true,
+				delisted: false,
+				idleOnly: false,
+			},
+			{
+				hourly,
+				paused: false,
+				deactivated: false,
+				delisted: true,
+				idleOnly: false,
+			},
+			{
+				hourly,
+				paused: false,
+				deactivated: false,
+				delisted: true,
+				idleOnly: true,
+			},
+		]),
+	)(
+		"preserves idle history (hourly=$hourly, paused=$paused, deactivated=$deactivated, delisted=$delisted, idleOnly=$idleOnly)",
+		async ({ hourly, paused, deactivated, delisted, idleOnly }) => {
+			const halfHourMs = 30 * 60_000;
+			const twoHoursMs = 2 * ONE_HOUR_MS;
+			vi.setSystemTime(new Date(BUCKET.getTime() + halfHourMs));
+			try {
+				const idle = new Date(BUCKET.getTime() - ONE_HOUR_MS);
+				const createdAt = new Date(idle.getTime() - ONE_HOUR_MS);
+				await db
+					.update(tables.model)
+					.set({ createdAt })
+					.where(eq(tables.model.id, MODEL_ID));
+				await db
+					.update(tables.modelProviderMapping)
+					.set({ createdAt })
+					.where(eq(tables.modelProviderMapping.id, MAPPING_ID));
+				const coverage = {
+					job: hourly ? "hourly-usage" : "minute-usage",
+					bucketTimestamp: idle,
+					refreshedAt: new Date(),
+					finalizedAt: new Date(),
+				};
+				await db.insert(tables.aggregationProgress).values([
+					coverage,
+					{
+						...coverage,
+						bucketTimestamp: new Date(BUCKET.getTime() + ONE_HOUR_MS),
+					},
+					{
+						...coverage,
+						bucketTimestamp: new Date(idle.getTime() - 60_000),
+						refreshedAt: null,
+						finalizedAt: null,
+					},
+				]);
+				const modes = ["credits", "api-keys"] as const;
+				const mh = hourly ? tables.modelHistoryHourly : tables.modelHistory;
+				const mph = hourly
+					? tables.modelProviderMappingHistoryHourly
+					: tables.modelProviderMappingHistory;
+				// Explicit branches keep the different required bucket columns typed.
+				if (hourly) {
+					await db.insert(tables.modelHistoryHourly).values(
+						modes.map((usedMode) => ({
+							modelId: MODEL_ID,
+							hourTimestamp: idle,
+							usedMode,
+						})),
+					);
+					await db.insert(tables.modelProviderMappingHistoryHourly).values(
+						modes.map((usedMode) => ({
+							modelId: MODEL_ID,
+							providerId: PROVIDER_ID,
+							modelProviderMappingId: MAPPING_ID,
+							hourTimestamp: idle,
+							usedMode,
+						})),
+					);
+				} else {
+					await db.insert(tables.modelHistory).values(
+						modes.map((usedMode) => ({
+							modelId: MODEL_ID,
+							minuteTimestamp: idle,
+							usedMode,
+						})),
+					);
+					await db.insert(tables.modelProviderMappingHistory).values(
+						modes.map((usedMode) => ({
+							modelId: MODEL_ID,
+							providerId: PROVIDER_ID,
+							modelProviderMappingId: MAPPING_ID,
+							minuteTimestamp: idle,
+							usedMode,
+						})),
+					);
+				}
+				if (idleOnly) {
+					await db
+						.delete(mh)
+						.where(and(eq(mh.modelId, MODEL_ID), gt(mh.logsCount, 0)));
+					await db
+						.delete(mph)
+						.where(and(eq(mph.modelId, MODEL_ID), gt(mph.logsCount, 0)));
+				}
+				if (paused || delisted) {
+					await db
+						.insert(tables.providerCompany)
+						.values({ id: "history-company", name: "Test Company" });
+					const [listing] = await db
+						.insert(tables.providerDraftModel)
+						.values({
+							providerCompanyId: "history-company",
+							providerId: PROVIDER_ID,
+							modelName: MODEL_ID,
+							externalId: MODEL_ID,
+							status: delisted ? "delisted" : "active",
+							pausedAt: paused ? new Date() : null,
+							delistedAt: delisted ? new Date() : null,
+						})
+						.returning();
+					await db
+						.update(tables.modelProviderMapping)
+						.set({ source: "airside" })
+						.where(eq(tables.modelProviderMapping.id, MAPPING_ID));
+					await db.transaction(
+						async (tx) => await setAirsideModelServing(listing, false, tx),
+					);
+					vi.setSystemTime(new Date(BUCKET.getTime() + twoHoursMs));
+				}
+				if (deactivated) {
+					await db
+						.update(tables.modelProviderMapping)
+						.set({ deactivatedAt: new Date() })
+						.where(eq(tables.modelProviderMapping.id, MAPPING_ID));
+					vi.setSystemTime(new Date(BUCKET.getTime() + twoHoursMs));
+				}
+				// Later metadata edits must not move the historical pause boundary.
+				await db
+					.update(tables.modelProviderMapping)
+					.set({ updatedAt: new Date() })
+					.where(eq(tables.modelProviderMapping.id, MAPPING_ID));
+				const paths = [
+					`providers/${PROVIDER_ID}`,
+					`models/${MODEL_ID}`,
+					`providers/${PROVIDER_ID}/models/${MODEL_ID}`,
+				];
+				const urls = paths.flatMap((path) =>
+					["total", ...modes].map(
+						(mode) =>
+							`/admin/${path}/history?window=${hourly ? "7d" : "4h"}&mode=${mode}`,
+					),
+				);
+				const read = async () => {
+					const results: unknown[] = [];
+					for (const url of urls) {
+						const res = await app.request(url, { headers: { Cookie: cookie } });
+						expect(res.status).toBe(200);
+						const body = await res.json();
+						expect(
+							body.data.find(
+								(row: { timestamp: string }) =>
+									row.timestamp === idle.toISOString(),
+							),
+						).toMatchObject({
+							logsCount: 0,
+							totalCost: 0,
+							totalTokens: 0,
+							avgTtft: null,
+							avgDuration: null,
+						});
+						expect(
+							body.data.every(
+								(row: { timestamp: string }) =>
+									new Date(row.timestamp) <= new Date(),
+							),
+						).toBe(true);
+						if (
+							(paused || deactivated || delisted) &&
+							url.includes("/providers/")
+						) {
+							expect(
+								body.data.some(
+									(row: { timestamp: string }) =>
+										row.timestamp ===
+										new Date(BUCKET.getTime() + ONE_HOUR_MS).toISOString(),
+								),
+							).toBe(false);
+							if (idleOnly) {
+								expect(body.data).toHaveLength(1);
+							}
+						}
+						results.push(body);
+					}
+					return results;
+				};
+				const dense = await read();
+				await db
+					.delete(mh)
+					.where(and(eq(mh.modelId, MODEL_ID), eq(mh.logsCount, 0)));
+				await db
+					.delete(mph)
+					.where(and(eq(mph.modelId, MODEL_ID), eq(mph.logsCount, 0)));
+				expect(await read()).toEqual(dense);
+			} finally {
+				vi.useRealTimers();
+				await db.delete(tables.aggregationProgress);
+				await db
+					.delete(tables.modelHistoryHourly)
+					.where(eq(tables.modelHistoryHourly.modelId, MODEL_ID));
+				await db
+					.delete(tables.modelProviderMappingHistoryHourly)
+					.where(
+						eq(tables.modelProviderMappingHistoryHourly.modelId, MODEL_ID),
+					);
+			}
+		},
+	);
 });

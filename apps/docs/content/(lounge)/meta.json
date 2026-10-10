@@ -1,0 +1,14 @@
+{
+	"title": "Lounge",
+	"description": "The chat app for every model",
+	"icon": "Armchair",
+	"root": true,
+	"pages": [
+		"---Get started---",
+		"lounge",
+		"---Features---",
+		"...features",
+		"---Knowledge base---",
+		"...learn"
+	]
+}

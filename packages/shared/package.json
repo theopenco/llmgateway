@@ -3,6 +3,7 @@
 	"version": "0.0.0",
 	"private": true,
 	"license": "SEE LICENSE IN ../../LICENSE",
+	"sideEffects": false,
 	"type": "module",
 	"exports": {
 		"./account-block": {
@@ -19,6 +20,11 @@
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js",
 			"default": "./dist/index.js"
+		},
+		"./airside-billing": {
+			"types": "./dist/airside-billing.d.ts",
+			"import": "./dist/airside-billing.js",
+			"default": "./dist/airside-billing.js"
 		},
 		"./gcs": {
 			"types": "./dist/gcs.d.ts",
@@ -60,6 +66,11 @@
 			"import": "./dist/components/system-banner.js",
 			"default": "./dist/components/system-banner.js"
 		},
+		"./json-ld": {
+			"types": "./dist/components/json-ld.d.ts",
+			"import": "./dist/components/json-ld.js",
+			"default": "./dist/components/json-ld.js"
+		},
 		"./carrier-mark": {
 			"types": "./dist/components/carrier-mark.d.ts",
 			"import": "./dist/components/carrier-mark.js",
@@ -74,6 +85,11 @@
 			"types": "./dist/api-key-hash.d.ts",
 			"import": "./dist/api-key-hash.js",
 			"default": "./dist/api-key-hash.js"
+		},
+		"./email-unsubscribe": {
+			"types": "./dist/email-unsubscribe.d.ts",
+			"import": "./dist/email-unsubscribe.js",
+			"default": "./dist/email-unsubscribe.js"
 		},
 		"./mask-token": {
 			"types": "./dist/mask-token.d.ts",
@@ -114,6 +130,21 @@
 			"import": "./dist/routing-config.js",
 			"default": "./dist/routing-config.js"
 		},
+		"./routing-defaults": {
+			"types": "./dist/routing-defaults.d.ts",
+			"import": "./dist/routing-defaults.js",
+			"default": "./dist/routing-defaults.js"
+		},
+		"./smart-routing": {
+			"types": "./dist/smart-routing.d.ts",
+			"import": "./dist/smart-routing.js",
+			"default": "./dist/smart-routing.js"
+		},
+		"./smart-routing-policy": {
+			"types": "./dist/smart-routing-policy.d.ts",
+			"import": "./dist/smart-routing-policy.js",
+			"default": "./dist/smart-routing-policy.js"
+		},
 		"./dynamic-route": {
 			"types": "./dist/dynamic-route.d.ts",
 			"import": "./dist/dynamic-route.js",
@@ -133,6 +164,16 @@
 			"types": "./dist/url-safety-node.d.ts",
 			"import": "./dist/url-safety-node.js",
 			"default": "./dist/url-safety-node.js"
+		},
+		"./prompt-template": {
+			"types": "./dist/prompt-template.d.ts",
+			"import": "./dist/prompt-template.js",
+			"default": "./dist/prompt-template.js"
+		},
+		"./client-ip": {
+			"types": "./dist/client-ip.d.ts",
+			"import": "./dist/client-ip.js",
+			"default": "./dist/client-ip.js"
 		},
 		"./not-found": {
 			"types": "./dist/components/jelly/not-found-page.d.ts",
@@ -183,6 +224,21 @@
 			"types": "./dist/number-format.d.ts",
 			"import": "./dist/number-format.js",
 			"default": "./dist/number-format.js"
+		},
+		"./product-logos": {
+			"types": "./dist/components/product-logos.d.ts",
+			"import": "./dist/components/product-logos.js",
+			"default": "./dist/components/product-logos.js"
+		},
+		"./product-switcher": {
+			"types": "./dist/components/product-switcher.d.ts",
+			"import": "./dist/components/product-switcher.js",
+			"default": "./dist/components/product-switcher.js"
+		},
+		"./provider-cache-settings": {
+			"types": "./dist/provider-cache-settings.d.ts",
+			"import": "./dist/provider-cache-settings.js",
+			"default": "./dist/provider-cache-settings.js"
 		}
 	},
 	"module": "./dist/index.js",
@@ -225,9 +281,10 @@
 		"date-fns": "4.1.0",
 		"decimal.js": "10.5.0",
 		"embla-carousel-react": "8.6.0",
+		"ipaddr.js": "2.2.0",
 		"lucide-react": "0.561.0",
 		"motion": "12.23.24",
-		"next": "16.3.4",
+		"next": "16.4.0",
 		"next-themes": "^0.4.6",
 		"pretty-bytes": "7.1.0",
 		"prism-react-renderer": "2.4.1",
@@ -239,7 +296,7 @@
 		"sonner": "^2.0.7",
 		"tailwind-merge": "3.4.0",
 		"three": "0.185.1",
-		"undici": "8.9.0",
+		"undici": "8.11.2",
 		"zod": "3.25.76"
 	},
 	"devDependencies": {

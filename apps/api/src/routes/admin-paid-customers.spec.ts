@@ -68,7 +68,7 @@ describe("admin paid customers — transaction type matrix", () => {
 	const expectedPaidCustomers = paidTransactionTypes.length + 1;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 
 		await db.insert(tables.organization).values([
@@ -177,7 +177,7 @@ describe("admin paid customers — bounded range baseline", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 
 		await db.insert(tables.organization).values([
@@ -241,6 +241,26 @@ describe("admin paid customers — bounded range baseline", () => {
 		await deleteAll();
 	});
 
+	test("counts a payment at the UTC range boundary exactly once", async () => {
+		const start = new Date();
+		start.setUTCDate(start.getUTCDate() - 7);
+		start.setUTCHours(0, 0, 0, 0);
+		await db.insert(tables.transaction).values({
+			organizationId: "gift-org",
+			type: "credit_topup",
+			amount: "7",
+			creditAmount: "7",
+			status: "completed",
+			createdAt: start,
+		});
+		const body = await getTimeseries(cookie, "?range=7d");
+		expect(body.data[0].dailyPaidCustomers).toBe(1);
+		expect(body.data[0].dailyNet).toBe(7);
+		expect(body.data[0].net).toBe(27);
+		expect(body.totals.paidCustomers).toBe(3);
+		expect(body.totals.net).toBe(42);
+	});
+
 	test("range=7d keeps pre-range customers in the baseline, not in day one", async () => {
 		const body = await getTimeseries(cookie, "?range=7d");
 		const todayStr = new Date().toISOString().split("T")[0];
@@ -280,7 +300,7 @@ describe("admin timeseries — devpass revenue series", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 
 		await db.insert(tables.organization).values([

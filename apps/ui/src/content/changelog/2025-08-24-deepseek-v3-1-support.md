@@ -4,6 +4,7 @@ slug: "deepseek-v3-1-support"
 date: "2025-08-24"
 title: "DeepSeek v3.1 Model Support"
 summary: "Added support for DeepSeek's latest v3.1 model with 128K context window and competitive pricing for advanced reasoning capabilities."
+tags: ["llmgateway"]
 image:
   src: "/changelog/deepseek-v3-1-support.png"
   alt: "DeepSeek v3.1 model available in LLM Gateway with 128K context"

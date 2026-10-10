@@ -4,6 +4,7 @@ slug: "sessions-rebranded-to-agents"
 date: "2026-04-12"
 title: "Sessions Rebranded to Agents"
 summary: "Sessions are now Agents — monitor your AI coding agents, track costs per agent, and drill into individual sessions."
+tags: ["llmgateway"]
 image:
   src: "/changelog/agents-rebrand-dark.png"
   alt: "Agents page on LLM Gateway showing AI coding agent monitoring"

@@ -2,6 +2,8 @@ import { ImageResponse } from "next/og";
 
 import Logo, { LogoLockup } from "@/lib/icons/Logo";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 export const ogSize = {
 	width: 1200,
 	height: 630,
@@ -113,7 +115,7 @@ export function ogImage({ eyebrow, title, subtitle }: OgImageOptions) {
 				}}
 			>
 				<span style={{ color: "#ffffff", fontWeight: 600 }}>llmgateway.io</span>
-				<span>One API. Every model.</span>
+				<span>{`One API. ${MARKETING_STATS.models} models.`}</span>
 			</div>
 		</div>,
 		ogSize,

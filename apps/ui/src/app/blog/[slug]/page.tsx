@@ -7,6 +7,7 @@ import { notFound } from "next/navigation";
 import { ContentConversionRail } from "@/components/content-conversion-rail";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { serializeJsonLd } from "@/lib/json-ld";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 import { plainTextFromMarkdown } from "@/lib/utils/plain-text";
 
@@ -53,11 +54,13 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 		description: entry.summary ?? "LLM Gateway blog post",
 		datePublished: entry.date,
 		dateModified: entry.updatedAt ?? entry.date,
-		author: {
-			"@type": "Organization",
-			name: "LLM Gateway",
-			url: "https://llmgateway.io",
-		},
+		author: entry.author
+			? { "@type": "Person", ...entry.author }
+			: {
+					"@type": "Organization",
+					name: "LLM Gateway",
+					url: "https://llmgateway.io",
+				},
 		publisher: {
 			"@type": "Organization",
 			name: "LLM Gateway",
@@ -129,7 +132,7 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(articleSchema),
+					__html: serializeJsonLd(articleSchema),
 				}}
 			/>
 			<script
@@ -148,7 +151,7 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 					}}
 				/>
 			) : null}
-			<HeroRSC navbarOnly />
+			<HeroRSC />
 			<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white pt-30">
 				<main className="container mx-auto px-4 py-8">
 					<div className="max-w-4xl mx-auto">
@@ -170,6 +173,16 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 									{entry.summary && (
 										<p className="text-lg mb-2">{entry.summary}</p>
 									)}
+									<p className="text-sm">
+										By{" "}
+										{entry.author?.url ? (
+											<a href={entry.author.url} rel="author">
+												{entry.author.name}
+											</a>
+										) : (
+											(entry.author?.name ?? "LLM Gateway")
+										)}
+									</p>
 									<time dateTime={entry.date} className="text-sm italic">
 										{new Date(entry.date).toLocaleDateString("en-US", {
 											year: "numeric",
@@ -281,6 +294,9 @@ export async function generateMetadata({
 
 	return {
 		title: entry.title,
+		authors: entry.author
+			? [entry.author]
+			: [{ name: "LLM Gateway", url: "https://llmgateway.io" }],
 		description: entry.summary ?? "LLM Gateway blog post",
 		openGraph: {
 			title: entry.title,

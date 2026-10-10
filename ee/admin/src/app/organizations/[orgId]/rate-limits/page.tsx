@@ -17,11 +17,11 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import {
-	createOrganizationRateLimit,
-	deleteOrganizationRateLimit,
 	getOrganizationRateLimits,
 	getRateLimitOptions,
 } from "@/lib/admin-rate-limits";
+import { canWrite } from "@/lib/admin-role";
+import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { createServerApiClient } from "@/lib/server-api";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -69,6 +69,7 @@ export default async function OrganizationRateLimitsPage({
 }) {
 	const { orgId } = await params;
 
+	const isAdmin = canWrite(await getSessionAdminRole());
 	const $api = await createServerApiClient();
 	const [rateLimitsData, options, metricsRes, limitHitsRes] = await Promise.all(
 		[
@@ -96,52 +97,6 @@ export default async function OrganizationRateLimitsPage({
 	const rateLimits = rateLimitsData?.rateLimits ?? [];
 	const org = metrics.organization;
 
-	// Server action to create rate limit
-	async function handleCreateRateLimit(data: {
-		provider: string | null;
-		model: string | null;
-		limitType: "rpm" | "rpd";
-		maxRequests: number;
-		reason: string | null;
-	}): Promise<{ success: boolean; error?: string }> {
-		"use server";
-
-		try {
-			const result = await createOrganizationRateLimit(orgId, {
-				provider: data.provider,
-				model: data.model,
-				limitType: data.limitType,
-				maxRequests: data.maxRequests,
-				reason: data.reason,
-			});
-
-			if (!result) {
-				return {
-					success: false,
-					error: "Failed to create rate limit. It may already exist.",
-				};
-			}
-
-			return { success: true };
-		} catch (error) {
-			console.error("Error creating rate limit:", error);
-			return {
-				success: false,
-				error: "An error occurred while creating the rate limit",
-			};
-		}
-	}
-
-	// Server action to delete rate limit
-	async function handleDeleteRateLimit(
-		rateLimitId: string,
-	): Promise<{ success: boolean }> {
-		"use server";
-
-		const success = await deleteOrganizationRateLimit(orgId, rateLimitId);
-		return { success };
-	}
-
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<div className="flex items-center gap-2">
@@ -167,11 +122,11 @@ export default async function OrganizationRateLimitsPage({
 						</div>
 					</div>
 				</div>
-				{options && (
+				{isAdmin && options && (
 					<RateLimitForm
 						providers={options.providers}
 						mappings={options.mappings}
-						onSubmit={handleCreateRateLimit}
+						orgId={orgId}
 					/>
 				)}
 			</header>
@@ -183,24 +138,27 @@ export default async function OrganizationRateLimitsPage({
 							<TableHead>Provider</TableHead>
 							<TableHead>Model</TableHead>
 							<TableHead>Limit</TableHead>
+							<TableHead>Mode</TableHead>
 							<TableHead>Reason</TableHead>
 							<TableHead>Created</TableHead>
-							<TableHead className="w-[50px]" />
+							{isAdmin ? <TableHead className="w-[130px]" /> : null}
 						</TableRow>
 					</TableHeader>
 					<TableBody>
 						{rateLimits.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={6}
+									colSpan={isAdmin ? 7 : 6}
 									className="h-24 text-center text-muted-foreground"
 								>
 									<div className="flex flex-col items-center gap-2">
 										<Tag className="h-8 w-8 text-muted-foreground/50" />
 										<p>No rate limits configured for this organization</p>
-										<p className="text-xs">
-											Add an RPM or RPD cap for this organization
-										</p>
+										{isAdmin ? (
+											<p className="text-xs">
+												Add an RPM or RPD cap for this organization
+											</p>
+										) : null}
 									</div>
 								</TableCell>
 							</TableRow>
@@ -227,18 +185,39 @@ export default async function OrganizationRateLimitsPage({
 											{rateLimit.limitType.toUpperCase()}
 										</span>
 									</TableCell>
+									<TableCell>
+										{rateLimit.mode !== "strict" ? (
+											<Badge variant="secondary">
+												{rateLimit.mode === "lax" ? "Lax" : "Soft"}
+											</Badge>
+										) : (
+											<Badge variant="outline">Strict</Badge>
+										)}
+									</TableCell>
 									<TableCell className="max-w-[200px] truncate text-muted-foreground">
 										{rateLimit.reason ?? "\u2014"}
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{formatDate(rateLimit.createdAt)}
 									</TableCell>
-									<TableCell>
-										<DeleteRateLimitButton
-											rateLimitId={rateLimit.id}
-											onDelete={handleDeleteRateLimit}
-										/>
-									</TableCell>
+									{isAdmin ? (
+										<TableCell>
+											<div className="flex items-center gap-1">
+												{options && (
+													<RateLimitForm
+														providers={options.providers}
+														mappings={options.mappings}
+														orgId={orgId}
+														rateLimit={rateLimit}
+													/>
+												)}
+												<DeleteRateLimitButton
+													rateLimitId={rateLimit.id}
+													orgId={orgId}
+												/>
+											</div>
+										</TableCell>
+									) : null}
 								</TableRow>
 							))
 						)}
@@ -326,6 +305,10 @@ export default async function OrganizationRateLimitsPage({
 					<li>
 						Rate limits cap the maximum requests per minute (RPM) or per day
 						(RPD) for matching providers and models
+					</li>
+					<li>
+						<strong>Lax</strong> limits also allow explicit provider requests
+						past the cap; automatic routing and fallback respect it
 					</li>
 					<li>
 						When a rate limit is hit, the gateway falls back to other providers

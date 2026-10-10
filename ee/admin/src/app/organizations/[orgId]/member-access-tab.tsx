@@ -1,5 +1,6 @@
 import { FolderOpen, Layers3, Shield, Users } from "lucide-react";
 
+import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import {
 	Table,
@@ -211,9 +212,16 @@ export function MemberAccessTab({
 											</Badge>
 										</TableCell>
 										<TableCell>
-											<Badge variant={roleBadgeVariant(member.role)}>
-												{member.role}
-											</Badge>
+											<div className="space-y-1">
+												<Badge variant={roleBadgeVariant(member.role)}>
+													{member.role}
+												</Badge>
+												{member.roleAssignmentSource === "sso" ? (
+													<p className="text-xs text-muted-foreground">
+														Assigned via SSO
+													</p>
+												) : null}
+											</div>
 										</TableCell>
 										<TableCell>
 											{member.team ? (
@@ -244,12 +252,14 @@ export function MemberAccessTab({
 											{formatDate(member.createdAt)}
 										</TableCell>
 										<TableCell>
-											<SendEmailDialog
-												userName={member.user.name ?? ""}
-												userEmail={member.user.email}
-												orgName={organizationName}
-												plan={plan}
-											/>
+											<AdminOnly>
+												<SendEmailDialog
+													userName={member.user.name ?? ""}
+													userEmail={member.user.email}
+													orgName={organizationName}
+													plan={plan}
+												/>
+											</AdminOnly>
 										</TableCell>
 									</TableRow>
 								))

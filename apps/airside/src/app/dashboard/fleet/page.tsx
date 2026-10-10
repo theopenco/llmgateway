@@ -5,8 +5,12 @@ import {
 	Download,
 	KeyRound,
 	Loader2,
+	Palette,
+	Pause,
 	Pencil,
+	Play,
 	Plus,
+	RotateCcw,
 	ShieldCheck,
 	Stamp,
 	TriangleAlert,
@@ -17,6 +21,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { brandHref } from "@/components/dashboard/CarrierProfileReminder";
 import { useCompany } from "@/components/dashboard/company-context";
 import {
 	EditModelDialog,
@@ -49,6 +54,14 @@ const STATUS_META: Record<
 	draft: { label: "Filed", variant: "pending" },
 	rejected: { label: "Rejected", variant: "destructive" },
 	delisted: { label: "Delisted", variant: "secondary" },
+};
+
+const DELIST_REASON_LABEL: Record<
+	NonNullable<AirsideModel["delistReason"]>,
+	string
+> = {
+	removed: "Delisted by your crew",
+	claim_revoked: "Delisted · claim revoked",
 };
 
 type RegionPrice = NonNullable<
@@ -137,6 +150,67 @@ function RegionFareChip({
 	);
 }
 
+function PauseModelButton({ model }: { model: AirsideModel }) {
+	const api = useApi();
+	const queryClient = useQueryClient();
+	const paused = !!model.pausedAt;
+
+	const options = {
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/airside/models", {
+					params: {
+						query: { providerCompanyId: model.providerCompanyId },
+					},
+				}).queryKey,
+			});
+			toast.success(
+				paused
+					? `${model.modelName} is back in service.`
+					: `${model.modelName} paused — it receives no traffic until resumed.`,
+			);
+		},
+		onError: (error: unknown) => {
+			toast.error(
+				(error as { message?: string })?.message ??
+					(paused ? "Failed to resume model" : "Failed to pause model"),
+			);
+		},
+	};
+	const pause = api.useMutation("post", "/airside/models/{id}/pause", options);
+	const resume = api.useMutation(
+		"post",
+		"/airside/models/{id}/resume",
+		options,
+	);
+
+	if (model.status !== "active") {
+		return null;
+	}
+
+	const mutation = paused ? resume : pause;
+
+	return (
+		<Button
+			size="sm"
+			variant="outline"
+			disabled={mutation.isPending}
+			data-testid={`${paused ? "resume" : "pause"}-${model.modelName}`}
+			onClick={() => mutation.mutate({ params: { path: { id: model.id } } })}
+		>
+			{paused ? (
+				<>
+					<Play className="size-3.5" /> Resume
+				</>
+			) : (
+				<>
+					<Pause className="size-3.5" /> Pause
+				</>
+			)}
+		</Button>
+	);
+}
+
 function DeleteModelButton({ model }: { model: AirsideModel }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -202,6 +276,43 @@ function DeleteModelButton({ model }: { model: AirsideModel }) {
 	);
 }
 
+function RelistModelButton({ model }: { model: AirsideModel }) {
+	const api = useApi();
+	const queryClient = useQueryClient();
+
+	const relist = api.useMutation("post", "/airside/models/{id}/relist", {
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/airside/models", {
+					params: {
+						query: { providerCompanyId: model.providerCompanyId },
+					},
+				}).queryKey,
+			});
+			toast.success(
+				`${model.modelName} is back in service at its last approved fare.`,
+			);
+		},
+		onError: (error) => {
+			toast.error(
+				(error as { message?: string })?.message ?? "Failed to relist model",
+			);
+		},
+	});
+
+	return (
+		<Button
+			size="sm"
+			variant="outline"
+			disabled={relist.isPending}
+			data-testid={`relist-${model.modelName}`}
+			onClick={() => relist.mutate({ params: { path: { id: model.id } } })}
+		>
+			<RotateCcw className="size-3.5" /> Relist
+		</Button>
+	);
+}
+
 export default function FleetPage() {
 	const api = useApi();
 	const { company, isLoading: companyLoading } = useCompany();
@@ -263,6 +374,11 @@ export default function FleetPage() {
 	}
 
 	const models = modelsQuery.data?.models ?? [];
+	const liveListings = new Set(
+		models
+			.filter((model) => model.status !== "delisted")
+			.map((model) => `${model.providerId}/${model.modelName}`),
+	);
 	const providerIds = company.claims
 		.filter((claim) => claim.status === "active")
 		.map((claim) => claim.providerId);
@@ -281,6 +397,9 @@ export default function FleetPage() {
 	);
 	// An approved carrier we hold no key for cannot serve a request, however
 	// healthy its listings look.
+	const brandClaim = company.claims.find(
+		(claim) => claim.status === "active" || claim.status === "pending",
+	);
 	const uncredentialedCarriers = company.claims.filter(
 		(claim) => claim.status === "active" && !claim.hasManagedCredential,
 	);
@@ -296,7 +415,18 @@ export default function FleetPage() {
 						Your aircraft
 					</h1>
 				</div>
-				<div className="flex items-center gap-2">
+				<div className="flex flex-wrap items-center gap-2">
+					{brandClaim ? (
+						<Button asChild variant="outline" className="font-semibold">
+							<Link
+								href={brandHref(brandClaim.providerId)}
+								data-testid="fleet-edit-branding"
+							>
+								<Palette className="size-4" aria-hidden />
+								Edit branding
+							</Link>
+						</Button>
+					) : null}
 					{catalogueProviderIds.length > 0 ? (
 						<Button
 							variant="outline"
@@ -406,12 +536,23 @@ export default function FleetPage() {
 			) : (
 				<ul className="space-y-3">
 					{models.map((model) => {
-						const status = STATUS_META[model.status];
+						const paused = model.status === "active" && !!model.pausedAt;
+						const delisted = model.status === "delisted";
+						// Relisting needs an active claim on the provider and a free
+						// model id; otherwise the row stays as history.
+						const relistable =
+							delisted &&
+							providerIds.includes(model.providerId) &&
+							!liveListings.has(`${model.providerId}/${model.modelName}`);
+						const status = paused
+							? { label: "Paused", variant: "secondary" as const }
+							: STATUS_META[model.status];
 						// A live listing whose last preflight failed still serves
 						// traffic, so the badge says so rather than claiming a clean
 						// bill of health it no longer has.
 						const unverified =
 							model.status === "active" &&
+							!paused &&
 							model.latestVerification?.status === "failed";
 						return (
 							<li
@@ -420,30 +561,55 @@ export default function FleetPage() {
 								className={cn(
 									"border-border bg-card rounded-lg border border-l-4 p-4",
 									model.status === "active" &&
-										(unverified ? "border-l-primary" : "border-l-signal"),
+										(paused
+											? "border-l-muted-foreground"
+											: unverified
+												? "border-l-primary"
+												: "border-l-signal"),
 									model.status === "draft" && "border-l-primary",
 									model.status === "rejected" && "border-l-destructive",
-									model.status === "delisted" && "border-l-muted opacity-60",
+									delisted && "border-l-muted",
 								)}
 							>
 								<div className="flex flex-wrap items-center justify-between gap-3">
-									<div className="min-w-0">
+									<div className={cn("min-w-0", delisted && "opacity-60")}>
 										<div className="flex flex-wrap items-center gap-2">
 											<span className="font-mono font-bold tracking-wide">
 												{model.modelName}
 											</span>
 											<Badge
 												variant={unverified ? "pending" : status.variant}
+												data-testid={`status-${model.modelName}`}
 												title={
 													unverified
 														? (model.latestVerification?.summary ??
 															"The last preflight failed.")
-														: undefined
+														: paused
+															? "This listing receives no traffic until you resume it. Imported catalogue models fall back to the built-in catalogue entry meanwhile."
+															: delisted
+																? relistable
+																	? "Out of service. Verify it, then relist it to route traffic again at its last approved fare."
+																	: providerIds.includes(model.providerId)
+																		? "Out of service. Another listing now uses this model id."
+																		: "Out of service. It can be relisted once your claim on this provider is active again."
+																: undefined
 												}
 											>
 												{unverified
 													? `${status.label} · unverified`
-													: status.label}
+													: delisted && model.delistReason
+														? DELIST_REASON_LABEL[model.delistReason]
+														: status.label}
+												{delisted && model.delistedAt ? (
+													<>
+														{" "}
+														·{" "}
+														<RelativeDate
+															date={model.delistedAt}
+															className="font-normal"
+														/>
+													</>
+												) : null}
 											</Badge>
 											{model.pendingFiling ? (
 												<Badge variant="pending">
@@ -460,7 +626,7 @@ export default function FleetPage() {
 													/>
 												</Badge>
 											) : null}
-											{model.latestVerification ? (
+											{model.latestVerification && !delisted ? (
 												<Badge
 													variant={
 														model.latestVerification.status === "passed"
@@ -515,11 +681,24 @@ export default function FleetPage() {
 											<span>
 												Registered <RelativeDate date={model.createdAt} />
 											</span>
+											{model.status === "active" ? (
+												<Link
+													href={`/dashboard/incidents?mapping=${encodeURIComponent(`${model.providerId}/${model.modelName}`)}`}
+													className="text-primary hover:underline"
+												>
+													Incidents →
+												</Link>
+											) : null}
 										</div>
 									</div>
 
 									<div className="flex items-center gap-4">
-										<div className="text-right font-mono text-sm">
+										<div
+											className={cn(
+												"text-right font-mono text-sm",
+												delisted && "opacity-60",
+											)}
+										>
 											<div>
 												{formatPerMillion(model.currentPricing?.inputPrice)}{" "}
 												<span className="text-muted-foreground text-xs">
@@ -545,7 +724,7 @@ export default function FleetPage() {
 											) : null}
 										</div>
 										<div className="flex items-center gap-1">
-											{model.status !== "delisted" ? (
+											{relistable ? (
 												<>
 													<VerifyModelDialog model={model}>
 														<Button
@@ -556,6 +735,21 @@ export default function FleetPage() {
 															<ShieldCheck className="size-3.5" /> Verify
 														</Button>
 													</VerifyModelDialog>
+													<RelistModelButton model={model} />
+												</>
+											) : null}
+											{!delisted ? (
+												<>
+													<VerifyModelDialog model={model}>
+														<Button
+															size="sm"
+															variant="outline"
+															data-testid={`verify-${model.modelName}`}
+														>
+															<ShieldCheck className="size-3.5" /> Verify
+														</Button>
+													</VerifyModelDialog>
+													<PauseModelButton model={model} />
 													<FileFareDialog model={model}>
 														<Button
 															size="sm"

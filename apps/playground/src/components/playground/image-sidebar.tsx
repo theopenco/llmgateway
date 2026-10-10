@@ -11,7 +11,7 @@ import {
 	Trash2,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
@@ -19,6 +19,7 @@ import { List, type RowComponentProps } from "react-window";
 import { CreditsDisplay } from "@/components/credits/credits-display";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { SidebarLoungePoints } from "@/components/lounge/sidebar-points";
+import { ProductSwitcher } from "@/components/product-switcher";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,7 +41,7 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
-import { Wordmark } from "@/components/ui/wordmark";
+import { useGalleryImage } from "@/hooks/useGalleryImage";
 import { useOrganization } from "@/hooks/useOrganization";
 import {
 	useDeleteImageHistory,
@@ -49,7 +50,6 @@ import {
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
-import { withOrgParam } from "@/lib/utils";
 
 import { HistorySkeleton } from "./history-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
@@ -169,6 +169,26 @@ function EditImagePromptInput({
 	);
 }
 
+// Saved rows load the API's downscaled thumbnail; an in-flight generation
+// reuses the preview already decoded for the gallery.
+function RowThumbnail({ item }: { item: GalleryItem }) {
+	const resolved = useGalleryImage(
+		item.thumbnailUrl ? undefined : item.models[0]?.images[0],
+	);
+	const src = item.thumbnailUrl ?? resolved?.previewUrl;
+	if (!src) {
+		return null;
+	}
+	return (
+		<img
+			src={src}
+			alt="Generated image thumbnail"
+			loading="lazy"
+			className="h-8 w-8 shrink-0 rounded border object-cover mt-0.5"
+		/>
+	);
+}
+
 function ImageHistoryRowComponent({
 	ariaAttributes,
 	index,
@@ -210,12 +230,6 @@ function ImageHistoryRowComponent({
 	const isEditing = editingId === item.id;
 	const isActive = currentItemId === item.id;
 	const isSaved = item.models.every((m) => !m.isLoading);
-	const firstImage = item.models[0]?.images[0];
-	const thumbnailSrc =
-		item.thumbnailUrl ??
-		(firstImage
-			? `data:${firstImage.mediaType};base64,${firstImage.base64}`
-			: null);
 
 	return (
 		<div {...ariaAttributes} style={style}>
@@ -242,14 +256,7 @@ function ImageHistoryRowComponent({
 							type="button"
 						>
 							<div className="flex items-start gap-2 min-w-0 w-full">
-								{thumbnailSrc && (
-									<img
-										src={thumbnailSrc}
-										alt="Generated image thumbnail"
-										loading="lazy"
-										className="h-8 w-8 shrink-0 rounded border object-cover mt-0.5"
-									/>
-								)}
+								<RowThumbnail item={item} />
 								<div className="flex-1 min-w-0">
 									<div className="truncate text-sm font-medium mb-0.5">
 										{item.prompt}
@@ -358,11 +365,6 @@ export function ImageSidebar({
 		null;
 	const listContainerRef = useRef<HTMLDivElement | null>(null);
 	const router = useRouter();
-	const searchParams = useSearchParams();
-	// Preserve the selected organization across playground navigation so users
-	// don't have to re-pick their org on every page.
-	const orgIdParam = searchParams.get("orgId");
-	const withOrg = (path: string) => withOrgParam(path, orgIdParam);
 	const posthog = usePostHog();
 	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
@@ -516,14 +518,10 @@ export function ImageSidebar({
 			<Sidebar className={className}>
 				<SidebarHeader>
 					<div className="flex flex-col items-center gap-4 mb-4">
-						<Link
-							href="/"
-							className="flex self-start items-center gap-2 my-2"
-							prefetch={true}
-						>
-							<Wordmark />
+						<div className="flex w-full items-center gap-2">
+							<ProductSwitcher />
 							<Badge>Image</Badge>
-						</Link>
+						</div>
 					</div>
 					<StudioNav />
 				</SidebarHeader>
@@ -536,14 +534,10 @@ export function ImageSidebar({
 			<Sidebar className={className}>
 				<SidebarHeader>
 					<div className="flex flex-col items-center gap-4 mb-4">
-						<Link
-							href="/"
-							className="flex self-start items-center gap-2 my-2"
-							prefetch={true}
-						>
-							<Wordmark />
+						<div className="flex w-full items-center gap-2">
+							<ProductSwitcher />
 							<Badge>Image</Badge>
-						</Link>
+						</div>
 						<div className="w-full rounded-md border p-4 text-sm">
 							<div className="font-medium mb-2">Sign in required</div>
 							<p className="text-muted-foreground mb-3">
@@ -573,11 +567,7 @@ export function ImageSidebar({
 			<SidebarHeader>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton size="lg" asChild tooltip="Lounge">
-							<Link href={withOrg("/")} prefetch={true}>
-								<Wordmark size="sm" iconBox />
-							</Link>
-						</SidebarMenuButton>
+						<ProductSwitcher />
 					</SidebarMenuItem>
 					<SidebarChatSearch disabled />
 					<SidebarNewAction label="New Generation" onAction={onNewChat} />

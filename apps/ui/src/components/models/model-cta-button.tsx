@@ -1,11 +1,18 @@
 "use client";
 
-import { ArrowRight, Play } from "lucide-react";
+import { ArrowRight, BookOpen, Play } from "lucide-react";
 
 import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import { useAppConfig } from "@/lib/config";
 import { getLoungeStudioPath } from "@/lib/model-utils";
+
+// Endpoint-only models have no Lounge studio, so logged-in users get their docs.
+const ENDPOINT_DOCS_PATHS: Record<string, string> = {
+	rerank: "/features/rerank",
+	decision: "/features/system-one",
+	search: "/features/search",
+};
 
 export function ModelCtaButton({
 	modelId,
@@ -27,9 +34,28 @@ export function ModelCtaButton({
 	const { user, isLoading } = useUser({ enabled: isAuthenticated });
 	const isLoggedIn = !!user && !isLoading;
 
-	// Rerank models have no playground studio — logged-in users see the
-	// "Get Started" CTA too (no chat playground to link to).
-	if (isLoggedIn && !output?.includes("rerank")) {
+	const docsPath = output
+		?.map((kind) => ENDPOINT_DOCS_PATHS[kind])
+		.find((path) => path !== undefined);
+
+	if (isLoggedIn && docsPath) {
+		return (
+			<Button
+				variant="default"
+				size={size}
+				className={className}
+				onClick={onClick}
+				asChild
+			>
+				<a href={`${config.docsUrl}${docsPath}`}>
+					<BookOpen className={iconClassName} />
+					View API docs
+				</a>
+			</Button>
+		);
+	}
+
+	if (isLoggedIn) {
 		const studioPath = getLoungeStudioPath(output);
 		return (
 			<Button

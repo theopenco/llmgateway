@@ -1,27 +1,17 @@
 import { Zap, Shield, Globe } from "lucide-react";
 
 import { TweetCard } from "@/lib/components/tweet-card";
+import { TESTIMONIAL_TWEET_IDS } from "@/lib/testimonials";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
 import { randomItem } from "@llmgateway/shared/random";
-
-const TWEET_IDS = [
-	"2082200259560702374",
-	"1970126770205757516",
-	"1967955025315106997",
-	"1952967806871605594",
-	"1958630967700079065",
-	"1963180228991164808",
-	"1969173545419767811",
-	"1951594045824024934",
-	"1958469139632464022",
-];
 
 export async function AuthBrandPanel({
 	variant,
 }: {
 	variant: "login" | "signup";
 }) {
-	const tweetId = randomItem(TWEET_IDS)!;
+	const tweetId = randomItem(TESTIMONIAL_TWEET_IDS)!;
 
 	return (
 		<div className="relative hidden w-1/2 overflow-hidden bg-gradient-to-br from-zinc-100 via-zinc-50 to-zinc-100 dark:from-zinc-900 dark:via-zinc-800 dark:to-zinc-900 lg:flex lg:flex-col lg:justify-between">
@@ -48,7 +38,7 @@ export async function AuthBrandPanel({
 							<p className="font-display text-4xl font-bold leading-tight tracking-tight text-zinc-900 dark:text-white xl:text-5xl">
 								One API for
 								<br />
-								every LLM.
+								{MARKETING_STATS.models} models.
 							</p>
 							<p className="mt-4 max-w-md text-lg text-zinc-500 dark:text-zinc-400">
 								Route requests across providers, cut costs with smart caching,
@@ -61,8 +51,7 @@ export async function AuthBrandPanel({
 								Welcome back.
 							</p>
 							<p className="mt-4 max-w-md text-lg text-zinc-500 dark:text-zinc-400">
-								Pick up where you left off. Your AI infrastructure is running
-								smoothly.
+								Pick up where you left off.
 							</p>
 						</>
 					)}
@@ -73,21 +62,21 @@ export async function AuthBrandPanel({
 						<div className="rounded-lg border border-zinc-200 bg-white/50 dark:border-zinc-700/50 dark:bg-zinc-800/50 p-4">
 							<Zap className="mb-2 h-5 w-5 text-primary" />
 							<p className="text-2xl font-bold tabular-nums text-zinc-900 dark:text-white">
-								100B+
+								{MARKETING_STATS.tokensRouted}
 							</p>
 							<p className="text-xs text-zinc-500">Tokens routed</p>
 						</div>
 						<div className="rounded-lg border border-zinc-200 bg-white/50 dark:border-zinc-700/50 dark:bg-zinc-800/50 p-4">
 							<Shield className="mb-2 h-5 w-5 text-primary" />
 							<p className="text-2xl font-bold tabular-nums text-zinc-900 dark:text-white">
-								99.9%
+								{MARKETING_STATS.models}
 							</p>
-							<p className="text-xs text-zinc-500">Uptime SLA</p>
+							<p className="text-xs text-zinc-500">Models</p>
 						</div>
 						<div className="rounded-lg border border-zinc-200 bg-white/50 dark:border-zinc-700/50 dark:bg-zinc-800/50 p-4">
 							<Globe className="mb-2 h-5 w-5 text-primary" />
 							<p className="text-2xl font-bold tabular-nums text-zinc-900 dark:text-white">
-								40+
+								{MARKETING_STATS.providers}
 							</p>
 							<p className="text-xs text-zinc-500">LLM providers</p>
 						</div>

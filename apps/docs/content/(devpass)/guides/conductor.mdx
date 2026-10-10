@@ -1,0 +1,73 @@
+---
+title: Conductor Integration
+description: Connect Conductor's built-in OpenCode agent to LLM Gateway, choose a model, and verify your first request.
+icon: SquareTerminal
+---
+
+[Conductor](https://www.conductor.build) runs coding agents in separate workspaces. Its bundled OpenCode agent includes an LLM Gateway provider, so you can connect from Settings without installing a separate CLI or entering a base URL.
+
+Verified with Conductor **0.87.4**.
+
+## Prerequisites
+
+- Install Conductor from the&nbsp;[official site](https://www.conductor.build).
+- Create an&nbsp;[LLM Gateway API key](/learn/api-keys), or use a&nbsp;[DevPass](/devpass) plan key.
+- Open a repository and workspace in Conductor.
+
+## Connect LLM Gateway
+
+1. Open **Settings → Agents → OpenCode**. Some versions label **Agents** as **Harnesses**.
+2. Under **Providers**, click **Configure**.
+
+![Conductor's OpenCode settings with separate provider and model configuration buttons](/images/guides/conductor/settings.png)
+
+3. If LLM Gateway is missing, click **View all providers**, then search for **LLM Gateway**.
+
+![Conductor's provider picker with LLM Gateway and the View all providers button](/images/guides/conductor/providers.png)
+
+4. Expand **LLM Gateway**, paste your API key into **LLMGATEWAY_API_KEY**, and click **Save**. A checkmark indicates that a key is configured.
+
+![LLM Gateway's API key field and Save button in Conductor](/images/guides/conductor/api-key.png)
+
+The built-in provider supplies the gateway endpoint. Use your pay-as-you-go key for usage-based billing or your DevPass key for your coding plan.
+
+## Choose a model
+
+1. Close the provider dialog and click **Configure** under **Models**.
+2. Search for a model and check its entry under **llmgateway**. Choose a model with tool calling from the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools).
+
+![A model enabled under llmgateway in Conductor's model configuration](/images/guides/conductor/models.png)
+
+For DevPass, choose a model included in your plan under **llmgateway**. The **llmgateway-providers** entries pin an upstream provider and are not supported on coding plans. The model shown in the screenshot is an example; availability changes with the catalogue and your account.
+
+3. Open **Settings → Default models** and add your model from the **OpenCode** column to your **Loadout**. To change an existing slot, open its menu, choose **Agent → OpenCode**, then select your model under **Model**.
+
+![An OpenCode loadout slot with its model selection menu](/images/guides/conductor/loadout.png)
+
+4. Return to your workspace, open a new chat, and choose that model from the agent picker below the message box. The picker's **Edit** button takes you back to **Default models**.
+
+## Verify the connection
+
+Send a small prompt first:
+
+```text
+Reply with exactly: Hello from LLM Gateway! Do not use tools or read or change any files.
+```
+
+![A successful response from OpenCode through LLM Gateway in Conductor](/images/guides/conductor/chat.png)
+
+In your&nbsp;[LLM Gateway dashboard](https://llmgateway.io/dashboard), select the project that issued the key and open **Activity** from the sidebar to inspect the request. DevPass users can review usage under&nbsp;[Coding Agents](/learn/coding-agents); Conductor runs these requests through OpenCode.
+
+Once connected, ask the agent to make a small change and run the relevant tests. Review the tool output and workspace diff before keeping the change.
+
+## Troubleshooting
+
+**LLM Gateway is missing:** click **View all providers** and search again. If it still does not appear, update Conductor.
+
+**The model is missing from the chat picker:** enable it under **Agents → OpenCode → Models**, then add it to **Default models → Loadout**.
+
+**Authentication fails:** check that the provider key was saved and is active in the matching dashboard.
+
+**Requests use another provider:** select the model under **llmgateway**, then confirm that the chat is using your OpenCode loadout entry.
+
+For executable overrides and other provider configuration options, see Conductor's&nbsp;[OpenCode documentation](https://www.conductor.build/docs/reference/harnesses/opencode).

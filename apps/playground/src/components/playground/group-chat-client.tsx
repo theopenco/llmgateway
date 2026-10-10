@@ -13,6 +13,7 @@ import { GroupChatUI } from "@/components/playground/group-chat-ui";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
+import { useFetchClient } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 
@@ -48,6 +49,7 @@ export default function GroupChatClient({
 }: GroupChatClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const posthog = usePostHog();
+	const fetchClient = useFetchClient();
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
@@ -68,7 +70,7 @@ export default function GroupChatClient({
 		() => mapModels(chatModels, providers),
 		[chatModels, providers],
 	);
-	const [availableModels] = useState<ComboboxModel[]>(mapped);
+	const availableModels: ComboboxModel[] = mapped;
 
 	const [selectedModels, setSelectedModels] = useState<string[]>([]);
 	const [messages, setMessages] = useState<GroupMessage[]>([]);
@@ -76,17 +78,11 @@ export default function GroupChatClient({
 	const [error, setError] = useState<string | null>(null);
 	const [currentChatId] = useState<string | null>(null);
 	const [initialPrompt, setInitialPrompt] = useState("");
-	const maxTurns = 5; // Limit conversation length
+	const turnsPerRound = 5;
 	const turnCounterRef = useRef(0);
 	const tempMessageIdRef = useRef<string | null>(null);
 	const lastAssistantTextRef = useRef<string>("");
 	const stoppedRef = useRef<boolean>(false);
-	const messagesRef = useRef<GroupMessage[]>([]);
-	const advanceScheduledRef = useRef<boolean>(false);
-
-	useEffect(() => {
-		messagesRef.current = messages;
-	}, [messages]);
 
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
@@ -95,39 +91,6 @@ export default function GroupChatClient({
 		const search = searchParams.toString();
 		return search ? `${pathname}?${search}` : pathname;
 	}, [pathname, searchParams]);
-
-	const ensuredProjectRef = useRef<string | null>(null);
-
-	// Ensure playground key exists
-	useEffect(() => {
-		if (!isAuthenticated || !selectedProject) {
-			ensuredProjectRef.current = null;
-			return;
-		}
-
-		const ensureKey = async () => {
-			if (!selectedOrganization) {
-				return;
-			}
-			const projectId = selectedProject.id;
-			if (ensuredProjectRef.current === projectId) {
-				return;
-			}
-			try {
-				const response = await fetch("/api/ensure-playground-key", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId }),
-				});
-				if (response.ok && selectedProject.id === projectId) {
-					ensuredProjectRef.current = projectId;
-				}
-			} catch {
-				// ignore for now
-			}
-		};
-		void ensureKey();
-	}, [isAuthenticated, selectedOrganization, selectedProject]);
 
 	const addModel = (modelId: string) => {
 		if (selectedModels.length < 5 && !selectedModels.includes(modelId)) {
@@ -139,23 +102,6 @@ export default function GroupChatClient({
 		setSelectedModels(selectedModels.filter((m) => m !== modelId));
 	};
 
-	// Helper to safely schedule advancing to the next turn exactly once
-	const scheduleNextTurn = () => {
-		if (advanceScheduledRef.current) {
-			return;
-		}
-		advanceScheduledRef.current = true;
-		const nextTurn = turnCounterRef.current + 1;
-		turnCounterRef.current = nextTurn;
-		if (!stoppedRef.current && nextTurn < maxTurns) {
-			setTimeout(() => {
-				void continueConversation(messagesRef.current, nextTurn);
-			}, 60);
-		} else {
-			setIsStreaming(false);
-		}
-	};
-
 	// AI SDK chat hook (we'll drive turns manually and map streaming into our UI)
 	const {
 		messages: aiMessages,
@@ -164,189 +110,157 @@ export default function GroupChatClient({
 		stop,
 	} = useChat({
 		onError: (e) => {
-			// Record error text on the current temp assistant message (if any)
 			setError(e.message);
-			if (tempMessageIdRef.current) {
-				setMessages((prev) =>
-					prev.map((msg) =>
-						msg.id === tempMessageIdRef.current
-							? { ...msg, content: msg.content || `Error: ${e.message}` }
-							: msg,
-					),
-				);
-				// Try to use whatever partial text is present for possible next turn
-				const partial = messagesRef.current.find(
-					(m) => m.id === tempMessageIdRef.current,
-				)?.content;
-				if (partial && typeof partial === "string") {
-					lastAssistantTextRef.current = partial;
-				}
-			}
-
-			scheduleNextTurn();
+			stoppedRef.current = true;
 		},
 		onFinish: ({ message }) => {
 			// Capture final assistant text for chaining to next turn
 			const textContent = message.parts
-				.filter((p: any) => p.type === "text")
-				.map((p: any) => p.text)
+				.filter((p) => p.type === "text")
+				.map((p) => p.text)
 				.join("");
 			lastAssistantTextRef.current = textContent;
+			const finishedMessageId = tempMessageIdRef.current;
+			setMessages((prev) =>
+				prev.map((entry) =>
+					entry.id === finishedMessageId
+						? { ...entry, content: textContent }
+						: entry,
+				),
+			);
 		},
 	});
 
 	// Reflect AI SDK streaming into the temporary assistant message for current turn
 	useEffect(() => {
-		if (!tempMessageIdRef.current) {
+		const messageId = tempMessageIdRef.current;
+		const turn = aiMessages.findLast((message) => message.role === "user");
+		if (!messageId || turn?.id !== messageId) {
 			return;
 		}
 		// Find latest assistant message text
-		const last = [...aiMessages]
-			.reverse()
-			.find((m: any) => m.role === "assistant");
-		if (!last) {
+		const last = aiMessages.at(-1);
+		if (!last || last.role !== "assistant") {
 			return;
 		}
 		const text = (last.parts || [])
-			.filter((p: any) => p.type === "text")
-			.map((p: any) => p.text)
+			.filter((p) => p.type === "text")
+			.map((p) => p.text)
 			.join("");
-		if (typeof text !== "string") {
-			return;
-		}
 		setMessages((prev) =>
 			prev.map((msg) =>
-				msg.id === tempMessageIdRef.current ? { ...msg, content: text } : msg,
+				msg.id === messageId ? { ...msg, content: text } : msg,
 			),
 		);
 	}, [aiMessages]);
 
+	useEffect(
+		() => () => {
+			stoppedRef.current = true;
+			void stop();
+		},
+		[stop],
+	);
+
 	const startConversation = async () => {
-		if (!initialPrompt.trim() || selectedModels.length < 2) {
-			setError("Please enter a prompt and select at least 2 models");
+		if (
+			isStreaming ||
+			!selectedProject ||
+			!initialPrompt.trim() ||
+			selectedModels.length < 2
+		) {
 			return;
 		}
-
 		setError(null);
+		setIsStreaming(true);
 		stoppedRef.current = false;
 		posthog.capture("playground_group_chat_started", {
 			models: selectedModels,
 			model_count: selectedModels.length,
 		});
 
-		// If this is the very first start (no messages yet), reset and seed
-		if (messages.length === 0) {
-			setMessages([]);
-			setAiMessages([]);
-			turnCounterRef.current = 0;
-			lastAssistantTextRef.current = "";
-
-			// Add user's initial message
-			const userMessage: GroupMessage = {
-				id: crypto.randomUUID(),
-				role: "user",
-				content: initialPrompt,
-				timestamp: Date.now(),
-			};
-
-			setMessages([userMessage]);
-
-			// Start the conversation loop
-			await continueConversation([userMessage], 0);
-			return;
-		}
-
-		// Continuing an existing debate: keep history and proceed from current turn
-		await continueConversation(messages, turnCounterRef.current);
-	};
-
-	const continueConversation = async (
-		currentMessages: GroupMessage[],
-		currentTurn: number,
-	) => {
-		if (
-			stoppedRef.current ||
-			currentTurn >= maxTurns ||
-			selectedModels.length === 0
-		) {
-			return;
-		}
-
-		setIsStreaming(true);
-		advanceScheduledRef.current = false; // allow one advancement for this turn
-		const modelIndex = currentTurn % selectedModels.length;
-		const currentModel = selectedModels[modelIndex];
-
-		// Create a temporary group assistant message for streaming
-		const tempMessageId = crypto.randomUUID();
-		tempMessageIdRef.current = tempMessageId;
-		const tempMessage: GroupMessage = {
-			id: tempMessageId,
-			role: "assistant",
-			content: "",
-			model: currentModel,
-			timestamp: Date.now(),
-		};
-		setMessages((prev) => [...prev, tempMessage]);
-
-		// Determine the input for this turn and prepend debate instruction
-		const turnInput =
-			currentTurn === 0 ? initialPrompt : lastAssistantTextRef.current;
-		const debateInstruction =
-			currentTurn === 0
-				? `Debate mode: Take a clear stance and present a concise argument on: "${initialPrompt}". Do not argue both sides.`
-				: `Argue the opposing side to the previous response. Previous response: "${lastAssistantTextRef.current}". Provide a concise counter-argument.`;
-		const userUiMessage = {
-			id: crypto.randomUUID(),
-			role: "user" as const,
-			parts: [
-				{ type: "text", text: debateInstruction },
-				{ type: "text", text: "\n\n" + turnInput },
-			],
-		};
-
-		const noFallback = shouldDisableFallback(currentModel);
-
 		try {
-			await sendMessage(userUiMessage as any, {
-				headers: {
-					...(noFallback ? { "x-no-fallback": "true" } : {}),
+			const { data, error: keyError } = await fetchClient.POST(
+				"/playground/ensure-key",
+				{
+					body: { projectId: selectedProject.id },
 				},
-				body: {
-					model: currentModel,
-				},
-			});
-			// Advance on successful completion of this turn
-			scheduleNextTurn();
-		} catch (err) {
-			const messageText =
-				err instanceof Error ? err.message : "An error occurred";
-			setError(messageText);
-			// Reflect error in the temp assistant message and proceed
-			if (tempMessageIdRef.current) {
-				setMessages((prev) =>
-					prev.map((m) =>
-						m.id === tempMessageIdRef.current
-							? { ...m, content: m.content || `Error: ${messageText}` }
-							: m,
-					),
+			);
+			if (keyError || !data) {
+				throw new Error(
+					"Could not prepare this organization for chat. Please try again.",
 				);
-				const partial = messagesRef.current.find(
-					(m) => m.id === tempMessageIdRef.current,
-				)?.content;
-				if (partial && typeof partial === "string") {
-					lastAssistantTextRef.current = partial;
-				}
 			}
-			scheduleNextTurn();
+			if (stoppedRef.current) {
+				return;
+			}
+			if (messages.length === 0) {
+				setAiMessages([]);
+				turnCounterRef.current = 0;
+				lastAssistantTextRef.current = "";
+				setMessages([
+					{
+						id: crypto.randomUUID(),
+						role: "user",
+						content: initialPrompt,
+						timestamp: Date.now(),
+					},
+				]);
+			}
+
+			const roundEnd = turnCounterRef.current + turnsPerRound;
+			while (!stoppedRef.current && turnCounterRef.current < roundEnd) {
+				const currentModel =
+					selectedModels[turnCounterRef.current % selectedModels.length]!;
+				const messageId = crypto.randomUUID();
+				tempMessageIdRef.current = messageId;
+				setMessages((prev) => [
+					...prev,
+					{
+						id: messageId,
+						role: "assistant",
+						content: "",
+						model: currentModel,
+						timestamp: Date.now(),
+					},
+				]);
+				const instruction = lastAssistantTextRef.current
+					? `You are ${currentModel}, a member of an AI council discussing: "${initialPrompt}". Read the discussion so far and challenge the previous argument. Add a concrete counterargument or an overlooked tradeoff. Keep your contribution concise. Previous argument: "${lastAssistantTextRef.current}"`
+					: `You are ${currentModel}, opening an AI council discussion on: "${initialPrompt}". Take a clear stance and present a concise argument with a concrete reason. Other models will challenge your position.`;
+				await sendMessage(
+					{
+						id: messageId,
+						role: "user",
+						parts: [{ type: "text", text: instruction }],
+					},
+					{
+						headers: shouldDisableFallback(currentModel)
+							? { "x-no-fallback": "true" }
+							: {},
+						body: {
+							model: currentModel,
+							apiKey: data.token,
+							project_id: selectedProject.id,
+						},
+					},
+				);
+				turnCounterRef.current += 1;
+			}
+		} catch (err) {
+			setError(
+				err instanceof Error
+					? err.message
+					: "The discussion could not continue.",
+			);
+		} finally {
+			tempMessageIdRef.current = null;
+			setIsStreaming(false);
 		}
 	};
 
 	const stopConversation = () => {
-		void stop();
-		setIsStreaming(false);
-		turnCounterRef.current = maxTurns; // Stop the conversation
 		stoppedRef.current = true;
+		void stop();
 	};
 
 	const clearConversation = () => {
@@ -417,7 +331,7 @@ export default function GroupChatClient({
 							<SidebarTrigger />
 							<div className="flex items-center gap-2 flex-1 min-w-0">
 								<h2 className="text-lg font-semibold whitespace-nowrap">
-									Group Chat
+									Group Chat · Council
 								</h2>
 							</div>
 						</div>
@@ -429,21 +343,23 @@ export default function GroupChatClient({
 							<div className="space-y-3">
 								<div>
 									<h2 className="text-sm font-medium mb-4">
-										Selected Models ({selectedModels.length}/5)
+										Your council ({selectedModels.length}/5)
 									</h2>
 									{selectedModels.length < 5 && (
-										<ModelSelector
-											models={chatModels}
-											providers={providers}
-											value=""
-											onValueChange={(value) => {
-												if (value) {
-													addModel(value);
-												}
-											}}
-											placeholder="Add a model..."
-											showRegionalVariants
-										/>
+										<fieldset disabled={isStreaming}>
+											<ModelSelector
+												models={chatModels}
+												providers={providers}
+												value=""
+												onValueChange={(value) => {
+													if (value) {
+														addModel(value);
+													}
+												}}
+												placeholder="Invite a model…"
+												showRegionalVariants
+											/>
+										</fieldset>
 									)}
 								</div>
 
@@ -454,7 +370,7 @@ export default function GroupChatClient({
 												(m) => m.id === modelId,
 											);
 											const providerDef = providers.find(
-												(p) => p.id === (model?.providerId as any),
+												(p) => p.id === model?.providerId,
 											);
 											const ProviderIcon = providerDef
 												? getProviderIcon(providerDef.id)
@@ -481,13 +397,14 @@ export default function GroupChatClient({
 														/>
 													) : null}
 													<span className="max-w-[220px] truncate">
-														{model?.id ?? modelId}
+														{model?.name ?? modelId}
 													</span>
 													<button
 														type="button"
 														onClick={() => removeModel(modelId)}
+														disabled={isStreaming}
 														className="rounded-full hover:bg-foreground/10 transition-colors p-1"
-														aria-label={`Remove ${model?.id ?? modelId}`}
+														aria-label={`Remove ${model?.name ?? modelId}`}
 													>
 														<X className="size-3" />
 													</button>
@@ -499,7 +416,7 @@ export default function GroupChatClient({
 
 								{selectedModels.length === 0 && (
 									<p className="text-sm text-muted-foreground">
-										Add at least 2 models to start a group conversation
+										Choose 2–5 models. Each gets a turn at the table.
 									</p>
 								)}
 							</div>
@@ -516,7 +433,12 @@ export default function GroupChatClient({
 							onClear={clearConversation}
 							selectedModels={selectedModels}
 							availableModels={availableModels}
-							canStart={selectedModels.length >= 2 && !isStreaming}
+							canStart={
+								isAuthenticated &&
+								!!selectedProject &&
+								selectedModels.length >= 2 &&
+								!isStreaming
+							}
 						/>
 					</div>
 				</div>

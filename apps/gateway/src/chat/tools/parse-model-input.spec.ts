@@ -64,4 +64,11 @@ describe("parseModelInput dynamic routes", () => {
 		const result = parseModelInput("openai/gpt-4o-mini");
 		expect(result.dynamicRouteName).toBeUndefined();
 	});
+
+	it("rejects custom models without a custom provider name", () => {
+		expect(() => parseModelInput("custom/gpt-4o-mini")).toThrow(
+			/configured name/,
+		);
+		expect(() => parseModelInput("/gpt-4o-mini")).toThrow(/configured name/);
+	});
 });

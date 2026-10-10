@@ -4,6 +4,7 @@ import { Alert, Switch, Text, View } from "react-native";
 import { api, queryClient } from "@/api/client";
 import { GenerateSkill } from "@/components/GenerateSkill";
 import {
+	colors,
 	Button,
 	ErrorNotice,
 	Field,
@@ -120,6 +121,7 @@ export function Skills({ projectId }: { projectId: string }) {
 						<View style={[styles.row, { justifyContent: "space-between" }]}>
 							<Text style={[styles.heading, { flex: 1 }]}>{skill.name}</Text>
 							<Switch
+								trackColor={{ false: colors.subtle, true: colors.accent }}
 								accessibilityLabel={`Enable ${skill.name}`}
 								value={skill.enabled}
 								disabled={update.isPending}

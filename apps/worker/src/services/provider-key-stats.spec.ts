@@ -180,11 +180,19 @@ describe("provider key hourly stats aggregation", () => {
 			hasError: true,
 			unifiedFinishReason: "client_error",
 		});
+		await insertLog({
+			providerKeyId: ids.providerKeyId,
+			cost: 0,
+			hasError: true,
+			unifiedFinishReason: "gateway_error",
+		});
 
 		await refreshCurrentHourStats();
 
 		const stats = await readStats();
-		expect(stats!.errorCount).toBe(2);
+		expect(stats!.errorCount).toBe(3);
+		expect(stats!.clientErrorCount).toBe(1);
+		expect(stats!.gatewayErrorCount).toBe(1);
 		expect(stats!.upstreamErrorCount).toBe(1);
 	});
 

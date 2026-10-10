@@ -8,7 +8,7 @@ import { db, tables } from "@llmgateway/db";
 const ORG_ID = "admin-devpass-payg-org";
 const OTHER_ORG_ID = "admin-devpass-payg-other-org";
 const PROJECT_ID = "admin-devpass-payg-project";
-const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 interface PaygSubscriber {
 	id: string;
@@ -47,7 +47,7 @@ describe("admin devpass PAYG overflow reporting", () => {
 	const cycleStart = new Date(Date.now() - fiveDaysMs);
 
 	beforeEach(async () => {
-		process.env.ADMIN_EMAILS = "admin@example.com";
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 
 		// Pro org with an exhausted pool: $237 drawn from the plan, and $3 of
@@ -108,9 +108,9 @@ describe("admin devpass PAYG overflow reporting", () => {
 
 	afterEach(async () => {
 		if (originalAdminEmails === undefined) {
-			delete process.env.ADMIN_EMAILS;
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
 		} else {
-			process.env.ADMIN_EMAILS = originalAdminEmails;
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
 		}
 		await db.delete(tables.transaction);
 		await db.delete(tables.projectHourlyStats);

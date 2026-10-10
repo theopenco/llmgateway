@@ -33,7 +33,7 @@ We evaluated eight AI gateways on what actually matters: provider coverage, pric
 - **Automatic failover** — requests reroute to backup providers when the primary goes down
 - **Guardrails (Enterprise)** — content safety rules with configurable filters
 - **AI SDK provider** — first-class Vercel AI SDK integration via `@llmgateway/ai-sdk-provider`
-- **Playground** — test and compare models side-by-side with chat, group chat, and image generation
+- **Lounge** — chat, compare independent answers, bring models into a shared council debate, and generate images
 
 **Pricing:** Free tier with credits to start. Pay-as-you-go with no hidden fees. No markup when using your own keys.
 

@@ -5,7 +5,7 @@
 // Docs-only guides without a marketing-site counterpart stay self-canonical —
 // add new docs-only guide slugs here, otherwise their canonical points at a
 // 404 on the marketing site.
-const docsOnlyGuideSlugs = new Set(["agent-skills"]);
+const docsOnlyGuideSlugs = new Set(["agent-skills", "vscode"]);
 
 // Docs pages that moved out of /guides/ but still mirror a marketing-site
 // guide, so they keep canonicalizing to that copy.

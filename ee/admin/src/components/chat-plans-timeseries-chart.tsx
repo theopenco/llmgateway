@@ -170,7 +170,7 @@ export function ChatPlansTimeseriesChart({
 											const date = parseISO(value);
 											return format(date, "MMM d, yyyy");
 										}}
-										formatter={(value) => fullCurrency.format(Number(value))}
+										valueFormatter={(value) => fullCurrency.format(value)}
 									/>
 								}
 							/>

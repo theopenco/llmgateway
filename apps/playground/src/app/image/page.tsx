@@ -8,6 +8,7 @@ import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import {
 	decodeModelPreference,
 	IMAGE_MODEL_COOKIE,
+	IMAGE_SERVICE_TIER_COOKIE,
 } from "@/lib/model-preferences";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -37,6 +38,9 @@ export default async function ImagePage({
 	const cookieStore = await cookies();
 	const initialModelPreference = decodeModelPreference(
 		cookieStore.get(IMAGE_MODEL_COOKIE)?.value,
+	);
+	const initialServiceTierPreference = decodeModelPreference(
+		cookieStore.get(IMAGE_SERVICE_TIER_COOKIE)?.value,
 	);
 
 	const [models, providers, initialOrganizationsData, orgIdProjectsData] =
@@ -156,6 +160,7 @@ export default async function ImagePage({
 				projects={projects}
 				selectedProject={selectedProject}
 				initialModelPreference={initialModelPreference}
+				initialServiceTierPreference={initialServiceTierPreference}
 			/>
 		</>
 	);

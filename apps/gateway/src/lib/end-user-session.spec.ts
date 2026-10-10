@@ -149,13 +149,13 @@ describe("validateEndUserSessionModelAccess", () => {
 		});
 	});
 
-	it("allows an auto-routing candidate when the scope includes 'auto'", () => {
+	it("allows an smart-routing candidate when the scope includes 'auto'", () => {
 		expect(
 			validateEndUserSessionModelAccess(
 				makeSessionApiKey(["auto"]),
 				sessionModel.id,
 				sessionModel,
-				{ autoRouting: true },
+				{ smartRouting: true },
 			),
 		).toEqual({
 			allowed: true,

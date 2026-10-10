@@ -1,0 +1,101 @@
+---
+title: Search API
+description: Get ranked web results with extracted page content from the search API
+icon: Search
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+LLMGateway exposes a `/v1/search` endpoint compatible with the
+[Perplexity Search API](https://docs.perplexity.ai/guides/search-quickstart). It
+returns ranked web results with extracted page snippets, not a model-written
+answer. Use it for your own retrieval, grounding, or agent tools. If you want a
+model to search and answer in one call, use
+[native web search](/features/web-search) instead.
+
+Existing Perplexity Search code works after you swap the base URL and API key.
+
+For the full request and response schema, see the
+[API reference](/v1_search).
+
+## Endpoint
+
+`POST https://api.llmgateway.io/v1/search`
+
+## cURL
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/search" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "latest developments in open-source LLMs",
+    "max_results": 3,
+    "search_recency_filter": "week"
+  }'
+```
+
+```json
+{
+	"id": "9ed15dce-a498-40b2-8bc9-7f13f35901cd",
+	"model": "perplexity/perplexity-search",
+	"results": [
+		{
+			"title": "…",
+			"url": "https://…",
+			"snippet": "…",
+			"date": "2026-09-25",
+			"last_updated": "2026-09-27"
+		}
+	],
+	"server_time": null
+}
+```
+
+## Models
+
+`model` is optional. When it is omitted, `search_type` picks the model:
+
+| `search_type`      | Model                               | Use for                        |
+| ------------------ | ----------------------------------- | ------------------------------ |
+| `web` (or omitted) | `perplexity/perplexity-search`      | Default quality and extraction |
+| `fast`             | `perplexity/perplexity-search-fast` | Lower latency at a lower price |
+
+Set `model` to `auto` to route to the cheapest active search model. With
+`search_type`, `auto` picks the cheapest model of that type. The response's
+`model` field shows which model served the request.
+
+Sending both a `model` and a `search_type` that disagree returns a 400.
+`search_type: "people"` is not supported yet. Current pricing is on each model's
+page on the [models page](https://llmgateway.io/models).
+
+## Request fields
+
+Every field except `model` is forwarded to Perplexity unchanged.
+
+| Field                                                      | Type                 | Description                                                 |
+| ---------------------------------------------------------- | -------------------- | ----------------------------------------------------------- |
+| `model`                                                    | `string`             | Search model or `auto`. Optional, see [Models](#models).    |
+| `query`                                                    | `string \| string[]` | A query, or up to 5 related queries searched independently. |
+| `search_type`                                              | `string`             | `web` or `fast`.                                            |
+| `max_results`                                              | `number`             | Maximum results to return. Defaults to 10.                  |
+| `max_tokens`                                               | `number`             | Token budget for extracted content across all results.      |
+| `max_tokens_per_page`                                      | `number`             | Token budget for extracted content per result.              |
+| `search_context_size`                                      | `string`             | `low`, `medium` or `high` extraction depth.                 |
+| `country`                                                  | `string`             | ISO 3166-1 alpha-2 country code for regional results.       |
+| `search_language_filter`                                   | `string[]`           | ISO 639-1 language codes.                                   |
+| `search_domain_filter`                                     | `string[]`           | Domains to include, or to exclude with a `-` prefix.        |
+| `search_recency_filter`                                    | `string`             | `hour`, `day`, `week`, `month` or `year`.                   |
+| `search_after_date_filter` / `search_before_date_filter`   | `string`             | Publication date bounds, `MM/DD/YYYY`.                      |
+| `last_updated_after_filter` / `last_updated_before_filter` | `string`             | Last-updated date bounds, `MM/DD/YYYY`.                     |
+
+<Callout type="info">
+	Search is billed per successful request. There are no token charges, and a
+	request with several queries counts as one request. Failed requests are not
+	billed.
+</Callout>
+
+<Callout type="warn">
+	Search models only work on `/v1/search`. Requesting one on
+	`/v1/chat/completions` returns a 400 pointing you at the right endpoint.
+</Callout>
