@@ -465,14 +465,23 @@ describe("validateProviderKey model-specific probes", () => {
 	it("includes a reference image for image-edit mappings", async () => {
 		const fetchMock = mockSuccess();
 
-		const result = await validateProviderKey(
-			"alibaba",
-			"alibaba-test",
-			undefined,
-			false,
-			{ env_config: { region: "singapore" } },
-			"qwen-image-edit-plus",
-		);
+		// Alibaba retired its last image-edit mappings on 2026-10-10; pin the
+		// clock before that so the probe shape stays covered.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-01T00:00:00Z"));
+		let result: Awaited<ReturnType<typeof validateProviderKey>>;
+		try {
+			result = await validateProviderKey(
+				"alibaba",
+				"alibaba-test",
+				undefined,
+				false,
+				{ env_config: { region: "singapore" } },
+				"qwen-image-edit-plus",
+			);
+		} finally {
+			vi.useRealTimers();
+		}
 
 		expect(result.valid).toBe(true);
 		const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));

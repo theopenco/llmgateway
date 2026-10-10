@@ -4266,10 +4266,10 @@ describe("airside provider portal", () => {
 		);
 		expect(res.status).toBe(200);
 		const { imported, skipped } = await res.json();
-		// qwen-max is banded by input length; qwen-image-plus is a flat mapping.
+		// qwen-max is banded by input length; qwen-image-3.0 is a flat mapping.
 		expect(skipped).toContain("qwen-max");
 		expect(imported).not.toContain("qwen-max");
-		expect(imported).toContain("qwen-image-plus");
+		expect(imported).toContain("qwen-image-3.0");
 	});
 
 	it("round-trips the carrier rate limit scope", async () => {
