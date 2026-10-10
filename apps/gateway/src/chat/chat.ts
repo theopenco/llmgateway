@@ -4756,6 +4756,17 @@ chat.openapi(completions, async (c) => {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
 		}
 		const allowedProviders = resolvedIamValidation.allowedProviders;
+		// The no-candidate fallback above pins its provider without consulting
+		// IAM, so the resolved provider itself must be among the survivors.
+		if (
+			usedProvider !== "custom" &&
+			allowedProviders &&
+			!allowedProviders.includes(usedProvider)
+		) {
+			throwIamException(
+				`Provider ${usedProvider} is not allowed for model ${modelInfo.id}`,
+			);
+		}
 		iamFilteredModelProviders = allowedProviders
 			? modelInfo.providers.filter((p) =>
 					allowedProviders.includes(p.providerId),

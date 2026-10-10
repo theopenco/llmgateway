@@ -113,6 +113,46 @@ describe("staff-managed provider access restriction", () => {
 		expect(body.model).not.toContain("haiku");
 	});
 
+	test("auto routing's default fallback cannot reach a denied provider", async () => {
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-anthropic",
+			...encryptProviderKeyForStorage(
+				"anthropic-test-key",
+				"provider-key-anthropic",
+				"org-id",
+			),
+			provider: "anthropic",
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+		});
+		await restrict({ providers: ["anthropic"] });
+
+		expect((await chat("auto")).status).toBe(403);
+	});
+
+	test("applies to organization custom providers", async () => {
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-custom",
+			...encryptProviderKeyForStorage(
+				"custom-test-key",
+				"provider-key-custom",
+				"org-id",
+			),
+			provider: "custom",
+			name: "mycustom",
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+		});
+
+		expect((await chat("mycustom/gpt-4o-mini")).status).toBe(200);
+
+		await restrict({ mode: "allow", providers: ["openai"] });
+		await expectRestricted(await chat("mycustom/gpt-4o-mini"));
+
+		await restrict({ providers: ["custom"] });
+		await expectRestricted(await chat("mycustom/gpt-4o-mini"));
+	});
+
 	test("applies to non-chat endpoints", async () => {
 		await restrict({ providers: ["openai"] });
 

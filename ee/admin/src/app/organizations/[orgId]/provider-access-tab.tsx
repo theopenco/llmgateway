@@ -62,7 +62,7 @@ const MODE_DESCRIPTIONS: Record<Mode, string> = {
 	none: "The organization can use every provider and model.",
 	deny: "Requests to any listed provider, model or mapping are rejected; everything else stays available.",
 	allow:
-		"Only listed providers, models and mappings are served; everything else is rejected. Entries are combined, so a provider allows all of its models.",
+		"Only listed providers, models and mappings are served; everything else is rejected. Entries are combined, so a provider allows all of its models. The organization's own custom providers count as the custom provider.",
 };
 
 function MultiSelect({
@@ -95,7 +95,10 @@ function MultiSelect({
 						option.label.toLowerCase().includes(query),
 				)
 			: options;
-		return matches.slice(0, MAX_VISIBLE_OPTIONS);
+		return {
+			visible: matches.slice(0, MAX_VISIBLE_OPTIONS),
+			hidden: Math.max(0, matches.length - MAX_VISIBLE_OPTIONS),
+		};
 	}, [options, search]);
 
 	const toggle = (value: string) => {
@@ -136,7 +139,7 @@ function MultiSelect({
 						<CommandList>
 							<CommandEmpty>No matches.</CommandEmpty>
 							<CommandGroup>
-								{filtered.map((option) => (
+								{filtered.visible.map((option) => (
 									<CommandItem
 										key={option.value}
 										value={option.value}
@@ -158,6 +161,11 @@ function MultiSelect({
 									</CommandItem>
 								))}
 							</CommandGroup>
+							{filtered.hidden > 0 && (
+								<p className="px-3 py-2 text-xs text-muted-foreground">
+									{filtered.hidden} more — refine the search to see them.
+								</p>
+							)}
 						</CommandList>
 					</Command>
 				</PopoverContent>
@@ -297,6 +305,9 @@ function ProviderAccessForm({
 				</Select>
 				<p className="text-sm text-muted-foreground">
 					{MODE_DESCRIPTIONS[mode]}
+					{mode === "none" &&
+						initial &&
+						" Saving removes the current restriction."}
 				</p>
 			</div>
 
