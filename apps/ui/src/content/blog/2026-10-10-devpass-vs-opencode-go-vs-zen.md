@@ -14,6 +14,11 @@ faqs:
     answer: "For many models, yes: Kimi, Qwen, MiniMax M3, Claude Opus and Sonnet are listed at the same rates. For open models served by several providers, LLM Gateway's lowest listed rate is lower: 32–42% on GLM-5.3, 41–50% on GLM-5.3-Flash, about 55% on DeepSeek V4.1 Flash and 73% on MiniMax M2.7. Zen keeps each model on providers it has benchmarked rather than routing to the cheapest one."
   - question: "How can a plan include more usage than its price?"
     answer: "Through discounts the operator gets below public rates, and because most subscribers use less than their full allowance. OpenCode says Go's higher limits come from bulk discounts and reserved GPU capacity. DevPass draws on LLM Gateway's multi-provider routing and Airside carriers. Short-window caps on both plans keep any one user from spending the whole month in a day."
+image:
+  src: "/blog/devpass-vs-opencode-go-vs-zen.png"
+  alt: "A glowing balance scale weighing three coin stacks on a central chip of a circuit board, surrounded by a price tag, a stopwatch, a gauge and coin icons, representing a pricing comparison of DevPass, OpenCode Go and OpenCode Zen"
+  width: 1536
+  height: 1024
 ---
 
 Three ways to pay for AI coding models from the same corner of the market: **OpenCode Go** (a cheap subscription for open models), **OpenCode Zen** (pay as you go at cost), and **DevPass** from **LLM Gateway** (a subscription with one allowance across every model). The pricing pages use different units, so this post puts them on the same scale: dollars of usage per dollar paid, the caps that decide how fast you can spend it, and per-token rates for the models all three carry.
