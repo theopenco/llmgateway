@@ -71,8 +71,8 @@ export default async function ProvidersPage() {
 	]);
 	const uploadedLogos = Object.fromEntries(
 		apiProviders
-			.filter((p) => p.airsideLogoUrl)
-			.map((p) => [p.id, p.airsideLogoUrl as string]),
+			.map((p) => [p.id, p.airsideIconUrl ?? p.airsideLogoUrl])
+			.filter((entry): entry is [string, string] => Boolean(entry[1])),
 	);
 	const modelCounts = countApiModelsByProvider(apiModels);
 

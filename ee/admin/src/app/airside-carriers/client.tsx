@@ -52,6 +52,10 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import {
+	AIRSIDE_BILLING_MODE_DESCRIPTIONS,
+	AIRSIDE_BILLING_MODE_LABELS,
+} from "@llmgateway/shared/airside-billing";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
@@ -135,6 +139,35 @@ function CarrierStatus({ carrier }: { carrier: Carrier }) {
 		);
 	}
 	return <Badge variant="secondary">Routing</Badge>;
+}
+
+/** Who added the key serving the carrier, which decides who pays the upstream. */
+function KeySourceCell({ carrier }: { carrier: Carrier }) {
+	if (carrier.keySource === "carrier") {
+		return (
+			<Badge
+				variant="secondary"
+				title="Filed by the carrier in Airside — billed to their account, and we pay them out."
+			>
+				Carrier
+			</Badge>
+		);
+	}
+	if (carrier.keySource === "admin") {
+		return (
+			<Badge
+				variant="outline"
+				title="Added by an admin — we pay the upstream pay-as-you-go."
+			>
+				Admin
+			</Badge>
+		);
+	}
+	return (
+		<span className="text-muted-foreground text-xs" title="No active key.">
+			—
+		</span>
+	);
 }
 
 function bucketLabel(date: string, bucket: "hour" | "day") {
@@ -254,6 +287,8 @@ function CarrierTable({
 				<TableRow>
 					<SortableHead label="Company" sortKey="name" align="left" {...head} />
 					<TableHead>Status</TableHead>
+					<TableHead>Billing</TableHead>
+					<TableHead>Key added by</TableHead>
 					<SortableHead
 						label="Mappings"
 						sortKey="activeMappingCount"
@@ -301,6 +336,15 @@ function CarrierTable({
 						</TableCell>
 						<TableCell>
 							<CarrierStatus carrier={carrier} />
+						</TableCell>
+						<TableCell
+							className="whitespace-nowrap text-sm"
+							title={AIRSIDE_BILLING_MODE_DESCRIPTIONS[carrier.billingMode]}
+						>
+							{AIRSIDE_BILLING_MODE_LABELS[carrier.billingMode]}
+						</TableCell>
+						<TableCell>
+							<KeySourceCell carrier={carrier} />
 						</TableCell>
 						<TableCell
 							className="text-right tabular-nums"
@@ -439,7 +483,8 @@ export function AirsideCarriersClient() {
 						Routed cost, requests, and error rate cover the{" "}
 						{carrierWindowOption(window).label} from the hourly mapping rollups,
 						one bar per {carrierWindowOption(window).bucket}. Mappings are filed
-						through Airside / active in total.
+						through Airside / active in total. Billing is set on each carrier's
+						Airside settings; key added by covers the key serving traffic.
 						{showMargin
 							? " A negative routing adjustment means the carrier's traffic is boosted. Margin figures come from the daily global rollups (credits only)."
 							: ""}

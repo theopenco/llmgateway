@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, isCachingEnabled, tables } from "@llmgateway/db";
 
 const stripeMock = vi.hoisted(() => ({
 	subscriptions: {
@@ -185,6 +185,61 @@ describe("dev-plan PAYG settings", () => {
 		});
 		expect(status.status).toBe(200);
 		expect((await status.json()).providerCacheControlMode).toBe("passthrough");
+	});
+
+	it("persists automatic duration, invalidates cached settings, and audits it", async () => {
+		await insertOrg();
+		await db.insert(tables.project).values({
+			id: "test-payg-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		expect(
+			(await isCachingEnabled("test-payg-project")).providerCacheAutoTtl,
+		).toBe("5m");
+		for (const ttl of ["1h", "5m"] as const) {
+			const update = await settingsRequest(
+				{ providerCacheAutoTtl: ttl },
+				token,
+			);
+			expect(update.status).toBe(200);
+			expect(await update.json()).toMatchObject({ providerCacheAutoTtl: ttl });
+			expect(
+				(await isCachingEnabled("test-payg-project")).providerCacheAutoTtl,
+			).toBe(ttl);
+			const status = await app.request("/dev-plans/status", {
+				headers: { Cookie: token },
+			});
+			expect((await status.json()).providerCacheAutoTtl).toBe(ttl);
+		}
+		const audit = await db.query.auditLog.findMany({
+			where: {
+				organizationId: { eq: ORG_ID },
+				action: { eq: "dev_plan.update_settings" },
+			},
+		});
+		expect(
+			audit.some((entry) =>
+				JSON.stringify(entry.metadata).includes('"providerCacheAutoTtl"'),
+			),
+		).toBe(true);
+	});
+
+	it("validates duration and requires an active authenticated DevPass", async () => {
+		await insertOrg();
+		expect(
+			(await settingsRequest({ providerCacheAutoTtl: "30m" }, token)).status,
+		).toBe(400);
+		expect((await settingsRequest({ providerCacheAutoTtl: "1h" })).status).toBe(
+			401,
+		);
+		await db
+			.update(tables.organization)
+			.set({ devPlan: "none" })
+			.where(eq(tables.organization.id, ORG_ID));
+		expect(
+			(await settingsRequest({ providerCacheAutoTtl: "1h" }, token)).status,
+		).toBe(400);
 	});
 
 	it("maps the legacy providerCacheControlEnabled boolean to a mode", async () => {

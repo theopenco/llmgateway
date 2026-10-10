@@ -8,6 +8,7 @@ export interface CachingSettingsData {
 			cachingEnabled: boolean;
 			cacheDurationSeconds: number;
 			providerCacheControlMode: ProviderCacheControlMode;
+			providerCacheAutoTtl: "5m" | "1h";
 		};
 	};
 }

@@ -312,6 +312,7 @@ describe("anthropic tool search", () => {
 				type: "tool_result",
 				tool_use_id: "toolu_search",
 				content: references,
+				cache_control: { type: "ephemeral" },
 			},
 		]);
 	});

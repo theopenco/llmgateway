@@ -37,6 +37,8 @@ import {
 	mappingErrorWindowSchema,
 	notRetriedClause,
 	incidentErrorsClause,
+	platformOnlyClause,
+	byokClauseFor,
 	queryMappingErrorShapes,
 	buildErrorTimeline,
 	errorTimelineSchema,
@@ -89,6 +91,7 @@ import {
 } from "@/utils/email-domain-blocking.js";
 import {
 	HOURLY_BUCKET_THRESHOLD_MINUTES,
+	fillIdleHistory,
 	floorToHourStart,
 	isHourlyRange,
 	pickMappingHistoryTable,
@@ -129,6 +132,9 @@ import {
 	projectHourlyModelStats,
 	projectHourlySourceStats,
 	globalModelStats,
+	globalHourlyModelStats,
+	globalHourlySourceStats,
+	globalHourlyProviderKeyModelStats,
 	globalProviderKeyModelStats,
 	globalSourceStats,
 } from "@llmgateway/db";
@@ -159,6 +165,7 @@ import {
 	resolveTrustTierOverride,
 	SYSTEM_BANNER_SEVERITIES,
 } from "@llmgateway/shared";
+import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
 import {
 	getResendClient,
 	fromEmail,
@@ -226,7 +233,7 @@ function buildOrganizationSearchFilter(search: string | undefined) {
  * Ranks by membership age so the founding owner wins, keyed by user id to stay
  * deterministic when two memberships share a timestamp.
  */
-function buildOrganizationOwnerSubquery() {
+function buildOrganizationOwnerSubquery(organizationIds?: string[]) {
 	const ranked = db
 		.select({
 			organizationId: tables.userOrganization.organizationId,
@@ -241,7 +248,14 @@ function buildOrganizationOwnerSubquery() {
 		})
 		.from(tables.userOrganization)
 		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
-		.where(eq(tables.userOrganization.role, "owner"))
+		.where(
+			and(
+				eq(tables.userOrganization.role, "owner"),
+				organizationIds
+					? inArray(tables.userOrganization.organizationId, organizationIds)
+					: undefined,
+			),
+		)
 		.as("owner_ranked");
 
 	return db
@@ -1114,6 +1128,20 @@ const getOrganizationMembers = createRoute({
 	},
 });
 
+// Credit revenue excludes virtual plan allowances, gifts, wallet bookkeeping
+// and refunds; refunds are netted out separately on gross and credit bases.
+const creditRevenueFilter = and(
+	ne(tables.transaction.type, "credit_gift"),
+	ne(tables.transaction.type, "enterprise_license_fee"),
+	notPlanFilter,
+	notEndUserNonRevenueFilter,
+	notRefundFilter,
+);
+
+function sumTransactionWhere(column: AnyColumn, filter: SQL | undefined) {
+	return sql<number>`COALESCE(SUM(${column}) FILTER (WHERE ${filter}), 0)`;
+}
+
 admin.openapi(getMetrics, async (c) => {
 	const query = c.req.valid("query");
 	const { from, to } = query;
@@ -1179,120 +1207,152 @@ admin.openapi(getMetrics, async (c) => {
 				? gte(projectHourlyStats.hourTimestamp, startDate)
 				: undefined;
 
-	// Total signups
-	const [signupsRow] = await db
+	// Combine counts and transaction totals; run independent aggregates together.
+	const usersQuery = db
 		.select({
-			count: sql<number>`COUNT(*)`.as("count"),
+			count: sql<number>`COUNT(*)`,
+			verified: sql<number>`COUNT(*) FILTER (WHERE ${tables.user.emailVerified})`,
 		})
 		.from(tables.user)
 		.where(userDateFilter);
-
-	const totalSignups = Number(signupsRow?.count ?? 0);
-
-	// Verified users (email verified)
-	const [verifiedRow] = await db
+	// stripe_invoice_id is unique; plan revenue needs no correlated dedup scan.
+	const transactionQuery = db
 		.select({
-			count: sql<number>`COUNT(*)`.as("count"),
-		})
-		.from(tables.user)
-		.where(and(eq(tables.user.emailVerified, true), userDateFilter));
-
-	const verifiedUsers = Number(verifiedRow?.count ?? 0);
-
-	// Paying customers: organizations with at least one completed payment
-	// transaction (credit purchase, dev/chat plan charge, or end-user top-up —
-	// gifts and bookkeeping rows don't count)
-	const [payingRow] = await db
-		.select({
-			count:
-				sql<number>`COUNT(DISTINCT ${tables.transaction.organizationId})`.as(
-					"count",
+			payingCustomers: sql<number>`COUNT(DISTINCT CASE WHEN ${paidTransactionFilter} THEN ${tables.transaction.organizationId} END)`,
+			totalRevenue: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				creditRevenueFilter,
+			),
+			totalToppedUp: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				and(notPlanFilter, notEndUserWalletFilter),
+			),
+			totalToppedUpGifted: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				eq(tables.transaction.type, "credit_gift"),
+			),
+			totalProcessed: sumTransactionWhere(
+				tables.transaction.amount,
+				creditRevenueFilter,
+			),
+			totalGiftedCredits: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				eq(tables.transaction.type, "credit_gift"),
+			),
+			bonusCredits: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				eq(tables.transaction.type, "end_user_bonus"),
+			),
+			totalRefunds: sumTransactionWhere(
+				tables.transaction.amount,
+				eq(tables.transaction.type, "credit_refund"),
+			),
+			refundedCredits: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				eq(tables.transaction.type, "credit_refund"),
+			),
+			grossCreditsRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					inArray(tables.transaction.type, ["credit_topup", "end_user_topup"]),
+					// Only credit_topup on DevPass moves to its own split.
+					or(
+						ne(tables.organization.kind, "devpass"),
+						ne(tables.transaction.type, "credit_topup"),
+					),
+					sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
 				),
+			),
+			grossSdkPaymentsRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.transaction.type, "end_user_topup"),
+					sql`${tables.transaction.amount} > 0`,
+				),
+			),
+			grossDevpassTopupsRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.transaction.type, "credit_topup"),
+					eq(tables.organization.kind, "devpass"),
+					sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				),
+			),
+			grossDevpassRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.organization.kind, "devpass"),
+					inArray(tables.transaction.type, [
+						...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+						...LEGACY_DEV_PLAN_TX_TYPES,
+					]),
+				),
+			),
+			grossResetPassRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.organization.kind, "devpass"),
+					eq(tables.transaction.type, "dev_plan_reset_pass"),
+				),
+			),
+			grossChatPlansRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.organization.kind, "chat"),
+					inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
+				),
+			),
+			grossProSubscriptionsRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					ne(tables.organization.kind, "devpass"),
+					inArray(tables.transaction.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
+				),
+			),
+			grossManualPaymentsRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.transaction.type, "credit_manual_payment"),
+					sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				),
+			),
+			grossEnterpriseDealsRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.transaction.type, "enterprise_license_fee"),
+					sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				),
+			),
 		})
 		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
 		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				paidTransactionFilter,
-				transactionDateFilter,
-			),
+			and(eq(tables.transaction.status, "completed"), transactionDateFilter),
 		);
 
-	const payingCustomers = Number(payingRow?.count ?? 0);
+	// Airside gateway margin, per carrier. dayTimestamp is `timestamp without
+	// time zone`, so compare against UTC strings rather than Date parameters.
+	const toUtcTimestamp = (date: Date) =>
+		date.toISOString().slice(0, 19).replace("T", " ");
+	const airsideMarginDateFilter = and(
+		startDate
+			? sql`${globalModelStats.dayTimestamp} >= ${toUtcTimestamp(startDate)}::timestamp`
+			: undefined,
+		endDate
+			? sql`${globalModelStats.dayTimestamp} <= ${toUtcTimestamp(endDate)}::timestamp`
+			: undefined,
+	);
 
-	// Total credits revenue: completed credit-purchase rows use `creditAmount`,
-	// which is the credit value granted and so excludes the platform fee charged
-	// on top. Excludes enterprise deals, gifts, all plan rows (DevPass/legacy
-	// subscription/Chat Plan), the non-revenue end-user rows (developer margin +
-	// funded bonus), and refund reversals — refunds are netted out once, via
-	// `totalRefundedCredits`.
-	const [revenueRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_license_fee"),
-				notPlanFilter,
-				notEndUserNonRevenueFilter,
-				notRefundFilter,
-				transactionDateFilter,
-			),
-		);
-
-	const totalRevenue = Number(revenueRow?.value ?? 0);
-
-	// Total organizations
-	const [orgsRow] = await db
+	const orgsRowQuery = db
 		.select({
 			count: sql<number>`COUNT(*)`.as("count"),
 		})
 		.from(tables.organization)
 		.where(orgDateFilter);
-
-	const totalOrganizations = Number(orgsRow?.count ?? 0);
-
-	// Total topped up (credits from completed credit-purchase transactions).
-	// Excludes DevPass and Chat Plan virtual credits — those are granted per
-	// cycle and reset, so they would inflate the topped-up / unused-credits
-	// numbers — and all end-user wallet rows, which live in their own balance
-	// economy (their spend is not in `totalSpent`, so counting their top-ups
-	// would inflate unused credits).
-	const [toppedUpRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-			giftedValue:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.type} = 'credit_gift'), 0)`.as(
-					"giftedValue",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				notPlanFilter,
-				notEndUserWalletFilter,
-				transactionDateFilter,
-			),
-		);
-
-	const totalToppedUp = Number(toppedUpRow?.value ?? 0);
-	const totalToppedUpGifted = Number(toppedUpRow?.giftedValue ?? 0);
-
-	// Total spent (usage cost from hourly stats). Excludes spend from projects
-	// belonging to orgs whose usage is/was on a DevPass or Chat Plan, so the
-	// unusedCredits derivation (toppedUp - spent) only reflects the
-	// credit-purchase economy.
-	const [spentRow] = await db
+	const spentRowQuery = db
 		.select({
 			value:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
@@ -1327,357 +1387,24 @@ admin.openapi(getMetrics, async (c) => {
 				projectStatsDateFilter,
 				eq(tables.organization.devPlan, "none"),
 				eq(tables.organization.chatPlan, "none"),
+				// Separate legacy history so a large Pro subscription history cannot
+				// turn an anti-join into repeated checks of irrelevant plan rows.
 				sql`NOT EXISTS (
 					SELECT 1 FROM ${tables.transaction} t
 					WHERE t.organization_id = ${tables.organization.id}
-					AND (
-						t.type IN ('dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal')
-						OR t.type IN ('chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal')
-						OR (t.type IN ('subscription_start', 'subscription_cancel', 'subscription_end') AND ${tables.organization.kind} = 'devpass')
+					AND t.type IN (
+						'dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal',
+						'chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal'
 					)
 				)`,
+				sql`(${tables.organization.kind} <> 'devpass' OR NOT EXISTS (
+					SELECT 1 FROM ${tables.transaction} t
+					WHERE t.organization_id = ${tables.organization.id}
+					AND t.type IN ('subscription_start', 'subscription_cancel', 'subscription_end')
+				))`,
 			),
 		);
-
-	const totalSpent = Number(spentRow?.value ?? 0);
-	const totalCreditsSpent = Number(spentRow?.creditsValue ?? 0);
-	const totalApiKeysSpent = Number(spentRow?.apiKeysValue ?? 0);
-	const totalDebitedSpend = Number(spentRow?.debitedValue ?? 0);
-
-	// Total processed credits (gross payment amounts from completed non-gift,
-	// non-plan transactions — Stripe charges plus off-Stripe manual payments).
-	// Enterprise deals are reported separately. Refund rows carry a POSITIVE
-	// `amount` (the dollars sent back), so they are excluded here rather than
-	// counted as another charge; `totalRefunds` reports them.
-	const [processedRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_license_fee"),
-				notPlanFilter,
-				notEndUserNonRevenueFilter,
-				notRefundFilter,
-				transactionDateFilter,
-			),
-		);
-
-	const totalProcessed = Number(processedRow?.value ?? 0);
-
-	// Total gifted credits (sum of credit_gift transactions, using creditAmount)
-	const [giftedRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_gift"),
-				transactionDateFilter,
-			),
-		);
-
-	const totalGiftedCredits = Number(giftedRow?.value ?? 0);
-
-	// Total developer-funded end-user top-up bonus credits granted (net of
-	// refund claw-backs). end_user_bonus rows store creditAmount as the change to
-	// the developer org's credit balance — negative when a bonus is granted,
-	// positive when clawed back on refund — so negate the sum to report the net
-	// credits actually gifted into end-user wallets. Excluded from revenue above
-	// and surfaced here so it can be subtracted/considered in stats separately.
-	const [bonusRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "end_user_bonus"),
-				transactionDateFilter,
-			),
-		);
-
-	const totalBonusCredits = -Number(bonusRow?.value ?? 0);
-
-	// Refunds, on both bases: `amount` is the gross refunded to the customer
-	// (platform fee included, since the whole charge is sent back) and
-	// `creditAmount` is the negative clawback of the granted credits. Netting a
-	// credit-basis figure like `totalRevenue` needs the credit-basis refund, so
-	// report both rather than mixing them.
-	const [refundsRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-			creditsValue:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"creditsValue",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_refund"),
-				transactionDateFilter,
-			),
-		);
-
-	const totalRefunds = Number(refundsRow?.value ?? 0);
-	const totalRefundedCredits = -Number(refundsRow?.creditsValue ?? 0);
-
-	// Gross revenue splits: actual dollars charged via Stripe (`amount`, so
-	// including Stripe fees), before netting refunds out.
-	//
-	// Credits: org credit top-ups + end-user wallet top-ups. Refund reversals
-	// are negative same-type rows, so only positive amounts count as gross.
-	// DevPass orgs buy `credit_topup` rows too (PAYG overflow), but those are
-	// DevPass monetization, not PAYG-product revenue — they get their own
-	// split below instead of inflating this one.
-	const [grossCreditsRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-			// LLM SDK end-user wallet top-ups, a subset of `value`.
-			sdkValue:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.type} = 'end_user_topup'), 0)`.as(
-					"sdk_value",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				inArray(tables.transaction.type, ["credit_topup", "end_user_topup"]),
-				// Only devpass `credit_topup` rows move to the DevPass split
-				// below. An `end_user_topup` on a devpass org shouldn't exist
-				// (end-user wallets are backed by regular PAYG orgs), but that
-				// invariant isn't DB-enforced — if a row ever appears it must
-				// still count here exactly once, not vanish from gross revenue.
-				or(
-					ne(tables.organization.kind, "devpass"),
-					ne(tables.transaction.type, "credit_topup"),
-				),
-				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
-				transactionDateFilter,
-			),
-		);
-
-	const grossCreditsRevenue = Number(grossCreditsRow?.value ?? 0);
-	const grossSdkPaymentsRevenue = Number(grossCreditsRow?.sdkValue ?? 0);
-
-	// DevPass PAYG overflow top-ups: `credit_topup` purchases on devpass orgs.
-	const [grossDevpassTopupsRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_topup"),
-				eq(tables.organization.kind, "devpass"),
-				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
-				transactionDateFilter,
-			),
-		);
-
-	const grossDevpassTopupsRevenue = Number(grossDevpassTopupsRow?.value ?? 0);
-
-	// DevPass: dev plan subscription payments (+ legacy `subscription_*` rows on
-	// devpass orgs), deduplicated per Stripe invoice. Mirrors
-	// /admin/devpass/timeseries. One-time Reset Pass purchases are reported as
-	// their own split below.
-	const [grossDevpassRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				inArray(tables.transaction.type, [
-					...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				firstRowPerInvoiceFilter([
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				transactionDateFilter,
-			),
-		);
-
-	const grossDevpassRevenue = Number(grossDevpassRow?.value ?? 0);
-
-	// Reset Passes: one-time PaymentIntent purchases on devpass orgs — no
-	// invoice, so no dedup needed. Gross like the other splits (refunds are
-	// separate `credit_refund` rows and not netted out here).
-	const [grossResetPassRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				eq(tables.transaction.type, "dev_plan_reset_pass"),
-				transactionDateFilter,
-			),
-		);
-
-	const grossResetPassRevenue = Number(grossResetPassRow?.value ?? 0);
-
-	// Chat Plans: plan payments on chat orgs, deduplicated per Stripe invoice.
-	// Mirrors /admin/chat-plans/timeseries.
-	const [grossChatPlansRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "chat"),
-				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
-				firstRowPerInvoiceFilter(CHAT_PLAN_TX_TYPES),
-				transactionDateFilter,
-			),
-		);
-
-	const grossChatPlansRevenue = Number(grossChatPlansRow?.value ?? 0);
-
-	// Org Pro subscriptions: `subscription_*` rows on non-devpass orgs (the same
-	// legacy types double as DevPass rows on devpass orgs, counted above).
-	const [grossProSubsRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				ne(tables.organization.kind, "devpass"),
-				inArray(tables.transaction.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
-				firstRowPerInvoiceFilter([
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				transactionDateFilter,
-			),
-		);
-
-	const grossProSubscriptionsRevenue = Number(grossProSubsRow?.value ?? 0);
-
-	// Manual payments: credits an administrator granted against money received
-	// outside Stripe (wire, crypto, …). `amount` is the real payment, so these
-	// belong in gross revenue like any other purchase — kept as their own split
-	// because they never appear in Stripe reporting.
-	const [grossManualPaymentsRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_manual_payment"),
-				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
-				transactionDateFilter,
-			),
-		);
-
-	const grossManualPaymentsRevenue = Number(grossManualPaymentsRow?.value ?? 0);
-
-	// Enterprise deals: negotiated contract revenue recorded outside the credits
-	// economy. `creditAmount` is always null, so this split never changes credit
-	// flow or balances.
-	const [grossEnterpriseDealsRow] = await db
-		.select({
-			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"value",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "enterprise_license_fee"),
-				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
-				transactionDateFilter,
-			),
-		);
-
-	const grossEnterpriseDealsRevenue = Number(
-		grossEnterpriseDealsRow?.value ?? 0,
-	);
-
-	// Provider listing fees. Their payers are not organizations, so they have
-	// no transaction rows.
-	const [grossProviderListingRow] = await db
+	const grossProviderListingRowQuery = db
 		.select({
 			value:
 				sql<number>`COALESCE(SUM(CAST(${tables.providerListingPayment.amount} AS NUMERIC)), 0)`.as(
@@ -1695,24 +1422,7 @@ admin.openapi(getMetrics, async (c) => {
 					: undefined,
 			),
 		);
-
-	const grossProviderListingRevenue = Number(
-		grossProviderListingRow?.value ?? 0,
-	);
-
-	// Airside gateway margin, per carrier. dayTimestamp is `timestamp without
-	// time zone`, so compare against UTC strings rather than Date parameters.
-	const toUtcTimestamp = (date: Date) =>
-		date.toISOString().slice(0, 19).replace("T", " ");
-	const airsideMarginDateFilter = and(
-		startDate
-			? sql`${globalModelStats.dayTimestamp} >= ${toUtcTimestamp(startDate)}::timestamp`
-			: undefined,
-		endDate
-			? sql`${globalModelStats.dayTimestamp} <= ${toUtcTimestamp(endDate)}::timestamp`
-			: undefined,
-	);
-	const airsideMarginRows = await db
+	const airsideMarginRowsQuery = db
 		.select({
 			providerId: tables.providerRoutingSettings.providerId,
 			companyName: tables.providerCompany.name,
@@ -1745,6 +1455,64 @@ admin.openapi(getMetrics, async (c) => {
 			tables.providerRoutingSettings.providerId,
 			tables.providerCompany.name,
 		);
+	const [
+		[signupsRow],
+		[transactionRow],
+		[orgsRow],
+		[spentRow],
+		[grossProviderListingRow],
+		airsideMarginRows,
+	] = await Promise.all([
+		usersQuery,
+		transactionQuery,
+		orgsRowQuery,
+		spentRowQuery,
+		grossProviderListingRowQuery,
+		airsideMarginRowsQuery,
+	]);
+
+	const totalSignups = Number(signupsRow?.count ?? 0);
+	const verifiedUsers = Number(signupsRow?.verified ?? 0);
+	const payingCustomers = Number(transactionRow?.payingCustomers ?? 0);
+	const totalRevenue = Number(transactionRow?.totalRevenue ?? 0);
+	const totalOrganizations = Number(orgsRow?.count ?? 0);
+	const totalToppedUp = Number(transactionRow?.totalToppedUp ?? 0);
+	const totalToppedUpGifted = Number(transactionRow?.totalToppedUpGifted ?? 0);
+	const totalSpent = Number(spentRow?.value ?? 0);
+	const totalCreditsSpent = Number(spentRow?.creditsValue ?? 0);
+	const totalApiKeysSpent = Number(spentRow?.apiKeysValue ?? 0);
+	const totalDebitedSpend = Number(spentRow?.debitedValue ?? 0);
+	const totalProcessed = Number(transactionRow?.totalProcessed ?? 0);
+	const totalGiftedCredits = Number(transactionRow?.totalGiftedCredits ?? 0);
+	const totalBonusCredits = -Number(transactionRow?.bonusCredits ?? 0);
+	const totalRefunds = Number(transactionRow?.totalRefunds ?? 0);
+	const totalRefundedCredits = -Number(transactionRow?.refundedCredits ?? 0);
+	const grossCreditsRevenue = Number(transactionRow?.grossCreditsRevenue ?? 0);
+	const grossSdkPaymentsRevenue = Number(
+		transactionRow?.grossSdkPaymentsRevenue ?? 0,
+	);
+	const grossDevpassTopupsRevenue = Number(
+		transactionRow?.grossDevpassTopupsRevenue ?? 0,
+	);
+	const grossDevpassRevenue = Number(transactionRow?.grossDevpassRevenue ?? 0);
+	const grossResetPassRevenue = Number(
+		transactionRow?.grossResetPassRevenue ?? 0,
+	);
+	const grossChatPlansRevenue = Number(
+		transactionRow?.grossChatPlansRevenue ?? 0,
+	);
+	const grossProSubscriptionsRevenue = Number(
+		transactionRow?.grossProSubscriptionsRevenue ?? 0,
+	);
+	const grossManualPaymentsRevenue = Number(
+		transactionRow?.grossManualPaymentsRevenue ?? 0,
+	);
+	const grossEnterpriseDealsRevenue = Number(
+		transactionRow?.grossEnterpriseDealsRevenue ?? 0,
+	);
+	const grossProviderListingRevenue = Number(
+		grossProviderListingRow?.value ?? 0,
+	);
 
 	const airsideMarginByCarrier = airsideMarginRows
 		.map((row) => ({
@@ -1877,428 +1645,160 @@ admin.openapi(getTimeseries, async (c) => {
 		startDate.setUTCHours(0, 0, 0, 0);
 	}
 
-	// Signups per day
-	const signupsPerDay = await db
+	// One bucket holds all pre-range history for the cumulative opening balance.
+	const transactionDay = sql<
+		string | null
+	>`CASE WHEN ${lt(tables.transaction.createdAt, startDate)} THEN NULL ELSE DATE(${tables.transaction.createdAt})::text END`.as(
+		"date",
+	);
+	const revenueQuery = db
 		.select({
-			date: sql<string>`DATE(${tables.user.createdAt})`.as("date"),
-			count: sql<number>`COUNT(*)`.as("count"),
+			date: transactionDay,
+			revenue: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				creditRevenueFilter,
+			),
+			enterpriseRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				eq(tables.transaction.type, "enterprise_license_fee"),
+			),
+			processed: sumTransactionWhere(
+				tables.transaction.amount,
+				creditRevenueFilter,
+			),
+			refunds: sumTransactionWhere(
+				tables.transaction.amount,
+				eq(tables.transaction.type, "credit_refund"),
+			),
+			refundedCredits: sumTransactionWhere(
+				tables.transaction.creditAmount,
+				eq(tables.transaction.type, "credit_refund"),
+			),
+			devpassRevenue: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.organization.kind, "devpass"),
+					inArray(tables.transaction.type, [
+						...DEV_PLAN_TX_TYPES,
+						...LEGACY_DEV_PLAN_TX_TYPES,
+					]),
+				),
+			),
+			devpassRefunds: sumTransactionWhere(
+				tables.transaction.amount,
+				and(
+					eq(tables.transaction.type, "credit_refund"),
+					eq(tables.organization.kind, "devpass"),
+					sql`original.type IN (${sql.join(
+						[...DEV_PLAN_TX_TYPES, ...LEGACY_DEV_PLAN_TX_TYPES].map(
+							(type) => sql`${type}`,
+						),
+						sql`, `,
+					)})`,
+				),
+			),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.leftJoin(
+			sql`${tables.transaction} original`,
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				sql`original.id = ${tables.transaction.relatedTransactionId}`,
+			),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(sql`"date"`);
+
+	const firstPayment = db
+		.select({
+			firstPaidAt: sql<string>`MIN(${tables.transaction.createdAt})`.as(
+				"first_paid_at",
+			),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				paidTransactionFilter,
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(tables.transaction.organizationId)
+		.as("first_payment");
+	const paidDay = sql<
+		string | null
+	>`CASE WHEN ${firstPayment.firstPaidAt} < ${startDate.toISOString()}::timestamp THEN NULL ELSE DATE(${firstPayment.firstPaidAt})::text END`.as(
+		"date",
+	);
+	const paidQuery = db
+		.select({ date: paidDay, count: sql<number>`COUNT(*)` })
+		.from(firstPayment)
+		.groupBy(sql`"date"`);
+	const signupsQuery = db
+		.select({
+			date: sql<string>`DATE(${tables.user.createdAt})`,
+			count: sql<number>`COUNT(*)`,
 		})
 		.from(tables.user)
-		.where(gte(tables.user.createdAt, startDate))
-		.groupBy(sql`DATE(${tables.user.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.user.createdAt})`));
-
-	// Revenue per day (post-fee credit revenue; matches /admin/metrics
-	// totalRevenue). Enterprise deals are a separate series below.
-	const revenuePerDay = await db
-		.select({
-			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
 		.where(
 			and(
-				eq(tables.transaction.status, "completed"),
-				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_license_fee"),
-				notPlanFilter,
-				notEndUserNonRevenueFilter,
-				notRefundFilter,
-				gte(tables.transaction.createdAt, startDate),
-				lte(tables.transaction.createdAt, endDate),
+				gte(tables.user.createdAt, startDate),
+				lte(tables.user.createdAt, endDate),
 			),
 		)
-		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
-
-	const enterpriseRevenuePerDay = await db
-		.select({
-			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "enterprise_license_fee"),
-				gte(tables.transaction.createdAt, startDate),
-				lte(tables.transaction.createdAt, endDate),
-			),
-		)
-		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
-
-	// Processed per day (gross Stripe amount; matches /admin/metrics totalProcessed)
-	const processedPerDay = await db
-		.select({
-			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_license_fee"),
-				notPlanFilter,
-				notEndUserNonRevenueFilter,
-				notRefundFilter,
-				gte(tables.transaction.createdAt, startDate),
-				lte(tables.transaction.createdAt, endDate),
-			),
-		)
-		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
-
-	// Refunds per day, gross (positive `amount`) and on a credit basis (the
-	// negated `creditAmount` clawback), mirroring /admin/metrics.
-	const refundsPerDay = await db
-		.select({
-			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-			credits:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"credits",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_refund"),
-				gte(tables.transaction.createdAt, startDate),
-				lte(tables.transaction.createdAt, endDate),
-			),
-		)
-		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
-
-	// DevPass revenue per day: dev plan payments (+ legacy `subscription_*` rows
-	// on devpass orgs), gross Stripe `amount` deduplicated per invoice. Mirrors
-	// /admin/devpass/timeseries.
-	const devpassRevenuePerDay = await db
-		.select({
-			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				inArray(tables.transaction.type, [
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				firstRowPerInvoiceFilter([
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				gte(tables.transaction.createdAt, startDate),
-				lte(tables.transaction.createdAt, endDate),
-			),
-		)
-		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
-
-	// DevPass refunds per day: `credit_refund` rows linked back to a dev plan
-	// payment via `relatedTransactionId`. Mirrors /admin/devpass/timeseries.
-	const devpassRefundOriginalTx = aliasedTable(
-		tables.transaction,
-		"devpass_refund_original_tx",
+		.groupBy(sql`DATE(${tables.user.createdAt})`);
+	const [revenueRows, paidRows, signupsPerDay] = await Promise.all([
+		revenueQuery,
+		paidQuery,
+		signupsQuery,
+	]);
+	const preRange = revenueRows.find((row) => row.date === null);
+	const preRangeRevenue = Number(preRange?.revenue ?? 0);
+	const preRangeProcessed = Number(preRange?.processed ?? 0);
+	const preRangeRefunds = Number(preRange?.refunds ?? 0);
+	const preRangeRefundedCredits = -Number(preRange?.refundedCredits ?? 0);
+	const preRangeDevpassRevenue = Number(preRange?.devpassRevenue ?? 0);
+	const preRangeDevpassRefunds = Number(preRange?.devpassRefunds ?? 0);
+	const preRangeEnterpriseRevenue = Number(preRange?.enterpriseRevenue ?? 0);
+	const preRangeCount = Number(
+		paidRows.find((row) => row.date === null)?.count ?? 0,
 	);
-	const devpassRefundsPerDay = await db
-		.select({
-			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			devpassRefundOriginalTx,
-			eq(tables.transaction.relatedTransactionId, devpassRefundOriginalTx.id),
-		)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.type, "credit_refund"),
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				inArray(devpassRefundOriginalTx.type, [
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				gte(tables.transaction.createdAt, startDate),
-				lte(tables.transaction.createdAt, endDate),
-			),
-		)
-		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
-
-	// Pre-range totals for cumulative chart
-	const [preRangeRevenueRow] = await db
-		.select({
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_license_fee"),
-				notPlanFilter,
-				notEndUserNonRevenueFilter,
-				notRefundFilter,
-				sql`${tables.transaction.createdAt} < ${startDate}`,
-			),
-		);
-	const preRangeRevenue = Number(preRangeRevenueRow?.total ?? 0);
-
-	const [preRangeEnterpriseRevenueRow] = await db
-		.select({
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "enterprise_license_fee"),
-				sql`${tables.transaction.createdAt} < ${startDate}`,
-			),
-		);
-	const preRangeEnterpriseRevenue = Number(
-		preRangeEnterpriseRevenueRow?.total ?? 0,
+	const signupsMap = new Map(
+		signupsPerDay.map((row) => [row.date, Number(row.count)]),
 	);
-
-	const [preRangeProcessedRow] = await db
-		.select({
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_license_fee"),
-				notPlanFilter,
-				notEndUserNonRevenueFilter,
-				notRefundFilter,
-				sql`${tables.transaction.createdAt} < ${startDate}`,
-			),
-		);
-	const preRangeProcessed = Number(preRangeProcessedRow?.total ?? 0);
-
-	const [preRangeRefundsRow] = await db
-		.select({
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-			credits:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"credits",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_refund"),
-				sql`${tables.transaction.createdAt} < ${startDate}`,
-			),
-		);
-	const preRangeRefunds = Number(preRangeRefundsRow?.total ?? 0);
-	const preRangeRefundedCredits = -Number(preRangeRefundsRow?.credits ?? 0);
-
-	const [preRangeDevpassRevenueRow] = await db
-		.select({
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				inArray(tables.transaction.type, [
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				firstRowPerInvoiceFilter([
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				sql`${tables.transaction.createdAt} < ${startDate}`,
-			),
-		);
-	const preRangeDevpassRevenue = Number(preRangeDevpassRevenueRow?.total ?? 0);
-
-	const [preRangeDevpassRefundsRow] = await db
-		.select({
-			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			devpassRefundOriginalTx,
-			eq(tables.transaction.relatedTransactionId, devpassRefundOriginalTx.id),
-		)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.type, "credit_refund"),
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				inArray(devpassRefundOriginalTx.type, [
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-				sql`${tables.transaction.createdAt} < ${startDate}`,
-			),
-		);
-	const preRangeDevpassRefunds = Number(preRangeDevpassRefundsRow?.total ?? 0);
-
-	// Count of orgs that became paying before the range (bounded SQL query)
-	const [preRangeRow] = await db
-		.select({
-			count: sql<number>`COUNT(*)`.as("count"),
-		})
-		.from(
-			db
-				.select({
-					organizationId: tables.transaction.organizationId,
-				})
-				.from(tables.transaction)
-				.where(
-					and(
-						eq(tables.transaction.status, "completed"),
-						paidTransactionFilter,
-					),
-				)
-				.groupBy(tables.transaction.organizationId)
-				.having(sql`MIN(${tables.transaction.createdAt}) < ${startDate}`)
-				.as("pre_range_orgs"),
-		);
-	const preRangeCount = Number(preRangeRow?.count ?? 0);
-
-	// New paid customers per day within the range (bounded SQL query)
-	const firstTransactionPerOrg = await db
-		.select({
-			date: sql<string>`date`.as("date"),
-			count: sql<number>`COUNT(*)`.as("count"),
-		})
-		.from(
-			db
-				.select({
-					date: sql<string>`DATE(MIN(${tables.transaction.createdAt}))`.as(
-						"date",
-					),
-				})
-				.from(tables.transaction)
-				.where(
-					and(
-						eq(tables.transaction.status, "completed"),
-						paidTransactionFilter,
-					),
-				)
-				.groupBy(tables.transaction.organizationId)
-				.having(
-					and(
-						sql`MIN(${tables.transaction.createdAt}) >= ${startDate}`,
-						sql`MIN(${tables.transaction.createdAt}) <= ${endDate}`,
-					),
-				)
-				.as("in_range_orgs"),
-		)
-		.groupBy(sql`date`)
-		.orderBy(asc(sql`date`));
-
-	// Build maps for quick lookup
-	const signupsMap = new Map<string, number>();
-	for (const row of signupsPerDay) {
-		signupsMap.set(row.date, Number(row.count));
-	}
-
-	const revenueMap = new Map<string, number>();
-	for (const row of revenuePerDay) {
-		revenueMap.set(row.date, Number(row.total));
-	}
-
-	const processedMap = new Map<string, number>();
-	for (const row of processedPerDay) {
-		processedMap.set(row.date, Number(row.total));
-	}
-
-	const refundsMap = new Map<string, number>();
-	const refundedCreditsMap = new Map<string, number>();
-	for (const row of refundsPerDay) {
-		refundsMap.set(row.date, Number(row.total));
-		refundedCreditsMap.set(row.date, -Number(row.credits));
-	}
-
-	const devpassRevenueMap = new Map<string, number>();
-	for (const row of devpassRevenuePerDay) {
-		devpassRevenueMap.set(row.date, Number(row.total));
-	}
-
-	const devpassRefundsMap = new Map<string, number>();
-	for (const row of devpassRefundsPerDay) {
-		devpassRefundsMap.set(row.date, Number(row.total));
-	}
-
-	const enterpriseRevenueMap = new Map<string, number>();
-	for (const row of enterpriseRevenuePerDay) {
-		enterpriseRevenueMap.set(row.date, Number(row.total));
-	}
-
-	const newPaidMap = new Map<string, number>();
-	for (const row of firstTransactionPerOrg) {
-		newPaidMap.set(row.date, Number(row.count));
-	}
+	const newPaidMap = new Map(
+		paidRows.map((row) => [row.date, Number(row.count)]),
+	);
+	const revenueMap = new Map(
+		revenueRows.map((row) => [row.date, Number(row.revenue)]),
+	);
+	const processedMap = new Map(
+		revenueRows.map((row) => [row.date, Number(row.processed)]),
+	);
+	const refundsMap = new Map(
+		revenueRows.map((row) => [row.date, Number(row.refunds)]),
+	);
+	const refundedCreditsMap = new Map(
+		revenueRows.map((row) => [row.date, -Number(row.refundedCredits)]),
+	);
+	const devpassRevenueMap = new Map(
+		revenueRows.map((row) => [row.date, Number(row.devpassRevenue)]),
+	);
+	const devpassRefundsMap = new Map(
+		revenueRows.map((row) => [row.date, Number(row.devpassRefunds)]),
+	);
+	const enterpriseRevenueMap = new Map(
+		revenueRows.map((row) => [row.date, Number(row.enterpriseRevenue)]),
+	);
 
 	// Fill all dates in range
 	const data: Array<{
@@ -2397,7 +1897,14 @@ admin.openapi(getTimeseries, async (c) => {
 	});
 });
 
-const globalStatsRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
+const globalStatsRangeSchema = z.enum([
+	"24h",
+	"7d",
+	"30d",
+	"90d",
+	"365d",
+	"all",
+]);
 const globalStatsGroupBySchema = z.enum(["model", "source", "mode", "kind"]);
 const globalStatsModelViewSchema = z.enum(["mapping", "canonical", "provider"]);
 // Billing mode filter. "total" blends every mode, including the "unknown"
@@ -2480,7 +1987,7 @@ const globalStatsBreakdownItemSchema = globalStatsMetricsSchema
 	})
 	.openapi({});
 
-// Per-day, per-dimension point. Only the three chartable metrics are returned
+// Per-bucket, per-dimension point. Only the three chartable metrics are returned
 // to keep the payload small; the client picks the top dimensions per metric and
 // collapses the rest into an "Other" bucket.
 const globalStatsTimeseriesBreakdownPointSchema = z
@@ -2495,6 +2002,8 @@ const globalStatsTimeseriesBreakdownPointSchema = z
 	.openapi({});
 
 const globalStatsResponseSchema = z.object({
+	granularity: z.enum(["hour", "day"]),
+	timeZone: z.literal("UTC"),
 	start: z.string(),
 	end: z.string(),
 	groupBy: globalStatsGroupBySchema,
@@ -2540,6 +2049,10 @@ const getGlobalStats = createRoute({
 			to: globalStatsDateSchema.optional(),
 			groupBy: globalStatsGroupBySchema.default("model").optional(),
 			modelView: globalStatsModelViewSchema.default("mapping").optional(),
+			includeTimeseriesBreakdown: z
+				.enum(["true", "false"])
+				.default("true")
+				.optional(),
 			mode: globalStatsModeSchema.default("total").optional(),
 			kind: globalStatsKindSchema.default("all").optional(),
 			// Comma-separated provider credential ids; narrows every metric to
@@ -2582,9 +2095,13 @@ admin.openapi(getGlobalStats, async (c) => {
 			? "model"
 			: (query.groupBy ?? "model");
 	const modelView = query.modelView ?? "mapping";
+	const includeTimeseriesBreakdown =
+		query.includeTimeseriesBreakdown !== "false";
 	const mode = query.mode ?? "total";
 	const kind = query.kind ?? "all";
 
+	const hourly = query.range === "24h" && !query.from && !query.to;
+	const hourMs = 60 * 60 * 1000;
 	const dayMs = 24 * 60 * 60 * 1000;
 	const MAX_GLOBAL_STATS_DAYS = 731;
 
@@ -2592,21 +2109,29 @@ admin.openapi(getGlobalStats, async (c) => {
 	// read the (much smaller) source table, which covers the same requests.
 	// A credential or provider filter reads a per-model table for every
 	// grouping, since both carry provider, model, mode and kind alike.
-	const modelTable = byKey ? globalProviderKeyModelStats : globalModelStats;
+	const modelStats = hourly ? globalHourlyModelStats : globalModelStats;
+	const keyStats = hourly
+		? globalHourlyProviderKeyModelStats
+		: globalProviderKeyModelStats;
+	const sourceStats = hourly ? globalHourlySourceStats : globalSourceStats;
+	const modelTable = byKey ? keyStats : modelStats;
 	const sourceTable = byKey
-		? globalProviderKeyModelStats
+		? keyStats
 		: groupBy === "model" || provider
-			? globalModelStats
-			: globalSourceStats;
+			? modelStats
+			: sourceStats;
+
+	const timestamp =
+		"hourTimestamp" in sourceTable
+			? sourceTable.hourTimestamp
+			: sourceTable.dayTimestamp;
 
 	// Narrowing happens in SQL, so every metric below — tokens, errors, cache,
 	// per-part costs — reflects exactly the selected slice.
 	const modeFilter = mode === "total" ? [] : [eq(sourceTable.usedMode, mode)];
 	const kindFilter = kind === "all" ? [] : [eq(sourceTable.orgKind, kind)];
 	const keyFilter = [
-		...(byKey
-			? [inArray(globalProviderKeyModelStats.providerKeyId, providerKeyIds)]
-			: []),
+		...(byKey ? [inArray(keyStats.providerKeyId, providerKeyIds)] : []),
 		...(provider ? [eq(modelTable.usedProvider, provider)] : []),
 	];
 	const dimensionFilter = [...modeFilter, ...kindFilter, ...keyFilter];
@@ -2628,15 +2153,17 @@ admin.openapi(getGlobalStats, async (c) => {
 			startDate = endDate;
 			endDate = tmp;
 		}
+	} else if (hourly) {
+		({ start: startDate, end: endDate } = globalStatsHourlyRange());
 	} else if (allTime) {
 		const bounds = await db
 			.select({
-				minDay: sql<
-					string | null
-				>`to_char(MIN(${sourceTable.dayTimestamp}), 'YYYY-MM-DD')`.as("minDay"),
-				maxDay: sql<
-					string | null
-				>`to_char(MAX(${sourceTable.dayTimestamp}), 'YYYY-MM-DD')`.as("maxDay"),
+				minDay: sql<string | null>`to_char(MIN(${timestamp}), 'YYYY-MM-DD')`.as(
+					"minDay",
+				),
+				maxDay: sql<string | null>`to_char(MAX(${timestamp}), 'YYYY-MM-DD')`.as(
+					"maxDay",
+				),
 			})
 			.from(sourceTable)
 			.where(dimensionFilter.length ? and(...dimensionFilter) : undefined);
@@ -2647,7 +2174,10 @@ admin.openapi(getGlobalStats, async (c) => {
 		startDate = minDay ? new Date(minDay + "T00:00:00Z") : new Date(endDate);
 		startDate.setUTCHours(0, 0, 0, 0);
 	} else {
-		const range = query.range && query.range !== "all" ? query.range : "30d";
+		const range =
+			query.range && query.range !== "all" && query.range !== "24h"
+				? query.range
+				: "30d";
 		const rangeDays: Record<"7d" | "30d" | "90d" | "365d", number> = {
 			"7d": 7,
 			"30d": 30,
@@ -2725,24 +2255,86 @@ admin.openapi(getGlobalStats, async (c) => {
 		videoOutputCost: sumMoney(sourceTable.videoOutputCost, "videoOutputCost"),
 	};
 
-	const dateExpr =
-		sql<string>`to_char(${sourceTable.dayTimestamp}, 'YYYY-MM-DD')`.as("date");
+	const dateExpr = hourly
+		? sql<string>`to_char(${timestamp}, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`.as(
+				"date",
+			)
+		: sql<string>`to_char(${timestamp}, 'YYYY-MM-DD')`.as("date");
 
 	const rangeFilter = and(
-		gte(sourceTable.dayTimestamp, startDate),
-		lte(sourceTable.dayTimestamp, endDate),
+		gte(timestamp, startDate),
+		hourly ? lt(timestamp, endDate) : lte(timestamp, endDate),
 	);
 	const scopeFilter = and(rangeFilter, ...dimensionFilter);
 
-	const timeseriesRows = await db
-		.select({
-			date: dateExpr,
-			...metricSums,
-		})
-		.from(sourceTable)
-		.where(scopeFilter)
-		.groupBy(sourceTable.dayTimestamp)
-		.orderBy(asc(sourceTable.dayTimestamp));
+	// Group coarser model views in SQL instead of transferring every mapping.
+	const breakdownColumn =
+		groupBy === "model"
+			? modelView === "canonical"
+				? sql<string>`split_part(substring(${modelTable.usedModel} from position('/' in ${modelTable.usedModel}) + 1), ':', 1)`
+				: modelView === "provider"
+					? sql<string>`COALESCE(NULLIF(${modelTable.usedProvider}, ''), 'unknown')`
+					: modelTable.usedModel
+			: groupBy === "mode"
+				? sourceTable.usedMode
+				: groupBy === "kind"
+					? sourceTable.orgKind
+					: sourceStats.source;
+
+	const compositionSums = {
+		requestCount: metricSums.requestCount,
+		cost: metricSums.cost,
+		totalTokens: metricSums.totalTokens,
+	};
+	// Separate full-metric summaries allow PostgreSQL's parallel aggregation.
+	const [
+		timeseriesRows,
+		breakdownRows,
+		timeseriesBreakdownRows,
+		compositionRows,
+	] = await Promise.all([
+		db
+			.select({ date: dateExpr, ...metricSums })
+			.from(sourceTable)
+			.where(scopeFilter)
+			.groupBy(timestamp),
+		db
+			.select({ dimension: breakdownColumn, ...metricSums })
+			.from(sourceTable)
+			.where(scopeFilter)
+			.groupBy(breakdownColumn),
+		includeTimeseriesBreakdown
+			? db
+					.select({
+						date: dateExpr,
+						dimension: breakdownColumn,
+						...compositionSums,
+					})
+					.from(sourceTable)
+					.where(scopeFilter)
+					.groupBy(timestamp, breakdownColumn)
+			: Promise.resolve([]),
+		// Both composition panels share this small mode × kind matrix. Each
+		// panel ignores its own filter while retaining the other dimension.
+		db
+			.select({
+				mode: sourceTable.usedMode,
+				kind: sourceTable.orgKind,
+				...compositionSums,
+			})
+			.from(sourceTable)
+			.where(
+				and(
+					rangeFilter,
+					...keyFilter,
+					or(
+						kind === "all" ? sql`true` : eq(sourceTable.orgKind, kind),
+						mode === "total" ? sql`true` : eq(sourceTable.usedMode, mode),
+					),
+				),
+			)
+			.groupBy(sourceTable.usedMode, sourceTable.orgKind),
+	]);
 
 	const timeseriesMap = new Map<
 		string,
@@ -2758,9 +2350,13 @@ admin.openapi(getGlobalStats, async (c) => {
 	const totals = emptyGlobalStatsMetrics();
 
 	const timeseries: z.infer<typeof globalStatsTimeseriesPointSchema>[] = [];
-	for (let i = 0; i < days; i++) {
-		const cur = new Date(startDate.getTime() + i * dayMs); // eslint-disable-line no-mixed-operators
-		const dateStr = cur.toISOString().split("T")[0];
+	const bucketCount = hourly ? 24 : days;
+	const bucketMs = hourly ? hourMs : dayMs;
+	for (let i = 0; i < bucketCount; i++) {
+		const cur = new Date(startDate.getTime() + i * bucketMs); // eslint-disable-line no-mixed-operators
+		const dateStr = hourly
+			? cur.toISOString()
+			: cur.toISOString().split("T")[0];
 		const point = timeseriesMap.get(dateStr) ?? {
 			date: dateStr,
 			...emptyGlobalStatsMetrics(),
@@ -2771,174 +2367,65 @@ admin.openapi(getGlobalStats, async (c) => {
 		}
 	}
 
-	// The dimension the breakdown groups on. `model` needs the per-model table
-	// (and its mapping/canonical/provider views); the rest are single columns
-	// on the source table.
-	const breakdownColumn =
-		groupBy === "mode"
-			? sourceTable.usedMode
-			: groupBy === "kind"
-				? sourceTable.orgKind
-				: globalSourceStats.source;
-
-	const breakdownRows =
-		groupBy === "model"
-			? await db
-					.select({
-						usedModel: modelTable.usedModel,
-						usedProvider: modelTable.usedProvider,
-						...metricSums,
-					})
-					.from(modelTable)
-					.where(scopeFilter)
-					.groupBy(modelTable.usedModel, modelTable.usedProvider)
-					.orderBy(desc(metricSums.requestCount))
-			: await db
-					.select({
-						dimension: breakdownColumn,
-						...metricSums,
-					})
-					.from(sourceTable)
-					.where(scopeFilter)
-					.groupBy(breakdownColumn)
-					.orderBy(desc(metricSums.requestCount));
-
-	const breakdown: z.infer<typeof globalStatsBreakdownItemSchema>[] =
-		groupBy === "model" && modelView === "canonical"
-			? aggregateBreakdownRows(
-					breakdownRows as Array<
-						(typeof breakdownRows)[number] & { usedModel: string }
-					>,
-					(row) => extractCanonicalModelId(row.usedModel),
-				)
-			: groupBy === "model" && modelView === "provider"
-				? aggregateBreakdownRows(
-						breakdownRows as Array<
-							(typeof breakdownRows)[number] & { usedProvider: string }
-						>,
-						(row) => row.usedProvider || "unknown",
-					)
-				: breakdownRows.map((row) => {
-						const key =
-							"usedModel" in row ? row.usedModel : (row.dimension ?? "unknown");
-						return {
-							...toBreakdownMetrics(row),
-							key,
-							label: globalStatsDimensionLabel(groupBy, key),
-						};
-					});
-
-	const timeseriesBreakdownRows =
-		groupBy === "model"
-			? await db
-					.select({
-						date: dateExpr,
-						usedModel: modelTable.usedModel,
-						usedProvider: modelTable.usedProvider,
-						...metricSums,
-					})
-					.from(modelTable)
-					.where(scopeFilter)
-					.groupBy(
-						modelTable.dayTimestamp,
-						modelTable.usedModel,
-						modelTable.usedProvider,
-					)
-			: await db
-					.select({
-						date: dateExpr,
-						dimension: breakdownColumn,
-						...metricSums,
-					})
-					.from(sourceTable)
-					.where(scopeFilter)
-					.groupBy(sourceTable.dayTimestamp, breakdownColumn);
-
-	const timeseriesBreakdownMap = new Map<
-		string,
-		z.infer<typeof globalStatsTimeseriesBreakdownPointSchema>
-	>();
-	for (const row of timeseriesBreakdownRows) {
-		let key: string;
-		if (groupBy === "model") {
-			const modelRow = row as (typeof timeseriesBreakdownRows)[number] & {
-				usedModel: string;
-				usedProvider: string;
-			};
-			key =
-				modelView === "canonical"
-					? extractCanonicalModelId(modelRow.usedModel)
-					: modelView === "provider"
-						? modelRow.usedProvider || "unknown"
-						: modelRow.usedModel;
-		} else {
-			key =
-				(
-					row as (typeof timeseriesBreakdownRows)[number] & {
-						dimension: string;
-					}
-				).dimension ?? "unknown";
-		}
-		const mapKey = `${row.date}:${key}`;
-		const existing = timeseriesBreakdownMap.get(mapKey);
-		if (existing) {
-			existing.requestCount += Number(row.requestCount);
-			existing.cost += Number(row.cost);
-			existing.totalTokens += Number(row.totalTokens);
-		} else {
-			timeseriesBreakdownMap.set(mapKey, {
-				date: row.date,
-				key,
-				label: globalStatsDimensionLabel(groupBy, key),
-				requestCount: Number(row.requestCount),
-				cost: Number(row.cost),
-				totalTokens: Number(row.totalTokens),
-			});
-		}
-	}
-	const timeseriesBreakdown = Array.from(timeseriesBreakdownMap.values());
-
-	// Composition of the range along each dimension, each honouring the *other*
-	// filter so both always add up to `totals`.
-	const compositionSums = {
-		requestCount: metricSums.requestCount,
-		cost: metricSums.cost,
-		totalTokens: metricSums.totalTokens,
-	};
-	const [byModeRows, byKindRows] = await Promise.all([
-		db
-			.select({ dimension: sourceTable.usedMode, ...compositionSums })
-			.from(sourceTable)
-			.where(and(rangeFilter, ...kindFilter, ...keyFilter))
-			.groupBy(sourceTable.usedMode)
-			.orderBy(desc(compositionSums.requestCount)),
-		db
-			.select({ dimension: sourceTable.orgKind, ...compositionSums })
-			.from(sourceTable)
-			.where(and(rangeFilter, ...modeFilter, ...keyFilter))
-			.groupBy(sourceTable.orgKind)
-			.orderBy(desc(compositionSums.requestCount)),
-	]);
-
-	const toCompositionItem = (
-		dimension: "mode" | "kind",
-		row: {
-			dimension: string | null;
-			requestCount: number | string;
-			cost: number | string;
-			totalTokens: number | string;
-		},
-	) => ({
+	const breakdown = breakdownRows
+		.map((row) => ({
+			...toBreakdownMetrics(row),
+			key: row.dimension ?? "unknown",
+			label: globalStatsDimensionLabel(groupBy, row.dimension ?? "unknown"),
+		}))
+		.sort(
+			(a, b) => b.requestCount - a.requestCount || a.key.localeCompare(b.key),
+		);
+	const timeseriesBreakdown = timeseriesBreakdownRows.map((row) => ({
+		date: row.date,
 		key: row.dimension ?? "unknown",
-		label: globalStatsDimensionLabel(dimension, row.dimension ?? "unknown"),
+		label: globalStatsDimensionLabel(groupBy, row.dimension ?? "unknown"),
 		requestCount: Number(row.requestCount),
 		cost: Number(row.cost),
 		totalTokens: Number(row.totalTokens),
-	});
+	}));
+
+	const compositionFor = (dimension: "mode" | "kind") => {
+		const rows = new Map<
+			string,
+			{ requestCount: number; cost: Decimal; totalTokens: number }
+		>();
+		for (const row of compositionRows) {
+			if (
+				dimension === "mode"
+					? kind !== "all" && row.kind !== kind
+					: mode !== "total" && row.mode !== mode
+			) {
+				continue;
+			}
+			const key = row[dimension] ?? "unknown";
+			const item = rows.get(key) ?? {
+				requestCount: 0,
+				cost: new Decimal(0),
+				totalTokens: 0,
+			};
+			item.requestCount += Number(row.requestCount);
+			item.cost = item.cost.plus(row.cost);
+			item.totalTokens += Number(row.totalTokens);
+			rows.set(key, item);
+		}
+		return Array.from(rows, ([key, item]) => ({
+			...item,
+			key,
+			label: globalStatsDimensionLabel(dimension, key),
+			cost: item.cost.toNumber(),
+		})).sort(
+			(a, b) => b.requestCount - a.requestCount || a.key.localeCompare(b.key),
+		);
+	};
 
 	return c.json({
-		start: startDate.toISOString().split("T")[0],
-		end: endDate.toISOString().split("T")[0],
+		granularity: hourly ? ("hour" as const) : ("day" as const),
+		timeZone: "UTC" as const,
+		start: hourly
+			? startDate.toISOString()
+			: startDate.toISOString().split("T")[0],
+		end: hourly ? endDate.toISOString() : endDate.toISOString().split("T")[0],
 		groupBy,
 		modelView,
 		mode,
@@ -2947,8 +2434,8 @@ admin.openapi(getGlobalStats, async (c) => {
 		provider,
 		totals,
 		composition: {
-			byMode: byModeRows.map((row) => toCompositionItem("mode", row)),
-			byKind: byKindRows.map((row) => toCompositionItem("kind", row)),
+			byMode: compositionFor("mode"),
+			byKind: compositionFor("kind"),
 		},
 		timeseries,
 		timeseriesBreakdown,
@@ -2983,19 +2470,36 @@ const globalStatsListQuerySchema = z.object({
 	kind: globalStatsKindSchema.default("all").optional(),
 });
 
+function globalStatsHourlyRange() {
+	const end = new Date();
+	end.setUTCMinutes(0, 0, 0);
+	const dayMs = 24 * 60 * 60 * 1000;
+	const start = new Date(end.getTime() - dayMs);
+	return { start, end };
+}
+
 // Range, mode and kind filters shared by the Global Stats filter pickers.
 function globalStatsListFilters(
-	stats: typeof globalModelStats | typeof globalProviderKeyModelStats,
+	stats:
+		| typeof globalModelStats
+		| typeof globalProviderKeyModelStats
+		| typeof globalHourlyModelStats
+		| typeof globalHourlyProviderKeyModelStats,
 	query: z.infer<typeof globalStatsListQuerySchema>,
 ) {
 	const dayMs = 24 * 60 * 60 * 1000;
 	const filters = [];
+	const timestamp =
+		"hourTimestamp" in stats ? stats.hourTimestamp : stats.dayTimestamp;
 	if (query.from && query.to) {
 		const [start, end] = [query.from, query.to].sort();
 		filters.push(
-			gte(stats.dayTimestamp, new Date(start + "T00:00:00Z")),
-			lte(stats.dayTimestamp, new Date(end + "T00:00:00Z")),
+			gte(timestamp, new Date(start + "T00:00:00Z")),
+			lte(timestamp, new Date(end + "T00:00:00Z")),
 		);
+	} else if (query.range === "24h") {
+		const { start, end } = globalStatsHourlyRange();
+		filters.push(gte(timestamp, start), lt(timestamp, end));
 	} else if (query.range !== "all") {
 		const rangeDays: Record<"7d" | "30d" | "90d" | "365d", number> = {
 			"7d": 7,
@@ -3008,7 +2512,7 @@ function globalStatsListFilters(
 		const start = new Date(
 			end.getTime() - (rangeDays[query.range ?? "30d"] - 1) * dayMs, // eslint-disable-line no-mixed-operators
 		);
-		filters.push(gte(stats.dayTimestamp, start));
+		filters.push(gte(timestamp, start));
 	}
 	if (query.mode && query.mode !== "total") {
 		filters.push(eq(stats.usedMode, query.mode));
@@ -3050,7 +2554,10 @@ const getGlobalStatsProviders = createRoute({
 
 admin.openapi(getGlobalStatsProviders, async (c) => {
 	const query = c.req.valid("query");
-	const stats = globalModelStats;
+	const stats =
+		query.range === "24h" && !query.from && !query.to
+			? globalHourlyModelStats
+			: globalModelStats;
 	const filters = globalStatsListFilters(stats, query);
 	const cost = sumMoney(stats.cost, "cost");
 	const rows = await db
@@ -3102,7 +2609,10 @@ const getGlobalStatsProviderKeys = createRoute({
 
 admin.openapi(getGlobalStatsProviderKeys, async (c) => {
 	const query = c.req.valid("query");
-	const stats = globalProviderKeyModelStats;
+	const stats =
+		query.range === "24h" && !query.from && !query.to
+			? globalHourlyProviderKeyModelStats
+			: globalProviderKeyModelStats;
 	const filters = globalStatsListFilters(stats, query);
 	if (query.provider) {
 		filters.push(eq(stats.usedProvider, query.provider));
@@ -3195,33 +2705,6 @@ function toBreakdownMetrics(
 	) as GlobalStatsRowMetrics;
 }
 
-// Collapses per-mapping rows onto a coarser key (canonical model id, provider)
-// by summing every metric.
-function aggregateBreakdownRows<T extends GlobalStatsRowMetrics>(
-	rows: T[],
-	keyOf: (row: T) => string,
-): z.infer<typeof globalStatsBreakdownItemSchema>[] {
-	const aggregated = new Map<
-		string,
-		z.infer<typeof globalStatsBreakdownItemSchema>
-	>();
-	for (const row of rows) {
-		const key = keyOf(row);
-		const existing = aggregated.get(key);
-		const metrics = toBreakdownMetrics(row);
-		if (!existing) {
-			aggregated.set(key, { ...metrics, key, label: key });
-			continue;
-		}
-		for (const metric of GLOBAL_STATS_METRIC_KEYS) {
-			existing[metric] += metrics[metric];
-		}
-	}
-	return Array.from(aggregated.values()).sort(
-		(a, b) => b.requestCount - a.requestCount,
-	);
-}
-
 // `Date.parse` rolls impossible days over instead of rejecting them
 // ("2026-02-30" becomes March 2), so round-trip the parsed date and refuse
 // anything that did not survive unchanged.
@@ -3272,71 +2755,82 @@ admin.openapi(getOrganizations, async (c) => {
 	// PAYG top-ups) net of their refunds. Excludes DevPass/Chat Plan virtual
 	// credits, gifts, and end-user wallet rows. Refunds of non-top-up charges
 	// carry a zero creditAmount, so including every credit_refund is safe.
-	const allTimeCredits = db
-		.select({
-			organizationId: tables.transaction.organizationId,
-			total:
-				sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"total",
+	const creditsForOrganizations = (organizationIds?: string[]) =>
+		db
+			.select({
+				organizationId: tables.transaction.organizationId,
+				total:
+					sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+						"total",
+					),
+			})
+			.from(tables.transaction)
+			.where(
+				and(
+					eq(tables.transaction.status, "completed"),
+					organizationIds
+						? inArray(tables.transaction.organizationId, organizationIds)
+						: undefined,
+					inArray(tables.transaction.type, [
+						"credit_topup",
+						"credit_manual_payment",
+						"credit_refund",
+					]),
 				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				inArray(tables.transaction.type, [
-					"credit_topup",
-					"credit_manual_payment",
-					"credit_refund",
-				]),
-			),
-		)
-		.groupBy(tables.transaction.organizationId)
-		.as("all_time_credits");
+			)
+			.groupBy(tables.transaction.organizationId)
+			.as("all_time_credits");
 
 	// Subquery for usage totals (cost, requests, tokens) per org, scoped to the
 	// selected window.
-	const totalSpentSub = db
-		.select({
-			organizationId: tables.project.organizationId,
-			total:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
-					"total_spent",
+	const usageForOrganizations = (organizationIds?: string[]) =>
+		db
+			.select({
+				organizationId: tables.project.organizationId,
+				total:
+					sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+						"total_spent",
+					),
+				creditsTotal:
+					sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
+						"credits_spent",
+					),
+				apiKeysTotal:
+					sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.apiKeysCost} AS NUMERIC)), 0)`.as(
+						"api_keys_spent",
+					),
+				requestsTotal:
+					sql<string>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
+						"total_requests",
+					),
+				tokensTotal:
+					sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"total_tokens",
+					),
+			})
+			.from(projectHourlyStats)
+			.innerJoin(
+				tables.project,
+				eq(projectHourlyStats.projectId, tables.project.id),
+			)
+			.where(
+				and(
+					organizationIds
+						? inArray(tables.project.organizationId, organizationIds)
+						: undefined,
+					usageStartDate
+						? gte(projectHourlyStats.hourTimestamp, usageStartDate)
+						: undefined,
+					usageEndDate
+						? lte(projectHourlyStats.hourTimestamp, usageEndDate)
+						: undefined,
 				),
-			creditsTotal:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
-					"credits_spent",
-				),
-			apiKeysTotal:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.apiKeysCost} AS NUMERIC)), 0)`.as(
-					"api_keys_spent",
-				),
-			requestsTotal:
-				sql<string>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
-					"total_requests",
-				),
-			tokensTotal:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
-					"total_tokens",
-				),
-		})
-		.from(projectHourlyStats)
-		.innerJoin(
-			tables.project,
-			eq(projectHourlyStats.projectId, tables.project.id),
-		)
-		.where(
-			and(
-				usageStartDate
-					? gte(projectHourlyStats.hourTimestamp, usageStartDate)
-					: undefined,
-				usageEndDate
-					? lte(projectHourlyStats.hourTimestamp, usageEndDate)
-					: undefined,
-			),
-		)
-		.groupBy(tables.project.organizationId)
-		.as("total_spent");
+			)
+			.groupBy(tables.project.organizationId)
+			.as("total_spent");
+
+	const allTimeCredits = creditsForOrganizations();
+	const totalSpentSub = usageForOrganizations();
 
 	const whereClause = and(
 		searchFilter,
@@ -3350,7 +2844,7 @@ admin.openapi(getOrganizations, async (c) => {
 			: undefined,
 	);
 
-	const [countResult] = await db
+	let countQuery = db
 		.select({
 			count: sql<number>`COUNT(*)`.as("count"),
 			totalCredits:
@@ -3359,17 +2853,13 @@ admin.openapi(getOrganizations, async (c) => {
 				),
 		})
 		.from(tables.organization)
-		.leftJoin(
+		.$dynamic();
+	if (query.minSpent) {
+		countQuery = countQuery.leftJoin(
 			totalSpentSub,
 			eq(tables.organization.id, totalSpentSub.organizationId),
-		)
-		.where(whereClause);
-
-	const total = Number(countResult?.count ?? 0);
-	const totalCredits = String(countResult?.totalCredits ?? "0");
-
-	// Subquery for owner user per org
-	const ownerSub = buildOrganizationOwnerSubquery();
+		);
+	}
 
 	const sortColumnMap = {
 		name: tables.organization.name,
@@ -3394,6 +2884,48 @@ admin.openapi(getOrganizations, async (c) => {
 		? [desc(sql`${tables.organization.plan} = 'enterprise'`)]
 		: [];
 
+	// Only aggregates that affect filtering or ordering belong before pagination.
+	let pageQuery = db
+		.select({ id: tables.organization.id })
+		.from(tables.organization)
+		.$dynamic();
+	if (
+		query.minSpent ||
+		["totalSpent", "totalRequests", "totalTokens"].includes(sortBy)
+	) {
+		pageQuery = pageQuery.leftJoin(
+			totalSpentSub,
+			eq(tables.organization.id, totalSpentSub.organizationId),
+		);
+	}
+	if (sortBy === "totalCreditsAllTime") {
+		pageQuery = pageQuery.leftJoin(
+			allTimeCredits,
+			eq(tables.organization.id, allTimeCredits.organizationId),
+		);
+	}
+	const [[countResult], page] = await Promise.all([
+		countQuery.where(whereClause),
+		pageQuery
+			.where(whereClause)
+			.orderBy(
+				...searchOrderBy,
+				orderFn(sortColumn),
+				asc(tables.organization.id),
+			)
+			.limit(limit)
+			.offset(offset),
+	]);
+	const total = Number(countResult?.count ?? 0);
+	const totalCredits = String(countResult?.totalCredits ?? "0");
+	const organizationIds = page.map((org) => org.id);
+	if (!organizationIds.length) {
+		return c.json({ organizations: [], total, totalCredits, limit, offset });
+	}
+	const pageCredits = creditsForOrganizations(organizationIds);
+	const pageUsage = usageForOrganizations(organizationIds);
+	const ownerSub = buildOrganizationOwnerSubquery(organizationIds);
+
 	const organizations = await db
 		.select({
 			id: tables.organization.id,
@@ -3411,26 +2943,24 @@ admin.openapi(getOrganizations, async (c) => {
 			createdAt: tables.organization.createdAt,
 			status: tables.organization.status,
 			riskFlagged: tables.organization.riskFlagged,
-			totalCreditsAllTime:
-				sql<string>`COALESCE(${allTimeCredits.total}, '0')`.as(
-					"totalCreditsAllTime",
-				),
-			totalSpent: sql<string>`COALESCE(${totalSpentSub.total}, '0')`.as(
+			totalCreditsAllTime: sql<string>`COALESCE(${pageCredits.total}, '0')`.as(
+				"totalCreditsAllTime",
+			),
+			totalSpent: sql<string>`COALESCE(${pageUsage.total}, '0')`.as(
 				"totalSpent",
 			),
 			totalCreditsSpent:
-				sql<string>`COALESCE(${totalSpentSub.creditsTotal}, '0')`.as(
+				sql<string>`COALESCE(${pageUsage.creditsTotal}, '0')`.as(
 					"totalCreditsSpent",
 				),
 			totalApiKeysSpent:
-				sql<string>`COALESCE(${totalSpentSub.apiKeysTotal}, '0')`.as(
+				sql<string>`COALESCE(${pageUsage.apiKeysTotal}, '0')`.as(
 					"totalApiKeysSpent",
 				),
-			totalRequests:
-				sql<string>`COALESCE(${totalSpentSub.requestsTotal}, '0')`.as(
-					"totalRequests",
-				),
-			totalTokens: sql<string>`COALESCE(${totalSpentSub.tokensTotal}, '0')`.as(
+			totalRequests: sql<string>`COALESCE(${pageUsage.requestsTotal}, '0')`.as(
+				"totalRequests",
+			),
+			totalTokens: sql<string>`COALESCE(${pageUsage.tokensTotal}, '0')`.as(
 				"totalTokens",
 			),
 			ownerUserId: ownerSub.userId,
@@ -3439,21 +2969,14 @@ admin.openapi(getOrganizations, async (c) => {
 		})
 		.from(tables.organization)
 		.leftJoin(
-			allTimeCredits,
-			eq(tables.organization.id, allTimeCredits.organizationId),
+			pageCredits,
+			eq(tables.organization.id, pageCredits.organizationId),
 		)
-		.leftJoin(
-			totalSpentSub,
-			eq(tables.organization.id, totalSpentSub.organizationId),
-		)
+		.leftJoin(pageUsage, eq(tables.organization.id, pageUsage.organizationId))
 		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId))
-		.where(whereClause)
-		// Ties (every org with no usage shares 0 requests/tokens) would otherwise
-		// come back in an arbitrary order that differs per LIMIT/OFFSET plan, so
-		// paging repeats some rows and skips others.
-		.orderBy(...searchOrderBy, orderFn(sortColumn), asc(tables.organization.id))
-		.limit(limit)
-		.offset(offset);
+		.where(inArray(tables.organization.id, organizationIds));
+	const pageOrder = new Map(organizationIds.map((id, index) => [id, index]));
+	organizations.sort((a, b) => pageOrder.get(a.id)! - pageOrder.get(b.id)!);
 
 	return c.json({
 		organizations: organizations.map((org) => ({
@@ -5929,7 +5452,7 @@ const rateLimitSchema = z.object({
 	limitType: z.enum(["rpm", "rpd"]),
 	maxRequests: z.number(),
 	enforcement: z.enum(["per_org", "global"]),
-	mode: z.enum(["strict", "soft"]),
+	mode: z.enum(["strict", "soft", "lax"]),
 	reason: z.string().nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
@@ -5949,21 +5472,16 @@ const createRateLimitBodySchema = z.object({
 		.int("Limit must be a whole number")
 		.min(0, "Limit must be at least 0"),
 	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
-	// "soft" lets a session already pinned to the capped provider keep it.
-	mode: z.enum(["strict", "soft"]).optional().default("strict"),
+	// Soft preserves session pins; lax also permits explicit provider requests.
+	mode: z.enum(["strict", "soft", "lax"]).optional().default("strict"),
 	reason: z.string().nullable().optional(),
 });
 
 // Org-specific limits are always enforced per-org, so they don't expose the
 // enforcement choice.
-const createOrganizationRateLimitBodySchema = createRateLimitBodySchema
-	.omit({ enforcement: true })
-	.extend({
-		maxRequests: z.coerce
-			.number()
-			.int("Limit must be a whole number")
-			.min(1, "Limit must be at least 1"),
-	});
+const createOrganizationRateLimitBodySchema = createRateLimitBodySchema.omit({
+	enforcement: true,
+});
 
 // --- Global Rate Limits ---
 
@@ -6010,6 +5528,33 @@ const createGlobalRateLimit = createRoute({
 		409: {
 			description:
 				"Rate limit already exists for this provider/model/limit type combination.",
+		},
+	},
+});
+
+const updateGlobalRateLimit = createRoute({
+	method: "put",
+	path: "/rate-limits/{rateLimitId}",
+	request: {
+		params: z.object({
+			rateLimitId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": { schema: createRateLimitBodySchema.openapi({}) },
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: { "application/json": { schema: rateLimitSchema.openapi({}) } },
+			description: "Updated rate limit.",
+		},
+		400: { description: "Invalid rate limit data." },
+		404: { description: "Rate limit not found." },
+		409: {
+			description:
+				"A rate limit already exists for this provider/model combination.",
 		},
 	},
 });
@@ -6099,6 +5644,36 @@ const createOrganizationRateLimit = createRoute({
 	},
 });
 
+const updateOrganizationRateLimit = createRoute({
+	method: "put",
+	path: "/organizations/{orgId}/rate-limits/{rateLimitId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			rateLimitId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createOrganizationRateLimitBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: { "application/json": { schema: rateLimitSchema.openapi({}) } },
+			description: "Updated rate limit.",
+		},
+		400: { description: "Invalid rate limit data." },
+		404: { description: "Rate limit not found." },
+		409: {
+			description:
+				"A rate limit already exists for this provider/model combination.",
+		},
+	},
+});
+
 const deleteOrganizationRateLimit = createRoute({
 	method: "delete",
 	path: "/organizations/{orgId}/rate-limits/{rateLimitId}",
@@ -6132,7 +5707,7 @@ function formatRateLimit(r: {
 	maxRpm: number | null;
 	maxRpd: number | null;
 	enforcement: string;
-	mode: "strict" | "soft";
+	mode: "strict" | "soft" | "lax";
 	reason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
@@ -6154,6 +5729,70 @@ function formatRateLimit(r: {
 		createdAt: r.createdAt.toISOString(),
 		updatedAt: r.updatedAt.toISOString(),
 	};
+}
+
+async function updateRateLimit(
+	rateLimitId: string,
+	organizationId: string | null,
+	body: z.infer<typeof createRateLimitBodySchema>,
+) {
+	const scope = and(
+		eq(tables.rateLimit.id, rateLimitId),
+		organizationId === null
+			? isNull(tables.rateLimit.organizationId)
+			: eq(tables.rateLimit.organizationId, organizationId),
+	);
+
+	try {
+		return await db.transaction(async (tx) => {
+			const [before] = await tx
+				.select()
+				.from(tables.rateLimit)
+				.where(scope)
+				.for("update");
+			if (!before) {
+				throw new HTTPException(404, { message: "Rate limit not found" });
+			}
+
+			const provider = body.provider ?? null;
+			const model = body.model ?? null;
+			const validation = await validateProviderAndModel(provider, model);
+			if (validation.error) {
+				throw new HTTPException(400, { message: validation.error });
+			}
+
+			const [updated] = await tx
+				.update(tables.rateLimit)
+				.set({
+					provider,
+					model,
+					maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
+					maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+					enforcement: body.enforcement,
+					mode: body.mode,
+					reason: body.reason ?? null,
+				})
+				.where(scope)
+				.returning();
+			return { before, updated };
+		});
+	} catch (error) {
+		const cause = error instanceof Error && error.cause ? error.cause : error;
+		if (
+			typeof cause === "object" &&
+			cause !== null &&
+			"code" in cause &&
+			cause.code === "23505" &&
+			"constraint" in cause &&
+			cause.constraint === "rate_limit_org_provider_model_unique"
+		) {
+			throw new HTTPException(409, {
+				message:
+					"A rate limit already exists for this provider/model combination",
+			});
+		}
+		throw error;
+	}
 }
 
 // --- Global Rate Limit Handlers ---
@@ -6182,12 +5821,6 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 		throw new HTTPException(400, { message: validation.error });
 	}
 
-	if (body.mode === "soft" && body.maxRequests === 0) {
-		throw new HTTPException(400, {
-			message: "A limit of 0 blocks all requests and cannot be soft",
-		});
-	}
-
 	const [created] = await db
 		.insert(tables.rateLimit)
 		.values({
@@ -6211,6 +5844,16 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 	}
 
 	return c.json(formatRateLimit(created), 201);
+});
+
+admin.openapi(updateGlobalRateLimit, async (c) => {
+	const { rateLimitId } = c.req.valid("param");
+	const { updated } = await updateRateLimit(
+		rateLimitId,
+		null,
+		c.req.valid("json"),
+	);
+	return c.json(formatRateLimit(updated), 200);
 });
 
 admin.openapi(deleteGlobalRateLimit, async (c) => {
@@ -7110,6 +6753,28 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 	});
 
 	return c.json(formatRateLimit(created), 201);
+});
+
+admin.openapi(updateOrganizationRateLimit, async (c) => {
+	const user = c.get("user");
+	const { orgId, rateLimitId } = c.req.valid("param");
+	const { before, updated } = await updateRateLimit(rateLimitId, orgId, {
+		...c.req.valid("json"),
+		enforcement: "per_org",
+	});
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "rate_limit.update",
+		resourceType: "rate_limit",
+		resourceId: updated.id,
+		metadata: {
+			before: formatRateLimit(before),
+			after: formatRateLimit(updated),
+			source: "admin",
+		},
+	});
+	return c.json(formatRateLimit(updated), 200);
 });
 
 admin.openapi(deleteOrganizationRateLimit, async (c) => {
@@ -10434,7 +10099,27 @@ admin.openapi(getProviderHistory, async (c) => {
 		.groupBy(mphTs)
 		.orderBy(asc(mphTs));
 
-	return c.json({ data: mapHistoryRows(rows) });
+	return c.json({
+		data: await fillIdleHistory({
+			rows: mapHistoryRows(rows),
+			idle: {
+				logsCount: 0,
+				errorsCount: 0,
+				clientErrorsCount: 0,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: 0,
+				cachedCount: 0,
+				avgTtft: null,
+				avgDuration: null,
+				totalTokens: 0,
+				totalCost: 0,
+				...toTokenBreakdown({}),
+			},
+			hourly,
+			from: rangeStart,
+			providerId,
+		}),
+	});
 });
 
 // Model history
@@ -10595,7 +10280,27 @@ admin.openapi(getModelHistory, async (c) => {
 		.groupBy(mhTs)
 		.orderBy(asc(mhTs));
 
-	return c.json({ data: mapHistoryRows(rows) });
+	return c.json({
+		data: await fillIdleHistory({
+			rows: mapHistoryRows(rows),
+			idle: {
+				logsCount: 0,
+				errorsCount: 0,
+				clientErrorsCount: 0,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: 0,
+				cachedCount: 0,
+				avgTtft: null,
+				avgDuration: null,
+				totalTokens: 0,
+				totalCost: 0,
+				...toTokenBreakdown({}),
+			},
+			hourly,
+			from: rangeStart,
+			modelId,
+		}),
+	});
 });
 
 // Mapping history (provider + model)
@@ -10784,7 +10489,29 @@ admin.openapi(getMappingHistory, async (c) => {
 		.groupBy(mphTs)
 		.orderBy(asc(mphTs));
 
-	return c.json({ data: mapHistoryRows(rows) });
+	return c.json({
+		data: await fillIdleHistory({
+			rows: mapHistoryRows(rows),
+			idle: {
+				logsCount: 0,
+				errorsCount: 0,
+				clientErrorsCount: 0,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: 0,
+				cachedCount: 0,
+				avgTtft: null,
+				avgDuration: null,
+				totalTokens: 0,
+				totalCost: 0,
+				...toTokenBreakdown({}),
+			},
+			hourly,
+			from: rangeStart,
+			providerId,
+			modelId,
+			region,
+		}),
+	});
 });
 
 // Provider detail – aggregated stats + per-model breakdown for the window
@@ -10854,6 +10581,7 @@ const providerDetailSchema = z.object({
 				paymentStatus: z.enum(["unpaid", "paid"]),
 				paidAt: z.string().nullable(),
 				listingInviteCode: z.string().nullable(),
+				billingMode: z.enum(AIRSIDE_BILLING_MODES),
 				domains: z.array(
 					z.object({
 						domain: z.string(),
@@ -11014,6 +10742,7 @@ admin.openapi(getProviderDetail, async (c) => {
 					verificationKeyMasked: tables.providerClaim.verificationKeyMasked,
 					verificationKeyUpdatedAt:
 						tables.providerClaim.verificationKeyUpdatedAt,
+					billingMode: tables.providerClaim.billingMode,
 					createdAt: tables.providerClaim.createdAt,
 					reviewedAt: tables.providerClaim.reviewedAt,
 				},
@@ -11239,6 +10968,7 @@ admin.openapi(getProviderDetail, async (c) => {
 						paymentStatus: carrier.paymentStatus,
 						paidAt: carrier.paidAt?.toISOString() ?? null,
 						listingInviteCode: carrier.listingInviteCode,
+						billingMode: carrier.claim.billingMode,
 						domains: carrierDomains.map((d) => ({
 							domain: d.domain,
 							verificationMethod: d.verificationMethod,
@@ -13249,10 +12979,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 const UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT = 100;
 const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 
-// Customer-owned keys are useful when debugging a customer report, but they
-// should not affect the platform credential health ranking by default.
-const unstableMappingsPlatformOnlyClause = sql`AND ${tables.log.usedMode} <> 'api-keys'`;
-
 // Which error classes count against a mapping. `non_client` (default) drops
 // client-error logs from the sample; `client` drops every other failure, so
 // both rate against successes plus the selected errors.
@@ -13491,7 +13217,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const ignoreExpected = query.ignoreExpected !== "false";
 	const splitByKey = query.splitByKey === "true";
 	const includeByok = query.includeByok === "true";
-	const byokClause = includeByok ? sql`` : unstableMappingsPlatformOnlyClause;
+	const byokClause = includeByok ? sql`` : platformOnlyClause;
 	const errorScope = query.errorScope ?? "non_client";
 	const { interval: windowInterval, hours: windowHours } =
 		resolveMappingErrorWindow(query.window);
@@ -13709,8 +13435,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 	const groupByStream = groupByStreamParam === "true";
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
 	const retriedClause = includeRetried === "true" ? sql`` : notRetriedClause;
-	const byokClause =
-		includeByok === "true" ? sql`` : unstableMappingsPlatformOnlyClause;
+	const byokClause = byokClauseFor(includeByok);
 	const {
 		interval: windowInterval,
 		hours: windowHours,
@@ -16061,6 +15786,10 @@ const devpassTimeseriesPointSchema = z.object({
 	// PAYG overflow top-ups that day (net of top-up refunds). Counted into
 	// margin because `cost` includes the overflow usage they fund.
 	topupRevenue: z.number(),
+	// Net subscription revenue plus net top-ups.
+	totalRevenue: z.number(),
+	// Subscription and top-up refunds issued that day.
+	refunds: z.number(),
 	cost: z.number(),
 	// Gateway margin on Airside-carrier traffic that day. Added into margin
 	// because `cost` is the catalogue price, which still contains it.
@@ -16074,9 +15803,14 @@ const devpassTimeseriesSchema = z.object({
 		revenue: z.number(),
 		rawRevenue: z.number(),
 		topupRevenue: z.number(),
+		totalRevenue: z.number(),
+		refunds: z.number(),
 		cost: z.number(),
 		gatewayMargin: z.number(),
 		margin: z.number(),
+		// Provider cost over net subscription revenue (excl top-ups); null
+		// when that revenue is not positive.
+		usageMultiple: z.number().nullable(),
 	}),
 	range: z.object({
 		from: z.string(),
@@ -17607,6 +17341,8 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		revenue: number;
 		rawRevenue: number;
 		topupRevenue: number;
+		totalRevenue: number;
+		refunds: number;
 		cost: number;
 		gatewayMargin: number;
 		margin: number;
@@ -17628,6 +17364,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	let totalRevenue = 0;
 	let totalRawRevenue = 0;
 	let totalTopupRevenue = 0;
+	let totalRefunds = 0;
 	let totalCost = 0;
 	let totalGatewayMargin = 0;
 
@@ -17640,9 +17377,11 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	while (cursor.getTime() <= lastDay) {
 		const iso = cursor.toISOString().slice(0, 10);
 		const rawRevenue = revenueMap.get(iso) ?? 0;
-		const revenue = rawRevenue - (refundMap.get(iso) ?? 0);
-		const topupRevenue =
-			(topupMap.get(iso) ?? 0) - (topupRefundMap.get(iso) ?? 0);
+		const planRefunds = refundMap.get(iso) ?? 0;
+		const topupRefunds = topupRefundMap.get(iso) ?? 0;
+		const revenue = rawRevenue - planRefunds;
+		const topupRevenue = (topupMap.get(iso) ?? 0) - topupRefunds;
+		const refunds = planRefunds + topupRefunds;
 		const cost = costMap.get(iso) ?? 0;
 		const gatewayMargin = gatewayMarginMap.get(iso) ?? 0;
 		const margin = revenue + topupRevenue + gatewayMargin - cost;
@@ -17651,6 +17390,8 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 			revenue,
 			rawRevenue,
 			topupRevenue,
+			totalRevenue: revenue + topupRevenue,
+			refunds,
 			cost,
 			gatewayMargin,
 			margin,
@@ -17658,6 +17399,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		totalRevenue += revenue;
 		totalRawRevenue += rawRevenue;
 		totalTopupRevenue += topupRevenue;
+		totalRefunds += refunds;
 		totalCost += cost;
 		totalGatewayMargin += gatewayMargin;
 		cursor.setUTCDate(cursor.getUTCDate() + 1);
@@ -17669,9 +17411,12 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 			revenue: totalRevenue,
 			rawRevenue: totalRawRevenue,
 			topupRevenue: totalTopupRevenue,
+			totalRevenue: totalRevenue + totalTopupRevenue,
+			refunds: totalRefunds,
 			cost: totalCost,
 			gatewayMargin: totalGatewayMargin,
 			margin: totalRevenue + totalTopupRevenue + totalGatewayMargin - totalCost,
+			usageMultiple: totalRevenue > 0 ? totalCost / totalRevenue : null,
 		},
 		range: {
 			from: startDate.toISOString().slice(0, 10),

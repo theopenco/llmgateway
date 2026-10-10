@@ -441,6 +441,7 @@ function isGrokImagineVideoModel(canonicalModelId: string): boolean {
 	return (
 		canonicalModelId === "grok-imagine-video-1-5" ||
 		canonicalModelId === "grok-imagine-video-1-5-preview" ||
+		canonicalModelId === "grok-imagine-video-1-5-lite" ||
 		canonicalModelId === "grok-imagine-video-1.5-preview"
 	);
 }

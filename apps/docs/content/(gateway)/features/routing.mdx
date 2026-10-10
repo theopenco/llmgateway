@@ -33,26 +33,47 @@ weights: streaming, cached prompts, sessions, and `routing` preferences.
 
 ## Global Provider Rate Limits
 
-Administrators can set a global RPM or RPD limit to `0` to block matching
-provider/model requests, with either **Global** or **Per-organization**
-enforcement. Remove the limit or set a positive value to resume traffic; changes
+Administrators can set global or organization-specific RPM/RPD caps. Global
+limits support **Global** (shared) or **Per-organization** counters. Changes
 propagate through the rate-limit cache (default 60 seconds).
 
-Existing precedence still applies: organization-specific limits and more specific
-global provider/model limits can override a provider-wide limit for the same
-window. Routing can fall back to another available provider. If a zero-limited
-provider remains selected, the request returns `429` without calling it, even
-when every candidate is rate-limited. No configured limit still means unlimited;
-other rate-limit settings retain their existing behavior.
+Organization-specific limits and more specific global provider/model limits
+can override a provider-wide limit for the same window. No configured limit
+means unlimited.
 
-Each limit is **strict** (the default) or **soft**. Both route traffic away from
-a provider that has reached its limit. A soft limit makes one exception: a
-[session](/features/sessions) already pinned to that provider keeps using it, so
-its prompt cache stays warm. Those requests still count toward the limit, so
-usage can exceed it until the pinned sessions end. New sessions, requests
-without a session id, and a session's first request on a model are routed away
-as usual. A limit of `0` is always strict, and a session stays pinned only when
-every limit it exceeds is soft.
+Each limit is **strict** (the default), **soft**, or **lax**. Soft and lax
+limits allow [sessions](/features/sessions) already pinned to the capped
+provider to keep using it. Lax also allows requests that explicitly name that
+provider (`provider/model`), even without a session or on its first request.
+
+| Request after reaching the cap                            | Soft         | Lax         |
+| --------------------------------------------------------- | ------------ | ----------- |
+| Existing session pinned to the provider/model             | Allowed      | Allowed     |
+| Explicit provider request without an existing session pin | No exemption | Allowed     |
+| Automatic routing without an existing session pin         | Routed away  | Routed away |
+| Fallback from another provider                            | No exemption | Excluded    |
+
+Exempt requests still count toward the limit. A session id alone does not grant
+an exemption, and every exceeded RPM/RPD window must permit the request: a
+strict window grants no exemption, while a soft window still requires an
+existing session pin.
+
+A limit of `0` permits only requests exempt under its mode: **strict** blocks
+all matching requests, **soft** allows existing session pins, and **lax** also
+allows explicit provider requests. Zero caps cannot be used as a last resort
+for non-exempt traffic. Routing can choose an available alternative; if no
+eligible initial route remains, the gateway returns `429`. Exempt requests
+still increment both configured counters.
+
+Lax caps apply to automatic provider selection under every routing strategy,
+including dynamic provider ordering. Auto model selection excludes exhausted
+routes before ranking models, so another eligible model can serve the request.
+A capped lax provider cannot be used as a
+last resort when all candidates are capped; requests with no eligible initial
+route return `429`. Retries on the originally selected provider retain its
+exemption, including credential and region changes; cross-provider fallback
+does not. Administrators can configure lax limits globally or for a specific
+organization, with the same precedence and counter scopes as other modes.
 
 ## Model Selection
 
@@ -278,6 +299,19 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 	prompt-cache–aware routing those plans depend on.
 </Callout>
 
+### Anthropic safeguards
+
+A nonempty `safeguards` body with its paired dated beta makes server-side review
+support a routing requirement. Automatic model and provider selection, session
+pins, and retries exclude providers that cannot forward it. An explicit
+incompatible provider pin, or automatic selection with no compatible provider,
+returns `400`, including for streaming requests. Routing preferences cannot
+relax this requirement; a beta header alone does not enable it.
+
+See [Claude Code auto mode](/features/anthropic-endpoint#auto-mode-safeguard-review)
+for upstream availability and the opt-out that restores broader routing with
+billed client-side classifier requests.
+
 ### Sticky Session Routing
 
 When a model is served by multiple providers, every request is normally scored independently — so a multi-turn conversation can bounce between providers. That defeats provider-side **prompt caching**, which only pays off when consecutive requests with a shared prefix hit the **same** provider.
@@ -315,7 +349,7 @@ The first selection uses the expected cache-hit rate and output/input mix even i
 
 Because the pinned provider is replayed directly, sticky requests **skip the epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
 
-Request compatibility takes precedence over the saved pin. The gateway first filters mappings for requirements such as input modalities, service tiers, regions, and a non-`auto` `tool_choice`, then looks for the pinned provider in that eligible set. If the pinned mapping cannot honor the request but another mapping can, the session moves to the capable mapping and the pin is updated. For a fixed model or dynamic route where **no** mapping can honor `tool_choice`, the gateway preserves availability instead: it keeps the mappings, downgrades `tool_choice` to `auto`, and sticky routing may retain the existing pin. Automatic model selection does not use that fallback because it can choose a capable model instead.
+Request compatibility takes precedence over the saved pin. The gateway first filters mappings for requirements such as input modalities, service tiers, regions, requested Anthropic safeguards, and a non-`auto` `tool_choice`, then looks for the pinned provider in that eligible set. If the pinned mapping cannot honor the request but another mapping can, the session moves to the capable mapping and the pin is updated. For a fixed model or dynamic route where **no** mapping can honor `tool_choice`, the gateway preserves availability instead: it keeps the mappings, downgrades `tool_choice` to `auto`, and sticky routing may retain the existing pin. Automatic model selection does not use that fallback because it can choose a capable model instead.
 
 #### Falling back when a provider is down
 

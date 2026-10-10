@@ -3,18 +3,21 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { ContactSalesLink } from "@/components/contact-sales";
 import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Button } from "@/lib/components/button";
 import { Label } from "@/lib/components/label";
 import { RadioGroup, RadioGroupItem } from "@/lib/components/radio-group";
 import { Separator } from "@/lib/components/separator";
 import { toast } from "@/lib/components/use-toast";
+import { useAppConfig } from "@/lib/config";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 
 export function OrganizationRetentionSettings() {
 	const queryClient = useQueryClient();
 	const { selectedOrganization } = useDashboardState();
+	const { hosted } = useAppConfig();
 
 	const api = useApi();
 	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
@@ -37,6 +40,17 @@ export function OrganizationRetentionSettings() {
 	const effectiveRetentionLevel = zeroDataRetentionEnabled
 		? "none"
 		: retentionLevel;
+	// Payload retention is Enterprise-only. Existing non-Enterprise orgs that
+	// still retain payloads keep the setting or turn it off, but cannot
+	// re-enable it. The hosted platform switches them to Metadata Only on
+	// 2026-11-08; self-hosted installs are left alone.
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
+	const retainLocked =
+		!isEnterprise && selectedOrganization?.retentionLevel !== "retain";
+	const retainTransitionNotice =
+		hosted &&
+		!isEnterprise &&
+		selectedOrganization?.retentionLevel === "retain";
 
 	if (!selectedOrganization) {
 		return (
@@ -103,6 +117,61 @@ export function OrganizationRetentionSettings() {
 							</span>
 						</AlertDescription>
 					</Alert>
+				) : retainLocked ? (
+					<Alert>
+						<AlertDescription>
+							<strong>Retain All Data requires an Enterprise plan.</strong>
+							{` `}
+							Full request and response payloads are only stored on Enterprise;
+							other organizations keep Metadata Only (timestamps, models, token
+							counts, costs, and latency).{` `}
+							<span className="sm:whitespace-nowrap">
+								<a
+									href="https://llmgateway.io/enterprise"
+									target="_blank"
+									rel="noopener noreferrer"
+									className="font-semibold underline hover:no-underline"
+								>
+									Explore Enterprise
+								</a>
+								{` `}or{` `}
+								<ContactSalesLink className="font-semibold underline hover:no-underline">
+									contact us
+								</ContactSalesLink>
+								{` `}to upgrade.
+							</span>
+						</AlertDescription>
+					</Alert>
+				) : retainTransitionNotice ? (
+					<Alert variant="destructive">
+						<AlertDescription>
+							<strong>
+								Payload retention for this organization ends on November 8,
+								2026.
+							</strong>
+							{` `}
+							Retain All Data is now an Enterprise-only feature. On that date
+							this organization will switch to Metadata Only automatically
+							unless it upgrades to Enterprise. You can switch to Metadata Only
+							earlier, but Retain All Data cannot be re-enabled afterwards
+							without Enterprise.{` `}
+							<span className="sm:whitespace-nowrap">
+								<a
+									href="https://llmgateway.io/enterprise"
+									target="_blank"
+									rel="noopener noreferrer"
+									className="font-semibold underline hover:no-underline"
+								>
+									Explore Enterprise
+								</a>
+								{` `}or{` `}
+								<ContactSalesLink className="font-semibold underline hover:no-underline">
+									contact us
+								</ContactSalesLink>
+								{` `}to keep it.
+							</span>
+						</AlertDescription>
+					</Alert>
 				) : null}
 				<RadioGroup
 					value={effectiveRetentionLevel}
@@ -125,7 +194,9 @@ export function OrganizationRetentionSettings() {
 							<RadioGroupItem
 								value={id}
 								id={id}
-								disabled={zeroDataRetentionEnabled && id === "retain"}
+								disabled={
+									(zeroDataRetentionEnabled || retainLocked) && id === "retain"
+								}
 							/>
 							<div className="space-y-1 flex-1">
 								<Label htmlFor={id} className="font-medium">
@@ -142,8 +213,8 @@ export function OrganizationRetentionSettings() {
 						<Alert>
 							<AlertDescription>
 								<strong>Data Retention Period:</strong> Retained data is
-								automatically cleaned up after 30 days. Contact us for
-								enterprise plans with unlimited retention.
+								automatically cleaned up after 30 days. Enterprise plans can be
+								configured with unlimited retention.
 								<p className="mt-2">
 									<strong>Data storage is billed at $0.01 per 1M tokens</strong>{" "}
 									(includes input, cached, output, and reasoning tokens).

@@ -14,10 +14,12 @@ import {
 	db,
 	effectiveTtftTotals,
 	eq,
+	gt,
 	excludeRegionalMappingRows,
 	gte,
-	modelProviderMappingHistory,
+	isNull,
 	modelProviderMappingHistoryHourly,
+	or,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -804,69 +806,109 @@ const modelBenchmarksRoute = createRoute({
 internalModels.openapi(modelBenchmarksRoute, async (c) => {
 	const { modelId } = c.req.valid("param");
 
+	// Same 24 hour-aligned buckets as the uptime route: the hourly rollup is
+	// refreshed every minute (current hour included), and reading it instead of
+	// the minute table scans sixty times fewer rows per provider.
 	const WINDOW_HOURS = 24;
-	const WINDOW_MS = WINDOW_HOURS * 60 * 60 * 1000;
-	const since = new Date(Date.now() - WINDOW_MS);
+	const HOUR_MS = 60 * 60_000;
+	const currentHour = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+	const precedingHoursMs = (WINDOW_HOURS - 1) * HOUR_MS;
+	const since = new Date(currentHour - precedingHoursMs);
+	const history = modelProviderMappingHistoryHourly;
 
 	const windowed = await db
 		.select({
-			providerId: modelProviderMappingHistory.providerId,
+			providerId: history.providerId,
 			providerName: tables.provider.name,
-			logsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
-					"logsCount",
-				),
+			logsCount: sql<number>`COALESCE(SUM(${history.logsCount}), 0)`.as(
+				"logsCount",
+			),
 			clientErrorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${history.clientErrorsCount}), 0)`.as(
 					"clientErrorsCount",
 				),
 			gatewayErrorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${history.gatewayErrorsCount}), 0)`.as(
 					"gatewayErrorsCount",
 				),
 			upstreamErrorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${history.upstreamErrorsCount}), 0)`.as(
 					"upstreamErrorsCount",
 				),
-			cachedCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
-					"cachedCount",
-				),
+			cachedCount: sql<number>`COALESCE(SUM(${history.cachedCount}), 0)`.as(
+				"cachedCount",
+			),
 			// Only streamed requests record a time-to-first-token, so the average
 			// divides by the sample count rather than by the non-cached request
 			// count — otherwise non-streaming traffic drags it towards zero.
 			// Reasoning-token samples are preferred so thinking mappings aren't
 			// measured on their (much later) first content token.
-			avgTimeToFirstToken: avgEffectiveTtftSql(modelProviderMappingHistory).as(
+			avgTimeToFirstToken: avgEffectiveTtftSql(history).as(
 				"avgTimeToFirstToken",
 			),
-			totalDuration:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalDuration}), 0)`.as(
-					"totalDuration",
-				),
+			totalDuration: sql<number>`COALESCE(SUM(${history.totalDuration}), 0)`.as(
+				"totalDuration",
+			),
 			totalOutputTokens:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalOutputTokens}), 0)`.as(
+				sql<number>`COALESCE(SUM(${history.totalOutputTokens}), 0)`.as(
 					"totalOutputTokens",
 				),
 		})
-		.from(modelProviderMappingHistory)
+		.from(history)
+		.innerJoin(tables.provider, eq(history.providerId, tables.provider.id))
+		.where(
+			and(
+				eq(history.modelId, modelId),
+				gte(history.hourTimestamp, since),
+				// Platform-credential traffic only; BYOK failures reflect the
+				// customer's key, not the provider.
+				eq(history.usedMode, "credits"),
+				// Per-provider totals: the region-less root row already includes the
+				// provider's regional traffic.
+				excludeRegionalMappingRows(history),
+			),
+		)
+		.groupBy(history.providerId, tables.provider.name);
+
+	const idleProviders = await db
+		.select({
+			providerId: tables.modelProviderMapping.providerId,
+			providerName: tables.provider.name,
+		})
+		.from(tables.modelProviderMapping)
 		.innerJoin(
 			tables.provider,
-			eq(modelProviderMappingHistory.providerId, tables.provider.id),
+			eq(tables.modelProviderMapping.providerId, tables.provider.id),
 		)
 		.where(
 			and(
-				eq(modelProviderMappingHistory.modelId, modelId),
-				gte(modelProviderMappingHistory.minuteTimestamp, since),
-				// Platform-credential traffic only; BYOK failures reflect the
-				// customer's key, not the provider.
-				eq(modelProviderMappingHistory.usedMode, "credits"),
-				// Per-provider totals: the region-less root row already includes the
-				// provider's regional traffic.
-				excludeRegionalMappingRows(modelProviderMappingHistory),
+				eq(tables.modelProviderMapping.modelId, modelId),
+				eq(tables.modelProviderMapping.status, "active"),
+				eq(tables.provider.status, "active"),
+				or(
+					isNull(tables.modelProviderMapping.deactivatedAt),
+					gt(tables.modelProviderMapping.deactivatedAt, new Date()),
+				),
 			),
-		)
-		.groupBy(modelProviderMappingHistory.providerId, tables.provider.name);
+		);
+	const seenProviders = new Set(windowed.map((row) => row.providerId));
+	for (const idle of idleProviders) {
+		if (seenProviders.has(idle.providerId)) {
+			continue;
+		}
+		seenProviders.add(idle.providerId);
+		windowed.push({
+			...idle,
+			logsCount: 0,
+			clientErrorsCount: 0,
+			gatewayErrorsCount: 0,
+			upstreamErrorsCount: 0,
+			cachedCount: 0,
+			avgTimeToFirstToken: null,
+			totalDuration: 0,
+			totalOutputTokens: 0,
+		});
+	}
 
 	const providers = windowed.map((m) => {
 		const logsCount = Number(m.logsCount);

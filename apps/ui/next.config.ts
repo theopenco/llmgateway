@@ -16,6 +16,7 @@ const nextConfig: NextConfig = {
 	reactCompiler: true,
 	transpilePackages: ["shiki"],
 	experimental: {
+		agentUpgrade: "latest",
 		serverSourceMaps: true,
 	},
 	async redirects() {

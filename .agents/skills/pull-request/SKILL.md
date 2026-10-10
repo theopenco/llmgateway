@@ -82,7 +82,7 @@ Not reasons to rebase: "linear history is nicer", or habit.
 
 After a rebase, force-push with `--force-with-lease` (never plain `--force`) to update the PR — do this automatically, without pausing to confirm. If the local branch name differs from the remote PR branch, push with an explicit `local:remote` refspec.
 
-Migration conflicts are the one case with a fixed recipe, and it is merge-shaped — see the `migrations` skill: reset `packages/db/migrations/` to `origin/main` **before** merging, then regenerate with `pnpm migrations` after.
+Migration conflicts are the one case with a fixed recipe, and it is merge-shaped — see the `migrations` skill: reset `packages/db/migrations/` to `origin/main` **before** merging, then regenerate with `pnpm migrations --name <name>` after.
 
 ## When to include screenshots
 

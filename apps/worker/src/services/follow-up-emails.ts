@@ -353,7 +353,7 @@ export async function processNoPurchaseEmails(): Promise<void> {
 
 // ─── Email B: Bought credits, used <2% after 3 days ─────────────────────────
 
-async function processLowUsageEmails(): Promise<void> {
+export async function processLowUsageEmails(): Promise<void> {
 	const threeDaysMs = 3 * MS_PER_DAY;
 	const threeDaysAgo = new Date(Date.now() - threeDaysMs);
 
@@ -374,18 +374,26 @@ async function processLowUsageEmails(): Promise<void> {
 			FROM ${transaction}
 			WHERE ${transaction.type} = 'credit_topup'
 			AND ${transaction.status} = 'completed'
+			-- Only orgs with a topup inside the follow-up window can qualify; the
+			-- pre-filter keeps the aggregate (and the per-org spend lookup below)
+			-- off the full topup history.
+			AND ${transaction.organizationId} IN (
+				SELECT ${transaction.organizationId}
+				FROM ${transaction}
+				WHERE ${transaction.type} = 'credit_topup'
+				AND ${transaction.status} = 'completed'
+				AND ${transaction.createdAt} > ${getMaxAgeAgo()}
+			)
 			GROUP BY ${transaction.organizationId}
 			HAVING MIN(${transaction.createdAt}) < ${threeDaysAgo}
 			AND MIN(${transaction.createdAt}) > ${getMaxAgeAgo()}
 		) t
-		LEFT JOIN (
-			SELECT
-				${project.organizationId} AS organization_id,
-				SUM(cast(${projectHourlyStats.cost} as double precision)) AS total_spent
-			FROM ${projectHourlyStats}
-			JOIN ${project} ON ${project.id} = ${projectHourlyStats.projectId}
-			GROUP BY ${project.organizationId}
-		) s ON s.organization_id = t.organization_id
+		LEFT JOIN LATERAL (
+			SELECT SUM(cast(${projectHourlyStats.cost} as double precision)) AS total_spent
+			FROM ${project}
+			JOIN ${projectHourlyStats} ON ${projectHourlyStats.projectId} = ${project.id}
+			WHERE ${project.organizationId} = t.organization_id
+		) s ON true
 		JOIN ${organization} o ON o.id = t.organization_id
 		WHERE o.status = 'active'
 		AND COALESCE(s.total_spent, 0) < (t.total_purchased * 0.02)
@@ -429,7 +437,7 @@ async function processLowUsageEmails(): Promise<void> {
 
 // ─── Email C: Consumed >=50%, last topup >2 weeks ago, no repurchase ─────────
 
-async function processNoRepurchaseEmails(): Promise<void> {
+export async function processNoRepurchaseEmails(): Promise<void> {
 	const twoWeeksMs = 14 * MS_PER_DAY;
 	const twoWeeksAgo = new Date(Date.now() - twoWeeksMs);
 
@@ -450,18 +458,26 @@ async function processNoRepurchaseEmails(): Promise<void> {
 			FROM ${transaction}
 			WHERE ${transaction.type} = 'credit_topup'
 			AND ${transaction.status} = 'completed'
+			-- Only orgs with a topup inside the follow-up window can qualify; the
+			-- pre-filter keeps the aggregate (and the per-org spend lookup below)
+			-- off the full topup history.
+			AND ${transaction.organizationId} IN (
+				SELECT ${transaction.organizationId}
+				FROM ${transaction}
+				WHERE ${transaction.type} = 'credit_topup'
+				AND ${transaction.status} = 'completed'
+				AND ${transaction.createdAt} > ${getMaxAgeAgo()}
+			)
 			GROUP BY ${transaction.organizationId}
 			HAVING MAX(${transaction.createdAt}) < ${twoWeeksAgo}
 			AND MAX(${transaction.createdAt}) > ${getMaxAgeAgo()}
 		) t
-		LEFT JOIN (
-			SELECT
-				${project.organizationId} AS organization_id,
-				SUM(cast(${projectHourlyStats.cost} as double precision)) AS total_spent
-			FROM ${projectHourlyStats}
-			JOIN ${project} ON ${project.id} = ${projectHourlyStats.projectId}
-			GROUP BY ${project.organizationId}
-		) s ON s.organization_id = t.organization_id
+		LEFT JOIN LATERAL (
+			SELECT SUM(cast(${projectHourlyStats.cost} as double precision)) AS total_spent
+			FROM ${project}
+			JOIN ${projectHourlyStats} ON ${projectHourlyStats.projectId} = ${project.id}
+			WHERE ${project.organizationId} = t.organization_id
+		) s ON true
 		LEFT JOIN ${organization} o ON o.id = t.organization_id
 		WHERE o.status = 'active'
 		AND COALESCE(s.total_spent, 0) >= (t.total_purchased * 0.50)

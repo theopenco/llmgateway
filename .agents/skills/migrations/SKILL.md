@@ -28,13 +28,16 @@ not evidence that a migration ran outside the normal workflow.
 ## Generate migrations
 
 - Run all commands from the repository root.
+- CI allows at most one new migration per PR (`scripts/check-new-migrations.sh`). For follow-up schema changes, delete and regenerate the PR’s unmerged migration instead of adding another; never delete a merged migration.
 - Make schema changes in `packages/db/src/schema.ts`. Tables use `snakeCase.table`, which maps camelCase fields to snake_case columns.
-- Generate the migration with `pnpm migrations`. It also runs the commutativity check below.
-- Review the new `packages/db/migrations/<timestamp>_<name>/` folder.
+- Generate the migration with `pnpm migrations --name <name>`. It also runs the commutativity check below.
+- Name it after the change in snake_case, at most four words: `<table>_<column>` for an added column, `<table>` for a new table, `<index_name>` for an index, and a `drop_` or `rename_` prefix for destructive changes (`project_description`, `api_key_status_idx`, `drop_transaction_note`). Never keep Drizzle's random default name.
+- If one migration mixes changes, name the destructive one; if that is unclear, split the schema change into separate migrations.
+- Review the new `packages/db/migrations/<timestamp>_<name>/` folder; confirm the SQL matches the name.
 
 ## Editing generated migrations
 
-- Do not write a migration by hand from scratch. Generate it first with `pnpm migrations`.
+- Do not write a migration by hand from scratch. Generate it first with `pnpm migrations --name <name>`.
 - The operational exception is avoiding locks on huge tables, especially when creating indexes. Treat all history tables as large when reviewing locking behavior.
 - If that requires adaptation, edit only the generated `migration.sql`.
 - Never manually edit any `snapshot.json`.
@@ -57,7 +60,7 @@ pnpm migrations:check
 It reports non-commutative migrations: branch migrations that touch the same objects as migrations merged to `main` since the branch point. If it passes, keep the branch migration as-is. If it fails, regenerate the branch migration on top of `main`:
 
 1. Note any locking adaptation in your branch's `migration.sql`; regeneration emits vanilla SQL and drops it.
-2. Delete your branch's migration folder, then run `pnpm migrations`.
+2. Delete your branch's migration folder, then run `pnpm migrations --name <same name>`.
 3. Re-apply only still-required locking adaptations. Do not carry speculative fallbacks forward.
 
 Never resolve conflicts in migration SQL or snapshot JSON by hand.

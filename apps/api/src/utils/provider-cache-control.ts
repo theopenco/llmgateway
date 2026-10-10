@@ -2,6 +2,8 @@ import { z } from "@hono/zod-openapi";
 
 import type { ProviderCacheControlMode } from "@llmgateway/models";
 
+export const providerCacheAutoTtlSchema = z.enum(["5m", "1h"]);
+
 export const providerCacheControlModeSchema = z.enum([
 	"auto",
 	"passthrough",
