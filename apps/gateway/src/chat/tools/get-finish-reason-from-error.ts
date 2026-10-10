@@ -121,6 +121,22 @@ export function getFinishReasonFromError(
 		return "upstream_error";
 	}
 
+	// Some providers (e.g. novita) intermittently reject a request with a bare,
+	// non-actionable 4xx — `{"message":"invalid request error trace_id: <hex>"}`
+	// with no param and no reason — while the identical request succeeds moments
+	// later or on another provider's mapping for the same model. That is a
+	// transient provider-side failure, not a client fault, so classify as
+	// upstream_error so the request can be retried with another provider and the
+	// failure counts toward stability metrics (client errors are excluded from
+	// uptime, which left these providers looking healthy and pinned sessions
+	// stuck on them).
+	if (
+		errorText &&
+		/invalid request error trace_id:\s*[0-9a-f]{32}/i.test(errorText)
+	) {
+		return "upstream_error";
+	}
+
 	// Upstream says the model it was sent does not exist (e.g. Runware's 400
 	// "The model `<id>` does not exist"). The gateway validated the requested
 	// model before routing, so the provider's deployment is at fault; classify as
