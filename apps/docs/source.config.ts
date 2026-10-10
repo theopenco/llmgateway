@@ -9,6 +9,8 @@ import {
 } from "fumadocs-mdx/config";
 import lastModified from "fumadocs-mdx/plugins/last-modified";
 
+import { remarkRoutingDefaults } from "./lib/remark-routing-defaults";
+
 // Written by scripts/update-content-modified.mjs; absent until the first build.
 const contentModifiedPath = resolve("lib/content-modified.json");
 const contentModified: Record<string, string> = existsSync(contentModifiedPath)
@@ -30,6 +32,9 @@ export const { docs, meta } = defineDocs({
 });
 
 export default defineConfig({
+	mdxOptions: {
+		remarkPlugins: [remarkRoutingDefaults],
+	},
 	plugins: [
 		lastModified({
 			versionControl: async (filePath) => {

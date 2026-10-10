@@ -35,6 +35,7 @@ const internalOrganizationFields = [
 	"trustTierOverride",
 	"contentFilterTierOverride",
 	"contentFilterLogOnly",
+	"providerAccessRestriction",
 	"devPlanStripeSubscriptionId",
 	"devPlanCancelled",
 	"devPlanPendingTier",

@@ -1761,6 +1761,78 @@ describe("prepareRequestBody - Anthropic", () => {
 		]);
 	});
 
+	test.each(["passthrough", "auto"] as const)(
+		"Bedrock sorts tool results into toolUse order ahead of the caller's breakpoint (%s)",
+		async (mode) => {
+			const toolCall = (id: string) => ({
+				id,
+				type: "function" as const,
+				function: { name: "read", arguments: "{}" },
+			});
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-5",
+				null,
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				[
+					{ role: "user", content: "Read three files." },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							toolCall("call_1"),
+							toolCall("call_2"),
+							toolCall("call_3"),
+						],
+					},
+					// Results arrive in completion order, as Claude Code sends them.
+					{ role: "tool", tool_call_id: "call_3", content: "three" },
+					{ role: "tool", tool_call_id: "call_1", content: "one" },
+					{
+						role: "tool",
+						tool_call_id: "call_2",
+						content: "two",
+						tool_result_cache_control: { type: "ephemeral" },
+					},
+				],
+				false, // stream
+				undefined, // temperature
+				1024, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				undefined, // reasoning_effort
+				undefined, // supportsReasoning
+				false, // isProd
+				20, // maxImageSizeMB
+				null, // userPlan
+				undefined, // sensitive_word_check
+				undefined, // image_config
+				undefined, // effort
+				undefined, // imageGenerations
+				undefined, // webSearchTool
+				undefined, // reasoning_max_tokens
+				undefined, // useResponsesApi
+				undefined, // prompt_cache_key
+				undefined, // prompt_cache_retention
+				mode, // providerCacheControlMode
+			)) as any;
+
+			const last = requestBody.messages[requestBody.messages.length - 1];
+			expect(
+				last.content.map(
+					(block: any) => block.toolResult?.toolUseId ?? Object.keys(block)[0],
+				),
+			).toEqual(["call_1", "call_2", "call_3", "cachePoint"]);
+			expect(
+				last.content.filter((block: any) => block.cachePoint),
+			).toHaveLength(1);
+		},
+	);
+
 	test("auto-injection leaves budget for the caller's trailing breakpoint", async () => {
 		const long = "A".repeat(30000);
 		const marker = { type: "ephemeral" as const };

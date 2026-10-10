@@ -117,6 +117,7 @@ NEVER put internal or private information into anything published to this public
 - When checking out an existing PR or remote branch, set its upstream (`gh pr checkout <n>`, or `git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`).
 - Sync a feature branch with main via a merge commit; rebase only when required or clearly better, and say why.
 - Resolve `pnpm-lock.yaml` conflicts by running `pnpm install`.
+- Never force-merge a PR (`gh pr merge --admin`, bypassing required checks or reviews). Merge only when every required check is green, or enable auto-merge and let it land.
 - Use the `pull-request` skill for opening and updating PRs. PRs are ready for review (not drafts) unless the user asks otherwise, and their title and description always reflect the final scope. Split independently reviewable layers into native stacked PRs with `gh stack`.
 
 ## License

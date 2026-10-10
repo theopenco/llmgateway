@@ -26,6 +26,7 @@ import type {
 	Quantization,
 	ProviderApiFormat,
 	ToolChoiceMode,
+	ProviderAccessRestriction,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -326,6 +327,10 @@ export const organization = snakeCase.table(
 		// only routes to providers meeting the required certifications/data
 		// policies. Null = no policy configured.
 		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
+		// Provider/model allow or deny list set by LLM Gateway staff in the admin
+		// dashboard, enforced by the gateway as a ceiling over IAM rules. The
+		// organization cannot edit it. Null = no restriction.
+		providerAccessRestriction: json().$type<ProviderAccessRestriction>(),
 		// Enterprise smart-routing ("smart" model) configuration: which models the
 		// gateway may pick from and which classifier ranks the request. Null =
 		// the built-in default candidate set and no classifier. Projects may
@@ -4528,6 +4533,7 @@ export const auditLogActions = [
 	"organization.block",
 	"organization.manage",
 	"organization.sso_auto_join.update",
+	"organization.provider_access_update",
 	// Project
 	"project.create",
 	"project.update",

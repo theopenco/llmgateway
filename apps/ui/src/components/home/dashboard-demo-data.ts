@@ -1,5 +1,10 @@
 import { addHours, format, parseISO, subDays } from "date-fns";
 
+import {
+	DEFAULT_ROUTING_RETRY,
+	DEFAULT_ROUTING_WEIGHTS,
+} from "@llmgateway/shared/routing-defaults";
+
 import type {
 	ActivityApiKeyUsage,
 	ActivityModelUsage,
@@ -1786,26 +1791,30 @@ export const DEMO_USER_NAMES: Record<string, string> = Object.fromEntries(
 );
 
 export const ROUTING_WEIGHTS = [
-	{ label: "Price", help: "Weight for cost-based ranking", value: 0.4 },
+	{
+		label: "Price",
+		help: "Weight for cost-based ranking",
+		value: DEFAULT_ROUTING_WEIGHTS.price,
+	},
 	{
 		label: "Uptime",
 		help: "Weight for provider availability",
-		value: 0.3,
+		value: DEFAULT_ROUTING_WEIGHTS.uptime,
 	},
 	{
 		label: "Throughput",
 		help: "Weight for tokens-per-second efficiency",
-		value: 0.1,
+		value: DEFAULT_ROUTING_WEIGHTS.throughput,
 	},
 	{
 		label: "Latency",
 		help: "Weight for streaming response time",
-		value: 0.15,
+		value: DEFAULT_ROUTING_WEIGHTS.latency,
 	},
 	{
 		label: "Cache",
 		help: "Bonus for providers with prompt caching",
-		value: 0.05,
+		value: DEFAULT_ROUTING_WEIGHTS.cache,
 	},
 ];
 
@@ -1813,12 +1822,12 @@ export const ROUTING_RETRY = [
 	{
 		label: "Max Retries",
 		help: "Maximum cross-provider fallback attempts",
-		value: 2,
+		value: DEFAULT_ROUTING_RETRY.maxRetries,
 	},
 	{
 		label: "Low Uptime Fallback (%)",
 		help: "If requested provider is below this, reroute automatically",
-		value: 90,
+		value: DEFAULT_ROUTING_RETRY.lowUptimeFallbackThreshold,
 	},
 ];
 

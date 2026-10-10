@@ -453,6 +453,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		const iamValidation = await validateRequestModelAccess({
 			apiKey,
 			organizationId: project.organizationId,
+			providerAccessRestriction: organization.providerAccessRestriction,
 			requestedModel: "openai-moderation",
 			activeModelInfo: {
 				id: "openai-moderation",
