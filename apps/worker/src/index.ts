@@ -1,8 +1,9 @@
 import { fileURLToPath } from "node:url";
 
 import { setQueryTags } from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 
+import { posthog } from "./posthog.js";
 import { startWorker, stopWorker } from "./worker.js";
 
 export { processLogQueue } from "./worker.js";
@@ -11,7 +12,23 @@ export {
 	processPendingWebhookDeliveries,
 } from "./services/video-jobs.js";
 
+const POSTHOG_SHUTDOWN_TIMEOUT_MS = 5000;
+
 let isShuttingDown = false;
+
+export async function stopWorkerAndFlush(): Promise<void> {
+	try {
+		await stopWorker();
+	} finally {
+		try {
+			await posthog.shutdown(POSTHOG_SHUTDOWN_TIMEOUT_MS);
+		} catch (error) {
+			logger.warn("PostHog flush failed during shutdown", {
+				error: toError(error),
+			});
+		}
+	}
+}
 
 async function gracefulShutdown(): Promise<void> {
 	if (isShuttingDown) {
@@ -22,7 +39,7 @@ async function gracefulShutdown(): Promise<void> {
 	logger.info("Received shutdown signal, stopping worker...");
 
 	try {
-		await stopWorker();
+		await stopWorkerAndFlush();
 		logger.info("Worker stopped gracefully");
 		process.exit(0);
 	} catch (error) {
