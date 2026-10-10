@@ -50,6 +50,8 @@ export {
 } from "./statement-descriptor.js";
 
 export {
+	DEV_PLAN_DAILY_PERCENT,
+	DEV_PLAN_DAY_LENGTH_MS,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
@@ -61,10 +63,13 @@ export {
 	type DevPlanTier,
 	getDevPlanCreditsLimit,
 	getDevPlanCycleUsageFraction,
+	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
 	getDevPlanUpgradeCredits,
 	getIncludedResetPassesRemaining,
+	getRemainingDailyAllowance,
 	getRemainingPremiumWeeklyAllowance,
+	isDailyWindowExpired,
 	isPremiumWeekExpired,
 } from "./dev-plans.js";
 
@@ -481,6 +486,16 @@ export {
 	UNKNOWN_MONTH_KEY,
 	withinOneEdit,
 } from "./model-search.js";
+
+export {
+	cancellationCommentsRequired,
+	DEV_PLAN_CANCELLATION_COMMENTS_MAX_LENGTH,
+	DEV_PLAN_CANCELLATION_HEADING,
+	DEV_PLAN_CANCELLATION_REASON_OPTIONS,
+	DEV_PLAN_CANCELLATION_REASONS,
+	type DevPlanCancellationReason,
+	type DevPlanCancellationReasonOption,
+} from "./cancellation.js";
 
 export {
 	isSystemBannerSeverity,

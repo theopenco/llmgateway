@@ -1482,6 +1482,8 @@ async function handleCheckoutSessionCompleted(
 					devPlanCreditsUsed: "0",
 					devPlanPremiumCreditsUsed: "0",
 					devPlanPremiumWeekStart: new Date(),
+					devPlanDailyCreditsUsed: "0",
+					devPlanDayStart: null,
 					devPlanIncludedResetPassesUsed: 0,
 					devPlanBillingCycleStart: new Date(),
 					devPlanStripeSubscriptionId: subscriptionId,
@@ -4519,6 +4521,8 @@ export async function handleInvoicePaymentSucceeded(event: {
 					devPlanCreditsUsed: "0",
 					devPlanPremiumCreditsUsed: "0",
 					devPlanPremiumWeekStart: new Date(),
+					devPlanDailyCreditsUsed: "0",
+					devPlanDayStart: null,
 					devPlanIncludedResetPassesUsed: 0,
 					devPlanBillingCycleStart: new Date(),
 					devPlanExpiresAt: renewedPeriodEnd ?? undefined,
@@ -4650,6 +4654,8 @@ export async function handleInvoicePaymentSucceeded(event: {
 						devPlanCreditsUsed: "0",
 						devPlanPremiumCreditsUsed: "0",
 						devPlanPremiumWeekStart: new Date(),
+						devPlanDailyCreditsUsed: "0",
+						devPlanDayStart: null,
 						devPlanIncludedResetPassesUsed: 0,
 						devPlanBillingCycleStart: new Date(),
 						devPlanExpiresAt: newPeriodEnd ?? undefined,
@@ -5534,6 +5540,8 @@ export async function handleSubscriptionDeleted(
 				devPlanCreditsUsed: "0",
 				devPlanPremiumCreditsUsed: "0",
 				devPlanPremiumWeekStart: null,
+				devPlanDailyCreditsUsed: "0",
+				devPlanDayStart: null,
 				// Included passes expire with the plan; purchased passes
 				// (devPlanResetPasses) are kept — they were paid for and apply
 				// again on resubscribe.

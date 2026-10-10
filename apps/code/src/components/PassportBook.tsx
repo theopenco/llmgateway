@@ -290,7 +290,7 @@ export function PassportBook() {
 										P&lt;GTWDEVPASS&lt;CODE&lt;&lt;FIRST&lt;PARTY&lt;AGENT&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
 									</p>
 									<p className="truncate">
-										LLMGTWY2026&lt;&lt;3X&lt;USAGE&lt;200&lt;MODELS&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;42
+										LLMGTWY2026&lt;&lt;2X&lt;USAGE&lt;200&lt;MODELS&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;42
 									</p>
 								</div>
 							</div>

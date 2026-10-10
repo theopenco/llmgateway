@@ -1,32 +1,35 @@
 # DevPass by LLM Gateway — Pricing
 
-Last updated: 2026-09-01
+Last updated: 2026-09-12
 
 > DevPass is a flat-price monthly subscription for AI coding tools. One API key connects the models in the live [DevPass catalogue](https://devpass.llmgateway.io/models) in any OpenAI- or Anthropic-compatible coding agent (DevPass Code, Claude Code, OpenCode, Cursor, Cline, and more). Usage is metered at provider list rates with no token markup.
 
 ## Lite
 
 - Price: $29/month
-- Included usage: $87 of model usage per month (3× what you pay), metered at provider rates
-- Premium-model fair use: 12% of credits per week on models priced $5+/M input or $15+/M output
-- Reset Passes: buy anytime for $9 each (instant premium-allowance reset)
+- Included usage: $58 of model usage per month (2× what you pay), metered at provider rates
+- Daily pacing: up to 8% of the monthly allowance per rolling 24 hours, any model
+- Premium-model fair use: 10% of credits per week on models priced $5+/M input or $15+/M output
+- Reset Passes: buy anytime for $5 each (instant premium-allowance reset)
 - Support: email
 
 ## Pro
 
 - Price: $79/month
-- Included usage: $237 of model usage per month (3× what you pay)
-- Premium-model fair use: 15% of credits per week
-- Reset Passes: 1 included per month, extras $29 each
+- Included usage: $158 of model usage per month (2× what you pay)
+- Daily pacing: up to 9% of the monthly allowance per rolling 24 hours
+- Premium-model fair use: 12% of credits per week
+- Reset Passes: buy anytime for $15 each
 - Priority routing on flagship models
 - Support: priority
 
 ## Max
 
 - Price: $179/month
-- Included usage: $537 of model usage per month (3× what you pay)
-- Premium-model fair use: 18% of credits per week
-- Reset Passes: 2 included per month, extras $79 each
+- Included usage: $358 of model usage per month (2× what you pay)
+- Daily pacing: up to 10% of the monthly allowance per rolling 24 hours
+- Premium-model fair use: 15% of credits per week
+- Reset Passes: 2 included per month, extras $45 each
 - Priority routing on flagship models and headroom for all-day agent runs
 - Support: front of queue
 
@@ -36,7 +39,8 @@ Last updated: 2026-09-01
 - Works with DevPass Code, Claude Code, OpenCode, Empryo, SoulForge, and any OpenAI/Anthropic-compatible tool
 - Real-time dashboard with per-request cost and latency
 - Switch tiers or cancel anytime — no lock-in, no cancellation fee
-- Optional pay-as-you-go overflow: top up a credits balance to keep going at provider rates once the monthly allowance is used
+- Daily pacing keeps the allowance spread across the whole cycle; each rolling 24-hour window can use the published share of the monthly allowance
+- Optional pay-as-you-go overflow: top up a credits balance to keep going at provider rates past the monthly allowance or a pacing window
 
 ## Refunds
 

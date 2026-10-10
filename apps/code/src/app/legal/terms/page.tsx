@@ -157,6 +157,17 @@ export default function TermsPage() {
 					immediate mid-cycle upgrade, which rolls your unused allowance into
 					the new cycle (see &ldquo;Plan changes&rdquo; below)
 				</li>
+				<li>
+					Allowances are paced. Each tier publishes a{" "}
+					<strong>daily pacing allowance</strong> &mdash; the share of the
+					monthly allowance that can be used in any rolling 24-hour window,
+					across all models &mdash; and a{" "}
+					<strong>weekly fair-use allowance</strong> for premium models.
+					Requests beyond a pacing allowance are declined until the window rolls
+					over, unless pay-as-you-go overflow is enabled. The current shares are
+					published on the <Link href="/pricing">pricing page</Link> and may
+					change with notice
+				</li>
 			</ul>
 			<p>
 				Billing is processed securely through <strong>Stripe</strong>, as
