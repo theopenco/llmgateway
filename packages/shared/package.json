@@ -66,6 +66,11 @@
 			"import": "./dist/components/system-banner.js",
 			"default": "./dist/components/system-banner.js"
 		},
+		"./json-ld": {
+			"types": "./dist/components/json-ld.d.ts",
+			"import": "./dist/components/json-ld.js",
+			"default": "./dist/components/json-ld.js"
+		},
 		"./carrier-mark": {
 			"types": "./dist/components/carrier-mark.d.ts",
 			"import": "./dist/components/carrier-mark.js",
