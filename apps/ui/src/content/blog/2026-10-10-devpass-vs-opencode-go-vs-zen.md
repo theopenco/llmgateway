@@ -23,7 +23,7 @@ image:
 
 Three ways to pay for AI coding models from the same corner of the market: **OpenCode Go** (a cheap subscription for open models), **OpenCode Zen** (pay as you go at cost), and **DevPass** from **LLM Gateway** (a subscription with one allowance across every model). The pricing pages use different units, so this post puts them on the same scale: dollars of usage per dollar paid, the caps that decide how fast you can spend it, and per-token rates for the same models, wherever each service offers them.
 
-All figures were checked on October 10, 2026 against [opencode.ai/docs/go](https://opencode.ai/docs/go/), [opencode.ai/docs/zen](https://opencode.ai/docs/zen/) and the [LLM Gateway model catalog](https://llmgateway.io/models). DevPass figures are the ones in effect from **October 15, 2026**.
+All figures were checked on October 10, 2026 against [opencode.ai/docs/go](https://opencode.ai/docs/go/), [opencode.ai/docs/zen](https://opencode.ai/docs/zen/) and the [LLM Gateway model catalog](https://llmgateway.io/models). DevPass figures are the ones that take effect on **October 15, 2026**: new subscriptions start at 2× the plan price, existing subscriptions keep 3× until their first renewal on or after that date, and the daily and premium weekly caps apply to everyone from October 15, calculated on the new 2× allowance.
 
 ## OpenCode Go vs OpenCode Zen vs DevPass at a glance
 
