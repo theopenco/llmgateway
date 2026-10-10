@@ -1,5 +1,6 @@
 import { RootProvider } from "fumadocs-ui/provider/next";
 import localFont from "next/font/local";
+import { Suspense } from "react";
 
 import { JsonLd } from "@/components/json-ld";
 import { TabAnchorHandler } from "@/components/tab-anchor-handler";
@@ -71,11 +72,16 @@ export const metadata: Metadata = {
 	},
 };
 
-export default async function Layout({ children }: { children: ReactNode }) {
+// Fetched behind its own Suspense boundary so a cold banner lookup streams in
+// without blocking the first paint of every docs page.
+async function SystemBanner() {
+	return <SystemBannerBar banner={await fetchSystemBanner()} />;
+}
+
+export default function Layout({ children }: { children: ReactNode }) {
 	// Access environment variables directly on the server
 	const posthogKey = process.env.POSTHOG_KEY ?? "";
 	const posthogHost = process.env.POSTHOG_HOST ?? "";
-	const systemBanner = await fetchSystemBanner();
 
 	return (
 		<html
@@ -85,7 +91,9 @@ export default async function Layout({ children }: { children: ReactNode }) {
 		>
 			<body className="flex flex-col min-h-screen">
 				<JsonLd data={[organizationSchema, websiteSchema]} />
-				<SystemBannerBar banner={systemBanner} />
+				<Suspense fallback={null}>
+					<SystemBanner />
+				</Suspense>
 				<ConfigProvider posthogKey={posthogKey} posthogHost={posthogHost}>
 					<PostHogProvider>
 						<RootProvider>

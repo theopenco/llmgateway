@@ -2,7 +2,6 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import { ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -92,12 +91,7 @@ function ResetPasswordForm() {
 	const isInvalidToken = !token || errorParam === "INVALID_TOKEN";
 
 	return (
-		<motion.div
-			initial={{ opacity: 0, y: 12 }}
-			animate={{ opacity: 1, y: 0 }}
-			transition={{ duration: 0.4, ease: "easeOut" }}
-			className="mx-auto w-full max-w-[400px]"
-		>
+		<div className="animate-in fade-in-0 slide-in-from-bottom-3 mx-auto w-full max-w-[400px] duration-[400ms] ease-out">
 			<div className="mb-6 lg:hidden">
 				<p className="text-sm font-medium uppercase tracking-widest text-primary">
 					LLM Gateway
@@ -216,7 +210,7 @@ function ResetPasswordForm() {
 					</p>
 				</>
 			)}
-		</motion.div>
+		</div>
 	);
 }
 

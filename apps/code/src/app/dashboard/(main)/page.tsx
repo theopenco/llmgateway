@@ -7,7 +7,6 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import ApiKeySection from "@/app/dashboard/components/ApiKeySection";
-import CapHitResetOfferDialog from "@/app/dashboard/components/CapHitResetOfferDialog";
 import UsageSummaryCard from "@/app/dashboard/components/UsageSummaryCard";
 import { plans } from "@/app/dashboard/plans";
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
@@ -25,6 +24,10 @@ const CodingAgents = dynamic(
 );
 const QuickStart = dynamic(
 	() => import("@/app/dashboard/components/QuickStart"),
+);
+// Renders only when the weekly premium cap has been hit.
+const CapHitResetOfferDialog = dynamic(
+	() => import("@/app/dashboard/components/CapHitResetOfferDialog"),
 );
 
 export default function OverviewPage() {

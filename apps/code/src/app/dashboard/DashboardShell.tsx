@@ -23,7 +23,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import DevPassPaymentRecovery from "@/app/dashboard/components/DevPassPaymentRecovery";
-import SurveyReminderDialog from "@/app/dashboard/components/SurveyReminderDialog";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { ProductSwitcher } from "@/components/ProductSwitcher";
@@ -59,6 +58,11 @@ import type { Route } from "next";
 
 const InactivePlanChooser = dynamic(
 	() => import("./components/InactivePlanChooser"),
+);
+
+// Shown at most once per quarter; no need for it in the initial bundle.
+const SurveyReminderDialog = dynamic(
+	() => import("@/app/dashboard/components/SurveyReminderDialog"),
 );
 
 const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =

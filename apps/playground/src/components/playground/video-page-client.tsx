@@ -1,11 +1,11 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { VideoControls } from "@/components/playground/video-controls";
 import { VideoGallery } from "@/components/playground/video-gallery";
@@ -67,6 +67,17 @@ import type {
 	VideoJob,
 	VideoSize,
 } from "@/lib/video-gen";
+
+// Opened on demand only; lazy loading keeps the Stripe top-up dialog and
+// @stripe/react-stripe-js out of the page's initial bundle. It renders
+// nothing until opened, so there is no SSR output to lose.
+const TopUpCreditsDialog = dynamic(
+	() =>
+		import("@/components/credits/top-up-credits-dialog").then(
+			(m) => m.TopUpCreditsDialog,
+		),
+	{ ssr: false },
+);
 
 interface SavedVideoModelResult {
 	modelId: string;

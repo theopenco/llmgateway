@@ -262,11 +262,9 @@ export function ChatSupport() {
 		}
 	}, [convData, status, messages, setMessages]);
 
-	useEffect(() => {
-		if (convData?.escalatedAt) {
-			setEscalated(true);
-		}
-	}, [convData?.escalatedAt]);
+	// Derived during render instead of mirrored into state with an effect;
+	// `escalated` still tracks escalations made from this session.
+	const isEscalated = escalated || Boolean(convData?.escalatedAt);
 
 	const reactionBySequence = useMemo(() => {
 		const map: Record<number, "like" | "dislike"> = {};
@@ -364,7 +362,7 @@ export function ChatSupport() {
 		(acc, m, i) => (m.role === "user" ? i : acc),
 		-1,
 	);
-	const showSuggestions = messages.length === 0 && !escalated && !isResolved;
+	const showSuggestions = messages.length === 0 && !isEscalated && !isResolved;
 	const requestedHuman = useMemo(
 		() =>
 			messages.some(
@@ -373,7 +371,8 @@ export function ChatSupport() {
 		[messages],
 	);
 	const showEscalation =
-		!escalated && (userMessageCount >= ESCALATION_THRESHOLD || requestedHuman);
+		!isEscalated &&
+		(userMessageCount >= ESCALATION_THRESHOLD || requestedHuman);
 	const canResolve = !isResolved && userMessageCount >= 1;
 
 	const escalateMutation = useMutation({
@@ -873,7 +872,7 @@ export function ChatSupport() {
 								</div>
 							)
 						)}
-						{escalated && !isResolved && (
+						{isEscalated && !isResolved && (
 							<div className="shrink-0 border-t border-border bg-green-50 px-4 py-2.5 dark:bg-green-950/30">
 								<p className="text-xs text-green-700 dark:text-green-400">
 									We&apos;ve notified our team. We&apos;ll reply here and via
@@ -925,7 +924,7 @@ export function ChatSupport() {
 									onChange={(e) => setText(e.target.value)}
 									onKeyDown={handleKeyDown}
 									placeholder={
-										escalated
+										isEscalated
 											? "Message the support team..."
 											: "Ask about LLM Gateway..."
 									}
