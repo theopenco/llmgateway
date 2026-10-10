@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { setBlockedSignupCountries } from "@/utils/country-blocking.js";
 
@@ -10,6 +10,7 @@ import {
 	isClientAuthError,
 	isClientJsonError,
 	redisClient,
+	SIGN_IN_DAILY_LIMIT,
 } from "./config.js";
 
 describe("isClientJsonError", () => {
@@ -814,5 +815,102 @@ describe("Signup country blocking", () => {
 		);
 
 		expect(response.status).not.toBe(403);
+	});
+});
+
+describe("Email sign-in for unknown accounts", () => {
+	const signIn = (email: string, password: string) =>
+		apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-in/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": `192.168.32.${randomInt(0, 255)}`,
+				},
+				body: JSON.stringify({ email, password }),
+			}),
+		);
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	test("rejects an unknown email like a wrong password without hashing", async () => {
+		const email = `known-${Date.now()}@example.com`;
+		const signUp = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": `192.168.33.${randomInt(0, 255)}`,
+				},
+				body: JSON.stringify({
+					email,
+					password: "Password123!",
+					name: "Known User",
+				}),
+			}),
+		);
+		expect(signUp.status).toBe(200);
+		await db
+			.update(tables.user)
+			.set({ emailVerified: true })
+			.where(eq(tables.user.email, email));
+
+		const wrongPassword = await signIn(email, "WrongPassword123!");
+
+		const context = await apiAuth.$context;
+		const hash = vi.spyOn(context.password, "hash");
+		const unknownEmail = await signIn(
+			`unknown-${Date.now()}@example.com`,
+			"Password123!",
+		);
+
+		expect(unknownEmail.status).toBe(401);
+		expect(wrongPassword.status).toBe(401);
+		expect(await unknownEmail.json()).toEqual(await wrongPassword.json());
+		expect(hash).not.toHaveBeenCalled();
+	});
+});
+
+describe("Email sign-in daily IP limit", () => {
+	const ip = "203.0.113.77";
+	const key = `sign_in_daily:${ip}`;
+
+	afterEach(async () => {
+		await redisClient.del(key);
+	});
+
+	const signIn = () =>
+		apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-in/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": ip,
+				},
+				body: JSON.stringify({
+					email: `daily-${Date.now()}@example.com`,
+					password: "Password123!",
+				}),
+			}),
+		);
+
+	test("counts each attempt against a 24h window", async () => {
+		const response = await signIn();
+
+		expect(response.status).toBe(401);
+		expect(await redisClient.get(key)).toBe("1");
+		expect(await redisClient.ttl(key)).toBeGreaterThan(23 * 60 * 60);
+	});
+
+	test("rejects attempts once the IP reaches the daily limit", async () => {
+		await redisClient.set(key, SIGN_IN_DAILY_LIMIT, "EX", 3600);
+
+		const response = await signIn();
+
+		expect(response.status).toBe(429);
+		expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
+		expect((await response.json()).error).toBe("too_many_requests");
 	});
 });

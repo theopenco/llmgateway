@@ -1,10 +1,12 @@
+import { BASE_ERROR_CODES } from "@better-auth/core/error";
 import { passkey } from "@better-auth/passkey";
 import { sso } from "@better-auth/sso";
 import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 import { betterAuth } from "better-auth";
-import { createAuthMiddleware } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { bearer, deviceAuthorization } from "better-auth/plugins";
 import { Redis } from "ioredis";
+import { z } from "zod";
 
 import { createAuthDatabase } from "@/auth/database.js";
 import {
@@ -12,6 +14,10 @@ import {
 	MIN_PASSWORD_LENGTH,
 } from "@/auth/password-policy.js";
 import { serializedPasswordReset } from "@/auth/password-reset.js";
+import {
+	delayLikePasswordHash,
+	timedVerifyPassword,
+} from "@/auth/sign-in-timing.js";
 import { verificationCallback } from "@/auth/verification-callback.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
@@ -259,6 +265,33 @@ export async function checkAndRecordSignupAttempt(
 			remaining: 0,
 		};
 	}
+}
+
+// Real users stay far below this per IP per day; credential stuffing from a
+// small proxy pool sends thousands per IP while slipping under the short
+// per-IP window.
+export const SIGN_IN_DAILY_LIMIT = 100;
+const DAY_SECONDS = 24 * 60 * 60;
+
+/**
+ * Count an email sign-in attempt against a fixed 24h window per IP.
+ */
+export async function recordDailySignInAttempt(
+	ipAddress: string,
+): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
+	const key = `sign_in_daily:${ipAddress}`;
+	const results = await redisClient
+		.multi()
+		.set(key, 0, "EX", DAY_SECONDS, "NX")
+		.incr(key)
+		.ttl(key)
+		.exec();
+	if (!results) {
+		throw new Error("Sign-in rate limit transaction aborted");
+	}
+	const count = results[1][1] as number;
+	const ttl = results[2][1] as number;
+	return { allowed: count <= SIGN_IN_DAILY_LIMIT, retryAfterSeconds: ttl };
 }
 
 export interface ExponentialRateLimitConfig {
@@ -741,6 +774,9 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					},
 				},
 				customRules: {
+					// Default is 3 per 10s; credential stuffing rotates IPs at about
+					// one attempt per 5s each, under that limit.
+					"/sign-in/email": { window: 60, max: 5 },
 					"/device/code": { window: 60, max: 30 },
 					"/device/token": { window: 60, max: 120 },
 					"/device": { window: 60, max: 30 },
@@ -796,6 +832,7 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			emailAndPassword: {
 				enabled: true,
 				revokeSessionsOnPasswordReset: true,
+				password: { verify: timedVerifyPassword },
 				// Enforced on sign-up/reset/change/set-password only, never on
 				// sign-in, so existing accounts with shorter passwords keep working.
 				minPasswordLength: MIN_PASSWORD_LENGTH,
@@ -995,6 +1032,32 @@ The LLM Gateway Team`.trim();
 						body.revokeOtherSessions = true;
 					}
 
+					if (ctx.path === "/sign-in/email") {
+						const signInIp = getClientIpFromHeaders(ctx.headers);
+						if (signInIp) {
+							const { allowed, retryAfterSeconds } =
+								await recordDailySignInAttempt(signInIp);
+							if (!allowed) {
+								return new Response(
+									JSON.stringify({
+										error: "too_many_requests",
+										message:
+											"Too many sign-in attempts. Please try again tomorrow or reset your password.",
+										retryAfter: retryAfterSeconds,
+									}),
+									{
+										status: 429,
+										headers: {
+											"Content-Type": "application/json",
+											"Retry-After": retryAfterSeconds.toString(),
+										},
+									},
+								);
+							}
+						}
+					}
+
+					let isUnknownSignInEmail = false;
 					if (ctx.path.startsWith("/sign-in")) {
 						const body = ctx.body as { email?: string } | undefined;
 						const email = body?.email?.trim().toLowerCase();
@@ -1003,6 +1066,10 @@ The LLM Gateway Team`.trim();
 								where: { email: { eq: email } },
 								columns: { status: true, blockReason: true },
 							});
+							isUnknownSignInEmail =
+								!existingUser &&
+								ctx.path === "/sign-in/email" &&
+								z.string().email().safeParse(body?.email).success;
 							if (existingUser?.status === "deactivated") {
 								return new Response(
 									JSON.stringify({
@@ -1026,6 +1093,16 @@ The LLM Gateway Team`.trim();
 						if (await isSSOEnforcedForEmail(body?.email)) {
 							return ssoRequiredResponse();
 						}
+					}
+
+					// Answer unknown emails here so Better Auth skips its throwaway
+					// scrypt hash; see delayLikePasswordHash.
+					if (isUnknownSignInEmail) {
+						await delayLikePasswordHash();
+						throw APIError.from(
+							"UNAUTHORIZED",
+							BASE_ERROR_CODES.INVALID_EMAIL_OR_PASSWORD,
+						);
 					}
 
 					const ipAddress = getClientIpFromHeaders(ctx.headers) ?? "unknown";
