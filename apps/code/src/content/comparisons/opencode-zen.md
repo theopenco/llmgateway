@@ -1,66 +1,88 @@
 ---
 id: "devpass-vs-opencode-zen"
 slug: "opencode-zen"
-date: "2026-09-27"
+date: "2026-10-10"
 title: "DevPass vs OpenCode Zen"
-metaTitle: "DevPass vs OpenCode Zen: Pricing and Limits (2026)"
-description: "Compare OpenCode Zen’s pay-as-you-go pricing, card fees, spend controls, and retention exceptions with DevPass’s monthly coding plans."
+metaTitle: "DevPass vs OpenCode Zen: Pricing, Fees and Token Rates (2026)"
+description: "Compare OpenCode Zen’s at-cost pay-as-you-go pricing and card fees with DevPass’s 2× monthly allowance, including per-token rates for the same models."
 competitor: "OpenCode Zen"
 competitorLogo: "opencode-zen"
-competitorTagline: "Pay-as-you-go model access"
-tagline: "Zen charges for tokens as you use them. DevPass bundles a monthly coding allowance with fair-use limits."
+competitorTagline: "Pay-as-you-go model access at cost"
+tagline: "Zen sells tokens at cost with card fees passed through. DevPass includes 2× its price in usage every month for subscriptions from October 15, 2026 (existing subscriptions keep 3× until their first renewal after that date), with open models at LLM Gateway’s multi-provider rates."
 devpassPrice: "$29–$179/mo"
 competitorPrice: "Usage + card fees"
-verdict: "Zen can be the better fit for occasional or unpredictable use: there is no monthly subscription and it offers a curated coding catalog with spend controls. DevPass suits recurring coding usage that fits its included allowance and premium limits. Both can incur additional charges when you enable extra usage."
+verdict: "Choose Zen for light or irregular usage, or to try free limited-time models: there’s no subscription and you pay 1× plus card fees. Choose DevPass if you code most days: every plan includes 2× its price in usage from October 15, 2026 (3× until the first renewal after that date for existing subscriptions), and open models cost less per token than on Zen: about 6% less on Kimi K3, 20% on Qwen3.8 Max and up to 75% on GLM, DeepSeek and MiniMax. Frontier models like Claude Opus and Sonnet are priced the same on both."
 features:
   - label: "Pricing model"
     devpass: "Monthly subscription + optional overflow"
     competitor: "Pay as you go"
-  - label: "Base monthly subscription"
-    devpass: "$29–$179"
-    competitor: "None"
-  - label: "Payment costs"
-    devpass: "See plan and overflow terms"
-    competitor: "Card fee: 4.4% + $0.30 per transaction"
-  - label: "Model access"
-    devpass: "Live DevPass coding catalog"
-    competitor: "Curated Zen catalog"
-  - label: "Spending controls"
-    devpass: "Included allowance; optional PAYG overflow"
-    competitor: "Workspace and member monthly limits"
+  - label: "Usage per dollar paid"
+    devpass: "2× ($58 / $158 / $358 on $29 / $79 / $179) from October 15, 2026; existing subscriptions keep 3× until their first renewal after that date"
+    competitor: "1× (at cost)"
+  - label: "Payment fees"
+    devpass: "None on top of the plan"
+    competitor: "4.4% + $0.30 per card transaction (about 6% on a $20 top-up)"
+  - label: "GLM-5.3 rate (per 1M in / out)"
+    devpass: "From $0.82 / $2.77"
+    competitor: "$1.40 / $4.40"
+  - label: "DeepSeek V4.1 Flash rate (per 1M in / out)"
+    devpass: "From $0.12 / $0.47"
+    competitor: "$0.30 / $1.20"
+  - label: "Claude Opus 5.5 rate (per 1M in / out)"
+    devpass: "$4.00 / $20.00"
+    competitor: "$4.00 / $20.00"
+  - label: "Free models"
+    devpass: false
+    competitor: true
+  - label: "Usage controls"
+    devpass: "Daily and premium weekly caps from October 15; optional overflow"
+    competitor: "Workspace and member monthly spend limits"
   - label: "Team use"
     devpass: "One developer per subscription"
     competitor: "Workspace and member controls"
-  - label: "Retention"
-    devpass: "See DevPass privacy and routing settings"
-    competitor: "Model-specific exceptions; not blanket ZDR"
 faqs:
   - question: "Does Zen mark up model tokens?"
-    answer: "Zen says it passes through provider token pricing and charges card processing at 4.4% plus $0.30 per transaction. A no-markup token rate does not mean every credit purchase is fee-free."
-  - question: "Can Zen spending be capped?"
-    answer: "Yes. Zen documents monthly workspace and member spend limits. Auto-reload purchases and consumed usage are separate, so configure both the reload settings and usage caps."
-  - question: "Is Zen always cheaper than DevPass?"
-    answer: "No universal comparison works. Zen avoids a monthly commitment; DevPass bundles usage that may be valuable if you consume it within the plan limits. Compare actual token use, fees, and any overflow."
+    answer: "No. OpenCode sells Zen tokens at cost and passes card processing through at 4.4% plus $0.30 per transaction. On the default $20 top-up that is $1.23, about 6%."
+  - question: "Why are some models cheaper on DevPass than on Zen?"
+    answer: "Zen keeps each model on providers OpenCode has benchmarked and doesn’t route to cheaper ones. LLM Gateway lists several providers for popular open models and routes on price, uptime and speed, so GLM-5.3, DeepSeek V4.1 Flash and MiniMax M2.7 usually run 37–75% below Zen’s rates, and carrier discounts take 20% off Qwen3.8 Max and Kimi K2.7 Code. Claude Opus, Sonnet and Haiku rates are the same on both."
+  - question: "When is Zen cheaper than DevPass?"
+    answer: "When you’d spend less than the plan price in a month. DevPass Lite costs $29 for $58 of usage, so if your monthly usage at Zen rates stays under about $27 after card fees, Zen costs less. Above that, DevPass includes more usage per dollar."
   - question: "Does Zen guarantee zero retention for every model?"
     answer: "No. Zen documents exceptions, including provider retention windows and different treatment of some free models. Check the current policy for the route you use."
 ---
 
 ## Token pricing and payment fees
 
-OpenCode Zen is a pay-as-you-go service, with no recurring subscription required. Its [pricing documentation](https://opencode.ai/docs/zen/#pricing) says model tokens are passed through at provider rates, with **4.4% plus $0.30 per credit-card transaction** added for payment processing.
+OpenCode Zen is pay as you go, with no subscription. OpenCode sells tokens at cost and passes card fees through at **4.4% + $0.30 per transaction** ([Zen pricing](https://opencode.ai/docs/zen/#pricing)), so the default $20 top-up costs $21.23. You get 1× usage per dollar, minus about 6% in fees.
 
-For light or irregular coding, paying only for consumed tokens may cost less than maintaining a subscription. DevPass becomes relevant when your recurring usage fits the bundled allowance and premium fair-use limits.
+DevPass includes **2× its price** in usage each month for subscriptions from October 15, 2026 (existing subscriptions keep 3× until their first renewal after that date), with no fee on top. Per-token rates differ where LLM Gateway can route to a cheaper or discounted provider:
+
+| Per 1M tokens, input / output | DevPass (lowest listed) | OpenCode Zen   |
+| ----------------------------- | ----------------------- | -------------- |
+| GLM-5.3-Flash                 | $0.07 / $0.20           | $0.15 / $0.50  |
+| GLM-5.3                       | $0.82 / $2.77           | $1.40 / $4.40  |
+| DeepSeek V4.1 Flash           | $0.12 / $0.47           | $0.30 / $1.20  |
+| DeepSeek V4 Pro               | $0.435 / $0.87          | $1.74 / $3.48  |
+| MiniMax M2.7                  | $0.08 / $0.32           | $0.30 / $1.20  |
+| Gemini 3.8 Flash              | $0.75 / $3.75           | $1.50 / $7.50  |
+| Kimi K3                       | $2.80 / $14.13          | $3.00 / $15.00 |
+| Qwen3.8 Max                   | $1.60 / $4.80           | $2.00 / $6.00  |
+| Claude Opus 5.5               | $4.00 / $20.00          | $4.00 / $20.00 |
+| Claude Sonnet 5.5             | $2.00 / $10.00          | $2.00 / $10.00 |
+
+Zen keeps each model on providers it has benchmarked rather than routing to the cheapest. LLM Gateway routes on price, uptime and speed, so a request can land above the lowest listed rate; check the live [coding catalog](/coding-models).
+
+## When each one costs less
+
+- **Zen** costs less if your month stays under roughly $27 of usage at Zen rates. It also has about a dozen free models for a limited time.
+- **DevPass Lite** ($29 for $58) costs less above that, and the gap widens on open models where DevPass rates are lower. At GLM-5.3 rates, Lite’s allowance buys about as many tokens as $95 spent on Zen.
 
 ## Controls and privacy
 
-Zen provides monthly workspace and member spending limits, auto-reload settings, and BYOK support. A balance purchase is not the same as usage: review reload amounts separately from spending caps.
-
-Its retention policy has model-specific exceptions, including retention by some upstream providers and different policies for free models. Read the current [Zen documentation](https://opencode.ai/docs/zen/) for its catalog, BYOK settings, and privacy details. **Choose Zen** for flexible consumption and workspace controls; **choose DevPass** for a single developer’s recurring coding allowance.
+Zen provides monthly workspace and member spending limits, auto-reload (by default $20 when your balance drops below $5) and BYOK support. Auto-reload can charge you past a spend limit, so configure both. Its retention policy has model-specific exceptions, including some upstream providers and free models; read the current [Zen documentation](https://opencode.ai/docs/zen/).
 
 ## DevPass pricing and limits
 
-DevPass costs **$29/month for Lite, $79 for Pro, or $179 for Max**, for one developer. As of September 27, these plans include $87, $237, and $537 of monthly model usage respectively, with separate premium weekly fair-use limits. Optional pay-as-you-go overflow costs extra.
+DevPass costs **$29/month for Lite, $79 for Pro, or $179 for Max**, for one developer. From **October 15, 2026**, new subscriptions include 2× the plan price in monthly usage ($58, $158, $358); existing subscriptions move to 2× at their first renewal on or after that date. Daily caps (8%, 9%, 10% of the monthly allowance), premium weekly caps (10%, 12%, 15%) and Reset Pass prices ($5, $15, $45) take effect October 15, including within existing billing cycles. Optional pay-as-you-go overflow costs extra. Read the [plan-change terms](/legal/terms#october-2026-plan-changes) before subscribing.
 
-**Plan changes start October 15, 2026:** new subscriptions begin at 2× the plan price in monthly usage; existing subscriptions move to 2× at their first renewal on or after that date. Daily caps, tighter premium weekly caps, and revised Reset Pass benefits take effect October 15, including within existing billing cycles. Read the [plan-change terms](/legal/terms#october-2026-plan-changes) before subscribing.
-
-Compare the live [coding catalog](/coding-models) and [plan details](/pricing). Client support depends on the API and custom-endpoint features of the coding tool; a DevPass key does not unlock every feature of a third-party editor.
+For the three-way breakdown with OpenCode Go, read [DevPass vs OpenCode Go vs OpenCode Zen](https://llmgateway.io/blog/devpass-vs-opencode-go-vs-zen).
