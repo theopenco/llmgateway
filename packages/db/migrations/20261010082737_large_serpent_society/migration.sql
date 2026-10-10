@@ -1,1 +1,0 @@
-ALTER TABLE "organization" ADD COLUMN "provider_access_restriction" json;
