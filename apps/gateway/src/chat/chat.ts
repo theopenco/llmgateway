@@ -3449,6 +3449,7 @@ chat.openapi(completions, async (c) => {
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
+		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: modelInfo.id,
 		requestedProvider,
 		customProviderName,
@@ -3501,6 +3502,7 @@ chat.openapi(completions, async (c) => {
 					const customIam = await validateRequestModelAccess({
 						apiKey,
 						organizationId: project.organizationId,
+						providerAccessRestriction: organization.providerAccessRestriction,
 						requestedModel: modelInfo.id,
 						requestedProvider: "custom",
 						customProviderName: providerKey.name,
@@ -4208,6 +4210,7 @@ chat.openapi(completions, async (c) => {
 			const candidateIam = await validateRequestModelAccess({
 				apiKey,
 				organizationId: project.organizationId,
+				providerAccessRestriction: organization.providerAccessRestriction,
 				requestedModel: modelDef.id,
 				activeModelInfo: modelDef,
 				clientIp,
@@ -4294,6 +4297,8 @@ chat.openapi(completions, async (c) => {
 							const customIam = await validateRequestModelAccess({
 								apiKey,
 								organizationId: project.organizationId,
+								providerAccessRestriction:
+									organization.providerAccessRestriction,
 								requestedModel: modelDef.id,
 								requestedProvider: "custom",
 								customProviderName: providerKey.name,
@@ -4738,6 +4743,7 @@ chat.openapi(completions, async (c) => {
 		const resolvedIamValidation = await validateRequestModelAccess({
 			apiKey,
 			organizationId: project.organizationId,
+			providerAccessRestriction: organization.providerAccessRestriction,
 			requestedModel: modelInfo.id,
 			requestedProvider: usedProvider === "custom" ? "custom" : undefined,
 			customProviderName:

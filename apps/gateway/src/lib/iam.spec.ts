@@ -10,7 +10,10 @@ import {
 } from "./iam.js";
 
 import type { GatewayApiKey } from "@/lib/cached-queries.js";
-import type { ModelDefinition } from "@llmgateway/models";
+import type {
+	ModelDefinition,
+	ProviderAccessRestriction,
+} from "@llmgateway/models";
 
 // Mock the cached-queries module so we can control IAM rules per test
 vi.mock("@/lib/cached-queries.js", () => ({
@@ -1176,6 +1179,7 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: threeProviderModel.id,
 			activeModelInfo: threeProviderModel,
 		});
@@ -1207,6 +1211,7 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: threeProviderModel.id,
 			activeModelInfo: threeProviderModel,
 		});
@@ -1235,6 +1240,7 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: threeProviderModel.id,
 			activeModelInfo: threeProviderModel,
 		});
@@ -1266,6 +1272,7 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: threeProviderModel.id,
 			activeModelInfo: threeProviderModel,
 		});
@@ -1291,6 +1298,7 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: threeProviderModel.id,
 			activeModelInfo: threeProviderModel,
 		});
@@ -1315,6 +1323,7 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: threeProviderModel.id,
 			activeModelInfo: threeProviderModel,
 		});
@@ -1340,6 +1349,7 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: threeProviderModel.id,
 			activeModelInfo: threeProviderModel,
 		});
@@ -1363,6 +1373,7 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: threeProviderModel.id,
 			activeModelInfo: threeProviderModel,
 		});
@@ -1389,6 +1400,7 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: threeProviderModel.id,
 			activeModelInfo: threeProviderModel,
 		});
@@ -1412,6 +1424,7 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: threeProviderModel.id,
 			activeModelInfo: threeProviderModel,
 		});
@@ -1432,6 +1445,7 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey({ keyType: "platform_publishable" }),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: threeProviderModel.id,
 			activeModelInfo: threeProviderModel,
 		});
@@ -1453,6 +1467,7 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: threeProviderModel.id,
 			activeModelInfo: threeProviderModel,
 		});
@@ -1480,6 +1495,7 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: threeProviderModel.id,
 			activeModelInfo: threeProviderModel,
 		});
@@ -1524,6 +1540,7 @@ describe("validateRequestModelAccess — custom provider refs", () => {
 		const denied = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: customProviderModel.id,
 			requestedProvider: "custom",
 			customProviderName: "acme",
@@ -1535,6 +1552,7 @@ describe("validateRequestModelAccess — custom provider refs", () => {
 		const allowed = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: customProviderModel.id,
 			requestedProvider: "custom",
 			customProviderName: "other",
@@ -1554,6 +1572,7 @@ describe("validateRequestModelAccess — custom provider refs", () => {
 		const allowed = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: customProviderModel.id,
 			requestedProvider: "custom",
 			customProviderName: "acme",
@@ -1565,6 +1584,7 @@ describe("validateRequestModelAccess — custom provider refs", () => {
 		const denied = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: customProviderModel.id,
 			requestedProvider: "custom",
 			customProviderName: "other",
@@ -1584,6 +1604,7 @@ describe("validateRequestModelAccess — custom provider refs", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: customProviderModel.id,
 			requestedProvider: "custom",
 			customProviderName: "acme",
@@ -1603,6 +1624,7 @@ describe("validateRequestModelAccess — custom provider refs", () => {
 		const denied = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: customProviderModel.id,
 			requestedProvider: "custom",
 			customProviderName: "acme",
@@ -1613,6 +1635,7 @@ describe("validateRequestModelAccess — custom provider refs", () => {
 		const allowed = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: customProviderModel.id,
 			requestedProvider: "custom",
 			customProviderName: "other",
@@ -1632,6 +1655,7 @@ describe("validateRequestModelAccess — custom provider refs", () => {
 		const allowed = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: customProviderModel.id,
 			requestedProvider: "custom",
 			customProviderName: "acme",
@@ -1642,6 +1666,7 @@ describe("validateRequestModelAccess — custom provider refs", () => {
 		const denied = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: customProviderModel.id,
 			requestedProvider: "custom",
 			customProviderName: "other",
@@ -1662,6 +1687,7 @@ describe("validateRequestModelAccess — custom provider refs", () => {
 		const result = await validateRequestModelAccess({
 			apiKey: makeApiKey(),
 			organizationId: "org-1",
+			providerAccessRestriction: null,
 			requestedModel: customProviderModel.id,
 			requestedProvider: "custom",
 			customProviderName: "acme",
@@ -2094,5 +2120,158 @@ describe("validateModelAccess — IP CIDR rules", () => {
 		);
 
 		expect(result.allowed).toBe(true);
+	});
+});
+
+// ===========================
+// Staff-managed provider access restriction
+// ===========================
+
+describe("validateRequestModelAccess — provider access restriction", () => {
+	beforeEach(() => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([]);
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([]);
+	});
+
+	const restriction = (
+		overrides: Partial<ProviderAccessRestriction>,
+	): ProviderAccessRestriction => ({
+		mode: "deny",
+		providers: [],
+		models: [],
+		mappings: [],
+		...overrides,
+	});
+
+	const validate = (
+		providerAccessRestriction: ProviderAccessRestriction | null,
+		model: ModelDefinition,
+		requestedProvider?: string,
+	) =>
+		validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			providerAccessRestriction,
+			requestedModel: model.id,
+			requestedProvider,
+			activeModelInfo: model,
+		});
+
+	it("allows everything without a restriction", async () => {
+		const result = await validate(null, threeProviderModel);
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders).toHaveLength(3);
+	});
+
+	it("deny mode drops a denied provider from routing", async () => {
+		const result = await validate(
+			restriction({ providers: ["openai"] }),
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders).toEqual(
+			expect.arrayContaining(["google-vertex", "google-ai-studio"]),
+		);
+		expect(result.allowedProviders).not.toContain("openai");
+	});
+
+	it("deny mode rejects an explicitly requested denied provider", async () => {
+		const result = await validate(
+			restriction({ providers: ["openai"] }),
+			threeProviderModel,
+			"openai",
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("restricted for your organization");
+	});
+
+	it("deny mode blocks a denied model on every provider", async () => {
+		const result = await validate(
+			restriction({ models: ["paid-model"] }),
+			paidModel,
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("paid-model");
+	});
+
+	it("deny mode blocks a single mapping only", async () => {
+		const denyMapping = restriction({ mappings: ["openai/paid-model"] });
+
+		const restricted = await validate(denyMapping, paidModel);
+		expect(restricted.allowed).toBe(true);
+		expect(restricted.allowedProviders).toEqual(["anthropic"]);
+
+		const other = await validate(denyMapping, threeProviderModel);
+		expect(other.allowedProviders).toContain("openai");
+	});
+
+	it("allow mode only serves listed providers", async () => {
+		const allowAnthropic = restriction({
+			mode: "allow",
+			providers: ["anthropic"],
+		});
+
+		const allowed = await validate(allowAnthropic, paidModel);
+		expect(allowed.allowed).toBe(true);
+		expect(allowed.allowedProviders).toEqual(["anthropic"]);
+
+		const denied = await validate(allowAnthropic, threeProviderModel);
+		expect(denied.allowed).toBe(false);
+	});
+
+	it("allow mode unions providers, models and mappings", async () => {
+		const allow = restriction({
+			mode: "allow",
+			providers: ["google-vertex"],
+			models: ["free-model"],
+			mappings: ["anthropic/paid-model"],
+		});
+
+		expect((await validate(allow, freeModel)).allowedProviders).toEqual([
+			"openai",
+		]);
+		expect((await validate(allow, paidModel)).allowedProviders).toEqual([
+			"anthropic",
+		]);
+		expect(
+			(await validate(allow, threeProviderModel)).allowedProviders,
+		).toEqual(["google-vertex"]);
+	});
+
+	it("does not restrict the auto routing pseudo-model itself", async () => {
+		const autoModel: ModelDefinition = {
+			id: "auto",
+			family: "llmgateway",
+			providers: [
+				{ providerId: "llmgateway", externalId: "auto", streaming: true },
+			],
+		};
+
+		const result = await validate(
+			restriction({ mode: "allow", providers: ["anthropic"] }),
+			autoModel,
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("is a ceiling that IAM allow rules cannot expand", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+		]);
+
+		const result = await validate(
+			restriction({ providers: ["openai"] }),
+			paidModel,
+		);
+
+		expect(result.allowed).toBe(false);
 	});
 });

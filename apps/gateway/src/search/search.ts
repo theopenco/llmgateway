@@ -567,6 +567,7 @@ search.openapi(createSearch, async (c): Promise<any> => {
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
+		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: modelDefId,
 		requestedProvider: providerId,
 		activeModelInfo: modelDef,

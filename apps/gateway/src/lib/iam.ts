@@ -10,8 +10,10 @@ import { validateEndUserSessionModelAccess } from "@/lib/end-user-session.js";
 import {
 	customModelRef,
 	customProviderRef,
+	isProviderMappingAllowedByRestriction,
 	models,
 	type ModelDefinition,
+	type ProviderAccessRestriction,
 	type ProviderId,
 } from "@llmgateway/models";
 import { anyCidrMatches } from "@llmgateway/shared/client-ip";
@@ -57,6 +59,58 @@ const scopeDenialSuffix = {
 } as const;
 
 type IamRuleScope = keyof typeof scopeDenialSuffix;
+
+const providerAccessRestrictionSuffix =
+	" Access is restricted for your organization. Please contact contact@llmgateway.io for details.";
+
+/**
+ * Apply the organization's staff-managed provider access restriction. It is
+ * the outermost ceiling: every IAM scope and end-user session only sees the
+ * provider mappings that survive it.
+ */
+export function evaluateProviderAccessRestriction(
+	restriction: ProviderAccessRestriction,
+	modelDef: ModelDefinition,
+	requestedProvider: string | undefined,
+): IamValidationResult {
+	if (
+		requestedProvider &&
+		!isProviderMappingAllowedByRestriction(
+			restriction,
+			requestedProvider,
+			modelDef.id,
+		)
+	) {
+		return {
+			allowed: false,
+			reason:
+				`Provider ${requestedProvider} is not available for model ${modelDef.id}.` +
+				providerAccessRestrictionSuffix,
+		};
+	}
+	const allowedProviders = Array.from(
+		new Set(
+			modelDef.providers
+				.map((provider) => provider.providerId)
+				.filter((providerId) =>
+					isProviderMappingAllowedByRestriction(
+						restriction,
+						providerId,
+						modelDef.id,
+					),
+				),
+		),
+	);
+	if (allowedProviders.length === 0) {
+		return {
+			allowed: false,
+			reason:
+				`Model ${modelDef.id} is not available.` +
+				providerAccessRestrictionSuffix,
+		};
+	}
+	return { allowed: true, allowedProviders };
+}
 
 type RequestIamRules = Record<IamRuleScope, IamRule[]>;
 
@@ -270,6 +324,8 @@ export async function validateModelAccess(
 export async function validateRequestModelAccess(params: {
 	apiKey: GatewayApiKey;
 	organizationId: string;
+	// `organization.providerAccessRestriction`, required so no caller skips it.
+	providerAccessRestriction: ProviderAccessRestriction | null;
 	requestedModel: string;
 	requestedProvider?: string;
 	// Routing-prefix name of the custom provider handling the request, when
@@ -289,10 +345,10 @@ export async function validateRequestModelAccess(params: {
 	const {
 		apiKey,
 		organizationId,
+		providerAccessRestriction,
 		requestedModel,
 		requestedProvider,
 		customProviderName,
-		activeModelInfo,
 		clientIp,
 		smartRouting,
 		applicableRuleTypes,
@@ -303,6 +359,30 @@ export async function validateRequestModelAccess(params: {
 		applicableRuleTypes
 			? rules.filter((rule) => applicableRuleTypes.includes(rule.ruleType))
 			: rules;
+
+	let activeModelInfo = params.activeModelInfo;
+	if (providerAccessRestriction) {
+		const restrictedModelDef =
+			activeModelInfo ?? models.find((m) => m.id === requestedModel);
+		if (!restrictedModelDef) {
+			return { allowed: false, reason: `Model ${requestedModel} not found` };
+		}
+		const restriction = evaluateProviderAccessRestriction(
+			providerAccessRestriction,
+			restrictedModelDef,
+			requestedProvider,
+		);
+		if (!restriction.allowed) {
+			return restriction;
+		}
+		const allowed = restriction.allowedProviders ?? [];
+		activeModelInfo = {
+			...restrictedModelDef,
+			providers: restrictedModelDef.providers.filter((provider) =>
+				allowed.includes(provider.providerId),
+			),
+		};
+	}
 
 	const sessionValidation = validateEndUserSessionModelAccess(
 		apiKey,

@@ -4690,6 +4690,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
+		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: normalizedModel,
 		requestedProvider,
 		activeModelInfo: modelInfo,
