@@ -17,7 +17,7 @@ features:
     devpass: "$29 / $79 / $179"
     competitor: "$10 (Go) / $40 (Go Plus)"
   - label: "Included usage"
-    devpass: "2× the plan price, shared by every model ($58 / $158 / $358)"
+    devpass: "2× the plan price, shared by every model ($58 / $158 / $358) for subscriptions from October 15; existing ones keep 3× until their first renewal after that date"
     competitor: "Separate limit per model: Go $15–$60 (1.5–6×), Go Plus $60–$240 (1.5–6×)"
   - label: "Short-window caps"
     devpass: "Daily 8% / 9% / 10%; premium weekly 10% / 12% / 15%"
@@ -26,17 +26,17 @@ features:
     devpass: true
     competitor: false
   - label: "GLM-5.3 rate (per 1M in / out)"
-    devpass: "From $0.90 / $3.00"
+    devpass: "From $0.82 / $2.77"
     competitor: "$1.40 / $4.40"
   - label: "DeepSeek V4.1 Flash rate (per 1M in / out)"
-    devpass: "From $0.135 / $0.54"
+    devpass: "From $0.12 / $0.47"
     competitor: "$0.15 / $0.60 off-peak; $0.30 / $1.20 peak"
   - label: "Over the limit"
-    devpass: "Reset Pass ($5 / $15 / $45) or opt-in pay as you go"
+    devpass: "Opt-in pay as you go; Reset Pass ($5 / $15 / $45, Max includes 2 per cycle) restores the premium weekly cap only"
     competitor: "Opt-in Zen balance"
   - label: "Client requirements"
     devpass: "OpenAI- or Anthropic-compatible endpoint"
-    competitor: "Coding traffic with client and session headers"
+    competitor: "Coding-agent traffic with its own user agent; stable session ID recommended"
   - label: "Shared team subscription"
     devpass: false
     competitor: false
@@ -46,7 +46,7 @@ faqs:
   - question: "Why are some Go models limited to $15?"
     answer: "OpenCode says Go’s higher limits come from bulk discounts and reserved GPU capacity. Models without a negotiated discount, or whose public price is already discounted, get a lower limit: slightly more than paying the provider directly."
   - question: "Is DevPass better value than OpenCode Go?"
-    answer: "On cheap open models, no: Go’s $10 plan includes up to 6× against DevPass’s 2×. On premium open models DevPass includes more per dollar (2× against Go’s 1.5×) at equal or lower token rates, and DevPass is the only one of the two that includes Claude Opus, Sonnet, GPT Sol and Gemini."
+    answer: "On cheap open models, no: Go’s $10 plan includes up to 6× against DevPass’s 2×. On premium open models DevPass includes more per dollar (2× against Go’s 1.5×) at lower token rates (for example $1.60 / $4.80 against $2 / $6 on Qwen3.8 Max), and DevPass is the only one of the two that includes Claude Opus, Sonnet, GPT Sol and Gemini."
   - question: "What happens when I reach a Go limit?"
     answer: "You wait for the window to reset, switch to another model, or enable Use balance to pay from your Zen balance at Zen rates."
 ---
@@ -72,18 +72,18 @@ Both plans meter usage in dollars, so the per-token rate decides how many tokens
 
 | Per 1M tokens, input / output | DevPass (lowest listed) | OpenCode Go                                |
 | ----------------------------- | ----------------------- | ------------------------------------------ |
-| GLM-5.3-Flash                 | $0.088 / $0.25          | $0.15 / $0.50                              |
-| GLM-5.3                       | $0.90 / $3.00           | $1.40 / $4.40                              |
-| DeepSeek V4.1 Flash           | $0.135 / $0.54          | $0.15 / $0.60 off-peak, $0.30 / $1.20 peak |
+| GLM-5.3-Flash                 | $0.07 / $0.20           | $0.15 / $0.50                              |
+| GLM-5.3                       | $0.82 / $2.77           | $1.40 / $4.40                              |
+| DeepSeek V4.1 Flash           | $0.12 / $0.47           | $0.15 / $0.60 off-peak, $0.30 / $1.20 peak |
 | MiniMax M2.7                  | $0.08 / $0.32           | $0.30 / $1.20                              |
-| Kimi K3                       | $3.00 / $15.00          | $3.00 / $15.00                             |
-| Qwen3.8 Max                   | $2.00 / $6.00           | $2.00 / $6.00                              |
+| Kimi K3                       | $2.80 / $14.13          | $3.00 / $15.00                             |
+| Qwen3.8 Max                   | $1.60 / $4.80           | $2.00 / $6.00                              |
 
 Routing weighs uptime and speed as well as price, so a request can land on a pricier provider. Compare the live [coding catalog](/coding-models) before deciding.
 
 ## Check your client and overflow settings
 
-Go accepts supported coding clients that send identification and session headers, and only one member per workspace can subscribe. With **Use balance** enabled, Go falls back to your Zen balance at Zen rates after a limit. DevPass works with any client that supports an OpenAI- or Anthropic-compatible endpoint; past a cap you can wait, buy a Reset Pass for the premium weekly cap, or opt into pay-as-you-go overflow.
+Go expects typical coding-agent traffic from a client that identifies itself with its own user agent, and recommends a stable session ID per conversation for routing and prompt caching. Only one member per workspace can subscribe. With **Use balance** enabled, Go falls back to your Zen balance at Zen rates after a limit. DevPass works with any client that supports an OpenAI- or Anthropic-compatible endpoint; past a cap you can wait or opt into pay-as-you-go overflow. A Reset Pass restores only the premium weekly cap; Lite and Pro include none, Max includes two per billing cycle.
 
 ## DevPass pricing and limits
 

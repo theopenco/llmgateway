@@ -11,7 +11,7 @@ faqs:
   - question: "Is OpenCode Go cheaper than DevPass?"
     answer: "On entry price, yes: Go starts at $10 and DevPass at $29. Per dollar, Go includes up to 6× on its cheapest open models and 1.5× on premium ones like Kimi K3 or Qwen3.8 Max. From October 15, 2026, DevPass includes 2× its price as one allowance shared by every model, including Claude, GPT and Gemini frontier models that Go doesn't offer."
   - question: "Are OpenCode Zen's token prices the same as LLM Gateway's?"
-    answer: "For many models, yes: Kimi, Qwen, MiniMax M3, Claude Opus and Sonnet are listed at the same rates. For open models served by several providers, LLM Gateway's lowest listed rate is lower: 32–42% on GLM-5.3, 41–50% on GLM-5.3-Flash, about 55% on DeepSeek V4.1 Flash and 73% on MiniMax M2.7. Zen keeps each model on providers it has benchmarked rather than routing to the cheapest one."
+    answer: "For some, yes: Claude Opus, Sonnet and Haiku and MiniMax M3 are listed at the same rates on both. For open models served by several providers, LLM Gateway's lowest listed rate is lower: about 6% on Kimi K3, 20% on Qwen3.8 Max and Kimi K2.7 Code, 37–41% on GLM-5.3, 53–60% on GLM-5.3-Flash, about 60% on DeepSeek V4.1 Flash and 73% on MiniMax M2.7. Zen keeps each model on providers it has benchmarked rather than routing to the cheapest one."
   - question: "How can a plan include more usage than its price?"
     answer: "Through discounts the operator gets below public rates, and because most subscribers use less than their full allowance. OpenCode says Go's higher limits come from bulk discounts and reserved GPU capacity. DevPass draws on LLM Gateway's multi-provider routing and Airside carriers. Short-window caps on both plans keep any one user from spending the whole month in a day."
 image:
@@ -21,20 +21,20 @@ image:
   height: 1024
 ---
 
-Three ways to pay for AI coding models from the same corner of the market: **OpenCode Go** (a cheap subscription for open models), **OpenCode Zen** (pay as you go at cost), and **DevPass** from **LLM Gateway** (a subscription with one allowance across every model). The pricing pages use different units, so this post puts them on the same scale: dollars of usage per dollar paid, the caps that decide how fast you can spend it, and per-token rates for the models all three carry.
+Three ways to pay for AI coding models from the same corner of the market: **OpenCode Go** (a cheap subscription for open models), **OpenCode Zen** (pay as you go at cost), and **DevPass** from **LLM Gateway** (a subscription with one allowance across every model). The pricing pages use different units, so this post puts them on the same scale: dollars of usage per dollar paid, the caps that decide how fast you can spend it, and per-token rates for the same models, wherever each service offers them.
 
 All figures were checked on October 10, 2026 against [opencode.ai/docs/go](https://opencode.ai/docs/go/), [opencode.ai/docs/zen](https://opencode.ai/docs/zen/) and the [LLM Gateway model catalog](https://llmgateway.io/models). DevPass figures are the ones in effect from **October 15, 2026**.
 
 ## OpenCode Go vs OpenCode Zen vs DevPass at a glance
 
-|                         | OpenCode Go                              | OpenCode Zen                                  | DevPass                                                   |
-| ----------------------- | ---------------------------------------- | --------------------------------------------- | --------------------------------------------------------- |
-| Price                   | $10/mo (Go), $40/mo (Go Plus)            | No subscription; prepaid balance, $20 default | $29 Lite, $79 Pro, $179 Max per month                     |
-| Included usage          | A separate monthly limit per model       | What you top up                               | 2× the plan price ($58, $158, $358), shared by all models |
-| Short-window caps       | 20% per 5 hours, 50% per week, per model | Optional monthly spend limits                 | Daily cap 8–10%; premium models 10–15% per week           |
-| Fees                    | None on top                              | 4.4% + $0.30 per card transaction             | None on top                                               |
-| Claude, GPT Sol, Gemini | No (Claude Haiku 5.5 and GPT Luna only)  | Yes                                           | Yes                                                       |
-| Over the limit          | Wait, or draw from a Zen balance         | Auto-reload                                   | Wait, Reset Pass ($5–45), or opt-in pay as you go         |
+|                         | OpenCode Go                              | OpenCode Zen                                  | DevPass                                                                                                                                                          |
+| ----------------------- | ---------------------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Price                   | $10/mo (Go), $40/mo (Go Plus)            | No subscription; prepaid balance, $20 default | $29 Lite, $79 Pro, $179 Max per month                                                                                                                            |
+| Included usage          | A separate monthly limit per model       | What you top up                               | 2× the plan price ($58, $158, $358) from October 15 for new subscriptions; existing ones keep 3× until their first renewal after that date. Shared by all models |
+| Short-window caps       | 20% per 5 hours, 50% per week, per model | Optional monthly spend limits                 | Daily cap 8–10%; premium models 10–15% per week                                                                                                                  |
+| Fees                    | None on top                              | 4.4% + $0.30 per card transaction             | None on top                                                                                                                                                      |
+| Claude, GPT Sol, Gemini | No (Claude Haiku 5.5 and GPT Luna only)  | Yes                                           | Yes                                                                                                                                                              |
+| Over the limit          | Wait, or draw from a Zen balance         | Auto-reload                                   | Wait, or opt into pay as you go. A Reset Pass ($5 / $15 / $45; Max includes 2 per cycle) restores only the premium weekly cap                                    |
 
 ## What OpenCode Go includes per dollar
 
@@ -51,7 +51,7 @@ Go doesn't give one monthly pool. Each model has its own monthly limit, and the 
 
 On the cheapest open models, Go's $10 plan is the best ratio of any flat coding plan we track. On the expensive open models it is 1.5×, and it has no Claude Opus or Sonnet, no GPT Sol and no Gemini at any price.
 
-DevPass works the other way: from October 15, every tier includes 2× its price as one allowance. Spend it all on DeepSeek, all on Claude Opus 5.5, or any mix. A daily cap (8% of the monthly allowance on Lite, 9% on Pro, 10% on Max) and a weekly cap on premium models (10%, 12%, 15%) limit how fast it goes.
+DevPass works the other way: every tier includes one allowance shared by all models. New subscriptions from October 15 get 2× the plan price; existing subscriptions keep 3× until their first renewal on or after that date. Spend it all on DeepSeek, all on Claude Opus 5.5, or any mix. A daily cap (8% of the monthly allowance on Lite, 9% on Pro, 10% on Max) and a weekly cap on premium models (10%, 12%, 15%) limit how fast it goes. Both caps apply to every subscriber from October 15.
 
 ## Per-token prices for the same models
 
@@ -59,20 +59,20 @@ When usage is metered in dollars, the per-token rate decides how many tokens a d
 
 | Model               | LLM Gateway (lowest listed) | OpenCode Zen   | OpenCode Go                                |
 | ------------------- | --------------------------- | -------------- | ------------------------------------------ |
-| GLM-5.3-Flash       | $0.088 / $0.25              | $0.15 / $0.50  | $0.15 / $0.50                              |
-| GLM-5.3             | $0.90 / $3.00               | $1.40 / $4.40  | $1.40 / $4.40                              |
-| DeepSeek V4.1 Flash | $0.135 / $0.54              | $0.30 / $1.20  | $0.15 / $0.60 off-peak, $0.30 / $1.20 peak |
+| GLM-5.3-Flash       | $0.07 / $0.20               | $0.15 / $0.50  | $0.15 / $0.50                              |
+| GLM-5.3             | $0.82 / $2.77               | $1.40 / $4.40  | $1.40 / $4.40                              |
+| DeepSeek V4.1 Flash | $0.12 / $0.47               | $0.30 / $1.20  | $0.15 / $0.60 off-peak, $0.30 / $1.20 peak |
 | DeepSeek V4 Pro     | $0.435 / $0.87              | $1.74 / $3.48  | $0.66 / $1.98 off-peak, $1.32 / $3.96 peak |
 | MiniMax M2.7        | $0.08 / $0.32               | $0.30 / $1.20  | $0.30 / $1.20                              |
 | Gemini 3.8 Flash    | $0.75 / $3.75               | $1.50 / $7.50  | Not offered                                |
-| Kimi K3             | $3.00 / $15.00              | $3.00 / $15.00 | $3.00 / $15.00                             |
-| Qwen3.8 Max         | $2.00 / $6.00               | $2.00 / $6.00  | $2.00 / $6.00                              |
+| Kimi K3             | $2.80 / $14.13              | $3.00 / $15.00 | $3.00 / $15.00                             |
+| Qwen3.8 Max         | $1.60 / $4.80               | $2.00 / $6.00  | $2.00 / $6.00                              |
 | Claude Opus 5.5     | $4.00 / $20.00              | $4.00 / $20.00 | Not offered                                |
 | Claude Haiku 5.5    | $0.10 / $0.50               | $0.10 / $0.50  | $0.10 / $0.50                              |
 
 The gap comes from routing. Zen deliberately keeps each model on providers it has benchmarked and doesn't route to cheaper ones. LLM Gateway lists 11–13 providers for popular open models and [routes each request](/blog/llm-routing-carriers-guide) on price, uptime and speed, so the lowest rate is usually available. Routing can pick a pricier provider when the cheapest one is slow or down, so treat our column as the floor, not a guarantee.
 
-On frontier models the rates match. Zen also has about a dozen free models for a limited time (MiMo-V2.6-Flash, Muse Spark 1.3 and several stealth models), which neither Go nor DevPass prices at zero.
+Carriers on LLM Gateway can also offer discounts, which is where the 20% off Qwen3.8 Max and Kimi K2.7 Code comes from. On frontier models the rates match. Zen also has about a dozen free models for a limited time (MiMo-V2.6-Flash, Muse Spark 1.3 and several stealth models), which neither Go nor DevPass prices at zero.
 
 <BlogCta variant="devpass" location="mid_article" />
 
@@ -81,7 +81,7 @@ On frontier models the rates match. Zen also has about a dozen free models for a
 A plan that includes more usage than its price is betting on two things: buying tokens below the public rate, and subscribers using less than their full allowance on average. All three products are open about which of those they lean on.
 
 - **Zen** doesn't make the bet. OpenCode sells tokens at cost and passes card fees through, so there's no markup to fund extra usage. You pay 1× plus about 6% in fees on a $20 top-up.
-- **Go** makes it explicitly. OpenCode's docs say the higher limits come from "bulk discounts and reserved GPU capacity", and that models without a negotiated discount get lower limits, which is why Kimi K3 and Qwen3.8 Max stop at 1.5×. Its 5-hour and weekly windows, peak pricing on DeepSeek, required session headers and one subscriber per workspace all keep heavy usage within what those discounts cover.
+- **Go** makes it explicitly. OpenCode's docs say the higher limits come from "bulk discounts and reserved GPU capacity", and that models without a negotiated discount get lower limits, which is why Kimi K3 and Qwen3.8 Max stop at 1.5×. Its 5-hour and weekly windows, peak pricing on DeepSeek, request for a stable session ID (used for routing and prompt caching) and one subscriber per workspace all keep heavy usage within what those discounts cover.
 - **DevPass** draws on LLM Gateway's multi-provider routing and providers listed through [Airside](https://airside.llmgateway.io), which keep open-model rates at or below anyone else's. Frontier models have no such discount, which is why DevPass moves from 3× to 2× on October 15 and adds a daily cap: a shared allowance that includes Claude and GPT has to stay sustainable when people spend it on Claude and GPT.
 
 None of this is a criticism. Caps and multipliers are how a flat price stays flat. What matters to you is which caps you'll actually hit.
@@ -90,7 +90,7 @@ None of this is a criticism. Caps and multipliers are how a flat price stays fla
 
 - **Choose OpenCode Go** if you mostly code with cheap open models (DeepSeek V4.1 Flash, GLM-5.3-Flash, MiniMax, MiMo) and your month fits inside its per-model limits. Nothing beats $10 for $60 on those models.
 - **Choose OpenCode Zen** if your usage is light or irregular, or you want frontier models with no subscription. Budget for card fees on each top-up.
-- **Choose DevPass** if you switch between open and frontier models in the same week, want one allowance instead of a limit per model, or want open models at the lowest rate across providers. Lite's $58 allowance at LLM Gateway's GLM-5.3 rates buys about 50% more tokens than the same dollars at Zen or Go's GLM-5.3 rates.
+- **Choose DevPass** if you switch between open and frontier models in the same week, want one allowance instead of a limit per model, or want open models at the lowest rate across providers. At LLM Gateway's lowest GLM-5.3 rate, a dollar buys about 60–70% more tokens than at Zen or Go's rate.
 
 For model-by-model detail, see [DevPass vs OpenCode Go](https://devpass.llmgateway.io/compare/opencode-go) and [DevPass vs OpenCode Zen](https://devpass.llmgateway.io/compare/opencode-zen).
 

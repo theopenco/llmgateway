@@ -8,25 +8,25 @@ description: "Compare OpenCode Zen’s at-cost pay-as-you-go pricing and card fe
 competitor: "OpenCode Zen"
 competitorLogo: "opencode-zen"
 competitorTagline: "Pay-as-you-go model access at cost"
-tagline: "Zen sells tokens at cost with card fees passed through. DevPass includes 2× its price in usage every month, with open models at LLM Gateway’s multi-provider rates."
+tagline: "Zen sells tokens at cost with card fees passed through. DevPass includes 2× its price in usage every month for subscriptions from October 15, 2026 (existing subscriptions keep 3× until their first renewal after that date), with open models at LLM Gateway’s multi-provider rates."
 devpassPrice: "$29–$179/mo"
 competitorPrice: "Usage + card fees"
-verdict: "Choose Zen for light or irregular usage, or to try free limited-time models: there’s no subscription and you pay 1× plus card fees. Choose DevPass if you code most days: every plan includes 2× its price in usage, and open models like GLM, DeepSeek and MiniMax cost 30–75% less per token than on Zen. Frontier models like Claude Opus and Sonnet are priced the same on both."
+verdict: "Choose Zen for light or irregular usage, or to try free limited-time models: there’s no subscription and you pay 1× plus card fees. Choose DevPass if you code most days: every plan includes 2× its price in usage from October 15, 2026 (3× until the first renewal after that date for existing subscriptions), and open models cost less per token than on Zen: about 6% less on Kimi K3, 20% on Qwen3.8 Max and up to 75% on GLM, DeepSeek and MiniMax. Frontier models like Claude Opus and Sonnet are priced the same on both."
 features:
   - label: "Pricing model"
     devpass: "Monthly subscription + optional overflow"
     competitor: "Pay as you go"
   - label: "Usage per dollar paid"
-    devpass: "2× ($58 / $158 / $358 on $29 / $79 / $179)"
+    devpass: "2× ($58 / $158 / $358 on $29 / $79 / $179) from October 15, 2026; existing subscriptions keep 3× until their first renewal after that date"
     competitor: "1× (at cost)"
   - label: "Payment fees"
     devpass: "None on top of the plan"
     competitor: "4.4% + $0.30 per card transaction (about 6% on a $20 top-up)"
   - label: "GLM-5.3 rate (per 1M in / out)"
-    devpass: "From $0.90 / $3.00"
+    devpass: "From $0.82 / $2.77"
     competitor: "$1.40 / $4.40"
   - label: "DeepSeek V4.1 Flash rate (per 1M in / out)"
-    devpass: "From $0.135 / $0.54"
+    devpass: "From $0.12 / $0.47"
     competitor: "$0.30 / $1.20"
   - label: "Claude Opus 5.5 rate (per 1M in / out)"
     devpass: "$4.00 / $20.00"
@@ -35,7 +35,7 @@ features:
     devpass: false
     competitor: true
   - label: "Usage controls"
-    devpass: "Daily and premium weekly caps; optional overflow"
+    devpass: "Daily and premium weekly caps from October 15; optional overflow"
     competitor: "Workspace and member monthly spend limits"
   - label: "Team use"
     devpass: "One developer per subscription"
@@ -44,7 +44,7 @@ faqs:
   - question: "Does Zen mark up model tokens?"
     answer: "No. OpenCode sells Zen tokens at cost and passes card processing through at 4.4% plus $0.30 per transaction. On the default $20 top-up that is $1.23, about 6%."
   - question: "Why are some models cheaper on DevPass than on Zen?"
-    answer: "Zen keeps each model on providers OpenCode has benchmarked and doesn’t route to cheaper ones. LLM Gateway lists several providers for popular open models and routes on price, uptime and speed, so GLM-5.3, DeepSeek V4.1 Flash and MiniMax M2.7 usually run 30–75% below Zen’s rates. Claude, Kimi and Qwen rates are the same on both."
+    answer: "Zen keeps each model on providers OpenCode has benchmarked and doesn’t route to cheaper ones. LLM Gateway lists several providers for popular open models and routes on price, uptime and speed, so GLM-5.3, DeepSeek V4.1 Flash and MiniMax M2.7 usually run 37–75% below Zen’s rates, and carrier discounts take 20% off Qwen3.8 Max and Kimi K2.7 Code. Claude Opus, Sonnet and Haiku rates are the same on both."
   - question: "When is Zen cheaper than DevPass?"
     answer: "When you’d spend less than the plan price in a month. DevPass Lite costs $29 for $58 of usage, so if your monthly usage at Zen rates stays under about $27 after card fees, Zen costs less. Above that, DevPass includes more usage per dollar."
   - question: "Does Zen guarantee zero retention for every model?"
@@ -55,17 +55,18 @@ faqs:
 
 OpenCode Zen is pay as you go, with no subscription. OpenCode sells tokens at cost and passes card fees through at **4.4% + $0.30 per transaction** ([Zen pricing](https://opencode.ai/docs/zen/#pricing)), so the default $20 top-up costs $21.23. You get 1× usage per dollar, minus about 6% in fees.
 
-DevPass includes **2× its price** in usage each month from October 15, 2026, with no fee on top. Per-token rates differ only where LLM Gateway can route to a cheaper provider:
+DevPass includes **2× its price** in usage each month for subscriptions from October 15, 2026 (existing subscriptions keep 3× until their first renewal after that date), with no fee on top. Per-token rates differ where LLM Gateway can route to a cheaper or discounted provider:
 
 | Per 1M tokens, input / output | DevPass (lowest listed) | OpenCode Zen   |
 | ----------------------------- | ----------------------- | -------------- |
-| GLM-5.3-Flash                 | $0.088 / $0.25          | $0.15 / $0.50  |
-| GLM-5.3                       | $0.90 / $3.00           | $1.40 / $4.40  |
-| DeepSeek V4.1 Flash           | $0.135 / $0.54          | $0.30 / $1.20  |
+| GLM-5.3-Flash                 | $0.07 / $0.20           | $0.15 / $0.50  |
+| GLM-5.3                       | $0.82 / $2.77           | $1.40 / $4.40  |
+| DeepSeek V4.1 Flash           | $0.12 / $0.47           | $0.30 / $1.20  |
 | DeepSeek V4 Pro               | $0.435 / $0.87          | $1.74 / $3.48  |
 | MiniMax M2.7                  | $0.08 / $0.32           | $0.30 / $1.20  |
 | Gemini 3.8 Flash              | $0.75 / $3.75           | $1.50 / $7.50  |
-| Kimi K3                       | $3.00 / $15.00          | $3.00 / $15.00 |
+| Kimi K3                       | $2.80 / $14.13          | $3.00 / $15.00 |
+| Qwen3.8 Max                   | $1.60 / $4.80           | $2.00 / $6.00  |
 | Claude Opus 5.5               | $4.00 / $20.00          | $4.00 / $20.00 |
 | Claude Sonnet 5.5             | $2.00 / $10.00          | $2.00 / $10.00 |
 
@@ -74,7 +75,7 @@ Zen keeps each model on providers it has benchmarked rather than routing to the 
 ## When each one costs less
 
 - **Zen** costs less if your month stays under roughly $27 of usage at Zen rates. It also has about a dozen free models for a limited time.
-- **DevPass Lite** ($29 for $58) costs less above that, and the gap widens on open models where DevPass rates are lower. At GLM-5.3 rates, Lite’s allowance buys about as many tokens as $85 spent on Zen.
+- **DevPass Lite** ($29 for $58) costs less above that, and the gap widens on open models where DevPass rates are lower. At GLM-5.3 rates, Lite’s allowance buys about as many tokens as $95 spent on Zen.
 
 ## Controls and privacy
 
