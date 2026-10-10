@@ -50,6 +50,7 @@ import { orderToolResultReminders } from "./order-tool-result-reminders.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
+import { DEFAULT_MIN_CACHEABLE_TOKENS } from "./provider-cache-control.js";
 import { RequestError } from "./request-error.js";
 import { mappingSupportsToolChoice } from "./tool-choice-support.js";
 import {
@@ -3367,9 +3368,9 @@ export async function prepareRequestBody(
 			});
 			let systemCacheControlCount = toolMarkersKeptSoFar;
 
-			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
 			const minCacheableTokens =
-				providerMappingForOptions?.minCacheableTokens ?? 1024;
+				providerMappingForOptions?.minCacheableTokens ??
+				DEFAULT_MIN_CACHEABLE_TOKENS;
 			// Approximate 4 characters per token
 			const minCacheableChars = minCacheableTokens * 4;
 
@@ -3733,9 +3734,9 @@ export async function prepareRequestBody(
 				cachePoint: { type: "default"; ttl?: "5m" | "1h" };
 			}
 
-			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
 			const bedrockMinCacheableTokens =
-				providerMappingForOptions?.minCacheableTokens ?? 1024;
+				providerMappingForOptions?.minCacheableTokens ??
+				DEFAULT_MIN_CACHEABLE_TOKENS;
 			// Approximate 4 characters per token
 			const bedrockMinCacheableChars = bedrockMinCacheableTokens * 4;
 

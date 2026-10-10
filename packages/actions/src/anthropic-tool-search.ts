@@ -3,7 +3,6 @@ import type {
 	BaseMessage,
 	OpenAIToolInput,
 	OpenAIToolSearchToolInput,
-	ProviderId,
 } from "@llmgateway/models";
 
 /**
@@ -40,7 +39,7 @@ export const TOOL_SEARCH_TOOL_TYPE_PREFIX = "tool_search_tool";
  * rejected upstream with a 4xx rather than being silently downgraded, the same
  * way unsupported reasoning efforts are handled.
  */
-export function usesAnthropicMessagesApi(provider: ProviderId): boolean {
+export function usesAnthropicMessagesApi(provider: string): boolean {
 	return (
 		provider === "anthropic" ||
 		provider === "vertex-anthropic" ||
