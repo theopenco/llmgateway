@@ -3,7 +3,10 @@ import { expect, test, beforeEach, describe, afterEach, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import {
+	encryptProviderKeyForStorage,
+	runProviderKeySmokeTest,
+} from "@llmgateway/actions";
 import { decryptProviderKey, validateProviderKey } from "@llmgateway/actions";
 import {
 	redisClient,
@@ -22,7 +25,11 @@ import type * as ActionsModule from "@llmgateway/actions";
 // the normal path.
 vi.mock("@llmgateway/actions", async (importOriginal) => {
 	const actual = await importOriginal<typeof ActionsModule>();
-	return { ...actual, validateProviderKey: vi.fn(actual.validateProviderKey) };
+	return {
+		...actual,
+		validateProviderKey: vi.fn(actual.validateProviderKey),
+		runProviderKeySmokeTest: vi.fn(actual.runProviderKeySmokeTest),
+	};
 });
 
 describe("provider keys route", () => {
@@ -169,6 +176,154 @@ describe("provider keys route", () => {
 		expect(providerKey?.tokenCiphertext).toMatch(/^llmgw:v2:/);
 		expect(providerKey?.tokenMasked).toBeTruthy();
 		expect(providerKey?.tokenMasked).not.toBe("inference-test-token");
+	});
+
+	test.each([null, "https://future.example.com"])(
+		"validates catalogue BYOK listings independently of the Airside endpoint %s",
+		async (customBaseUrl) => {
+			const modelId = "byok-catalogue-listing";
+			await db
+				.insert(tables.provider)
+				.values({ id: "openai", name: "OpenAI", description: "Test" })
+				.onConflictDoNothing();
+			await db.insert(tables.providerCompany).values({
+				id: "byok-catalogue-company",
+				name: "Test Carrier",
+			});
+			await cdb.insert(tables.providerClaim).values({
+				providerCompanyId: "byok-catalogue-company",
+				providerId: "openai",
+				kind: "catalogue",
+				matchedDomain: "example.com",
+				status: "active",
+				customBaseUrl,
+			});
+			await db.insert(tables.model).values({ id: modelId, family: "test" });
+			await db.insert(tables.modelProviderMapping).values({
+				providerId: "openai",
+				modelId,
+				externalId: "upstream-model",
+				source: "airside",
+				apiFormat: "openai-chat-completions",
+				status: "active",
+			});
+			try {
+				vi.mocked(runProviderKeySmokeTest)
+					.mockClear()
+					.mockResolvedValueOnce(null);
+				const created = await app.request("/keys/provider", {
+					method: "POST",
+					headers: { "Content-Type": "application/json", Cookie: token },
+					body: JSON.stringify({
+						provider: "openai",
+						token: "test-carrier-key",
+						organizationId: "test-org-id",
+						allowedModels: [modelId],
+					}),
+				});
+				expect(created.status).toBe(200);
+				expect(runProviderKeySmokeTest).toHaveBeenCalledExactlyOnceWith(
+					expect.objectContaining({
+						target: expect.objectContaining({
+							providerId: "openai",
+							modelName: modelId,
+						}),
+						baseUrl: undefined,
+						skipEnvVars: false,
+					}),
+				);
+			} finally {
+				await db
+					.delete(tables.modelProviderMapping)
+					.where(eq(tables.modelProviderMapping.modelId, modelId));
+				await db.delete(tables.model).where(eq(tables.model.id, modelId));
+			}
+		},
+	);
+
+	test("creates and edits restricted BYOK keys for a removed catalogue provider", async () => {
+		const providerId = "byok-airside-test";
+		const modelId = "byok-airside-model";
+		await db
+			.insert(tables.providerCompany)
+			.values({ id: "byok-airside-company", name: "Test Carrier" });
+		await cdb.insert(tables.providerClaim).values({
+			providerCompanyId: "byok-airside-company",
+			providerId,
+			kind: "catalogue",
+			matchedDomain: "example.com",
+			status: "active",
+			customBaseUrl: "https://api.example.com",
+		});
+		await db
+			.insert(tables.provider)
+			.values({ id: providerId, name: "Test Carrier", description: "Test" });
+		await db.insert(tables.model).values({ id: modelId, family: providerId });
+		await db.insert(tables.modelProviderMapping).values({
+			providerId,
+			modelId,
+			externalId: "upstream-model",
+			source: "airside",
+			apiFormat: "openai-chat-completions",
+			status: "active",
+		});
+		const headers = { "Content-Type": "application/json", Cookie: token };
+		try {
+			const discovery = await app.request("/internal/provider-facts");
+			expect(discovery.status).toBe(200);
+			expect((await discovery.json()).providers).toContainEqual(
+				expect.objectContaining({ id: providerId, modelIds: [modelId] }),
+			);
+			vi.mocked(runProviderKeySmokeTest).mockResolvedValueOnce(null);
+			const created = await app.request("/keys/provider", {
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					provider: providerId,
+					token: "test-carrier-key",
+					organizationId: "test-org-id",
+					allowedModels: [modelId],
+				}),
+			});
+			expect(created.status).toBe(200);
+			expect(runProviderKeySmokeTest).toHaveBeenCalledWith(
+				expect.objectContaining({
+					target: expect.objectContaining({
+						modelName: modelId,
+						externalId: "upstream-model",
+					}),
+					baseUrl: "https://api.example.com",
+					skipEnvVars: true,
+				}),
+			);
+			const key = await db.query.providerKey.findFirst({
+				where: { provider: providerId, organizationId: "test-org-id" },
+			});
+			const edited = await app.request(`/keys/provider/${key!.id}`, {
+				method: "PATCH",
+				headers,
+				body: JSON.stringify({ allowedModels: [modelId] }),
+			});
+			expect(edited.status).toBe(200);
+			await db
+				.update(tables.modelProviderMapping)
+				.set({ status: "inactive" })
+				.where(eq(tables.modelProviderMapping.modelId, modelId));
+			const invalid = await app.request(`/keys/provider/${key!.id}`, {
+				method: "PATCH",
+				headers,
+				body: JSON.stringify({ allowedModels: [modelId] }),
+			});
+			expect(invalid.status).toBe(400);
+		} finally {
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.modelId, modelId));
+			await db.delete(tables.model).where(eq(tables.model.id, modelId));
+			await db
+				.delete(tables.provider)
+				.where(eq(tables.provider.id, providerId));
+		}
 	});
 
 	test("POST /keys/provider AAD binds ciphertext to row id + organization", async () => {

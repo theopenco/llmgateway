@@ -350,6 +350,11 @@ async function validateConfig(
 				message: `Unknown provider: ${provider}`,
 			});
 		}
+		if (!carrier.customBaseUrl) {
+			throw new HTTPException(400, {
+				message: "Configure the carrier endpoint before adding credentials.",
+			});
+		}
 		// A custom Airside carrier's endpoint is fixed at registration (the
 		// claim's base URL); its managed credential is only the API key we
 		// hold for it, so it takes no settings.
@@ -445,7 +450,6 @@ async function findActiveCustomCarrier(providerId: string) {
 	return await db.query.providerClaim.findFirst({
 		where: {
 			providerId: { eq: providerId },
-			kind: { eq: "custom" },
 			status: { eq: "active" },
 		},
 	});
@@ -454,7 +458,7 @@ async function findActiveCustomCarrier(providerId: string) {
 /** Credentials currently linked as a custom carrier's provider key. */
 async function linkedCarrierKeyIds(): Promise<Set<string>> {
 	const claims = await db.query.providerClaim.findMany({
-		where: { kind: { eq: "custom" }, providerKeyId: { isNotNull: true } },
+		where: { providerKeyId: { isNotNull: true } },
 		columns: { providerKeyId: true },
 	});
 	return new Set(
@@ -500,7 +504,7 @@ async function validateManagedAllowedModels(
 		return;
 	}
 	if (providers.some((entry) => entry.id === provider)) {
-		validateAllowedModels(provider, allowedModels, validationOptions);
+		await validateAllowedModels(provider, allowedModels, validationOptions);
 		return;
 	}
 	const carrier = await getCustomCarrierTarget(provider);
@@ -701,7 +705,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 	// vars, no settings (their endpoint lives on the carrier registration),
 	// and their model list comes from their approved listings.
 	const customCarriers = await db.query.providerClaim.findMany({
-		where: { kind: { eq: "custom" }, status: { eq: "active" } },
+		where: { status: { eq: "active" }, customBaseUrl: { isNotNull: true } },
 	});
 	const customListings = customCarriers.length
 		? await db.query.providerDraftModel.findMany({
@@ -712,29 +716,31 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				columns: { providerId: true, modelName: true },
 			})
 		: [];
-	const carrierEntries = customCarriers.map((cl) => {
-		const carrierModels = customListings
-			.filter((m) => m.providerId === cl.providerId)
-			.map((m) => m.modelName);
-		return {
-			id: cl.providerId,
-			name: cl.customName ?? cl.providerId,
-			carrier: true,
-			apiKeyEnvVar: null,
-			apiKeyEnvConfigured: false,
-			regions: [],
-			defaultRegion: null,
-			apiKeyEnvCounts: countEnvCredentialsByVariant([]),
-			envCredentials: [],
-			configKeys: [],
-			exclusiveConfigGroups: [],
-			models: carrierModels,
-			modelsByKind: {
-				...createEmptyProviderModelsByKind(),
-				text: carrierModels,
-			},
-		};
-	});
+	const carrierEntries = customCarriers
+		.filter((claim) => !entries.some((entry) => entry.id === claim.providerId))
+		.map((cl) => {
+			const carrierModels = customListings
+				.filter((m) => m.providerId === cl.providerId)
+				.map((m) => m.modelName);
+			return {
+				id: cl.providerId,
+				name: cl.customName ?? cl.providerId,
+				carrier: true,
+				apiKeyEnvVar: null,
+				apiKeyEnvConfigured: false,
+				regions: [],
+				defaultRegion: null,
+				apiKeyEnvCounts: countEnvCredentialsByVariant([]),
+				envCredentials: [],
+				configKeys: [],
+				exclusiveConfigGroups: [],
+				models: carrierModels,
+				modelsByKind: {
+					...createEmptyProviderModelsByKind(),
+					text: carrierModels,
+				},
+			};
+		});
 
 	return c.json({
 		providers: [...entries, ...carrierEntries],

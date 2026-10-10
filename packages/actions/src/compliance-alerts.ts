@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { db } from "@llmgateway/db";
+import { db, getEffectiveProviders } from "@llmgateway/db";
 import {
 	getCompliantProvidersForModel,
 	isLiveMapping,
@@ -163,6 +163,7 @@ export async function getModelAvailability(
 		return result;
 	}
 	const mappings = await loadActiveMappings(modelIds);
+	const effectiveProviders = await getEffectiveProviders();
 	const byModel = new Map<string, ModelMappingAvailability[]>();
 	for (const mapping of mappings) {
 		const list = byModel.get(mapping.modelId) ?? [];
@@ -177,6 +178,7 @@ export async function getModelAvailability(
 				byModel.get(modelId) ?? [],
 				policy,
 				now,
+				effectiveProviders,
 			),
 		);
 	}

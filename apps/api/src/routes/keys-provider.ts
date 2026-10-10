@@ -3,6 +3,7 @@ import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { validateAirsideKey } from "@/lib/airside-provider-key.js";
 import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
 import {
 	allowedModelsSchema,
@@ -24,6 +25,7 @@ import {
 } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
 import {
+	getEffectiveProviders,
 	and,
 	cdb,
 	db,
@@ -37,7 +39,6 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	isStealthProvider,
-	providers,
 	regionEndpointRequiresWorkspaceId,
 } from "@llmgateway/models";
 import {
@@ -364,12 +365,7 @@ function validateWorkspaceScopedRegion(
 }
 
 const createProviderKeySchema = z.object({
-	provider: z
-		.string()
-		.refine((val) => providers.some((p) => p.id === val) || val === "custom", {
-			message:
-				"Invalid provider. Must be one of the supported providers or 'custom'.",
-		}),
+	provider: z.string().min(1).max(100),
 	token: z.string().min(1, "API key is required").refine(isValidProviderToken, {
 		message:
 			"API key contains invalid characters. Make sure you copied the actual key, not a masked version.",
@@ -552,6 +548,12 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
+	if (
+		provider !== "custom" &&
+		!(await getEffectiveProviders()).some((entry) => entry.id === provider)
+	) {
+		throw new HTTPException(400, { message: "Invalid or inactive provider." });
+	}
 	if (provider === "custom") {
 		assertCustomProviderEnterprise(userOrgs[0]?.organization);
 		if (!name || !baseUrl) {
@@ -580,7 +582,7 @@ keysProvider.openapi(create, async (c) => {
 
 	if (allowedModels) {
 		assertAllowedModelsSupported(provider);
-		validateAllowedModels(provider, allowedModels, options);
+		await validateAllowedModels(provider, allowedModels, options);
 	}
 
 	// A restricted key is probed with one of its own allowed models instead of
@@ -600,13 +602,14 @@ keysProvider.openapi(create, async (c) => {
 	try {
 		const isTestEnv =
 			process.env.NODE_ENV === "test" && process.env.E2E_TEST !== "true";
-		// Validate that provider is one of the allowed provider IDs
-		if (!providers.some((p) => p.id === provider) && provider !== "custom") {
-			throw new Error(`Invalid provider: ${provider}`);
-		}
-
 		// Skip validation for custom providers as they don't have predefined models
-		if (provider === "custom" || skipLiveValidation) {
+		const airsideValidation =
+			provider === "custom"
+				? undefined
+				: await validateAirsideKey(provider, userToken, baseUrl, allowedModels);
+		if (airsideValidation) {
+			validationResult = airsideValidation;
+		} else if (provider === "custom" || skipLiveValidation) {
 			validationResult = { valid: true };
 		} else {
 			validationResult = await validateProviderKey(
@@ -1079,7 +1082,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 			: normalizeAllowedModels(requestedAllowedModels);
 	if (allowedModels) {
 		assertAllowedModelsSupported(providerKey.provider);
-		validateAllowedModels(
+		await validateAllowedModels(
 			providerKey.provider,
 			allowedModels,
 			providerKey.options ?? undefined,

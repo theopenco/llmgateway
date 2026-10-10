@@ -10,6 +10,7 @@ import { and, asc, cdb, db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	getProviderEnvVar,
+	getProviderDefinition,
 	REASONING_EFFORTS,
 	TOOL_CHOICE_MODES,
 } from "@llmgateway/models";
@@ -147,7 +148,7 @@ async function resolveCredential(
 				job.providerCompanyId,
 			),
 			baseUrl: claim.customBaseUrl ?? undefined,
-			skipEnvVars: claim.kind === "custom",
+			skipEnvVars: !getProviderDefinition(claim.providerId),
 		};
 	}
 	if (job.credentialSource === "managed") {

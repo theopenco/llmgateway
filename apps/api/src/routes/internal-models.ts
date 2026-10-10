@@ -6,9 +6,11 @@ import {
 	publicAirsideProfileSchema,
 } from "@/lib/airside-profile.js";
 import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
+import { getDynamicRouteProviderOptions } from "@/lib/dynamic-route-providers.js";
 import { loadPublicDiscounts } from "@/lib/public-discounts.js";
 
 import {
+	getEffectiveProviders,
 	and,
 	avgEffectiveTtftSql,
 	db,
@@ -1315,5 +1317,73 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 		windowMinutes: WINDOW_HOURS * 60,
 		bucketMinutes: 60,
 		providers,
+	});
+});
+
+const getProviderFacts = createRoute({
+	method: "get",
+	path: "/provider-facts",
+	responses: {
+		200: {
+			description: "Effective catalogue or carrier-declared provider facts.",
+			content: {
+				"application/json": {
+					schema: z.object({
+						providers: z.array(
+							z.object({
+								id: z.string(),
+								modelIds: z.array(z.string()),
+								name: z.string(),
+								description: z.string(),
+								forwardsSafetyIdentifier: z.boolean(),
+								env: z.object({ required: z.record(z.string().optional()) }),
+								color: z.string().optional(),
+								website: z.string().nullish(),
+								legalEntity: z.string().nullable(),
+								headquarters: z.string().nullish(),
+								dataPolicy: z
+									.object({
+										apiTraining: z.boolean().nullable(),
+										promptLogging: z.boolean().nullable(),
+										retentionPeriod: z.string().nullish(),
+										soc2: z
+											.union([z.literal(1), z.literal(2)])
+											.nullish()
+											.openapi({ type: "integer", enum: [1, 2, null] }),
+										iso27001: z.boolean().nullish(),
+										gdpr: z.boolean().nullish(),
+									})
+									.nullish(),
+							}),
+						),
+					}),
+				},
+			},
+		},
+	},
+});
+internalModels.openapi(getProviderFacts, async (c) => {
+	const [providers, models] = await Promise.all([
+		getEffectiveProviders(),
+		getDynamicRouteProviderOptions(),
+	]);
+	return c.json({
+		providers: providers.map((provider) => ({
+			id: provider.id,
+			name: provider.name,
+			description: provider.description,
+			forwardsSafetyIdentifier: provider.forwardsSafetyIdentifier,
+			env: { required: provider.env.required },
+			color: provider.color,
+			website: provider.website,
+			legalEntity: provider.legalEntity,
+			headquarters: provider.headquarters,
+			dataPolicy: provider.dataPolicy,
+			modelIds: models
+				.filter((model) =>
+					model.providers.some((entry) => entry.id === provider.id),
+				)
+				.map((model) => model.modelId),
+		})),
 	});
 });

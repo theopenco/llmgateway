@@ -31,6 +31,12 @@ Scores use the default routing config. They are computed on the router's live
 metrics window and on hourly averages, for each request shape that changes the
 weights: streaming, cached prompts, sessions, and `routing` preferences.
 
+Providers managed entirely through Airside use their active listings for routing
+and pricing, and their declared carrier profile for compliance. Removing a static
+provider definition preserves its provider ID, existing pins, and session
+preferences for models still listed in Airside. Models without an active listing
+stop being available from that provider.
+
 ## Global Provider Rate Limits
 
 Administrators can set global or organization-specific RPM/RPD caps. Global

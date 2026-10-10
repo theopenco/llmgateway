@@ -5,11 +5,16 @@ import { providers as catalogueProviders } from "@llmgateway/models";
 
 import type { tables } from "@llmgateway/db";
 
-/**
- * A carrier's self-declared public profile: links and data-policy claims
- * shown on its provider page. Display only — compliance routing keeps reading
- * the reviewed static catalogue and never these columns.
- */
+/** A catalogue claim becomes database-backed when its definition is removed. */
+export function effectiveClaimKind(row: {
+	kind: "catalogue" | "custom";
+	providerId: string;
+}) {
+	return row.kind === "catalogue" &&
+		catalogueProviders.some((provider) => provider.id === row.providerId)
+		? ("catalogue" as const)
+		: ("custom" as const);
+}
 
 function httpUrl(label: string) {
 	return z
@@ -252,7 +257,7 @@ export function effectiveCarrierProfile(
 	row: ClaimProfileColumns,
 ): CarrierProfile {
 	const own = ownProfile(row);
-	if (row.kind !== "catalogue") {
+	if (effectiveClaimKind(row) !== "catalogue") {
 		return own;
 	}
 	const reviewed = staticCarrierProfile(row.providerId);
@@ -279,7 +284,7 @@ export function serializeClaimProfile(row: ClaimProfileColumns) {
 		profileMissing: missingKeys(profile, PROFILE_REQUIRED_KEYS),
 		profileRecommendedMissing: missingKeys(
 			profile,
-			row.kind === "catalogue"
+			effectiveClaimKind(row) === "catalogue"
 				? PROFILE_RECOMMENDED_KEYS.filter((key) => LINK_KEYS.includes(key))
 				: PROFILE_RECOMMENDED_KEYS,
 		),
@@ -388,7 +393,7 @@ export function publicAirsideProfile(row: ClaimProfileColumns) {
 		legalEntity: own.legalEntity,
 		headquarters: own.headquarters,
 	};
-	if (row.kind === "catalogue") {
+	if (effectiveClaimKind(row) === "catalogue") {
 		return row.profileUpdatedAt ? { ...links, dataPolicy: null } : null;
 	}
 	if (PROFILE_KEYS.every((key) => own[key] === null)) {

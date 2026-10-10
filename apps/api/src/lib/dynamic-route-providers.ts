@@ -14,7 +14,6 @@ export async function getDynamicRouteProviderOptions() {
 		}),
 		db.query.providerClaim.findMany({
 			where: {
-				kind: "custom",
 				status: "active",
 				customBaseUrl: { isNotNull: true },
 			},
@@ -32,7 +31,13 @@ export async function getDynamicRouteProviderOptions() {
 		providers.map((provider) => [provider.id, provider]),
 	);
 	const now = new Date();
-	return models.map((model) => {
+	const definitions = [
+		...models,
+		...[...new Set(listings.map((listing) => listing.modelId))]
+			.filter((id) => !models.some((model) => model.id === id))
+			.map((id) => ({ id, providers: [] })),
+	];
+	return definitions.map((model) => {
 		const owned = listingsByModel.get(model.id) ?? [];
 		const ownedByProvider = new Map<string, (typeof listings)[number]>();
 		for (const listing of owned) {

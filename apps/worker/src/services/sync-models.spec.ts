@@ -196,11 +196,55 @@ describe("sync-models", () => {
 				.returning();
 			listingId = listing.id;
 
+			await db.insert(provider).values({
+				id: "retired-sync-provider",
+				name: "Test Carrier",
+				description: "Test",
+			});
+			await db.insert(modelProviderMapping).values([
+				{
+					id: "retired-catalogue-mapping",
+					providerId: "retired-sync-provider",
+					modelId: AIRSIDE_MODEL_ID,
+					source: "catalogue",
+					externalId: AIRSIDE_MODEL_ID,
+				},
+				{
+					id: "retired-airside-mapping",
+					providerId: "retired-sync-provider",
+					modelId: DRIFT_MODEL_ID,
+					source: "airside",
+					externalId: DRIFT_MODEL_ID,
+				},
+			]);
+
 			mappingCountBeforeResync = (await db.select().from(modelProviderMapping))
 				.length;
 
 			await syncProvidersAndModels();
 		}, SYNC_TIMEOUT_MS);
+
+		it("retires removed catalogue mappings while retaining Airside and history", async () => {
+			const catalogue = await db.query.modelProviderMapping.findFirst({
+				where: { id: "retired-catalogue-mapping" },
+			});
+			const airside = await db.query.modelProviderMapping.findFirst({
+				where: { id: "retired-airside-mapping" },
+			});
+			expect(catalogue).toMatchObject({
+				id: "retired-catalogue-mapping",
+				status: "inactive",
+				source: "catalogue",
+			});
+			expect(airside).toMatchObject({
+				id: "retired-airside-mapping",
+				status: "active",
+				source: "airside",
+			});
+			expect(
+				await db.query.model.findFirst({ where: { id: AIRSIDE_MODEL_ID } }),
+			).toBeDefined();
+		});
 
 		it("restores a drifted provider", async () => {
 			const [openaiProvider] = await db

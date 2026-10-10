@@ -16,6 +16,7 @@ import {
 	executeAdminRefund,
 	sumRefundsByTransaction,
 } from "@/lib/admin-refund.js";
+import { effectiveClaimKind } from "@/lib/airside-profile.js";
 import {
 	getContentFilterSettings,
 	listContentFilterProviders,
@@ -4926,12 +4927,7 @@ async function listAirsideCustomProviders() {
 			name: tables.providerClaim.customName,
 		})
 		.from(tables.providerClaim)
-		.where(
-			and(
-				eq(tables.providerClaim.kind, "custom"),
-				eq(tables.providerClaim.status, "active"),
-			),
-		);
+		.where(and(eq(tables.providerClaim.status, "active")));
 }
 
 /**
@@ -5024,7 +5020,6 @@ async function isAirsideProviderId(providerId: string): Promise<boolean> {
 		.where(
 			and(
 				eq(tables.providerClaim.providerId, providerId),
-				eq(tables.providerClaim.kind, "custom"),
 				eq(tables.providerClaim.status, "active"),
 			),
 		)
@@ -10940,7 +10935,10 @@ admin.openapi(getProviderDetail, async (c) => {
 		airside: carrier
 			? {
 					company: { id: carrier.companyId, name: carrier.companyName },
-					claimKind: carrier.claimKind,
+					claimKind: effectiveClaimKind({
+						kind: carrier.claimKind,
+						providerId,
+					}),
 					discountPercent: carrierDiscount,
 					marginPercent: carrierMargin,
 					routingAdjustment: computeAirsideAdjustment(

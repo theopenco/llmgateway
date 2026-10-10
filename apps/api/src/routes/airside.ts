@@ -45,6 +45,7 @@ import {
 } from "@/lib/airside-metadata.js";
 import {
 	assertNoRequiredCleared,
+	effectiveClaimKind,
 	assertEditableProfile,
 	assertRequiredProfile,
 	carrierProfileInputSchema,
@@ -505,7 +506,7 @@ function serializeClaim(
 		providerId: row.providerId,
 		providerName:
 			row.customName ?? providerNames.get(row.providerId) ?? row.providerId,
-		kind: row.kind,
+		kind: effectiveClaimKind(row),
 		matchedDomain: row.matchedDomain,
 		customBaseUrl: row.customBaseUrl,
 		status: row.status,
@@ -2441,15 +2442,15 @@ airside.openapi(updateClaimProfile, async (c) => {
 		});
 	}
 	assertNoRequiredCleared(body);
-	assertEditableProfile(claim.kind, body);
+	assertEditableProfile(effectiveClaimKind(claim), body);
 	if (Object.keys(profileColumns(body)).length === 0) {
 		return c.json({ claim: serializeClaim(claim, providerNamesById) });
 	}
 	const changes =
-		claim.kind === "catalogue"
+		effectiveClaimKind(claim) === "catalogue"
 			? catalogueLinkColumns(effectiveCarrierProfile(claim), body)
 			: profileColumns(body);
-	const [updated] = await db
+	const [updated] = await cdb
 		.update(tables.providerClaim)
 		.set({ ...changes, profileUpdatedAt: new Date() })
 		.where(eq(tables.providerClaim.id, id))
@@ -2548,7 +2549,7 @@ async function requireOwnedCustomClaim(userId: string, claimId: string) {
 		throw new HTTPException(404, { message: "Claim not found" });
 	}
 	await requireCompanyMembership(userId, claim.providerCompanyId);
-	if (claim.kind !== "custom") {
+	if (effectiveClaimKind(claim) !== "custom") {
 		throw new HTTPException(409, {
 			message: "Only registered carriers supply their own provider key.",
 		});
@@ -3170,8 +3171,14 @@ airside.openapi(createModel, async (c) => {
 	// carrier's first model brings that key along.
 	const keyOnFile = claim.providerKeyId ?? claim.pendingProviderKeyId;
 	const firstProviderKey =
-		claim.kind === "custom" && !keyOnFile ? body.providerKey : undefined;
-	if (claim.kind === "custom" && !keyOnFile && !firstProviderKey) {
+		effectiveClaimKind(claim) === "custom" && !keyOnFile
+			? body.providerKey
+			: undefined;
+	if (
+		effectiveClaimKind(claim) === "custom" &&
+		!keyOnFile &&
+		!firstProviderKey
+	) {
 		throw new HTTPException(400, {
 			message:
 				"Add your provider key — the key we serve your traffic with. It is smoke-tested against this model and reviewed with it.",
@@ -3180,7 +3187,7 @@ airside.openapi(createModel, async (c) => {
 	if (body.providerKey && !firstProviderKey) {
 		throw new HTTPException(400, {
 			message:
-				claim.kind === "custom"
+				effectiveClaimKind(claim) === "custom"
 					? "A provider key is already on file — replace it under Settings."
 					: "Catalogue carriers are served with platform keys.",
 		});
@@ -3192,7 +3199,7 @@ airside.openapi(createModel, async (c) => {
 			firstProviderKey,
 			verificationTarget(body),
 		);
-	} else if (claim.kind === "custom" && keyOnFile) {
+	} else if (effectiveClaimKind(claim) === "custom" && keyOnFile) {
 		const servingKey = await db.query.providerKey.findFirst({
 			where: { id: { eq: keyOnFile } },
 		});
@@ -3354,7 +3361,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 			message: "Only an active carrier can import its catalogue models.",
 		});
 	}
-	if (claim.kind !== "catalogue") {
+	if (effectiveClaimKind(claim) !== "catalogue") {
 		throw new HTTPException(400, {
 			message: "Custom carriers have no catalogue models to import.",
 		});

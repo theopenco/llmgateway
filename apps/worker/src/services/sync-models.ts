@@ -13,6 +13,7 @@ import {
 	sql,
 	isNotNull,
 	isNull,
+	notInArray,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -26,6 +27,20 @@ export async function syncProvidersAndModels() {
 
 	try {
 		const database = db;
+		// Keep historical rows, but stop advertising the removed catalogue's models.
+		await cdb
+			.update(modelProviderMapping)
+			.set({ status: "inactive" })
+			.where(
+				and(
+					eq(modelProviderMapping.source, "catalogue"),
+					eq(modelProviderMapping.status, "active"),
+					notInArray(
+						modelProviderMapping.providerId,
+						providers.map((entry) => entry.id),
+					),
+				),
+			);
 
 		for (const providerDef of providers) {
 			await database

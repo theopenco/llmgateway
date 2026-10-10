@@ -5,6 +5,7 @@ import {
 	notificationChannelSenders,
 } from "@llmgateway/actions";
 import {
+	getEffectiveProviders,
 	and,
 	db,
 	eq,
@@ -21,11 +22,7 @@ import {
 	projectHourlyModelStats,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import {
-	getProviderComplianceFailures,
-	getProviderDefinition,
-	providers,
-} from "@llmgateway/models";
+import { getProviderComplianceFailures } from "@llmgateway/models";
 import { failureLabel } from "@llmgateway/shared";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import {
@@ -53,10 +50,6 @@ interface OrgAlert {
 	title: string;
 	message: string;
 	href: string;
-}
-
-function providerName(providerId: string): string {
-	return getProviderDefinition(providerId)?.name ?? providerId;
 }
 
 async function modelName(modelId: string): Promise<string> {
@@ -214,11 +207,14 @@ async function processOrganization(
 ): Promise<void> {
 	const href = `/dashboard/${org.id}/org/compliance`;
 	const policyHash = hashCompliancePolicy(policy);
+	const providers = await getEffectiveProviders();
+	const providerNames = new Map(providers.map((p) => [p.id, p.name]));
+	const providerName = (id: string) => providerNames.get(id) ?? id;
 	const previous = await db.query.complianceProviderState.findMany({
 		where: { organizationId: org.id },
 	});
 	// First run, or the org edited its own policy: resync without alerting.
-	// Rows for providers removed from the catalogue are never rewritten.
+	// Rows for providers without an active configuration are never rewritten.
 	const current = previous.filter((s) =>
 		providers.some((p) => p.id === s.providerId),
 	);

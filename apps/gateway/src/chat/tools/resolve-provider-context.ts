@@ -835,7 +835,7 @@ export async function resolveProviderContext(
 		await resolveAirsideProviderBaseUrl(usedProvider);
 	const url = getProviderEndpoint(
 		airsideCustomBaseUrl ? "custom" : (usedProvider as Provider),
-		airsideCustomBaseUrl ?? credentialBaseUrl,
+		credentialBaseUrl ?? airsideCustomBaseUrl,
 		upstreamModelName,
 		usedProvider === "google-ai-studio" ||
 			usedProvider === "glacier" ||
