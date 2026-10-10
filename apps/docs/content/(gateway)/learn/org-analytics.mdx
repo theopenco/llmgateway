@@ -46,10 +46,22 @@ A single **group-by** control switches what the two charts below break the usage
 
 For each grouping you get the same two charts:
 
-- **Over time** — a stacked area chart of the top series across the date range, with **Cost / Requests / Tokens** tabs.
-- **Ranking** — a horizontal bar chart of the top series for the range, with the same metric tabs and the running totals for the window.
+- **Over time** — a line or bar chart of the top series across the date range, with **Cost / Requests / Tokens / Prompt cache rate** tabs.
+- **Ranking** — a horizontal bar chart of the top series for the range, with **Cost / Requests / Tokens** tabs and the running totals for the window.
 
 Switch to **Project** to see which teams or workloads drive the bill, **Model** for the org-wide model footprint, or **API key** when usage runs through services rather than people.
+
+## Prompt cache rate
+
+Select **Prompt cache rate** in the existing over-time chart to compare provider-cached input across models, projects, API keys, or users. The chart keeps the page's date range. Model and API-key filters apply only to this chart, across all its metrics.
+
+The percentage is **cached input tokens / total input tokens × 100**. Total input already includes cached tokens. Rates are calculated from summed token counts, not averages of request or hourly percentages. This measures prompt caching, not gateway response-cache hits, and includes both credits and BYOK traffic.
+
+**Auto** shows hourly cache rates for ranges up to 30 days and daily rates for longer ranges. Choose **Daily** to reduce short-term noise, or **Hourly** for a closer look within 30 days. Daily rates include all underlying hours, even hours whose individual rates are hidden.
+
+Buckets with fewer than five requests show **Insufficient traffic**; buckets without input tokens show **No input tokens**. Both appear as gaps, not zero-percent cache hits. The cutoff is a display heuristic, not a confidence guarantee. Hover for request, input-token, and cached-token counts; faint bars show request volume on the right axis. The current bucket is marked incomplete in its tooltip.
+
+The cache view compares the top ten series by input-token volume across the selected range. Filter a model to compare its API keys, or filter an API key to compare its models. Deleted keys retain their historical usage. Traffic outside the per-key rollups appears as **Unattributed**.
 
 ## How the data is computed
 

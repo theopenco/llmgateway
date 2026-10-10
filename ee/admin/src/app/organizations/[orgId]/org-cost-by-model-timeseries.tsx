@@ -1,14 +1,18 @@
 "use client";
 
+import { keepPreviousData } from "@tanstack/react-query";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 
-import { CostByModelTimeseriesChart } from "@/components/cost-by-model-timeseries-chart";
-import { useHistoryClient } from "@/lib/history-client";
+import { useUsageMode } from "@/components/usage-mode-selector";
+import { useApi } from "@/lib/fetch-client";
+
+import {
+	OrganizationUsageTimeseries,
+	useUsageTimeseriesControls,
+} from "@llmgateway/shared/usage-timeseries";
 
 import type {
-	CostTimeseriesBucket,
-	CostTimeseriesGroupBy,
 	ModelView,
 	OrganizationCostGroupBy,
 	TokenWindow,
@@ -24,27 +28,6 @@ const validWindows = new Set<TokenWindow>([
 	"90d",
 	"365d",
 ]);
-
-const groupByOptions: CostTimeseriesGroupBy[] = [
-	"model",
-	"project",
-	"api-key",
-	"user",
-];
-
-const breakdownNouns: Record<OrganizationCostGroupBy, string> = {
-	model: "models",
-	project: "projects",
-	"api-key": "API keys",
-	user: "users",
-};
-
-const breakdownTitles: Record<OrganizationCostGroupBy, string> = {
-	model: "Model",
-	project: "Project",
-	"api-key": "API Key",
-	user: "User",
-};
 
 function parseWindow(value: string | null): TokenWindow {
 	if (value && validWindows.has(value as TokenWindow)) {
@@ -70,25 +53,35 @@ export function OrgCostByModelTimeseries({ orgId }: { orgId: string }) {
 	const window = parseWindow(searchParams.get("window"));
 	const groupBy = parseGroupBy(searchParams.get("breakdown"));
 	const modelView = parseModelView(searchParams.get("modelView"));
-	const breakdownNoun = breakdownNouns[groupBy];
-	const history = useHistoryClient();
-
-	const fetchData = useCallback(
-		async (
-			w: TokenWindow,
-			view: ModelView,
-			group: CostTimeseriesGroupBy,
-			bucket: CostTimeseriesBucket | undefined,
-		) => {
-			return await history.orgCostByModelTimeseries(
-				orgId,
-				w,
-				view,
-				group === "source" ? "model" : group,
-				bucket,
-			);
+	const days = {
+		"1h": 1 / 24,
+		"4h": 4 / 24,
+		"12h": 0.5,
+		"1d": 1,
+		"7d": 7,
+		"30d": 30,
+		"90d": 90,
+		"365d": 365,
+	}[window];
+	const controls = useUsageTimeseriesControls(days);
+	const usageMode = useUsageMode();
+	const api = useApi();
+	const query = api.useQuery(
+		"get",
+		"/admin/organizations/{orgId}/cost-by-model-timeseries",
+		{
+			params: {
+				path: { orgId },
+				query: {
+					window,
+					modelView,
+					groupBy,
+					...controls.query,
+					mode: usageMode,
+				},
+			},
 		},
-		[history, orgId],
+		{ placeholderData: keepPreviousData },
 	);
 
 	const updateView = useCallback(
@@ -115,20 +108,35 @@ export function OrgCostByModelTimeseries({ orgId }: { orgId: string }) {
 	);
 
 	return (
-		<CostByModelTimeseriesChart
-			title={`Cost by ${breakdownTitles[groupBy]} Over Time`}
-			description={`Stacked breakdown of top 10 ${breakdownNoun} over the selected window`}
-			fetchData={fetchData}
-			externalWindow={window}
-			groupBy={groupBy}
+		<OrganizationUsageTimeseries
+			data={query.data?.timeseries}
+			loading={query.isFetching}
+			error={query.isError}
+			retry={() => {
+				void query.refetch();
+			}}
+			controls={controls}
+			mode={usageMode}
+			groupBy={groupBy === "api-key" ? "apiKey" : groupBy}
 			onGroupByChange={(value) =>
-				updateView({
-					groupBy: value === "source" ? "model" : value,
-				})
+				updateView({ groupBy: value === "apiKey" ? "api-key" : value })
 			}
-			groupByOptions={groupByOptions}
-			modelView={modelView}
-			onModelViewChange={(value) => updateView({ modelView: value })}
+			modelViewControl={
+				groupBy === "model" ? (
+					<select
+						aria-label="Model view"
+						className="rounded-md border border-input bg-background px-3 py-1.5 text-xs"
+						value={modelView}
+						onChange={(event) => {
+							controls.setModel("");
+							updateView({ modelView: event.target.value as ModelView });
+						}}
+					>
+						<option value="mapping">Mappings</option>
+						<option value="canonical">Canonical</option>
+					</select>
+				) : undefined
+			}
 		/>
 	);
 }
