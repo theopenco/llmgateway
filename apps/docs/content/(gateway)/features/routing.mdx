@@ -164,10 +164,10 @@ When choosing a [session's provider](#sticky-session-routing), routing applies t
 Providers with uptime below %routing.thresholds.uptimePenalty%% receive an additional exponential penalty that increases rapidly as uptime drops:
 
 - %routing.thresholds.uptimePenalty%-100% uptime: No penalty
-- 90% uptime: ~0.07 penalty
-- 80% uptime: ~0.62 penalty
-- 70% uptime: ~1.73 penalty
-- 50% uptime: ~5.61 penalty
+- 90% uptime: ~%routing.uptimePenaltyAt.90% penalty
+- 80% uptime: ~%routing.uptimePenaltyAt.80% penalty
+- 70% uptime: ~%routing.uptimePenaltyAt.70% penalty
+- 50% uptime: ~%routing.uptimePenaltyAt.50% penalty
 
 This ensures providers experiencing significant issues are strongly deprioritized while minor fluctuations have minimal impact. The penalty threshold (default `%routing.thresholds.uptimePenalty%%`) is configurable.
 
