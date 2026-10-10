@@ -66,13 +66,13 @@ Uptime is measured over a rolling %routing.history.windowMinutes%-minute window 
 
 Above %routing.thresholds.uptimePenalty%% uptime there is no extra penalty beyond the weighted factor. Below it, an exponential penalty is added to the score:
 
-| Uptime | Added penalty |
-| ------ | ------------- |
-| 95%    | 0             |
-| 90%    | ~0.07         |
-| 80%    | ~0.62         |
-| 70%    | ~1.73         |
-| 50%    | ~5.61         |
+| Uptime                              | Added penalty                 |
+| ----------------------------------- | ----------------------------- |
+| %routing.thresholds.uptimePenalty%% | 0                             |
+| 90%                                 | ~%routing.uptimePenaltyAt.90% |
+| 80%                                 | ~%routing.uptimePenaltyAt.80% |
+| 70%                                 | ~%routing.uptimePenaltyAt.70% |
+| 50%                                 | ~%routing.uptimePenaltyAt.50% |
 
 For scale, a price score of 1.0 means "twice the cheapest candidate". A deployment at 80% uptime carries a penalty larger than that, so no fare setting rescues it.
 
