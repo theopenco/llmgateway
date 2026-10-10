@@ -14,6 +14,7 @@ import {
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
+	isZeroDataRetentionEnabled,
 	type ComplianceFailureReason,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
@@ -25,14 +26,6 @@ interface OrganizationLike {
 	kind?: string | null;
 	retentionLevel?: "retain" | "none" | null;
 	providerCompliancePolicy?: ProviderCompliancePolicy | null;
-}
-
-export function isZeroDataRetentionEnabled(
-	organization: OrganizationLike | null | undefined,
-): boolean {
-	return organization
-		? getActiveCompliancePolicy(organization)?.zeroDataRetention === true
-		: false;
 }
 
 export function getEffectiveRetentionLevel(

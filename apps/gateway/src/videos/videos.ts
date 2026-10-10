@@ -46,7 +46,6 @@ import {
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
-	isZeroDataRetentionEnabled,
 	logComplianceBlock,
 } from "@/lib/compliance.js";
 import {
@@ -114,6 +113,7 @@ import {
 	getProviderEnvVar,
 	hasProviderEnvironmentToken,
 	isProviderMappingAllowedByRestriction,
+	isZeroDataRetentionEnabled,
 	models,
 	type ModelDefinition,
 	type Provider,

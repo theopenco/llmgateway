@@ -23,7 +23,6 @@ import {
 	findOrganizationById,
 	findProjectById,
 } from "@/lib/cached-queries.js";
-import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { getMcpGatewayUrl } from "@/mcp/request-url.js";
 import { registerUsageTools } from "@/mcp/usage-tools.js";
@@ -32,6 +31,7 @@ import { isAllowedOrigin, parseAllowedOrigins } from "@/middleware/cors.js";
 import { parseDataUrl } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
 import {
+	isZeroDataRetentionEnabled,
 	models as modelsList,
 	type ModelDefinition,
 	type ProviderModelMapping,
