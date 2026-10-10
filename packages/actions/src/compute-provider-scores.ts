@@ -1,5 +1,7 @@
 import { Decimal } from "decimal.js";
 
+import { MAX_THROUGHPUT_SCORE } from "@llmgateway/shared/routing-config";
+
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 
 export interface ScoringFlags {
@@ -54,14 +56,6 @@ export function calculateUptimePenalty(
 	const deficit = (threshold - uptime) / threshold;
 	return Math.pow(deficit * 5, 2);
 }
-
-/**
- * Upper bound on the throughput sub-score (maxThroughput / throughput - 1).
- * The ratio is unbounded as throughput approaches zero, so a single slow or
- * sparsely sampled window could otherwise dominate the weighted score. A cap of
- * 3 means anything 4x slower than the fastest candidate is penalised equally.
- */
-export const MAX_THROUGHPUT_SCORE = 3;
 
 export interface CandidateScoreInput {
 	price: Decimal;

@@ -125,6 +125,11 @@
 			"import": "./dist/routing-config.js",
 			"default": "./dist/routing-config.js"
 		},
+		"./routing-defaults": {
+			"types": "./dist/routing-defaults.d.ts",
+			"import": "./dist/routing-defaults.js",
+			"default": "./dist/routing-defaults.js"
+		},
 		"./smart-routing": {
 			"types": "./dist/smart-routing.d.ts",
 			"import": "./dist/smart-routing.js",

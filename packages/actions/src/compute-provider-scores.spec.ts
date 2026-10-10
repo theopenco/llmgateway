@@ -3,13 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import {
 	buildProviderPriorityDefaults,
+	MAX_THROUGHPUT_SCORE,
 	resolveRoutingConfig,
 } from "@llmgateway/shared/routing-config";
 
-import {
-	computeWeightedProviderScores,
-	MAX_THROUGHPUT_SCORE,
-} from "./compute-provider-scores.js";
+import { computeWeightedProviderScores } from "./compute-provider-scores.js";
 
 const cfg = resolveRoutingConfig(null, buildProviderPriorityDefaults());
 const flags = { isStreaming: true, isImageModel: false, cacheRelevant: false };

@@ -338,6 +338,8 @@ export {
 	getDefaultCachePricing,
 	getDefaultRoutingConfig,
 	historyMatchesDefaults,
+	interpolateRoutingDefaults,
+	MAX_THROUGHPUT_SCORE,
 	type ProviderPriorityOverrides,
 	resolveRoutingConfig,
 	type ResolvedRoutingConfig,
