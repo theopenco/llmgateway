@@ -40,10 +40,7 @@ import {
 	normalizeSmartRoutingConfig,
 } from "@/utils/smart-routing.js";
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
-import {
-	isZeroDataRetentionEnabled,
-	zdrCachingConflictMessage,
-} from "@/utils/zdr-settings.js";
+import { zdrCachingConflictMessage } from "@/utils/zdr-settings.js";
 
 import {
 	getOrgTierQualifyingSpendUsd,
@@ -65,7 +62,12 @@ import {
 	tables,
 	projectHourlyStats,
 } from "@llmgateway/db";
-import { getProviderCountries, models, providers } from "@llmgateway/models";
+import {
+	getProviderCountries,
+	isZeroDataRetentionEnabled,
+	models,
+	providers,
+} from "@llmgateway/models";
 import {
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CUSTOM_PROVIDER_NAME_REGEX,

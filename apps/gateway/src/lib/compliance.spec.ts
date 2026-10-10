@@ -7,7 +7,6 @@ import {
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
-	isZeroDataRetentionEnabled,
 } from "./compliance.js";
 
 import type { ProviderCompliancePolicy } from "@llmgateway/models";
@@ -29,7 +28,6 @@ describe("zero data retention", () => {
 			},
 		};
 
-		expect(isZeroDataRetentionEnabled(organization)).toBe(true);
 		expect(getEffectiveRetentionLevel(organization)).toBe("none");
 	});
 
@@ -44,7 +42,6 @@ describe("zero data retention", () => {
 			},
 		};
 
-		expect(isZeroDataRetentionEnabled(organization)).toBe(false);
 		expect(getEffectiveRetentionLevel(organization)).toBe("retain");
 	});
 
@@ -70,7 +67,6 @@ describe("zero data retention", () => {
 			},
 		};
 
-		expect(isZeroDataRetentionEnabled(organization)).toBe(true);
 		expect(getEffectiveRetentionLevel(organization)).toBe("none");
 	});
 });

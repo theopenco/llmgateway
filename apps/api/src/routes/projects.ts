@@ -14,13 +14,13 @@ import {
 	normalizeSmartRoutingConfig,
 } from "@/utils/smart-routing.js";
 import {
-	isZeroDataRetentionEnabled,
 	zdrCachingConflictMessage,
 	zdrProviderCachingConflictMessage,
 } from "@/utils/zdr-settings.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { isZeroDataRetentionEnabled } from "@llmgateway/models";
 import { normalizeStatementDescriptorSuffix } from "@llmgateway/shared";
 import { canManageProject } from "@llmgateway/shared/organization-roles";
 import { isSmartRoutingAvailable } from "@llmgateway/shared/smart-routing";

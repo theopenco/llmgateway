@@ -64,7 +64,6 @@ import {
 } from "@/utils/provider-cache-control.js";
 import { timezoneQueryField } from "@/utils/timezone.js";
 import {
-	isZeroDataRetentionEnabled,
 	zdrCachingConflictMessage,
 	zdrProviderCachingConflictMessage,
 } from "@/utils/zdr-settings.js";
@@ -79,6 +78,7 @@ import {
 	shortid,
 	tables,
 } from "@llmgateway/db";
+import { isZeroDataRetentionEnabled } from "@llmgateway/models";
 import { accountBlockMessage } from "@llmgateway/shared/account-block";
 import {
 	getApiKeyFingerprint,

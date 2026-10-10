@@ -964,6 +964,7 @@ export const notificationTypes = [
 	"compliance_downgrade",
 	"org_limit",
 	"data_stream",
+	"prompt_cache",
 ] as const;
 
 const emailCategories = [

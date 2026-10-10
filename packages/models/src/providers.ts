@@ -1,3 +1,5 @@
+import type { ProviderCacheControlMode } from "./types.js";
+
 /**
  * Placeholder inside a `regionConfig.endpointMap` entry for a region whose
  * host is not a fixed domain but is derived from a per-credential workspace
@@ -196,6 +198,27 @@ export function narrowPolicyToDevPass(
 	return policy.enabled && policy.blockApiTraining
 		? { enabled: true, blockApiTraining: true }
 		: undefined;
+}
+
+export interface ZeroDataRetentionSubject {
+	providerCompliancePolicy?: {
+		enabled?: boolean;
+		zeroDataRetention?: boolean;
+	} | null;
+}
+
+export function isZeroDataRetentionEnabled(
+	organization: ZeroDataRetentionSubject | null | undefined,
+): boolean {
+	const policy = organization?.providerCompliancePolicy;
+	return policy?.enabled === true && policy.zeroDataRetention === true;
+}
+
+export function getEffectiveProviderCacheControlMode(
+	mode: ProviderCacheControlMode,
+	organization: ZeroDataRetentionSubject | null | undefined,
+): ProviderCacheControlMode {
+	return isZeroDataRetentionEnabled(organization) ? "off" : mode;
 }
 
 export interface ProviderDefinition {

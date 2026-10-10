@@ -31,20 +31,14 @@ import {
 	isOrgAlertRecipient,
 	processComplianceAlerts,
 } from "./compliance-alerts.js";
-
-import type { ApiKeyScope } from "@llmgateway/actions";
-import type { notificationPreference } from "@llmgateway/db";
+import { canReadEvent, recordEvent } from "./notification-events.js";
+import { processPromptCacheAlerts } from "./prompt-cache-alerts.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 const USAGE_WINDOW_MS = 30 * DAY;
 const HEALTH_FRESHNESS_MS = 10 * 60 * 1000;
 // Keep retries inside the email provider’s 24-hour idempotency window.
 const EMAIL_RETRY_MS = 23 * 60 * 60 * 1000;
-type Preference = typeof notificationPreference.$inferSelect;
-type Event = Pick<
-	typeof notification.$inferInsert,
-	"projectId" | "apiKeyId" | "type" | "eventKey" | "title" | "message" | "href"
->;
 
 export function isNearBudget(
 	usage: string,
@@ -76,37 +70,6 @@ export function providerHasIssues(
 		requests >= 20 &&
 		provider.upstreamErrorsCount / requests >= 0.2
 	);
-}
-
-function canReadEvent(
-	scope: ApiKeyScope,
-	event: Pick<Event, "projectId" | "apiKeyId">,
-): boolean {
-	if (!event.projectId) {
-		return false;
-	}
-	return (
-		scope.privilegedProjectIds.includes(event.projectId) ||
-		(scope.restrictedProjectIds.includes(event.projectId) &&
-			!!event.apiKeyId &&
-			scope.ownApiKeyIds.includes(event.apiKeyId))
-	);
-}
-
-async function recordEvent(
-	userId: string,
-	preference: Preference,
-	event: Event,
-) {
-	await db
-		.insert(notification)
-		.values({
-			...event,
-			userId,
-			inApp: preference.inApp,
-			email: preference.email,
-		})
-		.onConflictDoNothing();
 }
 
 export async function processNotifications(now = new Date()): Promise<void> {
@@ -283,6 +246,14 @@ export async function processNotifications(now = new Date()): Promise<void> {
 	} catch (error) {
 		logger.error(
 			"Compliance alert processing failed",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
+	try {
+		await processPromptCacheAlerts(now);
+	} catch (error) {
+		logger.error(
+			"Prompt cache alert processing failed",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 	}

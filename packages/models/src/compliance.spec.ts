@@ -5,6 +5,7 @@ import {
 	customProviderRef,
 	getAttestationComplianceFailures,
 	getCompliantProvidersForModel,
+	getEffectiveProviderCacheControlMode,
 	getProviderComplianceFailures,
 	getProviderCountries,
 	getProviderDefinition,
@@ -15,6 +16,7 @@ import {
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
 	isStealthProvider,
+	isZeroDataRetentionEnabled,
 	PROVIDER_COUNTRY_NAMES,
 	providers,
 	type ProviderComplianceAttestation,
@@ -983,5 +985,50 @@ describe("getCompliantProvidersForModel", () => {
 				now,
 			),
 		).toEqual([]);
+	});
+});
+
+describe("zero data retention", () => {
+	it("treats only an enabled policy with zeroDataRetention as ZDR", () => {
+		const legacyPolicy: ProviderCompliancePolicy = {
+			enabled: true,
+			blockPromptLogging: true,
+		};
+		expect(
+			isZeroDataRetentionEnabled({
+				providerCompliancePolicy: { enabled: true, zeroDataRetention: true },
+			}),
+			"enabled ZDR policy",
+		).toBe(true);
+		expect(
+			isZeroDataRetentionEnabled({
+				providerCompliancePolicy: { enabled: false, zeroDataRetention: true },
+			}),
+			"disabled policy",
+		).toBe(false);
+		expect(
+			isZeroDataRetentionEnabled({
+				providerCompliancePolicy: legacyPolicy,
+			}),
+			"legacy no-prompt-logging policy",
+		).toBe(false);
+		expect(
+			isZeroDataRetentionEnabled({ providerCompliancePolicy: null }),
+			"no policy",
+		).toBe(false);
+		expect(isZeroDataRetentionEnabled(null), "no organization").toBe(false);
+	});
+
+	it("forces the provider cache mode off under ZDR and keeps it otherwise", () => {
+		const zdr = {
+			providerCompliancePolicy: { enabled: true, zeroDataRetention: true },
+		};
+		const noZdr = { providerCompliancePolicy: { enabled: true } };
+		for (const mode of ["auto", "passthrough", "off"] as const) {
+			expect(getEffectiveProviderCacheControlMode(mode, zdr), mode).toBe("off");
+			expect(getEffectiveProviderCacheControlMode(mode, noZdr), mode).toBe(
+				mode,
+			);
+		}
 	});
 });

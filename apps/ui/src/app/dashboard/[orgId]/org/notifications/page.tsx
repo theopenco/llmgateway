@@ -54,6 +54,11 @@ const DESCRIPTIONS: Record<
 		description:
 			"As an owner or admin, hear when a data stream is paused after repeated delivery failures.",
 	},
+	prompt_cache: {
+		title: "Prompt cache misses",
+		description:
+			"Hear when an API key you can see keeps paying full input price on a model because follow-up requests miss the provider's prompt cache.",
+	},
 	marketing: {
 		title: "Product tips and offers",
 		description:

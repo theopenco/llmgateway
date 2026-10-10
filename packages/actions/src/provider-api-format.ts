@@ -2,15 +2,14 @@ import {
 	expandAllProviderRegions,
 	getProviderDefinition,
 	models,
-	type Provider,
 	type ProviderApiFormat,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 
-export function getProviderApiTransport(
-	provider: Provider,
+export function getProviderApiTransport<P extends string>(
+	provider: P,
 	apiFormat: ProviderApiFormat | undefined,
-): Provider {
+): P | "openai" | "google-vertex" {
 	if (!apiFormat || apiFormat === "provider-native") {
 		return provider;
 	}

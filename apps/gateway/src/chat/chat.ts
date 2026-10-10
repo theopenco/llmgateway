@@ -54,7 +54,6 @@ import {
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
-	isZeroDataRetentionEnabled,
 	logComplianceBlock,
 	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
@@ -225,9 +224,11 @@ import {
 	type WebSearchTool,
 	expandAllProviderRegions,
 	expandProviderRegions,
+	getEffectiveProviderCacheControlMode,
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
+	isZeroDataRetentionEnabled,
 	usesEncryptedReasoning,
 } from "@llmgateway/models";
 import {
@@ -7385,9 +7386,10 @@ chat.openapi(completions, async (c) => {
 	const providerCacheAutoTtl = hasInternalClientCacheMarkers(c)
 		? "5m"
 		: configuredProviderCacheAutoTtl;
-	const providerCacheControlMode = zeroDataRetentionEnabled
-		? "off"
-		: configuredProviderCacheControlMode;
+	const providerCacheControlMode = getEffectiveProviderCacheControlMode(
+		configuredProviderCacheControlMode,
+		organization,
+	);
 	// Per-request opt-out, mirroring X-No-Fallback. Agent workloads that retry a
 	// byte-identical request expect a fresh sample rather than a replay, so let
 	// a caller bypass the response cache (both read and write) without turning
