@@ -55,6 +55,14 @@ export function calculateUptimePenalty(
 	return Math.pow(deficit * 5, 2);
 }
 
+/**
+ * Upper bound on the throughput sub-score (maxThroughput / throughput - 1).
+ * The ratio is unbounded as throughput approaches zero, so a single slow or
+ * sparsely sampled window could otherwise dominate the weighted score. A cap of
+ * 3 means anything 4x slower than the fastest candidate is penalised equally.
+ */
+export const MAX_THROUGHPUT_SCORE = 3;
+
 export interface CandidateScoreInput {
 	price: Decimal;
 	uptime?: number;
@@ -161,12 +169,16 @@ export function computeWeightedProviderScores(
 			calculateUptimePenalty(uptime, thresholds.uptimePenalty),
 		);
 
-		// Throughput ratio: 0 = fastest, 0.5 = 50% slower, 1.0 = 2x slower
+		// Throughput ratio: 0 = fastest, 0.5 = 50% slower, 1.0 = 2x slower,
+		// capped at MAX_THROUGHPUT_SCORE
 		const throughput = candidate.throughput ?? thresholds.defaultThroughput;
 		const throughputScore =
 			throughput > 0
-				? new Decimal(maxThroughput).div(throughput).minus(1)
-				: new Decimal(1);
+				? Decimal.min(
+						new Decimal(maxThroughput).div(throughput).minus(1),
+						MAX_THROUGHPUT_SCORE,
+					)
+				: new Decimal(MAX_THROUGHPUT_SCORE);
 
 		// Latency ratio: 0 = fastest, proportional penalty for slower
 		// Only consider latency for streaming requests since it's only measured there

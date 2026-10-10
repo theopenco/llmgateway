@@ -121,8 +121,8 @@ export const DEFAULT_ROUTING_WEIGHTS: Required<RoutingWeightsConfig> = {
 	price: 0.6,
 	imagePrice: 1.0,
 	uptime: 0.5,
-	throughput: 0.05,
-	latency: 0.025,
+	throughput: 0.3,
+	latency: 0.075,
 	// Cached input savings already participate in the price score.
 	cache: 0,
 };
