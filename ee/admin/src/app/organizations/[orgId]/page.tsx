@@ -14,6 +14,7 @@ import {
 	ScrollText,
 	Settings,
 	Shield,
+	ShieldBan,
 	Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -66,6 +67,7 @@ import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
 import { OrgSettingsTab } from "./org-settings-tab";
 import { OrganizationTabs, OrganizationTabTrigger } from "./organization-tabs";
+import { ProviderAccessTab } from "./provider-access-tab";
 import { ProviderKeysTable } from "./provider-keys-table";
 import { ReferralBonusDialog } from "./referral-bonus-dialog";
 import { SsoTab } from "./sso-tab";
@@ -738,6 +740,10 @@ export default async function OrganizationPage({
 						<Shield className="mr-1.5 h-4 w-4" />
 						Guardrails
 					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="provider-access">
+						<ShieldBan className="mr-1.5 h-4 w-4" />
+						Provider Access
+					</OrganizationTabTrigger>
 					<OrganizationTabTrigger value="sso">
 						<Lock className="mr-1.5 h-4 w-4" />
 						SSO
@@ -1049,6 +1055,10 @@ export default async function OrganizationPage({
 							Failed to load guardrails
 						</p>
 					)}
+				</TabsContent>
+
+				<TabsContent value="provider-access">
+					<ProviderAccessTab orgId={orgId} />
 				</TabsContent>
 
 				<TabsContent value="sso">
