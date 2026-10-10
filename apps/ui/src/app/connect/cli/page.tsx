@@ -157,12 +157,13 @@ export default function ConnectCliPage() {
 		? devPassResult.data?.organization.id
 		: organization?.id;
 	const budgetQuery = useMyMemberBudget(budgetOrgId ?? "");
-	const keyLimits = budgetQuery.data
-		? mostRestrictiveApiKeyLimits([
-				budgetQuery.data.teamBudget,
-				budgetQuery.data.budget,
-			])
-		: null;
+	const keyLimits =
+		budgetQuery.data && !budgetQuery.isError
+			? mostRestrictiveApiKeyLimits([
+					budgetQuery.data.teamBudget,
+					budgetQuery.data.budget,
+				])
+			: null;
 	const caps = keyLimits ? formatApiKeyLimitCaps(keyLimits) : null;
 
 	const keysHref =
