@@ -52,12 +52,19 @@ const OMITTED_PART_PLACEHOLDER = "[omitted]";
 // store would stall a log detail request or a whole worker log batch forever
 // instead of failing into their existing fallback paths.
 const CONNECTION_TIMEOUT_MS = 3_000;
-// Idle timeout: catches a connection that stops delivering bytes.
+// Idle timeout: catches a connection that stops delivering bytes. Note the
+// SDK defers arming this by 3s for values >= 6s and cancels it once response
+// headers arrive, so it does not cover reading a GetObject body.
 const SOCKET_TIMEOUT_MS = 10_000;
-// Absolute ceiling per attempt. Generous enough that a large multi-MB blob
-// still transfers, since this bounds total time rather than idle time.
+// Ceiling per attempt until response headers arrive (covers the PutObject
+// upload). Generous enough that a large multi-MB blob still uploads. It is
+// cleared once headers arrive, so it does not bound a GetObject body read.
 const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_ATTEMPTS = 3;
+// Overall deadline for getLogPayload, including retries and the body read,
+// which neither timeout above covers. Aborting destroys the in-flight request
+// so a stalled body stream rejects instead of hanging the detail view.
+const GET_PAYLOAD_DEADLINE_MS = 30_000;
 
 // One keep-alive pool shared by every payload storage client, so rebuilding
 // the client below (tests toggle the env) reuses sockets instead of churning
@@ -195,6 +202,7 @@ export async function getLogPayload(
 		return null;
 	}
 
+	const abortSignal = AbortSignal.timeout(GET_PAYLOAD_DEADLINE_MS);
 	let body;
 	try {
 		const result = await getPayloadStorageClient().send(
@@ -202,6 +210,7 @@ export async function getLogPayload(
 				Bucket: getPayloadStorageBucket(),
 				Key: payloadRef,
 			}),
+			{ abortSignal },
 		);
 		body = result.Body;
 	} catch (error) {
