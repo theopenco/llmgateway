@@ -53,6 +53,14 @@ end
 return 1
 `;
 
+/**
+ * Reconcile a previously recorded spend estimate against the actual billed
+ * cost (video jobs reserve an estimate at submission and settle at
+ * finalization). When the reservation was recorded in an earlier daily or
+ * monthly bucket, it is moved out of that bucket and the full billed cost is
+ * recorded in the current one. Positive amounts increment; negative amounts
+ * decrement live counters, clamped at zero. Fail-open, like recordOrgSpend.
+ */
 export async function adjustOrgSpend(
 	organizationId: string,
 	deltaUsd: number,
