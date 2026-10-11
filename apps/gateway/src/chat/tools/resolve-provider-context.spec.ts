@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	assertDevPlanDailyCapNotExceeded,
 	formatTimeUntilReset,
 	formatUsedModelForDisplay,
 } from "./resolve-provider-context.js";
@@ -59,5 +60,35 @@ describe("formatTimeUntilReset", () => {
 	it("reports less than an hour for sub-hour durations", () => {
 		expect(formatTimeUntilReset(30 * 60 * 1000)).toBe("less than an hour");
 		expect(formatTimeUntilReset(0)).toBe("less than an hour");
+	});
+});
+
+describe("assertDevPlanDailyCapNotExceeded", () => {
+	const exhaustedOrg = {
+		id: "org-daily",
+		credits: "0",
+		devPlan: "pro",
+		devPlanPaygEnabled: false,
+		devPlanCreditsLimit: "158",
+		devPlanCreditsUsed: "20",
+		devPlanDailyCreditsUsed: "999",
+		devPlanDayStart: new Date(),
+		chatPlan: "none",
+		chatPlanCreditsLimit: "0",
+		chatPlanCreditsUsed: "0",
+	};
+
+	it("rejects paid models once the daily allowance is spent", () => {
+		expect(() =>
+			assertDevPlanDailyCapNotExceeded(exhaustedOrg, { free: false }),
+		).toThrow(/daily pacing allowance/);
+	});
+
+	// Free models cost the plan pool nothing, so the pacing cap must not
+	// block them — matching the free-model exemption of the credit gates.
+	it("admits free models while the daily allowance is spent", () => {
+		expect(() =>
+			assertDevPlanDailyCapNotExceeded(exhaustedOrg, { free: true }),
+		).not.toThrow();
 	});
 });

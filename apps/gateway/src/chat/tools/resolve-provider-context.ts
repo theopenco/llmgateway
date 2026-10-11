@@ -413,8 +413,9 @@ export function assertDevPlanPremiumCapNotExceeded(
 
 /**
  * Throws when a DevPass subscriber has spent the daily pacing allowance for
- * the current rolling 24-hour window. Applies to every model; no-op for
- * non-DevPass orgs. Same trackRejection discipline as the premium gate.
+ * the current rolling 24-hour window. Applies to every paid model; no-op for
+ * non-DevPass orgs and free models, which never draw on the plan pool. Same
+ * trackRejection discipline as the premium gate.
  */
 export function assertDevPlanDailyCapNotExceeded(
 	organization: Pick<
@@ -431,9 +432,13 @@ export function assertDevPlanDailyCapNotExceeded(
 		| "chatPlanCreditsLimit"
 		| "chatPlanCreditsUsed"
 	>,
+	modelInfo: Pick<ModelDefinition, "free">,
 	trackRejection = false,
 ): void {
 	if (organization.devPlan === "none") {
+		return;
+	}
+	if (modelInfo.free) {
 		return;
 	}
 	const tier = organization.devPlan as DevPlanTier;
@@ -521,7 +526,7 @@ function assertOrganizationHasCreditsForEnvFallback(
 		return;
 	}
 	assertDevPlanPremiumCapNotExceeded(organization, modelInfo);
-	assertDevPlanDailyCapNotExceeded(organization);
+	assertDevPlanDailyCapNotExceeded(organization, modelInfo);
 	const {
 		devPlanCreditsRemaining,
 		chatPlanCreditsRemaining,

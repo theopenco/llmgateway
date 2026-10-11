@@ -6580,7 +6580,11 @@ chat.openapi(completions, async (c) => {
 			(finalModelInfo ?? modelInfo) as ModelDefinition,
 			true,
 		);
-		assertDevPlanDailyCapNotExceeded(organization, true);
+		assertDevPlanDailyCapNotExceeded(
+			organization,
+			(finalModelInfo ?? modelInfo) as ModelDefinition,
+			true,
+		);
 		const {
 			devPlanCreditsRemaining,
 			chatPlanCreditsRemaining,
@@ -6739,7 +6743,11 @@ chat.openapi(completions, async (c) => {
 				(finalModelInfo ?? modelInfo) as ModelDefinition,
 				true,
 			);
-			assertDevPlanDailyCapNotExceeded(organization, true);
+			assertDevPlanDailyCapNotExceeded(
+				organization,
+				(finalModelInfo ?? modelInfo) as ModelDefinition,
+				true,
+			);
 			const {
 				devPlanCreditsRemaining,
 				chatPlanCreditsRemaining,
