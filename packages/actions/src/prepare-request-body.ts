@@ -2178,7 +2178,10 @@ export async function prepareRequestBody(
 						);
 						return {
 							...part,
-							image_url: { url: `data:${mimeType};base64,${data}` },
+							image_url: {
+								...(typeof part.image_url === "object" && part.image_url),
+								url: `data:${mimeType};base64,${data}`,
+							},
 						};
 					}),
 				);
