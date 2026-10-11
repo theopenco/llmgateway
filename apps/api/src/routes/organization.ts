@@ -64,6 +64,7 @@ import {
 	sql,
 	tables,
 	projectHourlyStats,
+	getEffectiveProviders,
 } from "@llmgateway/db";
 import { getProviderCountries, models, providers } from "@llmgateway/models";
 import {
@@ -91,12 +92,6 @@ import type { ServerTypes } from "@/vars.js";
 import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
 export const organization = new OpenAPIHono<ServerTypes>();
-
-// Closed set of provider-headquarters country codes defined in the catalogue.
-// The compliance country filter may only reference these.
-const providerCountryCodes = new Set(
-	getProviderCountries().map((country) => country.code),
-);
 
 // Closed sets for the compliance policy's fine-grained restriction lists.
 // Custom providers are addressed as `custom:<name>` and their models as
@@ -148,9 +143,7 @@ const providerCompliancePolicySchema = z.object({
 	blockStealthProviders: z.boolean().optional(),
 	allowedCountries: z
 		.array(
-			z.string().refine((code) => providerCountryCodes.has(code), {
-				message: "Unsupported provider headquarters country",
-			}),
+			z.string().regex(/^[A-Z]{2}$/, "Use an ISO 3166-1 alpha-2 country code"),
 		)
 		.optional(),
 	blockedProviders: z.array(complianceProviderRefSchema).max(500).optional(),
@@ -798,6 +791,24 @@ organization.openapi(updateOrganization, async (c) => {
 			throw new HTTPException(403, {
 				message: "Only owners and admins can manage compliance policies",
 			});
+		}
+		const requestedCountries = providerCompliancePolicy?.allowedCountries ?? [];
+		if (requestedCountries.length > 0) {
+			// Closed set: countries referenced by a catalogue provider or an
+			// active Airside carrier profile, the same set the selector offers.
+			const providerCountryCodes = new Set(
+				getProviderCountries(await getEffectiveProviders()).map(
+					(country) => country.code,
+				),
+			);
+			const unsupported = requestedCountries.filter(
+				(code) => !providerCountryCodes.has(code),
+			);
+			if (unsupported.length > 0) {
+				throw new HTTPException(400, {
+					message: `Unsupported provider headquarters country: ${unsupported.join(", ")}`,
+				});
+			}
 		}
 		if (
 			userOrganization.organization?.kind === "devpass" &&

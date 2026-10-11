@@ -14,6 +14,11 @@ Provider compliance policies let you guarantee that requests are only ever route
 	AI training**.
 </Callout>
 
+For providers managed entirely through Airside, policy checks use the active
+carrier's self-declared profile, including subsequent edits. No separate
+compliance review is required. Missing facts fail the corresponding policy
+requirement; provider allowlists and blocklists keep using the same provider ID.
+
 ## Requirements
 
 Enable a policy under **Settings → Compliance** in the dashboard and toggle the requirements you need:
@@ -45,7 +50,7 @@ The settings page shows a live **Provider Impact** preview of which providers ar
 
 Beyond certifications, you can restrict routing by the country a provider is headquartered in. The **Provider Headquarters** card presents a country selector, and requests are only routed to providers based in a selected country.
 
-The selector only offers countries that are referenced by a provider in the catalogue — browse the [providers directory](https://llmgateway.io/providers) to see the current set and each provider's headquarters. Selecting no country applies no location restriction. The country filter is also fail-closed: when at least one country is selected, a provider whose headquarters is unknown is treated as non-compliant.
+The selector only offers countries that are referenced by a catalogue provider or active Airside profile — browse the [providers directory](https://llmgateway.io/providers) to see the current set and each provider's headquarters. Selecting no country applies no location restriction. The country filter is also fail-closed: when at least one country is selected, a provider whose headquarters is unknown is treated as non-compliant.
 
 The country filter composes with the certification and data-policy requirements above — a provider must satisfy all active requirements to be allowed.
 
@@ -115,7 +120,7 @@ To route through a custom provider while a policy is active, an organization own
 
 Attestations only apply to custom provider keys. They can never be used to clear a catalogue provider that fails your policy.
 
-**Known limitation:** the country selector in the compliance policy only offers countries referenced by catalogue providers (see the [providers directory](https://llmgateway.io/providers)). A custom deployment attested to a country outside that set cannot be allowed while a country restriction is active.
+**Known limitation:** the country selector in the compliance policy only offers countries referenced by catalogue providers or active Airside profiles (see the [providers directory](https://llmgateway.io/providers)). A custom deployment attested to a country outside that set cannot be allowed while a country restriction is active.
 
 ## Compliance alerts
 
