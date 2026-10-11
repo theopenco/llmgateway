@@ -397,7 +397,7 @@ export const completionsRequestSchema = z.object({
 		.transform((val) => (val === null ? undefined : val))
 		.openapi({
 			description:
-				"Whether the model may call several tools in one turn. Forwarded to OpenAI and Azure; `false` maps to Anthropic's `disable_parallel_tool_use`.",
+				"Whether the model may call several tools in one turn. Only sent alongside `tools`. Forwarded to OpenAI, Azure, and OpenAI-compatible providers that list it in `supported_parameters`; `false` maps to Anthropic's `disable_parallel_tool_use`. Ignored elsewhere.",
 			example: false,
 		}),
 	reasoning_effort: z

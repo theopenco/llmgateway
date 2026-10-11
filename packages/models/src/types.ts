@@ -397,6 +397,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	user?: string;
 	tools?: OpenAITool[];
 	tool_choice?: ToolChoiceType;
+	parallel_tool_calls?: boolean;
 	prompt_cache_key?: string;
 	prompt_cache_retention?: PromptCacheRetention;
 	prompt_cache_options?: PromptCacheOptions;

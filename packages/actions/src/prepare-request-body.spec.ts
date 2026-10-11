@@ -9567,8 +9567,9 @@ describe("prepareRequestBody - parallel_tool_calls", () => {
 			undefined, // safety_identifier
 			undefined, // resolvedProviderMapping
 			undefined, // reasoning_mode
+			undefined, // providerCacheAutoTtl
 			opts.parallel_tool_calls,
-		)) as any;
+		)) as unknown as Record<string, unknown>;
 	}
 
 	test("forwards parallel_tool_calls to OpenAI chat completions", async () => {
@@ -9624,10 +9625,50 @@ describe("prepareRequestBody - parallel_tool_calls", () => {
 		expect(body.tool_choice).toEqual({ type: "none" });
 	});
 
+	test("keeps a forced Anthropic tool when disabling parallel use", async () => {
+		const body = await prepare("anthropic", "claude-3-5-sonnet-20241022", {
+			parallel_tool_calls: false,
+			tool_choice: { type: "function", function: { name: "get_weather" } },
+		});
+		expect(body.tool_choice).toEqual({
+			type: "tool",
+			name: "get_weather",
+			disable_parallel_tool_use: true,
+		});
+	});
+
+	test("leaves Anthropic untouched for parallel_tool_calls true", async () => {
+		const body = await prepare("anthropic", "claude-3-5-sonnet-20241022", {
+			parallel_tool_calls: true,
+		});
+		expect(body).not.toHaveProperty("tool_choice");
+		expect(body).not.toHaveProperty("parallel_tool_calls");
+	});
+
 	test("does not send parallel_tool_calls to Google", async () => {
 		const body = await prepare("google-ai-studio", "gemini-2.5-flash", {
 			parallel_tool_calls: false,
 		});
+		expect(body).not.toHaveProperty("parallel_tool_calls");
+	});
+
+	test("forwards to an OpenAI-compatible mapping that declares it", async () => {
+		const mapping = models
+			.find((m) => m.id === "kimi-k2.5")
+			?.providers.find((p) => p.providerId === "embercloud");
+		expect(mapping?.supportedParameters).toContain("parallel_tool_calls");
+
+		const body = await prepare("embercloud", "kimi-k2.5", {
+			parallel_tool_calls: false,
+		});
+		expect(body.parallel_tool_calls).toBe(false);
+	});
+
+	test("drops it for an OpenAI-compatible mapping that does not declare it", async () => {
+		const body = await prepare("xai", "grok-4", {
+			parallel_tool_calls: false,
+		});
+		expect(body.tools).toBeDefined();
 		expect(body).not.toHaveProperty("parallel_tool_calls");
 	});
 });
