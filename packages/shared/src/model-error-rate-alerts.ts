@@ -22,6 +22,9 @@ export const modelErrorRateAlertRuleSchema = z.object({
 	minRequests: z.number().int().min(1).max(1_000_000),
 	// Minimum time between two alerts for the same rule and mapping.
 	cooldownMinutes: z.number().int().min(1).max(10_080),
+	// When false, attempts the gateway retried elsewhere count neither as
+	// requests nor as errors.
+	includeRetriedErrors: z.boolean().default(true),
 });
 
 export type ModelErrorRateAlertRule = z.infer<
@@ -37,6 +40,7 @@ export const DEFAULT_MODEL_ERROR_RATE_ALERT_RULES: ModelErrorRateAlertRule[] = [
 		errorRatePercent: 30,
 		minRequests: 20,
 		cooldownMinutes: 60,
+		includeRetriedErrors: true,
 	},
 	{
 		id: "long",
@@ -46,6 +50,7 @@ export const DEFAULT_MODEL_ERROR_RATE_ALERT_RULES: ModelErrorRateAlertRule[] = [
 		errorRatePercent: 30,
 		minRequests: 100,
 		cooldownMinutes: 240,
+		includeRetriedErrors: true,
 	},
 ];
 

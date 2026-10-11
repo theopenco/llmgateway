@@ -1,3 +1,4 @@
+export * from "./anthropic-thinking.js";
 export * from "./anthropic-tool-search.js";
 export * from "./transform-anthropic-messages.js";
 export * from "./parse-data-url.js";

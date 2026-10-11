@@ -109,44 +109,87 @@ export function validateApiKeyLimitsWithinMemberBudget(
 		}
 	}
 
-	if (
-		memberBudget.periodUsageLimit !== null &&
-		memberBudget.periodUsageDurationValue !== null &&
-		memberBudget.periodUsageDurationUnit !== null
-	) {
+	const memberCap = completeRecurringCap(memberBudget);
+	if (memberCap) {
 		const memberWindow = periodWindowLabel(
-			memberBudget.periodUsageDurationValue,
-			memberBudget.periodUsageDurationUnit,
+			memberCap.periodUsageDurationValue,
+			memberCap.periodUsageDurationUnit,
 		);
-		if (
-			keyLimits.periodUsageLimit === null ||
-			keyLimits.periodUsageDurationValue === null ||
-			keyLimits.periodUsageDurationUnit === null
-		) {
-			return `Set a recurring usage limit at or below ${label} of ${formatBudgetUsd(memberBudget.periodUsageLimit)} per ${memberWindow}.${hint}`;
+		const keyCap = completeRecurringCap(keyLimits);
+		if (!keyCap) {
+			return `Set a recurring usage limit at or below ${label} of ${formatBudgetUsd(memberCap.periodUsageLimit)} per ${memberWindow}.${hint}`;
 		}
-		const memberWindowHours = periodWindowHours(
-			memberBudget.periodUsageDurationValue,
-			memberBudget.periodUsageDurationUnit,
-		);
-		const keyWindowHours = periodWindowHours(
-			keyLimits.periodUsageDurationValue,
-			keyLimits.periodUsageDurationUnit,
-		);
-		// Compare hourly spend rates via exact cross-multiplication (both windows
-		// are positive), so equal rates stay equal without float-division noise:
-		//   keyLimit / keyWindow > memberLimit / memberWindow
-		//   ⟺ keyLimit * memberWindow > memberLimit * keyWindow
-		const keyScaled = new Decimal(keyLimits.periodUsageLimit).times(
-			memberWindowHours,
-		);
-		const memberScaled = new Decimal(memberBudget.periodUsageLimit).times(
-			keyWindowHours,
-		);
-		if (keyScaled.greaterThan(memberScaled)) {
-			return `Recurring usage limit can't exceed ${label} of ${formatBudgetUsd(memberBudget.periodUsageLimit)} per ${memberWindow}.${hint}`;
+		if (recurringRateExceeds(keyCap, memberCap)) {
+			return `Recurring usage limit can't exceed ${label} of ${formatBudgetUsd(memberCap.periodUsageLimit)} per ${memberWindow}.${hint}`;
 		}
 	}
 
 	return null;
+}
+
+interface CompleteRecurringCap {
+	periodUsageLimit: string;
+	periodUsageDurationValue: number;
+	periodUsageDurationUnit: ApiKeyPeriodDurationUnitValue;
+}
+
+function completeRecurringCap(
+	limits: ApiKeyLimitConstraints,
+): CompleteRecurringCap | null {
+	if (
+		limits.periodUsageLimit === null ||
+		limits.periodUsageDurationValue === null ||
+		limits.periodUsageDurationUnit === null
+	) {
+		return null;
+	}
+	return {
+		periodUsageLimit: limits.periodUsageLimit,
+		periodUsageDurationValue: limits.periodUsageDurationValue,
+		periodUsageDurationUnit: limits.periodUsageDurationUnit,
+	};
+}
+
+function recurringRateExceeds(
+	a: CompleteRecurringCap,
+	b: CompleteRecurringCap,
+): boolean {
+	// Cross-multiply instead of dividing, so equal rates over different windows
+	// stay equal without float-division noise.
+	const aScaled = new Decimal(a.periodUsageLimit).times(
+		periodWindowHours(b.periodUsageDurationValue, b.periodUsageDurationUnit),
+	);
+	const bScaled = new Decimal(b.periodUsageLimit).times(
+		periodWindowHours(a.periodUsageDurationValue, a.periodUsageDurationUnit),
+	);
+	return aScaled.greaterThan(bScaled);
+}
+
+export function mostRestrictiveApiKeyLimits(
+	budgets: readonly (ApiKeyLimitConstraints | null)[],
+): ApiKeyLimitConstraints {
+	let usageLimit: string | null = null;
+	let recurring: CompleteRecurringCap | null = null;
+	for (const budget of budgets) {
+		if (!budget) {
+			continue;
+		}
+		if (
+			budget.usageLimit !== null &&
+			(usageLimit === null ||
+				new Decimal(budget.usageLimit).lessThan(usageLimit))
+		) {
+			usageLimit = budget.usageLimit;
+		}
+		const cap = completeRecurringCap(budget);
+		if (cap && (!recurring || recurringRateExceeds(recurring, cap))) {
+			recurring = cap;
+		}
+	}
+	return {
+		usageLimit,
+		periodUsageLimit: recurring?.periodUsageLimit ?? null,
+		periodUsageDurationValue: recurring?.periodUsageDurationValue ?? null,
+		periodUsageDurationUnit: recurring?.periodUsageDurationUnit ?? null,
+	};
 }

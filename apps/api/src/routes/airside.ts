@@ -66,6 +66,7 @@ import {
 	mappingErrorShapesSchema,
 	notRetriedClause,
 	incidentErrorsClause,
+	byokClauseFor,
 	INCIDENT_ERRORS_LOG_LIMIT,
 	queryIncidentErrorTypes,
 	queryIncidentMappings,
@@ -121,6 +122,7 @@ import {
 	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
+import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import { getStripe } from "./payments.js";
@@ -286,6 +288,8 @@ const claimSchema = z.object({
 	iconUrl: z.string().nullable(),
 	// Branding edits on an active claim awaiting admin approval.
 	pendingBranding: pendingBrandingSchema.nullable(),
+	// Set by admins; read-only for the carrier.
+	billingMode: z.enum(AIRSIDE_BILLING_MODES),
 	// Whether we hold a platform credential for this carrier. Without one the
 	// gateway has nothing to authenticate with, so an approved listing still
 	// serves no traffic — the portal says so instead of looking healthy.
@@ -509,6 +513,7 @@ function serializeClaim(
 		logoUrl: row.logoUrl,
 		iconUrl: row.iconUrl,
 		pendingBranding: row.pendingBranding ?? null,
+		billingMode: row.billingMode,
 		// Unknown on the single-claim responses (nothing renders the warning
 		// off those); the companies listing the portal polls resolves it.
 		hasManagedCredential: credentialedProviders?.has(row.providerId) ?? true,
@@ -4437,6 +4442,8 @@ const incidentsRoute = createRoute({
 			/** Exact `used_model` (`provider/model[:region]`). */
 			mapping: z.string().optional(),
 			window: incidentsWindowSchema.default("24h").optional(),
+			/** Include errors and requests served by customers' own keys. */
+			includeByok: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -4470,6 +4477,7 @@ airside.openapi(incidentsRoute, async (c) => {
 			providerIds,
 			windowHours,
 			mapping,
+			includeByok: query.includeByok === "true",
 		}),
 	});
 });
@@ -4484,6 +4492,8 @@ const incidentErrorsRoute = createRoute({
 			/** Exact `used_model` (`provider/model[:region]`). */
 			mapping: z.string(),
 			window: incidentsWindowSchema.default("24h").optional(),
+			/** Include errors and requests served by customers' own keys. */
+			includeByok: z.enum(["true", "false"]).optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
 		}),
 	},
@@ -4517,6 +4527,7 @@ airside.openapi(incidentErrorsRoute, async (c) => {
 			sampleLimit: INCIDENT_ERRORS_LOG_LIMIT,
 			extraClauses: [
 				incidentErrorsClause,
+				byokClauseFor(query.includeByok),
 				query.includeRetried === "false" ? notRetriedClause : sql``,
 			],
 		}),
@@ -4533,6 +4544,8 @@ const incidentErrorTypesRoute = createRoute({
 			/** Exact `used_model` (`provider/model[:region]`). */
 			mapping: z.string().optional(),
 			window: incidentsWindowSchema.default("24h").optional(),
+			/** Include errors and requests served by customers' own keys. */
+			includeByok: z.enum(["true", "false"]).optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
 		}),
 	},
@@ -4565,10 +4578,12 @@ airside.openapi(incidentErrorTypesRoute, async (c) => {
 				providerIds,
 				windowHours,
 				mapping: query.mapping ?? null,
+				includeByok: query.includeByok === "true",
 			}),
 			windowInterval,
 			extraClauses: [
 				incidentErrorsClause,
+				byokClauseFor(query.includeByok),
 				query.includeRetried === "false" ? notRetriedClause : sql``,
 			],
 		}),

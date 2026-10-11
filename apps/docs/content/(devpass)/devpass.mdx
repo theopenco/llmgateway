@@ -63,6 +63,12 @@ Requests appear in [Coding Agents](/learn/coding-agents), broken down by tool. A
 </Step>
 </Steps>
 
+## Automatic cache duration
+
+Under **Settings → Automatic cache duration**, choose **5 minutes** (default) or **1 hour**. Available in Automatic cache-write mode, this controls automatically added markers only when your request contains no cache markers of its own. One hour applies only to supported models and providers; otherwise the default duration is used. Longer durations can increase cache-write costs.
+
+Your tool's own markers take precedence, including markers without a TTL. Client-managed and Disabled modes ignore this preference. See [Provider Cache Control](/features/caching/provider-cache-control) for details.
+
 ## Cancel your subscription
 
 Cancel from **Billing** in the DevPass dashboard. A paid plan stays active through its current billing period. If a renewal is unpaid or still pending, cancellation ends the plan immediately and attempts to void its pending invoices. Immediate cancellation stops automatic collection, even if invoice cleanup needs to be retried.

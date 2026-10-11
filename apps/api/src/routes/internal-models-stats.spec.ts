@@ -140,4 +140,88 @@ describe("public model stats", () => {
 		expect(provider.errorsCount).toBe(1);
 		expect(provider.uptime).toBe(90);
 	});
+	test("benchmarks and uptime keep eligible providers with no history", async () => {
+		await db.insert(tables.model).values({ id: MODEL_ID, family: "test" });
+		await db.insert(tables.modelProviderMapping).values({
+			id: `${MODEL_ID}::${PROVIDER_ID}`,
+			modelId: MODEL_ID,
+			providerId: PROVIDER_ID,
+			externalId: MODEL_ID,
+		});
+		try {
+			await db.delete(tables.modelProviderMappingHistoryHourly);
+			for (const endpoint of ["benchmarks", "uptime"]) {
+				const res = await app.request(
+					`/internal/models/${MODEL_ID}/${endpoint}`,
+				);
+				expect(res.status).toBe(200);
+				const body = await res.json();
+				expect(
+					body.providers.find(
+						(row: { providerId: string }) => row.providerId === PROVIDER_ID,
+					),
+				).toMatchObject({ logsCount: 0, errorsCount: 0, uptime: null });
+			}
+		} finally {
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.modelId, MODEL_ID));
+			await db.delete(tables.model).where(eq(tables.model.id, MODEL_ID));
+		}
+	});
+	test.each(["inactive", "deactivated", "future"])(
+		"benchmarks apply %s eligibility only to idle providers",
+		async (eligibility) => {
+			await db.insert(tables.model).values({ id: MODEL_ID, family: "test" });
+			await db.insert(tables.modelProviderMapping).values({
+				id: `${MODEL_ID}::${PROVIDER_ID}`,
+				modelId: MODEL_ID,
+				providerId: PROVIDER_ID,
+				externalId: MODEL_ID,
+				deactivatedAt:
+					eligibility === "inactive"
+						? null
+						: new Date(
+								Date.now() + (eligibility === "future" ? HOUR_MS : -HOUR_MS),
+							),
+			});
+			try {
+				if (eligibility === "inactive") {
+					await db
+						.update(tables.provider)
+						.set({ status: "inactive" })
+						.where(eq(tables.provider.id, PROVIDER_ID));
+				}
+				await db.delete(tables.modelProviderMappingHistoryHourly);
+				const res = await app.request(
+					`/internal/models/${MODEL_ID}/benchmarks`,
+				);
+				expect(res.status).toBe(200);
+				const body = await res.json();
+				expect(
+					body.providers.some(
+						(row: { providerId: string }) => row.providerId === PROVIDER_ID,
+					),
+				).toBe(eligibility === "future");
+				await seedHour(
+					"credits",
+					new Date(Math.floor(Date.now() / HOUR_MS) * HOUR_MS),
+					{ logsCount: 1, gatewayErrorsCount: 0, totalTokens: 10 },
+				);
+				const historical = await app.request(
+					`/internal/models/${MODEL_ID}/benchmarks`,
+				);
+				expect(
+					(await historical.json()).providers.find(
+						(row: { providerId: string }) => row.providerId === PROVIDER_ID,
+					),
+				).toMatchObject({ logsCount: 1 });
+			} finally {
+				await db
+					.delete(tables.modelProviderMapping)
+					.where(eq(tables.modelProviderMapping.modelId, MODEL_ID));
+				await db.delete(tables.model).where(eq(tables.model.id, MODEL_ID));
+			}
+		},
+	);
 });

@@ -196,8 +196,8 @@ export function shouldRetrySameKey(opts: {
  *
  * Cross-provider fallback is disabled for provider-pinned requests: session-
  * sticky requests, whose pin keeps the upstream prompt cache warm, and
- * encrypted-reasoning mappings, whose replayed reasoning another provider
- * rejects. Transient failures on a pinned request are instead retried against
+ * requests replaying provider-bound reasoning that another provider rejects.
+ * Transient failures on a pinned request are instead retried against
  * the same provider (via the alternate-key and same-key retry paths).
  */
 export function shouldRetryRequest(opts: {

@@ -20,7 +20,7 @@ const portkeyFaqs: CompareFaqItem[] = [
 	{
 		question: "How does LLM Gateway pricing differ?",
 		answer:
-			"LLM Gateway charges a 5% fee on credit purchases, or no platform fee with your own provider keys. Optional full request storage is billed separately, and enterprise controls have their own plan terms. Portkey prices its hosted platform around recorded request volume.",
+			"LLM Gateway charges a 5% fee on credit purchases, or no platform fee with your own provider keys. Full request storage is an Enterprise feature billed separately, and enterprise controls have their own plan terms. Portkey prices its hosted platform around recorded request volume.",
 	},
 	{
 		question: "What does Portkey offer beyond routing?",

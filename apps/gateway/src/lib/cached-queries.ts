@@ -341,7 +341,7 @@ export async function findProjectById(
 
 // TTL for the "fresh" credit/balance refetch below. A zero-credit org or
 // zero-balance wallet otherwise refetches on EVERY request; under high
-// throughput that is one Postgres SELECT per request (and the DB pool, max 20,
+// throughput that is one Postgres SELECT per request (and the DB pool, max 8,
 // saturates). A short TTL still reflects topups/debits within FRESH_TTL_SECONDS
 // while collapsing per-request DB load to at most one query per window per row.
 const FRESH_TTL_SECONDS = 2;

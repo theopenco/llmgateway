@@ -86,11 +86,13 @@ const scoreBreakdownSchema = z
 const providerHourEntrySchema = z
 	.object({
 		providerId: z.string(),
+		// All traffic, including BYOK.
 		requestCount: z.number(),
+		// Error counts and metrics cover credit-funded traffic only, as routing does.
 		errorCount: z.number(),
 		clientErrorCount: z.number(),
-		// Derived metric inputs; null when the mapping saw no traffic in the hour
-		// (routing then falls back to thresholds.default*).
+		// Derived metric inputs; null when the mapping saw no credit-funded traffic
+		// in the hour (routing then falls back to thresholds.default*).
 		uptime: z.number().nullable(),
 		latency: z.number().nullable(),
 		throughput: z.number().nullable(),
@@ -514,6 +516,30 @@ interface DerivedMetrics {
 // Mirrors rowToMetrics in packages/db/src/provider-metrics-history.ts, minus
 // the tier weighting: routing weights recent minutes higher, while this view
 // deliberately smooths each bucket into a plain hourly average.
+function nestedMap<K, V>(
+	outer: Map<K, Map<string, V>>,
+	key: K,
+): Map<string, V> {
+	let inner = outer.get(key);
+	if (!inner) {
+		inner = new Map();
+		outer.set(key, inner);
+	}
+	return inner;
+}
+
+function totalsFor(
+	totals: Map<string, HourlyTotals>,
+	providerId: string,
+): HourlyTotals {
+	let bucket = totals.get(providerId);
+	if (!bucket) {
+		bucket = emptyTotals();
+		totals.set(providerId, bucket);
+	}
+	return bucket;
+}
+
 function deriveMetrics(totals: HourlyTotals): DerivedMetrics {
 	if (totals.requestCount <= 0) {
 		return { uptime: null, latency: null, throughput: null };
@@ -1112,29 +1138,28 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 	]);
 
 	// Sum rows into per-(hour, provider) and per-provider window totals. The
-	// unique key is (mappingId, hour), so a provider whose mapping id changed
-	// mid-window can contribute multiple rows to the same bucket.
+	// unique key is (mappingId, hour, usedMode), so a provider can contribute
+	// multiple rows to the same bucket.
+	//
+	// Traffic totals count every request. Metric totals feed uptime, latency,
+	// throughput and scores, and mirror the router, which reads credit-funded
+	// traffic only: a customer's failing BYOK key must not sink the mapping.
+	// Legacy "unknown" rows predate the usedMode split and stay in.
 	const hourlyTotals = new Map<number, Map<string, HourlyTotals>>();
 	const windowTotals = new Map<string, HourlyTotals>();
+	const hourlyMetricTotals = new Map<number, Map<string, HourlyTotals>>();
+	const windowMetricTotals = new Map<string, HourlyTotals>();
 	for (const row of rows) {
 		const hourMs = row.hourTimestamp.getTime();
-		let providerMap = hourlyTotals.get(hourMs);
-		if (!providerMap) {
-			providerMap = new Map();
-			hourlyTotals.set(hourMs, providerMap);
+		addRow(totalsFor(nestedMap(hourlyTotals, hourMs), row.providerId), row);
+		addRow(totalsFor(windowTotals, row.providerId), row);
+		if (row.usedMode !== "api-keys") {
+			addRow(
+				totalsFor(nestedMap(hourlyMetricTotals, hourMs), row.providerId),
+				row,
+			);
+			addRow(totalsFor(windowMetricTotals, row.providerId), row);
 		}
-		let bucket = providerMap.get(row.providerId);
-		if (!bucket) {
-			bucket = emptyTotals();
-			providerMap.set(row.providerId, bucket);
-		}
-		addRow(bucket, row);
-		let windowBucket = windowTotals.get(row.providerId);
-		if (!windowBucket) {
-			windowBucket = emptyTotals();
-			windowTotals.set(row.providerId, windowBucket);
-		}
-		addRow(windowBucket, row);
 	}
 
 	// Election rows: window totals per selection reason, plus a per-hour breakdown
@@ -1229,11 +1254,14 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		const hourOffsetMs = i * 3_600_000;
 		const hour = new Date(windowStart.getTime() + hourOffsetMs);
 		const providerMap = hourlyTotals.get(hour.getTime());
+		const metricProviderMap = hourlyMetricTotals.get(hour.getTime());
 		const metricsByProvider = new Map<string, DerivedMetrics>();
 		for (const mapping of mappings) {
 			metricsByProvider.set(
 				mapping.providerId,
-				deriveMetrics(providerMap?.get(mapping.providerId) ?? emptyTotals()),
+				deriveMetrics(
+					metricProviderMap?.get(mapping.providerId) ?? emptyTotals(),
+				),
 			);
 		}
 		const scores = scoreEntries(routableMappings, metricsByProvider, cfg, {
@@ -1244,13 +1272,16 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 			hour: hour.toISOString(),
 			providers: mappings.map((mapping) => {
 				const totals = providerMap?.get(mapping.providerId) ?? emptyTotals();
+				const metricTotals =
+					metricProviderMap?.get(mapping.providerId) ?? emptyTotals();
 				const metrics = metricsByProvider.get(mapping.providerId)!;
 				const scored = scores.get(mapping.providerId);
 				return {
 					providerId: mapping.providerId,
 					requestCount: totals.requestCount,
-					errorCount: totals.gatewayErrorCount + totals.upstreamErrorCount,
-					clientErrorCount: totals.clientErrorCount,
+					errorCount:
+						metricTotals.gatewayErrorCount + metricTotals.upstreamErrorCount,
+					clientErrorCount: metricTotals.clientErrorCount,
 					uptime: metrics.uptime !== null ? round(metrics.uptime, 2) : null,
 					latency: metrics.latency !== null ? round(metrics.latency, 0) : null,
 					throughput:
@@ -1270,7 +1301,9 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 	for (const mapping of mappings) {
 		windowMetricsByProvider.set(
 			mapping.providerId,
-			deriveMetrics(windowTotals.get(mapping.providerId) ?? emptyTotals()),
+			deriveMetrics(
+				windowMetricTotals.get(mapping.providerId) ?? emptyTotals(),
+			),
 		);
 	}
 	const windowScores = scoreEntries(
@@ -1281,12 +1314,15 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 	);
 	const summary = mappings.map((mapping) => {
 		const totals = windowTotals.get(mapping.providerId) ?? emptyTotals();
+		const metricTotals =
+			windowMetricTotals.get(mapping.providerId) ?? emptyTotals();
 		const metrics = windowMetricsByProvider.get(mapping.providerId)!;
 		const scored = windowScores.get(mapping.providerId);
 		return {
 			providerId: mapping.providerId,
 			requestCount: totals.requestCount,
-			errorCount: totals.gatewayErrorCount + totals.upstreamErrorCount,
+			errorCount:
+				metricTotals.gatewayErrorCount + metricTotals.upstreamErrorCount,
 			uptime: metrics.uptime !== null ? round(metrics.uptime, 2) : null,
 			latency: metrics.latency !== null ? round(metrics.latency, 0) : null,
 			throughput:

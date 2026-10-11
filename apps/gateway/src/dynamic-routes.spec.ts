@@ -8,6 +8,7 @@ import {
 } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import { redisClient } from "@llmgateway/cache";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
@@ -333,6 +334,35 @@ describe("dynamic routes request path", () => {
 		},
 	);
 
+	test("dynamic provider order does not bypass lax caps", async () => {
+		const token = await seedBase("lax-order", ["openai", "azure"]);
+		const routeName = await seedRoute("lax-order", {
+			entry: "m",
+			nodes: [modelNode("m", "gpt-5.5", ["openai", "azure"])],
+		} as DynamicRouteGraph);
+		await db.insert(tables.rateLimit).values({
+			id: "lax-order",
+			organizationId: "org-id",
+			provider: "openai",
+			model: "gpt-5.5",
+			maxRpm: 1,
+			mode: "lax",
+		});
+		const key = "rate_limit:provider_cap:rpm:org-id:openai:gpt-5.5";
+		await redisClient.zadd(key, Date.now(), "seed");
+		const response = await chatCompletion(
+			token,
+			{
+				model: `dynamic/${routeName}`,
+				messages: [{ role: "user", content: "lax ordered route" }],
+			},
+			{ "x-session-id": "lax-order-new" },
+		);
+		expect(response.status).toBe(200);
+		expect((await response.json()).metadata.used_provider).toBe("azure");
+		expect(await redisClient.zcard(key)).toBe(1);
+	});
+
 	test("keeps a healthy session pin when a dynamic route changes provider order", async () => {
 		const token = await seedBase("order-session", ["openai", "azure"]);
 		for (const providers of [
@@ -534,7 +564,7 @@ describe("dynamic routes request path", () => {
 				},
 				modelNode("big", "gpt-4o"),
 				modelNode("mid", "gpt-4o-mini"),
-				modelNode("small", "gpt-4.1-nano"),
+				modelNode("small", "gpt-6-luna"),
 			],
 		} as DynamicRouteGraph);
 
@@ -552,7 +582,7 @@ describe("dynamic routes request path", () => {
 			messages: [{ role: "user", content: "EASY_TASK say hi" }],
 		});
 		expect(easy.status).toBe(200);
-		expect((await easy.json()).model).toBe("openai/gpt-4.1-nano");
+		expect((await easy.json()).model).toBe("openai/gpt-6-luna");
 
 		// Four rows: two requests, each with its own billed classifier call.
 		const decisions = requestLogs(await waitForLogs(4)).map(

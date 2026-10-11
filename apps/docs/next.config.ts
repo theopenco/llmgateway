@@ -17,6 +17,7 @@ const nextConfig: NextConfig = {
 	// lib/source.ts imports the full lucide-react icon barrel; transform it
 	// to direct imports so the whole icon set stays out of the bundles.
 	experimental: {
+		agentUpgrade: "latest",
 		optimizePackageImports: ["lucide-react"],
 	},
 

@@ -34,6 +34,8 @@ export interface MappingErrorCounts {
 	clientErrorsCount: number;
 	gatewayErrorsCount: number;
 	upstreamErrorsCount: number;
+	retriedGatewayErrorsCount: number;
+	retriedUpstreamErrorsCount: number;
 }
 
 export interface MappingErrorRateHit extends MappingErrorCounts {
@@ -42,13 +44,34 @@ export interface MappingErrorRateHit extends MappingErrorCounts {
 	errorRate: number;
 }
 
+/** Drops retried attempts from both sides of the ratio when the rule ignores them. */
+function countsForRule(
+	rule: ModelErrorRateAlertRule,
+	row: MappingErrorCounts,
+): MappingErrorCounts {
+	if (rule.includeRetriedErrors) {
+		return row;
+	}
+	return {
+		...row,
+		logsCount:
+			row.logsCount -
+			row.retriedGatewayErrorsCount -
+			row.retriedUpstreamErrorsCount,
+		gatewayErrorsCount: row.gatewayErrorsCount - row.retriedGatewayErrorsCount,
+		upstreamErrorsCount:
+			row.upstreamErrorsCount - row.retriedUpstreamErrorsCount,
+	};
+}
+
 /** Mappings at or above the rule's error rate with enough traffic to judge. */
 export function findMappingsOverThreshold(
 	rule: ModelErrorRateAlertRule,
 	rows: MappingErrorCounts[],
 ): MappingErrorRateHit[] {
 	const hits: MappingErrorRateHit[] = [];
-	for (const row of rows) {
+	for (const rawRow of rows) {
+		const row = countsForRule(rule, rawRow);
 		const { requestCount, errorsCount, errorRate } =
 			deriveStabilityMetrics(row);
 		if (
@@ -78,7 +101,7 @@ export function buildAlertPayload(
 ): DiscordWebhookPayload {
 	const listed = hits.slice(0, MAX_LISTED_MAPPINGS);
 	const lines = [
-		`${hits.length} model ${hits.length === 1 ? "mapping is" : "mappings are"} at or above ${rule.errorRatePercent}% errors over the last ${formatWindow(rule.windowMinutes)} (min ${rule.minRequests} requests, credit traffic only).`,
+		`${hits.length} model ${hits.length === 1 ? "mapping is" : "mappings are"} at or above ${rule.errorRatePercent}% errors over the last ${formatWindow(rule.windowMinutes)} (min ${rule.minRequests} requests, credit traffic only${rule.includeRetriedErrors ? "" : ", retried errors excluded"}).`,
 	];
 	if (hits.length > listed.length) {
 		lines.push(`+${hits.length - listed.length} more not listed.`);
@@ -117,6 +140,8 @@ async function queryMappingErrorCounts(
 			clientErrorsCount: sql<string>`coalesce(sum(${mph.clientErrorsCount}), 0)::bigint`,
 			gatewayErrorsCount: sql<string>`coalesce(sum(${mph.gatewayErrorsCount}), 0)::bigint`,
 			upstreamErrorsCount: sql<string>`coalesce(sum(${mph.upstreamErrorsCount}), 0)::bigint`,
+			retriedGatewayErrorsCount: sql<string>`coalesce(sum(${mph.retriedGatewayErrorsCount}), 0)::bigint`,
+			retriedUpstreamErrorsCount: sql<string>`coalesce(sum(${mph.retriedUpstreamErrorsCount}), 0)::bigint`,
 		})
 		.from(mph)
 		.where(
@@ -137,6 +162,8 @@ async function queryMappingErrorCounts(
 		clientErrorsCount: Number(row.clientErrorsCount),
 		gatewayErrorsCount: Number(row.gatewayErrorsCount),
 		upstreamErrorsCount: Number(row.upstreamErrorsCount),
+		retriedGatewayErrorsCount: Number(row.retriedGatewayErrorsCount),
+		retriedUpstreamErrorsCount: Number(row.retriedUpstreamErrorsCount),
 	}));
 }
 

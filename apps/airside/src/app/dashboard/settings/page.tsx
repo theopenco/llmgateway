@@ -19,6 +19,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useApi } from "@/lib/fetch-client";
 
+import {
+	AIRSIDE_BILLING_MODE_DESCRIPTIONS,
+	AIRSIDE_BILLING_MODE_LABELS,
+} from "@llmgateway/shared/airside-billing";
+
 import type { AirsideCompany } from "@/components/dashboard/company-context";
 
 type Claim = AirsideCompany["claims"][number];
@@ -334,6 +339,23 @@ function ProviderKeySection({ claim }: { claim: Claim }) {
 	);
 }
 
+function BillingSection({ claim }: { claim: Claim }) {
+	return (
+		<KeySection
+			title="Billing"
+			description="How your usage is settled. Set by LLM Gateway — contact us to change it."
+			testId={`billing-mode-${claim.providerId}`}
+		>
+			<p className="text-sm font-semibold">
+				{AIRSIDE_BILLING_MODE_LABELS[claim.billingMode]}
+			</p>
+			<p className="text-muted-foreground text-sm">
+				{AIRSIDE_BILLING_MODE_DESCRIPTIONS[claim.billingMode]}
+			</p>
+		</KeySection>
+	);
+}
+
 function CarrierKeysCard({ claim }: { claim: Claim }) {
 	return (
 		<Card data-testid={`carrier-keys-${claim.providerId}`}>
@@ -351,6 +373,7 @@ function CarrierKeysCard({ claim }: { claim: Claim }) {
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="divide-border divide-y">
+				<BillingSection claim={claim} />
 				{claim.kind === "custom" ? <ProviderKeySection claim={claim} /> : null}
 				<TestingKeySection claim={claim} />
 			</CardContent>

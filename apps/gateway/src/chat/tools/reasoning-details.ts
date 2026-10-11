@@ -1,4 +1,37 @@
+import { isGoogleReasoningDetail } from "@llmgateway/actions";
+
+import type { CompletionsRequest } from "@/chat/schemas/completions.js";
 import type { ReasoningDetail } from "@llmgateway/models";
+
+/** Only replayed provider-bound data requires a reasoning retry pin. */
+export function hasProviderBoundReasoning(
+	messages: CompletionsRequest["messages"],
+): boolean {
+	return messages.some(
+		(message) =>
+			message.role === "assistant" &&
+			(Boolean(
+				message.reasoning_details?.some(
+					(detail) =>
+						(detail.type === "reasoning.encrypted" &&
+							typeof detail.data === "string" &&
+							detail.data.length > 0) ||
+						isGoogleReasoningDetail(detail),
+				),
+			) ||
+				Boolean(
+					message.tool_calls?.some(
+						(call) => call.extra_content?.google?.thought_signature,
+					),
+				) ||
+				(Array.isArray(message.content) &&
+					message.content.some(
+						(part) =>
+							part.type === "text" &&
+							part.extra_content?.google?.thought_signature,
+					))),
+	);
+}
 
 const THINK_TAG_PAIRS = [
 	{

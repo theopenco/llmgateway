@@ -43,6 +43,7 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	context_size: "context_size too small",
 	// Request-shape constraints that are not per-mapping capabilities.
 	service_tier: "service tier not supported by this mapping",
+	anthropic_safeguards: "Anthropic server-side safeguards not supported",
 	service_tier_key: "no service-tier-eligible credential for this provider",
 	coding_plan_cache: "no cached input pricing (coding plan)",
 	// Credential / configuration reachability.
@@ -116,6 +117,7 @@ export const ROUTING_EXCLUSION_REASON_LABELS: Record<
 	max_tokens: "max_tokens",
 	context_size: "Context size",
 	service_tier: "Service tier",
+	anthropic_safeguards: "Anthropic safeguards",
 	service_tier_key: "Service-tier key",
 	coding_plan_cache: "Coding plan caching",
 	no_provider_key: "No key",

@@ -26,6 +26,7 @@ import {
 	incidentsResponseSchema,
 	incidentsWindowSchema,
 	incidentErrorsClause,
+	byokClauseFor,
 	notRetriedClause,
 	queryIncidentErrorTypes,
 	buildErrorTimeline,
@@ -44,6 +45,10 @@ import {
 } from "@/lib/series-buckets.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
+import {
+	collectProviderEnvCredentials,
+	readProviderEnvInventory,
+} from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
 	AIRSIDE_DISCOUNT_MAX,
@@ -73,6 +78,7 @@ import {
 	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
+import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
@@ -641,6 +647,7 @@ const adminClaimSchema = z.object({
 			iconUrl: z.string().nullable().optional(),
 		})
 		.nullable(),
+	billingMode: z.enum(AIRSIDE_BILLING_MODES),
 	// Custom carriers only: the provider key serving traffic, and a
 	// replacement awaiting approval here.
 	providerKey: carrierKeySchema.nullable(),
@@ -711,6 +718,7 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 		logoUrl: row.logoUrl,
 		iconUrl: row.iconUrl,
 		pendingBranding: row.pendingBranding ?? null,
+		billingMode: row.billingMode,
 		providerKey: keySummary(row.providerKeyId),
 		pendingProviderKey: keySummary(row.pendingProviderKeyId),
 		company: {
@@ -1373,6 +1381,8 @@ const listIncidents = createRoute({
 			/** Exact `used_model` (`provider/model[:region]`). */
 			mapping: z.string().optional(),
 			window: incidentsWindowSchema.default("24h").optional(),
+			/** Include errors and requests served by customers' own keys. */
+			includeByok: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -1401,6 +1411,7 @@ adminAirside.openapi(listIncidents, async (c) => {
 			providerIds,
 			windowHours,
 			mapping,
+			includeByok: query.includeByok === "true",
 		}),
 	});
 });
@@ -1414,6 +1425,8 @@ const listIncidentErrorTypes = createRoute({
 			/** Exact `used_model` (`provider/model[:region]`). */
 			mapping: z.string().optional(),
 			window: incidentsWindowSchema.default("24h").optional(),
+			/** Include errors and requests served by customers' own keys. */
+			includeByok: z.enum(["true", "false"]).optional(),
 			includeRetried: z.enum(["true", "false"]).default("true").optional(),
 		}),
 	},
@@ -1447,10 +1460,12 @@ adminAirside.openapi(listIncidentErrorTypes, async (c) => {
 				providerIds: [query.providerId],
 				windowHours,
 				mapping: query.mapping ?? null,
+				includeByok: query.includeByok === "true",
 			}),
 			windowInterval,
 			extraClauses: [
 				incidentErrorsClause,
+				byokClauseFor(query.includeByok),
 				query.includeRetried === "false" ? notRetriedClause : sql``,
 			],
 		})),
@@ -1576,6 +1591,12 @@ const listRoutingSettings = createRoute({
 								status: z.enum(["active", "inactive"]),
 								activeMappingCount: z.number(),
 								airsideMappingCount: z.number(),
+								// Who added the key serving the carrier, null without one.
+								// Admin keys (incl. LLM_* env vars) bill our account
+								// pay-as-you-go; carrier keys bill the carrier's own account.
+								keySource: z.enum(["admin", "carrier"]).nullable(),
+								// From the active claim; payg when none is left.
+								billingMode: z.enum(AIRSIDE_BILLING_MODES),
 								discountPercent: z.number(),
 								marginPercent: z.number(),
 								// Signed routing-price adjustment (negative = boosted).
@@ -1688,6 +1709,7 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 			updatedAt: tables.providerRoutingSettings.updatedAt,
 			companyId: tables.providerCompany.id,
 			companyName: tables.providerCompany.name,
+			billingMode: tables.providerClaim.billingMode,
 		})
 		.from(tables.providerRoutingSettings)
 		.innerJoin(
@@ -1695,6 +1717,16 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 			eq(
 				tables.providerRoutingSettings.providerCompanyId,
 				tables.providerCompany.id,
+			),
+		)
+		.leftJoin(
+			tables.providerClaim,
+			and(
+				eq(
+					tables.providerClaim.providerId,
+					tables.providerRoutingSettings.providerId,
+				),
+				eq(tables.providerClaim.status, "active"),
 			),
 		)
 		.where(sql`${tables.providerRoutingSettings.modelId} IS NULL`)
@@ -1709,55 +1741,101 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 		.slice(0, 19)
 		.replace("T", " ");
 	const mapping = tables.modelProviderMapping;
-	const [totals, mappingCounts, traffic] = providerIds.length
-		? await Promise.all([
-				db
-					.select({
-						usedProvider: tables.globalModelStats.usedProvider,
-						total:
-							sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)), 0)`.as(
-								"total",
+	const providerKey = tables.providerKey;
+	const [totals, mappingCounts, traffic, primaryKeys, envInventory] =
+		providerIds.length
+			? await Promise.all([
+					db
+						.select({
+							usedProvider: tables.globalModelStats.usedProvider,
+							total:
+								sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)), 0)`.as(
+									"total",
+								),
+							last30d:
+								sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)) filter (where ${tables.globalModelStats.dayTimestamp} >= ${cutoff}::timestamp), 0)`.as(
+									"last30d",
+								),
+						})
+						.from(tables.globalModelStats)
+						.where(
+							and(
+								inArray(tables.globalModelStats.usedProvider, providerIds),
+								eq(tables.globalModelStats.usedMode, "credits"),
 							),
-						last30d:
-							sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)) filter (where ${tables.globalModelStats.dayTimestamp} >= ${cutoff}::timestamp), 0)`.as(
-								"last30d",
+						)
+						.groupBy(tables.globalModelStats.usedProvider),
+					db
+						.select({
+							providerId: mapping.providerId,
+							active: count(),
+							airside:
+								sql<number>`count(*) filter (where ${mapping.source} = 'airside')`.as(
+									"airside",
+								),
+						})
+						.from(mapping)
+						.where(
+							and(
+								inArray(mapping.providerId, providerIds),
+								eq(mapping.status, "active"),
+								isNull(mapping.region),
 							),
-					})
-					.from(tables.globalModelStats)
-					.where(
-						and(
-							inArray(tables.globalModelStats.usedProvider, providerIds),
-							eq(tables.globalModelStats.usedMode, "credits"),
+						)
+						.groupBy(mapping.providerId),
+					getCarrierTrafficSeries(providerIds, buckets),
+					// The gateway's primary key: first active managed key in its
+					// selection order (see listManagedProviderKeys).
+					db
+						.selectDistinctOn([providerKey.provider], {
+							provider: providerKey.provider,
+							carrierSubmitted: providerKey.carrierSubmitted,
+						})
+						.from(providerKey)
+						.where(
+							and(
+								inArray(providerKey.provider, providerIds),
+								eq(providerKey.managed, true),
+								eq(providerKey.status, "active"),
+							),
+						)
+						.orderBy(
+							providerKey.provider,
+							providerKey.sortOrder,
+							providerKey.createdAt,
+							providerKey.id,
 						),
-					)
-					.groupBy(tables.globalModelStats.usedProvider),
-				db
-					.select({
-						providerId: mapping.providerId,
-						active: count(),
-						airside:
-							sql<number>`count(*) filter (where ${mapping.source} = 'airside')`.as(
-								"airside",
-							),
-					})
-					.from(mapping)
-					.where(
-						and(
-							inArray(mapping.providerId, providerIds),
-							eq(mapping.status, "active"),
-							isNull(mapping.region),
-						),
-					)
-					.groupBy(mapping.providerId),
-				getCarrierTrafficSeries(providerIds, buckets),
-			])
-		: [[], [], new Map<string, z.infer<typeof carrierSeriesPointSchema>[]>()];
+					readProviderEnvInventory(),
+				])
+			: [
+					[],
+					[],
+					new Map<string, z.infer<typeof carrierSeriesPointSchema>[]>(),
+					[],
+					null,
+				];
 	const totalsByProvider = new Map(
 		totals.map((row) => [row.usedProvider, row]),
 	);
 	const countsByProvider = new Map(
 		mappingCounts.map((row) => [row.providerId, row]),
 	);
+	const primaryKeyByProvider = new Map(
+		primaryKeys.map((row) => [row.provider, row]),
+	);
+	const keySourceFor = (providerId: string) => {
+		const primary = primaryKeyByProvider.get(providerId);
+		if (primary) {
+			return primary.carrierSubmitted ? "carrier" : "admin";
+		}
+		// Managed keys supersede LLM_* env vars, which serve only without one.
+		// Same fallback as the credentials catalog: local env when the gateway
+		// has not published its inventory.
+		const envKeys = envInventory
+			? (envInventory.providers[providerId] ?? [])
+			: collectProviderEnvCredentials(providerId);
+		return envKeys.length > 0 ? "admin" : null;
+	};
 
 	return c.json({
 		window,
@@ -1778,6 +1856,8 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 					activeMappingCount > 0 ? ("active" as const) : ("inactive" as const),
 				activeMappingCount,
 				airsideMappingCount: Number(counts?.airside ?? 0),
+				keySource: keySourceFor(row.providerId),
+				billingMode: row.billingMode ?? "payg",
 				discountPercent,
 				marginPercent,
 				routingAdjustment: computeAirsideAdjustment(
@@ -2013,6 +2093,7 @@ const updateClaimSettings = createRoute({
 						// null clears the image; omitted keeps the current one.
 						logoUrl: imageDataUrl(LOGO_MAX_BYTES).nullish(),
 						iconUrl: imageDataUrl(ICON_MAX_BYTES).nullish(),
+						billingMode: z.enum(AIRSIDE_BILLING_MODES).optional(),
 					}),
 				},
 			},
@@ -2056,6 +2137,9 @@ adminAirside.openapi(updateClaimSettings, async (c) => {
 			: {}),
 		...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}),
 		...(body.iconUrl !== undefined ? { iconUrl: body.iconUrl } : {}),
+		...(body.billingMode !== undefined
+			? { billingMode: body.billingMode }
+			: {}),
 	};
 	if (Object.keys(changes).length === 0) {
 		return c.json({ claim: await serializeAdminClaim(claim) });

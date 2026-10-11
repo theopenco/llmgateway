@@ -49,6 +49,7 @@ export async function fileProviderKey(
 			organizationId: null,
 			status: "inactive",
 			comment: "Submitted by the carrier in Airside",
+			carrierSubmitted: true,
 			...encryptProviderKeyForStorage(apiKey, id, null),
 			// Prefix and suffix, like the testing key, so a carrier and a
 			// reviewer can tell a replacement from the key it replaces.
