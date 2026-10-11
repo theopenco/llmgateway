@@ -382,6 +382,35 @@ describe("validateProviderKey model-specific probes", () => {
 		});
 	});
 
+	it("probes an OpenAI decision model via the Decisions API", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey(
+			"openai",
+			"sk-test",
+			undefined,
+			false,
+			undefined,
+			"gpt-6-luna-decisions",
+		);
+
+		expect(result).toEqual({ valid: true, model: "gpt-6-luna-decisions" });
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"https://api.openai.com/v1/decisions",
+		);
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+			model: "gpt-6-luna",
+			input: "Hello",
+			questions: [
+				{
+					type: "predicate",
+					name: "greeting",
+					instructions: "Is this a greeting?",
+				},
+			],
+		});
+	});
+
 	it("sends a minimal inline image to the OCR endpoint", async () => {
 		const fetchMock = mockSuccess();
 

@@ -2625,10 +2625,12 @@ describe("managed credential allowed models", () => {
 	test("save-time validation skips the probe when no allowed model can chat", async () => {
 		vi.stubEnv("E2E_TEST", "true");
 
-		const nonChatModel = (await catalogModels("openai")).find(
-			(modelId) =>
-				getPinnedValidationModel("openai", modelId)?.chatCapable === false,
-		);
+		// Decision models are probeable via their own endpoint, so they don't
+		// count as "no allowed model can be probed".
+		const nonChatModel = (await catalogModels("openai")).find((modelId) => {
+			const pinned = getPinnedValidationModel("openai", modelId);
+			return pinned?.chatCapable === false && pinned.kind !== "decision";
+		});
 		expect(nonChatModel).toBeDefined();
 
 		const res = await create({

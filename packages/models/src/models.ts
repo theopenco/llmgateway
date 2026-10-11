@@ -833,10 +833,11 @@ export interface ProviderModelMapping {
 	 */
 	rerank?: boolean;
 	/**
-	 * Whether this model uses a dedicated typed-decision API (TypeSafe System
-	 * One). When true, requests are routed to the gateway's /v1/systemone
-	 * endpoint, which answers named questions with probabilities instead of
-	 * generated text. Billed on input tokens only.
+	 * Whether this model uses a dedicated typed-decision API (OpenAI Decisions,
+	 * TypeSafe System One). When true, requests are routed to the gateway's
+	 * /v1/decisions endpoint (TypeSafe models also on the legacy /v1/systemone),
+	 * which answers typed questions with probabilities instead of generated
+	 * text. Billed on input tokens only.
 	 */
 	decisions?: boolean;
 	/**

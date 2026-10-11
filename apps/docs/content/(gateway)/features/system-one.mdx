@@ -6,6 +6,13 @@ icon: SlidersHorizontal
 
 import { Callout } from "fumadocs-ui/components/callout";
 
+<Callout type="info">
+	`/v1/systemone` is the TypeSafe-compatible endpoint and serves TypeSafe models
+	only. New decision models, including `gpt-6-luna-decisions`, ship on the
+	OpenAI-compatible [`/v1/decisions`](/features/decisions) endpoint, which also
+	serves Jev.
+</Callout>
+
 LLMGateway exposes a `/v1/systemone` endpoint for **System One** models: models
 that read a state, answer questions you name, and return typed decisions with
 calibrated probabilities. There is no free-form text in the response — every
@@ -156,8 +163,8 @@ answer makes them relevant.
 </Callout>
 
 <Callout type="warn">
-	Decision models only work on `/v1/systemone`. Requesting one on
-	`/v1/chat/completions` returns a 400 pointing you at the right endpoint, they
-	cannot generate text or call tools, and they are not available in the
-	playground. Input is text only.
+	Decision models only work on `/v1/decisions` and `/v1/systemone`. Requesting
+	one on `/v1/chat/completions` returns a 400 pointing you at the right
+	endpoint, they cannot generate text or call tools, and they are not available
+	in the playground. Input is text only.
 </Callout>

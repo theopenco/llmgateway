@@ -220,6 +220,14 @@ export const filteredModels = models
 		(model) =>
 			!model.providers.some((p) => (p as ProviderModelMapping).rerank === true),
 	)
+	// Filter out typed-decision models (they use the dedicated /v1/decisions
+	// endpoint, not chat completions)
+	.filter(
+		(model) =>
+			!model.providers.some(
+				(p) => (p as ProviderModelMapping).decisions === true,
+			),
+	)
 	// Filter out search models (they use the dedicated /v1/search endpoint,
 	// not chat completions, and are covered by search.e2e.ts)
 	.filter(

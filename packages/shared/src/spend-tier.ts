@@ -74,6 +74,15 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		chatDefaultRpm: 120,
 	},
 	{
+		// Decisions share TypeSafe's ceiling with /v1/systemone (Jev is served on
+		// both), so the per-org limit matches it.
+		key: "decisions",
+		prefix: "/v1/decisions",
+		defaultRpm: 600,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 60,
+	},
+	{
 		// TypeSafe's own ceiling is 1,200 requests/minute across our whole
 		// account, so the per-org limit stays below it.
 		key: "systemone",
@@ -652,6 +661,7 @@ export const INFLIGHT_LIMITED_KEYS: ReadonlySet<string> = new Set([
 	"moderations",
 	"rerank",
 	"systemone",
+	"decisions",
 	"search",
 	"ocr",
 	"images",

@@ -472,6 +472,22 @@ export async function validateProviderKey(
 				);
 				payload = { input: "Hello", model: validationModel.externalId };
 			}
+		} else if (validationModel.kind === "decision" && provider === "openai") {
+			endpoint = appendPath(
+				getValidationBaseUrl(provider, baseUrl, providerKeyOptions),
+				"v1/decisions",
+			);
+			payload = {
+				model: validationModel.externalId,
+				input: "Hello",
+				questions: [
+					{
+						type: "predicate",
+						name: "greeting",
+						instructions: "Is this a greeting?",
+					},
+				],
+			};
 		} else if (validationModel.kind === "decision") {
 			endpoint = appendPath(
 				getValidationBaseUrl(provider, baseUrl, providerKeyOptions),
