@@ -102,6 +102,8 @@ export async function hasClassifierCredential(
 interface ContentFilterRunOptions {
 	/** Whether the organization's policy permits OpenAI (image delegation). */
 	imagesAllowed: boolean;
+	/** False when an admin turned image moderation off: images skip it by design. */
+	moderateImages?: boolean;
 	/** What the internal classifier reads. Defaults to the whole conversation. */
 	internalScope?: ContentFilterInternalScope;
 }
@@ -110,9 +112,9 @@ interface ContentFilterRunOptions {
  * Run one classifier over a request's content.
  *
  * Jev and the internal classifier are text-only, so image parts are moderated
- * through OpenAI and merged in — but only when `imagesAllowed` says image
- * delegation is on, the organization's compliance policy permits OpenAI, and
- * a credential exists.
+ * through OpenAI and merged in — but only when image moderation is on, the
+ * organization's compliance policy permits OpenAI (`imagesAllowed`), and a
+ * credential exists.
  * Without that, such a request carries no image coverage at all rather than
  * silently sending image data to a provider the policy excluded.
  */
@@ -174,14 +176,19 @@ async function runClassifierChecks(
 		...(requestCount !== undefined ? { classifierRequests: requestCount } : {}),
 	};
 
-	// Text-only requests are the common case: skip the OpenAI credential lookup
-	// and the no-op moderation call entirely when there is no image to cover.
 	if (
-		!options.imagesAllowed ||
-		buildOpenAIContentFilterImageInputs(messages).length === 0 ||
-		!(await hasOpenAIContentFilterCredential())
+		options.moderateImages === false ||
+		buildOpenAIContentFilterImageInputs(messages).length === 0
 	) {
 		return { ...textResult, ...timings, classifier };
+	}
+	if (!options.imagesAllowed || !(await hasOpenAIContentFilterCredential())) {
+		return {
+			...textResult,
+			...timings,
+			classifier,
+			partialModerationFailed: true,
+		};
 	}
 
 	const imageStartTime = performance.now();
@@ -273,7 +280,8 @@ export async function evaluateContentFilterWithClassifiers(options: {
 			context,
 			signal,
 			{
-				imagesAllowed: options.imagesAllowed && plan.moderateImages,
+				imagesAllowed: options.imagesAllowed,
+				moderateImages: plan.moderateImages,
 				internalScope: plan.internalScope,
 			},
 		);

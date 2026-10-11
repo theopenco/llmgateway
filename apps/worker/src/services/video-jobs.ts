@@ -1646,6 +1646,7 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				await adjustOrgSpend(
 					claimedJob.organizationId,
 					Number((billedVideoCost - reservedSpendUsd).toFixed(6)),
+					{ amount: reservedSpendUsd, createdAt: claimedJob.createdAt },
 				);
 			}
 		}

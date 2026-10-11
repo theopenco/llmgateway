@@ -64,18 +64,9 @@ export OTEL_ERROR_SAMPLE_RATE=1.0
 npm start
 ```
 
-The error-aware sampling works by:
+When the rates differ, spans are recorded at the higher rate and filtered after they end. HTTP status codes of 400 or higher and OpenTelemetry error status use `OTEL_ERROR_SAMPLE_RATE`; other spans use `OTEL_SAMPLE_RATE`. Forced spans are always exported. Span names and user agents do not classify failures.
 
-1. **Heuristic Detection**: Identifies likely error spans based on:
-   - HTTP status codes ≥ 400
-   - Error-related span names (containing "error", "exception", "fail", "timeout", "abort")
-   - Custom `sampling.likely_error` attribute set by middleware
-
-2. **Differential Sampling**: Applies different sampling rates:
-   - Normal spans: Uses `OTEL_SAMPLE_RATE`
-   - Error spans: Uses `OTEL_ERROR_SAMPLE_RATE`
-
-3. **Sampling Metadata**: Adds `sampling.strategy` attribute indicating which strategy was used
+Selection applies to individual completed spans, not entire traces. Successful child spans can be omitted from an error trace. Recording and propagated sampling flags use the higher rate, so a lower export rate does not reduce recording overhead to the same level. Recorded spans carry `sampling.strategy: final-status`.
 
 ## Environment Variables
 
@@ -86,10 +77,4 @@ The error-aware sampling works by:
 
 ## Architecture
 
-The package uses a layered sampler architecture:
-
-1. **ErrorAwareSampler**: Applies different sampling rates based on error detection heuristics
-2. **HeaderBasedForceSampler**: Wraps the error-aware sampler to handle force-trace headers
-3. **Base Samplers**: AlwaysOnSampler or TraceIdRatioBasedSampler for actual sampling decisions
-
-When a request includes the force-trace header, the middleware captures it as a span attribute, and the sampler checks for this attribute to make the sampling decision. For error-aware sampling, the system uses heuristics at sampling time to identify likely error spans and applies the appropriate sampling rate.
+`HeaderBasedForceSampler` honors explicit force tracing. With different normal and error rates, `ErrorAwareSampler` records the union of both ratio decisions, then `FinalStatusSpanProcessor` filters completed spans before the batch exporter. With equal rates, the ordinary head sampler sends selected spans directly to the batch exporter.

@@ -74,9 +74,11 @@ export function getSamplerConfig() {
 	// Create error-aware sampler if error rate is different from normal rate
 	let baseSampler: Sampler;
 	let baseDescription: string;
+	let completionSampler: ErrorAwareSampler | undefined;
 
 	if (errorSampleRate !== undefined && errorSampleRate !== sampleRate) {
-		baseSampler = new ErrorAwareSampler(normalSampler, errorSampler);
+		completionSampler = new ErrorAwareSampler(normalSampler, errorSampler);
+		baseSampler = completionSampler;
 		baseDescription = `Normal: ${normalDescription}, Errors: ${errorDescription}`;
 	} else {
 		baseSampler = normalSampler;
@@ -89,6 +91,7 @@ export function getSamplerConfig() {
 
 	return {
 		sampler,
+		completionSampler,
 		description,
 	};
 }

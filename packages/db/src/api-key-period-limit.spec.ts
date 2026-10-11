@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
 	addApiKeyPeriodDuration,
@@ -8,6 +8,36 @@ import {
 } from "./api-key-period-limit.js";
 
 describe("api-key-period-limit", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it.each([
+		["2026-10-25T00:30:00.000Z", 1, "2026-10-25T01:30:00.000Z"],
+		["2026-03-29T00:30:00.000Z", 2, "2026-03-29T02:30:00.000Z"],
+	])("keeps hourly durations exact across DST from %s", (start, hours, end) => {
+		vi.stubEnv("TZ", "Europe/Stockholm");
+		const startedAt = new Date(start);
+		const next = addApiKeyPeriodDuration(startedAt, hours, "hour");
+
+		expect(next.toISOString()).toBe(end);
+		expect(startedAt.toISOString()).toBe(start);
+	});
+
+	it.each([
+		["2026-10-24T12:00:00.000Z", "day", "2026-10-25T12:00:00.000Z"],
+		["2026-10-20T12:00:00.000Z", "week", "2026-10-27T12:00:00.000Z"],
+		["2026-03-15T12:00:00.000Z", "month", "2026-04-15T12:00:00.000Z"],
+	] as const)(
+		"keeps %s + 1 %s on UTC calendar time across DST",
+		(start, unit, end) => {
+			vi.stubEnv("TZ", "Europe/Stockholm");
+			expect(
+				addApiKeyPeriodDuration(new Date(start), 1, unit).toISOString(),
+			).toBe(end);
+		},
+	);
+
 	it("validates supported duration ranges", () => {
 		expect(isValidApiKeyPeriodDuration(1, "hour")).toBe(true);
 		expect(

@@ -1,3 +1,6 @@
+import { matchGuardrailRegex } from "./compile-regex.js";
+import { createLiteralRegex } from "./literal-regex.js";
+
 import type { BlockedTermsRuleConfig, GuardrailAction } from "@llmgateway/db";
 
 export interface BlockedTermsResult {
@@ -24,8 +27,9 @@ export function checkBlockedTerms(
 
 		switch (config.matchType) {
 			case "exact": {
-				const regex = new RegExp(`\\b${escapeRegex(searchTerm)}\\b`, "g");
-				const found = searchContent.match(regex);
+				const found = content.match(
+					createLiteralRegex(term, config.caseSensitive, true),
+				);
 				if (found) {
 					matches.push(...found.map(() => term));
 				}
@@ -39,13 +43,15 @@ export function checkBlockedTerms(
 			}
 			case "regex": {
 				try {
-					const regex = new RegExp(term, config.caseSensitive ? "g" : "gi");
-					const found = content.match(regex);
-					if (found) {
-						matches.push(...found);
-					}
+					matches.push(
+						...matchGuardrailRegex(term, content, config.caseSensitive),
+					);
 				} catch {
-					// Invalid regex, skip
+					return {
+						passed: false,
+						matches: ["Invalid guardrail regex configuration"],
+						action: "block",
+					};
 				}
 				break;
 			}
@@ -57,8 +63,4 @@ export function checkBlockedTerms(
 		matches,
 		action,
 	};
-}
-
-function escapeRegex(str: string): string {
-	return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

@@ -77,6 +77,10 @@ organization, with the same precedence and counter scopes as other modes.
 
 ## Model Selection
 
+Named [dynamic routes](/features/dynamic-routes) support acyclic graphs of up to
+100 nodes. Every valid path within that limit can be evaluated, and percentage
+splits preserve their proportions for large finite weights.
+
 ### Any Model Name
 
 You can use any model name from our [models page](https://llmgateway.io/models) or discover available models programmatically through the [/v1/models endpoint](/v1_models).
