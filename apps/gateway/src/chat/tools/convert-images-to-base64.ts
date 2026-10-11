@@ -20,10 +20,15 @@ const MAX_IMAGE_FETCH_TIMEOUT_MS = 2_147_483_647;
  * Resolves the fetch deadline from IMAGE_FETCH_TIMEOUT_MS, guarding against
  * values that would make AbortSignal.timeout throw. Only a finite integer in
  * [0, 2_147_483_647] is honoured; anything else (NaN, negative, fractional,
- * Infinity) falls back to the default.
+ * Infinity) falls back to the default. An empty/blank value is treated as
+ * unset, since Number("") is 0 and would abort every fetch immediately.
  */
 export function resolveImageFetchTimeoutMs(): number {
-	const raw = Number(process.env.IMAGE_FETCH_TIMEOUT_MS);
+	const value = process.env.IMAGE_FETCH_TIMEOUT_MS?.trim();
+	if (!value) {
+		return DEFAULT_IMAGE_FETCH_TIMEOUT_MS;
+	}
+	const raw = Number(value);
 	return Number.isInteger(raw) && raw >= 0 && raw <= MAX_IMAGE_FETCH_TIMEOUT_MS
 		? raw
 		: DEFAULT_IMAGE_FETCH_TIMEOUT_MS;

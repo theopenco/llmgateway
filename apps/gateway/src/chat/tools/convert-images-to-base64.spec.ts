@@ -82,7 +82,7 @@ describe("resolveImageFetchTimeoutMs", () => {
 		expect(resolveImageFetchTimeoutMs()).toBe(15_000);
 	});
 
-	it.each(["-1", "Infinity", "1.5", "not-a-number"])(
+	it.each(["-1", "Infinity", "1.5", "not-a-number", "", "   "])(
 		"falls back to 15000 for invalid value %s (never throws)",
 		(value) => {
 			vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", value);
