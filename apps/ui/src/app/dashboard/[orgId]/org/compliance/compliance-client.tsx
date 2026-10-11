@@ -326,7 +326,7 @@ export function ComplianceClient() {
 			const failures = [
 				...getProviderRefPolicyListFailures(
 					customProviderRef(key.name ?? key.id),
-					policy,
+					effectivePolicy,
 				),
 				...getAttestationComplianceFailures(
 					key.complianceAttestation,
