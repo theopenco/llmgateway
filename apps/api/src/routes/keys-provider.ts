@@ -39,6 +39,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	isStealthProvider,
+	providers,
 	regionEndpointRequiresWorkspaceId,
 } from "@llmgateway/models";
 import {
