@@ -60,7 +60,6 @@ const InactivePlanChooser = dynamic(
 	() => import("./components/InactivePlanChooser"),
 );
 
-// Shown at most once per quarter; no need for it in the initial bundle.
 const SurveyReminderDialog = dynamic(
 	() => import("@/app/dashboard/components/SurveyReminderDialog"),
 );
@@ -547,7 +546,9 @@ export default function DashboardShell({
 				</AlertDialogContent>
 			</AlertDialog>
 
-			<SurveyReminderDialog active={Boolean(hasActivePlan)} />
+			{/* Mounted only for active plans so the chunk is never fetched for
+			    visitors who cannot be surveyed */}
+			{hasActivePlan ? <SurveyReminderDialog /> : null}
 
 			{/* Header */}
 			<header className="border-b border-border/50">
