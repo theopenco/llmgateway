@@ -6,6 +6,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import {
 	getOrCreatePlaygroundApiKey,
 	getGatewayUrl,
+	MAX_PLAYGROUND_KEYS_PER_MEMBER,
 	PLAYGROUND_KEY_COOKIE_NAME,
 	resolvePlaygroundToken,
 } from "@/utils/playground-key.js";
@@ -15,7 +16,6 @@ import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
 
-const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
 describe("getGatewayUrl", () => {
@@ -66,72 +66,39 @@ describe("resolvePlaygroundToken", () => {
 		await deleteAll();
 	});
 
-	test("rotates the caller's own key when the cookie is missing", async () => {
+	test("keeps independent device credentials valid across missing and stale cookies", async () => {
 		const firstResponse = await resolver.request("/");
-		const firstBody = await firstResponse.json();
-		const firstCookie = firstResponse.headers.get("set-cookie");
-		expect(firstCookie).toContain(
-			`${PLAYGROUND_KEY_COOKIE_NAME}=${firstBody.token}`,
-		);
-		expect(firstCookie).toContain("HttpOnly");
-
+		const first = await firstResponse.json();
 		const firstKey = await db.query.apiKey.findFirst({
 			where: { kind: { eq: "playground" } },
 		});
-		if (!firstKey) {
-			throw new Error("Playground key was not created");
-		}
-		expect(firstKey.description).toBe("Lounge");
-		expect(firstKey?.expiresAt?.getTime()).toBeGreaterThan(Date.now());
-		expect(firstKey?.expiresAt?.getTime()).toBeLessThanOrEqual(
-			Date.now() + NINETY_DAYS_MS,
-		);
-
+		expect(firstKey?.description).toBe("Lounge");
 		const secondResponse = await resolver.request("/");
-		const secondBody = await secondResponse.json();
-		expect(secondBody.token).not.toBe(firstBody.token);
-		expect(secondResponse.headers.get("set-cookie")).toContain(
-			`${PLAYGROUND_KEY_COOKIE_NAME}=${secondBody.token}`,
-		);
-
-		const secondKey = await db.query.apiKey.findFirst({
+		const second = await secondResponse.json();
+		expect(second.token).not.toBe(first.token);
+		for (const token of [first.token, second.token]) {
+			const response = await resolver.request("/", {
+				headers: { Cookie: `${PLAYGROUND_KEY_COOKIE_NAME}=${token}` },
+			});
+			expect(await response.json()).toEqual({ token });
+			expect(response.headers.get("set-cookie")).toBeNull();
+		}
+		await resolver.request("/", {
+			headers: { Cookie: `${PLAYGROUND_KEY_COOKIE_NAME}=stale-device-token` },
+		});
+		const keys = await db.query.apiKey.findMany({
 			where: { kind: { eq: "playground" } },
 		});
-		expect(secondKey?.id).toBe(firstKey?.id);
-		expect(
-			await db.$count(tables.apiKey, eq(tables.apiKey.kind, "playground")),
-		).toBe(1);
-		expect(firstKey?.createdBy).toBe(secondKey?.createdBy);
-
-		const staleResponse = await resolver.request("/", {
-			headers: {
-				Cookie: `${PLAYGROUND_KEY_COOKIE_NAME}=${firstBody.token}`,
-			},
-		});
-		const staleBody = await staleResponse.json();
-		expect(staleBody.token).not.toBe(firstBody.token);
-		expect(staleBody.token).not.toBe(secondBody.token);
-		const rotatedKey = await db.query.apiKey.findFirst({
-			where: { id: { eq: firstKey.id } },
-		});
-		expect(rotatedKey?.tokenHash).not.toBeNull();
-		expect(getApiKeyFingerprints(staleBody.token)).toContain(
-			rotatedKey?.tokenHash,
-		);
-		expect(getApiKeyFingerprints(firstBody.token)).not.toContain(
-			rotatedKey?.tokenHash,
-		);
-		expect(getApiKeyFingerprints(secondBody.token)).not.toContain(
-			rotatedKey?.tokenHash,
-		);
-
-		const reusedResponse = await resolver.request("/", {
-			headers: {
-				Cookie: `${PLAYGROUND_KEY_COOKIE_NAME}=${staleBody.token}`,
-			},
-		});
-		expect(await reusedResponse.json()).toEqual({ token: staleBody.token });
-		expect(reusedResponse.headers.get("set-cookie")).toBeNull();
+		expect(keys).toHaveLength(3);
+		for (const token of [first.token, second.token]) {
+			expect(
+				keys.some(
+					(key) =>
+						key.tokenHash &&
+						getApiKeyFingerprints(token).includes(key.tokenHash),
+				),
+			).toBe(true);
+		}
 	});
 
 	test.each(["Playground", "Auto-generated playground key"])(
@@ -169,28 +136,28 @@ describe("resolvePlaygroundToken", () => {
 		},
 	);
 
-	test("serializes concurrent first-use requests into one row", async () => {
+	test("keeps concurrent independent first-use credentials valid", async () => {
 		const project = await db.query.project.findFirst();
 		if (!project) {
 			throw new Error("Test project was not created");
 		}
-
-		const [firstResult, secondResult] = await Promise.all([
+		const results = await Promise.all([
 			getOrCreatePlaygroundApiKey(project.id, "test-user-id"),
 			getOrCreatePlaygroundApiKey(project.id, "test-user-id"),
 		]);
-
-		expect(firstResult.token).not.toBe(secondResult.token);
-		expect(
-			await db.$count(
-				tables.apiKey,
-				and(
-					eq(tables.apiKey.projectId, project.id),
-					eq(tables.apiKey.kind, "playground"),
-					eq(tables.apiKey.status, "active"),
+		const keys = await db.query.apiKey.findMany({
+			where: { projectId: project.id, kind: "playground" },
+		});
+		expect(keys).toHaveLength(2);
+		for (const result of results) {
+			expect(
+				keys.some(
+					(key) =>
+						key.tokenHash &&
+						getApiKeyFingerprints(result.token).includes(key.tokenHash),
 				),
-			),
-		).toBe(1);
+			).toBe(true);
+		}
 	});
 
 	test("gives concurrent members one key each", async () => {
@@ -343,7 +310,27 @@ describe("resolvePlaygroundToken", () => {
 		expect(createResponse.status).toBe(200);
 		expect(
 			await db.$count(tables.apiKey, eq(tables.apiKey.kind, "playground")),
-		).toBe(1);
+		).toBe(5);
+	});
+
+	test("recycles the stalest key once a member reaches the cap", async () => {
+		const tokens: string[] = [];
+		for (let index = 0; index < MAX_PLAYGROUND_KEYS_PER_MEMBER + 2; index++) {
+			const response = await resolver.request("/");
+			tokens.push((await response.json()).token);
+		}
+
+		const keys = await db.query.apiKey.findMany({
+			where: { kind: { eq: "playground" } },
+		});
+		const isLive = (token: string) =>
+			keys.some(
+				(key) =>
+					key.tokenHash && getApiKeyFingerprints(token).includes(key.tokenHash),
+			);
+		expect(keys).toHaveLength(MAX_PLAYGROUND_KEYS_PER_MEMBER);
+		expect(isLive(tokens[0])).toBe(false);
+		expect(isLive(tokens[tokens.length - 1])).toBe(true);
 	});
 
 	test("gives another member its own key instead of rotating", async () => {
