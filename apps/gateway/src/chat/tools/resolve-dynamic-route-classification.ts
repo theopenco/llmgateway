@@ -1,6 +1,7 @@
 import {
 	getActiveCompliancePolicy,
 	isProviderIdCompliant,
+	withDpaEnforcement,
 } from "@/lib/compliance.js";
 import { createDynamicRouteClassifierStore } from "@/lib/smart-routing-session.js";
 
@@ -40,7 +41,9 @@ export async function resolveDynamicRouteClassification(
 	// The classifier sends prompt text to TypeSafe, so an organization whose
 	// compliance policy disallows that provider must not have its prompts sent
 	// there — the same fail-closed rule the content filter applies.
-	const compliancePolicy = getActiveCompliancePolicy(params.organization);
+	const compliancePolicy = await withDpaEnforcement(
+		getActiveCompliancePolicy(params.organization),
+	);
 	if (
 		compliancePolicy &&
 		!isProviderIdCompliant("typesafe", compliancePolicy)

@@ -21,9 +21,9 @@ import {
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
 
-import type { ProviderDefinition } from "@llmgateway/models";
-
 import { findDpaSignedProviderIds } from "./cached-queries.js";
+
+import type { ProviderDefinition } from "@llmgateway/models";
 
 interface OrganizationLike {
 	id: string;
@@ -103,8 +103,9 @@ const DPA_EXEMPT_PROVIDER_IDS = new Set(["llmgateway", "custom"]);
 export function applyDpaRequirement(
 	policy: ProviderCompliancePolicy,
 	signedProviderIds: ReadonlySet<string>,
+	candidateProviders: readonly ProviderDefinition[] = providers,
 ): ProviderCompliancePolicy {
-	const unsigned = providers
+	const unsigned = candidateProviders
 		.filter(
 			(provider) =>
 				!DPA_EXEMPT_PROVIDER_IDS.has(provider.id) &&
@@ -134,8 +135,14 @@ export async function withDpaEnforcement(
 	if (!policy?.requireGdpr || !isDpaEnforcementEnabled()) {
 		return policy;
 	}
-	const signedIds = await findDpaSignedProviderIds();
-	return applyDpaRequirement(policy, new Set(signedIds));
+	// Effective providers, not just the static catalogue: an active Airside
+	// carrier can self-declare `gdpr: true`, and it has no DPA record either, so
+	// leaving it out would let it satisfy `requireGdpr` unchecked.
+	const [signedIds, effectiveProviders] = await Promise.all([
+		findDpaSignedProviderIds(),
+		getEffectiveProviders(),
+	]);
+	return applyDpaRequirement(policy, new Set(signedIds), effectiveProviders);
 }
 
 /** Request-scoped facts the policy needs beyond the catalogue. */
@@ -287,7 +294,9 @@ export async function assertProviderCompliant(
 		model?: string;
 	},
 ): Promise<void> {
-	const policy = getActiveCompliancePolicy(organization);
+	const policy = await withDpaEnforcement(
+		getActiveCompliancePolicy(organization),
+	);
 	if (
 		!policy ||
 		(isProviderIdCompliant(providerId, policy, {

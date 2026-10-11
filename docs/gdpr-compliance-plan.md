@@ -173,7 +173,8 @@ Current mitigations, in order of strength:
    (`apps/gateway/src/chat/chat.ts`, `filterCompliantProviders`), not in the UI.
 
    These five controls are deliberately **not** gated on plan
-   (`DATA_PROTECTION_POLICY_KEYS`, `narrowPolicyToDataProtection`). They used to
+   (`DATA_PROTECTION_POLICY_KEYS`, checked when the policy is saved — the
+   gateway enforces any enabled stored policy in full). They used to
    be Enterprise-only, which meant a free or pro customer had no way to stop
    their EU personal data reaching a provider with no adequacy decision — while
    still carrying the Art. 44-49 obligation for that transfer as the controller.
@@ -187,7 +188,9 @@ Current mitigations, in order of strength:
    (**Provider DPAs**). When the `REQUIRE_PROVIDER_DPA_FOR_GDPR` environment
    flag is enabled, a compliance policy's `requireGdpr` control only accepts
    providers with a signed DPA on record — a catalogue `gdpr: true` flag alone
-   no longer suffices. The flag ships **off** so recording DPAs does not
+   no longer suffices. Airside carriers have no DPA record either, so with the
+   flag on they cannot satisfy `requireGdpr` on a self-declared `gdpr: true`.
+   The flag ships **off** so recording DPAs does not
    change existing routing; infra flips it once the records are filled in.
    Mark a provider signed only when the agreement is evidenced per
    `legal/SUBPROCESSOR_DPAS.md` (filed artifact, not a vendor page).
@@ -215,7 +218,9 @@ country, so it is a product decision rather than something to change silently.
 `packages/models/src/data-protection-baseline.spec.ts` fails the build when a
 provider is added without a `dataPolicy`, without a stated `gdpr` position, or
 without disclosed `headquarters`. The providers that are undocumented today are
-listed as an explicit baseline and tolerated; anything new is not.
+listed as an explicit baseline and tolerated; anything new is not. `atria`
+(added on main without a published data policy or privacy-policy link) sits in
+those baselines until its operator's terms are obtained.
 
 This exists because the Q3 2026 audit found a provider had been added
 mid-quarter with none of that information and nobody noticed until the quarterly

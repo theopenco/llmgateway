@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { getProviderDefinition } from "@llmgateway/models";
+
 import {
 	applyDpaRequirement,
 	filterCompliantProviders,
@@ -13,7 +15,10 @@ import {
 	withDpaEnforcement,
 } from "./compliance.js";
 
-import type { ProviderCompliancePolicy } from "@llmgateway/models";
+import type {
+	ProviderCompliancePolicy,
+	ProviderDefinition,
+} from "@llmgateway/models";
 
 const POLICY: ProviderCompliancePolicy = {
 	enabled: true,
@@ -517,6 +522,28 @@ describe("signed-DPA requirement (REQUIRE_PROVIDER_DPA_FOR_GDPR)", () => {
 				},
 			}),
 		).toBe(true);
+	});
+
+	it("blocks an Airside carrier that self-declares GDPR without a DPA record", () => {
+		const carrier: ProviderDefinition = {
+			...getProviderDefinition("openai")!,
+			id: "acme-carrier",
+			managedInAirside: true,
+		};
+		const context = { effectiveProviders: [carrier] };
+		expect(isProviderIdCompliant("acme-carrier", GDPR_POLICY, context)).toBe(
+			true,
+		);
+
+		const enforced = applyDpaRequirement(GDPR_POLICY, new Set(), [carrier]);
+		expect(isProviderIdCompliant("acme-carrier", enforced, context)).toBe(
+			false,
+		);
+
+		const signed = applyDpaRequirement(GDPR_POLICY, new Set(["acme-carrier"]), [
+			carrier,
+		]);
+		expect(isProviderIdCompliant("acme-carrier", signed, context)).toBe(true);
 	});
 
 	it("preserves an existing blockedProviders list", () => {
