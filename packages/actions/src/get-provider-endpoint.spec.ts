@@ -705,7 +705,7 @@ describe("getProviderEndpoint", () => {
 			const endpoint = getProviderEndpoint(
 				"xiaomi",
 				undefined,
-				"mimo-v2.5-pro",
+				"mimo-v2.6-pro",
 			);
 
 			expect(endpoint).toBe("https://api.xiaomimimo.com/v1/chat/completions");
@@ -729,7 +729,7 @@ describe("getProviderEndpoint", () => {
 			const endpoint = getProviderEndpoint(
 				"xiaomi",
 				undefined,
-				"mimo-v2.5",
+				"mimo-v2.6-flash",
 				undefined,
 				true,
 			);

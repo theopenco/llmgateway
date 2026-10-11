@@ -9,12 +9,14 @@ const RATIO_TOLERANCE = 1e-9;
 
 const LEGACY_RATIO_EXCEPTIONS = new Set(["claude-3-haiku-20240307"]);
 // Fable 5.1 prices cache reads at $0.25/MTok on a $10 base; Opus 5.5 at
-// $0.20/MTok on a $4 base.
+// $0.20/MTok on a $4 base; Sonnet 5.5 at $0.10/MTok on a $2 base.
 const CACHE_READ_MULTIPLIER_OVERRIDES = new Map([
 	["anthropic.claude-fable-5-1", 0.025],
 	["claude-fable-5-1", 0.025],
 	["anthropic.claude-opus-5-5", 0.05],
 	["claude-opus-5-5", 0.05],
+	["anthropic.claude-sonnet-5-5", 0.05],
+	["claude-sonnet-5-5", 0.05],
 ]);
 const cacheReadMultiplierFor = (externalId: string) =>
 	CACHE_READ_MULTIPLIER_OVERRIDES.get(externalId) ?? CACHE_READ_MULTIPLIER;

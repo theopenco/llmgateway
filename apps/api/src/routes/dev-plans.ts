@@ -49,6 +49,7 @@ import {
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 import { resolveDevPassBillingDetails } from "@/utils/plan-billing.js";
 import {
+	providerCacheAutoTtlSchema,
 	providerCacheControlModeSchema,
 	resolveProviderCacheControlMode,
 } from "@/utils/provider-cache-control.js";
@@ -1878,7 +1879,9 @@ const getStatus = createRoute({
 							"latency",
 						]),
 						providerCacheControlMode: providerCacheControlModeSchema,
+						providerCacheAutoTtl: providerCacheAutoTtlSchema,
 						blockApiTraining: z.boolean(),
+						zeroDataRetentionEnabled: z.boolean(),
 					}),
 				},
 			},
@@ -1941,6 +1944,8 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanServiceTier: "default" as const,
 			defaultRoutingStrategy: "auto" as const,
 			providerCacheControlMode: "auto" as const,
+			providerCacheAutoTtl: "5m" as const,
+			zeroDataRetentionEnabled: false,
 			blockApiTraining: false,
 		});
 	}
@@ -1991,6 +1996,7 @@ devPlans.openapi(getStatus, async (c) => {
 	let defaultRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
 	let providerCacheControlMode: ProviderCacheControlMode = "auto";
+	let providerCacheAutoTtl: "5m" | "1h" = "5m";
 	if (personalOrg.devPlan !== "none") {
 		// Find the default project for this org. Order by createdAt asc so we
 		// always return the original "Default Project" rather than whichever
@@ -2010,6 +2016,7 @@ devPlans.openapi(getStatus, async (c) => {
 			projectId = project.id;
 			defaultRoutingStrategy = project.defaultRoutingStrategy;
 			providerCacheControlMode = project.providerCacheControlMode;
+			providerCacheAutoTtl = project.providerCacheAutoTtl;
 			apiKey = await getOrCreatePersonalOrgApiKey(project.id, user.id);
 		}
 	}
@@ -2061,6 +2068,10 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanServiceTier: personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy,
 		providerCacheControlMode,
+		providerCacheAutoTtl,
+		zeroDataRetentionEnabled:
+			personalOrg.providerCompliancePolicy?.enabled === true &&
+			personalOrg.providerCompliancePolicy.zeroDataRetention === true,
 		blockApiTraining:
 			personalOrg.providerCompliancePolicy?.enabled === true &&
 			personalOrg.providerCompliancePolicy.blockApiTraining === true,
@@ -2086,6 +2097,7 @@ const updateSettings = createRoute({
 						// Control upstream prompt-cache writes for coding clients that
 						// send cache markers automatically.
 						providerCacheControlMode: providerCacheControlModeSchema.optional(),
+						providerCacheAutoTtl: providerCacheAutoTtlSchema.optional(),
 						blockApiTraining: z.boolean().optional(),
 						/** @deprecated use providerCacheControlMode. */
 						providerCacheControlEnabled: z.boolean().optional(),
@@ -2119,7 +2131,9 @@ const updateSettings = createRoute({
 							"latency",
 						]),
 						providerCacheControlMode: providerCacheControlModeSchema,
+						providerCacheAutoTtl: providerCacheAutoTtlSchema,
 						blockApiTraining: z.boolean(),
+						zeroDataRetentionEnabled: z.boolean(),
 						devPlanPaygEnabled: z.boolean(),
 						autoTopUpEnabled: z.boolean(),
 						autoTopUpThreshold: z.string().nullable(),
@@ -2136,6 +2150,7 @@ devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
 	const {
 		devPlanServiceTier,
+		providerCacheAutoTtl,
 		defaultRoutingStrategy,
 		blockApiTraining,
 		devPlanPaygEnabled,
@@ -2311,6 +2326,7 @@ devPlans.openapi(updateSettings, async (c) => {
 	let effectiveRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
 	let effectiveProviderCacheControlMode: ProviderCacheControlMode = "auto";
+	let effectiveProviderCacheAutoTtl: "5m" | "1h" = "5m";
 	const defaultProject = await db.query.project.findFirst({
 		where: {
 			organizationId: {
@@ -2324,6 +2340,7 @@ devPlans.openapi(updateSettings, async (c) => {
 	if (defaultProject) {
 		effectiveRoutingStrategy = defaultProject.defaultRoutingStrategy;
 		effectiveProviderCacheControlMode = defaultProject.providerCacheControlMode;
+		effectiveProviderCacheAutoTtl = defaultProject.providerCacheAutoTtl;
 		const projectUpdateData: Partial<typeof tables.project.$inferInsert> = {};
 		if (
 			defaultRoutingStrategy !== undefined &&
@@ -2336,6 +2353,17 @@ devPlans.openapi(updateSettings, async (c) => {
 			providerCacheControlMode !== defaultProject.providerCacheControlMode
 		) {
 			projectUpdateData.providerCacheControlMode = providerCacheControlMode;
+		}
+		if (
+			providerCacheAutoTtl !== undefined &&
+			providerCacheAutoTtl !== defaultProject.providerCacheAutoTtl
+		) {
+			projectUpdateData.providerCacheAutoTtl = providerCacheAutoTtl;
+			changes.providerCacheAutoTtl = {
+				old: defaultProject.providerCacheAutoTtl,
+				new: providerCacheAutoTtl,
+			};
+			effectiveProviderCacheAutoTtl = providerCacheAutoTtl;
 		}
 		if (Object.keys(projectUpdateData).length > 0) {
 			// Cached client so the gateway's project-cache invalidates and the new
@@ -2384,6 +2412,10 @@ devPlans.openapi(updateSettings, async (c) => {
 		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
 		providerCacheControlMode: effectiveProviderCacheControlMode,
+		providerCacheAutoTtl: effectiveProviderCacheAutoTtl,
+		zeroDataRetentionEnabled:
+			personalOrg.providerCompliancePolicy?.enabled === true &&
+			personalOrg.providerCompliancePolicy.zeroDataRetention === true,
 		blockApiTraining:
 			blockApiTraining ??
 			(personalOrg.providerCompliancePolicy?.enabled === true &&

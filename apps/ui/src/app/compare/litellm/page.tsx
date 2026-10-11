@@ -30,7 +30,7 @@ const liteLlmFaqs: CompareFaqItem[] = [
 	{
 		question: "What does LLM Gateway charge?",
 		answer:
-			"The managed gateway charges a 5% fee on purchased credits and no BYOK platform fee. Optional full request storage is separate. The AGPLv3 core is free to self-host subject to the license; enterprise features use commercial terms.",
+			"The managed gateway charges a 5% fee on purchased credits and no BYOK platform fee. Full request storage is an Enterprise feature billed separately. The AGPLv3 core is free to self-host subject to the license; enterprise features use commercial terms.",
 	},
 	{
 		question: "What changes during migration?",

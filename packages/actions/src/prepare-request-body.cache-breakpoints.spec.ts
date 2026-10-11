@@ -1,9 +1,14 @@
 import { describe, expect, test } from "vitest";
 
+import { models } from "@llmgateway/models";
+
 import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type {
 	BaseMessage,
+	OpenAIToolInput,
+	ProviderCacheAutoTtl,
+	ProviderModelMapping,
 	ProviderCacheControlMode,
 	ProviderId,
 } from "@llmgateway/models";
@@ -40,6 +45,9 @@ async function prepare(
 	provider: ProviderId,
 	messages: BaseMessage[],
 	mode: ProviderCacheControlMode = "auto",
+	ttl: ProviderCacheAutoTtl = "5m",
+	tools?: OpenAIToolInput[],
+	mapping?: ProviderModelMapping,
 ) {
 	return (await prepareRequestBody(
 		provider,
@@ -54,7 +62,7 @@ async function prepare(
 		undefined,
 		undefined,
 		undefined,
-		undefined,
+		tools,
 		undefined,
 		undefined,
 		undefined,
@@ -71,6 +79,16 @@ async function prepare(
 		undefined,
 		undefined,
 		mode,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		mapping,
+		undefined,
+		ttl,
 	)) as { messages: Array<{ content: Array<Record<string, unknown>> }> };
 }
 
@@ -285,4 +303,112 @@ describe("automatic conversation breakpoints", () => {
 			expect(markers(body)).toHaveLength(4);
 		},
 	);
+});
+
+describe("automatic cache duration", () => {
+	const providers = [...anthropicFormat, "aws-bedrock" as const];
+
+	test.each(providers)(
+		"%s applies 1h to every automatic breakpoint",
+		async (provider) => {
+			const messages = chat();
+			messages[0]!.content = "Stable instructions. ".repeat(1500);
+			messages[1]!.content = "Long opening turn. ".repeat(1500);
+			const before = structuredClone(messages);
+			const defaults = await prepare(provider, messages);
+			const extended = await prepare(provider, messages, "auto", "1h");
+			expect(markers(extended).length).toBeGreaterThanOrEqual(3);
+			expect(markers(extended)).toHaveLength(markers(defaults).length);
+			for (const marker of markers(extended)) {
+				expect(marker).toHaveProperty("ttl", "1h");
+			}
+			expect(extended.messages.at(-1)!.content.at(-1)).toMatchObject(
+				provider === "aws-bedrock"
+					? { cachePoint: { ttl: "1h" } }
+					: { cache_control: { ttl: "1h" } },
+			);
+			expect(messages).toEqual(before);
+			// Retrying against a different mapping must re-evaluate support.
+			const mapping = models
+				.find((model) => model.id === "claude-opus-4-7")!
+				.providers.find((entry) => entry.providerId === provider)!;
+			const unsupported = await prepare(
+				provider,
+				messages,
+				"auto",
+				"1h",
+				undefined,
+				{ ...mapping, cacheWriteInputPrice1h: undefined },
+			);
+			expect(unsupported).toEqual(defaults);
+		},
+	);
+
+	test.each(providers)(
+		"%s applies 1h to the latest tool result",
+		async (provider) => {
+			const body = await prepare(provider, toolLoop(), "auto", "1h");
+			expect(markers(body).length).toBeGreaterThan(0);
+			for (const marker of markers(body)) {
+				expect(marker).toHaveProperty("ttl", "1h");
+			}
+		},
+	);
+
+	for (const provider of providers) {
+		for (const ttl of [undefined, "5m", "1h"] as const) {
+			test.each(["system", "message", "tool", "tool_result"] as const)(
+				`${provider} ignores preference with caller ${ttl ?? "default"} marker on %s`,
+				async (location) => {
+					const marker = { type: "ephemeral" as const, ...(ttl && { ttl }) };
+					const messages = location === "tool_result" ? toolLoop() : chat();
+					const tools: OpenAIToolInput[] = [
+						{
+							type: "function",
+							function: {
+								name: "read_file",
+								parameters: { type: "object", properties: {} },
+							},
+							...(location === "tool" && { cache_control: marker }),
+						},
+					];
+					if (location === "system" || location === "message") {
+						const index = location === "system" ? 0 : messages.length - 1;
+						messages[index]!.content = [
+							{ type: "text", text: "Marked content", cache_control: marker },
+						];
+					} else if (location === "tool_result") {
+						messages.at(-1)!.tool_result_cache_control = marker;
+					}
+					const defaults = await prepare(
+						provider,
+						messages,
+						"auto",
+						"5m",
+						tools,
+					);
+					expect(
+						await prepare(provider, messages, "auto", "1h", tools),
+					).toEqual(defaults);
+				},
+			);
+		}
+	}
+
+	test.each(["passthrough", "off"] as const)(
+		"%s does not inject 1h markers",
+		async (mode) => {
+			for (const provider of providers) {
+				expect(
+					markers(await prepare(provider, toolLoop(), mode, "1h")),
+				).toEqual([]);
+			}
+		},
+	);
+
+	test("does not alter unrelated provider requests", async () => {
+		expect(await prepare("openai", chat(), "auto", "1h")).toEqual(
+			await prepare("openai", chat()),
+		);
+	});
 });

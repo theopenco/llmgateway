@@ -5,6 +5,7 @@ import { z } from "zod";
 import { resolveProjectLimit } from "@/lib/project-limit.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
 import {
+	providerCacheAutoTtlSchema,
 	providerCacheControlModeSchema,
 	resolveProviderCacheControlMode,
 } from "@/utils/provider-cache-control.js";
@@ -44,6 +45,7 @@ const projectSchema = z.object({
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
 	providerCacheControlMode: providerCacheControlModeSchema,
+	providerCacheAutoTtl: providerCacheAutoTtlSchema,
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -64,6 +66,7 @@ const createProjectSchema = z.object({
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
 	providerCacheControlMode: providerCacheControlModeSchema.optional(),
+	providerCacheAutoTtl: providerCacheAutoTtlSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
 });
@@ -73,6 +76,7 @@ const updateProjectSchema = z.object({
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(), // Min 10 seconds, max 1 year
 	providerCacheControlMode: providerCacheControlModeSchema.optional(),
+	providerCacheAutoTtl: providerCacheAutoTtlSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
 	defaultRoutingStrategy: z
@@ -241,6 +245,7 @@ projects.openapi(updateProject, async (c) => {
 		name,
 		cachingEnabled,
 		cacheDurationSeconds,
+		providerCacheAutoTtl,
 		mode,
 		defaultRoutingStrategy,
 		endUserEnabled,
@@ -337,6 +342,10 @@ projects.openapi(updateProject, async (c) => {
 
 	if (cacheDurationSeconds !== undefined) {
 		updateData.cacheDurationSeconds = cacheDurationSeconds;
+	}
+
+	if (providerCacheAutoTtl !== undefined) {
+		updateData.providerCacheAutoTtl = providerCacheAutoTtl;
 	}
 
 	if (providerCacheControlMode !== undefined) {
@@ -475,6 +484,16 @@ projects.openapi(updateProject, async (c) => {
 			new: cacheDurationSeconds,
 		};
 	}
+	if (
+		providerCacheAutoTtl !== undefined &&
+		providerCacheAutoTtl !== project.providerCacheAutoTtl
+	) {
+		changes.providerCacheAutoTtl = {
+			old: project.providerCacheAutoTtl,
+			new: providerCacheAutoTtl,
+		};
+	}
+
 	if (
 		providerCacheControlMode !== undefined &&
 		providerCacheControlMode !== project.providerCacheControlMode
@@ -642,6 +661,7 @@ export interface CreateProjectInput {
 	cachingEnabled?: boolean;
 	cacheDurationSeconds?: number;
 	providerCacheControlMode?: ProviderCacheControlMode;
+	providerCacheAutoTtl?: "5m" | "1h";
 	providerCacheControlEnabled?: boolean;
 	mode?: "api-keys" | "credits" | "hybrid";
 }
@@ -656,6 +676,7 @@ export async function createProjectForOrg(
 		name,
 		cachingEnabled = false,
 		cacheDurationSeconds = 60,
+		providerCacheAutoTtl = "5m",
 		mode = DEFAULT_PROJECT_MODE,
 	} = input;
 	const providerCacheControlMode =
@@ -741,6 +762,7 @@ export async function createProjectForOrg(
 			organizationId,
 			cachingEnabled,
 			cacheDurationSeconds,
+			providerCacheAutoTtl,
 			providerCacheControlMode,
 			mode,
 		})

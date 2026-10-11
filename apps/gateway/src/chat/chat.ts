@@ -17,7 +17,10 @@ import {
 	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
-import { resolveChatApiOrigin } from "@/lib/api-origin.js";
+import {
+	hasInternalClientCacheMarkers,
+	resolveChatApiOrigin,
+} from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
 	findManagedProviderAvailability,
@@ -78,7 +81,11 @@ import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
 } from "@/lib/gcp-token.js";
-import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
+import {
+	evaluateProviderAccessRestriction,
+	throwIamException,
+	validateRequestModelAccess,
+} from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
 	errorFinishReasonDetails,
@@ -3570,6 +3577,7 @@ chat.openapi(completions, async (c) => {
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
+		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: modelInfo.id,
 		requestedProvider,
 		customProviderName,
@@ -3622,6 +3630,7 @@ chat.openapi(completions, async (c) => {
 					const customIam = await validateRequestModelAccess({
 						apiKey,
 						organizationId: project.organizationId,
+						providerAccessRestriction: organization.providerAccessRestriction,
 						requestedModel: modelInfo.id,
 						requestedProvider: "custom",
 						customProviderName: providerKey.name,
@@ -4373,6 +4382,7 @@ chat.openapi(completions, async (c) => {
 			const candidateIam = await validateRequestModelAccess({
 				apiKey,
 				organizationId: project.organizationId,
+				providerAccessRestriction: organization.providerAccessRestriction,
 				requestedModel: modelDef.id,
 				activeModelInfo: modelDef,
 				clientIp,
@@ -4461,6 +4471,8 @@ chat.openapi(completions, async (c) => {
 							const customIam = await validateRequestModelAccess({
 								apiKey,
 								organizationId: project.organizationId,
+								providerAccessRestriction:
+									organization.providerAccessRestriction,
 								requestedModel: modelDef.id,
 								requestedProvider: "custom",
 								customProviderName: providerKey.name,
@@ -4942,6 +4954,7 @@ chat.openapi(completions, async (c) => {
 		const resolvedIamValidation = await validateRequestModelAccess({
 			apiKey,
 			organizationId: project.organizationId,
+			providerAccessRestriction: organization.providerAccessRestriction,
 			requestedModel: modelInfo.id,
 			requestedProvider: usedProvider === "custom" ? "custom" : undefined,
 			customProviderName:
@@ -4954,6 +4967,19 @@ chat.openapi(completions, async (c) => {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
 		}
 		const allowedProviders = resolvedIamValidation.allowedProviders;
+		// The no-candidate fallback above pins its provider without consulting
+		// the staff-managed restriction. Only an org with a restriction set can
+		// be refused here; every other org keeps the existing behavior.
+		if (organization.providerAccessRestriction && usedProvider !== "custom") {
+			const restricted = evaluateProviderAccessRestriction(
+				organization.providerAccessRestriction,
+				modelInfo,
+				usedProvider,
+			);
+			if (!restricted.allowed) {
+				throwIamException(restricted.reason ?? "Model access denied");
+			}
+		}
 		iamFilteredModelProviders = allowedProviders
 			? modelInfo.providers.filter((p) =>
 					allowedProviders.includes(p.providerId),
@@ -7396,7 +7422,11 @@ chat.openapi(completions, async (c) => {
 		enabled: projectCachingEnabled,
 		duration: cacheDuration,
 		providerCacheControlMode: configuredProviderCacheControlMode,
+		providerCacheAutoTtl: configuredProviderCacheAutoTtl,
 	} = await isCachingEnabled(project.id);
+	const providerCacheAutoTtl = hasInternalClientCacheMarkers(c)
+		? "5m"
+		: configuredProviderCacheAutoTtl;
 	const providerCacheControlMode = zeroDataRetentionEnabled
 		? "off"
 		: configuredProviderCacheControlMode;
@@ -8281,6 +8311,7 @@ chat.openapi(completions, async (c) => {
 			organization.safetyIdentifier,
 			getUsedProviderMapping(),
 			reasoning_mode,
+			providerCacheAutoTtl,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -8492,6 +8523,7 @@ chat.openapi(completions, async (c) => {
 				),
 				n,
 				providerCacheControlMode,
+				providerCacheAutoTtl,
 				service_tier,
 				clientRequestedServiceTier: clientRequestedServiceTier(),
 				verbosity,

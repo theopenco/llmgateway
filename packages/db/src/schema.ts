@@ -26,6 +26,7 @@ import type {
 	Quantization,
 	ProviderApiFormat,
 	ToolChoiceMode,
+	ProviderAccessRestriction,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -326,6 +327,10 @@ export const organization = snakeCase.table(
 		// only routes to providers meeting the required certifications/data
 		// policies. Null = no policy configured.
 		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
+		// Provider/model allow or deny list set by LLM Gateway staff in the admin
+		// dashboard, enforced by the gateway as a ceiling over IAM rules. The
+		// organization cannot edit it. Null = no restriction.
+		providerAccessRestriction: json().$type<ProviderAccessRestriction>(),
 		// Enterprise smart-routing ("smart" model) configuration: which models the
 		// gateway may pick from and which classifier ranks the request. Null =
 		// the built-in default candidate set and no classifier. Projects may
@@ -1442,6 +1447,9 @@ export const project = snakeCase.table(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		cachingEnabled: boolean().notNull().default(false),
 		cacheDurationSeconds: integer().notNull().default(60),
+		providerCacheAutoTtl: text({ enum: ["5m", "1h"] })
+			.notNull()
+			.default("5m"),
 		// How provider-side prompt-cache markers are handled for this project.
 		// "passthrough" exists because a single key often serves both a coding
 		// agent that manages its own markers and traffic that must not pay the
@@ -4525,6 +4533,7 @@ export const auditLogActions = [
 	"organization.block",
 	"organization.manage",
 	"organization.sso_auto_join.update",
+	"organization.provider_access_update",
 	// Project
 	"project.create",
 	"project.update",

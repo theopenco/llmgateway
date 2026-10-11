@@ -76,6 +76,7 @@ export async function isCachingEnabled(projectId: string): Promise<{
 	enabled: boolean;
 	duration: number;
 	providerCacheControlMode: ProviderCacheControlMode;
+	providerCacheAutoTtl: "5m" | "1h";
 }> {
 	try {
 		return await swrWrap(
@@ -87,6 +88,7 @@ export async function isCachingEnabled(projectId: string): Promise<{
 						cachingEnabled: projectTable.cachingEnabled,
 						cacheDurationSeconds: projectTable.cacheDurationSeconds,
 						providerCacheControlMode: projectTable.providerCacheControlMode,
+						providerCacheAutoTtl: projectTable.providerCacheAutoTtl,
 					})
 					.from(projectTable)
 					.where(eq(projectTable.id, projectId))
@@ -99,6 +101,7 @@ export async function isCachingEnabled(projectId: string): Promise<{
 						enabled: false,
 						duration: 0,
 						providerCacheControlMode: "auto" as ProviderCacheControlMode,
+						providerCacheAutoTtl: "5m" as const,
 					};
 				}
 
@@ -106,6 +109,7 @@ export async function isCachingEnabled(projectId: string): Promise<{
 					enabled: project.cachingEnabled || false,
 					duration: project.cacheDurationSeconds || 60,
 					providerCacheControlMode: project.providerCacheControlMode ?? "auto",
+					providerCacheAutoTtl: project.providerCacheAutoTtl ?? "5m",
 				};
 			},
 		);

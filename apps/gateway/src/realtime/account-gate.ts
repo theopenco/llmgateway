@@ -132,6 +132,7 @@ export async function authorizeAccount(
 	const iamValidation = await validateRequestModelAccess({
 		apiKey: freshKey,
 		organizationId: preflight.project.organizationId,
+		providerAccessRestriction: freshOrg.providerAccessRestriction,
 		requestedModel: match.modelId,
 		requestedProvider: match.mapping.providerId,
 		activeModelInfo: match.modelDef,

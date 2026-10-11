@@ -224,6 +224,9 @@ export async function generateAndEmailInvoice(
 
 		const escapedInvoiceNumber = escapeHtml(data.invoiceNumber);
 		const escapedCurrency = escapeHtml(data.currency);
+		const escapedOrganizationId = data.organizationId
+			? escapeHtml(data.organizationId)
+			: null;
 
 		await sendTransactionalEmail({
 			to: data.billingEmail,
@@ -264,6 +267,7 @@ export async function generateAndEmailInvoice(
 								</p>
 								<p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #666666;">
 									<strong>Invoice Number:</strong> ${escapedInvoiceNumber}<br>
+									${escapedOrganizationId ? `<strong>Organization ID:</strong> ${escapedOrganizationId}<br>` : ""}
 									<strong>Date:</strong> ${data.invoiceDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}<br>
 									<strong>Total:</strong> ${escapedCurrency} ${data.lineItems.reduce((sum, item) => sum + item.amount, 0).toFixed(2)}
 								</p>
