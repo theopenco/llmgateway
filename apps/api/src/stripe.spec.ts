@@ -391,6 +391,59 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns[0].creditAmount).toBe("237");
 	});
 
+	test("a duplicate delivery that races past the invoice guard is a no-op", async () => {
+		// Stripe sends both `invoice.paid` and `invoice.payment_succeeded`; two
+		// concurrent deliveries can both pass the early-return invoice lookup.
+		// The loser's insert must hit onConflictDoNothing (not throw a unique
+		// violation) and must not re-apply the reset or re-send the emails.
+		await seedUsedDevPlanOrg();
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 7900,
+				invoiceId: "in_cycle_dup_001",
+			}),
+		);
+
+		// Usage accrues after the winner reset the cycle.
+		await db
+			.update(tables.organization)
+			.set({ devPlanCreditsUsed: "42" })
+			.where(eq(tables.organization.id, ORG_ID));
+		sendEmailMock.mockClear();
+
+		// Simulate the loser having read the invoice guard before the winner
+		// committed.
+		const guardSpy = vi
+			.spyOn(db.query.transaction, "findFirst")
+			.mockResolvedValueOnce(undefined);
+		try {
+			await expect(
+				handleInvoicePaymentSucceeded(
+					makeInvoiceEvent({
+						billingReason: "subscription_cycle",
+						amountPaid: 7900,
+						invoiceId: "in_cycle_dup_001",
+					}),
+				),
+			).resolves.toBeUndefined();
+		} finally {
+			guardSpy.mockRestore();
+		}
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCreditsUsed).toBe("42");
+		expect(sendEmailMock).not.toHaveBeenCalled();
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+	});
+
 	test("applies a scheduled downgrade at renewal: switches tier and grants the lower allotment", async () => {
 		// Org is on pro with a pending downgrade to lite. At the cycle renewal the
 		// tier must flip to lite, the pending marker clears, and credits reset to
