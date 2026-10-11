@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "9f535c93-0845-43b4-8519-f7eb582391d2",
+  "id": "161e07b2-3fa7-4fca-9ced-d1fd36b2ad36",
   "prevIds": [
     "fab7b173-4466-4d8b-982a-e1cd9062e8a9"
   ],
@@ -39468,7 +39468,7 @@
         }
       ],
       "isUnique": true,
-      "where": "\"type\" = 'credit_topup'",
+      "where": "\"type\" = 'credit_topup' AND \"status\" = 'completed'",
       "with": "",
       "method": "btree",
       "concurrently": false,
