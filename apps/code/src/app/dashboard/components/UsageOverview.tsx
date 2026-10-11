@@ -1,6 +1,6 @@
 "use client";
 
-import { formatDistanceToNowStrict } from "date-fns";
+import { addMonths, addYears, formatDistanceToNowStrict } from "date-fns";
 import { Activity, Coins, Cpu, Gem, TrendingUp } from "lucide-react";
 import dynamic from "next/dynamic";
 import { usePostHog } from "posthog-js/react";
@@ -261,7 +261,15 @@ export default function UsageOverview({
 				query: projectId
 					? {
 							projectId,
-							timeRange: "30d" as const,
+							...(billingCycleStart
+								? {
+										from: formatDayKey(
+											new Date(billingCycleStart),
+											displayTimeZone,
+										),
+										to: formatDayKey(new Date(), displayTimeZone),
+									}
+								: { timeRange: "30d" as const }),
 							timezone: displayTimeZone,
 						}
 					: { timeRange: "30d" as const, timezone: displayTimeZone },
@@ -277,7 +285,7 @@ export default function UsageOverview({
 	const items = activity?.activity ?? [];
 
 	// Cycle-scoped subset for the metric cards so they line up with the usage bar.
-	// /activity covers a fixed 30d window; the cycle may be shorter (e.g. 12 days in).
+	// Activity covers the complete billing cycle.
 	// Activity `date` is a day key in the display zone, so reduce the cycle start
 	// to its day in the same zone and compare keys — otherwise the cycle's first
 	// day gets filtered out. YYYY-MM-DD sorts chronologically as a string.
@@ -325,15 +333,9 @@ export default function UsageOverview({
 	const renewAt = currentPeriodEnd
 		? new Date(currentPeriodEnd)
 		: billingCycleStart
-			? (() => {
-					const d = new Date(billingCycleStart);
-					if (cycle === "annual") {
-						d.setFullYear(d.getFullYear() + 1);
-					} else {
-						d.setMonth(d.getMonth() + 1);
-					}
-					return d;
-				})()
+			? cycle === "annual"
+				? addYears(new Date(billingCycleStart), 1)
+				: addMonths(new Date(billingCycleStart), 1)
 			: null;
 
 	// Clock-derived, so flip it on a timer — see the billing page for why the
