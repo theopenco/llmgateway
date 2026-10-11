@@ -2703,6 +2703,13 @@ export function countryCodeToFlag(code: string): string {
 		.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
 }
 
+const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+
+/** English name for an ISO 3166-1 alpha-2 country code. */
+export function countryName(code: string): string {
+	return PROVIDER_COUNTRY_NAMES[code] ?? regionNames.of(code) ?? code;
+}
+
 /** Distinct provider-headquarters countries, sorted by name. */
 export function getProviderCountries(
 	definitions: readonly ProviderDefinition[] = providers,
@@ -2716,7 +2723,7 @@ export function getProviderCountries(
 	return Array.from(codes)
 		.map((code) => ({
 			code,
-			name: PROVIDER_COUNTRY_NAMES[code] ?? code,
+			name: countryName(code),
 			flag: countryCodeToFlag(code),
 		}))
 		.sort((a, b) => a.name.localeCompare(b.name));
