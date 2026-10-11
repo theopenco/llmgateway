@@ -309,11 +309,11 @@ describe("resolveImageFetchTimeoutMs", () => {
 	});
 
 	it("defaults to 15000 when unset", () => {
-		delete process.env.IMAGE_FETCH_TIMEOUT_MS;
+		vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", undefined);
 		expect(resolveImageFetchTimeoutMs()).toBe(15_000);
 	});
 
-	it.each(["-1", "Infinity", "1.5", "not-a-number"])(
+	it.each(["", "   ", "0", "-1", "Infinity", "1.5", "not-a-number"])(
 		"falls back to 15000 for invalid value %s (never throws)",
 		(value) => {
 			vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", value);
@@ -329,8 +329,8 @@ describe("resolveImageFetchTimeoutMs", () => {
 		expect(resolveImageFetchTimeoutMs()).toBe(5000);
 	});
 
-	it("honours 0", () => {
-		vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "0");
-		expect(resolveImageFetchTimeoutMs()).toBe(0);
+	it("trims surrounding whitespace", () => {
+		vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", " 5000 ");
+		expect(resolveImageFetchTimeoutMs()).toBe(5000);
 	});
 });
