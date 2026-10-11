@@ -60,6 +60,8 @@ describe("upstream dispatcher", () => {
 		setGlobalDispatcher(originalDispatcher);
 		delete process.env.UPSTREAM_KEEPALIVE_TIMEOUT_MS;
 		delete process.env.GATEWAY_TIMEOUT_MS;
+		delete process.env.AI_TIMEOUT_MS;
+		delete process.env.AI_STREAMING_TIMEOUT_MS;
 		clientPorts.length = 0;
 	});
 
@@ -120,6 +122,8 @@ describe("upstream dispatcher", () => {
 		"bounds slow headers and stalled bodies by the gateway timeout (%s dispatcher)",
 		async (_name, getDispatcher) => {
 			process.env.GATEWAY_TIMEOUT_MS = "100";
+			process.env.AI_TIMEOUT_MS = "100";
+			process.env.AI_STREAMING_TIMEOUT_MS = "100";
 			installUpstreamDispatcher();
 			const init = { dispatcher: getDispatcher() } as RequestInit;
 			await expect(
@@ -133,6 +137,15 @@ describe("upstream dispatcher", () => {
 			});
 		},
 	);
+
+	it("does not undercut a plain request timeout longer than the gateway timeout", async () => {
+		process.env.GATEWAY_TIMEOUT_MS = "100";
+		process.env.AI_TIMEOUT_MS = "10000";
+		installUpstreamDispatcher();
+		const res = await fetch(`${baseUrl}/slow-headers`);
+		expect(res.status).toBe(200);
+		await expect(res.json()).resolves.toEqual({});
+	});
 
 	it("falls back to defaults on invalid env values", () => {
 		process.env.UPSTREAM_KEEPALIVE_TIMEOUT_MS = "not-a-number";

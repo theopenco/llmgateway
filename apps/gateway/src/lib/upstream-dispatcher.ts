@@ -5,7 +5,11 @@ import {
 	setGlobalDispatcher,
 } from "undici";
 
-import { getGatewayTimeoutMs } from "@/lib/timeout-config.js";
+import {
+	getGatewayTimeoutMs,
+	getStreamingTimeoutMs,
+	getTimeoutMs,
+} from "@/lib/timeout-config.js";
 
 import { logger } from "@llmgateway/logger";
 import { safeOutboundLookup } from "@llmgateway/shared/url-safety-node";
@@ -18,10 +22,15 @@ function envInt(name: string, fallback: number): number {
 }
 
 // undici defaults headersTimeout and bodyTimeout to 300s, which would cut off
-// provider calls before the longer plain/streaming request timeouts fire. Cap
-// them at the overall gateway timeout so those timers stay in charge.
+// provider calls before the longer plain/streaming request timeouts fire. Use
+// the longest configured request timeout so the abort signals stay in charge,
+// even when GATEWAY_TIMEOUT_MS is set below AI_TIMEOUT_MS.
 function responseTimeouts() {
-	const timeoutMs = getGatewayTimeoutMs();
+	const timeoutMs = Math.max(
+		getGatewayTimeoutMs(),
+		getTimeoutMs(),
+		getStreamingTimeoutMs(),
+	);
 	return { headersTimeout: timeoutMs, bodyTimeout: timeoutMs };
 }
 
