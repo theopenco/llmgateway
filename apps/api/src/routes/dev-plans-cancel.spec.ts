@@ -9,7 +9,12 @@ import type * as PaymentsModule from "@/routes/payments.js";
 
 const stripeMock = vi.hoisted(() => ({
 	subscriptions: {
+		retrieve: vi.fn(),
 		update: vi.fn(),
+		cancel: vi.fn(),
+	},
+	invoices: {
+		list: vi.fn(),
 	},
 }));
 
@@ -32,10 +37,16 @@ describe("POST /dev-plans/cancel", () => {
 
 	beforeEach(async () => {
 		vi.clearAllMocks();
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			status: "active",
+		});
 		stripeMock.subscriptions.update.mockResolvedValue({
 			id: SUBSCRIPTION_ID,
+			status: "active",
 			cancel_at_period_end: true,
 		});
+		stripeMock.invoices.list.mockResolvedValue({ data: [], has_more: false });
 		token = await createTestUser();
 
 		await db.insert(tables.organization).values({
@@ -81,7 +92,7 @@ describe("POST /dev-plans/cancel", () => {
 			const res = await cancel();
 
 			expect(res.status).toBe(200);
-			expect(await res.json()).toEqual({ success: true });
+			expect(await res.json()).toEqual({ success: true, immediate: false });
 			expect(stripeMock.subscriptions.update).toHaveBeenCalledWith(
 				SUBSCRIPTION_ID,
 				{ cancel_at_period_end: true },
