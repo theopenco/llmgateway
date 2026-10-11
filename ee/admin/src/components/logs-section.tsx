@@ -231,7 +231,13 @@ export function LogsSection({
 		refetchOnWindowFocus: false,
 		retry: false,
 	});
-	const refresh = () => {
+	// A refresh reloads only the first page. The loaded pages are put back if
+	// the refetch fails, so a failed refresh never loses what was on screen;
+	// restoring the cache clears the query's error, so it is kept here.
+	const [refreshError, setRefreshError] = useState<Error | null>(null);
+	const refresh = async () => {
+		const snapshot = queryClient.getQueryData<typeof data>(logsQueryKey);
+		setRefreshError(null);
 		queryClient.setQueryData<typeof data>(logsQueryKey, (current) =>
 			current
 				? {
@@ -240,9 +246,14 @@ export function LogsSection({
 					}
 				: current,
 		);
-		void refetch();
+		const result = await refetch();
+		if (result.isError && snapshot) {
+			queryClient.setQueryData<typeof data>(logsQueryKey, snapshot);
+			setRefreshError(result.error);
+		}
 	};
 	const logs = data?.pages.flatMap((page) => page.logs) ?? [];
+	const loadError = error ?? refreshError;
 	const refreshing = isFetching && !loading && !loadingMore;
 
 	const selectedModelOption = useMemo(
@@ -642,7 +653,7 @@ export function LogsSection({
 					variant="outline"
 					size="sm"
 					disabled={loading || loadingMore || refreshing}
-					onClick={refresh}
+					onClick={() => void refresh()}
 					className="gap-2"
 				>
 					<RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
@@ -650,13 +661,13 @@ export function LogsSection({
 				</Button>
 			</div>
 
-			{error && (
+			{loadError && (
 				<div
 					role="alert"
 					className="rounded-lg border border-destructive/50 p-4 text-sm text-destructive"
 				>
 					<p className="font-medium">Failed to load logs</p>
-					<p>{error.message}</p>
+					<p>{loadError.message}</p>
 					<p>
 						{logs.length > 0 ? "Previously loaded logs are still shown. " : ""}
 						Use Refresh to try again.
@@ -668,7 +679,7 @@ export function LogsSection({
 					<Loader2 className="h-4 w-4 animate-spin" />
 					Loading logs...
 				</div>
-			) : logs.length === 0 && !error ? (
+			) : logs.length === 0 && !loadError ? (
 				<div className="rounded-lg border border-dashed border-border/60 p-8 text-center text-sm text-muted-foreground">
 					{projectId
 						? "No logs found for this project."

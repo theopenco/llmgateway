@@ -49,13 +49,19 @@ import { useApi } from "@/lib/fetch-client";
 
 import type { ModelVerification } from "@/components/model-verification-dialog";
 
-function FilingQueryError({ onRetry }: { onRetry: () => void }) {
+function FilingQueryError({
+	message,
+	onRetry,
+}: {
+	message: string;
+	onRetry: () => void;
+}) {
 	return (
 		<div
 			role="alert"
 			className="flex items-center justify-between gap-3 py-4 text-sm"
 		>
-			<p>Could not load filings.</p>
+			<p>{message}</p>
 			<Button variant="outline" size="sm" onClick={onRetry}>
 				Retry
 			</Button>
@@ -883,7 +889,10 @@ export function AirsideFilingsClient() {
 							<Loader2 className="text-muted-foreground size-5 animate-spin" />
 						</div>
 					) : query.isError && !query.data ? (
-						<FilingQueryError onRetry={() => void query.refetch()} />
+						<FilingQueryError
+							message="Could not load filings."
+							onRetry={() => void query.refetch()}
+						/>
 					) : filings.length === 0 ? (
 						<p className="text-muted-foreground py-8 text-center text-sm">
 							No {status === "all" ? "" : status} filings.
@@ -1129,7 +1138,10 @@ export function AirsideFilingsClient() {
 					{query.isLoading ? (
 						<Loader2 className="mx-auto size-5 animate-spin" />
 					) : query.isError && !query.data ? (
-						<FilingQueryError onRetry={() => void query.refetch()} />
+						<FilingQueryError
+							message="Could not load fare changes."
+							onRetry={() => void query.refetch()}
+						/>
 					) : routingFilings.length === 0 ? (
 						<p className="text-muted-foreground py-8 text-center text-sm">
 							No {status === "all" ? "" : status} fare changes.
