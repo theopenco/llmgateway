@@ -758,7 +758,7 @@ export const alibabaModels = [
 		id: "qwen3.5-9b",
 		name: "Qwen3.5 9B",
 		description:
-			"Compact Qwen3.5 hybrid-reasoning model with tool calling and a 262K context window.",
+			"Compact natively multimodal Qwen3.5 hybrid-reasoning model with vision, tool calling and a 262K context window.",
 		family: "alibaba",
 		releasedAt: new Date("2026-06-01"),
 		providers: [
@@ -776,9 +776,10 @@ export const alibabaModels = [
 				quantization: "bf16",
 				streaming: true,
 				reasoning: true,
-				vision: false,
+				vision: true,
 				tools: true,
 				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 		],
 	},
