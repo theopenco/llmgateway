@@ -7427,6 +7427,7 @@ chat.openapi(completions, async (c) => {
 			// Schema documents omitting reasoning.context as equivalent to "auto"
 			reasoning_context:
 				reasoning_context === "auto" ? undefined : reasoning_context,
+			reasoning_mode,
 			prompt_cache_key,
 			prompt_cache_retention,
 			prompt_cache_options,
