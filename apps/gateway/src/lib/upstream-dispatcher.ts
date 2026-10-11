@@ -21,10 +21,13 @@ function envInt(name: string, fallback: number): number {
 	return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
-// undici defaults headersTimeout and bodyTimeout to 300s, which would cut off
-// provider calls before the longer plain/streaming request timeouts fire. Use
-// the longest configured request timeout so the abort signals stay in charge,
-// even when GATEWAY_TIMEOUT_MS is set below AI_TIMEOUT_MS.
+/**
+ * Response timers for the upstream Agents. undici defaults headersTimeout and
+ * bodyTimeout to 300s, which would cut off provider calls before the longer
+ * plain/streaming request timeouts fire. Using the longest configured request
+ * timeout keeps the abort signals in charge, even when GATEWAY_TIMEOUT_MS is
+ * set below AI_TIMEOUT_MS, while fetches without a signal stay bounded.
+ */
 function responseTimeouts() {
 	const timeoutMs = Math.max(
 		getGatewayTimeoutMs(),
