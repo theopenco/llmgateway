@@ -248,17 +248,44 @@ describe("processImageUrl size limits", () => {
 		// on every chunk, so the 300s default is an inactivity timeout, not a
 		// deadline. Only a signal on the fetch bounds the whole download.
 		vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "50");
-		vi.resetModules();
-		const { processImageUrl: freshProcessImageUrl } =
-			await import("./process-image-url.js");
 
 		vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) =>
 			Promise.resolve(stalledImageResponse(init?.signal ?? undefined)),
 		);
 
-		await expect(
-			freshProcessImageUrl(REMOTE_URL, false, MAX_SIZE_MB, "free"),
-		).rejects.toThrow("Failed to process image from URL");
+		const error = await processImageUrl(
+			REMOTE_URL,
+			false,
+			MAX_SIZE_MB,
+			"free",
+		).catch((err: unknown) => err);
+
+		// A caller-chosen slow host is a client error, not a gateway 500.
+		expect(error).toBeInstanceOf(RequestError);
+		expect((error as Error).message).toBe("Timed out fetching image from URL");
+	}, 2000);
+
+	it("gives up on a server that never sends response headers", async () => {
+		vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "50");
+
+		vi.spyOn(globalThis, "fetch").mockImplementation(
+			(_url, init) =>
+				new Promise<Response>((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () => {
+						reject(init.signal?.reason as Error);
+					});
+				}),
+		);
+
+		const error = await processImageUrl(
+			REMOTE_URL,
+			false,
+			MAX_SIZE_MB,
+			"free",
+		).catch((err: unknown) => err);
+
+		expect(error).toBeInstanceOf(RequestError);
+		expect((error as Error).message).toBe("Timed out fetching image from URL");
 	}, 2000);
 });
 
