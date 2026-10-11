@@ -6,7 +6,7 @@ import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { bearer, deviceAuthorization } from "better-auth/plugins";
 import { Redis } from "ioredis";
-import { z } from "zod";
+import { z } from "zod/v4";
 
 import { createAuthDatabase } from "@/auth/database.js";
 import {
@@ -280,18 +280,30 @@ export async function recordDailySignInAttempt(
 	ipAddress: string,
 ): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
 	const key = `sign_in_daily:${ipAddress}`;
-	const results = await redisClient
-		.multi()
-		.set(key, 0, "EX", DAY_SECONDS, "NX")
-		.incr(key)
-		.ttl(key)
-		.exec();
-	if (!results) {
-		throw new Error("Sign-in rate limit transaction aborted");
+	try {
+		const results = await redisClient
+			.multi()
+			.set(key, 0, "EX", DAY_SECONDS, "NX")
+			.incr(key)
+			.ttl(key)
+			.exec();
+		if (!results) {
+			throw new Error("Sign-in rate limit transaction aborted");
+		}
+		const count = results[1][1] as number;
+		const ttl = results[2][1] as number;
+		return {
+			allowed: count <= SIGN_IN_DAILY_LIMIT,
+			retryAfterSeconds: ttl > 0 ? ttl : DAY_SECONDS,
+		};
+	} catch (error) {
+		logger.error(
+			"Sign-in daily limit check failed",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		// Fail open so a Redis outage does not block every sign-in.
+		return { allowed: true, retryAfterSeconds: 0 };
 	}
-	const count = results[1][1] as number;
-	const ttl = results[2][1] as number;
-	return { allowed: count <= SIGN_IN_DAILY_LIMIT, retryAfterSeconds: ttl };
 }
 
 export interface ExponentialRateLimitConfig {
@@ -1042,7 +1054,7 @@ The LLM Gateway Team`.trim();
 									JSON.stringify({
 										error: "too_many_requests",
 										message:
-											"Too many sign-in attempts. Please try again tomorrow or reset your password.",
+											"Too many sign-in attempts from this network. Please try again later.",
 										retryAfter: retryAfterSeconds,
 									}),
 									{
@@ -1069,7 +1081,7 @@ The LLM Gateway Team`.trim();
 							isUnknownSignInEmail =
 								!existingUser &&
 								ctx.path === "/sign-in/email" &&
-								z.string().email().safeParse(body?.email).success;
+								z.email().safeParse(body?.email).success;
 							if (existingUser?.status === "deactivated") {
 								return new Response(
 									JSON.stringify({
@@ -1098,6 +1110,12 @@ The LLM Gateway Team`.trim();
 					// Answer unknown emails here so Better Auth skips its throwaway
 					// scrypt hash; see delayLikePasswordHash.
 					if (isUnknownSignInEmail) {
+						// Repeat Better Auth's user+account lookup so the DB work matches
+						// the wrong-password path, not just the hash time.
+						await ctx.context.internalAdapter.findUserByEmail(
+							(ctx.body as { email: string }).email,
+							{ includeAccounts: true },
+						);
 						await delayLikePasswordHash();
 						throw APIError.from(
 							"UNAUTHORIZED",
