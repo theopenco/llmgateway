@@ -513,6 +513,16 @@ describe("isInvoiceableTransaction", () => {
 		).toBe(false);
 	});
 
+	it("returns false for a provider margin share payout", async () => {
+		expect(
+			isInvoiceableTransaction({
+				status: "completed",
+				amount: "1.50",
+				type: "provider_margin_share",
+			}),
+		).toBe(false);
+	});
+
 	it("returns false when there is no positive amount", async () => {
 		expect(
 			isInvoiceableTransaction({ status: "completed", amount: null }),

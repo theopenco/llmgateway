@@ -264,9 +264,11 @@ interface TransactionsData {
 
 // A transaction has a downloadable document when it is a completed, positive
 // amount — a charge (invoice) or a refund (credit note). Mirrors
-// isInvoiceableTransaction on the API.
+// isInvoiceableTransaction on the API. A provider margin share is income paid
+// to the org, not a purchase, so it has no invoice.
 function isInvoiceable(transaction: Transaction): boolean {
 	return (
+		transaction.type !== "provider_margin_share" &&
 		transaction.status === "completed" &&
 		transaction.amount !== null &&
 		Number(transaction.amount) > 0
@@ -549,6 +551,8 @@ export function TransactionsClient({
 														"Subscription Cancelled"}
 													{transaction.type === "subscription_end" &&
 														"Subscription Ended"}
+													{transaction.type === "provider_margin_share" &&
+														"Provider Margin Share"}
 												</td>
 												<td className="p-4 align-middle whitespace-nowrap">
 													{transaction.creditAmount ?? "—"}
