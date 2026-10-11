@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 const stripeMock = vi.hoisted(() => ({
 	checkout: {
@@ -109,5 +109,21 @@ describe("POST /dev-plans/subscribe pay-as-you-go opt-in", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlanPaygEnabled).toBe(false);
+	});
+
+	it("turns overflow off for a returning subscriber who leaves it off", async () => {
+		await db
+			.update(tables.organization)
+			.set({ devPlanPaygEnabled: true, autoTopUpEnabled: true })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		const res = await subscribe({ tier: "lite", paygEnabled: false });
+
+		expect(res.status).toBe(200);
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanPaygEnabled).toBe(false);
+		expect(org?.autoTopUpEnabled).toBe(false);
 	});
 });

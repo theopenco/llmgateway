@@ -522,10 +522,21 @@ devPlans.openapi(subscribe, async (c) => {
 		});
 	}
 
-	if (paygEnabled && !personalOrg.devPlanPaygEnabled) {
+	// The chooser always sends its switch state, and the flag outlives a plan
+	// that ended, so honour an explicit "off" too: a returning subscriber who
+	// leaves the switch off must not reactivate with overflow still on.
+	// Disabling overflow also disables auto-reload, as PATCH /settings does.
+	if (
+		paygEnabled !== undefined &&
+		paygEnabled !== personalOrg.devPlanPaygEnabled
+	) {
 		await cdb
 			.update(tables.organization)
-			.set({ devPlanPaygEnabled: true })
+			.set(
+				paygEnabled
+					? { devPlanPaygEnabled: true }
+					: { devPlanPaygEnabled: false, autoTopUpEnabled: false },
+			)
 			.where(eq(tables.organization.id, personalOrg.id));
 	}
 
