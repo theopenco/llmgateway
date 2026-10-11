@@ -132,7 +132,9 @@ export function getFinishReasonFromError(
 	// stuck on them).
 	if (
 		errorText &&
-		/invalid request error trace_id:\s*[0-9a-f]{32}/i.test(errorText)
+		/invalid request error trace_id:\s*[0-9a-f]{32}(?![0-9a-f])\s*(?:\\?"|$)/i.test(
+			errorText,
+		)
 	) {
 		return "upstream_error";
 	}

@@ -49,6 +49,13 @@ describe("getFinishReasonFromError", () => {
 				'{"error":{"message":"Invalid request error: unsupported parameter top_k","type":"invalid_request_error"}}',
 			),
 		).toBe("client_error");
+		// A trace id followed by an actual reason is actionable, not opaque.
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"invalid request error trace_id: 4f685001a23cf81c91b130323bcfd793, missing field messages","type":"invalid_request_error"}}',
+			),
+		).toBe("client_error");
 		// A trace-id-shaped message without the 32-hex id keeps the old handling.
 		expect(
 			getFinishReasonFromError(
