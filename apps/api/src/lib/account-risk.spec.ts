@@ -10,8 +10,9 @@ import { db, eq, tables } from "@llmgateway/db";
 import {
 	approveHighRiskUser,
 	assertOrganizationNotHighRisk,
-	isUserHighRisk,
 	flagUserIfAbusiveIp,
+	isUserHighRisk,
+	syncUserRiskFlagToOrganizations,
 } from "./account-risk.js";
 
 const abusiveIp = "5.6.7.8";
@@ -97,6 +98,24 @@ describe("flagUserIfAbusiveIp", () => {
 			where: { id: { eq: "risk-org" } },
 		});
 		expect(organization?.riskFlagged).toBe(true);
+	});
+	test("does not re-flag an organization once the user is approved", async () => {
+		await createMember({
+			userId: "risk-user",
+			organizationId: "risk-org",
+			email: "risk@example.com",
+		});
+		await db
+			.update(tables.user)
+			.set({ riskStatus: "approved" })
+			.where(eq(tables.user.id, "risk-user"));
+		// A sync that read "flagged" before the approval landed must be a no-op.
+		const flagged = await syncUserRiskFlagToOrganizations("risk-user");
+		expect(flagged).toEqual([]);
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "risk-org" } },
+		});
+		expect(organization?.riskFlagged).toBe(false);
 	});
 	beforeEach(async () => {
 		process.env.ABUSE_IPDB_API_KEY = "test-abuse-key";

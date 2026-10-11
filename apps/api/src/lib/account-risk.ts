@@ -8,7 +8,7 @@ import {
 import { notifyHighRiskAccount } from "@/utils/discord.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { and, cdb, db, eq, inArray, tables } from "@llmgateway/db";
+import { and, cdb, db, eq, exists, inArray, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getClientIpFromHeaders } from "@llmgateway/shared/client-ip";
 
@@ -128,13 +128,31 @@ export async function syncUserRiskFlagToOrganizations(
 
 	// Written through cdb so its onMutate busts the gateway's cached
 	// organization reads; a plain `db` write would leave the block ineffective
-	// until the cache expired.
-	await cdb
+	// until the cache expired. The flag is only written while the user is still
+	// flagged, so a sync racing with `approveHighRiskUser` cannot re-block an
+	// organization the approval just cleared.
+	const flagged = await cdb
 		.update(tables.organization)
 		.set({ riskFlagged: true })
-		.where(inArray(tables.organization.id, soleMemberOrganizationIds));
+		.where(
+			and(
+				inArray(tables.organization.id, soleMemberOrganizationIds),
+				exists(
+					db
+						.select({ id: tables.user.id })
+						.from(tables.user)
+						.where(
+							and(
+								eq(tables.user.id, userId),
+								eq(tables.user.riskStatus, "flagged"),
+							),
+						),
+				),
+			),
+		)
+		.returning({ id: tables.organization.id });
 
-	return soleMemberOrganizationIds;
+	return flagged.map((organization) => organization.id);
 }
 
 /** Whether a newly created organization must start out flagged. */
