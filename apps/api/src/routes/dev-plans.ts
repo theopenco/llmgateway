@@ -2716,7 +2716,6 @@ devPlans.openapi(getInvoices, async (c) => {
 			creditAmount: t.creditAmount,
 			currency: t.currency,
 			status: t.status,
-
 			// Refund rows stored before buildRefundDescription existed read
 			// "Credit refund: …" whatever was refunded — rebuild the text from the
 			// refunded original rather than trusting the stored wording.

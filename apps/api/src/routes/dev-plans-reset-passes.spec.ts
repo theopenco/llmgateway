@@ -755,6 +755,14 @@ describe("reset pass lifecycle and status", () => {
 		});
 
 		await handleChargeRefunded(chargeRefundedEvent("pi_refund_listed"));
+		// Rows stored before buildRefundDescription carry the generic wording;
+		// the list must rebuild the name from the original, not echo the column.
+		await db
+			.update(tables.transaction)
+			.set({
+				description: "Credit refund: $29.00 (100.0% of original purchase)",
+			})
+			.where(eq(tables.transaction.stripeRefundId, "re_listed"));
 
 		const res = await app.request("/dev-plans/invoices", {
 			headers: { Cookie: token },
