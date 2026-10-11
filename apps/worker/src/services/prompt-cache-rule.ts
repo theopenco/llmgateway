@@ -8,23 +8,17 @@ import type {
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const HOURS_PER_DAY = 24;
-// Today plus a week, so a weekly key finds its previous day of use.
 const LOOKBACK_DAYS = 8;
 const LOOKBACK_MS = LOOKBACK_DAYS * DAY_MS;
-// One more day than the lookback, so the previous day is never cut off.
 export const HISTORY_MS = LOOKBACK_MS + DAY_MS;
-// Cold starts and appended tool results keep a healthy agent a few points below its follow-up share.
 const MAX_MISSED_SHARE = new Decimal("0.15");
-// A recovery must clear the alert line by half the allowance, so a key hovering at the line doesn't re-arm.
+// Recovery must clear half the allowance, so a key hovering at the line doesn't re-arm.
 const RECOVERED_MISSED_SHARE = MAX_MISSED_SHARE.div(2);
 export const MIN_DAILY_USD = new Decimal(5);
-// Small-sample guard on the follow-up share; the money floor does the real filtering.
-const MIN_REQUESTS = 20;
-// Replays carry the original's tokens at no cost; 5% stays under a third of the missed-share allowance.
+const MIN_UPSTREAM_REQUESTS = 20;
 const MAX_REPLAY_SHARE = new Decimal("0.05");
 const MIN_GAP_MS = 14 * DAY_MS;
-// A chronic, unfixed key hears about it at most once a quarter, and the recovery query stays bounded.
-const MEMORY_MS = 90 * DAY_MS;
+const EPISODE_EXPIRY_MS = 90 * DAY_MS;
 
 export const PROMPT_CACHE_CAUSES = [
 	"switch_to_automatic",
@@ -38,8 +32,7 @@ interface Usage {
 	inputTokens: Decimal;
 	cachedTokens: Decimal;
 	cacheWriteTokens: Decimal;
-	/** Billed uncached text input; image and audio input are left out. */
-	uncachedInputCost: Decimal;
+	uncachedTextInputCost: Decimal;
 	cachedInputCost: Decimal;
 	cacheWriteInputCost: Decimal;
 }
@@ -48,8 +41,7 @@ export interface StreamHour extends Usage {
 	hour: Date;
 	requests: number;
 	errors: number;
-	/** Gateway response-cache replays. */
-	replays: number;
+	responseCacheReplays: number;
 	toolCalls: number;
 	streamed: number;
 }
@@ -57,11 +49,9 @@ export interface StreamHour extends Usage {
 export interface StreamDay extends Usage {
 	start: Date;
 	requests: number;
-	replays: number;
-	/** Requests that reached the provider. */
-	upstream: number;
-	/** The fewest responses that were both streamed and a tool call. */
-	followUps: number;
+	responseCacheReplays: number;
+	upstreamRequests: number;
+	minStreamedToolCalls: number;
 }
 
 export interface StreamCatalogue {
@@ -69,11 +59,9 @@ export interface StreamCatalogue {
 	cachedInputPrice: Decimal | null;
 	minCacheableTokens: number;
 	autoAddsMarkers: boolean;
-	/** The mapping prices 1-hour writes, so Automatic can cache for an hour. */
 	oneHourCaching: boolean;
 }
 
-/** One key and model's traffic on one provider and region. */
 export interface StreamInfo {
 	providerId: string;
 	providerName: string;
@@ -85,7 +73,6 @@ export interface PromptCacheStream extends StreamInfo {
 	hours: readonly StreamHour[];
 }
 
-/** What every stream of one key and model shares. */
 export interface PromptCacheContext {
 	apiKeyId: string;
 	apiKeyDescription: string;
@@ -112,27 +99,20 @@ export type DayProblem =
 	  });
 
 export type Verdict =
-	| {
-			kind: "unknown";
-			/** Automatic added markers, yet the provider reported no cache reads or writes. */
-			automaticSilent: boolean;
-	  }
+	| { kind: "unknown"; automaticSilent: boolean }
 	| { kind: "healthy" }
 	| { kind: "problem"; problem: DayProblem };
 
 export type PromptCacheProblem = DayProblem & {
 	context: PromptCacheContext;
 	stream: StreamInfo;
-	/** The key and model run in more than one region, so the copy names this one. */
 	showRegion: boolean;
 	dayStartHour: number;
-	/** Start of the complete day the alert reports. */
-	previousStart: Date;
+	reportedDayStart: Date;
 };
 
 export interface PromptCacheFindings {
 	problems: PromptCacheProblem[];
-	/** Automatic streams with no cache activity on both days: a gateway or provider fault for ops, not users. */
 	silentStreams: StreamInfo[];
 }
 
@@ -150,7 +130,6 @@ export interface PromptCacheAlertContent {
 const UNKNOWN: Verdict = { kind: "unknown", automaticSilent: false };
 const HEALTHY: Verdict = { kind: "healthy" };
 
-/** UTC hour in the middle of the stream's longest daily idle run, so a working session never spans two days. Midnight when no hour is idle. */
 function dayStartHour(hours: readonly StreamHour[]): number {
 	const active = Array.from({ length: HOURS_PER_DAY }, () => false);
 	for (const { hour } of hours) {
@@ -176,7 +155,6 @@ function dayStartHour(hours: readonly StreamHour[]): number {
 	return (best.start + Math.floor(best.length / 2)) % HOURS_PER_DAY;
 }
 
-/** Folds a stream's hours into days that start at `startHour` UTC, newest first. */
 export function streamDays(
 	hours: readonly StreamHour[],
 	startHour: number,
@@ -190,31 +168,42 @@ export function streamDays(
 		const day = days.get(start) ?? {
 			start: new Date(start),
 			requests: 0,
-			replays: 0,
-			upstream: 0,
-			followUps: 0,
+			responseCacheReplays: 0,
+			upstreamRequests: 0,
+			minStreamedToolCalls: 0,
 			inputTokens: new Decimal(0),
 			cachedTokens: new Decimal(0),
 			cacheWriteTokens: new Decimal(0),
-			uncachedInputCost: new Decimal(0),
+			uncachedTextInputCost: new Decimal(0),
 			cachedInputCost: new Decimal(0),
 			cacheWriteInputCost: new Decimal(0),
 		};
-		const upstream = Math.max(0, row.requests - row.errors - row.replays);
-		const clean = (count: number) =>
-			Math.min(upstream, Math.max(0, count - row.errors - row.replays));
+		const upstreamRequests = Math.max(
+			0,
+			row.requests - row.errors - row.responseCacheReplays,
+		);
+		const upstream = (count: number) =>
+			Math.min(
+				upstreamRequests,
+				Math.max(0, count - row.errors - row.responseCacheReplays),
+			);
 		days.set(start, {
 			start: day.start,
 			requests: day.requests + row.requests,
-			replays: day.replays + row.replays,
-			upstream: day.upstream + upstream,
-			followUps:
-				day.followUps +
-				Math.max(0, clean(row.toolCalls) + clean(row.streamed) - upstream),
+			responseCacheReplays: day.responseCacheReplays + row.responseCacheReplays,
+			upstreamRequests: day.upstreamRequests + upstreamRequests,
+			minStreamedToolCalls:
+				day.minStreamedToolCalls +
+				Math.max(
+					0,
+					upstream(row.toolCalls) + upstream(row.streamed) - upstreamRequests,
+				),
 			inputTokens: day.inputTokens.plus(row.inputTokens),
 			cachedTokens: day.cachedTokens.plus(row.cachedTokens),
 			cacheWriteTokens: day.cacheWriteTokens.plus(row.cacheWriteTokens),
-			uncachedInputCost: day.uncachedInputCost.plus(row.uncachedInputCost),
+			uncachedTextInputCost: day.uncachedTextInputCost.plus(
+				row.uncachedTextInputCost,
+			),
 			cachedInputCost: day.cachedInputCost.plus(row.cachedInputCost),
 			cacheWriteInputCost: day.cacheWriteInputCost.plus(
 				row.cacheWriteInputCost,
@@ -237,25 +226,30 @@ export function judgeDay(
 		cachedInputPrice === null ||
 		!inputPrice.gt(0) ||
 		!cachedInputPrice.lt(inputPrice) ||
-		day.upstream < MIN_REQUESTS ||
+		day.upstreamRequests < MIN_UPSTREAM_REQUESTS ||
 		!day.inputTokens.gt(0) ||
-		day.inputTokens.div(day.upstream).lt(catalogue.minCacheableTokens) ||
-		MAX_REPLAY_SHARE.mul(day.requests).lt(day.replays)
+		day.inputTokens
+			.div(day.upstreamRequests)
+			.lt(catalogue.minCacheableTokens) ||
+		// Replays carry the original's tokens at zero cost.
+		MAX_REPLAY_SHARE.mul(day.requests).lt(day.responseCacheReplays)
 	) {
 		return UNKNOWN;
 	}
-	// The day's own billed input rate, so tiers, discounts and service tiers cancel out.
 	const uncachedTokens = day.inputTokens
 		.minus(day.cachedTokens)
 		.minus(day.cacheWriteTokens);
-	const inputRate =
-		uncachedTokens.gt(0) && day.uncachedInputCost.gt(0)
-			? day.uncachedInputCost.div(uncachedTokens)
+	// The billed rate cancels tiers and discounts.
+	const billedInputRate =
+		uncachedTokens.gt(0) && day.uncachedTextInputCost.gt(0)
+			? day.uncachedTextInputCost.div(uncachedTokens)
 			: inputPrice;
-	const readValue = inputRate.mul(
+	const readValue = billedInputRate.mul(
 		new Decimal(1).minus(cachedInputPrice.div(inputPrice)),
 	);
-	const followUpShare = new Decimal(day.followUps).div(day.upstream);
+	const followUpShare = new Decimal(day.minStreamedToolCalls).div(
+		day.upstreamRequests,
+	);
 	const hitRate = day.cachedTokens.div(day.inputTokens);
 	const missedShare = followUpShare.minus(hitRate);
 
@@ -279,6 +273,7 @@ export function judgeDay(
 			};
 		}
 		if (context.cacheMode === "auto") {
+			// Automatic markers with no reads or writes mean the gateway or provider isn't caching, so ops hear, not users.
 			return { kind: "unknown", automaticSilent: true };
 		}
 		return context.organizationKind === "default"
@@ -289,10 +284,10 @@ export function judgeDay(
 			: UNKNOWN;
 	}
 	const writePremium = day.cacheWriteInputCost.minus(
-		day.cacheWriteTokens.mul(inputRate),
+		day.cacheWriteTokens.mul(billedInputRate),
 	);
 	const readSavings = day.cachedTokens
-		.mul(inputRate)
+		.mul(billedInputRate)
 		.minus(day.cachedInputCost);
 	if (context.cacheMode === "auto" && writePremium.gt(readSavings)) {
 		const estimatedDailyUsd = writePremium.minus(readSavings);
@@ -316,11 +311,6 @@ export function judgeDay(
 		: UNKNOWN;
 }
 
-/**
- * A stream has a problem when today and its previous day of use with evidence
- * show the same cause. The alert reports the previous day because it is
- * complete. Independent of who reads the alert.
- */
 export function findPromptCacheProblems(
 	streams: readonly PromptCacheStream[],
 	context: PromptCacheContext,
@@ -359,19 +349,19 @@ export function findPromptCacheProblems(
 		) {
 			findings.silentStreams.push(stream);
 		}
-		const previous = recent.find(({ verdict }) => verdict.kind !== "unknown");
+		const reported = recent.find(({ verdict }) => verdict.kind !== "unknown");
 		if (
 			today.verdict.kind === "problem" &&
-			previous?.verdict.kind === "problem" &&
-			previous.verdict.problem.cause === today.verdict.problem.cause
+			reported?.verdict.kind === "problem" &&
+			reported.verdict.problem.cause === today.verdict.problem.cause
 		) {
 			findings.problems.push({
-				...previous.verdict.problem,
+				...reported.verdict.problem,
 				context,
 				stream,
 				showRegion: showRegion && stream.region !== null,
 				dayStartHour: startHour,
-				previousStart: previous.day.start,
+				reportedDayStart: reported.day.start,
 			});
 		}
 	}
@@ -391,11 +381,6 @@ function latestAlert(
 		);
 }
 
-/**
- * The hours a recovery check needs: from the reader's last `cache_broken`
- * alert to the reported day. Null when the 14-day gap or the 90-day memory
- * decides without one.
- */
 export function recoveryWindow(
 	problem: PromptCacheProblem,
 	sent: readonly SentAlert[],
@@ -407,18 +392,12 @@ export function recoveryWindow(
 	}
 	const age = windowEnd.getTime() - prior.at.getTime();
 	return age >= MIN_GAP_MS &&
-		age < MEMORY_MS &&
-		prior.at < problem.previousStart
-		? { start: prior.at, end: problem.previousStart }
+		age < EPISODE_EXPIRY_MS &&
+		prior.at < problem.reportedDayStart
+		? { start: prior.at, end: problem.reportedDayStart }
 		: null;
 }
 
-/**
- * Advice is given once per reader, key and model. A broken cache is told once
- * per episode, which ends at a complete healthy day between the last alert and
- * the reported day, or 90 days after the alert. Alerts are at least 14 days
- * apart.
- */
 export function shouldSend(
 	problem: PromptCacheProblem,
 	sent: readonly SentAlert[],
@@ -436,13 +415,13 @@ export function shouldSend(
 	if (problem.cause !== "cache_broken") {
 		return false;
 	}
-	if (end - prior.at.getTime() >= MEMORY_MS) {
+	if (end - prior.at.getTime() >= EPISODE_EXPIRY_MS) {
 		return true;
 	}
 	return recoveryDays.some(
 		(day) =>
 			day.start >= prior.at &&
-			day.start.getTime() + DAY_MS <= problem.previousStart.getTime() &&
+			day.start.getTime() + DAY_MS <= problem.reportedDayStart.getTime() &&
 			judgeDay(day, problem.stream.catalogue, problem.context).kind ===
 				"healthy",
 	);

@@ -18,7 +18,6 @@ import {
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
-// A Monday.
 const DAY0 = Date.UTC(2026, 7, 31);
 const PACIFIC_OFFSET = 8 * HOUR;
 
@@ -98,7 +97,6 @@ const BLIP = { h: 0.3, w: 0.3 };
 const isWorkday = (day: number, hour: number) =>
 	day % 7 < 5 && hour >= 9 && hour <= 17;
 
-/** A coding agent whose cache is cold for the first two hours of each day. */
 const healthy = (hour: number) => (hour < 11 ? COLD : WARM);
 
 function workday(
@@ -120,13 +118,15 @@ function row(hour: Date, load: Load, billed: Prices): StreamHour {
 		hour,
 		requests: load.r,
 		errors: 0,
-		replays: 0,
+		responseCacheReplays: 0,
 		toolCalls: Math.round(load.t * load.r),
 		streamed: Math.round(load.s * load.r),
 		inputTokens: new Decimal(input),
 		cachedTokens: new Decimal(cached),
 		cacheWriteTokens: new Decimal(writes),
-		uncachedInputCost: new Decimal(input - cached - writes).mul(billed.input),
+		uncachedTextInputCost: new Decimal(input - cached - writes).mul(
+			billed.input,
+		),
 		cachedInputCost: new Decimal(cached).mul(billed.cached),
 		cacheWriteInputCost: new Decimal(writes).mul(billed.write),
 	};
@@ -160,8 +160,7 @@ interface Alert {
 	cause: string;
 }
 
-/** The worker's hourly pass for one reader, from `from` until `to`. */
-function replay(
+function runPasses(
 	streams: PromptCacheStream[],
 	{
 		context = CONTEXT,
@@ -214,13 +213,13 @@ function problemsAt(
 describe("findPromptCacheProblems and shouldSend", () => {
 	it("stays silent on a healthy coding agent despite cold mornings", () => {
 		expect(
-			replay([stream(workday(AGENT, (_d, hour) => healthy(hour)))]),
+			runPasses([stream(workday(AGENT, (_d, hour) => healthy(hour)))]),
 		).toEqual([]);
 	});
 
 	it("tells a coding agent stuck at 60% once, on its second day", () => {
 		const chronic = [stream(workday(AGENT, () => BROKEN, 14))];
-		expect(replay(chronic)).toEqual([
+		expect(runPasses(chronic)).toEqual([
 			{ at: at(15, 12), cause: "cache_broken" },
 		]);
 		const [problem] = problemsAt(chronic, at(15, 12));
@@ -228,26 +227,27 @@ describe("findPromptCacheProblems and shouldSend", () => {
 			followUpShare: problem.followUpShare.toString(),
 			hitRate: problem.hitRate.toString(),
 			estimatedDailyUsd: problem.estimatedDailyUsd.toString(),
-			previousStart: problem.previousStart,
+			reportedDayStart: problem.reportedDayStart,
 		}).toEqual({
 			followUpShare: "0.85",
 			hitRate: "0.6",
 			estimatedDailyUsd: "21.87",
-			// The idle run is 18:00-08:59 UTC, so days start in its middle.
-			previousStart: at(14, 1),
+			reportedDayStart: at(14, 1),
 		});
 	});
 
 	it("stays silent on unique-prompt automation that cannot reuse a cache", () => {
 		const unique = stream(() => ({ ...BATCH, I: 3000, h: 0.02, w: 0 }), OPENAI);
-		expect(replay([unique])).toEqual([]);
+		expect(runPasses([unique])).toEqual([]);
 	});
 
 	it("tells unique prompts on Automatic that writes cost more than reads save, and leaves a shared system prompt alone", () => {
 		const unique = stream(() => ({ ...BATCH, h: 0, w: 0.95 }));
-		expect(replay([unique])).toEqual([{ at: at(14), cause: "writes_unused" }]);
+		expect(runPasses([unique])).toEqual([
+			{ at: at(14), cause: "writes_unused" },
+		]);
 		const sharedSystemPrompt = stream(() => ({ ...BATCH, h: 0.35, w: 0.6 }));
-		expect(replay([sharedSystemPrompt])).toEqual([]);
+		expect(runPasses([sharedSystemPrompt])).toEqual([]);
 	});
 
 	it("advises Automatic to a Client-managed coding agent that sends no markers", () => {
@@ -255,12 +255,12 @@ describe("findPromptCacheProblems and shouldSend", () => {
 			workday({ ...AGENT, r: 40, I: 40_000 }, () => ({ h: 0, w: 0 }), 14),
 		);
 		expect(
-			replay([unmarked], {
+			runPasses([unmarked], {
 				context: { ...CONTEXT, cacheMode: "passthrough" },
 			}),
 		).toEqual([{ at: at(15, 11), cause: "switch_to_automatic" }]);
 		expect(
-			replay([unmarked], {
+			runPasses([unmarked], {
 				context: {
 					...CONTEXT,
 					cacheMode: "passthrough",
@@ -272,7 +272,6 @@ describe("findPromptCacheProblems and shouldSend", () => {
 	});
 
 	it("keeps a Pacific team's afternoon blip inside one day, not two UTC days", () => {
-		// Local 09:00-17:59 at UTC-8 is 17:00-01:59 UTC; the blip is local 13:00-16:59 on Wednesday d30.
 		const pacific = stream((day, hour) => {
 			const local = at(day, hour).getTime() - PACIFIC_OFFSET;
 			const localDay = Math.floor((local - DAY0) / DAY);
@@ -283,14 +282,14 @@ describe("findPromptCacheProblems and shouldSend", () => {
 			const blip = localDay === 30 && localHour >= 13 && localHour <= 16;
 			return { ...AGENT, ...(blip ? BLIP : healthy(localHour)) };
 		});
-		expect(replay([pacific])).toEqual([]);
+		expect(runPasses([pacific])).toEqual([]);
 	});
 
 	it("re-arms after a healthy day and alerts again once the 14-day gap opens", () => {
 		const relapse = stream(
 			workday(AGENT, (day) => (day >= 16 && day <= 18 ? WARM : BROKEN), 14),
 		);
-		expect(replay([relapse])).toEqual([
+		expect(runPasses([relapse])).toEqual([
 			{ at: at(15, 12), cause: "cache_broken" },
 			{ at: at(29, 12), cause: "cache_broken" },
 		]);
@@ -303,7 +302,7 @@ describe("findPromptCacheProblems and shouldSend", () => {
 			110,
 		);
 		expect(
-			replay([chronic], { from: at(14, 12), to: at(110), step: DAY }),
+			runPasses([chronic], { from: at(14, 12), to: at(110), step: DAY }),
 		).toEqual([
 			{ at: at(15, 12), cause: "cache_broken" },
 			{ at: at(105, 12), cause: "cache_broken" },
@@ -316,7 +315,7 @@ describe("findPromptCacheProblems and shouldSend", () => {
 				? { ...AGENT, r: day % 2 === 0 ? 60 : 6, ...BROKEN }
 				: null,
 		);
-		expect(replay([alternating])).toEqual([
+		expect(runPasses([alternating])).toEqual([
 			{ at: at(16, 12), cause: "cache_broken" },
 		]);
 	});
@@ -338,14 +337,14 @@ describe("findPromptCacheProblems and shouldSend", () => {
 			),
 			haikuBase,
 		);
-		expect(replay([tieredHealthy]), "tiered healthy agent").toEqual([]);
+		expect(runPasses([tieredHealthy]), "tiered healthy agent").toEqual([]);
 
 		const discounted: Provider = {
 			...ANTHROPIC,
 			billed: { input: 2.4e-6, cached: 0.24e-6, write: 3e-6 },
 		};
 		const unique = stream(() => ({ ...BATCH, h: 0, w: 0.95 }), discounted);
-		expect(replay([unique]), "unique prompts at a 20% discount").toEqual([
+		expect(runPasses([unique]), "unique prompts at a 20% discount").toEqual([
 			{ at: at(14), cause: "writes_unused" },
 		]);
 	});
@@ -375,7 +374,7 @@ describe("findPromptCacheProblems and shouldSend", () => {
 	it("is silent when the project's effective mode is off", () => {
 		const chronic = [stream(workday(AGENT, () => BROKEN, 14))];
 		expect(
-			replay(chronic, { context: { ...CONTEXT, cacheMode: "off" } }),
+			runPasses(chronic, { context: { ...CONTEXT, cacheMode: "off" } }),
 		).toEqual([]);
 	});
 
@@ -385,15 +384,15 @@ describe("findPromptCacheProblems and shouldSend", () => {
 			problems: [],
 			silentStreams: [{ providerId: "anthropic" }],
 		});
-		expect(replay(silent)).toEqual([]);
+		expect(runPasses(silent)).toEqual([]);
 	});
 });
 
 describe("judgeDay", () => {
-	function day(replays: number) {
+	function day(responseCacheReplays: number) {
 		const hours = Array.from({ length: 9 }, (_, i) => ({
 			...row(at(14, 9 + i), { ...AGENT, r: 100, ...WARM }, ANTHROPIC.billed),
-			replays,
+			responseCacheReplays,
 		}));
 		const [only] = streamDays(hours, 1);
 		return judgeDay(only, ANTHROPIC.catalogue, CONTEXT);

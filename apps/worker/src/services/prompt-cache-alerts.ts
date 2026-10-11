@@ -78,7 +78,6 @@ interface Reader {
 	scope: ApiKeyScope;
 }
 
-/** A key and model with at least one stream worth judging. */
 interface Candidate {
 	context: PromptCacheContext;
 	streams: StreamInfo[];
@@ -132,7 +131,7 @@ export async function processPromptCacheAlerts(
 			}
 			findings += problems.length;
 			try {
-				notifications += await deliver(problems, readers, window.end);
+				notifications += await deliver(context, problems, readers, window.end);
 			} catch (error) {
 				logger.error("Prompt cache alert failed", {
 					error: toError(error),
@@ -162,7 +161,7 @@ function completedWindow(now: Date): Window {
 
 const modelIdColumn = sql<string>`split_part(split_part(${stats.usedModel}, '/', 2), ':', 1)`;
 const regionColumn = sql<string>`split_part(${stats.usedModel}, ':', 2)`;
-const uncachedInputCost = sql`GREATEST(
+const uncachedTextInputCost = sql`GREATEST(
 	0,
 	SUM(CAST(${stats.inputCost} AS DOUBLE PRECISION))
 		- SUM(CAST(${stats.imageInputCost} AS DOUBLE PRECISION))
@@ -200,11 +199,6 @@ interface CandidateRow extends Record<string, unknown> {
 	api_format: ProviderApiFormat | null;
 }
 
-/**
- * Streams with at least $5 of billed uncached and cache-write input in the
- * window. Today lies inside it, and neither cause can bill more than that, so
- * the filter drops no alert.
- */
 async function loadCandidates(window: Window): Promise<Candidate[]> {
 	const result = await db.execute<CandidateRow>(sql`
 		WITH stream AS (
@@ -218,7 +212,7 @@ async function loadCandidates(window: Window): Promise<Candidate[]> {
 			WHERE ${gte(stats.hourTimestamp, window.start)}
 				AND ${lt(stats.hourTimestamp, window.end)}
 			GROUP BY 1, 2, 3, 4, 5
-			HAVING ${uncachedInputCost}
+			HAVING ${uncachedTextInputCost}
 				+ SUM(CAST(${stats.cacheWriteInputCost} AS DOUBLE PRECISION))
 				>= ${MIN_DAILY_USD.toNumber()}
 		)
@@ -329,18 +323,17 @@ interface HourRow extends Record<string, unknown> {
 	hour_epoch: number;
 	requests: number;
 	errors: number;
-	replays: number;
+	response_cache_replays: number;
 	tool_calls: number;
 	streamed: number;
 	input_tokens: string;
 	cached_tokens: string;
 	cache_write_tokens: string;
-	uncached_input_cost: number;
+	uncached_text_input_cost: number;
 	cached_input_cost: number;
 	cache_write_input_cost: number;
 }
 
-/** Hourly rows per stream. Several `used_model` strings can map to one model, so rows are summed per hour. */
 async function loadStreamHours(
 	filter: SQL,
 	range: Window,
@@ -354,13 +347,13 @@ async function loadStreamHours(
 			EXTRACT(EPOCH FROM ${stats.hourTimestamp})::float8 AS hour_epoch,
 			SUM(${stats.requestCount})::int AS requests,
 			SUM(${stats.errorCount})::int AS errors,
-			SUM(${stats.cacheCount})::int AS replays,
+			SUM(${stats.cacheCount})::int AS response_cache_replays,
 			SUM(${stats.toolCallsCount})::int AS tool_calls,
 			SUM(${stats.streamedCount})::int AS streamed,
 			SUM(${stats.inputTokens}) AS input_tokens,
 			SUM(${stats.cachedTokens}) AS cached_tokens,
 			SUM(${stats.cacheWriteTokens}) AS cache_write_tokens,
-			${uncachedInputCost} AS uncached_input_cost,
+			${uncachedTextInputCost} AS uncached_text_input_cost,
 			SUM(CAST(${stats.cachedInputCost} AS DOUBLE PRECISION)) AS cached_input_cost,
 			SUM(CAST(${stats.cacheWriteInputCost} AS DOUBLE PRECISION)) AS cache_write_input_cost
 		FROM ${stats}
@@ -380,13 +373,13 @@ async function loadStreamHours(
 			hour: new Date(row.hour_epoch * 1000),
 			requests: row.requests,
 			errors: row.errors,
-			replays: row.replays,
+			responseCacheReplays: row.response_cache_replays,
 			toolCalls: row.tool_calls,
 			streamed: row.streamed,
 			inputTokens: new Decimal(row.input_tokens),
 			cachedTokens: new Decimal(row.cached_tokens),
 			cacheWriteTokens: new Decimal(row.cache_write_tokens),
-			uncachedInputCost: new Decimal(row.uncached_input_cost),
+			uncachedTextInputCost: new Decimal(row.uncached_text_input_cost),
 			cachedInputCost: new Decimal(row.cached_input_cost),
 			cacheWriteInputCost: new Decimal(row.cache_write_input_cost),
 		});
@@ -395,7 +388,6 @@ async function loadStreamHours(
 	return streams;
 }
 
-/** One problem's stream, folded on its own day boundary, from the earliest start any reader needs. */
 async function loadRecoveryDays(
 	problem: PromptCacheProblem,
 	sentByReader: readonly SentAlert[][],
@@ -414,7 +406,7 @@ async function loadRecoveryDays(
 			AND ${eq(stats.usedProvider, stream.providerId)}
 			AND ${modelIdColumn} = ${context.modelId}
 			AND ${regionColumn} = ${stream.region ?? ""}`,
-		{ start, end: problem.previousStart },
+		{ start, end: problem.reportedDayStart },
 	);
 	return streamDays(
 		hours.get(streamKey(context, stream)) ?? [],
@@ -467,7 +459,6 @@ function eventKeyPrefix(context: PromptCacheContext): string {
 	return `prompt_cache:${context.apiKeyId}:${context.modelId}:`;
 }
 
-/** Advice has one key per cause; each `cache_broken` episode gets the next number. */
 function eventKey(problem: PromptCacheProblem, sent: readonly SentAlert[]) {
 	const prefix = eventKeyPrefix(problem.context);
 	if (problem.cause !== "cache_broken") {
@@ -502,13 +493,12 @@ async function loadSent(
 	});
 }
 
-/** Each reader gets the largest problem their own history allows. `problems` share one key and model. */
 async function deliver(
+	context: PromptCacheContext,
 	problems: PromptCacheProblem[],
 	readers: Reader[],
 	windowEnd: Date,
 ): Promise<number> {
-	const [{ context }] = problems;
 	const audience = await Promise.all(
 		readers
 			.filter((reader) => canReadEvent(reader.scope, context))

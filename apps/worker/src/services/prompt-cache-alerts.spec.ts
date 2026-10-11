@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { redisClient } from "@llmgateway/cache";
@@ -34,41 +35,31 @@ function duration(days: number, hours = 0, minutes = 0): number {
 
 type HourValues = Partial<typeof tables.apiKeyHourlyModelStats.$inferInsert>;
 
-/** One hour of a coding agent: 60 streamed requests, 51 ending in tool calls, 60k-token prompts, 60% read from the cache. */
-const BROKEN: HourValues = {
-	requestCount: 60,
-	streamedCount: 60,
-	toolCallsCount: 51,
-	inputTokens: "3600000",
-	cachedTokens: "2160000",
-	cacheWriteTokens: "108000",
-	inputCost: 3.996,
-	cachedInputCost: 0.648,
-	cacheWriteInputCost: 0.405,
-};
+const PRICE = { input: "0.000003", cached: "0.0000003", write: "0.00000375" };
 
-/** The same agent with 95% read from the cache. */
-const HEALTHY: HourValues = {
-	...BROKEN,
-	cachedTokens: "3420000",
-	cacheWriteTokens: "144000",
-	inputCost: 0.108,
-	cachedInputCost: 1.026,
-	cacheWriteInputCost: 0.54,
-};
+function agentHour(hitRate: number, writeShare: number): HourValues {
+	const requests = 60;
+	const input = new Decimal(requests).mul(60_000);
+	const cached = input.mul(hitRate);
+	const writes = input.mul(writeShare);
+	return {
+		requestCount: requests,
+		streamedCount: requests,
+		toolCallsCount: requests * 0.85,
+		inputTokens: input.toString(),
+		cachedTokens: cached.toString(),
+		cacheWriteTokens: writes.toString(),
+		inputCost: input.minus(cached).minus(writes).mul(PRICE.input).toNumber(),
+		cachedInputCost: cached.mul(PRICE.cached).toNumber(),
+		cacheWriteInputCost: writes.mul(PRICE.write).toNumber(),
+	};
+}
 
-/** Unmarked traffic: nothing read from or written to the cache. */
-const UNMARKED: HourValues = {
-	...BROKEN,
-	cachedTokens: "0",
-	cacheWriteTokens: "0",
-	inputCost: 10.8,
-	cachedInputCost: 0,
-	cacheWriteInputCost: 0,
-};
+const BROKEN = agentHour(0.6, 0.03);
+const HEALTHY = agentHour(0.95, 0.04);
+const UNMARKED = agentHour(0, 0);
 
 describe("processPromptCacheAlerts", () => {
-	// Wednesday noon UTC, so the agent's 09:00-17:59 sessions fall on known days.
 	const windowEnd = new Date("2026-03-04T12:00:00.000Z");
 	const midnight = new Date("2026-03-04T00:00:00.000Z");
 	const now = afterWindowEnd(duration(0, 0, 7));
@@ -131,7 +122,6 @@ describe("processPromptCacheAlerts", () => {
 		};
 	}
 
-	/** Agent sessions 09:00-17:59 UTC on each day relative to the window end's day, cut at `until`. */
 	async function insertAgent(
 		values: HourValues = {},
 		days = [-1, 0],
@@ -268,8 +258,8 @@ describe("processPromptCacheAlerts", () => {
 			modelId: "cache-model",
 			providerId: "anthropic",
 			externalId: "cache-model",
-			inputPrice: "0.000003",
-			cachedInputPrice: "0.0000003",
+			inputPrice: PRICE.input,
+			cachedInputPrice: PRICE.cached,
 		});
 	});
 
@@ -349,7 +339,6 @@ describe("processPromptCacheAlerts", () => {
 
 	it("sums every used_model string of a stream per hour before bounding follow-ups", async () => {
 		await enable();
-		// Per row the bound would be 30 + 0 = 50%; summed per hour it is max(0, 51 + 30 - 60) = 35%.
 		const half = {
 			requestCount: 30,
 			inputTokens: "1800000",
@@ -379,7 +368,6 @@ describe("processPromptCacheAlerts", () => {
 	it("waits for the settle margin before reading the hour that just closed", async () => {
 		await enable();
 		await insertAgent();
-		// Without 11:00, today's two hours put less than $5 at stake.
 		await processPromptCacheAlerts(afterWindowEnd(duration(0, 0, 3)));
 		expect(await alerts(), "hour still settling").toEqual([]);
 		await processPromptCacheAlerts(now);
@@ -501,7 +489,6 @@ describe("processPromptCacheAlerts", () => {
 			inputPrice: "0.000003",
 			cachedInputPrice: "0.0000003",
 		});
-		// 2000-token prompts at the agent's token volume.
 		await insertAgent({
 			usedModel: "anthropic/claude-sonnet-5",
 			requestCount: 1800,
@@ -540,7 +527,6 @@ describe("processPromptCacheAlerts", () => {
 	it("does not count errors or response-cache replays toward the request floor", async () => {
 		await enable();
 		await insertKey({ id: "cache-key-20" });
-		// 22 large requests a day at 09:00-11:59, one of them a replay.
 		async function insertSessions(apiKeyId: string, errors: number) {
 			const rows = [-1, 0].flatMap((day) =>
 				[9, 10, 11].map((hour) =>
@@ -629,7 +615,6 @@ describe("processPromptCacheAlerts", () => {
 		await enable();
 		await insertAgent();
 		await insertKey({ id: "cache-key-other" });
-		// Recorded under another key, so this reader's history for cache-key stays empty.
 		await insertAlert(
 			"prompt_cache:cache-key:cache-model:cache_broken:1",
 			new Date(windowEnd.getTime() - DAY),
@@ -643,7 +628,6 @@ describe("processPromptCacheAlerts", () => {
 
 	it("gives configuration advice once per reader, key and model", async () => {
 		await enable();
-		// A batch of unique 4k-token prompts around the clock; Automatic writes each one and never reads it.
 		const batch = Array.from({ length: 36 }, (_, i) =>
 			hourRow(hourOf(-1, i), {
 				requestCount: 200,
@@ -708,7 +692,6 @@ describe("processPromptCacheAlerts", () => {
 		await processPromptCacheAlerts(now);
 		expect(await alerts(), "never recovered").toHaveLength(1);
 
-		// Outside the 9-day history, so only the recovery query can see it.
 		await insertAgent(HEALTHY, [-15]);
 		await redisClient.flushdb();
 		await processPromptCacheAlerts(now);
