@@ -351,7 +351,9 @@ export const incidentsResponseSchema = z.object({
 	),
 });
 
-const providerNamesById = new Map(providers.map((p) => [p.id, p.name]));
+const providerNamesById = new Map<string, string>(
+	providers.map((p) => [p.id, p.name]),
+);
 
 /**
  * Per-mapping upstream + gateway error counts from the hourly rollups.

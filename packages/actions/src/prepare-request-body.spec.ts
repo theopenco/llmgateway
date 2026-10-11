@@ -16,6 +16,7 @@ import type {
 	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
 	ProviderModelMapping,
+	ProviderId,
 } from "@llmgateway/models";
 
 /**
@@ -1880,14 +1881,16 @@ describe("prepareRequestBody - Anthropic", () => {
 	});
 
 	test.each(
-		[
-			["anthropic", "claude-sonnet-5", "claude-sonnet-5"],
+		(
 			[
-				"aws-bedrock",
-				"claude-sonnet-4-5",
-				"anthropic.claude-sonnet-4-5-20250929-v1:0",
-			],
-		].flatMap(([provider, model, upstreamModel]) =>
+				["anthropic", "claude-sonnet-5", "claude-sonnet-5"],
+				[
+					"aws-bedrock",
+					"claude-sonnet-4-5",
+					"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				],
+			] as const
+		).flatMap(([provider, model, upstreamModel]) =>
 			(["field", "parts", "override"] as const).map((source) => ({
 				provider,
 				model,
@@ -2951,7 +2954,7 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		["deepinfra", "hy3"],
 		["novita", "hy3"],
 		["canopywave", "kimi-k3"],
-	])(
+	] as const)(
 		"forwards none to %s when the mapping declares it",
 		async (provider, model) => {
 			// These providers are in the handlesNoneNatively allowlist, and
@@ -8989,7 +8992,7 @@ describe("prepareRequestBody - Xiaomi", () => {
 
 describe("prepareRequestBody - developer role normalization", () => {
 	async function prepare(
-		provider: string,
+		provider: ProviderId,
 		model: string,
 		region: string | null = null,
 	) {

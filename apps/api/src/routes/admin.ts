@@ -5156,7 +5156,7 @@ admin.openapi(createGlobalDiscount, async (c) => {
 		});
 	}
 
-	const [created] = await db
+	const [created] = await cdb
 		.insert(tables.discount)
 		.values({
 			organizationId: null,
@@ -5174,7 +5174,7 @@ admin.openapi(createGlobalDiscount, async (c) => {
 admin.openapi(deleteGlobalDiscount, async (c) => {
 	const { discountId } = c.req.valid("param");
 
-	const [deleted] = await db
+	const [deleted] = await cdb
 		.delete(tables.discount)
 		.where(
 			and(
@@ -5368,7 +5368,7 @@ admin.openapi(createOrganizationDiscount, async (c) => {
 		});
 	}
 
-	const [created] = await db
+	const [created] = await cdb
 		.insert(tables.discount)
 		.values({
 			organizationId: orgId,
@@ -5403,7 +5403,7 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 	const user = c.get("user");
 	const { orgId, discountId } = c.req.valid("param");
 
-	const [deleted] = await db
+	const [deleted] = await cdb
 		.delete(tables.discount)
 		.where(
 			and(
@@ -9538,7 +9538,8 @@ async function blockOrganizationById(
 		}
 	});
 
-	await invalidateOrganizationsCache([orgId]);
+	// A blocked org must not be served its pre-block row during an outage.
+	await invalidateOrganizationsCache([orgId], { dropFallback: true });
 
 	if (memberUserIds.length > 0) {
 		const members = await db.query.user.findMany({
