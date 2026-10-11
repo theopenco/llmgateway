@@ -73,6 +73,8 @@ function prepareEdit(url: string) {
 }
 
 describe("prepareRequestBody - OpenAI image edits", () => {
+	const previousGuard = process.env.ALLOW_INSECURE_PROVIDER_URLS;
+
 	beforeEach(() => {
 		process.env.ALLOW_INSECURE_PROVIDER_URLS = "true";
 	});
@@ -80,6 +82,11 @@ describe("prepareRequestBody - OpenAI image edits", () => {
 	afterEach(() => {
 		globalThis.fetch = originalFetch;
 		vi.restoreAllMocks();
+		if (previousGuard === undefined) {
+			delete process.env.ALLOW_INSECURE_PROVIDER_URLS;
+		} else {
+			process.env.ALLOW_INSECURE_PROVIDER_URLS = previousGuard;
+		}
 	});
 
 	test("rejects a remote edit image that exceeds the caller size limit", async () => {
