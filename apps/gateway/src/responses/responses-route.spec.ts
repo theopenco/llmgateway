@@ -220,6 +220,15 @@ describe("responses streaming lifecycle", () => {
 });
 
 describe("responses header passthrough", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.findOrganizationById.mockResolvedValue({
+			id: "org_test",
+			plan: "enterprise",
+			status: "active",
+		});
+	});
+
 	it("forwards cache/session headers and copies x-llmgateway-cache back", async () => {
 		mocks.appRequest.mockResolvedValue(
 			new Response(
@@ -319,5 +328,51 @@ describe("responses header passthrough", () => {
 		expect("x-no-cache" in init.headers).toBe(false);
 		expect("x-no-fallback" in init.headers).toBe(false);
 		expect("x-session-affinity" in init.headers).toBe(false);
+	});
+
+	it("forwards cache/session headers and copies x-llmgateway-cache back on /compact", async () => {
+		mocks.appRequest.mockResolvedValue(
+			Response.json(
+				{
+					id: "chatcmpl_test",
+					object: "chat.completion",
+					created: 1,
+					model: "gpt-4o-mini",
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: "Summary" },
+							finish_reason: "stop",
+						},
+					],
+					usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+				},
+				{ headers: { "x-llmgateway-cache": "HIT" } },
+			),
+		);
+
+		const response = await responses.request("/compact", {
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-token",
+				"content-type": "application/json",
+				"x-no-cache": "true",
+				"session-id": "session-abc",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				input: "Compact this conversation",
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("x-llmgateway-cache")).toBe("HIT");
+
+		const [, init] = mocks.appRequest.mock.calls.at(-1) as [
+			string,
+			{ headers: Record<string, string> },
+		];
+		expect(init.headers["x-no-cache"]).toBe("true");
+		expect(init.headers["session-id"]).toBe("session-abc");
 	});
 });
