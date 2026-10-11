@@ -5,7 +5,14 @@ import {
 	setGlobalDispatcher,
 } from "undici";
 
+import {
+	getGatewayTimeoutMs,
+	getStreamingTimeoutMs,
+	getTimeoutMs,
+} from "@/lib/timeout-config.js";
+
 import { logger } from "@llmgateway/logger";
+import { DEFAULT_ROUTING_TIMEOUTS } from "@llmgateway/shared/routing-config";
 import { safeOutboundLookup } from "@llmgateway/shared/url-safety-node";
 
 import type { Dispatcher } from "undici";
@@ -13,6 +20,26 @@ import type { Dispatcher } from "undici";
 function envInt(name: string, fallback: number): number {
 	const value = Number(process.env[name]);
 	return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+/**
+ * Response timers for the upstream Agents. undici defaults headersTimeout and
+ * bodyTimeout to 300s, which would cut off provider calls before the longer
+ * plain/streaming request timeouts fire. The Agents are shared across
+ * projects, so the timers cover the longest deadline any request can carry:
+ * the env-resolved timeouts and the ceilings that per-project routing
+ * overrides are clamped to. The abort signals stay in charge, while fetches
+ * without a signal stay bounded.
+ */
+function responseTimeouts() {
+	const timeoutMs = Math.max(
+		getGatewayTimeoutMs(),
+		getTimeoutMs(),
+		getStreamingTimeoutMs(),
+		DEFAULT_ROUTING_TIMEOUTS.plainMs,
+		DEFAULT_ROUTING_TIMEOUTS.streamingMs,
+	);
+	return { headersTimeout: timeoutMs, bodyTimeout: timeoutMs };
 }
 
 let agent: Agent | null = null;
@@ -42,6 +69,7 @@ export function installUpstreamDispatcher(): Dispatcher {
 	const dnsCacheTtlMs = envInt("UPSTREAM_DNS_CACHE_TTL_MS", 300_000);
 
 	agent = new Agent({
+		...responseTimeouts(),
 		keepAliveTimeout: keepAliveTimeoutMs,
 		connect: { timeout: connectTimeoutMs },
 	});
@@ -71,6 +99,7 @@ export function installUpstreamDispatcher(): Dispatcher {
 export function getTenantUpstreamDispatcher(): Dispatcher {
 	if (!tenantDispatcher) {
 		tenantAgent = new Agent({
+			...responseTimeouts(),
 			keepAliveTimeout: envInt("UPSTREAM_KEEPALIVE_TIMEOUT_MS", 60_000),
 			connect: {
 				timeout: envInt("UPSTREAM_CONNECT_TIMEOUT_MS", 10_000),
