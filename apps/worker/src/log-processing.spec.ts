@@ -1328,24 +1328,29 @@ describe("Log Processing", () => {
 				createdAt: new Date(Date.now() - 1000),
 			});
 
-			await db.execute(sql`
-				create or replace function poison_org_guard() returns trigger as $$
-				begin
-					if new.id = 'poison-guard-org' then
-						raise exception 'poison row';
-					end if;
-					return new;
-				end;
-				$$ language plpgsql
-			`);
-			await db.execute(
-				sql`create trigger poison_org_guard before update on "organization" for each row execute function poison_org_guard()`,
-			);
-
 			let poisonProcessedAt: Date | null = null;
 			let poisonOrgCredits: string | null = null;
 
 			try {
+				// Created inside the try so the finally always removes it, and any
+				// leftover from an aborted run is dropped first.
+				await db.execute(
+					sql`drop trigger if exists poison_org_guard on "organization"`,
+				);
+				await db.execute(sql`
+					create or replace function poison_org_guard() returns trigger as $$
+					begin
+						if new.id = 'poison-guard-org' then
+							raise exception 'poison row';
+						end if;
+						return new;
+					end;
+					$$ language plpgsql
+				`);
+				await db.execute(
+					sql`create trigger poison_org_guard before update on "organization" for each row execute function poison_org_guard()`,
+				);
+
 				await drainQueue();
 
 				// Read before the cleanup below removes both rows.

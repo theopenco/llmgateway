@@ -2122,6 +2122,7 @@ export async function batchProcessLogs(): Promise<number> {
 	try {
 		let batchSize = CREDIT_BATCH_SIZE;
 		let singleLogAttempts = 0;
+		let singleLogId: string | null = null;
 
 		while (!isStopRequested()) {
 			const result = await runCreditBatch(batchSize);
@@ -2152,13 +2153,23 @@ export async function batchProcessLogs(): Promise<number> {
 
 			// A single log now fails on its own. Retry it a few times first so a
 			// transient fault (deadlock, dropped connection) does not cost a row
-			// its billing, then give up on it and let the queue move on.
+			// its billing, then give up on it and let the queue move on. Attempts
+			// are counted per log: a late-arriving older row can take the head
+			// between retries, and must not inherit another row's failures.
+			const poisonLog = result.selectedLogs[0];
+			if (poisonLog.id !== singleLogId) {
+				singleLogId = poisonLog.id;
+				singleLogAttempts = 0;
+			}
 			singleLogAttempts++;
 			if (singleLogAttempts < POISON_LOG_MAX_ATTEMPTS) {
+				// Back off so a deadlock, lock timeout or failover has a chance to
+				// clear; retrying within milliseconds would quarantine — and never
+				// bill — a healthy row.
+				await interruptibleSleep(250 * singleLogAttempts);
 				continue;
 			}
 
-			const poisonLog = result.selectedLogs[0];
 			await quarantineLog(poisonLog.id, poisonLog.organizationId, result.error);
 			return 0;
 		}
