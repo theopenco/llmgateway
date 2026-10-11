@@ -53,6 +53,12 @@ provider's flat prices as a starting point. Prices are per token and accept expo
 	filed for review too.
 </Callout>
 
+Every new listing must pass preflight before it is filed. So must an edit that
+adds a capability, raises the context size or output limit, or adds accepted
+modes or reasoning tiers: run **Run preflight** in the edit dialog and save once
+it passes. Narrowing a capability or editing descriptive fields needs no new
+run.
+
 ## Changing a price
 
 Pricing is never edited in place. **File fare** opens a tariff filing with the
@@ -88,8 +94,9 @@ its catalogue entry.
 ## Relisting a model
 
 A delisted row shows who took it out of service and when: **Delisted by your
-crew** or **Delisted · claim revoked**. **Relist** puts it back in service
-immediately at its last approved fare, without review. Relisting needs an
+crew** or **Delisted · claim revoked**. Run **Verify** first: **Relist** needs a
+preflight that passed after the model was delisted, then puts it back in service
+immediately at its last approved fare, without review. Relisting also needs an
 active claim on the carrier, and fails while another listing uses the same
 model id. Filings that were pending at delisting stay rejected, and
 model-level dispatch settings restart from the carrier default.

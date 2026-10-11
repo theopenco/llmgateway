@@ -1,5 +1,6 @@
 import * as crypto from "node:crypto";
 
+import { GOOGLE_OAUTH_TOKEN_URI } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 import {
@@ -10,7 +11,6 @@ import {
 interface ServiceAccountKey {
 	client_email: string;
 	private_key: string;
-	token_uri: string;
 	project_id: string;
 }
 
@@ -71,7 +71,7 @@ function createSignedJwt(sa: ServiceAccountKey, scope: string): string {
 	const payload = {
 		iss: sa.client_email,
 		scope,
-		aud: sa.token_uri,
+		aud: GOOGLE_OAUTH_TOKEN_URI,
 		iat: now,
 		exp: now + 3600,
 	};
@@ -98,7 +98,7 @@ async function fetchNewToken(sa: ServiceAccountKey): Promise<string> {
 		assertion: jwt,
 	});
 
-	const res = await fetch(sa.token_uri, {
+	const res = await fetch(GOOGLE_OAUTH_TOKEN_URI, {
 		method: "POST",
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },
 		body: body.toString(),

@@ -1,6 +1,18 @@
-import { Agent, interceptors, setGlobalDispatcher } from "undici";
+import {
+	Agent,
+	Dispatcher1Wrapper,
+	interceptors,
+	setGlobalDispatcher,
+} from "undici";
+
+import {
+	getGatewayTimeoutMs,
+	getStreamingTimeoutMs,
+	getTimeoutMs,
+} from "@/lib/timeout-config.js";
 
 import { logger } from "@llmgateway/logger";
+import { DEFAULT_ROUTING_TIMEOUTS } from "@llmgateway/shared/routing-config";
 import { safeOutboundLookup } from "@llmgateway/shared/url-safety-node";
 
 import type { Dispatcher } from "undici";
@@ -10,8 +22,29 @@ function envInt(name: string, fallback: number): number {
 	return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
+/**
+ * Response timers for the upstream Agents. undici defaults headersTimeout and
+ * bodyTimeout to 300s, which would cut off provider calls before the longer
+ * plain/streaming request timeouts fire. The Agents are shared across
+ * projects, so the timers cover the longest deadline any request can carry:
+ * the env-resolved timeouts and the ceilings that per-project routing
+ * overrides are clamped to. The abort signals stay in charge, while fetches
+ * without a signal stay bounded.
+ */
+function responseTimeouts() {
+	const timeoutMs = Math.max(
+		getGatewayTimeoutMs(),
+		getTimeoutMs(),
+		getStreamingTimeoutMs(),
+		DEFAULT_ROUTING_TIMEOUTS.plainMs,
+		DEFAULT_ROUTING_TIMEOUTS.streamingMs,
+	);
+	return { headersTimeout: timeoutMs, bodyTimeout: timeoutMs };
+}
+
 let agent: Agent | null = null;
 let tenantAgent: Agent | null = null;
+let tenantDispatcher: Dispatcher | null = null;
 
 /**
  * Installs a tuned undici Agent as the global dispatcher used by `fetch` for
@@ -36,6 +69,7 @@ export function installUpstreamDispatcher(): Dispatcher {
 	const dnsCacheTtlMs = envInt("UPSTREAM_DNS_CACHE_TTL_MS", 300_000);
 
 	agent = new Agent({
+		...responseTimeouts(),
 		keepAliveTimeout: keepAliveTimeoutMs,
 		connect: { timeout: connectTimeoutMs },
 	});
@@ -63,14 +97,20 @@ export function installUpstreamDispatcher(): Dispatcher {
  * shared DNS cache, which would otherwise answer from an unchecked lookup.
  */
 export function getTenantUpstreamDispatcher(): Dispatcher {
-	tenantAgent ??= new Agent({
-		keepAliveTimeout: envInt("UPSTREAM_KEEPALIVE_TIMEOUT_MS", 60_000),
-		connect: {
-			timeout: envInt("UPSTREAM_CONNECT_TIMEOUT_MS", 10_000),
-			lookup: safeOutboundLookup,
-		},
-	});
-	return tenantAgent;
+	if (!tenantDispatcher) {
+		tenantAgent = new Agent({
+			...responseTimeouts(),
+			keepAliveTimeout: envInt("UPSTREAM_KEEPALIVE_TIMEOUT_MS", 60_000),
+			connect: {
+				timeout: envInt("UPSTREAM_CONNECT_TIMEOUT_MS", 10_000),
+				lookup: safeOutboundLookup,
+			},
+		});
+		// Passed to the built-in fetch, whose bundled undici may predate v8's
+		// handler API (Node 24 fails with "invalid onRequestStart method").
+		tenantDispatcher = new Dispatcher1Wrapper(tenantAgent);
+	}
+	return tenantDispatcher;
 }
 
 export async function closeUpstreamDispatcher(): Promise<void> {
@@ -81,5 +121,6 @@ export async function closeUpstreamDispatcher(): Promise<void> {
 	if (tenantAgent) {
 		await tenantAgent.close();
 		tenantAgent = null;
+		tenantDispatcher = null;
 	}
 }

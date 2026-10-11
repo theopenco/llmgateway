@@ -1,5 +1,10 @@
 import { Decimal } from "decimal.js";
 
+import {
+	calculateUptimePenalty,
+	MAX_THROUGHPUT_SCORE,
+} from "@llmgateway/shared/routing-config";
+
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 
 export interface ScoringFlags {
@@ -44,16 +49,7 @@ export function getEffectiveScoringWeights(
 	};
 }
 
-export function calculateUptimePenalty(
-	uptime: number,
-	threshold: number,
-): number {
-	if (uptime >= threshold) {
-		return 0;
-	}
-	const deficit = (threshold - uptime) / threshold;
-	return Math.pow(deficit * 5, 2);
-}
+export { calculateUptimePenalty };
 
 export interface CandidateScoreInput {
 	price: Decimal;
@@ -161,12 +157,16 @@ export function computeWeightedProviderScores(
 			calculateUptimePenalty(uptime, thresholds.uptimePenalty),
 		);
 
-		// Throughput ratio: 0 = fastest, 0.5 = 50% slower, 1.0 = 2x slower
+		// Throughput ratio: 0 = fastest, 0.5 = 50% slower, 1.0 = 2x slower,
+		// capped at MAX_THROUGHPUT_SCORE
 		const throughput = candidate.throughput ?? thresholds.defaultThroughput;
 		const throughputScore =
 			throughput > 0
-				? new Decimal(maxThroughput).div(throughput).minus(1)
-				: new Decimal(1);
+				? Decimal.min(
+						new Decimal(maxThroughput).div(throughput).minus(1),
+						MAX_THROUGHPUT_SCORE,
+					)
+				: new Decimal(MAX_THROUGHPUT_SCORE);
 
 		// Latency ratio: 0 = fastest, proportional penalty for slower
 		// Only consider latency for streaming requests since it's only measured there

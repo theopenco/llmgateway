@@ -3,6 +3,7 @@ import { describe, expect, it, test } from "vitest";
 import {
 	compareSortValues,
 	effectiveTokenPrice,
+	formatLocalPeakWindows,
 	formatPeakPricingSchedule,
 	getInputCharacterPricePer1K,
 	getMaxPerSecondPrice,
@@ -13,36 +14,43 @@ import {
 
 import type { ApiModelProviderMapping } from "./api-types";
 
+const deepSeekPeakPricing = {
+	peak: {
+		inputPrice: "0.44e-6",
+		outputPrice: "1.32e-6",
+		cachedInputPrice: "0.014e-6",
+	},
+	offPeak: {
+		inputPrice: "0.22e-6",
+		outputPrice: "0.66e-6",
+		cachedInputPrice: "0.007e-6",
+	},
+	hoursUtc: [
+		[1, 4],
+		[6, 10],
+	],
+	offPeakDaysUtc: [0, 6],
+} satisfies NonNullable<ApiModelProviderMapping["peakPricing"]>;
+
 describe("formatPeakPricingSchedule", () => {
-	it("formats DeepSeek weekday windows in Beijing time", () => {
-		expect(
-			formatPeakPricingSchedule({
-				peak: {
-					inputPrice: "0.44e-6",
-					outputPrice: "1.32e-6",
-					cachedInputPrice: "0.014e-6",
-				},
-				offPeak: {
-					inputPrice: "0.22e-6",
-					outputPrice: "0.66e-6",
-					cachedInputPrice: "0.007e-6",
-				},
-				hoursUtc: [
-					[1, 4],
-					[6, 10],
-				],
-				offPeakDays: {
-					daysOfWeek: [0, 6],
-					utcOffsetMinutes: 480,
-					timeZoneLabel: "Beijing time",
-				},
-			}),
-		).toEqual({
+	it("formats the schedule in UTC", () => {
+		expect(formatPeakPricingSchedule(deepSeekPeakPricing)).toEqual({
 			peakDays: "Monday–Friday",
 			offPeakDays: "Saturday and Sunday",
-			peakHours: "09:00–12:00 and 14:00–18:00",
-			timeZoneLabel: "Beijing time",
+			peakHours: "01:00–04:00 and 06:00–10:00",
 		});
+	});
+});
+
+describe("formatLocalPeakWindows", () => {
+	it.each([
+		[0, "Monday–Friday, 01:00–04:00 and 06:00–10:00"],
+		[480, "Monday–Friday, 09:00–12:00 and 14:00–18:00"],
+		[330, "Monday–Friday, 06:30–09:30 and 11:30–15:30"],
+		[-480, "Sunday–Thursday, 17:00–20:00 and 22:00–02:00 next day"],
+		[-120, "Sunday–Thursday, 23:00–02:00 next day; Monday–Friday, 04:00–08:00"],
+	])("shifts peak windows to UTC%i minutes", (offset, expected) => {
+		expect(formatLocalPeakWindows(deepSeekPeakPricing, offset)).toBe(expected);
 	});
 });
 

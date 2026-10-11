@@ -115,7 +115,7 @@ function takePendingReasoning(pending: PendingReasoning): {
  * This is the inverse of transformMessagesForResponsesApi in prepare-request-body.ts
  */
 export function convertResponsesInputToMessages(
-	input: ResponsesRequest["input"],
+	requestInput: ResponsesRequest["input"],
 	instructions?: string,
 ): ChatMessage[] {
 	const messages: ChatMessage[] = [];
@@ -124,10 +124,12 @@ export function convertResponsesInputToMessages(
 		messages.push({ role: "system", content: instructions });
 	}
 
-	if (typeof input === "string") {
-		messages.push({ role: "user", content: input });
+	if (typeof requestInput === "string") {
+		messages.push({ role: "user", content: requestInput });
 		return messages;
 	}
+	// A managed prompt can supply the whole conversation, leaving `input` unset.
+	const input = requestInput ?? [];
 
 	// Reasoning items precede the assistant items they belong to; buffer them
 	// and attach to the next assistant message so the provider layer can replay

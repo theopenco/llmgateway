@@ -238,6 +238,24 @@ export {
 } from "./marketing.js";
 
 export {
+	type DiscordEmbed,
+	type DiscordWebhookPayload,
+	postDiscordWebhook,
+} from "./discord.js";
+
+export {
+	DEFAULT_MODEL_ERROR_RATE_ALERT_RULES,
+	DEFAULT_MODEL_ERROR_RATE_ALERTS_SETTINGS,
+	MODEL_ERROR_RATE_ALERTS_MAX_RULES,
+	MODEL_ERROR_RATE_ALERTS_SETTING_ID,
+	type ModelErrorRateAlertRule,
+	modelErrorRateAlertRuleSchema,
+	type ModelErrorRateAlertsSettings,
+	modelErrorRateAlertsSettingsSchema,
+	parseModelErrorRateAlertsSettings,
+} from "./model-error-rate-alerts.js";
+
+export {
 	deriveStabilityMetrics,
 	type StabilityCounts,
 	type StabilityMetrics,
@@ -293,6 +311,7 @@ export {
 } from "./custom-providers.js";
 
 export {
+	mostRestrictiveApiKeyLimits,
 	validateApiKeyLimitsWithinMemberBudget,
 	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
 	type ApiKeyLimitConstraints,
@@ -320,6 +339,8 @@ export {
 	getDefaultCachePricing,
 	getDefaultRoutingConfig,
 	historyMatchesDefaults,
+	interpolateRoutingDefaults,
+	MAX_THROUGHPUT_SCORE,
 	type ProviderPriorityOverrides,
 	resolveRoutingConfig,
 	type ResolvedRoutingConfig,

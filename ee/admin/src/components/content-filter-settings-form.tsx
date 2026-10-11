@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 import { MultiProviderSelector } from "@llmgateway/shared/components";
 
@@ -55,18 +57,14 @@ interface ContentFilterSettingsFormProps {
 		moderateImages: boolean;
 		providers: ContentFilterProvider[];
 	};
-	onSave: (
-		input: ContentFilterSettingsInput,
-	) => Promise<{ ok: boolean; message: string | null }>;
 }
 
 export function ContentFilterSettingsForm({
 	settings,
-	onSave,
 }: ContentFilterSettingsFormProps) {
 	const router = useRouter();
 	const readOnly = !canWrite(useAdminRole());
-	const [pending, startTransition] = useTransition();
+	const $api = useApi();
 	const [enabled, setEnabled] = useState(settings.enabled);
 	const [sampleRate, setSampleRate] = useState(
 		String(settings.sampleRatePercent),
@@ -86,38 +84,54 @@ export function ContentFilterSettingsForm({
 	const allSelected =
 		settings.providers.length > 0 &&
 		providerIds.length >= settings.providers.length;
-	const [error, setError] = useState<string | null>(null);
+	// Client-side validation; API failures come from the mutation.
+	const [validationError, setValidationError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
+	const mutation = $api.useMutation("put", "/admin/settings/content-filter", {
+		meta: { inlineError: true },
+	});
+	const pending = mutation.isPending;
+	const error =
+		validationError ??
+		(mutation.isError
+			? apiErrorMessage(
+					mutation.error,
+					"Failed to update the content filter settings.",
+				)
+			: null);
 
 	const handleSubmit = (event: React.FormEvent) => {
 		event.preventDefault();
-		setError(null);
+		setValidationError(null);
 		setSaved(false);
 		const rate = Number(sampleRate);
 		if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
-			setError("Sample rate must be between 0 and 100.");
+			mutation.reset();
+			setValidationError("Sample rate must be between 0 and 100.");
 			return;
 		}
-		startTransition(async () => {
-			const savedEnforceEnterprise = enforce && enforceEnterprise;
-			const result = await onSave({
-				enabled,
-				sampleRatePercent: rate,
-				enforce,
-				enforceEnterprise: savedEnforceEnterprise,
-				classifier,
-				internalScope,
-				moderateImages,
-				providerIds,
-			});
-			if (!result.ok) {
-				setError(result.message);
-				return;
-			}
-			setEnforceEnterprise(savedEnforceEnterprise);
-			setSaved(true);
-			router.refresh();
-		});
+		const savedEnforceEnterprise = enforce && enforceEnterprise;
+		mutation.mutate(
+			{
+				body: {
+					enabled,
+					sampleRatePercent: rate,
+					enforce,
+					enforceEnterprise: savedEnforceEnterprise,
+					classifier,
+					internalScope,
+					moderateImages,
+					providerIds,
+				},
+			},
+			{
+				onSuccess: () => {
+					setEnforceEnterprise(savedEnforceEnterprise);
+					setSaved(true);
+					router.refresh();
+				},
+			},
+		);
 	};
 
 	return (

@@ -124,6 +124,12 @@ export const xiaomiModels = [
 			{
 				providerId: "xiaomi" as const,
 				externalId: "mimo-v2.5-pro",
+				// Xiaomi auto-routes this ID to mimo-v2.6-pro (billed at the new
+				// model's rates) from Beijing 2026-10-14 18:00 and retires it at
+				// 2026-10-21 10:00. Deactivate at the switch so requests error
+				// instead of silently routing to a different model.
+				deprecatedAt: new Date("2026-10-09"),
+				deactivatedAt: new Date("2026-10-14T10:00:00Z"),
 				inputPrice: "0.435e-6",
 				outputPrice: "0.87e-6",
 				cachedInputPrice: "0.0036e-6",
@@ -251,6 +257,12 @@ export const xiaomiModels = [
 			{
 				providerId: "xiaomi" as const,
 				externalId: "mimo-v2.5",
+				// Xiaomi auto-routes this ID to mimo-v2.6-flash (billed at the new
+				// model's rates) from Beijing 2026-10-14 18:00 and retires it at
+				// 2026-10-21 10:00. Deactivate at the switch so requests error
+				// instead of silently routing to a different model.
+				deprecatedAt: new Date("2026-10-09"),
+				deactivatedAt: new Date("2026-10-14T10:00:00Z"),
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
 				cachedInputPrice: "0.0028e-6",

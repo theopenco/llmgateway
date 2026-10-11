@@ -1,8 +1,9 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback } from "react";
-
+import {
+	FilterPendingSpinner,
+	useFilterNavigation,
+} from "@/components/filter-navigation";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -34,36 +35,31 @@ export function SegmentedUrlSelector<T extends string>({
 	compact?: boolean;
 	extraParams?: Record<string, string | null>;
 }) {
-	const searchParams = useSearchParams();
-	const router = useRouter();
-	const pathname = usePathname();
+	const { isPending, pendingKey, navigate } = useFilterNavigation();
 
-	const setValue = useCallback(
-		(next: T) => {
-			const params = new URLSearchParams(searchParams.toString());
-			if (next === defaultValue) {
-				params.delete(param);
-			} else {
-				params.set(param, next);
-			}
-			for (const [key, paramValue] of Object.entries(extraParams ?? {})) {
-				if (paramValue === null) {
-					params.delete(key);
+	// replace + scroll:false to match the other filters on these pages:
+	// push would make Back walk every toggle instead of leaving the page,
+	// and the default scroll restoration jumps to the top of the document
+	// when a selector below the fold is used.
+	const setValue = (next: T) =>
+		navigate(
+			`${param}:${next}`,
+			(params) => {
+				if (next === defaultValue) {
+					params.delete(param);
 				} else {
-					params.set(key, paramValue);
+					params.set(param, next);
 				}
-			}
-			const query = params.toString();
-			// replace + scroll:false to match the other filters on these pages:
-			// push would make Back walk every toggle instead of leaving the page,
-			// and the default scroll restoration jumps to the top of the document
-			// when a selector below the fold is used.
-			router.replace(query ? `${pathname}?${query}` : pathname, {
-				scroll: false,
-			});
-		},
-		[searchParams, router, pathname, param, defaultValue, extraParams],
-	);
+				for (const [key, paramValue] of Object.entries(extraParams ?? {})) {
+					if (paramValue === null) {
+						params.delete(key);
+					} else {
+						params.set(key, paramValue);
+					}
+				}
+			},
+			{ replace: true },
+		);
 
 	return (
 		<div
@@ -81,8 +77,12 @@ export function SegmentedUrlSelector<T extends string>({
 					}
 					size="sm"
 					className={cn(compact && "h-7 px-3 text-xs")}
+					disabled={isPending}
 					onClick={() => setValue(option.value)}
 				>
+					{pendingKey === `${param}:${option.value}` && (
+						<FilterPendingSpinner className="h-3.5 w-3.5" />
+					)}
 					{option.label}
 				</Button>
 			))}

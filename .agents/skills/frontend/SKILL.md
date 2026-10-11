@@ -8,7 +8,9 @@ description: Build and change LLM Gateway Next.js frontends — apps/ui, apps/pl
 ## Data
 
 - Call the Hono API only through the generated typed client: `useFetchClient()` or `useApi()` from `@/lib/fetch-client`. Regenerate it by running the `generate` script in `apps/api`, then in the app. Utility functions take the client as a parameter from the calling component.
-- Backend logic lives in `apps/api`; frontends add no Next.js API routes.
+- Backend logic lives in `apps/api`; frontends add no Next.js API routes and no server actions that call the API. A server action adds a hop with its own timeout, rejects instead of returning (leaving loading state stuck), and breaks after a deploy. Server actions are only for what the API cannot do, such as setting the app's own httpOnly cookies.
+- Server components may read through the server API client (`createServerApiClient`) for SSR. Every write runs in the browser via `$api.useMutation`, followed by `router.refresh()` or a query invalidation.
+- In `ee/admin`, a global `MutationCache` toasts every failed mutation: set `meta.errorMessage` for its wording, or `meta.inlineError` (or an `onError`) when the call site renders the error itself.
 - Fetch data with TanStack Query, not `useEffect`.
 - Capability flags from the API are `false` when unset (non-null columns), while `@llmgateway/models` definitions leave them `undefined`. Use `||` for fallbacks between flags on API data.
 - Store user settings that are not in the database in cookies so SSR sees them.

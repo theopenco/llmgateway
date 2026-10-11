@@ -138,6 +138,28 @@ describe("getProviderEndpoint", () => {
 		);
 	});
 
+	it("routes Tencent image generation to the Hy Image endpoint", () => {
+		const base = "https://tokenhub-intl.tencentcloudmaas.com";
+		const endpoint = (imageGenerations: boolean, model: string) =>
+			getProviderEndpoint(
+				"tencent",
+				base,
+				model,
+				undefined,
+				false,
+				false,
+				false,
+				undefined,
+				undefined,
+				imageGenerations,
+			);
+
+		expect(endpoint(true, "hy-image-v3.5-preview")).toBe(
+			`${base}/v1/wand/hunyuan-image/v35-generation`,
+		);
+		expect(endpoint(false, "hy3")).toBe(`${base}/v1/chat/completions`);
+	});
+
 	it("rejects unsupported Runpod models", () => {
 		expect(() =>
 			getProviderEndpoint("runpod", undefined, "unregistered-model"),
@@ -683,7 +705,7 @@ describe("getProviderEndpoint", () => {
 			const endpoint = getProviderEndpoint(
 				"xiaomi",
 				undefined,
-				"mimo-v2.5-pro",
+				"mimo-v2.6-pro",
 			);
 
 			expect(endpoint).toBe("https://api.xiaomimimo.com/v1/chat/completions");
@@ -707,7 +729,7 @@ describe("getProviderEndpoint", () => {
 			const endpoint = getProviderEndpoint(
 				"xiaomi",
 				undefined,
-				"mimo-v2.5",
+				"mimo-v2.6-flash",
 				undefined,
 				true,
 			);

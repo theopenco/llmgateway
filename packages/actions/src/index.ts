@@ -1,3 +1,4 @@
+export * from "./anthropic-thinking.js";
 export * from "./anthropic-tool-search.js";
 export * from "./transform-anthropic-messages.js";
 export * from "./parse-data-url.js";
@@ -32,3 +33,5 @@ export { fetchNoRedirect, RedirectError } from "./fetch-no-redirect.js";
 
 export * from "./notification-access.js";
 export * from "./compliance-alerts.js";
+export * from "./data-streams.js";
+export * from "./data-stream-runner.js";

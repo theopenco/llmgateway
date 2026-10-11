@@ -193,6 +193,139 @@ describe("admin — organizations list filters", () => {
 		expect(windowed.total).toBe(1);
 	});
 
+	test("all-time credits count only pay-as-you-go top-ups", async () => {
+		await db.insert(tables.transaction).values(
+			(
+				[
+					["dev_plan_start", "87"],
+					["dev_plan_renewal", "87"],
+					["credit_gift", "5"],
+					["credit_topup", "50"],
+					["credit_refund", "-10"],
+					["credit_manual_payment", "20"],
+				] as const
+			).map(([type, creditAmount]) => ({
+				organizationId: DEVPASS_ORG_ID,
+				type,
+				creditAmount,
+				status: "completed" as const,
+			})),
+		);
+
+		const res = await app.request(
+			`/admin/organizations?limit=100&kind=devpass`,
+			{ headers: { Cookie: cookie } },
+		);
+		const body = (await res.json()) as {
+			organizations: { id: string; totalCreditsAllTime: string }[];
+		};
+		const org = body.organizations.find((o) => o.id === DEVPASS_ORG_ID);
+		expect(Number(org?.totalCreditsAllTime)).toBe(60);
+	});
+
+	test("subscription value sums DevPass and Chat Plan payments net of refunds", async () => {
+		const now = Date.now();
+		const at = (offsetMs: number) => new Date(now + offsetMs);
+		await db.insert(tables.transaction).values([
+			{
+				id: "subval-dev-start",
+				organizationId: DEVPASS_ORG_ID,
+				type: "dev_plan_start",
+				amount: "29",
+				stripeInvoiceId: "in_subval_1",
+				status: "completed",
+				createdAt: at(0),
+			},
+			{
+				id: "subval-dev-renewal",
+				organizationId: DEVPASS_ORG_ID,
+				type: "dev_plan_renewal",
+				amount: "29",
+				stripeInvoiceId: "in_subval_2",
+				status: "completed",
+				createdAt: at(2000),
+			},
+			{
+				id: "subval-dev-upgrade",
+				organizationId: DEVPASS_ORG_ID,
+				type: "dev_plan_upgrade",
+				amount: "50",
+				stripeInvoiceId: "in_subval_3",
+				status: "completed",
+				createdAt: at(3000),
+			},
+			{
+				id: "subval-dev-refund",
+				organizationId: DEVPASS_ORG_ID,
+				type: "credit_refund",
+				amount: "29",
+				relatedTransactionId: "subval-dev-renewal",
+				status: "completed",
+				createdAt: at(4000),
+			},
+			// Not subscriptions: one-time Reset Pass, top-up, failed renewal.
+			{
+				id: "subval-dev-reset-pass",
+				organizationId: DEVPASS_ORG_ID,
+				type: "dev_plan_reset_pass",
+				amount: "5",
+				status: "completed",
+				createdAt: at(5000),
+			},
+			{
+				id: "subval-dev-topup",
+				organizationId: DEVPASS_ORG_ID,
+				type: "credit_topup",
+				amount: "100",
+				creditAmount: "100",
+				status: "completed",
+				createdAt: at(6000),
+			},
+			{
+				id: "subval-dev-failed",
+				organizationId: DEVPASS_ORG_ID,
+				type: "dev_plan_renewal",
+				amount: "29",
+				stripeInvoiceId: "in_subval_4",
+				status: "failed",
+				createdAt: at(7000),
+			},
+			{
+				id: "subval-chat-start",
+				organizationId: CHAT_ORG_ID,
+				type: "chat_plan_start",
+				amount: "20",
+				stripeInvoiceId: "in_subval_chat_1",
+				status: "completed",
+				createdAt: at(0),
+			},
+			{
+				id: "subval-chat-renewal",
+				organizationId: CHAT_ORG_ID,
+				type: "chat_plan_renewal",
+				amount: "20",
+				stripeInvoiceId: "in_subval_chat_2",
+				status: "completed",
+				createdAt: at(1000),
+			},
+		]);
+
+		const body = (await list("sortBy=totalSubscriptionValue&sortOrder=desc"))
+			.organizations as unknown as {
+			id: string;
+			totalSubscriptionValue: string;
+		}[];
+		const value = (id: string) =>
+			Number(body.find((o) => o.id === id)?.totalSubscriptionValue);
+		expect(value(DEVPASS_ORG_ID)).toBe(79);
+		expect(value(CHAT_ORG_ID)).toBe(40);
+		expect(value(ENTERPRISE_ORG_ID)).toBe(0);
+		expect(body.slice(0, 2).map((o) => o.id)).toEqual([
+			DEVPASS_ORG_ID,
+			CHAT_ORG_ID,
+		]);
+	});
+
 	test("sorts by kind", async () => {
 		const asc = await list("sortBy=kind&sortOrder=asc");
 		const kinds = asc.organizations.map((o) => o.kind);

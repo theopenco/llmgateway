@@ -536,6 +536,7 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 											<TabsContent value="visual" className="mt-3">
 												{editableGraph ? (
 													<RouteFlowEditor
+														projectId={projectId}
 														key={`${detail.id}:${visualSession}`}
 														initialGraph={editableGraph}
 														onGraphChange={(graph) => {

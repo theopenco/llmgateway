@@ -113,6 +113,7 @@ import {
 	getProviderEnvValue,
 	getProviderEnvVar,
 	hasProviderEnvironmentToken,
+	isProviderMappingAllowedByRestriction,
 	models,
 	type ModelDefinition,
 	type Provider,
@@ -4690,6 +4691,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
+		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: normalizedModel,
 		requestedProvider,
 		activeModelInfo: modelInfo,
@@ -4702,12 +4704,28 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		});
 	}
 
+	// Unpinned video routing picks among the model's providers, so drop the ones
+	// the staff-managed restriction denies. Orgs without one are unaffected.
+	const { providerAccessRestriction } = organization;
+	const accessModelInfo: ModelDefinition = providerAccessRestriction
+		? {
+				...modelInfo,
+				providers: modelInfo.providers.filter((provider) =>
+					isProviderMappingAllowedByRestriction(
+						providerAccessRestriction,
+						provider.providerId,
+						modelInfo.id,
+					),
+				),
+			}
+		: modelInfo;
+
 	// Enterprise provider compliance policy: restrict video routing to providers
 	// that meet the org's policy, and block before dispatch if none qualify.
 	const videoCompliancePolicy = getActiveCompliancePolicy(organization);
 	const retainVideoPayloads =
 		getEffectiveRetentionLevel(organization) === "retain";
-	let complianceModelInfo: ModelDefinition = modelInfo;
+	let complianceModelInfo: ModelDefinition = accessModelInfo;
 	if (videoCompliancePolicy) {
 		// A pinned provider is dispatched directly, so block it explicitly even
 		// when the model has other compliant providers (mirrors the chat path).
@@ -4720,7 +4738,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			videoCompliancePolicy,
 		);
 		const compliantProviders = filterCompliantProviders(
-			modelInfo.providers as ProviderModelMapping[],
+			accessModelInfo.providers as ProviderModelMapping[],
 			videoCompliancePolicy,
 		);
 		if (pinnedBlocked || modelBlocked || compliantProviders.length === 0) {
@@ -4732,7 +4750,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				message: complianceBlockMessage(normalizedModel),
 			});
 		}
-		complianceModelInfo = { ...modelInfo, providers: compliantProviders };
+		complianceModelInfo = { ...accessModelInfo, providers: compliantProviders };
 	}
 
 	const {

@@ -1,25 +1,34 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
+import {
+	publicAirsideProfile,
+	publicAirsideProfileSchema,
+} from "@/lib/airside-profile.js";
 import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
+import { getDynamicRouteProviderOptions } from "@/lib/dynamic-route-providers.js";
 import { loadPublicDiscounts } from "@/lib/public-discounts.js";
 
 import {
+	getEffectiveProviders,
 	and,
 	avgEffectiveTtftSql,
 	db,
 	effectiveTtftTotals,
 	eq,
+	gt,
 	excludeRegionalMappingRows,
 	gte,
-	modelProviderMappingHistory,
+	isNull,
 	modelProviderMappingHistoryHourly,
+	or,
 	sql,
 	tables,
 } from "@llmgateway/db";
 import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
+	type PeakPricing,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 import {
@@ -43,7 +52,6 @@ const providerSchema = z.object({
 	createdAt: z.coerce.date(),
 	name: z.string().nullable(),
 	description: z.string().nullable(),
-	streaming: z.boolean().nullable(),
 	cancellation: z.boolean().nullable(),
 	color: z.string().nullable(),
 	website: z.string().nullable(),
@@ -52,7 +60,15 @@ const providerSchema = z.object({
 	// Branding uploaded by the Airside carrier that claimed this provider.
 	airsideLogoUrl: z.string().nullable(),
 	airsideIconUrl: z.string().nullable(),
+	// Self-declared public profile of a custom Airside carrier (display only).
+	airsideProfile: publicAirsideProfileSchema.nullable(),
 	status: z.enum(["active", "inactive"]),
+});
+
+const timeBasedTokenPricesSchema = z.object({
+	inputPrice: z.string(),
+	outputPrice: z.string(),
+	cachedInputPrice: z.string().nullable(),
 });
 
 // Pricing tier schema
@@ -65,25 +81,33 @@ const pricingTierSchema = z.object({
 	cacheReadInputPrice: z.string().nullable(),
 	cacheWriteInputPrice: z.string().nullable(),
 	cacheWriteInputPrice1h: z.string().nullable(),
+	// Per-tier peak/off-peak rates; the schedule is the mapping's peakPricing.
+	peakPricing: z
+		.object({
+			peak: timeBasedTokenPricesSchema,
+			offPeak: timeBasedTokenPricesSchema,
+		})
+		.nullable(),
 });
 
-const timeBasedTokenPricesSchema = z.object({
-	inputPrice: z.string(),
-	outputPrice: z.string(),
-	cachedInputPrice: z.string().nullable(),
-});
+function serializeTimeBasedPrices(
+	rates: PeakPricing["peak"],
+): z.infer<typeof timeBasedTokenPricesSchema> {
+	return {
+		inputPrice: String(rates.inputPrice),
+		outputPrice: String(rates.outputPrice),
+		cachedInputPrice:
+			rates.cachedInputPrice !== undefined
+				? String(rates.cachedInputPrice)
+				: null,
+	};
+}
 
 const peakPricingSchema = z.object({
 	peak: timeBasedTokenPricesSchema,
 	offPeak: timeBasedTokenPricesSchema,
 	hoursUtc: z.array(z.tuple([z.number(), z.number()])),
-	offPeakDays: z
-		.object({
-			daysOfWeek: z.array(z.number()),
-			utcOffsetMinutes: z.number(),
-			timeZoneLabel: z.string(),
-		})
-		.nullable(),
+	offPeakDaysUtc: z.array(z.number()).nullable(),
 });
 
 // Model provider mapping schema
@@ -372,50 +396,26 @@ internalModels.openapi(getModelsRoute, async (c) => {
 							t.cacheWriteInputPrice1h !== undefined
 								? String(t.cacheWriteInputPrice1h)
 								: null,
+						peakPricing: t.peakPricing
+							? {
+									peak: serializeTimeBasedPrices(t.peakPricing.peak),
+									offPeak: serializeTimeBasedPrices(t.peakPricing.offPeak),
+								}
+							: null,
 					}));
 				})(),
 				peakPricing:
 					mapping.source !== "airside" && sharedMapping?.peakPricing
 						? {
-								peak: {
-									inputPrice: String(sharedMapping.peakPricing.peak.inputPrice),
-									outputPrice: String(
-										sharedMapping.peakPricing.peak.outputPrice,
-									),
-									cachedInputPrice:
-										sharedMapping.peakPricing.peak.cachedInputPrice !==
-										undefined
-											? String(sharedMapping.peakPricing.peak.cachedInputPrice)
-											: null,
-								},
-								offPeak: {
-									inputPrice: String(
-										sharedMapping.peakPricing.offPeak.inputPrice,
-									),
-									outputPrice: String(
-										sharedMapping.peakPricing.offPeak.outputPrice,
-									),
-									cachedInputPrice:
-										sharedMapping.peakPricing.offPeak.cachedInputPrice !==
-										undefined
-											? String(
-													sharedMapping.peakPricing.offPeak.cachedInputPrice,
-												)
-											: null,
-								},
+								peak: serializeTimeBasedPrices(sharedMapping.peakPricing.peak),
+								offPeak: serializeTimeBasedPrices(
+									sharedMapping.peakPricing.offPeak,
+								),
 								hoursUtc: sharedMapping.peakPricing.hoursUtc.map(
 									([start, end]) => [start, end] as [number, number],
 								),
-								offPeakDays: sharedMapping.peakPricing.offPeakDays
-									? {
-											daysOfWeek: [
-												...sharedMapping.peakPricing.offPeakDays.daysOfWeek,
-											],
-											utcOffsetMinutes:
-												sharedMapping.peakPricing.offPeakDays.utcOffsetMinutes,
-											timeZoneLabel:
-												sharedMapping.peakPricing.offPeakDays.timeZoneLabel,
-										}
+								offPeakDaysUtc: sharedMapping.peakPricing.offPeakDaysUtc
+									? [...sharedMapping.peakPricing.offPeakDaysUtc]
 									: null,
 							}
 						: null,
@@ -709,14 +709,31 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 		where: { status: { eq: "active" } },
 		columns: {
 			providerId: true,
+			kind: true,
 			customName: true,
 			logoUrl: true,
 			iconUrl: true,
+			website: true,
+			privacyPolicyUrl: true,
+			termsUrl: true,
+			statusPageUrl: true,
+			legalEntity: true,
+			headquarters: true,
+			apiTraining: true,
+			promptLogging: true,
+			retentionPeriod: true,
+			gdpr: true,
+			soc2: true,
+			iso27001: true,
+			profileUpdatedAt: true,
 		},
 	});
 	const brandingByProvider = new Map(
 		activeClaims.map((claim) => [claim.providerId, claim]),
 	);
+	const airsideProfileFor = (
+		claim: (typeof activeClaims)[number] | undefined,
+	) => (claim ? publicAirsideProfile(claim) : null);
 
 	// modelCardBadge only exists in the catalogue, not the provider table
 	return c.json({
@@ -728,6 +745,7 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 				null,
 			airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
 			airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
+			airsideProfile: airsideProfileFor(brandingByProvider.get(provider.id)),
 		})),
 	});
 });
@@ -790,69 +808,109 @@ const modelBenchmarksRoute = createRoute({
 internalModels.openapi(modelBenchmarksRoute, async (c) => {
 	const { modelId } = c.req.valid("param");
 
+	// Same 24 hour-aligned buckets as the uptime route: the hourly rollup is
+	// refreshed every minute (current hour included), and reading it instead of
+	// the minute table scans sixty times fewer rows per provider.
 	const WINDOW_HOURS = 24;
-	const WINDOW_MS = WINDOW_HOURS * 60 * 60 * 1000;
-	const since = new Date(Date.now() - WINDOW_MS);
+	const HOUR_MS = 60 * 60_000;
+	const currentHour = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+	const precedingHoursMs = (WINDOW_HOURS - 1) * HOUR_MS;
+	const since = new Date(currentHour - precedingHoursMs);
+	const history = modelProviderMappingHistoryHourly;
 
 	const windowed = await db
 		.select({
-			providerId: modelProviderMappingHistory.providerId,
+			providerId: history.providerId,
 			providerName: tables.provider.name,
-			logsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
-					"logsCount",
-				),
+			logsCount: sql<number>`COALESCE(SUM(${history.logsCount}), 0)`.as(
+				"logsCount",
+			),
 			clientErrorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${history.clientErrorsCount}), 0)`.as(
 					"clientErrorsCount",
 				),
 			gatewayErrorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${history.gatewayErrorsCount}), 0)`.as(
 					"gatewayErrorsCount",
 				),
 			upstreamErrorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${history.upstreamErrorsCount}), 0)`.as(
 					"upstreamErrorsCount",
 				),
-			cachedCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
-					"cachedCount",
-				),
+			cachedCount: sql<number>`COALESCE(SUM(${history.cachedCount}), 0)`.as(
+				"cachedCount",
+			),
 			// Only streamed requests record a time-to-first-token, so the average
 			// divides by the sample count rather than by the non-cached request
 			// count — otherwise non-streaming traffic drags it towards zero.
 			// Reasoning-token samples are preferred so thinking mappings aren't
 			// measured on their (much later) first content token.
-			avgTimeToFirstToken: avgEffectiveTtftSql(modelProviderMappingHistory).as(
+			avgTimeToFirstToken: avgEffectiveTtftSql(history).as(
 				"avgTimeToFirstToken",
 			),
-			totalDuration:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalDuration}), 0)`.as(
-					"totalDuration",
-				),
+			totalDuration: sql<number>`COALESCE(SUM(${history.totalDuration}), 0)`.as(
+				"totalDuration",
+			),
 			totalOutputTokens:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalOutputTokens}), 0)`.as(
+				sql<number>`COALESCE(SUM(${history.totalOutputTokens}), 0)`.as(
 					"totalOutputTokens",
 				),
 		})
-		.from(modelProviderMappingHistory)
+		.from(history)
+		.innerJoin(tables.provider, eq(history.providerId, tables.provider.id))
+		.where(
+			and(
+				eq(history.modelId, modelId),
+				gte(history.hourTimestamp, since),
+				// Platform-credential traffic only; BYOK failures reflect the
+				// customer's key, not the provider.
+				eq(history.usedMode, "credits"),
+				// Per-provider totals: the region-less root row already includes the
+				// provider's regional traffic.
+				excludeRegionalMappingRows(history),
+			),
+		)
+		.groupBy(history.providerId, tables.provider.name);
+
+	const idleProviders = await db
+		.select({
+			providerId: tables.modelProviderMapping.providerId,
+			providerName: tables.provider.name,
+		})
+		.from(tables.modelProviderMapping)
 		.innerJoin(
 			tables.provider,
-			eq(modelProviderMappingHistory.providerId, tables.provider.id),
+			eq(tables.modelProviderMapping.providerId, tables.provider.id),
 		)
 		.where(
 			and(
-				eq(modelProviderMappingHistory.modelId, modelId),
-				gte(modelProviderMappingHistory.minuteTimestamp, since),
-				// Platform-credential traffic only; BYOK failures reflect the
-				// customer's key, not the provider.
-				eq(modelProviderMappingHistory.usedMode, "credits"),
-				// Per-provider totals: the region-less root row already includes the
-				// provider's regional traffic.
-				excludeRegionalMappingRows(modelProviderMappingHistory),
+				eq(tables.modelProviderMapping.modelId, modelId),
+				eq(tables.modelProviderMapping.status, "active"),
+				eq(tables.provider.status, "active"),
+				or(
+					isNull(tables.modelProviderMapping.deactivatedAt),
+					gt(tables.modelProviderMapping.deactivatedAt, new Date()),
+				),
 			),
-		)
-		.groupBy(modelProviderMappingHistory.providerId, tables.provider.name);
+		);
+	const seenProviders = new Set(windowed.map((row) => row.providerId));
+	for (const idle of idleProviders) {
+		if (seenProviders.has(idle.providerId)) {
+			continue;
+		}
+		seenProviders.add(idle.providerId);
+		windowed.push({
+			...idle,
+			logsCount: 0,
+			clientErrorsCount: 0,
+			gatewayErrorsCount: 0,
+			upstreamErrorsCount: 0,
+			cachedCount: 0,
+			avgTimeToFirstToken: null,
+			totalDuration: 0,
+			totalOutputTokens: 0,
+		});
+	}
 
 	const providers = windowed.map((m) => {
 		const logsCount = Number(m.logsCount);
@@ -1259,5 +1317,73 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 		windowMinutes: WINDOW_HOURS * 60,
 		bucketMinutes: 60,
 		providers,
+	});
+});
+
+const getProviderFacts = createRoute({
+	method: "get",
+	path: "/provider-facts",
+	responses: {
+		200: {
+			description: "Effective catalogue or carrier-declared provider facts.",
+			content: {
+				"application/json": {
+					schema: z.object({
+						providers: z.array(
+							z.object({
+								id: z.string(),
+								modelIds: z.array(z.string()),
+								name: z.string(),
+								description: z.string(),
+								forwardsSafetyIdentifier: z.boolean(),
+								env: z.object({ required: z.record(z.string().optional()) }),
+								color: z.string().optional(),
+								website: z.string().nullish(),
+								legalEntity: z.string().nullable(),
+								headquarters: z.string().nullish(),
+								dataPolicy: z
+									.object({
+										apiTraining: z.boolean().nullable(),
+										promptLogging: z.boolean().nullable(),
+										retentionPeriod: z.string().nullish(),
+										soc2: z
+											.union([z.literal(1), z.literal(2)])
+											.nullish()
+											.openapi({ type: "integer", enum: [1, 2, null] }),
+										iso27001: z.boolean().nullish(),
+										gdpr: z.boolean().nullish(),
+									})
+									.nullish(),
+							}),
+						),
+					}),
+				},
+			},
+		},
+	},
+});
+internalModels.openapi(getProviderFacts, async (c) => {
+	const [providers, models] = await Promise.all([
+		getEffectiveProviders(),
+		getDynamicRouteProviderOptions(),
+	]);
+	return c.json({
+		providers: providers.map((provider) => ({
+			id: provider.id,
+			name: provider.name,
+			description: provider.description,
+			forwardsSafetyIdentifier: provider.forwardsSafetyIdentifier,
+			env: { required: provider.env.required },
+			color: provider.color,
+			website: provider.website,
+			legalEntity: provider.legalEntity,
+			headquarters: provider.headquarters,
+			dataPolicy: provider.dataPolicy,
+			modelIds: models
+				.filter((model) =>
+					model.providers.some((entry) => entry.id === provider.id),
+				)
+				.map((model) => model.modelId),
+		})),
 	});
 });

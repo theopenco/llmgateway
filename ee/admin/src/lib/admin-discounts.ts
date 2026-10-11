@@ -1,5 +1,3 @@
-"use server";
-
 import { createServerApiClient } from "./server-api";
 
 export async function getGlobalDiscounts() {
@@ -8,57 +6,10 @@ export async function getGlobalDiscounts() {
 	return data ?? null;
 }
 
-export async function createGlobalDiscount(body: {
-	provider?: string | null;
-	model?: string | null;
-	discountPercent: number;
-	reason?: string | null;
-	expiresAt?: string | null;
-}) {
-	const $api = await createServerApiClient();
-	const { data } = await $api.POST("/admin/discounts", { body });
-	return data ?? null;
-}
-
-export async function deleteGlobalDiscount(
-	discountId: string,
-): Promise<boolean> {
-	const $api = await createServerApiClient();
-	const { data } = await $api.DELETE("/admin/discounts/{discountId}", {
-		params: { path: { discountId } },
-	});
-	return data?.success ?? false;
-}
-
 export async function getRoutingScoreMultipliers() {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/routing-score-multipliers");
 	return data ?? null;
-}
-
-export async function createRoutingScoreMultiplier(body: {
-	provider?: string | null;
-	model?: string | null;
-	scoreMultiplier: number;
-	reason?: string | null;
-	expiresAt?: string | null;
-}) {
-	const $api = await createServerApiClient();
-	const { data } = await $api.POST("/admin/routing-score-multipliers", {
-		body,
-	});
-	return data ?? null;
-}
-
-export async function deleteRoutingScoreMultiplier(
-	multiplierId: string,
-): Promise<boolean> {
-	const $api = await createServerApiClient();
-	const { data } = await $api.DELETE(
-		"/admin/routing-score-multipliers/{multiplierId}",
-		{ params: { path: { multiplierId } } },
-	);
-	return data?.success ?? false;
 }
 
 export async function getAllOrganizationDiscounts() {
@@ -73,38 +24,6 @@ export async function getOrganizationDiscounts(orgId: string) {
 		params: { path: { orgId } },
 	});
 	return data ?? null;
-}
-
-export async function createOrganizationDiscount(
-	orgId: string,
-	body: {
-		provider?: string | null;
-		model?: string | null;
-		discountPercent: number;
-		reason?: string | null;
-		expiresAt?: string | null;
-	},
-) {
-	const $api = await createServerApiClient();
-	const { data } = await $api.POST("/admin/organizations/{orgId}/discounts", {
-		params: { path: { orgId } },
-		body,
-	});
-	return data ?? null;
-}
-
-export async function deleteOrganizationDiscount(
-	orgId: string,
-	discountId: string,
-): Promise<boolean> {
-	const $api = await createServerApiClient();
-	const { data } = await $api.DELETE(
-		"/admin/organizations/{orgId}/discounts/{discountId}",
-		{
-			params: { path: { orgId, discountId } },
-		},
-	);
-	return data?.success ?? false;
 }
 
 export async function getDiscountOptions() {

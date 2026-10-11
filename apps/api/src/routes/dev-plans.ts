@@ -49,6 +49,7 @@ import {
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 import { resolveDevPassBillingDetails } from "@/utils/plan-billing.js";
 import {
+	providerCacheAutoTtlSchema,
 	providerCacheControlModeSchema,
 	resolveProviderCacheControlMode,
 } from "@/utils/provider-cache-control.js";
@@ -66,6 +67,7 @@ import {
 	gte,
 	isNull,
 	inArray,
+	desc,
 	shortid,
 	sql,
 } from "@llmgateway/db";
@@ -168,53 +170,77 @@ function getStripeErrorCode(error: unknown): string | undefined {
 		: undefined;
 }
 
-// Helper to get or create API key for personal org
+// DevPass allows exactly one active developer key per default project. Match it
+// by key type, not description: members can rename keys through /keys/api.
+function activeDevPassKeyFilter(projectId: string) {
+	return and(
+		eq(tables.apiKey.projectId, projectId),
+		eq(tables.apiKey.status, "active"),
+		eq(tables.apiKey.keyType, "user"),
+		eq(tables.apiKey.kind, "regular"),
+	);
+}
+
+// Raw SQL because select() inside a cdb transaction is served from the query
+// cache and can miss a key created or rotated since.
+function selectActiveDevPassKey(projectId: string) {
+	return sql`
+		SELECT ${tables.apiKey.id} AS id, ${tables.apiKey.tokenMasked} AS "tokenMasked"
+		FROM ${tables.apiKey}
+		WHERE ${activeDevPassKeyFilter(projectId)}
+		ORDER BY ${tables.apiKey.createdAt} DESC
+		LIMIT 1
+	`;
+}
+
+function newDevPassToken(): string {
+	return (
+		(process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_") +
+		shortid(40)
+	);
+}
+
+// Returns the personal org's DevPass key, creating it if none is active. The
+// project row lock keeps concurrent status requests from minting two keys.
 async function getOrCreatePersonalOrgApiKey(
-	orgId: string,
 	projectId: string,
 	userId: string,
 ): Promise<{ id: string; maskedToken: string }> {
-	// Check for existing API key
-	const existingKey = await db.query.apiKey.findFirst({
-		where: {
-			projectId: {
-				eq: projectId,
-			},
-			description: {
-				eq: "Dev Plan API Key",
-			},
-			status: {
-				eq: "active",
-			},
-		},
-		orderBy: {
-			createdAt: "desc",
-		},
-	});
-
+	const [existingKey] = await db
+		.select()
+		.from(tables.apiKey)
+		.where(activeDevPassKeyFilter(projectId))
+		.orderBy(desc(tables.apiKey.createdAt))
+		.limit(1);
 	if (existingKey) {
-		return {
-			id: existingKey.id,
-			maskedToken: readApiKeyMask(existingKey),
-		};
+		return { id: existingKey.id, maskedToken: readApiKeyMask(existingKey) };
 	}
 
-	// Create new API key
-	const prefix =
-		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
-	const token = prefix + shortid(40);
+	return await cdb.transaction(async (tx) => {
+		await tx.execute(
+			sql`SELECT ${tables.project.id} FROM ${tables.project} WHERE ${tables.project.id} = ${projectId} FOR UPDATE`,
+		);
+		const lockedRows = await tx.execute<{
+			id: string;
+			tokenMasked: string | null;
+		}>(selectActiveDevPassKey(projectId));
+		const lockedKey = lockedRows.rows[0];
+		if (lockedKey) {
+			return { id: lockedKey.id, maskedToken: readApiKeyMask(lockedKey) };
+		}
 
-	const [apiKey] = await cdb
-		.insert(tables.apiKey)
-		.values({
-			...hashApiKeyForStorage(token),
-			projectId,
-			description: "Dev Plan API Key",
-			createdBy: userId,
-		})
-		.returning();
+		const [apiKey] = await tx
+			.insert(tables.apiKey)
+			.values({
+				...hashApiKeyForStorage(newDevPassToken()),
+				projectId,
+				description: "Dev Plan API Key",
+				createdBy: userId,
+			})
+			.returning();
 
-	return { id: apiKey.id, maskedToken: readApiKeyMask(apiKey) };
+		return { id: apiKey.id, maskedToken: readApiKeyMask(apiKey) };
+	});
 }
 
 // Find the user's personal org without creating one. Used by the billing
@@ -365,7 +391,10 @@ devPlans.openapi(getPersonalOrg, async (c) => {
 // self-heal for the case where that webhook was delayed or missed: without it
 // the org is stuck holding a reference to a dead subscription — resume is
 // rejected by Stripe and a fresh subscribe is blocked as "already active".
-async function resetEndedDevPlan(organizationId: string): Promise<void> {
+async function resetEndedDevPlan(
+	organizationId: string,
+	subscriptionId?: string,
+): Promise<void> {
 	await db
 		.update(tables.organization)
 		.set({
@@ -385,7 +414,14 @@ async function resetEndedDevPlan(organizationId: string): Promise<void> {
 			devPlanBillingCycleStart: null,
 			subscriptionPaymentStatus: "current",
 		})
-		.where(eq(tables.organization.id, organizationId));
+		.where(
+			and(
+				eq(tables.organization.id, organizationId),
+				subscriptionId
+					? eq(tables.organization.devPlanStripeSubscriptionId, subscriptionId)
+					: undefined,
+			),
+		);
 }
 
 // Subscribe to a dev plan
@@ -744,6 +780,12 @@ devPlans.openapi(cancel, async (c) => {
 		const { immediate } = await cancelPlanSubscription(
 			personalOrg.devPlanStripeSubscriptionId,
 		);
+		if (immediate) {
+			await resetEndedDevPlan(
+				personalOrg.id,
+				personalOrg.devPlanStripeSubscriptionId,
+			);
+		}
 
 		await logAuditEvent({
 			organizationId: personalOrg.id,
@@ -757,10 +799,10 @@ devPlans.openapi(cancel, async (c) => {
 			},
 		});
 
-		// Wait for webhook to process
-		await new Promise((resolve) => {
-			setTimeout(resolve, 3000);
-		});
+		if (!immediate) {
+			// Wait for the scheduled-cancellation webhook.
+			await new Promise((resolve) => setTimeout(resolve, 3000));
+		}
 
 		return c.json({
 			success: true,
@@ -1833,7 +1875,9 @@ const getStatus = createRoute({
 							"latency",
 						]),
 						providerCacheControlMode: providerCacheControlModeSchema,
+						providerCacheAutoTtl: providerCacheAutoTtlSchema,
 						blockApiTraining: z.boolean(),
+						zeroDataRetentionEnabled: z.boolean(),
 					}),
 				},
 			},
@@ -1896,6 +1940,8 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanServiceTier: "default" as const,
 			defaultRoutingStrategy: "auto" as const,
 			providerCacheControlMode: "auto" as const,
+			providerCacheAutoTtl: "5m" as const,
+			zeroDataRetentionEnabled: false,
 			blockApiTraining: false,
 		});
 	}
@@ -1946,6 +1992,7 @@ devPlans.openapi(getStatus, async (c) => {
 	let defaultRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
 	let providerCacheControlMode: ProviderCacheControlMode = "auto";
+	let providerCacheAutoTtl: "5m" | "1h" = "5m";
 	if (personalOrg.devPlan !== "none") {
 		// Find the default project for this org. Order by createdAt asc so we
 		// always return the original "Default Project" rather than whichever
@@ -1965,11 +2012,8 @@ devPlans.openapi(getStatus, async (c) => {
 			projectId = project.id;
 			defaultRoutingStrategy = project.defaultRoutingStrategy;
 			providerCacheControlMode = project.providerCacheControlMode;
-			apiKey = await getOrCreatePersonalOrgApiKey(
-				personalOrg.id,
-				project.id,
-				user.id,
-			);
+			providerCacheAutoTtl = project.providerCacheAutoTtl;
+			apiKey = await getOrCreatePersonalOrgApiKey(project.id, user.id);
 		}
 	}
 
@@ -2020,6 +2064,10 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanServiceTier: personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy,
 		providerCacheControlMode,
+		providerCacheAutoTtl,
+		zeroDataRetentionEnabled:
+			personalOrg.providerCompliancePolicy?.enabled === true &&
+			personalOrg.providerCompliancePolicy.zeroDataRetention === true,
 		blockApiTraining:
 			personalOrg.providerCompliancePolicy?.enabled === true &&
 			personalOrg.providerCompliancePolicy.blockApiTraining === true,
@@ -2045,6 +2093,7 @@ const updateSettings = createRoute({
 						// Control upstream prompt-cache writes for coding clients that
 						// send cache markers automatically.
 						providerCacheControlMode: providerCacheControlModeSchema.optional(),
+						providerCacheAutoTtl: providerCacheAutoTtlSchema.optional(),
 						blockApiTraining: z.boolean().optional(),
 						/** @deprecated use providerCacheControlMode. */
 						providerCacheControlEnabled: z.boolean().optional(),
@@ -2078,7 +2127,9 @@ const updateSettings = createRoute({
 							"latency",
 						]),
 						providerCacheControlMode: providerCacheControlModeSchema,
+						providerCacheAutoTtl: providerCacheAutoTtlSchema,
 						blockApiTraining: z.boolean(),
+						zeroDataRetentionEnabled: z.boolean(),
 						devPlanPaygEnabled: z.boolean(),
 						autoTopUpEnabled: z.boolean(),
 						autoTopUpThreshold: z.string().nullable(),
@@ -2095,6 +2146,7 @@ devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
 	const {
 		devPlanServiceTier,
+		providerCacheAutoTtl,
 		defaultRoutingStrategy,
 		blockApiTraining,
 		devPlanPaygEnabled,
@@ -2270,6 +2322,7 @@ devPlans.openapi(updateSettings, async (c) => {
 	let effectiveRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
 	let effectiveProviderCacheControlMode: ProviderCacheControlMode = "auto";
+	let effectiveProviderCacheAutoTtl: "5m" | "1h" = "5m";
 	const defaultProject = await db.query.project.findFirst({
 		where: {
 			organizationId: {
@@ -2283,6 +2336,7 @@ devPlans.openapi(updateSettings, async (c) => {
 	if (defaultProject) {
 		effectiveRoutingStrategy = defaultProject.defaultRoutingStrategy;
 		effectiveProviderCacheControlMode = defaultProject.providerCacheControlMode;
+		effectiveProviderCacheAutoTtl = defaultProject.providerCacheAutoTtl;
 		const projectUpdateData: Partial<typeof tables.project.$inferInsert> = {};
 		if (
 			defaultRoutingStrategy !== undefined &&
@@ -2295,6 +2349,17 @@ devPlans.openapi(updateSettings, async (c) => {
 			providerCacheControlMode !== defaultProject.providerCacheControlMode
 		) {
 			projectUpdateData.providerCacheControlMode = providerCacheControlMode;
+		}
+		if (
+			providerCacheAutoTtl !== undefined &&
+			providerCacheAutoTtl !== defaultProject.providerCacheAutoTtl
+		) {
+			projectUpdateData.providerCacheAutoTtl = providerCacheAutoTtl;
+			changes.providerCacheAutoTtl = {
+				old: defaultProject.providerCacheAutoTtl,
+				new: providerCacheAutoTtl,
+			};
+			effectiveProviderCacheAutoTtl = providerCacheAutoTtl;
 		}
 		if (Object.keys(projectUpdateData).length > 0) {
 			// Cached client so the gateway's project-cache invalidates and the new
@@ -2343,6 +2408,10 @@ devPlans.openapi(updateSettings, async (c) => {
 		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
 		providerCacheControlMode: effectiveProviderCacheControlMode,
+		providerCacheAutoTtl: effectiveProviderCacheAutoTtl,
+		zeroDataRetentionEnabled:
+			personalOrg.providerCompliancePolicy?.enabled === true &&
+			personalOrg.providerCompliancePolicy.zeroDataRetention === true,
 		blockApiTraining:
 			blockApiTraining ??
 			(personalOrg.providerCompliancePolicy?.enabled === true &&
@@ -2912,40 +2981,29 @@ devPlans.openapi(rotateApiKey, async (c) => {
 		});
 	}
 
-	const newToken =
-		(process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_") +
-		shortid(40);
+	const newToken = newDevPassToken();
 
 	const newApiKeyId = await cdb.transaction(async (tx) => {
 		await tx.execute(
 			sql`SELECT ${tables.project.id} FROM ${tables.project} WHERE ${tables.project.id} = ${project.id} FOR UPDATE`,
 		);
-		const activeKeyRows = await tx.execute<{ id: string }>(sql`
-			SELECT ${tables.apiKey.id} AS id
-			FROM ${tables.apiKey}
-			WHERE ${tables.apiKey.projectId} = ${project.id}
-				AND ${tables.apiKey.description} = 'Dev Plan API Key'
-				AND ${tables.apiKey.status} = 'active'
-			ORDER BY ${tables.apiKey.createdAt} DESC
-			LIMIT 1
-		`);
-		const activeApiKeyId = activeKeyRows.rows[0]?.id ?? null;
-		if (activeApiKeyId !== apiKeyId) {
+		const activeRows = await tx.execute<{
+			id: string;
+			tokenMasked: string | null;
+		}>(selectActiveDevPassKey(project.id));
+		const activeKey = activeRows.rows[0];
+		if (activeKey?.id !== apiKeyId) {
 			throw new HTTPException(409, {
 				message: "The API key was already rotated. Try again.",
 			});
 		}
 
+		// Revoke every active developer key, so rolling also collapses keys left
+		// over from before DevPass was limited to one.
 		await tx
 			.update(tables.apiKey)
 			.set({ status: "deleted" })
-			.where(
-				and(
-					eq(tables.apiKey.projectId, project.id),
-					eq(tables.apiKey.description, "Dev Plan API Key"),
-					eq(tables.apiKey.status, "active"),
-				),
-			);
+			.where(activeDevPassKeyFilter(project.id));
 
 		const [newApiKey] = await tx
 			.insert(tables.apiKey)

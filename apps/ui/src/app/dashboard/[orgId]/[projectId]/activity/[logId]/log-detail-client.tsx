@@ -1224,6 +1224,14 @@ export function LogDetailClient({
 										{log.pricingTier && (
 											<Field label="Pricing Tier" value={log.pricingTier} />
 										)}
+										{log.pricingPeriod && (
+											<Field
+												label="Pricing Period"
+												value={
+													log.pricingPeriod === "peak" ? "Peak" : "Off-peak"
+												}
+											/>
+										)}
 										{log.requestedServiceTier && (
 											<Field
 												label="Requested Service Tier"

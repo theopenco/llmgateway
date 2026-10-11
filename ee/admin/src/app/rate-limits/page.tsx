@@ -17,8 +17,6 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import {
-	createGlobalRateLimit,
-	deleteGlobalRateLimit,
 	getGlobalRateLimits,
 	getRateLimitOptions,
 } from "@/lib/admin-rate-limits";
@@ -65,56 +63,6 @@ export default async function GlobalRateLimitsPage() {
 
 	const rateLimits = rateLimitsData?.rateLimits ?? [];
 
-	// Server action to create rate limit
-	async function handleCreateRateLimit(data: {
-		provider: string | null;
-		model: string | null;
-		limitType: "rpm" | "rpd";
-		maxRequests: number;
-		enforcement?: "per_org" | "global";
-		mode: "strict" | "soft";
-		reason: string | null;
-	}): Promise<{ success: boolean; error?: string }> {
-		"use server";
-
-		try {
-			const result = await createGlobalRateLimit({
-				provider: data.provider,
-				model: data.model,
-				limitType: data.limitType,
-				maxRequests: data.maxRequests,
-				enforcement: data.enforcement,
-				mode: data.mode,
-				reason: data.reason,
-			});
-
-			if (!result) {
-				return {
-					success: false,
-					error: "Failed to create rate limit. It may already exist.",
-				};
-			}
-
-			return { success: true };
-		} catch (error) {
-			console.error("Error creating rate limit:", error);
-			return {
-				success: false,
-				error: "An error occurred while creating the rate limit",
-			};
-		}
-	}
-
-	// Server action to delete rate limit
-	async function handleDeleteRateLimit(
-		rateLimitId: string,
-	): Promise<{ success: boolean }> {
-		"use server";
-
-		const success = await deleteGlobalRateLimit(rateLimitId);
-		return { success };
-	}
-
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
@@ -128,7 +76,7 @@ export default async function GlobalRateLimitsPage() {
 								Global Rate Limits
 							</h1>
 							<p className="text-sm text-muted-foreground">
-								RPM caps that apply to all organizations
+								RPM and RPD caps that apply to all organizations
 							</p>
 						</div>
 					</div>
@@ -139,7 +87,6 @@ export default async function GlobalRateLimitsPage() {
 							providers={options.providers}
 							mappings={options.mappings}
 							showEnforcement
-							onSubmit={handleCreateRateLimit}
 						/>
 					</AdminOnly>
 				)}
@@ -156,7 +103,7 @@ export default async function GlobalRateLimitsPage() {
 							<TableHead>Mode</TableHead>
 							<TableHead>Reason</TableHead>
 							<TableHead>Created</TableHead>
-							<TableHead className="w-[50px]" />
+							<TableHead className="w-[130px]" />
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -207,8 +154,10 @@ export default async function GlobalRateLimitsPage() {
 										)}
 									</TableCell>
 									<TableCell>
-										{rateLimit.mode === "soft" ? (
-											<Badge variant="secondary">Soft</Badge>
+										{rateLimit.mode !== "strict" ? (
+											<Badge variant="secondary">
+												{rateLimit.mode === "lax" ? "Lax" : "Soft"}
+											</Badge>
 										) : (
 											<Badge variant="outline">Strict</Badge>
 										)}
@@ -221,10 +170,17 @@ export default async function GlobalRateLimitsPage() {
 									</TableCell>
 									<TableCell>
 										<AdminOnly>
-											<DeleteRateLimitButton
-												rateLimitId={rateLimit.id}
-												onDelete={handleDeleteRateLimit}
-											/>
+											<div className="flex items-center gap-1">
+												{options && (
+													<RateLimitForm
+														providers={options.providers}
+														mappings={options.mappings}
+														showEnforcement
+														rateLimit={rateLimit}
+													/>
+												)}
+												<DeleteRateLimitButton rateLimitId={rateLimit.id} />
+											</div>
 										</AdminOnly>
 									</TableCell>
 								</TableRow>
@@ -259,6 +215,10 @@ export default async function GlobalRateLimitsPage() {
 					<li>
 						<strong>Soft</strong> limits let a session already pinned to the
 						capped provider keep using it; new sessions are routed away
+					</li>
+					<li>
+						<strong>Lax</strong> limits also allow explicit provider requests
+						past the cap; automatic routing and fallback respect it
 					</li>
 					<li>
 						When a cap is hit, the gateway prefers other eligible providers

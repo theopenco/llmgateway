@@ -1236,7 +1236,6 @@ function generateSeedProviders() {
 		id: p.id,
 		name: p.name,
 		description: p.description ?? "",
-		streaming: p.streaming ?? null,
 		cancellation: p.cancellation ?? null,
 		color: p.color ?? null,
 		website: p.website ?? null,

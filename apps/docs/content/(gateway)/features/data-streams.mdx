@@ -1,0 +1,55 @@
+---
+title: Data Streams
+description: Forward audit logs to your SIEM and export request log metadata to your own HTTPS endpoint
+icon: Radio
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+Data streams deliver your organization's logs to the tools your security and data teams already use, as signed HTTPS requests to an endpoint you run:
+
+- **SIEM forwarding** sends [audit logs](/features/audit-logs): every admin action in the organization.
+- **Log export** sends request log metadata: one event per gateway request with model, provider, tokens, cost, latency, and finish reason.
+
+<Callout type="info">
+	Data streams are an [**Enterprise**](https://llmgateway.io/enterprise) feature
+	enabled per organization. Contact us to turn them on; request log export is a
+	separate switch because each pass reads your request logs. Manage streams on
+	the [**Data Streams**](/learn/data-streams) page.
+</Callout>
+
+## What is sent
+
+Events only ever carry metadata. Prompts, completions, tool calls, and tool results are never exported, and there is no option to include them.
+
+| Source           | Event fields                                                                                                                                                          |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Audit logs**   | `id`, `timestamp`, `organizationId`, `userId`, `action`, `resourceType`, `resourceId`, `metadata` (the same change summary shown on the audit log page)               |
+| **Request logs** | `id`, `timestamp`, `requestId`, `organizationId`, `projectId`, `apiKeyId`, models and providers, token counts, `cost`, latency, finish reasons, error and cache flags |
+
+## Delivery
+
+Each batch is a `POST` with a JSON body of `{ stream, source, events }` and these headers:
+
+- `Content-Type: application/json`
+- `X-LLMGateway-Signature: t=<unix>,v1=<hex>`, where `v1` is the HMAC-SHA256 of `<t>.<body>` with your signing secret, the same scheme as [platform webhooks](/features/embeddable-payments).
+- `Authorization: Bearer <token>` when you set an optional bearer token.
+
+Respond with any `2xx` status to accept the batch.
+
+- Events are delivered in order, in batches of up to 500.
+- A stream keeps a cursor and advances it only after your endpoint accepts a batch. A failed batch is retried, so delivery is at least once; deduplicate on the event `id`.
+- Events are usually sent within 30 seconds. Delivery waits for database writes still in progress, so late writes are never skipped; while a long write runs, events can arrive a few minutes later.
+- New streams start with events created after they were added. Use replay to backfill.
+- Failed deliveries are retried with backoff, from 1 minute up to 1 hour. A stream pauses itself after 20 failed deliveries in a row, or after 3 deliveries your endpoint rejected with a `4xx` status since the last one it accepted. Owners and admins are notified; resume the stream once the endpoint is fixed and delivery continues from where it stopped.
+- Delivery stops while the organization is not on the Enterprise plan or data streams are switched off for it.
+
+## Replay
+
+**Replay** re-sends every event in a window of up to 30 days. It runs alongside live delivery and does not move the live cursor.
+
+## Test
+
+**Send test event** delivers one synthetic event (`"test": true`) and reports the endpoint's response.
+
+All stream changes are recorded in audit logs as `data_stream.*` actions.

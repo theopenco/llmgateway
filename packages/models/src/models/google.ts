@@ -632,6 +632,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
@@ -770,6 +771,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
@@ -810,6 +812,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
@@ -848,6 +851,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
@@ -1052,6 +1056,7 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-3.5-flash",
+				deactivatedAt: new Date("2026-10-17"),
 				serviceTiers: ["flex", "priority"],
 				inputPrice: "1.5e-6",
 				outputPrice: "9e-6",
@@ -1199,10 +1204,20 @@ export const googleModels = [
 				webSearch: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				// Sampling params are fixed since Gemini 3.6 Flash and will be
+				// rejected by upcoming models, so temperature/top_p are dropped.
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 			{
 				providerId: "google-vertex",
 				externalId: "gemini-3.6-flash",
+				deactivatedAt: new Date("2026-11-19"),
 				serviceTiers: ["flex", "priority"],
 				serviceTierRegions: ["global"],
 				// Introductory pricing through 2026-12-31; reverts to 1.5/7.5/0.15 on 2027-01-01.
@@ -1225,6 +1240,15 @@ export const googleModels = [
 				webSearch: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				// Sampling params are fixed since Gemini 3.6 Flash and will be
+				// rejected by upcoming models, so temperature/top_p are dropped.
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
@@ -1239,6 +1263,7 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-3.7-flash",
+				deactivatedAt: new Date("2026-10-17"),
 				serviceTiers: ["flex", "priority"],
 				// introductory pricing until 2026-12-31; $1.50/$7.50 from 2027-01-01
 				inputPrice: "0.75e-6",
@@ -1250,7 +1275,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65536,
 				reasoning: true,
-				reasoningEfforts: ["minimal", "low", "medium", "high"],
+				reasoningEfforts: ["low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
@@ -1260,10 +1285,20 @@ export const googleModels = [
 				webSearch: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				// Sampling params are fixed since Gemini 3.6 Flash and will be
+				// rejected by upcoming models, so temperature/top_p are dropped.
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 			{
 				providerId: "google-vertex",
 				externalId: "gemini-3.7-flash",
+				deactivatedAt: new Date("2027-01-28"),
 				serviceTiers: ["flex", "priority"],
 				serviceTierRegions: ["global"],
 				// introductory pricing until 2026-12-31; $1.50/$7.50 from 2027-01-01
@@ -1276,7 +1311,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65536,
 				reasoning: true,
-				reasoningEfforts: ["minimal", "low", "medium", "high"],
+				reasoningEfforts: ["low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
@@ -1286,6 +1321,15 @@ export const googleModels = [
 				webSearch: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				// Sampling params are fixed since Gemini 3.6 Flash and will be
+				// rejected by upcoming models, so temperature/top_p are dropped.
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
@@ -1321,6 +1365,15 @@ export const googleModels = [
 				webSearch: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				// Sampling params are fixed since Gemini 3.6 Flash and will be
+				// rejected by upcoming models, so temperature/top_p are dropped.
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 				supportsAssistantPrefill: false,
 			},
 			{
@@ -1348,6 +1401,15 @@ export const googleModels = [
 				webSearch: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				// Sampling params are fixed since Gemini 3.6 Flash and will be
+				// rejected by upcoming models, so temperature/top_p are dropped.
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 				supportsAssistantPrefill: false,
 			},
 		],
@@ -1437,6 +1499,44 @@ export const googleModels = [
 				videoGenerations: true,
 				supportsVideoAudio: true,
 				supportsVideoWithoutAudio: true,
+			},
+		],
+	},
+	{
+		id: "gemini-nano-banana-2.1",
+		name: "Gemini Nano Banana 2.1",
+		description:
+			"Flash-tier image generation and conversational editing model succeeding Nano Banana 2, with sharper 1K–4K output, better text rendering, multi-turn character consistency and search grounding.",
+		aliases: ["nano banana 2.1"],
+		family: "google",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-10-06"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "google-ai-studio",
+				externalId: "gemini-nano-banana-2.1",
+				inputPrice: "1.5e-6",
+				outputPrice: "7.5e-6",
+				imageInputPrice: "1.5e-6",
+				imageInputTokensByResolution: { default: 1120 },
+				imageOutputPrice: "30e-6",
+				imageOutputTokensByResolution: {
+					"1K": 1120,
+					"2K": 1680,
+					"4K": 2520,
+					default: 1120,
+				},
+				requestPrice: "0",
+				contextSize: 131072,
+				maxOutput: 32768,
+				streaming: true,
+				vision: true,
+				tools: false,
+				webSearch: true,
+				webSearchPrice: "0.014",
+				jsonOutput: false,
+				jsonOutputSchema: false,
 			},
 		],
 	},
@@ -1714,6 +1814,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65535,
 				reasoning: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,

@@ -10,20 +10,19 @@ import {
 	TrendingDown,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
 
 import { TokenTimeRangeToggle } from "@/components/token-time-range-toggle";
 import {
 	UsageModeSelector,
 	useUsageMode,
 } from "@/components/usage-mode-selector";
-import { loadProjectMetricsAction } from "@/lib/admin-organizations";
+import { useApi } from "@/lib/fetch-client";
 import { pickCost, pickRequests } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
-import type { ProjectMetrics, TokenWindow } from "@/lib/types";
+import type { TokenWindow } from "@/lib/types";
 
 const validWindows = new Set<TokenWindow>([
 	"1h",
@@ -109,30 +108,25 @@ export function ProjectMetricsSection({
 
 	const selectedWindow = parseWindow(searchParams.get("window"));
 	const usageMode = useUsageMode();
-	const [metrics, setMetrics] = useState<ProjectMetrics | null>(null);
-	const [loading, setLoading] = useState(true);
-	const [loadError, setLoadError] = useState<string | null>(null);
-
-	const loadMetrics = useCallback(
-		async (w: TokenWindow) => {
-			setLoading(true);
-			setLoadError(null);
-			try {
-				const data = await loadProjectMetricsAction(orgId, projectId, w);
-				setMetrics(data);
-			} catch {
-				setMetrics(null);
-				setLoadError("Unable to load usage data. Try again shortly.");
-			} finally {
-				setLoading(false);
-			}
+	const $api = useApi();
+	const {
+		data: metrics,
+		isLoading: loading,
+		isError,
+	} = $api.useQuery(
+		"get",
+		"/admin/organizations/{orgId}/projects/{projectId}/metrics",
+		{
+			params: {
+				path: { orgId, projectId },
+				query: { window: selectedWindow },
+			},
 		},
-		[orgId, projectId],
+		{ staleTime: 0 },
 	);
-
-	useEffect(() => {
-		void loadMetrics(selectedWindow);
-	}, [loadMetrics, selectedWindow]);
+	const loadError = isError
+		? "Unable to load usage data. Try again shortly."
+		: null;
 
 	if (loading) {
 		return (

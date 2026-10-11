@@ -17,8 +17,6 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import {
-	createOrganizationRateLimit,
-	deleteOrganizationRateLimit,
 	getOrganizationRateLimits,
 	getRateLimitOptions,
 } from "@/lib/admin-rate-limits";
@@ -99,54 +97,6 @@ export default async function OrganizationRateLimitsPage({
 	const rateLimits = rateLimitsData?.rateLimits ?? [];
 	const org = metrics.organization;
 
-	// Server action to create rate limit
-	async function handleCreateRateLimit(data: {
-		provider: string | null;
-		model: string | null;
-		limitType: "rpm" | "rpd";
-		maxRequests: number;
-		mode: "strict" | "soft";
-		reason: string | null;
-	}): Promise<{ success: boolean; error?: string }> {
-		"use server";
-
-		try {
-			const result = await createOrganizationRateLimit(orgId, {
-				provider: data.provider,
-				model: data.model,
-				limitType: data.limitType,
-				maxRequests: data.maxRequests,
-				mode: data.mode,
-				reason: data.reason,
-			});
-
-			if (!result) {
-				return {
-					success: false,
-					error: "Failed to create rate limit. It may already exist.",
-				};
-			}
-
-			return { success: true };
-		} catch (error) {
-			console.error("Error creating rate limit:", error);
-			return {
-				success: false,
-				error: "An error occurred while creating the rate limit",
-			};
-		}
-	}
-
-	// Server action to delete rate limit
-	async function handleDeleteRateLimit(
-		rateLimitId: string,
-	): Promise<{ success: boolean }> {
-		"use server";
-
-		const success = await deleteOrganizationRateLimit(orgId, rateLimitId);
-		return { success };
-	}
-
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<div className="flex items-center gap-2">
@@ -176,7 +126,7 @@ export default async function OrganizationRateLimitsPage({
 					<RateLimitForm
 						providers={options.providers}
 						mappings={options.mappings}
-						onSubmit={handleCreateRateLimit}
+						orgId={orgId}
 					/>
 				)}
 			</header>
@@ -191,7 +141,7 @@ export default async function OrganizationRateLimitsPage({
 							<TableHead>Mode</TableHead>
 							<TableHead>Reason</TableHead>
 							<TableHead>Created</TableHead>
-							{isAdmin ? <TableHead className="w-[50px]" /> : null}
+							{isAdmin ? <TableHead className="w-[130px]" /> : null}
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -236,8 +186,10 @@ export default async function OrganizationRateLimitsPage({
 										</span>
 									</TableCell>
 									<TableCell>
-										{rateLimit.mode === "soft" ? (
-											<Badge variant="secondary">Soft</Badge>
+										{rateLimit.mode !== "strict" ? (
+											<Badge variant="secondary">
+												{rateLimit.mode === "lax" ? "Lax" : "Soft"}
+											</Badge>
 										) : (
 											<Badge variant="outline">Strict</Badge>
 										)}
@@ -250,10 +202,20 @@ export default async function OrganizationRateLimitsPage({
 									</TableCell>
 									{isAdmin ? (
 										<TableCell>
-											<DeleteRateLimitButton
-												rateLimitId={rateLimit.id}
-												onDelete={handleDeleteRateLimit}
-											/>
+											<div className="flex items-center gap-1">
+												{options && (
+													<RateLimitForm
+														providers={options.providers}
+														mappings={options.mappings}
+														orgId={orgId}
+														rateLimit={rateLimit}
+													/>
+												)}
+												<DeleteRateLimitButton
+													rateLimitId={rateLimit.id}
+													orgId={orgId}
+												/>
+											</div>
 										</TableCell>
 									) : null}
 								</TableRow>
@@ -343,6 +305,10 @@ export default async function OrganizationRateLimitsPage({
 					<li>
 						Rate limits cap the maximum requests per minute (RPM) or per day
 						(RPD) for matching providers and models
+					</li>
+					<li>
+						<strong>Lax</strong> limits also allow explicit provider requests
+						past the cap; automatic routing and fallback respect it
 					</li>
 					<li>
 						When a rate limit is hit, the gateway falls back to other providers

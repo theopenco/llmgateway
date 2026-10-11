@@ -986,6 +986,11 @@ export function getProviderEndpoint(
 				return `${url}/v1/images/generations`;
 			}
 			return `${url}/v1/chat/completions`;
+		case "tencent":
+			if (imageGenerations) {
+				return `${url}/v1/wand/hunyuan-image/v35-generation`;
+			}
+			return `${url}/v1/chat/completions`;
 		case "reve":
 			if (imageGenerations) {
 				return `${url}/v1/image/create`;
@@ -1049,7 +1054,6 @@ export function getProviderEndpoint(
 		case "scx-ai-gp":
 		case "ranoai":
 		case "consensusprotocol":
-		case "tencent":
 		case "atria":
 		case "custom":
 		default:

@@ -218,6 +218,17 @@ const PRICE_UNIT_OPTIONS: {
 	},
 ];
 
+function addedAtMs(model: ApiModel): number {
+	const addedAt = model.createdAt ?? model.releasedAt;
+	return addedAt ? new Date(addedAt).getTime() : 0;
+}
+
+// Newest first. Many models share a date, and the API returns ties in no fixed
+// order, so the id tiebreak keeps pagination stable across fetches.
+function compareNewestFirst(a: ApiModel, b: ApiModel): number {
+	return addedAtMs(b) - addedAtMs(a) || a.id.localeCompare(b.id);
+}
+
 function minAcross<T>(
 	items: T[],
 	value: (item: T) => number | null,
@@ -1400,19 +1411,7 @@ export function AllModels({
 
 		// Default to createdAt (falls back to releasedAt) descending (newest first)
 		if (!sortField) {
-			return [...filteredModels].sort((a, b) => {
-				const aDate = a.createdAt
-					? new Date(a.createdAt).getTime()
-					: a.releasedAt
-						? new Date(a.releasedAt).getTime()
-						: 0;
-				const bDate = b.createdAt
-					? new Date(b.createdAt).getTime()
-					: b.releasedAt
-						? new Date(b.releasedAt).getTime()
-						: 0;
-				return bDate - aDate;
-			});
+			return [...filteredModels].sort(compareNewestFirst);
 		}
 
 		const sortKey = (model: ModelWithProviders): string | number | null => {
@@ -1527,19 +1526,11 @@ export function AllModels({
 
 		// Default: sort by createdAt (falls back to releasedAt) descending (newest first)
 		if (!sortField) {
-			return rows.sort((a, b) => {
-				const aDate = a.model.createdAt
-					? new Date(a.model.createdAt).getTime()
-					: a.model.releasedAt
-						? new Date(a.model.releasedAt).getTime()
-						: 0;
-				const bDate = b.model.createdAt
-					? new Date(b.model.createdAt).getTime()
-					: b.model.releasedAt
-						? new Date(b.model.releasedAt).getTime()
-						: 0;
-				return bDate - aDate;
-			});
+			return rows.sort(
+				(a, b) =>
+					compareNewestFirst(a.model, b.model) ||
+					a.rowKey.localeCompare(b.rowKey),
+			);
 		}
 
 		const sortKey = (row: FlattenedModelRow): string | number | null => {

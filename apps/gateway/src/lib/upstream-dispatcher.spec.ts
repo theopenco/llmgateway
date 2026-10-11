@@ -1,15 +1,39 @@
 import { createServer } from "node:http";
 
 import { getGlobalDispatcher, setGlobalDispatcher } from "undici";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 
 import {
 	closeUpstreamDispatcher,
+	getTenantUpstreamDispatcher,
 	installUpstreamDispatcher,
 } from "./upstream-dispatcher.js";
 
+import type * as RoutingConfig from "@llmgateway/shared/routing-config";
 import type { Server } from "node:http";
 import type { Dispatcher } from "undici";
+
+const routingDefaults = vi.hoisted(() => {
+	const initial = {
+		gatewayMs: 1_500_000,
+		streamingMs: 1_200_000,
+		plainMs: 600_000,
+	};
+	return { initial, current: { ...initial } };
+});
+
+vi.mock("@llmgateway/shared/routing-config", async (importOriginal) => ({
+	...(await importOriginal<typeof RoutingConfig>()),
+	DEFAULT_ROUTING_TIMEOUTS: routingDefaults.current,
+}));
 
 describe("upstream dispatcher", () => {
 	let originalDispatcher: Dispatcher;
@@ -29,6 +53,16 @@ describe("upstream dispatcher", () => {
 					res.write("data: second\n\n");
 					res.end();
 				}, 200);
+			} else if (req.url === "/slow-headers") {
+				// undici's response timers have ~1s resolution, so delay well past it
+				setTimeout(() => {
+					res.writeHead(200, { "content-type": "application/json" });
+					res.end("{}");
+				}, 3000);
+			} else if (req.url === "/stalled-body") {
+				res.writeHead(200, { "content-type": "text/event-stream" });
+				res.write("data: first\n\n");
+				setTimeout(() => res.end(), 3000);
 			} else {
 				res.writeHead(200, { "content-type": "application/json" });
 				res.end("{}");
@@ -48,6 +82,10 @@ describe("upstream dispatcher", () => {
 		await closeUpstreamDispatcher();
 		setGlobalDispatcher(originalDispatcher);
 		delete process.env.UPSTREAM_KEEPALIVE_TIMEOUT_MS;
+		delete process.env.GATEWAY_TIMEOUT_MS;
+		delete process.env.AI_TIMEOUT_MS;
+		delete process.env.AI_STREAMING_TIMEOUT_MS;
+		Object.assign(routingDefaults.current, routingDefaults.initial);
 		clientPorts.length = 0;
 	});
 
@@ -82,6 +120,69 @@ describe("upstream dispatcher", () => {
 		expect(firstChunkMs).toBeLessThan(150);
 		await reader.cancel();
 	});
+
+	it("serves the built-in fetch through the tenant dispatcher", async () => {
+		const res = await fetch(`${baseUrl}/json`, {
+			dispatcher: getTenantUpstreamDispatcher(),
+		} as RequestInit);
+		expect(await res.text()).toBe("{}");
+	});
+
+	it("rejects tenant hosts that resolve to private addresses", async () => {
+		const url = baseUrl.replace("127.0.0.1", "localhost");
+		await expect(
+			fetch(`${url}/json`, {
+				dispatcher: getTenantUpstreamDispatcher(),
+			} as RequestInit),
+		).rejects.toMatchObject({
+			cause: { code: "EACCES" },
+		});
+	});
+
+	it.each([
+		["global", () => undefined],
+		["tenant", () => getTenantUpstreamDispatcher()],
+	])(
+		"bounds slow headers and stalled bodies by the gateway timeout (%s dispatcher)",
+		async (_name, getDispatcher) => {
+			process.env.GATEWAY_TIMEOUT_MS = "100";
+			process.env.AI_TIMEOUT_MS = "100";
+			process.env.AI_STREAMING_TIMEOUT_MS = "100";
+			Object.assign(routingDefaults.current, {
+				gatewayMs: 100,
+				streamingMs: 100,
+				plainMs: 100,
+			});
+			installUpstreamDispatcher();
+			const init = { dispatcher: getDispatcher() } as RequestInit;
+			await expect(
+				fetch(`${baseUrl}/slow-headers`, init),
+			).rejects.toMatchObject({
+				cause: { code: "UND_ERR_HEADERS_TIMEOUT" },
+			});
+			const res = await fetch(`${baseUrl}/stalled-body`, init);
+			await expect(res.text()).rejects.toMatchObject({
+				cause: { code: "UND_ERR_BODY_TIMEOUT" },
+			});
+		},
+	);
+
+	it.each([
+		["env plain timeout", { AI_TIMEOUT_MS: "10000" }, { plainMs: 100 }],
+		["project override ceiling", { AI_TIMEOUT_MS: "100" }, { plainMs: 10_000 }],
+	])(
+		"does not undercut a request deadline longer than the gateway timeout (%s)",
+		async (_name, env, ceilings) => {
+			process.env.GATEWAY_TIMEOUT_MS = "100";
+			process.env.AI_STREAMING_TIMEOUT_MS = "100";
+			Object.assign(process.env, env);
+			Object.assign(routingDefaults.current, { streamingMs: 100, ...ceilings });
+			installUpstreamDispatcher();
+			const res = await fetch(`${baseUrl}/slow-headers`);
+			expect(res.status).toBe(200);
+			await expect(res.json()).resolves.toEqual({});
+		},
+	);
 
 	it("falls back to defaults on invalid env values", () => {
 		process.env.UPSTREAM_KEEPALIVE_TIMEOUT_MS = "not-a-number";

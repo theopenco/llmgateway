@@ -3,6 +3,10 @@ import { Suspense } from "react";
 
 import { CatalogFiltersBar } from "@/components/catalog-filters";
 import { CatalogSearch } from "@/components/catalog-search";
+import {
+	FilterNavigationProvider,
+	FilterNavigationResults,
+} from "@/components/filter-navigation";
 import { MappingsTable } from "@/components/mappings-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
@@ -114,69 +118,75 @@ export default async function ModelProviderMappingsPage({
 	const totalRequests = data.totalRequests;
 
 	return (
-		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 overflow-hidden px-4 py-8 md:px-8">
-			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-				<div>
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Model-Provider Mappings
-					</h1>
-					<p className="mt-1 text-sm text-muted-foreground">
-						{data.total} mappings — all models available per provider
-					</p>
-				</div>
-				<Suspense>
-					<CatalogSearch scope="mappings" selection={selection} />
-				</Suspense>
-			</header>
+		<FilterNavigationProvider>
+			<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 overflow-hidden px-4 py-8 md:px-8">
+				<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+					<div>
+						<h1 className="text-3xl font-semibold tracking-tight">
+							Model-Provider Mappings
+						</h1>
+						<p className="mt-1 text-sm text-muted-foreground">
+							{data.total} mappings — all models available per provider
+						</p>
+					</div>
+					<Suspense>
+						<CatalogSearch scope="mappings" selection={selection} />
+					</Suspense>
+				</header>
 
-			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-				<div className="flex flex-wrap items-center gap-6 text-sm">
-					<div>
-						<span className="text-muted-foreground">Total Requests</span>
-						<p className="text-xl font-semibold tabular-nums">
-							{formatCompactNumber(totalRequests)}
-						</p>
-					</div>
-					<div>
-						<span className="text-muted-foreground">Total Tokens</span>
-						<p className="text-xl font-semibold tabular-nums">
-							{formatCompactNumber(totalTokens)}
-						</p>
-						<TokenBreakdown breakdown={data} short className="mt-0.5" />
-					</div>
-					<div>
-						<span className="text-muted-foreground">Total Cost</span>
-						<p className="text-xl font-semibold tabular-nums">
-							{currencyFormatter.format(totalCost)}
-						</p>
-					</div>
+				<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+					<FilterNavigationResults message={null}>
+						<div className="flex flex-wrap items-center gap-6 text-sm">
+							<div>
+								<span className="text-muted-foreground">Total Requests</span>
+								<p className="text-xl font-semibold tabular-nums">
+									{formatCompactNumber(totalRequests)}
+								</p>
+							</div>
+							<div>
+								<span className="text-muted-foreground">Total Tokens</span>
+								<p className="text-xl font-semibold tabular-nums">
+									{formatCompactNumber(totalTokens)}
+								</p>
+								<TokenBreakdown breakdown={data} short className="mt-0.5" />
+							</div>
+							<div>
+								<span className="text-muted-foreground">Total Cost</span>
+								<p className="text-xl font-semibold tabular-nums">
+									{currencyFormatter.format(totalCost)}
+								</p>
+							</div>
+						</div>
+					</FilterNavigationResults>
+					<Suspense>
+						<div className="flex flex-wrap items-center gap-2">
+							<UsageModeSelector compact />
+							<TimeWindowSelector
+								current={pageWindow}
+								options={pageWindowOptionsWithMinutes}
+							/>
+						</div>
+					</Suspense>
 				</div>
+
 				<Suspense>
-					<div className="flex flex-wrap items-center gap-2">
-						<UsageModeSelector compact />
-						<TimeWindowSelector
-							current={pageWindow}
-							options={pageWindowOptionsWithMinutes}
+					<CatalogFiltersBar filters={filters} />
+				</Suspense>
+
+				<FilterNavigationResults>
+					<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
+						<MappingsTable
+							mappings={data.mappings}
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							search={search}
+							pageWindow={pageWindow}
+							usageMode={usageMode}
+							filterQuery={filterQuery}
 						/>
 					</div>
-				</Suspense>
+				</FilterNavigationResults>
 			</div>
-
-			<Suspense>
-				<CatalogFiltersBar filters={filters} />
-			</Suspense>
-
-			<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
-				<MappingsTable
-					mappings={data.mappings}
-					sortBy={sortBy}
-					sortOrder={sortOrder}
-					search={search}
-					pageWindow={pageWindow}
-					usageMode={usageMode}
-					filterQuery={filterQuery}
-				/>
-			</div>
-		</div>
+		</FilterNavigationProvider>
 	);
 }

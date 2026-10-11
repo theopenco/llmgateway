@@ -20,10 +20,17 @@ import {
 } from "@/lib/use-model-benchmarks";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared/components";
+import { CarrierMark, getProviderIcon } from "@llmgateway/shared/components";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
-export function ModelBenchmarks({ modelId }: { modelId: string }) {
+export function ModelBenchmarks({
+	modelId,
+	uploadedIcons = {},
+}: {
+	modelId: string;
+	// Carrier-uploaded marks (Airside claims), keyed by provider id.
+	uploadedIcons?: Record<string, string>;
+}) {
 	const { data, isLoading } = useModelBenchmarks(modelId);
 
 	const providers = data?.providers ?? [];
@@ -189,6 +196,7 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 
 					<div className="grid gap-3">
 						{sorted.map((provider) => {
+							const uploadedIcon = uploadedIcons[provider.providerId];
 							const ProviderIcon = getProviderIcon(provider.providerId);
 							const isMostStable = provider.providerId === mostStableProviderId;
 							const isSignificant =
@@ -207,7 +215,13 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 								>
 									<div className="flex items-center justify-between gap-4 flex-wrap">
 										<div className="flex items-center gap-3 min-w-0">
-											{ProviderIcon ? (
+											{uploadedIcon ? (
+												<CarrierMark
+													src={uploadedIcon}
+													alt={provider.providerName}
+													className="h-5 w-5 shrink-0 object-contain"
+												/>
+											) : ProviderIcon ? (
 												<ProviderIcon className="h-5 w-5 shrink-0" />
 											) : (
 												<Server className="h-5 w-5 shrink-0 text-muted-foreground" />

@@ -5,6 +5,7 @@ import {
 	disprovedCapabilities,
 	decryptModelVerificationCredential,
 	encryptModelVerificationCredential,
+	runProviderKeySmokeTest,
 	runProviderModelVerification,
 } from "./model-verification.js";
 
@@ -13,6 +14,42 @@ import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 vi.mock("./gcp-access-token.js", () => ({
 	getGcpServiceAccountAccessToken: vi.fn(async () => "derived-access-token"),
 }));
+
+// What a well-behaved Chat Completions endpoint returns: the fields the
+// gateway passes through and the usage it bills from.
+const chatUsage = { prompt_tokens: 20, completion_tokens: 2, total_tokens: 22 };
+const chatBody = (
+	message: Record<string, unknown>,
+	finishReason = "stop",
+	usage: Record<string, unknown> = chatUsage,
+) => ({
+	id: "chatcmpl-verification",
+	object: "chat.completion",
+	created: 1_700_000_000,
+	choices: [
+		{
+			index: 0,
+			message: { role: "assistant", ...message },
+			finish_reason: finishReason,
+		},
+	],
+	usage,
+});
+// An OpenAI-compatible stream honouring stream_options.include_usage.
+const chatStream = (usage: Record<string, unknown> | null = chatUsage) =>
+	[
+		{ choices: [{ index: 0, delta: { content: "OK" }, finish_reason: null }] },
+		{ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+		...(usage ? [{ choices: [], usage }] : []),
+	]
+		.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
+		.join("") + "data: [DONE]\n\n";
+const responsesUsage = { input_tokens: 20, output_tokens: 2, total_tokens: 22 };
+const googleUsage = {
+	promptTokenCount: 20,
+	candidatesTokenCount: 2,
+	totalTokenCount: 22,
+};
 
 const target: ProviderModelVerificationTarget = {
 	providerId: "openai",
@@ -34,9 +71,7 @@ describe("model verification", () => {
 	it("keeps Chat Completions payloads when the base URL contains /responses", async () => {
 		const fetchImplementation = vi
 			.fn<typeof fetch>()
-			.mockResolvedValue(
-				Response.json({ choices: [{ message: { content: "OK" } }] }),
-			);
+			.mockResolvedValue(Response.json(chatBody({ content: "OK" })));
 		const result = await runProviderModelVerification({
 			target: {
 				...target,
@@ -81,6 +116,7 @@ describe("model verification", () => {
 							content: [{ type: "output_text", text: "OK" }],
 						},
 					],
+					usage: responsesUsage,
 				}),
 				{ status: 200 },
 			),
@@ -128,6 +164,7 @@ describe("model verification", () => {
 							finishReason: "STOP",
 						},
 					],
+					usageMetadata: googleUsage,
 				}),
 				{ status: 200 },
 			),
@@ -171,6 +208,7 @@ describe("model verification", () => {
 				output: [
 					{ type: "message", content: [{ type: "output_text", text: "OK" }] },
 				],
+				usage: responsesUsage,
 			}),
 		);
 		const result = await runProviderModelVerification({
@@ -207,39 +245,33 @@ describe("model verification", () => {
 		{
 			apiFormat: "provider-native" as const,
 			endpoint: "https://carrier.example/v1/chat/completions",
-			body: {
-				choices: [
-					{
-						message: {
-							tool_calls: [
-								{
-									type: "function",
-									function: { name: "get_weather", arguments: "{}" },
-								},
-							],
+			body: chatBody(
+				{
+					tool_calls: [
+						{
+							type: "function",
+							function: { name: "get_weather", arguments: "{}" },
 						},
-					},
-				],
-			},
+					],
+				},
+				"tool_calls",
+			),
 			expectTools: [{ type: "function", function: { name: "get_weather" } }],
 		},
 		{
 			apiFormat: "openai-chat-completions" as const,
 			endpoint: "https://carrier.example/v1/chat/completions",
-			body: {
-				choices: [
-					{
-						message: {
-							tool_calls: [
-								{
-									type: "function",
-									function: { name: "get_weather", arguments: "{}" },
-								},
-							],
+			body: chatBody(
+				{
+					tool_calls: [
+						{
+							type: "function",
+							function: { name: "get_weather", arguments: "{}" },
 						},
-					},
-				],
-			},
+					],
+				},
+				"tool_calls",
+			),
 			expectTools: [{ type: "function", function: { name: "get_weather" } }],
 		},
 		{
@@ -276,7 +308,8 @@ describe("model verification", () => {
 				.fn<typeof fetch>()
 				.mockResolvedValueOnce(
 					Response.json({
-						choices: [{ message: { content: "OK" } }],
+						...chatBody({ content: "OK" }),
+						usageMetadata: googleUsage,
 						candidates: [
 							{ content: { role: "model", parts: [{ text: "OK" }] } },
 						],
@@ -336,8 +369,7 @@ describe("model verification", () => {
 		reasoningMaxTokens: false,
 		webSearch: false,
 	};
-	const okResponse = () =>
-		Response.json({ choices: [{ message: { content: "OK" } }] });
+	const okResponse = () => Response.json(chatBody({ content: "OK" }));
 	// Serving stacks that mishandle a forcing mode leak the model's raw tool
 	// markup into the assistant content instead of returning tool_calls.
 	const markupResponse = () =>
@@ -346,21 +378,12 @@ describe("model verification", () => {
 				{ message: { content: '<invoke name="get_weather">{}</invoke>' } },
 			],
 		});
-	const toolCallResponse = () =>
-		Response.json({
-			choices: [
-				{
-					message: {
-						tool_calls: [
-							{
-								type: "function",
-								function: { name: "get_weather", arguments: "{}" },
-							},
-						],
-					},
-				},
-			],
-		});
+	const toolCall = {
+		type: "function",
+		function: { name: "get_weather", arguments: "{}" },
+	};
+	const toolCallResponse = (finishReason = "tool_calls") =>
+		Response.json(chatBody({ tool_calls: [toolCall] }, finishReason));
 	const toolChoiceOf = (call: Parameters<typeof fetch>[1] | undefined) =>
 		JSON.parse(String(call?.body)).tool_choice;
 
@@ -419,7 +442,7 @@ describe("model verification", () => {
 		const fetchImplementation = vi
 			.fn<typeof fetch>()
 			.mockImplementation(async () =>
-				Response.json({ choices: [{ message: { content: "It is sunny." } }] }),
+				Response.json(chatBody({ content: "It is sunny." })),
 			);
 
 		const result = await runProviderModelVerification({
@@ -462,12 +485,21 @@ describe("model verification", () => {
 			},
 			{ status: 400 },
 		);
+	const reasoningResponse = () =>
+		Response.json(
+			chatBody({
+				content: "7/4",
+				reasoning_content: "2/3 + 1/4 + 5/6 = 21/12",
+			}),
+		);
 	const effortOf = (call: Parameters<typeof fetch>[1] | undefined) =>
 		JSON.parse(String(call?.body)).reasoning_effort;
 	const refusingEfforts = (refused: string[]) =>
 		vi.fn<typeof fetch>().mockImplementation(async (_url, init) => {
 			const effort = JSON.parse(String(init?.body)).reasoning_effort;
-			return refused.includes(effort) ? refusedEffortResponse() : okResponse();
+			return refused.includes(effort)
+				? refusedEffortResponse()
+				: reasoningResponse();
 		});
 
 	it("passes on the first effort without probing the rest", async () => {
@@ -701,7 +733,7 @@ describe("model verification", () => {
 		const fetchImplementation = vi
 			.fn<typeof fetch>()
 			.mockImplementation(async () =>
-				Response.json({ choices: [{ message: { content: "It is red." } }] }),
+				Response.json(chatBody({ content: "It is red." })),
 			);
 
 		await runProviderModelVerification({
@@ -749,6 +781,461 @@ describe("model verification", () => {
 		]);
 	});
 
+	describe("optional checks", () => {
+		const basicOnly: ProviderModelVerificationTarget = {
+			...target,
+			providerId: "custom-carrier",
+			streaming: false,
+			vision: false,
+			audio: false,
+			tools: false,
+			jsonOutput: false,
+			jsonOutputSchema: false,
+			reasoning: false,
+			reasoningMaxTokens: false,
+			webSearch: false,
+		};
+		const streamingOnly = { ...basicOnly, streaming: true };
+		// Runs with optional checks required.
+		const run = (
+			verificationTarget: ProviderModelVerificationTarget,
+			...bodies: (string | Record<string, unknown>)[]
+		) => runOptional(verificationTarget, true, ...bodies);
+		const runOptional = (
+			verificationTarget: ProviderModelVerificationTarget,
+			requireOptionalChecks: boolean | undefined,
+			...bodies: (string | Record<string, unknown>)[]
+		) => {
+			const fetchImplementation = vi.fn<typeof fetch>();
+			for (const body of bodies) {
+				fetchImplementation.mockResolvedValueOnce(
+					typeof body === "string"
+						? new Response(body, { status: 200 })
+						: Response.json(body),
+				);
+			}
+			return runProviderModelVerification({
+				target: verificationTarget,
+				token: "provider-key",
+				baseUrl: "https://carrier.example",
+				fetchImplementation,
+				requireOptionalChecks,
+			}).then((result) => ({ result, fetchImplementation }));
+		};
+
+		it("only warns about optional checks until they are required", async () => {
+			const { result } = await runOptional(
+				{ ...streamingOnly, reasoning: true, reasoningEfforts: ["high"] },
+				undefined,
+				{ ...chatBody({ content: "OK" }), usage: undefined },
+				chatStream(null),
+				chatBody({ content: "The answer is 7/4." }),
+			);
+
+			expect(result.passed).toBe(true);
+			expect(result.summary).toBe(
+				"3 verification checks passed (3 with a warning).",
+			);
+			expect(result.checks).toMatchObject([
+				{
+					id: "basic",
+					status: "passed",
+					optionalWarnings: [
+						expect.stringContaining("The response did not report token usage"),
+					],
+				},
+				{
+					id: "streaming",
+					status: "passed",
+					optionalWarnings: [
+						expect.stringContaining("stream_options.include_usage"),
+					],
+				},
+				{
+					id: "reasoning",
+					status: "passed",
+					optionalWarnings: [
+						expect.stringContaining("The response showed no reasoning"),
+					],
+				},
+			]);
+		});
+
+		it.each([
+			{
+				name: "text",
+				stream: `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: chatUsage })}\n\n`,
+				feedback: "The stream did not contain any assistant text.",
+			},
+			{
+				name: "a finish reason",
+				stream: `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "OK" } }], usage: chatUsage })}\n\n`,
+				feedback: "The stream ended without a finish reason.",
+			},
+		])(
+			"fails a stream without $name even while other checks are optional",
+			async ({ stream, feedback }) => {
+				const { result } = await runOptional(
+					streamingOnly,
+					undefined,
+					chatBody({ content: "OK" }),
+					stream,
+				);
+
+				expect(result.checks[1]).toMatchObject({
+					id: "streaming",
+					status: "failed",
+					feedback,
+				});
+			},
+		);
+
+		it("does not warn about a probe that failed for another reason", async () => {
+			const { result } = await runOptional(
+				{ ...basicOnly, tools: true },
+				false,
+				chatBody({ content: "OK" }),
+				{ choices: [{ message: { content: "It is sunny." } }] },
+				chatBody({ tool_calls: [toolCall] }, "tool_calls"),
+			);
+
+			expect(result.passed).toBe(true);
+			expect(result.checks[1].optionalWarnings).toBeUndefined();
+		});
+
+		it.each([
+			{
+				name: "no usage",
+				body: { ...chatBody({ content: "OK" }), usage: undefined },
+				feedback: "The response did not report token usage",
+			},
+			{
+				name: "zero output tokens",
+				body: chatBody({ content: "OK" }, "stop", {
+					prompt_tokens: 20,
+					completion_tokens: 0,
+				}),
+				feedback: "The response reported 0 output tokens",
+			},
+			{
+				name: "more cached than input tokens",
+				body: chatBody({ content: "OK" }, "stop", {
+					...chatUsage,
+					prompt_tokens_details: { cached_tokens: 50 },
+				}),
+				feedback: "50 cached input tokens out of 20 input tokens",
+			},
+			{
+				name: "a negative cached token count",
+				body: chatBody({ content: "OK" }, "stop", {
+					...chatUsage,
+					prompt_tokens_details: { cached_tokens: -3 },
+				}),
+				feedback: "reported -3 cached tokens",
+			},
+			{
+				name: "a fractional token count",
+				body: chatBody({ content: "OK" }, "stop", {
+					prompt_tokens: 20.5,
+					completion_tokens: 2,
+				}),
+				feedback: "reported 20.5 input tokens",
+			},
+			{
+				name: "no response id",
+				body: { ...chatBody({ content: "OK" }), id: undefined },
+				feedback: "The response has no id",
+			},
+		])(
+			"fails the basic check on $name but still runs the rest",
+			async ({ body, feedback }) => {
+				const { result } = await run(streamingOnly, body, chatStream());
+
+				expect(result.passed).toBe(false);
+				expect(result.checks).toMatchObject([
+					{
+						id: "basic",
+						status: "failed",
+						feedback: expect.stringContaining(feedback),
+					},
+					{ id: "streaming", status: "passed" },
+				]);
+			},
+		);
+
+		it.each([
+			{
+				name: "Anthropic Messages",
+				body: {
+					content: [{ type: "text", text: "OK" }],
+					usage: {
+						input_tokens: 5,
+						cache_read_input_tokens: 15,
+						output_tokens: 2,
+					},
+				},
+			},
+			{
+				name: "Bedrock Converse",
+				body: {
+					output: { message: { content: [{ text: "OK" }] } },
+					usage: { inputTokens: 20, outputTokens: 2 },
+				},
+			},
+		])("reads $name usage", async ({ body }) => {
+			const { result } = await run(basicOnly, body);
+
+			expect(result.passed).toBe(true);
+		});
+
+		it("requests usage on the stream and checks it against the basic run", async () => {
+			const { result, fetchImplementation } = await run(
+				streamingOnly,
+				chatBody({ content: "OK" }),
+				chatStream(),
+			);
+
+			expect(result.passed).toBe(true);
+			expect(
+				JSON.parse(String(fetchImplementation.mock.calls[1][1]?.body)),
+			).toMatchObject({
+				stream: true,
+				stream_options: { include_usage: true },
+			});
+		});
+
+		it.each([
+			{
+				name: "a stream without a usage chunk",
+				stream: chatStream(null),
+				feedback:
+					"The stream did not report token usage. Input and output token counts are needed for billing. OpenAI-compatible streams must honour stream_options.include_usage with a final usage chunk.",
+			},
+			{
+				name: "usage sent as per-chunk increments",
+				stream: [
+					{
+						choices: [{ index: 0, delta: { content: "O" } }],
+						usage: { prompt_tokens: 20, completion_tokens: 1 },
+					},
+					{
+						choices: [
+							{ index: 0, delta: { content: "K" }, finish_reason: "stop" },
+						],
+						usage: { prompt_tokens: 0, completion_tokens: 1 },
+					},
+				]
+					.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
+					.join(""),
+				feedback: "The stream reported 0 input tokens",
+			},
+			{
+				name: "stream usage that disagrees with the basic run",
+				stream: chatStream({ prompt_tokens: 200, completion_tokens: 2 }),
+				feedback:
+					"The stream reported 200 input tokens for the prompt the non-streaming request reported 20 input tokens for.",
+			},
+			{
+				name: "usage reported only before the finish reason",
+				stream: [
+					{
+						choices: [{ index: 0, delta: { content: "O" } }],
+						usage: chatUsage,
+					},
+					{
+						choices: [
+							{ index: 0, delta: { content: "K" }, finish_reason: "stop" },
+						],
+					},
+				]
+					.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
+					.join(""),
+				feedback: "The stream reported usage only before its finish reason.",
+			},
+			{
+				name: "a stream without a finish reason",
+				stream: `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "OK" } }], usage: chatUsage })}\n\n`,
+				feedback: "The stream ended without a finish reason.",
+			},
+			{
+				name: "a stream without text",
+				stream: `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: chatUsage })}\n\n`,
+				feedback: "The stream did not contain any assistant text.",
+			},
+		])("fails the streaming check on $name", async ({ stream, feedback }) => {
+			const { result } = await run(
+				streamingOnly,
+				chatBody({ content: "OK" }),
+				stream,
+			);
+
+			expect(result.checks[1]).toMatchObject({
+				id: "streaming",
+				status: "failed",
+				feedback: expect.stringContaining(feedback),
+			});
+			expect(disprovedCapabilities(result.checks)).toEqual(["streaming"]);
+		});
+
+		it("reads usage from an Anthropic Messages stream", async () => {
+			const events = [
+				{
+					type: "message_start",
+					message: { usage: { input_tokens: 20, output_tokens: 1 } },
+				},
+				{
+					type: "content_block_delta",
+					delta: { type: "text_delta", text: "OK" },
+				},
+				{
+					type: "message_delta",
+					delta: { stop_reason: "end_turn" },
+					usage: { output_tokens: 2 },
+				},
+				{ type: "message_stop" },
+			];
+			const { result } = await run(
+				streamingOnly,
+				{
+					content: [{ type: "text", text: "OK" }],
+					usage: { input_tokens: 20, output_tokens: 2 },
+				},
+				events
+					.map(
+						(event) =>
+							`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
+					)
+					.join(""),
+			);
+
+			expect(result.passed).toBe(true);
+		});
+
+		it("leaves optional checks out of a key smoke test", async () => {
+			const failure = await runProviderKeySmokeTest({
+				target: basicOnly,
+				token: "provider-key",
+				baseUrl: "https://carrier.example",
+				fetchImplementation: vi
+					.fn<typeof fetch>()
+					.mockResolvedValue(
+						Response.json({ choices: [{ message: { content: "OK" } }] }),
+					),
+			});
+
+			expect(failure).toBeNull();
+		});
+
+		it("fails tools without narrowing when tool calls finish with stop", async () => {
+			const { result, fetchImplementation } = await run(
+				{ ...basicOnly, tools: true },
+				chatBody({ content: "OK" }),
+				chatBody({ tool_calls: [toolCall] }, "stop"),
+			);
+
+			expect(fetchImplementation).toHaveBeenCalledTimes(2);
+			expect(result.checks[1]).toMatchObject({
+				id: "tools",
+				status: "failed",
+				feedback: expect.stringContaining(
+					'finish_reason is "stop". It must be "tool_calls"',
+				),
+			});
+			expect(result.unsupportedToolChoices).toBeUndefined();
+		});
+
+		it("fails tool calls finishing with stop even while other checks are optional", async () => {
+			const { result } = await runOptional(
+				{ ...basicOnly, tools: true },
+				undefined,
+				chatBody({ content: "OK" }),
+				chatBody({ tool_calls: [toolCall] }, "stop"),
+			);
+
+			expect(result.passed).toBe(false);
+			expect(result.checks[1]).toMatchObject({
+				id: "tools",
+				status: "failed",
+				feedback: expect.stringContaining('It must be "tool_calls"'),
+			});
+			expect(result.checks[1].optionalWarnings).toBeUndefined();
+		});
+
+		it("accepts stop for a named tool_choice, as OpenAI returns it", async () => {
+			const { result } = await run(
+				{ ...basicOnly, tools: true, supportedToolChoices: ["function"] },
+				chatBody({ content: "OK" }),
+				chatBody({ tool_calls: [toolCall] }, "stop"),
+			);
+
+			expect(result.passed).toBe(true);
+		});
+
+		it("fails reasoning when the endpoint ignores reasoning_effort", async () => {
+			const { result, fetchImplementation } = await run(
+				{ ...basicOnly, reasoning: true, reasoningEfforts: null },
+				chatBody({ content: "OK" }),
+				chatBody({ content: "The answer is 7/4." }),
+			);
+
+			expect(fetchImplementation).toHaveBeenCalledTimes(2);
+			expect(result.checks[1]).toMatchObject({
+				id: "reasoning",
+				status: "failed",
+				feedback: expect.stringContaining("The response showed no reasoning"),
+			});
+			expect(result.unsupportedReasoningEfforts).toBeUndefined();
+		});
+
+		it.each([
+			{
+				name: "reasoning text",
+				message: { content: "7/4", reasoning: "2/3 = 8/12" },
+			},
+			{
+				name: "inline think tags",
+				message: { content: "<think>8/12</think>7/4" },
+			},
+		])("accepts $name as reasoning evidence", async ({ message }) => {
+			const { result } = await run(
+				{ ...basicOnly, reasoning: true, reasoningEfforts: ["high"] },
+				chatBody({ content: "OK" }),
+				chatBody(message),
+			);
+
+			expect(result.passed).toBe(true);
+		});
+
+		it("does not take a Responses reasoning echo for evidence", async () => {
+			const { result } = await run(
+				{
+					...basicOnly,
+					apiFormat: "openai-responses",
+					reasoning: true,
+					reasoningEfforts: ["high"],
+				},
+				{
+					output: [
+						{ type: "message", content: [{ type: "output_text", text: "OK" }] },
+					],
+					usage: responsesUsage,
+				},
+				{
+					reasoning: { effort: "high", summary: null },
+					output: [
+						{
+							type: "message",
+							content: [{ type: "output_text", text: "7/4" }],
+						},
+					],
+					usage: responsesUsage,
+				},
+			);
+
+			expect(disprovedCapabilities(result.checks)).toEqual(["reasoning"]);
+		});
+	});
+
 	describe("declared limits", () => {
 		const limitsTarget: ProviderModelVerificationTarget = {
 			...target,
@@ -767,8 +1254,8 @@ describe("model verification", () => {
 		const respond = (promptTokens: number) =>
 			vi.fn<typeof fetch>().mockImplementation(async () =>
 				Response.json({
-					choices: [{ message: { content: "OK" } }],
-					usage: { prompt_tokens: promptTokens },
+					...chatBody({ content: "OK" }),
+					usage: { prompt_tokens: promptTokens, completion_tokens: 1 },
 				}),
 			);
 
@@ -804,7 +1291,7 @@ describe("model verification", () => {
 								{ error: { message: "maximum context length is 4096" } },
 								{ status: 400 },
 							)
-						: Response.json({ choices: [{ message: { content: "OK" } }] }),
+						: Response.json(chatBody({ content: "OK" })),
 				);
 			const result = await runProviderModelVerification({
 				target: limitsTarget,
@@ -861,7 +1348,7 @@ describe("model verification", () => {
 								status: "failed",
 								error: { message: "context window exceeded" },
 							})
-						: Response.json({ choices: [{ message: { content: "OK" } }] }),
+						: Response.json(chatBody({ content: "OK" })),
 				);
 			const result = await runProviderModelVerification({
 				target: limitsTarget,
@@ -884,8 +1371,12 @@ describe("model verification", () => {
 					.fn<typeof fetch>()
 					.mockImplementation(async () =>
 						Response.json({
-							choices: [{ message: { content: "OK" } }],
-							usage: { input_tokens: 10, cache_creation_input_tokens: 5_000 },
+							...chatBody({ content: "OK" }),
+							usage: {
+								input_tokens: 10,
+								cache_creation_input_tokens: 5_000,
+								output_tokens: 1,
+							},
 						}),
 					),
 			});
@@ -902,7 +1393,7 @@ describe("model verification", () => {
 								{ error: { message: "max_tokens must be <= 2048" } },
 								{ status: 400 },
 							)
-						: Response.json({ choices: [{ message: { content: "OK" } }] }),
+						: Response.json(chatBody({ content: "OK" })),
 				);
 			const result = await runProviderModelVerification({
 				target: limitsTarget,
@@ -924,35 +1415,26 @@ describe("model verification", () => {
 			new Response(JSON.stringify(body), { status: 200 });
 		const fetchImplementation = vi
 			.fn<typeof fetch>()
+			.mockResolvedValueOnce(response(chatBody({ content: "OK" })))
+			.mockResolvedValueOnce(new Response(chatStream(), { status: 200 }))
 			.mockResolvedValueOnce(
-				response({ choices: [{ message: { content: "OK" } }] }),
+				response(chatBody({ content: "The image is red." })),
 			)
+			.mockResolvedValueOnce(response(chatBody({ content: "I hear a tone." })))
 			.mockResolvedValueOnce(
-				new Response('data: {"choices":[{"delta":{"content":"OK"}}]}\n\n', {
-					status: 200,
-				}),
-			)
-			.mockResolvedValueOnce(
-				response({ choices: [{ message: { content: "The image is red." } }] }),
-			)
-			.mockResolvedValueOnce(
-				response({ choices: [{ message: { content: "I hear a tone." } }] }),
-			)
-			.mockResolvedValueOnce(
-				response({
-					choices: [
+				response(
+					chatBody(
 						{
-							message: {
-								tool_calls: [
-									{
-										type: "function",
-										function: { name: "get_weather", arguments: "{}" },
-									},
-								],
-							},
+							tool_calls: [
+								{
+									type: "function",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+							],
 						},
-					],
-				}),
+						"tool_calls",
+					),
+				),
 			)
 			.mockResolvedValueOnce(
 				response({
@@ -972,10 +1454,20 @@ describe("model verification", () => {
 				}),
 			)
 			.mockResolvedValueOnce(
-				response({ choices: [{ message: { content: "The answer is 7/4." } }] }),
+				response(
+					chatBody({ content: "The answer is 7/4." }, "stop", {
+						...chatUsage,
+						completion_tokens_details: { reasoning_tokens: 12 },
+					}),
+				),
 			)
 			.mockResolvedValueOnce(
-				response({ choices: [{ message: { content: "The answer is 7/4." } }] }),
+				response(
+					chatBody({ content: "The answer is 7/4." }, "stop", {
+						...chatUsage,
+						completion_tokens_details: { reasoning_tokens: 12 },
+					}),
+				),
 			)
 			.mockResolvedValueOnce(
 				response({
@@ -1007,16 +1499,11 @@ describe("model verification", () => {
 		const fetchImplementation = vi
 			.fn<typeof fetch>()
 			.mockResolvedValueOnce(
-				new Response(
-					JSON.stringify({ choices: [{ message: { content: "OK" } }] }),
-					{ status: 200 },
-				),
-			)
-			.mockResolvedValueOnce(
-				new Response('data: {"choices":[{"delta":{"content":"OK"}}]}\n\n', {
+				new Response(JSON.stringify(chatBody({ content: "OK" })), {
 					status: 200,
 				}),
-			);
+			)
+			.mockResolvedValueOnce(new Response(chatStream(), { status: 200 }));
 		const updates: string[] = [];
 		const result = await runProviderModelVerification({
 			target: {
@@ -1054,12 +1541,12 @@ describe("model verification", () => {
 		{
 			name: "vision",
 			overrides: { vision: true },
-			body: { choices: [{ message: { content: "The image loaded." } }] },
+			body: chatBody({ content: "The image loaded." }),
 		},
 		{
 			name: "audio",
 			overrides: { audio: true },
-			body: { choices: [{ message: { content: "The audio loaded." } }] },
+			body: chatBody({ content: "The audio loaded." }),
 		},
 		{
 			name: "unfinished web search",
@@ -1079,9 +1566,7 @@ describe("model verification", () => {
 			new Response(JSON.stringify(value), { status: 200 });
 		const fetchImplementation = vi
 			.fn<typeof fetch>()
-			.mockResolvedValueOnce(
-				response({ choices: [{ message: { content: "OK" } }] }),
-			)
+			.mockResolvedValueOnce(response(chatBody({ content: "OK" })))
 			.mockResolvedValueOnce(response(body));
 		const result = await runProviderModelVerification({
 			target: {
@@ -1153,6 +1638,91 @@ describe("model verification", () => {
 		});
 		expect(JSON.stringify(result)).not.toContain("derived-access-token");
 		expect(result.checks[0]).toMatchObject({ status: "failed" });
+	});
+
+	describe("timeouts", () => {
+		const basicOnly: ProviderModelVerificationTarget = {
+			...target,
+			streaming: false,
+			vision: false,
+			audio: false,
+			tools: false,
+			jsonOutput: false,
+			jsonOutputSchema: false,
+			reasoning: false,
+			reasoningMaxTokens: false,
+			webSearch: false,
+		};
+		const timeout = () =>
+			new DOMException(
+				"The operation was aborted due to timeout",
+				"TimeoutError",
+			);
+
+		it("passes with a warning when a retry succeeds", async () => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockRejectedValueOnce(timeout())
+				.mockRejectedValueOnce(timeout())
+				.mockResolvedValue(Response.json(chatBody({ content: "OK" })));
+			const onCheck = vi.fn();
+			const result = await runProviderModelVerification({
+				target: basicOnly,
+				token: "provider-key",
+				fetchImplementation,
+				onCheck,
+			});
+			expect(fetchImplementation).toHaveBeenCalledTimes(3);
+			expect(result.passed).toBe(true);
+			expect(result.checks[0]).toMatchObject({
+				status: "passed",
+				warning: expect.stringContaining("2 timed-out requests"),
+			});
+			expect(result.summary).toBe(
+				"1 verification check passed (1 with a warning).",
+			);
+			expect(onCheck).toHaveBeenCalledWith(
+				expect.objectContaining({
+					status: "running",
+					warning: expect.stringContaining("attempt 3 of 3"),
+				}),
+			);
+		});
+
+		it("fails after three timed-out attempts", async () => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockImplementation(() => Promise.reject(timeout()));
+			const result = await runProviderModelVerification({
+				target: basicOnly,
+				token: "provider-key",
+				fetchImplementation,
+			});
+			expect(fetchImplementation).toHaveBeenCalledTimes(3);
+			expect(result.passed).toBe(false);
+			expect(result.checks[0]).toMatchObject({
+				status: "failed",
+				feedback:
+					"The operation was aborted due to timeout (timed out on all 3 attempts)",
+			});
+			expect(result.checks[0]).not.toHaveProperty("warning");
+		});
+
+		it("does not retry other transport errors", async () => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockRejectedValue(new TypeError("fetch failed"));
+			const result = await runProviderModelVerification({
+				target: basicOnly,
+				token: "provider-key",
+				fetchImplementation,
+			});
+			expect(fetchImplementation).toHaveBeenCalledOnce();
+			expect(result.checks[0]).toMatchObject({
+				status: "failed",
+				feedback: "fetch failed",
+			});
+		});
 	});
 
 	it("binds supplied credentials to one verification and company", () => {

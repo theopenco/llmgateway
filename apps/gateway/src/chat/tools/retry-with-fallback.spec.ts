@@ -483,6 +483,47 @@ describe("selectNextProvider", () => {
 		expect(result).toEqual({ providerId: "openai", externalId: "gpt-4o" });
 	});
 
+	it("applies provider order before scores while skipping excluded candidates", () => {
+		const scores = [
+			{ providerId: "missing", score: -2 },
+			{ providerId: "filtered", score: -1, excludedByContentFilter: true },
+			{ providerId: "openai", score: 0 },
+			{ providerId: "anthropic", score: 10 },
+			{ providerId: "google", score: 1 },
+		];
+		const result = selectNextProvider(
+			scores,
+			new Set(["openai"]),
+			[
+				...modelProviders,
+				{ providerId: "filtered", externalId: "filtered-model" },
+			],
+			["missing", "filtered", "openai", "anthropic", "google"],
+		);
+		expect(result?.providerId).toBe("anthropic");
+	});
+
+	it("uses regional scores within a preferred provider and skips failed regions", () => {
+		const candidates = [
+			{ providerId: "openai", externalId: "test-model", region: "a" },
+			{ providerId: "openai", externalId: "test-model", region: "b" },
+			{ providerId: "google", externalId: "test-model" },
+		];
+		const scores = candidates.map((candidate, index) => ({
+			...candidate,
+			score: [20, 10, 0][index],
+		}));
+		expect(
+			selectNextProvider(scores, new Set(), candidates, ["openai", "google"]),
+		).toMatchObject({ providerId: "openai", region: "b" });
+		expect(
+			selectNextProvider(scores, new Set(["openai:b"]), candidates, [
+				"openai",
+				"google",
+			]),
+		).toMatchObject({ providerId: "openai", region: "a" });
+	});
+
 	it("returns null when all providers have failed", () => {
 		const providerScores = [
 			{ providerId: "openai", score: 0.5 },

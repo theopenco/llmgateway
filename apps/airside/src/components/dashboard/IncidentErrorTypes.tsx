@@ -33,9 +33,11 @@ const COLLAPSED_MODELS = 5;
 function ErrorTypeItem({
 	error,
 	showCarrier,
+	includeByok,
 }: {
 	error: ErrorType;
 	showCarrier: boolean;
+	includeByok: boolean;
 }) {
 	const [showAll, setShowAll] = useState(false);
 	const models = showAll
@@ -98,7 +100,7 @@ function ErrorTypeItem({
 						<TableRow key={model.usedModel}>
 							<TableCell className="font-mono">
 								<Link
-									href={`/dashboard/incidents?mapping=${encodeURIComponent(model.usedModel)}`}
+									href={`/dashboard/incidents?mapping=${encodeURIComponent(model.usedModel)}${includeByok ? "&includeByok=true" : ""}`}
 									className="hover:underline"
 									title="Open this mapping's incidents"
 								>
@@ -150,6 +152,7 @@ export function IncidentErrorTypes({
 	mapping,
 	window,
 	includeRetried,
+	includeByok,
 	showCarrier,
 }: {
 	providerCompanyId: string;
@@ -157,6 +160,7 @@ export function IncidentErrorTypes({
 	mapping: string | null;
 	window: IncidentsWindow;
 	includeRetried: boolean;
+	includeByok: boolean;
 	showCarrier: boolean;
 }) {
 	const api = useApi();
@@ -170,6 +174,7 @@ export function IncidentErrorTypes({
 						providerCompanyId,
 						window,
 						includeRetried: includeRetried ? "true" : "false",
+						includeByok: includeByok ? "true" : "false",
 						...(providerId ? { providerId } : {}),
 						...(mapping !== null ? { mapping } : {}),
 					},
@@ -232,10 +237,26 @@ export function IncidentErrorTypes({
 				</p>
 			) : null}
 			<ul className="space-y-3">
-				{data.errors.map((error, i) => (
-					<ErrorTypeItem key={i} error={error} showCarrier={showCarrier} />
+				{data.errors.map((error) => (
+					<ErrorTypeItem
+						key={errorTypeKey(error)}
+						error={error}
+						showCarrier={showCarrier}
+						includeByok={includeByok}
+					/>
 				))}
 			</ul>
 		</div>
 	);
+}
+// Stable per-shape key so a refetch that reorders shapes keeps each item's
+// expanded state with its own error.
+function errorTypeKey(error: ErrorType): string {
+	return JSON.stringify([
+		error.statusCode,
+		error.statusText,
+		error.classification,
+		error.cause,
+		error.responseText,
+	]);
 }

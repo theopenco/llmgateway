@@ -214,10 +214,10 @@ export interface ProviderDefinition {
 	managedInAirside?: boolean;
 	// Environment variable configuration
 	env: ProviderEnvConfig;
-	// Whether the provider supports streaming
-	streaming?: boolean;
 	// Whether the provider supports request cancellation
 	cancellation?: boolean;
+	/** The gateway can forward Anthropic server-side safeguard review on this provider. */
+	anthropicSafeguards?: boolean;
 	// Color used for UI representation (hex code)
 	color?: string;
 	// Website URL
@@ -297,7 +297,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_LLMGATEWAY_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#6366f1",
 		website: "https://llmgateway.io",
@@ -332,7 +331,6 @@ export const providers: ProviderDefinition[] = [
 				baseUrl: "LLM_OPENAI_BASE_URL",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#0ea5e9",
 		website: "https://openai.com",
@@ -371,6 +369,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "anthropic",
 		name: "Anthropic",
+		anthropicSafeguards: true,
 		forwardsSafetyIdentifier: true,
 		description:
 			"Anthropic is a research and deployment company focused on building safe and useful AI.",
@@ -385,7 +384,6 @@ export const providers: ProviderDefinition[] = [
 		promptCacheMaxIdleSeconds: 300,
 		promptCacheExtendedMaxIdleSeconds: 3600,
 		reasoningEffortChangePreservesCache: false,
-		streaming: true,
 		cancellation: true,
 		// the Messages API rejects temperature above 1 ("temperature: range: 0..1")
 		maxTemperature: 1,
@@ -422,7 +420,6 @@ export const providers: ProviderDefinition[] = [
 				baseUrl: "LLM_GOOGLE_AI_STUDIO_BASE_URL",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#4285f4",
 		website: "https://ai.google.com",
@@ -472,7 +469,6 @@ export const providers: ProviderDefinition[] = [
 				baseUrl: "LLM_GLACIER_BASE_URL",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#4285f4",
 		website: null,
@@ -503,7 +499,6 @@ export const providers: ProviderDefinition[] = [
 				tokenType: "LLM_GOOGLE_VERTEX_TOKEN_TYPE",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
@@ -556,7 +551,6 @@ export const providers: ProviderDefinition[] = [
 				region: "LLM_VERTEX_OPENAI_REGION",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
@@ -610,7 +604,6 @@ export const providers: ProviderDefinition[] = [
 		promptCacheMaxIdleSeconds: 300,
 		promptCacheExtendedMaxIdleSeconds: 3600,
 		reasoningEffortChangePreservesCache: false,
-		streaming: true,
 		cancellation: true,
 		// same Messages API ceiling as anthropic
 		maxTemperature: 1,
@@ -650,7 +643,6 @@ export const providers: ProviderDefinition[] = [
 				region: "LLM_QUARTZ_REGION",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#4285f4",
 		website: null,
@@ -673,7 +665,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_GROQ_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#F55036",
 		website: "https://groq.com",
@@ -703,7 +694,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_CEREBRAS_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#6b46c1",
 		website: "https://cerebras.ai",
@@ -732,7 +722,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_X_AI_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#000000",
 		website: "https://x.ai",
@@ -762,7 +751,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_DEEPSEEK_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#FF6B00",
 		website: "https://deepseek.com",
@@ -801,7 +789,6 @@ export const providers: ProviderDefinition[] = [
 				workspaceId: "LLM_ALIBABA_WORKSPACE_ID",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#FF6A00",
 		website: "https://www.alibabacloud.com",
@@ -863,7 +850,6 @@ export const providers: ProviderDefinition[] = [
 				baseUrl: "LLM_RUNPOD_BASE_URL",
 			},
 		},
-		streaming: true,
 		website: "https://www.runpod.io",
 		termsUrl: "https://www.runpod.io/legal/terms-of-service",
 		privacyPolicyUrl: "https://www.runpod.io/legal/privacy-policy",
@@ -899,7 +885,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_NOVITA_AI_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#9333ea",
 		website: "https://novita.ai",
@@ -930,7 +915,6 @@ export const providers: ProviderDefinition[] = [
 				baseUrl: "LLM_ATLASCLOUD_BASE_URL",
 			},
 		},
-		streaming: false,
 		cancellation: false,
 		color: "#0F766E",
 		website: "https://www.atlascloud.ai",
@@ -974,7 +958,6 @@ export const providers: ProviderDefinition[] = [
 			},
 		},
 		priority: 2,
-		streaming: true,
 		cancellation: true,
 		color: "#FF9900",
 		website: "https://aws.amazon.com/bedrock",
@@ -1091,7 +1074,6 @@ export const providers: ProviderDefinition[] = [
 			},
 		},
 		priority: 2,
-		streaming: true,
 		cancellation: true,
 		color: "#FF9900",
 		website: "https://aws.amazon.com/bedrock",
@@ -1167,7 +1149,6 @@ export const providers: ProviderDefinition[] = [
 				},
 			],
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#0078D4",
 		website:
@@ -1216,7 +1197,6 @@ export const providers: ProviderDefinition[] = [
 				apiVersion: "LLM_AZURE_AI_FOUNDRY_API_VERSION",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#0078D4",
 		website: "https://azure.microsoft.com/en-us/products/ai-foundry",
@@ -1255,7 +1235,6 @@ export const providers: ProviderDefinition[] = [
 		promptCacheMaxIdleSeconds: 300,
 		promptCacheExtendedMaxIdleSeconds: 3600,
 		reasoningEffortChangePreservesCache: false,
-		streaming: true,
 		cancellation: true,
 		color: "#0078D4",
 		website:
@@ -1289,7 +1268,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_Z_AI_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		// every GLM model rejects temperature above 1 with a 400
 		// ("The temperature parameter is illegal", range [0,1])
@@ -1320,7 +1298,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_MOONSHOT_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#4B9EFF",
 		website: "https://moonshot.ai",
@@ -1350,7 +1327,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_BAIDU_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#2932E1",
 		website: "https://intl.cloud.baidu.com/product/qianfan.html",
@@ -1384,7 +1360,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_PERPLEXITY_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#20B2AA",
 		website: "https://perplexity.ai",
@@ -1414,7 +1389,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_NEBIUS_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#3b82f6",
 		website: "https://nebius.com",
@@ -1443,7 +1417,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_MISTRAL_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#FF7000",
 		website: "https://mistral.ai",
@@ -1474,7 +1447,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_CANOPY_WAVE_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#10b981",
 		website: "https://canopywave.com",
@@ -1505,7 +1477,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_INFERENCE_NET_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#10b981",
 		website: "https://inference.net",
@@ -1534,7 +1505,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_TOGETHER_AI_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#ff6b35",
 		website: "https://together.ai",
@@ -1564,7 +1534,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_SCX_AI_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#1a1a2e",
 		modelCardBadge: "Up to 4x faster",
@@ -1596,7 +1565,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_SCX_AI_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#1a1a2e",
 		website: "https://scx.ai",
@@ -1623,7 +1591,6 @@ export const providers: ProviderDefinition[] = [
 		env: {
 			required: {},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#6b7280",
 		website: null,
@@ -1645,7 +1612,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_NANO_GPT_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#10b981",
 		website: "https://nano-gpt.com",
@@ -1673,7 +1639,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_BYTEDANCE_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#FF4757",
 		website: "https://www.byteplus.com/en/product/modelark",
@@ -1710,7 +1675,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_MINIMAX_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#7C3AED",
 		website: "https://minimax.io",
@@ -1739,7 +1703,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_EMBERCLOUD_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#FF6047",
 		website: "https://www.embercloud.ai",
@@ -1767,7 +1730,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_META_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#0668E1",
 		website: "https://dev.meta.ai",
@@ -1811,7 +1773,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_META_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#0668E1",
 		website: "https://dev.meta.ai",
@@ -1855,7 +1816,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_SAKANA_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#FF5A5F",
 		website: "https://sakana.ai",
@@ -1882,7 +1842,6 @@ export const providers: ProviderDefinition[] = [
 				baseUrl: "LLM_XIAOMI_BASE_URL",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#FF6900",
 		website: "https://platform.xiaomimimo.com",
@@ -1915,7 +1874,6 @@ export const providers: ProviderDefinition[] = [
 				baseUrl: "LLM_DEEPINFRA_BASE_URL",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#6366F1",
 		website: "https://deepinfra.com",
@@ -1946,7 +1904,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_REVE_API_KEY",
 			},
 		},
-		streaming: false,
 		cancellation: false,
 		color: "#1a1a2e",
 		website: "https://reve.com",
@@ -1976,7 +1933,6 @@ export const providers: ProviderDefinition[] = [
 				baseUrl: "LLM_ELEVENLABS_BASE_URL",
 			},
 		},
-		streaming: false,
 		cancellation: true,
 		color: "#000000",
 		website: "https://elevenlabs.io",
@@ -2011,7 +1967,6 @@ export const providers: ProviderDefinition[] = [
 				baseUrl: "LLM_RUNWARE_BASE_URL",
 			},
 		},
-		streaming: true,
 		cancellation: false,
 		color: "#a8f399",
 		website: "https://runware.ai",
@@ -2040,7 +1995,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_GONKA_24_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#000000",
 		website: "https://gonka24.com",
@@ -2067,7 +2021,6 @@ export const providers: ProviderDefinition[] = [
 				baseUrl: "LLM_FIREWORKS_BASE_URL",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#6720FF",
 		website: "https://fireworks.ai",
@@ -2108,7 +2061,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_RANOAI_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#000000",
 		website: "https://ranoai.com",
@@ -2137,7 +2089,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_CONSENSUSPROTOCOL_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#dc2626",
 		website: "https://consensusprotocol.org",
@@ -2171,7 +2122,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_TENCENT_API_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#0052D9",
 		website: "https://www.tencentcloud.com/act/pro/tokenhub",
@@ -2206,7 +2156,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_ATRIA_KEY",
 			},
 		},
-		streaming: true,
 		cancellation: true,
 		color: "#0f172a",
 		// Atria publishes no terms, privacy or usage policy, so the provider
@@ -2234,7 +2183,6 @@ export const providers: ProviderDefinition[] = [
 				baseUrl: "LLM_TYPESAFE_BASE_URL",
 			},
 		},
-		streaming: false,
 		cancellation: true,
 		color: "#0f766e",
 		website: "https://typesafe.ai",
@@ -2645,9 +2593,9 @@ export function isLiveMapping(
 }
 
 /**
- * Catalogue providers that serve `modelId` under the policy: active,
+ * Providers that serve `modelId` under the policy: active,
  * non-deprecated mappings whose provider has no compliance failures. Unknown
- * providers (e.g. DB-only carriers) fail closed. Empty when the model itself is
+ * providers absent from `definitions` fail closed. Empty when the model itself is
  * blocked by the policy's model lists.
  */
 export function getCompliantProvidersForModel(
@@ -2655,6 +2603,7 @@ export function getCompliantProvidersForModel(
 	mappings: readonly ModelMappingAvailability[],
 	policy: ProviderCompliancePolicy,
 	now: Date = new Date(),
+	definitions: readonly ProviderDefinition[] = providers,
 ): string[] {
 	if (!isModelAllowedByPolicy([modelId], policy)) {
 		return [];
@@ -2664,7 +2613,9 @@ export function getCompliantProvidersForModel(
 		if (!isLiveMapping(mapping, now)) {
 			continue;
 		}
-		const provider = getProviderDefinition(mapping.providerId);
+		const provider = definitions.find(
+			(entry) => entry.id === mapping.providerId,
+		);
 		if (
 			provider &&
 			getProviderComplianceFailures(provider, policy).length === 0
@@ -2752,14 +2703,19 @@ export function countryCodeToFlag(code: string): string {
 		.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
 }
 
-/**
- * Distinct provider-headquarters countries defined in the catalogue, sorted by
- * name. This is the authoritative, closed set of countries the compliance
- * country selector may offer.
- */
-export function getProviderCountries(): ProviderCountry[] {
+const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+
+/** English name for an ISO 3166-1 alpha-2 country code. */
+export function countryName(code: string): string {
+	return PROVIDER_COUNTRY_NAMES[code] ?? regionNames.of(code) ?? code;
+}
+
+/** Distinct provider-headquarters countries, sorted by name. */
+export function getProviderCountries(
+	definitions: readonly ProviderDefinition[] = providers,
+): ProviderCountry[] {
 	const codes = new Set<string>();
-	for (const provider of providers) {
+	for (const provider of definitions) {
 		if (provider.headquarters) {
 			codes.add(provider.headquarters);
 		}
@@ -2767,7 +2723,7 @@ export function getProviderCountries(): ProviderCountry[] {
 	return Array.from(codes)
 		.map((code) => ({
 			code,
-			name: PROVIDER_COUNTRY_NAMES[code] ?? code,
+			name: countryName(code),
 			flag: countryCodeToFlag(code),
 		}))
 		.sort((a, b) => a.name.localeCompare(b.name));

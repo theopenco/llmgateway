@@ -34,9 +34,12 @@ interface TimeseriesResponse {
 	totals: {
 		revenue: number;
 		topupRevenue: number;
+		totalRevenue: number;
+		refunds: number;
 		cost: number;
 		gatewayMargin: number;
 		margin: number;
+		usageMultiple: number | null;
 	};
 }
 
@@ -249,6 +252,9 @@ describe("admin devpass margin components", () => {
 		expect(body.totals.topupRevenue).toBe(21);
 		expect(body.totals.cost).toBe(100);
 		expect(body.totals.margin).toBe(137 + 21 + 17 - 100);
+		expect(body.totals.totalRevenue).toBe(137 + 21);
+		expect(body.totals.refunds).toBe(5.25);
+		expect(body.totals.usageMultiple).toBeCloseTo(100 / 137, 6);
 		expect(body.data.some((point) => point.gatewayMargin === 12)).toBe(true);
 		expect(body.data.reduce((sum, point) => sum + point.margin, 0)).toBeCloseTo(
 			body.totals.margin,

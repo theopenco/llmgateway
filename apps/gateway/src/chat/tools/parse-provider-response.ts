@@ -1,4 +1,10 @@
-import { isToolSearchBlock } from "@llmgateway/actions";
+import {
+	fromConverseReasoningContent,
+	isToolSearchBlock,
+	sealAnthropicThinkingBlock,
+	toAnthropicReasoningDetail,
+	type AnthropicThinkingBlock,
+} from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -28,6 +34,24 @@ import type {
 	Provider,
 	ReasoningDetail,
 } from "@llmgateway/models";
+
+// `content` holds the turn's thinking at its content positions, null elsewhere.
+function sealedThinkingDetails(
+	provider: string,
+	content: Array<AnthropicThinkingBlock | null>,
+): ReasoningDetail[] | null {
+	const details = content.flatMap((block, index) =>
+		block
+			? [
+					toAnthropicReasoningDetail(
+						sealAnthropicThinkingBlock(provider, block),
+						index,
+					),
+				]
+			: [],
+	);
+	return details.length > 0 ? details : null;
+}
 
 /**
  * Parses response content and metadata from different providers
@@ -74,6 +98,7 @@ export function parseProviderResponse(
 	let cachedAudioInputTokens: number | null = null;
 	let toolResults = null;
 	let anthropicNativeBlocks: AnthropicNativeBlock[] | null = null;
+	let anthropicSafeguardResults: unknown = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
 	const searchResults: SearchResult[] = [];
@@ -175,6 +200,12 @@ export function parseProviderResponse(
 					})
 					.filter((value: string | null): value is string => value !== null)
 					.join("") ?? null;
+			reasoningDetails = sealedThinkingDetails(
+				usedProvider,
+				contentBlocks.map((block: any) =>
+					fromConverseReasoningContent(block.reasoningContent),
+				),
+			);
 
 			// Map Bedrock stop reasons to OpenAI finish reasons
 			const stopReason = json.stopReason;
@@ -250,6 +281,21 @@ export function parseProviderResponse(
 			content = textBlocks.map((block: any) => block.text).join("") ?? null;
 			reasoningContent =
 				thinkingBlocks.map((block: any) => block.thinking).join("") ?? null;
+			reasoningDetails = sealedThinkingDetails(
+				usedProvider,
+				contentBlocks.map((block: any): AnthropicThinkingBlock | null =>
+					block.type === "thinking" && typeof block.signature === "string"
+						? {
+								type: "thinking",
+								thinking: block.thinking ?? "",
+								signature: block.signature,
+							}
+						: block.type === "redacted_thinking" &&
+							  typeof block.data === "string"
+							? { type: "redacted_thinking", data: block.data }
+							: null,
+				),
+			);
 
 			finishReason = json.stop_reason ?? null;
 
@@ -339,6 +385,14 @@ export function parseProviderResponse(
 			const toolSearchBlocks = contentBlocks.filter(isToolSearchBlock);
 			if (toolSearchBlocks.length > 0) {
 				anthropicNativeBlocks = toolSearchBlocks;
+			}
+			// Server-side safeguard verdicts, present when the request carried
+			// `safeguards` (Claude Code auto mode). Opaque to the gateway.
+			if (
+				Array.isArray(json.safeguard_results) &&
+				json.safeguard_results.length > 0
+			) {
+				anthropicSafeguardResults = json.safeguard_results;
 			}
 
 			// Extract tool calls from Anthropic format
@@ -964,6 +1018,34 @@ export function parseProviderResponse(
 				}
 				break;
 			}
+			// Check if this is a Tencent Hy Image generation response
+			// Format: { object: "image.chat.completion.chunk", choices: [{ delta: { image: { url } }, finish_reason }], tokenhub_usage: { total_tokens }, error? }
+			if (
+				usedProvider === "tencent" &&
+				json.object === "image.chat.completion.chunk"
+			) {
+				const imageUrl = json.choices?.[0]?.delta?.image?.url;
+				if (typeof imageUrl === "string" && imageUrl) {
+					images = [{ type: "image_url", image_url: { url: imageUrl } }];
+					content = imageLabel;
+					finishReason = "stop";
+				} else {
+					// Failures arrive as a 200 with finish_reason "error" and an
+					// OpenAI-style error object, e.g. code "content_filter".
+					finishReason =
+						json.error?.code === "content_filter"
+							? "content_filter"
+							: "upstream_error";
+				}
+				// v3.5 reports only a total; TokenHub bills it as image output.
+				const billedTokens =
+					json.tokenhub_usage?.total_tokens ?? json.usage?.total_tokens ?? 0;
+				promptTokens = 0;
+				completionTokens = billedTokens;
+				imageOutputTokens = billedTokens > 0 ? billedTokens : null;
+				totalTokens = billedTokens;
+				break;
+			}
 			// Check if this is a Reve image generation response
 			// Format: { image: "base64...", version: "...", content_violation: false, ... }
 			if (usedProvider === "reve" && typeof json.image === "string") {
@@ -1470,6 +1552,7 @@ export function parseProviderResponse(
 		cachedAudioInputTokens,
 		toolResults,
 		anthropicNativeBlocks,
+		anthropicSafeguardResults,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,
 		searchResults: searchResults.length > 0 ? searchResults : null,

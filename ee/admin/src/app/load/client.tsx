@@ -2,7 +2,6 @@
 
 import { format, parseISO } from "date-fns";
 import { Building2, Download, FolderOpen, KeyRound } from "lucide-react";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
 import {
@@ -16,6 +15,7 @@ import {
 	YAxis,
 } from "recharts";
 
+import { TokenCapacity } from "@/app/load/token-capacity";
 import {
 	ChartTypeToggle,
 	type ChartType,
@@ -26,6 +26,7 @@ import {
 	LiveRefreshToggle,
 	useSecondsSince,
 } from "@/components/live-refresh-toggle";
+import { LoadBreakdownTable } from "@/components/load-breakdown-table";
 import { LoadEntitySelector } from "@/components/load-entity-selector";
 import { SegmentedUrlSelector } from "@/components/segmented-url-selector";
 import { TokenTimeRangeToggle } from "@/components/token-time-range-toggle";
@@ -43,14 +44,6 @@ import {
 	ChartTooltipContent,
 } from "@/components/ui/chart";
 import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
-import {
 	UsageModeSelector,
 	useUsageMode,
 } from "@/components/usage-mode-selector";
@@ -58,7 +51,7 @@ import { downloadCsv } from "@/lib/download-csv";
 import { useApi } from "@/lib/fetch-client";
 import { formatDurationMs } from "@/lib/format-duration";
 import { formatErrorRate } from "@/lib/format-error-rate";
-import { formatRps, formatShare } from "@/lib/format-rps";
+import { formatRps } from "@/lib/format-rps";
 import { buildLoadChart, type LoadMetric } from "@/lib/load-chart";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -194,6 +187,27 @@ function bucketTickFormat(bucket: string, timestamp: string): string {
 }
 
 export function LoadClient() {
+	const searchParams = useSearchParams();
+	const view = searchParams.get("view") === "tokens" ? "tokens" : "requests";
+	return (
+		<>
+			<div className="px-6 pt-6">
+				<SegmentedUrlSelector
+					param="view"
+					value={view}
+					defaultValue="requests"
+					options={[
+						{ value: "requests", label: "Requests" },
+						{ value: "tokens", label: "Tokens" },
+					]}
+				/>
+			</div>
+			{view === "tokens" ? <TokenCapacity /> : <RequestLoadClient />}
+		</>
+	);
+}
+
+function RequestLoadClient() {
 	const searchParams = useSearchParams();
 	const router = useRouter();
 	const pathname = usePathname();
@@ -347,7 +361,8 @@ export function LoadClient() {
 	// The tenant rollups carry one blended latency sum with no per-mode split,
 	// and buckets aggregated before the latency columns existed have no samples
 	// at all — both surface as nulls, so say which one it is.
-	const modeBlended = mode !== "total" && data?.source === "project-stats";
+	const modeBlended =
+		mode !== "total" && data?.summarySource === "project-stats";
 	const latencyHint = modeBlended
 		? "Unavailable for a single billing mode"
 		: data?.summary.avgDurationMs === null
@@ -749,110 +764,21 @@ export function LoadClient() {
 				</CardContent>
 			</Card>
 
-			<Card>
-				<CardHeader>
-					<CardTitle>Breakdown</CardTitle>
-					<CardDescription>
-						{data
-							? `${breakdown.length} of ${formatNumber(data.totalKeys)} ${GROUP_LABELS[groupBy].toLowerCase()}s with traffic`
-							: "Loading…"}
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
-					<Table>
-						<TableHeader>
-							<TableRow>
-								<TableHead>{GROUP_LABELS[groupBy]}</TableHead>
-								<TableHead className="text-right">Requests</TableHead>
-								<TableHead className="text-right">Avg req/s</TableHead>
-								<TableHead className="text-right">Peak req/s</TableHead>
-								<TableHead className="text-right">Share</TableHead>
-								<TableHead
-									className="text-right"
-									title="Gateway and upstream errors over non-client requests"
-								>
-									Error rate
-								</TableHead>
-								<TableHead
-									className="text-right"
-									title="Requests rejected as the caller's own error"
-								>
-									Client errors
-								</TableHead>
-								<TableHead className="text-right">Avg duration</TableHead>
-								<TableHead className="text-right">Avg TTFT</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{breakdown.length === 0 ? (
-								<TableRow>
-									<TableCell
-										colSpan={9}
-										className="py-8 text-center text-sm text-muted-foreground"
-									>
-										No traffic in this window.
-									</TableCell>
-								</TableRow>
-							) : (
-								breakdown.map((row) => (
-									<TableRow key={row.key}>
-										<TableCell className="max-w-[320px] truncate font-medium">
-											{groupBy === "organization" ? (
-												<Link
-													href={`/organizations/${row.key}`}
-													className="hover:underline"
-												>
-													{row.label}
-												</Link>
-											) : (
-												row.label
-											)}
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{formatNumber(Math.round(row.requestCount))}
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{formatRps(row.avgRps)}
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{formatRps(row.peakRps)}
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{formatShare(row.share)}
-										</TableCell>
-										<TableCell
-											className="text-right tabular-nums"
-											title={
-												row.errorCount === null
-													? undefined
-													: `${formatNumber(row.errorCount)} errors`
-											}
-										>
-											{formatErrorRate(row.errorRate)}
-										</TableCell>
-										<TableCell
-											className="text-right tabular-nums text-muted-foreground"
-											title={
-												row.clientErrorCount === null
-													? undefined
-													: `${formatNumber(row.clientErrorCount)} client errors`
-											}
-										>
-											{formatErrorRate(row.clientErrorRate)}
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{formatDurationMs(row.avgDurationMs)}
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{formatDurationMs(row.avgTimeToFirstTokenMs)}
-										</TableCell>
-									</TableRow>
-								))
-							)}
-						</TableBody>
-					</Table>
-				</CardContent>
-			</Card>
+			<LoadBreakdownTable
+				query={{
+					window: activeWindow,
+					groupBy,
+					modelView,
+					mode,
+					...(organizationId ? { organizationId } : {}),
+					...(projectId ? { projectId } : {}),
+					...(apiKeyId ? { apiKeyId } : {}),
+				}}
+				groupLabel={GROUP_LABELS[groupBy]}
+				linkOrganizations={groupBy === "organization"}
+				defaultSortBy={metric === "errors" ? "errorCount" : "requestCount"}
+				refetchInterval={live ? LIVE_REFRESH_INTERVAL_MS : false}
+			/>
 		</div>
 	);
 }

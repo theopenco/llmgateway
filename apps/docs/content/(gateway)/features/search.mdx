@@ -61,6 +61,10 @@ curl -X POST "https://api.llmgateway.io/v1/search" \
 | `web` (or omitted) | `perplexity/perplexity-search`      | Default quality and extraction |
 | `fast`             | `perplexity/perplexity-search-fast` | Lower latency at a lower price |
 
+Set `model` to `auto` to route to the cheapest active search model. With
+`search_type`, `auto` picks the cheapest model of that type. The response's
+`model` field shows which model served the request.
+
 Sending both a `model` and a `search_type` that disagree returns a 400.
 `search_type: "people"` is not supported yet. Current pricing is on each model's
 page on the [models page](https://llmgateway.io/models).
@@ -71,7 +75,7 @@ Every field except `model` is forwarded to Perplexity unchanged.
 
 | Field                                                      | Type                 | Description                                                 |
 | ---------------------------------------------------------- | -------------------- | ----------------------------------------------------------- |
-| `model`                                                    | `string`             | Search model. Optional, see [Models](#models).              |
+| `model`                                                    | `string`             | Search model or `auto`. Optional, see [Models](#models).    |
 | `query`                                                    | `string \| string[]` | A query, or up to 5 related queries searched independently. |
 | `search_type`                                              | `string`             | `web` or `fast`.                                            |
 | `max_results`                                              | `number`             | Maximum results to return. Defaults to 10.                  |

@@ -206,6 +206,40 @@ describe("admin — credits vs BYOK mode split", () => {
 		expect(body.overage).toBe(0);
 	});
 
+	test("legacy Pro history only excludes DevPass spend", async () => {
+		await db
+			.update(tables.transaction)
+			.set({ type: "subscription_start" })
+			.where(eq(tables.transaction.organizationId, DEVPASS_ORG_ID));
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "subscription_start",
+			amount: "10",
+		});
+		const response = await app.request("/admin/metrics", {
+			headers: { Cookie: cookie },
+		});
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			totalSpent: 50,
+			totalDebitedSpend: 10.5,
+		});
+
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "chat_plan_renewal",
+			amount: "10",
+		});
+		const withChatHistory = await app.request("/admin/metrics", {
+			headers: { Cookie: cookie },
+		});
+		expect(withChatHistory.status).toBe(200);
+		expect(await withChatHistory.json()).toMatchObject({
+			totalSpent: 0,
+			totalDebitedSpend: 0,
+		});
+	});
+
 	test("GET /admin/organizations returns per-org spend splits", async () => {
 		const res = await app.request("/admin/organizations?limit=50", {
 			headers: { Cookie: cookie },

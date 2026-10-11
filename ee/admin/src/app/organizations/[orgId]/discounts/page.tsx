@@ -14,8 +14,6 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import {
-	createOrganizationDiscount,
-	deleteOrganizationDiscount,
 	getDiscountOptions,
 	getOrganizationDiscounts,
 } from "@/lib/admin-discounts";
@@ -88,52 +86,6 @@ export default async function OrganizationDiscountsPage({
 	const discounts = discountsData?.discounts ?? [];
 	const org = metrics.organization;
 
-	// Server action to create discount
-	async function handleCreateDiscount(data: {
-		provider: string | null;
-		model: string | null;
-		discountPercent: number;
-		reason: string | null;
-		expiresAt: string | null;
-	}): Promise<{ success: boolean; error?: string }> {
-		"use server";
-
-		try {
-			const result = await createOrganizationDiscount(orgId, {
-				provider: data.provider,
-				model: data.model,
-				discountPercent: data.discountPercent,
-				reason: data.reason,
-				expiresAt: data.expiresAt,
-			});
-
-			if (!result) {
-				return {
-					success: false,
-					error: "Failed to create discount. It may already exist.",
-				};
-			}
-
-			return { success: true };
-		} catch (error) {
-			console.error("Error creating discount:", error);
-			return {
-				success: false,
-				error: "An error occurred while creating the discount",
-			};
-		}
-	}
-
-	// Server action to delete discount
-	async function handleDeleteDiscount(
-		discountId: string,
-	): Promise<{ success: boolean }> {
-		"use server";
-
-		const success = await deleteOrganizationDiscount(orgId, discountId);
-		return { success };
-	}
-
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<div className="flex items-center gap-2">
@@ -163,7 +115,7 @@ export default async function OrganizationDiscountsPage({
 					<DiscountForm
 						providers={options.providers}
 						mappings={options.mappings}
-						onSubmit={handleCreateDiscount}
+						orgId={orgId}
 					/>
 				)}
 			</header>
@@ -246,7 +198,7 @@ export default async function OrganizationDiscountsPage({
 										<TableCell>
 											<DeleteDiscountButton
 												discountId={discount.id}
-												onDelete={handleDeleteDiscount}
+												orgId={orgId}
 											/>
 										</TableCell>
 									) : null}

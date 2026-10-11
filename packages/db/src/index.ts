@@ -21,6 +21,7 @@ export * from "./types.js";
 export * from "./migrate.js";
 export * from "./relations.js";
 export * from "./provider-key-allowed-models.js";
+export * from "./effective-providers.js";
 export * from "./provider-metrics.js";
 export * from "./provider-metrics-history.js";
 export * from "./project-routing-usage.js";
@@ -30,6 +31,6 @@ export * from "./webhook-helpers.js";
 
 export * from "drizzle-orm";
 
-export const tables = {
+export const tables: typeof schema = {
 	...schema,
 };

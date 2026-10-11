@@ -2516,6 +2516,33 @@ describe("managed credential allowed models", () => {
 		expect(await res.text()).toContain("definitely-not-a-model");
 	});
 
+	test.each(["catalogue", "custom"] as const)(
+		"rejects credentials for a %s claim without an endpoint",
+		async (kind) => {
+			const { providerId } = await createCustomCarrier();
+			await db
+				.update(tables.providerClaim)
+				.set({ kind, customBaseUrl: null })
+				.where(eq(tables.providerClaim.providerId, providerId));
+
+			const res = await create({
+				provider: providerId,
+				token: "carrier-token",
+			});
+			expect(res.status).toBe(400);
+			expect(await res.text()).toContain("Configure the carrier endpoint");
+			expect(
+				await db.query.providerKey.findFirst({
+					where: { provider: { eq: providerId }, managed: { eq: true } },
+				}),
+			).toBeUndefined();
+			const claim = await db.query.providerClaim.findFirst({
+				where: { providerId: { eq: providerId } },
+			});
+			expect(claim?.providerKeyId).toBeNull();
+		},
+	);
+
 	test("stores model restrictions for custom carriers", async () => {
 		vi.stubEnv("E2E_TEST", "true");
 		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
@@ -2862,6 +2889,38 @@ describe("managed credential allowed models", () => {
 
 		await patch(credential.id, { allowedModels: null });
 		expect(await excluded()).toBeNull();
+	});
+
+	test("model sync defaults on and can be toggled per credential", async () => {
+		const [first] = await catalogModels("openai");
+		const createRes = await create({
+			provider: "openai",
+			token: "sk-sync-toggle",
+			allowedModels: [first],
+			modelSyncEnabled: false,
+		});
+		const { credential } = (await createRes.json()) as {
+			credential: { id: string; modelSyncEnabled: boolean };
+		};
+		expect(credential.modelSyncEnabled).toBe(false);
+
+		const res = await patch(credential.id, { modelSyncEnabled: true });
+		expect(
+			((await res.json()) as { credential: { modelSyncEnabled: boolean } })
+				.credential.modelSyncEnabled,
+		).toBe(true);
+
+		const defaultRes = await create({
+			provider: "openai",
+			token: "sk-sync-default",
+		});
+		expect(
+			(
+				(await defaultRes.json()) as {
+					credential: { modelSyncEnabled: boolean };
+				}
+			).credential.modelSyncEnabled,
+		).toBe(true);
 	});
 
 	test("a stale edit keeps models the sync enabled since it loaded", async () => {

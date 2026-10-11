@@ -2,9 +2,81 @@ import { describe, expect, it } from "vitest";
 
 import {
 	flushTaggedStreamingRemainder,
+	hasProviderBoundReasoning,
 	splitTaggedStreamingContentChunk,
 	splitReasoningFromTaggedContent,
 } from "./reasoning-details.js";
+
+import type { CompletionsRequest } from "@/chat/schemas/completions.js";
+
+describe("hasProviderBoundReasoning", () => {
+	it.each<CompletionsRequest["messages"][number]>([
+		{
+			role: "assistant",
+			reasoning_details: [{ type: "reasoning.encrypted", data: "opaque" }],
+		},
+		{
+			role: "assistant",
+			reasoning_details: [
+				{
+					type: "reasoning.text",
+					format: "google-gemini-v1",
+					signature: "signed",
+				},
+			],
+		},
+		{
+			role: "assistant",
+			content: [
+				{
+					type: "text",
+					text: "Answer",
+					extra_content: { google: { thought_signature: "signed" } },
+				},
+			],
+		},
+		{
+			role: "assistant",
+			tool_calls: [
+				{
+					id: "call_1",
+					type: "function",
+					function: { name: "lookup", arguments: "{}" },
+					extra_content: { google: { thought_signature: "signed" } },
+				},
+			],
+		},
+	])("detects provider-bound assistant payloads: %j", (message) => {
+		expect(hasProviderBoundReasoning([message])).toBe(true);
+	});
+
+	it("ignores ordinary conversation and unsigned reasoning", () => {
+		expect(
+			hasProviderBoundReasoning([
+				{ role: "user", content: "Hello" },
+				{
+					role: "assistant",
+					content: "Answer",
+					reasoning_content: "Thought",
+					reasoning_details: [
+						{ type: "reasoning.text", text: "Thought" },
+						{ type: "reasoning.encrypted", data: "" },
+					],
+				},
+				{
+					role: "assistant",
+					tool_calls: [
+						{
+							id: "call_1",
+							type: "function",
+							function: { name: "lookup", arguments: "{}" },
+						},
+					],
+				},
+			]),
+		).toBe(false);
+	});
+});
 
 describe("reasoning-details", () => {
 	it("splits reasoning tags from a complete response", () => {

@@ -81,6 +81,7 @@ describe("resolvePlaygroundToken", () => {
 		if (!firstKey) {
 			throw new Error("Playground key was not created");
 		}
+		expect(firstKey.description).toBe("Lounge");
 		expect(firstKey?.expiresAt?.getTime()).toBeGreaterThan(Date.now());
 		expect(firstKey?.expiresAt?.getTime()).toBeLessThanOrEqual(
 			Date.now() + NINETY_DAYS_MS,
@@ -132,6 +133,41 @@ describe("resolvePlaygroundToken", () => {
 		expect(await reusedResponse.json()).toEqual({ token: staleBody.token });
 		expect(reusedResponse.headers.get("set-cookie")).toBeNull();
 	});
+
+	test.each(["Playground", "Auto-generated playground key"])(
+		"renames a managed %s key without rotating its secret",
+		async (description) => {
+			const firstResponse = await resolver.request("/");
+			const { token } = await firstResponse.json();
+			const key = await db.query.apiKey.findFirst({
+				where: { kind: { eq: "playground" } },
+			});
+			if (!key) {
+				throw new Error("Playground key was not created");
+			}
+			await db
+				.update(tables.apiKey)
+				.set({ description })
+				.where(eq(tables.apiKey.id, key.id));
+
+			const result = await getOrCreatePlaygroundApiKey(
+				key.projectId,
+				key.createdBy,
+				token,
+			);
+			const renamed = await db.query.apiKey.findFirst({
+				where: { id: { eq: key.id } },
+			});
+			expect(result.issued).toBe(false);
+			expect(result.token === token).toBe(true);
+			expect(renamed).toMatchObject({
+				description: "Lounge",
+				kind: "playground",
+				expiresAt: key.expiresAt,
+			});
+			expect(renamed?.tokenHash === key.tokenHash).toBe(true);
+		},
+	);
 
 	test("serializes concurrent first-use requests into one row", async () => {
 		const project = await db.query.project.findFirst();

@@ -1501,12 +1501,14 @@ export function transformResponseToOpenai(
 		}
 		default: {
 			// For providers that return non-OpenAI format (e.g. Reve image generation),
-			// construct a proper OpenAI-compatible response when we have parsed images/content
+			// construct a proper OpenAI-compatible response when we have parsed images/content.
+			// Tencent's Hy Image frames carry `choices`, but with a `delta` instead of a message.
 			if (
 				transformedResponse &&
 				typeof transformedResponse === "object" &&
-				!transformedResponse.choices &&
-				(images.length > 0 || content !== null)
+				(transformedResponse.object === "image.chat.completion.chunk" ||
+					(!transformedResponse.choices &&
+						(images.length > 0 || content !== null)))
 			) {
 				transformedResponse = {
 					id: `chatcmpl-${Date.now()}`,
@@ -1526,7 +1528,7 @@ export function transformResponseToOpenai(
 								content: content,
 								...(images && images.length > 0 && { images }),
 							},
-							finish_reason: "stop",
+							finish_reason: finishReason ?? "stop",
 						},
 					],
 					usage: buildUsageObject(

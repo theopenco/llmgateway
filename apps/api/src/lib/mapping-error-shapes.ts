@@ -116,6 +116,14 @@ export function resolveMappingErrorWindow(
 // those as non-retried so they are not silently dropped.
 export const notRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
 
+// Customer-owned (BYOK) keys say little about platform credential health, so
+// error views exclude them unless the caller opts in.
+export const platformOnlyClause = sql`AND ${tables.log.usedMode} <> 'api-keys'`;
+
+export function byokClauseFor(includeByok: "true" | "false" | undefined) {
+	return includeByok === "true" ? sql`` : platformOnlyClause;
+}
+
 // Incidents count only failures the gateway retries: canceled and
 // content-filtered requests are neither retried nor outage signals.
 export const incidentErrorsClause = sql`AND ${tables.log.unifiedFinishReason} IN ('upstream_error', 'gateway_error')`;
@@ -353,10 +361,12 @@ export async function queryIncidentMappings({
 	providerIds,
 	windowHours,
 	mapping,
+	includeByok,
 }: {
 	providerIds: string[];
 	windowHours: number;
 	mapping: string | null;
+	includeByok: boolean;
 }): Promise<z.infer<typeof incidentsResponseSchema>["mappings"]> {
 	if (providerIds.length === 0) {
 		return [];
@@ -365,17 +375,27 @@ export async function queryIncidentMappings({
 	const windowMs = windowHours * 3_600_000;
 	const since = new Date(Date.now() - windowMs);
 	since.setMinutes(0, 0, 0);
-	const errorExpr = sql`SUM(${mph.upstreamErrorCount}) + SUM(${mph.gatewayErrorCount})`;
-	const errorRateExpr = sql`(${errorExpr})::float8 / NULLIF(SUM(${mph.requestCount}), 0)`;
+	// Platform-only counts subtract the BYOK subset each rollup row carries.
+	const requestExpr = includeByok
+		? sql`SUM(${mph.requestCount})`
+		: sql`(SUM(${mph.requestCount}) - SUM(${mph.apiKeysRequestCount}))`;
+	const upstreamExpr = includeByok
+		? sql`SUM(${mph.upstreamErrorCount})`
+		: sql`(SUM(${mph.upstreamErrorCount}) - SUM(${mph.apiKeysUpstreamErrorCount}))`;
+	const gatewayExpr = includeByok
+		? sql`SUM(${mph.gatewayErrorCount})`
+		: sql`(SUM(${mph.gatewayErrorCount}) - SUM(${mph.apiKeysGatewayErrorCount}))`;
+	const errorExpr = sql`${upstreamExpr} + ${gatewayExpr}`;
+	const errorRateExpr = sql`(${errorExpr})::float8 / NULLIF(${requestExpr}, 0)`;
 
 	const rows = await db
 		.select({
 			providerId: mph.usedProvider,
 			usedModel: mph.usedModel,
-			requestCount: sql<number>`SUM(${mph.requestCount})::int`,
+			requestCount: sql<number>`(${requestExpr})::int`,
 			errorCount: sql<number>`(${errorExpr})::int`,
-			upstreamErrorCount: sql<number>`SUM(${mph.upstreamErrorCount})::int`,
-			gatewayErrorCount: sql<number>`SUM(${mph.gatewayErrorCount})::int`,
+			upstreamErrorCount: sql<number>`(${upstreamExpr})::int`,
+			gatewayErrorCount: sql<number>`(${gatewayExpr})::int`,
 			errorRate: sql<number>`COALESCE(${errorRateExpr}, 0)`,
 		})
 		.from(mph)

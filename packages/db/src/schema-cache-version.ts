@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { getTableColumns, getTableName, is, Table } from "drizzle-orm";
+import { PgColumn } from "drizzle-orm/pg-core";
 
 import * as schema from "./schema.js";
 
@@ -31,8 +32,10 @@ export function computeSchemaCacheVersion(
 		}
 		// Column order matters as much as the names: it is what the positional
 		// rows are mapped back onto.
+		// `getSQLType()` omits array brackets; they live in `dimensions`.
 		const columns = Object.values(getTableColumns(value)).map(
-			(column) => `${column.name}:${column.getSQLType()}`,
+			(column) =>
+				`${column.name}:${column.getSQLType()}${"[]".repeat(is(column, PgColumn) ? column.dimensions : 0)}`,
 		);
 		signatures.add(`${getTableName(value)}(${columns.join(",")})`);
 	}

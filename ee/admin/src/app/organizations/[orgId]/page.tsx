@@ -14,6 +14,7 @@ import {
 	ScrollText,
 	Settings,
 	Shield,
+	ShieldBan,
 	Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -42,18 +43,6 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { TabsContent, TabsList } from "@/components/ui/tabs";
-import { refundDevpassPayment } from "@/lib/admin-devpass";
-import {
-	addEnterpriseDealToOrganization,
-	addManualCreditsToOrganization,
-	blockOrganization,
-	deleteOrganizationPaymentMethod,
-	giftCreditsToOrganization,
-	manageOrganization,
-	releaseDevPlanCardFingerprint,
-	updateEnterpriseDeal,
-	updateReferralBonus,
-} from "@/lib/admin-organizations";
 import { canRefund, canWrite } from "@/lib/admin-role";
 import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { KEY_STATUS_DEFAULT, parseKeyStatus } from "@/lib/key-status";
@@ -68,6 +57,7 @@ import { stripeSearchUrl, stripeTransactionUrl } from "@/lib/stripe-dashboard";
 
 import { ApiKeysTable } from "./api-keys-table";
 import { AuditLogsTab } from "./audit-logs-tab";
+import { DataStreamsDialog } from "./data-streams-dialog";
 import { GuardrailsTab } from "./guardrails-tab";
 import { ManageOrgDialog } from "./manage-org-dialog";
 import { MemberAccessTab } from "./member-access-tab";
@@ -77,6 +67,7 @@ import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
 import { OrgSettingsTab } from "./org-settings-tab";
 import { OrganizationTabs, OrganizationTabTrigger } from "./organization-tabs";
+import { ProviderAccessTab } from "./provider-access-tab";
 import { ProviderKeysTable } from "./provider-keys-table";
 import { ReferralBonusDialog } from "./referral-bonus-dialog";
 import { SsoTab } from "./sso-tab";
@@ -392,6 +383,7 @@ export default async function OrganizationPage({
 						<div className="flex shrink-0 items-center gap-2">
 							{isAdmin ? (
 								<ManageOrgDialog
+									orgId={orgId}
 									orgName={org.name}
 									plan={org.plan}
 									seats={org.seats ?? null}
@@ -412,10 +404,6 @@ export default async function OrganizationPage({
 									trialStartDate={org.trialStartDate ?? null}
 									trialEndDate={org.trialEndDate ?? null}
 									primaryTrigger
-									onSave={async (data) => {
-										"use server";
-										return await manageOrganization(orgId, data);
-									}}
 								/>
 							) : null}
 							<CollapsibleTrigger
@@ -588,24 +576,8 @@ export default async function OrganizationPage({
 										Credits
 									</p>
 									<div className="flex flex-wrap gap-2">
-										<GiftCreditsDialog
-											orgId={orgId}
-											orgName={org.name}
-											onGift={async (data) => {
-												"use server";
-												return await giftCreditsToOrganization(orgId, data);
-											}}
-										/>
-										<ManualCreditsDialog
-											orgName={org.name}
-											onCredit={async (data) => {
-												"use server";
-												return await addManualCreditsToOrganization(
-													orgId,
-													data,
-												);
-											}}
-										/>
+										<GiftCreditsDialog orgId={orgId} orgName={org.name} />
+										<ManualCreditsDialog orgId={orgId} orgName={org.name} />
 									</div>
 								</div>
 							) : null}
@@ -615,24 +587,20 @@ export default async function OrganizationPage({
 										Commercial
 									</p>
 									<div className="flex flex-wrap gap-2">
-										<EnterpriseDealDialog
-											orgName={org.name}
-											onSave={async (data) => {
-												"use server";
-												return await addEnterpriseDealToOrganization(
-													orgId,
-													data,
-												);
-											}}
-										/>
+										<EnterpriseDealDialog orgId={orgId} orgName={org.name} />
 										<ReferralBonusDialog
+											orgId={orgId}
 											orgName={org.name}
 											enabled={org.referralBonusEnabled ?? false}
 											percent={org.referralBonusPercent ?? 50}
-											onSave={async (data) => {
-												"use server";
-												return await updateReferralBonus(orgId, data);
-											}}
+										/>
+										<DataStreamsDialog
+											orgId={orgId}
+											orgName={org.name}
+											dataStreamsEnabled={org.dataStreamsEnabled ?? false}
+											requestLogExportEnabled={
+												org.requestLogExportEnabled ?? false
+											}
 										/>
 									</div>
 								</div>
@@ -672,10 +640,6 @@ export default async function OrganizationPage({
 										disabledReason={
 											getOrgDeletionBlockedReason(org.credits) ?? undefined
 										}
-										onBlock={async (id, reason) => {
-											"use server";
-											return await blockOrganization(id, reason);
-										}}
 									/>
 								</div>
 							) : null}
@@ -775,6 +739,10 @@ export default async function OrganizationPage({
 					<OrganizationTabTrigger value="guardrails">
 						<Shield className="mr-1.5 h-4 w-4" />
 						Guardrails
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="provider-access">
+						<ShieldBan className="mr-1.5 h-4 w-4" />
+						Provider Access
 					</OrganizationTabTrigger>
 					<OrganizationTabTrigger value="sso">
 						<Lock className="mr-1.5 h-4 w-4" />
@@ -892,6 +860,7 @@ export default async function OrganizationPage({
 																)}
 																{mayRefund ? (
 																	<RefundPaymentDialog
+																		orgId={orgId}
 																		transactionId={transaction.id}
 																		transactionLabel={formatTransactionType(
 																			transaction.type,
@@ -909,13 +878,6 @@ export default async function OrganizationPage({
 																		refundIneligibleReason={
 																			transaction.refundability.reason
 																		}
-																		onRefund={async (refundData) => {
-																			"use server";
-																			return await refundDevpassPayment(
-																				orgId,
-																				refundData,
-																			);
-																		}}
 																	/>
 																) : null}
 															</div>
@@ -923,16 +885,9 @@ export default async function OrganizationPage({
 														{isAdmin &&
 														transaction.type === "enterprise_license_fee" ? (
 															<EnterpriseDealDialog
+																orgId={orgId}
 																orgName={org.name}
 																deal={transaction}
-																onSave={async (data) => {
-																	"use server";
-																	return await updateEnterpriseDeal(
-																		orgId,
-																		transaction.id,
-																		data,
-																	);
-																}}
 															/>
 														) : null}
 													</TableCell>
@@ -1077,32 +1032,13 @@ export default async function OrganizationPage({
 				<TabsContent value="settings">
 					{settingsData ? (
 						<OrgSettingsTab
+							orgId={orgId}
 							settings={settingsData}
 							paymentMethods={paymentMethodsData?.paymentMethods ?? null}
 							devPlanCardFingerprints={
 								paymentMethodsData?.devPlanCardFingerprints ?? []
 							}
 							paymentMethodsLoadError={!paymentMethodsData}
-							onDeletePaymentMethod={async (
-								paymentMethodId,
-								replacementPaymentMethodId,
-								releaseDevPlanCardFingerprint,
-							) => {
-								"use server";
-								return await deleteOrganizationPaymentMethod(
-									orgId,
-									paymentMethodId,
-									replacementPaymentMethodId,
-									releaseDevPlanCardFingerprint,
-								);
-							}}
-							onReleaseDevPlanCardFingerprint={async (fingerprintId) => {
-								"use server";
-								return await releaseDevPlanCardFingerprint(
-									orgId,
-									fingerprintId,
-								);
-							}}
 						/>
 					) : (
 						<p className="py-8 text-center text-sm text-muted-foreground">
@@ -1119,6 +1055,10 @@ export default async function OrganizationPage({
 							Failed to load guardrails
 						</p>
 					)}
+				</TabsContent>
+
+				<TabsContent value="provider-access">
+					<ProviderAccessTab orgId={orgId} />
 				</TabsContent>
 
 				<TabsContent value="sso">

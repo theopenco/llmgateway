@@ -43,7 +43,7 @@ Claim an existing catalogue provider, or register a new one. The LLM Gateway tea
 
 ### Register your fleet and file fares
 
-Add each model with its context size and capabilities, and file its per-token prices. Once a filing is approved, the model is routable as `<provider>/<model>`.
+Add each model with its context size and capabilities, and file its per-token prices. Every model must pass preflight, which runs on your **testing key**. A newly registered carrier also files its **provider key** with its first model: the separate key we serve your traffic with, so test traffic bills apart from live traffic. It is smoke-tested against that model when you file and goes live once the model is approved; replacing it later under **Settings** is smoke-tested the same way and reviewed by the LLM Gateway team. Once a filing is approved, the model is routable as `<provider>/<model>`.
 
 </Step>
 <Step>

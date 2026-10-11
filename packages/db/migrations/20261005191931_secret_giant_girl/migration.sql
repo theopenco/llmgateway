@@ -1,0 +1,2 @@
+ALTER TABLE "provider_routing_filing" ADD COLUMN "initiated_by" text DEFAULT 'carrier' NOT NULL;--> statement-breakpoint
+ALTER TABLE "provider_routing_filing" ADD COLUMN "clears_override" boolean DEFAULT false NOT NULL;

@@ -2964,17 +2964,6 @@ mockOpenAIServer.post(
 	vertexPublisherModelHandler,
 );
 
-// Stub Vertex OAuth token endpoint. Test fixtures build a service-account
-// JSON whose token_uri points here, so the gateway's JWT-grant exchange
-// receives a fake access token instead of hitting Google.
-mockOpenAIServer.post("/mock-google-oauth/token", async (c) =>
-	c.json({
-		access_token: "mock-oauth-access-token",
-		token_type: "Bearer",
-		expires_in: 3600,
-	}),
-);
-
 mockOpenAIServer.get("/v1/videos/:id", async (c) => {
 	const id = c.req.param("id");
 	const statusResponse = videoStatusResponses.get(id);

@@ -1,0 +1,1 @@
+ALTER TABLE "project" ADD COLUMN "provider_cache_auto_ttl" text DEFAULT '5m' NOT NULL;

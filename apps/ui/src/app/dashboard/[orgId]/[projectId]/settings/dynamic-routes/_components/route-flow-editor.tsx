@@ -26,6 +26,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
+import { useApi } from "@/lib/fetch-client";
 
 import {
 	type ModelDefinition,
@@ -334,6 +335,7 @@ const NODE_TYPES = {
 const DND_MIME = "application/x-dynamic-route-node";
 
 interface RouteFlowEditorProps {
+	projectId: string;
 	/** Parsed draft graph the editor initializes from. */
 	initialGraph: DynamicRouteGraph;
 	onGraphChange: (graph: DynamicRouteGraph) => void;
@@ -341,6 +343,7 @@ interface RouteFlowEditorProps {
 }
 
 function RouteFlowEditorInner({
+	projectId,
 	initialGraph,
 	onGraphChange,
 	onValidationChange,
@@ -663,6 +666,7 @@ function RouteFlowEditorInner({
 				</div>
 				{selectedNode ? (
 					<NodeInspector
+						projectId={projectId}
 						node={selectedNode}
 						onChange={(updater) => updateNode(selectedNode.id, updater)}
 						onDelete={() => {
@@ -681,10 +685,12 @@ function RouteFlowEditorInner({
 }
 
 function NodeInspector({
+	projectId,
 	node,
 	onChange,
 	onDelete,
 }: {
+	projectId: string;
 	node: DynamicRouteNode;
 	onChange: (updater: (node: DynamicRouteNode) => DynamicRouteNode) => void;
 	onDelete: () => void;
@@ -706,7 +712,7 @@ function NodeInspector({
 				</Button>
 			</div>
 			{node.type === "model" && (
-				<ModelInspector node={node} onChange={onChange} />
+				<ModelInspector projectId={projectId} node={node} onChange={onChange} />
 			)}
 			{node.type === "conditional" && (
 				<ConditionalInspector node={node} onChange={onChange} />
@@ -727,9 +733,11 @@ function NodeInspector({
 }
 
 function ModelInspector({
+	projectId,
 	node,
 	onChange,
 }: {
+	projectId: string;
 	node: Extract<DynamicRouteNode, { type: "model" }>;
 	onChange: (updater: (node: DynamicRouteNode) => DynamicRouteNode) => void;
 }) {
@@ -740,19 +748,31 @@ function ModelInspector({
 	);
 	const modelDef = selectableModels.find((model) => model.id === node.model);
 	const isCustomModel = modelDef?.family === "custom";
-	// Only providers actually serving the chosen model are selectable; selection
-	// order in MultiProviderSelector is the fallback order.
-	const selectableProviders: SelectableProviderOption[] =
-		modelDef && !isCustomModel
-			? Array.from(new Set(modelDef.providers.map((p) => p.providerId))).map(
-					(id) => {
-						const def = providerDefinitions.find((p) => p.id === id);
-						return { id, name: def?.name ?? id, color: def?.color };
-					},
-				)
-			: [];
+	const api = useApi();
+	const providerQuery = api.useQuery(
+		"get",
+		"/dynamic-routes/{projectId}/catalogue/providers",
+		{ params: { path: { projectId } } },
+	);
+	const selectableProviders: SelectableProviderOption[] = !isCustomModel
+		? (providerQuery.data?.models.find((model) => model.modelId === node.model)
+				?.providers ?? [])
+		: [];
+
 	return (
 		<div className="space-y-2">
+			{providerQuery.isPending && (
+				<p className="text-xs text-muted-foreground">Loading providers…</p>
+			)}
+			{providerQuery.isError && (
+				<p className="text-xs text-destructive">
+					Could not load providers.{" "}
+					<button type="button" onClick={() => void providerQuery.refetch()}>
+						Retry
+					</button>
+				</p>
+			)}
+
 			<div className="space-y-1">
 				<Label className="text-xs">Model</Label>
 				<ModelSelector

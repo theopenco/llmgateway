@@ -19,7 +19,6 @@ export const drizzleCache = new RedisCache(redisClient);
 // This prevents connection exhaustion from having multiple pools
 const _cdb = drizzle({
 	client: pool,
-	casing: "snake_case",
 	relations,
 	cache: drizzleCache,
 });

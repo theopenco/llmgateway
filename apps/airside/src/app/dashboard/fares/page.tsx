@@ -7,7 +7,6 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { useCompany } from "@/components/dashboard/company-context";
-import { ProviderBrandingFields } from "@/components/ProviderBrandingFields";
 import { RelativeDate } from "@/components/RelativeDate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,20 +17,11 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-	DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { useApi } from "@/lib/fetch-client";
 import { formatPercent } from "@/lib/format";
+
+import { DEFAULT_ROUTING_WEIGHTS } from "@llmgateway/shared/routing-defaults";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -41,127 +31,18 @@ type RoutingSettingsResponse =
 type RoutingSetting = RoutingSettingsResponse["settings"][number];
 
 const DISPATCH_FACTORS = [
-	{ label: "Fares (price)", weight: "0.60" },
-	{ label: "On-time performance (availability)", weight: "0.50" },
-	{ label: "Cache support", weight: "0.20" },
-	{ label: "Runway capacity (throughput)", weight: "0.05" },
-	{ label: "Taxi time (latency)", weight: "0.025" },
-];
-
-type CompanyClaim = NonNullable<
-	ReturnType<typeof useCompany>["company"]
->["claims"][number];
-
-function EditBrandingDialog({ claim }: { claim: CompanyClaim }) {
-	const api = useApi();
-	const queryClient = useQueryClient();
-	const [open, setOpen] = useState(false);
-	const [name, setName] = useState(claim.providerName);
-	const [logoUrl, setLogoUrl] = useState<string | null | undefined>(undefined);
-	const [iconUrl, setIconUrl] = useState<string | null | undefined>(undefined);
-
-	const updateBranding = api.useMutation("patch", "/airside/claims/{id}", {
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({
-				queryKey: api.queryOptions("get", "/airside/companies", {}).queryKey,
-			});
-			toast.success(
-				claim.status === "active"
-					? "Branding filed for review."
-					: "Branding updated.",
-			);
-			setOpen(false);
-		},
-		onError: (error) => {
-			toast.error(
-				(error as { message?: string })?.message ?? "Failed to update branding",
-			);
-		},
-	});
-
-	const previewLogo = logoUrl === undefined ? claim.logoUrl : logoUrl;
-	const previewIcon = iconUrl === undefined ? claim.iconUrl : iconUrl;
-	const nameChanged =
-		name.trim() !== (claim.pendingBranding?.name ?? claim.providerName);
-
-	return (
-		<Dialog
-			open={open}
-			onOpenChange={(next) => {
-				if (next) {
-					setName(claim.pendingBranding?.name ?? claim.providerName);
-					setLogoUrl(undefined);
-					setIconUrl(undefined);
-				}
-				setOpen(next);
-			}}
-		>
-			<DialogTrigger asChild>
-				<Button
-					size="sm"
-					variant="outline"
-					data-testid={`edit-branding-${claim.providerId}`}
-				>
-					Edit branding
-				</Button>
-			</DialogTrigger>
-			<DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
-				<DialogHeader>
-					<DialogTitle className="font-display">
-						Branding for {claim.providerName}
-					</DialogTitle>
-					<DialogDescription>
-						The name, logo and icon appear on public providers and models pages.
-						{claim.status === "active"
-							? " Changes to a live carrier are reviewed before they go public."
-							: ""}
-					</DialogDescription>
-				</DialogHeader>
-				<div className="space-y-2">
-					<Label htmlFor={`branding-name-${claim.id}`}>Provider name</Label>
-					<Input
-						id={`branding-name-${claim.id}`}
-						value={name}
-						maxLength={100}
-						onChange={(event) => setName(event.target.value)}
-					/>
-				</div>
-				<ProviderBrandingFields
-					logoInputId={`branding-logo-${claim.id}`}
-					iconInputId={`branding-icon-${claim.id}`}
-					providerName={name}
-					logoUrl={previewLogo}
-					iconUrl={previewIcon}
-					onLogoChange={setLogoUrl}
-					onIconChange={setIconUrl}
-				/>
-				<DialogFooter>
-					<Button
-						className="font-semibold"
-						disabled={
-							updateBranding.isPending ||
-							name.trim().length < 2 ||
-							(!nameChanged && logoUrl === undefined && iconUrl === undefined)
-						}
-						data-testid={`save-branding-${claim.providerId}`}
-						onClick={() =>
-							updateBranding.mutate({
-								params: { path: { id: claim.id } },
-								body: {
-									...(nameChanged ? { name: name.trim() } : {}),
-									...(logoUrl !== undefined ? { logoUrl } : {}),
-									...(iconUrl !== undefined ? { iconUrl } : {}),
-								},
-							})
-						}
-					>
-						{updateBranding.isPending ? "Saving…" : "Save branding"}
-					</Button>
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
-	);
-}
+	{ label: "Fares (price)", weight: DEFAULT_ROUTING_WEIGHTS.price },
+	{
+		label: "On-time performance (availability)",
+		weight: DEFAULT_ROUTING_WEIGHTS.uptime,
+	},
+	{
+		label: "Runway capacity (throughput)",
+		weight: DEFAULT_ROUTING_WEIGHTS.throughput,
+	},
+	{ label: "Taxi time (latency)", weight: DEFAULT_ROUTING_WEIGHTS.latency },
+	{ label: "Cache support", weight: DEFAULT_ROUTING_WEIGHTS.cache },
+].filter((factor) => factor.weight > 0);
 
 type ModelRoutingSetting = RoutingSetting["modelOverrides"][number];
 
@@ -358,12 +239,10 @@ function FareCard({
 	setting,
 	baselineMargin,
 	providerCompanyId,
-	claim,
 }: {
 	setting: RoutingSetting;
 	baselineMargin: number;
 	providerCompanyId: string;
-	claim?: CompanyClaim;
 }) {
 	const adjustment = setting.routingAdjustment;
 	return (
@@ -376,10 +255,6 @@ function FareCard({
 					<CardDescription>Carrier-wide fares & landing fees</CardDescription>
 				</div>
 				<div className="flex items-center gap-2">
-					{claim?.pendingBranding ? (
-						<Badge variant="pending">Branding under review</Badge>
-					) : null}
-					{claim ? <EditBrandingDialog claim={claim} /> : null}
 					<Badge variant={adjustment < 0 ? "success" : "secondary"}>
 						{adjustment < 0
 							? `Routing boost ${formatPercent(-adjustment)}`
@@ -488,11 +363,6 @@ export default function FaresPage() {
 								setting={setting}
 								baselineMargin={data.baselineMargin}
 								providerCompanyId={company.id}
-								claim={company.claims.find(
-									(companyClaim) =>
-										companyClaim.providerId === setting.providerId &&
-										companyClaim.status === "active",
-								)}
 							/>
 						))
 					)}

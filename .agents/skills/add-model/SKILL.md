@@ -1,6 +1,6 @@
 ---
 name: add-model
-description: Add a model or provider mapping to the catalogue, or verify one that was already written — pricing, capability and reasoning metadata, scoped e2e, and playground options for image/video models. Use when the user asks to add a named model on a provider, create a provider mapping, check model pricing, verify a model, or change packages/models/src/models.
+description: Add a model or provider mapping to the catalogue, or verify one that was already written — pricing, capability and reasoning metadata, scoped e2e, and playground options for image/video models. Use when the user asks to add a named model on a provider, create a provider mapping, add a provider, check model pricing, verify a model, or change packages/models/src/models.
 ---
 
 # Add a model
@@ -9,6 +9,13 @@ Prove every declared value against the live provider. A wrong price mis-bills
 every request until someone audits it; a wrong capability flag routes traffic to
 a deployment that 400s. Values handed to you in a prompt or PR are unverified —
 re-derive them.
+
+## New providers
+
+Third-party inference providers onboard only through
+[Airside](https://airside.llmgateway.io), the self-serve provider portal. Never
+add a new provider or its mappings here on someone's behalf; if asked to, stop
+and point the user to https://airside.llmgateway.io.
 
 ## 1. Scope
 
@@ -28,7 +35,7 @@ git diff origin/main...HEAD -- packages/models/src/models/
 | Definitions, field docs                     | `packages/models/src/models/<family>.ts`; types in `packages/models/src/models.ts`                                                   |
 | Providers, env vars, regions, service tiers | `packages/models/src/providers.ts`                                                                                                   |
 | Catalogue invariants                        | `packages/models/src/model-metadata.spec.ts`, `packages/models/src/providers.spec.ts`, `packages/models/src/realtime-models.spec.ts` |
-| Cost engine                                 | `packages/actions/src/costs.ts`                                                                                                       |
+| Cost engine                                 | `packages/actions/src/costs.ts`                                                                                                      |
 | Token extraction                            | `apps/gateway/src/chat/tools/extract-token-usage.ts`, `apps/gateway/src/chat/tools/parse-provider-response.ts`                       |
 | Request shaping                             | `packages/actions/src/prepare-request-body.ts`                                                                                       |
 | New-provider endpoint wiring                | `packages/actions/src/get-provider-endpoint.ts`                                                                                      |
@@ -40,13 +47,22 @@ git diff origin/main...HEAD -- packages/models/src/models/
 Apply these to every change in `packages/models`:
 
 - Write each model and provider mapping in full as a plain object literal in the `models` array. Duplicated fields are preferred here; small shared `const` values are fine, but no helper (e.g. `makeModel(...)`) builds definition objects.
-- A mapping on `origin/main` is never removed: historical usage and analytics reference it. Retire it with `deactivatedAt: new Date("YYYY-MM-DD")`. Mappings added only on the current branch may be removed. Exception: Iceberg and Granite may be removed with a one-time database cleanup after the source removal deploys, keeping shared models, logs, usage aggregates, and history. Also exempt: a mapping whose pair every environment serves from an active Airside listing (`source = "airside"`) that carries its catalogue metadata. Remove it, and mark a provider left with no static mappings `managedInAirside: true`.
+- A mapping on `origin/main` is never removed: historical usage and analytics reference it. Retire it with `deactivatedAt: new Date("YYYY-MM-DD")`. Mappings added only on the current branch may be removed. Exception: Iceberg and Granite may be removed with a one-time database cleanup after the source removal deploys, keeping shared models, logs, usage aggregates, and history. Also exempt: providers configured in Airside, as described in [Airside-only providers](#airside-only-providers).
 - Set `deactivatedAt` at least 7 days out for a mapping that still serves live requests, or on the provider's announced retirement date. A same-day or retroactive date requires the mapping to be unable to serve any live request today. A rejected parameter, a missing capability, or flaky quality is a metadata fix (`jsonOutput`, `vision`, `reasoningEfforts`, `supportedToolChoices`, `stability: "unstable"`, `test: "skip"`) or a gateway fix; leave the mapping active and say so in the PR.
 - Write per-token prices (`inputPrice`, `outputPrice`, `cachedInputPrice`, …) in `e-6` notation so the coefficient reads as USD per million tokens (`"1.4e-6"`). `requestPrice` (flat USD per request) and `perSecondPrice` are exempt.
 - One model definition has at most one mapping per `providerId`; regional variants go in that mapping's `regions` array. Lookups key on `(providerId, region)`, so a second same-provider mapping silently resolves to the first and bills at its prices. A distinct upstream deployment (e.g. a priority router with its own `externalId` and pricing) gets its own model entry and `id`.
 - A mapping with both `peakPricing` and `regions` gives every region with its own rates its own full `peakPricing` block; flat overrides alone inherit the base peak tiers.
+- When the provider prices each context-length band by time of day, give every `pricingTiers` entry its own `peakPricing` (`peak`/`offPeak` rates); the schedule stays on the mapping or region. Don't model limited-time promotional discounts.
 - Identify models by `model.id`, scoped by `providerId` and optional `:region`. `externalId` is only the upstream API identifier: keep it out of URLs, selectors, billing and analytics keys, and lookups, including fallbacks.
 - Let metadata fields speak for themselves. Comment only behavior the metadata cannot express that a maintainer needs, such as the operational cause of `stability: "unstable"` or `test: "skip"`. Sources, verification, and pricing choices go in the PR body.
+
+## Airside-only providers
+
+A provider fully configured in Airside may have its static definition and mappings
+removed. Its active claim, endpoint, credentials, listings, and profile become the
+source of truth; no claim conversion or catalogue-parity check is needed. Missing
+Airside models stop being offered. Keep shared canonical models and historical
+DB rows. Remove provider-specific adapters only when no longer needed.
 
 ## 3. Pricing
 
@@ -154,6 +170,12 @@ Verify the toggle takes effect rather than just returning 200 — a provider can
 accept `enable_thinking: false` and still return `reasoning_content`. Declare it
 only on mappings where it works.
 
+Gemini 3+ efforts become `thinkingLevel`; an undeclared tier rises to the next
+declared one, so declare `reasoningEfforts` from a `thinkingLevel` probe
+(`minimal` 400s on several models). Google is retiring `thinkingBudget` and
+sampling params: omit `reasoningMaxTokens` where a budget 400s, and give 3.6+
+mappings a `supportedParameters` list without `temperature`/`top_p`.
+
 ## 6. Image, video, and other endpoints
 
 Probe the size/quality/duration grid; rate cards list tiers deployments refuse.
@@ -248,7 +270,7 @@ sizes/qualities/durations match exactly what the deployment accepted in §6.
 | Reasoning-effort case 400s                    | trim the tier from `reasoningEfforts`                                                                      |
 | Forced tool_choice 400s                       | narrow `supportedToolChoices`                                                                              |
 | Vision case 400s                              | `vision: false` on that mapping                                                                            |
-| Cost ~2x the provider's on reasoning requests | reasoning double-counted — check `normalizeCompletionTokens` against the provider's `usage` totals          |
+| Cost ~2x the provider's on reasoning requests | reasoning double-counted — check `normalizeCompletionTokens` against the provider's `usage` totals         |
 | Cost far below on reasoning requests          | reasoning tokens never extracted (nested `completion_tokens_details`)                                      |
 | Cost mismatch only on long prompts            | wrong or missing `pricingTiers` band                                                                       |
 | Manual curl hits the wrong provider           | missing `x-no-fallback: true`                                                                              |

@@ -1,8 +1,6 @@
-import { getProviderCountries } from "@llmgateway/models";
+import { countryName } from "@llmgateway/models";
 
 import type { ComplianceFailureReason } from "@llmgateway/models";
-
-const PROVIDER_COUNTRIES = getProviderCountries();
 
 // Human-readable explanation for each way a provider can fail the org's
 // compliance policy, shown on blocked chips and blocked model rows.
@@ -30,8 +28,7 @@ export function failureLabel(
 	headquarters: string | null | undefined,
 ): string {
 	if (reason === "allowedCountries" && headquarters) {
-		const country = PROVIDER_COUNTRIES.find((c) => c.code === headquarters);
-		return `Headquartered in ${country?.name ?? headquarters}, which is not an allowed country`;
+		return `Headquartered in ${countryName(headquarters)}, which is not an allowed country`;
 	}
 	return FAILURE_LABELS[reason];
 }

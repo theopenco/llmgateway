@@ -1,10 +1,10 @@
 import { ArrowLeft, Search } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { ProjectMappingsTable } from "@/components/project-mappings-table";
+import { SearchForm } from "@/components/search-form";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { Button } from "@/components/ui/button";
 import { parsePageWindow, windowToFromTo } from "@/lib/page-window";
@@ -78,19 +78,6 @@ export default async function ProjectModelProviderMappingsPage({
 		notFound();
 	}
 
-	async function handleSearch(formData: FormData) {
-		"use server";
-		const searchValue = formData.get("search") as string;
-		const windowValue = formData.get("window") as string;
-		const searchParam = searchValue
-			? `&search=${encodeURIComponent(searchValue)}`
-			: "";
-		const windowParam = windowValue ? `&window=${windowValue}` : "";
-		redirect(
-			`${basePath}?sortBy=${sortBy}&sortOrder=${sortOrder}${searchParam}${windowParam}`,
-		);
-	}
-
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 overflow-hidden px-4 py-8 md:px-8">
 			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -110,13 +97,16 @@ export default async function ProjectModelProviderMappingsPage({
 					</p>
 				</div>
 				<div className="flex w-full items-center gap-3 sm:w-auto">
-					<form
-						action={handleSearch}
+					<SearchForm
+						pathname={basePath}
+						params={[
+							{ name: "sortBy", value: sortBy },
+							{ name: "sortOrder", value: sortOrder },
+							{ name: "search" },
+							{ name: "window", value: pageWindow },
+						]}
 						className="flex w-full items-center gap-2 sm:w-auto"
 					>
-						<input type="hidden" name="sortBy" value={sortBy} />
-						<input type="hidden" name="sortOrder" value={sortOrder} />
-						<input type="hidden" name="window" value={pageWindow} />
 						<div className="relative min-w-0 flex-1 sm:max-w-64">
 							<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 							<input
@@ -130,7 +120,7 @@ export default async function ProjectModelProviderMappingsPage({
 						<Button type="submit" size="sm">
 							Search
 						</Button>
-					</form>
+					</SearchForm>
 				</div>
 			</header>
 
