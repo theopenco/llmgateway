@@ -8,15 +8,14 @@ import type {
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const HOURS_PER_DAY = 24;
-const LOOKBACK_DAYS = 8;
-const LOOKBACK_MS = LOOKBACK_DAYS * DAY_MS;
-export const HISTORY_MS = LOOKBACK_MS + DAY_MS;
+const LOOKBACK_DAYS = 1 + 7;
+export const LOOKBACK_MS = LOOKBACK_DAYS * DAY_MS;
 const MAX_MISSED_SHARE = new Decimal("0.15");
 // Recovery must clear half the allowance, so a key hovering at the line doesn't re-arm.
 const RECOVERED_MISSED_SHARE = MAX_MISSED_SHARE.div(2);
-export const MIN_DAILY_USD = new Decimal(5);
-const MIN_UPSTREAM_REQUESTS = 20;
-const MAX_REPLAY_SHARE = new Decimal("0.05");
+const MAX_MISPRICED_SHARE = MAX_MISSED_SHARE.div(3);
+const MIN_DAILY_USD = new Decimal(5);
+export const MIN_UPSTREAM_REQUESTS = 20;
 const MIN_GAP_MS = 14 * DAY_MS;
 const EPISODE_EXPIRY_MS = 90 * DAY_MS;
 
@@ -33,6 +32,7 @@ interface Usage {
 	cachedTokens: Decimal;
 	cacheWriteTokens: Decimal;
 	uncachedTextInputCost: Decimal;
+	imageAndAudioInputCost: Decimal;
 	cachedInputCost: Decimal;
 	cacheWriteInputCost: Decimal;
 }
@@ -60,6 +60,7 @@ export interface StreamCatalogue {
 	minCacheableTokens: number;
 	autoAddsMarkers: boolean;
 	oneHourCaching: boolean;
+	writesPricedSeparately: boolean;
 }
 
 export interface StreamInfo {
@@ -118,7 +119,7 @@ export interface PromptCacheFindings {
 
 export interface SentAlert {
 	at: Date;
-	cause: PromptCacheCause;
+	cause: PromptCacheCause | null;
 }
 
 export interface PromptCacheAlertContent {
@@ -175,6 +176,7 @@ export function streamDays(
 			cachedTokens: new Decimal(0),
 			cacheWriteTokens: new Decimal(0),
 			uncachedTextInputCost: new Decimal(0),
+			imageAndAudioInputCost: new Decimal(0),
 			cachedInputCost: new Decimal(0),
 			cacheWriteInputCost: new Decimal(0),
 		};
@@ -182,11 +184,14 @@ export function streamDays(
 			0,
 			row.requests - row.errors - row.responseCacheReplays,
 		);
-		const upstream = (count: number) =>
-			Math.min(
-				upstreamRequests,
-				Math.max(0, count - row.errors - row.responseCacheReplays),
-			);
+		const upstreamToolCalls = Math.min(
+			upstreamRequests,
+			Math.max(0, row.toolCalls - row.responseCacheReplays),
+		);
+		const upstreamStreamed = Math.min(
+			upstreamRequests,
+			Math.max(0, row.streamed - row.errors - row.responseCacheReplays),
+		);
 		days.set(start, {
 			start: day.start,
 			requests: day.requests + row.requests,
@@ -194,15 +199,15 @@ export function streamDays(
 			upstreamRequests: day.upstreamRequests + upstreamRequests,
 			minStreamedToolCalls:
 				day.minStreamedToolCalls +
-				Math.max(
-					0,
-					upstream(row.toolCalls) + upstream(row.streamed) - upstreamRequests,
-				),
+				Math.max(0, upstreamToolCalls + upstreamStreamed - upstreamRequests),
 			inputTokens: day.inputTokens.plus(row.inputTokens),
 			cachedTokens: day.cachedTokens.plus(row.cachedTokens),
 			cacheWriteTokens: day.cacheWriteTokens.plus(row.cacheWriteTokens),
 			uncachedTextInputCost: day.uncachedTextInputCost.plus(
 				row.uncachedTextInputCost,
+			),
+			imageAndAudioInputCost: day.imageAndAudioInputCost.plus(
+				row.imageAndAudioInputCost,
 			),
 			cachedInputCost: day.cachedInputCost.plus(row.cachedInputCost),
 			cacheWriteInputCost: day.cacheWriteInputCost.plus(
@@ -221,6 +226,10 @@ export function judgeDay(
 	context: Pick<PromptCacheContext, "cacheMode" | "organizationKind">,
 ): Verdict {
 	const { inputPrice, cachedInputPrice } = catalogue;
+	const billedInputCost = day.uncachedTextInputCost
+		.plus(day.imageAndAudioInputCost)
+		.plus(day.cachedInputCost)
+		.plus(day.cacheWriteInputCost);
 	if (
 		inputPrice === null ||
 		cachedInputPrice === null ||
@@ -232,13 +241,17 @@ export function judgeDay(
 			.div(day.upstreamRequests)
 			.lt(catalogue.minCacheableTokens) ||
 		// Replays carry the original's tokens at zero cost.
-		MAX_REPLAY_SHARE.mul(day.requests).lt(day.responseCacheReplays)
+		MAX_MISPRICED_SHARE.mul(day.requests).lt(day.responseCacheReplays) ||
+		MAX_MISPRICED_SHARE.mul(billedInputCost).lt(day.imageAndAudioInputCost)
 	) {
 		return UNKNOWN;
 	}
+	const separatelyBilledWrites = catalogue.writesPricedSeparately
+		? day.cacheWriteTokens
+		: new Decimal(0);
 	const uncachedTokens = day.inputTokens
 		.minus(day.cachedTokens)
-		.minus(day.cacheWriteTokens);
+		.minus(separatelyBilledWrites);
 	// The billed rate cancels tiers and discounts.
 	const billedInputRate =
 		uncachedTokens.gt(0) && day.uncachedTextInputCost.gt(0)
@@ -284,7 +297,7 @@ export function judgeDay(
 			: UNKNOWN;
 	}
 	const writePremium = day.cacheWriteInputCost.minus(
-		day.cacheWriteTokens.mul(billedInputRate),
+		separatelyBilledWrites.mul(billedInputRate),
 	);
 	const readSavings = day.cachedTokens
 		.mul(billedInputRate)
@@ -324,11 +337,9 @@ export function findPromptCacheProblems(
 	const showRegion = new Set(streams.map((s) => s.region)).size > 1;
 	for (const { hours, ...stream } of streams) {
 		const history = hours.filter(
-			({ hour }) => hour.getTime() >= end - HISTORY_MS && hour.getTime() < end,
+			({ hour }) => hour.getTime() >= end - LOOKBACK_MS && hour.getTime() < end,
 		);
-		const startHour = dayStartHour(
-			history.filter(({ hour }) => hour.getTime() >= end - LOOKBACK_MS),
-		);
+		const startHour = dayStartHour(history);
 		const [today, ...older] = streamDays(history, startHour).map((day) => ({
 			day,
 			verdict: judgeDay(day, stream.catalogue, context),

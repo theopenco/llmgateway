@@ -45,8 +45,8 @@ import {
 } from "./notification-events.js";
 import {
 	findPromptCacheProblems,
-	HISTORY_MS,
-	MIN_DAILY_USD,
+	LOOKBACK_MS,
+	MIN_UPSTREAM_REQUESTS,
 	PROMPT_CACHE_CAUSES,
 	recoveryWindow,
 	renderPromptCacheAlert,
@@ -66,6 +66,7 @@ const DAY_MS = 24 * HOUR_MS;
 const WINDOW_MS = DAY_MS;
 const SETTLE_MS = 5 * 60 * 1000;
 const GATE_TTL_SECONDS = (2 * HOUR_MS) / 1000;
+const SILENT_STREAM_SAMPLES = 5;
 
 interface Window {
 	start: Date;
@@ -102,13 +103,17 @@ export async function processPromptCacheAlerts(
 							...new Set(candidates.map((c) => c.context.apiKeyId)),
 						]),
 						{
-							start: new Date(window.end.getTime() - HISTORY_MS),
+							start: new Date(window.end.getTime() - LOOKBACK_MS),
 							end: window.end,
 						},
 					)
 				: new Map<string, StreamHour[]>();
 		let findings = 0;
 		let notifications = 0;
+		const silent: Array<
+			Pick<PromptCacheContext, "apiKeyId" | "modelId"> &
+				Pick<StreamInfo, "providerId" | "region">
+		> = [];
 		for (const { context, streams } of candidates) {
 			const { problems, silentStreams } = findPromptCacheProblems(
 				streams.map((stream) => ({
@@ -118,14 +123,14 @@ export async function processPromptCacheAlerts(
 				context,
 				window.end,
 			);
-			for (const stream of silentStreams) {
-				logger.warn("Automatic caching produced no cache activity", {
+			silent.push(
+				...silentStreams.map(({ providerId, region }) => ({
 					apiKeyId: context.apiKeyId,
 					modelId: context.modelId,
-					providerId: stream.providerId,
-					region: stream.region,
-				});
-			}
+					providerId,
+					region,
+				})),
+			);
 			if (problems.length === 0) {
 				continue;
 			}
@@ -139,6 +144,12 @@ export async function processPromptCacheAlerts(
 					modelId: context.modelId,
 				});
 			}
+		}
+		if (silent.length > 0) {
+			logger.warn("Automatic caching produced no cache activity", {
+				count: silent.length,
+				samples: silent.slice(0, SILENT_STREAM_SAMPLES),
+			});
 		}
 		logger.info("Prompt cache alerts evaluated", {
 			windowEnd: window.end.toISOString(),
@@ -167,6 +178,8 @@ const uncachedTextInputCost = sql`GREATEST(
 		- SUM(CAST(${stats.imageInputCost} AS DOUBLE PRECISION))
 		- SUM(CAST(${stats.audioInputCost} AS DOUBLE PRECISION))
 )`;
+const imageAndAudioInputCost = sql`SUM(CAST(${stats.imageInputCost} AS DOUBLE PRECISION))
+	+ SUM(CAST(${stats.audioInputCost} AS DOUBLE PRECISION))`;
 
 function streamKey(
 	context: Pick<PromptCacheContext, "apiKeyId" | "modelId">,
@@ -194,6 +207,7 @@ interface CandidateRow extends Record<string, unknown> {
 	region: string;
 	input_price: string | null;
 	cached_input_price: string | null;
+	cache_write_input_price: string | null;
 	cache_write_input_price_1h: string | null;
 	min_cacheable_tokens: number | null;
 	api_format: ProviderApiFormat | null;
@@ -212,9 +226,12 @@ async function loadCandidates(window: Window): Promise<Candidate[]> {
 			WHERE ${gte(stats.hourTimestamp, window.start)}
 				AND ${lt(stats.hourTimestamp, window.end)}
 			GROUP BY 1, 2, 3, 4, 5
-			HAVING ${uncachedTextInputCost}
-				+ SUM(CAST(${stats.cacheWriteInputCost} AS DOUBLE PRECISION))
-				>= ${MIN_DAILY_USD.toNumber()}
+			HAVING SUM(GREATEST(0, ${stats.requestCount} - ${stats.errorCount} - ${stats.cacheCount}))
+					>= ${MIN_UPSTREAM_REQUESTS}
+				AND (
+					(SUM(${stats.toolCallsCount}) > 0 AND SUM(${stats.streamedCount}) > 0)
+					OR SUM(${stats.cacheWriteTokens}) > 0
+				)
 		)
 		SELECT
 			stream.api_key_id,
@@ -230,6 +247,7 @@ async function loadCandidates(window: Window): Promise<Candidate[]> {
 			stream.region,
 			price.input_price,
 			price.cached_input_price,
+			price.cache_write_input_price,
 			price.cache_write_input_price_1h,
 			price.min_cacheable_tokens,
 			price.api_format
@@ -247,6 +265,7 @@ async function loadCandidates(window: Window): Promise<Candidate[]> {
 			SELECT
 				${mapping.inputPrice} AS input_price,
 				${mapping.cachedInputPrice} AS cached_input_price,
+				${mapping.cacheWriteInputPrice} AS cache_write_input_price,
 				${mapping.cacheWriteInputPrice1h} AS cache_write_input_price_1h,
 				${mapping.minCacheableTokens} AS min_cacheable_tokens,
 				${mapping.apiFormat} AS api_format
@@ -309,6 +328,7 @@ async function loadCandidates(window: Window): Promise<Candidate[]> {
 					apiFormat: row.api_format,
 				}),
 				oneHourCaching: row.cache_write_input_price_1h !== null,
+				writesPricedSeparately: row.cache_write_input_price !== null,
 			},
 		});
 	}
@@ -330,6 +350,7 @@ interface HourRow extends Record<string, unknown> {
 	cached_tokens: string;
 	cache_write_tokens: string;
 	uncached_text_input_cost: number;
+	image_and_audio_input_cost: number;
 	cached_input_cost: number;
 	cache_write_input_cost: number;
 }
@@ -354,6 +375,7 @@ async function loadStreamHours(
 			SUM(${stats.cachedTokens}) AS cached_tokens,
 			SUM(${stats.cacheWriteTokens}) AS cache_write_tokens,
 			${uncachedTextInputCost} AS uncached_text_input_cost,
+			${imageAndAudioInputCost} AS image_and_audio_input_cost,
 			SUM(CAST(${stats.cachedInputCost} AS DOUBLE PRECISION)) AS cached_input_cost,
 			SUM(CAST(${stats.cacheWriteInputCost} AS DOUBLE PRECISION)) AS cache_write_input_cost
 		FROM ${stats}
@@ -380,6 +402,7 @@ async function loadStreamHours(
 			cachedTokens: new Decimal(row.cached_tokens),
 			cacheWriteTokens: new Decimal(row.cache_write_tokens),
 			uncachedTextInputCost: new Decimal(row.uncached_text_input_cost),
+			imageAndAudioInputCost: new Decimal(row.image_and_audio_input_cost),
 			cachedInputCost: new Decimal(row.cached_input_cost),
 			cacheWriteInputCost: new Decimal(row.cache_write_input_cost),
 		});
@@ -487,9 +510,9 @@ async function loadSent(
 			eventKey: { like: `${escapeLikePattern(prefix)}%` },
 		},
 	});
-	return rows.flatMap((row) => {
+	return rows.map((row) => {
 		const [cause] = row.eventKey.slice(prefix.length).split(":");
-		return isCause(cause) ? [{ at: row.createdAt, cause }] : [];
+		return { at: row.createdAt, cause: isCause(cause) ? cause : null };
 	});
 }
 

@@ -37,11 +37,16 @@ type HourValues = Partial<typeof tables.apiKeyHourlyModelStats.$inferInsert>;
 
 const PRICE = { input: "0.000003", cached: "0.0000003", write: "0.00000375" };
 
-function agentHour(hitRate: number, writeShare: number): HourValues {
+function agentHour(
+	hitRate: number,
+	writeShare: number,
+	writePrice: string | null = PRICE.write,
+): HourValues {
 	const requests = 60;
 	const input = new Decimal(requests).mul(60_000);
 	const cached = input.mul(hitRate);
 	const writes = input.mul(writeShare);
+	const separatelyBilledWrites = writePrice === null ? 0 : writes;
 	return {
 		requestCount: requests,
 		streamedCount: requests,
@@ -49,9 +54,13 @@ function agentHour(hitRate: number, writeShare: number): HourValues {
 		inputTokens: input.toString(),
 		cachedTokens: cached.toString(),
 		cacheWriteTokens: writes.toString(),
-		inputCost: input.minus(cached).minus(writes).mul(PRICE.input).toNumber(),
+		inputCost: input
+			.minus(cached)
+			.minus(separatelyBilledWrites)
+			.mul(PRICE.input)
+			.toNumber(),
 		cachedInputCost: cached.mul(PRICE.cached).toNumber(),
-		cacheWriteInputCost: writes.mul(PRICE.write).toNumber(),
+		cacheWriteInputCost: writes.mul(writePrice ?? 0).toNumber(),
 	};
 }
 
@@ -260,6 +269,7 @@ describe("processPromptCacheAlerts", () => {
 			externalId: "cache-model",
 			inputPrice: PRICE.input,
 			cachedInputPrice: PRICE.cached,
+			cacheWriteInputPrice: PRICE.write,
 		});
 	});
 
@@ -335,6 +345,13 @@ describe("processPromptCacheAlerts", () => {
 				message: brokenMessage,
 			},
 		]);
+	});
+
+	it("tells a weekly key on its second week, from the whole previous day", async () => {
+		await enable();
+		await insertAgent({}, [-7, 0]);
+		await processPromptCacheAlerts(now);
+		expect(await alerts()).toMatchObject([{ message: brokenMessage }]);
 	});
 
 	it("sums every used_model string of a stream per hour before bounding follow-ups", async () => {
@@ -423,24 +440,51 @@ describe("processPromptCacheAlerts", () => {
 		]);
 	});
 
+	function silentWarnings() {
+		return warn.mock.calls.filter(
+			([message]) => message === "Automatic caching produced no cache activity",
+		);
+	}
+
 	it("warns ops, not users, when Automatic caching shows no cache activity", async () => {
 		await enable();
 		await insertAgent(UNMARKED);
 		await processPromptCacheAlerts(now);
 		expect(await alerts()).toEqual([]);
-		expect(
-			warn.mock.calls.filter(
-				([message]) =>
-					message === "Automatic caching produced no cache activity",
-			),
-		).toEqual([
+		expect(silentWarnings()).toEqual([
 			[
 				"Automatic caching produced no cache activity",
 				{
-					apiKeyId: "cache-key",
-					modelId: "cache-model",
-					providerId: "anthropic",
-					region: null,
+					count: 1,
+					samples: [
+						{
+							apiKeyId: "cache-key",
+							modelId: "cache-model",
+							providerId: "anthropic",
+							region: null,
+						},
+					],
+				},
+			],
+		]);
+	});
+
+	it("warns ops once per pass however many streams are silent", async () => {
+		await enable();
+		const apiKeyIds = Array.from({ length: 6 }, (_, i) => `cache-key-${i}`);
+		for (const apiKeyId of apiKeyIds) {
+			await insertKey({ id: apiKeyId });
+			await insertAgent({ ...UNMARKED, apiKeyId });
+		}
+		await processPromptCacheAlerts(now);
+		expect(silentWarnings()).toEqual([
+			[
+				"Automatic caching produced no cache activity",
+				{
+					count: 6,
+					samples: Array.from({ length: 5 }, () =>
+						expect.objectContaining({ modelId: "cache-model" }),
+					),
 				},
 			],
 		]);
@@ -454,8 +498,9 @@ describe("processPromptCacheAlerts", () => {
 			providerId: "anthropic",
 			externalId: "cache-model",
 			region: "eu",
-			inputPrice: "0.000003",
+			inputPrice: PRICE.input,
 			cachedInputPrice: "0.0000006",
+			cacheWriteInputPrice: PRICE.write,
 		});
 		await insertKey({ id: "cache-key-us" });
 		await insertAgent({ usedModel: "anthropic/cache-model:eu" });
@@ -486,8 +531,9 @@ describe("processPromptCacheAlerts", () => {
 			modelId: "claude-sonnet-5",
 			providerId: "anthropic",
 			externalId: "claude-sonnet-5",
-			inputPrice: "0.000003",
-			cachedInputPrice: "0.0000003",
+			inputPrice: PRICE.input,
+			cachedInputPrice: PRICE.cached,
+			cacheWriteInputPrice: PRICE.write,
 		});
 		await insertAgent({
 			usedModel: "anthropic/claude-sonnet-5",
@@ -513,13 +559,43 @@ describe("processPromptCacheAlerts", () => {
 		).toMatchObject([{ title: "Prompt cache misses on claude-sonnet-5" }]);
 	});
 
-	it("leaves image and audio input spend out of the billed input rate", async () => {
+	it("leaves a little image and audio input out of the billed input rate, and skips days with more", async () => {
 		await enable();
+		await insertKey({ id: "cache-key-media" });
 		await insertAgent({
+			inputCost: 4.146,
+			imageInputCost: 0.1,
+			audioInputCost: 0.05,
+		});
+		await insertAgent({
+			apiKeyId: "cache-key-media",
 			inputCost: 13.996,
 			imageInputCost: 6,
 			audioInputCost: 4,
 		});
+		await processPromptCacheAlerts(now);
+		expect(await alerts()).toMatchObject([
+			{ apiKeyId: "cache-key", message: brokenMessage },
+		]);
+	});
+
+	it("prices write tokens as input when the mapping has no cache write price", async () => {
+		await enable();
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ cacheWriteInputPrice: null });
+		await insertAgent(agentHour(0.6, 0.03, null));
+		await processPromptCacheAlerts(now);
+		expect(await alerts()).toMatchObject([{ message: brokenMessage }]);
+	});
+
+	it("alerts a broken agent whose cache writes cost less than input, though under $5 was billed in the window", async () => {
+		await enable();
+		const cheapWrite = "0.0000003";
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ cacheWriteInputPrice: cheapWrite });
+		await insertAgent(agentHour(0.6, 0.35, cheapWrite), [-2, 0]);
 		await processPromptCacheAlerts(now);
 		expect(await alerts()).toMatchObject([{ message: brokenMessage }]);
 	});
@@ -567,8 +643,9 @@ describe("processPromptCacheAlerts", () => {
 			modelId: "cache-model",
 			providerId: "aws-bedrock",
 			externalId: "cache-model",
-			inputPrice: "0.000003",
-			cachedInputPrice: "0.0000003",
+			inputPrice: PRICE.input,
+			cachedInputPrice: PRICE.cached,
+			cacheWriteInputPrice: PRICE.write,
 		});
 		await insertAgent();
 		await insertAgent({
@@ -658,7 +735,7 @@ describe("processPromptCacheAlerts", () => {
 		expect(await alerts(), "30 days later").toHaveLength(1);
 	});
 
-	it("holds every alert at least 14 days after the reader's last prompt cache alert", async () => {
+	it("holds a reader's alerts for one key and model at least 14 days apart", async () => {
 		await enable();
 		await insertAgent();
 		await insertAlert(
@@ -682,22 +759,60 @@ describe("processPromptCacheAlerts", () => {
 		]);
 	});
 
-	it("re-arms a broken cache only after a complete healthy day since the last alert", async () => {
+	it("counts an alert from the previous rule toward the 14-day gap, but not as an episode", async () => {
+		await enable();
+		await insertAgent();
+		const legacy =
+			"prompt_cache:cache-key:cache-model:2026-03-01T12:00:00.000Z";
+		await insertAlert(legacy, new Date(windowEnd.getTime() - duration(3)));
+		await processPromptCacheAlerts(now);
+		expect(
+			(await alerts()).map((alert) => alert.eventKey),
+			"3 days later",
+		).toEqual([legacy]);
+
+		await db
+			.update(tables.notification)
+			.set({ createdAt: new Date(windowEnd.getTime() - duration(14)) });
+		await redisClient.flushdb();
+		await processPromptCacheAlerts(now);
+		expect(
+			(await alerts()).map((alert) => alert.eventKey).sort(),
+			"14 days later",
+		).toEqual([legacy, "prompt_cache:cache-key:cache-model:cache_broken:1"]);
+	});
+
+	it("re-arms a broken cache only on a complete healthy day between the last alert and the reported day", async () => {
 		await enable();
 		await insertAgent();
 		await insertAlert(
 			"prompt_cache:cache-key:cache-model:cache_broken:1",
 			new Date(windowEnd.getTime() - duration(20)),
 		);
+		await insertAgent(HEALTHY, [-21]);
 		await processPromptCacheAlerts(now);
-		expect(await alerts(), "never recovered").toHaveLength(1);
+		expect(await alerts(), "healthy day before the alert").toHaveLength(1);
+
+		await db
+			.insert(tables.apiKeyHourlyModelStats)
+			.values(
+				[12, 13, 14, 15, 16, 17].map((hour) =>
+					hourRow(hourOf(-20, hour), HEALTHY),
+				),
+			);
+		await redisClient.flushdb();
+		await processPromptCacheAlerts(now);
+		expect(
+			await alerts(),
+			"healthy afternoon after the alert on its day",
+		).toHaveLength(1);
 
 		await insertAgent(HEALTHY, [-15]);
 		await redisClient.flushdb();
 		await processPromptCacheAlerts(now);
 		expect(
 			(await alerts()).map((alert) => alert.eventKey).sort(),
-			"healthy day 15 days ago",
+			"healthy day between the alert and the reported day",
 		).toEqual([
 			"prompt_cache:cache-key:cache-model:cache_broken:1",
 			"prompt_cache:cache-key:cache-model:cache_broken:2",

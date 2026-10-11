@@ -26,7 +26,7 @@ Prompt cache alerts judge each API key, model, provider, and region on its own. 
 - **Cache unused**: a Client-managed project sends no cache markers to a provider where Automatic would add them. The alert links to the project's settings.
 - **Cache costs more than it saves**: on Automatic, cache-write premiums exceed what cache reads save, as with one-off prompts. The alert links to the project's settings.
 
-Each problem is reported once per key and model. Cache misses are reported again only after a complete healthy day, or after 90 days if they persist. Alerts for one key and model are at least 14 days apart.
+Each problem is reported to you once per key and model. Cache misses are reported again only after a complete healthy day, or after 90 days if they persist. Your alerts for one key and model are at least 14 days apart.
 
 Provider alerts require at least 20 non-cached, non-client-error requests and an upstream error rate of at least 20% in the latest hourly statistics window. Stale statistics do not trigger alerts. Checks run about once a minute; these warnings are not a guarantee that every outage or budget crossing will be caught before a request fails.
 

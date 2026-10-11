@@ -34,13 +34,14 @@ interface Load {
 	w: number;
 	t: number;
 	s: number;
+	e?: number;
 }
 type Workload = (day: number, hour: number) => Load | null;
 
 interface Prices {
 	input: number;
 	cached: number;
-	write: number;
+	write: number | null;
 }
 
 interface Provider {
@@ -59,6 +60,7 @@ const ANTHROPIC: Provider = {
 		minCacheableTokens: 1024,
 		autoAddsMarkers: true,
 		oneHourCaching: true,
+		writesPricedSeparately: true,
 	},
 	billed: { input: 3e-6, cached: 0.3e-6, write: 3.75e-6 },
 };
@@ -72,8 +74,9 @@ const OPENAI: Provider = {
 		minCacheableTokens: 1024,
 		autoAddsMarkers: false,
 		oneHourCaching: false,
+		writesPricedSeparately: false,
 	},
-	billed: { input: 1.25e-6, cached: 0.125e-6, write: 0 },
+	billed: { input: 1.25e-6, cached: 0.125e-6, write: null },
 };
 
 const CONTEXT: PromptCacheContext = {
@@ -114,21 +117,25 @@ function row(hour: Date, load: Load, billed: Prices): StreamHour {
 	const input = load.r * load.I;
 	const cached = Math.round(load.h * input);
 	const writes = Math.round(load.w * input);
+	const separatelyBilledWrites = billed.write === null ? 0 : writes;
 	return {
 		hour,
 		requests: load.r,
-		errors: 0,
+		errors: Math.round((load.e ?? 0) * load.r),
 		responseCacheReplays: 0,
 		toolCalls: Math.round(load.t * load.r),
 		streamed: Math.round(load.s * load.r),
 		inputTokens: new Decimal(input),
 		cachedTokens: new Decimal(cached),
 		cacheWriteTokens: new Decimal(writes),
-		uncachedTextInputCost: new Decimal(input - cached - writes).mul(
-			billed.input,
-		),
+		uncachedTextInputCost: new Decimal(
+			input - cached - separatelyBilledWrites,
+		).mul(billed.input),
+		imageAndAudioInputCost: new Decimal(0),
 		cachedInputCost: new Decimal(cached).mul(billed.cached),
-		cacheWriteInputCost: new Decimal(writes).mul(billed.write),
+		cacheWriteInputCost: new Decimal(separatelyBilledWrites).mul(
+			billed.write ?? 0,
+		),
 	};
 }
 
@@ -155,11 +162,6 @@ function stream(
 	};
 }
 
-interface Alert {
-	at: Date;
-	cause: string;
-}
-
 function runPasses(
 	streams: PromptCacheStream[],
 	{
@@ -173,7 +175,7 @@ function runPasses(
 		to?: Date;
 		step?: number;
 	} = {},
-): Alert[] {
+): SentAlert[] {
 	const sent: SentAlert[] = [];
 	for (let t = from.getTime(); t < to.getTime(); t += step) {
 		const windowEnd = new Date(t);
@@ -234,6 +236,26 @@ describe("findPromptCacheProblems and shouldSend", () => {
 			estimatedDailyUsd: "21.87",
 			reportedDayStart: at(14, 1),
 		});
+	});
+
+	it("still tells a 60% agent whose day had 10% streamed errors, since an error never ends in a tool call", () => {
+		const erroring = stream(
+			workday({ ...AGENT, t: AGENT.t * 0.9, e: 0.1 }, () => BROKEN, 14),
+		);
+		expect(runPasses([erroring])).toEqual([
+			{ at: at(15, 12), cause: "cache_broken" },
+		]);
+	});
+
+	it("tells a weekly key once, in its second week of use", () => {
+		const weekly = stream((day, hour) =>
+			day >= 14 && day % 7 === 2 && hour >= 9 && hour <= 17
+				? { ...AGENT, ...BROKEN }
+				: null,
+		);
+		expect(runPasses([weekly])).toEqual([
+			{ at: at(23, 12), cause: "cache_broken" },
+		]);
 	});
 
 	it("stays silent on unique-prompt automation that cannot reuse a cache", () => {
@@ -347,6 +369,25 @@ describe("findPromptCacheProblems and shouldSend", () => {
 		expect(runPasses([unique]), "unique prompts at a 20% discount").toEqual([
 			{ at: at(14), cause: "writes_unused" },
 		]);
+	});
+
+	it("does not mistake audio input for unused cache writes", () => {
+		const audioTokensPerRequest = 2000;
+		const sharedSystemPrompt = stream(() => ({ ...BATCH, h: 0.35, w: 0.6 }));
+		const withAudio = {
+			...sharedSystemPrompt,
+			hours: sharedSystemPrompt.hours.map((hour) => {
+				const audioTokens = hour.requests * audioTokensPerRequest;
+				return {
+					...hour,
+					inputTokens: hour.inputTokens.plus(audioTokens),
+					imageAndAudioInputCost: new Decimal(audioTokens).mul(
+						ANTHROPIC.billed.input,
+					),
+				};
+			}),
+		};
+		expect(runPasses([withAudio])).toEqual([]);
 	});
 
 	it("judges each provider stream on its own numbers", () => {
