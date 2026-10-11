@@ -8903,6 +8903,13 @@ chat.openapi(completions, async (c) => {
 		supportsReasoning = ctx.supportsReasoning;
 		splitTaggedReasoning = ctx.splitTaggedReasoning ?? false;
 		healStreamingJsonOutput = ctx.healStreamingJsonOutput ?? false;
+		// An auto-routed effort is re-picked per fallback mapping, so the logged
+		// effort has to follow what the new body carries. The header only lands
+		// on non-streaming responses; a stream has already sent its headers.
+		reasoning_effort = ctx.reasoning_effort;
+		if (smartRoutingDecision) {
+			c.header("x-llmgateway-smart-effort", reasoning_effort);
+		}
 		temperature = ctx.temperature;
 		max_tokens = ctx.max_tokens;
 		top_p = ctx.top_p;

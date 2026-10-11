@@ -113,6 +113,35 @@ describe("pickFallbackReasoningEffort", () => {
 		).toBe("none");
 	});
 
+	it("picks an effort the first mapping could not when the fallback supports it", () => {
+		// The first mapping took only xhigh/max, so no effort was set; the
+		// fallback accepts the tier's preferred effort and must get it.
+		expect(
+			pickFallbackReasoningEffort(
+				undefined,
+				{ modelId: "glm-5.3", effortTier: "low" },
+				["low", "high", "max"],
+			),
+		).toBe("low");
+	});
+
+	it("applies the model default when the fallback declares no efforts", () => {
+		expect(
+			pickFallbackReasoningEffort(
+				"none",
+				{ modelId: "gpt-5-mini", effortTier: "low" },
+				undefined,
+			),
+		).toBe("minimal");
+		expect(
+			pickFallbackReasoningEffort(
+				"medium",
+				{ modelId: "claude-opus-4.5", effortTier: "high" },
+				undefined,
+			),
+		).toBe("high");
+	});
+
 	it("keeps the routed effort tier when re-picking", () => {
 		expect(
 			pickFallbackReasoningEffort(
@@ -134,6 +163,9 @@ describe("pickFallbackReasoningEffort", () => {
 		expect(
 			pickFallbackReasoningEffort("low", undefined, ["xhigh", "max"]),
 		).toBe("low");
+		expect(
+			pickFallbackReasoningEffort("xhigh", undefined, ["low", "medium"]),
+		).toBe("xhigh");
 		expect(
 			pickFallbackReasoningEffort(undefined, undefined, ["low"]),
 		).toBeUndefined();
