@@ -71,10 +71,18 @@ export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 		const headers: Record<string, string> = {};
 		const headersEnd = headerOffset + headersLength;
 
+		// Every header field must stay within the declared header section; a
+		// corrupt field length stops header parsing instead of reading into the
+		// payload or past the buffer (the frame itself is still well-delimited).
 		while (headerOffset < headersEnd) {
 			// Read header name length (1 byte)
 			const nameLength = buffer[headerOffset];
 			headerOffset += 1;
+
+			// Name plus the 1-byte value type must fit in the header section
+			if (headerOffset + nameLength + 1 > headersEnd) {
+				break;
+			}
 
 			// Read header name
 			const name = new TextDecoder().decode(
@@ -88,6 +96,10 @@ export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 
 			if (valueType === 7) {
 				// String value
+				if (headerOffset + 2 > headersEnd) {
+					break;
+				}
+
 				// Read value length (2 bytes, big-endian)
 				const valueLength = new DataView(
 					buffer.buffer,
@@ -95,6 +107,10 @@ export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 					2,
 				).getUint16(0, false);
 				headerOffset += 2;
+
+				if (headerOffset + valueLength > headersEnd) {
+					break;
+				}
 
 				// Read value
 				const value = new TextDecoder().decode(

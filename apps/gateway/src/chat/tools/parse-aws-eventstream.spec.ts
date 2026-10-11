@@ -101,4 +101,50 @@ describe("parseAwsEventStream malformed input", () => {
 		expect(() => parseAwsEventStream(buffer)).not.toThrow();
 		expect(parseAwsEventStream(buffer)).toEqual([]);
 	});
+
+	it("stops header parsing when a header field overruns the header section", () => {
+		// totalLength 18, headersLength 2. The single header declares a 3-byte
+		// name, which overruns the 2-byte header section; an unchecked parser
+		// then reads value type 7 from the CRC and a 2-byte value length past
+		// the end of the buffer, throwing a RangeError.
+		const buffer = new Uint8Array(18);
+		const view = new DataView(buffer.buffer);
+		view.setUint32(0, 18, false); // total length
+		view.setUint32(4, 2, false); // headers length
+		buffer[12] = 3; // header name length
+		buffer[16] = 7; // would be read as a string value type
+
+		expect(() => parseAwsEventStream(buffer)).not.toThrow();
+		expect(parseAwsEventStream(buffer)).toEqual([
+			{ headers: {}, payload: new Uint8Array(0) },
+		]);
+	});
+
+	it("still parses well-formed string headers", () => {
+		const encoder = new TextEncoder();
+		const name = encoder.encode(":event-type");
+		const value = encoder.encode("chunk");
+		const payload = encoder.encode('{"completion":"ok"}');
+		const headersLength = 1 + name.length + 1 + 2 + value.length;
+		const totalLength = 12 + headersLength + payload.length + 4;
+		const buffer = new Uint8Array(totalLength);
+		const view = new DataView(buffer.buffer);
+		view.setUint32(0, totalLength, false);
+		view.setUint32(4, headersLength, false);
+		let offset = 12;
+		buffer[offset++] = name.length;
+		buffer.set(name, offset);
+		offset += name.length;
+		buffer[offset++] = 7;
+		view.setUint16(offset, value.length, false);
+		offset += 2;
+		buffer.set(value, offset);
+		offset += value.length;
+		buffer.set(payload, offset);
+
+		expect(convertAwsEventStreamToSSE(buffer)).toEqual({
+			sse: 'data: {"completion":"ok","__aws_event_type":"chunk"}\n\n',
+			bytesConsumed: totalLength,
+		});
+	});
 });
