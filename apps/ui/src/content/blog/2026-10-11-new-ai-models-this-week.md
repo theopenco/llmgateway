@@ -2,12 +2,12 @@
 id: "blog-new-ai-models-this-week-2026-10-11"
 slug: "new-ai-models-this-week-2026-10-11"
 date: "2026-10-11"
-title: "New AI Models This Week: Haiku 5.5, Mistral Large 4, Nano Banana 2.1"
-summary: "The new AI models released between September 28 and October 11, 2026 and already live on LLM Gateway: Claude Haiku 5.5 and Sonnet 5.5, GPT-6.1 Sol, Mistral Large 4, Gemini Nano Banana 2.1, Hy Image 3.5 Preview, Ling 3.1 Flash and Grok Imagine Video 1.5 Lite, with prices, context windows and the model ID to call."
+title: "New AI Models This Week: Haiku 5.5, Mistral Large 4, GLM 5.3 Fast"
+summary: "Every new AI model released between September 28 and October 11, 2026 and already live on LLM Gateway: Claude Haiku 5.5 and Sonnet 5.5, GPT-6.1 Sol, Mistral Large 4, GLM 5.3 Fast, Reka Edge 2603, Gemini Nano Banana 2.1, Hy Image 3.5 Preview, Ling 3.1 Flash and Grok Imagine Video 1.5 Lite, with prices, context windows and the model ID to call."
 categories: ["Announcements", "Guides"]
 faqs:
   - question: "Which new AI models were released this week?"
-    answer: "Between October 2 and October 8, 2026: Ling 3.1 Flash (InclusionAI, free), Hy Image 3.5 Preview (Tencent), Mistral Large 4, Gemini Nano Banana 2.1 (Google), Claude Haiku 5.5 (Anthropic) and Grok Imagine Video 1.5 Lite (xAI). The week before brought Claude Sonnet 5.5 and GPT-6.1 Sol."
+    answer: "Between October 2 and October 9, 2026: Ling 3.1 Flash (InclusionAI, free), Hy Image 3.5 Preview (Tencent), Mistral Large 4, Gemini Nano Banana 2.1 (Google), Claude Haiku 5.5 (Anthropic), GLM 5.3 Fast (Z.ai via SCX), Grok Imagine Video 1.5 Lite (xAI) and Reka Edge 2603 (Reka). The week before brought Claude Sonnet 5.5 and GPT-6.1 Sol."
   - question: "How much does Claude Haiku 5.5 cost?"
     answer: "$0.10 per million input tokens and $0.50 per million output tokens for prompts up to 100K tokens, with cached input at $0.01 per million. Prompts over 100K tokens are billed at $0.50 input / $2.50 output and $0.05 cached input. It has a 1M-token context window and supports tools, vision and adaptive thinking."
   - question: "How do I use a new model on LLM Gateway?"
@@ -19,14 +19,16 @@ image:
   height: 1024
 ---
 
-Eight new AI models landed in the **LLM Gateway** catalog in the last two weeks, from a $0.10-per-million-token Claude to a 1.05-trillion-parameter open-weight Mistral. Each text model is callable today with the same chat request you already send; only the `model` string changes. Image models go through `/v1/images/generations` and the video model through `/v1/videos`. Prices are per million tokens unless noted, as listed on each [model page](https://llmgateway.io/models) on October 11, 2026.
+Ten new AI models landed in the **LLM Gateway** catalog in the last two weeks, from a $0.10-per-million-token Claude to a 1.05-trillion-parameter open-weight Mistral. Each text model is callable today with the same chat request you already send; only the `model` string changes. Image models go through `/v1/images/generations` and the video model through `/v1/videos`. Prices are per million tokens unless noted, as listed on each [model page](https://llmgateway.io/models) on October 11, 2026.
 
 ## New AI models at a glance
 
 | Released | Model                                                                                   | Family      | Input / output price                                        | Context | Notes                                                   |
 | -------- | --------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------- | ------- | ------------------------------------------------------- |
+| Oct 9    | [Reka Edge 2603](https://llmgateway.io/models/reka-edge-2603)                           | Reka        | $0.10 / $0.10                                               | 16K     | Small vision model with tool calling, via Reka AI       |
 | Oct 8    | [Grok Imagine Video 1.5 Lite](https://llmgateway.io/models/grok-imagine-video-1-5-lite) | xAI         | $0.02/s (480p), $0.03/s (720p)                              | —       | Text- or image-to-video                                 |
 | Oct 7    | [Claude Haiku 5.5](https://llmgateway.io/models/claude-haiku-5-5)                       | Anthropic   | $0.10 / $0.50 up to 100K-token prompts; $0.50 / $2.50 above | 1M      | Tools, vision, adaptive thinking                        |
+| Oct 7    | [GLM 5.3 Fast](https://llmgateway.io/models/glm-5.3-fast)                               | Z.ai        | $2.80 / $8.80, cached input $0.56                           | 1M      | Fast GLM 5.3 variant, 128K output, served by SCX.ai     |
 | Oct 6    | [Mistral Large 4](https://llmgateway.io/models/mistral-large-4)                         | Mistral     | $1.36 / $4.18                                               | 1M      | Open-weight MoE, 49B active / 1.05T total, vision       |
 | Oct 6    | [Gemini Nano Banana 2.1](https://llmgateway.io/models/gemini-nano-banana-2.1)           | Google      | $1.50 / $7.50, $30 per 1M image output tokens               | 131K    | Image generation and editing, 1K–4K output              |
 | Oct 5    | [Hy Image 3.5 Preview](https://llmgateway.io/models/hy-image-v3.5-preview)              | Tencent     | $1.60 per 1M image output tokens                            | 100K    | Image generation and editing, up to 20 reference images |
@@ -65,6 +67,10 @@ Both are available through `/v1/images/generations` and the [Lounge](https://lou
 ## GPT-6.1 Sol and Claude Sonnet 5.5: the new mid-tier pair
 
 The two releases from the week before this one are priced identically, $2.00 input / $10.00 output, with cached input at $0.10, and both offer a 1M-class context (1.05M for Sol) and 128K output. OpenAI describes Sol as near-Astra performance at lower cost for complex coding, computer use and professional work; Anthropic describes Sonnet 5.5 as its best combination of speed and intelligence. If you are choosing between them for a coding agent, run both through the same prompts on the [compare view](https://llmgateway.io/models/compare) before committing; usage share across LLM Gateway customers is on the [rankings page](https://llmgateway.io/rankings).
+
+## GLM 5.3 Fast and Reka Edge 2603: two Airside listings
+
+Not every new model comes from a hyperscaler. **GLM 5.3 Fast** is a faster variant of Z.ai's GLM 5.3 with a 1M context and 128K output, listed on LLM Gateway by the carrier SCX.ai at $2.80 input / $8.80 output with cached input at $0.56; it is text-only and does not expose tool calling on this listing. **Reka Edge 2603** is Reka's small vision model, 16K context, with tool calling, at $0.10 per million tokens in and out from Reka AI. Both arrive through [Airside](https://airside.llmgateway.io), the carrier program that lets any provider list models on the gateway, which is why they appear on the [timeline](https://llmgateway.io/timeline) before the open-source catalog picks them up. Model IDs: `glm-5.3-fast` and `reka-edge-2603`.
 
 ## Free this week: Ling 3.1 Flash
 
