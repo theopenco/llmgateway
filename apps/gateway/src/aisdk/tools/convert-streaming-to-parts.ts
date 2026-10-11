@@ -2,10 +2,10 @@ import { shortid } from "@llmgateway/db";
 
 import {
 	annotationsToSources,
+	buildFinishReason,
 	buildProviderMetadata,
 	buildWebSearchToolCall,
 	buildWebSearchToolResult,
-	mapFinishReason,
 	usageFromChat,
 	type ChatUsage,
 	type SourcePart,
@@ -60,7 +60,7 @@ export interface StreamingPartsState {
 	seenSourceUrls: Set<string>;
 	collectedSources: SourcePart[];
 	webSearchToolCallId: string | null;
-	finishReason: string;
+	rawFinishReason: string | undefined;
 	usage: ChatUsage | undefined;
 	cost: number | undefined;
 	cached: boolean | undefined;
@@ -90,7 +90,7 @@ export function createStreamingPartsState({
 		seenSourceUrls: new Set(),
 		collectedSources: [],
 		webSearchToolCallId: null,
-		finishReason: "unknown",
+		rawFinishReason: undefined,
 		usage: undefined,
 		cost: undefined,
 		cached: undefined,
@@ -163,8 +163,11 @@ export function processChatChunk(
 	}
 
 	const choice = chunk.choices?.[0];
-	if (choice?.finish_reason) {
-		state.finishReason = mapFinishReason(choice.finish_reason);
+	if (
+		typeof choice?.finish_reason === "string" &&
+		(choice.finish_reason || state.rawFinishReason === undefined)
+	) {
+		state.rawFinishReason = choice.finish_reason;
 	}
 
 	const delta = choice?.delta;
@@ -332,7 +335,7 @@ export function finalizeStream(state: StreamingPartsState): Part[] {
 
 	parts.push({
 		type: "finish",
-		finishReason: state.finishReason,
+		finishReason: buildFinishReason(state.specVersion, state.rawFinishReason),
 		usage: usageFromChat(state.specVersion, state.usage),
 		...(providerMetadata && { providerMetadata }),
 	});
