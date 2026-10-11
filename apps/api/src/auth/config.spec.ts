@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import {
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+	vi,
+} from "vitest";
 
 import { setBlockedSignupCountries } from "@/utils/country-blocking.js";
 
@@ -819,24 +827,27 @@ describe("Signup country blocking", () => {
 });
 
 describe("Email sign-in for unknown accounts", () => {
-	const signIn = (email: string, password: string) =>
+	const knownEmail = `known-${Date.now()}@example.com`;
+	const unknownEmail = () =>
+		`unknown-${Date.now()}-${randomInt(0, 1_000_000)}@example.com`;
+
+	const signIn = (
+		body: Record<string, unknown>,
+		headers: Record<string, string> = {},
+	) =>
 		apiAuth.handler(
 			new Request("http://localhost:4002/auth/sign-in/email", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 					"X-Forwarded-For": `192.168.32.${randomInt(0, 255)}`,
+					...headers,
 				},
-				body: JSON.stringify({ email, password }),
+				body: JSON.stringify(body),
 			}),
 		);
 
-	afterEach(() => {
-		vi.restoreAllMocks();
-	});
-
-	test("rejects an unknown email like a wrong password without hashing", async () => {
-		const email = `known-${Date.now()}@example.com`;
+	beforeAll(async () => {
 		const signUp = await apiAuth.handler(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
@@ -845,7 +856,7 @@ describe("Email sign-in for unknown accounts", () => {
 					"X-Forwarded-For": `192.168.33.${randomInt(0, 255)}`,
 				},
 				body: JSON.stringify({
-					email,
+					email: knownEmail,
 					password: "Password123!",
 					name: "Known User",
 				}),
@@ -855,27 +866,80 @@ describe("Email sign-in for unknown accounts", () => {
 		await db
 			.update(tables.user)
 			.set({ emailVerified: true })
-			.where(eq(tables.user.email, email));
+			.where(eq(tables.user.email, knownEmail));
+	});
 
-		const wrongPassword = await signIn(email, "WrongPassword123!");
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
 
+	test("rejects an unknown email like a wrong password without hashing", async () => {
 		const context = await apiAuth.$context;
 		const hash = vi.spyOn(context.password, "hash");
-		const unknownEmail = await signIn(
-			`unknown-${Date.now()}@example.com`,
-			"Password123!",
-		);
+		const verify = vi.spyOn(context.password, "verify");
 
-		expect(unknownEmail.status).toBe(401);
+		const wrongPassword = await signIn({
+			email: knownEmail,
+			password: "WrongPassword123!",
+		});
+		// Proves the spies see Better Auth's calls, so `hash` staying idle below
+		// means the shortcut ran rather than the spy missing the object.
+		expect(verify).toHaveBeenCalledTimes(1);
+
+		const unknown = await signIn({
+			email: unknownEmail(),
+			password: "Password123!",
+		});
+
+		expect(unknown.status).toBe(401);
 		expect(wrongPassword.status).toBe(401);
-		expect(await unknownEmail.json()).toEqual(await wrongPassword.json());
+		expect(await unknown.json()).toEqual(await wrongPassword.json());
 		expect(hash).not.toHaveBeenCalled();
+		expect(verify).toHaveBeenCalledTimes(1);
+	});
+
+	test("keeps Better Auth's 400 for an invalid body", async () => {
+		const known = await signIn({ email: knownEmail });
+		const unknown = await signIn({ email: unknownEmail() });
+
+		expect(known.status).toBe(400);
+		expect(unknown.status).toBe(400);
+		expect(await unknown.json()).toEqual(await known.json());
+	});
+
+	test("keeps Better Auth's 403 for an untrusted origin", async () => {
+		// Better Auth skips origin and CSRF checks under NODE_ENV=test.
+		const context = await apiAuth.$context;
+		const skipOriginCheck = context.skipOriginCheck;
+		context.skipOriginCheck = false;
+		try {
+			const headers = { Origin: "https://evil.example" };
+			const known = await signIn(
+				{ email: knownEmail, password: "Password123!" },
+				headers,
+			);
+			const unknown = await signIn(
+				{ email: unknownEmail(), password: "Password123!" },
+				headers,
+			);
+
+			expect(known.status).toBe(403);
+			expect(unknown.status).toBe(403);
+			expect(await unknown.json()).toEqual(await known.json());
+		} finally {
+			context.skipOriginCheck = skipOriginCheck;
+		}
 	});
 });
 
 describe("Email sign-in daily IP limit", () => {
-	const ip = "203.0.113.77";
-	const key = `sign_in_daily:${ip}`;
+	let ip = "";
+	let key = "";
+
+	beforeEach(() => {
+		ip = `203.0.113.${randomInt(0, 255)}`;
+		key = `sign_in_daily:${ip}`;
+	});
 
 	afterEach(async () => {
 		await redisClient.del(key);
@@ -904,6 +968,15 @@ describe("Email sign-in daily IP limit", () => {
 		expect(await redisClient.ttl(key)).toBeGreaterThan(23 * 60 * 60);
 	});
 
+	test("allows the attempt that reaches the daily limit", async () => {
+		await redisClient.set(key, SIGN_IN_DAILY_LIMIT - 1, "EX", 3600);
+
+		const response = await signIn();
+
+		expect(response.status).toBe(401);
+		expect(await redisClient.get(key)).toBe(String(SIGN_IN_DAILY_LIMIT));
+	});
+
 	test("rejects attempts once the IP reaches the daily limit", async () => {
 		await redisClient.set(key, SIGN_IN_DAILY_LIMIT, "EX", 3600);
 
@@ -912,5 +985,14 @@ describe("Email sign-in daily IP limit", () => {
 		expect(response.status).toBe(429);
 		expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
 		expect((await response.json()).error).toBe("too_many_requests");
+	});
+
+	test("fails open when the counter cannot be updated", async () => {
+		// A hash at the key makes INCR fail inside MULTI without aborting it.
+		await redisClient.hset(key, "attempts", "1");
+
+		const response = await signIn();
+
+		expect(response.status).toBe(401);
 	});
 });

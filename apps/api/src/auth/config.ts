@@ -3,10 +3,14 @@ import { passkey } from "@better-auth/passkey";
 import { sso } from "@better-auth/sso";
 import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 import { betterAuth } from "better-auth";
-import { APIError, createAuthMiddleware } from "better-auth/api";
+import {
+	APIError,
+	createAuthMiddleware,
+	formCsrfMiddleware,
+	signInEmail,
+} from "better-auth/api";
 import { bearer, deviceAuthorization } from "better-auth/plugins";
 import { Redis } from "ioredis";
-import { z } from "zod/v4";
 
 import { createAuthDatabase } from "@/auth/database.js";
 import {
@@ -273,6 +277,11 @@ export async function checkAndRecordSignupAttempt(
 export const SIGN_IN_DAILY_LIMIT = 100;
 const DAY_SECONDS = 24 * 60 * 60;
 
+// Better Auth validates the body and runs its CSRF middleware before the
+// handler. The unknown-email shortcut must apply the same checks first, or
+// their 400/403 responses would only appear for known emails.
+const signInEmailBody = signInEmail().options.body;
+
 /**
  * Count an email sign-in attempt against a fixed 24h window per IP.
  */
@@ -289,6 +298,13 @@ export async function recordDailySignInAttempt(
 			.exec();
 		if (!results) {
 			throw new Error("Sign-in rate limit transaction aborted");
+		}
+		// A failed command inside MULTI still resolves; surface it so the catch
+		// below fails open instead of treating `undefined <= limit` as over cap.
+		for (const [commandError] of results) {
+			if (commandError) {
+				throw commandError;
+			}
 		}
 		const count = results[1][1] as number;
 		const ttl = results[2][1] as number;
@@ -1081,7 +1097,7 @@ The LLM Gateway Team`.trim();
 							isUnknownSignInEmail =
 								!existingUser &&
 								ctx.path === "/sign-in/email" &&
-								z.email().safeParse(body?.email).success;
+								signInEmailBody.safeParse(ctx.body).success;
 							if (existingUser?.status === "deactivated") {
 								return new Response(
 									JSON.stringify({
@@ -1110,6 +1126,7 @@ The LLM Gateway Team`.trim();
 					// Answer unknown emails here so Better Auth skips its throwaway
 					// scrypt hash; see delayLikePasswordHash.
 					if (isUnknownSignInEmail) {
+						await formCsrfMiddleware(ctx);
 						// Repeat Better Auth's user+account lookup so the DB work matches
 						// the wrong-password path, not just the hash time.
 						await ctx.context.internalAdapter.findUserByEmail(
