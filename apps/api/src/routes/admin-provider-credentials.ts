@@ -81,7 +81,8 @@ import {
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
-import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
+
+import { assertProviderBaseUrlAllowed } from "./keys-provider.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderKeyVariant } from "@llmgateway/db";
@@ -387,16 +388,7 @@ async function validateConfig(
 
 	for (const [key, value] of Object.entries(config)) {
 		if (key.toLowerCase().includes("url")) {
-			try {
-				await assertSafeProviderUrl(value);
-			} catch (error) {
-				throw new HTTPException(400, {
-					message:
-						error instanceof Error
-							? error.message
-							: "Provider base URL is not allowed",
-				});
-			}
+			await assertProviderBaseUrlAllowed(value);
 		}
 	}
 }

@@ -28,8 +28,17 @@ import {
 // this map. An unlisted name behaves like NXDOMAIN, which is what an
 // unpublished record looks like to the resolver.
 const txtRecords = new Map<string, string[][]>();
+// getaddrinfo code every A/AAAA lookup fails with; tests swap it to exercise
+// the guard's "missing record" vs "resolver outage" paths.
+let lookupErrorCode = "ENOTFOUND";
 
 vi.mock("node:dns/promises", () => ({
+	lookup: async (hostname: string) => {
+		throw Object.assign(
+			new Error(`getaddrinfo ${lookupErrorCode} ${hostname}`),
+			{ code: lookupErrorCode },
+		);
+	},
 	Resolver: class {
 		async resolveTxt(name: string) {
 			const found = txtRecords.get(name);
@@ -5140,6 +5149,34 @@ describe("airside provider portal", () => {
 				})
 			).status,
 		).toBe(201);
+	});
+
+	it("rejects a base URL whose host does not resolve", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
+		try {
+			const res = await registerCarrier(cookie, company.id);
+			expect(res.status).toBe(400);
+			expect((await res.json()).message).toContain("could not be resolved");
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
+	it("reports a resolver outage as 503, not as the registrant's mistake", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
+		lookupErrorCode = "EAI_AGAIN";
+		try {
+			const res = await registerCarrier(cookie, company.id);
+			expect(res.status).toBe(503);
+			expect((await res.json()).message).toContain("Try again shortly");
+		} finally {
+			lookupErrorCode = "ENOTFOUND";
+			vi.unstubAllEnvs();
+		}
 	});
 
 	it("rejects a registration off the verified email domain", async () => {

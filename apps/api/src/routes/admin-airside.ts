@@ -79,7 +79,8 @@ import {
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
 import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
-import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
+
+import { assertProviderBaseUrlAllowed } from "./keys-provider.js";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -2127,7 +2128,7 @@ adminAirside.openapi(updateClaimSettings, async (c) => {
 				message: PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
 			});
 		}
-		await assertSafeProviderUrl(body.baseUrl);
+		await assertProviderBaseUrlAllowed(body.baseUrl);
 	}
 	const changes = {
 		...(body.name !== undefined ? { customName: body.name } : {}),
