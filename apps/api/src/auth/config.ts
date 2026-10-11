@@ -11,6 +11,7 @@ import {
 } from "better-auth/api";
 import { bearer, deviceAuthorization } from "better-auth/plugins";
 import { Redis } from "ioredis";
+import { z } from "zod/v4";
 
 import { createAuthDatabase } from "@/auth/database.js";
 import {
@@ -277,10 +278,12 @@ export async function checkAndRecordSignupAttempt(
 export const SIGN_IN_DAILY_LIMIT = 100;
 const DAY_SECONDS = 24 * 60 * 60;
 
-// Better Auth validates the body and runs its CSRF middleware before the
-// handler. The unknown-email shortcut must apply the same checks first, or
-// their 400/403 responses would only appear for known emails.
+// Better Auth validates the body, runs its CSRF middleware, then rejects a
+// malformed email with 400 before looking the user up. The unknown-email
+// shortcut must apply the same checks first, or those 400/403 responses
+// would only appear for known emails.
 const signInEmailBody = signInEmail().options.body;
+const signInEmailFormat = z.email();
 
 /**
  * Count an email sign-in attempt against a fixed 24h window per IP.
@@ -1097,7 +1100,8 @@ The LLM Gateway Team`.trim();
 							isUnknownSignInEmail =
 								!existingUser &&
 								ctx.path === "/sign-in/email" &&
-								signInEmailBody.safeParse(ctx.body).success;
+								signInEmailBody.safeParse(ctx.body).success &&
+								signInEmailFormat.safeParse(body?.email).success;
 							if (existingUser?.status === "deactivated") {
 								return new Response(
 									JSON.stringify({

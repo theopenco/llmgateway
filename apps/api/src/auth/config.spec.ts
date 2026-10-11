@@ -907,6 +907,20 @@ describe("Email sign-in for unknown accounts", () => {
 		expect(await unknown.json()).toEqual(await known.json());
 	});
 
+	test("keeps Better Auth's 400 for a malformed email", async () => {
+		const context = await apiAuth.$context;
+		const hash = vi.spyOn(context.password, "hash");
+
+		const res = await signIn({
+			email: "not-an-email",
+			password: "Password123!",
+		});
+
+		expect(res.status).toBe(400);
+		expect(await res.json()).toMatchObject({ code: "INVALID_EMAIL" });
+		expect(hash).not.toHaveBeenCalled();
+	});
+
 	test("keeps Better Auth's 403 for an untrusted origin", async () => {
 		// Better Auth skips origin and CSRF checks under NODE_ENV=test.
 		const context = await apiAuth.$context;
