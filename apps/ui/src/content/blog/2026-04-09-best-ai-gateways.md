@@ -14,7 +14,7 @@ faqs:
   - question: "Which LLM gateways are open source?"
     answer: "LLM Gateway (AGPLv3), LiteLLM and Helicone are open source and self-hostable. Portkey open-sources its gateway core but keeps the control plane proprietary. OpenRouter, Vercel AI Gateway, Cloudflare AI Gateway and AWS Bedrock are hosted only."
   - question: "Do LLM gateways add a markup on model prices?"
-    answer: "It depends on the gateway and whether you bring your own keys. LLM Gateway, LiteLLM, Portkey and Vercel AI Gateway add no markup on BYOK. OpenRouter passes provider token rates through but charges 5.5% on credit purchases, and BYOK is free only up to 1M requests a month, then 5%. See the comparison table in this post for the full matrix."
+    answer: "It depends on the gateway and whether you bring your own keys. LLM Gateway, LiteLLM, Portkey and Vercel AI Gateway add no markup on BYOK. OpenRouter passes provider token rates through but charges 5.5% on credit purchases, and BYOK is free only up to $25,000 of list-price usage a month on pay-as-you-go, then 5%. See the comparison table in this post for the full matrix."
 image:
   src: "/blog/best-ai-gateways.png"
   alt: "Best LLM gateways in 2026 compared"
@@ -99,7 +99,7 @@ OpenRouter aggregates models from many providers and offers a unified API. It ha
 
 - Not open source — you can't self-host or audit the code
 - Charges a 5.5% fee on credit purchases (no per-token markup)
-- BYOK is free up to 1M requests/month, then a 5% fee
+- BYOK is free up to $25,000 of list-price usage per month on pay-as-you-go, then a 5% fee
 - Observability has improved (request logs, exports, OpenTelemetry) but lives behind its own dashboard
 - Response caching is newer and still in beta
 
