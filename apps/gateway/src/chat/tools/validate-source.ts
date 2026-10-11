@@ -5,7 +5,7 @@ import { HTTPException } from "hono/http-exception";
  * a-zA-Z0-9, -, ., /
  * Returns the normalized value, or undefined if invalid.
  */
-function normalizeSource(value: string): string | undefined {
+export function normalizeSource(value: string): string | undefined {
 	const normalized = value.replace(/^https?:\/\//, "").replace(/^www\./, "");
 
 	return /^[a-zA-Z0-9./-]+$/.test(normalized) ? normalized : undefined;
