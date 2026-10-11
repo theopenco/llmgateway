@@ -4225,6 +4225,66 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		});
 	});
 
+	test("folds Optional[Model] and collapses recursive $ref in Google response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-vertex",
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			[{ role: "user", content: "Extract the tree" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "tree",
+					schema: {
+						type: "object",
+						properties: {
+							root: {
+								anyOf: [{ $ref: "#/definitions/Node" }, { type: "null" }],
+								description: "Tree root",
+								default: null,
+							},
+						},
+						required: ["root"],
+						definitions: {
+							Node: {
+								type: "object",
+								properties: {
+									value: { type: "string" },
+									child: { $ref: "#/definitions/Node", description: "Next" },
+								},
+								required: ["value"],
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				root: {
+					type: "OBJECT",
+					description: "Tree root",
+					nullable: true,
+					properties: {
+						value: { type: "STRING" },
+						child: { type: "OBJECT", description: "Next" },
+					},
+					required: ["value"],
+				},
+			},
+			required: ["root"],
+		});
+	});
+
 	test("normalizes primitive enums in response schemas", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",

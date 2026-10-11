@@ -426,7 +426,9 @@ function convertOpenAISchemaToGoogle(
 	// reference collapses to a generic object instead of recursing forever.
 	if (typeof schema.$ref === "string") {
 		if (seenRefs.has(schema.$ref)) {
-			return { type: "OBJECT" };
+			return schema.description
+				? { type: "OBJECT", description: schema.description }
+				: { type: "OBJECT" };
 		}
 		const resolved = resolveRef(schema.$ref, rootDefs);
 		if (resolved) {
