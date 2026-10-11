@@ -1444,6 +1444,9 @@ const updateProviderMarginShare = createRoute({
 			},
 			description: "Provider margin share updated.",
 		},
+		400: {
+			description: "Organization is not a regular (default) organization.",
+		},
 		404: {
 			description: "Organization not found.",
 		},
@@ -1459,6 +1462,14 @@ adminOrgDetails.openapi(updateProviderMarginShare, async (c) => {
 	if (org.status === "deleted") {
 		throw new HTTPException(404, {
 			message: "Organization not found",
+		});
+	}
+	// The share lands in endUserMarginBalance, the payout rail for regular
+	// PAYG orgs; DevPass and Chat orgs must not accrue it.
+	if (org.kind !== "default") {
+		throw new HTTPException(400, {
+			message:
+				"Provider margin share is only available for regular organizations",
 		});
 	}
 

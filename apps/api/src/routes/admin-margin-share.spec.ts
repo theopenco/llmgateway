@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
@@ -62,6 +62,17 @@ describe("admin provider margin share", () => {
 
 	it("returns 404 for an unknown organization", async () => {
 		expect((await patchShare(50, cookie, "missing-org")).status).toBe(404);
+	});
+
+	it("rejects DevPass and Chat organizations", async () => {
+		for (const kind of ["devpass", "chat"] as const) {
+			await db
+				.update(tables.organization)
+				.set({ kind })
+				.where(eq(tables.organization.id, ORG_ID));
+			expect((await patchShare(50, cookie)).status).toBe(400);
+		}
+		expect(await readShare()).toBeUndefined();
 	});
 
 	it("rejects an out-of-range percent", async () => {

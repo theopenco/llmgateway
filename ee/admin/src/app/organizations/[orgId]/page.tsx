@@ -603,12 +603,14 @@ export default async function OrganizationPage({
 												org.requestLogExportEnabled ?? false
 											}
 										/>
-										<ProviderMarginShareDialog
-											orgId={orgId}
-											orgName={org.name}
-											percent={org.providerMarginSharePercent ?? 0}
-											accrued={org.providerMarginShareAccrued ?? "0"}
-										/>
+										{org.kind === "default" ? (
+											<ProviderMarginShareDialog
+												orgId={orgId}
+												orgName={org.name}
+												percent={org.providerMarginSharePercent ?? 0}
+												accrued={org.providerMarginShareAccrued ?? "0"}
+											/>
+										) : null}
 									</div>
 								</div>
 							) : null}
