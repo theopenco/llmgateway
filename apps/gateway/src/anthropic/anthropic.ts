@@ -149,6 +149,23 @@ export const anthropic = new OpenAPIHono<ServerTypes>({
 	},
 });
 
+// Tool_result content blocks that only survive as blocks. Stringifying them
+// leaves Anthropic nothing to expand (`tool_reference`) or turns the payload
+// into text (`image`), so a content array carrying one of these is replayed
+// verbatim on Anthropic upstreams instead of as the lowered string.
+const TOOL_RESULT_NATIVE_BLOCK_TYPES = new Set(["tool_reference", "image"]);
+
+function blockType(entry: unknown): string | undefined {
+	return entry && typeof entry === "object"
+		? String((entry as { type?: unknown }).type)
+		: undefined;
+}
+
+function isToolResultNativeBlock(entry: unknown): boolean {
+	const type = blockType(entry);
+	return type !== undefined && TOOL_RESULT_NATIVE_BLOCK_TYPES.has(type);
+}
+
 const anthropicMessageSchema = z.object({
 	role: z.enum([
 		"system",
@@ -312,12 +329,6 @@ const anthropicRequestSchema = z.object({
 				"Anthropic server-side safeguard review, sent by Claude Code in auto mode with its paired `anthropic-beta` value. Forwarded to the Anthropic API only; the verdicts come back as `safeguard_results`.",
 		}),
 });
-
-// Tool_result content blocks that only survive as blocks. Stringifying them
-// leaves Anthropic nothing to expand (`tool_reference`) or turns the payload
-// into text (`image`), so a content array carrying one of these is replayed
-// verbatim on Anthropic upstreams instead of as the lowered string.
-const TOOL_RESULT_NATIVE_BLOCK_TYPES = new Set(["tool_reference", "image"]);
 
 const anthropicContentBlockSchema = z.object({
 	type: z.enum([
@@ -845,27 +856,29 @@ anthropic.openapi(messages, async (c) => {
 					.join("\n");
 
 				// A client-side tool search answers with `tool_reference` blocks in
-				// the tool_result content array. Stringifying them would leave
-				// Anthropic nothing to expand, so keep the originals alongside the
-				// lowered string and replay them on Anthropic upstreams. An image
-				// block from a screenshot-returning tool sits in the same place:
-				// JSON text is not an image. When the array carries one of these,
-				// the whole array is kept so the text around it is not dropped
-				// either; other arrays keep the lowered string as before.
-				const toolResultNativeBlocks: AnthropicNativeBlock[] = blocks.flatMap(
+				// the tool_result content array, and a screenshot-returning tool
+				// answers with an `image` block there. Stringifying either loses it
+				// (nothing to expand; JSON text is not an image), so when any block
+				// of the group carries one, the group's whole content is kept as
+				// blocks alongside the lowered string and replayed on Anthropic
+				// upstreams: arrays verbatim, strings as text blocks, so the text
+				// around a native block is not dropped. Other groups keep the
+				// lowered string as before.
+				const hasNativeBlock = blocks.some(
 					(block) =>
 						Array.isArray(block.content) &&
-						block.content.some(
-							(entry: unknown) =>
-								!!entry &&
-								typeof entry === "object" &&
-								TOOL_RESULT_NATIVE_BLOCK_TYPES.has(
-									String((entry as { type?: unknown }).type),
-								),
-						)
-							? (block.content as AnthropicNativeBlock[])
-							: [],
+						block.content.some(isToolResultNativeBlock),
 				);
+				const toolResultNativeBlocks: AnthropicNativeBlock[] = hasNativeBlock
+					? blocks.flatMap((block): AnthropicNativeBlock[] => {
+							if (Array.isArray(block.content)) {
+								return block.content as AnthropicNativeBlock[];
+							}
+							return typeof block.content === "string" && block.content
+								? [{ type: "text", text: block.content }]
+								: [];
+						})
+					: [];
 
 				openaiMessages.push({
 					role: "tool",

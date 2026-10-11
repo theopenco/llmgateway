@@ -878,6 +878,13 @@ describe("api", () => {
 										},
 									],
 								},
+								// Blocks sharing a tool_use_id collapse into one tool message;
+								// a string sibling must survive next to the image.
+								{
+									type: "tool_result",
+									tool_use_id: "toolu_1",
+									content: "Done.",
+								},
 							],
 						},
 					],
@@ -909,10 +916,185 @@ describe("api", () => {
 						data: "iVBORw0KGgo=",
 					},
 				},
+				{ type: "text", text: "Done." },
 			]);
 		} finally {
 			fetchSpy.mockRestore();
 		}
+	});
+
+	test("/v1/messages lowers a tool_result image to text for non-Anthropic upstreams", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		let upstreamBody: any = null;
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					upstreamBody = JSON.parse(init?.body as string);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					max_tokens: 1024,
+					messages: [
+						{ role: "user", content: "Chart the data." },
+						{
+							role: "assistant",
+							content: [
+								{
+									type: "tool_use",
+									id: "toolu_1",
+									name: "render_chart",
+									input: { series: [1, 2, 3] },
+								},
+							],
+						},
+						{
+							role: "user",
+							content: [
+								{
+									type: "tool_result",
+									tool_use_id: "toolu_1",
+									content: [
+										{ type: "text", text: "Rendered." },
+										{
+											type: "image",
+											source: {
+												type: "base64",
+												media_type: "image/png",
+												data: "iVBORw0KGgo=",
+											},
+										},
+									],
+								},
+							],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(upstreamBody).toBeTruthy();
+
+			// An OpenAI-format tool message only takes a string, and strict
+			// upstreams reject unknown fields, so the block carrier must be gone
+			// and the lowered string is what goes out.
+			const toolMsg = upstreamBody.messages.find((m: any) => m.role === "tool");
+			expect(toolMsg.tool_call_id).toBe("toolu_1");
+			expect(typeof toolMsg.content).toBe("string");
+			expect(toolMsg.content).toContain("Rendered.");
+			expect(toolMsg).not.toHaveProperty("anthropic_native_blocks");
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test("/v1/messages rejects a URL-sourced image inside a tool_result", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// Nested tool_result blocks go to Anthropic verbatim, so a `url` source
+		// would have the provider fetch a caller-supplied URL the gateway never
+		// guarded. Top-level image blocks already only take base64.
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "anthropic/claude-opus-4-8",
+				max_tokens: 1024,
+				messages: [
+					{ role: "user", content: "Chart the data." },
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "tool_use",
+								id: "toolu_1",
+								name: "render_chart",
+								input: {},
+							},
+						],
+					},
+					{
+						role: "user",
+						content: [
+							{
+								type: "tool_result",
+								tool_use_id: "toolu_1",
+								content: [
+									{
+										type: "image",
+										source: {
+											type: "url",
+											url: "https://example.com/chart.png",
+										},
+									},
+								],
+							},
+						],
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			type: string;
+			error: { type: string; message: string };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.type).toBe("invalid_request_error");
+		expect(body.error.message).toContain(
+			"tool_result image blocks must use a base64 source",
+		);
+
+		const logs = await waitForLogs(1);
+		expect(logs[0].finishReason).toBe("client_error");
 	});
 
 	test("/v1/messages keeps a caller's tool cache_control on the wire", async () => {
