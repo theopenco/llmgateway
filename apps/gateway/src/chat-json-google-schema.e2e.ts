@@ -16,7 +16,8 @@ import {
 // Schema (responseJsonSchema), Vertex the converted OpenAPI subset
 // (responseSchema). This sample covers the shapes either path has dropped:
 // nullable and multi-member unions, $ref/$defs, arrays of refs, a
-// single-member allOf around a ref (pydantic <= 2.8) and a recursive model.
+// single-member allOf around a ref (pydantic <= 2.8), a recursive model and
+// non-string enums.
 const googleSchemaModels = jsonSchemaOutputModels.filter(
 	({ model }) =>
 		model.startsWith("google-ai-studio/") || model.startsWith("google-vertex/"),
@@ -32,6 +33,8 @@ const sampleOutputSchema = z.object({
 	previous: z.array(addressSchema),
 	shipping: addressSchema,
 	manager: personSchema.nullable(),
+	priority: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+	verified: z.literal(true),
 });
 
 function createGoogleSchemaSampleRequest(model: string) {
@@ -42,7 +45,7 @@ function createGoogleSchemaSampleRequest(model: string) {
 			{
 				role: "user",
 				content:
-					"User u-42 has no nickname, lives in Paris, previously lived in Berlin and Rome, ships to a warehouse in Porto, and is managed by Alice, who manages Bob.",
+					"User u-42 has no nickname, lives in Paris, previously lived in Berlin and Rome, ships to a warehouse in Porto, and is managed by Alice, who manages Bob. The ticket has top priority (1) and the user is verified.",
 			},
 		],
 		response_format: {
@@ -63,6 +66,8 @@ function createGoogleSchemaSampleRequest(model: string) {
 						manager: {
 							anyOf: [{ $ref: "#/$defs/Person" }, { type: "null" }],
 						},
+						priority: { type: "integer", enum: [1, 2, 3] },
+						verified: { type: "boolean", enum: [true] },
 					},
 					required: [
 						"nickname",
@@ -71,6 +76,8 @@ function createGoogleSchemaSampleRequest(model: string) {
 						"previous",
 						"shipping",
 						"manager",
+						"priority",
+						"verified",
 					],
 					$defs: {
 						Address: {

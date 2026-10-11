@@ -527,11 +527,19 @@ function convertOpenAISchemaToGoogle(
 		converted.required = schema.required;
 	}
 
-	// Google's Schema proto represents every enum member as a string, including
-	// members of numeric and boolean schemas.
+	// Google's Schema proto represents every enum member as a string, and
+	// Vertex rejects an enum on any non-STRING schema with a 400. Keep a
+	// numeric or boolean enum as a description hint so the type survives.
 	const normalizedEnum = normalizeGoogleSchemaEnum(schema.enum);
 	if (normalizedEnum !== undefined) {
-		converted.enum = normalizedEnum;
+		if (!converted.type || converted.type === "STRING") {
+			converted.enum = normalizedEnum;
+		} else {
+			const hint = `Allowed values: ${normalizedEnum.join(", ")}`;
+			converted.description = converted.description
+				? `${converted.description} (${hint})`
+				: hint;
+		}
 	}
 
 	// Copy other common JSON schema properties that Google supports
@@ -4514,10 +4522,14 @@ export async function prepareRequestBody(
 			} else if (response_format?.type === "json_schema") {
 				requestBody.generationConfig.responseMimeType = "application/json";
 				if (response_format.json_schema?.schema) {
-					// AI Studio takes standard JSON Schema ($ref, $defs, anyOf, type
-					// arrays) via responseJsonSchema; the other Google transports still
-					// get the OpenAPI-subset conversion in responseSchema.
-					if (usedProvider === "google-ai-studio") {
+					// AI Studio and Vertex take standard JSON Schema ($ref, $defs,
+					// anyOf, type arrays, numeric enums) via responseJsonSchema; the
+					// compatible transports still get the OpenAPI-subset conversion in
+					// responseSchema.
+					if (
+						usedProvider === "google-ai-studio" ||
+						usedProvider === "google-vertex"
+					) {
 						requestBody.generationConfig.responseJsonSchema =
 							foldSingleMemberAllOf(response_format.json_schema.schema);
 					} else {
