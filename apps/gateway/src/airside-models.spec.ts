@@ -2554,6 +2554,47 @@ describe("airside-listed models", () => {
 		});
 	});
 
+	test("routes BYOK keys for Airside-only carriers to the carrier endpoint unless the key sets one", async () => {
+		const token = "airside-byok-endpoint";
+		await setupCustomCarrier(token, { basePath: "/carrier" });
+		await db
+			.update(tables.project)
+			.set({ mode: "api-keys" })
+			.where(eq(tables.project.id, "project-id"));
+		const id = `${token}-byok-key`;
+		await db.insert(tables.providerKey).values({
+			id,
+			provider: "acme-sky",
+			organizationId: "org-id",
+			...encryptProviderKeyForStorage("byok-carrier-key", id, "org-id"),
+		});
+		const send = async () => {
+			await clearCache();
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${token}`,
+					"Content-Type": "application/json",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "acme-sky/sky-large",
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			});
+			expect(res.status, await res.text()).toBe(200);
+			return captured.at(-1);
+		};
+		const carrier = await send();
+		expect(carrier?.url).toBe("/carrier/v1/chat/completions");
+		expect(carrier?.headers.authorization).toBe("Bearer byok-carrier-key");
+		await db
+			.update(tables.providerKey)
+			.set({ baseUrl: `${upstreamUrl}/byok` })
+			.where(eq(tables.providerKey.id, id));
+		expect((await send())?.url).toBe("/byok/v1/chat/completions");
+	});
+
 	test("keeps identity, billing and compliance across catalogue removal", async () => {
 		await setupCustomCarrier("transition-token", {
 			providerId: "openai",
