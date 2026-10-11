@@ -286,7 +286,8 @@ async function reconcileLegacyRows(
 			continue;
 		}
 
-		const stripeTotal = refunds.reduce((s, r) => s + r.amount / 100, 0);
+		// Sum integer cents, then convert once.
+		const stripeTotal = refunds.reduce((s, r) => s + r.amount, 0) / 100;
 		console.log(
 			`  Succeeded Stripe refunds (${refunds.length}, sum $${stripeTotal.toFixed(2)})`,
 		);
@@ -346,6 +347,35 @@ async function backfillMissingRefunds(
 	const { commit, scopePI, scopeOrg } = opts;
 	console.log(`\n=== Phase 2: backfill missing refunds (no row at all) ===`);
 
+	// Legacy credit_refund rows without a stripe_refund_id can't be matched to a
+	// Stripe refund by id, yet each still represents a recorded refund. Phase 1
+	// rewrites the ones it can; any left behind (no payment intent, Stripe lookup
+	// failed) — or, in a dry run, all of them — would be double-counted if we
+	// inserted the Stripe refunds for the same payment here, so skip those.
+	const unresolvedLegacy = await db
+		.select({
+			paymentIntentId: tables.transaction.stripePaymentIntentId,
+			relatedTransactionId: tables.transaction.relatedTransactionId,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				isNull(tables.transaction.stripeRefundId),
+				...(scopeOrg ? [eq(tables.transaction.organizationId, scopeOrg)] : []),
+			),
+		);
+	const legacyPIs = new Set(
+		unresolvedLegacy
+			.map((r) => r.paymentIntentId)
+			.filter((id): id is string => id !== null),
+	);
+	const legacyOriginalIds = new Set(
+		unresolvedLegacy
+			.map((r) => r.relatedTransactionId)
+			.filter((id): id is string => id !== null),
+	);
+
 	// DevPass payment transactions that could have been refunded.
 	const originals = await db
 		.select()
@@ -372,6 +402,7 @@ async function backfillMissingRefunds(
 	// first invoice can back both a dev_plan_start and dev_plan_renewal — either
 	// is a valid refund anchor for revenue attribution, so pick deterministically).
 	const originalByPI = new Map<string, TransactionRow>();
+	const legacyBlockedPIs = new Set<string>();
 	let skippedNoPI = 0;
 	for (const original of originalRows) {
 		let paymentIntentIds: string[] = [];
@@ -397,6 +428,10 @@ async function backfillMissingRefunds(
 			if (scopePI && pi !== scopePI) {
 				continue;
 			}
+			if (legacyOriginalIds.has(original.id) || legacyPIs.has(pi)) {
+				legacyBlockedPIs.add(pi);
+				continue;
+			}
 			const existing = originalByPI.get(pi);
 			if (!existing || original.createdAt < existing.createdAt) {
 				originalByPI.set(pi, original);
@@ -404,6 +439,17 @@ async function backfillMissingRefunds(
 		}
 	}
 
+	for (const pi of legacyBlockedPIs) {
+		originalByPI.delete(pi);
+	}
+	if (legacyBlockedPIs.size > 0) {
+		console.warn(
+			`Skipping ${legacyBlockedPIs.size} payment intent(s) that still have legacy refund row(s) without stripe_refund_id (reconcile them in Phase 1 first):`,
+		);
+		for (const pi of legacyBlockedPIs) {
+			console.warn(`  - ${pi}`);
+		}
+	}
 	if (skippedNoPI > 0) {
 		console.log(
 			`Skipped ${skippedNoPI} payment transaction(s) with no resolvable payment intent.`,
@@ -428,18 +474,19 @@ async function backfillMissingRefunds(
 			continue;
 		}
 
-		const missing: Stripe.Refund[] = [];
-		for (const r of refunds) {
-			const already = await db.query.transaction.findFirst({
-				where: {
-					stripeRefundId: { eq: r.id },
-					type: { eq: "credit_refund" },
-				},
-			});
-			if (!already) {
-				missing.push(r);
-			}
-		}
+		// One lookup per payment intent. Not filtered by type: stripe_refund_id
+		// is unique across all rows, so any existing match would block the insert.
+		const recorded = await db
+			.select({ refundId: tables.transaction.stripeRefundId })
+			.from(tables.transaction)
+			.where(
+				inArray(
+					tables.transaction.stripeRefundId,
+					refunds.map((r) => r.id),
+				),
+			);
+		const recordedIds = new Set(recorded.map((r) => r.refundId));
+		const missing = refunds.filter((r) => !recordedIds.has(r.id));
 		if (missing.length === 0) {
 			continue;
 		}
