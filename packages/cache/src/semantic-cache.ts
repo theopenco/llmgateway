@@ -44,6 +44,18 @@ const OPENING_EQUIVALENTS: [RegExp, string][] = [
 	[/^which\b/, "what"],
 ];
 
+/**
+ * Drops a trailing run of "?" and "." with the whitespace before it. A loop,
+ * not a regex: `\s*[?.]+$` backtracks quadratically on long runs of dots.
+ */
+function stripTrailingPunctuation(prose: string): string {
+	let end = prose.length;
+	while (end > 0 && (prose[end - 1] === "?" || prose[end - 1] === ".")) {
+		end--;
+	}
+	return end === prose.length ? prose : prose.slice(0, end).trimEnd();
+}
+
 function normalizeOpening(prose: string): string {
 	const folded = prose.replace(/^\p{L}+(?:'\p{L}+)?/u, (word) =>
 		OPENERS.has(word.toLowerCase()) ? word.toLowerCase() : word,
@@ -71,7 +83,7 @@ export function normalizedPromptKey(text: string): string | null {
 	parts[0] = normalizeOpening(parts[0]);
 	const last = parts.length - 1;
 	if (last % 2 === 0) {
-		parts[last] = parts[last].replace(/\s*[?.]+$/, "");
+		parts[last] = stripTrailingPunctuation(parts[last]);
 	}
 	return parts.join("") === "" ? null : JSON.stringify(parts);
 }
