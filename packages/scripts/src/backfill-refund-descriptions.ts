@@ -105,9 +105,17 @@ async function main(): Promise<void> {
 	const outPath = parseFlag("out");
 	const scopeOrg = parseFlag("org");
 	const limitRaw = parseFlag("limit");
-	const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
+	const limit = limitRaw !== undefined ? Number(limitRaw) : undefined;
 
-	if (limitRaw && (!Number.isFinite(limit) || (limit ?? 0) <= 0)) {
+	// A blank `--org=` (e.g. an unset shell variable) must not silently widen
+	// the run to every organization.
+	if (scopeOrg !== undefined && scopeOrg.trim() === "") {
+		throw new Error(`--org must be a non-empty organization id`);
+	}
+	if (
+		limitRaw !== undefined &&
+		(!Number.isSafeInteger(limit) || (limit ?? 0) <= 0)
+	) {
 		throw new Error(`--limit must be a positive integer, got "${limitRaw}"`);
 	}
 
@@ -273,7 +281,9 @@ async function main(): Promise<void> {
 					`${s.id}  org=${s.organizationId}  ${money(s.amount)}  reason=${s.reason}`,
 				);
 				console.log(`  description: ${s.description ?? "(null)"}`);
-				console.log(`  relatedTransactionId: ${s.relatedTransactionId ?? "(null)"}`);
+				console.log(
+					`  relatedTransactionId: ${s.relatedTransactionId ?? "(null)"}`,
+				);
 				console.log("");
 			}
 		}
@@ -292,9 +302,7 @@ async function main(): Promise<void> {
 						.where(eq(tables.transaction.id, c.id));
 				}
 			});
-			log(
-				`  Applied ${Math.min(i + CHUNK, changes.length)}/${changes.length}`,
-			);
+			log(`  Applied ${Math.min(i + CHUNK, changes.length)}/${changes.length}`);
 		}
 	}
 
