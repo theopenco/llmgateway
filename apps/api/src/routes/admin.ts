@@ -573,6 +573,8 @@ const organizationSchema = z.object({
 	projectLimit: z.number().int().nullable().optional(),
 	credits: z.string(),
 	totalCreditsAllTime: z.string().optional(),
+	// All-time DevPass + Chat Plan subscription payments, net of refunds.
+	totalSubscriptionValue: z.string().optional(),
 	totalSpent: z.string().optional(),
 	totalCreditsSpent: z.string().optional(),
 	totalApiKeysSpent: z.string().optional(),
@@ -941,6 +943,7 @@ const sortBySchema = z.enum([
 	"createdAt",
 	"status",
 	"totalCreditsAllTime",
+	"totalSubscriptionValue",
 	"totalSpent",
 	"totalRequests",
 	"totalTokens",
@@ -2787,6 +2790,75 @@ admin.openapi(getOrganizations, async (c) => {
 			.groupBy(tables.transaction.organizationId)
 			.as("all_time_credits");
 
+	// All-time subscription value per org: completed DevPass and Chat Plan
+	// subscription payments (`amount` = dollars charged), net of refunds against
+	// them. Deduplicated per invoice because the first invoice of a subscription
+	// writes both a `*_start` and a `*_renewal` row. Legacy `subscription_*`
+	// rows only count on DevPass orgs, since non-personal org Pro subs still
+	// write them. One-time Reset Pass purchases are not subscriptions.
+	const subscriptionPaymentTypes = [
+		...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+		...LEGACY_DEV_PLAN_TX_TYPES,
+		...CHAT_PLAN_TX_TYPES,
+	];
+	const subscriptionPaymentFilter = (tx: typeof tables.transaction) =>
+		or(
+			inArray(tx.type, [
+				...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+				...CHAT_PLAN_TX_TYPES,
+			]),
+			and(
+				inArray(tx.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
+				eq(tables.organization.kind, "devpass"),
+			),
+		)!;
+	const subscriptionRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"subscription_refund_original_tx",
+	);
+	const subscriptionValueForOrganizations = (organizationIds?: string[]) =>
+		db
+			.select({
+				organizationId: tables.transaction.organizationId,
+				total:
+					sql<string>`COALESCE(SUM(CASE WHEN ${tables.transaction.type} = 'credit_refund' THEN -CAST(${tables.transaction.amount} AS NUMERIC) ELSE CAST(${tables.transaction.amount} AS NUMERIC) END), 0)`.as(
+						"total",
+					),
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.leftJoin(
+				subscriptionRefundOriginalTx,
+				eq(
+					tables.transaction.relatedTransactionId,
+					subscriptionRefundOriginalTx.id,
+				),
+			)
+			.where(
+				and(
+					eq(tables.transaction.status, "completed"),
+					isNotNull(tables.transaction.amount),
+					organizationIds
+						? inArray(tables.transaction.organizationId, organizationIds)
+						: undefined,
+					or(
+						and(
+							subscriptionPaymentFilter(tables.transaction),
+							firstRowPerInvoiceFilter(subscriptionPaymentTypes),
+						),
+						and(
+							eq(tables.transaction.type, "credit_refund"),
+							subscriptionPaymentFilter(subscriptionRefundOriginalTx),
+						),
+					),
+				),
+			)
+			.groupBy(tables.transaction.organizationId)
+			.as("subscription_value");
+
 	// Subquery for usage totals (cost, requests, tokens) per org, scoped to the
 	// selected window.
 	const usageForOrganizations = (organizationIds?: string[]) =>
@@ -2836,6 +2908,7 @@ admin.openapi(getOrganizations, async (c) => {
 			.as("total_spent");
 
 	const allTimeCredits = creditsForOrganizations();
+	const allTimeSubscriptionValue = subscriptionValueForOrganizations();
 	const totalSpentSub = usageForOrganizations();
 
 	const whereClause = and(
@@ -2877,6 +2950,7 @@ admin.openapi(getOrganizations, async (c) => {
 		createdAt: tables.organization.createdAt,
 		status: tables.organization.status,
 		totalCreditsAllTime: sql`COALESCE(CAST(${allTimeCredits.total} AS NUMERIC), 0)`,
+		totalSubscriptionValue: sql`COALESCE(CAST(${allTimeSubscriptionValue.total} AS NUMERIC), 0)`,
 		totalSpent: sql`COALESCE(CAST(${totalSpentSub.total} AS NUMERIC), 0)`,
 		totalRequests: sql`COALESCE(CAST(${totalSpentSub.requestsTotal} AS NUMERIC), 0)`,
 		totalTokens: sql`COALESCE(CAST(${totalSpentSub.tokensTotal} AS NUMERIC), 0)`,
@@ -2910,6 +2984,12 @@ admin.openapi(getOrganizations, async (c) => {
 			eq(tables.organization.id, allTimeCredits.organizationId),
 		);
 	}
+	if (sortBy === "totalSubscriptionValue") {
+		pageQuery = pageQuery.leftJoin(
+			allTimeSubscriptionValue,
+			eq(tables.organization.id, allTimeSubscriptionValue.organizationId),
+		);
+	}
 	const [[countResult], page] = await Promise.all([
 		countQuery.where(whereClause),
 		pageQuery
@@ -2929,6 +3009,8 @@ admin.openapi(getOrganizations, async (c) => {
 		return c.json({ organizations: [], total, totalCredits, limit, offset });
 	}
 	const pageCredits = creditsForOrganizations(organizationIds);
+	const pageSubscriptionValue =
+		subscriptionValueForOrganizations(organizationIds);
 	const pageUsage = usageForOrganizations(organizationIds);
 	const ownerSub = buildOrganizationOwnerSubquery(organizationIds);
 
@@ -2952,6 +3034,10 @@ admin.openapi(getOrganizations, async (c) => {
 			totalCreditsAllTime: sql<string>`COALESCE(${pageCredits.total}, '0')`.as(
 				"totalCreditsAllTime",
 			),
+			totalSubscriptionValue:
+				sql<string>`COALESCE(${pageSubscriptionValue.total}, '0')`.as(
+					"totalSubscriptionValue",
+				),
 			totalSpent: sql<string>`COALESCE(${pageUsage.total}, '0')`.as(
 				"totalSpent",
 			),
@@ -2978,6 +3064,10 @@ admin.openapi(getOrganizations, async (c) => {
 			pageCredits,
 			eq(tables.organization.id, pageCredits.organizationId),
 		)
+		.leftJoin(
+			pageSubscriptionValue,
+			eq(tables.organization.id, pageSubscriptionValue.organizationId),
+		)
 		.leftJoin(pageUsage, eq(tables.organization.id, pageUsage.organizationId))
 		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId))
 		.where(inArray(tables.organization.id, organizationIds));
@@ -2999,6 +3089,7 @@ admin.openapi(getOrganizations, async (c) => {
 			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			credits: String(org.credits),
 			totalCreditsAllTime: String(org.totalCreditsAllTime ?? "0"),
+			totalSubscriptionValue: String(org.totalSubscriptionValue ?? "0"),
 			totalSpent: String(org.totalSpent ?? "0"),
 			totalCreditsSpent: String(org.totalCreditsSpent ?? "0"),
 			totalApiKeysSpent: String(org.totalApiKeysSpent ?? "0"),

@@ -10,6 +10,7 @@ export type SortBy =
 	| "createdAt"
 	| "status"
 	| "totalCreditsAllTime"
+	| "totalSubscriptionValue"
 	| "totalSpent"
 	| "totalRequests"
 	| "totalTokens";
