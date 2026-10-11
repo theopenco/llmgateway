@@ -113,8 +113,8 @@ import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import {
-	semanticCacheLookup,
-	type SemanticCacheAudit,
+	findSemanticCacheMatch,
+	semanticCachePointerFor,
 } from "@/lib/semantic-cache-lookup.js";
 import {
 	createSmartRoutingSessionStore,
@@ -180,6 +180,7 @@ import {
 	getCache,
 	getStreamingCache,
 	setCache,
+	setSemanticCachePointer,
 	setStreamingCache,
 } from "@llmgateway/cache";
 import {
@@ -7208,7 +7209,6 @@ chat.openapi(completions, async (c) => {
 		duration: cacheDuration,
 		providerCacheControlMode: configuredProviderCacheControlMode,
 		semanticCacheMode: projectSemanticCacheMode,
-		semanticCacheThreshold,
 	} = await isCachingEnabled(project.id);
 	const providerCacheControlMode = zeroDataRetentionEnabled
 		? "off"
@@ -7225,36 +7225,19 @@ chat.openapi(completions, async (c) => {
 
 	let cacheKey: string | null = null;
 	let streamingCacheKey: string | null = null;
-	// Set after a semantic lookup missed; records this request's embedding
-	// against its response-cache key once the response is cached.
-	let rememberSemanticCacheEntry:
-		((cacheKey: string, expirationSeconds: number) => Promise<void>) | null =
-		null;
-	// The embedding call sends prompt text to an embedding provider that the
-	// compliance policy does not vet, so any active policy disables it. The
-	// stored project setting outlives a lapsed Enterprise plan, so the
+	// Pointed at this request's response-cache key once the response is cached.
+	let semanticCachePointerKey: string | null = null;
+	// The stored project setting outlives a lapsed Enterprise plan, so the
 	// entitlement is checked here too. Tool calls and image output are not
-	// represented by a text embedding.
+	// matched by the final user turn's text alone.
 	const semanticCacheMode =
 		cachingEnabled &&
 		projectSemanticCacheMode !== "off" &&
 		hasOrganizationEnterpriseAccess(organization.id, organization.plan) &&
-		!compliancePolicy &&
 		!tools?.length &&
 		!isImageGeneration
 			? projectSemanticCacheMode
 			: "off";
-	const recordSemanticCacheAudit = (audit: SemanticCacheAudit) => {
-		routingMetadata = routingMetadata
-			? { ...routingMetadata, semanticCache: audit }
-			: {
-					availableProviders: usedProvider ? [usedProvider] : [],
-					selectedProvider: usedProvider ?? "",
-					selectionReason: "requested",
-					providerScores: [],
-					semanticCache: audit,
-				};
-	};
 
 	if (cachingEnabled) {
 		const cachePayload = {
@@ -7277,48 +7260,67 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			n,
 			service_tier,
+			effort,
+			verbosity,
+			reasoning_mode,
+			reasoning_context,
+			plugins,
+			sensitive_word_check,
+			no_reasoning,
+			image_config,
 		};
 
-		// An auto-routed request shares one semantic pool across providers: the
-		// cached body is provider-neutral and the exact cache already keyed it
-		// by whichever provider served it, which would split the pool by
-		// routing luck.
-		const semanticCacheScope = {
-			...cachePayload,
-			provider: requestedProvider ? usedProvider : "auto",
-			stream: Boolean(stream),
+		const pointerKey =
+			semanticCacheMode === "off"
+				? null
+				: semanticCachePointerFor({
+						projectId: project.id,
+						payload: { ...cachePayload, messages: messages as BaseMessage[] },
+						stream: Boolean(stream),
+					});
+		semanticCachePointerKey = pointerKey;
+
+		// Records a semantic match on the log row and returns the response to
+		// serve, which is null in shadow mode.
+		const findSemanticCacheResponse = async <T>(
+			load: (cacheKey: string) => Promise<T | null>,
+		): Promise<T | null> => {
+			if (semanticCacheMode === "off" || !pointerKey) {
+				return null;
+			}
+			const match = await findSemanticCacheMatch(
+				pointerKey,
+				semanticCacheMode,
+				load,
+			);
+			if (!match) {
+				return null;
+			}
+			routingMetadata = routingMetadata
+				? { ...routingMetadata, semanticCache: match.audit }
+				: {
+						availableProviders: usedProvider ? [usedProvider] : [],
+						selectedProvider: usedProvider ?? "",
+						selectionReason: "requested",
+						providerScores: [],
+						semanticCache: match.audit,
+					};
+			if (!match.audit.served) {
+				return null;
+			}
+			c.header("x-llmgateway-cache-match", "semantic");
+			return match.response;
 		};
 
 		if (stream) {
 			streamingCacheKey = generateStreamingCacheKey(project.id, cachePayload);
 			let cachedStreamingResponse = await getStreamingCache(streamingCacheKey);
-			if (
-				!cachedStreamingResponse?.metadata.completed &&
-				semanticCacheMode !== "off"
-			) {
-				const lookup = await semanticCacheLookup({
-					projectId: project.id,
-					mode: semanticCacheMode,
-					threshold: semanticCacheThreshold,
-					messages: messages as BaseMessage[],
-					scope: semanticCacheScope,
-					load: async (key) => {
+			if (!cachedStreamingResponse?.metadata.completed) {
+				cachedStreamingResponse =
+					(await findSemanticCacheResponse(async (key) => {
 						const cached = await getStreamingCache(key);
 						return cached?.metadata.completed ? cached : null;
-					},
-				});
-				rememberSemanticCacheEntry = lookup.remember;
-				if (lookup.audit) {
-					recordSemanticCacheAudit(lookup.audit);
-				}
-				if (lookup.hit) {
-					cachedStreamingResponse = lookup.hit.response;
-					c.header("x-llmgateway-cache-match", "semantic");
-					c.header(
-						"x-llmgateway-cache-similarity",
-						lookup.hit.audit.similarity.toFixed(4),
-					);
-				}
+					})) ?? cachedStreamingResponse;
 			}
 			if (cachedStreamingResponse?.metadata.completed) {
 				// Extract final content and metadata from cached chunks
@@ -7674,29 +7676,9 @@ chat.openapi(completions, async (c) => {
 			}
 		} else {
 			cacheKey = generateCacheKey(project.id, cachePayload);
-			let cachedResponse = cacheKey ? await getCache(cacheKey) : null;
-			if (!cachedResponse && semanticCacheMode !== "off") {
-				const lookup = await semanticCacheLookup({
-					projectId: project.id,
-					mode: semanticCacheMode,
-					threshold: semanticCacheThreshold,
-					messages: messages as BaseMessage[],
-					scope: semanticCacheScope,
-					load: getCache,
-				});
-				rememberSemanticCacheEntry = lookup.remember;
-				if (lookup.audit) {
-					recordSemanticCacheAudit(lookup.audit);
-				}
-				if (lookup.hit) {
-					cachedResponse = lookup.hit.response;
-					c.header("x-llmgateway-cache-match", "semantic");
-					c.header(
-						"x-llmgateway-cache-similarity",
-						lookup.hit.audit.similarity.toFixed(4),
-					);
-				}
-			}
+			const cachedResponse =
+				(await getCache(cacheKey)) ??
+				(await findSemanticCacheResponse(getCache));
 			if (cachedResponse) {
 				// Log the cached request
 				const duration = 0; // No processing time needed
@@ -13198,10 +13180,13 @@ chat.openapi(completions, async (c) => {
 								streamingCacheData,
 								cacheDuration,
 							);
-							await rememberSemanticCacheEntry?.(
-								streamingCacheKey,
-								cacheDuration,
-							);
+							if (semanticCachePointerKey) {
+								void setSemanticCachePointer(
+									semanticCachePointerKey,
+									streamingCacheKey,
+									cacheDuration,
+								);
+							}
 						} catch (error) {
 							logger.error("Error saving streaming cache", toError(error));
 						}
@@ -15606,7 +15591,13 @@ chat.openapi(completions, async (c) => {
 			stripRequestScopedMetadataFromOpenAiResponse(transformedResponse),
 			cacheDuration,
 		);
-		await rememberSemanticCacheEntry?.(cacheKey, cacheDuration);
+		if (semanticCachePointerKey) {
+			void setSemanticCachePointer(
+				semanticCachePointerKey,
+				cacheKey,
+				cacheDuration,
+			);
+		}
 	}
 
 	// For image generation models with streaming requested, convert to SSE format

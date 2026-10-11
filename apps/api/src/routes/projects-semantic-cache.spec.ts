@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 const ORG_ID = "semantic-cache-org";
 const PROJECT_ID = "semantic-cache-project";
@@ -44,23 +45,6 @@ describe("semantic cache settings", () => {
 		});
 	}
 
-	test("semantic caching requires enterprise", async () => {
-		await db
-			.update(tables.organization)
-			.set({ plan: "pro" })
-			.where(eq(tables.organization.id, ORG_ID));
-		const semantic = await call("PATCH", `/projects/${PROJECT_ID}`, {
-			cachingEnabled: true,
-			semanticCacheMode: "on",
-		});
-		expect(semantic.status).toBe(403);
-		const shadow = await call("PATCH", `/projects/${PROJECT_ID}`, {
-			cachingEnabled: true,
-			semanticCacheMode: "shadow",
-		});
-		expect(shadow.status).toBe(403);
-	});
-
 	async function stored() {
 		const [project] = await db
 			.select()
@@ -69,23 +53,32 @@ describe("semantic cache settings", () => {
 		return project;
 	}
 
-	test("enterprise projects can enable semantic caching", async () => {
+	test("semantic caching requires enterprise", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "pro" })
+			.where(eq(tables.organization.id, ORG_ID));
+		for (const semanticCacheMode of ["on", "shadow"]) {
+			const res = await call("PATCH", `/projects/${PROJECT_ID}`, {
+				cachingEnabled: true,
+				semanticCacheMode,
+			});
+			expect(res.status).toBe(403);
+		}
+		expect((await stored()).semanticCacheMode).toBe("off");
+	});
+
+	test("enterprise projects can enable semantic caching under a compliance policy", async () => {
+		await db
+			.update(tables.organization)
+			.set({ providerCompliancePolicy: { enabled: true, requireGdpr: true } })
+			.where(eq(tables.organization.id, ORG_ID));
 		const res = await call("PATCH", `/projects/${PROJECT_ID}`, {
 			cachingEnabled: true,
 			semanticCacheMode: "on",
-			semanticCacheThreshold: 0.92,
 		});
 		expect(res.status).toBe(200);
-		const project = await stored();
-		expect(project.semanticCacheMode).toBe("on");
-		expect(project.semanticCacheThreshold).toBeCloseTo(0.92);
-	});
-
-	test("threshold floor is 0.90", async () => {
-		const low = await call("PATCH", `/projects/${PROJECT_ID}`, {
-			semanticCacheThreshold: 0.85,
-		});
-		expect(low.status).toBe(400);
+		expect((await stored()).semanticCacheMode).toBe("on");
 	});
 
 	test("turning off request caching turns semantic caching off", async () => {
@@ -118,44 +111,33 @@ describe("semantic cache settings", () => {
 		expect((await stored()).semanticCacheMode).toBe("off");
 	});
 
-	test("semantic caching rules: threshold needs enterprise, policy blocks enabling", async () => {
-		await db
-			.update(tables.organization)
-			.set({ plan: "pro" })
-			.where(eq(tables.organization.id, ORG_ID));
-		const threshold = await call("PATCH", `/projects/${PROJECT_ID}`, {
-			semanticCacheThreshold: 0.9,
+	test("turning off request caching with a master key turns semantic caching off", async () => {
+		const masterToken = `mk-${crypto.randomUUID()}`;
+		await db.insert(tables.masterKey).values({
+			id: "semantic-cache-master-key",
+			tokenHash: getApiKeyFingerprint(masterToken),
+			maskedToken: "mk-****",
+			description: "Semantic Cache Master Key",
+			status: "active",
+			organizationId: ORG_ID,
+			createdBy: "test-user-id",
 		});
-		expect(threshold.status).toBe(403);
-		await db
-			.update(tables.organization)
-			.set({
-				plan: "enterprise",
-				providerCompliancePolicy: { enabled: true, requireGdpr: true },
-			})
-			.where(eq(tables.organization.id, ORG_ID));
-		const blocked = await call("PATCH", `/projects/${PROJECT_ID}`, {
-			cachingEnabled: true,
-			semanticCacheMode: "on",
-		});
-		expect(blocked.status).toBe(409);
-		const disable = await call("PATCH", `/projects/${PROJECT_ID}`, {
-			semanticCacheMode: "off",
-		});
-		expect(disable.status).toBe(200);
-		// A project already in shadow cannot move to on under a policy either,
-		// but may stay where it is or turn off.
 		await db
 			.update(tables.project)
-			.set({ cachingEnabled: true, semanticCacheMode: "shadow" })
+			.set({ cachingEnabled: true, semanticCacheMode: "on" })
 			.where(eq(tables.project.id, PROJECT_ID));
-		const escalate = await call("PATCH", `/projects/${PROJECT_ID}`, {
-			semanticCacheMode: "on",
+
+		const res = await app.request(`/v1/master/projects/${PROJECT_ID}`, {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${masterToken}`,
+			},
+			body: JSON.stringify({ cachingEnabled: false }),
 		});
-		expect(escalate.status).toBe(409);
-		const same = await call("PATCH", `/projects/${PROJECT_ID}`, {
-			semanticCacheMode: "shadow",
-		});
-		expect(same.status).toBe(200);
+		expect(res.status).toBe(200);
+		const project = await stored();
+		expect(project.cachingEnabled).toBe(false);
+		expect(project.semanticCacheMode).toBe("off");
 	});
 });

@@ -36,7 +36,6 @@ export const CachingSettingsRsc = async ({
 				cacheDurationSeconds: project.cacheDurationSeconds,
 				providerCacheControlMode: project.providerCacheControlMode,
 				semanticCacheMode: project.semanticCacheMode,
-				semanticCacheThreshold: project.semanticCacheThreshold,
 			},
 		},
 	};

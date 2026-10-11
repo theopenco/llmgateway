@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "c0ee6e02-c744-4d93-8530-1599c253bb08",
+  "id": "996694da-7c1a-4c50-a2ba-8b4ca770ea0a",
   "prevId": "c9e58b12-1f8f-4a41-8565-3a1be94c8b35",
   "ddl": [
     {
@@ -20780,22 +20780,6 @@
       "generated": null,
       "identity": null,
       "name": "semantic_cache_mode",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0.95",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "semantic_cache_threshold",
       "entityType": "columns",
       "schema": "public",
       "table": "project"

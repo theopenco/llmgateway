@@ -156,6 +156,13 @@ aisdk.post("/language-model", async (c) => {
 		);
 	}
 
+	for (const name of ["x-llmgateway-cache", "x-llmgateway-cache-match"]) {
+		const value = response.headers.get(name);
+		if (value) {
+			c.header(name, value);
+		}
+	}
+
 	if (!stream) {
 		const completion = (await response.json()) as ChatCompletionResponse;
 		return c.json(
@@ -166,17 +173,6 @@ aisdk.post("/language-model", async (c) => {
 				webSearchToolName,
 			}),
 		);
-	}
-
-	for (const name of [
-		"x-llmgateway-cache",
-		"x-llmgateway-cache-match",
-		"x-llmgateway-cache-similarity",
-	]) {
-		const value = response.headers.get(name);
-		if (value) {
-			c.header(name, value);
-		}
 	}
 
 	return streamSSE(c, async (sseStream) => {

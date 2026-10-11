@@ -1,0 +1,1 @@
+ALTER TABLE "project" ADD COLUMN "semantic_cache_mode" text DEFAULT 'off' NOT NULL;

@@ -112,10 +112,9 @@ export interface RoutingMetadata {
 	// gateway had to choose from. BYOK rows only; never platform credentials.
 	eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 	// Semantic-cache decision for this request, when a lookup found a match:
-	// the similarity, the entry it matched and whether it was served (false in
-	// shadow mode). Lets a false hit be traced back afterwards.
+	// the entry it matched and whether it was served (false in shadow mode).
+	// Lets a false hit be traced back afterwards.
 	semanticCache?: {
-		similarity: number;
 		matchedCacheKey: string;
 		served: boolean;
 	};
