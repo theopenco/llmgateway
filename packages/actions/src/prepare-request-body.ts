@@ -417,6 +417,7 @@ function convertOpenAISchemaToGoogle(
 	schema: any,
 	rootDefs: Record<string, any> = schema?.$defs ?? schema?.definitions ?? {},
 	seenRefs: Set<string> = new Set(),
+	rootSchema: any = schema,
 ): any {
 	if (!schema || typeof schema !== "object") {
 		return schema;
@@ -430,12 +431,13 @@ function convertOpenAISchemaToGoogle(
 				? { type: "OBJECT", description: schema.description }
 				: { type: "OBJECT" };
 		}
-		const resolved = resolveRef(schema.$ref, rootDefs);
+		const resolved = resolveRef(schema.$ref, rootDefs, rootSchema);
 		if (resolved) {
 			const expanded = convertOpenAISchemaToGoogle(
 				resolved,
 				rootDefs,
 				new Set(seenRefs).add(schema.$ref),
+				rootSchema,
 			);
 			if (schema.description && !expanded.description) {
 				expanded.description = schema.description;
@@ -476,6 +478,7 @@ function convertOpenAISchemaToGoogle(
 				value,
 				rootDefs,
 				seenRefs,
+				rootSchema,
 			);
 		}
 	}
@@ -486,19 +489,28 @@ function convertOpenAISchemaToGoogle(
 			schema.items,
 			rootDefs,
 			seenRefs,
+			rootSchema,
 		);
 	}
 
 	// Unions: Google has `anyOf` but no null type, so a null member becomes
-	// `nullable` and a lone remaining member is folded into this node.
-	const union = Array.isArray(schema.anyOf) ? schema.anyOf : schema.oneOf;
+	// `nullable` and a lone remaining member is folded into this node. A
+	// single-member `allOf` (older pydantic wraps described refs in one) is
+	// folded the same way.
+	const union = Array.isArray(schema.anyOf)
+		? schema.anyOf
+		: Array.isArray(schema.oneOf)
+			? schema.oneOf
+			: Array.isArray(schema.allOf) && schema.allOf.length === 1
+				? schema.allOf
+				: undefined;
 	if (Array.isArray(union)) {
 		const members = union.filter((member: any) => member?.type !== "null");
 		if (members.length !== union.length) {
 			converted.nullable = true;
 		}
 		const convertedMembers = members.map((member: any) =>
-			convertOpenAISchemaToGoogle(member, rootDefs, seenRefs),
+			convertOpenAISchemaToGoogle(member, rootDefs, seenRefs, rootSchema),
 		);
 		if (convertedMembers.length === 1) {
 			Object.assign(converted, {
@@ -610,14 +622,32 @@ function sanitizeCerebrasSchema(schema: any): any {
 /**
  * Resolves a $ref path like "#/$defs/QuestionOption" to the actual definition
  */
-function resolveRef(ref: string, rootDefs: Record<string, any>): any {
-	// Handle JSON Pointer format: #/$defs/Name or #/definitions/Name
-	const match = ref.match(/^#\/(\$defs|definitions)\/(.+)$/);
-	if (match) {
-		const defName = match[2];
-		return rootDefs[defName];
+function resolveRef(
+	ref: string,
+	rootDefs: Record<string, any>,
+	rootSchema?: any,
+): any {
+	if (ref === "#") {
+		return rootSchema ?? null;
 	}
-	return null;
+	if (!ref.startsWith("#/")) {
+		return null;
+	}
+	const [first, ...rest] = ref
+		.slice(2)
+		.split("/")
+		.map((segment) => segment.replace(/~1/g, "/").replace(/~0/g, "~"));
+	let node: any =
+		first === "$defs" || first === "definitions"
+			? rootDefs
+			: rootSchema?.[first];
+	for (const segment of rest) {
+		if (!node || typeof node !== "object") {
+			return null;
+		}
+		node = node[segment];
+	}
+	return node && typeof node === "object" ? node : null;
 }
 
 /**
@@ -4482,10 +4512,17 @@ export async function prepareRequestBody(
 				requestBody.generationConfig.responseMimeType = "application/json";
 			} else if (response_format?.type === "json_schema") {
 				requestBody.generationConfig.responseMimeType = "application/json";
-				// Convert OpenAI's JSON schema format to Google's format
 				if (response_format.json_schema?.schema) {
-					requestBody.generationConfig.responseSchema =
-						convertOpenAISchemaToGoogle(response_format.json_schema.schema);
+					// AI Studio takes standard JSON Schema ($ref, $defs, anyOf, type
+					// arrays) via responseJsonSchema; the other Google transports still
+					// get the OpenAPI-subset conversion in responseSchema.
+					if (usedProvider === "google-ai-studio") {
+						requestBody.generationConfig.responseJsonSchema =
+							response_format.json_schema.schema;
+					} else {
+						requestBody.generationConfig.responseSchema =
+							convertOpenAISchemaToGoogle(response_format.json_schema.schema);
+					}
 				}
 			}
 
