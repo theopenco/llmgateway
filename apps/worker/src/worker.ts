@@ -2583,12 +2583,14 @@ async function runProjectStatsLoop() {
 		while (!isStopRequested()) {
 			try {
 				// The live refresh accumulates onto shared buckets, so only one
-				// replica may run a pass at a time.
-				if (await acquireLock(PROJECT_STATS_LOCK_KEY)) {
+				// replica may run a pass at a time. A lease, so a pass that outlived
+				// the lock never releases another replica's lock.
+				const leaseId = await acquireLease(PROJECT_STATS_LOCK_KEY);
+				if (leaseId) {
 					try {
 						await refreshProjectHourlyStats();
 					} finally {
-						await releaseLock(PROJECT_STATS_LOCK_KEY);
+						await releaseLease(leaseId);
 					}
 				}
 
