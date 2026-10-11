@@ -2149,11 +2149,6 @@ chat.openapi(completions, async (c) => {
 		routingPromptTokens += Math.round(JSON.stringify(tools).length / 4);
 	}
 
-	// Context a pinned-model request needs (prompt + output budget), used to
-	// steer it away from short-window deployments of the same model. Mirrors
-	// the auto-route default buffer when max_tokens is omitted.
-	const routingRequiredContextSize = routingPromptTokens + (max_tokens ?? 4096);
-
 	// The API surface the caller actually used: "chat-completions" unless
 	// /v1/messages, /v1/responses or /v1/images re-dispatched the request through
 	// here. Declared ahead of the log wrappers so every log path can record it.
@@ -4094,6 +4089,19 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Context a pinned-model request needs (prompt + output budget), used to
+	// steer it away from short-window deployments of the same model. Mirrors
+	// the auto-route default buffer when max_tokens is omitted. Image payloads
+	// count toward the window, so use the image-aware estimate when present;
+	// routingPromptTokens stays text-only because billing relies on that.
+	const routingRequiredContextSize =
+		(hasImages && messages && messages.length > 0
+			? encodeChatMessages(messages, requestedModel) +
+				(tools && tools.length > 0
+					? Math.round(JSON.stringify(tools).length / 4)
+					: 0)
+			: routingPromptTokens) + (max_tokens ?? 4096);
+
 	// Apply routing logic after apiKey and project are available.
 	// "auto" and "smart" share this candidate loop. They differ only in where
 	// the candidate list comes from: "auto" is the fixed built-in set and is
@@ -5332,7 +5340,10 @@ chat.openapi(completions, async (c) => {
 				const candidatesForRouting = await pickNonRateLimitedCandidates(
 					project.organizationId,
 					baseModelId,
-					availableModelProviders,
+					preferContextFittingProviders(
+						availableModelProviders,
+						routingRequiredContextSize,
+					),
 				);
 				const preferredCandidatesForRouting = preferProvidersWithKeys(
 					project.mode,

@@ -166,9 +166,16 @@ export function preferToolChoiceCapableProviders(
  * Deployments of one model can serve very different windows (e.g. 1M on most
  * providers, 262k on another). Without this, a long prompt can be routed to a
  * short-window deployment and fail upstream with a non-retryable
- * context_length_exceeded 400. Mappings with an unknown context size are kept.
+ * context_length_exceeded 400.
+ *
+ * Mappings with an unknown context size are kept — deliberately unlike auto
+ * routing, which assumes 8192 for them: there another model can take the
+ * request, here dropping them could empty the list for a pinned model.
  * When nothing fits, the list is returned unchanged so the upstream error
  * stays the source of truth (the estimate is a heuristic).
+ *
+ * Like `preferToolChoiceCapableProviders`, an exclusion is recorded per
+ * provider id only when none of its (regional) mappings fit.
  */
 export function preferContextFittingProviders(
 	providers: ProviderModelMapping[],
