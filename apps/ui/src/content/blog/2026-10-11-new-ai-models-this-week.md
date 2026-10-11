@@ -9,9 +9,9 @@ faqs:
   - question: "Which new AI models were released this week?"
     answer: "Between October 2 and October 8, 2026: Ling 3.1 Flash (InclusionAI, free), Hy Image 3.5 Preview (Tencent), Mistral Large 4, Gemini Nano Banana 2.1 (Google), Claude Haiku 5.5 (Anthropic) and Grok Imagine Video 1.5 Lite (xAI). The week before brought Claude Sonnet 5.5 and GPT-6.1 Sol."
   - question: "How much does Claude Haiku 5.5 cost?"
-    answer: "$0.10 per million input tokens and $0.50 per million output tokens on LLM Gateway, with cached input at $0.01 per million. It has a 1M-token context window and supports tools, vision and adaptive thinking."
+    answer: "$0.10 per million input tokens and $0.50 per million output tokens for prompts up to 100K tokens, with cached input at $0.01 per million. Prompts over 100K tokens are billed at $0.50 input / $2.50 output and $0.05 cached input. It has a 1M-token context window and supports tools, vision and adaptive thinking."
   - question: "How do I use a new model on LLM Gateway?"
-    answer: "Set the model field of your request to the ID in the table, for example claude-haiku-5-5 or mistral-large-4, and send it to https://api.llmgateway.io/v1/chat/completions with your LLM Gateway API key. New models are added to the catalog as providers publish them, usually on release day."
+    answer: "Set the model field of your request to the ID in the table, for example claude-haiku-5-5 or mistral-large-4, and send it to https://api.llmgateway.io/v1/chat/completions with your LLM Gateway API key. Image models are called through /v1/images/generations and video models through /v1/videos. New models are added to the catalog as providers publish them, usually on release day."
 image:
   src: "/blog/new-ai-models-this-week-2026-10-11.png"
   alt: "A glowing calendar page with a sparkle on the central chip of a dark circuit board, surrounded by rocket, film clapperboard, paintbrush, chat bubble, brain, price tag, stopwatch and star icons, representing the new AI models released this week"
@@ -19,24 +19,24 @@ image:
   height: 1024
 ---
 
-Eight new AI models landed in the **LLM Gateway** catalog in the last two weeks, from a $0.10-per-million-token Claude to a 1.05-trillion-parameter open-weight Mistral. Each one is callable today with the same request you already send; only the `model` string changes. Prices are per million tokens unless noted, as listed on each [model page](https://llmgateway.io/models) on October 11, 2026.
+Eight new AI models landed in the **LLM Gateway** catalog in the last two weeks, from a $0.10-per-million-token Claude to a 1.05-trillion-parameter open-weight Mistral. Each text model is callable today with the same chat request you already send; only the `model` string changes. Image models go through `/v1/images/generations` and the video model through `/v1/videos`. Prices are per million tokens unless noted, as listed on each [model page](https://llmgateway.io/models) on October 11, 2026.
 
 ## New AI models at a glance
 
-| Released | Model                                                                                   | Family      | Input / output price                          | Context | Notes                                                   |
-| -------- | --------------------------------------------------------------------------------------- | ----------- | --------------------------------------------- | ------- | ------------------------------------------------------- |
-| Oct 8    | [Grok Imagine Video 1.5 Lite](https://llmgateway.io/models/grok-imagine-video-1-5-lite) | xAI         | $0.02/s (480p), $0.03/s (720p)                | —       | Text- or image-to-video                                 |
-| Oct 7    | [Claude Haiku 5.5](https://llmgateway.io/models/claude-haiku-5-5)                       | Anthropic   | $0.10 / $0.50                                 | 1M      | Tools, vision, adaptive thinking                        |
-| Oct 6    | [Mistral Large 4](https://llmgateway.io/models/mistral-large-4)                         | Mistral     | $1.36 / $4.18                                 | 1M      | Open-weight MoE, 49B active / 1.05T total, vision       |
-| Oct 6    | [Gemini Nano Banana 2.1](https://llmgateway.io/models/gemini-nano-banana-2.1)           | Google      | $1.50 / $7.50, $30 per 1M image output tokens | 131K    | Image generation and editing, 1K–4K output              |
-| Oct 5    | [Hy Image 3.5 Preview](https://llmgateway.io/models/hy-image-v3.5-preview)              | Tencent     | $1.60 per 1M image output tokens              | 100K    | Image generation and editing, up to 20 reference images |
-| Oct 2    | [Ling 3.1 Flash](https://llmgateway.io/models/ling-3.1-flash)                           | InclusionAI | Free (Novita); $0.06 / $0.18 on DeepInfra     | 262K    | Hybrid reasoning MoE, 560B total / 25B active, tools    |
-| Sep 29   | [GPT-6.1 Sol](https://llmgateway.io/models/gpt-6.1-sol)                                 | OpenAI      | $2.00 / $10.00                                | 1.05M   | Coding, computer use, reasoning                         |
-| Sep 28   | [Claude Sonnet 5.5](https://llmgateway.io/models/claude-sonnet-5-5)                     | Anthropic   | $2.00 / $10.00                                | 1M      | Adaptive thinking, vision, tools                        |
+| Released | Model                                                                                   | Family      | Input / output price                                        | Context | Notes                                                   |
+| -------- | --------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------- | ------- | ------------------------------------------------------- |
+| Oct 8    | [Grok Imagine Video 1.5 Lite](https://llmgateway.io/models/grok-imagine-video-1-5-lite) | xAI         | $0.02/s (480p), $0.03/s (720p)                              | —       | Text- or image-to-video                                 |
+| Oct 7    | [Claude Haiku 5.5](https://llmgateway.io/models/claude-haiku-5-5)                       | Anthropic   | $0.10 / $0.50 up to 100K-token prompts; $0.50 / $2.50 above | 1M      | Tools, vision, adaptive thinking                        |
+| Oct 6    | [Mistral Large 4](https://llmgateway.io/models/mistral-large-4)                         | Mistral     | $1.36 / $4.18                                               | 1M      | Open-weight MoE, 49B active / 1.05T total, vision       |
+| Oct 6    | [Gemini Nano Banana 2.1](https://llmgateway.io/models/gemini-nano-banana-2.1)           | Google      | $1.50 / $7.50, $30 per 1M image output tokens               | 131K    | Image generation and editing, 1K–4K output              |
+| Oct 5    | [Hy Image 3.5 Preview](https://llmgateway.io/models/hy-image-v3.5-preview)              | Tencent     | $1.60 per 1M image output tokens                            | 100K    | Image generation and editing, up to 20 reference images |
+| Oct 2    | [Ling 3.1 Flash](https://llmgateway.io/models/ling-3.1-flash)                           | InclusionAI | Free (Novita); $0.06 / $0.18 on DeepInfra                   | 262K    | Hybrid reasoning MoE, 560B total / 25B active, tools    |
+| Sep 29   | [GPT-6.1 Sol](https://llmgateway.io/models/gpt-6.1-sol)                                 | OpenAI      | $2.00 / $10.00                                              | 1.05M   | Coding, computer use, reasoning                         |
+| Sep 28   | [Claude Sonnet 5.5](https://llmgateway.io/models/claude-sonnet-5-5)                     | Anthropic   | $2.00 / $10.00                                              | 1M      | Adaptive thinking, vision, tools                        |
 
 ## Claude Haiku 5.5: a 1M-context model at $0.10 per million input tokens
 
-Anthropic positions Haiku 5.5 as its fastest model for high-volume, latency-sensitive work: classification, routing, extraction and subagent tasks. It keeps the adaptive thinking and vision capabilities of Sonnet 5.5 at a twentieth of the price, with cached input at $0.01 per million tokens and a 128K output limit. On LLM Gateway it is served by Anthropic and AWS Bedrock, so a bare `claude-haiku-5-5` request fails over between them.
+Anthropic positions Haiku 5.5 as its fastest model for high-volume, latency-sensitive work: classification, routing, extraction and subagent tasks. It keeps the adaptive thinking and vision capabilities of Sonnet 5.5 at a twentieth of the price for prompts up to 100K tokens, with cached input at $0.01 per million tokens and a 128K output limit. Above 100K prompt tokens the rate steps up to $0.50 input / $2.50 output ($0.05 cached), so the long-context tier is priced like a quarter of Sonnet rather than a twentieth. On LLM Gateway it is served by Anthropic and AWS Bedrock, so a bare `claude-haiku-5-5` request fails over between them.
 
 ```bash
 curl https://api.llmgateway.io/v1/chat/completions \
@@ -60,7 +60,7 @@ Google's **Nano Banana 2.1** succeeds Nano Banana 2 with sharper 1K to 4K output
 
 Tencent's **Hy Image 3.5 Preview** is a unified generation-and-editing model on the Hy Image 3.0 MoE base. It accepts up to 20 reference images, outputs up to 4K and renders Chinese and English text well. Image output is $1.60 per million image tokens.
 
-Both are available through `/v1/images` and the [Lounge](https://lounge.llmgateway.io) image studio.
+Both are available through `/v1/images/generations` and the [Lounge](https://lounge.llmgateway.io) image studio.
 
 ## GPT-6.1 Sol and Claude Sonnet 5.5: the new mid-tier pair
 

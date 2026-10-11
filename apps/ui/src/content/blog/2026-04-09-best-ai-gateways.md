@@ -274,7 +274,7 @@ AWS Bedrock provides access to foundation models through AWS infrastructure. It'
 | ----------------------- | ----------- | ---------- | ------- | -------- | -------- | ------------ | ---------------- | ----------- |
 | **Open Source**         | Yes         | No         | Partial | Yes      | Yes      | No           | No               | No          |
 | **Self-Hostable**       | Yes         | No         | Partial | Yes      | Yes      | No           | No               | No          |
-| **BYOK (No Markup)**    | Yes         | After 1M   | Yes     | Yes      | N/A      | Yes          | No               | N/A         |
+| **BYOK (No Markup)**    | Yes         | To $25k/mo | Yes     | Yes      | N/A      | Yes          | No               | N/A         |
 | **OpenAI-Compatible**   | Yes         | Yes        | Yes     | Yes      | Yes      | Yes          | Yes              | No          |
 | **Built-in Caching**    | Yes         | Beta       | Yes     | Built-in | No       | Yes          | Yes              | No          |
 | **Analytics Dashboard** | Yes         | Yes        | Yes     | Built-in | Yes      | Yes          | Basic            | CloudWatch  |

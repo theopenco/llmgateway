@@ -9,7 +9,7 @@ faqs:
   - question: "Is LiteLLM a gateway or an SDK?"
     answer: "Both. LiteLLM is a Python SDK that normalizes 100+ provider APIs behind an OpenAI-style call, and a proxy server you self-host to expose that as an OpenAI-compatible endpoint with virtual keys and budgets. There is no hosted LiteLLM endpoint; you run and scale it yourself."
   - question: "What is the difference between OpenRouter and LiteLLM?"
-    answer: "OpenRouter is a hosted service: one API key, 400+ models, nothing to run, with a 5.5% fee on credit purchases and a 5% fee on bring-your-own-key traffic above the free tier. LiteLLM is open-source software you deploy and operate; it charges nothing but you pay for the infrastructure and the on-call."
+    answer: "OpenRouter is a hosted service: one API key, 400+ models, nothing to run, with a fee on credit purchases (5.5% on Standard, 8% on Business) and a 5% fee on bring-your-own-key traffic above a $25,000-per-month allowance of list-price inference; Enterprise terms are custom. LiteLLM is open-source software you deploy and operate; it charges nothing but you pay for the infrastructure and the on-call."
   - question: "When should I pick LLM Gateway over LiteLLM or OpenRouter?"
     answer: "When you want the hosted convenience of OpenRouter with the self-hosting option and zero-markup BYOK of LiteLLM in one product. LLM Gateway is open source (AGPLv3), runs as a managed service or one Docker command, charges 0% on your own keys, and scores providers on uptime, throughput, price and latency instead of static fallback lists."
   - question: "Which LLM proxy adds the least latency?"
@@ -27,21 +27,21 @@ This comparison sticks to the decisions that matter once traffic is real. Figure
 
 ## LiteLLM vs OpenRouter vs LLM Gateway at a glance
 
-| Decision                      | LiteLLM                         | OpenRouter                             | LLM Gateway                                              |
-| ----------------------------- | ------------------------------- | -------------------------------------- | -------------------------------------------------------- |
-| What it is                    | Python SDK + self-hosted proxy  | Hosted API                             | Open-source gateway, hosted or self-hosted               |
-| Who runs it                   | You                             | OpenRouter                             | LLM Gateway (managed) or you (Docker)                    |
-| Open source                   | Yes                             | No                                     | Yes (AGPLv3)                                             |
-| Models                        | 100+ providers via SDK          | 400+ models, 80+ providers             | 250+ models, 40+ providers                               |
-| Bring your own keys           | Yes, no fee                     | Free up to $25k/month, then 5%         | Yes, 0% fee                                              |
-| Platform credits              | None                            | 5.5% fee on purchases, no token markup | 5% platform fee                                          |
-| Routing                       | Manual fallback lists per model | Provider-based routing                 | Weighted scoring on uptime, throughput, price, latency   |
-| Failover                      | Configured per model            | Yes                                    | Automatic, up to 2 retries, listed in response metadata  |
-| Response caching              | Built in, needs config          | Beta                                   | Built in, 10 s to 1 year TTL                             |
-| Guardrails                    | External integrations           | Enterprise                             | Enterprise (prompt injection, PII, jailbreak, secrets)   |
-| Analytics                     | Dashboard + spend logs          | Dashboard, logs, OpenTelemetry export  | Per-request cost, latency, cache hits; 90-day audit logs |
-| Image and video generation    | Image yes, video limited        | Image yes, video limited               | Image and video (`/v1/images`, `/v1/videos`)             |
-| Independent latency benchmark | Not measured                    | 88.3 composite (5th of 6)              | 90.8 composite (1st of 6)                                |
+| Decision                      | LiteLLM                         | OpenRouter                                                                                  | LLM Gateway                                              |
+| ----------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| What it is                    | Python SDK + self-hosted proxy  | Hosted API                                                                                  | Open-source gateway, hosted or self-hosted               |
+| Who runs it                   | You                             | OpenRouter                                                                                  | LLM Gateway (managed) or you (Docker)                    |
+| Open source                   | Yes                             | No                                                                                          | Yes (AGPLv3)                                             |
+| Models                        | 100+ providers via SDK          | 400+ models, 80+ providers                                                                  | 250+ models, 40+ providers                               |
+| Bring your own keys           | Yes, no fee                     | $25k/month of list-price inference free (Standard and Business), then 5%; Enterprise custom | Yes, 0% fee                                              |
+| Platform credits              | None                            | Fee on purchases: 5.5% Standard, 8% Business; no token markup                               | 5% platform fee                                          |
+| Routing                       | Manual fallback lists per model | Provider-based routing                                                                      | Weighted scoring on uptime, throughput, price, latency   |
+| Failover                      | Configured per model            | Yes                                                                                         | Automatic, up to 2 retries, listed in response metadata  |
+| Response caching              | Built in, needs config          | Beta                                                                                        | Built in, 10 s to 1 year TTL                             |
+| Guardrails                    | External integrations           | Enterprise                                                                                  | Enterprise (prompt injection, PII, jailbreak, secrets)   |
+| Analytics                     | Dashboard + spend logs          | Dashboard, logs, OpenTelemetry export                                                       | Per-request cost, latency, cache hits; 90-day audit logs |
+| Image and video generation    | Image yes, video limited        | Image yes, video limited                                                                    | Image and video (`/v1/images/generations`, `/v1/videos`) |
+| Independent latency benchmark | Not measured                    | 88.3 composite (5th of 6)                                                                   | 90.8 composite (1st of 6)                                |
 
 ## Who operates the proxy
 
@@ -58,10 +58,10 @@ This is the first fork in the road.
 If you already have provider accounts, the question is what the proxy charges on top.
 
 - **LiteLLM:** nothing. The software is free; you pay for compute, the database and the people.
-- **OpenRouter:** BYOK traffic is free up to $25,000 a month, then 5%. Credit purchases carry a 5.5% fee; token prices themselves pass through without markup.
+- **OpenRouter:** on the Standard and Business plans, BYOK traffic is free up to $25,000 of list-price inference a month, then 5%, measured against what the same requests would cost at OpenRouter list prices. Credit purchases carry a 5.5% fee on Standard and 8% on Business; token prices themselves pass through without markup. Enterprise terms are custom.
 - **LLM Gateway:** 0% on your own keys, hosted or self-hosted. If you use platform credits instead, a 5% platform fee applies.
 
-For a team spending $40,000 a month on provider tokens through BYOK, that is $0 on LiteLLM and LLM Gateway, and $750 a month on OpenRouter for the $15,000 above the threshold.
+For a team whose BYOK traffic amounts to $40,000 a month of list-price-equivalent inference, that is $0 on LiteLLM and LLM Gateway, and $750 a month on OpenRouter Standard or Business for the $15,000 above the allowance.
 
 ## Routing and failover when a provider fails
 
@@ -106,7 +106,7 @@ Per-product details are in [LLM Gateway vs LiteLLM](/blog/llm-gateway-vs-litellm
 ## Verdict
 
 - **Pick LiteLLM** if you have a platform team that wants to own the proxy end to end, traffic must never leave your network, and you are comfortable writing and maintaining fallback config.
-- **Pick OpenRouter** if you want the largest hosted catalog, will never self-host, and the 5.5% credit fee or 5% BYOK fee above $25k is acceptable.
+- **Pick OpenRouter** if you want the largest hosted catalog, will never self-host, and the credit fee (5.5% Standard, 8% Business) or the 5% BYOK fee above the $25k monthly allowance is acceptable.
 - **Pick LLM Gateway** if you want hosted convenience today with a self-hosting exit, 0% on your own keys, scored routing with visible failover, and the lowest tail latency on the one public benchmark that compares gateways.
 
 ## Next steps
