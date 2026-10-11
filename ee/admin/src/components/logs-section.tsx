@@ -1,6 +1,6 @@
 "use client";
 
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Loader2, RefreshCw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useDeferredValue, useMemo, useState } from "react";
@@ -105,6 +105,7 @@ export function LogsSection({
 	const router = useRouter();
 	const pathname = usePathname();
 	const $fetch = useFetchClient();
+	const queryClient = useQueryClient();
 
 	const provider = searchParams.get("provider") ?? "all";
 	const model = searchParams.get("model") ?? "all";
@@ -188,6 +189,7 @@ export function LogsSection({
 		projectId,
 	]);
 
+	const logsQueryKey = ["admin-logs", orgId, projectId, filters];
 	const {
 		data,
 		error,
@@ -198,7 +200,7 @@ export function LogsSection({
 		fetchNextPage,
 		refetch,
 	} = useInfiniteQuery({
-		queryKey: ["admin-logs", orgId, projectId, filters],
+		queryKey: logsQueryKey,
 		initialPageParam: undefined as string | undefined,
 		queryFn: async ({ pageParam, signal }) => {
 			const query = { limit: 50, cursor: pageParam, ...filters };
@@ -220,10 +222,26 @@ export function LogsSection({
 		},
 		getNextPageParam: (page) =>
 			page.pagination.hasMore ? page.pagination.nextCursor : undefined,
-		// Recent logs: always refetch on mount, cached pages only bridge the gap.
+		// Logs are live, but an infinite-query refetch reruns every loaded page.
+		// Refresh reloads only the first page (below), window focus does not
+		// refetch, and leaving the section drops the cache so a revisit starts
+		// from page one.
 		staleTime: 0,
+		gcTime: 0,
+		refetchOnWindowFocus: false,
 		retry: false,
 	});
+	const refresh = () => {
+		queryClient.setQueryData<typeof data>(logsQueryKey, (current) =>
+			current
+				? {
+						pages: current.pages.slice(0, 1),
+						pageParams: current.pageParams.slice(0, 1),
+					}
+				: current,
+		);
+		void refetch();
+	};
 	const logs = data?.pages.flatMap((page) => page.logs) ?? [];
 	const refreshing = isFetching && !loading && !loadingMore;
 
@@ -624,7 +642,7 @@ export function LogsSection({
 					variant="outline"
 					size="sm"
 					disabled={loading || loadingMore || refreshing}
-					onClick={() => void refetch()}
+					onClick={refresh}
 					className="gap-2"
 				>
 					<RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
