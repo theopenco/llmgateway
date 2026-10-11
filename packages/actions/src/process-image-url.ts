@@ -226,11 +226,12 @@ export async function processImageUrl(
 	// enforces HTTPS unless explicitly disabled for a self-hosted deployment.
 	await assertSafeUserContentUrl(url);
 
+	const timeoutMs = resolveImageFetchTimeoutMs();
 	try {
 		const response = await fetchNoRedirect(url, {
 			// Bounds the whole download, headers and body. undici's bodyTimeout is
 			// refreshed on every chunk, so a host that trickles bytes never trips it.
-			signal: AbortSignal.timeout(resolveImageFetchTimeoutMs()),
+			signal: AbortSignal.timeout(timeoutMs),
 		});
 
 		if (!response.ok) {
@@ -287,6 +288,16 @@ export async function processImageUrl(
 		// Preserve client errors for the gateway's 4xx response and request log.
 		if (error instanceof RequestError) {
 			throw error;
+		}
+
+		// The deadline fired: the caller chose a slow host, so this is a client
+		// outcome (4xx at warn), not a gateway failure.
+		if (error instanceof Error && error.name === "TimeoutError") {
+			logger.warn("Timed out fetching image from URL", {
+				timeoutMs,
+				host: urlHostForLog(url),
+			});
+			throw new RequestError("Timed out fetching image from URL");
 		}
 
 		// Log the full error internally but sanitize the thrown error
