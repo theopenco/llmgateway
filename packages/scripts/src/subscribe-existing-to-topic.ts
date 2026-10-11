@@ -18,6 +18,12 @@ const CUTOFF = new Date("2026-04-01T00:00:00Z");
 const APPLY = process.env.APPLY === "true";
 const CONCURRENCY = Number(process.env.CONCURRENCY ?? "5");
 
+if (!Number.isInteger(CONCURRENCY) || CONCURRENCY < 1) {
+	console.error(
+		`CONCURRENCY must be a positive integer, got: ${process.env.CONCURRENCY}`,
+	);
+	process.exit(1);
+}
 if (!RESEND_API_KEY) {
 	console.error("RESEND_API_KEY is required");
 	process.exit(1);
@@ -37,7 +43,12 @@ interface Contact {
 }
 
 async function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
+	return await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function backoffMs(attempt: number): number {
+	const factor = 2 ** attempt;
+	return Math.min(factor * 500, 30000);
 }
 
 async function listAllContacts(): Promise<Contact[]> {
@@ -45,10 +56,17 @@ async function listAllContacts(): Promise<Contact[]> {
 	let after: string | undefined;
 	let page = 0;
 	while (true) {
-		const { data, error } = await resend.contacts.list({
+		let { data, error } = await resend.contacts.list({
 			limit: 100,
 			...(after ? { after } : {}),
 		});
+		for (let attempt = 0; error?.statusCode === 429 && attempt < 8; attempt++) {
+			await sleep(backoffMs(attempt));
+			({ data, error } = await resend.contacts.list({
+				limit: 100,
+				...(after ? { after } : {}),
+			}));
+		}
 		if (error) {
 			throw new Error(`List contacts failed: ${error.message}`);
 		}
@@ -91,8 +109,7 @@ async function setTopicOptIn(email: string, maxRetries = 8): Promise<void> {
 			"statusCode" in error &&
 			error.statusCode === 429
 		) {
-			const backoff = Math.min(2 ** attempt * 500, 30000);
-			await sleep(backoff);
+			await sleep(backoffMs(attempt));
 			continue;
 		}
 		throw new Error(`PATCH ${email} failed: ${error.message}`);
@@ -170,6 +187,9 @@ async function main() {
 	await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
 
 	console.log(`\nDone. Subscribed: ${done}. Failed: ${failed}.`);
+	if (failed > 0) {
+		process.exitCode = 1;
+	}
 }
 
 void main().catch((err) => {
