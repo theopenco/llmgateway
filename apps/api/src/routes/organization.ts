@@ -921,7 +921,7 @@ organization.openapi(updateOrganization, async (c) => {
 		if (!hasSsoAccess(userOrganization.organization)) {
 			throw new HTTPException(403, {
 				message:
-					"SSO auto-join requires an enterprise plan or the Pro SSO & SCIM add-on",
+					"SSO auto-join requires an enterprise plan or the Pro SSO add-on",
 			});
 		}
 		if (

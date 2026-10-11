@@ -1756,6 +1756,7 @@ keysApi.openapi(updateStatus, async (c) => {
 				projectId: { in: orgProjects },
 				status: { eq: "active" },
 				keyType: { eq: "user" },
+				kind: { ne: "playground" },
 			},
 			columns: { id: true },
 		});

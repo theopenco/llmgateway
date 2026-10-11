@@ -146,6 +146,9 @@ async function assertSelectionCoversUsage(
 					projectId: { in: orgProjects.map((p) => p.id) },
 					status: { eq: "active" },
 					keyType: { eq: "user" },
+					// Playground session keys don't count toward the API-key cap
+					// (see keys-api), so they must not require paid extra keys.
+					kind: { ne: "playground" },
 				},
 				columns: { id: true },
 			})
