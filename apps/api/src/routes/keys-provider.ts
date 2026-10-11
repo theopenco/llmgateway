@@ -49,7 +49,10 @@ import {
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { maskToken } from "@llmgateway/shared/mask-token";
-import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
+import {
+	assertSafeProviderUrl,
+	isTransientHostResolutionError,
+} from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderKeyComplianceAttestation } from "@llmgateway/db";
@@ -283,7 +286,10 @@ export async function assertProviderBaseUrlAllowed(baseUrl: string) {
 	try {
 		await assertSafeProviderUrl(baseUrl);
 	} catch (error) {
-		throw new HTTPException(400, {
+		// A resolver outage is ours to retry, not the caller's input to fix:
+		// surface it as 503 so it is logged server-side and the client retries.
+		const status = isTransientHostResolutionError(error) ? 503 : 400;
+		throw new HTTPException(status, {
 			message:
 				error instanceof Error
 					? error.message

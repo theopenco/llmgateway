@@ -75,9 +75,13 @@ describe("assertSafeUserContentUrl", () => {
 
 			await expect(
 				assertSafeResolvedUserUrl("https://mcp.example.com/rpc"),
-			).rejects.toThrow(
-				"User-provided URL host mcp.example.com could not be resolved",
-			);
+			).rejects.toMatchObject({
+				name: "HostResolutionError",
+				transient: false,
+				message: expect.stringContaining(
+					"User-provided URL host mcp.example.com could not be resolved",
+				),
+			});
 		});
 
 		it("does not blame the DNS record for a transient resolver failure", async () => {
@@ -89,7 +93,26 @@ describe("assertSafeUserContentUrl", () => {
 
 			await expect(
 				assertSafeResolvedUserUrl("https://mcp.example.com/rpc"),
-			).rejects.toThrow("DNS lookup failed (EAI_AGAIN)");
+			).rejects.toMatchObject({
+				name: "HostResolutionError",
+				transient: true,
+				message: expect.stringContaining("DNS lookup failed (EAI_AGAIN)"),
+			});
+		});
+
+		it("treats a server failure as a resolver problem, not a missing record", async () => {
+			lookupMock.mockRejectedValue(
+				Object.assign(new Error("getaddrinfo ESERVFAIL mcp.example.com"), {
+					code: "ESERVFAIL",
+				}),
+			);
+
+			await expect(
+				assertSafeResolvedUserUrl("https://mcp.example.com/rpc"),
+			).rejects.toMatchObject({
+				transient: true,
+				message: expect.stringContaining("Try again shortly"),
+			});
 		});
 
 		it("accepts hostnames only when every resolved address is public", async () => {

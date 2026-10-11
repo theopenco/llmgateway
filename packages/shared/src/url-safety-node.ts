@@ -72,8 +72,36 @@ export const safeOutboundLookup: LookupFunction = (
 	});
 };
 
-/** getaddrinfo codes meaning the name has no usable record (vs. a resolver failure). */
-const NO_DNS_RECORD_CODES = new Set(["ENOTFOUND", "ENODATA", "ESERVFAIL"]);
+/**
+ * getaddrinfo codes meaning the name has no usable record. Anything else
+ * (EAI_AGAIN, ESERVFAIL, timeouts) is the resolver failing, so the record may
+ * well exist and the caller should retry rather than fix their input.
+ */
+const NO_DNS_RECORD_CODES = new Set(["ENOTFOUND", "ENODATA"]);
+
+/**
+ * A tenant-supplied host failed DNS resolution. `transient` separates a
+ * resolver outage (retryable, not the caller's fault) from a missing record
+ * (the caller's input) so routes can pick the right status code.
+ */
+export class HostResolutionError extends Error {
+	public readonly transient: boolean;
+
+	public constructor(message: string, transient: boolean, cause: unknown) {
+		super(message, { cause });
+		this.name = "HostResolutionError";
+		this.transient = transient;
+	}
+}
+
+/** Name-based check; `instanceof` is unreliable across this package's ES5 build. */
+export function isTransientHostResolutionError(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		error.name === "HostResolutionError" &&
+		(error as HostResolutionError).transient === true
+	);
+}
 
 let safeUserUrlAgent: Agent | undefined;
 
@@ -98,17 +126,14 @@ async function assertResolvedHostSafe(
 		resolved = await lookup(hostname, { all: true });
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException | undefined)?.code;
-		// A typo or unpublished record is the caller's input, not our failure.
-		// Anything else (EAI_AGAIN, timeouts) is a resolver problem, so don't
-		// send the caller off to check a record that may well exist.
-		const hint = NO_DNS_RECORD_CODES.has(code ?? "")
+		const noRecord = NO_DNS_RECORD_CODES.has(code ?? "");
+		const hint = noRecord
 			? "Check that its DNS record exists."
 			: `DNS lookup failed${code ? ` (${code})` : ""}. Try again shortly.`;
-		throw new Error(
+		throw new HostResolutionError(
 			`${label} host ${hostname} could not be resolved. ${hint}`,
-			{
-				cause: error,
-			},
+			!noRecord,
+			error,
 		);
 	}
 	for (const { address } of resolved) {
