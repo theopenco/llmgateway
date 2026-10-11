@@ -111,19 +111,29 @@ jobs:
 
             if (risk !== "high") return;
 
-            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
-            if (comments.some((c) => c.body?.includes(MARKER))) return;
-
             const author = context.payload.issue.user.login;
             const candidates = REVIEWERS.filter((r) => r.toLowerCase() !== author.toLowerCase());
             if (candidates.length === 0) return;
             const reviewer = candidates[number % candidates.length];
 
-            try {
-              await github.rest.pulls.requestReviewers({ owner, repo, pull_number: number, reviewers: [reviewer] });
-            } catch (error) {
-              core.warning(`Could not request a review from ${reviewer}: ${error.message}`);
+            // The review request and the explanation comment are tracked separately:
+            // a failed request is retried on the next CodeRabbit update even after
+            // the comment has been posted.
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+            const reviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: number, per_page: 100 });
+            const alreadyAsked =
+              pr.requested_reviewers.some((u) => u.login.toLowerCase() === reviewer.toLowerCase()) ||
+              reviews.some((r) => r.user?.login.toLowerCase() === reviewer.toLowerCase());
+            if (!alreadyAsked) {
+              try {
+                await github.rest.pulls.requestReviewers({ owner, repo, pull_number: number, reviewers: [reviewer] });
+              } catch (error) {
+                core.warning(`Could not request a review from ${reviewer}: ${error.message}`);
+              }
             }
+
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
+            if (comments.some((c) => c.body?.includes(MARKER))) return;
 
             const reasons = [];
             if (fromCodeRabbit === "high") reasons.push(`CodeRabbit rated the merge risk **${match[1]}**`);
