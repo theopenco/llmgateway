@@ -1890,14 +1890,16 @@ describe("prepareRequestBody - Anthropic", () => {
 	});
 
 	test.each(
-		[
-			["anthropic", "claude-sonnet-5", "claude-sonnet-5"],
+		(
 			[
-				"aws-bedrock",
-				"claude-sonnet-4-5",
-				"anthropic.claude-sonnet-4-5-20250929-v1:0",
-			],
-		].flatMap(([provider, model, upstreamModel]) =>
+				["anthropic", "claude-sonnet-5", "claude-sonnet-5"],
+				[
+					"aws-bedrock",
+					"claude-sonnet-4-5",
+					"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				],
+			] as const
+		).flatMap(([provider, model, upstreamModel]) =>
 			(["field", "parts", "override"] as const).map((source) => ({
 				provider,
 				model,
@@ -1912,6 +1914,10 @@ describe("prepareRequestBody - Anthropic", () => {
 				source === "field"
 					? "Lookup complete."
 					: JSON.stringify([{ type: "text", text: "Lookup complete." }]);
+			const anthropicResultContent =
+				source === "field"
+					? resultText
+					: [{ type: "text", text: "Lookup complete." }];
 			const messages: BaseMessage[] = [
 				...Array.from({ length: 4 }, () => ({
 					role: "system" as const,
@@ -1976,7 +1982,7 @@ describe("prepareRequestBody - Anthropic", () => {
 							{
 								type: "tool_result",
 								tool_use_id: "call_lookup",
-								content: resultText,
+								content: anthropicResultContent,
 								cache_control: { type: "ephemeral" },
 							},
 						]
@@ -2024,7 +2030,7 @@ describe("prepareRequestBody - Anthropic", () => {
 				provider === "anthropic"
 					? "messages.2.content.0.content"
 					: "messages.2.content.0.toolResult.content.0.text",
-				resultText,
+				provider === "anthropic" ? anthropicResultContent : resultText,
 			);
 		},
 	);

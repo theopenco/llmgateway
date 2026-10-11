@@ -401,9 +401,17 @@ function getCurrentHourStart(): Date {
 type HistoryDatabase =
 	typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+interface MinuteHistoryOptions {
+	// Skip rows unchanged since this process last wrote the same minute; see
+	// upsertMinuteRows. Only the frequent current-minute refresh sets this.
+	incremental?: boolean;
+	// Transaction that writes the mapping and model rows for a minute together.
+	database?: HistoryDatabase;
+}
+
 async function calculateModelHistoryForMinute(
 	targetMinute: Date,
-	database: HistoryDatabase = db,
+	{ database = db, ...options }: MinuteHistoryOptions = {},
 ) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 	if (roundedTargetMinute < getLogRetentionCutoff()) {
@@ -753,7 +761,7 @@ async function calculateModelHistoryForMinute(
  */
 async function calculateHistoryForMinute(
 	targetMinute: Date,
-	database: HistoryDatabase = db,
+	{ database = db, ...options }: MinuteHistoryOptions = {},
 ) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 	if (roundedTargetMinute < getLogRetentionCutoff()) {
@@ -1182,92 +1190,89 @@ async function calculateHistoryForMinute(
 	};
 }
 
-/**
- * Backfill missing history entries for periods when the worker was down
- */
-async function calculateMinuteHistory(targetMinute: Date) {
-	return await db.transaction(async (tx) => ({
-		mappingResult: await calculateHistoryForMinute(targetMinute, tx),
-		modelResult: await calculateModelHistoryForMinute(targetMinute, tx),
-	}));
+async function calculateMinuteHistory(
+	targetMinute: Date,
+	options: Omit<MinuteHistoryOptions, "database"> = {},
+) {
+	try {
+		return await db.transaction(async (database) => ({
+			mappingResult: await calculateHistoryForMinute(targetMinute, {
+				...options,
+				database,
+			}),
+			modelResult: await calculateModelHistoryForMinute(targetMinute, {
+				...options,
+				database,
+			}),
+		}));
+	} catch (error) {
+		// A rollback undoes writes the incremental cache already recorded, so
+		// forget this minute and let the next refresh write it in full.
+		const minuteMs = roundToMinuteStart(targetMinute).getTime();
+		for (const perMinute of minuteWriteCaches.values()) {
+			perMinute.delete(minuteMs);
+		}
+		throw error;
+	}
 }
 
-export async function backfillHistoryIfNeeded() {
-	const end = getPreviousMinuteStart();
-	const retainedStart =
-		Math.ceil(getLogRetentionCutoff().getTime() / ONE_MINUTE_MS) *
-		ONE_MINUTE_MS;
-	const recoveryWindowMs = 1439 * ONE_MINUTE_MS;
-	const backfillMs = BACKFILL_DURATION_SECONDS * 1000;
-	const boundedStart = new Date(
-		Math.max(end.getTime() - recoveryWindowMs, retainedStart),
-	);
-	const mappingMinutes = await db
-		.selectDistinct({ minute: modelProviderMappingHistory.minuteTimestamp })
-		.from(modelProviderMappingHistory)
-		.where(
-			and(
-				gte(modelProviderMappingHistory.minuteTimestamp, boundedStart),
-				lt(
-					modelProviderMappingHistory.minuteTimestamp,
-					new Date(end.getTime() + ONE_MINUTE_MS),
-				),
-			),
-		);
-	const modelMinutes = await db
-		.selectDistinct({ minute: modelHistory.minuteTimestamp })
-		.from(modelHistory)
-		.where(
-			and(
-				gte(modelHistory.minuteTimestamp, boundedStart),
-				lt(
-					modelHistory.minuteTimestamp,
-					new Date(end.getTime() + ONE_MINUTE_MS),
-				),
-			),
-		);
-	const mappingTimes = new Set(
-		mappingMinutes.map(({ minute }) => minute.getTime()),
-	);
-	const modelTimes = new Set(
-		modelMinutes.map(({ minute }) => minute.getTime()),
-	);
-	// History from before the window means the worker was down: recover the
-	// whole window. Without any, this is a fresh install and only the recent
-	// minutes are filled in.
-	const [olderMapping] = await db
-		.select({ minute: modelProviderMappingHistory.minuteTimestamp })
-		.from(modelProviderMappingHistory)
-		.where(lt(modelProviderMappingHistory.minuteTimestamp, boundedStart))
-		.limit(1);
-	const [olderModel] = olderMapping
-		? [olderMapping]
-		: await db
-				.select({ minute: modelHistory.minuteTimestamp })
-				.from(modelHistory)
-				.where(lt(modelHistory.minuteTimestamp, boundedStart))
-				.limit(1);
-	let start = Number.POSITIVE_INFINITY;
-	for (const time of [...mappingTimes, ...modelTimes]) {
-		start = Math.min(start, time);
-	}
-	if (olderModel) {
-		start = boundedStart.getTime();
-	} else if (start === Number.POSITIVE_INFINITY) {
-		start = Math.max(
-			roundToMinuteStart(new Date(Date.now() - backfillMs)).getTime(),
-			boundedStart.getTime(),
-		);
-	}
-	for (let time = start; time <= end.getTime(); time += ONE_MINUTE_MS) {
-		// Shutdown waits for this backfill; the next start resumes the gaps.
-		if (isStopRequested()) {
-			return;
+type AggregationJob =
+	"minute-usage" | "hourly-usage" | "routing" | "content-filter";
+
+async function beginProgress(job: AggregationJob, bucket: Date) {
+	await db
+		.insert(aggregationProgress)
+		.values({ job, bucketTimestamp: bucket })
+		.onConflictDoUpdate({
+			target: [aggregationProgress.job, aggregationProgress.bucketTimestamp],
+			set: { finalizedAt: null },
+		});
+}
+
+async function recordProgress(
+	job: AggregationJob,
+	bucket: Date,
+	finalized: boolean,
+) {
+	const now = new Date();
+	await db
+		.insert(aggregationProgress)
+		.values({
+			job,
+			bucketTimestamp: bucket,
+			refreshedAt: now,
+			finalizedAt: finalized ? now : null,
+		})
+		.onConflictDoUpdate({
+			target: [aggregationProgress.job, aggregationProgress.bucketTimestamp],
+			set: { refreshedAt: now, ...(finalized ? { finalizedAt: now } : {}) },
+		});
+}
+
+// Live refresh and recovery must not overwrite each other with older snapshots.
+const bucketWork = new Map<string, Promise<unknown>>();
+async function serializeBucket<T>(
+	key: string,
+	work: () => Promise<T>,
+): Promise<T> {
+	const previous = bucketWork.get(key);
+	const next = (async () => {
+		if (previous) {
+			try {
+				await previous;
+			} catch {
+				/* The owner reports the failure; retry this bucket. */
+			}
 		}
-		if (mappingTimes.has(time) && modelTimes.has(time)) {
-			continue;
+		return await work();
+	})();
+	bucketWork.set(key, next);
+	try {
+		return await next;
+	} finally {
+		if (bucketWork.get(key) === next) {
+			bucketWork.delete(key);
 		}
-		await calculateMinuteHistory(new Date(time));
 	}
 }
 
@@ -1285,12 +1290,10 @@ async function refreshMinute(minute: Date, incremental = false) {
 						eq(aggregationProgress.bucketTimestamp, roundToHourStart(minute)),
 					),
 				);
-			const mappingResult = await calculateHistoryForMinute(minute, {
-				incremental,
-			});
-			const modelResult = await calculateModelHistoryForMinute(minute, {
-				incremental,
-			});
+			const { mappingResult, modelResult } = await calculateMinuteHistory(
+				minute,
+				{ incremental },
+			);
 			await recordProgress("minute-usage", minute, !incremental);
 			return { mappingResult, modelResult };
 		},
@@ -1375,7 +1378,7 @@ export async function backfillHistoryIfNeeded(maxBuckets = 1440) {
 		if (completed.has(ms)) {
 			continue;
 		}
-		if (computed >= maxBuckets) {
+		if (isStopRequested() || computed >= maxBuckets) {
 			return false;
 		}
 		await refreshMinute(new Date(ms));
@@ -1396,7 +1399,7 @@ export async function calculateMinutelyHistory() {
 
 	try {
 		const { mappingResult, modelResult } =
-			await calculateMinuteHistory(previousMinuteStart);
+			await refreshMinute(previousMinuteStart);
 
 		logger.debug(
 			`Recorded history for ${mappingResult.totalMappings} model-provider mappings (${mappingResult.activeMappings} active, ${mappingResult.inactiveMappings} inactive) and ${modelResult.totalModels} models (${modelResult.activeModels} active, ${modelResult.inactiveModels} inactive)`,
@@ -1416,8 +1419,10 @@ export async function calculateCurrentMinuteHistory() {
 	const currentMinuteStart = getCurrentMinuteStart();
 
 	try {
-		const { mappingResult, modelResult } =
-			await calculateMinuteHistory(currentMinuteStart);
+		const { mappingResult, modelResult } = await refreshMinute(
+			currentMinuteStart,
+			true,
+		);
 
 		logger.debug(
 			`Updated current minute history for ${currentMinuteStart.toISOString()}: ${mappingResult.activeMappings} active mappings, ${modelResult.activeModels} active models`,
@@ -1872,95 +1877,16 @@ export async function backfillHourlyHistoryIfNeeded(
 					),
 				),
 			),
-		);
-		const summarizedHours = (
-			table:
-				| typeof modelProviderMappingHistoryHourly
-				| typeof modelHistoryHourly
-				| typeof routingElectionHourly,
-		) =>
-			database.select({
-				hourTimestamp: sql<Date>`candidate.hour_timestamp`.mapWith(
-					table.hourTimestamp,
-				),
-			}).from(sql`generate_series(
-					${formatUTCTimestamp(startHour)}::timestamp,
-					${formatUTCTimestamp(lastScannedHour)}::timestamp,
-					interval '1 hour'
-				) as candidate(hour_timestamp)`).where(sql`exists (
-					select 1 from ${table}
-					where ${table.hourTimestamp} = candidate.hour_timestamp
-				)`);
-
-		const [mappingHours, modelHours, routingHours] = await Promise.all([
-			summarizedHours(modelProviderMappingHistoryHourly),
-			summarizedHours(modelHistoryHourly),
-			summarizedHours(routingElectionHourly),
-		]);
-
-		const mappingHourSet = new Set(
-			mappingHours.map((r) => r.hourTimestamp.getTime()),
-		);
-		const modelHourSet = new Set(
-			modelHours.map((r) => r.hourTimestamp.getTime()),
-		);
-		const routingHourSet = new Set(
-			routingHours.map((r) => r.hourTimestamp.getTime()),
-		);
-
-		logger.info(
-			`Backfilling missing hourly history from ${startHour.toISOString()} to ${previousHourStart.toISOString()}`,
-		);
-
-		let hour = startHour;
-		let scanned = 0;
-		let computed = 0;
-		while (
-			hour <= previousHourStart &&
-			scanned < HOURLY_BACKFILL_MAX_ITERATIONS &&
-			!isStopRequested()
-		) {
-			const ms = hour.getTime();
-			// Routing telemetry shipped after the two history tables, so on the first
-			// pass after deploy every historical hour is present in those two and
-			// absent from routing — checking only them would leave routing telemetry
-			// permanently unbackfilled.
-			const routingMissing =
-				earliestLogHourMs !== null &&
-				ms >= earliestLogHourMs &&
-				!routingHourSet.has(ms);
-			if (!mappingHourSet.has(ms) || !modelHourSet.has(ms) || routingMissing) {
-				const result = await calculateHistoryForHour(hour);
-				logger.info(
-					`Backfilled hourly history for ${hour.toISOString()}: ${result.mappingResult.totalMappings} mappings, ${result.modelResult.totalModels} models, ${result.routingResult?.electionRows ?? 0} routing elections`,
-				);
-				computed++;
-			}
-
-			const nextHour = roundToHourStart(new Date(hour.getTime() + ONE_HOUR_MS));
-			if (nextHour.getTime() <= hour.getTime()) {
-				logger.error(
-					`Loop safety break: Time calculation error at ${hour.toISOString()}`,
-				);
-				break;
-			}
-
-			hour = nextHour;
-			scanned++;
-		}
-
-		if (scanned >= HOURLY_BACKFILL_MAX_ITERATIONS) {
-			logger.warn(
-				`Hourly backfill stopped at iteration limit ${HOURLY_BACKFILL_MAX_ITERATIONS} to prevent runaway backfill`,
-			);
-		}
-
-		logger.info(
-			`Hourly backfill complete: scanned ${scanned} hour(s), computed ${computed} missing.`,
-		);
-	} catch (error) {
-		logger.error("Error during hourly history backfill:", error as Error);
-		throw error;
+	]);
+	const sources = [
+		mapping[0]?.timestamp,
+		models[0]?.timestamp,
+		...progress
+			.filter((row) => row.job === "minute-usage")
+			.map((row) => row.bucketTimestamp),
+	].filter((date): date is Date => date !== undefined);
+	if (!sources.length) {
+		return true;
 	}
 	const start = roundToHourStart(
 		new Date(Math.min(...sources.map((date) => date.getTime()))),
@@ -2038,7 +1964,7 @@ export async function backfillHourlyHistoryIfNeeded(
 		if (!usage && !routing && !contentFilter) {
 			continue;
 		}
-		if (computed >= maxBuckets) {
+		if (isStopRequested() || computed >= maxBuckets) {
 			return false;
 		}
 		// A pending minute means recovery was capped or failed. Do not finalize

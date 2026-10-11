@@ -4,7 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { redisClient } from "@llmgateway/cache";
-import { db, tables } from "@llmgateway/db";
+import { db, eq, isCachingEnabled, tables } from "@llmgateway/db";
 
 const stripeMock = vi.hoisted(() => ({
 	subscriptions: {

@@ -3538,33 +3538,7 @@ export async function startWorker() {
 		);
 	}
 
-	activeLoops++;
-	void backfillHistoryIfNeeded()
-		.then(() => {
-			logger.info("History backfill check completed");
-			// Hourly summaries roll up the minute history, so backfill them only
-			// after the minute backfill has had a chance to fill recent gaps.
-			return backfillHourlyHistoryIfNeeded();
-		})
-		.then(() => {
-			// A backfill cut short by shutdown has not populated every rollup.
-			if (isStopRequested()) {
-				return;
-			}
-			logger.info("Hourly history backfill check completed");
-			// Hourly rollups are now populated, so minute-history pruning is safe.
-			hourlyBackfillComplete = true;
-		})
-		.catch((error) => {
-			logger.error(
-				"Error during history backfill",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-		})
-		.finally(() => {
-			activeLoops--;
-		});
-
+	void runHistoryStartupLoop();
 	// Start all worker loops (all sequential — each waits for completion before scheduling next run)
 	logger.info("Starting worker loops...");
 	logger.info(

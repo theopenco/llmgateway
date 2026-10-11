@@ -49,6 +49,8 @@ function IncidentsContent() {
 	const searchParams = useSearchParams();
 	const mapping = searchParams.get("mapping");
 	const model = searchParams.get("model");
+	const groupByError = searchParams.get("group") === "error";
+	const includeByok = searchParams.get("includeByok") === "true";
 	const { company, isLoading: companyLoading } = useCompany();
 	const [timeWindow, setTimeWindow] = useState<IncidentsWindow>("24h");
 	const [providerId, setProviderId] = useState<string | undefined>(undefined);

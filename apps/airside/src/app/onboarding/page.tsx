@@ -503,8 +503,8 @@ function OnboardingContent() {
 	const paymentDue =
 		!!company && company.paymentRequired && company.paymentStatus === "unpaid";
 	const emailDomain = claimableQuery.data?.emailDomain ?? "";
-	// Every domain this account may claim on: the verified email's, plus a
-	// company domain proved over DNS.
+	// Every domain this account may claim on: the verified email's, plus the
+	// company domains proved over DNS.
 	const claimDomains = Array.from(
 		new Set(
 			[

@@ -18,7 +18,6 @@ import {
 	apiKey,
 	eq,
 	and,
-	gte,
 	user,
 	getTableColumns,
 	sql,
@@ -1643,44 +1642,6 @@ describe("stats-calculator", () => {
 	});
 
 	describe("backfillHistoryIfNeeded", () => {
-		it("repairs independent minute gaps even after newer rows succeed", async () => {
-			for (const minute of [27, 28, 29]) {
-				vi.setSystemTime(new Date(`2024-01-01T12:${minute + 1}:00.000Z`));
-				await calculateMinutelyHistory();
-			}
-			const missingModel = new Date("2024-01-01T12:27:00.000Z");
-			const missingMapping = new Date("2024-01-01T12:28:00.000Z");
-			const originalModel = await db
-				.select()
-				.from(modelHistory)
-				.where(eq(modelHistory.minuteTimestamp, missingModel));
-			const originalMapping = await db
-				.select()
-				.from(modelProviderMappingHistory)
-				.where(eq(modelProviderMappingHistory.minuteTimestamp, missingMapping));
-			await db
-				.delete(modelHistory)
-				.where(eq(modelHistory.minuteTimestamp, missingModel));
-			await db
-				.delete(modelProviderMappingHistory)
-				.where(eq(modelProviderMappingHistory.minuteTimestamp, missingMapping));
-			await backfillHistoryIfNeeded();
-			expect(
-				await db
-					.select()
-					.from(modelHistory)
-					.where(eq(modelHistory.minuteTimestamp, missingModel)),
-			).toHaveLength(originalModel.length);
-			expect(
-				await db
-					.select()
-					.from(modelProviderMappingHistory)
-					.where(
-						eq(modelProviderMappingHistory.minuteTimestamp, missingMapping),
-					),
-			).toHaveLength(originalMapping.length);
-		});
-
 		it("should backfill when no history exists", async () => {
 			await backfillHistoryIfNeeded();
 			expect(await db.select().from(modelHistory)).toEqual([]);
@@ -1713,51 +1674,25 @@ describe("stats-calculator", () => {
 			);
 		});
 
-		it(
-			"recovers the whole window after an outage longer than it",
-			{ timeout: 120_000 },
-			async () => {
-				vi.setSystemTime(new Date("2024-01-01T12:30:00.000Z"));
-				await db.insert(modelProviderMappingHistory).values({
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: new Date("2023-12-30T12:00:00.000Z"),
-					logsCount: 0,
-					errorsCount: 0,
-					clientErrorsCount: 0,
-					gatewayErrorsCount: 0,
-					upstreamErrorsCount: 0,
-					cachedCount: 0,
-					totalInputTokens: 0,
-					totalOutputTokens: 0,
-					totalTokens: 0,
-					totalReasoningTokens: 0,
-					totalCachedTokens: 0,
-					totalDuration: 0,
-				});
-
-				await backfillHistoryIfNeeded();
-
-				const minutes = new Set(
-					(
-						await db
-							.select({ minute: modelProviderMappingHistory.minuteTimestamp })
-							.from(modelProviderMappingHistory)
-							.where(
-								gte(
-									modelProviderMappingHistory.minuteTimestamp,
-									new Date("2023-12-31T00:00:00.000Z"),
-								),
-							)
-					).map(({ minute }) => minute.getTime()),
-				);
-				expect(minutes.size).toBe(1440);
-				expect(Math.min(...minutes)).toBe(
-					new Date("2023-12-31T12:30:00.000Z").getTime(),
-				);
-			},
-		);
+		it("resumes a long outage across capped recovery passes", async () => {
+			const minuteTimestamp = new Date("2023-12-30T12:00:00Z");
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				minuteTimestamp,
+			});
+			expect(await initializeMinuteRecovery()).toEqual(minuteTimestamp);
+			expect(await backfillHistoryIfNeeded(2)).toBe(false);
+			expect(await backfillHistoryIfNeeded(2)).toBe(false);
+			const progress = await db
+				.select()
+				.from(aggregationProgress)
+				.orderBy(aggregationProgress.bucketTimestamp);
+			expect(progress).toHaveLength(4);
+			expect(progress.every((row) => row.finalizedAt !== null)).toBe(true);
+			expect(progress[0].bucketTimestamp).toEqual(minuteTimestamp);
+		});
 
 		it("should backfill missing periods", async () => {
 			// Create old history entry from 5 minutes ago
@@ -2911,12 +2846,23 @@ describe("stats-calculator", () => {
 			});
 
 		it("does not repeat first-write cleanup on empty incremental ticks", async () => {
-			const deletes = vi.spyOn(db, "delete");
+			let deletes = 0;
+			const transaction = db.transaction.bind(db);
+			vi.spyOn(db, "transaction").mockImplementation((callback) =>
+				transaction(async (tx) => {
+					const remove = tx.delete.bind(tx);
+					vi.spyOn(tx, "delete").mockImplementation((table) => {
+						deletes++;
+						return remove(table);
+					});
+					return await callback(tx);
+				}),
+			);
 			await calculateCurrentMinuteHistory();
-			const first = deletes.mock.calls.length;
+			const first = deletes;
 			expect(first).toBeGreaterThan(0);
 			await calculateCurrentMinuteHistory();
-			expect(deletes.mock.calls).toHaveLength(first);
+			expect(deletes).toBe(first);
 		});
 
 		it("repairs hourly summaries after live and recovery work overlap", async () => {
@@ -3151,7 +3097,7 @@ describe("stats-calculator", () => {
 			expect(progress.filter((row) => row.finalizedAt)).toHaveLength(5);
 		});
 
-		it("repairs a partial minute write before recording success", async () => {
+		it("rolls back a failed minute before retrying it", async () => {
 			await insertRequest("partial-request", new Date("2024-01-01T12:29:00Z"));
 			await db.execute(
 				sql`create function fail_model_history() returns trigger language plpgsql as $$ begin raise exception 'test model write failure'; end $$`,
@@ -3163,7 +3109,7 @@ describe("stats-calculator", () => {
 				await expect(calculateMinutelyHistory()).rejects.toThrow();
 				expect(
 					await db.select().from(modelProviderMappingHistory),
-				).toHaveLength(1);
+				).toHaveLength(0);
 				expect(await db.select().from(modelHistory)).toHaveLength(0);
 				const progress = await db.select().from(aggregationProgress);
 				expect(

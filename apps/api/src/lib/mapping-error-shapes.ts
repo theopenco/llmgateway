@@ -364,11 +364,13 @@ export async function queryIncidentMappings({
 	windowHours,
 	mapping,
 	model,
+	includeByok,
 }: {
 	providerIds: string[];
 	windowHours: number;
 	mapping: string | null;
 	model?: string;
+	includeByok: boolean;
 }): Promise<z.infer<typeof incidentsResponseSchema>["mappings"]> {
 	if (providerIds.length === 0) {
 		return [];

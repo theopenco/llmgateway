@@ -1249,7 +1249,37 @@ interface CheckFailure {
 	 * a transport error says nothing and must never narrow a listing.
 	 */
 	rejected: boolean;
+	/** Not the upstream's verdict (timeout, 5xx, auth): never narrows a listing. */
 	transient?: boolean;
+	/**
+	 * The response was served but carries a protocol defect no other probe
+	 * variant would fix, so a ladder stops instead of narrowing the listing.
+	 */
+	conclusive?: boolean;
+}
+
+interface CheckContext {
+	secrets: Set<string>;
+	/** Optional checks the current check missed, while they only warn. */
+	optionalWarnings: Set<string>;
+	requireOptionalChecks?: boolean;
+	/** What the basic completion reported, for the streaming check to match. */
+	basicUsage?: ReportedUsage;
+	/** A key smoke test proves the key works; optional checks are preflight's. */
+	keyOnly?: boolean;
+}
+
+/**
+ * Tries a request that timed out gets. A slow response says nothing about what
+ * the deployment supports, so it is retried rather than failing the check.
+ */
+const CHECK_TIMEOUT_ATTEMPTS = 3;
+
+/** Called before a timed-out request is retried, with the attempt that failed. */
+type TimeoutReporter = (attempt: number) => Promise<void> | void;
+
+function isTimeoutError(error: unknown): boolean {
+	return error instanceof Error && error.name === "TimeoutError";
 }
 
 async function attemptCheck(
@@ -1272,11 +1302,16 @@ async function attemptCheck(
 					? error.message
 					: "Verification request failed."
 				).slice(0, 500),
-				secrets,
-			),
-			rejected: false,
-			transient: true,
-		};
+				context.secrets,
+			);
+			return {
+				message: timedOut
+					? `${message} (timed out on all ${CHECK_TIMEOUT_ATTEMPTS} attempts)`
+					: message,
+				rejected: false,
+				transient: true,
+			};
+		}
 	}
 }
 
@@ -1474,6 +1509,9 @@ async function runCheck(
 		}
 		if (failure.transient) {
 			return { failure, probes };
+		}
+		if (failure.conclusive) {
+			break;
 		}
 		unsupportedToolChoices.push(mode);
 	}

@@ -2,12 +2,14 @@
 
 import { usePathname } from "next/navigation";
 
+import { AirsideSidebar } from "@/components/dashboard/AirsideSidebar";
 import { useCompany } from "@/components/dashboard/company-context";
 import { QueryError } from "@/components/dashboard/IncidentsTable";
-import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
-import { ProductSwitcher } from "@/components/ProductSwitcher";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { Button } from "@/components/ui/button";
+import { findActiveNav, getNavGroups } from "@/components/dashboard/nav";
+import { ShellBanners } from "@/components/dashboard/ShellBanners";
+import { TopBarActions } from "@/components/dashboard/TopBarActions";
+import { useNavBadges } from "@/components/dashboard/useNavBadges";
+import { Separator } from "@/components/ui/separator";
 import {
 	SidebarInset,
 	SidebarProvider,
@@ -20,17 +22,7 @@ import type { ReactNode } from "react";
 function TopBarTitle() {
 	const pathname = usePathname();
 	const config = useAppConfig();
-	const router = useRouter();
-	const queryClient = useQueryClient();
-	const { signOut } = useAuth();
-	const { companies, company, setCompanyId, isError, isFetching, retry } =
-		useCompany();
-
-	async function handleSignOut() {
-		await signOut();
-		queryClient.clear();
-		router.push("/login");
-	}
+	const active = findActiveNav(getNavGroups(config.uiUrl), pathname);
 
 	return (
 		<nav aria-label="Breadcrumb" className="min-w-0 flex-1">
@@ -50,26 +42,50 @@ function TopBarTitle() {
 							aria-current="page"
 							className="font-display truncate text-sm font-bold tracking-tight"
 						>
-							<LogOut className="size-4" />
-						</Button>
+							{active.item.label}
+						</li>
+					</>
+				) : null}
+			</ol>
+		</nav>
+	);
+}
+
+export function DashboardShell({
+	children,
+	defaultSidebarOpen = true,
+}: {
+	children: ReactNode;
+	defaultSidebarOpen?: boolean;
+}) {
+	const badges = useNavBadges();
+	const { isError, isFetching, retry } = useCompany();
+
+	return (
+		<SidebarProvider defaultOpen={defaultSidebarOpen}>
+			<AirsideSidebar badges={badges} />
+			<SidebarInset className="min-w-0">
+				<header className="bg-background/90 supports-backdrop-filter:bg-background/75 sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b px-4 backdrop-blur sm:px-6 md:rounded-t-xl">
+					<SidebarTrigger className="-ml-1" />
+					<Separator orientation="vertical" className="mr-1 h-4!" />
+					<TopBarTitle />
+					<TopBarActions />
+				</header>
+				<div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-6 sm:px-6">
+					<ShellBanners />
+					<div className="min-w-0 flex-1">
+						{isError ? (
+							<QueryError
+								message="Could not load your carrier companies."
+								onRetry={retry}
+								retrying={isFetching}
+							/>
+						) : (
+							children
+						)}
 					</div>
 				</div>
-			</header>
-
-			<main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">
-				<div className="mb-4 empty:hidden">
-					<EmailVerificationBanner />
-				</div>
-				{isError ? (
-					<QueryError
-						message="Could not load your carrier companies."
-						onRetry={retry}
-						retrying={isFetching}
-					/>
-				) : (
-					children
-				)}
-			</main>
-		</div>
+			</SidebarInset>
+		</SidebarProvider>
 	);
 }

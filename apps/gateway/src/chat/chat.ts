@@ -262,6 +262,12 @@ import {
 } from "@llmgateway/shared/smart-routing";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
+import {
+	applyAnthropicSafeguards,
+	extractAnthropicSafeguards,
+	isSafeguardBeta,
+	providerSupportsAnthropicSafeguards,
+} from "./tools/anthropic-safeguards.js";
 import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
 import {
 	checkContentFilter,
@@ -5923,6 +5929,10 @@ chat.openapi(completions, async (c) => {
 				),
 				providersWithKeys,
 			);
+			if (routingCandidates.length === 0 && enforcedLimits.size > 0) {
+				await rejectProviderRateLimit([...enforcedLimits.values()][0]);
+			}
+
 			const routingCandidateProviderIds = new Set<string>(
 				routingCandidates.map((candidate) => candidate.providerId),
 			);

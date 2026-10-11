@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	getContentFilterFocusOrganizations,
 	getContentFilterViolations,
-	getOrganizationContentFilterActivity,
 } from "./admin-content-filter";
 import { getContentFilterSettings } from "./admin-settings";
 
@@ -23,10 +22,6 @@ describe("content filter request failures", () => {
 		[
 			"focused organizations",
 			() => getContentFilterFocusOrganizations("24h", "test"),
-		],
-		[
-			"organization activity",
-			() => getOrganizationContentFilterActivity("test-org-id", "1d"),
 		],
 	])("does not turn unavailable %s into empty data", async (_name, load) => {
 		await expect(load()).rejects.toThrow();

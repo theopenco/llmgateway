@@ -4486,6 +4486,7 @@ airside.openapi(incidentsRoute, async (c) => {
 			windowHours,
 			mapping,
 			model: query.model,
+			includeByok: query.includeByok === "true",
 		}),
 	});
 });

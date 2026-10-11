@@ -49,43 +49,6 @@ import { useApi } from "@/lib/fetch-client";
 
 import type { ModelVerification } from "@/components/model-verification-dialog";
 
-const PAGE_SIZE = 50;
-
-function FilingPagination({
-	offset,
-	hasMore,
-	loading,
-	onChange,
-}: {
-	offset: number;
-	hasMore: boolean;
-	loading: boolean;
-	onChange: (offset: number) => void;
-}) {
-	const page = offset / PAGE_SIZE;
-	return (
-		<div className="mt-4 flex items-center justify-end gap-3">
-			<Button
-				variant="outline"
-				size="sm"
-				disabled={loading || offset === 0}
-				onClick={() => onChange(Math.max(0, offset - PAGE_SIZE))}
-			>
-				Previous
-			</Button>
-			<span className="text-sm text-muted-foreground">Page {page + 1}</span>
-			<Button
-				variant="outline"
-				size="sm"
-				disabled={loading || !hasMore}
-				onClick={() => onChange(offset + PAGE_SIZE)}
-			>
-				Next
-			</Button>
-		</div>
-	);
-}
-
 function FilingQueryError({ onRetry }: { onRetry: () => void }) {
 	return (
 		<div
@@ -191,8 +154,17 @@ export function AirsideFilingsClient() {
 	const queryClient = useQueryClient();
 	const isAdmin = canWrite(useAdminRole());
 	const [status, setStatus] = useState<FilingStatus | "all">("pending");
-	const [filingOffset, setFilingOffset] = useState(0);
-	const [routingOffset, setRoutingOffset] = useState(0);
+	const [filingsPage, setFilingsPage] = useState(1);
+	const [routingPage, setRoutingPage] = useState(1);
+	const [claimsPage, setClaimsPage] = useState(1);
+	const [activeClaimsPage, setActiveClaimsPage] = useState(1);
+	const [brandingPage, setBrandingPage] = useState(1);
+	const [providerKeyPage, setProviderKeyPage] = useState(1);
+	const [codesPage, setCodesPage] = useState(1);
+	const pageQuery = (page: number) => ({
+		limit: PAGE_SIZE,
+		offset: (page - 1) * PAGE_SIZE,
+	});
 	const [rejecting, setRejecting] = useState<{
 		kind: "filing" | "claim" | "revoke" | "routing";
 		id: string;
@@ -205,17 +177,8 @@ export function AirsideFilingsClient() {
 		params: {
 			query: {
 				...(status === "all" ? {} : { status }),
-				offset: filingOffset,
-				limit: PAGE_SIZE + 1,
-			},
-		},
-	});
-	const routingQuery = $api.useQuery("get", "/admin/airside/filings", {
-		params: {
-			query: {
-				...(status === "all" ? {} : { status }),
-				offset: routingOffset,
-				limit: PAGE_SIZE + 1,
+				...pageQuery(filingsPage),
+				routingOffset: (routingPage - 1) * PAGE_SIZE,
 			},
 		},
 	});
@@ -441,7 +404,7 @@ export function AirsideFilingsClient() {
 		},
 	);
 
-	const filings = query.data?.filings.slice(0, PAGE_SIZE) ?? [];
+	const filings = query.data?.filings ?? [];
 	const filingModelIds = filings.map((filing) => filing.model.id);
 	const verificationsQuery = $api.useQuery(
 		"get",
@@ -467,8 +430,7 @@ export function AirsideFilingsClient() {
 				entry.verification as ModelVerification,
 			]),
 	);
-	const routingFilings =
-		routingQuery.data?.routingFilings.slice(0, PAGE_SIZE) ?? [];
+	const routingFilings = query.data?.routingFilings ?? [];
 	const pendingClaims = claimsQuery.data?.claims ?? [];
 	const activeClaims =
 		status === "approved" ? (activeClaimsQuery.data?.claims ?? []) : [];
@@ -495,8 +457,9 @@ export function AirsideFilingsClient() {
 							variant={status === s ? "default" : "outline"}
 							onClick={() => {
 								setStatus(s);
-								setFilingOffset(0);
-								setRoutingOffset(0);
+								setFilingsPage(1);
+								setRoutingPage(1);
+								setActiveClaimsPage(1);
 							}}
 						>
 							{s}
@@ -1143,11 +1106,11 @@ export function AirsideFilingsClient() {
 							</TableBody>
 						</Table>
 					)}
-					<FilingPagination
-						offset={filingOffset}
-						hasMore={(query.data?.filings.length ?? 0) > PAGE_SIZE}
-						loading={query.isFetching}
-						onChange={setFilingOffset}
+					<Pager
+						page={filingsPage}
+						total={query.data?.total ?? 0}
+						onPageChange={setFilingsPage}
+						testId="filings-pager"
 					/>
 				</CardContent>
 			</Card>
@@ -1163,7 +1126,7 @@ export function AirsideFilingsClient() {
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					{routingQuery.isLoading ? (
+					{query.isLoading ? (
 						<Loader2 className="mx-auto size-5 animate-spin" />
 					) : query.isError && !query.data ? (
 						<FilingQueryError onRetry={() => void query.refetch()} />
@@ -1277,13 +1240,11 @@ export function AirsideFilingsClient() {
 							</TableBody>
 						</Table>
 					)}
-					<FilingPagination
-						offset={routingOffset}
-						hasMore={
-							(routingQuery.data?.routingFilings.length ?? 0) > PAGE_SIZE
-						}
-						loading={routingQuery.isFetching}
-						onChange={setRoutingOffset}
+					<Pager
+						page={routingPage}
+						total={query.data?.routingTotal ?? 0}
+						onPageChange={setRoutingPage}
+						testId="routing-filings-pager"
 					/>
 				</CardContent>
 			</Card>

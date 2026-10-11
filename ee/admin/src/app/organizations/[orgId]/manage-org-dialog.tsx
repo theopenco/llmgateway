@@ -58,21 +58,6 @@ interface ManageOrgDialogProps {
 	isTrialActive: boolean;
 	trialStartDate: string | null;
 	trialEndDate: string | null;
-	onSave: (data: {
-		name: string;
-		plan: Plan;
-		seats: number | null;
-		apiKeyLimit: number | null;
-		projectLimit: number | null;
-		trustTierOverride?: number | null;
-		contentFilterTierOverride?: number | null;
-		contentFilterLogOnly?: boolean;
-		planExpiresAt: string | null;
-		planStartedAt: string | null;
-		isTrialActive: boolean;
-		trialStartDate: string | null;
-		trialEndDate: string | null;
-	}) => Promise<{ success: boolean; error?: string }>;
 	primaryTrigger?: boolean;
 }
 
@@ -353,35 +338,36 @@ export function ManageOrgDialog({
 			return;
 		}
 
-		setLoading(true);
-		setError(null);
-
-		const result = await onSave({
-			name: trimmedName,
-			plan: planValue,
-			seats: seatsToSave,
-			apiKeyLimit: apiKeyLimitToSave,
-			projectLimit: projectLimitToSave,
-			...(trustTierOverride !== undefined
-				? {
-						trustTierOverride:
-							trustTierValue === "auto" ? null : Number(trustTierValue),
-					}
-				: {}),
-			...(hasContentFilterControls
-				? {
-						contentFilterTierOverride:
-							contentFilterTierValue === "auto"
-								? null
-								: Number(contentFilterTierValue),
-						contentFilterLogOnly: contentFilterLogOnlyValue,
-					}
-				: {}),
-			planStartedAt: startedAtValue === "" ? null : startedAtValue,
-			planExpiresAt: expiresAtValue === "" ? null : expiresAtValue,
-			isTrialActive: trialActiveValue,
-			trialStartDate: trialStartValue === "" ? null : trialStartValue,
-			trialEndDate: trialEndValue === "" ? null : trialEndValue,
+		setValidationError(null);
+		manageMutation.mutate({
+			params: { path: { orgId } },
+			body: {
+				name: trimmedName,
+				plan: planValue,
+				seats: seatsToSave,
+				apiKeyLimit: apiKeyLimitToSave,
+				projectLimit: projectLimitToSave,
+				...(trustTierOverride !== undefined
+					? {
+							trustTierOverride:
+								trustTierValue === "auto" ? null : Number(trustTierValue),
+						}
+					: {}),
+				...(hasContentFilterControls
+					? {
+							contentFilterTierOverride:
+								contentFilterTierValue === "auto"
+									? null
+									: Number(contentFilterTierValue),
+							contentFilterLogOnly: contentFilterLogOnlyValue,
+						}
+					: {}),
+				planStartedAt: startedAtValue === "" ? null : startedAtValue,
+				planExpiresAt: expiresAtValue === "" ? null : expiresAtValue,
+				isTrialActive: trialActiveValue,
+				trialStartDate: trialStartValue === "" ? null : trialStartValue,
+				trialEndDate: trialEndValue === "" ? null : trialEndValue,
+			},
 		});
 	};
 

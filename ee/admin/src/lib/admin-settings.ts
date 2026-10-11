@@ -1,5 +1,3 @@
-"use server";
-
 import { apiErrorMessage } from "./api-error";
 import { createServerApiClient } from "./server-api";
 

@@ -804,8 +804,31 @@ anthropic.openapi(messages, async (c) => {
 
 			// Convert each unique tool_use_id to a single tool message
 			for (const [toolUseId, blocks] of toolResults) {
-				const combinedContent = blocks.flatMap(
-					(block): Record<string, unknown>[] => {
+				// Lift content markers before lowering blocks so moving a cache
+				// breakpoint does not change the tool result's text.
+				let toolResultCacheControl: CacheControl | undefined;
+				const combinedContent = blocks
+					.map((block) => {
+						const content = Array.isArray(block.content)
+							? block.content.map((entry: unknown) => {
+									if (!entry || typeof entry !== "object") {
+										return entry;
+									}
+									const { cache_control: marker, ...part } = entry as Record<
+										string,
+										unknown
+									> & {
+										cache_control?: CacheControl;
+									};
+									toolResultCacheControl = marker ?? toolResultCacheControl;
+									return part;
+								})
+							: block.content;
+						toolResultCacheControl =
+							block.cache_control ?? toolResultCacheControl;
+						return { ...block, content };
+					})
+					.flatMap((block): Record<string, unknown>[] => {
 						if (typeof block.content === "string") {
 							return [{ type: "text", text: block.content }];
 						}
@@ -855,8 +878,7 @@ anthropic.openapi(messages, async (c) => {
 									: [{ type: "text", text: JSON.stringify(part) }];
 							},
 						);
-					},
-				);
+					});
 				// A client-side tool search answers with `tool_reference` blocks in
 				// the tool_result content array. Stringifying them would leave
 				// Anthropic nothing to expand, so keep the originals alongside the

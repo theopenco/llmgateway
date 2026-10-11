@@ -265,7 +265,7 @@ export async function transformAnthropicMessages(
 					if (isDiscardedToolResult && isTextContent(part)) {
 						return { type: "text", text: part.text } as TextContent;
 					}
-					if (isTextContent(part) && part.text) {
+					if (isTextContent(part) && part.text?.trim()) {
 						if (part.cache_control) {
 							pendingCallerMarkers--;
 							// Count caller-supplied markers toward Anthropic's 4-block
