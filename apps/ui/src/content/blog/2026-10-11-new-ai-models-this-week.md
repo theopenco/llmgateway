@@ -12,6 +12,11 @@ faqs:
     answer: "$0.10 per million input tokens and $0.50 per million output tokens on LLM Gateway, with cached input at $0.01 per million. It has a 1M-token context window and supports tools, vision and adaptive thinking."
   - question: "How do I use a new model on LLM Gateway?"
     answer: "Set the model field of your request to the ID in the table, for example claude-haiku-5-5 or mistral-large-4, and send it to https://api.llmgateway.io/v1/chat/completions with your LLM Gateway API key. New models are added to the catalog as providers publish them, usually on release day."
+image:
+  src: "/blog/new-ai-models-this-week-2026-10-11.png"
+  alt: "A glowing calendar page with a sparkle on the central chip of a dark circuit board, surrounded by rocket, film clapperboard, paintbrush, chat bubble, brain, price tag, stopwatch and star icons, representing the new AI models released this week"
+  width: 1536
+  height: 1024
 ---
 
 Eight new AI models landed in the **LLM Gateway** catalog in the last two weeks, from a $0.10-per-million-token Claude to a 1.05-trillion-parameter open-weight Mistral. Each one is callable today with the same request you already send; only the `model` string changes. Prices are per million tokens unless noted, as listed on each [model page](https://llmgateway.io/models) on October 11, 2026.

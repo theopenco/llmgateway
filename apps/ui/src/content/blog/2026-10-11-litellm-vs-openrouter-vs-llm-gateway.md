@@ -14,6 +14,11 @@ faqs:
     answer: "When you want the hosted convenience of OpenRouter with the self-hosting option and zero-markup BYOK of LiteLLM in one product. LLM Gateway is open source (AGPLv3), runs as a managed service or one Docker command, charges 0% on your own keys, and scores providers on uptime, throughput, price and latency instead of static fallback lists."
   - question: "Which LLM proxy adds the least latency?"
     answer: "In computesdk's independent AI gateway benchmark (August 7, 2026 run), LLM Gateway ranked first of six gateways with a composite score of 90.8 and a warm p95 time-to-first-token of 1,151 ms, ahead of OpenRouter at 88.3. LiteLLM was not in that run; as self-hosted software its overhead depends on where you deploy it."
+image:
+  src: "/blog/litellm-vs-openrouter-vs-llm-gateway.png"
+  alt: "A glowing three-way junction on the central chip of a dark circuit board where one light trace splits toward three smaller chips, surrounded by balance scale, server rack, cloud, gauge and coin-stack icons, representing a LiteLLM vs OpenRouter vs LLM Gateway comparison"
+  width: 1536
+  height: 1024
 ---
 
 Three names come up in every "which LLM proxy" thread: **LiteLLM**, the Python proxy you self-host; **OpenRouter**, the hosted catalog with one key for everything; and **LLM Gateway**, the open-source gateway you can run yourself or use hosted. They solve the same problem, one OpenAI-compatible endpoint in front of many providers, with different trade-offs on who operates it, what it costs on your own keys, and how much it does for you once a provider fails.
