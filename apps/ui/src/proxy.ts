@@ -10,7 +10,7 @@ import type { NextRequest } from "next/server";
  * wildcard-only html does not.
  */
 function markdownPreferred(accept: string | null): boolean {
-	if (!accept) {
+	if (!accept || !accept.includes("text/markdown")) {
 		return false;
 	}
 	let markdownQ = 0;
