@@ -15,20 +15,25 @@ import {
 	apiKey,
 	apiKeyHourlyModelStats as stats,
 	db,
+	eq,
 	gt,
 	gte,
+	inArray,
 	isEmailSuppressed,
 	lt,
 	modelProviderMapping as mapping,
 	organization,
 	project,
 	sql,
+	type SQL,
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import {
 	getEffectiveProviderCacheControlMode,
+	getProviderDefinition,
 	models,
 	type ProviderApiFormat,
+	type ProviderCacheAutoTtl,
 	type ProviderCacheControlMode,
 	type ZeroDataRetentionSubject,
 } from "@llmgateway/models";
@@ -38,68 +43,33 @@ import {
 	recordEvent,
 	type Channels,
 } from "./notification-events.js";
+import {
+	findPromptCacheProblems,
+	HISTORY_MS,
+	MIN_DAILY_USD,
+	PROMPT_CACHE_CAUSES,
+	recoveryWindow,
+	renderPromptCacheAlert,
+	shouldSend,
+	streamDays,
+	type PromptCacheCause,
+	type PromptCacheContext,
+	type PromptCacheProblem,
+	type SentAlert,
+	type StreamDay,
+	type StreamHour,
+	type StreamInfo,
+} from "./prompt-cache-rule.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const WINDOW_MS = DAY_MS;
 const SETTLE_MS = 5 * 60 * 1000;
-const MAX_HIT_RATE = new Decimal("0.5");
-const MIN_DAILY_SAVINGS_USD = new Decimal(5);
-const MIN_REQUESTS = 20;
-const COOLDOWN_MS = 7 * DAY_MS;
 const GATE_TTL_SECONDS = (2 * HOUR_MS) / 1000;
 
 interface Window {
 	start: Date;
 	end: Date;
-}
-
-export interface ProviderCacheUsage {
-	providerId: string;
-	region: string | null;
-	requests: number;
-	inputTokens: Decimal;
-	cachedTokens: Decimal;
-	cacheWriteTokens: Decimal;
-	uncachedInputCost: Decimal;
-	inputPrice: Decimal | null;
-	cachedInputPrice: Decimal | null;
-	minCacheableTokens: number | null;
-	autoModeEnablesCaching: boolean;
-}
-
-export interface KeyModelCacheUsage {
-	apiKeyId: string;
-	apiKeyDescription: string;
-	projectId: string;
-	organizationId: string;
-	organizationKind: "default" | "devpass" | "chat";
-	modelId: string;
-	cacheMode: ProviderCacheControlMode;
-	providers: ProviderCacheUsage[];
-}
-
-export type PromptCacheCause =
-	"client_managed_without_markers" | "cache_not_reused";
-
-export interface PromptCacheFinding {
-	apiKeyId: string;
-	apiKeyDescription: string;
-	projectId: string;
-	organizationId: string;
-	modelId: string;
-	providerIds: string[];
-	requests: number;
-	hitRate: Decimal;
-	uncachedInputCost: Decimal;
-	potentialSavings: Decimal;
-	cause: PromptCacheCause;
-}
-
-export interface PromptCacheAlertContent {
-	title: string;
-	message: string;
-	href: string;
 }
 
 interface Reader {
@@ -108,116 +78,10 @@ interface Reader {
 	scope: ApiKeyScope;
 }
 
-interface EligibleProvider {
-	usage: ProviderCacheUsage;
-	cachedPriceRatio: Decimal;
-}
-
-function eligibleProvider(
-	provider: ProviderCacheUsage,
-): EligibleProvider | null {
-	const { inputPrice, cachedInputPrice, requests, inputTokens } = provider;
-	if (
-		inputPrice === null ||
-		cachedInputPrice === null ||
-		!inputPrice.gt(0) ||
-		!cachedInputPrice.lt(inputPrice) ||
-		requests <= 0 ||
-		inputTokens.isZero() ||
-		inputTokens
-			.div(requests)
-			.lt(provider.minCacheableTokens ?? DEFAULT_MIN_CACHEABLE_TOKENS)
-	) {
-		return null;
-	}
-	return {
-		usage: provider,
-		cachedPriceRatio: cachedInputPrice.div(inputPrice),
-	};
-}
-
-export function evaluatePromptCache(
-	usage: KeyModelCacheUsage,
-): PromptCacheFinding | null {
-	if (usage.cacheMode === "off") {
-		return null;
-	}
-	const eligible = usage.providers
-		.map(eligibleProvider)
-		.filter((provider) => provider !== null);
-	if (eligible.length === 0) {
-		return null;
-	}
-	const requests = eligible.reduce((total, e) => total + e.usage.requests, 0);
-	if (requests < MIN_REQUESTS) {
-		return null;
-	}
-	const sum = (pick: (e: EligibleProvider) => Decimal) =>
-		Decimal.sum(...eligible.map(pick));
-	const cachedTokens = sum((e) => e.usage.cachedTokens);
-	const hitRate = Decimal.min(
-		1,
-		cachedTokens.div(sum((e) => e.usage.inputTokens)),
-	);
-	if (hitRate.gte(MAX_HIT_RATE)) {
-		return null;
-	}
-	const potentialSavings = sum((e) =>
-		e.usage.uncachedInputCost.mul(new Decimal(1).minus(e.cachedPriceRatio)),
-	);
-	if (potentialSavings.lt(MIN_DAILY_SAVINGS_USD)) {
-		return null;
-	}
-	const clientManagedWithoutMarkers =
-		usage.cacheMode === "passthrough" &&
-		usage.organizationKind === "default" &&
-		eligible.every((e) => e.usage.autoModeEnablesCaching) &&
-		cachedTokens.isZero() &&
-		sum((e) => e.usage.cacheWriteTokens).isZero();
-	return {
-		apiKeyId: usage.apiKeyId,
-		apiKeyDescription: usage.apiKeyDescription,
-		projectId: usage.projectId,
-		organizationId: usage.organizationId,
-		modelId: usage.modelId,
-		providerIds: eligible.map((e) => e.usage.providerId),
-		requests,
-		hitRate,
-		uncachedInputCost: sum((e) => e.usage.uncachedInputCost),
-		potentialSavings,
-		cause: clientManagedWithoutMarkers
-			? "client_managed_without_markers"
-			: "cache_not_reused",
-	};
-}
-
-function cachedShare(hitRate: Decimal): string {
-	if (hitRate.isZero()) {
-		return "none of the input tokens";
-	}
-	const pct = hitRate.mul(100).floor();
-	return pct.isZero()
-		? "under 1% of input tokens"
-		: `only ${pct.toString()}% of input tokens`;
-}
-
-export function renderPromptCacheAlert(
-	finding: PromptCacheFinding,
-): PromptCacheAlertContent {
-	const { apiKeyDescription: key, modelId } = finding;
-	const usd = finding.potentialSavings.toFixed(2);
-	if (finding.cause === "client_managed_without_markers") {
-		return {
-			title: `Prompt cache unused on ${modelId}`,
-			message: `API key ${key}: no input sent to ${modelId} in the last 24 hours was read from or written to the provider's prompt cache. The project uses Client-managed caching and the requests carry no cache markers. If they start with the same instructions, tools or conversation, switching the project to Automatic caches that shared start and could have saved up to $${usd}. One-off prompts won't benefit.`,
-			href: `/dashboard/${finding.organizationId}/${finding.projectId}/settings/preferences`,
-		};
-	}
-	return {
-		title: `Prompt cache misses on ${modelId}`,
-		message: `API key ${key}: ${cachedShare(finding.hitRate)} sent to ${modelId} in the last 24 hours were read from the provider's prompt cache. Reusing the cache could have saved up to $${usd}. Keep the start of each prompt identical between follow-up requests so the provider can reuse it.`,
-		href: "/features/caching/provider-cache-control",
-	};
+/** A key and model with at least one stream worth judging. */
+interface Candidate {
+	context: PromptCacheContext;
+	streams: StreamInfo[];
 }
 
 export async function processPromptCacheAlerts(
@@ -231,26 +95,56 @@ export async function processPromptCacheAlerts(
 	const started = Date.now();
 	try {
 		const readers = await loadReaders();
-		const usage = readers.length > 0 ? await loadPromptCacheUsage(window) : [];
-		const findings = usage
-			.map(evaluatePromptCache)
-			.filter((finding) => finding !== null);
+		const candidates = readers.length > 0 ? await loadCandidates(window) : [];
+		const hours =
+			candidates.length > 0
+				? await loadStreamHours(
+						inArray(stats.apiKeyId, [
+							...new Set(candidates.map((c) => c.context.apiKeyId)),
+						]),
+						{
+							start: new Date(window.end.getTime() - HISTORY_MS),
+							end: window.end,
+						},
+					)
+				: new Map<string, StreamHour[]>();
+		let findings = 0;
 		let notifications = 0;
-		for (const finding of findings) {
+		for (const { context, streams } of candidates) {
+			const { problems, silentStreams } = findPromptCacheProblems(
+				streams.map((stream) => ({
+					...stream,
+					hours: hours.get(streamKey(context, stream)) ?? [],
+				})),
+				context,
+				window.end,
+			);
+			for (const stream of silentStreams) {
+				logger.warn("Automatic caching produced no cache activity", {
+					apiKeyId: context.apiKeyId,
+					modelId: context.modelId,
+					providerId: stream.providerId,
+					region: stream.region,
+				});
+			}
+			if (problems.length === 0) {
+				continue;
+			}
+			findings += problems.length;
 			try {
-				notifications += await deliver(finding, readers, window, now);
+				notifications += await deliver(problems, readers, window.end);
 			} catch (error) {
 				logger.error("Prompt cache alert failed", {
 					error: toError(error),
-					apiKeyId: finding.apiKeyId,
-					modelId: finding.modelId,
+					apiKeyId: context.apiKeyId,
+					modelId: context.modelId,
 				});
 			}
 		}
 		logger.info("Prompt cache alerts evaluated", {
 			windowEnd: window.end.toISOString(),
-			groups: usage.length,
-			findings: findings.length,
+			groups: candidates.length,
+			findings,
 			notifications,
 			durationMs: Date.now() - started,
 		});
@@ -266,85 +160,92 @@ function completedWindow(now: Date): Window {
 	return { start: new Date(end.getTime() - WINDOW_MS), end };
 }
 
-interface UsageRow extends Record<string, unknown> {
+const modelIdColumn = sql<string>`split_part(split_part(${stats.usedModel}, '/', 2), ':', 1)`;
+const regionColumn = sql<string>`split_part(${stats.usedModel}, ':', 2)`;
+const uncachedInputCost = sql`GREATEST(
+	0,
+	SUM(CAST(${stats.inputCost} AS DOUBLE PRECISION))
+		- SUM(CAST(${stats.imageInputCost} AS DOUBLE PRECISION))
+		- SUM(CAST(${stats.audioInputCost} AS DOUBLE PRECISION))
+)`;
+
+function streamKey(
+	context: Pick<PromptCacheContext, "apiKeyId" | "modelId">,
+	stream: Pick<StreamInfo, "providerId" | "region">,
+): string {
+	return JSON.stringify([
+		context.apiKeyId,
+		context.modelId,
+		stream.providerId,
+		stream.region,
+	]);
+}
+
+interface CandidateRow extends Record<string, unknown> {
 	api_key_id: string;
 	api_key_description: string;
 	project_id: string;
 	organization_id: string;
-	organization_kind: KeyModelCacheUsage["organizationKind"];
+	organization_kind: PromptCacheContext["organizationKind"];
 	provider_cache_control_mode: ProviderCacheControlMode;
+	provider_cache_auto_ttl: ProviderCacheAutoTtl;
 	provider_compliance_policy: ZeroDataRetentionSubject["providerCompliancePolicy"];
 	model_id: string;
 	provider_id: string;
 	region: string;
-	requests: number;
-	input_tokens: string;
-	cached_tokens: string;
-	cache_write_tokens: string;
-	uncached_input_cost: number;
 	input_price: string | null;
 	cached_input_price: string | null;
+	cache_write_input_price_1h: string | null;
 	min_cacheable_tokens: number | null;
 	api_format: ProviderApiFormat | null;
 }
 
-async function loadPromptCacheUsage(
-	window: Window,
-): Promise<KeyModelCacheUsage[]> {
-	const modelId = sql`split_part(split_part(${stats.usedModel}, '/', 2), ':', 1)`;
-	const result = await db.execute<UsageRow>(sql`
-		WITH key_model_usage AS (
+/**
+ * Streams with at least $5 of billed uncached and cache-write input in the
+ * window. Today lies inside it, and neither cause can bill more than that, so
+ * the filter drops no alert.
+ */
+async function loadCandidates(window: Window): Promise<Candidate[]> {
+	const result = await db.execute<CandidateRow>(sql`
+		WITH stream AS (
 			SELECT
 				${stats.apiKeyId} AS api_key_id,
 				${stats.projectId} AS project_id,
-				${modelId} AS model_id,
+				${modelIdColumn} AS model_id,
 				${stats.usedProvider} AS provider_id,
-				split_part(${stats.usedModel}, ':', 2) AS region,
-				SUM(${stats.requestCount} - ${stats.errorCount} - ${stats.cacheCount})::int AS requests,
-				SUM(${stats.inputTokens}) AS input_tokens,
-				SUM(${stats.cachedTokens}) AS cached_tokens,
-				SUM(${stats.cacheWriteTokens}) AS cache_write_tokens,
-				GREATEST(
-					0,
-					SUM(CAST(${stats.inputCost} AS DOUBLE PRECISION))
-						- SUM(CAST(${stats.imageInputCost} AS DOUBLE PRECISION))
-						- SUM(CAST(${stats.audioInputCost} AS DOUBLE PRECISION))
-				) AS uncached_input_cost,
-				SUM(SUM(CAST(${stats.inputCost} AS DOUBLE PRECISION))) OVER (
-					PARTITION BY ${stats.apiKeyId}, ${modelId}
-				) AS key_model_input_cost
+				${regionColumn} AS region
 			FROM ${stats}
 			WHERE ${gte(stats.hourTimestamp, window.start)}
 				AND ${lt(stats.hourTimestamp, window.end)}
 			GROUP BY 1, 2, 3, 4, 5
+			HAVING ${uncachedInputCost}
+				+ SUM(CAST(${stats.cacheWriteInputCost} AS DOUBLE PRECISION))
+				>= ${MIN_DAILY_USD.toNumber()}
 		)
 		SELECT
-			usage.api_key_id,
+			stream.api_key_id,
 			${apiKey.description} AS api_key_description,
-			usage.project_id,
+			stream.project_id,
 			${project.organizationId} AS organization_id,
 			${organization.kind} AS organization_kind,
 			${project.providerCacheControlMode} AS provider_cache_control_mode,
+			${project.providerCacheAutoTtl} AS provider_cache_auto_ttl,
 			${organization.providerCompliancePolicy} AS provider_compliance_policy,
-			usage.model_id,
-			usage.provider_id,
-			usage.region,
-			usage.requests,
-			usage.input_tokens,
-			usage.cached_tokens,
-			usage.cache_write_tokens,
-			usage.uncached_input_cost,
+			stream.model_id,
+			stream.provider_id,
+			stream.region,
 			price.input_price,
 			price.cached_input_price,
+			price.cache_write_input_price_1h,
 			price.min_cacheable_tokens,
 			price.api_format
-		FROM key_model_usage usage
-		JOIN ${apiKey} ON ${apiKey.id} = usage.api_key_id
+		FROM stream
+		JOIN ${apiKey} ON ${apiKey.id} = stream.api_key_id
 			AND ${apiKey.status} = 'active'
 			AND ${apiKey.keyType} = 'user'
 			AND ${apiKey.kind} = 'regular'
 			AND (${apiKey.expiresAt} IS NULL OR ${gt(apiKey.expiresAt, window.end)})
-		JOIN ${project} ON ${project.id} = usage.project_id
+		JOIN ${project} ON ${project.id} = stream.project_id
 			AND ${project.status} IS DISTINCT FROM 'deleted'
 		JOIN ${organization} ON ${organization.id} = ${project.organizationId}
 			AND ${organization.status} IS DISTINCT FROM 'deleted'
@@ -352,69 +253,173 @@ async function loadPromptCacheUsage(
 			SELECT
 				${mapping.inputPrice} AS input_price,
 				${mapping.cachedInputPrice} AS cached_input_price,
+				${mapping.cacheWriteInputPrice1h} AS cache_write_input_price_1h,
 				${mapping.minCacheableTokens} AS min_cacheable_tokens,
 				${mapping.apiFormat} AS api_format
 			FROM ${mapping}
-			WHERE ${mapping.modelId} = usage.model_id
-				AND ${mapping.providerId} = usage.provider_id
-				AND (${mapping.region} = usage.region OR ${mapping.region} IS NULL)
+			WHERE ${mapping.modelId} = stream.model_id
+				AND ${mapping.providerId} = stream.provider_id
+				AND (${mapping.region} = stream.region OR ${mapping.region} IS NULL)
 			ORDER BY ${mapping.region} IS NULL
 			LIMIT 1
 		) price ON true
-		WHERE usage.key_model_input_cost >= ${MIN_DAILY_SAVINGS_USD.toNumber()}
 	`);
 
-	const groups = new Map<string, KeyModelCacheUsage>();
+	const candidates = new Map<string, Candidate>();
 	for (const row of result.rows) {
-		const groupKey = JSON.stringify([row.api_key_id, row.model_id]);
-		let group = groups.get(groupKey);
-		if (!group) {
-			group = {
-				apiKeyId: row.api_key_id,
-				apiKeyDescription: row.api_key_description,
-				projectId: row.project_id,
-				organizationId: row.organization_id,
-				organizationKind: row.organization_kind,
-				modelId: row.model_id,
-				cacheMode: getEffectiveProviderCacheControlMode(
-					row.provider_cache_control_mode,
-					{ providerCompliancePolicy: row.provider_compliance_policy },
-				),
-				providers: [],
+		const key = JSON.stringify([row.api_key_id, row.model_id]);
+		let candidate = candidates.get(key);
+		if (!candidate) {
+			candidate = {
+				context: {
+					apiKeyId: row.api_key_id,
+					apiKeyDescription: row.api_key_description,
+					projectId: row.project_id,
+					organizationId: row.organization_id,
+					organizationKind: row.organization_kind,
+					modelId: row.model_id,
+					cacheMode: getEffectiveProviderCacheControlMode(
+						row.provider_cache_control_mode,
+						{ providerCompliancePolicy: row.provider_compliance_policy },
+					),
+					autoTtl: row.provider_cache_auto_ttl,
+				},
+				streams: [],
 			};
-			groups.set(groupKey, group);
+			candidates.set(key, candidate);
 		}
 		const region = row.region || null;
-		group.providers.push({
+		candidate.streams.push({
 			providerId: row.provider_id,
+			providerName:
+				getProviderDefinition(row.provider_id)?.name ?? row.provider_id,
 			region,
+			catalogue: {
+				inputPrice:
+					row.input_price === null ? null : new Decimal(row.input_price),
+				cachedInputPrice:
+					row.cached_input_price === null
+						? null
+						: new Decimal(row.cached_input_price),
+				minCacheableTokens:
+					row.min_cacheable_tokens ??
+					getProviderMapping(
+						models.find((model) => model.id === row.model_id)?.providers,
+						row.provider_id,
+						region,
+					)?.minCacheableTokens ??
+					DEFAULT_MIN_CACHEABLE_TOKENS,
+				autoAddsMarkers: autoModeEnablesCaching({
+					providerId: row.provider_id,
+					modelId: row.model_id,
+					apiFormat: row.api_format,
+				}),
+				oneHourCaching: row.cache_write_input_price_1h !== null,
+			},
+		});
+	}
+	return [...candidates.values()];
+}
+
+interface HourRow extends Record<string, unknown> {
+	api_key_id: string;
+	model_id: string;
+	provider_id: string;
+	region: string;
+	hour_epoch: number;
+	requests: number;
+	errors: number;
+	replays: number;
+	tool_calls: number;
+	streamed: number;
+	input_tokens: string;
+	cached_tokens: string;
+	cache_write_tokens: string;
+	uncached_input_cost: number;
+	cached_input_cost: number;
+	cache_write_input_cost: number;
+}
+
+/** Hourly rows per stream. Several `used_model` strings can map to one model, so rows are summed per hour. */
+async function loadStreamHours(
+	filter: SQL,
+	range: Window,
+): Promise<Map<string, StreamHour[]>> {
+	const result = await db.execute<HourRow>(sql`
+		SELECT
+			${stats.apiKeyId} AS api_key_id,
+			${modelIdColumn} AS model_id,
+			${stats.usedProvider} AS provider_id,
+			${regionColumn} AS region,
+			EXTRACT(EPOCH FROM ${stats.hourTimestamp})::float8 AS hour_epoch,
+			SUM(${stats.requestCount})::int AS requests,
+			SUM(${stats.errorCount})::int AS errors,
+			SUM(${stats.cacheCount})::int AS replays,
+			SUM(${stats.toolCallsCount})::int AS tool_calls,
+			SUM(${stats.streamedCount})::int AS streamed,
+			SUM(${stats.inputTokens}) AS input_tokens,
+			SUM(${stats.cachedTokens}) AS cached_tokens,
+			SUM(${stats.cacheWriteTokens}) AS cache_write_tokens,
+			${uncachedInputCost} AS uncached_input_cost,
+			SUM(CAST(${stats.cachedInputCost} AS DOUBLE PRECISION)) AS cached_input_cost,
+			SUM(CAST(${stats.cacheWriteInputCost} AS DOUBLE PRECISION)) AS cache_write_input_cost
+		FROM ${stats}
+		WHERE ${filter}
+			AND ${gte(stats.hourTimestamp, range.start)}
+			AND ${lt(stats.hourTimestamp, range.end)}
+		GROUP BY 1, 2, 3, 4, ${stats.hourTimestamp}
+	`);
+	const streams = new Map<string, StreamHour[]>();
+	for (const row of result.rows) {
+		const key = streamKey(
+			{ apiKeyId: row.api_key_id, modelId: row.model_id },
+			{ providerId: row.provider_id, region: row.region || null },
+		);
+		const hours = streams.get(key) ?? [];
+		hours.push({
+			hour: new Date(row.hour_epoch * 1000),
 			requests: row.requests,
+			errors: row.errors,
+			replays: row.replays,
+			toolCalls: row.tool_calls,
+			streamed: row.streamed,
 			inputTokens: new Decimal(row.input_tokens),
 			cachedTokens: new Decimal(row.cached_tokens),
 			cacheWriteTokens: new Decimal(row.cache_write_tokens),
 			uncachedInputCost: new Decimal(row.uncached_input_cost),
-			inputPrice:
-				row.input_price === null ? null : new Decimal(row.input_price),
-			cachedInputPrice:
-				row.cached_input_price === null
-					? null
-					: new Decimal(row.cached_input_price),
-			minCacheableTokens:
-				row.min_cacheable_tokens ??
-				getProviderMapping(
-					models.find((model) => model.id === row.model_id)?.providers,
-					row.provider_id,
-					region,
-				)?.minCacheableTokens ??
-				null,
-			autoModeEnablesCaching: autoModeEnablesCaching({
-				providerId: row.provider_id,
-				modelId: row.model_id,
-				apiFormat: row.api_format,
-			}),
+			cachedInputCost: new Decimal(row.cached_input_cost),
+			cacheWriteInputCost: new Decimal(row.cache_write_input_cost),
 		});
+		streams.set(key, hours);
 	}
-	return [...groups.values()];
+	return streams;
+}
+
+/** One problem's stream, folded on its own day boundary, from the earliest start any reader needs. */
+async function loadRecoveryDays(
+	problem: PromptCacheProblem,
+	sentByReader: readonly SentAlert[][],
+	windowEnd: Date,
+): Promise<StreamDay[]> {
+	const starts = sentByReader
+		.map((sent) => recoveryWindow(problem, sent, windowEnd)?.start)
+		.filter((start) => start !== undefined);
+	if (starts.length === 0) {
+		return [];
+	}
+	const start = new Date(Math.min(...starts.map((s) => s.getTime())));
+	const { context, stream } = problem;
+	const hours = await loadStreamHours(
+		sql`${eq(stats.apiKeyId, context.apiKeyId)}
+			AND ${eq(stats.usedProvider, stream.providerId)}
+			AND ${modelIdColumn} = ${context.modelId}
+			AND ${regionColumn} = ${stream.region ?? ""}`,
+		{ start, end: problem.previousStart },
+	);
+	return streamDays(
+		hours.get(streamKey(context, stream)) ?? [],
+		problem.dayStartHour,
+	);
 }
 
 async function loadReaders(): Promise<Reader[]> {
@@ -458,38 +463,85 @@ function escapeLikePattern(value: string): string {
 	return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
+function eventKeyPrefix(context: PromptCacheContext): string {
+	return `prompt_cache:${context.apiKeyId}:${context.modelId}:`;
+}
+
+/** Advice has one key per cause; each `cache_broken` episode gets the next number. */
+function eventKey(problem: PromptCacheProblem, sent: readonly SentAlert[]) {
+	const prefix = eventKeyPrefix(problem.context);
+	if (problem.cause !== "cache_broken") {
+		return `${prefix}${problem.cause}`;
+	}
+	const episode =
+		sent.filter((alert) => alert.cause === "cache_broken").length + 1;
+	return `${prefix}cache_broken:${episode}`;
+}
+
+function isCause(value: string): value is PromptCacheCause {
+	return PROMPT_CACHE_CAUSES.some((cause) => cause === value);
+}
+
+async function loadSent(
+	userId: string,
+	context: PromptCacheContext,
+): Promise<SentAlert[]> {
+	const prefix = eventKeyPrefix(context);
+	const rows = await db.query.notification.findMany({
+		columns: { eventKey: true, createdAt: true },
+		where: {
+			userId,
+			type: "prompt_cache",
+			apiKeyId: context.apiKeyId,
+			eventKey: { like: `${escapeLikePattern(prefix)}%` },
+		},
+	});
+	return rows.flatMap((row) => {
+		const [cause] = row.eventKey.slice(prefix.length).split(":");
+		return isCause(cause) ? [{ at: row.createdAt, cause }] : [];
+	});
+}
+
+/** Each reader gets the largest problem their own history allows. `problems` share one key and model. */
 async function deliver(
-	finding: PromptCacheFinding,
+	problems: PromptCacheProblem[],
 	readers: Reader[],
-	window: Window,
-	now: Date,
+	windowEnd: Date,
 ): Promise<number> {
-	const prefix = `prompt_cache:${finding.apiKeyId}:${finding.modelId}:`;
-	const content = renderPromptCacheAlert(finding);
+	const [{ context }] = problems;
+	const audience = await Promise.all(
+		readers
+			.filter((reader) => canReadEvent(reader.scope, context))
+			.map(async (reader) => ({
+				reader,
+				sent: await loadSent(reader.userId, context),
+			})),
+	);
+	const recovery = new Map<PromptCacheProblem, StreamDay[]>();
+	for (const problem of problems) {
+		recovery.set(
+			problem,
+			await loadRecoveryDays(
+				problem,
+				audience.map(({ sent }) => sent),
+				windowEnd,
+			),
+		);
+	}
 	let recorded = 0;
-	for (const reader of readers) {
-		if (!canReadEvent(reader.scope, finding)) {
-			continue;
-		}
-		const recent = await db.query.notification.findFirst({
-			columns: { id: true },
-			where: {
-				userId: reader.userId,
-				type: "prompt_cache",
-				apiKeyId: finding.apiKeyId,
-				eventKey: { like: `${escapeLikePattern(prefix)}%` },
-				createdAt: { gte: new Date(now.getTime() - COOLDOWN_MS) },
-			},
-		});
-		if (recent) {
+	for (const { reader, sent } of audience) {
+		const [problem] = problems
+			.filter((p) => shouldSend(p, sent, recovery.get(p) ?? [], windowEnd))
+			.sort((a, b) => b.estimatedDailyUsd.comparedTo(a.estimatedDailyUsd));
+		if (!problem) {
 			continue;
 		}
 		const inserted = await recordEvent(reader.userId, reader.channels, {
-			projectId: finding.projectId,
-			apiKeyId: finding.apiKeyId,
+			projectId: context.projectId,
+			apiKeyId: context.apiKeyId,
 			type: "prompt_cache",
-			eventKey: `${prefix}${window.end.toISOString()}`,
-			...content,
+			eventKey: eventKey(problem, sent),
+			...renderPromptCacheAlert(problem),
 		});
 		if (!inserted) {
 			continue;
@@ -497,16 +549,17 @@ async function deliver(
 		posthog.capture({
 			distinctId: reader.userId,
 			event: "prompt_cache_alert_sent",
-			groups: { organization: finding.organizationId },
+			groups: { organization: context.organizationId },
 			properties: {
-				organization: finding.organizationId,
-				projectId: finding.projectId,
-				apiKeyId: finding.apiKeyId,
-				modelId: finding.modelId,
-				providers: finding.providerIds.join(","),
-				cause: finding.cause,
-				hitRatePercent: finding.hitRate.mul(100).toDecimalPlaces(1).toNumber(),
-				potentialSavings: finding.potentialSavings
+				organization: context.organizationId,
+				projectId: context.projectId,
+				apiKeyId: context.apiKeyId,
+				modelId: context.modelId,
+				providerId: problem.stream.providerId,
+				cause: problem.cause,
+				followUpPercent: percentage(problem.followUpShare),
+				hitRatePercent: percentage(problem.hitRate),
+				estimatedDailyUsd: problem.estimatedDailyUsd
 					.toDecimalPlaces(2)
 					.toNumber(),
 				inApp: reader.channels.inApp,
@@ -516,4 +569,8 @@ async function deliver(
 		recorded++;
 	}
 	return recorded;
+}
+
+function percentage(share: Decimal): number {
+	return share.mul(100).toDecimalPlaces(1).toNumber();
 }

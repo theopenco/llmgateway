@@ -1,4 +1,3 @@
-import { Decimal } from "decimal.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { redisClient } from "@llmgateway/cache";
@@ -11,14 +10,7 @@ import {
 } from "@llmgateway/shared/email-unsubscribe";
 
 import { processNotifications } from "./notifications.js";
-import {
-	evaluatePromptCache,
-	processPromptCacheAlerts,
-	renderPromptCacheAlert,
-	type KeyModelCacheUsage,
-	type PromptCacheFinding,
-	type ProviderCacheUsage,
-} from "./prompt-cache-alerts.js";
+import { processPromptCacheAlerts } from "./prompt-cache-alerts.js";
 
 const capture = vi.hoisted(() => vi.fn());
 vi.mock("@/posthog.js", () => ({ posthog: { capture } }));
@@ -40,362 +32,48 @@ function duration(days: number, hours = 0, minutes = 0): number {
 	return dayMs + hourMs + minuteMs;
 }
 
-function providerUsage(
-	overrides: Partial<ProviderCacheUsage> = {},
-): ProviderCacheUsage {
-	return {
-		providerId: "anthropic",
-		region: null,
-		requests: 100,
-		inputTokens: new Decimal(1_000_000),
-		cachedTokens: new Decimal(0),
-		cacheWriteTokens: new Decimal(0),
-		uncachedInputCost: new Decimal(20),
-		inputPrice: new Decimal("0.000003"),
-		cachedInputPrice: new Decimal("0.0000003"),
-		minCacheableTokens: null,
-		autoModeEnablesCaching: true,
-		...overrides,
-	};
-}
+type HourValues = Partial<typeof tables.apiKeyHourlyModelStats.$inferInsert>;
 
-function keyModelUsage(
-	overrides: Partial<KeyModelCacheUsage> = {},
-): KeyModelCacheUsage {
-	return {
-		apiKeyId: "key-1",
-		apiKeyDescription: "Production key",
-		projectId: "project-1",
-		organizationId: "org-1",
-		organizationKind: "default",
-		modelId: "example-model",
-		cacheMode: "auto",
-		providers: [providerUsage()],
-		...overrides,
-	};
-}
+/** One hour of a coding agent: 60 streamed requests, 51 ending in tool calls, 60k-token prompts, 60% read from the cache. */
+const BROKEN: HourValues = {
+	requestCount: 60,
+	streamedCount: 60,
+	toolCallsCount: 51,
+	inputTokens: "3600000",
+	cachedTokens: "2160000",
+	cacheWriteTokens: "108000",
+	inputCost: 3.996,
+	cachedInputCost: 0.648,
+	cacheWriteInputCost: 0.405,
+};
 
-function summary(finding: PromptCacheFinding | null) {
-	return (
-		finding && {
-			providerIds: finding.providerIds,
-			requests: finding.requests,
-			hitRate: finding.hitRate.toString(),
-			uncachedInputCost: finding.uncachedInputCost.toString(),
-			potentialSavings: finding.potentialSavings.toString(),
-			cause: finding.cause,
-		}
-	);
-}
+/** The same agent with 95% read from the cache. */
+const HEALTHY: HourValues = {
+	...BROKEN,
+	cachedTokens: "3420000",
+	cacheWriteTokens: "144000",
+	inputCost: 0.108,
+	cachedInputCost: 1.026,
+	cacheWriteInputCost: 0.54,
+};
 
-function evaluate(overrides: Partial<KeyModelCacheUsage> = {}) {
-	return summary(evaluatePromptCache(keyModelUsage(overrides)));
-}
-
-describe("evaluatePromptCache", () => {
-	it("flags a key and model under 50% with at least $5 of savings", () => {
-		expect(
-			evaluate({
-				providers: [providerUsage({ cachedTokens: new Decimal(100_000) })],
-			}),
-		).toEqual({
-			providerIds: ["anthropic"],
-			requests: 100,
-			hitRate: "0.1",
-			uncachedInputCost: "20",
-			potentialSavings: "18",
-			cause: "cache_not_reused",
-		});
-	});
-
-	it("does not flag at exactly 50%; flags just below", () => {
-		expect(
-			evaluate({
-				providers: [providerUsage({ cachedTokens: new Decimal(500_000) })],
-			}),
-			"at 50%",
-		).toBeNull();
-		expect(
-			evaluate({
-				providers: [providerUsage({ cachedTokens: new Decimal(499_999) })],
-			})?.hitRate,
-			"just below 50%",
-		).toBe("0.499999");
-	});
-
-	it("flags at exactly $5.00 of savings; not at $4.99", () => {
-		const halfPrice = {
-			inputPrice: new Decimal(2),
-			cachedInputPrice: new Decimal(1),
-		};
-		expect(
-			evaluate({
-				providers: [
-					providerUsage({ ...halfPrice, uncachedInputCost: new Decimal(10) }),
-				],
-			})?.potentialSavings,
-			"$5.00",
-		).toBe("5");
-		expect(
-			evaluate({
-				providers: [
-					providerUsage({
-						...halfPrice,
-						uncachedInputCost: new Decimal("9.98"),
-					}),
-				],
-			}),
-			"$4.99",
-		).toBeNull();
-	});
-
-	it("never flags a mapping without a cached input price", () => {
-		expect(
-			evaluate({
-				providers: [
-					providerUsage({
-						cachedInputPrice: null,
-						uncachedInputCost: new Decimal(100),
-					}),
-				],
-			}),
-			"no cached price",
-		).toBeNull();
-		expect(
-			evaluate({
-				providers: [
-					providerUsage({
-						inputPrice: null,
-						cachedInputPrice: null,
-						uncachedInputCost: new Decimal(100),
-					}),
-				],
-			}),
-			"no mapping",
-		).toBeNull();
-	});
-
-	it("never flags when the cached price is not cheaper or input is free", () => {
-		const prices: Array<[string, string, string]> = [
-			["equal", "0.000003", "0.000003"],
-			["dearer", "0.000003", "0.000004"],
-			["free input", "0", "0"],
-		];
-		for (const [name, inputPrice, cachedInputPrice] of prices) {
-			expect(
-				evaluate({
-					providers: [
-						providerUsage({
-							inputPrice: new Decimal(inputPrice),
-							cachedInputPrice: new Decimal(cachedInputPrice),
-							uncachedInputCost: new Decimal(100),
-						}),
-					],
-				}),
-				name,
-			).toBeNull();
-		}
-	});
-
-	it("leaves providers without a cache out of the hit rate", () => {
-		const noCache = providerUsage({
-			providerId: "google-ai-studio",
-			inputTokens: new Decimal(10_000_000),
-			uncachedInputCost: new Decimal(200),
-			cachedInputPrice: null,
-		});
-		expect(
-			evaluate({
-				providers: [
-					providerUsage({ cachedTokens: new Decimal(800_000) }),
-					noCache,
-				],
-			}),
-			"80% on the cached provider",
-		).toBeNull();
-		expect(
-			evaluate({
-				providers: [
-					providerUsage({ cachedTokens: new Decimal(100_000) }),
-					noCache,
-				],
-			}),
-			"10% on the cached provider",
-		).toEqual({
-			providerIds: ["anthropic"],
-			requests: 100,
-			hitRate: "0.1",
-			uncachedInputCost: "20",
-			potentialSavings: "18",
-			cause: "cache_not_reused",
-		});
-	});
-
-	it("applies each provider's own cached/input ratio", () => {
-		expect(
-			evaluate({
-				providers: [
-					providerUsage({ uncachedInputCost: new Decimal(10) }),
-					providerUsage({
-						providerId: "aws-bedrock",
-						uncachedInputCost: new Decimal(10),
-						inputPrice: new Decimal("0.000003"),
-						cachedInputPrice: new Decimal("0.0000015"),
-					}),
-				],
-			})?.potentialSavings,
-		).toBe("14");
-	});
-
-	it("skips projects whose effective mode is off", () => {
-		expect(evaluate({ cacheMode: "off" })).toBeNull();
-	});
-
-	it("requires 20 successful requests", () => {
-		expect(
-			evaluate({ providers: [providerUsage({ requests: 19 })] }),
-		).toBeNull();
-		expect(
-			evaluate({
-				providers: [
-					providerUsage({ requests: 10 }),
-					providerUsage({ providerId: "aws-bedrock", requests: 10 }),
-				],
-			})?.requests,
-		).toBe(20);
-	});
-
-	it("skips providers whose mean prompt is below the minimum cacheable size", () => {
-		expect(
-			evaluate({
-				providers: [providerUsage({ inputTokens: new Decimal(50_000) })],
-			}),
-			"500 tokens against the 1024 default",
-		).toBeNull();
-		expect(
-			evaluate({
-				providers: [providerUsage({ inputTokens: new Decimal(200_000) })],
-			}),
-			"2000 tokens against the 1024 default",
-		).not.toBeNull();
-		expect(
-			evaluate({
-				providers: [
-					providerUsage({
-						inputTokens: new Decimal(200_000),
-						minCacheableTokens: 4096,
-					}),
-				],
-			}),
-			"2000 tokens against a 4096 mapping minimum",
-		).toBeNull();
-	});
-
-	it("names Client-managed only when every provider gains caching in Automatic and nothing was read or written", () => {
-		const passthrough = { cacheMode: "passthrough" as const };
-		expect(evaluate(passthrough)?.cause, "marker provider").toBe(
-			"client_managed_without_markers",
-		);
-		expect(
-			evaluate({
-				...passthrough,
-				providers: [providerUsage({ cacheWriteTokens: new Decimal(1) })],
-			})?.cause,
-			"one cache write",
-		).toBe("cache_not_reused");
-		expect(
-			evaluate({
-				...passthrough,
-				providers: [providerUsage({ cachedTokens: new Decimal(1) })],
-			})?.cause,
-			"one cache read",
-		).toBe("cache_not_reused");
-		expect(
-			evaluate({
-				...passthrough,
-				providers: [providerUsage({ autoModeEnablesCaching: false })],
-			})?.cause,
-			"implicit-cache provider",
-		).toBe("cache_not_reused");
-		expect(
-			evaluate({
-				...passthrough,
-				providers: [
-					providerUsage(),
-					providerUsage({
-						providerId: "openai",
-						autoModeEnablesCaching: false,
-					}),
-				],
-			})?.cause,
-			"mixed providers",
-		).toBe("cache_not_reused");
-		expect(evaluate({ cacheMode: "auto" })?.cause, "Automatic").toBe(
-			"cache_not_reused",
-		);
-		expect(
-			evaluate({ ...passthrough, organizationKind: "devpass" })?.cause,
-			"DevPass org",
-		).toBe("cache_not_reused");
-	});
-});
-
-describe("renderPromptCacheAlert", () => {
-	const finding: PromptCacheFinding = {
-		apiKeyId: "key-1",
-		apiKeyDescription: "Production key",
-		projectId: "project-1",
-		organizationId: "org-1",
-		modelId: "example-model",
-		providerIds: ["anthropic"],
-		requests: 100,
-		hitRate: new Decimal("0.129"),
-		uncachedInputCost: new Decimal(20),
-		potentialSavings: new Decimal("18.456"),
-		cause: "cache_not_reused",
-	};
-
-	it("states the floored cache share, saying none only when nothing was read", () => {
-		expect(renderPromptCacheAlert(finding)).toEqual({
-			title: "Prompt cache misses on example-model",
-			message:
-				"API key Production key: only 12% of input tokens sent to example-model in the last 24 hours were read from the provider's prompt cache. Reusing the cache could have saved up to $18.46. Keep the start of each prompt identical between follow-up requests so the provider can reuse it.",
-			href: "/features/caching/provider-cache-control",
-		});
-		const shares: Array<[string, string]> = [
-			["0", "none of the input tokens sent"],
-			["0.004", "under 1% of input tokens sent"],
-			["0.01", "only 1% of input tokens sent"],
-		];
-		for (const [hitRate, share] of shares) {
-			expect(
-				renderPromptCacheAlert({ ...finding, hitRate: new Decimal(hitRate) })
-					.message,
-				hitRate,
-			).toContain(`API key Production key: ${share} to example-model`);
-		}
-	});
-
-	it("advises Automatic for Client-managed projects only when requests share a start", () => {
-		expect(
-			renderPromptCacheAlert({
-				...finding,
-				hitRate: new Decimal(0),
-				cause: "client_managed_without_markers",
-			}),
-		).toEqual({
-			title: "Prompt cache unused on example-model",
-			message:
-				"API key Production key: no input sent to example-model in the last 24 hours was read from or written to the provider's prompt cache. The project uses Client-managed caching and the requests carry no cache markers. If they start with the same instructions, tools or conversation, switching the project to Automatic caches that shared start and could have saved up to $18.46. One-off prompts won't benefit.",
-			href: "/dashboard/org-1/project-1/settings/preferences",
-		});
-	});
-});
+/** Unmarked traffic: nothing read from or written to the cache. */
+const UNMARKED: HourValues = {
+	...BROKEN,
+	cachedTokens: "0",
+	cacheWriteTokens: "0",
+	inputCost: 10.8,
+	cachedInputCost: 0,
+	cacheWriteInputCost: 0,
+};
 
 describe("processPromptCacheAlerts", () => {
-	const windowEnd = new Date(Math.floor(Date.now() / HOUR) * HOUR);
+	// Wednesday noon UTC, so the agent's 09:00-17:59 sessions fall on known days.
+	const windowEnd = new Date("2026-03-04T12:00:00.000Z");
+	const midnight = new Date("2026-03-04T00:00:00.000Z");
 	const now = afterWindowEnd(duration(0, 0, 7));
 	const info = vi.spyOn(logger, "info");
+	const warn = vi.spyOn(logger, "warn");
 	const execute = vi.spyOn(db, "execute");
 
 	function alerts() {
@@ -425,6 +103,10 @@ describe("processPromptCacheAlerts", () => {
 		return new Date(windowEnd.getTime() + ms);
 	}
 
+	function hourOf(day: number, hour: number) {
+		return new Date(midnight.getTime() + duration(day, hour));
+	}
+
 	async function insertKey(
 		values: Partial<typeof tables.apiKey.$inferInsert> & { id: string },
 	) {
@@ -437,19 +119,45 @@ describe("processPromptCacheAlerts", () => {
 		});
 	}
 
-	async function insertUsage(
-		values: Partial<typeof tables.apiKeyHourlyModelStats.$inferInsert> = {},
-	) {
-		await db.insert(tables.apiKeyHourlyModelStats).values({
+	function hourRow(hourTimestamp: Date, values: HourValues = {}) {
+		return {
 			projectId: "cache-project",
 			apiKeyId: "cache-key",
 			usedModel: "anthropic/cache-model",
 			usedProvider: "anthropic",
-			hourTimestamp: new Date(windowEnd.getTime() - HOUR),
-			requestCount: 100,
-			inputTokens: "1000000",
-			inputCost: 20,
+			hourTimestamp,
+			...BROKEN,
 			...values,
+		};
+	}
+
+	/** Agent sessions 09:00-17:59 UTC on each day relative to the window end's day, cut at `until`. */
+	async function insertAgent(
+		values: HourValues = {},
+		days = [-1, 0],
+		until = windowEnd,
+	) {
+		const rows = days.flatMap((day) =>
+			Array.from({ length: 9 }, (_, i) => hourOf(day, 9 + i))
+				.filter((hour) => hour < until)
+				.map((hour) => hourRow(hour, values)),
+		);
+		await db.insert(tables.apiKeyHourlyModelStats).values(rows);
+	}
+
+	async function insertAlert(eventKey: string, createdAt: Date) {
+		await db.insert(tables.notification).values({
+			userId: "cache-owner",
+			type: "prompt_cache",
+			apiKeyId: "cache-key",
+			projectId: "cache-project",
+			eventKey,
+			title: "Earlier alert",
+			message: "Earlier alert",
+			href: "/features/caching/provider-cache-control",
+			inApp: true,
+			email: false,
+			createdAt,
 		});
 	}
 
@@ -492,8 +200,12 @@ describe("processPromptCacheAlerts", () => {
 		],
 	];
 
+	const brokenMessage =
+		"API key Production key, cache-model via Anthropic: on its last full day of use, at least 85% of responses ended in streamed tool calls, yet only 60% of input tokens were read from the prompt cache. Today's traffic so far shows the same pattern. If those tool results go back with the conversation so far, check that instructions, tools and earlier messages keep an identical prefix. A change such as a timestamp makes the rest of the prompt a miss. A stable prefix could save an estimated $21.87 a day, less if each turn adds a large new tool result.";
+
 	beforeEach(async () => {
 		info.mockClear();
+		warn.mockClear();
 		execute.mockClear();
 		capture.mockReset();
 		send.mockReset().mockResolvedValue({ error: null });
@@ -546,11 +258,10 @@ describe("processPromptCacheAlerts", () => {
 			projectId: "cache-project",
 		});
 		await insertKey({ id: "cache-key" });
-		await db.insert(tables.provider).values({
-			id: "anthropic",
-			name: "Anthropic",
-			description: "Anthropic",
-		});
+		await db.insert(tables.provider).values([
+			{ id: "anthropic", name: "Anthropic", description: "Anthropic" },
+			{ id: "aws-bedrock", name: "AWS Bedrock", description: "AWS Bedrock" },
+		]);
 		await db.insert(tables.model).values({ id: "cache-model", family: "test" });
 		await db.insert(tables.modelProviderMapping).values({
 			id: "cache-mapping",
@@ -562,14 +273,14 @@ describe("processPromptCacheAlerts", () => {
 		});
 	});
 
-	it("skips the usage query and records nothing when nobody opted in", async () => {
+	it("skips the usage queries and records nothing when nobody opted in", async () => {
 		await db.insert(tables.notificationPreference).values({
 			userId: "cache-owner",
 			type: "prompt_cache",
 			inApp: false,
 			email: false,
 		});
-		await insertUsage();
+		await insertAgent();
 		await processPromptCacheAlerts(now);
 		expect(execute, "no usage query").not.toHaveBeenCalled();
 		expect(await alerts()).toEqual([]);
@@ -588,9 +299,10 @@ describe("processPromptCacheAlerts", () => {
 		await processPromptCacheAlerts(later(30 * MINUTE));
 		expect(await alerts(), "window already evaluated").toEqual([]);
 		await processPromptCacheAlerts(later(HOUR));
-		expect(execute, "usage query once a reader exists").toHaveBeenCalledTimes(
-			1,
-		);
+		expect(
+			execute,
+			"candidate scan and history load once a reader exists",
+		).toHaveBeenCalledTimes(2);
 		expect(await alerts(), "next window").toMatchObject([
 			{ userId: "cache-owner", apiKeyId: "cache-key" },
 		]);
@@ -598,7 +310,7 @@ describe("processPromptCacheAlerts", () => {
 
 	it("evaluates a window once", async () => {
 		await enable();
-		await insertUsage();
+		await insertAgent();
 		await processPromptCacheAlerts(now);
 		expect(summaries()).toEqual([
 			{
@@ -615,30 +327,59 @@ describe("processPromptCacheAlerts", () => {
 		expect(summaries(), "one evaluation summary").toHaveLength(1);
 	});
 
-	it("reads only the last 24 completed hours", async () => {
+	it("tells a coding agent stuck at 60% on its second day, and not on its first", async () => {
 		await enable();
-		await insertUsage({
-			hourTimestamp: new Date(windowEnd.getTime() - DAY),
-			requestCount: 10,
-		});
-		await insertUsage({
-			hourTimestamp: new Date(windowEnd.getTime() - HOUR),
-			requestCount: 10,
-		});
-		await insertUsage({ hourTimestamp: windowEnd, requestCount: 1000 });
-		await insertUsage({
-			hourTimestamp: new Date(windowEnd.getTime() - DAY - HOUR),
-			requestCount: 2000,
+		await insertAgent({}, [0]);
+		await processPromptCacheAlerts(now);
+		expect(await alerts(), "one day of use").toEqual([]);
+
+		await redisClient.flushdb();
+		await insertAgent({}, [-1]);
+		await processPromptCacheAlerts(now);
+		expect(await alerts()).toEqual([
+			{
+				userId: "cache-owner",
+				apiKeyId: "cache-key",
+				eventKey: "prompt_cache:cache-key:cache-model:cache_broken:1",
+				title: "Prompt cache misses on cache-model",
+				message: brokenMessage,
+			},
+		]);
+	});
+
+	it("sums every used_model string of a stream per hour before bounding follow-ups", async () => {
+		await enable();
+		// Per row the bound would be 30 + 0 = 50%; summed per hour it is max(0, 51 + 30 - 60) = 35%.
+		const half = {
+			requestCount: 30,
+			inputTokens: "1800000",
+			cachedTokens: "180000",
+			cacheWriteTokens: "54000",
+			inputCost: 4.698,
+			cachedInputCost: 0.054,
+			cacheWriteInputCost: 0.2025,
+		};
+		await insertAgent({ ...half, streamedCount: 30, toolCallsCount: 30 });
+		await insertAgent({
+			...half,
+			usedModel: "custom/cache-model",
+			streamedCount: 0,
+			toolCallsCount: 21,
 		});
 		await processPromptCacheAlerts(now);
 		expect(await alerts()).toMatchObject([
-			{ message: expect.stringContaining("could have saved up to $36.00.") },
+			{
+				message: expect.stringContaining(
+					"at least 35% of responses ended in streamed tool calls, yet only 10% of input tokens",
+				),
+			},
 		]);
 	});
 
 	it("waits for the settle margin before reading the hour that just closed", async () => {
 		await enable();
-		await insertUsage({ hourTimestamp: new Date(windowEnd.getTime() - HOUR) });
+		await insertAgent();
+		// Without 11:00, today's two hours put less than $5 at stake.
 		await processPromptCacheAlerts(afterWindowEnd(duration(0, 0, 3)));
 		expect(await alerts(), "hour still settling").toEqual([]);
 		await processPromptCacheAlerts(now);
@@ -661,7 +402,7 @@ describe("processPromptCacheAlerts", () => {
 			"cache-expired",
 			"cache-inactive",
 		]) {
-			await insertUsage({ apiKeyId });
+			await insertAgent({ apiKeyId });
 		}
 		await processPromptCacheAlerts(now);
 		expect((await alerts()).map((alert) => alert.apiKeyId)).toEqual([
@@ -671,7 +412,7 @@ describe("processPromptCacheAlerts", () => {
 
 	it("skips ZDR orgs whose project is still Client-managed", async () => {
 		await enable();
-		await insertUsage();
+		await insertAgent(UNMARKED);
 		await db
 			.update(tables.project)
 			.set({ providerCacheControlMode: "passthrough" });
@@ -687,7 +428,33 @@ describe("processPromptCacheAlerts", () => {
 			.set({ providerCompliancePolicy: null });
 		await processPromptCacheAlerts(now);
 		expect(await alerts(), "without ZDR").toMatchObject([
-			{ title: "Prompt cache unused on cache-model" },
+			{
+				eventKey: "prompt_cache:cache-key:cache-model:switch_to_automatic",
+				title: "Prompt cache unused on cache-model",
+			},
+		]);
+	});
+
+	it("warns ops, not users, when Automatic caching shows no cache activity", async () => {
+		await enable();
+		await insertAgent(UNMARKED);
+		await processPromptCacheAlerts(now);
+		expect(await alerts()).toEqual([]);
+		expect(
+			warn.mock.calls.filter(
+				([message]) =>
+					message === "Automatic caching produced no cache activity",
+			),
+		).toEqual([
+			[
+				"Automatic caching produced no cache activity",
+				{
+					apiKeyId: "cache-key",
+					modelId: "cache-model",
+					providerId: "anthropic",
+					region: null,
+				},
+			],
 		]);
 	});
 
@@ -700,11 +467,11 @@ describe("processPromptCacheAlerts", () => {
 			externalId: "cache-model",
 			region: "eu",
 			inputPrice: "0.000003",
-			cachedInputPrice: "0.0000015",
+			cachedInputPrice: "0.0000006",
 		});
 		await insertKey({ id: "cache-key-us" });
-		await insertUsage({ usedModel: "anthropic/cache-model:eu" });
-		await insertUsage({
+		await insertAgent({ usedModel: "anthropic/cache-model:eu" });
+		await insertAgent({
 			apiKeyId: "cache-key-us",
 			usedModel: "anthropic/cache-model:us",
 		});
@@ -712,11 +479,11 @@ describe("processPromptCacheAlerts", () => {
 		expect(await alerts()).toMatchObject([
 			{
 				apiKeyId: "cache-key",
-				message: expect.stringContaining("could have saved up to $10.00."),
+				message: expect.stringContaining("an estimated $19.44 a day"),
 			},
 			{
 				apiKeyId: "cache-key-us",
-				message: expect.stringContaining("could have saved up to $18.00."),
+				message: expect.stringContaining("an estimated $21.87 a day"),
 			},
 		]);
 	});
@@ -734,9 +501,12 @@ describe("processPromptCacheAlerts", () => {
 			inputPrice: "0.000003",
 			cachedInputPrice: "0.0000003",
 		});
-		await insertUsage({
+		// 2000-token prompts at the agent's token volume.
+		await insertAgent({
 			usedModel: "anthropic/claude-sonnet-5",
-			inputTokens: "200000",
+			requestCount: 1800,
+			streamedCount: 1800,
+			toolCallsCount: 1530,
 		});
 		await processPromptCacheAlerts(now);
 		expect(
@@ -756,34 +526,85 @@ describe("processPromptCacheAlerts", () => {
 		).toMatchObject([{ title: "Prompt cache misses on claude-sonnet-5" }]);
 	});
 
-	it("leaves image and audio input spend out of the savings", async () => {
+	it("leaves image and audio input spend out of the billed input rate", async () => {
 		await enable();
-		await insertUsage({ inputCost: 30, imageInputCost: 6, audioInputCost: 4 });
+		await insertAgent({
+			inputCost: 13.996,
+			imageInputCost: 6,
+			audioInputCost: 4,
+		});
 		await processPromptCacheAlerts(now);
-		expect(await alerts()).toMatchObject([
-			{ message: expect.stringContaining("could have saved up to $18.00.") },
-		]);
+		expect(await alerts()).toMatchObject([{ message: brokenMessage }]);
 	});
 
 	it("does not count errors or response-cache replays toward the request floor", async () => {
 		await enable();
 		await insertKey({ id: "cache-key-20" });
-		await insertUsage({ requestCount: 30, errorCount: 5, cacheCount: 6 });
-		await insertUsage({
-			apiKeyId: "cache-key-20",
-			requestCount: 30,
-			errorCount: 5,
-			cacheCount: 5,
-		});
+		// 22 large requests a day at 09:00-11:59, one of them a replay.
+		async function insertSessions(apiKeyId: string, errors: number) {
+			const rows = [-1, 0].flatMap((day) =>
+				[9, 10, 11].map((hour) =>
+					hourRow(hourOf(day, hour), {
+						apiKeyId,
+						inputTokens: "1000000",
+						cachedTokens: "0",
+						cacheWriteTokens: "50000",
+						inputCost: 2.85,
+						cachedInputCost: 0,
+						cacheWriteInputCost: 0.1875,
+						...(hour === 9
+							? {
+									requestCount: 8,
+									errorCount: errors,
+									cacheCount: 1,
+									streamedCount: 8,
+									toolCallsCount: 8 - errors,
+								}
+							: { requestCount: 7, streamedCount: 7, toolCallsCount: 7 }),
+					}),
+				),
+			);
+			await db.insert(tables.apiKeyHourlyModelStats).values(rows);
+		}
+		await insertSessions("cache-key", 2);
+		await insertSessions("cache-key-20", 1);
 		await processPromptCacheAlerts(now);
 		expect((await alerts()).map((alert) => alert.apiKeyId)).toEqual([
 			"cache-key-20",
 		]);
 	});
 
-	it("two concurrent passes record one notification per reader", async () => {
+	it("reports the provider with the larger estimate when two break on one key and model", async () => {
 		await enable();
-		await insertUsage();
+		await db.insert(tables.modelProviderMapping).values({
+			id: "cache-mapping-bedrock",
+			modelId: "cache-model",
+			providerId: "aws-bedrock",
+			externalId: "cache-model",
+			inputPrice: "0.000003",
+			cachedInputPrice: "0.0000003",
+		});
+		await insertAgent();
+		await insertAgent({
+			usedModel: "aws-bedrock/cache-model",
+			usedProvider: "aws-bedrock",
+			cachedTokens: "1080000",
+			inputCost: 7.236,
+			cachedInputCost: 0.324,
+		});
+		await processPromptCacheAlerts(now);
+		expect(await alerts()).toMatchObject([
+			{
+				message: expect.stringContaining(
+					"cache-model via AWS Bedrock: on its last full day of use, at least 85% of responses ended in streamed tool calls, yet only 30% of input tokens",
+				),
+			},
+		]);
+	});
+
+	it("two concurrent passes record one notification and one capture per reader", async () => {
+		await enable();
+		await insertAgent();
 		await Promise.all([
 			processPromptCacheAlerts(now),
 			processPromptCacheAlerts(now),
@@ -794,7 +615,7 @@ describe("processPromptCacheAlerts", () => {
 				type: "prompt_cache",
 				apiKeyId: "cache-key",
 				projectId: "cache-project",
-				eventKey: `prompt_cache:cache-key:cache-model:${windowEnd.toISOString()}`,
+				eventKey: "prompt_cache:cache-key:cache-model:cache_broken:1",
 				title: "Prompt cache misses on cache-model",
 				href: "/features/caching/provider-cache-control",
 				inApp: true,
@@ -804,32 +625,105 @@ describe("processPromptCacheAlerts", () => {
 		expect(capture).toHaveBeenCalledTimes(1);
 	});
 
-	it("alerts each reader once per key and model per rolling 7 days", async () => {
+	it("does not capture when the event key already exists", async () => {
 		await enable();
-		await insertUsage();
-		await insertUsage({
-			hourTimestamp: afterWindowEnd(duration(6, 22)),
-		});
-		await insertUsage({
-			hourTimestamp: afterWindowEnd(duration(7)),
-		});
-		for (const at of [
-			now,
-			later(HOUR),
-			later(duration(6, 23)),
-			later(duration(7, 1)),
-		]) {
-			await processPromptCacheAlerts(at);
-		}
-		expect((await alerts()).map((alert) => alert.eventKey).sort()).toEqual([
-			`prompt_cache:cache-key:cache-model:${windowEnd.toISOString()}`,
-			`prompt_cache:cache-key:cache-model:${afterWindowEnd(duration(7, 1)).toISOString()}`,
+		await insertAgent();
+		await insertKey({ id: "cache-key-other" });
+		// Recorded under another key, so this reader's history for cache-key stays empty.
+		await insertAlert(
+			"prompt_cache:cache-key:cache-model:cache_broken:1",
+			new Date(windowEnd.getTime() - DAY),
+		);
+		await db.update(tables.notification).set({ apiKeyId: "cache-key-other" });
+		await processPromptCacheAlerts(now);
+		expect(await alerts()).toMatchObject([{ message: "Earlier alert" }]);
+		expect(capture).not.toHaveBeenCalled();
+		expect(summaries()).toMatchObject([{ findings: 1, notifications: 0 }]);
+	});
+
+	it("gives configuration advice once per reader, key and model", async () => {
+		await enable();
+		// A batch of unique 4k-token prompts around the clock; Automatic writes each one and never reads it.
+		const batch = Array.from({ length: 36 }, (_, i) =>
+			hourRow(hourOf(-1, i), {
+				requestCount: 200,
+				streamedCount: 0,
+				toolCallsCount: 0,
+				inputTokens: "800000",
+				cachedTokens: "0",
+				cacheWriteTokens: "760000",
+				inputCost: 0.12,
+				cachedInputCost: 0,
+				cacheWriteInputCost: 2.85,
+			}),
+		);
+		await db.insert(tables.apiKeyHourlyModelStats).values(batch);
+		await processPromptCacheAlerts(now);
+		expect(await alerts()).toMatchObject([
+			{
+				eventKey: "prompt_cache:cache-key:cache-model:writes_unused",
+				title: "Prompt cache costs more than it saves on cache-model",
+			},
+		]);
+
+		await db
+			.update(tables.notification)
+			.set({ createdAt: new Date(windowEnd.getTime() - duration(30)) });
+		await redisClient.flushdb();
+		await processPromptCacheAlerts(now);
+		expect(await alerts(), "30 days later").toHaveLength(1);
+	});
+
+	it("holds every alert at least 14 days after the reader's last prompt cache alert", async () => {
+		await enable();
+		await insertAgent();
+		await insertAlert(
+			"prompt_cache:cache-key:cache-model:writes_unused",
+			new Date(windowEnd.getTime() - duration(13, 23)),
+		);
+		await processPromptCacheAlerts(now);
+		expect(await alerts(), "13 days 23 hours").toHaveLength(1);
+
+		await db
+			.update(tables.notification)
+			.set({ createdAt: new Date(windowEnd.getTime() - duration(14)) });
+		await redisClient.flushdb();
+		await processPromptCacheAlerts(now);
+		expect(
+			(await alerts()).map((alert) => alert.eventKey).sort(),
+			"14 days",
+		).toEqual([
+			"prompt_cache:cache-key:cache-model:cache_broken:1",
+			"prompt_cache:cache-key:cache-model:writes_unused",
+		]);
+	});
+
+	it("re-arms a broken cache only after a complete healthy day since the last alert", async () => {
+		await enable();
+		await insertAgent();
+		await insertAlert(
+			"prompt_cache:cache-key:cache-model:cache_broken:1",
+			new Date(windowEnd.getTime() - duration(20)),
+		);
+		await processPromptCacheAlerts(now);
+		expect(await alerts(), "never recovered").toHaveLength(1);
+
+		// Outside the 9-day history, so only the recovery query can see it.
+		await insertAgent(HEALTHY, [-15]);
+		await redisClient.flushdb();
+		await processPromptCacheAlerts(now);
+		expect(
+			(await alerts()).map((alert) => alert.eventKey).sort(),
+			"healthy day 15 days ago",
+		).toEqual([
+			"prompt_cache:cache-key:cache-model:cache_broken:1",
+			"prompt_cache:cache-key:cache-model:cache_broken:2",
 		]);
 	});
 
 	it("keeps another developer's keys private", async () => {
 		await enable("cache-developer");
-		await insertUsage();
+		await insertAgent();
 		await processPromptCacheAlerts(now);
 		expect(await alerts(), "key created by the owner").toEqual([]);
 
@@ -846,7 +740,7 @@ describe("processPromptCacheAlerts", () => {
 
 	it("emails opted-in readers with prompt cache unsubscribe headers", async () => {
 		await enable("cache-owner", true);
-		await insertUsage();
+		await insertAgent();
 		await processNotifications(now);
 		expect(send).toHaveBeenCalledTimes(1);
 		const payload = send.mock.calls[0][0];
@@ -867,7 +761,7 @@ describe("processPromptCacheAlerts", () => {
 		async (_, blockEmail) => {
 			await enableEmailOnly();
 			await blockEmail();
-			await insertUsage();
+			await insertAgent();
 			await processPromptCacheAlerts(now);
 			expect(execute, "no usage query").not.toHaveBeenCalled();
 			expect(await alerts()).toEqual([]);
@@ -880,7 +774,7 @@ describe("processPromptCacheAlerts", () => {
 		async (_, blockEmail) => {
 			await enable("cache-owner", true);
 			await blockEmail();
-			await insertUsage();
+			await insertAgent();
 			await processPromptCacheAlerts(now);
 			expect(
 				await db.query.notification.findMany({
@@ -899,7 +793,7 @@ describe("processPromptCacheAlerts", () => {
 	it("keeps email for an address unsubscribed only from another category", async () => {
 		await enableEmailOnly();
 		await unsubscribeOwner("budget");
-		await insertUsage();
+		await insertAgent();
 		await processPromptCacheAlerts(now);
 		expect(
 			await db.query.notification.findMany({ columns: { email: true } }),
@@ -908,7 +802,7 @@ describe("processPromptCacheAlerts", () => {
 
 	it("captures prompt_cache_alert_sent once per recorded notification", async () => {
 		await enableEmailOnly();
-		await insertUsage({ cachedTokens: "100000" });
+		await insertAgent();
 		await processPromptCacheAlerts(now);
 		expect(capture.mock.calls).toEqual([
 			[
@@ -921,10 +815,11 @@ describe("processPromptCacheAlerts", () => {
 						projectId: "cache-project",
 						apiKeyId: "cache-key",
 						modelId: "cache-model",
-						providers: "anthropic",
-						cause: "cache_not_reused",
-						hitRatePercent: 10,
-						potentialSavings: 18,
+						providerId: "anthropic",
+						cause: "cache_broken",
+						followUpPercent: 85,
+						hitRatePercent: 60,
+						estimatedDailyUsd: 21.87,
 						inApp: false,
 						email: true,
 					},
@@ -933,30 +828,7 @@ describe("processPromptCacheAlerts", () => {
 		]);
 
 		await processPromptCacheAlerts(later(HOUR));
-		expect(await alerts(), "skipped by the 7-day lookback").toHaveLength(1);
+		expect(await alerts(), "same episode an hour later").toHaveLength(1);
 		expect(capture).toHaveBeenCalledTimes(1);
-	});
-
-	it("does not capture when the unique event key, not the 7-day lookback, blocks the insert", async () => {
-		const createdBeyondLookback = new Date(now.getTime() - duration(8));
-		await enable();
-		await insertUsage();
-		await db.insert(tables.notification).values({
-			userId: "cache-owner",
-			type: "prompt_cache",
-			apiKeyId: "cache-key",
-			projectId: "cache-project",
-			eventKey: `prompt_cache:cache-key:cache-model:${windowEnd.toISOString()}`,
-			title: "Prompt cache misses on cache-model",
-			message: "Earlier alert",
-			href: "/features/caching/provider-cache-control",
-			inApp: true,
-			email: false,
-			createdAt: createdBeyondLookback,
-		});
-		await processPromptCacheAlerts(now);
-		expect(await alerts()).toMatchObject([{ message: "Earlier alert" }]);
-		expect(capture).not.toHaveBeenCalled();
-		expect(summaries()).toMatchObject([{ findings: 1, notifications: 0 }]);
 	});
 });
