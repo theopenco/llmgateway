@@ -8,6 +8,7 @@ import {
 	Building2,
 	Cpu,
 	Eye,
+	FileCheck2,
 	FlaskConical,
 	Gauge,
 	GitMerge,
@@ -121,6 +122,12 @@ const navItems: NavItem[] = [
 		label: "Provider Credentials",
 		icon: KeyRound,
 		match: "prefix",
+	},
+	{
+		href: "/provider-dpas",
+		label: "Provider DPAs",
+		icon: FileCheck2,
+		match: "exact",
 	},
 	{ href: "/models", label: "Models", icon: Cpu, match: "exact" },
 	{

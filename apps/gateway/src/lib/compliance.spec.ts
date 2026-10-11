@@ -1,13 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+	applyDpaRequirement,
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
 	getComplianceFailureReasons,
 	getEffectiveRetentionLevel,
+	isDpaEnforcementEnabled,
 	isModelIdCompliant,
 	isProviderIdCompliant,
 	isZeroDataRetentionEnabled,
+	withDpaEnforcement,
 } from "./compliance.js";
 
 import type { ProviderCompliancePolicy } from "@llmgateway/models";
@@ -417,5 +420,112 @@ describe("getComplianceFailureReasons", () => {
 				{ customProviderName: "acme", customAttestation: { soc2: 2 } },
 			),
 		).toEqual(["blockedModels"]);
+	});
+});
+
+describe("data-protection controls on non-enterprise plans", () => {
+	it("actually blocks a non-adequacy provider for a free-plan org", () => {
+		// The point of the whole split: a free-plan customer can stop personal
+		// data reaching a provider with no GDPR posture.
+		const policy = getActiveCompliancePolicy({
+			id: "org-test",
+			plan: "free",
+			providerCompliancePolicy: { enabled: true, requireGdpr: true },
+		});
+
+		expect(policy).toBeDefined();
+		expect(isProviderIdCompliant("deepseek", policy!)).toBe(false);
+		expect(isProviderIdCompliant("openai", policy!)).toBe(true);
+	});
+});
+
+describe("signed-DPA requirement (REQUIRE_PROVIDER_DPA_FOR_GDPR)", () => {
+	const originalFlag = process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR;
+
+	beforeEach(() => {
+		delete process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR;
+	});
+
+	afterEach(() => {
+		if (originalFlag === undefined) {
+			delete process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR;
+		} else {
+			process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR = originalFlag;
+		}
+	});
+
+	const GDPR_POLICY: ProviderCompliancePolicy = {
+		enabled: true,
+		requireGdpr: true,
+	};
+
+	it("is disabled unless the flag is exactly 'true'", () => {
+		expect(isDpaEnforcementEnabled()).toBe(false);
+		process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR = "1";
+		expect(isDpaEnforcementEnabled()).toBe(false);
+		process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR = "true";
+		expect(isDpaEnforcementEnabled()).toBe(true);
+	});
+
+	it("passes the policy through untouched when the flag is off", async () => {
+		expect(await withDpaEnforcement(GDPR_POLICY)).toBe(GDPR_POLICY);
+		expect(await withDpaEnforcement(undefined)).toBeUndefined();
+	});
+
+	it("passes through when the policy does not require GDPR, even with the flag on", async () => {
+		process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR = "true";
+		const policy: ProviderCompliancePolicy = {
+			enabled: true,
+			blockApiTraining: true,
+		};
+		expect(await withDpaEnforcement(policy)).toBe(policy);
+	});
+
+	it("blocks a GDPR-compliant provider without a signed DPA on record", () => {
+		// openai is gdpr: true in the catalogue, so it passes requireGdpr alone…
+		expect(isProviderIdCompliant("openai", GDPR_POLICY)).toBe(true);
+
+		// …but not once the DPA requirement is applied with an empty signed set.
+		const enforced = applyDpaRequirement(GDPR_POLICY, new Set());
+		expect(isProviderIdCompliant("openai", enforced)).toBe(false);
+	});
+
+	it("keeps providers with a signed DPA routable", () => {
+		const enforced = applyDpaRequirement(GDPR_POLICY, new Set(["openai"]));
+		expect(isProviderIdCompliant("openai", enforced)).toBe(true);
+		// anthropic is also gdpr: true, but has no signed DPA in this set.
+		expect(isProviderIdCompliant("anthropic", enforced)).toBe(false);
+		// deepseek stays blocked by requireGdpr itself either way.
+		expect(isProviderIdCompliant("deepseek", enforced)).toBe(false);
+	});
+
+	it("does not block custom providers, whose posture is the attestation", () => {
+		const enforced = applyDpaRequirement(
+			{ enabled: true, requireGdpr: true },
+			new Set(),
+		);
+		expect(
+			isProviderIdCompliant("custom", enforced, {
+				customProviderName: "my-endpoint",
+				customAttestation: {
+					gdpr: true,
+					soc2: null,
+					iso27001: null,
+					apiTraining: false,
+					promptLogging: false,
+					headquarters: "DE",
+				},
+			}),
+		).toBe(true);
+	});
+
+	it("preserves an existing blockedProviders list", () => {
+		const enforced = applyDpaRequirement(
+			{ ...GDPR_POLICY, blockedProviders: ["groq"] },
+			new Set(["openai", "groq"]),
+		);
+		expect(enforced.blockedProviders).toContain("groq");
+		expect(isProviderIdCompliant("groq", enforced)).toBe(false);
+		expect(isProviderIdCompliant("openai", enforced)).toBe(true);
 	});
 });
