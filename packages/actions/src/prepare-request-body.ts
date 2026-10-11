@@ -379,6 +379,22 @@ function isFunctionTool(
  * turbo/standard/pro on an identical query — so they are not a cost lever
  * worth exposing.
  */
+/**
+ * Anthropic (and Claude on Bedrock) reject stop sequences that are empty or
+ * whitespace-only. Returns the usable entries, or undefined when none remain.
+ */
+function toNonWhitespaceStopSequences(
+	stop: string | string[] | undefined,
+): string[] | undefined {
+	if (stop === undefined) {
+		return undefined;
+	}
+	const sequences = (Array.isArray(stop) ? stop : [stop]).filter(
+		(sequence) => sequence.trim() !== "",
+	);
+	return sequences.length > 0 ? sequences : undefined;
+}
+
 function applyDashScopeWebSearch(requestBody: Record<string, any>): void {
 	requestBody.enable_search = true;
 	requestBody.search_options = { forced_search: true };
@@ -2995,7 +3011,9 @@ export async function prepareRequestBody(
 				if (presence_penalty !== undefined) {
 					requestBody.presence_penalty = presence_penalty;
 				}
-				if (stop !== undefined) {
+				// OpenAI's o-series reasoning models reject `stop` on Chat
+				// Completions ("Unsupported parameter: 'stop'"); keep dropping it.
+				if (stop !== undefined && !/^o\d/.test(usedInternalModel)) {
 					requestBody.stop = stop;
 				}
 				if (seed !== undefined) {
@@ -3798,8 +3816,11 @@ export async function prepareRequestBody(
 			if (top_p !== undefined) {
 				requestBody.top_p = top_p;
 			}
-			if (stop !== undefined) {
-				requestBody.stop_sequences = Array.isArray(stop) ? stop : [stop];
+			// Anthropic rejects whitespace-only stop sequences (e.g. "\n", common
+			// in OpenAI clients), so drop them rather than 400ing.
+			const anthropicStopSequences = toNonWhitespaceStopSequences(stop);
+			if (anthropicStopSequences) {
+				requestBody.stop_sequences = anthropicStopSequences;
 			}
 			// Note: frequency_penalty, presence_penalty and seed are NOT supported by Anthropic's Messages API
 			if (effort !== undefined) {
@@ -4376,7 +4397,16 @@ export async function prepareRequestBody(
 				inferenceConfig.topP = top_p;
 			}
 			if (stop !== undefined) {
-				inferenceConfig.stopSequences = Array.isArray(stop) ? stop : [stop];
+				// Claude on Bedrock applies Anthropic's non-whitespace rule.
+				const stopSequences =
+					modelDef?.family === "anthropic"
+						? toNonWhitespaceStopSequences(stop)
+						: Array.isArray(stop)
+							? stop
+							: [stop];
+				if (stopSequences) {
+					inferenceConfig.stopSequences = stopSequences;
+				}
 			}
 
 			if (Object.keys(inferenceConfig).length > 0) {

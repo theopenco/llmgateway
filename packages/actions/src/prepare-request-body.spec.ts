@@ -10047,6 +10047,30 @@ describe("prepareRequestBody - stop and seed forwarding", () => {
 		expect(body.stop_sequences).toEqual(["END", "STOP"]);
 	});
 
+	test("drops whitespace-only stop sequences for Anthropic", async () => {
+		const body = await buildBody("anthropic", "claude-3-5-sonnet-20241022", {
+			stop: ["\n", "END", "  "],
+		});
+		expect(body.stop_sequences).toEqual(["END"]);
+
+		const onlyWhitespace = await buildBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			{ stop: "\n\n" },
+		);
+		expect("stop_sequences" in onlyWhitespace).toBe(false);
+	});
+
+	test("omits stop for OpenAI o-series models on chat completions", async () => {
+		const body = await buildBody("openai", "o1", {
+			stop: "END",
+			seed: 42,
+			useResponsesApi: false,
+		});
+		expect("stop" in body).toBe(false);
+		expect(body.seed).toBe(42);
+	});
+
 	test("strips stop and seed when a non-empty supportedParameters omits them", async () => {
 		const body = await buildBody("cerebras", "gpt-oss-120b", {
 			stop: "END",
