@@ -21,6 +21,7 @@ import {
 	type AirsideModelMetadataInput,
 	currentMetadataFor,
 } from "@/lib/airside-metadata.js";
+import { effectiveClaimKind } from "@/lib/airside-profile.js";
 import {
 	incidentErrorTypesSchema,
 	incidentsResponseSchema,
@@ -79,7 +80,8 @@ import {
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
 import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
-import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
+
+import { assertProviderBaseUrlAllowed } from "./keys-provider.js";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -511,7 +513,6 @@ adminAirside.openapi(approveFiling, async (c) => {
 						eq(tables.providerClaim.providerId, model.providerId),
 						eq(tables.providerClaim.providerCompanyId, model.providerCompanyId),
 						eq(tables.providerClaim.status, "active"),
-						eq(tables.providerClaim.kind, "custom"),
 					),
 				)
 				.limit(1)
@@ -706,7 +707,7 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 			catalogueProviders.find((provider) => provider.id === row.providerId)
 				?.name ??
 			row.providerId,
-		kind: row.kind,
+		kind: effectiveClaimKind(row),
 		customName: row.customName,
 		customBaseUrl: row.customBaseUrl,
 		matchedDomain: row.matchedDomain,
@@ -991,7 +992,7 @@ adminAirside.openapi(approveClaim, async (c) => {
 				message: "This claim has already been reviewed.",
 			});
 		}
-		if (claim.kind === "custom") {
+		if (effectiveClaimKind(claim) === "custom") {
 			// A custom carrier only exists in the DB catalogue: create its
 			// provider row so /providers and /internal/providers list it.
 			await tx
@@ -1255,7 +1256,7 @@ adminAirside.openapi(revokeClaim, async (c) => {
 		await tx
 			.delete(tables.providerRoutingSettings)
 			.where(eq(tables.providerRoutingSettings.providerId, claim.providerId));
-		// A custom carrier's credentials are the carrier's own keys.
+		// Credential ownership follows registration kind, not current transport.
 		if (claim.kind === "custom") {
 			await tx
 				.update(tables.providerKey)
@@ -2114,11 +2115,11 @@ adminAirside.openapi(updateClaimSettings, async (c) => {
 	const body = c.req.valid("json");
 	const claim = await getActiveClaim(id);
 	if (
-		claim.kind !== "custom" &&
-		(body.baseUrl !== undefined || body.description !== undefined)
+		effectiveClaimKind(claim) !== "custom" &&
+		body.description !== undefined
 	) {
 		throw new HTTPException(400, {
-			message: "Only custom carriers have a base URL and description.",
+			message: "Only custom carriers have a description.",
 		});
 	}
 	if (body.baseUrl !== undefined) {
@@ -2127,7 +2128,7 @@ adminAirside.openapi(updateClaimSettings, async (c) => {
 				message: PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
 			});
 		}
-		await assertSafeProviderUrl(body.baseUrl);
+		await assertProviderBaseUrlAllowed(body.baseUrl);
 	}
 	const changes = {
 		...(body.name !== undefined ? { customName: body.name } : {}),

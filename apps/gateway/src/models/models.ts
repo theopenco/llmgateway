@@ -12,6 +12,7 @@ import {
 	getModelsAccess,
 } from "@/models/model-access.js";
 
+import { getEffectiveProviders } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import {
 	models as modelsList,
@@ -237,7 +238,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 
 		// Set of provider ids that do not train on API data
 		const noTrainingProviderIds = new Set(
-			providers
+			(await getEffectiveProviders())
 				.filter((p) => p.dataPolicy?.apiTraining === false)
 				.map((p) => p.id),
 		);

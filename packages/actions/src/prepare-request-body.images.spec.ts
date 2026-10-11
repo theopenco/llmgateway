@@ -170,6 +170,29 @@ describe("prepareRequestBody - requiresBase64Images", () => {
 		]);
 	});
 
+	test("keeps image detail when inlining a remote image URL", async () => {
+		processImageUrl.mockResolvedValue({
+			data: "aGVsbG8=",
+			mimeType: "image/png",
+		});
+
+		const requestBody = await prepare({
+			content: [
+				{
+					type: "image_url",
+					image_url: { url: "https://example.com/logo.png", detail: "low" },
+				},
+			],
+		});
+
+		expect(requestBody.messages[0].content).toEqual([
+			{
+				type: "image_url",
+				image_url: { url: "data:image/png;base64,aGVsbG8=", detail: "low" },
+			},
+		]);
+	});
+
 	test("sends an http URL through the guarded fetch instead of forwarding it", async () => {
 		// The SSRF guard inside processImageUrl is what enforces https-only, so
 		// the contract this test pins is that plain http never bypasses it and is

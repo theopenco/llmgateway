@@ -2516,6 +2516,33 @@ describe("managed credential allowed models", () => {
 		expect(await res.text()).toContain("definitely-not-a-model");
 	});
 
+	test.each(["catalogue", "custom"] as const)(
+		"rejects credentials for a %s claim without an endpoint",
+		async (kind) => {
+			const { providerId } = await createCustomCarrier();
+			await db
+				.update(tables.providerClaim)
+				.set({ kind, customBaseUrl: null })
+				.where(eq(tables.providerClaim.providerId, providerId));
+
+			const res = await create({
+				provider: providerId,
+				token: "carrier-token",
+			});
+			expect(res.status).toBe(400);
+			expect(await res.text()).toContain("Configure the carrier endpoint");
+			expect(
+				await db.query.providerKey.findFirst({
+					where: { provider: { eq: providerId }, managed: { eq: true } },
+				}),
+			).toBeUndefined();
+			const claim = await db.query.providerClaim.findFirst({
+				where: { providerId: { eq: providerId } },
+			});
+			expect(claim?.providerKeyId).toBeNull();
+		},
+	);
+
 	test("stores model restrictions for custom carriers", async () => {
 		vi.stubEnv("E2E_TEST", "true");
 		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });

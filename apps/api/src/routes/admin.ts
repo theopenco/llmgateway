@@ -16,6 +16,7 @@ import {
 	executeAdminRefund,
 	sumRefundsByTransaction,
 } from "@/lib/admin-refund.js";
+import { effectiveClaimKind } from "@/lib/airside-profile.js";
 import {
 	getContentFilterSettings,
 	listContentFilterProviders,
@@ -49,6 +50,11 @@ import {
 	getModelErrorRateAlertsSettings,
 	setModelErrorRateAlertsSettings,
 } from "@/lib/model-error-rate-alerts.js";
+import {
+	getOrganizationTimeseries,
+	organizationTimeseriesQuery,
+	organizationTimeseriesSchema,
+} from "@/lib/organization-timeseries.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
 	getBucketUnitForWindow,
@@ -4918,20 +4924,15 @@ async function listAirsideMappings() {
 		);
 }
 
-/** Approved custom carriers: providers that exist only as an Airside claim. */
-async function listAirsideCustomProviders() {
+/** Active Airside carriers; catalogue entries take precedence by provider id. */
+async function listAirsideCarriers() {
 	return await db
 		.select({
 			id: tables.providerClaim.providerId,
 			name: tables.providerClaim.customName,
 		})
 		.from(tables.providerClaim)
-		.where(
-			and(
-				eq(tables.providerClaim.kind, "custom"),
-				eq(tables.providerClaim.status, "active"),
-			),
-		);
+		.where(eq(tables.providerClaim.status, "active"));
 }
 
 /**
@@ -4968,7 +4969,7 @@ async function getProviderModelOptions(): Promise<{
 
 	const [airsideMappings, customProviders] = await Promise.all([
 		listAirsideMappings(),
-		listAirsideCustomProviders(),
+		listAirsideCarriers(),
 	]);
 
 	const providerOptions = new Map<
@@ -5024,7 +5025,6 @@ async function isAirsideProviderId(providerId: string): Promise<boolean> {
 		.where(
 			and(
 				eq(tables.providerClaim.providerId, providerId),
-				eq(tables.providerClaim.kind, "custom"),
 				eq(tables.providerClaim.status, "active"),
 			),
 		)
@@ -10940,7 +10940,10 @@ admin.openapi(getProviderDetail, async (c) => {
 		airside: carrier
 			? {
 					company: { id: carrier.companyId, name: carrier.companyName },
-					claimKind: carrier.claimKind,
+					claimKind: effectiveClaimKind({
+						kind: carrier.claimKind,
+						providerId,
+					}),
 					discountPercent: carrierDiscount,
 					marginPercent: carrierMargin,
 					routingAdjustment: computeAirsideAdjustment(
@@ -11700,13 +11703,16 @@ const getOrgCostByModelTimeseries = createRoute({
 				.default("model")
 				.optional(),
 			bucket: costTimeseriesBucketSchema.optional(),
+			...organizationTimeseriesQuery,
 		}),
 	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: costByModelTimeseriesResponseSchema.openapi({}),
+					schema: costByModelTimeseriesResponseSchema
+						.extend({ timeseries: organizationTimeseriesSchema.optional() })
+						.openapi({}),
 				},
 			},
 			description:
@@ -11741,6 +11747,33 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 		.where(eq(tables.project.organizationId, orgId));
 
 	const ids = projectIds.map((p) => p.id);
+
+	if (query.includeTimeseries === "true" || query.model || query.apiKeyId) {
+		const timeseries = await getOrganizationTimeseries({
+			projectIds: ids,
+			startDate,
+			endDate: new Date(),
+			bucket: bucketUnit,
+			groupBy: groupBy === "api-key" ? "apiKey" : groupBy,
+			modelView,
+			model: query.model,
+			apiKeyId: query.apiKeyId,
+			rankBy: query.rankBy,
+			mode: query.mode,
+		});
+		return c.json({
+			window,
+			bucket: bucketUnit,
+			modelView,
+			groupBy,
+			models: timeseries.series.map((s) => s.label),
+			data: timeseries.points.map((p) => ({
+				timestamp: p.timestamp,
+				entries: p.entries.map((e) => ({ ...e, model: e.label })),
+			})),
+			timeseries,
+		});
+	}
 
 	if (ids.length === 0) {
 		return c.json({

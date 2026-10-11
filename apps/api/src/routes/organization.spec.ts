@@ -471,6 +471,38 @@ describe("organization route", () => {
 		});
 	});
 
+	test("compliance countries include active Airside carrier headquarters", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		const patchCountries = async () =>
+			await app.request("/orgs/test-org-id", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					providerCompliancePolicy: { enabled: true, allowedCountries: ["LU"] },
+				}),
+			});
+
+		expect((await patchCountries()).status).toBe(400);
+
+		await db
+			.insert(tables.providerCompany)
+			.values({ id: "country-carrier-company", name: "Country Carrier" });
+		await cdb.insert(tables.providerClaim).values({
+			providerCompanyId: "country-carrier-company",
+			providerId: "country-carrier",
+			kind: "custom",
+			matchedDomain: "example.com",
+			status: "active",
+			customBaseUrl: "https://api.example.com",
+			headquarters: "LU",
+		});
+
+		expect((await patchCountries()).status).toBe(200);
+	});
+
 	test("non-enterprise orgs can clear a leftover compliance policy but not enable one", async () => {
 		// The gateway enforces enabled policies fail-closed regardless of plan,
 		// so a downgraded org must still be able to turn its policy off.

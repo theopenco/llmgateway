@@ -5,8 +5,11 @@ import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
+import { formatApiKeyLimitCaps } from "@/components/api-keys/api-key-limit-fields";
 import { useDevPassProject } from "@/hooks/useDevPassProject";
+import { useMyMemberBudget } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import { getApiErrorMessage } from "@/lib/api-error";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -24,10 +27,13 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
-import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
-import { CODING_AGENTS, isRecognizedCodingAgent } from "@llmgateway/shared";
+import {
+	CODING_AGENTS,
+	isRecognizedCodingAgent,
+	mostRestrictiveApiKeyLimits,
+} from "@llmgateway/shared";
 
 interface ConnectParams {
 	callback: string;
@@ -142,14 +148,37 @@ export default function ConnectCliPage() {
 			projectsQuery.isError ||
 			(!projectLoading && !pickedProject);
 
-	const createApiKey = api.useMutation("post", "/keys/api");
+	const createApiKey = api.useMutation("post", "/keys/api", {
+		// The error renders under the button, so skip the global error toast.
+		onError: () => {},
+	});
+
+	const budgetOrgId = wantsDevPassOrg
+		? devPassResult.data?.organization.id
+		: organization?.id;
+	const budgetQuery = useMyMemberBudget(budgetOrgId ?? "");
+	const keyLimits =
+		budgetQuery.data && !budgetQuery.isError
+			? mostRestrictiveApiKeyLimits([
+					budgetQuery.data.teamBudget,
+					budgetQuery.data.budget,
+				])
+			: null;
+	const caps = keyLimits ? formatApiKeyLimitCaps(keyLimits) : null;
+
+	const keysHref =
+		!wantsDevPassOrg && organization && pickedProject
+			? `/dashboard/${organization.id}/${pickedProject.id}/${
+					organization.role === "developer" ? "me/api-keys" : "api-keys"
+				}`
+			: null;
 
 	const displayName = params
 		? (agentLabel(params.source) ?? params.source)
 		: "";
 
 	const authorize = () => {
-		if (!params || !project?.id || createApiKey.isPending) {
+		if (!params || !project?.id || !keyLimits || createApiKey.isPending) {
 			return;
 		}
 
@@ -163,8 +192,8 @@ export default function ConnectCliPage() {
 						params.name ? ` — ${params.name}` : ""
 					}`.slice(0, 100),
 					projectId: project.id,
-					usageLimit: null,
 					expiresAt,
+					...keyLimits,
 				},
 			},
 			{
@@ -181,12 +210,6 @@ export default function ConnectCliPage() {
 					setDone(true);
 					// Hand the credential back to the CLI's local loopback server.
 					window.location.href = target.toString();
-				},
-				onError: () => {
-					toast({
-						title: "Failed to authorize the CLI. Please try again.",
-						variant: "destructive",
-					});
 				},
 			},
 		);
@@ -303,6 +326,7 @@ export default function ConnectCliPage() {
 									onValueChange={(id) => {
 										setSelectedOrgId(id);
 										setSelectedProjectId(undefined);
+										createApiKey.reset();
 									}}
 									disabled={createApiKey.isPending}
 								>
@@ -324,7 +348,10 @@ export default function ConnectCliPage() {
 								<Label htmlFor="connect-project">Project</Label>
 								<Select
 									value={pickedProject.id}
-									onValueChange={setSelectedProjectId}
+									onValueChange={(id) => {
+										setSelectedProjectId(id);
+										createApiKey.reset();
+									}}
 									disabled={createApiKey.isPending}
 								>
 									<SelectTrigger id="connect-project" className="w-full">
@@ -350,13 +377,21 @@ export default function ConnectCliPage() {
 					The key is delivered only to a local address on this machine, expires
 					in {CLI_KEY_TTL_DAYS} days, and can be revoked any time from the API
 					Keys page.
+					{caps
+						? ` Its spend is capped at ${caps} to match your organization limit.`
+						: null}
 				</p>
 			</CardContent>
 			<CardFooter className="flex-col gap-2">
 				<Button
 					className="w-full"
 					onClick={authorize}
-					disabled={createApiKey.isPending || projectLoading || !project?.id}
+					disabled={
+						createApiKey.isPending ||
+						projectLoading ||
+						!project?.id ||
+						!keyLimits
+					}
 				>
 					{createApiKey.isPending ? (
 						<>
@@ -374,6 +409,33 @@ export default function ConnectCliPage() {
 							: organizations.length > 1
 								? "No project available in this organization. Pick another one or create a project in the dashboard."
 								: "No project found on your account. Finish setup in the dashboard first."}
+					</p>
+				) : null}
+				{budgetQuery.isError ? (
+					<p className="text-xs text-destructive">
+						Couldn&apos;t load your organization limits. Refresh this page and
+						try again.
+					</p>
+				) : null}
+				{createApiKey.isError ? (
+					<p className="text-xs text-destructive">
+						{getApiErrorMessage(
+							createApiKey.error,
+							"Failed to authorize the CLI. Please try again.",
+						)}
+						{keysHref ? (
+							<>
+								{" "}
+								<Link
+									href={keysHref}
+									className="whitespace-nowrap underline"
+									target="_blank"
+									rel="noreferrer"
+								>
+									Manage API keys
+								</Link>
+							</>
+						) : null}
 					</p>
 				) : null}
 			</CardFooter>

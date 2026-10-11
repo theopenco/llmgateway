@@ -2593,9 +2593,9 @@ export function isLiveMapping(
 }
 
 /**
- * Catalogue providers that serve `modelId` under the policy: active,
+ * Providers that serve `modelId` under the policy: active,
  * non-deprecated mappings whose provider has no compliance failures. Unknown
- * providers (e.g. DB-only carriers) fail closed. Empty when the model itself is
+ * providers absent from `definitions` fail closed. Empty when the model itself is
  * blocked by the policy's model lists.
  */
 export function getCompliantProvidersForModel(
@@ -2603,6 +2603,7 @@ export function getCompliantProvidersForModel(
 	mappings: readonly ModelMappingAvailability[],
 	policy: ProviderCompliancePolicy,
 	now: Date = new Date(),
+	definitions: readonly ProviderDefinition[] = providers,
 ): string[] {
 	if (!isModelAllowedByPolicy([modelId], policy)) {
 		return [];
@@ -2612,7 +2613,9 @@ export function getCompliantProvidersForModel(
 		if (!isLiveMapping(mapping, now)) {
 			continue;
 		}
-		const provider = getProviderDefinition(mapping.providerId);
+		const provider = definitions.find(
+			(entry) => entry.id === mapping.providerId,
+		);
 		if (
 			provider &&
 			getProviderComplianceFailures(provider, policy).length === 0
@@ -2700,14 +2703,19 @@ export function countryCodeToFlag(code: string): string {
 		.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
 }
 
-/**
- * Distinct provider-headquarters countries defined in the catalogue, sorted by
- * name. This is the authoritative, closed set of countries the compliance
- * country selector may offer.
- */
-export function getProviderCountries(): ProviderCountry[] {
+const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+
+/** English name for an ISO 3166-1 alpha-2 country code. */
+export function countryName(code: string): string {
+	return PROVIDER_COUNTRY_NAMES[code] ?? regionNames.of(code) ?? code;
+}
+
+/** Distinct provider-headquarters countries, sorted by name. */
+export function getProviderCountries(
+	definitions: readonly ProviderDefinition[] = providers,
+): ProviderCountry[] {
 	const codes = new Set<string>();
-	for (const provider of providers) {
+	for (const provider of definitions) {
 		if (provider.headquarters) {
 			codes.add(provider.headquarters);
 		}
@@ -2715,7 +2723,7 @@ export function getProviderCountries(): ProviderCountry[] {
 	return Array.from(codes)
 		.map((code) => ({
 			code,
-			name: PROVIDER_COUNTRY_NAMES[code] ?? code,
+			name: countryName(code),
 			flag: countryCodeToFlag(code),
 		}))
 		.sort((a, b) => a.name.localeCompare(b.name));
