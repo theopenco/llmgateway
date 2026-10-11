@@ -1121,9 +1121,11 @@ function transformContentForResponsesApi(content: any, role: string): any {
 				// through directly — no need to scan/validate the (possibly huge)
 				// data-URL payload here.
 				const imageUrl = part.image_url?.url ?? part.image_url;
+				const detail = part.image_url?.detail;
 				return {
 					type: "input_image",
 					image_url: imageUrl,
+					...(detail !== undefined && { detail }),
 					...breakpoint,
 				};
 			}
@@ -2212,7 +2214,10 @@ export async function prepareRequestBody(
 						);
 						return {
 							...part,
-							image_url: { url: `data:${mimeType};base64,${data}` },
+							image_url: {
+								...(typeof part.image_url === "object" && part.image_url),
+								url: `data:${mimeType};base64,${data}`,
+							},
 						};
 					}),
 				);
