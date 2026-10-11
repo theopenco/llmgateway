@@ -11,7 +11,7 @@
  */
 
 import {
-	getChatPlanCreditsMultiplier,
+	CHAT_PLAN_CREDITS_MULTIPLIERS,
 	CHAT_PLAN_PRICES,
 	type ChatPlanTier,
 } from "@llmgateway/shared";
@@ -95,7 +95,7 @@ export interface Comparison {
  */
 function planFacts(tier: ChatPlanTier) {
 	const price = CHAT_PLAN_PRICES[tier];
-	const multiplier = getChatPlanCreditsMultiplier(tier);
+	const multiplier = CHAT_PLAN_CREDITS_MULTIPLIERS[tier];
 	return { price, multiplier, value: price * multiplier };
 }
 
