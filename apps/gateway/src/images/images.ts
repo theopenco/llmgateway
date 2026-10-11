@@ -1235,6 +1235,16 @@ async function processImageEdit(
 
 	await assertNotDevPlan(getLogContext);
 
+	// Validate the model before fetching any source images so a request that is
+	// guaranteed to be rejected (dynamic route, custom provider, text model)
+	// does not trigger outbound image fetches first.
+	const model =
+		request.model === "auto" || !request.model
+			? "gemini-3-pro-image"
+			: request.model;
+
+	assertImageModel(model);
+
 	const { imageResults, imageCount } = await (async () => {
 		try {
 			const imageUrls: string[] = [];
@@ -1304,13 +1314,6 @@ async function processImageEdit(
 	const aspectRatio =
 		request.aspect_ratio ??
 		(requestedSize ? sizeToAspectRatio(requestedSize) : undefined);
-
-	const model =
-		request.model === "auto" || !request.model
-			? "gemini-3-pro-image"
-			: request.model;
-
-	assertImageModel(model);
 
 	const chatRequest: Record<string, unknown> = {
 		model,

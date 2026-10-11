@@ -340,6 +340,38 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/images/edits rejects unsupported models before fetching source images", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "my-custom-provider/some-model",
+				prompt: "Make it cinematic",
+				images: [{ image_url: "https://example.invalid/source.png" }],
+			}),
+		});
+
+		// If the source image were fetched first, the unresolvable host would
+		// surface as an image_url error instead of the routing error.
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Custom providers are not supported for image generation",
+		);
+		expect(JSON.stringify(json)).not.toContain("image_url is invalid");
+	});
+
 	test("/v1/chat/completions rejects provider-targeting model strings for dev-plan orgs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
