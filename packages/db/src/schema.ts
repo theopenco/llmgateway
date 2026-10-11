@@ -1432,6 +1432,9 @@ export const userProject = snakeCase.table(
 	],
 );
 
+export const SEMANTIC_CACHE_MODES = ["off", "shadow", "on"] as const;
+export type SemanticCacheMode = (typeof SEMANTIC_CACHE_MODES)[number];
+
 export const project = snakeCase.table(
 	"project",
 	{
@@ -1447,6 +1450,12 @@ export const project = snakeCase.table(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		cachingEnabled: boolean().notNull().default(false),
 		cacheDurationSeconds: integer().notNull().default(60),
+		// Reuse cached responses for prompts whose final user turn matches a
+		// cached one by `normalizedPromptKey`. "shadow" records would-be hits
+		// on the log row without serving them. Requires `cachingEnabled`.
+		semanticCacheMode: text({ enum: SEMANTIC_CACHE_MODES })
+			.notNull()
+			.default("off"),
 		providerCacheAutoTtl: text({ enum: ["5m", "1h"] })
 			.notNull()
 			.default("5m"),
@@ -2510,6 +2519,12 @@ export const log = snakeCase.table(
 			selectedProvider?: string;
 			selectionReason?: string;
 			usedApiKeyHash?: string;
+			// Semantic-cache decision: the matched entry and whether it was
+			// served (false in shadow mode).
+			semanticCache?: {
+				matchedCacheKey: string;
+				served: boolean;
+			};
 			// Whose credential served the request: the organization's own provider
 			// key (`byok`) or an LLM Gateway platform credential (`platform`).
 			// Always agrees with the row's billing mode (`usedMode`).

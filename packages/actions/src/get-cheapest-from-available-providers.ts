@@ -111,6 +111,13 @@ export interface RoutingMetadata {
 	// in selection order, so an operator can see which of their keys the
 	// gateway had to choose from. BYOK rows only; never platform credentials.
 	eligibleProviderKeys?: Array<{ id: string; label?: string }>;
+	// Semantic-cache decision for this request, when a lookup found a match:
+	// the entry it matched and whether it was served (false in shadow mode).
+	// Lets a false hit be traced back afterwards.
+	semanticCache?: {
+		matchedCacheKey: string;
+		served: boolean;
+	};
 	providerScores: Array<{
 		providerId: string;
 		region?: string;

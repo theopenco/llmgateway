@@ -62,6 +62,7 @@ import {
 	resolveProviderCacheControlMode,
 	withLegacyProviderCacheControl,
 } from "@/utils/provider-cache-control.js";
+import { effectiveSemanticCacheMode } from "@/utils/semantic-cache.js";
 import { timezoneQueryField } from "@/utils/timezone.js";
 import {
 	isZeroDataRetentionEnabled,
@@ -504,13 +505,6 @@ v1Master.openapi(updateProject, async (c) => {
 	const providerCacheControlMode = resolveProviderCacheControlMode(
 		c.req.valid("json"),
 	);
-	const updates = {
-		...rest,
-		...(providerCacheControlMode !== undefined
-			? { providerCacheControlMode }
-			: {}),
-	};
-
 	const existing = await db.query.project.findFirst({
 		where: { id: { eq: id } },
 	});
@@ -524,6 +518,20 @@ v1Master.openapi(updateProject, async (c) => {
 			message: "Project not found in this organization",
 		});
 	}
+
+	const semanticCacheMode = effectiveSemanticCacheMode(
+		rest.cachingEnabled ?? existing.cachingEnabled,
+		existing.semanticCacheMode,
+	);
+	const updates = {
+		...rest,
+		...(providerCacheControlMode !== undefined
+			? { providerCacheControlMode }
+			: {}),
+		...(semanticCacheMode !== existing.semanticCacheMode
+			? { semanticCacheMode }
+			: {}),
+	};
 
 	const providerCachingChanged =
 		providerCacheControlMode !== undefined &&

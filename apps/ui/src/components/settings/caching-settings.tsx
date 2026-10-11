@@ -48,10 +48,30 @@ const cachingFormSchema = z.object({
 			"Cache duration must not exceed 31,536,000 seconds (1 year)",
 		),
 	providerCacheControlMode: z.enum(["auto", "passthrough", "off"]),
+	semanticCacheMode: z.enum(["off", "shadow", "on"]),
 	providerCacheAutoTtl: z.enum(["5m", "1h"]),
 });
 
 type CachingFormData = z.infer<typeof cachingFormSchema>;
+
+const SEMANTIC_CACHE_MODE_OPTIONS = [
+	{
+		value: "off" as const,
+		label: "Off",
+		description: "Only byte-identical requests are served from the cache.",
+	},
+	{
+		value: "shadow" as const,
+		label: "Shadow",
+		description:
+			"Look up matches and record them on the request log, but still call the provider. Use it to see what would be served before it affects answers.",
+	},
+	{
+		value: "on" as const,
+		label: "On",
+		description: "Serve the cached response for a matching prompt.",
+	},
+];
 
 const PROVIDER_CACHE_CONTROL_OPTIONS = [
 	{
@@ -105,10 +125,13 @@ export function CachingSettings({
 				initialData.preferences.preferences.providerCacheAutoTtl ?? "5m",
 			providerCacheControlMode:
 				initialData.preferences.preferences.providerCacheControlMode ?? "auto",
+			semanticCacheMode:
+				initialData.preferences.preferences.semanticCacheMode ?? "off",
 		},
 	});
 
 	const cachingEnabled = form.watch("cachingEnabled");
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const providerCacheControlMode = form.watch("providerCacheControlMode");
 
 	const api = useApi();
@@ -129,6 +152,9 @@ export function CachingSettings({
 				body: {
 					cachingEnabled: data.cachingEnabled,
 					cacheDurationSeconds: data.cacheDurationSeconds,
+					...(isEnterprise
+						? { semanticCacheMode: data.semanticCacheMode }
+						: {}),
 					providerCacheAutoTtl: data.providerCacheAutoTtl,
 					...(zeroDataRetentionEnabled
 						? {}
@@ -308,7 +334,15 @@ export function CachingSettings({
 									<FormControl>
 										<Switch
 											checked={field.value}
-											onCheckedChange={field.onChange}
+											onCheckedChange={(checked) => {
+												field.onChange(checked);
+												// The API turns semantic caching off with request
+												// caching; keep the form in step so a later save
+												// cannot re-arm it.
+												if (!checked) {
+													form.setValue("semanticCacheMode", "off");
+												}
+											}}
 											disabled={zeroDataRetentionEnabled && !field.value}
 										/>
 									</FormControl>
@@ -341,6 +375,73 @@ export function CachingSettings({
 										<br />
 										Note: changing this setting may take up to 5 minutes to take
 										effect.
+									</FormDescription>
+									<FormMessage />
+								</FormItem>
+							)}
+						/>
+
+						<div>
+							<h4 className="text-base font-medium">Semantic Caching</h4>
+							<p className="text-muted-foreground text-sm">
+								Also serve a cached response when the final user message differs
+								from a cached one only in ways that cannot change the answer,
+								such as letter case, trailing punctuation, contractions or
+								&quot;please&quot;. The system prompt and earlier turns must
+								match exactly. Requests without tools only.
+							</p>
+							{isEnterprise ? null : (
+								<p className="text-muted-foreground text-sm mt-1">
+									Available on the{" "}
+									<Link
+										href="/enterprise"
+										className="font-medium text-foreground underline underline-offset-4"
+									>
+										Enterprise plan
+									</Link>
+									.
+								</p>
+							)}
+						</div>
+
+						<FormField
+							control={form.control}
+							name="semanticCacheMode"
+							render={({ field }) => (
+								<FormItem className="space-y-3">
+									<FormControl>
+										<RadioGroup
+											value={field.value}
+											onValueChange={field.onChange}
+											className="gap-3"
+											disabled={!cachingEnabled || !isEnterprise}
+										>
+											{SEMANTIC_CACHE_MODE_OPTIONS.map((option) => (
+												<div
+													key={option.value}
+													className="flex flex-row items-start space-x-3"
+												>
+													<RadioGroupItem
+														value={option.value}
+														id={`semantic-cache-${option.value}`}
+														className="mt-1"
+														disabled={!cachingEnabled || !isEnterprise}
+													/>
+													<div className="space-y-1 leading-none">
+														<Label htmlFor={`semantic-cache-${option.value}`}>
+															{option.label}
+														</Label>
+														<p className="text-muted-foreground text-sm">
+															{option.description}
+														</p>
+													</div>
+												</div>
+											))}
+										</RadioGroup>
+									</FormControl>
+									<FormDescription>
+										Requires gateway response caching. Matches use the response
+										cache duration above.
 									</FormDescription>
 									<FormMessage />
 								</FormItem>

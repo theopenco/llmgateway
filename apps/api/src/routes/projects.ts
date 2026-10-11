@@ -9,6 +9,7 @@ import {
 	providerCacheControlModeSchema,
 	resolveProviderCacheControlMode,
 } from "@/utils/provider-cache-control.js";
+import { effectiveSemanticCacheMode } from "@/utils/semantic-cache.js";
 import {
 	smartRoutingConfigInputSchema,
 	normalizeSmartRoutingConfig,
@@ -20,8 +21,9 @@ import {
 } from "@/utils/zdr-settings.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { cdb, db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, SEMANTIC_CACHE_MODES, tables } from "@llmgateway/db";
 import { normalizeStatementDescriptorSuffix } from "@llmgateway/shared";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { canManageProject } from "@llmgateway/shared/organization-roles";
 import { isSmartRoutingAvailable } from "@llmgateway/shared/smart-routing";
 
@@ -44,6 +46,7 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
+	semanticCacheMode: z.enum(SEMANTIC_CACHE_MODES),
 	providerCacheControlMode: providerCacheControlModeSchema,
 	providerCacheAutoTtl: providerCacheAutoTtlSchema,
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
@@ -75,6 +78,7 @@ const updateProjectSchema = z.object({
 	name: z.string().min(1).max(255).optional(),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(), // Min 10 seconds, max 1 year
+	semanticCacheMode: z.enum(SEMANTIC_CACHE_MODES).optional(),
 	providerCacheControlMode: providerCacheControlModeSchema.optional(),
 	providerCacheAutoTtl: providerCacheAutoTtlSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
@@ -245,6 +249,7 @@ projects.openapi(updateProject, async (c) => {
 		name,
 		cachingEnabled,
 		cacheDurationSeconds,
+		semanticCacheMode,
 		providerCacheAutoTtl,
 		mode,
 		defaultRoutingStrategy,
@@ -342,6 +347,28 @@ projects.openapi(updateProject, async (c) => {
 
 	if (cacheDurationSeconds !== undefined) {
 		updateData.cacheDurationSeconds = cacheDurationSeconds;
+	}
+
+	const semanticCacheEntitled = hasOrganizationEnterpriseAccess(
+		projectUserOrg?.organization?.id,
+		projectUserOrg?.organization?.plan,
+	);
+	if (
+		semanticCacheMode !== undefined &&
+		semanticCacheMode !== "off" &&
+		!semanticCacheEntitled
+	) {
+		throw new HTTPException(403, {
+			message: "Semantic caching is available on the Enterprise plan.",
+		});
+	}
+
+	const resultingSemanticCacheMode = effectiveSemanticCacheMode(
+		cachingEnabled ?? project.cachingEnabled,
+		semanticCacheMode ?? project.semanticCacheMode,
+	);
+	if (resultingSemanticCacheMode !== project.semanticCacheMode) {
+		updateData.semanticCacheMode = resultingSemanticCacheMode;
 	}
 
 	if (providerCacheAutoTtl !== undefined) {
@@ -482,6 +509,12 @@ projects.openapi(updateProject, async (c) => {
 		changes.cacheDurationSeconds = {
 			old: project.cacheDurationSeconds,
 			new: cacheDurationSeconds,
+		};
+	}
+	if (updateData.semanticCacheMode !== undefined) {
+		changes.semanticCacheMode = {
+			old: project.semanticCacheMode,
+			new: updateData.semanticCacheMode,
 		};
 	}
 	if (
