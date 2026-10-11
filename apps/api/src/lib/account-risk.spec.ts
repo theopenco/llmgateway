@@ -10,8 +10,8 @@ import { db, eq, tables } from "@llmgateway/db";
 import {
 	approveHighRiskUser,
 	assertOrganizationNotHighRisk,
-	flagUserIfAbusiveIp,
 	isUserHighRisk,
+	flagUserIfAbusiveIp,
 } from "./account-risk.js";
 
 const abusiveIp = "5.6.7.8";
@@ -78,6 +78,26 @@ async function createMember(options: {
 }
 
 describe("flagUserIfAbusiveIp", () => {
+	test("retries organization sync for an already flagged user", async () => {
+		await createMember({
+			userId: "risk-user",
+			organizationId: "risk-org",
+			email: "risk@example.com",
+		});
+		await db
+			.update(tables.user)
+			.set({ riskStatus: "flagged" })
+			.where(eq(tables.user.id, "risk-user"));
+		await flagUserIfAbusiveIp({
+			userId: "risk-user",
+			source: "email_verification",
+			headers: null,
+		});
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "risk-org" } },
+		});
+		expect(organization?.riskFlagged).toBe(true);
+	});
 	beforeEach(async () => {
 		process.env.ABUSE_IPDB_API_KEY = "test-abuse-key";
 		await deleteAll();
