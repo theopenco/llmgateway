@@ -867,7 +867,13 @@ describe("api", () => {
 									type: "tool_result",
 									tool_use_id: "toolu_1",
 									content: [
-										{ type: "text", text: "Rendered." },
+										// A marker on a content part is lifted onto the tool_result;
+										// it must not also be replayed inside the native blocks.
+										{
+											type: "text",
+											text: "Rendered.",
+											cache_control: { type: "ephemeral" },
+										},
 										{
 											type: "image",
 											source: {
@@ -918,6 +924,9 @@ describe("api", () => {
 				},
 				{ type: "text", text: "Done." },
 			]);
+			expect(toolResultBlocks[0].cache_control).toEqual({ type: "ephemeral" });
+			const nested = JSON.stringify(upstreamBody.messages);
+			expect(nested.match(/"cache_control"/g)).toHaveLength(1);
 		} finally {
 			fetchSpy.mockRestore();
 		}

@@ -828,8 +828,12 @@ anthropic.openapi(messages, async (c) => {
 				// sharing a tool_use_id collapse into one message, so the last
 				// marker wins: it is the one that ends the prefix.
 				let toolResultCacheControl: CacheControl | undefined;
+				// Content parts with their cache_control markers lifted off, so the
+				// native replay below carries one breakpoint per group (on the
+				// tool_result itself) instead of the lifted marker plus its original.
+				const strippedParts = new Map<number, unknown[]>();
 				const combinedContent = blocks
-					.map((block) => {
+					.map((block, blockIndex) => {
 						if (typeof block.content === "string") {
 							toolResultCacheControl =
 								block.cache_control ?? toolResultCacheControl;
@@ -851,6 +855,7 @@ anthropic.openapi(messages, async (c) => {
 						});
 						toolResultCacheControl =
 							block.cache_control ?? toolResultCacheControl;
+						strippedParts.set(blockIndex, parts);
 						return JSON.stringify(parts);
 					})
 					.join("\n");
@@ -870,9 +875,10 @@ anthropic.openapi(messages, async (c) => {
 						block.content.some(isToolResultNativeBlock),
 				);
 				const toolResultNativeBlocks: AnthropicNativeBlock[] = hasNativeBlock
-					? blocks.flatMap((block): AnthropicNativeBlock[] => {
-							if (Array.isArray(block.content)) {
-								return block.content as AnthropicNativeBlock[];
+					? blocks.flatMap((block, blockIndex): AnthropicNativeBlock[] => {
+							const parts = strippedParts.get(blockIndex);
+							if (parts) {
+								return parts as AnthropicNativeBlock[];
 							}
 							return typeof block.content === "string" && block.content
 								? [{ type: "text", text: block.content }]
