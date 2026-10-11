@@ -2864,6 +2864,38 @@ describe("managed credential allowed models", () => {
 		expect(await excluded()).toBeNull();
 	});
 
+	test("model sync defaults on and can be toggled per credential", async () => {
+		const [first] = await catalogModels("openai");
+		const createRes = await create({
+			provider: "openai",
+			token: "sk-sync-toggle",
+			allowedModels: [first],
+			modelSyncEnabled: false,
+		});
+		const { credential } = (await createRes.json()) as {
+			credential: { id: string; modelSyncEnabled: boolean };
+		};
+		expect(credential.modelSyncEnabled).toBe(false);
+
+		const res = await patch(credential.id, { modelSyncEnabled: true });
+		expect(
+			((await res.json()) as { credential: { modelSyncEnabled: boolean } })
+				.credential.modelSyncEnabled,
+		).toBe(true);
+
+		const defaultRes = await create({
+			provider: "openai",
+			token: "sk-sync-default",
+		});
+		expect(
+			(
+				(await defaultRes.json()) as {
+					credential: { modelSyncEnabled: boolean };
+				}
+			).credential.modelSyncEnabled,
+		).toBe(true);
+	});
+
 	test("a stale edit keeps models the sync enabled since it loaded", async () => {
 		const [first, second, third] = await catalogModels("openai");
 		const createRes = await create({

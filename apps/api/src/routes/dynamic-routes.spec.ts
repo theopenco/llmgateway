@@ -31,12 +31,25 @@ const SECOND_GRAPH: DynamicRouteGraph = {
 
 describe("dynamic routes API", () => {
 	let token: string;
+	let createdRoutingModel = false;
 
 	afterEach(async () => {
+		await db
+			.delete(tables.modelProviderMapping)
+			.where(
+				eq(tables.modelProviderMapping.providerId, "routing-test-carrier"),
+			);
+		await db
+			.delete(tables.provider)
+			.where(eq(tables.provider.id, "routing-test-carrier"));
+		if (createdRoutingModel) {
+			await db.delete(tables.model).where(eq(tables.model.id, "gpt-4o-mini"));
+		}
 		await deleteAll();
 	});
 
 	beforeEach(async () => {
+		createdRoutingModel = false;
 		token = await createTestUser();
 
 		await db.insert(tables.organization).values({
@@ -75,6 +88,157 @@ describe("dynamic routes API", () => {
 			body: JSON.stringify({ name, graph }),
 		});
 	}
+
+	async function seedCarrier() {
+		const inserted = await db
+			.insert(tables.model)
+			.values({ id: "gpt-4o-mini", name: "GPT-4o mini", family: "openai" })
+			.onConflictDoNothing()
+			.returning({ id: tables.model.id });
+		createdRoutingModel = inserted.length > 0;
+		await db.insert(tables.provider).values({
+			id: "routing-test-carrier",
+			name: "Test Carrier",
+			description: "test",
+		});
+		await db
+			.insert(tables.providerCompany)
+			.values({ id: "routing-test-company", name: "Test Carrier" });
+		await db.insert(tables.providerClaim).values({
+			providerCompanyId: "routing-test-company",
+			providerId: "routing-test-carrier",
+			kind: "custom",
+			status: "active",
+			matchedDomain: "example.com",
+			customBaseUrl: "https://example.com",
+		});
+		await db.insert(tables.modelProviderMapping).values({
+			modelId: "gpt-4o-mini",
+			providerId: "routing-test-carrier",
+			externalId: "test-model",
+			source: "airside",
+		});
+	}
+
+	const carrierGraph: DynamicRouteGraph = {
+		entry: "m",
+		nodes: [
+			{
+				id: "m",
+				type: "model",
+				model: "gpt-4o-mini",
+				providers: ["routing-test-carrier"],
+			},
+		],
+	};
+
+	test("offers and validates an active Airside carrier throughout the route lifecycle", async () => {
+		await seedCarrier();
+		const options = await authed(
+			"/dynamic-routes/test-project-id/catalogue/providers",
+		);
+		expect(options.status).toBe(200);
+		const catalogue = await options.json();
+		expect(
+			catalogue.models.find(
+				(model: { modelId: string }) => model.modelId === "gpt-4o-mini",
+			).providers,
+		).toContainEqual(
+			expect.objectContaining({
+				id: "routing-test-carrier",
+				name: "Test Carrier",
+			}),
+		);
+		expect((await createRoute("carrier", carrierGraph)).status).toBe(201);
+		expect(
+			(
+				await authed("/dynamic-routes/test-project-id/carrier/draft", {
+					method: "PUT",
+					body: JSON.stringify({ graph: carrierGraph }),
+				})
+			).status,
+		).toBe(200);
+		const published = await authed(
+			"/dynamic-routes/test-project-id/carrier/publish",
+			{ method: "POST" },
+		);
+		expect(published.status).toBe(200);
+		const { publishedVersion } = await published.json();
+		expect(
+			(
+				await authed("/dynamic-routes/test-project-id/carrier/rollback", {
+					method: "POST",
+					body: JSON.stringify({ versionId: publishedVersion.id }),
+				})
+			).status,
+		).toBe(200);
+		await db
+			.update(tables.providerClaim)
+			.set({ status: "revoked" })
+			.where(eq(tables.providerClaim.providerId, "routing-test-carrier"));
+		for (const [suffix, body] of [
+			["draft", { graph: carrierGraph }],
+			["publish", undefined],
+			["rollback", { versionId: publishedVersion.id }],
+		] as const) {
+			const response = await authed(
+				`/dynamic-routes/test-project-id/carrier/${suffix}`,
+				{
+					method: suffix === "draft" ? "PUT" : "POST",
+					...(body ? { body: JSON.stringify(body) } : {}),
+				},
+			);
+			expect(response.status).toBe(400);
+		}
+	});
+
+	test("rejects inactive and mismatched Airside mappings", async () => {
+		await seedCarrier();
+		expect(
+			(
+				await createRoute("wrong-pair", {
+					entry: "m",
+					nodes: [
+						{
+							id: "m",
+							type: "model",
+							model: "gpt-5-nano",
+							providers: ["routing-test-carrier"],
+						},
+					],
+				})
+			).status,
+		).toBe(400);
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ status: "inactive" })
+			.where(
+				eq(tables.modelProviderMapping.providerId, "routing-test-carrier"),
+			);
+		expect((await createRoute("inactive", carrierGraph)).status).toBe(400);
+		const response = await authed(
+			"/dynamic-routes/test-project-id/catalogue/providers",
+		);
+		const catalogue = await response.json();
+		expect(
+			catalogue.models.find(
+				(model: { modelId: string }) => model.modelId === "gpt-4o-mini",
+			).providers,
+		).not.toContainEqual(
+			expect.objectContaining({ id: "routing-test-carrier" }),
+		);
+	});
+
+	test("protects provider options with project access", async () => {
+		expect(
+			(await app.request("/dynamic-routes/test-project-id/catalogue/providers"))
+				.status,
+		).toBe(401);
+		expect(
+			(await authed("/dynamic-routes/missing-project/catalogue/providers"))
+				.status,
+		).toBe(404);
+	});
 
 	test("requires authentication", async () => {
 		const res = await app.request("/dynamic-routes/test-project-id");

@@ -38,7 +38,7 @@ Add the `reasoning_effort` parameter directly to your request:
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
 - `xhigh` - Very deep reasoning for the most complex problems
-- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google, Alibaba) have each tier translated to a native budget
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Gemini 2.5, Alibaba) have each tier translated to a native budget. Gemini 3+ models receive a thinking level: `xhigh` and `max` map to `high`, and a tier the model does not list in `reasoning_efforts` rises to the next one it does
 
 <Callout type="info">
 	OpenAI's reasoning models do not all accept the same effort values. The
@@ -76,7 +76,7 @@ Use the unified `reasoning` configuration object with an `effort` field:
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
 - `xhigh` - Very deep reasoning for the most complex problems
-- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google, Alibaba) have each tier translated to a native budget
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Gemini 2.5, Alibaba) have each tier translated to a native budget. Gemini 3+ models receive a thinking level: `xhigh` and `max` map to `high`, and a tier the model does not list in `reasoning_efforts` rises to the next one it does
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -446,6 +446,12 @@ When the gateway repairs JSON, clients receive the repaired answer. The entries 
 On the Responses API, replay the complete `output`: assistant message items carry `reasoning_details`, while function call items carry `extra_content.google.thought_signature`. These fields are returned without an `include` opt-in. Stored conversations using `previous_response_id` preserve them automatically. Gemini signatures are not converted into OpenAI `encrypted_content`.
 
 For Chat Completions, `content[]` text parts and `tool_calls[]` also accept `extra_content.google.thought_signature`. Streaming tool calls have distinct `index` values across chunks; accumulate calls by index and keep each signature with its original call. The tool-call signature cache remains a fallback, but replaying the metadata also works when signatures are not cached. Only replay signatures with the original content and the model/provider that issued them.
+
+### Claude Thinking Signatures
+
+Claude models return signed thinking on every provider that serves them. On `/v1/messages`, `thinking` blocks carry a `signature` and `redacted_thinking` blocks carry `data`, as on Anthropic's API. On Chat Completions, the same blocks arrive as `reasoning_details` entries with `format: "anthropic-claude-v1"`: `reasoning.text` with `text` and `signature`, or `reasoning.encrypted` with `data`. A streamed entry arrives complete once its block's signature does.
+
+Replay the assistant turn unchanged, including each entry's `block_index`. The gateway replays thinking only in the position where Claude produced it. With extended thinking, Claude reads its cached prompt prefix only when the turn's thinking blocks are sent back. Signatures are scoped to the provider that issued them: when a conversation moves to another provider, the gateway drops that provider's thinking blocks instead of failing the request.
 
 ### Error Handling
 

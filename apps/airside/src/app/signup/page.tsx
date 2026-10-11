@@ -6,11 +6,12 @@ import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod/v3";
 
 import { Logo } from "@/components/Logo";
+import { TermsAgreement } from "@/components/TermsAgreement";
 import { Button } from "@/components/ui/button";
 import {
 	Form,
@@ -31,6 +32,9 @@ const formSchema = z.object({
 	password: z
 		.string()
 		.min(12, { message: "Password must be at least 12 characters" }),
+	acceptTerms: z.boolean().refine((value) => value, {
+		message: "Agree to the Terms of Use and Privacy Notice to continue",
+	}),
 });
 
 function SignupForm() {
@@ -43,7 +47,12 @@ function SignupForm() {
 
 	const form = useForm<z.infer<typeof formSchema>>({
 		resolver: zodResolver(formSchema),
-		defaultValues: { name: "", email: "", password: "" },
+		defaultValues: { name: "", email: "", password: "", acceptTerms: false },
+	});
+
+	const acceptedTerms = useWatch({
+		control: form.control,
+		name: "acceptTerms",
 	});
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -141,10 +150,24 @@ function SignupForm() {
 									</FormItem>
 								)}
 							/>
+							<FormField
+								control={form.control}
+								name="acceptTerms"
+								render={({ field }) => (
+									<FormItem>
+										<TermsAgreement
+											id="signup-accept-terms"
+											checked={field.value}
+											onChange={field.onChange}
+										/>
+										<FormMessage />
+									</FormItem>
+								)}
+							/>
 							<Button
 								type="submit"
 								className="w-full font-semibold"
-								disabled={isLoading}
+								disabled={isLoading || !acceptedTerms}
 							>
 								{isLoading ? (
 									<Loader2 className="size-4 animate-spin" />

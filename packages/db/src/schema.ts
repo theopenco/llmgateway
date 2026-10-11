@@ -8,7 +8,7 @@ import {
 	integer,
 	json,
 	jsonb,
-	pgTable,
+	snakeCase,
 	real,
 	text,
 	timestamp,
@@ -26,6 +26,7 @@ import type {
 	Quantization,
 	ProviderApiFormat,
 	ToolChoiceMode,
+	ProviderAccessRestriction,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -72,7 +73,7 @@ export interface AbuseIpReport {
 	lastReportedAt?: string | null;
 }
 
-export const user = pgTable(
+export const user = snakeCase.table(
 	"user",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -122,6 +123,10 @@ export const user = pgTable(
 		xUsername: text(),
 	},
 	(table) => [
+		index("user_created_at_verified_idx").on(
+			table.createdAt,
+			table.emailVerified,
+		),
 		// Admin "Flagged accounts" listing. Partial so the index only carries the
 		// handful of reviewed accounts, not every user row.
 		index("user_risk_status_idx")
@@ -130,7 +135,7 @@ export const user = pgTable(
 	],
 );
 
-export const userFavoriteModel = pgTable(
+export const userFavoriteModel = snakeCase.table(
 	"user_favorite_model",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -148,7 +153,7 @@ export const userFavoriteModel = pgTable(
 	],
 );
 
-export const modelRating = pgTable(
+export const modelRating = snakeCase.table(
 	"model_rating",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -177,7 +182,7 @@ export const modelRating = pgTable(
 	],
 );
 
-export const session = pgTable(
+export const session = snakeCase.table(
 	"session",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -197,7 +202,7 @@ export const session = pgTable(
 	(table) => [index("session_user_id_idx").on(table.userId)],
 );
 
-export const account = pgTable(
+export const account = snakeCase.table(
 	"account",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -222,7 +227,7 @@ export const account = pgTable(
 	(table) => [index("account_user_id_idx").on(table.userId)],
 );
 
-export const verification = pgTable("verification", {
+export const verification = snakeCase.table("verification", {
 	id: text().primaryKey().$defaultFn(shortid),
 	identifier: text().notNull(),
 	value: text().notNull(),
@@ -231,7 +236,7 @@ export const verification = pgTable("verification", {
 	updatedAt: timestamp().$onUpdate(() => new Date()),
 });
 
-export const deviceCode = pgTable(
+export const deviceCode = snakeCase.table(
 	"device_code",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -248,7 +253,7 @@ export const deviceCode = pgTable(
 	(table) => [index("device_code_expires_at_idx").on(table.expiresAt)],
 );
 
-export const organization = pgTable(
+export const organization = snakeCase.table(
 	"organization",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -322,6 +327,10 @@ export const organization = pgTable(
 		// only routes to providers meeting the required certifications/data
 		// policies. Null = no policy configured.
 		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
+		// Provider/model allow or deny list set by LLM Gateway staff in the admin
+		// dashboard, enforced by the gateway as a ceiling over IAM rules. The
+		// organization cannot edit it. Null = no restriction.
+		providerAccessRestriction: json().$type<ProviderAccessRestriction>(),
 		// Enterprise smart-routing ("smart" model) configuration: which models the
 		// gateway may pick from and which classifier ranks the request. Null =
 		// the built-in default candidate set and no classifier. Projects may
@@ -350,6 +359,11 @@ export const organization = pgTable(
 		referralBonusEnabled: boolean().notNull().default(false),
 		// Percentage bonus applied to the referred org's first top-up (e.g. 50 = 50%).
 		referralBonusPercent: decimal().notNull().default("50"),
+		// Data streams (SIEM forwarding and log export) are opened per
+		// organization by a platform admin, and request-log export separately:
+		// it reads the `log` table on a schedule, so each org is sized first.
+		dataStreamsEnabled: boolean().notNull().default(false),
+		requestLogExportEnabled: boolean().notNull().default(false),
 		paymentFailureCount: integer().notNull().default(0),
 		lastPaymentFailureAt: timestamp(),
 		paymentFailureStartedAt: timestamp(),
@@ -486,6 +500,7 @@ export const organization = pgTable(
 		}),
 	},
 	(table) => [
+		index("organization_created_at_idx").on(table.createdAt),
 		index("organization_dev_plan_card_fingerprint_idx").on(
 			table.devPlanCardFingerprint,
 		),
@@ -511,7 +526,7 @@ export const organization = pgTable(
 // Stable Stripe card identifiers retained after the card itself is detached.
 // This preserves the one-card-per-DevPass-account rule without storing card
 // details locally.
-export const devPlanCardFingerprintHistory = pgTable(
+export const devPlanCardFingerprintHistory = snakeCase.table(
 	"dev_plan_card_fingerprint_history",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -530,7 +545,7 @@ export const devPlanCardFingerprintHistory = pgTable(
 
 // Enterprise developer teams. Team policies are evaluated dynamically so
 // membership changes take effect without copying settings onto each member.
-export const organizationTeam = pgTable(
+export const organizationTeam = snakeCase.table(
 	"organization_team",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -566,7 +581,7 @@ export const organizationTeam = pgTable(
 	],
 );
 
-export const referral = pgTable(
+export const referral = snakeCase.table(
 	"referral",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -593,7 +608,7 @@ export const referral = pgTable(
 	],
 );
 
-export const transaction = pgTable(
+export const transaction = snakeCase.table(
 	"transaction",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -693,6 +708,14 @@ export const transaction = pgTable(
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),
+		index("transaction_status_created_at_idx").on(
+			table.status,
+			table.createdAt,
+		),
+		index("transaction_organization_type_idx").on(
+			table.organizationId,
+			table.type,
+		),
 		// Serves the top-up velocity gate's rolling-window SUM
 		// (org + created_at range over credit_topup rows) without scanning an
 		// org's full transaction history.
@@ -708,7 +731,7 @@ export const transaction = pgTable(
 	],
 );
 
-export const devPlanCancellationFeedback = pgTable(
+export const devPlanCancellationFeedback = snakeCase.table(
 	"dev_plan_cancellation_feedback",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -749,7 +772,7 @@ export const devPlanCancellationFeedback = pgTable(
 	],
 );
 
-export const chatPlanCancellationFeedback = pgTable(
+export const chatPlanCancellationFeedback = snakeCase.table(
 	"chat_plan_cancellation_feedback",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -808,7 +831,7 @@ export const REFUND_FEEDBACK_REASONS = [
 // "Why are you refunding?" answer collected right before a self-service refund
 // is issued: a required category plus optional freeform details. One row per
 // refunded transaction.
-export const refundFeedback = pgTable(
+export const refundFeedback = snakeCase.table(
 	"refund_feedback",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -858,7 +881,7 @@ export const MODEL_SURVEY_TIERS = ["lite", "pro", "max"] as const;
 // report (/data/<year> on the DevPass site). Responses are usage-verified:
 // the API only accepts one when the member's DevPass org has enough recent
 // requests on the model, and `requestCount` snapshots that usage.
-export const modelSurveyResponse = pgTable(
+export const modelSurveyResponse = snakeCase.table(
 	"model_survey_response",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -940,6 +963,7 @@ export const notificationTypes = [
 	"model_available",
 	"compliance_downgrade",
 	"org_limit",
+	"data_stream",
 ] as const;
 
 const emailCategories = [
@@ -971,7 +995,7 @@ void assertSameEmailCategories;
  * not belong to a user row. Rows deliberately outlive account deletion — a
  * suppression list that forgets is not a suppression list.
  */
-export const emailUnsubscribe = pgTable(
+export const emailUnsubscribe = snakeCase.table(
 	"email_unsubscribe",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -988,7 +1012,7 @@ export const emailUnsubscribe = pgTable(
 	],
 );
 
-export const followUpEmail = pgTable(
+export const followUpEmail = snakeCase.table(
 	"follow_up_email",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1013,7 +1037,7 @@ export const followUpEmail = pgTable(
 	],
 );
 
-export const paymentFailure = pgTable(
+export const paymentFailure = snakeCase.table(
 	"payment_failure",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1038,7 +1062,7 @@ export const paymentFailure = pgTable(
 	],
 );
 
-export const enterpriseContactSubmission = pgTable(
+export const enterpriseContactSubmission = snakeCase.table(
 	"enterprise_contact_submission",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1080,7 +1104,134 @@ export const enterpriseContactSubmission = pgTable(
 	],
 );
 
-export const providerListingRequest = pgTable(
+export const CRM_STAGES = [
+	"lead",
+	"qualified",
+	"trial",
+	"negotiation",
+	"customer",
+	"churned",
+	"lost",
+] as const;
+export type CrmStage = (typeof CRM_STAGES)[number];
+
+export const CRM_ACTIVITY_KINDS = [
+	"note",
+	"call",
+	"email",
+	"meeting",
+	"task",
+] as const;
+export type CrmActivityKind = (typeof CRM_ACTIVITY_KINDS)[number];
+
+export const CRM_CONTACT_ROLES = [
+	"champion",
+	"decision_maker",
+	"economic_buyer",
+	"technical",
+	"procurement",
+	"user",
+	"blocker",
+] as const;
+export type CrmContactRole = (typeof CRM_CONTACT_ROLES)[number];
+
+// Internal enterprise CRM. An account is a company, keyed by its corporate
+// email domain so a contact-form lead and the trial org it later signs up
+// with collapse into one record. Free-mail senders fall back to an
+// `org:<id>` / `lead:<email>` key. Everything the platform already knows
+// (orgs, members, usage, submissions) is derived at read time; these rows
+// only hold what sales adds on top.
+export const crmAccount = snakeCase.table("crm_account", {
+	id: text().primaryKey().notNull(),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	displayName: text(),
+	// Null = derived from platform state (lead / trial / customer).
+	stage: text({ enum: CRM_STAGES }),
+	ownerEmail: text(),
+	priority: text({ enum: ["low", "medium", "high"] })
+		.notNull()
+		.default("medium"),
+	// Expected annual contract value in USD.
+	dealValue: decimal(),
+	closeDate: timestamp(),
+	website: text(),
+	industry: text(),
+	employeeCount: text(),
+	headquarters: text(),
+	linkedinUrl: text(),
+	useCase: text(),
+	competitors: text(),
+	tags: json().$type<string[]>().notNull().default([]),
+	notes: text(),
+	lostReason: text(),
+	// Added by hand from the CRM (outbound or referral prospect). Rows created
+	// implicitly when sales annotates a derived account stay false, so an org
+	// that drops out of scope never lingers as a prospect.
+	manual: boolean().notNull().default(false),
+});
+
+export const crmContact = snakeCase.table(
+	"crm_contact",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		accountId: text()
+			.notNull()
+			.references(() => crmAccount.id, { onDelete: "cascade" }),
+		email: text().notNull(),
+		name: text(),
+		title: text(),
+		role: text({ enum: CRM_CONTACT_ROLES }),
+		phone: text(),
+		linkedinUrl: text(),
+		notes: text(),
+	},
+	(table) => [
+		uniqueIndex("crm_contact_account_email_idx").on(
+			table.accountId,
+			table.email,
+		),
+	],
+);
+
+export const crmActivity = snakeCase.table(
+	"crm_activity",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		accountId: text()
+			.notNull()
+			.references(() => crmAccount.id, { onDelete: "cascade" }),
+		kind: text({ enum: CRM_ACTIVITY_KINDS }).notNull(),
+		subject: text().notNull(),
+		body: text(),
+		contactEmail: text(),
+		authorEmail: text(),
+		// Tasks only: when it is due and when it was ticked off.
+		dueAt: timestamp(),
+		completedAt: timestamp(),
+	},
+	(table) => [
+		index("crm_activity_account_id_idx").on(table.accountId, table.createdAt),
+		index("crm_activity_due_at_idx")
+			.on(table.dueAt)
+			.where(sql`completed_at IS NULL`),
+	],
+);
+
+export const providerListingRequest = snakeCase.table(
 	"provider_listing_request",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1131,7 +1282,7 @@ export const providerListingRequest = pgTable(
 	],
 );
 
-export const userOrganization = pgTable(
+export const userOrganization = snakeCase.table(
 	"user_organization",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1208,7 +1359,7 @@ export const userOrganization = pgTable(
 // and turned into userOrganization memberships (see apps/api
 // lib/team-invites.ts). Invites for existing users are never created — those
 // are added as members directly.
-export const organizationInvite = pgTable(
+export const organizationInvite = snakeCase.table(
 	"organization_invite",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1255,7 +1406,7 @@ export const organizationInvite = pgTable(
 // implicit access to every project in their org (no rows here); "developer"
 // members are limited to the projects granted via this table. Keyed on the
 // membership so grants cascade-delete when a member is removed from the org.
-export const userProject = pgTable(
+export const userProject = snakeCase.table(
 	"user_project",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1284,7 +1435,7 @@ export const userProject = pgTable(
 export const SEMANTIC_CACHE_MODES = ["off", "shadow", "on"] as const;
 export type SemanticCacheMode = (typeof SEMANTIC_CACHE_MODES)[number];
 
-export const project = pgTable(
+export const project = snakeCase.table(
 	"project",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1305,6 +1456,9 @@ export const project = pgTable(
 		semanticCacheMode: text({ enum: SEMANTIC_CACHE_MODES })
 			.notNull()
 			.default("off"),
+		providerCacheAutoTtl: text({ enum: ["5m", "1h"] })
+			.notNull()
+			.default("5m"),
 		// How provider-side prompt-cache markers are handled for this project.
 		// "passthrough" exists because a single key often serves both a coding
 		// agent that manages its own markers and traffic that must not pay the
@@ -1370,7 +1524,7 @@ export const project = pgTable(
 	(table) => [index("project_organization_id_idx").on(table.organizationId)],
 );
 
-export const organizationTeamProject = pgTable(
+export const organizationTeamProject = snakeCase.table(
 	"organization_team_project",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1394,7 +1548,7 @@ export const organizationTeamProject = pgTable(
 
 // The developer's own end-users (the "customers" in the embeddable SDK). Scoped
 // to one project; `externalId` is the developer's own user id in their system.
-export const endCustomer = pgTable(
+export const endCustomer = snakeCase.table(
 	"end_customer",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1444,7 +1598,7 @@ export const endCustomer = pgTable(
 // holds real USD spend power (markup already applied at top-up), so the gateway
 // debits raw provider cost with no per-request markup math. 1:1 with
 // end_customer for v1.
-export const wallet = pgTable(
+export const wallet = snakeCase.table(
 	"wallet",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1491,7 +1645,7 @@ export const wallet = pgTable(
 	],
 );
 
-export const endUserSession = pgTable(
+export const endUserSession = snakeCase.table(
 	"end_user_session",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1548,7 +1702,7 @@ export const endUserSession = pgTable(
 // cut, developerMargin = markup accrued to the developer org, netCredited = what
 // landed in wallet.balance). `usage_debit` rows link back to the gateway log via
 // gatewayLogId (soft reference — log rows are retention-cleaned).
-export const walletLedger = pgTable(
+export const walletLedger = snakeCase.table(
 	"wallet_ledger",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1607,7 +1761,7 @@ export const walletLedger = pgTable(
 // LLM SDK: a developer's registered webhook endpoint. LLM Gateway POSTs
 // signed events (wallet.credited, wallet.low_balance, …) here so the developer's
 // backend can react. The signing secret is shown once at creation.
-export const webhookEndpoint = pgTable(
+export const webhookEndpoint = snakeCase.table(
 	"webhook_endpoint",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1638,7 +1792,7 @@ export const webhookEndpoint = pgTable(
 );
 
 // One queued delivery of an event to one endpoint, retried with backoff.
-export const platformWebhookDelivery = pgTable(
+export const platformWebhookDelivery = snakeCase.table(
 	"platform_webhook_delivery",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1673,7 +1827,7 @@ export const platformWebhookDelivery = pgTable(
 	],
 );
 
-export const apiKey = pgTable(
+export const apiKey = snakeCase.table(
 	"api_key",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1746,7 +1900,7 @@ export const apiKey = pgTable(
 	],
 );
 
-export const apiKeyIamRule = pgTable(
+export const apiKeyIamRule = snakeCase.table(
 	"api_key_iam_rule",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1798,7 +1952,7 @@ export const apiKeyIamRule = pgTable(
 
 // Member-level IAM ceiling: rules set by org owners/admins on a member. A
 // member's API-key rules can only further restrict within these, never expand.
-export const userIamRule = pgTable(
+export const userIamRule = snakeCase.table(
 	"user_iam_rule",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1849,7 +2003,7 @@ export const userIamRule = pgTable(
 	],
 );
 
-export const organizationTeamIamRule = pgTable(
+export const organizationTeamIamRule = snakeCase.table(
 	"organization_team_iam_rule",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1896,7 +2050,7 @@ export const organizationTeamIamRule = pgTable(
 	],
 );
 
-export const masterKey = pgTable(
+export const masterKey = snakeCase.table(
 	"master_key",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -1996,7 +2150,7 @@ export interface ProviderKeyComplianceAttestation extends ProviderComplianceAtte
 	attestedByUserId?: string;
 }
 
-export const providerKey = pgTable(
+export const providerKey = snakeCase.table(
 	"provider_key",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -2039,6 +2193,9 @@ export const providerKey = pgTable(
 		// several credentials and the token itself is masked, so this is the
 		// only way to tell them apart.
 		comment: text(),
+		// Managed only: filed by an Airside carrier itself rather than added by
+		// an admin. Carrier keys bill the carrier's own upstream account.
+		carrierSubmitted: boolean().notNull().default(false),
 		// Managed-credential settings keyed by the provider's logical env keys
 		// (see ProviderKeyOptions.env_config). Mirrors everything the provider's
 		// `LLM_*` vars would carry apart from the API key itself, which lives in
@@ -2071,6 +2228,9 @@ export const providerKey = pgTable(
 		// skips them, so a deliberate exclusion is not re-enabled just because
 		// the account can still serve the model.
 		modelSyncExcluded: text().array(),
+		// When false the daily model sync leaves this key's `allowedModels`
+		// alone, so new models are only ever enabled by hand.
+		modelSyncEnabled: boolean().notNull().default(true),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.
@@ -2119,7 +2279,7 @@ export const providerKey = pgTable(
 // attribute cost and enforce context/output limits for custom-provider
 // requests. All pricing/limit/capability fields are optional; prices are stored
 // as text to preserve the catalog's exponent-string format (e.g. "3.0e-6").
-export const customModel = pgTable(
+export const customModel = snakeCase.table(
 	"custom_model",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -2217,7 +2377,7 @@ export const LOG_ERROR_CATEGORIES = [
 
 export type LogErrorCategory = (typeof LOG_ERROR_CATEGORIES)[number];
 
-export const log = pgTable(
+export const log = snakeCase.table(
 	"log",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -2616,7 +2776,7 @@ export const log = pgTable(
 	],
 );
 
-export const realtimeSession = pgTable(
+export const realtimeSession = snakeCase.table(
 	"realtime_session",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -2677,7 +2837,7 @@ export const realtimeSession = pgTable(
 	],
 );
 
-export const videoJob = pgTable(
+export const videoJob = snakeCase.table(
 	"video_job",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -2875,7 +3035,7 @@ export const videoJob = pgTable(
 	],
 );
 
-export const webhookDeliveryLog = pgTable(
+export const webhookDeliveryLog = snakeCase.table(
 	"webhook_delivery_log",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -2914,7 +3074,7 @@ export const webhookDeliveryLog = pgTable(
 	],
 );
 
-export const passkey = pgTable(
+export const passkey = snakeCase.table(
 	"passkey",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -2942,7 +3102,7 @@ export const passkey = pgTable(
 // reads/writes this table via the drizzle adapter (registered as model
 // `ssoProvider`). `organizationId` links a connection to one of our
 // organizations; the app enforces org-scoped access to it.
-export const ssoProvider = pgTable(
+export const ssoProvider = snakeCase.table(
 	"sso_provider",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -2986,7 +3146,7 @@ export const ssoProvider = pgTable(
 // Better Auth plugin table): the custom SCIM 2.0 router authenticates Okta by
 // hashing the incoming bearer and matching `tokenHash`, which resolves the
 // `organizationId` that scopes every provisioning operation.
-export const scimToken = pgTable(
+export const scimToken = snakeCase.table(
 	"scim_token",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3019,7 +3179,7 @@ export const scimToken = pgTable(
 
 // SCIM groups pushed by the IdP (Okta). Membership drives role assignment via
 // `ssoRoleMapping`. Scoped to one organization by the SCIM token used.
-export const scimGroup = pgTable(
+export const scimGroup = snakeCase.table(
 	"scim_group",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3043,7 +3203,7 @@ export const scimGroup = pgTable(
 	],
 );
 
-export const scimGroupMember = pgTable(
+export const scimGroupMember = snakeCase.table(
 	"scim_group_member",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3067,7 +3227,7 @@ export const scimGroupMember = pgTable(
 // Admin-defined mapping from a SCIM/IdP group name to an organization role.
 // Users get the highest-precedence mapped role among their groups; owners are
 // never auto-demoted (see routes/scim.ts).
-export const ssoRoleMapping = pgTable(
+export const ssoRoleMapping = snakeCase.table(
 	"sso_role_mapping",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3095,7 +3255,7 @@ export const ssoRoleMapping = pgTable(
 // Admin-defined mapping from a SCIM/IdP group name to an organization team.
 // One developer can inherit one team; when several mapped groups apply, the
 // alphabetically first group name wins (see lib/sso-teams.ts).
-export const ssoTeamMapping = pgTable(
+export const ssoTeamMapping = snakeCase.table(
 	"sso_team_mapping",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3127,7 +3287,7 @@ export const ssoTeamMapping = pgTable(
 // receive a `userProject` grant for each project listed here. When an org has
 // no rows, provisioning falls back to the org's first (default) project so SSO
 // members can see something out of the box.
-export const ssoDefaultProject = pgTable(
+export const ssoDefaultProject = snakeCase.table(
 	"sso_default_project",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3152,7 +3312,7 @@ export const ssoDefaultProject = pgTable(
 	],
 );
 
-export const paymentMethod = pgTable(
+export const paymentMethod = snakeCase.table(
 	"payment_method",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3170,7 +3330,7 @@ export const paymentMethod = pgTable(
 	],
 );
 
-export const organizationAction = pgTable(
+export const organizationAction = snakeCase.table(
 	"organization_action",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3193,7 +3353,7 @@ export const organizationAction = pgTable(
 	],
 );
 
-export const lock = pgTable("lock", {
+export const lock = snakeCase.table("lock", {
 	id: text().primaryKey().$defaultFn(shortid),
 	createdAt: timestamp().notNull().defaultNow(),
 	updatedAt: timestamp()
@@ -3203,7 +3363,7 @@ export const lock = pgTable("lock", {
 	key: text().notNull().unique(),
 });
 
-export const chatProject = pgTable(
+export const chatProject = snakeCase.table(
 	"chat_project",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3229,7 +3389,7 @@ export const chatProject = pgTable(
 	(table) => [index("chat_project_user_id_idx").on(table.userId)],
 );
 
-export const chatProjectFile = pgTable(
+export const chatProjectFile = snakeCase.table(
 	"chat_project_file",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3258,7 +3418,7 @@ export const chatProjectFile = pgTable(
 	(table) => [index("chat_project_file_project_id_idx").on(table.projectId)],
 );
 
-export const chatProjectFileChunk = pgTable(
+export const chatProjectFileChunk = snakeCase.table(
 	"chat_project_file_chunk",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3285,7 +3445,7 @@ export const chatProjectFileChunk = pgTable(
 	],
 );
 
-export const chatProjectMemory = pgTable(
+export const chatProjectMemory = snakeCase.table(
 	"chat_project_memory",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3309,7 +3469,7 @@ export const chatProjectMemory = pgTable(
 	(table) => [index("chat_project_memory_project_id_idx").on(table.projectId)],
 );
 
-export const chat = pgTable(
+export const chat = snakeCase.table(
 	"chat",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3350,7 +3510,7 @@ export const chat = pgTable(
 	],
 );
 
-export const chatShare = pgTable(
+export const chatShare = snakeCase.table(
 	"chat_share",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3392,7 +3552,7 @@ export const chatShare = pgTable(
 	],
 );
 
-export const message = pgTable(
+export const message = snakeCase.table(
 	"message",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3420,7 +3580,7 @@ export const message = pgTable(
 	(table) => [index("message_chat_id_idx").on(table.chatId)],
 );
 
-export const chatSupportConversation = pgTable(
+export const chatSupportConversation = snakeCase.table(
 	"chat_support_conversation",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3450,7 +3610,7 @@ export const chatSupportConversation = pgTable(
 	],
 );
 
-export const chatSupportMessage = pgTable(
+export const chatSupportMessage = snakeCase.table(
 	"chat_support_message",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3476,7 +3636,7 @@ export const chatSupportMessage = pgTable(
 	],
 );
 
-export const chatSupportReadStatus = pgTable(
+export const chatSupportReadStatus = snakeCase.table(
 	"chat_support_read_status",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3497,7 +3657,7 @@ export const chatSupportReadStatus = pgTable(
 	],
 );
 
-export const installation = pgTable("installation", {
+export const installation = snakeCase.table("installation", {
 	id: text().primaryKey().$defaultFn(shortid),
 	createdAt: timestamp().notNull().defaultNow(),
 	updatedAt: timestamp()
@@ -3511,7 +3671,7 @@ export const installation = pgTable("installation", {
 // Admin-toggleable global settings, one row per setting key. `enabled` is the
 // on/off state; `value` carries the setting's payload when it needs one (e.g.
 // the blocked signup country list).
-export const systemSetting = pgTable("system_setting", {
+export const systemSetting = snakeCase.table("system_setting", {
 	id: text().primaryKey(),
 	createdAt: timestamp().notNull().defaultNow(),
 	updatedAt: timestamp()
@@ -3522,7 +3682,7 @@ export const systemSetting = pgTable("system_setting", {
 	value: text(),
 });
 
-export const provider = pgTable(
+export const provider = snakeCase.table(
 	"provider",
 	{
 		id: text().primaryKey(),
@@ -3533,7 +3693,6 @@ export const provider = pgTable(
 			.$onUpdate(() => new Date()),
 		name: text().notNull(),
 		description: text().notNull(),
-		streaming: boolean(),
 		cancellation: boolean(),
 		color: text(),
 		website: text(),
@@ -3556,7 +3715,7 @@ export const provider = pgTable(
 	(table) => [index("provider_status_idx").on(table.status)],
 );
 
-export const model = pgTable(
+export const model = snakeCase.table(
 	"model",
 	{
 		id: text().primaryKey(),
@@ -3596,7 +3755,7 @@ export const model = pgTable(
 	(table) => [index("model_status_idx").on(table.status)],
 );
 
-export const modelProviderMapping = pgTable(
+export const modelProviderMapping = snakeCase.table(
 	"model_provider_mapping",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3697,7 +3856,21 @@ export const modelProviderMapping = pgTable(
 	],
 );
 
-export const modelProviderMappingHistory = pgTable(
+export const aggregationProgress = snakeCase.table(
+	"aggregation_progress",
+	{
+		job: text().notNull(),
+		bucketTimestamp: timestamp().notNull(),
+		refreshedAt: timestamp(),
+		finalizedAt: timestamp(),
+	},
+	(t) => [
+		uniqueIndex().on(t.job, t.bucketTimestamp),
+		index().on(t.bucketTimestamp),
+	],
+);
+
+export const modelProviderMappingHistory = snakeCase.table(
 	"model_provider_mapping_history",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3721,6 +3894,10 @@ export const modelProviderMappingHistory = pgTable(
 		clientErrorsCount: integer().notNull().default(0),
 		gatewayErrorsCount: integer().notNull().default(0),
 		upstreamErrorsCount: integer().notNull().default(0),
+		// Subsets of gateway/upstream errors on attempts the gateway retried
+		// elsewhere, so error-rate alerts can ignore failures callers never saw.
+		retriedGatewayErrorsCount: integer().notNull().default(0),
+		retriedUpstreamErrorsCount: integer().notNull().default(0),
 		completedCount: integer().notNull().default(0),
 		lengthLimitCount: integer().notNull().default(0),
 		contentFilterCount: integer().notNull().default(0),
@@ -3824,7 +4001,7 @@ export const modelProviderMappingHistory = pgTable(
 	],
 );
 
-export const modelHistory = pgTable(
+export const modelHistory = snakeCase.table(
 	"model_history",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3896,7 +4073,7 @@ export const modelHistory = pgTable(
 // Hourly rollup of model_provider_mapping_history. Each row summarizes one
 // hour by summing the 60 minute rows for a mapping, for cheap long-range
 // queries that don't need minute granularity.
-export const modelProviderMappingHistoryHourly = pgTable(
+export const modelProviderMappingHistoryHourly = snakeCase.table(
 	"model_provider_mapping_history_hourly",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -3991,12 +4168,38 @@ export const modelProviderMappingHistoryHourly = pgTable(
 			table.totalOutputTokens,
 			table.totalDuration,
 		),
+		// Partial covering index for the public provider stats aggregations
+		// (filter by hourTimestamp range, group by providerId, sum metrics).
+		// Nine in ten hourly rows belong to mappings that saw no traffic that
+		// hour and contribute nothing to a sum, so the predicate keeps the index
+		// to the rows that matter; readers add `logs_count > 0` so the planner
+		// can pick it. Covers every column those readers sum, which the v4 index
+		// no longer does, so they get an index-only scan again.
+		index("mpm_history_hourly_active_provider_stats_v1_idx")
+			.on(
+				table.hourTimestamp,
+				table.usedMode,
+				table.providerId,
+				table.logsCount,
+				table.clientErrorsCount,
+				table.gatewayErrorsCount,
+				table.upstreamErrorsCount,
+				table.cachedCount,
+				table.totalTimeToFirstToken,
+				table.timeToFirstTokenCount,
+				table.totalTimeToFirstReasoningToken,
+				table.timeToFirstReasoningTokenCount,
+				table.totalOutputTokens,
+				table.totalTokens,
+				table.totalDuration,
+			)
+			.where(sql`logs_count > 0`),
 	],
 );
 
 // Hourly rollup of model_history. Each row summarizes one hour by summing the
 // 60 minute rows for a model.
-export const modelHistoryHourly = pgTable(
+export const modelHistoryHourly = snakeCase.table(
 	"model_history_hourly",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -4062,6 +4265,17 @@ export const modelHistoryHourly = pgTable(
 			table.modelId,
 			table.hourTimestamp,
 		),
+		// Partial covering index for the public model rankings (tokens and
+		// requests per model over a window). Restricted to rows with traffic for
+		// the same reason as mpm_history_hourly_active_provider_stats_v1_idx.
+		index("model_history_hourly_active_model_stats_v1_idx")
+			.on(
+				table.hourTimestamp,
+				table.modelId,
+				table.totalTokens,
+				table.logsCount,
+			)
+			.where(sql`logs_count > 0`),
 	],
 );
 
@@ -4074,7 +4288,7 @@ export const modelHistoryHourly = pgTable(
 // session was sticky, …). This table is that missing denominator: comparing
 // `scored` request counts against the rest of the model's traffic is what
 // distinguishes "the score was wrong" from "the score was never consulted".
-export const routingElectionHourly = pgTable(
+export const routingElectionHourly = snakeCase.table(
 	"routing_election_hourly",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -4123,7 +4337,7 @@ export const routingElectionHourly = pgTable(
 // `excludedCount / candidateCount` answers the question the score table cannot:
 // for this mapping, what share of the requests it could have served was it not
 // even eligible for, and which constraint was responsible.
-export const routingExclusionHourly = pgTable(
+export const routingExclusionHourly = snakeCase.table(
 	"routing_exclusion_hourly",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -4185,7 +4399,7 @@ export const contentFilterStatsRoles = ["deciding", "shadow"] as const;
 // read per organization without scanning `log`. The "all" category row carries
 // the sampled/violation/blocked totals and classifier durations; category rows
 // carry violationCount only. Dashboards read role = 'deciding' rows only.
-export const contentFilterHourlyStats = pgTable(
+export const contentFilterHourlyStats = snakeCase.table(
 	"content_filter_hourly_stats",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -4233,7 +4447,7 @@ export const contentFilterHourlyStats = pgTable(
 // violationCount only. A request retried across providers is counted once per
 // distinct (usedModel, usedProvider) it touched, so these rows can sum to more
 // than the contentFilterHourlyStats totals.
-export const contentFilterHourlyModelStats = pgTable(
+export const contentFilterHourlyModelStats = snakeCase.table(
 	"content_filter_hourly_model_stats",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -4288,7 +4502,7 @@ export const contentFilterHourlyModelStats = pgTable(
 // (empty otherwise). The classifier columns exclude the image moderation
 // delegated to OpenAI, which the image columns carry. Percentiles are per hour
 // and do not combine across hours.
-export const contentFilterHourlyLatencyStats = pgTable(
+export const contentFilterHourlyLatencyStats = snakeCase.table(
 	"content_filter_hourly_latency_stats",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -4334,6 +4548,7 @@ export const auditLogActions = [
 	"organization.block",
 	"organization.manage",
 	"organization.sso_auto_join.update",
+	"organization.provider_access_update",
 	// Project
 	"project.create",
 	"project.update",
@@ -4399,6 +4614,12 @@ export const auditLogActions = [
 	"compliance_alert.watch_create",
 	"compliance_alert.watch_delete",
 	"compliance_alert.settings_update",
+	// Data streams (SIEM forwarding and log export)
+	"data_stream.create",
+	"data_stream.update",
+	"data_stream.delete",
+	"data_stream.replay",
+	"data_stream.settings_update",
 	// Subscription
 	"subscription.create",
 	"subscription.cancel",
@@ -4425,6 +4646,7 @@ export const auditLogActions = [
 	"discount.create",
 	"discount.delete",
 	"rate_limit.create",
+	"rate_limit.update",
 	"rate_limit.delete",
 	// Dev Plan
 	"dev_plan.subscribe",
@@ -4493,6 +4715,7 @@ export const auditLogResourceTypes = [
 	"organization_skill",
 	"notification_channel",
 	"compliance_alert",
+	"data_stream",
 	"subscription",
 	"payment_method",
 	"payment",
@@ -4524,7 +4747,7 @@ export interface AuditLogMetadata {
 	[key: string]: unknown;
 }
 
-export const auditLog = pgTable(
+export const auditLog = snakeCase.table(
 	"audit_log",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -4551,6 +4774,70 @@ export const auditLog = pgTable(
 	],
 );
 
+export const dataStreamSources = ["audit_logs", "request_logs"] as const;
+export type DataStreamSource = (typeof dataStreamSources)[number];
+
+// Only HTTPS webhooks for now; further exporters are added one at a time.
+export const dataStreamDestinations = ["webhook"] as const;
+export type DataStreamDestination = (typeof dataStreamDestinations)[number];
+
+/** Non-secret destination settings; secrets live encrypted in `secret`. */
+export interface DataStreamConfig {
+	url?: string;
+}
+
+// Continuous delivery of audit or request log metadata to an external HTTPS
+// endpoint. Events never carry prompts, completions, or tool payloads. The
+// worker advances the (createdAt, id) cursor after each delivered batch; a
+// replay re-sends a bounded window on a separate cursor.
+export const dataStream = snakeCase.table(
+	"data_stream",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		// Request-log streams may be narrowed to one project.
+		projectId: text().references(() => project.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		source: text({ enum: dataStreamSources }).notNull(),
+		destination: text({ enum: dataStreamDestinations }).notNull(),
+		config: jsonb().$type<DataStreamConfig>().notNull().default({}),
+		// Encrypted with the provider-key keyring (signing secret, bearer token).
+		secret: text(),
+		enabled: boolean().notNull().default(true),
+		// Set when the worker paused the stream after repeated failures; cleared
+		// when an admin resumes it.
+		pausedReason: text(),
+		// Strings keep Postgres' microseconds; a Date would truncate to
+		// milliseconds and re-select the last delivered row.
+		cursorCreatedAt: timestamp({ mode: "string" }).notNull().defaultNow(),
+		cursorId: text().notNull().default(""),
+		replayFrom: timestamp(),
+		replayTo: timestamp(),
+		replayCursorCreatedAt: timestamp({ mode: "string" }),
+		replayCursorId: text(),
+		deliveredCount: bigint({ mode: "number" }).notNull().default(0),
+		lastDeliveredAt: timestamp(),
+		lastError: text(),
+		lastErrorAt: timestamp(),
+		// Consecutive failed runs of any kind; drives the retry backoff and the
+		// automatic pause.
+		failureCount: integer().notNull().default(0),
+		// Rejections (4xx) since the last accepted delivery; these pause the
+		// stream much sooner because the destination will not accept the batch.
+		rejectionCount: integer().notNull().default(0),
+	},
+	(table) => [
+		index("data_stream_organization_id_idx").on(table.organizationId),
+	],
+);
+
 export const platformAuditLogActions = [
 	// Daily worker run that enables newly working models on a managed credential.
 	"provider_key.models_synced",
@@ -4574,7 +4861,7 @@ export interface ProviderKeyModelSyncMetadata {
  * Platform-wide counterpart of `audit_log` for resources no organization owns,
  * such as managed provider credentials.
  */
-export const platformAuditLog = pgTable(
+export const platformAuditLog = snakeCase.table(
 	"platform_audit_log",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -4666,7 +4953,7 @@ export type CustomRuleConfig =
 // Guardrails are configured per organization (`project_id IS NULL`) and,
 // optionally, per project. A project row with `inherit_organization: false`
 // fully replaces the organization config and its custom rules for that project.
-export const guardrailConfig = pgTable(
+export const guardrailConfig = snakeCase.table(
 	"guardrail_config",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -4706,7 +4993,7 @@ export const guardrailConfig = pgTable(
 	],
 );
 
-export const guardrailRule = pgTable(
+export const guardrailRule = snakeCase.table(
 	"guardrail_rule",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -4735,7 +5022,7 @@ export const guardrailRule = pgTable(
 	],
 );
 
-export const guardrailViolation = pgTable(
+export const guardrailViolation = snakeCase.table(
 	"guardrail_violation",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -4821,7 +5108,7 @@ export interface RoutingSessionConfig {
 
 export type ProviderPriorityOverrides = Record<string, number>;
 
-export const routingConfig = pgTable(
+export const routingConfig = snakeCase.table(
 	"routing_config",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -4853,7 +5140,7 @@ export const routingConfig = pgTable(
 // "dynamic/<name>" model-string prefix. The draft graph is mutable; publishing
 // snapshots it into an immutable dynamicRouteVersion row and re-points
 // publishedVersionId, so rollback is just re-pointing to a prior version.
-export const dynamicRoute = pgTable(
+export const dynamicRoute = snakeCase.table(
 	"dynamic_route",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -4880,7 +5167,7 @@ export const dynamicRoute = pgTable(
 	],
 );
 
-export const dynamicRouteVersion = pgTable(
+export const dynamicRouteVersion = snakeCase.table(
 	"dynamic_route_version",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -4905,7 +5192,7 @@ export const dynamicRouteVersion = pgTable(
 
 // Discount - Admin-configurable discounts for providers/models
 // Can be global (organizationId = null) or org-specific
-export const discount = pgTable(
+export const discount = snakeCase.table(
 	"discount",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -4944,7 +5231,7 @@ export const discount = pgTable(
 );
 
 // Routing Score Multiplier - Internal provider/model routing preference
-export const routingScoreMultiplier = pgTable(
+export const routingScoreMultiplier = snakeCase.table(
 	"routing_score_multiplier",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -4972,7 +5259,7 @@ export const routingScoreMultiplier = pgTable(
 
 // Rate Limit - Admin-configurable provider/model caps
 // Can be global (organizationId = null) or org-specific
-export const rateLimit = pgTable(
+export const rateLimit = snakeCase.table(
 	"rate_limit",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5000,8 +5287,8 @@ export const rateLimit = pgTable(
 			.notNull()
 			.default("per_org"),
 		// "soft" keeps a session already pinned to the capped provider on it;
-		// all other traffic is routed away exactly as under "strict".
-		mode: text({ enum: ["strict", "soft"] })
+		// "lax" also allows explicitly requested providers past the cap.
+		mode: text({ enum: ["strict", "soft", "lax"] })
 			.notNull()
 			.default("strict"),
 		// Optional metadata
@@ -5027,7 +5314,7 @@ export const rateLimit = pgTable(
 // upstream failures don't drown out real instability. A matcher targets a
 // case-insensitive substring of the error details, an upstream status code, or
 // both (both must match).
-export const ignoredErrorMatcher = pgTable(
+export const ignoredErrorMatcher = snakeCase.table(
 	"ignored_error_matcher",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5057,7 +5344,7 @@ export const ignoredErrorMatcher = pgTable(
 // A company operating one or more catalogue providers ("carriers"). Kept
 // separate from `organization`: provider companies are gateway suppliers, not
 // gateway customers, and must never gain billing/plan semantics.
-export const providerCompany = pgTable("provider_company", {
+export const providerCompany = snakeCase.table("provider_company", {
 	id: text().primaryKey().notNull().$defaultFn(shortid),
 	createdAt: timestamp().notNull().defaultNow(),
 	updatedAt: timestamp()
@@ -5080,12 +5367,16 @@ export const providerCompany = pgTable("provider_company", {
 	// through Stripe — `paymentStatus` still flips to "paid" so every gate
 	// keeps working, and this records which code cleared it.
 	listingInviteCode: text(),
+	// Acceptance of the Airside Terms of Use (/legal/terms) and Privacy Notice
+	// (/legal/privacy).
+	termsAcceptedAt: timestamp(),
+	termsAcceptedBy: text().references(() => user.id, { onDelete: "set null" }),
 });
 
 // Money received for provider listing fees. Neither payer is an
 // `organization`, so these stay out of `transaction`. One row per paid Stripe
 // checkout session, so a duplicate charge awaiting refund is still counted.
-export const providerListingPayment = pgTable(
+export const providerListingPayment = snakeCase.table(
 	"provider_listing_payment",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5129,7 +5420,7 @@ export const providerListingPayment = pgTable(
 // company's `websiteVerificationToken`. An `email` row only records that a
 // claim was matched on the claimer's email domain: that proof belongs to the
 // person, so it never grants the company claim rights.
-export const providerCompanyDomain = pgTable(
+export const providerCompanyDomain = snakeCase.table(
 	"provider_company_domain",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5158,7 +5449,7 @@ export const providerCompanyDomain = pgTable(
 	],
 );
 
-export const providerCompanyMember = pgTable(
+export const providerCompanyMember = snakeCase.table(
 	"provider_company_member",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5189,7 +5480,7 @@ export const providerCompanyMember = pgTable(
 // Listing invite codes waive the Airside listing fee for providers we already
 // work with. Admins generate them in the admin dashboard; a company redeems
 // one instead of paying through Stripe.
-export const airsideInviteCode = pgTable(
+export const airsideInviteCode = snakeCase.table(
 	"airside_invite_code",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5213,7 +5504,7 @@ export const airsideInviteCode = pgTable(
 // A crew invite: an owner invites a teammate by email. If no account with
 // that email exists yet, the row waits; the invitee is attached as a member
 // the first time they open the portal with that (verified) email.
-export const providerCompanyInvite = pgTable(
+export const providerCompanyInvite = snakeCase.table(
 	"provider_company_invite",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5245,7 +5536,7 @@ export const providerCompanyInvite = pgTable(
 // API endpoint (or website) registrable domain, and only become operational
 // once an admin approves them. `providerId` deliberately has no FK — the
 // catalogue is code-defined in packages/models.
-export const providerClaim = pgTable(
+export const providerClaim = snakeCase.table(
 	"provider_claim",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5285,6 +5576,37 @@ export const providerClaim = pgTable(
 		verificationKeyCiphertext: text(),
 		verificationKeyMasked: text(),
 		verificationKeyUpdatedAt: timestamp(),
+		// Custom carriers only: the managed credential we serve the carrier's
+		// traffic with, and a replacement awaiting admin approval. Kept apart
+		// from the verification key so test traffic bills a different account.
+		providerKeyId: text().references(() => providerKey.id, {
+			onDelete: "set null",
+		}),
+		pendingProviderKeyId: text().references(() => providerKey.id, {
+			onDelete: "set null",
+		}),
+		// How the carrier's upstream usage is settled, set by admins only. See
+		// AIRSIDE_BILLING_MODES in @llmgateway/shared/airside-billing.
+		billingMode: text({ enum: ["payg", "postpaid", "payout"] })
+			.notNull()
+			.default("payg"),
+		// Self-declared public profile shown on the provider page. Display only:
+		// it never feeds compliance routing, which reads the static catalogue.
+		website: text(),
+		privacyPolicyUrl: text(),
+		termsUrl: text(),
+		statusPageUrl: text(),
+		legalEntity: text(),
+		// ISO 3166-1 alpha-2.
+		headquarters: text(),
+		apiTraining: boolean(),
+		promptLogging: boolean(),
+		retentionPeriod: text(),
+		gdpr: boolean(),
+		// 0 = none, 1 = Type I, 2 = Type II, null = not stated.
+		soc2: integer(),
+		iso27001: boolean(),
+		profileUpdatedAt: timestamp(),
 		claimedBy: text().references(() => user.id, { onDelete: "set null" }),
 		status: text({ enum: ["pending", "active", "rejected", "revoked"] })
 			.notNull()
@@ -5340,7 +5662,7 @@ export interface AirsidePendingBranding {
 	iconUrl?: string | null;
 }
 
-export const providerDraftModel = pgTable(
+export const providerDraftModel = snakeCase.table(
 	"provider_draft_model",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5455,6 +5777,13 @@ export interface ProviderModelVerificationCheck {
 	label: string;
 	status: ProviderModelVerificationCheckStatus;
 	feedback?: string;
+	/** Set when a check passed only after retrying a timed-out request. */
+	warning?: string;
+	/**
+	 * Optional checks this check missed. They warn while optional and fail
+	 * the check once they become required.
+	 */
+	optionalWarnings?: string[];
 	/** Per-request breakdown; present only for checks that probe variants. */
 	probes?: ProviderModelVerificationProbe[];
 }
@@ -5487,7 +5816,7 @@ export interface ProviderModelVerificationTarget {
 // target is frozen when queued so an edit cannot change what a completed run
 // proved. A supplied or carrier-stored credential is copied into this row,
 // encrypted for it alone, and erased on terminal status.
-export const providerModelVerification = pgTable(
+export const providerModelVerification = snakeCase.table(
 	"provider_model_verification",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5597,7 +5926,7 @@ export interface AirsideRegionPrice {
 // approve or reject filings in the admin dashboard; the model's effective
 // pricing is its most recently approved filing. `kind: "initial"` filings
 // activate the model itself on approval.
-export const providerPriceFiling = pgTable(
+export const providerPriceFiling = snakeCase.table(
 	"provider_price_filing",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5650,7 +5979,7 @@ export const providerPriceFiling = pgTable(
 // `routing_score_multiplier` (the admin-only prioritization knob): the gateway
 // reads this table directly and adds both signals at the scoring seam.
 // Both values are fractions (0.1 = 10%), like `discount.discountPercent`.
-export const providerRoutingSettings = pgTable(
+export const providerRoutingSettings = snakeCase.table(
 	"provider_routing_settings",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5681,7 +6010,7 @@ export const providerRoutingSettings = pgTable(
 // A carrier's requested change to its routing knobs ("fare change"). Like
 // price filings, routing changes only take effect once an admin approves the
 // filing — approval writes the values into `provider_routing_settings`.
-export const providerRoutingFiling = pgTable(
+export const providerRoutingFiling = snakeCase.table(
 	"provider_routing_filing",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5700,6 +6029,14 @@ export const providerRoutingFiling = pgTable(
 		status: text({ enum: ["pending", "approved", "rejected"] })
 			.notNull()
 			.default("pending"),
+		// "admin" filings record a fare an admin set directly; they are created
+		// already approved, so the history shows every change to the knobs.
+		initiatedBy: text({ enum: ["carrier", "admin"] })
+			.notNull()
+			.default("carrier"),
+		// Admin-only: the model override was removed and the model falls back to
+		// the default fare (recorded in the discount/margin columns).
+		clearsOverride: boolean().notNull().default(false),
 		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
 		reviewedBy: text(),
 		reviewNote: text(),
@@ -5718,7 +6055,7 @@ export const providerRoutingFiling = pgTable(
 );
 
 // Project hourly statistics aggregation - used for fast dashboard queries
-export const projectHourlyStats = pgTable(
+export const projectHourlyStats = snakeCase.table(
 	"project_hourly_stats",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5800,11 +6137,20 @@ export const projectHourlyStats = pgTable(
 		unique().on(table.projectId, table.hourTimestamp),
 		// Index for worker refresh queries (find hours to update)
 		index("project_hourly_stats_hour_timestamp_idx").on(table.hourTimestamp),
+		// Covers dashboard spend without reading wide hourly rows.
+		index("project_hourly_stats_dashboard_spend_idx").on(
+			table.hourTimestamp,
+			table.projectId,
+			table.cost,
+			table.creditsCost,
+			table.apiKeysCost,
+			table.apiKeysDataStorageCost,
+		),
 	],
 );
 
 // Project hourly model statistics aggregation - model breakdown per hour
-export const projectHourlyModelStats = pgTable(
+export const projectHourlyModelStats = snakeCase.table(
 	"project_hourly_model_stats",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -5875,6 +6221,10 @@ export const projectHourlyModelStats = pgTable(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		// BYOK subset of the gateway/upstream error counts, so incident views can
+		// show platform-only error rates.
+		apiKeysGatewayErrorCount: integer().notNull().default(0),
+		apiKeysUpstreamErrorCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour-model-provider
@@ -5911,7 +6261,7 @@ export const projectHourlyModelStats = pgTable(
 // header (e.g. coding agents). Mirrors projectHourlyModelStats but keyed by
 // source. NULL log.source rows are stored under the literal 'unknown' so the
 // unique constraint and onConflictDoUpdate target stay valid.
-export const projectHourlySourceStats = pgTable(
+export const projectHourlySourceStats = snakeCase.table(
 	"project_hourly_source_stats",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -6002,7 +6352,7 @@ export const projectHourlySourceStats = pgTable(
 // the agents dashboard. Carries only volume, token and cost measures; the
 // full metric set lives on projectHourlySourceStats / projectHourlyModelStats.
 // NULL log.source is stored as 'unknown', like projectHourlySourceStats.
-export const projectHourlySourceModelStats = pgTable(
+export const projectHourlySourceModelStats = snakeCase.table(
 	"project_hourly_source_model_stats",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -6045,7 +6395,7 @@ export const projectHourlySourceModelStats = pgTable(
 
 // Routed-request spend vs. the priciest-candidate baseline, per project, hour
 // and route (`log.requestedModel`: auto, smart or dynamic/<name>).
-export const projectHourlyRoutingStats = pgTable(
+export const projectHourlyRoutingStats = snakeCase.table(
 	"project_hourly_routing_stats",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -6074,7 +6424,7 @@ export const projectHourlyRoutingStats = pgTable(
 );
 
 // API key hourly statistics aggregation - for per-key breakdown queries
-export const apiKeyHourlyStats = pgTable(
+export const apiKeyHourlyStats = snakeCase.table(
 	"api_key_hourly_stats",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -6177,7 +6527,7 @@ export const apiKeyHourlyStats = pgTable(
 //
 // Only rows with a non-null `log.providerKeyId` land here: env-var credentials
 // and error paths that never resolved a credential are not attributable.
-export const providerKeyHourlyStats = pgTable(
+export const providerKeyHourlyStats = snakeCase.table(
 	"provider_key_hourly_stats",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -6233,7 +6583,7 @@ export const providerKeyHourlyStats = pgTable(
 );
 
 // API key hourly model statistics aggregation - model breakdown per API key per hour
-export const apiKeyHourlyModelStats = pgTable(
+export const apiKeyHourlyModelStats = snakeCase.table(
 	"api_key_hourly_model_stats",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -6328,7 +6678,7 @@ export const apiKeyHourlyModelStats = pgTable(
 );
 
 // Per-key app usage remains available after request retention expires.
-export const apiKeyHourlySourceStats = pgTable(
+export const apiKeyHourlySourceStats = snakeCase.table(
 	"api_key_hourly_source_stats",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -6438,71 +6788,73 @@ export type GlobalStatsOrgKind = (typeof GLOBAL_STATS_ORG_KINDS)[number];
 // Global model statistics — cross-org, cross-project aggregation by model.
 // Rows are day-bucketed (`dayTimestamp`); the worker can update them at any
 // cadence via the configurable bucket size.
-export const globalModelStats = pgTable(
+const globalModelStatsColumns = () => ({
+	id: text().primaryKey().notNull().$defaultFn(shortid),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	usedModel: text().notNull(),
+	usedProvider: text().notNull(),
+	// Billing mode the request was actually served under (log.usedMode).
+	// "unknown" on rows aggregated before this column existed.
+	usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+		.notNull()
+		.default("unknown"),
+	// organization.kind at aggregation time. "unknown" on rows aggregated
+	// before this column existed and on requests whose organization row is
+	// gone. Stored verbatim ("default" is labelled PAYG in the admin UI).
+	orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS }).notNull().default("unknown"),
+	// Request counts
+	requestCount: integer().notNull().default(0),
+	errorCount: integer().notNull().default(0),
+	cacheCount: integer().notNull().default(0),
+	streamedCount: integer().notNull().default(0),
+	nonStreamedCount: integer().notNull().default(0),
+	// Unified finish reason counts
+	completedCount: integer().notNull().default(0),
+	lengthLimitCount: integer().notNull().default(0),
+	contentFilterCount: integer().notNull().default(0),
+	toolCallsCount: integer().notNull().default(0),
+	canceledCount: integer().notNull().default(0),
+	unknownFinishCount: integer().notNull().default(0),
+	// Error type counts (subset of errorCount)
+	clientErrorCount: integer().notNull().default(0),
+	gatewayErrorCount: integer().notNull().default(0),
+	upstreamErrorCount: integer().notNull().default(0),
+	// Token counts
+	inputTokens: decimal().notNull().default("0"),
+	outputTokens: decimal().notNull().default("0"),
+	totalTokens: decimal().notNull().default("0"),
+	reasoningTokens: decimal().notNull().default("0"),
+	cachedTokens: decimal().notNull().default("0"),
+	cacheWriteTokens: decimal().notNull().default("0"),
+	// Costs
+	cost: real().notNull().default(0),
+	inputCost: real().notNull().default(0),
+	outputCost: real().notNull().default(0),
+	requestCost: real().notNull().default(0),
+	dataStorageCost: real().notNull().default(0),
+	discountSavings: real().notNull().default(0),
+	imageInputCost: real().notNull().default(0),
+	imageOutputCost: real().notNull().default(0),
+	audioInputCost: real().notNull().default(0),
+	audioOutputCost: real().notNull().default(0),
+	videoOutputCost: real().notNull().default(0),
+	cachedInputCost: real().notNull().default(0),
+	cacheWriteInputCost: real().notNull().default(0),
+	// Gateway margin earned on Airside-carrier traffic:
+	// SUM(log.cost * log.providerMarginPercent) for credits-mode, non-cached
+	// requests. 0 for providers without routing settings.
+	providerMarginAmount: real().notNull().default(0),
+});
+
+export const globalModelStats = snakeCase.table(
 	"global_model_stats",
 	{
-		id: text().primaryKey().notNull().$defaultFn(shortid),
-		createdAt: timestamp().notNull().defaultNow(),
-		updatedAt: timestamp()
-			.notNull()
-			.defaultNow()
-			.$onUpdate(() => new Date()),
-		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
-		usedModel: text().notNull(),
-		usedProvider: text().notNull(),
-		// Billing mode the request was actually served under (log.usedMode).
-		// "unknown" on rows aggregated before this column existed.
-		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
-			.notNull()
-			.default("unknown"),
-		// organization.kind at aggregation time. "unknown" on rows aggregated
-		// before this column existed and on requests whose organization row is
-		// gone. Stored verbatim ("default" is labelled PAYG in the admin UI).
-		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
-			.notNull()
-			.default("unknown"),
-		// Request counts
-		requestCount: integer().notNull().default(0),
-		errorCount: integer().notNull().default(0),
-		cacheCount: integer().notNull().default(0),
-		streamedCount: integer().notNull().default(0),
-		nonStreamedCount: integer().notNull().default(0),
-		// Unified finish reason counts
-		completedCount: integer().notNull().default(0),
-		lengthLimitCount: integer().notNull().default(0),
-		contentFilterCount: integer().notNull().default(0),
-		toolCallsCount: integer().notNull().default(0),
-		canceledCount: integer().notNull().default(0),
-		unknownFinishCount: integer().notNull().default(0),
-		// Error type counts (subset of errorCount)
-		clientErrorCount: integer().notNull().default(0),
-		gatewayErrorCount: integer().notNull().default(0),
-		upstreamErrorCount: integer().notNull().default(0),
-		// Token counts
-		inputTokens: decimal().notNull().default("0"),
-		outputTokens: decimal().notNull().default("0"),
-		totalTokens: decimal().notNull().default("0"),
-		reasoningTokens: decimal().notNull().default("0"),
-		cachedTokens: decimal().notNull().default("0"),
-		cacheWriteTokens: decimal().notNull().default("0"),
-		// Costs
-		cost: real().notNull().default(0),
-		inputCost: real().notNull().default(0),
-		outputCost: real().notNull().default(0),
-		requestCost: real().notNull().default(0),
-		dataStorageCost: real().notNull().default(0),
-		discountSavings: real().notNull().default(0),
-		imageInputCost: real().notNull().default(0),
-		imageOutputCost: real().notNull().default(0),
-		audioInputCost: real().notNull().default(0),
-		audioOutputCost: real().notNull().default(0),
-		videoOutputCost: real().notNull().default(0),
-		cachedInputCost: real().notNull().default(0),
-		cacheWriteInputCost: real().notNull().default(0),
-		// Gateway margin earned on Airside-carrier traffic:
-		// SUM(log.cost * log.providerMarginPercent) for credits-mode, non-cached
-		// requests. 0 for providers without routing settings.
-		providerMarginAmount: real().notNull().default(0),
+		...globalModelStatsColumns(),
+		dayTimestamp: timestamp().notNull(),
 	},
 	(table) => [
 		// usedMode/orgKind are part of the key: every metric is therefore
@@ -6515,6 +6867,12 @@ export const globalModelStats = pgTable(
 			table.orgKind,
 		),
 		index("global_model_stats_day_timestamp_idx").on(table.dayTimestamp),
+		index("global_model_stats_provider_margin_idx").on(
+			table.usedProvider,
+			table.usedMode,
+			table.dayTimestamp,
+			table.providerMarginAmount,
+		),
 		index("global_model_stats_used_model_day_timestamp_idx").on(
 			table.usedModel,
 			table.dayTimestamp,
@@ -6528,64 +6886,66 @@ export const globalModelStats = pgTable(
 );
 
 // Global source statistics — cross-org, cross-project aggregation by x-source header.
-export const globalSourceStats = pgTable(
+const globalSourceStatsColumns = () => ({
+	id: text().primaryKey().notNull().$defaultFn(shortid),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	// NULL log.source rows are stored under the literal 'unknown' so the
+	// unique constraint and onConflictDoUpdate target stay valid.
+	source: text().notNull(),
+	// See globalModelStats for the semantics of these two dimensions.
+	usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+		.notNull()
+		.default("unknown"),
+	orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS }).notNull().default("unknown"),
+	// Request counts
+	requestCount: integer().notNull().default(0),
+	errorCount: integer().notNull().default(0),
+	cacheCount: integer().notNull().default(0),
+	streamedCount: integer().notNull().default(0),
+	nonStreamedCount: integer().notNull().default(0),
+	// Unified finish reason counts
+	completedCount: integer().notNull().default(0),
+	lengthLimitCount: integer().notNull().default(0),
+	contentFilterCount: integer().notNull().default(0),
+	toolCallsCount: integer().notNull().default(0),
+	canceledCount: integer().notNull().default(0),
+	unknownFinishCount: integer().notNull().default(0),
+	// Error type counts (subset of errorCount)
+	clientErrorCount: integer().notNull().default(0),
+	gatewayErrorCount: integer().notNull().default(0),
+	upstreamErrorCount: integer().notNull().default(0),
+	// Token counts
+	inputTokens: decimal().notNull().default("0"),
+	outputTokens: decimal().notNull().default("0"),
+	totalTokens: decimal().notNull().default("0"),
+	reasoningTokens: decimal().notNull().default("0"),
+	cachedTokens: decimal().notNull().default("0"),
+	cacheWriteTokens: decimal().notNull().default("0"),
+	// Costs
+	cost: real().notNull().default(0),
+	inputCost: real().notNull().default(0),
+	outputCost: real().notNull().default(0),
+	requestCost: real().notNull().default(0),
+	dataStorageCost: real().notNull().default(0),
+	discountSavings: real().notNull().default(0),
+	imageInputCost: real().notNull().default(0),
+	imageOutputCost: real().notNull().default(0),
+	audioInputCost: real().notNull().default(0),
+	audioOutputCost: real().notNull().default(0),
+	videoOutputCost: real().notNull().default(0),
+	cachedInputCost: real().notNull().default(0),
+	cacheWriteInputCost: real().notNull().default(0),
+});
+
+export const globalSourceStats = snakeCase.table(
 	"global_source_stats",
 	{
-		id: text().primaryKey().notNull().$defaultFn(shortid),
-		createdAt: timestamp().notNull().defaultNow(),
-		updatedAt: timestamp()
-			.notNull()
-			.defaultNow()
-			.$onUpdate(() => new Date()),
-		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
-		// NULL log.source rows are stored under the literal 'unknown' so the
-		// unique constraint and onConflictDoUpdate target stay valid.
-		source: text().notNull(),
-		// See globalModelStats for the semantics of these two dimensions.
-		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
-			.notNull()
-			.default("unknown"),
-		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
-			.notNull()
-			.default("unknown"),
-		// Request counts
-		requestCount: integer().notNull().default(0),
-		errorCount: integer().notNull().default(0),
-		cacheCount: integer().notNull().default(0),
-		streamedCount: integer().notNull().default(0),
-		nonStreamedCount: integer().notNull().default(0),
-		// Unified finish reason counts
-		completedCount: integer().notNull().default(0),
-		lengthLimitCount: integer().notNull().default(0),
-		contentFilterCount: integer().notNull().default(0),
-		toolCallsCount: integer().notNull().default(0),
-		canceledCount: integer().notNull().default(0),
-		unknownFinishCount: integer().notNull().default(0),
-		// Error type counts (subset of errorCount)
-		clientErrorCount: integer().notNull().default(0),
-		gatewayErrorCount: integer().notNull().default(0),
-		upstreamErrorCount: integer().notNull().default(0),
-		// Token counts
-		inputTokens: decimal().notNull().default("0"),
-		outputTokens: decimal().notNull().default("0"),
-		totalTokens: decimal().notNull().default("0"),
-		reasoningTokens: decimal().notNull().default("0"),
-		cachedTokens: decimal().notNull().default("0"),
-		cacheWriteTokens: decimal().notNull().default("0"),
-		// Costs
-		cost: real().notNull().default(0),
-		inputCost: real().notNull().default(0),
-		outputCost: real().notNull().default(0),
-		requestCost: real().notNull().default(0),
-		dataStorageCost: real().notNull().default(0),
-		discountSavings: real().notNull().default(0),
-		imageInputCost: real().notNull().default(0),
-		imageOutputCost: real().notNull().default(0),
-		audioInputCost: real().notNull().default(0),
-		audioOutputCost: real().notNull().default(0),
-		videoOutputCost: real().notNull().default(0),
-		cachedInputCost: real().notNull().default(0),
-		cacheWriteInputCost: real().notNull().default(0),
+		...globalSourceStatsColumns(),
+		dayTimestamp: timestamp().notNull(),
 	},
 	(table) => [
 		unique().on(
@@ -6607,64 +6967,66 @@ export const globalSourceStats = pgTable(
 // rows with a non-null `log.providerKeyId` land here (see
 // providerKeyHourlyStats), so summing this table never reproduces the global
 // totals; it answers "which models did this credential serve, at what cost".
-export const globalProviderKeyModelStats = pgTable(
+const globalProviderKeyModelStatsColumns = () => ({
+	id: text().primaryKey().notNull().$defaultFn(shortid),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	providerKeyId: text().notNull(),
+	usedModel: text().notNull(),
+	usedProvider: text().notNull(),
+	// See globalModelStats for the semantics of these two dimensions.
+	usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+		.notNull()
+		.default("unknown"),
+	orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS }).notNull().default("unknown"),
+	// Request counts
+	requestCount: integer().notNull().default(0),
+	errorCount: integer().notNull().default(0),
+	cacheCount: integer().notNull().default(0),
+	streamedCount: integer().notNull().default(0),
+	nonStreamedCount: integer().notNull().default(0),
+	// Unified finish reason counts
+	completedCount: integer().notNull().default(0),
+	lengthLimitCount: integer().notNull().default(0),
+	contentFilterCount: integer().notNull().default(0),
+	toolCallsCount: integer().notNull().default(0),
+	canceledCount: integer().notNull().default(0),
+	unknownFinishCount: integer().notNull().default(0),
+	// Error type counts (subset of errorCount)
+	clientErrorCount: integer().notNull().default(0),
+	gatewayErrorCount: integer().notNull().default(0),
+	upstreamErrorCount: integer().notNull().default(0),
+	// Token counts
+	inputTokens: decimal().notNull().default("0"),
+	outputTokens: decimal().notNull().default("0"),
+	totalTokens: decimal().notNull().default("0"),
+	reasoningTokens: decimal().notNull().default("0"),
+	cachedTokens: decimal().notNull().default("0"),
+	cacheWriteTokens: decimal().notNull().default("0"),
+	// Costs
+	cost: real().notNull().default(0),
+	inputCost: real().notNull().default(0),
+	outputCost: real().notNull().default(0),
+	requestCost: real().notNull().default(0),
+	dataStorageCost: real().notNull().default(0),
+	discountSavings: real().notNull().default(0),
+	imageInputCost: real().notNull().default(0),
+	imageOutputCost: real().notNull().default(0),
+	audioInputCost: real().notNull().default(0),
+	audioOutputCost: real().notNull().default(0),
+	videoOutputCost: real().notNull().default(0),
+	cachedInputCost: real().notNull().default(0),
+	cacheWriteInputCost: real().notNull().default(0),
+});
+
+export const globalProviderKeyModelStats = snakeCase.table(
 	"global_provider_key_model_stats",
 	{
-		id: text().primaryKey().notNull().$defaultFn(shortid),
-		createdAt: timestamp().notNull().defaultNow(),
-		updatedAt: timestamp()
-			.notNull()
-			.defaultNow()
-			.$onUpdate(() => new Date()),
-		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
-		providerKeyId: text().notNull(),
-		usedModel: text().notNull(),
-		usedProvider: text().notNull(),
-		// See globalModelStats for the semantics of these two dimensions.
-		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
-			.notNull()
-			.default("unknown"),
-		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
-			.notNull()
-			.default("unknown"),
-		// Request counts
-		requestCount: integer().notNull().default(0),
-		errorCount: integer().notNull().default(0),
-		cacheCount: integer().notNull().default(0),
-		streamedCount: integer().notNull().default(0),
-		nonStreamedCount: integer().notNull().default(0),
-		// Unified finish reason counts
-		completedCount: integer().notNull().default(0),
-		lengthLimitCount: integer().notNull().default(0),
-		contentFilterCount: integer().notNull().default(0),
-		toolCallsCount: integer().notNull().default(0),
-		canceledCount: integer().notNull().default(0),
-		unknownFinishCount: integer().notNull().default(0),
-		// Error type counts (subset of errorCount)
-		clientErrorCount: integer().notNull().default(0),
-		gatewayErrorCount: integer().notNull().default(0),
-		upstreamErrorCount: integer().notNull().default(0),
-		// Token counts
-		inputTokens: decimal().notNull().default("0"),
-		outputTokens: decimal().notNull().default("0"),
-		totalTokens: decimal().notNull().default("0"),
-		reasoningTokens: decimal().notNull().default("0"),
-		cachedTokens: decimal().notNull().default("0"),
-		cacheWriteTokens: decimal().notNull().default("0"),
-		// Costs
-		cost: real().notNull().default(0),
-		inputCost: real().notNull().default(0),
-		outputCost: real().notNull().default(0),
-		requestCost: real().notNull().default(0),
-		dataStorageCost: real().notNull().default(0),
-		discountSavings: real().notNull().default(0),
-		imageInputCost: real().notNull().default(0),
-		imageOutputCost: real().notNull().default(0),
-		audioInputCost: real().notNull().default(0),
-		audioOutputCost: real().notNull().default(0),
-		videoOutputCost: real().notNull().default(0),
-		cachedInputCost: real().notNull().default(0),
-		cacheWriteInputCost: real().notNull().default(0),
+		...globalProviderKeyModelStatsColumns(),
+		dayTimestamp: timestamp().notNull(),
 	},
 	(table) => [
 		// Named explicitly: the auto-generated six-column name exceeds Postgres'
@@ -6692,23 +7054,26 @@ export const globalProviderKeyModelStats = pgTable(
 // `lastProcessedHour` is the last UTC bucket that has been folded into the
 // daily stats. `lastSafetyNetDay` is the most recent UTC day that has been
 // fully recomputed by the safety-net pass.
-export const globalAggregationState = pgTable("global_aggregation_state", {
-	id: text().primaryKey().notNull().default("singleton"),
-	lastProcessedHour: timestamp(),
-	lastSafetyNetDay: timestamp(),
-	// Exclusive upper bound for one-off backfills that walk hours forward.
-	targetHour: timestamp(),
-	updatedAt: timestamp()
-		.notNull()
-		.defaultNow()
-		.$onUpdate(() => new Date()),
-});
+export const globalAggregationState = snakeCase.table(
+	"global_aggregation_state",
+	{
+		id: text().primaryKey().notNull().default("singleton"),
+		lastProcessedHour: timestamp(),
+		lastSafetyNetDay: timestamp(),
+		// Exclusive upper bound for one-off backfills that walk hours forward.
+		targetHour: timestamp(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+);
 
 // Daily per-org counters of rejected requests/charges due to the anti-abuse
 // limits (endpoint RPM, USD spend caps, top-up velocity). Written by the
 // worker from Redis-buffered increments; read by the admin dashboard so we
 // can see who is hitting which limits and how hard.
-export const orgLimitHitDaily = pgTable(
+export const orgLimitHitDaily = snakeCase.table(
 	"org_limit_hit_daily",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -6749,7 +7114,7 @@ export const orgLimitHitDaily = pgTable(
 	],
 );
 
-export const organizationSkill = pgTable(
+export const organizationSkill = snakeCase.table(
 	"organization_skill",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -6780,7 +7145,7 @@ export const organizationSkill = pgTable(
 	],
 );
 
-export const skill = pgTable(
+export const skill = snakeCase.table(
 	"skill",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -6800,7 +7165,7 @@ export const skill = pgTable(
 	(table) => [index("skill_user_id_idx").on(table.userId)],
 );
 
-export const playgroundImageHistory = pgTable(
+export const playgroundImageHistory = snakeCase.table(
 	"playground_image_history",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -6831,7 +7196,7 @@ export const playgroundImageHistory = pgTable(
 	(table) => [index("playground_image_history_user_id_idx").on(table.userId)],
 );
 
-export const playgroundAudioHistory = pgTable(
+export const playgroundAudioHistory = snakeCase.table(
 	"playground_audio_history",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -6862,7 +7227,7 @@ export const playgroundAudioHistory = pgTable(
 	(table) => [index("playground_audio_history_user_id_idx").on(table.userId)],
 );
 
-export const playgroundVideoHistory = pgTable(
+export const playgroundVideoHistory = snakeCase.table(
 	"playground_video_history",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -6901,7 +7266,7 @@ export const playgroundVideoHistory = pgTable(
 
 // Append-only ledger of Lounge gamification points. Totals, levels, and
 // streaks are derived from this table at read time.
-export const loungePointEvent = pgTable(
+export const loungePointEvent = snakeCase.table(
 	"lounge_point_event",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -6938,7 +7303,7 @@ export const loungePointEvent = pgTable(
 // the submitted move list against the level's deterministic engine, so `steps`,
 // `outcome`, and `score` are derived server-side rather than trusted from the
 // browser. `moves` is kept so any run can be re-verified or replayed later.
-export const sandboxEscapeRun = pgTable(
+export const sandboxEscapeRun = snakeCase.table(
 	"sandbox_escape_run",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -6983,7 +7348,7 @@ export const sandboxEscapeRun = pgTable(
 // deliberately does not persist realtime conversation content (see
 // apps/gateway/src/realtime/billing.ts), so the playground stores the
 // transcript its own client assembled, scoped to the user who spoke it.
-export const playgroundRealtimeHistory = pgTable(
+export const playgroundRealtimeHistory = snakeCase.table(
 	"playground_realtime_history",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -7041,7 +7406,7 @@ export interface ComplianceAlertSettings {
 	recipientAudience: AlertAudience;
 }
 
-export const notificationPreference = pgTable(
+export const notificationPreference = snakeCase.table(
 	"notification_preference",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -7056,7 +7421,7 @@ export const notificationPreference = pgTable(
 	(table) => [unique().on(table.userId, table.type)],
 );
 
-export const notification = pgTable(
+export const notification = snakeCase.table(
 	"notification",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -7091,7 +7456,7 @@ export const notification = pgTable(
 
 // Org-wide delivery targets (e.g. a Slack incoming webhook). `config` is
 // encrypted with the provider-key keyring.
-export const organizationNotificationChannel = pgTable(
+export const organizationNotificationChannel = snakeCase.table(
 	"organization_notification_channel",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -7111,7 +7476,7 @@ export const organizationNotificationChannel = pgTable(
 
 // One org-level event; fanned out to recipients' `notification` rows and to
 // one `organization_alert_delivery` per enabled channel.
-export const organizationAlert = pgTable(
+export const organizationAlert = snakeCase.table(
 	"organization_alert",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -7128,7 +7493,7 @@ export const organizationAlert = pgTable(
 	(table) => [unique().on(table.organizationId, table.eventKey)],
 );
 
-export const organizationAlertDelivery = pgTable(
+export const organizationAlertDelivery = snakeCase.table(
 	"organization_alert_delivery",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -7151,7 +7516,7 @@ export const organizationAlertDelivery = pgTable(
 
 // A model an organization wants to hear about once it becomes usable under
 // its compliance policy. `availableAt` is null while the model is blocked.
-export const modelAvailabilityWatch = pgTable(
+export const modelAvailabilityWatch = snakeCase.table(
 	"model_availability_watch",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -7172,7 +7537,7 @@ export const modelAvailabilityWatch = pgTable(
 
 // Last-seen compliance verdict per provider, used to detect providers that
 // stop meeting an organization's policy without the policy itself changing.
-export const complianceProviderState = pgTable(
+export const complianceProviderState = snakeCase.table(
 	"compliance_provider_state",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -7191,7 +7556,7 @@ export const complianceProviderState = pgTable(
 	(table) => [unique().on(table.organizationId, table.providerId)],
 );
 
-export const loungeConnection = pgTable(
+export const loungeConnection = snakeCase.table(
 	"lounge_connection",
 	{
 		id: text().primaryKey().$defaultFn(shortid),
@@ -7215,7 +7580,7 @@ export const loungeConnection = pgTable(
 	],
 );
 
-export const loungeConnectorAuthorization = pgTable(
+export const loungeConnectorAuthorization = snakeCase.table(
 	"lounge_connector_authorization",
 	{
 		id: text().primaryKey(),
@@ -7241,7 +7606,7 @@ export interface BenchmarkRunTargetSummary {
 	source: "airside" | "catalogue";
 }
 
-export const benchmarkRun = pgTable(
+export const benchmarkRun = snakeCase.table(
 	"benchmark_run",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -7297,7 +7662,7 @@ export interface PromptParameters {
 }
 
 // Versioned prompt templates, referenced from requests by `prompt.id`.
-export const prompt = pgTable(
+export const prompt = snakeCase.table(
 	"prompt",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -7322,7 +7687,7 @@ export const prompt = pgTable(
 	],
 );
 
-export const promptVersion = pgTable(
+export const promptVersion = snakeCase.table(
 	"prompt_version",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -7343,7 +7708,7 @@ export const promptVersion = pgTable(
 
 // Named pointers at a version (`production`, `staging`, ...). A request that
 // pins no version resolves one; `latest` is implicit and never stored.
-export const promptLabel = pgTable(
+export const promptLabel = snakeCase.table(
 	"prompt_label",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
@@ -7359,4 +7724,60 @@ export const promptLabel = pgTable(
 		version: integer().notNull(),
 	},
 	(table) => [unique().on(table.promptId, table.label)],
+);
+
+export const globalHourlyModelStats = snakeCase.table(
+	"global_hourly_model_stats",
+	{
+		...globalModelStatsColumns(),
+		hourTimestamp: timestamp().notNull(),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.usedModel,
+			table.usedProvider,
+			table.usedMode,
+			table.orgKind,
+		),
+		index("global_hourly_model_stats_hour_idx").on(table.hourTimestamp),
+	],
+);
+
+export const globalHourlySourceStats = snakeCase.table(
+	"global_hourly_source_stats",
+	{
+		...globalSourceStatsColumns(),
+		hourTimestamp: timestamp().notNull(),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.source,
+			table.usedMode,
+			table.orgKind,
+		),
+		index("global_hourly_source_stats_hour_idx").on(table.hourTimestamp),
+	],
+);
+
+export const globalHourlyProviderKeyModelStats = snakeCase.table(
+	"global_hourly_provider_key_model_stats",
+	{
+		...globalProviderKeyModelStatsColumns(),
+		hourTimestamp: timestamp().notNull(),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.providerKeyId,
+			table.usedModel,
+			table.usedProvider,
+			table.usedMode,
+			table.orgKind,
+		),
+		index("global_hourly_provider_key_model_stats_hour_idx").on(
+			table.hourTimestamp,
+		),
+	],
 );

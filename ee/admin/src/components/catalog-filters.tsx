@@ -1,7 +1,11 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
+import {
+	FilterPendingSpinner,
+	useFilterNavigation,
+} from "@/components/filter-navigation";
 import { SegmentedUrlSelector } from "@/components/segmented-url-selector";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +18,9 @@ import type {
 	CatalogStatusFilter,
 } from "@/lib/catalog-filters";
 
+const APPLY_KEY = "filters:apply";
+const RESET_KEY = "filters:reset";
+
 const STATUS_OPTIONS: { value: CatalogStatusFilter; label: string }[] = [
 	{ value: "active", label: "Active" },
 	{ value: "inactive", label: "Inactive" },
@@ -25,38 +32,30 @@ const STATUS_OPTIONS: { value: CatalogStatusFilter; label: string }[] = [
  * persisted in the URL so filtered views can be shared.
  */
 export function CatalogFiltersBar({ filters }: { filters: CatalogFilters }) {
-	const router = useRouter();
-	const pathname = usePathname();
 	const searchParams = useSearchParams();
+	const { isPending, pendingKey, navigate } = useFilterNavigation();
 
-	const navigate = (params: URLSearchParams) => {
-		params.delete("page");
-		const query = params.toString();
-		router.replace(query ? `${pathname}?${query}` : pathname, {
-			scroll: false,
-		});
-	};
+	const update = (key: string, values: (filterKey: string) => string) =>
+		navigate(
+			key,
+			(params) => {
+				params.delete("page");
+				for (const { key: filterKey } of CATALOG_NUMERIC_FILTERS) {
+					const value = values(filterKey);
+					if (value === "") {
+						params.delete(filterKey);
+					} else {
+						params.set(filterKey, value);
+					}
+				}
+			},
+			{ replace: true },
+		);
 
-	const apply = (formData: FormData) => {
-		const params = new URLSearchParams(searchParams.toString());
-		for (const { key } of CATALOG_NUMERIC_FILTERS) {
-			const value = String(formData.get(key) ?? "").trim();
-			if (value === "") {
-				params.delete(key);
-			} else {
-				params.set(key, value);
-			}
-		}
-		navigate(params);
-	};
+	const apply = (formData: FormData) =>
+		update(APPLY_KEY, (key) => String(formData.get(key) ?? "").trim());
 
-	const reset = () => {
-		const params = new URLSearchParams(searchParams.toString());
-		for (const { key } of CATALOG_NUMERIC_FILTERS) {
-			params.delete(key);
-		}
-		navigate(params);
-	};
+	const reset = () => update(RESET_KEY, () => "");
 
 	const activeCount = CATALOG_NUMERIC_FILTERS.filter(
 		({ key }) => filters[key] !== undefined,
@@ -95,11 +94,23 @@ export function CatalogFiltersBar({ filters }: { filters: CatalogFilters }) {
 						/>
 					</label>
 				))}
-				<Button type="submit" size="sm">
+				<Button type="submit" size="sm" disabled={isPending}>
+					{pendingKey === APPLY_KEY && (
+						<FilterPendingSpinner className="h-3.5 w-3.5" />
+					)}
 					Apply
 				</Button>
 				{activeCount > 0 && (
-					<Button type="button" variant="ghost" size="sm" onClick={reset}>
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						disabled={isPending}
+						onClick={reset}
+					>
+						{pendingKey === RESET_KEY && (
+							<FilterPendingSpinner className="h-3.5 w-3.5" />
+						)}
 						Clear ({activeCount})
 					</Button>
 				)}

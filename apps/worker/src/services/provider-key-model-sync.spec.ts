@@ -19,6 +19,7 @@ async function createKey(
 		provider?: string;
 		allowedModels?: string[] | null;
 		modelSyncExcluded?: string[];
+		modelSyncEnabled?: boolean;
 	} = {},
 ) {
 	const id = `model-sync-key-${randomUUID()}`;
@@ -32,6 +33,7 @@ async function createKey(
 				? [allowedModel]
 				: values.allowedModels,
 		modelSyncExcluded: values.modelSyncExcluded,
+		modelSyncEnabled: values.modelSyncEnabled,
 	});
 	return id;
 }
@@ -124,6 +126,16 @@ describe("syncProviderKeyModels", () => {
 		expect(
 			probe.mock.calls.some(([options]) => options.modelId === workingModel),
 		).toBe(false);
+	});
+
+	it("skips a key with model sync turned off", async () => {
+		const id = await createKey({ modelSyncEnabled: false });
+
+		expect(await syncProviderKeyModels({ probe })).toBe(0);
+
+		expect(await allowedModelsOf(id)).toEqual([allowedModel]);
+		expect(probe).not.toHaveBeenCalled();
+		expect(await historyOf(id)).toEqual([]);
 	});
 
 	it("counts models without a live probe as skipped", async () => {

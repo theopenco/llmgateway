@@ -30,7 +30,10 @@ import {
 	isInvoiceableTransaction,
 	isRefundTransaction,
 } from "@/utils/invoice.js";
-import { providerCacheControlModeSchema } from "@/utils/provider-cache-control.js";
+import {
+	providerCacheAutoTtlSchema,
+	providerCacheControlModeSchema,
+} from "@/utils/provider-cache-control.js";
 import { serializeOrganization } from "@/utils/serialize-organization.js";
 import {
 	smartRoutingConfigInputSchema,
@@ -197,6 +200,8 @@ const organizationSchema = z
 		referralEarnings: z.string(),
 		referralBonusEnabled: z.boolean(),
 		referralBonusPercent: z.string(),
+		dataStreamsEnabled: z.boolean(),
+		requestLogExportEnabled: z.boolean(),
 		// Organization kind: "default" (regular dashboard org), "devpass" (per-user
 		// Dev Plans org), or "chat" (per-user lounge.llmgateway.io org).
 		kind: z.enum(["default", "chat", "devpass"]),
@@ -248,6 +253,7 @@ const projectSchema = z.object({
 	cacheDurationSeconds: z.number(),
 	semanticCacheMode: z.enum(SEMANTIC_CACHE_MODES),
 	providerCacheControlMode: providerCacheControlModeSchema,
+	providerCacheAutoTtl: providerCacheAutoTtlSchema,
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -762,6 +768,28 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
+	// Payload retention is Enterprise-only. Turning it off, or re-saving a
+	// setting kept from before a downgrade, stays allowed until the transition
+	// window closes.
+	const retentionEnterpriseAccess = hasOrganizationEnterpriseAccess(
+		userOrganization.organization?.id,
+		userOrganization.organization?.plan,
+	);
+	if (
+		retentionLevel === "retain" &&
+		userOrganization.organization?.retentionLevel !== "retain" &&
+		!retentionEnterpriseAccess
+	) {
+		throw new HTTPException(403, {
+			message: "Retain All Data requires an Enterprise plan",
+		});
+	}
+	// A kept setting may only be re-saved while it is still stored: the write
+	// re-checks the column so a concurrent switch to Metadata Only (owner or
+	// transition worker) cannot be reverted by an earlier read.
+	const grandfatheredRetain =
+		retentionLevel === "retain" && !retentionEnterpriseAccess;
+
 	// DevPass accepts only the no-API-training requirement, regardless of plan.
 	// Other organizations retain the enterprise gate for enabling a policy.
 	if (providerCompliancePolicy !== undefined) {
@@ -970,6 +998,9 @@ organization.openapi(updateOrganization, async (c) => {
 		) {
 			updateConditions.push(eq(tables.organization.retentionLevel, "none"));
 		}
+		if (grandfatheredRetain) {
+			updateConditions.push(eq(tables.organization.retentionLevel, "retain"));
+		}
 
 		try {
 			// Cached client so gateway policy gates see compliance changes
@@ -991,6 +1022,12 @@ organization.openapi(updateOrganization, async (c) => {
 			throw err;
 		}
 		if (!updatedOrganization) {
+			if (grandfatheredRetain) {
+				throw new HTTPException(409, {
+					message:
+						"Retain All Data is no longer enabled for this organization and requires an Enterprise plan to turn back on",
+				});
+			}
 			throw new HTTPException(400, {
 				message: zdrRetentionConflictMessage,
 			});

@@ -19,7 +19,10 @@ export function getAuthRedirect(target: string | null | undefined): string {
 	}
 }
 
-export function getAuthPagePath(page: "/login" | "/signup", target: string) {
+export function getAuthPagePath(
+	page: "/login" | "/signup" | "/onboarding",
+	target: string,
+) {
 	const redirect = getAuthRedirect(target);
 	return redirect === "/dashboard"
 		? page

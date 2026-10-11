@@ -8,6 +8,7 @@ import {
 	generateTestRequestId,
 	getConcurrentTestOptions,
 	getTestOptions,
+	imageModels,
 	logMode,
 	streamingModels,
 	validateLogByRequestId,
@@ -65,7 +66,12 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			const contentChunks = streamResult.chunks.filter(
 				(chunk) => chunk.choices?.[0]?.delta?.content,
 			);
-			expect(contentChunks.length).toBeGreaterThan(0);
+			const imageChunks = imageModels.some((m) => m.model === model)
+				? streamResult.chunks.filter(
+						(chunk) => chunk.choices?.[0]?.delta?.images?.length,
+					)
+				: [];
+			expect(contentChunks.length + imageChunks.length).toBeGreaterThan(0);
 
 			// Verify each content chunk has proper OpenAI format
 			for (const chunk of contentChunks) {
@@ -113,9 +119,10 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				project_id: log.projectId,
 			});
 			expect(usageChunk.metadata.discount ?? null).toBe(log.discount ?? null);
-			expect(log.content).toBeTruthy();
-			expect(log.content).not.toBeNull();
 			expect(typeof log.content).toBe("string");
+			if (contentChunks.length > 0) {
+				expect(log.content).toBeTruthy();
+			}
 
 			// expect(log.cost).not.toBeNull();
 			// expect(log.cost).toBeGreaterThanOrEqual(0);

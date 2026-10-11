@@ -59,7 +59,7 @@ const GROUPINGS = [
 	{ value: "error", label: "By error type" },
 ] as const;
 // Mirrors the carrier's Airside view: every upstream and gateway error in the
-// window (up to this cap), BYOK included, no expected-error matchers.
+// window (up to this cap), no expected-error matchers.
 const DRILLDOWN_LOG_LIMIT = 100_000;
 
 /** The carrier's Airside Incidents view, scoped to one provider. */
@@ -74,6 +74,7 @@ export function ProviderIncidentsClient({
 	const searchParams = useSearchParams();
 	const mapping = searchParams.get("mapping");
 	const groupByError = searchParams.get("group") === "error";
+	const includeByok = searchParams.get("includeByok") === "true";
 	const [timeWindow, setTimeWindow] = useState<IncidentsWindow>("24h");
 	const [includeRetried, setIncludeRetried] = useState(true);
 	const [expanded, setExpanded] = useState<string | null>(null);
@@ -86,7 +87,15 @@ export function ProviderIncidentsClient({
 	const allQuery = $api.useQuery(
 		"get",
 		"/admin/airside/incidents",
-		{ params: { query: { providerId, window: timeWindow } } },
+		{
+			params: {
+				query: {
+					providerId,
+					window: timeWindow,
+					includeByok: includeByok ? "true" : "false",
+				},
+			},
+		},
 		queryOptions,
 	);
 	const filteredQuery = $api.useQuery(
@@ -94,7 +103,12 @@ export function ProviderIncidentsClient({
 		"/admin/airside/incidents",
 		{
 			params: {
-				query: { providerId, window: timeWindow, mapping: mapping ?? "" },
+				query: {
+					providerId,
+					window: timeWindow,
+					mapping: mapping ?? "",
+					includeByok: includeByok ? "true" : "false",
+				},
 			},
 		},
 		{ ...queryOptions, enabled: mapping !== null },
@@ -237,6 +251,18 @@ export function ProviderIncidentsClient({
 						{groupByError ? "Retried errors" : "Retried errors in details"}
 					</Label>
 				</div>
+				<div className="flex items-center gap-2">
+					<Switch
+						id="include-byok"
+						checked={includeByok}
+						onCheckedChange={(checked) =>
+							setParam("includeByok", checked ? "true" : null)
+						}
+					/>
+					<Label htmlFor="include-byok" className="text-xs">
+						Bring your own key traffic
+					</Label>
+				</div>
 			</div>
 
 			{activeQuery.isError && !groupByError && (
@@ -277,6 +303,7 @@ export function ProviderIncidentsClient({
 						mapping={mapping}
 						window={timeWindow}
 						includeRetried={includeRetried}
+						includeByok={includeByok}
 					/>
 				) : !data ? (
 					activeQuery.isError ? null : (
@@ -375,7 +402,7 @@ export function ProviderIncidentsClient({
 														window={timeWindow}
 														logLimit={DRILLDOWN_LOG_LIMIT}
 														ignoreExpected={false}
-														includeByok
+														includeByok={includeByok}
 														incidentsOnly
 													/>
 												</TableCell>

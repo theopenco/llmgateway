@@ -10,6 +10,10 @@ import {
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
 import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
+import {
+	mostRestrictiveApiKeyLimits,
+	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
+} from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
@@ -999,6 +1003,67 @@ describe("keys route", () => {
 		expect(json.message).toMatch(/Team page/);
 	});
 
+	test("POST /keys/api accepts the folded limits of a developer's budgets", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				defaultDeveloperMaxApiKeys:
+					SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.maxApiKeys,
+				defaultDeveloperUsageLimit:
+					SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.usageLimit,
+				defaultDeveloperPeriodUsageLimit:
+					SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageLimit,
+				defaultDeveloperPeriodUsageDurationValue:
+					SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationValue,
+				defaultDeveloperPeriodUsageDurationUnit:
+					SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationUnit,
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "developer" })
+			.where(eq(tables.userOrganization.id, "test-user-org-id"));
+		await db.insert(tables.userProject).values({
+			userOrganizationId: "test-user-org-id",
+			projectId: "test-project-id",
+		});
+
+		const budgetRes = await app.request("/team/test-org-id/members/me", {
+			headers: { Cookie: token },
+		});
+		expect(budgetRes.status).toBe(200);
+		const { budget, teamBudget } = await budgetRes.json();
+		const limits = mostRestrictiveApiKeyLimits([teamBudget, budget]);
+		expect(limits).toEqual({
+			usageLimit: null,
+			periodUsageLimit: "500",
+			periodUsageDurationValue: 1,
+			periodUsageDurationUnit: "month",
+		});
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "CLI key",
+				projectId: "test-project-id",
+				...limits,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.apiKey).toMatchObject(limits);
+
+		const apiKey = await db.query.apiKey.findFirst({
+			where: { description: { eq: "CLI key" } },
+		});
+		expect(apiKey).toMatchObject(limits);
+	});
+
 	test("GET /keys/api returns each key owner's effective budget", async () => {
 		await seedOtherMemberKey({});
 		await db
@@ -1402,6 +1467,62 @@ describe("keys route", () => {
 		expect(json.message).toContain(
 			"Maximum 5 active API keys per organization",
 		);
+	});
+
+	test("POST /keys/api rejects extra keys on a DevPass org", async () => {
+		await db
+			.update(tables.organization)
+			.set({ kind: "devpass" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Second DevPass Key",
+				projectId: "test-project-id",
+				usageLimit: null,
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const activeKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: "test-project-id" },
+				status: { eq: "active" },
+				kind: { ne: "playground" },
+			},
+		});
+		expect(activeKeys).toHaveLength(1);
+	});
+
+	test("PATCH /keys/api/{id} cannot reactivate a DevPass key", async () => {
+		await db
+			.update(tables.organization)
+			.set({ kind: "devpass" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db
+			.update(tables.apiKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.apiKey.id, "test-api-key-id"));
+
+		const res = await app.request("/keys/api/test-api-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ status: "active" }),
+		});
+
+		expect(res.status).toBe(403);
+		const key = await db.query.apiKey.findFirst({
+			where: { id: { eq: "test-api-key-id" } },
+		});
+		expect(key?.status).toBe("inactive");
 	});
 
 	test("POST /keys/api respects the admin apiKeyLimit override", async () => {

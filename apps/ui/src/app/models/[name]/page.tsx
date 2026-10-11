@@ -33,6 +33,7 @@ import { ModelFaqSection } from "@/components/models/model-faq";
 import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ModelUsageStats } from "@/components/models/model-usage-stats";
+import { buildProviderTabBranding } from "@/components/models/provider-tab-branding";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { RelatedModels } from "@/components/models/related-models";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -149,6 +150,12 @@ export default async function ModelPage({ params }: PageProps) {
 			discount: globalDiscount,
 		};
 	});
+	// Square carrier marks for compact rows; wordmarks only as a fallback.
+	const uploadedProviderIcons = Object.fromEntries(
+		apiProviders
+			.map((p) => [p.id, p.airsideIconUrl ?? p.airsideLogoUrl])
+			.filter((entry): entry is [string, string] => Boolean(entry[1])),
+	);
 	// Aggregated metrics (pricing, context, capabilities) describe what can
 	// actually be routed today, so deactivated providers are excluded. Models
 	// whose providers are all deactivated fall back to showing everything.
@@ -726,6 +733,10 @@ export default async function ModelPage({ params }: PageProps) {
 							modelId={decodedName}
 							providerIds={visibleProviders.map((p) => p.providerId)}
 							activeProviderId=""
+							branding={buildProviderTabBranding(
+								visibleProviders.map((p) => p.providerId),
+								apiProviders,
+							)}
 						/>
 					</div>
 
@@ -746,7 +757,10 @@ export default async function ModelPage({ params }: PageProps) {
 					</div>
 
 					<div className="mb-8">
-						<ModelBenchmarks modelId={decodedName} />
+						<ModelBenchmarks
+							modelId={decodedName}
+							uploadedIcons={uploadedProviderIcons}
+						/>
 					</div>
 
 					<div className="mb-12">

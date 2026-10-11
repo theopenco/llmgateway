@@ -1,4 +1,4 @@
-import { dynamicRouteGraphSchema } from "@llmgateway/shared/dynamic-route";
+import { dynamicRouteGraphInputSchema as dynamicRouteGraphSchema } from "@llmgateway/shared/dynamic-route";
 
 import type {
 	DynamicRouteGraph,

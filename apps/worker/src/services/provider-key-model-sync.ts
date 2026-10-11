@@ -121,6 +121,7 @@ async function syncKey(
 				and(
 					eq(tables.providerKey.id, key.id),
 					eq(tables.providerKey.managed, true),
+					eq(tables.providerKey.modelSyncEnabled, true),
 					ne(tables.providerKey.status, "deleted"),
 					sql`cardinality(${column}) > 0`,
 				),
@@ -151,8 +152,8 @@ async function syncKey(
 }
 
 /**
- * Probes every catalogue model a restricted managed credential does not allow
- * yet and enables the ones its account now serves. Never removes a model, so a
+ * Probes every catalogue model a restricted managed credential with model sync
+ * enabled does not allow yet and enables the ones its account now serves. Never removes a model, so a
  * temporary upstream failure cannot shrink a credential. Each credential is
  * synced at most once per interval; returns how many were synced.
  */
@@ -164,6 +165,7 @@ export async function syncProviderKeyModels(
 			where: {
 				managed: { eq: true },
 				status: { eq: "active" },
+				modelSyncEnabled: { eq: true },
 				provider: { in: [...MODEL_SYNC_PROVIDERS] },
 			},
 		})

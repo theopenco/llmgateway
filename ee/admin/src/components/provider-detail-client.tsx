@@ -5,6 +5,11 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 
+import {
+	AirsideSettingsSection,
+	FareBadge,
+	formatPercent,
+} from "@/components/airside-settings-section";
 import { DetailStatCards } from "@/components/detail-stat-cards";
 import { HistoryChart, windowOptions } from "@/components/history-chart";
 import { ProviderModelsTable } from "@/components/provider-models-table";
@@ -29,10 +34,6 @@ function parseHistoryWindow(value: string | null): HistoryWindow {
 		return value as HistoryWindow;
 	}
 	return "4h";
-}
-
-function formatPercent(fraction: number): string {
-	return `${(fraction * 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
 }
 
 function AirsideCarrierCard({
@@ -88,18 +89,7 @@ function AirsideCarrierCard({
 							Routing adjustment
 						</dt>
 						<dd className="text-sm">
-							<Badge
-								variant={
-									carrier.routingAdjustment < 0
-										? "secondary"
-										: carrier.routingAdjustment > 0
-											? "destructive"
-											: "outline"
-								}
-							>
-								{carrier.routingAdjustment > 0 ? "+" : ""}
-								{formatPercent(carrier.routingAdjustment)}
-							</Badge>
+							<FareBadge adjustment={carrier.routingAdjustment} />
 						</dd>
 					</div>
 				)}
@@ -232,6 +222,10 @@ export function ProviderDetailClient({
 					externalWindow={window}
 				/>
 			</section>
+
+			{airside ? (
+				<AirsideSettingsSection providerId={providerId} carrier={airside} />
+			) : null}
 
 			<section className="space-y-4">
 				<h2 className="text-xl font-semibold">

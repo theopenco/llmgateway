@@ -104,7 +104,7 @@ In LLM Gateway, caching is a project-level switch. TTL from 10 seconds to 1 year
 - **Guardrails (Enterprise plan)** — prompt injection, jailbreak, PII, and secrets detection with block/redact/warn rules
 - **Audit logs** — every org action tracked with who, what, when, which resource (90-day retention)
 - **Team management** — roles and permissions across organizations and projects
-- **Data retention controls** — full payload retention, metadata-only, or zero retention per project
+- **Data retention controls** — metadata-only by default, full payload retention on Enterprise, or zero data retention
 
 LiteLLM covers some of this through plugins or external services. LLM Gateway bundles it.
 

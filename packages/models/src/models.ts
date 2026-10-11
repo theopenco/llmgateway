@@ -740,6 +740,13 @@ export interface ProviderModelMapping {
 	 */
 	supportsAssistantPrefill?: boolean;
 	/**
+	 * Whether this mapping's upstream accepts `system` messages inside the
+	 * Anthropic `messages` array (Claude Opus 4.8 and later). When unset, a
+	 * system message that arrives mid-conversation is sent in place as a user
+	 * `<system-reminder>` instead.
+	 */
+	midConversationSystem?: boolean;
+	/**
 	 * Test skip/only functionality
 	 */
 	test?: "skip" | "only";

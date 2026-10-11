@@ -11,6 +11,7 @@ import {
 
 import type {
 	AnthropicRequestBody,
+	BaseMessage,
 	OpenAIRequestBody,
 	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
@@ -475,11 +476,19 @@ describe("prepareRequestBody - Anthropic", () => {
 				: [],
 		);
 
-		// Exactly one marker, on the tool_result block the caller chose — the
-		// turn boundary lands on that same message and leaves it alone.
-		expect(marked).toHaveLength(1);
-		expect((marked[0] as { type: string }).type).toBe("tool_result");
-		expect(getCacheControl(marked[0])).toEqual({ type: "ephemeral" });
+		// The caller's marker stays on its tool_result, where the turn boundary
+		// leaves it alone; the conversation tail gets the automatic one.
+		expect(marked).toEqual([
+			expect.objectContaining({
+				type: "tool_result",
+				cache_control: { type: "ephemeral" },
+			}),
+			expect.objectContaining({
+				type: "text",
+				text: "What should I wear?",
+				cache_control: { type: "ephemeral" },
+			}),
+		]);
 	});
 
 	test("suppresses auto-injection when a tool_result carries a 1h ttl", async () => {
@@ -774,10 +783,10 @@ describe("prepareRequestBody - Anthropic", () => {
 		).length;
 
 		expect(toolMarkers).toBe(1);
-		// The remaining 3 slots go to the system prompts; nothing is left for the
-		// messages or the turn boundary.
-		expect(systemMarkers).toBe(3);
-		expect(messageMarkers).toBe(0);
+		// The system prompts take one more slot and leave two for the
+		// conversation markers.
+		expect(systemMarkers).toBe(1);
+		expect(messageMarkers).toBe(2);
 		expect(toolMarkers + systemMarkers + messageMarkers).toBe(4);
 	});
 
@@ -1485,6 +1494,530 @@ describe("prepareRequestBody - Anthropic", () => {
 		).length;
 		expect(systemMarkers + messageMarkers).toBe(4);
 	});
+
+	const midConversationMessages = [
+		{ role: "system", content: "You are a helpful assistant." },
+		{ role: "user", content: "Hello!" },
+		{ role: "system", content: "The date changed." },
+		{ role: "assistant", content: "Hi." },
+		{ role: "user", content: "Continue." },
+	];
+
+	test("keeps a mid-conversation system message in place where the mapping accepts it", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-5",
+			null,
+			"claude-sonnet-5",
+			midConversationMessages as any,
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as AnthropicRequestBody;
+
+		// Hoisting it would rewrite the cached prefix on every turn.
+		expect(requestBody.system).toEqual([
+			{ type: "text", text: "You are a helpful assistant." },
+		]);
+		expect(requestBody.messages.map((msg) => msg.role)).toEqual([
+			"user",
+			"system",
+			"assistant",
+			"user",
+		]);
+		expect(requestBody.messages[1].content).toEqual([
+			{ type: "text", text: "The date changed." },
+		]);
+	});
+
+	test.each([
+		{
+			position: "after an assistant turn",
+			messages: [
+				{ role: "user", content: "Hello!" },
+				{ role: "assistant", content: "Hi." },
+				{ role: "system", content: "The date changed." },
+				{ role: "user", content: "Continue." },
+			],
+			roles: ["user", "assistant", "user", "user"],
+			reminderIndex: 2,
+		},
+		{
+			position: "after an assistant turn at the end",
+			messages: [
+				{ role: "user", content: "Hello!" },
+				{ role: "assistant", content: "Hi." },
+				{ role: "system", content: "The date changed." },
+			],
+			roles: ["user", "assistant", "user"],
+			reminderIndex: 2,
+		},
+		{
+			position: "before a user turn",
+			messages: [
+				{ role: "user", content: "Hello!" },
+				{ role: "system", content: "The date changed." },
+				{ role: "user", content: "Continue." },
+			],
+			roles: ["user", "user", "user"],
+			reminderIndex: 1,
+		},
+		{
+			position: "before a user turn once an empty assistant turn is dropped",
+			messages: [
+				{ role: "user", content: "Hello!" },
+				{ role: "system", content: "The date changed." },
+				{ role: "assistant", content: "" },
+				{ role: "user", content: "Continue." },
+			],
+			roles: ["user", "user", "user"],
+			reminderIndex: 1,
+		},
+	])(
+		"sends a mid-conversation system message $position as a user reminder where the mapping accepts the role",
+		async ({ messages, roles, reminderIndex }) => {
+			const requestBody = (await prepareRequestBody(
+				"anthropic",
+				"claude-sonnet-5",
+				null,
+				"claude-sonnet-5",
+				messages as any,
+				false,
+				undefined,
+				1024,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+			)) as AnthropicRequestBody;
+
+			expect(requestBody.messages.map((msg) => msg.role)).toEqual(roles);
+			expect(requestBody.messages[reminderIndex].content).toMatchObject([
+				{
+					type: "text",
+					text: "<system-reminder>\nThe date changed.\n</system-reminder>",
+				},
+			]);
+		},
+	);
+
+	test("keeps a run of mid-conversation system messages in place between a user and an assistant turn", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-5",
+			null,
+			"claude-sonnet-5",
+			[
+				{ role: "user", content: "Hello!" },
+				{ role: "system", content: "The date changed." },
+				{ role: "system", content: "Reply briefly." },
+				{ role: "assistant", content: "Hi." },
+				{ role: "user", content: "Continue." },
+				{ role: "system", content: "Wrap up." },
+			] as any,
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as AnthropicRequestBody;
+
+		expect(requestBody.messages.map((msg) => msg.role)).toEqual([
+			"user",
+			"system",
+			"system",
+			"assistant",
+			"user",
+			"system",
+		]);
+	});
+
+	test("sends a mid-conversation system message as a user reminder elsewhere", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-haiku-4-5",
+			null,
+			"claude-haiku-4-5",
+			midConversationMessages as any,
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as AnthropicRequestBody;
+
+		expect(requestBody.system).toEqual([
+			{ type: "text", text: "You are a helpful assistant." },
+		]);
+		expect(requestBody.messages.map((msg) => msg.role)).toEqual([
+			"user",
+			"user",
+			"assistant",
+			"user",
+		]);
+		expect(requestBody.messages[1].content).toEqual([
+			{
+				type: "text",
+				text: "<system-reminder>\nThe date changed.\n</system-reminder>",
+			},
+		]);
+	});
+
+	test("keeps a mid-conversation system message in place on Bedrock", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-5",
+			null,
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			midConversationMessages as any,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.system).toEqual([
+			{ text: "You are a helpful assistant." },
+		]);
+		expect(
+			requestBody.messages.map((msg: { role: string }) => msg.role),
+		).toEqual(["user", "user", "assistant", "user"]);
+		expect(requestBody.messages[1].content).toEqual([
+			{ text: "<system-reminder>\nThe date changed.\n</system-reminder>" },
+		]);
+	});
+
+	test("Bedrock keeps the caller's tool_result breakpoint ahead of heuristic ones", async () => {
+		const long = "A".repeat(30000);
+		const marker = { type: "ephemeral" as const };
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-5",
+			null,
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			[
+				{
+					role: "system",
+					content: [
+						{ type: "text", text: "one", cache_control: marker },
+						{ type: "text", text: "two", cache_control: marker },
+					],
+				},
+				{ role: "user", content: long },
+				{ role: "system", content: long },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "call_1",
+							type: "function",
+							function: { name: "run", arguments: "{}" },
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: "done",
+					tool_result_cache_control: marker,
+				},
+				{ role: "system", content: "Reminder." },
+			] as any,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as any;
+
+		const blocks = requestBody.messages.map((msg: { content: any[] }) =>
+			msg.content.map((block) => Object.keys(block)[0]),
+		);
+		expect(blocks).toEqual([
+			["text"],
+			["text"],
+			["toolUse"],
+			["toolResult", "cachePoint"],
+			["text", "cachePoint"],
+		]);
+	});
+
+	test.each(["passthrough", "auto"] as const)(
+		"Bedrock sorts tool results into toolUse order ahead of the caller's breakpoint (%s)",
+		async (mode) => {
+			const toolCall = (id: string) => ({
+				id,
+				type: "function" as const,
+				function: { name: "read", arguments: "{}" },
+			});
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-5",
+				null,
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				[
+					{ role: "user", content: "Read three files." },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							toolCall("call_1"),
+							toolCall("call_2"),
+							toolCall("call_3"),
+						],
+					},
+					// Results arrive in completion order, as Claude Code sends them.
+					{ role: "tool", tool_call_id: "call_3", content: "three" },
+					{ role: "tool", tool_call_id: "call_1", content: "one" },
+					{
+						role: "tool",
+						tool_call_id: "call_2",
+						content: "two",
+						tool_result_cache_control: { type: "ephemeral" },
+					},
+				],
+				false, // stream
+				undefined, // temperature
+				1024, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				undefined, // reasoning_effort
+				undefined, // supportsReasoning
+				false, // isProd
+				20, // maxImageSizeMB
+				null, // userPlan
+				undefined, // sensitive_word_check
+				undefined, // image_config
+				undefined, // effort
+				undefined, // imageGenerations
+				undefined, // webSearchTool
+				undefined, // reasoning_max_tokens
+				undefined, // useResponsesApi
+				undefined, // prompt_cache_key
+				undefined, // prompt_cache_retention
+				mode, // providerCacheControlMode
+			)) as any;
+
+			const last = requestBody.messages[requestBody.messages.length - 1];
+			expect(
+				last.content.map(
+					(block: any) => block.toolResult?.toolUseId ?? Object.keys(block)[0],
+				),
+			).toEqual(["call_1", "call_2", "call_3", "cachePoint"]);
+			expect(
+				last.content.filter((block: any) => block.cachePoint),
+			).toHaveLength(1);
+		},
+	);
+
+	test("auto-injection leaves budget for the caller's trailing breakpoint", async () => {
+		const long = "A".repeat(30000);
+		const marker = { type: "ephemeral" as const };
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-5",
+			null,
+			"claude-sonnet-5",
+			[
+				{
+					role: "system",
+					content: [
+						{ type: "text", text: "one", cache_control: marker },
+						{ type: "text", text: "two", cache_control: marker },
+					],
+				},
+				{ role: "user", content: long },
+				{ role: "assistant", content: long },
+				{ role: "user", content: long },
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "tail", cache_control: marker }],
+				},
+			] as any,
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as AnthropicRequestBody;
+
+		const lastMessage = requestBody.messages[requestBody.messages.length - 1];
+		expect(getCacheControl((lastMessage.content as unknown[])[0])).toEqual(
+			marker,
+		);
+		const messageMarkers = requestBody.messages.flatMap((msg) =>
+			Array.isArray(msg.content)
+				? msg.content.filter((block) => getCacheControl(block))
+				: [],
+		).length;
+		expect(messageMarkers).toBe(2);
+	});
+
+	test.each(
+		[
+			["anthropic", "claude-sonnet-5", "claude-sonnet-5"],
+			[
+				"aws-bedrock",
+				"claude-sonnet-4-5",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			],
+		].flatMap(([provider, model, upstreamModel]) =>
+			(["field", "parts", "override"] as const).map((source) => ({
+				provider,
+				model,
+				upstreamModel,
+				source,
+			})),
+		),
+	)(
+		"$provider reserves caller breakpoints before caching opening system messages ($source marker)",
+		async ({ provider, model, upstreamModel, source }) => {
+			const resultText =
+				source === "field"
+					? "Lookup complete."
+					: JSON.stringify([{ type: "text", text: "Lookup complete." }]);
+			const messages: BaseMessage[] = [
+				...Array.from({ length: 4 }, () => ({
+					role: "system" as const,
+					content: "Stable system context. ".repeat(2000),
+				})),
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Run the lookup tool." },
+						{ type: "text", text: " ", cache_control: { type: "ephemeral" } },
+					],
+				},
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "call_lookup",
+							type: "function",
+							function: { name: "lookup", arguments: "{}" },
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "call_lookup",
+					content:
+						source === "field"
+							? "Lookup complete."
+							: [
+									{
+										type: "text",
+										text: "Lookup complete.",
+										cache_control: {
+											type: "ephemeral",
+											...(source === "override" && { ttl: "1h" }),
+										},
+									},
+								],
+					...(source !== "parts" && {
+						tool_result_cache_control: { type: "ephemeral" },
+					}),
+				},
+			];
+			const body = await prepareRequestBody(
+				provider,
+				model,
+				null,
+				upstreamModel,
+				messages,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+			);
+			const resultContent =
+				provider === "anthropic"
+					? [
+							{
+								type: "tool_result",
+								tool_use_id: "call_lookup",
+								content: resultText,
+								cache_control: { type: "ephemeral" },
+							},
+						]
+					: [
+							{
+								toolResult: {
+									toolUseId: "call_lookup",
+									content: [{ text: resultText }],
+								},
+							},
+							{ cachePoint: { type: "default" } },
+						];
+			expect(body).toHaveProperty("messages.2.content", resultContent);
+			// Anthropic cannot mark the tool-use-only boundary; Bedrock can.
+			expect(
+				JSON.stringify(body).match(/"cache_control"|"cachePoint"/g),
+			).toHaveLength(provider === "anthropic" ? 3 : 4);
+			const withoutMarker = messages.map((message) =>
+				message.role === "tool"
+					? {
+							...message,
+							content:
+								source === "field"
+									? "Lookup complete."
+									: [{ type: "text" as const, text: "Lookup complete." }],
+							tool_result_cache_control: undefined,
+						}
+					: message,
+			);
+			const nextBody = await prepareRequestBody(
+				provider,
+				model,
+				null,
+				upstreamModel,
+				withoutMarker,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+			);
+			expect(nextBody).toHaveProperty(
+				provider === "anthropic"
+					? "messages.2.content.0.content"
+					: "messages.2.content.0.toolResult.content.0.text",
+				resultText,
+			);
+		},
+	);
 });
 
 describe("prepareRequestBody - OpenAI image generation", () => {
@@ -1581,6 +2114,93 @@ describe("prepareRequestBody - Meta image generation", () => {
 		await expect(
 			prepareMetaImageRequest({ image_size: "2048x2048" }),
 		).rejects.toBeInstanceOf(RequestError);
+	});
+});
+
+describe("prepareRequestBody - Tencent Hy Image generation", () => {
+	async function prepareTencentImageRequest(
+		messages: BaseMessage[],
+		imageConfig?: { image_size?: string; seed?: number; n?: number },
+	) {
+		return (await prepareRequestBody(
+			"tencent",
+			"hy-image-v3.5-preview",
+			null,
+			"hy-image-v3.5-preview",
+			messages,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("sends the last user turn as Chat/Messages content with size and seed", async () => {
+		const requestBody = await prepareTencentImageRequest(
+			[
+				{ role: "user", content: "An earlier prompt" },
+				{ role: "assistant", content: "Image generated" },
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Make it a watercolor" },
+						{
+							type: "image_url",
+							image_url: { url: "https://example.com/ref.png" },
+						},
+					],
+				},
+			],
+			{ image_size: "4096x2304", seed: 42, n: 2 },
+		);
+
+		expect(requestBody).toEqual({
+			model: "hy-image-v3.5-preview",
+			messages: [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Make it a watercolor" },
+						{
+							type: "image_url",
+							image_url: { url: "https://example.com/ref.png" },
+						},
+					],
+				},
+			],
+			size: "4096x2304",
+			seed: 42,
+		});
+	});
+
+	test("omits size so the model picks it from the prompt", async () => {
+		const requestBody = await prepareTencentImageRequest([
+			{ role: "user", content: "A lighthouse at dawn" },
+		]);
+
+		expect(requestBody).toEqual({
+			model: "hy-image-v3.5-preview",
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "A lighthouse at dawn" }],
+				},
+			],
+		});
 	});
 });
 
@@ -3075,7 +3695,7 @@ describe("prepareRequestBody - Xiaomi thinking", () => {
 
 	test("forwards native effort tiers verbatim without a thinking parameter", async () => {
 		const requestBody = await prepare({
-			model: "mimo-v2.5-pro",
+			model: "mimo-v2.6-pro",
 			reasoningEffort: "high",
 		});
 		expect(requestBody.reasoning_effort).toBe("high");
@@ -3084,7 +3704,7 @@ describe("prepareRequestBody - Xiaomi thinking", () => {
 
 	test("maps none to thinking disabled and never forwards reasoning_effort", async () => {
 		const requestBody = await prepare({
-			model: "mimo-v2.5-pro",
+			model: "mimo-v2.6-pro",
 			reasoningEffort: "none",
 		});
 		expect(requestBody.thinking).toEqual({ type: "disabled" });
@@ -3092,14 +3712,14 @@ describe("prepareRequestBody - Xiaomi thinking", () => {
 	});
 
 	test("keeps the provider default when no reasoning_effort is requested", async () => {
-		const requestBody = await prepare({ model: "mimo-v2.5-pro" });
+		const requestBody = await prepare({ model: "mimo-v2.6-pro" });
 		expect(requestBody.thinking).toBeUndefined();
 		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
 
 	test("forwards unsupported tiers verbatim so the provider rejects them", async () => {
 		const requestBody = await prepare({
-			model: "mimo-v2.5",
+			model: "mimo-v2.6-flash",
 			reasoningEffort: "xhigh",
 		});
 		expect(requestBody.reasoning_effort).toBe("xhigh");
@@ -3901,6 +4521,44 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(requestBody.generationConfig.thinkingConfig.thinkingBudget).toBe(
 			65536,
 		);
+	});
+
+	test("maps reasoning_effort to thinkingLevel on Gemini 3+", async () => {
+		const cases = [
+			{ model: "gemini-3.6-flash", effort: "minimal", expected: "minimal" },
+			{ model: "gemini-3.6-flash", effort: "medium", expected: "medium" },
+			{ model: "gemini-3.6-flash", effort: "max", expected: "high" },
+			// minimal is undeclared (and 400s) on 3.8 Flash and Pro.
+			{ model: "gemini-3.8-flash", effort: "minimal", expected: "low" },
+			{ model: "gemini-3.1-pro-preview", effort: "minimal", expected: "low" },
+		] as const;
+
+		for (const { model, effort, expected } of cases) {
+			const requestBody = (await prepareRequestBody(
+				"google-ai-studio",
+				model,
+				null,
+				model,
+				[{ role: "user", content: "test" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				effort,
+				true,
+				false,
+			)) as any;
+
+			expect(requestBody.generationConfig.thinkingConfig).toEqual({
+				includeThoughts: true,
+				thinkingLevel: expected,
+			});
+		}
 	});
 
 	test("should not set thinkingBudget when reasoning_effort is not provided", async () => {
@@ -5698,6 +6356,7 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 						content: [{ text: JSON.stringify({ time: "20:52" }) }],
 					},
 				},
+				{ cachePoint: { type: "default" } },
 			],
 		});
 	});
@@ -6111,9 +6770,9 @@ describe("prepareRequestBody - Alibaba cache_control", () => {
 // Sibling to the Anthropic max_tokens regression tests above. Every provider
 // gets the same three checks (caller-supplied, caller-omitted, reasoning) so
 // we never silently regress to a stale fallback the way the Anthropic 1024
-// default did (see PR #2289). For providers where max_tokens is OPTIONAL
-// upstream (everything except Anthropic), the omit path must leave the field
-// undefined so the provider's own default wins.
+// default did (see PR #2289). Claude needs an explicit max_tokens on every
+// platform; for other providers the omit path must leave the field undefined
+// so the provider's own default wins.
 describe("prepareRequestBody - max_tokens forwarding", () => {
 	describe("aws-bedrock (Anthropic via Converse)", () => {
 		test("forwards caller-supplied max_tokens verbatim", async () => {
@@ -6140,10 +6799,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			expect(requestBody.inferenceConfig?.maxTokens).toBe(32000);
 		});
 
-		test("leaves maxTokens unset when caller omits (no reasoning)", async () => {
-			// Bedrock's Converse API tolerates omitting max_tokens; the historical
-			// 1024 default was Anthropic-specific. When reasoning is off, just let
-			// upstream pick.
+		test("falls back to model maxOutput when caller omits (no reasoning)", async () => {
+			// Converse silently caps Claude at 4096 output tokens when maxTokens
+			// is omitted.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
 				"claude-sonnet-4-6",
@@ -6164,7 +6822,7 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				false,
 			)) as any;
 
-			expect(requestBody.inferenceConfig?.maxTokens).toBeUndefined();
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(64000);
 		});
 
 		test("falls back to model maxOutput when caller omits with reasoning enabled", async () => {
@@ -6531,6 +7189,91 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			).toBe(true);
 			expect(requestBody.messages[1].content).toBe("Got it, Ada!");
 		});
+
+		test.each([
+			["openai", "deepseek-v4.1-flash", [" ", "Now Rome."], undefined],
+			["novita", "deepseek-v4-flash", [" ", "Now Rome."], undefined],
+			["deepseek", "deepseek-v4.1-flash", ["", "Now Rome."], undefined],
+			["openai", "gpt-4o-mini", [undefined, undefined], "Now Rome."],
+		] as const)(
+			"backfills reasoning_content on tool turns only for DeepSeek V4: %s %s",
+			async (provider, model, expected, reasoningLeft) => {
+				// Airside carriers with an OpenAI chat-completions apiFormat reach
+				// prepareRequestBody with the "openai" transport, so only the
+				// canonical model id says the upstream is DeepSeek V4.
+				const requestBody = (await prepareRequestBody(
+					provider,
+					model,
+					null,
+					model,
+					[
+						{ role: "user", content: "Weather in Paris, then Rome?" },
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"Paris"}',
+									},
+								},
+							],
+						},
+						{ role: "tool", tool_call_id: "call_1", content: "sunny" },
+						{
+							role: "assistant",
+							content: "",
+							reasoning: "Now Rome.",
+							tool_calls: [
+								{
+									id: "call_2",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"Rome"}',
+									},
+								},
+							],
+						},
+						{ role: "tool", tool_call_id: "call_2", content: "rain" },
+						{ role: "assistant", content: "Paris sunny, Rome rainy." },
+						{ role: "user", content: "Thanks!" },
+					],
+					false,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					false,
+					20,
+					null,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					false, // useResponsesApi
+				)) as any;
+
+				expect(
+					[1, 3].map((i) => requestBody.messages[i].reasoning_content),
+				).toEqual(expected);
+				expect(requestBody.messages[5].reasoning_content).toBeUndefined();
+				// Runware treats `reasoning` as an alias of `reasoning_content` and
+				// rejects a message that carries both, so the backfill moves it.
+				expect(requestBody.messages[3].reasoning).toBe(reasoningLeft);
+			},
+		);
 	});
 
 	describe("azure-ai-foundry", () => {
@@ -8029,9 +8772,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("flattens tool message with array content (text + image) to plain string", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{ role: "user", content: "describe this" },
 				{
@@ -8069,9 +8812,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("leaves tool message with plain string content unchanged", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{ role: "user", content: "What is the weather?" },
 				{
@@ -8101,9 +8844,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("leaves user message array content unchanged (images still work)", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{
 					role: "user",
@@ -8147,9 +8890,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("handles tool message with multiple text blocks", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{
 					role: "tool",
@@ -8180,9 +8923,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("handles tool message with only images, no text (empty string)", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{
 					role: "tool",
@@ -8215,9 +8958,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("applies standard default params (stream_options, temperature, etc.)", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[{ role: "user", content: "Hello" }],
 			true,
 			0.7,

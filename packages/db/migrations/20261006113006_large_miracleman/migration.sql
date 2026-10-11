@@ -1,0 +1,1 @@
+ALTER TABLE "provider_key" ADD COLUMN "model_sync_enabled" boolean DEFAULT true NOT NULL;

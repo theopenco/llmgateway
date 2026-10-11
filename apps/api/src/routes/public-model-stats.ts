@@ -7,6 +7,7 @@ import {
 	and,
 	cdb,
 	excludeRegionalMappingRows,
+	gt,
 	gte,
 	inArray,
 	lt,
@@ -128,7 +129,9 @@ publicModelStats.openapi(listRoute, async (c) => {
 			totalRequests: sql<string>`COALESCE(SUM(${mh.logsCount}), 0)`,
 		})
 		.from(mh)
-		.where(and(gte(mhTs, startDate)))
+		// `logs_count > 0` changes no sum: it is what lets the planner use the
+		// partial covering index that skips the idle models' zero rows.
+		.where(and(gte(mhTs, startDate), gt(mh.logsCount, 0)))
 		.groupBy(mh.modelId)
 		// Stable window-scoped cache tag; see public-providers-stats for why the
 		// tag is pinned (the ever-moving startDate would otherwise defeat the
@@ -145,7 +148,9 @@ publicModelStats.openapi(listRoute, async (c) => {
 			totalTokens: sql<string>`COALESCE(SUM(${mh.totalTokens}), 0)`,
 		})
 		.from(mh)
-		.where(and(gte(mhTs, prevStartDate), lt(mhTs, startDate)))
+		.where(
+			and(gte(mhTs, prevStartDate), lt(mhTs, startDate), gt(mh.logsCount, 0)),
+		)
 		.groupBy(mh.modelId)
 		.$withCache({
 			tag: `publicModelStats:previous:v1:${window}`,
@@ -162,7 +167,13 @@ publicModelStats.openapi(listRoute, async (c) => {
 		.from(mph)
 		// The region-less root row already carries a mapping's regional traffic,
 		// so summing every row per provider would count it twice.
-		.where(and(gte(mphTs, startDate), excludeRegionalMappingRows(mph)))
+		.where(
+			and(
+				gte(mphTs, startDate),
+				gt(mph.logsCount, 0),
+				excludeRegionalMappingRows(mph),
+			),
+		)
 		.groupBy(mph.providerId)
 		.$withCache({
 			tag: `publicModelStats:providers:v2:${window}`,

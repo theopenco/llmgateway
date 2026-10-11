@@ -116,6 +116,9 @@ export default async function UnstableMappingsPage({
 							{data.ignoreExpected
 								? `${formatNumber(data.ignoredMatcherCount)} expected-error matcher${data.ignoredMatcherCount === 1 ? "" : "s"} applied.`
 								: "Expected-error matchers are disabled."}{" "}
+							{data.includeByok
+								? "Bring-your-own-key traffic is included."
+								: "Bring-your-own-key traffic is excluded."}{" "}
 							{data.splitByKey
 								? "Each row is one provider key's share of a mapping. "
 								: ""}

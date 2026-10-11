@@ -14,6 +14,7 @@ import {
 	ScrollText,
 	Settings,
 	Shield,
+	ShieldBan,
 	Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -56,6 +57,7 @@ import { stripeSearchUrl, stripeTransactionUrl } from "@/lib/stripe-dashboard";
 
 import { ApiKeysTable } from "./api-keys-table";
 import { AuditLogsTab } from "./audit-logs-tab";
+import { DataStreamsDialog } from "./data-streams-dialog";
 import { GuardrailsTab } from "./guardrails-tab";
 import { ManageOrgDialog } from "./manage-org-dialog";
 import { MemberAccessTab } from "./member-access-tab";
@@ -65,6 +67,7 @@ import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
 import { OrgSettingsTab } from "./org-settings-tab";
 import { OrganizationTabs, OrganizationTabTrigger } from "./organization-tabs";
+import { ProviderAccessTab } from "./provider-access-tab";
 import { ProviderKeysTable } from "./provider-keys-table";
 import { ReferralBonusDialog } from "./referral-bonus-dialog";
 import { SsoTab } from "./sso-tab";
@@ -591,6 +594,14 @@ export default async function OrganizationPage({
 											enabled={org.referralBonusEnabled ?? false}
 											percent={org.referralBonusPercent ?? 50}
 										/>
+										<DataStreamsDialog
+											orgId={orgId}
+											orgName={org.name}
+											dataStreamsEnabled={org.dataStreamsEnabled ?? false}
+											requestLogExportEnabled={
+												org.requestLogExportEnabled ?? false
+											}
+										/>
 									</div>
 								</div>
 							) : null}
@@ -728,6 +739,10 @@ export default async function OrganizationPage({
 					<OrganizationTabTrigger value="guardrails">
 						<Shield className="mr-1.5 h-4 w-4" />
 						Guardrails
+					</OrganizationTabTrigger>
+					<OrganizationTabTrigger value="provider-access">
+						<ShieldBan className="mr-1.5 h-4 w-4" />
+						Provider Access
 					</OrganizationTabTrigger>
 					<OrganizationTabTrigger value="sso">
 						<Lock className="mr-1.5 h-4 w-4" />
@@ -1040,6 +1055,10 @@ export default async function OrganizationPage({
 							Failed to load guardrails
 						</p>
 					)}
+				</TabsContent>
+
+				<TabsContent value="provider-access">
+					<ProviderAccessTab orgId={orgId} />
 				</TabsContent>
 
 				<TabsContent value="sso">

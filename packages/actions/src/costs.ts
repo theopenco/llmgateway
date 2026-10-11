@@ -523,12 +523,13 @@ export async function calculateCosts(
 	}
 
 	// Without prompt tokens we can't calculate token costs — except for
-	// mappings that bill independently of token usage (per generated image via
-	// perImagePrice, or a flat positive requestPrice), which must still charge
-	// when the upstream response omits prompt usage. Those fall through with
-	// prompt tokens normalized to zero.
+	// mappings that bill independently of prompt usage (per generated image via
+	// perImagePrice or imageOutputPrice, or a flat positive requestPrice), which
+	// must still charge when the upstream response omits prompt usage. Those
+	// fall through with prompt tokens normalized to zero.
 	const billsWithoutTokenUsage =
-		(providerInfo.perImagePrice && outputImageCount > 0) ||
+		((providerInfo.perImagePrice || providerInfo.imageOutputPrice) &&
+			outputImageCount > 0) ||
 		parseFloat(providerInfo.requestPrice ?? "0") > 0;
 	if (!calculatedPromptTokens && !billsWithoutTokenUsage) {
 		return {

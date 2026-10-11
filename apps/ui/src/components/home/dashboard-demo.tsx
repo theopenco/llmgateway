@@ -160,7 +160,7 @@ export function DashboardDemo() {
 		}
 		track("view_unavailable", target);
 		notify(
-			`${findNavLink(target)?.label ?? "This page"} isn't in the demo. See it on your own traffic.`,
+			`${findNavLink(target)?.label ?? "This page"} isn't part of this demo.`,
 		);
 	};
 
@@ -213,12 +213,13 @@ export function DashboardDemo() {
 						{unlocked && (
 							<div className="ml-auto flex shrink-0 items-center gap-1 @md/demo:ml-0">
 								<TrackedLink
-									href="/enterprise#contact"
+									href="/signup"
+									auth
 									location="home_demo_chrome"
-									cta="start_pilot"
-									className="inline-flex h-7 items-center gap-1.5 rounded-md bg-amber-300 px-2.5 text-xs font-semibold text-[#09090b] transition-colors hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+									cta="get_api_key"
+									className="inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-xs font-semibold text-background transition-colors hover:bg-foreground/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 								>
-									Start pilot
+									Get started
 									<ArrowRight className="size-3.5" />
 								</TrackedLink>
 								<button
@@ -281,12 +282,13 @@ export function DashboardDemo() {
 										{notice.message}
 									</span>
 									<TrackedLink
-										href="/enterprise#contact"
-										location="home_demo_notice"
-										cta="start_pilot"
+										href="/signup"
+										auth
+										location="home_demo"
+										cta="demo_notice_signup"
 										className="shrink-0 font-medium underline underline-offset-4"
 									>
-										Start your 30-day pilot
+										Try it free
 									</TrackedLink>
 									<button
 										type="button"

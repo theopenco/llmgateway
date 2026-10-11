@@ -11,7 +11,9 @@ import {
 	providerSupportsCaching,
 	computeWeightedProviderScores,
 	getEffectiveScoringWeights,
+	type CachePricingContext,
 	type CandidateScoreInput,
+	type ScoringFlags,
 } from "@llmgateway/actions";
 import {
 	and,
@@ -20,7 +22,9 @@ import {
 	eq,
 	excludeRegionalMappingRows,
 	getEffectiveDiscount,
+	getProviderMetricsFromHistory,
 	getRoutingScoreAdjustment,
+	metricsKey,
 	gte,
 	modelProviderMappingHistoryHourly,
 	routingElectionHourly,
@@ -30,10 +34,18 @@ import {
 	getProviderDefinition,
 	models,
 	type ProviderModelMapping,
+	type ModelDefinition,
 } from "@llmgateway/models";
-import { deriveStabilityMetrics } from "@llmgateway/shared";
+import {
+	deriveStabilityMetrics,
+	providerSupportsCachedInput,
+} from "@llmgateway/shared";
 import { isMappingDeactivated } from "@llmgateway/shared/deactivation";
-import { getDefaultRoutingConfig } from "@llmgateway/shared/routing-config";
+import {
+	applyRoutingPreference,
+	getDefaultRoutingConfig,
+	type ResolvedRoutingConfig,
+} from "@llmgateway/shared/routing-config";
 import {
 	routingExclusionReasonParent,
 	routingSelectionKind,
@@ -74,11 +86,13 @@ const scoreBreakdownSchema = z
 const providerHourEntrySchema = z
 	.object({
 		providerId: z.string(),
+		// All traffic, including BYOK.
 		requestCount: z.number(),
+		// Error counts and metrics cover credit-funded traffic only, as routing does.
 		errorCount: z.number(),
 		clientErrorCount: z.number(),
-		// Derived metric inputs; null when the mapping saw no traffic in the hour
-		// (routing then falls back to thresholds.default*).
+		// Derived metric inputs; null when the mapping saw no credit-funded traffic
+		// in the hour (routing then falls back to thresholds.default*).
 		uptime: z.number().nullable(),
 		latency: z.number().nullable(),
 		throughput: z.number().nullable(),
@@ -225,6 +239,15 @@ const electionReasonEntrySchema = z
 	})
 	.openapi({});
 
+const providerElectionsSchema = z
+	.object({
+		providerId: z.string(),
+		requestCount: z.number(),
+		byKind: z.array(electionKindEntrySchema),
+		byReason: z.array(electionReasonEntrySchema),
+	})
+	.openapi({});
+
 const routingElectionsSchema = z
 	.object({
 		requestCount: z.number(),
@@ -234,6 +257,8 @@ const routingElectionsSchema = z
 		averageCandidateCount: z.number().nullable(),
 		byKind: z.array(electionKindEntrySchema),
 		byReason: z.array(electionReasonEntrySchema),
+		/** The same election paths, split by the provider that was picked. */
+		byProvider: z.array(providerElectionsSchema),
 	})
 	.openapi({});
 
@@ -247,6 +272,78 @@ const routingSummaryEntrySchema = z
 		throughput: z.number().nullable(),
 		score: z.number().nullable(),
 		breakdown: scoreBreakdownSchema.nullable(),
+	})
+	.openapi({});
+
+const effectiveWeightsSchema = z
+	.object({
+		price: z.number(),
+		uptime: z.number(),
+		throughput: z.number(),
+		latency: z.number(),
+		cache: z.number(),
+		total: z.number(),
+	})
+	.openapi({});
+
+const liveProviderMetricsSchema = z
+	.object({
+		providerId: z.string(),
+		uptime: z.number().nullable(),
+		latency: z.number().nullable(),
+		throughput: z.number().nullable(),
+		sampleRequests: z.number(),
+	})
+	.openapi({});
+
+const scenarioResultSchema = z
+	.object({
+		/** Routable mappings, best score first. */
+		providers: z.array(
+			z
+				.object({
+					providerId: z.string(),
+					/** Price the score ranked: discounted, cache-blended, adjusted. */
+					price: z.number(),
+					score: z.number(),
+					breakdown: scoreBreakdownSchema,
+				})
+				.openapi({}),
+		),
+		winnerProviderId: z.string().nullable(),
+		runnerUpProviderId: z.string().nullable(),
+		/** Runner-up score minus winner score, null with fewer than two mappings. */
+		margin: z.number().nullable(),
+		/**
+		 * `price-only` when no candidate has metrics: routing then ranks by
+		 * price / priority, and `score` is the premium over the cheapest.
+		 */
+		method: z.enum(["weighted", "price-only"]),
+	})
+	.openapi({});
+
+/**
+ * One request shape the router scores differently: streaming, cache relevance,
+ * org-kind cache assumptions, and per-request routing preference all reshape
+ * the formula, so a single score cannot say who wins every request.
+ */
+const routingScenarioSchema = z
+	.object({
+		id: z.string(),
+		label: z.string(),
+		description: z.string(),
+		effectiveWeights: effectiveWeightsSchema,
+		cachePricing: z
+			.object({ hitRate: z.number(), outputRatio: z.number() })
+			.nullable(),
+		/** Whether an organization's incumbent provider is kept within the sticky margin. */
+		hysteresis: z.boolean(),
+		/** Routable mappings this request shape never considers. */
+		excludedProviderIds: z.array(z.string()),
+		/** Scored on the window's plain hourly averages. */
+		window: scenarioResultSchema,
+		/** Scored on the router's own tier-weighted recent window. */
+		live: scenarioResultSchema,
 	})
 	.openapi({});
 
@@ -272,16 +369,7 @@ const routingAnalyticsResponseSchema = z
 						cache: z.number(),
 					})
 					.openapi({}),
-				effectiveWeights: z
-					.object({
-						price: z.number(),
-						uptime: z.number(),
-						throughput: z.number(),
-						latency: z.number(),
-						cache: z.number(),
-						total: z.number(),
-					})
-					.openapi({}),
+				effectiveWeights: effectiveWeightsSchema,
 				thresholds: z
 					.object({
 						cachePromptTokens: z.number(),
@@ -292,6 +380,37 @@ const routingAnalyticsResponseSchema = z
 						defaultLatency: z.number(),
 						defaultThroughput: z.number(),
 						explorationRate: z.number(),
+					})
+					.openapi({}),
+				sticky: z
+					.object({
+						enabled: z.boolean(),
+						ttlSeconds: z.number(),
+						uptimeThreshold: z.number(),
+						scoreMargin: z.number(),
+					})
+					.openapi({}),
+				session: z
+					.object({
+						enabled: z.boolean(),
+						ttlSeconds: z.number(),
+						uptimeThreshold: z.number(),
+					})
+					.openapi({}),
+				retry: z
+					.object({
+						maxRetries: z.number(),
+						lowUptimeFallbackThreshold: z.number(),
+					})
+					.openapi({}),
+				history: z
+					.object({
+						windowMinutes: z.number(),
+						tier1Minutes: z.number(),
+						tier2Minutes: z.number(),
+						tier1Weight: z.number(),
+						tier2Weight: z.number(),
+						tier3Weight: z.number(),
 					})
 					.openapi({}),
 			})
@@ -306,6 +425,17 @@ const routingAnalyticsResponseSchema = z
 		exclusions: z.array(exclusionEntrySchema),
 		/** Model-wide service-tier coverage. */
 		serviceTier: serviceTierCountsSchema,
+		/**
+		 * The metrics routing reads right now: the same credits-only,
+		 * tier-weighted aggregation the gateway runs over its history window.
+		 */
+		live: z
+			.object({
+				windowMinutes: z.number(),
+				providers: z.array(liveProviderMetricsSchema),
+			})
+			.openapi({}),
+		scenarios: z.array(routingScenarioSchema),
 	})
 	.openapi({});
 
@@ -386,6 +516,30 @@ interface DerivedMetrics {
 // Mirrors rowToMetrics in packages/db/src/provider-metrics-history.ts, minus
 // the tier weighting: routing weights recent minutes higher, while this view
 // deliberately smooths each bucket into a plain hourly average.
+function nestedMap<K, V>(
+	outer: Map<K, Map<string, V>>,
+	key: K,
+): Map<string, V> {
+	let inner = outer.get(key);
+	if (!inner) {
+		inner = new Map();
+		outer.set(key, inner);
+	}
+	return inner;
+}
+
+function totalsFor(
+	totals: Map<string, HourlyTotals>,
+	providerId: string,
+): HourlyTotals {
+	let bucket = totals.get(providerId);
+	if (!bucket) {
+		bucket = emptyTotals();
+		totals.set(providerId, bucket);
+	}
+	return bucket;
+}
+
 function deriveMetrics(totals: HourlyTotals): DerivedMetrics {
 	if (totals.requestCount <= 0) {
 		return { uptime: null, latency: null, throughput: null };
@@ -436,11 +590,66 @@ interface MappingInfo {
 	excludedReasons: string[];
 }
 
-async function buildMappingInfos(
-	model: (typeof models)[number],
-): Promise<MappingInfo[]> {
+type AnalyticsMapping = Pick<
+	ProviderModelMapping,
+	| "externalId"
+	| "inputPrice"
+	| "outputPrice"
+	| "cachedInputPrice"
+	| "requestPrice"
+	| "perSecondPrice"
+	| "perImagePrice"
+	| "pricingTiers"
+	| "peakPricing"
+	| "regions"
+	| "stability"
+	| "deactivatedAt"
+> & { providerId: string; status?: string; providerName?: string };
+
+async function buildMappingInfos(model: {
+	id: string;
+	stability?: ModelDefinition["stability"];
+	providers: readonly ProviderModelMapping[];
+}): Promise<{ info: MappingInfo; source: AnalyticsMapping }[]> {
+	const listings = await db.query.modelProviderMapping.findMany({
+		where: {
+			modelId: model.id,
+			source: "airside",
+			region: { isNull: true },
+		},
+		with: { provider: true },
+	});
+	const ownedProviders = new Set(listings.map((row) => row.providerId));
+	const mappings: AnalyticsMapping[] = [
+		...model.providers.filter(
+			(mapping) => !ownedProviders.has(mapping.providerId),
+		),
+		...listings.map((row) => ({
+			providerId: row.providerId,
+			externalId: row.externalId,
+			providerName: row.provider?.name,
+			status: row.status,
+			inputPrice: row.inputPrice ?? undefined,
+			outputPrice: row.outputPrice ?? undefined,
+			cachedInputPrice: row.cachedInputPrice ?? undefined,
+			requestPrice: row.requestPrice ?? undefined,
+			stability: row.stability,
+			deactivatedAt: row.deactivatedAt ?? undefined,
+		})),
+	];
+	const activeCarriers = await db.query.providerClaim.findMany({
+		where: {
+			kind: "custom",
+			status: "active",
+			customBaseUrl: { isNotNull: true },
+		},
+		columns: { providerId: true },
+	});
+	const activeCarrierIds = new Set(
+		activeCarriers.map((carrier) => carrier.providerId),
+	);
 	return await Promise.all(
-		model.providers.map(async (mapping: ProviderModelMapping) => {
+		mappings.map(async (mapping) => {
 			const providerDef = getProviderDefinition(mapping.providerId);
 			const modelStability =
 				"stability" in model
@@ -449,6 +658,12 @@ async function buildMappingInfos(
 			const stability = mapping.stability ?? modelStability ?? "stable";
 			const priority = providerDef?.priority ?? 1;
 			const excludedReasons: string[] = [];
+			if (mapping.status && mapping.status !== "active") {
+				excludedReasons.push("listing inactive");
+			}
+			if (!providerDef && !activeCarrierIds.has(mapping.providerId)) {
+				excludedReasons.push("carrier inactive or unapproved");
+			}
 			// Only a deactivation date that has actually passed excludes a mapping.
 			// Routing itself compares against the date, so a scheduled (future)
 			// deactivation still elects and serves traffic — flagging it here would
@@ -484,9 +699,10 @@ async function buildMappingInfos(
 				Number.isFinite(rawAdjustment) && rawAdjustment >= -1
 					? rawAdjustment
 					: 0;
-			return {
+			const info: MappingInfo = {
 				providerId: mapping.providerId,
-				providerName: providerDef?.name ?? mapping.providerId,
+				providerName:
+					mapping.providerName ?? providerDef?.name ?? mapping.providerId,
 				stability,
 				deactivatedAt: mapping.deactivatedAt
 					? mapping.deactivatedAt.toISOString()
@@ -500,23 +716,38 @@ async function buildMappingInfos(
 				routable: excludedReasons.length === 0,
 				excludedReasons,
 			};
+			return { info, source: mapping };
 		}),
 	);
 }
 
+type ScoreBreakdown = z.infer<typeof scoreBreakdownSchema>;
+
+interface ScoredEntry {
+	/** Rounded for display. */
+	score: number;
+	/** Unrounded, so near-ties still rank the way routing does. */
+	rawScore: Decimal;
+	breakdown: ScoreBreakdown;
+}
+
+// The common case: a streaming text request with a prompt below the cache
+// threshold, matching how most chat traffic is elected.
+const STREAMING_FLAGS = { isStreaming: true, cacheRelevant: false } as const;
+
 function scoreEntries(
 	routableMappings: MappingInfo[],
 	metricsByProvider: Map<string, DerivedMetrics>,
-	cfg: ReturnType<typeof getDefaultRoutingConfig>,
-	isImageModel: boolean,
-): Map<
-	string,
-	{ score: number; breakdown: z.infer<typeof scoreBreakdownSchema> }
-> {
+	cfg: ResolvedRoutingConfig,
+	flags: ScoringFlags,
+	/** Pre-adjustment selection prices; defaults to each mapping's price. */
+	prices?: Map<string, Decimal>,
+): Map<string, ScoredEntry> {
 	const candidates: CandidateScoreInput[] = routableMappings.map((mapping) => {
 		const metrics = metricsByProvider.get(mapping.providerId);
+		const price = prices?.get(mapping.providerId) ?? new Decimal(mapping.price);
 		return {
-			price: new Decimal(mapping.price).times(1 + mapping.routingAdjustment),
+			price: price.times(1 + mapping.routingAdjustment),
 			uptime: metrics?.uptime ?? undefined,
 			latency: metrics?.latency ?? undefined,
 			throughput: metrics?.throughput ?? undefined,
@@ -524,21 +755,13 @@ function scoreEntries(
 			priority: mapping.priority,
 		};
 	});
-	const breakdowns = computeWeightedProviderScores(candidates, cfg, {
-		// Score as the common case: a streaming text request with a prompt below
-		// the cache threshold, matching how most chat traffic is elected.
-		isStreaming: true,
-		isImageModel,
-		cacheRelevant: false,
-	});
-	const result = new Map<
-		string,
-		{ score: number; breakdown: z.infer<typeof scoreBreakdownSchema> }
-	>();
+	const breakdowns = computeWeightedProviderScores(candidates, cfg, flags);
+	const result = new Map<string, ScoredEntry>();
 	for (const [index, mapping] of routableMappings.entries()) {
 		const b = breakdowns[index];
 		result.set(mapping.providerId, {
 			score: b.score.toDecimalPlaces(3).toNumber(),
+			rawScore: b.score,
 			breakdown: {
 				priceScore: round(b.priceScore.toNumber(), 4),
 				uptimeScore: round(b.uptimeScore.toNumber(), 4),
@@ -557,6 +780,252 @@ function scoreEntries(
 		});
 	}
 	return result;
+}
+
+interface ScenarioDefinition {
+	id: string;
+	label: string;
+	description: string;
+	cfg: ResolvedRoutingConfig;
+	isStreaming: boolean;
+	cacheRelevant: boolean;
+	/** Sessions pin per session instead of using org-level hysteresis. */
+	session: boolean;
+	/** Coding plans only route to mappings with a cached input price. */
+	cachedInputOnly: boolean;
+}
+
+const BASE_SCENARIO = {
+	...STREAMING_FLAGS,
+	session: false,
+	cachedInputOnly: false,
+} as const;
+
+/**
+ * The request shapes the router scores differently, all under default routing
+ * config.
+ */
+function buildScenarios(): ScenarioDefinition[] {
+	const cfg = getDefaultRoutingConfig();
+	const scenarios: ScenarioDefinition[] = [
+		{
+			id: "streaming",
+			label: "Streaming",
+			description:
+				"Streaming request with a prompt below the cache threshold, on default weights.",
+			cfg,
+			...BASE_SCENARIO,
+		},
+		{
+			id: "non-streaming",
+			label: "Non-streaming",
+			description:
+				"Latency is only measured on streams, so its weight drops out.",
+			cfg,
+			...BASE_SCENARIO,
+			isStreaming: false,
+		},
+		{
+			id: "cached-api",
+			label: "Large prompt",
+			description: `Prompt of ${cfg.thresholds.cachePromptTokens}+ tokens: cached input reads are priced in.`,
+			cfg,
+			...BASE_SCENARIO,
+			cacheRelevant: true,
+		},
+		{
+			id: "coding-session",
+			label: "DevPass session",
+			description:
+				"Coding-plan session: only mappings with a cached input price, mostly cached input, little output.",
+			cfg: getDefaultRoutingConfig("devpass"),
+			...BASE_SCENARIO,
+			cacheRelevant: true,
+			session: true,
+			cachedInputOnly: true,
+		},
+		{
+			id: "chat-session",
+			label: "Chat session",
+			description: "Session on the chat cache profile.",
+			cfg: getDefaultRoutingConfig("chat"),
+			...BASE_SCENARIO,
+			cacheRelevant: true,
+			session: true,
+		},
+	];
+	for (const preference of ["price", "throughput", "latency"] as const) {
+		scenarios.push({
+			id: preference,
+			label: `routing: ${preference}`,
+			description: `Request with routing: "${preference}": ${preference} weighted 90%, uptime 10%.`,
+			cfg: applyRoutingPreference(cfg, preference),
+			...BASE_SCENARIO,
+		});
+	}
+	return scenarios;
+}
+
+// Matches how the gateway turns the resolved thresholds into cache pricing.
+function scenarioCachePricing(
+	scenario: ScenarioDefinition,
+): CachePricingContext | null {
+	if (!scenario.cacheRelevant) {
+		return null;
+	}
+	return {
+		hitRate: Math.min(1, Math.max(0, scenario.cfg.thresholds.cacheHitRate)),
+		outputRatio: Math.max(0, scenario.cfg.thresholds.cacheOutputRatio),
+	};
+}
+
+function hasMetrics(metrics: DerivedMetrics | undefined): boolean {
+	return (
+		metrics !== undefined &&
+		(metrics.uptime !== null ||
+			metrics.latency !== null ||
+			metrics.throughput !== null)
+	);
+}
+
+function priceOnlyEntries(
+	candidates: MappingInfo[],
+	routingPrices: Map<string, Decimal>,
+): Map<string, ScoredEntry> {
+	// Mirrors selectByPriceOnly: routing price divided by priority.
+	const effective = new Map(
+		candidates.map((mapping) => {
+			const price = routingPrices.get(mapping.providerId)!;
+			return [
+				mapping.providerId,
+				mapping.priority > 0 ? price.div(mapping.priority) : price,
+			] as const;
+		}),
+	);
+	const values = Array.from(effective.values());
+	const min = Decimal.min(...values);
+	const positive = values.filter((value) => value.gt(0));
+	const minPositive = positive.length > 0 ? Decimal.min(...positive) : null;
+	const result = new Map<string, ScoredEntry>();
+	for (const [providerId, value] of effective) {
+		// Expressed as the premium over the cheapest, like the price factor.
+		const premium = min.gt(0)
+			? value.div(min).minus(1)
+			: value.gt(0) && minPositive
+				? value.div(minPositive)
+				: new Decimal(0);
+		const rounded = round(premium.toNumber(), 4);
+		result.set(providerId, {
+			score: premium.toDecimalPlaces(3).toNumber(),
+			// Rank on the effective price itself so ties resolve as routing does.
+			rawScore: value,
+			breakdown: {
+				priceScore: rounded,
+				uptimeScore: 0,
+				throughputScore: 0,
+				latencyScore: 0,
+				cacheScore: 0,
+				priceContribution: rounded,
+				uptimeContribution: 0,
+				throughputContribution: 0,
+				latencyContribution: 0,
+				cacheContribution: 0,
+				priorityPenalty: 0,
+				uptimePenalty: 0,
+				baseScore: rounded,
+			},
+		});
+	}
+	return result;
+}
+
+function rankScenario(
+	candidates: MappingInfo[],
+	metricsByProvider: Map<string, DerivedMetrics>,
+	cfg: ResolvedRoutingConfig,
+	flags: ScoringFlags,
+	prices: Map<string, Decimal>,
+	/** Live routing falls back to price-only when no candidate has metrics. */
+	priceOnlyWithoutMetrics: boolean,
+): z.infer<typeof scenarioResultSchema> {
+	const routingPrices = new Map(
+		candidates.map((mapping) => [
+			mapping.providerId,
+			(prices.get(mapping.providerId) ?? new Decimal(mapping.price)).times(
+				1 + mapping.routingAdjustment,
+			),
+		]),
+	);
+	const priceOnly =
+		priceOnlyWithoutMetrics &&
+		candidates.length > 0 &&
+		!candidates.some((mapping) =>
+			hasMetrics(metricsByProvider.get(mapping.providerId)),
+		);
+	const scores = priceOnly
+		? priceOnlyEntries(candidates, routingPrices)
+		: scoreEntries(candidates, metricsByProvider, cfg, flags, prices);
+	const ranked = candidates
+		.map((mapping) => {
+			const scored = scores.get(mapping.providerId)!;
+			return {
+				providerId: mapping.providerId,
+				price: routingPrices.get(mapping.providerId)!.toNumber(),
+				score: scored.score,
+				breakdown: scored.breakdown,
+				rawScore: scored.rawScore,
+			};
+		})
+		.sort((a, b) => a.rawScore.comparedTo(b.rawScore));
+	const [winner, runnerUp] = ranked;
+	return {
+		providers: ranked.map(({ providerId, price, score, breakdown }) => ({
+			providerId,
+			price,
+			score,
+			breakdown,
+		})),
+		winnerProviderId: winner?.providerId ?? null,
+		runnerUpProviderId: runnerUp?.providerId ?? null,
+		margin:
+			winner && runnerUp
+				? priceOnly
+					? round(runnerUp.score - winner.score, 3)
+					: runnerUp.rawScore
+							.minus(winner.rawScore)
+							.toDecimalPlaces(3)
+							.toNumber()
+				: null,
+		method: priceOnly ? "price-only" : "weighted",
+	};
+}
+
+function sumByKind(byReason: Map<string, number>): Map<string, number> {
+	const byKind = new Map<string, number>();
+	for (const [selectionReason, requestCount] of byReason) {
+		const kind = routingSelectionKind(selectionReason);
+		byKind.set(kind, (byKind.get(kind) ?? 0) + requestCount);
+	}
+	return byKind;
+}
+
+function kindEntries(
+	byKind: Map<string, number>,
+): z.infer<typeof electionKindEntrySchema>[] {
+	return Array.from(byKind, ([kind, requestCount]) => ({
+		kind,
+		requestCount,
+	})).sort((a, b) => b.requestCount - a.requestCount);
+}
+
+function reasonEntries(
+	byReason: Map<string, number>,
+): z.infer<typeof electionReasonEntrySchema>[] {
+	return Array.from(byReason, ([selectionReason, requestCount]) => ({
+		selectionReason,
+		kind: routingSelectionKind(selectionReason),
+		requestCount,
+	})).sort((a, b) => b.requestCount - a.requestCount);
 }
 
 const getRoutingAnalytics = createRoute({
@@ -589,7 +1058,24 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 	const window = query.window ?? "3d";
 	const hours = WINDOW_HOURS[window];
 
-	const model = models.find((m) => m.id === query.modelId);
+	const staticModel = models.find((m) => m.id === query.modelId);
+	const databaseModel = staticModel
+		? undefined
+		: await db.query.model.findFirst({
+				where: { id: query.modelId, status: "active" },
+			});
+	const model =
+		staticModel ??
+		(databaseModel
+			? {
+					id: databaseModel.id,
+					name: databaseModel.name,
+					family: databaseModel.family,
+					stability: databaseModel.stability ?? undefined,
+					output: databaseModel.output,
+					providers: [],
+				}
+			: undefined);
 	if (!model) {
 		throw new HTTPException(404, {
 			message: `Model ${query.modelId} not found`,
@@ -601,7 +1087,8 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		"output" in model
 			? ((model.output as string[] | undefined)?.includes("image") ?? false)
 			: false;
-	const mappings = await buildMappingInfos(model);
+	const resolvedMappings = await buildMappingInfos(model);
+	const mappings = resolvedMappings.map(({ info }) => info);
 	const routableMappings = mappings.filter((m) => m.routable);
 
 	const hourEnd = new Date();
@@ -609,7 +1096,7 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 	const windowMs = (hours - 1) * 3_600_000;
 	const windowStart = new Date(hourEnd.getTime() - windowMs);
 
-	const [rows, electionRows, exclusionRows] = await Promise.all([
+	const [rows, electionRows, exclusionRows, liveMetrics] = await Promise.all([
 		db
 			.select()
 			.from(modelProviderMappingHistoryHourly)
@@ -640,38 +1127,46 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 					gte(routingExclusionHourly.hourTimestamp, windowStart),
 				),
 			),
+		// The gateway's own routing input: same aggregation, window and cache.
+		getProviderMetricsFromHistory(
+			mappings.map((mapping) => ({
+				modelId: model.id,
+				providerId: mapping.providerId,
+			})),
+			cfg.history,
+		),
 	]);
 
 	// Sum rows into per-(hour, provider) and per-provider window totals. The
-	// unique key is (mappingId, hour), so a provider whose mapping id changed
-	// mid-window can contribute multiple rows to the same bucket.
+	// unique key is (mappingId, hour, usedMode), so a provider can contribute
+	// multiple rows to the same bucket.
+	//
+	// Traffic totals count every request. Metric totals feed uptime, latency,
+	// throughput and scores, and mirror the router, which reads credit-funded
+	// traffic only: a customer's failing BYOK key must not sink the mapping.
+	// Legacy "unknown" rows predate the usedMode split and stay in.
 	const hourlyTotals = new Map<number, Map<string, HourlyTotals>>();
 	const windowTotals = new Map<string, HourlyTotals>();
+	const hourlyMetricTotals = new Map<number, Map<string, HourlyTotals>>();
+	const windowMetricTotals = new Map<string, HourlyTotals>();
 	for (const row of rows) {
 		const hourMs = row.hourTimestamp.getTime();
-		let providerMap = hourlyTotals.get(hourMs);
-		if (!providerMap) {
-			providerMap = new Map();
-			hourlyTotals.set(hourMs, providerMap);
+		addRow(totalsFor(nestedMap(hourlyTotals, hourMs), row.providerId), row);
+		addRow(totalsFor(windowTotals, row.providerId), row);
+		if (row.usedMode !== "api-keys") {
+			addRow(
+				totalsFor(nestedMap(hourlyMetricTotals, hourMs), row.providerId),
+				row,
+			);
+			addRow(totalsFor(windowMetricTotals, row.providerId), row);
 		}
-		let bucket = providerMap.get(row.providerId);
-		if (!bucket) {
-			bucket = emptyTotals();
-			providerMap.set(row.providerId, bucket);
-		}
-		addRow(bucket, row);
-		let windowBucket = windowTotals.get(row.providerId);
-		if (!windowBucket) {
-			windowBucket = emptyTotals();
-			windowTotals.set(row.providerId, windowBucket);
-		}
-		addRow(windowBucket, row);
 	}
 
 	// Election rows: window totals per selection reason, plus a per-hour breakdown
 	// by kind for the stacked view over time.
 	const electionsByReason = new Map<string, number>();
 	const electionsByKindPerHour = new Map<number, Map<string, number>>();
+	const electionsByProviderReason = new Map<string, Map<string, number>>();
 	let electionRequestCount = 0;
 	let electionCandidateTotal = 0;
 	for (const row of electionRows) {
@@ -680,6 +1175,15 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		electionsByReason.set(
 			row.selectionReason,
 			(electionsByReason.get(row.selectionReason) ?? 0) + row.requestCount,
+		);
+		let providerReasons = electionsByProviderReason.get(row.providerId);
+		if (!providerReasons) {
+			providerReasons = new Map();
+			electionsByProviderReason.set(row.providerId, providerReasons);
+		}
+		providerReasons.set(
+			row.selectionReason,
+			(providerReasons.get(row.selectionReason) ?? 0) + row.requestCount,
 		);
 		const hourMs = row.hourTimestamp.getTime();
 		let kindMap = electionsByKindPerHour.get(hourMs);
@@ -691,11 +1195,7 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		kindMap.set(kind, (kindMap.get(kind) ?? 0) + row.requestCount);
 	}
 
-	const electionsByKind = new Map<string, number>();
-	for (const [selectionReason, requestCount] of electionsByReason) {
-		const kind = routingSelectionKind(selectionReason);
-		electionsByKind.set(kind, (electionsByKind.get(kind) ?? 0) + requestCount);
-	}
+	const electionsByKind = sumByKind(electionsByReason);
 
 	// Exclusion rows: per-provider reason totals. `candidateCount` and
 	// `excludedDecisionCount` are repeated on every reason row for a mapping-hour,
@@ -754,30 +1254,34 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		const hourOffsetMs = i * 3_600_000;
 		const hour = new Date(windowStart.getTime() + hourOffsetMs);
 		const providerMap = hourlyTotals.get(hour.getTime());
+		const metricProviderMap = hourlyMetricTotals.get(hour.getTime());
 		const metricsByProvider = new Map<string, DerivedMetrics>();
 		for (const mapping of mappings) {
 			metricsByProvider.set(
 				mapping.providerId,
-				deriveMetrics(providerMap?.get(mapping.providerId) ?? emptyTotals()),
+				deriveMetrics(
+					metricProviderMap?.get(mapping.providerId) ?? emptyTotals(),
+				),
 			);
 		}
-		const scores = scoreEntries(
-			routableMappings,
-			metricsByProvider,
-			cfg,
+		const scores = scoreEntries(routableMappings, metricsByProvider, cfg, {
+			...STREAMING_FLAGS,
 			isImageModel,
-		);
+		});
 		hourly.push({
 			hour: hour.toISOString(),
 			providers: mappings.map((mapping) => {
 				const totals = providerMap?.get(mapping.providerId) ?? emptyTotals();
+				const metricTotals =
+					metricProviderMap?.get(mapping.providerId) ?? emptyTotals();
 				const metrics = metricsByProvider.get(mapping.providerId)!;
 				const scored = scores.get(mapping.providerId);
 				return {
 					providerId: mapping.providerId,
 					requestCount: totals.requestCount,
-					errorCount: totals.gatewayErrorCount + totals.upstreamErrorCount,
-					clientErrorCount: totals.clientErrorCount,
+					errorCount:
+						metricTotals.gatewayErrorCount + metricTotals.upstreamErrorCount,
+					clientErrorCount: metricTotals.clientErrorCount,
 					uptime: metrics.uptime !== null ? round(metrics.uptime, 2) : null,
 					latency: metrics.latency !== null ? round(metrics.latency, 0) : null,
 					throughput:
@@ -797,23 +1301,28 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 	for (const mapping of mappings) {
 		windowMetricsByProvider.set(
 			mapping.providerId,
-			deriveMetrics(windowTotals.get(mapping.providerId) ?? emptyTotals()),
+			deriveMetrics(
+				windowMetricTotals.get(mapping.providerId) ?? emptyTotals(),
+			),
 		);
 	}
 	const windowScores = scoreEntries(
 		routableMappings,
 		windowMetricsByProvider,
 		cfg,
-		isImageModel,
+		{ ...STREAMING_FLAGS, isImageModel },
 	);
 	const summary = mappings.map((mapping) => {
 		const totals = windowTotals.get(mapping.providerId) ?? emptyTotals();
+		const metricTotals =
+			windowMetricTotals.get(mapping.providerId) ?? emptyTotals();
 		const metrics = windowMetricsByProvider.get(mapping.providerId)!;
 		const scored = windowScores.get(mapping.providerId);
 		return {
 			providerId: mapping.providerId,
 			requestCount: totals.requestCount,
-			errorCount: totals.gatewayErrorCount + totals.upstreamErrorCount,
+			errorCount:
+				metricTotals.gatewayErrorCount + metricTotals.upstreamErrorCount,
 			uptime: metrics.uptime !== null ? round(metrics.uptime, 2) : null,
 			latency: metrics.latency !== null ? round(metrics.latency, 0) : null,
 			throughput:
@@ -823,10 +1332,82 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		};
 	});
 
+	const liveMetricsByProvider = new Map<string, DerivedMetrics>();
+	for (const mapping of mappings) {
+		const metrics = liveMetrics.get(metricsKey(model.id, mapping.providerId));
+		liveMetricsByProvider.set(mapping.providerId, {
+			uptime: metrics?.uptime ?? null,
+			latency: metrics?.averageLatency ?? null,
+			throughput: metrics?.throughput ?? null,
+		});
+	}
+
+	const cachedInputProviders = new Set(
+		resolvedMappings
+			.filter(({ source }) => providerSupportsCachedInput(source))
+			.map(({ info }) => info.providerId),
+	);
+	const scenarios = buildScenarios().map((scenario) => {
+		const cachePricing = scenarioCachePricing(scenario);
+		// Without cache pricing the selection price is the mapping's discounted
+		// price; with it the cached-input blend and output ratio reshape it.
+		const prices = new Map<string, Decimal>();
+		if (cachePricing) {
+			for (const { info, source } of resolvedMappings) {
+				prices.set(
+					info.providerId,
+					getProviderSelectionPrice(
+						source,
+						undefined,
+						undefined,
+						cachePricing,
+					).times(new Decimal(1).minus(info.discount)),
+				);
+			}
+		}
+		const flags = {
+			isStreaming: scenario.isStreaming,
+			isImageModel,
+			cacheRelevant: scenario.cacheRelevant,
+		};
+		const candidates = scenario.cachedInputOnly
+			? routableMappings.filter((mapping) =>
+					cachedInputProviders.has(mapping.providerId),
+				)
+			: routableMappings;
+		return {
+			id: scenario.id,
+			label: scenario.label,
+			description: scenario.description,
+			effectiveWeights: getEffectiveScoringWeights(scenario.cfg, flags),
+			cachePricing,
+			hysteresis: !scenario.session && scenario.cfg.sticky.enabled,
+			excludedProviderIds: routableMappings
+				.filter((mapping) => !candidates.includes(mapping))
+				.map((mapping) => mapping.providerId),
+			// The window is smoothed history, scored like the hourly charts.
+			window: rankScenario(
+				candidates,
+				windowMetricsByProvider,
+				scenario.cfg,
+				flags,
+				prices,
+				false,
+			),
+			live: rankScenario(
+				candidates,
+				liveMetricsByProvider,
+				scenario.cfg,
+				flags,
+				prices,
+				true,
+			),
+		};
+	});
+
 	const effectiveWeights = getEffectiveScoringWeights(cfg, {
-		isStreaming: true,
+		...STREAMING_FLAGS,
 		isImageModel,
-		cacheRelevant: false,
 	});
 
 	// Exclusions can land on provider ids outside the catalogue mappings (e.g.
@@ -898,6 +1479,10 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 			weights: cfg.weights,
 			effectiveWeights,
 			thresholds: cfg.thresholds,
+			sticky: cfg.sticky,
+			session: cfg.session,
+			retry: cfg.retry,
+			history: cfg.history,
 		},
 		window,
 		mappings,
@@ -910,21 +1495,43 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 				electionRequestCount > 0
 					? round(electionCandidateTotal / electionRequestCount, 2)
 					: null,
-			byKind: Array.from(electionsByKind, ([kind, requestCount]) => ({
-				kind,
-				requestCount,
-			})).sort((a, b) => b.requestCount - a.requestCount),
-			byReason: Array.from(
-				electionsByReason,
-				([selectionReason, requestCount]) => ({
-					selectionReason,
-					kind: routingSelectionKind(selectionReason),
-					requestCount,
-				}),
+			byKind: kindEntries(electionsByKind),
+			byReason: reasonEntries(electionsByReason),
+			byProvider: Array.from(
+				electionsByProviderReason,
+				([providerId, byReason]) => {
+					let requestCount = 0;
+					for (const count of byReason.values()) {
+						requestCount += count;
+					}
+					return {
+						providerId,
+						requestCount,
+						byKind: kindEntries(sumByKind(byReason)),
+						byReason: reasonEntries(byReason),
+					};
+				},
 			).sort((a, b) => b.requestCount - a.requestCount),
 		},
 		eligibility,
 		exclusions: toExclusionEntries(modelExclusionTotals),
 		serviceTier: serviceTierCounts(modelServiceTierTotals),
+		live: {
+			windowMinutes: cfg.history.windowMinutes,
+			providers: mappings.map((mapping) => {
+				const metrics = liveMetricsByProvider.get(mapping.providerId)!;
+				return {
+					providerId: mapping.providerId,
+					uptime: metrics.uptime !== null ? round(metrics.uptime, 2) : null,
+					latency: metrics.latency !== null ? round(metrics.latency, 0) : null,
+					throughput:
+						metrics.throughput !== null ? round(metrics.throughput, 2) : null,
+					sampleRequests:
+						liveMetrics.get(metricsKey(model.id, mapping.providerId))
+							?.totalRequests ?? 0,
+				};
+			}),
+		},
+		scenarios,
 	});
 });

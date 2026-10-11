@@ -140,4 +140,33 @@ export const tencentModels = [
 			},
 		],
 	},
+	{
+		id: "hy-image-v3.5-preview",
+		name: "Hy Image 3.5 Preview",
+		description:
+			"Tencent's unified image generation and editing model, built on the Hy Image 3.0 MoE base, with up to 20 reference images, output up to 4K, and strong Chinese and English text rendering.",
+		family: "tencent",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-10-05"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "tencent",
+				externalId: "hy-image-v3.5-preview",
+				inputPrice: "0",
+				outputPrice: "0",
+				imageOutputPrice: "1.6e-6",
+				imageOutputTokensByResolution: {
+					default: 20000,
+				},
+				contextSize: 100000,
+				maxOutput: 4096,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

@@ -41,7 +41,6 @@ const probeAfter = pgTable(TABLE, {
 function clientForLayout(schemaVersion: string) {
 	return drizzle({
 		client: pool,
-		casing: "snake_case",
 		cache: new RedisCache(redisClient, schemaVersion),
 	});
 }

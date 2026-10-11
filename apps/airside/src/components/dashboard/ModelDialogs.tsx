@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	AlertTriangle,
 	CheckCircle2,
 	Clock3,
 	Loader2,
@@ -44,6 +45,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { useApi } from "@/lib/fetch-client";
 import { perMillionToPerToken, perTokenToPerMillion } from "@/lib/format";
 
+import {
+	isValidModelId,
+	modelIdProblem,
+	suggestModelId,
+} from "@llmgateway/models";
+
 import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
 
@@ -64,6 +71,27 @@ function useSavedVerificationKey(
 				candidate.providerId === providerId && candidate.status === "active",
 		);
 	return claim?.verificationKeyMasked ?? null;
+}
+
+/**
+ * A registered carrier with no provider key on file files one with its first
+ * model: the server smoke-tests it against that model and it goes live once
+ * the model is approved.
+ */
+function useNeedsFirstProviderKey(
+	providerCompanyId: string,
+	providerId: string,
+): boolean {
+	const { companies } = useCompany();
+	const claim = companies
+		.find((company) => company.id === providerCompanyId)
+		?.claims.find(
+			(candidate) =>
+				candidate.providerId === providerId && candidate.status === "active",
+		);
+	return (
+		claim?.kind === "custom" && !claim.providerKey && !claim.pendingProviderKey
+	);
 }
 
 function VerificationKeyHint({ savedKey }: { savedKey: string | null }) {
@@ -153,6 +181,10 @@ function useInvalidateModels(providerCompanyId: string) {
 				params: { query: { providerCompanyId } },
 			}).queryKey,
 		});
+		// Claims carry the provider key a first model files.
+		await queryClient.invalidateQueries({
+			queryKey: api.queryOptions("get", "/airside/companies", {}).queryKey,
+		});
 	};
 }
 
@@ -210,14 +242,49 @@ function VerificationProbes({ probes }: { probes?: VerificationProbe }) {
 	);
 }
 
+function hasWarning(check: Verification["checks"][number]): boolean {
+	return (
+		check.status === "passed" &&
+		Boolean(check.warning || check.optionalWarnings?.length)
+	);
+}
+
+/**
+ * Optional checks a check missed. Labelled so a carrier can tell them from a
+ * failure, and knows they may become required.
+ */
+function OptionalWarnings({ warnings }: { warnings?: string[] }) {
+	if (!warnings?.length) {
+		return null;
+	}
+	return (
+		<ul className="mt-1 space-y-1" data-testid="verification-optional-warnings">
+			{warnings.map((warning) => (
+				<li key={warning} className="text-amber-600 dark:text-amber-400">
+					<span className="mr-1.5 inline-block rounded border border-current px-1 font-mono text-[0.6rem] tracking-wider uppercase">
+						Optional
+					</span>
+					{warning}
+				</li>
+			))}
+		</ul>
+	);
+}
+
 function VerificationResults({ verification }: { verification: Verification }) {
+	const warned = verification.checks.some(hasWarning);
+	const optionalWarned = verification.checks.some(
+		(check) => check.status === "passed" && check.optionalWarnings?.length,
+	);
 	const statusLabel =
 		verification.status === "queued"
 			? "Queued"
 			: verification.status === "running"
 				? "Running"
 				: verification.status === "passed"
-					? "Passed"
+					? warned
+						? "Passed with warnings"
+						: "Passed"
 					: "Failed";
 	return (
 		<div
@@ -237,7 +304,9 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			<ul className="divide-border divide-y">
 				{verification.checks.map((check) => (
 					<li key={check.id} className="flex items-start gap-2 py-2 text-xs">
-						{check.status === "passed" ? (
+						{hasWarning(check) ? (
+							<AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+						) : check.status === "passed" ? (
 							<CheckCircle2 className="text-signal mt-0.5 size-3.5 shrink-0" />
 						) : check.status === "failed" ? (
 							<XCircle className="text-destructive mt-0.5 size-3.5 shrink-0" />
@@ -251,6 +320,17 @@ function VerificationResults({ verification }: { verification: Verification }) {
 							{check.feedback ? (
 								<p className="text-muted-foreground mt-0.5">{check.feedback}</p>
 							) : null}
+							{check.warning ? (
+								<p
+									className="mt-0.5 text-amber-600 dark:text-amber-400"
+									data-testid="verification-warning"
+								>
+									{check.warning}
+								</p>
+							) : null}
+							{check.status === "passed" ? (
+								<OptionalWarnings warnings={check.optionalWarnings} />
+							) : null}
 							<VerificationProbes probes={check.probes} />
 						</div>
 					</li>
@@ -258,6 +338,15 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			</ul>
 			{verification.summary ? (
 				<p className="text-muted-foreground text-xs">{verification.summary}</p>
+			) : null}
+			{optionalWarned ? (
+				<p
+					className="text-xs text-amber-600 dark:text-amber-400"
+					data-testid="verification-optional-note"
+				>
+					Checks marked Optional do not block this listing for now, but may
+					become required later.
+				</p>
 			) : null}
 			{verification.status === "failed" ? (
 				<p
@@ -333,6 +422,12 @@ function VerificationHistory({
 									<span className="text-muted-foreground">
 										{passed}/{entry.checks.length}
 									</span>
+									{entry.checks.some(hasWarning) ? (
+										<AlertTriangle
+											className="size-3 text-amber-600 dark:text-amber-400"
+											aria-label="Passed with warnings"
+										/>
+									) : null}
 									<span className="font-mono text-[0.65rem] tracking-wider uppercase">
 										{entry.status}
 									</span>
@@ -669,9 +764,24 @@ export function RegisterModelDialog({
 	const [open, setOpen] = useState(false);
 	const catalogue = useCatalogue(open);
 	const [modelName, setModelName] = useState("");
+	const trimmedModelName = modelName.trim();
 	const canonicalModel = catalogue.data?.models.find(
-		(entry) => entry.id === modelName.trim(),
+		(entry) => entry.id === trimmedModelName,
 	);
+	const modelIdValid = isValidModelId(trimmedModelName);
+	const modelIdError =
+		trimmedModelName && !modelIdValid
+			? (modelIdProblem(trimmedModelName) ?? "").replace(
+					/ Did you mean ".*"\?$/,
+					"",
+				)
+			: null;
+	const modelIdSuggestion = modelIdError
+		? suggestModelId(
+				trimmedModelName,
+				catalogue.data?.models.map((entry) => entry.id),
+			)
+		: null;
 
 	const [externalId, setExternalId] = useState("");
 	const [apiFormat, setApiFormat] =
@@ -724,6 +834,11 @@ export function RegisterModelDialog({
 		providerCompanyId,
 		effectiveProviderId,
 	);
+	const needsProviderKey = useNeedsFirstProviderKey(
+		providerCompanyId,
+		effectiveProviderId,
+	);
+	const [providerKey, setProviderKey] = useState("");
 	const verificationQuery = api.useQuery(
 		"get",
 		"/airside/model-verifications/{id}",
@@ -782,6 +897,7 @@ export function RegisterModelDialog({
 			setRegionFares([]);
 			setNote("");
 			setApiKey("");
+			setProviderKey("");
 			setVerificationId("");
 		},
 		onError: (error) => {
@@ -849,6 +965,9 @@ export function RegisterModelDialog({
 					className="space-y-4"
 					onSubmit={(e) => {
 						e.preventDefault();
+						if (!modelIdValid) {
+							return;
+						}
 						if (!catalogue.isSuccess) {
 							toast.error("Load the catalogue before saving.");
 							return;
@@ -865,6 +984,7 @@ export function RegisterModelDialog({
 						createModel.mutate({
 							body: {
 								verificationId: verification.id,
+								providerKey: needsProviderKey ? providerKey : undefined,
 								providerCompanyId,
 								providerId: effectiveProviderId,
 								modelName: modelName.trim(),
@@ -942,8 +1062,66 @@ export function RegisterModelDialog({
 								}}
 								disabled={verificationInProgress}
 								placeholder="acme-large-2"
+								autoCapitalize="none"
+								autoCorrect="off"
+								spellCheck={false}
+								aria-invalid={modelIdError ? true : undefined}
+								aria-describedby="model-name-feedback"
 								required
 							/>
+							<div id="model-name-feedback" aria-live="polite">
+								{modelIdError ? (
+									<div className="space-y-1.5">
+										<p
+											className="text-destructive text-xs"
+											data-testid="model-name-error"
+										>
+											{modelIdError}
+										</p>
+										{modelIdSuggestion ? (
+											<Button
+												type="button"
+												size="sm"
+												variant="outline"
+												className="h-7 font-mono text-xs"
+												data-testid="model-id-suggestion"
+												disabled={verificationInProgress}
+												onClick={() => {
+													if (
+														!externalId.trim() &&
+														!/\s/.test(trimmedModelName)
+													) {
+														setExternalId(trimmedModelName);
+													}
+													setModelName(modelIdSuggestion);
+													resetVerification();
+												}}
+											>
+												Use {modelIdSuggestion}
+											</Button>
+										) : null}
+									</div>
+								) : canonicalModel ? (
+									<p
+										className="flex items-start gap-1 text-xs text-emerald-600 dark:text-emerald-400"
+										data-testid="model-name-match"
+									>
+										<CheckCircle2
+											className="mt-px size-3.5 shrink-0"
+											aria-hidden
+										/>
+										<span>
+											Matches catalogue model{" "}
+											<span className="font-mono">{canonicalModel.id}</span>
+										</span>
+									</p>
+								) : (
+									<p className="text-muted-foreground text-xs">
+										Lowercase letters, digits, dots and hyphens — no provider
+										prefix.
+									</p>
+								)}
+							</div>
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="model-external-id">Upstream model ID</Label>
@@ -1301,6 +1479,27 @@ export function RegisterModelDialog({
 						</p>
 					</div>
 
+					{needsProviderKey ? (
+						<div className="border-border space-y-2 rounded-lg border p-3">
+							<Label htmlFor="first-provider-key">Provider key</Label>
+							<Input
+								id="first-provider-key"
+								data-testid="first-provider-key-input"
+								type="password"
+								autoComplete="off"
+								value={providerKey}
+								onChange={(event) => setProviderKey(event.target.value)}
+								placeholder="The key we serve your traffic with"
+							/>
+							<p className="text-muted-foreground text-xs">
+								Your first model brings the key LLM Gateway serves your live
+								traffic with. It must differ from the test key: we smoke-test it
+								against this model when you file, and it goes live once the
+								model is approved. Stored encrypted.
+							</p>
+						</div>
+					) : null}
+
 					{verification ? (
 						<VerificationResults verification={verification} />
 					) : null}
@@ -1313,9 +1512,13 @@ export function RegisterModelDialog({
 								queueVerification.isPending ||
 								verificationInProgress ||
 								!effectiveProviderId ||
+								!modelIdValid ||
 								(verification?.status !== "passed" &&
 									!apiKey.trim() &&
-									!savedVerificationKey)
+									!savedVerificationKey) ||
+								(verification?.status === "passed" &&
+									needsProviderKey &&
+									!providerKey.trim())
 							}
 							data-testid="register-model-submit"
 							className="font-semibold"
@@ -1973,8 +2176,8 @@ export function EditModelDialog({
 						/>
 						<p className="text-muted-foreground text-xs">
 							Runs the capabilities selected above against your endpoint before
-							you file them. A failed check reports what the endpoint refused;
-							it does not change the capability.{" "}
+							you file them. Required before saving when you add a capability or
+							raise a limit; a failed check reports what the endpoint refused.{" "}
 							<VerificationKeyHint savedKey={savedVerificationKey} />
 						</p>
 						<Button

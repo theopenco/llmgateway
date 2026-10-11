@@ -4,7 +4,7 @@ This file provides guidance to AI agents when working with code in this reposito
 
 ## Skills
 
-Area-specific rules live in skills under `.agents/skills`. Load the matching skill before working in its area:
+Area-specific rules live in skills under `.agents/skills`. Load the matching skill before working in its area, and read the whole `SKILL.md` — never truncate it with `head`, `grep`, or a partial read:
 
 | Skill              | Use for                                                                                          |
 | ------------------ | ------------------------------------------------------------------------------------------------ |
@@ -14,7 +14,7 @@ Area-specific rules live in skills under `.agents/skills`. Load the matching ski
 | `database`         | Schema, Drizzle and raw SQL, analytics queries, aggregation tables                               |
 | `migrations`       | Generating, editing, and resolving conflicts in migrations                                       |
 | `gateway`          | `apps/gateway` request path, routing, error classification, logging, user-supplied URLs          |
-| `add-model`        | Everything in `packages/models`: mappings, pricing, capabilities, deactivation                   |
+| `add-model`        | Everything in `packages/models`: mappings, pricing, capabilities, deactivation, new providers    |
 | `billing`          | Org kinds, plans, Stripe, DevPass, credits, cost math, audit log, org emails                     |
 | `frontend`         | Next.js apps: API client, data fetching, navigation, dashboard routes, formatting                |
 | `infrastructure`   | Production hosting and hostnames, deploy ordering, client IP and country                         |
@@ -117,6 +117,7 @@ NEVER put internal or private information into anything published to this public
 - When checking out an existing PR or remote branch, set its upstream (`gh pr checkout <n>`, or `git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`).
 - Sync a feature branch with main via a merge commit; rebase only when required or clearly better, and say why.
 - Resolve `pnpm-lock.yaml` conflicts by running `pnpm install`.
+- Never force-merge a PR (`gh pr merge --admin`, bypassing required checks or reviews). Merge only when every required check is green, or enable auto-merge and let it land.
 - Use the `pull-request` skill for opening and updating PRs. PRs are ready for review (not drafts) unless the user asks otherwise, and their title and description always reflect the final scope. Split independently reviewable layers into native stacked PRs with `gh stack`.
 
 ## License

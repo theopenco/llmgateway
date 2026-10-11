@@ -400,6 +400,13 @@ export function OrgSettingsTab({
 						<SettingRow label="Referral bonus">
 							{org.referralBonusEnabled ? "Enabled" : "Disabled"}
 						</SettingRow>
+						<SettingRow label="Data streams">
+							{org.dataStreamsEnabled
+								? org.requestLogExportEnabled
+									? "Audit logs and request logs"
+									: "Audit logs only"
+								: "Disabled"}
+						</SettingRow>
 						<SettingRow label="SSO auto-join domain">
 							{org.ssoAutoJoinDomain ?? "—"}
 						</SettingRow>

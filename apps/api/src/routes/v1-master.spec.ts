@@ -493,6 +493,37 @@ describe("v1/master cache invalidation", () => {
 		});
 	});
 
+	test("master project APIs persist and validate automatic cache duration", async () => {
+		const headers = {
+			Authorization: `Bearer ${masterToken}`,
+			"Content-Type": "application/json",
+		};
+		const created = await app.request("/v1/master/projects", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				name: "Cache duration",
+				providerCacheAutoTtl: "1h",
+			}),
+		});
+		expect(created.status).toBe(201);
+		const { project } = await created.json();
+		expect(project.providerCacheAutoTtl).toBe("1h");
+		const updated = await app.request(`/v1/master/projects/${project.id}`, {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify({ providerCacheAutoTtl: "5m" }),
+		});
+		expect(updated.status).toBe(200);
+		expect((await updated.json()).project.providerCacheAutoTtl).toBe("5m");
+		const invalid = await app.request(`/v1/master/projects/${project.id}`, {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify({ providerCacheAutoTtl: "2h" }),
+		});
+		expect(invalid.status).toBe(400);
+	});
+
 	test("DELETE /projects/{id} invalidates the gateway project cache", async () => {
 		const projectId = `cache-test-project-${crypto.randomUUID()}`;
 		await db.insert(tables.project).values({

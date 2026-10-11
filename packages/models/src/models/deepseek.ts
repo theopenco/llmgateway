@@ -785,6 +785,7 @@ export const deepseekModels = [
 			{
 				providerId: "together-ai",
 				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
+				deactivatedAt: new Date("2026-10-22"),
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "0.28e-6",

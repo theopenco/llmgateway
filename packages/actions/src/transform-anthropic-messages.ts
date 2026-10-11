@@ -12,6 +12,7 @@ import {
 	type ToolUseContent,
 } from "@llmgateway/models";
 
+import { anthropicThinkingBlocksFor } from "./anthropic-thinking.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
@@ -21,6 +22,22 @@ import { RequestError } from "./request-error.js";
  * Anthropic, Vertex and Bedrock all reject the fifth.
  */
 export const MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS = 4;
+
+/** How Claude clients send a system message on models without the role. */
+export function toSystemReminderText(text: string): string {
+	return `<system-reminder>\n${text}\n</system-reminder>`;
+}
+
+/**
+ * Breakpoints the automatic long-block markers may fill. In a conversation they
+ * leave two for the conversation markers, which cache the whole prompt instead
+ * of a fixed opening prefix.
+ */
+export function longBlockMarkerLimit(nonSystemMessageCount: number): number {
+	return (
+		MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS - (nonSystemMessageCount >= 3 ? 2 : 0)
+	);
+}
 
 /**
  * Last caller-supplied cache breakpoint in an OpenAI-format content array. On a
@@ -42,6 +59,60 @@ function findCacheControl(
 	return marker;
 }
 
+export function getToolResultCacheControl(
+	message: BaseMessage,
+): CacheControl | undefined {
+	return message.tool_result_cache_control ?? findCacheControl(message.content);
+}
+
+export function getToolResultText(message: BaseMessage): string {
+	if (!Array.isArray(message.content)) {
+		return message.content ?? "";
+	}
+	return JSON.stringify(
+		message.content.map((part) => {
+			if (!isTextContent(part)) {
+				return part;
+			}
+			const { cache_control: _marker, ...content } = part;
+			return content;
+		}),
+	);
+}
+
+/**
+ * Caller breakpoints the message transform will emit, counted before automatic
+ * ones are allocated. Bedrock also emits markers on tool results without
+ * content, and drops text markers on assistant tool-call turns.
+ */
+export function getCallerCacheControls(
+	messages: readonly BaseMessage[],
+	format: "anthropic" | "bedrock" = "anthropic",
+): CacheControl[] {
+	return messages.flatMap((message) => {
+		if (message.tool_call_id) {
+			const marker = getToolResultCacheControl(message);
+			return marker && (format === "bedrock" || message.content !== undefined)
+				? [marker]
+				: [];
+		}
+		if (
+			format === "bedrock" &&
+			message.role === "assistant" &&
+			message.tool_calls?.length
+		) {
+			return [];
+		}
+		return Array.isArray(message.content)
+			? message.content.flatMap((part) =>
+					isTextContent(part) && part.text?.trim() && part.cache_control
+						? [part.cache_control]
+						: [],
+				)
+			: [];
+	});
+}
+
 /**
  * Transforms Anthropic messages
  * @param initialCacheControlCount - Number of cache_control blocks already used (e.g., from system messages)
@@ -58,18 +129,25 @@ export async function transformAnthropicMessages(
 	initialCacheControlCount = 0,
 	minCacheableChars = 1024 * 4,
 	autoInjectCacheControl = true,
+	automaticCacheTtl?: "1h",
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
 
-	// Determine if we should apply cache_control for long prompts
-	// Apply for anthropic provider only, and only when the project hasn't
-	// opted out of auto-injection.
+	// Long-block markers are placed before the caller's later markers are
+	// counted, so they can take a caller's slot. Keep them on direct Anthropic,
+	// where they always ran, until caller markers are reserved first.
 	const shouldApplyCacheControl =
 		provider === "anthropic" && autoInjectCacheControl;
 
 	// Continue the budget the tools and system passes already spent from.
 	let cacheControlCount = initialCacheControlCount;
 	const maxCacheControlBlocks = MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS;
+	const longBlockLimit = longBlockMarkerLimit(messages.length);
+
+	// Breakpoints the caller placed further on. Auto-injection leaves room for
+	// them: spending the budget on early long blocks would drop the caller's
+	// trailing marker, the one that keeps a growing conversation cached.
+	let pendingCallerMarkers = getCallerCacheControls(messages).length;
 
 	// Keep track of all tool_use IDs seen so far to ensure uniqueness
 	const seenToolUseIds = new Set<string>();
@@ -139,7 +217,7 @@ export async function transformAnthropicMessages(
 		// message field (Anthropic Messages API callers, whose tool_result content
 		// is lowered to a string) or on a text part (OpenAI-format callers).
 		const toolResultCacheControl = isDiscardedToolResult
-			? (m.tool_result_cache_control ?? findCacheControl(m.content))
+			? getToolResultCacheControl(m)
 			: undefined;
 
 		// Handle existing content
@@ -184,8 +262,9 @@ export async function transformAnthropicMessages(
 							} as TextContent;
 						}
 					}
-					if (isTextContent(part) && part.text) {
+					if (isTextContent(part) && part.text?.trim()) {
 						if (part.cache_control) {
+							pendingCallerMarkers--;
 							// Count caller-supplied markers toward Anthropic's 4-block
 							// cap so subsequent auto-injection and the turn-boundary
 							// placement don't push the total over 4 (which Anthropic
@@ -205,13 +284,18 @@ export async function transformAnthropicMessages(
 						} else if (
 							shouldApplyCacheControl &&
 							part.text.length >= minCacheableChars &&
-							cacheControlCount < maxCacheControlBlocks
+							cacheControlCount + pendingCallerMarkers <
+								maxCacheControlBlocks &&
+							cacheControlCount < longBlockLimit
 						) {
 							// Automatically add cache_control for long text blocks.
 							cacheControlCount++;
 							return {
 								...part,
-								cache_control: { type: "ephemeral" },
+								cache_control: {
+									type: "ephemeral",
+									...(automaticCacheTtl && { ttl: automaticCacheTtl }),
+								},
 							};
 						}
 					}
@@ -223,11 +307,17 @@ export async function transformAnthropicMessages(
 			const shouldCache =
 				shouldApplyCacheControl &&
 				m.content.length >= minCacheableChars &&
-				cacheControlCount < maxCacheControlBlocks;
+				cacheControlCount + pendingCallerMarkers < maxCacheControlBlocks &&
+				cacheControlCount < longBlockLimit;
 			const textContent: TextContent = {
 				type: "text",
 				text: m.content,
-				...(shouldCache && { cache_control: { type: "ephemeral" } }),
+				...(shouldCache && {
+					cache_control: {
+						type: "ephemeral",
+						...(automaticCacheTtl && { ttl: automaticCacheTtl }),
+					},
+				}),
 			};
 			if (shouldCache) {
 				cacheControlCount++;
@@ -283,8 +373,7 @@ export async function transformAnthropicMessages(
 		if (originalRole === "tool" && m.tool_call_id && m.content !== undefined) {
 			// For tool results, we need to check if content is JSON string and parse it appropriately
 			let toolResultContent: string;
-			const contentStr =
-				typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+			const contentStr = getToolResultText(m);
 			try {
 				// Try to parse as JSON to see if it's structured data
 				const parsed = JSON.parse(contentStr);
@@ -347,6 +436,9 @@ export async function transformAnthropicMessages(
 
 			// Re-attach the caller's breakpoint to the last block, which is where the
 			// prefix ends, without exceeding Anthropic's four-breakpoint limit.
+			if (toolResultCacheControl) {
+				pendingCallerMarkers--;
+			}
 			if (toolResultCacheControl && cacheControlCount < maxCacheControlBlocks) {
 				const last = content[content.length - 1] as ToolResultContent;
 				last.cache_control = toolResultCacheControl;
@@ -379,8 +471,10 @@ export async function transformAnthropicMessages(
 			continue;
 		}
 
-		// Map role correctly for Anthropic (no system or tool roles)
-		const anthropicRole = m.role === "assistant" ? "assistant" : "user";
+		// Map role correctly for Anthropic (no tool role; a system message only
+		// reaches here on mappings that accept it mid-conversation)
+		const anthropicRole =
+			m.role === "assistant" || m.role === "system" ? m.role : "user";
 
 		let anthropicContent: AnthropicMessage["content"] = filteredContent;
 		if (nativeBlocks.length > 0) {
@@ -397,19 +491,73 @@ export async function transformAnthropicMessages(
 						];
 		}
 
+		// Thinking opens the turn, as Anthropic emitted it. Replaying it keeps the
+		// cached prefix of a tool loop intact.
+		const thinkingBlocks =
+			m.role === "assistant" && provider
+				? anthropicThinkingBlocksFor(provider, m.reasoning_details)
+				: [];
+
 		results.push({
-			content: anthropicContent,
+			content: [...thinkingBlocks, ...anthropicContent],
 			role: anthropicRole,
 		});
 	}
-	// Turn-boundary caching: in a multi-turn conversation the entire prefix
-	// (everything before the last user message) is identical between requests.
-	// Placing cache_control on the last content block of the message just before
-	// the final user turn lets Anthropic cache the entire prefix, dramatically
-	// improving the cache hit ratio for long conversations (e.g. Claude Code
-	// sessions with 100k+ token context).
-	if (shouldApplyCacheControl && results.length >= 3) {
-		// Find the last user message index — that's the "new" turn.
+
+	// Anthropic rejects a system message inside `messages` unless it follows a
+	// user turn and precedes an assistant turn or ends the conversation. A run
+	// placed anywhere else goes as a user reminder, as on models without the role.
+	for (let start = 0; start < results.length; start++) {
+		if (results[start]!.role !== "system") {
+			continue;
+		}
+		let end = start;
+		while (results[end + 1]?.role === "system") {
+			end++;
+		}
+		const next = results[end + 1];
+		if (
+			results[start - 1]?.role !== "user" ||
+			(next !== undefined && next.role !== "assistant")
+		) {
+			for (let i = start; i <= end; i++) {
+				results[i] = {
+					role: "user",
+					content: results[i]!.content.map((part) =>
+						part.type === "text"
+							? {
+									...part,
+									text: toSystemReminderText((part as TextContent).text),
+								}
+							: part,
+					),
+				};
+			}
+		}
+		start = end;
+	}
+
+	// Conversation caching, from a conversation's second turn on. The marker
+	// before the last user message keeps a stable prefix cached when only the
+	// final message changes between requests. The marker on the final message
+	// caches the whole prompt, so the next request in a growing conversation
+	// reads it back; in an agent loop it is the only one that lands, because
+	// the message before the newest tool result holds only tool_use.
+	if (autoInjectCacheControl && results.length >= 3) {
+		// Budget against what the messages actually carry: replayed native
+		// blocks bypass the running count above.
+		const placed = results.flatMap((message) =>
+			message.content.flatMap((part) => {
+				const marker = (part as { cache_control?: CacheControl }).cache_control;
+				return marker ? [marker] : [];
+			}),
+		);
+		// A caller using the 1h TTL in messages keeps sole control, as above.
+		let free =
+			!automaticCacheTtl && placed.some((marker) => marker.ttl === "1h")
+				? 0
+				: maxCacheControlBlocks - initialCacheControlCount - placed.length;
+
 		let lastUserIdx = -1;
 		for (let i = results.length - 1; i >= 0; i--) {
 			if (results[i]!.role === "user") {
@@ -418,31 +566,24 @@ export async function transformAnthropicMessages(
 			}
 		}
 
-		// The turn boundary is the message right before the last user message.
-		const boundaryIdx = lastUserIdx > 0 ? lastUserIdx - 1 : -1;
-		if (boundaryIdx >= 0 && cacheControlCount < maxCacheControlBlocks) {
-			const boundaryMsg = results[boundaryIdx]!;
-			if (
-				Array.isArray(boundaryMsg.content) &&
-				boundaryMsg.content.length > 0
-			) {
-				// Find the last block that can carry a breakpoint. Text is the common
-				// case, but agent loops may put a tool_result at the boundary.
-				let lastCacheableIdx = -1;
-				for (let i = boundaryMsg.content.length - 1; i >= 0; i--) {
-					const part = boundaryMsg.content[i] as MessageContent | undefined;
-					if (part && (isTextContent(part) || isToolResultContent(part))) {
-						lastCacheableIdx = i;
-						break;
+		for (const index of [lastUserIdx - 1, results.length - 1]) {
+			const content = index >= 0 ? results[index]!.content : [];
+			for (let i = content.length - 1; i >= 0 && free > 0; i--) {
+				const part = content[i] as MessageContent;
+				if (isTextContent(part) || isToolResultContent(part)) {
+					// A copy: the block may be the caller's own object, which a fallback
+					// re-prepares for the next provider.
+					if (!part.cache_control) {
+						content[i] = {
+							...part,
+							cache_control: {
+								type: "ephemeral",
+								...(automaticCacheTtl && { ttl: automaticCacheTtl }),
+							},
+						};
+						free--;
 					}
-				}
-				if (lastCacheableIdx >= 0) {
-					const target = boundaryMsg.content[lastCacheableIdx] as
-						TextContent | ToolResultContent;
-					if (!target.cache_control) {
-						target.cache_control = { type: "ephemeral" };
-						cacheControlCount++;
-					}
+					break;
 				}
 			}
 		}

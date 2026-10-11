@@ -2,7 +2,10 @@ import { generateKeyPairSync } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
+import {
+	GOOGLE_OAUTH_TOKEN_URI,
+	getGcpServiceAccountAccessToken,
+} from "./gcp-access-token.js";
 
 const redisGetMock = vi.hoisted(() => vi.fn());
 const redisSetMock = vi.hoisted(() => vi.fn());
@@ -14,12 +17,15 @@ vi.mock("@llmgateway/cache", () => ({
 	},
 }));
 
-function serviceAccount(clientEmail: string): string {
+function serviceAccount(
+	clientEmail: string,
+	tokenUri = "https://oauth2.googleapis.com/token",
+): string {
 	const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 	return JSON.stringify({
 		client_email: clientEmail,
 		private_key: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
-		token_uri: "https://oauth2.googleapis.com/token",
+		token_uri: tokenUri,
 		project_id: "test-project",
 	});
 }
@@ -79,5 +85,25 @@ describe("getGcpServiceAccountAccessToken", () => {
 		controller.abort(reason);
 
 		await expect(result).rejects.toBe(reason);
+	});
+
+	it("ignores a user-supplied token_uri", async () => {
+		redisGetMock.mockResolvedValue(null);
+		redisSetMock.mockResolvedValue("OK");
+		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(JSON.stringify({ access_token: "access-token" }), {
+				status: 200,
+			}),
+		);
+
+		await getGcpServiceAccountAccessToken(
+			serviceAccount(
+				"token-uri@example.com",
+				"http://metadata.google.internal/computeMetadata/v1/token",
+			),
+		);
+
+		expect(fetchMock).toHaveBeenCalledOnce();
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(GOOGLE_OAUTH_TOKEN_URI);
 	});
 });

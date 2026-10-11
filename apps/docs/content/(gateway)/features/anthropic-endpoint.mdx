@@ -179,6 +179,8 @@ For Claude models, `cache_control` markers on `system` and message content block
 
 Cache usage comes back in Anthropic's native fields: `usage.cache_creation_input_tokens` (tokens written to the cache this request, billed at the write premium), `usage.cache_read_input_tokens` (tokens served from cache at the discounted rate), and `usage.cache_creation` (the per-TTL write breakdown).
 
+A `system` message inside `messages` (as Claude Code sends on recent Claude models) stays at its position instead of being merged into the top-level `system` prompt, so the cached conversation prefix is not rewritten on every turn. Where the upstream model does not accept that role, or does not accept it at that position (it must follow a user turn and precede an assistant turn or end the conversation), it is sent in place as a user message wrapped in `<system-reminder>` tags. If system messages interrupt a complete tool-call/result turn, the gateway moves them after all results for that turn so the results remain adjacent to the tool calls. Incomplete turns and unrelated user messages are left unchanged. Claude Code's `tool_addition` and `tool_removal` blocks are accepted and passed to the model as a text note.
+
 <Callout type="warning">
 	Each Claude model has a minimum cacheable prompt length (it varies by model
 	and is exposed as `min_cacheable_tokens` on `/v1/models`). A `cache_control`
@@ -237,6 +239,14 @@ Send every tool definition on every request, including the deferred ones — Ant
 	exposes server-side tool search there only through the InvokeModel API, and
 	the gateway routes Bedrock through the Converse API.
 </Callout>
+
+### Auto Mode Safeguard Review
+
+In [auto mode](https://code.claude.com/docs/en/permission-modes#server-side-classifier-review), Claude Code asks Anthropic to review risky tool calls as part of its normal requests, at no charge: it sends a `safeguards` field with a paired `anthropic-beta` value, and Anthropic returns the verdicts in `safeguard_results` (on the final `message_delta` event when streaming). The gateway forwards both halves to the Anthropic API and returns the verdicts unchanged, so Claude Code keeps using the free server-side checks instead of its own billed classifier requests. Run `/status` in Claude Code to confirm: the **Auto mode server** row reads `Enabled`.
+
+**Routing requirements.** A nonempty `safeguards` field paired with its dated beta restricts automatic selection and retries to providers that support forwarding server-side review. Currently this is the Anthropic API. An incompatible saved session pin is replaced; an explicitly requested incompatible provider, or automatic selection with no compatible provider, returns HTTP `400`, including for streaming requests. A beta header alone does not restrict routing.
+
+Upstream availability still depends on the model, credentials, and rollout. If Anthropic returns no available verdict, Claude Code can fall back to its own billed classifier requests. To use another provider deliberately, set `CLAUDE_CODE_AUTO_MODE_SERVER=0` before starting Claude Code; its client-side classifier requests are billed normally.
 
 ### Gateway Response Cache
 

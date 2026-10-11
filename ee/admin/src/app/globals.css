@@ -128,6 +128,18 @@
 	}
 }
 
+/*
+ * iOS Safari zooms the page when a focused field's font-size is below 16px.
+ * Unlayered, so it wins over text-sm/text-xs utilities on any field.
+ */
+@supports (-webkit-touch-callout: none) {
+	input,
+	textarea,
+	select {
+		font-size: max(16px, 1em);
+	}
+}
+
 @utility font-display {
 	font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
 }

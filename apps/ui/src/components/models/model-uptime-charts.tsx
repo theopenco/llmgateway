@@ -108,14 +108,11 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 		gatewayErrorsCount: provider.gatewayErrorsCount,
 		upstreamErrorsCount: provider.upstreamErrorsCount,
 	});
-	const errorRate = Math.round((stability.errorRate ?? 0) * 10) / 10;
-	// Client errors are excluded from the uptime denominator, so the upstream
-	// rate has to use the same base or the two headline numbers disagree.
-	const upstreamErrorRate =
-		stability.requestCount > 0
-			? Math.round(
-					(provider.upstreamErrorsCount / stability.requestCount) * 10000,
-				) / 100
+	// Same numerator and base as uptime (gateway + upstream errors over
+	// non-client-error requests), so the two headline numbers sum to 100%.
+	const errorRate =
+		stability.errorRate !== null
+			? Math.round(stability.errorRate * 10) / 10
 			: null;
 
 	const uptimeColor =
@@ -172,11 +169,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						icon={Layers}
 						label="Tokens"
 						value={formatCompact(provider.totalTokens)}
-						sub={
-							hasEnoughData
-								? `${formatCompact(provider.logsCount)} requests · ${errorRate}% errors`
-								: `${formatCompact(provider.logsCount)} requests · ${formatCompact(stability.errorsCount)} errors`
-						}
+						sub={`${formatCompact(provider.logsCount)} requests`}
 					/>
 					<Stat
 						icon={Clock}
@@ -203,11 +196,11 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 					/>
 					<Stat
 						icon={AlertTriangle}
-						label="Upstream errors"
-						value={formatCompact(provider.upstreamErrorsCount)}
+						label="Errors"
+						value={formatCompact(stability.errorsCount)}
 						sub={
-							hasEnoughData && upstreamErrorRate !== null
-								? `${upstreamErrorRate.toFixed(2)}% rate`
+							hasEnoughData && errorRate !== null
+								? `${errorRate.toFixed(1)}% rate`
 								: undefined
 						}
 					/>

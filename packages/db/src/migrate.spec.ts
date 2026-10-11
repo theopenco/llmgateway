@@ -43,14 +43,14 @@ describe("countAppliedMigrations", () => {
 
 			await db.execute(sql`create schema if not exists drizzle`);
 			await db.execute(
-				sql`create table drizzle.__drizzle_migrations (id serial primary key, hash text not null, created_at bigint)`,
+				sql`create table drizzle.__drizzle_migrations (id serial primary key, hash text not null, created_at bigint, name text, applied_at timestamp with time zone default now())`,
 			);
 			expect(await countAppliedMigrations(migrationDb)).toBe(0);
 		}
 
 		const before = await countAppliedMigrations(migrationDb);
 		await db.execute(
-			sql`insert into drizzle.__drizzle_migrations (hash, created_at) values (${SENTINEL_HASH}, ${Date.now()})`,
+			sql`insert into drizzle.__drizzle_migrations (hash, created_at, name) values (${SENTINEL_HASH}, ${Date.now()}, ${SENTINEL_HASH})`,
 		);
 
 		expect(await countAppliedMigrations(migrationDb)).toBe(before + 1);

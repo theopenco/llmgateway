@@ -456,7 +456,18 @@ function ManagedCredentialCells({
 				<ProviderCell provider={credential.provider} />
 			</TableCell>
 			<TableCell className="font-mono text-xs">
-				<div>{credential.maskedToken}</div>
+				<div className="flex items-center gap-1.5">
+					{credential.maskedToken}
+					{credential.carrierKey ? (
+						<Badge
+							variant="secondary"
+							className="font-sans text-[11px]"
+							title="The provider key this Airside carrier is served with."
+						>
+							Carrier key
+						</Badge>
+					) : null}
+				</div>
 				{credential.tokenHash ? (
 					<div
 						className="text-[11px] text-muted-foreground"
@@ -1312,7 +1323,9 @@ export function ProviderCredentialsManager({
 								usageLimit: values.usageLimit || undefined,
 								allowedModels:
 									values.allowedModels.length > 0 ? values.allowedModels : null,
+								modelSyncEnabled: values.modelSyncEnabled,
 								skipValidation: values.skipValidation,
+								carrierKey: values.carrierKey,
 							},
 						})
 					}
@@ -1350,6 +1363,7 @@ export function ProviderCredentialsManager({
 								allowedModels:
 									values.allowedModels.length > 0 ? values.allowedModels : null,
 								allowedModelsBase: editing.allowedModels,
+								modelSyncEnabled: values.modelSyncEnabled,
 								skipValidation: values.skipValidation,
 							},
 						})
@@ -1415,7 +1429,11 @@ interface CredentialFormValues {
 	usageLimit: string;
 	/** Canonical model ids the credential may serve; empty means unrestricted. */
 	allowedModels: string[];
+	/** Let the daily model sync append models the account starts serving. */
+	modelSyncEnabled: boolean;
 	skipValidation: boolean;
+	/** Custom carriers, on create: serve the carrier with this key. */
+	carrierKey: boolean;
 }
 
 const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
@@ -1633,11 +1651,15 @@ function CredentialDialog({
 	const [allowedModels, setAllowedModels] = useState<string[]>(
 		credential?.allowedModels ?? [],
 	);
+	const [modelSyncEnabled, setModelSyncEnabled] = useState(
+		credential?.modelSyncEnabled ?? true,
+	);
 	// An edit defaults to skipping the live check: the credential already passed
 	// one when it was stored, so re-probing on every metadata tweak spends an
 	// upstream request to re-learn what we know. Unchecking forces the check —
 	// worth it when the token, config or region changes.
 	const [skipValidation, setSkipValidation] = useState(isEdit);
+	const [carrierKey, setCarrierKey] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
 	// Self-test / verify-models probes run against the CURRENT form values (not
@@ -1931,7 +1953,9 @@ function CredentialDialog({
 			config,
 			usageLimit: trimmedLimit,
 			allowedModels,
+			modelSyncEnabled,
 			skipValidation,
+			carrierKey,
 		});
 	}
 
@@ -2303,6 +2327,25 @@ function CredentialDialog({
 								? "Empty means the key serves every model of the provider. Restrict it when the upstream account only has some models enabled, so routing never picks this key for a model it cannot serve."
 								: `Routing will only use this credential for the ${allowedModels.length === 1 ? "listed model" : `${allowedModels.length} listed models`}.`}
 						</p>
+						{MODEL_SYNC_PROVIDERS.includes(provider) ? (
+							<div className="flex items-start gap-2">
+								<Switch
+									id="model-sync-enabled"
+									checked={modelSyncEnabled}
+									onCheckedChange={setModelSyncEnabled}
+								/>
+								<div className="flex flex-col gap-1">
+									<Label htmlFor="model-sync-enabled" className="font-normal">
+										Auto-add new models
+									</Label>
+									<p className="text-xs text-muted-foreground">
+										Once a day, models the account starts serving are tested and
+										added to the restriction. Turn off to only change the list
+										by hand.
+									</p>
+								</div>
+							</div>
+						) : null}
 						<div className="flex flex-wrap gap-2">
 							<Button
 								type="button"
@@ -2438,6 +2481,27 @@ function CredentialDialog({
 									<SelectItem value="inactive">Inactive</SelectItem>
 								</SelectContent>
 							</Select>
+						</div>
+					) : null}
+
+					{!isEdit && selectedEntry?.carrier ? (
+						<div className="flex items-start gap-2">
+							<Checkbox
+								id="carrier-key"
+								checked={carrierKey}
+								onCheckedChange={(checked) => setCarrierKey(checked === true)}
+							/>
+							<div className="flex flex-col gap-1">
+								<Label htmlFor="carrier-key" className="font-normal">
+									Use as the carrier&apos;s provider key
+								</Label>
+								<p className="text-xs text-muted-foreground">
+									Replaces the provider key the carrier filed in Airside, which
+									is retired, and shows this one in the carrier&apos;s settings.
+									Leave unchecked to add an extra key alongside it. A carrier
+									without a provider key always gets this one.
+								</p>
+							</div>
 						</div>
 					) : null}
 

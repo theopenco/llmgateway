@@ -164,6 +164,7 @@ export async function filterAccessibleModels(
 			validateRequestModelAccess({
 				apiKey,
 				organizationId: organization.id,
+				providerAccessRestriction: organization.providerAccessRestriction,
 				requestedModel: model.id,
 				requestedProvider,
 				customProviderName: context?.customProviderName,

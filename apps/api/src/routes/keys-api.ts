@@ -28,6 +28,7 @@ import {
 	eq,
 	getApiKeyCurrentPeriodState,
 	isValidApiKeyPeriodDuration,
+	mostRestrictiveApiKeyLimits,
 	resolveMemberBudgetPolicies,
 	shortid,
 	tables,
@@ -57,6 +58,18 @@ export function assertApiKeyIsUserManaged(apiKey: {
 	if (isPlaygroundApiKey(apiKey)) {
 		throw new HTTPException(403, {
 			message: "The playground API key is managed automatically.",
+		});
+	}
+}
+
+// DevPass orgs have exactly one key, created and rolled via /dev-plans.
+export function assertOrgAllowsManualApiKeys(organization: {
+	kind: string;
+}): void {
+	if (organization.kind === "devpass") {
+		throw new HTTPException(403, {
+			message:
+				"DevPass includes a single API key. Roll it from the DevPass dashboard instead.",
 		});
 	}
 }
@@ -877,44 +890,6 @@ function memberBudgetPolicies(
 	);
 }
 
-const periodHours = { hour: 1, day: 24, week: 168, month: 720 } as const;
-
-function normalizedRecurringSpend(
-	budget: ReturnType<typeof memberBudgetPolicies>[number]["budget"],
-): number {
-	return (
-		Number(budget.periodUsageLimit) /
-		(budget.periodUsageDurationValue! *
-			periodHours[budget.periodUsageDurationUnit!])
-	);
-}
-
-function mostRestrictiveBudget(
-	policies: ReturnType<typeof memberBudgetPolicies>,
-): ApiKeyLimitConfig {
-	const usageLimits = policies
-		.map(({ budget }) => budget.usageLimit)
-		.filter((value): value is string => value !== null);
-	const recurring = policies
-		.map(({ budget }) => budget)
-		.filter(
-			(budget) =>
-				budget.periodUsageLimit !== null &&
-				budget.periodUsageDurationValue !== null &&
-				budget.periodUsageDurationUnit !== null,
-		)
-		.sort((a, b) => normalizedRecurringSpend(a) - normalizedRecurringSpend(b));
-	const strictestPeriod = recurring[0];
-	return {
-		usageLimit: usageLimits.length
-			? String(Math.min(...usageLimits.map(Number)))
-			: null,
-		periodUsageLimit: strictestPeriod?.periodUsageLimit ?? null,
-		periodUsageDurationValue: strictestPeriod?.periodUsageDurationValue ?? null,
-		periodUsageDurationUnit: strictestPeriod?.periodUsageDurationUnit ?? null,
-	};
-}
-
 /**
  * Reject a proposed API-key limit that would exceed the key owner's effective
  * member budget (their own caps, or the org-wide default developer caps that
@@ -1036,7 +1011,11 @@ async function resolveApiKeyOwnerBudgets(
 
 		budgets.set(
 			key.id,
-			mostRestrictiveBudget(memberBudgetPolicies(membership, organization)),
+			mostRestrictiveApiKeyLimits(
+				memberBudgetPolicies(membership, organization).map(
+					({ budget }) => budget,
+				),
+			),
 		);
 	}
 
@@ -1094,6 +1073,8 @@ export async function createApiKeyForProject(
 			message: "Project or organization not found",
 		});
 	}
+
+	assertOrgAllowsManualApiKeys(project.organization);
 
 	const orgProjects = await db.query.project.findMany({
 		where: { organizationId: { eq: project.organization.id } },
@@ -1747,6 +1728,15 @@ keysApi.openapi(updateStatus, async (c) => {
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
+
+	// Reactivating a DevPass key would add a second active key.
+	if (
+		status === "active" &&
+		apiKey.status !== "active" &&
+		userOrg?.organization
+	) {
+		assertOrgAllowsManualApiKeys(userOrg.organization);
+	}
 	const userRole = userOrg?.role as
 		"owner" | "admin" | "project_admin" | "developer" | undefined;
 
