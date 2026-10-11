@@ -12,6 +12,7 @@ import {
 } from "@/lib/timeout-config.js";
 
 import { logger } from "@llmgateway/logger";
+import { DEFAULT_ROUTING_TIMEOUTS } from "@llmgateway/shared/routing-config";
 import { safeOutboundLookup } from "@llmgateway/shared/url-safety-node";
 
 import type { Dispatcher } from "undici";
@@ -24,15 +25,19 @@ function envInt(name: string, fallback: number): number {
 /**
  * Response timers for the upstream Agents. undici defaults headersTimeout and
  * bodyTimeout to 300s, which would cut off provider calls before the longer
- * plain/streaming request timeouts fire. Using the longest configured request
- * timeout keeps the abort signals in charge, even when GATEWAY_TIMEOUT_MS is
- * set below AI_TIMEOUT_MS, while fetches without a signal stay bounded.
+ * plain/streaming request timeouts fire. The Agents are shared across
+ * projects, so the timers cover the longest deadline any request can carry:
+ * the env-resolved timeouts and the ceilings that per-project routing
+ * overrides are clamped to. The abort signals stay in charge, while fetches
+ * without a signal stay bounded.
  */
 function responseTimeouts() {
 	const timeoutMs = Math.max(
 		getGatewayTimeoutMs(),
 		getTimeoutMs(),
 		getStreamingTimeoutMs(),
+		DEFAULT_ROUTING_TIMEOUTS.plainMs,
+		DEFAULT_ROUTING_TIMEOUTS.streamingMs,
 	);
 	return { headersTimeout: timeoutMs, bodyTimeout: timeoutMs };
 }
