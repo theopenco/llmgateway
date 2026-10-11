@@ -449,9 +449,37 @@ function normalizeGoogleSchemaEnum(values: unknown): string[] | undefined {
  * Converts OpenAI JSON schema format to Google's schema format
  * Google uses uppercase type names (STRING, OBJECT, ARRAY) vs OpenAI's lowercase (string, object, array)
  */
-function convertOpenAISchemaToGoogle(schema: any): any {
+function convertOpenAISchemaToGoogle(
+	schema: any,
+	rootDefs: Record<string, any> = schema?.$defs ?? schema?.definitions ?? {},
+	seenRefs: Set<string> = new Set(),
+	rootSchema: any = schema,
+): any {
 	if (!schema || typeof schema !== "object") {
 		return schema;
+	}
+
+	// Google's responseSchema has no $ref, so expand it inline. A recursive
+	// reference collapses to a generic object instead of recursing forever.
+	if (typeof schema.$ref === "string") {
+		if (seenRefs.has(schema.$ref)) {
+			return schema.description
+				? { type: "OBJECT", description: schema.description }
+				: { type: "OBJECT" };
+		}
+		const resolved = resolveRef(schema.$ref, rootDefs, rootSchema);
+		if (resolved) {
+			const expanded = convertOpenAISchemaToGoogle(
+				resolved,
+				rootDefs,
+				new Set(seenRefs).add(schema.$ref),
+				rootSchema,
+			);
+			if (schema.description && !expanded.description) {
+				expanded.description = schema.description;
+			}
+			return expanded;
+		}
 	}
 
 	const converted: any = {};
@@ -482,13 +510,52 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 	if (schema.properties) {
 		converted.properties = {};
 		for (const [key, value] of Object.entries(schema.properties)) {
-			converted.properties[key] = convertOpenAISchemaToGoogle(value);
+			converted.properties[key] = convertOpenAISchemaToGoogle(
+				value,
+				rootDefs,
+				seenRefs,
+				rootSchema,
+			);
 		}
 	}
 
 	// Handle array items
 	if (schema.items) {
-		converted.items = convertOpenAISchemaToGoogle(schema.items);
+		converted.items = convertOpenAISchemaToGoogle(
+			schema.items,
+			rootDefs,
+			seenRefs,
+			rootSchema,
+		);
+	}
+
+	// Unions: Google has `anyOf` but no null type, so a null member becomes
+	// `nullable` and a lone remaining member is folded into this node. A
+	// single-member `allOf` (older pydantic wraps described refs in one) is
+	// folded the same way.
+	const union = Array.isArray(schema.anyOf)
+		? schema.anyOf
+		: Array.isArray(schema.oneOf)
+			? schema.oneOf
+			: Array.isArray(schema.allOf) && schema.allOf.length === 1
+				? schema.allOf
+				: undefined;
+	if (Array.isArray(union)) {
+		const members = union.filter((member: any) => member?.type !== "null");
+		if (members.length !== union.length) {
+			converted.nullable = true;
+		}
+		const convertedMembers = members.map((member: any) =>
+			convertOpenAISchemaToGoogle(member, rootDefs, seenRefs, rootSchema),
+		);
+		if (convertedMembers.length === 1) {
+			Object.assign(converted, {
+				...convertedMembers[0],
+				...converted,
+			});
+		} else if (convertedMembers.length > 1) {
+			converted.anyOf = convertedMembers;
+		}
 	}
 
 	// Copy required array if present
@@ -496,11 +563,19 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 		converted.required = schema.required;
 	}
 
-	// Google's Schema proto represents every enum member as a string, including
-	// members of numeric and boolean schemas.
+	// Google's Schema proto represents every enum member as a string, and
+	// Vertex rejects an enum on any non-STRING schema with a 400. Keep a
+	// numeric or boolean enum as a description hint so the type survives.
 	const normalizedEnum = normalizeGoogleSchemaEnum(schema.enum);
 	if (normalizedEnum !== undefined) {
-		converted.enum = normalizedEnum;
+		if (!converted.type || converted.type === "STRING") {
+			converted.enum = normalizedEnum;
+		} else {
+			const hint = `Allowed values: ${normalizedEnum.join(", ")}`;
+			converted.description = converted.description
+				? `${converted.description} (${hint})`
+				: hint;
+		}
 	}
 
 	// Copy other common JSON schema properties that Google supports
@@ -591,14 +666,33 @@ function sanitizeCerebrasSchema(schema: any): any {
 /**
  * Resolves a $ref path like "#/$defs/QuestionOption" to the actual definition
  */
-function resolveRef(ref: string, rootDefs: Record<string, any>): any {
-	// Handle JSON Pointer format: #/$defs/Name or #/definitions/Name
-	const match = ref.match(/^#\/(\$defs|definitions)\/(.+)$/);
-	if (match) {
-		const defName = match[2];
-		return rootDefs[defName];
+function resolveRef(
+	ref: string,
+	rootDefs: Record<string, any>,
+	rootSchema?: any,
+): any {
+	if (ref === "#") {
+		return rootSchema ?? null;
 	}
-	return null;
+	if (!ref.startsWith("#/")) {
+		return null;
+	}
+	const [first, ...rest] = ref
+		.slice(2)
+		.split("/")
+		.map((segment) => segment.replace(/~1/g, "/").replace(/~0/g, "~"));
+	// Prefer the namespace the ref names, so #/definitions/X still resolves
+	// when the root also carries $defs.
+	let node: any =
+		rootSchema?.[first] ??
+		(first === "$defs" || first === "definitions" ? rootDefs : undefined);
+	for (const segment of rest) {
+		if (!node || typeof node !== "object") {
+			return null;
+		}
+		node = node[segment];
+	}
+	return node && typeof node === "object" ? node : null;
 }
 
 /**
@@ -4472,10 +4566,21 @@ export async function prepareRequestBody(
 				requestBody.generationConfig.responseMimeType = "application/json";
 			} else if (response_format?.type === "json_schema") {
 				requestBody.generationConfig.responseMimeType = "application/json";
-				// Convert OpenAI's JSON schema format to Google's format
 				if (response_format.json_schema?.schema) {
-					requestBody.generationConfig.responseSchema =
-						convertOpenAISchemaToGoogle(response_format.json_schema.schema);
+					// AI Studio and Vertex take standard JSON Schema ($ref, $defs,
+					// anyOf, type arrays, numeric enums) via responseJsonSchema; the
+					// compatible transports still get the OpenAPI-subset conversion in
+					// responseSchema.
+					if (
+						usedProvider === "google-ai-studio" ||
+						usedProvider === "google-vertex"
+					) {
+						requestBody.generationConfig.responseJsonSchema =
+							foldSingleMemberAllOf(response_format.json_schema.schema);
+					} else {
+						requestBody.generationConfig.responseSchema =
+							convertOpenAISchemaToGoogle(response_format.json_schema.schema);
+					}
 				}
 			}
 
@@ -5112,4 +5217,33 @@ export async function prepareRequestBody(
 	}
 
 	return requestBody;
+}
+/**
+ * Gemini's responseJsonSchema ignores `allOf`, leaving the field unconstrained.
+ * Fold the single-member `allOf` older pydantic emits around described refs
+ * into its parent so the constraint survives.
+ */
+function foldSingleMemberAllOf(schema: any): any {
+	if (Array.isArray(schema)) {
+		return schema.map((item) => foldSingleMemberAllOf(item));
+	}
+	if (!schema || typeof schema !== "object") {
+		return schema;
+	}
+	const result: any = {};
+	for (const [key, value] of Object.entries(schema)) {
+		result[key] = foldSingleMemberAllOf(value);
+	}
+	const member = result.allOf?.[0];
+	if (
+		Array.isArray(result.allOf) &&
+		result.allOf.length === 1 &&
+		member &&
+		typeof member === "object" &&
+		!Array.isArray(member)
+	) {
+		delete result.allOf;
+		return { ...member, ...result };
+	}
+	return result;
 }
