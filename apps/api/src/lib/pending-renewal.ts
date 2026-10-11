@@ -117,6 +117,31 @@ async function voidSubscriptionInvoices(
 	}
 }
 
+async function listDraftInvoiceLines(
+	draft: Stripe.Invoice,
+): Promise<Stripe.InvoiceLineItem[]> {
+	const lines = [...draft.lines.data];
+	if (!draft.lines.has_more || !draft.id) {
+		return lines;
+	}
+	let startingAfter = lines.at(-1)?.id;
+	while (true) {
+		const page = await getStripe().invoices.listLineItems(draft.id, {
+			limit: 100,
+			...(startingAfter ? { starting_after: startingAfter } : {}),
+		});
+		lines.push(...page.data);
+		if (!page.has_more) {
+			return lines;
+		}
+		const lastId = page.data.at(-1)?.id;
+		if (!lastId || lastId === startingAfter) {
+			throw new Error("Stripe invoice line pagination did not advance");
+		}
+		startingAfter = lastId;
+	}
+}
+
 function resolveCustomerId(
 	customer: string | { id?: string } | null | undefined,
 ): string | null {
@@ -182,7 +207,13 @@ export async function repriceDraftRenewalInvoice(params: {
 			return;
 		}
 
-		const billedCents = draft.lines.data.reduce((sum, line) => {
+		// The invoice object only embeds the first page of its lines; repeated
+		// changes inside the window can push earlier adjustments past it, so read
+		// every line before netting.
+		const lines = await listDraftInvoiceLines(draft);
+
+		let adjustmentLineCount = 0;
+		const billedCents = lines.reduce((sum, line) => {
 			if (line.parent?.type === "subscription_item_details") {
 				return sum + line.amount;
 			}
@@ -190,6 +221,7 @@ export async function repriceDraftRenewalInvoice(params: {
 				line.parent?.type === "invoice_item_details" &&
 				line.metadata?.devPlanRenewalReprice === "true"
 			) {
+				adjustmentLineCount++;
 				return sum + line.amount;
 			}
 			return sum;
@@ -200,17 +232,27 @@ export async function repriceDraftRenewalInvoice(params: {
 			return;
 		}
 
-		await stripe.invoiceItems.create({
-			customer: customerId,
-			invoice: draft.id,
-			amount: adjustmentCents,
-			currency: draft.currency,
-			description: `Dev Plan renewal adjusted to ${params.newTier.toUpperCase()} pricing`,
-			metadata: {
-				subscriptionType: "dev_plan",
-				devPlanRenewalReprice: "true",
+		// Two concurrent tier-change requests (e.g. a double-clicked confirm) can
+		// both read the draft before either adjustment lands and would each add the
+		// full difference. Key the create on the draft state they observed so Stripe
+		// collapses such duplicates, while a later change in the same window (which
+		// sees one more adjustment line) still gets its own adjustment.
+		await stripe.invoiceItems.create(
+			{
+				customer: customerId,
+				invoice: draft.id,
+				amount: adjustmentCents,
+				currency: draft.currency,
+				description: `Dev Plan renewal adjusted to ${params.newTier.toUpperCase()} pricing`,
+				metadata: {
+					subscriptionType: "dev_plan",
+					devPlanRenewalReprice: "true",
+				},
 			},
-		});
+			{
+				idempotencyKey: `dev-plan-renewal-reprice:${draft.id}:${adjustmentLineCount}:${params.newPriceId}`,
+			},
+		);
 
 		logger.info(
 			`Re-priced draft renewal invoice ${draft.id} for subscription ${params.subscriptionId}: ${adjustmentCents} cent adjustment to ${params.newTier}`,

@@ -57,6 +57,7 @@ const stripeMock = vi.hoisted(() => ({
 		list: vi.fn(),
 		finalizeInvoice: vi.fn(),
 		voidInvoice: vi.fn(),
+		listLineItems: vi.fn(),
 	},
 	invoicePayments: { list: vi.fn() },
 	paymentIntents: { retrieve: vi.fn() },
@@ -1827,6 +1828,10 @@ describe("dev plan tier changes", () => {
 					devPlanRenewalReprice: "true",
 				}),
 			}),
+			{
+				idempotencyKey:
+					"dev-plan-renewal-reprice:in_renewal_draft:0:price_lite",
+			},
 		);
 
 		const org = await db.query.organization.findFirst({
@@ -1996,6 +2001,90 @@ describe("dev plan tier changes", () => {
 					devPlanRenewalReprice: "true",
 				}),
 			}),
+			{
+				idempotencyKey: "dev-plan-renewal-reprice:in_renewal_draft:1:price_pro",
+			},
+		);
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanPendingTier).toBeNull();
+	});
+
+	it("nets adjustment lines beyond the embedded first page of the draft", async () => {
+		// Stripe only embeds the first page of an invoice's lines. Earlier
+		// adjustments past that page must still be netted, or the new adjustment
+		// would overshoot the target price.
+		process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID = "price_pro";
+		await db
+			.update(tables.organization)
+			.set({ devPlan: "pro", devPlanPendingTier: "lite" })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(
+				{ metadata: { devPlan: "pro" } },
+				{ price: { id: "price_lite" } },
+			),
+		);
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			items: { data: [{ id: "si_dev_plan" }] },
+		});
+		stripeMock.invoices.list.mockResolvedValue({
+			data: [
+				{
+					id: "in_renewal_draft",
+					billing_reason: "subscription_cycle",
+					currency: "usd",
+					lines: {
+						has_more: true,
+						data: [
+							{
+								id: "il_sub",
+								amount: 7900,
+								parent: { type: "subscription_item_details" },
+								metadata: {},
+							},
+						],
+					},
+				},
+			],
+		});
+		stripeMock.invoices.listLineItems.mockResolvedValue({
+			has_more: false,
+			data: [
+				{
+					id: "il_adjust",
+					amount: -5000,
+					parent: { type: "invoice_item_details" },
+					metadata: { devPlanRenewalReprice: "true" },
+				},
+			],
+		});
+		stripeMock.prices.retrieve.mockResolvedValue({
+			id: "price_pro",
+			unit_amount: 7900,
+		});
+
+		const res = await app.request("/dev-plans/cancel-downgrade", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(stripeMock.invoices.listLineItems).toHaveBeenCalledWith(
+			"in_renewal_draft",
+			{ limit: 100, starting_after: "il_sub" },
+		);
+		expect(stripeMock.invoiceItems.create).toHaveBeenCalledWith(
+			expect.objectContaining({ amount: 5000 }),
+			{
+				idempotencyKey: "dev-plan-renewal-reprice:in_renewal_draft:1:price_pro",
+			},
 		);
 	});
 });
