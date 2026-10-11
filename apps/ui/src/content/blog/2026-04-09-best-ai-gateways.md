@@ -2,27 +2,52 @@
 id: blog-best-ai-gateways
 slug: best-ai-gateways
 date: 2026-04-09
-title: "8 Best AI Gateways in 2026 (Compared)"
-summary: "An honest comparison of the top AI gateways — features, pricing, and trade-offs — so you can pick the right one for your stack."
+updatedAt: "2026-10-11"
+title: "Best LLM Gateways in 2026: 8 AI Gateways Compared"
+summary: "The best LLM gateways in 2026, compared on open source, self-hosting, BYOK markup, failover, caching, observability and model coverage: LLM Gateway, OpenRouter, Portkey, LiteLLM, Helicone, Vercel AI Gateway, Cloudflare AI Gateway and AWS Bedrock, with a verdict per use case."
 categories: ["Guides"]
+faqs:
+  - question: "What is the best LLM gateway?"
+    answer: "For most teams, LLM Gateway: it is open source (AGPLv3), self-hostable, OpenAI-compatible, charges no markup on your own provider keys, and ships failover, caching and per-request cost analytics. OpenRouter has the largest hosted catalog, LiteLLM is the most common self-hosted Python proxy, Portkey is strong on enterprise guardrails, and Helicone leads on logging."
+  - question: "What is the difference between an LLM gateway and an AI gateway?"
+    answer: "They are the same category: a single API in front of many model providers that handles routing, failover, keys, caching, cost tracking and logging. Vendors use both names; Cloudflare and Vercel say AI gateway, most open-source projects say LLM gateway."
+  - question: "Which LLM gateways are open source?"
+    answer: "LLM Gateway (AGPLv3), LiteLLM and Helicone are open source and self-hostable. Portkey open-sources its gateway core but keeps the control plane proprietary. OpenRouter, Vercel AI Gateway, Cloudflare AI Gateway and AWS Bedrock are hosted only."
+  - question: "Do LLM gateways add a markup on model prices?"
+    answer: "It depends on the gateway and whether you bring your own keys. LLM Gateway, LiteLLM, Portkey and Vercel AI Gateway add no markup on BYOK. OpenRouter passes provider token rates through but charges 5.5% on credit purchases, and BYOK is free only up to 1M requests a month, then 5%. See the comparison table in this post for the full matrix."
 image:
   src: "/blog/best-ai-gateways.png"
-  alt: "8 Best AI Gateways in 2026 (Compared)"
+  alt: "Best LLM gateways in 2026 compared"
   width: 1024
   height: 1024
 ---
 
-Calling LLM providers directly works until it doesn't. The moment you're managing multiple API keys, tracking costs across providers, or scrambling during a provider outage, you need a gateway.
+Calling LLM providers directly works until it doesn't. The moment you're managing multiple API keys, tracking costs across providers, or scrambling during a provider outage, you need an LLM gateway: one API in front of every provider that handles routing, failover, keys, caching and cost tracking.
 
-But not all AI gateways are created equal. Some are pure proxies. Some lock you into their ecosystem. Some charge you for features that should be free.
+Not all LLM gateways are equal. Some are pure proxies. Some lock you into their ecosystem. Some charge you for features that should be free.
 
-We evaluated eight AI gateways on what actually matters: provider coverage, pricing transparency, self-hosting, observability, and how fast you can get started.
+We evaluated eight LLM gateways (the vendors who say "AI gateway" mean the same thing) on what matters: provider coverage, pricing transparency, self-hosting, observability, and how fast you can get started. Updated October 11, 2026.
+
+## Best LLM gateways: the short version
+
+| Pick this                 | If you need                                                                 |
+| ------------------------- | --------------------------------------------------------------------------- |
+| **LLM Gateway**           | Open source, self-hostable, no BYOK markup, failover and analytics included |
+| **OpenRouter**            | The largest hosted catalog and nothing to run                               |
+| **LiteLLM**               | A Python proxy you configure and operate yourself                           |
+| **Portkey**               | Enterprise guardrails and prompt management on a hosted control plane       |
+| **Helicone**              | Logging and analytics first, gateway second                                 |
+| **Vercel AI Gateway**     | You are all-in on the Vercel AI SDK and platform                            |
+| **Cloudflare AI Gateway** | You already front everything with Cloudflare and want basic caching         |
+| **AWS Bedrock**           | Your stack and compliance boundary are AWS                                  |
+
+The rest of this post goes through each one.
 
 ## 1. LLM Gateway
 
 **Best overall. Open source. Self-hostable.**
 
-[LLM Gateway](https://llmgateway.io) is an open-source API gateway that routes requests to 200+ models across 40+ providers through a single OpenAI-compatible endpoint. Change your base URL, keep your existing code.
+[LLM Gateway](https://llmgateway.io) is an open-source API gateway that routes requests to 250+ models across 40+ providers through a single OpenAI-compatible endpoint. Change your base URL, keep your existing code.
 
 **What sets it apart:**
 
@@ -47,9 +72,9 @@ const client = new OpenAI({
   baseURL: "https://api.llmgateway.io/v1",
 });
 
-// Works with any of 200+ models
+// Works with any of 250+ models
 const response = await client.chat.completions.create({
-  model: "claude-sonnet-4-5",
+  model: "claude-sonnet-5-5",
   messages: [{ role: "user", content: "Hello!" }],
 });
 ```
@@ -255,14 +280,14 @@ AWS Bedrock provides access to foundation models through AWS infrastructure. It'
 | **Analytics Dashboard** | Yes         | Yes        | Yes     | Built-in | Yes      | Yes          | Basic            | CloudWatch  |
 | **Automatic Failover**  | Yes         | Yes        | Yes     | Config   | Limited  | Yes          | No               | No          |
 | **Guardrails**          | Enterprise  | Enterprise | Yes     | No       | No       | No           | No               | Yes         |
-| **Models**              | 300+        | 400+       | 1,600+  | 100+     | N/A      | Hundreds     | ~20              | ~30         |
+| **Models**              | 250+        | 400+       | 1,600+  | 100+     | N/A      | Hundreds     | ~20              | ~30         |
 | **Playground**          | Yes         | Yes        | No      | No       | No       | Yes          | No               | Yes         |
 
-## How to Choose
+## How to choose an LLM gateway
 
 **You want full control and no lock-in:** LLM Gateway is the only option that's open source, self-hostable, and charges zero markup on your own keys. You get enterprise features without enterprise pricing.
 
-**You want the widest model selection:** LLM Gateway and OpenRouter both offer extensive catalogs. LLM Gateway covers 200+ models with the added benefit of self-hosting and BYOK.
+**You want the widest model selection:** LLM Gateway and OpenRouter both offer extensive catalogs. LLM Gateway covers 250+ models with the added benefit of self-hosting and BYOK.
 
 **You want observability above all:** Helicone is purpose-built for logging and analytics, though LLM Gateway and Portkey offer comparable dashboards with full gateway capabilities included.
 
@@ -284,6 +309,6 @@ If you want to try the top pick, you can be running in under two minutes:
 
 That's it. Your existing code works. Every request gets logged, cached, and tracked automatically.
 
-**[Create a free account](https://llmgateway.io/signup)** | **[Browse 200+ models](https://llmgateway.io/models)** | **[Read the docs](https://docs.llmgateway.io)**
+**[Create a free account](https://llmgateway.io/signup)** | **[Browse 250+ models](https://llmgateway.io/models)** | **[Read the docs](https://docs.llmgateway.io)**
 
 <BlogCta variant="gateway" location="bottom" />

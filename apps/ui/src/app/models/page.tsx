@@ -33,21 +33,21 @@ export const metadata = {
 	alternates: {
 		canonical: "https://llmgateway.io/models",
 	},
-	title: "AI Models Directory — Compare 200+ LLM Models",
+	title: "LLM Models List — Compare 250+ AI Models & Live Prices",
 	description:
-		"Browse and compare 200+ AI models from OpenAI, Anthropic, Google, and 40+ providers. Filter by capability, price, and context — call any model via one API.",
+		"Browse the full LLM models list: 250+ AI models from OpenAI, Anthropic, Google, and 40+ providers with live prices, context size and capabilities. Call any model via one API.",
 	openGraph: {
-		title: "AI Models Directory — Compare 200+ LLM Models",
+		title: "LLM Models List — Compare 250+ AI Models & Live Prices",
 		description:
-			"Browse and compare 200+ AI models from OpenAI, Anthropic, Google, and 40+ providers. Filter by capability, price, and context — call any model via one API.",
+			"Browse the full LLM models list: 250+ AI models from OpenAI, Anthropic, Google, and 40+ providers with live prices, context size and capabilities. Call any model via one API.",
 		type: "website",
 		url: "https://llmgateway.io/models",
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "AI Models Directory — Compare 200+ LLM Models",
+		title: "LLM Models List — Compare 250+ AI Models & Live Prices",
 		description:
-			"Browse and compare 200+ AI models from leading providers. Filter by capabilities, pricing, and context size.",
+			"Browse 250+ AI models from leading providers with live prices. Filter by capability, price, and context size.",
 	},
 };
 
@@ -63,7 +63,7 @@ export default async function ModelsPage() {
 		"@context": "https://schema.org",
 		"@type": "ItemList",
 		"@id": "https://llmgateway.io/models#model-list",
-		name: "AI Models Directory",
+		name: "LLM Models List",
 		numberOfItems: models.length,
 		itemListElement: models.map((model, index) => ({
 			"@type": "ListItem",
@@ -76,9 +76,9 @@ export default async function ModelsPage() {
 	const collectionSchema = {
 		"@context": "https://schema.org",
 		"@type": "CollectionPage",
-		name: "AI Models Directory",
+		name: "LLM Models List",
 		description:
-			"Browse and compare 200+ AI models from leading providers like OpenAI, Anthropic, and Google. Filter by capabilities, pricing, and context size.",
+			"Browse the full LLM models list: 250+ AI models from OpenAI, Anthropic, Google, and 40+ providers with live prices, context size and capabilities.",
 		url: "https://llmgateway.io/models",
 		mainEntity: { "@id": "https://llmgateway.io/models#model-list" },
 	};
@@ -110,8 +110,8 @@ export default async function ModelsPage() {
 					footer={<Footer />}
 					models={models}
 					providers={providers}
-					title="AI Models Directory"
-					description="Browse and compare 200+ AI models from OpenAI, Anthropic, Google, and 40+ providers — filter by capabilities, pricing, and context size."
+					title="LLM models list"
+					description="250+ AI models from OpenAI, Anthropic, Google, and 40+ providers with live prices — filter by capability, price, and context size."
 					seoContent={
 						<>
 							<section className="container mx-auto px-4 pb-16">
