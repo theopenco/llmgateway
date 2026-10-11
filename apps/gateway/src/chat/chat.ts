@@ -2104,7 +2104,7 @@ chat.openapi(completions, async (c) => {
 		// extracted below, so a conflicting duplicate must be rejected here.
 		if (
 			tools.some(
-				(tool: any) =>
+				(tool) =>
 					tool.type === "web_search" &&
 					tool.allowed_domains?.length &&
 					tool.blocked_domains?.length,
