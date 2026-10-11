@@ -66,18 +66,10 @@ const NO_GDPR_POSITION_BASELINE = new Set([
  * instruction impossible to follow — it is a disclosure gap, not just missing
  * metadata.
  */
-const NO_PRIVACY_POLICY_URL_BASELINE = new Set([
-	"atria",
-	"glacier",
-	"quartz",
-]);
+const NO_PRIVACY_POLICY_URL_BASELINE = new Set(["atria", "glacier", "quartz"]);
 
 /** Providers whose headquarters are not disclosed. */
-const NO_HEADQUARTERS_BASELINE = new Set([
-	"glacier",
-	"quartz",
-	"atlascloud",
-]);
+const NO_HEADQUARTERS_BASELINE = new Set(["glacier", "quartz", "atlascloud"]);
 
 /**
  * Not real upstream platforms, so they have no data policy of their own:
