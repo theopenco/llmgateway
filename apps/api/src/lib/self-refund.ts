@@ -94,7 +94,11 @@ export function isSelfRefundCandidateType(
  * rewards) get nothing.
  */
 export function hasRefundAction(transaction: TransactionRow): boolean {
-	return transaction.type !== "credit_refund" && dec(transaction.amount).gt(0);
+	return (
+		transaction.type !== "credit_refund" &&
+		transaction.type !== "subscription_refund" &&
+		dec(transaction.amount).gt(0)
+	);
 }
 
 const REFUND_FEEDBACK_KIND_BY_TYPE: Record<

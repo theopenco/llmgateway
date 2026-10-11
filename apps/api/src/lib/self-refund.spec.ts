@@ -5,7 +5,10 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 
-import { computeSelfRefundEligibility } from "./self-refund.js";
+import {
+	computeSelfRefundEligibility,
+	hasRefundAction,
+} from "./self-refund.js";
 
 import type * as PaymentsModule from "@/routes/payments.js";
 
@@ -722,6 +725,22 @@ describe("computeSelfRefundEligibility", () => {
 			eligible: false,
 			reason: "already_refunded",
 		});
+	});
+});
+
+describe("hasRefundAction", () => {
+	const row = (type: string, amount: string | null) =>
+		({ type, amount }) as Parameters<typeof hasRefundAction>[0];
+
+	test("refund rows never get a refund control", () => {
+		expect(hasRefundAction(row("credit_refund", "10"))).toBe(false);
+		expect(hasRefundAction(row("subscription_refund", "29"))).toBe(false);
+	});
+
+	test("paid charges get a refund control", () => {
+		expect(hasRefundAction(row("dev_plan_start", "29"))).toBe(true);
+		expect(hasRefundAction(row("credit_topup", "10"))).toBe(true);
+		expect(hasRefundAction(row("dev_plan_cancel", null))).toBe(false);
 	});
 });
 
