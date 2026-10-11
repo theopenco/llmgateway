@@ -48,18 +48,33 @@ import {
 	getProviderCountries,
 	isProviderCompliant,
 	type ProviderCompliancePolicy,
+	type ProviderDataPolicy,
 	type ProviderId,
 } from "@llmgateway/models";
-import { CarrierMark, providerLogoUrls } from "@llmgateway/shared/components";
+import {
+	CarrierMark,
+	providerLogoUrls,
+	svgDataUrlAspectRatio,
+} from "@llmgateway/shared/components";
 
 type SortKey = "fastest" | "slowest" | "popular" | "name" | "uptime";
 
 const getProviderLogo = (providerId: ProviderId, uploadedLogo?: string) => {
 	// A carrier-uploaded logo (Airside claim) wins over the built-in mark.
 	if (uploadedLogo) {
+		// Wordmarks keep their proportions instead of shrinking into the square
+		// slot built-in marks use.
+		const aspectRatio = svgDataUrlAspectRatio(uploadedLogo) ?? 1;
+		const width = Math.min(Math.max(aspectRatio, 1), 3.5) * 48;
 		return (
-			<div className="flex size-12 shrink-0 items-center justify-center overflow-hidden">
-				<CarrierMark src={uploadedLogo} className="size-12 object-contain" />
+			<div
+				className="flex h-12 min-w-12 shrink items-center overflow-hidden"
+				style={{ width }}
+			>
+				<CarrierMark
+					src={uploadedLogo}
+					className="h-12 w-full object-contain"
+				/>
 			</div>
 		);
 	}
@@ -75,6 +90,33 @@ const getProviderLogo = (providerId: ProviderId, uploadedLogo?: string) => {
 };
 
 const PROVIDER_COUNTRIES = getProviderCountries();
+const PROVIDER_COUNTRY_CODES = new Set(PROVIDER_COUNTRIES.map((c) => c.code));
+
+const badgeClassName =
+	"inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground";
+
+function CountryBadge({ code }: { code: string }) {
+	const content = (
+		<>
+			<span className="leading-none">{countryCodeToFlag(code)}</span>
+			<MapPin className="h-3 w-3" />
+			{code}
+		</>
+	);
+	// Custom carriers may declare a country with no country page yet.
+	if (!PROVIDER_COUNTRY_CODES.has(code)) {
+		return <span className={badgeClassName}>{content}</span>;
+	}
+	return (
+		<Link
+			href={`/providers/country/${code.toLowerCase()}`}
+			onClick={(e) => e.stopPropagation()}
+			className={`${badgeClassName} transition-colors hover:border-primary/40 hover:text-primary`}
+		>
+			{content}
+		</Link>
+	);
+}
 
 type ComplianceFilterKey =
 	| "requireSoc2"
@@ -109,13 +151,16 @@ function formatUptime(pct: number | null | undefined): string {
 }
 
 /** A DB-only provider (custom Airside carrier) appended to the static grid.
- *  Carries its own model count since the static counts don't know it, and no
- *  compliance metadata — so compliance/country filters exclude it. */
+ *  Carries its own model count since the static counts don't know it, plus the
+ *  carrier's self-declared Airside profile for the card badges and filters. */
 export interface ExtraGridProvider {
 	id: string;
 	name: string;
 	description: string | null;
 	modelsCount: number;
+	headquarters: string | null;
+	website: string | null;
+	dataPolicy: ProviderDataPolicy | null;
 }
 
 interface ProvidersGridProps {
@@ -178,12 +223,11 @@ export function ProvidersGrid({
 		const listedProviders = publicProviderDefinitions.filter(
 			(provider) => modelsCountOf(provider, modelCounts) > 0,
 		);
-		// Country pages only list catalogue providers — custom carriers carry
-		// no headquarters metadata.
+		const all = [...listedProviders, ...(extraProviders ?? [])];
 		if (countryCode) {
-			return listedProviders.filter((p) => p.headquarters === countryCode);
+			return all.filter((p) => p.headquarters === countryCode);
 		}
-		return [...listedProviders, ...(extraProviders ?? [])];
+		return all;
 	}, [countryCode, extraProviders, modelCounts]);
 
 	const totalProviders = visibleProviders.length;
@@ -245,8 +289,8 @@ export function ProvidersGrid({
 		const complianceFiltered =
 			reqs.size > 0 || activeCountry
 				? enriched.filter((p) =>
-						// Custom carriers carry no compliance metadata, so any active
-						// requirement excludes them — matching how the helper treats a
+						// Custom carriers are checked against their self-declared
+						// profile; unstated attributes fail closed like the helper's
 						// missing dataPolicy.
 						isProviderCompliant(
 							p as Parameters<typeof isProviderCompliant>[0],
@@ -435,14 +479,7 @@ export function ProvidersGrid({
 			) : (
 				<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 					{filteredAndSorted.map((provider) => {
-						// Static-catalogue-only card decorations; absent on custom
-						// carriers appended via extraProviders.
-						const headquarters =
-							"headquarters" in provider ? provider.headquarters : undefined;
-						const dataPolicy =
-							"dataPolicy" in provider ? provider.dataPolicy : undefined;
-						const website =
-							"website" in provider ? provider.website : undefined;
+						const { headquarters, dataPolicy, website } = provider;
 						return (
 							<Card
 								key={provider.id}
@@ -521,19 +558,7 @@ export function ProvidersGrid({
 											</span>
 										</div>
 										<div className="flex flex-wrap items-center justify-end gap-1.5">
-											{headquarters && (
-												<Link
-													href={`/providers/country/${headquarters.toLowerCase()}`}
-													onClick={(e) => e.stopPropagation()}
-													className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
-												>
-													<span className="leading-none">
-														{countryCodeToFlag(headquarters)}
-													</span>
-													<MapPin className="h-3 w-3" />
-													{headquarters}
-												</Link>
-											)}
+											{headquarters && <CountryBadge code={headquarters} />}
 											{dataPolicy?.apiTraining === false && (
 												<span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
 													<ShieldCheck className="h-3 w-3" />

@@ -42,7 +42,7 @@ export const metadata: Metadata = {
 		template: `%s | ${BRAND.fullName}`,
 	},
 	description:
-		"The members' lounge for AI. Chat with GPT, Claude, and Gemini, generate images and video, and host multi-model council debates — every frontier model, one membership.",
+		"The members' lounge for AI. Compare model answers, generate images and video, and host multi-model council debates — your AI workspace with one membership.",
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},

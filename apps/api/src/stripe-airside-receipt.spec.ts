@@ -18,7 +18,8 @@ vi.mock("./utils/email.js", async (importOriginal) => {
 const { sendTransactionalEmail } = await import("./utils/email.js");
 const sendEmailMock = vi.mocked(sendTransactionalEmail);
 
-const { handleAirsideListingCheckout } = await import("./stripe.js");
+const { handleAirsideListingCheckout, handleChargeRefunded } =
+	await import("./stripe.js");
 
 const COMPANY_ID = "airside-receipt-company";
 
@@ -34,6 +35,7 @@ function makeSession(opts: {
 		currency: "usd",
 		customer_email: opts.email ?? null,
 		customer_details: opts.email ? { email: opts.email } : null,
+		payment_intent: `pi_${opts.id}`,
 		metadata: {
 			type: "airside_listing_fee",
 			providerCompanyId: COMPANY_ID,
@@ -91,6 +93,57 @@ describe("airside listing fee receipt", () => {
 		await handleAirsideListingCheckout(session);
 
 		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+	});
+
+	test("records each paid session once, including a duplicate charge", async () => {
+		const first = makeSession({
+			id: "cs_airside_pay_1",
+			paymentStatus: "paid",
+		});
+		await handleAirsideListingCheckout(first);
+		await handleAirsideListingCheckout(first);
+		await handleAirsideListingCheckout(
+			makeSession({ id: "cs_airside_pay_2", paymentStatus: "paid" }),
+		);
+		await handleAirsideListingCheckout(
+			makeSession({ id: "cs_airside_pay_3", paymentStatus: "unpaid" }),
+		);
+
+		const payments = await db.query.providerListingPayment.findMany({
+			orderBy: { stripeCheckoutSessionId: "asc" },
+		});
+		expect(payments).toHaveLength(2);
+		expect(payments[0]).toMatchObject({
+			source: "airside",
+			providerCompanyId: COMPANY_ID,
+			amount: "499",
+			refundedAmount: "0",
+			currency: "USD",
+			stripeCheckoutSessionId: "cs_airside_pay_1",
+			stripePaymentIntentId: "pi_cs_airside_pay_1",
+		});
+	});
+
+	test("tracks a refund on the recorded payment", async () => {
+		await handleAirsideListingCheckout(
+			makeSession({ id: "cs_airside_refund", paymentStatus: "paid" }),
+		);
+
+		await handleChargeRefunded({
+			data: {
+				object: {
+					payment_intent: "pi_cs_airside_refund",
+					amount: 49900,
+					amount_refunded: 49900,
+				},
+			},
+		} as unknown as Stripe.ChargeRefundedEvent);
+
+		const payment = await db.query.providerListingPayment.findFirst({
+			where: { stripeCheckoutSessionId: { eq: "cs_airside_refund" } },
+		});
+		expect(payment?.refundedAmount).toBe("499");
+		expect(await db.query.transaction.findMany()).toHaveLength(0);
 	});
 
 	test("does not email while the payment is still unsettled", async () => {

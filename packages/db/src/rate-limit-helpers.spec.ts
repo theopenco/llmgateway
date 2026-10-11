@@ -53,6 +53,85 @@ describe("getEffectiveRateLimit", () => {
 		});
 	});
 
+	it.each(["soft", "lax"] as const)(
+		"resolves %s per window from the matched row",
+		async (mode) => {
+			createQueryMock([
+				{
+					id: "rl-soft-rpm",
+					organizationId: "org-1",
+					provider: "openai",
+					model: "gpt-4o",
+					maxRpm: 10,
+					maxRpd: null,
+					enforcement: "per_org",
+					mode,
+				},
+				{
+					id: "rl-strict-rpd",
+					organizationId: null,
+					provider: "openai",
+					model: null,
+					maxRpm: null,
+					maxRpd: 500,
+					enforcement: "per_org",
+					mode: "strict",
+				},
+			]);
+
+			const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
+
+			expect(result).toMatchObject({ maxRpm: 10, rpmMode: mode, maxRpd: 500 });
+			expect(result.rpdMode).toBeUndefined();
+		},
+	);
+
+	it.each(["soft", "lax"] as const)(
+		"preserves the mode of a zero %s limit",
+		async (mode) => {
+			createQueryMock([
+				{
+					id: "rl-soft-zero",
+					organizationId: null,
+					provider: "openai",
+					model: "gpt-4o",
+					maxRpm: 0,
+					maxRpd: null,
+					enforcement: "per_org",
+					mode,
+				},
+			]);
+
+			const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
+
+			expect(result.maxRpm).toBe(0);
+			expect(result.rpmMode).toBe(mode);
+		},
+	);
+
+	it("takes the mode of a carrier cap from the listing", async () => {
+		createQueryMock(
+			[],
+			[
+				{
+					maxRpm: 30,
+					maxRpd: null,
+					rateLimitScope: "global",
+					rateLimitMode: "soft",
+				},
+			],
+		);
+
+		const result = await getEffectiveRateLimit(
+			"org-1",
+			"mistral",
+			"gpt-5.6-luna",
+		);
+
+		expect(result).toMatchObject({ maxRpm: 30, rpmMode: "soft" });
+		expect(result.rpdMode).toBeUndefined();
+	});
+
 	it("falls back to carrier caps when no admin row constrains a window", async () => {
 		createQueryMock([], [{ maxRpm: 30, maxRpd: 5000 }]);
 

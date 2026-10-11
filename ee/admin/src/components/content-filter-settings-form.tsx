@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 import { MultiProviderSelector } from "@llmgateway/shared/components";
 
@@ -52,20 +54,17 @@ interface ContentFilterSettingsFormProps {
 		enforceEnterprise: boolean;
 		classifier: Classifier;
 		internalScope: InternalScope;
+		moderateImages: boolean;
 		providers: ContentFilterProvider[];
 	};
-	onSave: (
-		input: ContentFilterSettingsInput,
-	) => Promise<{ ok: boolean; message: string | null }>;
 }
 
 export function ContentFilterSettingsForm({
 	settings,
-	onSave,
 }: ContentFilterSettingsFormProps) {
 	const router = useRouter();
 	const readOnly = !canWrite(useAdminRole());
-	const [pending, startTransition] = useTransition();
+	const $api = useApi();
 	const [enabled, setEnabled] = useState(settings.enabled);
 	const [sampleRate, setSampleRate] = useState(
 		String(settings.sampleRatePercent),
@@ -78,43 +77,61 @@ export function ContentFilterSettingsForm({
 	const [internalScope, setInternalScope] = useState<InternalScope>(
 		settings.internalScope,
 	);
+	const [moderateImages, setModerateImages] = useState(settings.moderateImages);
 	const [providerIds, setProviderIds] = useState<string[]>(() =>
 		settings.providers.filter((p) => p.enabled).map((p) => p.id),
 	);
 	const allSelected =
 		settings.providers.length > 0 &&
 		providerIds.length >= settings.providers.length;
-	const [error, setError] = useState<string | null>(null);
+	// Client-side validation; API failures come from the mutation.
+	const [validationError, setValidationError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
+	const mutation = $api.useMutation("put", "/admin/settings/content-filter", {
+		meta: { inlineError: true },
+	});
+	const pending = mutation.isPending;
+	const error =
+		validationError ??
+		(mutation.isError
+			? apiErrorMessage(
+					mutation.error,
+					"Failed to update the content filter settings.",
+				)
+			: null);
 
 	const handleSubmit = (event: React.FormEvent) => {
 		event.preventDefault();
-		setError(null);
+		setValidationError(null);
 		setSaved(false);
 		const rate = Number(sampleRate);
 		if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
-			setError("Sample rate must be between 0 and 100.");
+			mutation.reset();
+			setValidationError("Sample rate must be between 0 and 100.");
 			return;
 		}
-		startTransition(async () => {
-			const savedEnforceEnterprise = enforce && enforceEnterprise;
-			const result = await onSave({
-				enabled,
-				sampleRatePercent: rate,
-				enforce,
-				enforceEnterprise: savedEnforceEnterprise,
-				classifier,
-				internalScope,
-				providerIds,
-			});
-			if (!result.ok) {
-				setError(result.message);
-				return;
-			}
-			setEnforceEnterprise(savedEnforceEnterprise);
-			setSaved(true);
-			router.refresh();
-		});
+		const savedEnforceEnterprise = enforce && enforceEnterprise;
+		mutation.mutate(
+			{
+				body: {
+					enabled,
+					sampleRatePercent: rate,
+					enforce,
+					enforceEnterprise: savedEnforceEnterprise,
+					classifier,
+					internalScope,
+					moderateImages,
+					providerIds,
+				},
+			},
+			{
+				onSuccess: () => {
+					setEnforceEnterprise(savedEnforceEnterprise);
+					setSaved(true);
+					router.refresh();
+				},
+			},
+		);
 	};
 
 	return (
@@ -230,11 +247,10 @@ export function ContentFilterSettingsForm({
 				</Select>
 				<p className="text-xs text-muted-foreground">
 					Model that scores sampled requests and decides the outcome. Jev and
-					the internal classifier are text-only: image parts are still moderated
-					by OpenAI. The internal classifier runs in our own infrastructure and
-					blocks only on its own verdict; its topic tags are recorded, never
-					enforced. Thresholds are per classifier, so re-measure before
-					switching an enforcing filter.
+					the internal classifier are text-only. The internal classifier runs in
+					our own infrastructure and blocks only on its own verdict; its topic
+					tags are recorded, never enforced. Thresholds are per classifier, so
+					re-measure before switching an enforcing filter.
 				</p>
 			</div>
 
@@ -271,6 +287,30 @@ export function ContentFilterSettingsForm({
 						system prompt plus the messages after the last assistant reply, in
 						one request.
 					</p>
+				</div>
+			)}
+
+			{classifier !== "openai" && (
+				<div className="flex items-center gap-3">
+					<Switch
+						id="content-filter-moderate-images"
+						checked={moderateImages}
+						disabled={pending || readOnly}
+						onCheckedChange={(checked) => {
+							setSaved(false);
+							setModerateImages(checked);
+						}}
+					/>
+					<div className="space-y-0.5">
+						<Label htmlFor="content-filter-moderate-images">
+							Moderate images with OpenAI
+						</Label>
+						<p className="text-xs text-muted-foreground">
+							{CLASSIFIER_LABELS[classifier]} is text-only. On sends image parts
+							to OpenAI moderation and merges the verdicts; off moderates text
+							only and leaves images unchecked.
+						</p>
+					</div>
 				</div>
 			)}
 

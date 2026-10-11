@@ -180,7 +180,7 @@ function MetricCell({
 		sub?: { label: string; value: string }[];
 	}[];
 	hero?: boolean;
-	/** Lay the ledger rows out in the hero's two-column grid. */
+	/** Lay the ledger rows out in a two-column grid. */
 	rowsGrid?: boolean;
 	className?: string;
 	style?: CSSProperties;
@@ -237,11 +237,15 @@ function MetricCell({
 			<dl
 				className={cn(
 					"relative mt-auto border-t border-border/50 pt-4",
-					hero || rowsGrid
-						? // items-start: a stretched row would drop its dotted leader to
-							// the bottom of a taller neighbouring cell.
-							"grid grid-cols-1 items-start gap-x-8 gap-y-2 sm:grid-cols-2"
-						: "flex flex-col gap-2",
+					hero
+						? // Column flow, not a grid: a row with sub-rows is taller than
+							// its neighbour and would leave a hole in a row-major grid.
+							"gap-x-8 sm:columns-2 [&>*]:mb-2 [&>*]:break-inside-avoid"
+						: rowsGrid
+							? // items-start: a stretched row would drop its dotted leader
+								// to the bottom of a taller neighbouring cell.
+								"grid grid-cols-1 items-start gap-x-8 gap-y-2 sm:grid-cols-2"
+							: "flex flex-col gap-2",
 				)}
 			>
 				{rows.map((row) =>
@@ -426,6 +430,16 @@ export default async function Page({
 											},
 										]
 									: []),
+								...(metrics.grossProviderListingRevenue > 0
+									? [
+											{
+												label: "Provider listing fees",
+												value: currencyFormatter.format(
+													metrics.grossProviderListingRevenue,
+												),
+											},
+										]
+									: []),
 							]}
 						/>
 						<MetricCell
@@ -484,26 +498,36 @@ export default async function Page({
 							label="Credit flow"
 							value={metrics.totalToppedUp}
 							format="currency"
-							sublabel="All-time credits purchased"
+							sublabel="All-time credits purchased + gifted"
 							icon={<PiggyBank className="h-4 w-4" strokeWidth={1.75} />}
 							accent="violet"
 							style={revealAt(5)}
 							rows={[
 								{
-									label: "Spent",
-									value: currencyFormatter.format(metrics.totalSpent),
-								},
-								{
-									label: "Spent (credits)",
-									value: currencyFormatter.format(metrics.totalCreditsSpent),
-								},
-								{
-									label: "Spent (BYOK, not billed)",
-									value: currencyFormatter.format(metrics.totalApiKeysSpent),
+									label: "Spent from credits",
+									value: currencyFormatter.format(metrics.totalDebitedSpend),
 								},
 								{
 									label: "Unused",
 									value: currencyFormatter.format(metrics.unusedCredits),
+									sub: [
+										{
+											label: "Excl. gifted",
+											value: currencyFormatter.format(
+												metrics.unusedCreditsExcludingGifts,
+											),
+										},
+										{
+											label: "Of which gifted",
+											value: currencyFormatter.format(
+												metrics.totalToppedUpGifted,
+											),
+										},
+									],
+								},
+								{
+									label: "BYOK spend, not billed",
+									value: currencyFormatter.format(metrics.totalApiKeysSpent),
 								},
 							]}
 						/>

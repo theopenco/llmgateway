@@ -187,6 +187,28 @@ export function formatPeriodWindowLabel(
 	return `${durationValue} ${durationUnit}${durationValue === 1 ? "" : "s"}`;
 }
 
+export function formatApiKeyLimitCaps(
+	limits: ApiKeyLimitConstraints,
+): string | null {
+	const parts: string[] = [];
+	if (limits.usageLimit !== null) {
+		parts.push(`${formatCurrencyAmount(limits.usageLimit)} total`);
+	}
+	if (
+		limits.periodUsageLimit !== null &&
+		limits.periodUsageDurationValue !== null &&
+		limits.periodUsageDurationUnit !== null
+	) {
+		parts.push(
+			`${formatCurrencyAmount(limits.periodUsageLimit)} per ${formatPeriodWindowLabel(
+				limits.periodUsageDurationValue,
+				limits.periodUsageDurationUnit,
+			)}`,
+		);
+	}
+	return parts.length ? parts.join(" and ") : null;
+}
+
 export function formatPeriodLimitSummary(
 	apiKey: Pick<
 		ApiKey,
@@ -289,24 +311,8 @@ function MemberBudgetNotice({
 	ownerName?: string | null;
 	label?: string;
 }) {
-	const parts: string[] = [];
-	if (budget.usageLimit !== null) {
-		parts.push(`${formatCurrencyAmount(budget.usageLimit)} total`);
-	}
-	if (
-		budget.periodUsageLimit !== null &&
-		budget.periodUsageDurationValue !== null &&
-		budget.periodUsageDurationUnit !== null
-	) {
-		parts.push(
-			`${formatCurrencyAmount(budget.periodUsageLimit)} per ${formatPeriodWindowLabel(
-				budget.periodUsageDurationValue,
-				budget.periodUsageDurationUnit,
-			)}`,
-		);
-	}
-
-	if (parts.length === 0) {
+	const caps = formatApiKeyLimitCaps(budget);
+	if (!caps) {
 		return null;
 	}
 
@@ -314,9 +320,8 @@ function MemberBudgetNotice({
 		return (
 			<div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
 				{ownerName ?? "The member who created this key"} is limited to{" "}
-				<span className="font-medium">{parts.join(" and ")}</span>. This
-				key&apos;s limits must be at or below that — raise their limit on the
-				Team page first.
+				<span className="font-medium">{caps}</span>. This key&apos;s limits must
+				be at or below that — raise their limit on the Team page first.
 			</div>
 		);
 	}
@@ -324,8 +329,8 @@ function MemberBudgetNotice({
 	return (
 		<div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
 			{label ?? "Your organization policy"} limits you to{" "}
-			<span className="font-medium">{parts.join(" and ")}</span>. This
-			key&apos;s limits must be at or below that.
+			<span className="font-medium">{caps}</span>. This key&apos;s limits must
+			be at or below that.
 		</div>
 	);
 }

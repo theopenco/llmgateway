@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { processPendingVideoJobs } from "worker";
 
 import { app } from "@/app.js";
+import { waitForPendingWork } from "@/lib/pending-work.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import {
 	getMockVideo,
@@ -1621,7 +1622,7 @@ describe("videos", () => {
 			});
 		}
 
-		function spyModeration() {
+		function spyModeration(release?: Promise<void>) {
 			moderationInputs = [];
 			const originalFetch = globalThis.fetch;
 			return vi
@@ -1635,6 +1636,7 @@ describe("videos", () => {
 								: input.url;
 					if (url === MODERATION_URL) {
 						moderationInputs.push(JSON.parse(String(init?.body)).input);
+						await release;
 						return new Response(
 							JSON.stringify({
 								id: "modr-video",
@@ -1679,6 +1681,8 @@ describe("videos", () => {
 				const createRes = await createVideo("video-tier-logged");
 				expect(createRes.status).toBe(200);
 				const created = await createRes.json();
+				// Log-only evaluations run in the background.
+				expect(await waitForPendingWork(5000)).toBe(0);
 
 				// Prompt text plus one image part each get their own moderation call.
 				expect(moderationInputs).toHaveLength(2);
@@ -1710,6 +1714,54 @@ describe("videos", () => {
 					matchedCategories: ["violence"],
 				});
 			} finally {
+				fetchSpy.mockRestore();
+				if (previousKey === undefined) {
+					delete process.env.LLM_OPENAI_API_KEY;
+				} else {
+					process.env.LLM_OPENAI_API_KEY = previousKey;
+				}
+			}
+		});
+
+		test("does not hold a log-only submission for the classifier", async () => {
+			await seedXai();
+			await harness.setContentFilterSettings({ providerIds: ["xai"] });
+			const previousKey = process.env.LLM_OPENAI_API_KEY;
+			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+			let releaseModeration = () => {};
+			const fetchSpy = spyModeration(
+				new Promise<void>((resolve) => {
+					releaseModeration = resolve;
+				}),
+			);
+
+			try {
+				// The job is created while every moderation call is still open.
+				const createRes = await createVideo("video-tier-background");
+				expect(createRes.status).toBe(200);
+				const created = await createRes.json();
+				const findJob = async () =>
+					await db.query.videoJob.findFirst({
+						where: { id: { eq: created.id } },
+					});
+				expect(await findJob()).toMatchObject({
+					upstreamCreateResponse: expect.not.objectContaining({
+						llmgateway_content_filter_evaluation: expect.anything(),
+					}),
+				});
+
+				releaseModeration();
+				expect(await waitForPendingWork(5000)).toBe(0);
+				expect(await findJob()).toMatchObject({
+					upstreamCreateResponse: {
+						llmgateway_content_filter_evaluation: {
+							violation: true,
+							action: "logged",
+						},
+					},
+				});
+			} finally {
+				releaseModeration();
 				fetchSpy.mockRestore();
 				if (previousKey === undefined) {
 					delete process.env.LLM_OPENAI_API_KEY;

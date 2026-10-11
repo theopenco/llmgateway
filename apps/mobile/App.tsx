@@ -151,6 +151,7 @@ function Lounge({
 								organizationId={organizationId}
 								projectId={projectId}
 								onVoice={() => navigation.navigate("VoiceCalls")}
+								onNewChat={newChat}
 								onOpenChat={(id) =>
 									navigation.push("Chat", { id, single: true })
 								}
@@ -201,6 +202,7 @@ function Lounge({
 								}
 								chatId={route.params.id}
 								onVoice={() => navigation.navigate("VoiceCalls")}
+								onNewChat={newChat}
 								single={route.params.single}
 								onOpenChat={(id) =>
 									navigation.push("Chat", { id, single: true })

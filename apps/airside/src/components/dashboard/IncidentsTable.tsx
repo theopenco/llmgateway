@@ -34,7 +34,7 @@ export type IncidentsWindow = NonNullable<
 type IncidentMapping =
 	paths["/airside/incidents"]["get"]["responses"]["200"]["content"]["application/json"]["mappings"][number];
 
-function ClassificationBadge({
+export function ClassificationBadge({
 	classification,
 }: {
 	classification: string | null;
@@ -115,11 +115,13 @@ function ErrorDetails({
 	mapping,
 	window,
 	includeRetried,
+	includeByok,
 }: {
 	providerCompanyId: string;
 	mapping: IncidentMapping;
 	window: IncidentsWindow;
 	includeRetried: boolean;
+	includeByok: boolean;
 }) {
 	const api = useApi();
 	const { data, isLoading, isError, isFetching, refetch } = api.useQuery(
@@ -133,6 +135,7 @@ function ErrorDetails({
 					mapping: mapping.usedModel,
 					window,
 					includeRetried: includeRetried ? "true" : "false",
+					includeByok: includeByok ? "true" : "false",
 				},
 			},
 		},
@@ -186,8 +189,9 @@ function ErrorDetails({
 		<div className="space-y-4 p-4">
 			<p className="text-muted-foreground font-mono text-[0.65rem] tracking-[0.2em] uppercase">
 				Top {errors.length} error shape{errors.length === 1 ? "" : "s"} ·{" "}
+				{data?.capped ? "latest " : ""}
 				{formatCompact(data?.sampledErrors ?? 0)} error
-				{data?.sampledErrors === 1 ? "" : "s"} sampled
+				{data?.sampledErrors === 1 ? "" : "s"}
 			</p>
 			{groups.map((group) => (
 				<div key={group.label} className="space-y-2">
@@ -240,11 +244,13 @@ export function IncidentsTable({
 	mappings,
 	window,
 	includeRetried,
+	includeByok,
 }: {
 	providerCompanyId: string;
 	mappings: IncidentMapping[];
 	window: IncidentsWindow;
 	includeRetried: boolean;
+	includeByok: boolean;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(
 		mappings.length === 1 ? mappings[0].usedModel : null,
@@ -338,6 +344,7 @@ export function IncidentsTable({
 											mapping={mapping}
 											window={window}
 											includeRetried={includeRetried}
+											includeByok={includeByok}
 										/>
 									</TableCell>
 								</TableRow>

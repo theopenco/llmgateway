@@ -105,7 +105,8 @@ export type IconName =
 	| "grid"
 	| "arrow-left"
 	| "attachment"
-	| "more";
+	| "more"
+	| "retry";
 
 export function Icon({
 	name,
@@ -403,6 +404,20 @@ export function Icon({
 				[2, 10, 9, 9],
 				[9, 9, 12, 2],
 			]);
+			break;
+		case "retry":
+			content = (
+				<>
+					{box(4, 4, 16, 16, 8, {
+						borderTopColor: "transparent",
+						transform: [{ rotate: "45deg" }],
+					})}
+					{lines([
+						[14.5, 2, 18.5, 6.2],
+						[18.5, 6.2, 13.5, 7.8],
+					])}
+				</>
+			);
 			break;
 		case "more":
 			content = (

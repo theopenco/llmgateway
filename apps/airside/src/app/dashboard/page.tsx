@@ -3,6 +3,7 @@
 import {
 	ArrowUpRight,
 	Loader2,
+	Palette,
 	PlaneTakeoff,
 	Radar,
 	Stamp,
@@ -10,6 +11,7 @@ import {
 import Link from "next/link";
 
 import { CrewChannelCard } from "@/components/CrewChannelCard";
+import { brandHref } from "@/components/dashboard/CarrierProfileReminder";
 import { useCompany } from "@/components/dashboard/company-context";
 import { TrafficChart } from "@/components/dashboard/TrafficChart";
 import { RelativeDate } from "@/components/RelativeDate";
@@ -25,6 +27,8 @@ import {
 import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 import { formatCompact, formatUsd } from "@/lib/format";
+
+import { CarrierMark } from "@llmgateway/shared/carrier-mark";
 
 function StatCard({
 	label,
@@ -119,19 +123,80 @@ export default function OperationsPage() {
 						{company.displayName}
 					</h1>
 				</div>
-				<div className="flex flex-wrap gap-2">
-					{company.claims.map((claim) => (
-						<Badge
-							key={claim.id}
-							variant={claim.status === "active" ? "outline" : "pending"}
-						>
-							<PlaneTakeoff className="size-3" />
-							{claim.providerName}
-							{claim.status === "pending" ? " · under review" : ""}
-						</Badge>
-					))}
-				</div>
 			</div>
+
+			{company.claims.length > 0 ? (
+				<ul
+					className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+					aria-label="Your carriers"
+				>
+					{company.claims.map((claim) => {
+						const editable =
+							claim.status === "active" || claim.status === "pending";
+						const mark = claim.iconUrl ?? claim.logoUrl;
+						return (
+							<li
+								key={claim.id}
+								className="border-border bg-card flex items-center gap-3 rounded-xl border px-4 py-3"
+								data-testid={`claim-card-${claim.providerId}`}
+							>
+								<span className="bg-muted flex size-9 shrink-0 items-center justify-center rounded-md">
+									{mark ? (
+										<CarrierMark
+											src={mark}
+											alt=""
+											className="size-5 object-contain"
+										/>
+									) : (
+										<PlaneTakeoff className="text-primary size-4" aria-hidden />
+									)}
+								</span>
+								<div className="min-w-0 flex-1">
+									<p className="truncate text-sm font-semibold">
+										{claim.providerName}
+									</p>
+									<div className="flex flex-wrap items-center gap-1.5">
+										<Badge
+											variant={
+												claim.status === "active"
+													? "success"
+													: claim.status === "pending"
+														? "pending"
+														: "secondary"
+											}
+										>
+											{claim.status === "active"
+												? "Live"
+												: claim.status === "pending"
+													? "Under review"
+													: claim.status}
+										</Badge>
+										{editable && claim.profileMissing.length > 0 ? (
+											<Badge variant="destructive">Profile incomplete</Badge>
+										) : null}
+									</div>
+								</div>
+								{editable ? (
+									<Button
+										asChild
+										size="sm"
+										variant="outline"
+										className="shrink-0"
+									>
+										<Link
+											href={brandHref(claim.providerId)}
+											data-testid={`edit-branding-${claim.providerId}`}
+										>
+											<Palette className="size-3.5" aria-hidden />
+											Edit branding
+										</Link>
+									</Button>
+								) : null}
+							</li>
+						);
+					})}
+				</ul>
+			) : null}
 
 			{company.claims.length > 0 &&
 			company.claims.every((claim) => claim.status !== "active") ? (

@@ -17,7 +17,10 @@ import {
 	shouldRetryRequest,
 	type RoutingAttempt,
 } from "@/chat/tools/retry-with-fallback.js";
-import { resolveTieredContentFilterPlan } from "@/chat/tools/tiered-content-filter.js";
+import {
+	resolveTieredContentFilterPlan,
+	type TieredContentFilterPlan,
+} from "@/chat/tools/tiered-content-filter.js";
 import { getAirsideRoutingSnapshot } from "@/lib/airside-routing-snapshot.js";
 import {
 	assertApiKeyWithinUsageLimits,
@@ -56,6 +59,7 @@ import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { fetchProvider } from "@/lib/fetch-provider.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { trackPendingWork } from "@/lib/pending-work.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { markRequestLogged } from "@/lib/request-log-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
@@ -109,6 +113,7 @@ import {
 	getProviderEnvValue,
 	getProviderEnvVar,
 	hasProviderEnvironmentToken,
+	isProviderMappingAllowedByRestriction,
 	models,
 	type ModelDefinition,
 	type Provider,
@@ -4365,6 +4370,7 @@ function buildVideoModerationMessages(
 }
 
 async function evaluateVideoContentFilter(options: {
+	plan: TieredContentFilterPlan;
 	request: z.infer<typeof createVideoRequestSchema>;
 	requestId: string;
 	apiKey: GatewayApiKey;
@@ -4373,20 +4379,13 @@ async function evaluateVideoContentFilter(options: {
 	providerId: string;
 	compliancePolicy: ReturnType<typeof getActiveCompliancePolicy>;
 	images: Array<ProcessedVideoImageInput | null>;
-	signal: AbortSignal;
+	signal: AbortSignal | undefined;
 }): Promise<GatewayContentFilterEvaluation | null> {
+	const { plan } = options;
 	// Prompts must never reach a classifier's provider when the org's compliance
 	// policy excludes it.
 	const classifierAllowed = (classifier: ContentFilterClassifier) =>
 		isContentFilterClassifierCompliant(classifier, options.compliancePolicy);
-	const plan = await resolveTieredContentFilterPlan(
-		options.organization,
-		options.providerId,
-		await getContentFilterSettings(),
-	);
-	if (!plan) {
-		return null;
-	}
 	const tiered = await evaluateContentFilterWithClassifiers({
 		plan,
 		messages: buildVideoModerationMessages(
@@ -4692,6 +4691,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
+		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: normalizedModel,
 		requestedProvider,
 		activeModelInfo: modelInfo,
@@ -4704,12 +4704,28 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		});
 	}
 
+	// Unpinned video routing picks among the model's providers, so drop the ones
+	// the staff-managed restriction denies. Orgs without one are unaffected.
+	const { providerAccessRestriction } = organization;
+	const accessModelInfo: ModelDefinition = providerAccessRestriction
+		? {
+				...modelInfo,
+				providers: modelInfo.providers.filter((provider) =>
+					isProviderMappingAllowedByRestriction(
+						providerAccessRestriction,
+						provider.providerId,
+						modelInfo.id,
+					),
+				),
+			}
+		: modelInfo;
+
 	// Enterprise provider compliance policy: restrict video routing to providers
 	// that meet the org's policy, and block before dispatch if none qualify.
 	const videoCompliancePolicy = getActiveCompliancePolicy(organization);
 	const retainVideoPayloads =
 		getEffectiveRetentionLevel(organization) === "retain";
-	let complianceModelInfo: ModelDefinition = modelInfo;
+	let complianceModelInfo: ModelDefinition = accessModelInfo;
 	if (videoCompliancePolicy) {
 		// A pinned provider is dispatched directly, so block it explicitly even
 		// when the model has other compliant providers (mirrors the chat path).
@@ -4722,7 +4738,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			videoCompliancePolicy,
 		);
 		const compliantProviders = filterCompliantProviders(
-			modelInfo.providers as ProviderModelMapping[],
+			accessModelInfo.providers as ProviderModelMapping[],
 			videoCompliancePolicy,
 		);
 		if (pinnedBlocked || modelBlocked || compliantProviders.length === 0) {
@@ -4734,7 +4750,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				message: complianceBlockMessage(normalizedModel),
 			});
 		}
-		complianceModelInfo = { ...modelInfo, providers: compliantProviders };
+		complianceModelInfo = { ...accessModelInfo, providers: compliantProviders };
 	}
 
 	const {
@@ -4796,21 +4812,56 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 	}
 	// Tiered gateway content filter on the prompt and decoded image inputs,
 	// keyed on the provider the job is about to be dispatched to. Fails open.
-	const contentFilterEvaluation = await evaluateVideoContentFilter({
-		request,
-		requestId,
-		apiKey,
-		project,
+	// Only a verdict that can block is awaited; otherwise the classifier runs in
+	// the background and its evaluation is stamped on the job once it settles.
+	let contentFilterEvaluation: GatewayContentFilterEvaluation | null = null;
+	let pendingContentFilterEvaluation: Promise<GatewayContentFilterEvaluation | null> | null =
+		null;
+	const contentFilterPlan = await resolveTieredContentFilterPlan(
 		organization,
-		providerId: selectedProviderContext.providerId,
-		compliancePolicy: videoCompliancePolicy,
-		images: [
-			processedFirstFrame,
-			processedLastFrameInput,
-			...processedReferenceImages,
-		],
-		signal: c.req.raw.signal,
-	});
+		selectedProviderContext.providerId,
+		await getContentFilterSettings(),
+	);
+	if (contentFilterPlan) {
+		const runContentFilter = (signal: AbortSignal | undefined) =>
+			evaluateVideoContentFilter({
+				plan: contentFilterPlan,
+				request,
+				requestId,
+				apiKey,
+				project,
+				organization,
+				providerId: selectedProviderContext.providerId,
+				compliancePolicy: videoCompliancePolicy,
+				images: [
+					processedFirstFrame,
+					processedLastFrameInput,
+					...processedReferenceImages,
+				],
+				signal,
+			});
+		if (contentFilterPlan.enforce) {
+			contentFilterEvaluation = await runContentFilter(c.req.raw.signal);
+		} else {
+			// Detached from the client's signal so a hang-up does not cancel the
+			// observation; each classifier's own timeout bounds it.
+			pendingContentFilterEvaluation = trackPendingWork(
+				runContentFilter(undefined).then(
+					(evaluation) => {
+						contentFilterEvaluation = evaluation;
+						return evaluation;
+					},
+					(error: unknown) => {
+						logger.warn("Background gateway content filter failed", {
+							requestId,
+							error: toError(error),
+						});
+						return null;
+					},
+				),
+			);
+		}
+	}
 	if (contentFilterEvaluation?.action === "blocked") {
 		await insertVideoClientErrorLog({
 			request,
@@ -5203,6 +5254,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			selectedProviderContext.providerId,
 			normalizedModel,
 		);
+		const storedContentFilterEvaluation = contentFilterEvaluation;
 		const created = await db
 			.insert(tables.videoJob)
 			.values({
@@ -5258,8 +5310,11 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					llmgateway_input_image_count: inputImageCount,
 					llmgateway_reserved_spend_usd: reservedSpendUsd,
 					// Carried onto the job's log row by the worker at finalization.
-					...(contentFilterEvaluation
-						? { llmgateway_content_filter_evaluation: contentFilterEvaluation }
+					...(storedContentFilterEvaluation
+						? {
+								llmgateway_content_filter_evaluation:
+									storedContentFilterEvaluation,
+							}
 						: {}),
 					...(debugMode && retainVideoPayloads
 						? {
@@ -5278,6 +5333,31 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		// but still stamps org activity. recordSpend is fail-open, matching the
 		// counters' overall best-effort semantics.
 		await recordSpend(organization.id, reservedSpendUsd);
+
+		// A background evaluation that settled after the insert is merged into the
+		// job row, where the worker reads it at finalization.
+		if (pendingContentFilterEvaluation && !storedContentFilterEvaluation) {
+			void trackPendingWork(
+				pendingContentFilterEvaluation
+					.then(async (evaluation) => {
+						if (!evaluation) {
+							return;
+						}
+						await db
+							.update(tables.videoJob)
+							.set({
+								upstreamCreateResponse: sql`${tables.videoJob.upstreamCreateResponse} || ${JSON.stringify({ llmgateway_content_filter_evaluation: evaluation })}::jsonb`,
+							})
+							.where(eq(tables.videoJob.id, created.id));
+					})
+					.catch((error: unknown) => {
+						logger.error("Failed to store video content filter evaluation", {
+							requestId,
+							error: toError(error),
+						});
+					}),
+			);
+		}
 
 		logger.info("Created video job", {
 			videoId: created.id,

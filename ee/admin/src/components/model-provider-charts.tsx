@@ -4,7 +4,7 @@ import { useCallback } from "react";
 
 import { HistoryChart } from "@/components/history-chart";
 import { Badge } from "@/components/ui/badge";
-import { getMappingHistory } from "@/lib/admin-history";
+import { useHistoryClient } from "@/lib/history-client";
 
 import { getProviderIcon } from "@llmgateway/shared";
 
@@ -22,11 +22,12 @@ function ProviderSection({
 }) {
 	const ProviderIcon = getProviderIcon(provider.providerId);
 
+	const history = useHistoryClient();
 	const fetchData = useCallback(
 		async (w: HistoryWindow) => {
-			return await getMappingHistory(provider.providerId, modelId, w);
+			return await history.mappingHistory(provider.providerId, modelId, w);
 		},
-		[provider.providerId, modelId],
+		[history, provider.providerId, modelId],
 	);
 
 	return (

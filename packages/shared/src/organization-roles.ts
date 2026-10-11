@@ -29,7 +29,9 @@ export function orgAlertAudience(
 	type: string,
 	complianceAudience: AlertAudience | null | undefined,
 ): AlertAudience | null {
-	return type === "org_limit" ? "admin" : (complianceAudience ?? null);
+	return type === "org_limit" || type === "data_stream"
+		? "admin"
+		: (complianceAudience ?? null);
 }
 
 export function isInAlertAudience(

@@ -50,6 +50,14 @@ export const gatewayContentFilterEvaluationSchema = z.object({
 	classifier: contentFilterClassifierSchema.optional(),
 	// Wall-clock milliseconds of the classifier run; absent on older evaluations.
 	durationMs: z.number().nonnegative().optional(),
+	// The deciding text-only classifier's own share of durationMs, without the
+	// image delegation. Absent when OpenAI decided and on older evaluations.
+	classifierDurationMs: z.number().nonnegative().optional(),
+	// Calls the internal classifier made: one per chunk of the text it read.
+	classifierRequests: z.number().int().nonnegative().optional(),
+	// Milliseconds of the image moderation delegated to OpenAI, failed calls
+	// included. Absent when no image was delegated.
+	imageDurationMs: z.number().nonnegative().optional(),
 	// Input the internal classifier read; set only when it decided. Absent on
 	// older evaluations, which all read the whole conversation.
 	internalScope: z.enum(["full", "latest_turn"]).optional(),

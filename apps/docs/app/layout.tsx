@@ -1,9 +1,7 @@
-// eslint-disable-next-line import/order
-import "./global.css";
-
 import { RootProvider } from "fumadocs-ui/provider/next";
 import localFont from "next/font/local";
 
+import { JsonLd } from "@/components/json-ld";
 import { TabAnchorHandler } from "@/components/tab-anchor-handler";
 import { docsBaseUrl } from "@/lib/base-url";
 import { ConfigProvider } from "@/lib/context";
@@ -12,8 +10,28 @@ import { fetchSystemBanner } from "@/lib/system-banner";
 
 import { SystemBannerBar } from "@llmgateway/shared/system-banner";
 
+import "./global.css";
+
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+
+const organizationSchema = {
+	"@context": "https://schema.org",
+	"@type": "Organization",
+	"@id": "https://llmgateway.io/#organization",
+	name: "LLM Gateway",
+	url: "https://llmgateway.io",
+	logo: "https://llmgateway.io/favicon/android-chrome-512x512.png",
+};
+
+const websiteSchema = {
+	"@context": "https://schema.org",
+	"@type": "WebSite",
+	"@id": `${docsBaseUrl}/#website`,
+	name: "LLM Gateway Documentation",
+	url: docsBaseUrl,
+	publisher: { "@id": organizationSchema["@id"] },
+};
 
 const inter = localFont({
 	src: "../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2",
@@ -66,6 +84,7 @@ export default async function Layout({ children }: { children: ReactNode }) {
 			suppressHydrationWarning
 		>
 			<body className="flex flex-col min-h-screen">
+				<JsonLd data={[organizationSchema, websiteSchema]} />
 				<SystemBannerBar banner={systemBanner} />
 				<ConfigProvider posthogKey={posthogKey} posthogHost={posthogHost}>
 					<PostHogProvider>

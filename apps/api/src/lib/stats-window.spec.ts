@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { getWindowBucketTimestamps } from "./stats-window.js";
+import { getWindowBucketTimestamps, getWindowRange } from "./stats-window.js";
 
 describe("getWindowBucketTimestamps", () => {
 	const now = new Date("2026-08-11T13:37:00.000Z");
@@ -34,5 +34,31 @@ describe("getWindowBucketTimestamps", () => {
 					new Date(buckets[index - 1]).getTime(),
 			).toBe(24 * 60 * 60 * 1000);
 		}
+	});
+
+	test("covers the current UTC month up to today", () => {
+		const buckets = getWindowBucketTimestamps("month", now);
+
+		expect(buckets[0]).toBe("2026-08-01T00:00:00.000Z");
+		expect(buckets[buckets.length - 1]).toBe("2026-08-11T00:00:00.000Z");
+		expect(buckets).toHaveLength(11);
+	});
+
+	test("covers the whole previous UTC month", () => {
+		const buckets = getWindowBucketTimestamps("last_month", now);
+
+		expect(buckets[0]).toBe("2026-07-01T00:00:00.000Z");
+		expect(buckets[buckets.length - 1]).toBe("2026-07-31T00:00:00.000Z");
+		expect(buckets).toHaveLength(31);
+	});
+
+	test("wraps the previous month across a year boundary", () => {
+		const { start, end } = getWindowRange(
+			"last_month",
+			new Date("2027-01-15T00:00:00.000Z"),
+		);
+
+		expect(start.toISOString()).toBe("2026-12-01T00:00:00.000Z");
+		expect(end?.toISOString()).toBe("2027-01-01T00:00:00.000Z");
 	});
 });

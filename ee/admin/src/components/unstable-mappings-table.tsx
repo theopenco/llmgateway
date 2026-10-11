@@ -63,7 +63,7 @@ export const percentFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 1,
 });
 
-function ClassificationBadge({
+export function ClassificationBadge({
 	classification,
 }: {
 	classification: string | null;
@@ -113,7 +113,7 @@ interface ErrorShape {
 	buckets?: { start: number; count: number }[];
 }
 
-const STREAM_MODES = [
+export const STREAM_MODES = [
 	{
 		streamed: true,
 		label: "Streaming",
@@ -340,7 +340,7 @@ export function ErrorDetails({
 	} else if (errors.length === 0) {
 		body = (
 			<p className="text-sm text-muted-foreground">
-				No error details available in the sampled window.
+				No error details available in this window.
 			</p>
 		);
 	} else if (data?.groupByKey) {
@@ -440,9 +440,10 @@ export function ErrorDetails({
 							{data.groupByKey
 								? `Top errors of ${data.keys.length} key${data.keys.length === 1 ? "" : "s"}`
 								: `Top ${errors.length} error${errors.length === 1 ? "" : "s"}`}{" "}
-							· {formatNumber(data.sampledErrors)} sampled
-							{data.sampledErrors >= logLimit &&
-								" (max logs reached — older errors in the window are not graphed)"}
+							·{" "}
+							{data.capped
+								? `latest ${formatNumber(data.sampledErrors)} sampled (max logs reached — older errors in the window are not counted)`
+								: `${formatNumber(data.sampledErrors)} total`}
 						</>
 					) : null}
 				</p>

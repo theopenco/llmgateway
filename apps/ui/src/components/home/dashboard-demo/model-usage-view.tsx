@@ -1,6 +1,6 @@
 "use client";
 
-import { format, parseISO, startOfHour, subDays } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { useState } from "react";
 import {
 	Bar,
@@ -12,11 +12,7 @@ import {
 	YAxis,
 } from "recharts";
 
-import {
-	DEMO_API_KEYS,
-	buildHourlyActivity,
-	sliceHistory,
-} from "@/components/home/dashboard-demo-data";
+import { DEMO_API_KEYS } from "@/components/home/dashboard-demo-data";
 import {
 	Card,
 	CardContent,
@@ -44,6 +40,12 @@ import {
 	UsageModeControl,
 	type TimeRangeValue,
 } from "./controls";
+import {
+	activityForRange,
+	isHourlyRange,
+	periodLabel,
+	scaleDayToKey,
+} from "./time-range";
 
 import type { DailyActivity } from "@/types/activity";
 
@@ -82,14 +84,6 @@ const SERIES_COLORS = [
 	"#f97316",
 ];
 
-const HOURS: Record<TimeRangeValue, number> = {
-	"1h": 1,
-	"4h": 4,
-	"24h": 24,
-	"7d": 7 * 24,
-	"30d": 30 * 24,
-};
-
 interface BreakdownItem {
 	id: string;
 	label?: string;
@@ -111,36 +105,6 @@ function pickBreakdown(day: DailyActivity, groupBy: GroupBy): BreakdownItem[] {
 		default:
 			return day.modelBreakdown;
 	}
-}
-
-function scaleDay(day: DailyActivity, share: number): DailyActivity {
-	const scale = <
-		T extends { requestCount: number; totalTokens: number; cost: number },
-	>(
-		row: T,
-	): T => ({
-		...row,
-		requestCount: Math.round(row.requestCount * share),
-		totalTokens: Math.round(row.totalTokens * share),
-		cost: row.cost * share,
-	});
-	return {
-		...scale(day),
-		modelBreakdown: day.modelBreakdown.map(scale),
-		apiKeyBreakdown: [],
-		userBreakdown: [],
-	};
-}
-
-function periodLabel(timeRange: TimeRangeValue) {
-	const hours = HOURS[timeRange];
-	if (hours < 24) {
-		return `last ${hours} hour${hours > 1 ? "s" : ""}`;
-	}
-	if (hours === 24) {
-		return "last 24 hours";
-	}
-	return `last ${hours / 24} days`;
 }
 
 interface TooltipEntry {
@@ -247,21 +211,18 @@ export function ModelUsageView() {
 		useState<BreakdownField>("requests");
 	const [showAll, setShowAll] = useState(false);
 
-	const hourly =
-		timeRange === "1h" || timeRange === "4h" || timeRange === "24h";
-	const days = HOURS[timeRange] / 24;
-	const rawActivity = hourly
-		? buildHourlyActivity(startOfHour(openedAt), HOURS[timeRange], project)
-		: sliceHistory(
-				history,
-				subDays(parseISO(anchorDay), days - 1),
-				parseISO(anchorDay),
-			);
+	const hourly = isHourlyRange(timeRange);
+	const rawActivity = activityForRange(timeRange, {
+		anchorDay,
+		history,
+		openedAt,
+		project,
+	});
 	const keyShare = DEMO_API_KEYS.find((key) => key.id === apiKeyId)?.share;
 	const activity = rawActivity
 		.map((day) => applyUsageModeToDaily(day, usageMode))
 		.map((day) =>
-			keyShare && groupBy === "model" ? scaleDay(day, keyShare) : day,
+			keyShare && groupBy === "model" ? scaleDayToKey(day, keyShare) : day,
 		);
 
 	const seriesIds: string[] = [];

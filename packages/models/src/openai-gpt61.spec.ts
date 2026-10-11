@@ -55,4 +55,38 @@ describe("GPT-6.1 Sol", () => {
 		});
 		expect(supportsOpenAIExplicitPromptCache("gpt-6.1-sol")).toBe(true);
 	});
+
+	it("mirrors the Global Standard rates on Azure", () => {
+		const azure = model?.providers.find(
+			(entry) => entry.providerId === "azure",
+		);
+		expect(azure).toMatchObject({
+			externalId: "gpt-6.1-sol",
+			contextSize: 1050000,
+			maxOutput: 128000,
+			supportsResponsesApi: true,
+			reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+			inputPrice: "2.0e-6",
+			outputPrice: "10.0e-6",
+			cachedInputPrice: "0.1e-6",
+			cacheWriteInputPrice: "2.5e-6",
+			pricingTiers: [
+				{
+					upToTokens: 272000,
+					inputPrice: "2.0e-6",
+					outputPrice: "10.0e-6",
+					cachedInputPrice: "0.1e-6",
+					cacheWriteInputPrice: "2.5e-6",
+				},
+				{
+					upToTokens: Infinity,
+					inputPrice: "4.0e-6",
+					outputPrice: "15.0e-6",
+					cachedInputPrice: "0.2e-6",
+					cacheWriteInputPrice: "5.0e-6",
+				},
+			],
+		});
+		expect(azure).not.toHaveProperty("serviceTiers");
+	});
 });

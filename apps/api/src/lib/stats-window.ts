@@ -16,6 +16,18 @@ export const tokenWindowSchema = z.enum([
 
 export type TokenWindow = z.infer<typeof tokenWindowSchema>;
 
+/**
+ * Rolling windows plus UTC calendar months, for spend views that are
+ * reconciled against a provider's monthly invoice.
+ */
+export const spendWindowSchema = z.enum([
+	...tokenWindowSchema.options,
+	"month",
+	"last_month",
+]);
+
+export type SpendWindow = z.infer<typeof spendWindowSchema>;
+
 export function getTokenWindowStartDate(
 	window: string,
 	now: Date = new Date(),
@@ -32,6 +44,25 @@ export function getTokenWindowStartDate(
 	};
 	const ms = windowMs[window] ?? 7 * 24 * 60 * 60 * 1000;
 	return new Date(now.getTime() - ms);
+}
+
+/**
+ * Start and exclusive end of a window. `end` is null for windows still
+ * accumulating. Calendar months cut on UTC boundaries, like the rollups.
+ */
+export function getWindowRange(
+	window: string,
+	now: Date = new Date(),
+): { start: Date; end: Date | null } {
+	const monthStart = (offset: number) =>
+		new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1));
+	if (window === "month") {
+		return { start: monthStart(0), end: null };
+	}
+	if (window === "last_month") {
+		return { start: monthStart(-1), end: monthStart(0) };
+	}
+	return { start: getTokenWindowStartDate(window, now), end: null };
 }
 
 /**
@@ -64,8 +95,8 @@ export function getBucketUnitForWindow(window: string): "hour" | "day" {
 export function getWindowBucketTimestamps(
 	window: string,
 	now: Date = new Date(),
+	bucketUnit: "hour" | "day" = getBucketUnitForWindow(window),
 ): string[] {
-	const bucketUnit = getBucketUnitForWindow(window);
 	const stepMs = bucketUnit === "hour" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
 	const truncate = (date: Date) =>
 		Date.UTC(
@@ -75,13 +106,10 @@ export function getWindowBucketTimestamps(
 			bucketUnit === "hour" ? date.getUTCHours() : 0,
 		);
 
-	const end = truncate(now);
+	const range = getWindowRange(window, now);
+	const end = truncate(range.end ? new Date(range.end.getTime() - 1) : now);
 	const buckets: string[] = [];
-	for (
-		let ms = truncate(getTokenWindowStartDate(window, now));
-		ms <= end;
-		ms += stepMs
-	) {
+	for (let ms = truncate(range.start); ms <= end; ms += stepMs) {
 		buckets.push(new Date(ms).toISOString());
 	}
 	return buckets;

@@ -10,7 +10,7 @@ import {
 } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { api, client } from "@/api/client";
+import { api, client, queryClient } from "@/api/client";
 import { streamCompletion } from "@/api/completion";
 import * as loungeCompletion from "@/api/lounge-completion";
 import { rememberProjectExchange } from "@/api/project-memory";
@@ -48,6 +48,11 @@ jest.mock("@/lib/preferences", () => ({
 			},
 		},
 	}),
+}));
+jest.mock("@react-navigation/native", () => ({
+	NavigationContext: jest
+		.requireActual<{ createContext: (value: undefined) => unknown }>("react")
+		.createContext(undefined),
 }));
 jest.mock("@/components/ChatSettings", () => ({ ChatSettings: () => null }));
 jest.mock("@/components/ModelPicker", () => ({ ModelPicker: () => null }));
@@ -317,6 +322,52 @@ async function showChat(chatId?: string, onVoice?: () => void) {
 		</SafeAreaProvider>,
 	);
 }
+
+test("shows a sent message at once and keeps the reply until the saved chat reloads", async () => {
+	let saveUser: (() => void) | undefined;
+	post.mockImplementation(async (path, options) => {
+		if (
+			path === "/chats/{id}/messages" &&
+			options?.body &&
+			"role" in options.body &&
+			options.body.role === "user"
+		) {
+			await new Promise<void>((resolve) => {
+				saveUser = resolve;
+			});
+		}
+		return { data: undefined, response: new Response() };
+	});
+	let reload: (() => void) | undefined;
+	jest.mocked(queryClient.invalidateQueries).mockImplementation(
+		() =>
+			new Promise<void>((resolve) => {
+				reload = resolve;
+			}),
+	);
+	await showChat("chat");
+	const user = userEvent.setup();
+	await user.type(screen.getByLabelText("Message"), "My next question");
+	await user.press(screen.getByRole("button", { name: "Send message" }));
+	expect(screen.getByText("My next question")).toBeOnTheScreen();
+	expect(screen.getByLabelText("Message")).toHaveDisplayValue("");
+	expect(screen.getByLabelText("Thinking")).toBeOnTheScreen();
+	await act(async () => saveUser?.());
+	await waitFor(() =>
+		expect(screen.getByText("New response")).toBeOnTheScreen(),
+	);
+	await waitFor(() =>
+		expect(client.POST).toHaveBeenCalledWith(
+			"/chats/{id}/messages",
+			expect.objectContaining({
+				body: expect.objectContaining({ content: "New response" }),
+			}),
+		),
+	);
+	expect(screen.getByText("New response")).toBeOnTheScreen();
+	expect(screen.getByText("My next question")).toBeOnTheScreen();
+	await act(async () => reload?.());
+});
 
 test("retries the last answer with its original attachments and replaces the saved assistant", async () => {
 	await showChat("chat");

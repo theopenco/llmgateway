@@ -34,7 +34,6 @@ export async function syncProvidersAndModels() {
 					id: providerDef.id,
 					name: providerDef.name,
 					description: providerDef.description,
-					streaming: providerDef.streaming,
 					cancellation: providerDef.cancellation,
 					color: providerDef.color,
 					website: providerDef.website,
@@ -46,7 +45,6 @@ export async function syncProvidersAndModels() {
 					set: {
 						name: providerDef.name,
 						description: providerDef.description,
-						streaming: providerDef.streaming,
 						cancellation: providerDef.cancellation,
 						color: providerDef.color,
 						website: providerDef.website,

@@ -13,12 +13,19 @@ API base URL: https://api.llmgateway.io/v1 · Docs: ${docsBaseUrl} · Site: http
 This file concatenates the full text of every documentation page below.`;
 
 export async function GET() {
-	const scan = source.getPages().map(getLLMText);
-	const scanned = await Promise.all(scan);
-
-	return new Response([HEADER, ...scanned].join("\n\n"), {
-		headers: {
-			"Content-Type": "text/plain; charset=utf-8",
-		},
+	const pages = source.getPages();
+	const contents = [
+		"## Contents",
+		`Start with ${docsBaseUrl}/llms.txt for the full page index. Read a linked Markdown page when you need one topic; this complete file may exceed an agent context window.`,
+		...pages
+			.filter((page) => page.slugs.length <= 1)
+			.map(
+				(page) =>
+					`- [${page.data.title}](${docsBaseUrl}/llms.mdx${page.url === "/" ? "/index" : page.url})`,
+			),
+	].join("\n\n");
+	const scanned = await Promise.all(pages.map(getLLMText));
+	return new Response([HEADER, contents, ...scanned].join("\n\n"), {
+		headers: { "Content-Type": "text/plain; charset=utf-8" },
 	});
 }

@@ -193,7 +193,7 @@ describe("e2e individual tests", () => {
 					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({
-					model: "openai/o1",
+					model: "openai/o3",
 					messages: [
 						{
 							role: "user",
@@ -251,7 +251,7 @@ describe("e2e individual tests", () => {
 					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({
-					model: "openai/o1",
+					model: "openai/o3",
 					messages: [
 						{
 							role: "user",

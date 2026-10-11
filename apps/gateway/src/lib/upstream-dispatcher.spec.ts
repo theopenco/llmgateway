@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import {
 	closeUpstreamDispatcher,
+	getTenantUpstreamDispatcher,
 	installUpstreamDispatcher,
 } from "./upstream-dispatcher.js";
 
@@ -81,6 +82,24 @@ describe("upstream dispatcher", () => {
 		// i.e. the dispatcher must not buffer the stream until completion
 		expect(firstChunkMs).toBeLessThan(150);
 		await reader.cancel();
+	});
+
+	it("serves the built-in fetch through the tenant dispatcher", async () => {
+		const res = await fetch(`${baseUrl}/json`, {
+			dispatcher: getTenantUpstreamDispatcher(),
+		} as RequestInit);
+		expect(await res.text()).toBe("{}");
+	});
+
+	it("rejects tenant hosts that resolve to private addresses", async () => {
+		const url = baseUrl.replace("127.0.0.1", "localhost");
+		await expect(
+			fetch(`${url}/json`, {
+				dispatcher: getTenantUpstreamDispatcher(),
+			} as RequestInit),
+		).rejects.toMatchObject({
+			cause: { code: "EACCES" },
+		});
 	});
 
 	it("falls back to defaults on invalid env values", () => {

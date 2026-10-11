@@ -4,7 +4,7 @@ slug: "best-ai-coding-plans"
 date: "2026-06-22"
 updatedAt: "2026-08-24"
 title: "11 Best AI Coding Plans in 2026 (Compared)"
-summary: "An honest comparison of the best AI coding plans in 2026 — Claude Code, Cursor, Copilot, Codex, OpenCode Go and more — ranked on price, model access, and lock-in. DevPass tops the list with one flat rate for every model."
+summary: "The best AI coding plans in 2026 compared: Claude Code, Cursor, Copilot, Codex, OpenCode Go and more, ranked on price, model access and lock-in."
 categories: ["Guides"]
 image:
   src: "/blog/best-ai-coding-plans.png"

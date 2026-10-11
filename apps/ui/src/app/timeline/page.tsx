@@ -23,6 +23,7 @@ import {
 	TIMELINE_DATASET_DESCRIPTION,
 	TIMELINE_DATASET_ID,
 	TIMELINE_DATASET_NAME,
+	modelsReleasedWithin,
 } from "@/lib/timeline-data";
 
 import type { TimelineMonthSummary } from "@/lib/timeline-data";
@@ -48,10 +49,10 @@ function buildMonthMeta(month: TimelineMonthSummary | null): {
 		.map((model) => model.name)
 		.join(", ");
 	return {
-		title: `New AI Model Releases — ${month.label} Timeline`,
-		description: `${count} AI model${count === 1 ? "" : "s"} released in ${
+		title: `New AI Models — ${month.label} LLM Releases`,
+		description: `${count} new AI model${count === 1 ? "" : "s"} released in ${
 			month.label
-		}${month.isCurrentMonth ? " so far" : ""} — ${names} — plus every major LLM release date. Updated daily.`,
+		}${month.isCurrentMonth ? " so far" : ""}: ${names}. Every LLM release date, newest first. Updated daily.`,
 	};
 }
 
@@ -90,6 +91,7 @@ export default async function TimelinePage() {
 	const latest = recentModels(timelineModels, 12);
 	const month = getMonthSummary(timelineModels, new Date());
 	const monthPreview = month?.models.slice(0, 8) ?? [];
+	const thisWeek = modelsReleasedWithin(timelineModels, new Date(), 7);
 
 	const datasetSchema = {
 		"@context": "https://schema.org",
@@ -252,6 +254,52 @@ export default async function TimelinePage() {
 						</div>
 					</div>
 				</section>
+
+				{thisWeek.length ? (
+					<section
+						className="border-b border-border/60"
+						aria-labelledby="week-releases-heading"
+					>
+						<div className="container mx-auto px-4 py-10 md:py-14">
+							<div className="mx-auto max-w-3xl">
+								<h2
+									id="week-releases-heading"
+									className="font-display text-2xl font-bold tracking-tight md:text-3xl"
+								>
+									New AI models released this week
+								</h2>
+								<p className="mt-3 text-sm leading-relaxed text-muted-foreground md:text-base">
+									{thisWeek.length} new AI{" "}
+									{thisWeek.length === 1 ? "model was" : "models were"} released
+									in the last 7 days. The newest is {thisWeek[0].name} from{" "}
+									{thisWeek[0].providerName}, released{" "}
+									{formatDate(thisWeek[0].releasedAt)}.
+								</p>
+								<ul className="mt-5 divide-y divide-border/60 rounded-xl border border-border/70 bg-card/50">
+									{thisWeek.map((model) => (
+										<li
+											key={model.id}
+											className="flex items-baseline justify-between gap-4 px-4 py-3"
+										>
+											<Link
+												href={`/models/${encodeURIComponent(model.id)}`}
+												className="text-sm font-medium hover:text-primary"
+											>
+												{model.name}
+											</Link>
+											<span className="shrink-0 text-xs text-muted-foreground">
+												{model.providerName} ·{" "}
+												<time dateTime={isoDate(model.releasedAt)}>
+													{formatDate(model.releasedAt)}
+												</time>
+											</span>
+										</li>
+									))}
+								</ul>
+							</div>
+						</div>
+					</section>
+				) : null}
 
 				{month ? (
 					<section

@@ -85,18 +85,13 @@ export function getPlatformBackedProviders(
 	managed: ManagedProviderAvailability = EMPTY_MANAGED_PROVIDER_AVAILABILITY,
 	providerIds?: string[],
 ): string[] {
-	const candidateProviders = providerIds
-		? providers.filter((provider) => providerIds.includes(provider.id))
-		: providers;
-
-	return candidateProviders
-		.filter((provider) => provider.id !== "llmgateway")
-		.filter(
-			(provider) =>
-				platformCredentialServesDefaultRegion(provider.id, managed) ||
-				environmentServesProvider(provider.id, managed),
-		)
-		.map((provider) => provider.id);
+	const candidateIds = providerIds ?? providers.map((provider) => provider.id);
+	return candidateIds.filter(
+		(providerId) =>
+			providerId !== "llmgateway" &&
+			(platformCredentialServesDefaultRegion(providerId, managed) ||
+				environmentServesProvider(providerId, managed)),
+	);
 }
 
 export function getAvailableProvidersForProjectMode(

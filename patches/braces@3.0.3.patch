@@ -1,0 +1,46 @@
+diff --git a/lib/constants.js b/lib/constants.js
+index 2bb3b8840382c56700869b3a9e1f958fcce01efd..f777f0a705ee9a16c9fb18d6ed55fea918f40c40 100644
+--- a/lib/constants.js
++++ b/lib/constants.js
+@@ -2,6 +2,7 @@
+ 
+ module.exports = {
+   MAX_LENGTH: 10000,
++  MAX_NESTING: 1000,
+ 
+   // Digits
+   CHAR_0: '0', /* 0 */
+diff --git a/lib/parse.js b/lib/parse.js
+index 3a6988e629f52aee6609dc5ec290a5e9ff47cecb..e44f0b57f2960dcaf02a579347302a9d33917961 100644
+--- a/lib/parse.js
++++ b/lib/parse.js
+@@ -8,6 +8,7 @@ const stringify = require('./stringify');
+ 
+ const {
+   MAX_LENGTH,
++  MAX_NESTING,
+   CHAR_BACKSLASH, /* \ */
+   CHAR_BACKTICK, /* ` */
+   CHAR_COMMA, /* , */
+@@ -143,6 +144,10 @@ const parse = (input, options = {}) => {
+      */
+ 
+     if (value === CHAR_LEFT_PARENTHESES) {
++      if (stack.length >= MAX_NESTING) {
++        throw new SyntaxError(`Nesting depth (${stack.length}), exceeds max nesting (${MAX_NESTING})`);
++      }
++
+       block = push({ type: 'paren', nodes: [] });
+       stack.push(block);
+       push({ type: 'text', value });
+@@ -195,6 +200,10 @@ const parse = (input, options = {}) => {
+      */
+ 
+     if (value === CHAR_LEFT_CURLY_BRACE) {
++      if (stack.length >= MAX_NESTING) {
++        throw new SyntaxError(`Nesting depth (${stack.length}), exceeds max nesting (${MAX_NESTING})`);
++      }
++
+       depth++;
+ 
+       const dollar = prev.value && prev.value.slice(-1) === '$' || block.dollar === true;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,8 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 import {
 	SYSTEM_BANNER_DEFAULT_LINK_LABEL,
@@ -36,15 +38,12 @@ const severityLabels: Record<SystemBannerSeverity, string> = {
 
 interface SystemBannerFormProps {
 	banner: SystemBannerSettingInput;
-	onSave: (
-		input: SystemBannerSettingInput,
-	) => Promise<{ ok: boolean; message: string | null }>;
 }
 
-export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
+export function SystemBannerForm({ banner }: SystemBannerFormProps) {
 	const router = useRouter();
 	const readOnly = !canWrite(useAdminRole());
-	const [pending, startTransition] = useTransition();
+	const $api = useApi();
 	const [enabled, setEnabled] = useState(banner.enabled);
 	const [message, setMessage] = useState(banner.message);
 	const [severity, setSeverity] = useState<SystemBannerSeverity>(
@@ -52,31 +51,38 @@ export function SystemBannerForm({ banner, onSave }: SystemBannerFormProps) {
 	);
 	const [linkUrl, setLinkUrl] = useState(banner.linkUrl ?? "");
 	const [linkLabel, setLinkLabel] = useState(banner.linkLabel ?? "");
-	const [error, setError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
+	const mutation = $api.useMutation("put", "/admin/settings/banner", {
+		meta: { inlineError: true },
+	});
+	const pending = mutation.isPending;
+	const error = mutation.isError
+		? apiErrorMessage(mutation.error, "Failed to update the banner.")
+		: null;
 
 	const trimmedMessage = message.trim();
 	const trimmedLink = linkUrl.trim();
 
 	const save = (nextEnabled: boolean) => {
-		setError(null);
 		setSaved(false);
-		startTransition(async () => {
-			const result = await onSave({
-				enabled: nextEnabled,
-				message,
-				severity,
-				linkUrl: trimmedLink || null,
-				linkLabel: linkLabel.trim() || null,
-			});
-			if (!result.ok) {
-				setError(result.message);
-				return;
-			}
-			setEnabled(nextEnabled);
-			setSaved(true);
-			router.refresh();
-		});
+		mutation.mutate(
+			{
+				body: {
+					enabled: nextEnabled,
+					message,
+					severity,
+					linkUrl: trimmedLink || null,
+					linkLabel: linkLabel.trim() || null,
+				},
+			},
+			{
+				onSuccess: () => {
+					setEnabled(nextEnabled);
+					setSaved(true);
+					router.refresh();
+				},
+			},
+		);
 	};
 
 	return (

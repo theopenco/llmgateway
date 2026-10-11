@@ -736,6 +736,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.providerCompany.id,
 			to: r.providerCompanyMember.providerCompanyId,
 		}),
+		domains: r.many.providerCompanyDomain({
+			from: r.providerCompany.id,
+			to: r.providerCompanyDomain.providerCompanyId,
+		}),
 		claims: r.many.providerClaim({
 			from: r.providerCompany.id,
 			to: r.providerClaim.providerCompanyId,

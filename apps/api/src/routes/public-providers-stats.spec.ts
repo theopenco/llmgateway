@@ -4,7 +4,7 @@ import { app } from "@/index.js";
 import { deleteAll } from "@/testing.js";
 
 import { redisClient } from "@llmgateway/cache";
-import { db, eq, tables } from "@llmgateway/db";
+import { and, db, eq, tables } from "@llmgateway/db";
 
 const PROVIDER_ID = "stats-test-carrier";
 const MODEL_ID = "gpt-4o";
@@ -27,6 +27,7 @@ async function seedMinute(
 		totalTimeToFirstReasoningToken?: number;
 		timeToFirstReasoningTokenCount?: number;
 	},
+	usedMode: "credits" | "api-keys" = "credits",
 ) {
 	const minuteMs = 60_000;
 	const offsetMs = minutesAgo * minuteMs;
@@ -37,6 +38,7 @@ async function seedMinute(
 		providerId: PROVIDER_ID,
 		modelProviderMappingId: `${MODEL_ID}::${PROVIDER_ID}::${minutesAgo}`,
 		minuteTimestamp,
+		usedMode,
 		...stats,
 	});
 }
@@ -88,6 +90,7 @@ describe("public providers stats", () => {
 				modelId: MODEL_ID,
 				providerId: PROVIDER_ID,
 				modelProviderMappingId: "deleted-mapping",
+				usedMode: "credits",
 				hourTimestamp: new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000),
 				logsCount: 10,
 			});
@@ -175,6 +178,30 @@ describe("public providers stats", () => {
 		expect(provider.uptime).toBeCloseTo((7 / 9) * 100);
 	});
 
+	test("excludes bring-your-own-key traffic", async () => {
+		await seedMinute(1, {
+			logsCount: 10,
+			totalTimeToFirstToken: 0,
+			timeToFirstTokenCount: 0,
+		});
+		await seedMinute(
+			1,
+			{
+				logsCount: 50,
+				errorsCount: 50,
+				gatewayErrorsCount: 50,
+				totalTimeToFirstToken: 0,
+				timeToFirstTokenCount: 0,
+			},
+			"api-keys",
+		);
+
+		const provider = await fetchProviderStats();
+		expect(provider.logsCount).toBe(10);
+		expect(provider.errorsCount).toBe(0);
+		expect(provider.uptime).toBe(100);
+	});
+
 	test("counts upstream errors the hasError column never flagged", async () => {
 		// A provider that answers 200 but ends the stream with an upstream-error
 		// finish reason: classified upstream_error, but hasError stays false, so
@@ -191,5 +218,28 @@ describe("public providers stats", () => {
 		const provider = await fetchProviderStats();
 		expect(provider.errorsCount).toBe(20);
 		expect(provider.uptime).toBeCloseTo(80);
+	});
+	test("public statistics match without stored idle buckets", async () => {
+		await seedMinute(1, {
+			logsCount: 10,
+			totalTimeToFirstToken: 1000,
+			timeToFirstTokenCount: 2,
+		});
+		await seedMinute(2, {
+			logsCount: 0,
+			totalTimeToFirstToken: 0,
+			timeToFirstTokenCount: 0,
+		});
+		const dense = await fetchProviderStats();
+		await db
+			.delete(tables.modelProviderMappingHistory)
+			.where(
+				and(
+					eq(tables.modelProviderMappingHistory.providerId, PROVIDER_ID),
+					eq(tables.modelProviderMappingHistory.logsCount, 0),
+				),
+			);
+		await redisClient.flushdb();
+		expect(await fetchProviderStats()).toEqual(dense);
 	});
 });

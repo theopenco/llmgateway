@@ -90,6 +90,7 @@ describe("resolveTieredContentFilterPlan", () => {
 			exemptReason: "global_log_only",
 			classifier: "openai",
 			internalScope: "full",
+			moderateImages: true,
 		});
 	});
 
@@ -248,6 +249,7 @@ describe("buildGatewayContentFilterEvaluation", () => {
 		enforce: true,
 		classifier: "openai" as const,
 		internalScope: "full" as const,
+		moderateImages: true,
 	};
 	const violation = {
 		violation: true,

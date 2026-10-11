@@ -4,7 +4,6 @@ import { format } from "date-fns";
 import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +29,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { getOrganizationContentFilterActivity } from "@/lib/admin-content-filter";
+import { useApi } from "@/lib/fetch-client";
 
 import {
 	formatCompactNumber,
@@ -39,10 +38,6 @@ import {
 
 import type { ChartConfig } from "@/components/ui/chart";
 import type { TokenWindow } from "@/lib/types";
-
-type Activity = NonNullable<
-	Awaited<ReturnType<typeof getOrganizationContentFilterActivity>>
->;
 
 const validWindows = new Set<TokenWindow>([
 	"1h",
@@ -76,31 +71,13 @@ const percentFormatter = new Intl.NumberFormat("en-US", {
 export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 	const searchParams = useSearchParams();
 	const window = parseWindow(searchParams.get("window"));
-	const [data, setData] = useState<Activity | null>(null);
-	const [loading, setLoading] = useState(true);
-	const latestRequestRef = useRef(0);
-
-	useEffect(() => {
-		const requestId = ++latestRequestRef.current;
-		setLoading(true);
-		void getOrganizationContentFilterActivity(orgId, window)
-			.then((result) => {
-				if (requestId === latestRequestRef.current) {
-					setData(result);
-				}
-			})
-			.catch((error: unknown) => {
-				if (requestId === latestRequestRef.current) {
-					console.error("Failed to load content filter activity:", error);
-					setData(null);
-				}
-			})
-			.finally(() => {
-				if (requestId === latestRequestRef.current) {
-					setLoading(false);
-				}
-			});
-	}, [orgId, window]);
+	const $api = useApi();
+	const { data, isLoading: loading } = $api.useQuery(
+		"get",
+		"/admin/organizations/{orgId}/content-filter",
+		{ params: { path: { orgId }, query: { window } } },
+		{ staleTime: 0 },
+	);
 
 	const bucket = data?.bucket ?? "day";
 	const formatTimestamp = (ts: string) =>

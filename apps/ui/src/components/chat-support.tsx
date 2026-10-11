@@ -72,6 +72,34 @@ function wantsHuman(text: string): boolean {
 	return HUMAN_REQUEST_PATTERN.test(text);
 }
 
+const GENERIC_CHAT_ERROR = "Something went wrong. Please try again.";
+
+// Stream errors carry the server's message as-is; failed HTTP responses carry
+// the raw `{ "error": "..." }` body.
+function getChatErrorMessage(error: Error): string {
+	const message = error.message.trim();
+	if (error instanceof TypeError || !message) {
+		return GENERIC_CHAT_ERROR;
+	}
+	if (!message.startsWith("{") && !message.startsWith("<")) {
+		return message;
+	}
+	try {
+		const body: unknown = JSON.parse(message);
+		if (
+			body &&
+			typeof body === "object" &&
+			"error" in body &&
+			typeof body.error === "string"
+		) {
+			return body.error;
+		}
+	} catch {
+		// Not JSON, e.g. an HTML error page from a proxy.
+	}
+	return GENERIC_CHAT_ERROR;
+}
+
 interface ConversationMessage {
 	id: string;
 	role: "user" | "assistant" | "admin";
@@ -720,12 +748,9 @@ export function ChatSupport() {
 								{error && (
 									<div className="flex justify-start">
 										<div className="max-w-[85%] rounded-2xl bg-destructive/10 px-3.5 py-2.5 text-sm leading-relaxed text-destructive">
-											<p>Something went wrong. Please try again.</p>
-											{error.message && (
-												<p className="mt-1 text-xs opacity-80 break-words">
-													{error.message}
-												</p>
-											)}
+											<p className="break-words">
+												{getChatErrorMessage(error)}
+											</p>
 										</div>
 									</div>
 								)}

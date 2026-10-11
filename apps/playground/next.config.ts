@@ -13,6 +13,7 @@ const nextConfig: NextConfig = {
 	// bundle-barrel-imports: Optimize package imports to avoid loading entire libraries
 	// This transforms barrel imports to direct imports at build time (15-70% faster dev boot)
 	experimental: {
+		agentUpgrade: "latest",
 		optimizePackageImports: [
 			"lucide-react",
 			"@radix-ui/react-icons",

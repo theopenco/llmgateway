@@ -33,6 +33,8 @@ export interface CacheControl {
  *   that should not pay the cache-write premium.
  * - `off`: strip every marker so the project never writes to a provider cache.
  */
+export type ProviderCacheAutoTtl = "5m" | "1h";
+
 export type ProviderCacheControlMode = "auto" | "passthrough" | "off";
 
 // Base content types
@@ -205,7 +207,8 @@ export interface OpenAIMessage extends BaseMessage {
 }
 
 export interface AnthropicMessage {
-	role: "user" | "assistant";
+	// `system` only on mappings that declare `midConversationSystem`.
+	role: "user" | "assistant" | "system";
 	content: (MessageContent | AnthropicNativeBlock)[];
 }
 

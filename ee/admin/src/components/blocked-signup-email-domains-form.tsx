@@ -1,52 +1,56 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 interface BlockedSignupEmailDomainsFormProps {
 	domains: string[];
-	onSave: (
-		domains: string[],
-	) => Promise<{ domains: string[] | null; message: string | null }>;
 }
 
 export function BlockedSignupEmailDomainsForm({
 	domains,
-	onSave,
 }: BlockedSignupEmailDomainsFormProps) {
 	const router = useRouter();
 	const readOnly = !canWrite(useAdminRole());
-	const [pending, startTransition] = useTransition();
+	const $api = useApi();
 	const [value, setValue] = useState(domains.join("\n"));
-	const [error, setError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
+	const mutation = $api.useMutation(
+		"put",
+		"/admin/settings/blocked-signup-email-domains",
+		{
+			meta: { inlineError: true },
+			onSuccess: (data) => {
+				setValue(data.domains.join("\n"));
+				setSaved(true);
+				router.refresh();
+			},
+		},
+	);
+	const pending = mutation.isPending;
+	const error = mutation.isError
+		? apiErrorMessage(
+				mutation.error,
+				"Could not save. Use valid domains without email addresses, URLs or wildcards (maximum 10,000 entries).",
+			)
+		: null;
 
 	return (
 		<form
 			className="flex flex-col gap-4"
 			onSubmit={(event) => {
 				event.preventDefault();
-				setError(null);
 				setSaved(false);
-				startTransition(async () => {
-					try {
-						const result = await onSave(value.split(/[\s,]+/).filter(Boolean));
-						if (result.domains === null) {
-							setError(result.message);
-							return;
-						}
-						setValue(result.domains.join("\n"));
-						setSaved(true);
-						router.refresh();
-					} catch {
-						setError("Could not save the blocked domains. Please try again.");
-					}
+				mutation.mutate({
+					body: { domains: value.split(/[\s,]+/).filter(Boolean) },
 				});
 			}}
 		>
@@ -61,10 +65,16 @@ export function BlockedSignupEmailDomainsForm({
 					disabled={pending || readOnly}
 					spellCheck={false}
 					autoCapitalize="none"
+					autoComplete="off"
+					// The "email" in the id makes password managers offer autofill.
+					data-1p-ignore
+					data-lpignore="true"
+					data-bwignore
+					data-form-type="other"
 					onChange={(event) => {
 						setValue(event.target.value);
 						setSaved(false);
-						setError(null);
+						mutation.reset();
 					}}
 				/>
 				<p

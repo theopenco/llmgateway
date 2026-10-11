@@ -41,10 +41,10 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
 	metadataBase: new URL("https://llmgateway.io"),
 	title: {
-		default: "LLM Gateway - Unified API for Multiple LLM Providers",
+		default: `LLM Gateway — Open-Source LLM API Gateway for ${MARKETING_STATS.models} Models`,
 		template: "%s | LLM Gateway",
 	},
-	description: `Route, manage, and analyze LLM requests across ${MARKETING_STATS.providers} providers, including OpenAI, Anthropic and Google, through one OpenAI-compatible API. Open-source core.`,
+	description: `Open-source LLM API gateway: route requests to ${MARKETING_STATS.models} models from ${MARKETING_STATS.providers} providers, including OpenAI, Anthropic and Google, through one OpenAI-compatible API.`,
 	authors: [{ name: "LLM Gateway" }],
 	creator: "LLM Gateway",
 	publisher: "LLM Gateway",
@@ -69,8 +69,8 @@ export const metadata: Metadata = {
 		canonical: "./",
 	},
 	openGraph: {
-		title: "LLM Gateway - Unified API for Multiple LLM Providers",
-		description: `Route, manage, and analyze LLM requests across ${MARKETING_STATS.providers} providers, including OpenAI, Anthropic and Google, through one OpenAI-compatible API. Open-source core.`,
+		title: `LLM Gateway — Open-Source LLM API Gateway for ${MARKETING_STATS.models} Models`,
+		description: `Open-source LLM API gateway: route requests to ${MARKETING_STATS.models} models from ${MARKETING_STATS.providers} providers, including OpenAI, Anthropic and Google, through one OpenAI-compatible API.`,
 		type: "website",
 		url: "https://llmgateway.io",
 		siteName: "LLM Gateway",
@@ -78,8 +78,8 @@ export const metadata: Metadata = {
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "LLM Gateway - Unified API for Multiple LLM Providers",
-		description: `Route, manage, and analyze LLM requests across ${MARKETING_STATS.providers} providers through one unified API.`,
+		title: `LLM Gateway — Open-Source LLM API Gateway for ${MARKETING_STATS.models} Models`,
+		description: `Open-source LLM API gateway: route requests to ${MARKETING_STATS.models} models from ${MARKETING_STATS.providers} providers through one OpenAI-compatible API.`,
 		creator: "@llmgateway",
 	},
 	robots: {

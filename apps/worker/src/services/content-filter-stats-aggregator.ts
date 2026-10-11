@@ -1,5 +1,6 @@
 import {
 	CONTENT_FILTER_STATS_ALL_CATEGORY,
+	contentFilterHourlyLatencyStats,
 	contentFilterHourlyModelStats,
 	contentFilterHourlyStats,
 	db,
@@ -30,11 +31,31 @@ interface ContentFilterStatsRow extends Record<string, unknown> {
 	duration_sum_ms: string | number;
 	duration_count: number;
 	duration_max_ms: number | null;
+	// Set only on the platform-wide latency rows.
+	latency: ContentFilterLatency | null;
+}
+
+interface ContentFilterLatency {
+	internalScope: string;
+	checkCount: number;
+	failedCount: number;
+	classifierDurationSumMs: number;
+	classifierDurationMaxMs: number | null;
+	classifierDurationP50Ms: number | null;
+	classifierDurationP95Ms: number | null;
+	classifierDurationP99Ms: number | null;
+	classifierRequestSum: number;
+	imageCheckCount: number;
+	imageDurationSumMs: number;
+	imageDurationMaxMs: number | null;
+	imageDurationP95Ms: number | null;
 }
 
 type ContentFilterStatsInsert = typeof contentFilterHourlyStats.$inferInsert;
 type ContentFilterModelStatsInsert =
 	typeof contentFilterHourlyModelStats.$inferInsert;
+type ContentFilterLatencyStatsInsert =
+	typeof contentFilterHourlyLatencyStats.$inferInsert;
 
 function hourWindow(targetHour: Date) {
 	const start = new Date(targetHour);
@@ -60,6 +81,9 @@ function hourWindow(targetHour: Date) {
  * Every row is keyed by classifier and role; role is always "deciding" since
  * the shadow classifier was removed, and a legacy shadow verdict is ignored.
  * The "all" rows also carry classifier durations, failed checks included.
+ *
+ * The same scan feeds contentFilterHourlyLatencyStats: the classifier's own
+ * duration per classifier and internal scope, platform wide, once per request.
  */
 export async function calculateContentFilterStatsForHour(targetHour: Date) {
 	const { start, startUtc } = hourWindow(targetHour);
@@ -85,7 +109,11 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 				evaluation.action,
 				evaluation."matchedCategories" as matched_categories,
 				coalesce(evaluation."moderationFailed", false) as moderation_failed,
-				evaluation."durationMs" as duration_ms
+				evaluation."durationMs" as duration_ms,
+				evaluation."internalScope" as internal_scope,
+				evaluation."classifierDurationMs" as classifier_duration_ms,
+				evaluation."classifierRequests" as classifier_requests,
+				evaluation."imageDurationMs" as image_duration_ms
 			from ${log}
 			cross join lateral jsonb_to_record(${log.gatewayContentFilterEvaluation}) as evaluation(
 				classifier text,
@@ -93,7 +121,11 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 				action text,
 				"matchedCategories" jsonb,
 				"moderationFailed" boolean,
-				"durationMs" double precision
+				"durationMs" double precision,
+				"internalScope" text,
+				"classifierDurationMs" double precision,
+				"classifierRequests" integer,
+				"imageDurationMs" double precision
 			)
 			where ${log.createdAt} >= ${startUtc}::timestamp
 				and ${log.createdAt} < ${startUtc}::timestamp + interval '1 hour'
@@ -106,6 +138,13 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 				project_id,
 				used_model,
 				used_provider,
+				classifier_duration_ms,
+				classifier_requests,
+				image_duration_ms,
+				case
+					when verdict.classifier = 'internal' then coalesce(internal_scope, 'full')
+					else ''
+				end as internal_scope,
 				verdict.*,
 				-- Retries copy the evaluation onto every attempt: sum each request's
 				-- duration once overall and once per model it touched.
@@ -147,7 +186,8 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 				0
 			)::bigint as duration_sum_ms,
 			count(distinct request_id) filter (where duration_ms is not null)::int as duration_count,
-			max(duration_ms)::int as duration_max_ms
+			max(duration_ms)::int as duration_max_ms,
+			null::jsonb as latency
 		from verdicts
 		group by grouping sets (
 			(organization_id, project_id, classifier, role),
@@ -167,7 +207,8 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			0 as blocked_count,
 			0::bigint as duration_sum_ms,
 			0 as duration_count,
-			null::int as duration_max_ms
+			null::int as duration_max_ms,
+			null::jsonb as latency
 		from verdicts
 		cross join lateral jsonb_array_elements_text(
 			coalesce(matched_categories, '[]'::jsonb)
@@ -177,11 +218,53 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			(organization_id, project_id, classifier, role, category),
 			(organization_id, project_id, used_model, used_provider, classifier, role, category)
 		)
+		union all
+		select
+			'' as organization_id,
+			'' as project_id,
+			null::text as used_model,
+			null::text as used_provider,
+			${CONTENT_FILTER_STATS_ALL_CATEGORY} as category,
+			classifier,
+			role,
+			0 as sampled_count,
+			0 as violation_count,
+			0 as blocked_count,
+			0::bigint as duration_sum_ms,
+			0 as duration_count,
+			null::int as duration_max_ms,
+			jsonb_build_object(
+				'internalScope', internal_scope,
+				'checkCount', count(*),
+				'failedCount', count(*) filter (where moderation_failed),
+				'classifierDurationSumMs', round(sum(classifier_duration_ms)),
+				'classifierDurationMaxMs', round(max(classifier_duration_ms)),
+				'classifierDurationP50Ms', round(percentile_cont(0.5) within group (order by classifier_duration_ms)),
+				'classifierDurationP95Ms', round(percentile_cont(0.95) within group (order by classifier_duration_ms)),
+				'classifierDurationP99Ms', round(percentile_cont(0.99) within group (order by classifier_duration_ms)),
+				'classifierRequestSum', coalesce(sum(classifier_requests), 0),
+				'imageCheckCount', count(image_duration_ms),
+				'imageDurationSumMs', coalesce(round(sum(image_duration_ms)), 0),
+				'imageDurationMaxMs', round(max(image_duration_ms)),
+				'imageDurationP95Ms', round(percentile_cont(0.95) within group (order by image_duration_ms))
+			) as latency
+		from verdicts
+		where first_for_request and classifier_duration_ms is not null
+		group by classifier, role, internal_scope
 	`);
 
 	const values: ContentFilterStatsInsert[] = [];
 	const modelValues: ContentFilterModelStatsInsert[] = [];
+	const latencyValues: ContentFilterLatencyStatsInsert[] = [];
 	for (const row of result.rows) {
+		if (row.latency) {
+			latencyValues.push({
+				hourTimestamp: start,
+				classifier: row.classifier,
+				...row.latency,
+			});
+			continue;
+		}
 		const counts: ContentFilterStatsInsert = {
 			hourTimestamp: start,
 			organizationId: row.organization_id,
@@ -219,6 +302,12 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 		await tx
 			.delete(contentFilterHourlyModelStats)
 			.where(eq(contentFilterHourlyModelStats.hourTimestamp, start));
+		await tx
+			.delete(contentFilterHourlyLatencyStats)
+			.where(eq(contentFilterHourlyLatencyStats.hourTimestamp, start));
+		if (latencyValues.length > 0) {
+			await tx.insert(contentFilterHourlyLatencyStats).values(latencyValues);
+		}
 
 		for (let i = 0; i < values.length; i += UPSERT_CHUNK_SIZE) {
 			await tx

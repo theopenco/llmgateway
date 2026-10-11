@@ -3,6 +3,7 @@
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +24,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 import { getProviderIcon } from "@llmgateway/shared";
 
@@ -42,20 +45,25 @@ interface TargetOptions {
 
 interface AdjustmentFormProps extends TargetOptions {
 	kind: "discount" | "routing";
+	submitting: boolean;
+	submitError: string | null;
+	resetSubmit: () => void;
 	onSubmit: (
 		data: TargetData & { value: number },
-	) => Promise<{ success: boolean; error?: string }>;
+		onSuccess: () => void,
+	) => void;
 }
 
 function AdjustmentForm({
 	kind,
 	providers,
 	mappings,
+	submitting,
+	submitError,
+	resetSubmit,
 	onSubmit,
 }: AdjustmentFormProps) {
-	const router = useRouter();
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [provider, setProvider] = useState("__all__");
 	const [model, setModel] = useState("__all__");
@@ -106,11 +114,13 @@ function AdjustmentForm({
 		setReason("");
 		setExpiresAt("");
 		setError(null);
+		resetSubmit();
 	};
 
-	const handleSubmit = async (event: React.FormEvent) => {
+	const handleSubmit = (event: React.FormEvent) => {
 		event.preventDefault();
 		setError(null);
+		resetSubmit();
 		if (
 			!Number.isFinite(parsedValue) ||
 			parsedValue < (isDiscount ? 0 : -100) ||
@@ -128,23 +138,21 @@ function AdjustmentForm({
 			return;
 		}
 
-		setLoading(true);
-		const result = await onSubmit({
-			provider: provider === "__all__" ? null : provider,
-			model: model === "__all__" ? null : model,
-			value: parsedValue,
-			reason: reason || null,
-			expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
-		});
-		setLoading(false);
-		if (result.success) {
-			setOpen(false);
-			reset();
-			router.refresh();
-		} else {
-			setError(result.error ?? `Failed to create ${noun.toLowerCase()}`);
-		}
+		onSubmit(
+			{
+				provider: provider === "__all__" ? null : provider,
+				model: model === "__all__" ? null : model,
+				value: parsedValue,
+				reason: reason || null,
+				expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+			},
+			() => {
+				setOpen(false);
+				reset();
+			},
+		);
 	};
+	const shownError = error ?? submitError;
 
 	return (
 		<Dialog
@@ -283,9 +291,9 @@ function AdjustmentForm({
 						/>
 					</div>
 
-					{error && (
+					{shownError && (
 						<div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-							{error}
+							{shownError}
 						</div>
 					)}
 
@@ -297,8 +305,8 @@ function AdjustmentForm({
 						>
 							Cancel
 						</Button>
-						<Button type="submit" disabled={loading}>
-							{loading && <Loader2 className="h-4 w-4 animate-spin" />}
+						<Button type="submit" disabled={submitting}>
+							{submitting && <Loader2 className="h-4 w-4 animate-spin" />}
 							Create {noun}
 						</Button>
 					</DialogFooter>
@@ -309,63 +317,96 @@ function AdjustmentForm({
 }
 
 interface DiscountFormProps extends TargetOptions {
-	onSubmit: (
-		data: TargetData & { discountPercent: number },
-	) => Promise<{ success: boolean; error?: string }>;
+	/** Creates an organization discount; omitted for a global discount. */
+	orgId?: string;
 }
 
-export function DiscountForm({ onSubmit, ...options }: DiscountFormProps) {
+export function DiscountForm({ orgId, ...options }: DiscountFormProps) {
+	const $api = useApi();
+	const router = useRouter();
+	const onSuccess = () => router.refresh();
+	const globalMutation = $api.useMutation("post", "/admin/discounts", {
+		meta: { inlineError: true },
+		onSuccess,
+	});
+	const orgMutation = $api.useMutation(
+		"post",
+		"/admin/organizations/{orgId}/discounts",
+		{ meta: { inlineError: true }, onSuccess },
+	);
+	const mutation = orgId ? orgMutation : globalMutation;
+
 	return (
 		<AdjustmentForm
 			kind="discount"
 			{...options}
-			onSubmit={({ value, ...data }) =>
-				onSubmit({ ...data, discountPercent: value })
+			submitting={mutation.isPending}
+			submitError={
+				mutation.isError
+					? apiErrorMessage(mutation.error, "Failed to create discount")
+					: null
 			}
+			resetSubmit={mutation.reset}
+			onSubmit={({ value, ...data }, done) => {
+				const body = { ...data, discountPercent: value };
+				if (orgId) {
+					orgMutation.mutate(
+						{ params: { path: { orgId } }, body },
+						{ onSuccess: done },
+					);
+				} else {
+					globalMutation.mutate({ body }, { onSuccess: done });
+				}
+			}}
 		/>
 	);
 }
 
-interface RoutingScoreMultiplierFormProps extends TargetOptions {
-	onSubmit: (
-		data: TargetData & { scoreMultiplier: number },
-	) => Promise<{ success: boolean; error?: string }>;
-}
+export function RoutingScoreMultiplierForm(options: TargetOptions) {
+	const $api = useApi();
+	const router = useRouter();
+	const mutation = $api.useMutation(
+		"post",
+		"/admin/routing-score-multipliers",
+		{ meta: { inlineError: true }, onSuccess: () => router.refresh() },
+	);
 
-export function RoutingScoreMultiplierForm({
-	onSubmit,
-	...options
-}: RoutingScoreMultiplierFormProps) {
 	return (
 		<AdjustmentForm
 			kind="routing"
 			{...options}
-			onSubmit={({ value, ...data }) =>
-				onSubmit({ ...data, scoreMultiplier: value })
+			submitting={mutation.isPending}
+			submitError={
+				mutation.isError
+					? apiErrorMessage(
+							mutation.error,
+							"Failed to create routing multiplier",
+						)
+					: null
 			}
+			resetSubmit={mutation.reset}
+			onSubmit={({ value, ...data }, done) => {
+				mutation.mutate(
+					{ body: { ...data, scoreMultiplier: value } },
+					{ onSuccess: done },
+				);
+			}}
 		/>
 	);
 }
 
 interface DeleteButtonProps {
-	id: string;
 	noun: string;
-	onDelete: (id: string) => Promise<{ success: boolean }>;
+	deleting: boolean;
+	onDelete: () => void;
 }
 
-function DeleteButton({ id, noun, onDelete }: DeleteButtonProps) {
-	const router = useRouter();
-	const [loading, setLoading] = useState(false);
-	const handleDelete = async () => {
+function DeleteButton({ noun, deleting, onDelete }: DeleteButtonProps) {
+	const handleDelete = () => {
 		if (!confirm(`Are you sure you want to delete this ${noun}?`)) {
 			return;
 		}
-		setLoading(true);
-		const result = await onDelete(id);
-		setLoading(false);
-		if (result.success) {
-			router.refresh();
-		}
+		onDelete();
 	};
 
 	return (
@@ -373,10 +414,10 @@ function DeleteButton({ id, noun, onDelete }: DeleteButtonProps) {
 			variant="ghost"
 			size="icon-sm"
 			onClick={handleDelete}
-			disabled={loading}
+			disabled={deleting}
 			className="text-destructive hover:text-destructive"
 		>
-			{loading ? (
+			{deleting ? (
 				<Loader2 className="h-4 w-4 animate-spin" />
 			) : (
 				<Trash2 className="h-4 w-4" />
@@ -385,28 +426,75 @@ function DeleteButton({ id, noun, onDelete }: DeleteButtonProps) {
 	);
 }
 
+function useDeleteSuccess(noun: string) {
+	const router = useRouter();
+	return (data: { success: boolean }) => {
+		if (data.success) {
+			router.refresh();
+		} else {
+			toast.error(`Failed to delete ${noun}`);
+		}
+	};
+}
+
 export function DeleteDiscountButton({
 	discountId,
-	onDelete,
+	orgId,
 }: {
 	discountId: string;
-	onDelete: (id: string) => Promise<{ success: boolean }>;
+	/** Deletes an organization discount; omitted for a global discount. */
+	orgId?: string;
 }) {
-	return <DeleteButton id={discountId} noun="discount" onDelete={onDelete} />;
+	const $api = useApi();
+	const onSuccess = useDeleteSuccess("discount");
+	const meta = { errorMessage: "Failed to delete discount" };
+	const globalMutation = $api.useMutation(
+		"delete",
+		"/admin/discounts/{discountId}",
+		{ meta, onSuccess },
+	);
+	const orgMutation = $api.useMutation(
+		"delete",
+		"/admin/organizations/{orgId}/discounts/{discountId}",
+		{ meta, onSuccess },
+	);
+
+	return (
+		<DeleteButton
+			noun="discount"
+			deleting={orgId ? orgMutation.isPending : globalMutation.isPending}
+			onDelete={() => {
+				if (orgId) {
+					orgMutation.mutate({ params: { path: { orgId, discountId } } });
+				} else {
+					globalMutation.mutate({ params: { path: { discountId } } });
+				}
+			}}
+		/>
+	);
 }
 
 export function DeleteRoutingScoreMultiplierButton({
 	multiplierId,
-	onDelete,
 }: {
 	multiplierId: string;
-	onDelete: (id: string) => Promise<{ success: boolean }>;
 }) {
+	const $api = useApi();
+	const onSuccess = useDeleteSuccess("routing multiplier");
+	const mutation = $api.useMutation(
+		"delete",
+		"/admin/routing-score-multipliers/{multiplierId}",
+		{
+			meta: { errorMessage: "Failed to delete routing multiplier" },
+			onSuccess,
+		},
+	);
+
 	return (
 		<DeleteButton
-			id={multiplierId}
 			noun="routing multiplier"
-			onDelete={onDelete}
+			deleting={mutation.isPending}
+			onDelete={() => mutation.mutate({ params: { path: { multiplierId } } })}
 		/>
 	);
 }

@@ -19,6 +19,7 @@ import {
 } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
+import { getUpstreamModelId } from "./provider-api-format.js";
 import { describeNetworkFailure } from "./provider-key/network-error.js";
 import { redactToken } from "./provider-key/redact.js";
 
@@ -58,12 +59,24 @@ function resolveSelectedRegion(
 ): string | undefined {
 	const providerDef = providers.find((p) => p.id === provider) as
 		ProviderDefinition | undefined;
-	const regionKey = providerDef?.regionConfig?.optionsKey;
-	return regionKey
-		? ((providerKeyOptions as Record<string, string | undefined> | undefined)?.[
-				regionKey
-			] ?? providerDef?.regionConfig?.defaultRegion)
-		: undefined;
+	const regionConfig = providerDef?.regionConfig;
+	const regionKey = regionConfig?.optionsKey;
+	if (!regionKey) {
+		return undefined;
+	}
+	const selected = (
+		providerKeyOptions as Record<string, string | undefined> | undefined
+	)?.[regionKey];
+	if (!selected) {
+		return regionConfig.defaultRegion;
+	}
+	// A managed AWS Bedrock credential may carry its region as the model-id
+	// prefix (`us.`), the form the Converse endpoint reads; map it back to the
+	// region id.
+	const prefixedRegion = Object.entries(regionConfig.modelPrefixMap ?? {}).find(
+		([, prefix]) => prefix !== "" && prefix === selected,
+	)?.[0];
+	return prefixedRegion ?? selected;
 }
 
 /**
@@ -546,7 +559,12 @@ export async function validateProviderKey(
 				provider,
 				validationModel.modelId,
 				validationRegion ?? null,
-				validationModel.externalId,
+				getUpstreamModelId(
+					provider,
+					validationModel.modelId,
+					validationModel.externalId,
+					validationRegion,
+				),
 				messages,
 				false,
 				undefined,

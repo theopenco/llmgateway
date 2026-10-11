@@ -449,3 +449,85 @@ describe("admin organization details endpoints", () => {
 		]);
 	});
 });
+
+describe("admin organization metrics all-time top-ups", () => {
+	let cookie: string;
+
+	beforeEach(async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
+		cookie = await createTestUser();
+		await insertOrg();
+	});
+
+	afterEach(async () => {
+		if (originalAdminEmails === undefined) {
+			delete process.env.ADMIN_FULL_ACCESS_EMAILS;
+		} else {
+			process.env.ADMIN_FULL_ACCESS_EMAILS = originalAdminEmails;
+		}
+		await deleteAll();
+	});
+
+	it("sums gross and net top-ups and gifted credits separately", async () => {
+		await db.insert(tables.transaction).values([
+			{
+				id: "org-details-topup",
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "105.50",
+				creditAmount: "100",
+				status: "completed",
+			},
+			{
+				organizationId: ORG_ID,
+				type: "credit_manual_payment",
+				amount: "50",
+				creditAmount: "50",
+				status: "completed",
+			},
+			{
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "20",
+				creditAmount: "20",
+				status: "pending",
+			},
+			{
+				organizationId: ORG_ID,
+				type: "credit_gift",
+				amount: "0",
+				creditAmount: "25",
+				status: "completed",
+			},
+		]);
+		await db.insert(tables.transaction).values([
+			{
+				organizationId: ORG_ID,
+				type: "credit_refund",
+				amount: "30",
+				creditAmount: "-28.44",
+				status: "completed",
+				relatedTransactionId: "org-details-topup",
+			},
+			// Unlinked refunds are not netted against top-ups.
+			{
+				organizationId: ORG_ID,
+				type: "credit_refund",
+				amount: "10",
+				creditAmount: "-10",
+				status: "completed",
+			},
+		]);
+
+		const res = await get("", cookie);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			allTimeTopUpsGross: string;
+			allTimeTopUpsNet: string;
+			allTimeGiftedCredits: string;
+		};
+		expect(body.allTimeTopUpsGross).toBe("155.5");
+		expect(body.allTimeTopUpsNet).toBe("125.5");
+		expect(body.allTimeGiftedCredits).toBe("25");
+	});
+});

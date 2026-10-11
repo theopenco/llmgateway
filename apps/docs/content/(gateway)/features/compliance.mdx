@@ -33,7 +33,7 @@ In DevPass, enable **No AI training** directly under **Settings**. It uses the s
 
 Every requirement is **fail-closed**: a provider passes only if its published data policy explicitly satisfies the requirement. If an attribute is unknown for a provider, that provider is treated as non-compliant.
 
-Before enabling **Zero data retention (ZDR)**, set the organization's data retention to **Metadata Only** and disable response caching in every project. While ZDR is active, **Retain All Data** and project response caching are unavailable, gateway response caching is bypassed, provider prompt-cache markers are stripped, Responses API requests must set `store: false`, and asynchronous video generation is unavailable because video jobs require temporary output storage. Disable ZDR before turning payload retention or caching back on.
+Before enabling **Zero data retention (ZDR)**, set the organization's data retention to **Metadata Only** and disable response caching in every project. While ZDR is active, **Retain All Data** and project response caching are unavailable, gateway response caching is bypassed, provider prompt-cache markers are stripped, Responses API requests must set `store: false`, and asynchronous video generation is unavailable because video jobs require temporary output storage. Disable ZDR before turning payload retention or caching back on. ZDR is a separate Enterprise compliance policy and is unchanged by the Enterprise requirement for **Retain All Data** itself.
 
 Existing policies that use the deprecated **No prompt logging** rule continue to enforce their original provider-routing behavior. The legacy rule is no longer available for new configuration and does not enable the gateway-level ZDR controls described above.
 
@@ -148,7 +148,7 @@ Project-scoped **developer** members cannot see the policy itself, but they can 
 
 - [Notifications](/features/notifications) — per-user in-app and email delivery preferences, including compliance alerts.
 - [Org Models Directory](/features/models-directory) — see per-model eligibility under the active policy in the dashboard.
-- [Data Retention](/features/data-retention) — control whether request and response payloads are stored.
+- [Data Retention](/features/data-retention) — control whether request and response payloads are stored (Retain All Data is Enterprise only).
 - [Guardrails](/features/guardrails) — detect and block harmful or sensitive content.
 
 ## Get Started

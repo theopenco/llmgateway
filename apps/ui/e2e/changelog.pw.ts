@@ -137,19 +137,26 @@ test.describe("crawlable archives", () => {
 	});
 });
 
-test("invalid products and page numbers are not indexable", async ({
-	page,
-}) => {
+test.describe("invalid products and page numbers", () => {
+	// The 404 page's WebGL logo starves CI's software-rendered browser, and
+	// the assertions only need the server HTML.
+	test.use({ javaScriptEnabled: false });
+
 	for (const path of [
 		"/changelog/tag/unknown",
 		"/changelog?page=0",
 		"/changelog?page=9999",
 		"/changelog?page=1&page=2",
 	]) {
-		await page.goto(path, { waitUntil: "domcontentloaded" });
-		await expect(
-			page.locator('meta[name="robots"][content="noindex"]'),
-		).toHaveCount(1);
-		await expect(page.getByRole("article")).toHaveCount(0);
+		test(`${path} is not indexable`, async ({ page }) => {
+			const response = await page.goto(path, {
+				waitUntil: "domcontentloaded",
+			});
+			expect(response?.status()).toBe(404);
+			await expect(
+				page.locator('meta[name="robots"][content="noindex"]'),
+			).toHaveCount(1);
+			await expect(page.getByRole("article")).toHaveCount(0);
+		});
 	}
 });

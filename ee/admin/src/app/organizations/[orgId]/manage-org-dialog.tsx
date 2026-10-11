@@ -24,6 +24,8 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 import {
 	addCalendarDays,
@@ -40,6 +42,7 @@ import {
 type Plan = "free" | "pro" | "enterprise";
 
 interface ManageOrgDialogProps {
+	orgId: string;
 	orgName: string;
 	plan: string;
 	seats: number | null;
@@ -55,21 +58,6 @@ interface ManageOrgDialogProps {
 	isTrialActive: boolean;
 	trialStartDate: string | null;
 	trialEndDate: string | null;
-	onSave: (data: {
-		name: string;
-		plan: Plan;
-		seats: number | null;
-		apiKeyLimit: number | null;
-		projectLimit: number | null;
-		trustTierOverride: number | null;
-		contentFilterTierOverride?: number | null;
-		contentFilterLogOnly?: boolean;
-		planExpiresAt: string | null;
-		planStartedAt: string | null;
-		isTrialActive: boolean;
-		trialStartDate: string | null;
-		trialEndDate: string | null;
-	}) => Promise<{ success: boolean; error?: string }>;
 	primaryTrigger?: boolean;
 }
 
@@ -121,6 +109,7 @@ function addMonths(dateInput: string, months: number): string {
 }
 
 export function ManageOrgDialog({
+	orgId,
 	orgName,
 	plan,
 	seats,
@@ -134,13 +123,37 @@ export function ManageOrgDialog({
 	isTrialActive,
 	trialStartDate,
 	trialEndDate,
-	onSave,
 	primaryTrigger = false,
 }: ManageOrgDialogProps) {
 	const router = useRouter();
+	const $api = useApi();
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [validationError, setValidationError] = useState<string | null>(null);
+	const manageMutation = $api.useMutation(
+		"patch",
+		"/admin/organizations/{orgId}/manage",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
+				setOpen(false);
+				router.refresh();
+			},
+		},
+	);
+	const loading = manageMutation.isPending;
+	const error =
+		validationError ??
+		(manageMutation.isError
+			? apiErrorMessage(manageMutation.error, "Failed to update organization")
+			: null);
+
+	const handleOpenChange = (next: boolean) => {
+		if (next) {
+			manageMutation.reset();
+			setValidationError(null);
+		}
+		setOpen(next);
+	};
 	const [nameValue, setNameValue] = useState(orgName);
 	const [planValue, setPlanValue] = useState<Plan>(
 		plan === "pro" || plan === "enterprise" ? plan : "free",
@@ -219,11 +232,11 @@ export function ManageOrgDialog({
 
 	const startTrial = () => {
 		if (!trialDaysValid) {
-			setError("Trial length must be a whole number of days");
+			setValidationError("Trial length must be a whole number of days");
 			return;
 		}
 		const start = todayInputValue();
-		setError(null);
+		setValidationError(null);
 		setTrialActiveValue(true);
 		setTrialStartValue(start);
 		setTrialEndValue(addCalendarDays(start, parsedTrialDays));
@@ -233,7 +246,7 @@ export function ManageOrgDialog({
 	// admin buying a customer more time means the trial is on again, whatever
 	// state the toggle was left in.
 	const extendTrial = (days: number) => {
-		setError(null);
+		setValidationError(null);
 		setTrialActiveValue(true);
 		setTrialEndValue(
 			extendTrialEnd(trialEndValue || null, days, todayInputValue()),
@@ -252,10 +265,10 @@ export function ManageOrgDialog({
 		setExpiresAtValue(addMonths(start, months));
 	};
 
-	const handleSubmit = async () => {
+	const handleSubmit = () => {
 		const trimmedName = nameValue.trim();
 		if (trimmedName === "") {
-			setError("Organization name is required");
+			setValidationError("Organization name is required");
 			return;
 		}
 
@@ -264,7 +277,7 @@ export function ManageOrgDialog({
 		if (trimmed !== "") {
 			const parsed = Number(trimmed);
 			if (!Number.isInteger(parsed) || parsed < 0) {
-				setError("Seats must be a non-negative whole number");
+				setValidationError("Seats must be a non-negative whole number");
 				return;
 			}
 			seatsToSave = parsed;
@@ -275,7 +288,7 @@ export function ManageOrgDialog({
 		if (trimmedApiKeyLimit !== "") {
 			const parsed = Number(trimmedApiKeyLimit);
 			if (!Number.isInteger(parsed) || parsed < 0) {
-				setError("API key limit must be a non-negative whole number");
+				setValidationError("API key limit must be a non-negative whole number");
 				return;
 			}
 			apiKeyLimitToSave = parsed;
@@ -286,14 +299,14 @@ export function ManageOrgDialog({
 		if (trimmedProjectLimit !== "") {
 			const parsed = Number(trimmedProjectLimit);
 			if (!Number.isInteger(parsed) || parsed < 0) {
-				setError("Project limit must be a non-negative whole number");
+				setValidationError("Project limit must be a non-negative whole number");
 				return;
 			}
 			projectLimitToSave = parsed;
 		}
 
 		if (startedAtValue !== "" && expiresAtValue === "") {
-			setError("A plan start date needs an expiry date too");
+			setValidationError("A plan start date needs an expiry date too");
 			return;
 		}
 
@@ -302,12 +315,12 @@ export function ManageOrgDialog({
 			expiresAtValue !== "" &&
 			startedAtValue >= expiresAtValue
 		) {
-			setError("Plan start date must be before the expiry date");
+			setValidationError("Plan start date must be before the expiry date");
 			return;
 		}
 
 		if (trialActiveValue && trialEndValue === "") {
-			setError("An active trial needs an end date");
+			setValidationError("An active trial needs an end date");
 			return;
 		}
 
@@ -316,49 +329,41 @@ export function ManageOrgDialog({
 			trialEndValue !== "" &&
 			trialStartValue >= trialEndValue
 		) {
-			setError("Trial start date must be before the trial end date");
+			setValidationError("Trial start date must be before the trial end date");
 			return;
 		}
 
-		setLoading(true);
-		setError(null);
-
-		const result = await onSave({
-			name: trimmedName,
-			plan: planValue,
-			seats: seatsToSave,
-			apiKeyLimit: apiKeyLimitToSave,
-			projectLimit: projectLimitToSave,
-			trustTierOverride:
-				trustTierValue === "auto" ? null : Number(trustTierValue),
-			...(hasContentFilterControls
-				? {
-						contentFilterTierOverride:
-							contentFilterTierValue === "auto"
-								? null
-								: Number(contentFilterTierValue),
-						contentFilterLogOnly: contentFilterLogOnlyValue,
-					}
-				: {}),
-			planStartedAt: startedAtValue === "" ? null : startedAtValue,
-			planExpiresAt: expiresAtValue === "" ? null : expiresAtValue,
-			isTrialActive: trialActiveValue,
-			trialStartDate: trialStartValue === "" ? null : trialStartValue,
-			trialEndDate: trialEndValue === "" ? null : trialEndValue,
+		setValidationError(null);
+		manageMutation.mutate({
+			params: { path: { orgId } },
+			body: {
+				name: trimmedName,
+				plan: planValue,
+				seats: seatsToSave,
+				apiKeyLimit: apiKeyLimitToSave,
+				projectLimit: projectLimitToSave,
+				trustTierOverride:
+					trustTierValue === "auto" ? null : Number(trustTierValue),
+				...(hasContentFilterControls
+					? {
+							contentFilterTierOverride:
+								contentFilterTierValue === "auto"
+									? null
+									: Number(contentFilterTierValue),
+							contentFilterLogOnly: contentFilterLogOnlyValue,
+						}
+					: {}),
+				planStartedAt: startedAtValue === "" ? null : startedAtValue,
+				planExpiresAt: expiresAtValue === "" ? null : expiresAtValue,
+				isTrialActive: trialActiveValue,
+				trialStartDate: trialStartValue === "" ? null : trialStartValue,
+				trialEndDate: trialEndValue === "" ? null : trialEndValue,
+			},
 		});
-
-		setLoading(false);
-
-		if (result.success) {
-			setOpen(false);
-			router.refresh();
-		} else {
-			setError(result.error ?? "Failed to update organization");
-		}
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogTrigger asChild>
 				<Button variant={primaryTrigger ? "default" : "outline"} size="sm">
 					<Settings2 className="mr-1.5 h-4 w-4" />

@@ -1,7 +1,14 @@
 "use client";
 
 import { format } from "date-fns";
-import { Lock, Maximize2, Minimize2, MousePointerClick, X } from "lucide-react";
+import {
+	ArrowRight,
+	Lock,
+	Maximize2,
+	Minimize2,
+	MousePointerClick,
+	X,
+} from "lucide-react";
 import dynamic from "next/dynamic";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -205,6 +212,16 @@ export function DashboardDemo() {
 						</span>
 						{unlocked && (
 							<div className="ml-auto flex shrink-0 items-center gap-1 @md/demo:ml-0">
+								<TrackedLink
+									href="/signup"
+									auth
+									location="home_demo_chrome"
+									cta="get_api_key"
+									className="inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-xs font-semibold text-background transition-colors hover:bg-foreground/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								>
+									Get started
+									<ArrowRight className="size-3.5" />
+								</TrackedLink>
 								<button
 									type="button"
 									onClick={toggleFullscreen}

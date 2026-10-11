@@ -1,5 +1,7 @@
 # DevPass by LLM Gateway
 
+Last updated: 2026-10-01
+
 > DevPass is a flat-price subscription for AI coding tools. One API key connects the models in the live [DevPass catalogue](https://devpass.llmgateway.io/models) in any OpenAI-compatible coding agent — DevPass Code, Claude Code, opencode, GitHub Copilot, Cursor, Continue, and more — with a fixed monthly usage allowance instead of surprise token bills. Once the allowance is used, requests pause by default; users can optionally enable pay-as-you-go overflow and top up a credits balance to keep going at provider rates.
 
 ## Plans

@@ -97,6 +97,8 @@ function mappingTarget(mapping: MappingRow): ProviderModelVerificationTarget {
 			mapping.reasoningEfforts ??
 			null,
 		webSearch: mapping.webSearch,
+		contextSize: mapping.contextSize,
+		maxOutput: mapping.maxOutput,
 	});
 }
 
@@ -122,6 +124,8 @@ function draftModelTarget(
 		reasoningMaxTokens: model.reasoningMaxTokens,
 		reasoningEfforts: model.reasoningEfforts,
 		webSearch: model.webSearch,
+		contextSize: model.contextSize,
+		maxOutput: model.maxOutput,
 		...filed,
 	});
 }

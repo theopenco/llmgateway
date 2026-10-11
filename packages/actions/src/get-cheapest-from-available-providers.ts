@@ -10,6 +10,8 @@ import {
 	type AvailableModelProvider,
 	type ModelWithPricing,
 	type ProviderModelMapping,
+	resolvePricingPeriod,
+	resolveTierTimeBasedPricing,
 	resolveTimeBasedPricing,
 	usesEncryptedReasoning,
 } from "@llmgateway/models";
@@ -285,7 +287,23 @@ export interface SessionProviderStore {
 	set: (providerId: string, region?: string) => Promise<void>;
 }
 
+/** Compare provider preference before comparing scores within a provider. */
+export function compareProviderOrder(
+	a: string,
+	b: string,
+	order?: readonly string[],
+): number {
+	const aIndex = order?.indexOf(a) ?? -1;
+	const bIndex = order?.indexOf(b) ?? -1;
+	return (
+		(aIndex < 0 ? (order?.length ?? 0) : aIndex) -
+		(bIndex < 0 ? (order?.length ?? 0) : bIndex)
+	);
+}
+
 export interface ProviderSelectionOptions {
+	/** Preference among eligible providers; healthy session pins still win. */
+	providerOrder?: readonly string[];
 	metricsMap?: Map<string, ProviderMetrics>;
 	isStreaming?: boolean;
 	videoPricing?: VideoPricingContext;
@@ -468,12 +486,18 @@ export function getProviderSelectionPrice(
 	// long-context request would rank a tiered mapping (e.g. xAI over 128K) at
 	// its cheaper base rates and select a provider billing then charges more
 	// for.
-	const pricingTier =
+	const matchedTier =
 		promptTokens !== undefined && providerInfo?.pricingTiers?.length
 			? (providerInfo.pricingTiers.find(
 					(tier) => promptTokens <= tier.upToTokens,
 				) ?? providerInfo.pricingTiers[providerInfo.pricingTiers.length - 1])
 			: undefined;
+	const pricingTier = matchedTier
+		? resolveTierTimeBasedPricing(
+				matchedTier,
+				resolvePricingPeriod(providerInfo ?? {}, now),
+			)
+		: undefined;
 	const inputPrice =
 		pricingTier?.inputPrice ??
 		timeBasedPricing?.inputPrice ??
@@ -778,6 +802,7 @@ export async function getCheapestFromAvailableProviders<
 	options?: ProviderSelectionOptions,
 ): Promise<ProviderSelectionResult<T> | null> {
 	const metricsMap = options?.metricsMap;
+	const providerOrder = options?.providerOrder;
 	const isStreaming = options?.isStreaming ?? false;
 	const videoPricing = options?.videoPricing;
 	const promptTokens = options?.promptTokens;
@@ -860,6 +885,7 @@ export async function getCheapestFromAvailableProviders<
 	);
 	if (
 		!sessionSticky &&
+		!providerOrder?.length &&
 		!encryptedReasoning &&
 		!isTestProcess() &&
 		randomFloat() < getExplorationRate(cfg)
@@ -918,6 +944,7 @@ export async function getCheapestFromAvailableProviders<
 			videoPricing,
 			cfg,
 			providerSelectionPrices,
+			providerOrder,
 		);
 		return sessionSticky
 			? await applySessionSticky(
@@ -942,6 +969,7 @@ export async function getCheapestFromAvailableProviders<
 			videoPricing,
 			cfg,
 			providerSelectionPrices,
+			providerOrder,
 		);
 		return sessionSticky
 			? await applySessionSticky(
@@ -1016,7 +1044,15 @@ export async function getCheapestFromAvailableProviders<
 	// Select provider with lowest score
 	let bestProvider = providerScores[0];
 	for (const providerScore of providerScores) {
-		if (providerScore.score.lt(bestProvider.score)) {
+		const preference = compareProviderOrder(
+			providerScore.provider.providerId,
+			bestProvider.provider.providerId,
+			providerOrder,
+		);
+		if (
+			preference < 0 ||
+			(preference === 0 && providerScore.score.lt(bestProvider.score))
+		) {
 			bestProvider = providerScore;
 		}
 	}
@@ -1025,7 +1061,11 @@ export async function getCheapestFromAvailableProviders<
 	const metadata: RoutingMetadata = {
 		availableProviders: providerScores.map((p) => p.provider.providerId),
 		selectedProvider: bestProvider.provider.providerId,
-		selectionReason: metricsMap ? "weighted-score" : "price-only",
+		selectionReason: providerOrder?.length
+			? "provider-order"
+			: metricsMap
+				? "weighted-score"
+				: "price-only",
 		providerScores: providerScores.map((p) => {
 			const priority = getEffectivePriority(p.provider.providerId, cfg);
 			return {
@@ -1072,6 +1112,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 		string,
 		{ price: Decimal; routingPrice: Decimal; discount: Decimal }
 	>,
+	providerOrder?: readonly string[],
 ): ProviderSelectionResult<T> {
 	let cheapestProvider = stableProviders[0];
 	let lowestEffectivePrice: Decimal | null = null;
@@ -1112,9 +1153,15 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 			discount: resolvedPrice?.discount,
 		});
 
+		const preference = compareProviderOrder(
+			provider.providerId,
+			cheapestProvider.providerId,
+			providerOrder,
+		);
 		if (
 			lowestEffectivePrice === null ||
-			effectivePrice.lt(lowestEffectivePrice)
+			preference < 0 ||
+			(preference === 0 && effectivePrice.lt(lowestEffectivePrice))
 		) {
 			lowestEffectivePrice = effectivePrice;
 			cheapestProvider = provider;
@@ -1124,7 +1171,9 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 	const metadata: RoutingMetadata = {
 		availableProviders: stableProviders.map((p) => p.providerId),
 		selectedProvider: cheapestProvider.providerId,
-		selectionReason: "price-only-no-metrics",
+		selectionReason: providerOrder?.length
+			? "provider-order"
+			: "price-only-no-metrics",
 		providerScores: providerPrices.map((p) => ({
 			providerId: p.providerId,
 			region: p.region,

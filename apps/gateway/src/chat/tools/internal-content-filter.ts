@@ -28,6 +28,8 @@ const INTERNAL_BLOCK_CATEGORY = "blocked";
 export interface InternalContentFilterCheckResult extends OpenAIContentFilterCheckResult {
 	/** Some chunks were classified, others failed. */
 	partialModerationFailed?: boolean;
+	/** Classify calls attempted: one per chunk of the text read. */
+	requestCount: number;
 }
 
 interface InternalClassifyResponse {
@@ -267,13 +269,14 @@ async function classifyPrompt(
 	}
 }
 
-function emptyResult(): InternalContentFilterCheckResult {
+function emptyResult(requestCount = 0): InternalContentFilterCheckResult {
 	return {
 		flagged: false,
 		model: INTERNAL_MODERATION_MODEL,
 		upstreamRequestId: null,
 		results: [],
 		responses: [],
+		requestCount,
 	};
 }
 
@@ -348,7 +351,7 @@ export async function checkInternalContentFilter(
 		);
 	}
 	if (succeeded.length === 0) {
-		return emptyResult();
+		return emptyResult(verdicts.length);
 	}
 
 	const results = succeeded.map(toInternalModerationResult);
@@ -387,6 +390,7 @@ export async function checkInternalContentFilter(
 		upstreamRequestId: null,
 		results,
 		responses,
+		requestCount: verdicts.length,
 		...(succeeded.length < prompts.length
 			? { partialModerationFailed: true }
 			: {}),

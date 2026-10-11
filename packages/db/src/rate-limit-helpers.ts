@@ -20,6 +20,8 @@ export type RateLimitSource =
 	| "carrier_provider_model"
 	| "none";
 
+export type RateLimitMode = "strict" | "soft" | "lax";
+
 interface RateLimitMatch {
 	id: string;
 	organizationId: string | null;
@@ -28,6 +30,7 @@ interface RateLimitMatch {
 	maxRpm: number | null;
 	maxRpd: number | null;
 	enforcement: "per_org" | "global";
+	mode: RateLimitMode;
 }
 
 /**
@@ -43,12 +46,17 @@ interface RateLimitMatch {
  * limit actually covers — `null` means the row left that dimension as a
  * wildcard (all providers / all models). They are undefined for non-shared
  * limits, which are keyed per request.
+ *
+ * `rpmMode`/`rpdMode` preserve soft/lax exemptions per window and are unset
+ * for strict limits, including when an admin cap is zero.
  */
 export interface EffectiveRateLimit {
 	maxRpm: number;
 	maxRpd: number;
 	rpmSource: RateLimitSource;
 	rpdSource: RateLimitSource;
+	rpmMode?: RateLimitMode;
+	rpdMode?: RateLimitMode;
 	rpmRateLimitId?: string;
 	rpdRateLimitId?: string;
 	rpmShared?: boolean;
@@ -126,6 +134,7 @@ function pickRateLimitByPrecedence(
 	source: RateLimitSource;
 	rateLimitId?: string;
 	shared: boolean;
+	mode: RateLimitMode;
 	provider: string | null;
 	model: string | null;
 } {
@@ -141,6 +150,7 @@ function pickRateLimitByPrecedence(
 				source: precedence.source,
 				rateLimitId: match.id,
 				shared: match.organizationId === null && match.enforcement === "global",
+				mode: match.mode,
 				provider: match.provider,
 				model: match.model,
 			};
@@ -151,6 +161,7 @@ function pickRateLimitByPrecedence(
 		limit: 0,
 		source: "none",
 		shared: false,
+		mode: "strict",
 		provider: null,
 		model: null,
 	};
@@ -225,6 +236,7 @@ async function queryEffectiveRateLimit(
 			maxRpm: rateLimitTable.maxRpm,
 			maxRpd: rateLimitTable.maxRpd,
 			enforcement: rateLimitTable.enforcement,
+			mode: rateLimitTable.mode,
 		})
 		.from(rateLimitTable)
 		.where(
@@ -268,6 +280,7 @@ async function queryEffectiveRateLimit(
 				maxRpm: providerDraftModelTable.maxRpm,
 				maxRpd: providerDraftModelTable.maxRpd,
 				rateLimitScope: providerDraftModelTable.rateLimitScope,
+				rateLimitMode: providerDraftModelTable.rateLimitMode,
 			})
 			.from(providerDraftModelTable)
 			.where(
@@ -285,6 +298,7 @@ async function queryEffectiveRateLimit(
 				rpm.limit = carrier.maxRpm;
 				rpm.source = "carrier_provider_model";
 				rpm.shared = shared;
+				rpm.mode = carrier.rateLimitMode;
 				rpm.provider = provider;
 				rpm.model = model;
 			}
@@ -292,6 +306,7 @@ async function queryEffectiveRateLimit(
 				rpd.limit = carrier.maxRpd;
 				rpd.source = "carrier_provider_model";
 				rpd.shared = shared;
+				rpd.mode = carrier.rateLimitMode;
 				rpd.provider = provider;
 				rpd.model = model;
 			}
@@ -303,6 +318,8 @@ async function queryEffectiveRateLimit(
 		maxRpd: rpd.limit,
 		rpmSource: rpm.source,
 		rpdSource: rpd.source,
+		rpmMode: rpm.mode !== "strict" ? rpm.mode : undefined,
+		rpdMode: rpd.mode !== "strict" ? rpd.mode : undefined,
 		rpmRateLimitId: rpm.rateLimitId,
 		rpdRateLimitId: rpd.rateLimitId,
 		rpmShared: rpm.shared,

@@ -14,7 +14,15 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useApi } from "@/lib/fetch-client";
 
-import type { ProviderCacheControlMode } from "@llmgateway/models";
+import {
+	AUTOMATIC_CACHE_DURATION_DESCRIPTION,
+	AUTOMATIC_CACHE_DURATION_OPTIONS,
+} from "@llmgateway/shared/provider-cache-settings";
+
+import type {
+	ProviderCacheAutoTtl,
+	ProviderCacheControlMode,
+} from "@llmgateway/models";
 
 type RoutingStrategy = "auto" | "price" | "throughput" | "latency";
 
@@ -61,6 +69,8 @@ interface DevPlanSettingsProps {
 	blockApiTraining: boolean;
 	defaultRoutingStrategy: RoutingStrategy;
 	providerCacheControlMode: ProviderCacheControlMode;
+	providerCacheAutoTtl: ProviderCacheAutoTtl;
+	zeroDataRetentionEnabled: boolean;
 }
 
 export default function DevPlanSettings({
@@ -68,6 +78,8 @@ export default function DevPlanSettings({
 	blockApiTraining: initialBlockApiTraining,
 	defaultRoutingStrategy: initialRoutingStrategy,
 	providerCacheControlMode: initialProviderCacheControlMode,
+	providerCacheAutoTtl: initialProviderCacheAutoTtl,
+	zeroDataRetentionEnabled,
 }: DevPlanSettingsProps) {
 	const api = useApi();
 
@@ -87,6 +99,10 @@ export default function DevPlanSettings({
 	const [providerCacheControlMode, setProviderCacheControlMode] =
 		useState<ProviderCacheControlMode>(initialProviderCacheControlMode);
 	const [isUpdatingProviderCache, setIsUpdatingProviderCache] = useState(false);
+	const [providerCacheAutoTtl, setProviderCacheAutoTtl] = useState(
+		initialProviderCacheAutoTtl,
+	);
+	const [isUpdatingCacheDuration, setIsUpdatingCacheDuration] = useState(false);
 
 	const updateSettingsMutation = api.useMutation(
 		"patch",
@@ -176,6 +192,29 @@ export default function DevPlanSettings({
 			toast.error("Failed to update provider cache writes");
 		} finally {
 			setIsUpdatingProviderCache(false);
+		}
+	};
+
+	const handleCacheDurationChange = async (value: string) => {
+		const option = AUTOMATIC_CACHE_DURATION_OPTIONS.find(
+			(entry) => entry.value === value,
+		);
+		if (!option) {
+			return;
+		}
+		const previous = providerCacheAutoTtl;
+		setProviderCacheAutoTtl(option.value);
+		setIsUpdatingCacheDuration(true);
+		try {
+			await updateSettingsMutation.mutateAsync({
+				body: { providerCacheAutoTtl: option.value },
+			});
+			toast.success("Automatic cache duration updated");
+		} catch {
+			setProviderCacheAutoTtl(previous);
+			toast.error("Failed to update automatic cache duration");
+		} finally {
+			setIsUpdatingCacheDuration(false);
 		}
 	};
 
@@ -293,6 +332,57 @@ export default function DevPlanSettings({
 							</SelectTrigger>
 							<SelectContent>
 								{PROVIDER_CACHE_OPTIONS.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+				</div>
+
+				<div className="rounded-xl border p-5">
+					<div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+						<div className="space-y-0.5">
+							<Label
+								htmlFor="automatic-cache-duration"
+								className="text-sm font-medium"
+							>
+								Automatic cache duration
+							</Label>
+							<p
+								id="automatic-cache-duration-description"
+								className="text-xs text-muted-foreground"
+							>
+								{AUTOMATIC_CACHE_DURATION_DESCRIPTION}
+							</p>
+						</div>
+						<Select
+							value={providerCacheAutoTtl}
+							onValueChange={handleCacheDurationChange}
+							disabled={
+								zeroDataRetentionEnabled ||
+								providerCacheControlMode !== "auto" ||
+								isUpdatingProviderCache ||
+								isUpdatingCacheDuration
+							}
+						>
+							<SelectTrigger
+								id="automatic-cache-duration"
+								aria-describedby="automatic-cache-duration-description"
+								size="sm"
+								className="w-[200px] shrink-0"
+							>
+								<SelectValue>
+									{
+										AUTOMATIC_CACHE_DURATION_OPTIONS.find(
+											(option) => option.value === providerCacheAutoTtl,
+										)?.label
+									}
+								</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								{AUTOMATIC_CACHE_DURATION_OPTIONS.map((option) => (
 									<SelectItem key={option.value} value={option.value}>
 										{option.label}
 									</SelectItem>

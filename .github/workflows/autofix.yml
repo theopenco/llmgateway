@@ -22,7 +22,7 @@ jobs:
           team: ${{ vars.TURBO_TEAM }}
 
       - name: Autofix
-        uses: steebchen/actions/autofix@v0.17.0
+        uses: steebchen/actions/autofix@v0.17.1
         with:
           token: ${{ secrets.GH_TOKEN }}
           format-command: pnpm migrations && pnpm build && pnpm format

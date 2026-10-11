@@ -563,6 +563,24 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/blog/openrouter-alternatives"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										OpenRouter Alternatives
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/blog/litellm-alternatives"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										LiteLLM Alternatives
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/migration"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}

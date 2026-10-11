@@ -24,63 +24,79 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useApi } from "@/lib/fetch-client";
 
 type Tier = "lite" | "pro" | "max";
 
 interface GiftResetPassesDialogProps {
+	orgId: string;
 	orgName: string;
 	defaultTier: Tier;
-	onGift: (data: {
-		tier: Tier;
-		count: number;
-		comment?: string;
-	}) => Promise<{ success: boolean; error?: string }>;
 }
 
 export function GiftResetPassesDialog({
+	orgId,
 	orgName,
 	defaultTier,
-	onGift,
 }: GiftResetPassesDialogProps) {
 	const router = useRouter();
+	const $api = useApi();
 	const [open, setOpen] = useState(false);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [validationError, setValidationError] = useState<string | null>(null);
 	const [tier, setTier] = useState<Tier>(defaultTier);
 	const [count, setCount] = useState("1");
 	const [comment, setComment] = useState("");
 
-	const handleSubmit = async () => {
+	const giftMutation = $api.useMutation(
+		"post",
+		"/admin/devpass/{orgId}/gift-reset-passes",
+		{
+			meta: { inlineError: true },
+			onSuccess: () => {
+				setOpen(false);
+				setTier(defaultTier);
+				setCount("1");
+				setComment("");
+				router.refresh();
+			},
+		},
+	);
+	const loading = giftMutation.isPending;
+	const error =
+		validationError ??
+		(giftMutation.isError
+			? apiErrorMessage(giftMutation.error, "Failed to gift Reset Passes")
+			: null);
+
+	const handleOpenChange = (next: boolean) => {
+		if (next) {
+			giftMutation.reset();
+			setValidationError(null);
+		}
+		setOpen(next);
+	};
+
+	const handleSubmit = () => {
 		const parsedCount = Number(count);
 		if (!Number.isInteger(parsedCount) || parsedCount < 1 || parsedCount > 10) {
-			setError("Count must be a whole number between 1 and 10");
+			setValidationError("Count must be a whole number between 1 and 10");
 			return;
 		}
 
-		setLoading(true);
-		setError(null);
-
-		const result = await onGift({
-			tier,
-			count: parsedCount,
-			comment: comment.trim() || undefined,
+		setValidationError(null);
+		giftMutation.mutate({
+			params: { path: { orgId } },
+			body: {
+				tier,
+				count: parsedCount,
+				comment: comment.trim() || undefined,
+			},
 		});
-
-		setLoading(false);
-
-		if (result.success) {
-			setOpen(false);
-			setTier(defaultTier);
-			setCount("1");
-			setComment("");
-			router.refresh();
-		} else {
-			setError(result.error ?? "Failed to gift Reset Passes");
-		}
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogTrigger asChild>
 				<Button variant="outline" size="sm">
 					<Gift className="mr-1.5 h-4 w-4" />

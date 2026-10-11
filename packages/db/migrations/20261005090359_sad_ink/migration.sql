@@ -1,0 +1,13 @@
+-- "log" is the largest table in the database, so building this inline makes
+-- the migrator scan all of it while holding a lock. Build it out of band
+-- BEFORE deploying this migration:
+--
+--   CREATE INDEX CONCURRENTLY IF NOT EXISTS "log_trace_id_idx" ON "log" ("trace_id");
+--
+-- Run it with psql (autocommit) — CONCURRENTLY cannot run in a transaction —
+-- then check pg_index.indisvalid: a failed concurrent build leaves an INVALID
+-- index that must be dropped with DROP INDEX CONCURRENTLY before retrying.
+--
+-- IF NOT EXISTS then makes this statement a no-op there, while small databases
+-- (dev, CI, fresh installs) just build the index inline.
+CREATE INDEX IF NOT EXISTS "log_trace_id_idx" ON "log" ("trace_id");

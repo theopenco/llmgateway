@@ -58,11 +58,13 @@ export function AttachmentPreview({ attachment }: { attachment: Attachment }) {
 export function MessageBubble({
 	message,
 	onEdit,
+	onRetry,
 	onToolAnswer,
 	busy,
 }: {
 	message: ChatMessage;
 	onEdit?: () => void;
+	onRetry?: () => void;
 	onToolAnswer?: (id: string, approved: boolean) => void;
 	busy?: boolean;
 }) {
@@ -139,6 +141,15 @@ export function MessageBubble({
 						iconSize={18}
 						disabled={busy}
 						onPress={onEdit}
+					/>
+				)}
+				{onRetry && (
+					<IconButton
+						name="retry"
+						accessibilityLabel="Retry last response"
+						iconSize={18}
+						disabled={busy}
+						onPress={onRetry}
 					/>
 				)}
 			</View>

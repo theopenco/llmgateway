@@ -193,6 +193,36 @@ describe("admin — organizations list filters", () => {
 		expect(windowed.total).toBe(1);
 	});
 
+	test("all-time credits count only pay-as-you-go top-ups", async () => {
+		await db.insert(tables.transaction).values(
+			(
+				[
+					["dev_plan_start", "87"],
+					["dev_plan_renewal", "87"],
+					["credit_gift", "5"],
+					["credit_topup", "50"],
+					["credit_refund", "-10"],
+					["credit_manual_payment", "20"],
+				] as const
+			).map(([type, creditAmount]) => ({
+				organizationId: DEVPASS_ORG_ID,
+				type,
+				creditAmount,
+				status: "completed" as const,
+			})),
+		);
+
+		const res = await app.request(
+			`/admin/organizations?limit=100&kind=devpass`,
+			{ headers: { Cookie: cookie } },
+		);
+		const body = (await res.json()) as {
+			organizations: { id: string; totalCreditsAllTime: string }[];
+		};
+		const org = body.organizations.find((o) => o.id === DEVPASS_ORG_ID);
+		expect(Number(org?.totalCreditsAllTime)).toBe(60);
+	});
+
 	test("sorts by kind", async () => {
 		const asc = await list("sortBy=kind&sortOrder=asc");
 		const kinds = asc.organizations.map((o) => o.kind);

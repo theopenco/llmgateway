@@ -1,5 +1,6 @@
 import dynamic from "next/dynamic";
 
+import { CompareFaq } from "@/components/compare/compare-faq";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -93,6 +94,28 @@ export default async function RankingsPage() {
 	]);
 	const topModels = (stats?.models ?? []).slice(0, 10);
 	const topApps = apps?.apps ?? [];
+	const faqs = [
+		{
+			question: "How are the LLM rankings calculated?",
+			answer:
+				"Models are ranked by the total tokens routed through LLM Gateway in the selected window. Every request counts, whichever provider served it, so the ranking reflects what developers run in production rather than benchmark scores.",
+		},
+		{
+			question: "Which time windows can I compare?",
+			answer:
+				"Rankings cover the last 24 hours, 7 days and 30 days. The change column compares each model's token volume with the previous window of the same length.",
+		},
+		{
+			question: "Are these rankings the same as benchmark leaderboards?",
+			answer:
+				"No. Benchmarks measure quality on fixed tests; these rankings measure adoption. Use both: model pages show benchmark results, where available, next to pricing and providers.",
+		},
+		{
+			question: "Can I use the top-ranked models through one API?",
+			answer:
+				"Yes. Every ranked model is available through LLM Gateway's OpenAI-compatible API at https://api.llmgateway.io/v1 with a single API key.",
+		},
+	];
 
 	const breadcrumbSchema = {
 		"@context": "https://schema.org",
@@ -161,7 +184,39 @@ export default async function RankingsPage() {
 						providerNames={providerNames}
 						topApps={topApps}
 					/>
+					<section
+						aria-labelledby="rankings-method-heading"
+						className="mt-16 max-w-3xl"
+					>
+						<h2
+							id="rankings-method-heading"
+							className="text-2xl font-bold tracking-tight md:text-3xl"
+						>
+							How the LLM rankings work
+						</h2>
+						<p className="mt-4 text-muted-foreground">
+							Each model is ranked by the tokens it processed through LLM
+							Gateway in the selected window, across every provider that serves
+							it. Token volume shows where real workloads run: a model can top a
+							benchmark and still see little production use.
+						</p>
+						<h3 className="mt-8 text-lg font-semibold">What is counted</h3>
+						<p className="mt-2 text-muted-foreground">
+							Tokens from requests routed through the gateway, grouped by model.
+							The apps list ranks the tools that identify themselves by the
+							tokens they send.
+						</p>
+						<h3 className="mt-6 text-lg font-semibold">
+							How to read the change column
+						</h3>
+						<p className="mt-2 text-muted-foreground">
+							The change compares a model's token volume with the previous
+							window of the same length, so a new release climbing fast stands
+							out even before it reaches the top.
+						</p>
+					</section>
 				</div>
+				<CompareFaq heading="LLM rankings, answered" faqs={faqs} />
 			</div>
 			<Footer />
 		</>

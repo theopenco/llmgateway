@@ -567,6 +567,103 @@ describe("getCheapestFromAvailableProviders", () => {
 			]);
 		}
 
+		it.each([false, true])(
+			"honors provider order with metrics=%s",
+			async (withMetrics) => {
+				const result = await getCheapestFromAvailableProviders(
+					stickyModel.providers,
+					stickyModel,
+					{
+						metricsMap: withMetrics ? stickyMetrics(99, 99) : undefined,
+						routingConfig: equalPriority,
+						providerOrder: ["deepseek", "openai"],
+					},
+				);
+				expect(result?.provider.providerId).toBe("deepseek");
+				expect(result?.metadata.selectionReason).toBe("provider-order");
+				expect(result?.metadata.providerScores).toHaveLength(2);
+			},
+		);
+
+		it("keeps regional price selection within the preferred provider", async () => {
+			const model = {
+				...stickyModel,
+				providers: [
+					stickyModel.providers[0],
+					{ ...stickyModel.providers[1], region: "a" },
+					{ ...stickyModel.providers[1], region: "b", inputPrice: "4e-6" },
+				],
+			};
+			const result = await getCheapestFromAvailableProviders(
+				model.providers,
+				model,
+				{
+					routingConfig: equalPriority,
+					providerOrder: ["deepseek", "openai"],
+				},
+			);
+			expect(result?.provider).toMatchObject({
+				providerId: "deepseek",
+				region: "b",
+			});
+		});
+
+		it.each(["disabled", "unstable"])(
+			"skips the %s first provider in an explicit order",
+			async (reason) => {
+				const model = {
+					...stickyModel,
+					providers: stickyModel.providers.map((provider) => ({
+						...provider,
+						stability:
+							reason === "unstable" && provider.providerId === "deepseek"
+								? ("unstable" as const)
+								: ("stable" as const),
+					})),
+				};
+				const result = await getCheapestFromAvailableProviders(
+					model.providers,
+					model,
+					{
+						metricsMap: stickyMetrics(99, 99),
+						routingConfig: resolveRoutingConfig(
+							{
+								providerPriorities: {
+									openai: 1,
+									deepseek: reason === "disabled" ? 0 : 1,
+								},
+							},
+							buildProviderPriorityDefaults(),
+						),
+						providerOrder: ["deepseek", "openai"],
+					},
+				);
+				expect(result?.provider.providerId).toBe("openai");
+			},
+		);
+
+		it.each([99, 50])(
+			"preserves session pin precedence at uptime=%s",
+			async (uptime) => {
+				const store = createMemoryStore({ providerId: "openai" });
+				const result = await getCheapestFromAvailableProviders(
+					stickyModel.providers,
+					stickyModel,
+					{
+						metricsMap: stickyMetrics(uptime, 99),
+						routingConfig: equalPriority,
+						providerOrder: ["deepseek", "openai"],
+						sessionProviderStore: store,
+					},
+				);
+				expect(result?.provider.providerId).toBe(
+					uptime === 99 ? "openai" : "deepseek",
+				);
+				expect(store.value?.providerId).toBe(result?.provider.providerId);
+				expect(result?.metadata.selectionReason).toBe("session-sticky");
+			},
+		);
+
 		it("scores the best provider, pins it, and reuses it on the next request", async () => {
 			if (!modelWithMultipleProviders) {
 				return;
@@ -1191,11 +1288,12 @@ describe("getCheapestFromAvailableProviders", () => {
 	});
 
 	it.each([
-		{ reasoning: true, explores: false },
-		{ reasoning: false, explores: true },
+		{ reasoning: true, ordered: false, explores: false },
+		{ reasoning: false, ordered: false, explores: true },
+		{ reasoning: false, ordered: true, explores: false },
 	])(
-		"skips random exploration for encrypted reasoning ($reasoning)",
-		async ({ reasoning, explores }) => {
+		"controls exploration with reasoning=$reasoning and order=$ordered",
+		async ({ reasoning, ordered, explores }) => {
 			const originalExplorationRate = process.env.EXPLORATION_RATE;
 			const originalArgv = process.argv;
 			const originalNodeEnv = process.env.NODE_ENV;
@@ -1219,6 +1317,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				const result = await getCheapestFromAvailableProviders(
 					model.providers,
 					model,
+					{ providerOrder: ordered ? ["openai", "azure"] : undefined },
 				);
 				expect(result?.metadata.selectionReason === "random-exploration").toBe(
 					explores,
@@ -1297,11 +1396,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					[1, 4],
 					[6, 10],
 				] as [number, number][],
-				offPeakDays: {
-					daysOfWeek: [0, 6] as const,
-					utcOffsetMinutes: 480,
-					timeZoneLabel: "Beijing time",
-				},
+				offPeakDaysUtc: [0, 6] as const,
 			},
 		};
 
@@ -1605,6 +1700,41 @@ describe("getCheapestFromAvailableProviders", () => {
 				).toNumber(),
 				// Tier cached price is 0: (0*0.5 + 6.0*0.5) / 2
 			).toBe(1.5e-6);
+		});
+
+		it("ranks a tier with its own peak/off-peak rates by time of day", () => {
+			const peakTieredMapping = {
+				...tieredMapping,
+				peakPricing: {
+					peak: { inputPrice: "3.0e-6", outputPrice: "15.0e-6" },
+					offPeak: { inputPrice: "1.5e-6", outputPrice: "7.5e-6" },
+					hoursUtc: [[1, 4]] as [number, number][],
+				},
+				pricingTiers: tieredMapping.pricingTiers.map((tier) => ({
+					...tier,
+					peakPricing: {
+						peak: {
+							inputPrice: tier.inputPrice,
+							outputPrice: tier.outputPrice,
+						},
+						offPeak: {
+							inputPrice: String(Number(tier.inputPrice) / 2),
+							outputPrice: String(Number(tier.outputPrice) / 2),
+						},
+					},
+				})),
+			};
+			const priceAt = (iso: string) =>
+				getProviderSelectionPrice(
+					peakTieredMapping,
+					undefined,
+					new Date(iso),
+					undefined,
+					200_000,
+				).toNumber();
+
+			expect(priceAt("2026-08-17T02:00:00Z")).toBe((6.0e-6 + 30.0e-6) / 2);
+			expect(priceAt("2026-08-17T12:00:00Z")).toBe((3.0e-6 + 15.0e-6) / 2);
 		});
 
 		it("re-ranks long-context requests through full provider selection", async () => {

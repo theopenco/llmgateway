@@ -16,6 +16,7 @@ describe("parseContentFilterSettings", () => {
 			enforceEnterprise: false,
 			classifier: "openai",
 			internalScope: "full",
+			moderateImages: true,
 		});
 		expect(parseContentFilterSettings(null)).toEqual(
 			DEFAULT_CONTENT_FILTER_SETTINGS,
@@ -38,6 +39,7 @@ describe("parseContentFilterSettings", () => {
 			enforceEnterprise: false,
 			classifier: "openai",
 			internalScope: "full",
+			moderateImages: true,
 		});
 	});
 

@@ -1,15 +1,6 @@
 "use client";
 
-import {
-	endOfMonth,
-	endOfYear,
-	format,
-	startOfMonth,
-	startOfYear,
-	subDays,
-	subMonths,
-	subYears,
-} from "date-fns";
+import { format, subMonths } from "date-fns";
 import { CalendarIcon, ChevronDownIcon } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -21,104 +12,18 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+	buildPresets,
+	resolveGlobalStatsRange,
+	DEFAULT_GLOBAL_STATS_PRESET,
+	ALL_TIME_PRESET,
+} from "@/lib/global-stats-range";
 import { cn } from "@/lib/utils";
 
+import { formatDayKey } from "@llmgateway/shared";
+
+import type { DatePreset } from "@/lib/global-stats-range";
 import type { DateRange } from "react-day-picker";
-
-interface DatePreset {
-	label: string;
-	value: string;
-	getRange: () => { from: Date; to: Date };
-}
-
-export const DEFAULT_GLOBAL_STATS_PRESET = "last_7_days";
-
-// All time has no client-side date range: the API derives the span from the
-// first/last recorded day, so it travels as `range=all` instead of from/to.
-export const ALL_TIME_PRESET = "all_time";
-
-function buildPresets(today: Date): DatePreset[] {
-	return [
-		{
-			label: "Last 7 days",
-			value: "last_7_days",
-			getRange: () => ({ from: subDays(today, 6), to: today }),
-		},
-		{
-			label: "Last 30 days",
-			value: "last_30_days",
-			getRange: () => ({ from: subDays(today, 29), to: today }),
-		},
-		{
-			label: "Last 90 days",
-			value: "last_90_days",
-			getRange: () => ({ from: subDays(today, 89), to: today }),
-		},
-		{
-			label: "This month",
-			value: "this_month",
-			getRange: () => ({ from: startOfMonth(today), to: today }),
-		},
-		{
-			label: "Last month",
-			value: "last_month",
-			getRange: () => {
-				const lm = subMonths(today, 1);
-				return { from: startOfMonth(lm), to: endOfMonth(lm) };
-			},
-		},
-		{
-			label: "Last 3 months",
-			value: "last_3_months",
-			getRange: () => ({ from: subMonths(today, 3), to: today }),
-		},
-		{
-			label: "Last 12 months",
-			value: "last_12_months",
-			getRange: () => ({ from: subMonths(today, 12), to: today }),
-		},
-		{
-			label: "This year",
-			value: "this_year",
-			getRange: () => ({ from: startOfYear(today), to: today }),
-		},
-		{
-			label: "Last year",
-			value: "last_year",
-			getRange: () => {
-				const ly = subYears(today, 1);
-				return { from: startOfYear(ly), to: endOfYear(ly) };
-			},
-		},
-	];
-}
-
-export type ResolvedGlobalStatsRange =
-	| { allTime: true; from: undefined; to: undefined }
-	| { allTime: false; from: string; to: string };
-
-export function resolveGlobalStatsRange(
-	searchParams: URLSearchParams,
-): ResolvedGlobalStatsRange {
-	if (searchParams.get("range") === "all") {
-		return { allTime: true, from: undefined, to: undefined };
-	}
-	const fromParam = searchParams.get("from");
-	const toParam = searchParams.get("to");
-	if (fromParam && toParam) {
-		return { allTime: false, from: fromParam, to: toParam };
-	}
-	const today = new Date();
-	const presets = buildPresets(today);
-	const preset =
-		presets.find((p) => p.value === DEFAULT_GLOBAL_STATS_PRESET) ?? presets[0];
-	const range = preset.getRange();
-	return {
-		allTime: false,
-		from: format(range.from, "yyyy-MM-dd"),
-		to: format(range.to, "yyyy-MM-dd"),
-	};
-}
 
 export function GlobalStatsRangePicker() {
 	const router = useRouter();
@@ -128,10 +33,13 @@ export function GlobalStatsRangePicker() {
 	const [showCalendar, setShowCalendar] = useState(false);
 	const [calendarRange, setCalendarRange] = useState<DateRange | undefined>();
 
-	const today = useMemo(() => new Date(), []);
+	const today = useMemo(
+		() => new Date(`${formatDayKey(new Date(), "UTC")}T12:00:00`),
+		[],
+	);
 	const presets = useMemo(() => buildPresets(today), [today]);
 
-	const { allTime, from, to } = resolveGlobalStatsRange(searchParams);
+	const { allTime, range, from, to } = resolveGlobalStatsRange(searchParams);
 	// All time has no explicit bounds, so the calendar still opens on the
 	// default preset's window rather than an empty selection.
 	const fallbackRange = useMemo(
@@ -152,6 +60,9 @@ export function GlobalStatsRangePicker() {
 	);
 
 	const activePreset = useMemo(() => {
+		if (range === "24h") {
+			return "24h";
+		}
 		if (allTime) {
 			return ALL_TIME_PRESET;
 		}
@@ -165,7 +76,7 @@ export function GlobalStatsRangePicker() {
 			}
 		}
 		return "custom";
-	}, [allTime, presets, from, to]);
+	}, [allTime, range, presets, from, to]);
 
 	const updateRange = (newFrom: Date, newTo: Date) => {
 		const params = new URLSearchParams(searchParams.toString());
@@ -181,11 +92,11 @@ export function GlobalStatsRangePicker() {
 		setOpen(false);
 	};
 
-	const handleAllTimeSelect = () => {
+	const handleRelativeSelect = (range: "all" | "24h") => {
 		const params = new URLSearchParams(searchParams.toString());
 		params.delete("from");
 		params.delete("to");
-		params.set("range", "all");
+		params.set("range", range);
 		router.replace(`${pathname}?${params.toString()}`, { scroll: false });
 		setOpen(false);
 	};
@@ -204,6 +115,9 @@ export function GlobalStatsRangePicker() {
 	};
 
 	const triggerLabel = useMemo(() => {
+		if (range === "24h") {
+			return "Last 24 hours";
+		}
 		if (allTime) {
 			return "All time";
 		}
@@ -212,7 +126,7 @@ export function GlobalStatsRangePicker() {
 			return preset.label;
 		}
 		return `${format(fromDate, "MMM d, yyyy")} – ${format(toDate, "MMM d, yyyy")}`;
-	}, [allTime, activePreset, presets, fromDate, toDate]);
+	}, [allTime, range, activePreset, presets, fromDate, toDate]);
 
 	return (
 		<Popover
@@ -237,6 +151,16 @@ export function GlobalStatsRangePicker() {
 			>
 				{!showCalendar ? (
 					<div className="py-1">
+						<button
+							type="button"
+							onClick={() => handleRelativeSelect("24h")}
+							className={cn(
+								"w-full px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
+								range === "24h" && "bg-accent/50",
+							)}
+						>
+							Last 24 hours
+						</button>
 						{presets.map((preset) => (
 							<button
 								key={preset.value}
@@ -252,7 +176,7 @@ export function GlobalStatsRangePicker() {
 						))}
 						<button
 							type="button"
-							onClick={handleAllTimeSelect}
+							onClick={() => handleRelativeSelect("all")}
 							className={cn(
 								"w-full px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
 								activePreset === ALL_TIME_PRESET && "bg-accent/50",
@@ -274,6 +198,9 @@ export function GlobalStatsRangePicker() {
 					</div>
 				) : (
 					<div className="p-3">
+						<p className="mb-2 text-xs text-muted-foreground">
+							Calendar dates use UTC.
+						</p>
 						<Calendar
 							mode="range"
 							numberOfMonths={2}

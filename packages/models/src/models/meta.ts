@@ -379,6 +379,8 @@ export const metaModels = [
 				tools: false,
 				jsonOutput: false,
 				regions: [{ id: "us" }],
+				deprecatedAt: new Date("2026-09-30"),
+				deactivatedAt: new Date("2027-03-30"),
 			},
 		],
 	},
@@ -618,6 +620,8 @@ export const metaModels = [
 				tools: false,
 				jsonOutput: false,
 				regions: [{ id: "us" }],
+				deprecatedAt: new Date("2026-09-30"),
+				deactivatedAt: new Date("2027-03-30"),
 			},
 			{
 				stability: "unstable",
@@ -660,6 +664,8 @@ export const metaModels = [
 				tools: false,
 				jsonOutput: false,
 				regions: [{ id: "us" }],
+				deprecatedAt: new Date("2026-09-30"),
+				deactivatedAt: new Date("2027-03-30"),
 			},
 			{
 				providerId: "novita",

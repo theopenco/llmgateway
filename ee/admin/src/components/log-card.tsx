@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 
-import { getLogContent } from "@/lib/admin-organizations";
+import { useFetchClient } from "@/lib/fetch-client";
 
 import {
 	LogCard as SharedLogCard,
@@ -12,9 +12,16 @@ import {
 import type { ProjectLogEntry } from "@/lib/types";
 
 export function LogCard({ log }: { log: ProjectLogEntry }) {
-	const fetchImageContent = useCallback(async (logId: string) => {
-		return await getLogContent(logId);
-	}, []);
+	const $fetch = useFetchClient();
+	const fetchImageContent = useCallback(
+		async (logId: string) => {
+			const { data } = await $fetch.GET("/logs/{id}", {
+				params: { path: { id: logId } },
+			});
+			return data?.log?.content ?? null;
+		},
+		[$fetch],
+	);
 
 	return (
 		<SharedLogCard

@@ -445,6 +445,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
+		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: modelDefId,
 		requestedProvider: providerId,
 		activeModelInfo: modelDef,
@@ -498,6 +499,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		configIndex: number;
 		envVarName: string | undefined;
 		upstreamUrl: string;
+		tenantBaseUrl: string | null;
 		requestBody: Record<string, unknown>;
 	}
 
@@ -660,6 +662,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				configIndex,
 				envVarName,
 				upstreamUrl,
+				tenantBaseUrl: providerKeyInner?.baseUrl ?? null,
 				requestBody,
 			},
 		};
@@ -751,18 +754,22 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			let fetchError: Error | null = null;
 			try {
 				const fetchSignal = createCombinedSignal(controller);
-				upstreamResponse = await fetchProvider(attempt.upstreamUrl, {
-					method: "POST",
-					redirect: "error",
-					headers: {
-						"Content-Type": "application/json",
-						...getProviderHeaders(providerId, attempt.usedToken, {
-							requestId,
-						}),
+				upstreamResponse = await fetchProvider(
+					attempt.upstreamUrl,
+					{
+						method: "POST",
+						redirect: "error",
+						headers: {
+							"Content-Type": "application/json",
+							...getProviderHeaders(providerId, attempt.usedToken, {
+								requestId,
+							}),
+						},
+						body: JSON.stringify(attempt.requestBody),
+						signal: fetchSignal,
 					},
-					body: JSON.stringify(attempt.requestBody),
-					signal: fetchSignal,
-				});
+					attempt.tenantBaseUrl,
+				);
 				upstreamText = await raceClientAbort(
 					upstreamResponse.text(),
 					c.req.raw.signal,

@@ -144,3 +144,16 @@ export function getProviderModelIds(
 	}
 	return ids;
 }
+
+/**
+ * Providers whose accounts only serve the models deployed or enabled in them,
+ * so a managed credential's `allowedModels` goes stale as the account grows.
+ * The worker re-probes these daily and enables models that started working.
+ */
+export const MODEL_SYNC_PROVIDERS: readonly string[] = [
+	"aws-bedrock",
+	"aws-mantle",
+	"azure",
+	"azure-ai-foundry",
+	"azure-anthropic",
+];

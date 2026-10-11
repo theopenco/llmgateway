@@ -14,6 +14,9 @@ export const tencentModels = [
 				externalId: "tencent/Hy3",
 				// DeepInfra's deployment is currently unreliable
 				stability: "unstable",
+				// DeepInfra retires this model on 2026-10-08 and silently
+				// redirects requests to tencent/Hy4-preview afterwards.
+				deactivatedAt: new Date("2026-10-08"),
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.035e-6",
 				outputPrice: "0.58e-6",
@@ -134,6 +137,35 @@ export const tencentModels = [
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
+		id: "hy-image-v3.5-preview",
+		name: "Hy Image 3.5 Preview",
+		description:
+			"Tencent's unified image generation and editing model, built on the Hy Image 3.0 MoE base, with up to 20 reference images, output up to 4K, and strong Chinese and English text rendering.",
+		family: "tencent",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-10-05"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "tencent",
+				externalId: "hy-image-v3.5-preview",
+				inputPrice: "0",
+				outputPrice: "0",
+				imageOutputPrice: "1.6e-6",
+				imageOutputTokensByResolution: {
+					default: 20000,
+				},
+				contextSize: 100000,
+				maxOutput: 4096,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
 			},
 		],
 	},

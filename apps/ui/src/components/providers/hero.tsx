@@ -24,6 +24,7 @@ import {
 	CarrierMark,
 	providerLogoUrls,
 	RunwareWordmarkIcon,
+	type ApiAirsideProfile,
 } from "@llmgateway/shared/components";
 
 interface HeroProps {
@@ -37,6 +38,9 @@ interface HeroProps {
 		description: string | null;
 		website?: string | null;
 	};
+	/** The live Airside claim's saved profile. Its links replace the
+	 *  catalogue's; a null dataPolicy keeps the reviewed catalogue policy. */
+	airsideProfile?: ApiAirsideProfile | null;
 }
 
 function DataPolicyBadge({
@@ -75,10 +79,15 @@ function DataPolicyBadge({
 	);
 }
 
-export function Hero({ providerId, uploadedLogo, dynamicProvider }: HeroProps) {
+export function Hero({
+	providerId,
+	uploadedLogo,
+	dynamicProvider,
+	airsideProfile,
+}: HeroProps) {
 	const config = getConfig();
 	const staticProvider = providerDefinitions.find((p) => p.id === providerId);
-	const provider = staticProvider ?? {
+	const baseProvider = staticProvider ?? {
 		id: providerId,
 		name: dynamicProvider?.name ?? providerId,
 		description: dynamicProvider?.description ?? "",
@@ -92,6 +101,29 @@ export function Hero({ providerId, uploadedLogo, dynamicProvider }: HeroProps) {
 		dataPolicy: undefined,
 		additionalLinks: undefined,
 	};
+	const declaredPolicy = airsideProfile?.dataPolicy;
+	const provider = airsideProfile
+		? {
+				...baseProvider,
+				website: airsideProfile.website,
+				statusPageUrl: airsideProfile.statusPageUrl,
+				termsUrl: airsideProfile.termsUrl,
+				privacyPolicyUrl: airsideProfile.privacyPolicyUrl,
+				headquarters: airsideProfile.headquarters ?? undefined,
+				dataPolicy: declaredPolicy
+					? {
+							...declaredPolicy,
+							// Catalogue semantics: null = not certified, undefined = hidden.
+							soc2:
+								declaredPolicy.soc2 === null
+									? undefined
+									: declaredPolicy.soc2 === 0
+										? null
+										: declaredPolicy.soc2,
+						}
+					: baseProvider.dataPolicy,
+			}
+		: baseProvider;
 	const referenceLinks = [
 		provider.statusPageUrl
 			? { label: "Status Page", href: provider.statusPageUrl }
@@ -149,7 +181,7 @@ export function Hero({ providerId, uploadedLogo, dynamicProvider }: HeroProps) {
 						</div>
 					)}
 					<h1 className="mt-10 text-4xl font-bold tracking-tight sm:text-6xl">
-						{provider.name} Provider
+						{provider.name} API
 					</h1>
 					<p className="mt-6 text-lg leading-8 text-muted-foreground">
 						{provider.description}

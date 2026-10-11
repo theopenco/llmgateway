@@ -3,7 +3,7 @@ id: "blog-opencode-go-pricing"
 slug: "opencode-go-pricing"
 date: "2026-08-24"
 title: "OpenCode Go's New Pricing, Explained"
-summary: "OpenCode Go replaced its request-count tiers with dollar metering: $10/month now buys up to $60 of usage at published per-token rates, with Grok 4.5 and GPT-5.6 Luna capped at $15 each. Here's exactly what changed, the math per dollar, and when the ceiling stops fitting."
+summary: "OpenCode Go now meters usage in dollars: $10 a month buys up to $60 at per-token rates. What changed, the math per dollar, and when the cap stops fitting."
 categories: ["Guides"]
 faqs:
   - question: "How much does OpenCode Go cost in 2026?"
