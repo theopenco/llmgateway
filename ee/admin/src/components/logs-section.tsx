@@ -153,7 +153,7 @@ export function LogsSection({
 	const [seatSearch, setSeatSearch] = useState("");
 	const deferredSeatSearch = useDeferredValue(seatSearch);
 
-	const getFilters = useCallback(() => {
+	const filters = useMemo(() => {
 		const filters: ProjectLogFilters = {};
 		if (provider !== "all") {
 			filters.provider = provider;
@@ -188,7 +188,6 @@ export function LogsSection({
 		projectId,
 	]);
 
-	const filters = getFilters();
 	const {
 		data,
 		error,
@@ -221,6 +220,8 @@ export function LogsSection({
 		},
 		getNextPageParam: (page) =>
 			page.pagination.hasMore ? page.pagination.nextCursor : undefined,
+		// Recent logs: always refetch on mount, cached pages only bridge the gap.
+		staleTime: 0,
 		retry: false,
 	});
 	const logs = data?.pages.flatMap((page) => page.logs) ?? [];
