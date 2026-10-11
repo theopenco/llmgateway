@@ -19,9 +19,11 @@ permissions:
   issues: write
   pull-requests: write
 
+# Only CodeRabbit comments share a group, so other comments never queue behind
+# or cancel a classification; runs for the same PR execute in order.
 concurrency:
-  group: pr-risk-${{ github.event.issue.number }}
-  cancel-in-progress: true
+  group: pr-risk-${{ github.event.issue.number }}-${{ github.event.comment.user.login == 'coderabbitai[bot]' }}
+  cancel-in-progress: false
 
 jobs:
   classify:
@@ -50,6 +52,9 @@ jobs:
             // "🔵 Low", "🟡 Moderate", or a higher level.
             const match = context.payload.comment.body.match(/\*\*Merge Risk:\*\*\s*\*\*[^A-Za-z]*([A-Za-z]+)/);
             const level = match?.[1]?.toLowerCase() ?? "";
+            if (!match) {
+              core.warning("Could not parse Merge Risk from the CodeRabbit comment; classifying from paths only.");
+            }
             const fromCodeRabbit =
               ["minimal", "low"].includes(level) ? "low"
               : ["moderate", "medium"].includes(level) ? "medium"
@@ -114,7 +119,11 @@ jobs:
             if (candidates.length === 0) return;
             const reviewer = candidates[number % candidates.length];
 
-            await github.rest.pulls.requestReviewers({ owner, repo, pull_number: number, reviewers: [reviewer] });
+            try {
+              await github.rest.pulls.requestReviewers({ owner, repo, pull_number: number, reviewers: [reviewer] });
+            } catch (error) {
+              core.warning(`Could not request a review from ${reviewer}: ${error.message}`);
+            }
 
             const reasons = [];
             if (fromCodeRabbit === "high") reasons.push(`CodeRabbit rated the merge risk **${match[1]}**`);
