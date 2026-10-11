@@ -15,7 +15,9 @@ export async function validateAirsideKey(
 	baseUrl?: string,
 	allowedModels?: string[] | null,
 ): Promise<ProviderValidationResult | undefined> {
+	const isCatalogueProvider = providers.some((entry) => entry.id === provider);
 	if (
+		isCatalogueProvider &&
 		models.some(
 			(model) =>
 				(!allowedModels?.length || allowedModels.includes(model.id)) &&
@@ -37,7 +39,6 @@ export async function validateAirsideKey(
 			(!allowedModels?.length || allowedModels.includes(row.modelId)) &&
 			(!row.deactivatedAt || row.deactivatedAt > new Date()),
 	);
-	const isCatalogueProvider = providers.some((entry) => entry.id === provider);
 	const carrierBaseUrl = isCatalogueProvider ? undefined : claim?.customBaseUrl;
 	if (!mapping || (!isCatalogueProvider && !carrierBaseUrl)) {
 		return undefined;

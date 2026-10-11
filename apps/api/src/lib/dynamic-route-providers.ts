@@ -49,6 +49,7 @@ export async function getDynamicRouteProviderOptions() {
 			(model.providers as ProviderModelMapping[])
 				.filter(
 					(mapping) =>
+						providersById.has(mapping.providerId) &&
 						!ownedByProvider.has(mapping.providerId) &&
 						(!mapping.deactivatedAt || mapping.deactivatedAt > now),
 				)

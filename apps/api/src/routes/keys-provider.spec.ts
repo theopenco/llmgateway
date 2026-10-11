@@ -15,6 +15,7 @@ import {
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
 import { and, asc, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
+import { providers, type ProviderDefinition } from "@llmgateway/models";
 import { getProviderModelIds } from "@llmgateway/shared";
 
 import type * as ActionsModule from "@llmgateway/actions";
@@ -323,6 +324,77 @@ describe("provider keys route", () => {
 			await db
 				.delete(tables.provider)
 				.where(eq(tables.provider.id, providerId));
+		}
+	});
+
+	test("validates removed catalogue providers on the carrier endpoint despite orphaned static mappings", async () => {
+		const modelId = "byok-orphan-listing";
+		const catalogue = providers as ProviderDefinition[];
+		const index = catalogue.findIndex((provider) => provider.id === "openai");
+		const definition = catalogue[index];
+		await db
+			.insert(tables.provider)
+			.values({ id: "openai", name: "OpenAI", description: "Test" })
+			.onConflictDoNothing();
+		await db
+			.insert(tables.providerCompany)
+			.values({ id: "byok-orphan-company", name: "Test Carrier" });
+		await cdb.insert(tables.providerClaim).values({
+			providerCompanyId: "byok-orphan-company",
+			providerId: "openai",
+			kind: "catalogue",
+			matchedDomain: "example.com",
+			status: "active",
+			customBaseUrl: "https://carrier.example.com",
+		});
+		await db.insert(tables.model).values({ id: modelId, family: "test" });
+		await db.insert(tables.modelProviderMapping).values({
+			providerId: "openai",
+			modelId,
+			externalId: "upstream-model",
+			source: "airside",
+			apiFormat: "openai-chat-completions",
+			status: "active",
+		});
+		catalogue.splice(index, 1);
+		try {
+			const discovery = await app.request("/internal/provider-facts");
+			const openai = (
+				(await discovery.json()) as {
+					providers: { id: string; modelIds: string[] }[];
+				}
+			).providers.find((provider) => provider.id === "openai");
+			expect(openai?.modelIds).toEqual([modelId]);
+			vi.mocked(validateProviderKey).mockClear();
+			vi.mocked(runProviderKeySmokeTest)
+				.mockClear()
+				.mockResolvedValueOnce(null);
+			const created = await app.request("/keys/provider", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					provider: "openai",
+					token: "test-carrier-key",
+					organizationId: "test-org-id",
+				}),
+			});
+			expect(created.status).toBe(200);
+			expect(validateProviderKey).not.toHaveBeenCalled();
+			expect(runProviderKeySmokeTest).toHaveBeenCalledExactlyOnceWith(
+				expect.objectContaining({
+					target: expect.objectContaining({ modelName: modelId }),
+					baseUrl: "https://carrier.example.com",
+					skipEnvVars: true,
+				}),
+			);
+		} finally {
+			if (!catalogue.some((provider) => provider.id === "openai")) {
+				catalogue.splice(index, 0, definition);
+			}
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.modelId, modelId));
+			await db.delete(tables.model).where(eq(tables.model.id, modelId));
 		}
 	});
 
