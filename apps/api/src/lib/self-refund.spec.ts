@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { DEV_PLAN_RESET_PASS_PRICES } from "@llmgateway/shared";
 
 import { computeSelfRefundEligibility } from "./self-refund.js";
 
@@ -448,7 +449,7 @@ describe("computeSelfRefundEligibility", () => {
 		});
 		const tx = await seedTransaction({
 			type: "dev_plan_reset_pass",
-			amount: "29",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
 			creditAmount: null,
 			createdAt: daysAgo(6),
 		});
@@ -464,7 +465,7 @@ describe("computeSelfRefundEligibility", () => {
 		});
 		const tx = await seedTransaction({
 			type: "dev_plan_reset_pass",
-			amount: "29",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
 			creditAmount: null,
 			createdAt: daysAgo(8),
 		});
@@ -483,7 +484,7 @@ describe("computeSelfRefundEligibility", () => {
 		});
 		const tx = await seedTransaction({
 			type: "dev_plan_reset_pass",
-			amount: "29",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
 			creditAmount: null,
 		});
 
@@ -504,14 +505,14 @@ describe("computeSelfRefundEligibility", () => {
 		});
 		const older = await seedTransaction({
 			type: "dev_plan_reset_pass",
-			amount: "29",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
 			creditAmount: null,
 			createdAt: daysAgo(2),
 			stripePaymentIntentId: "pi_test_older",
 		});
 		const newer = await seedTransaction({
 			type: "dev_plan_reset_pass",
-			amount: "29",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
 			creditAmount: null,
 			createdAt: daysAgo(1),
 			stripePaymentIntentId: "pi_test_newer",
@@ -532,14 +533,14 @@ describe("computeSelfRefundEligibility", () => {
 		});
 		const older = await seedTransaction({
 			type: "dev_plan_reset_pass",
-			amount: "29",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
 			creditAmount: null,
 			createdAt: daysAgo(2),
 			stripePaymentIntentId: "pi_test_older",
 		});
 		const newer = await seedTransaction({
 			type: "dev_plan_reset_pass",
-			amount: "29",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
 			creditAmount: null,
 			createdAt: daysAgo(1),
 			stripePaymentIntentId: "pi_test_newer",
@@ -559,21 +560,21 @@ describe("computeSelfRefundEligibility", () => {
 		});
 		const older = await seedTransaction({
 			type: "dev_plan_reset_pass",
-			amount: "29",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
 			creditAmount: null,
 			createdAt: daysAgo(2),
 			stripePaymentIntentId: "pi_test_older",
 		});
 		const newer = await seedTransaction({
 			type: "dev_plan_reset_pass",
-			amount: "29",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
 			creditAmount: null,
 			createdAt: daysAgo(1),
 			stripePaymentIntentId: "pi_test_newer",
 		});
 		await seedTransaction({
 			type: "credit_refund",
-			amount: "29",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
 			creditAmount: "0",
 			stripeRefundId: "re_test_newer",
 			relatedTransactionId: newer.id,
@@ -595,14 +596,14 @@ describe("computeSelfRefundEligibility", () => {
 		});
 		const lite = await seedTransaction({
 			type: "dev_plan_reset_pass",
-			amount: "9",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.lite),
 			creditAmount: null,
 			createdAt: daysAgo(2),
 			stripePaymentIntentId: "pi_test_lite",
 		});
 		const pro = await seedTransaction({
 			type: "dev_plan_reset_pass",
-			amount: "29",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
 			creditAmount: null,
 			createdAt: daysAgo(1),
 			stripePaymentIntentId: "pi_test_pro",
@@ -625,7 +626,7 @@ describe("computeSelfRefundEligibility", () => {
 		});
 		const tx = await seedTransaction({
 			type: "dev_plan_reset_pass",
-			amount: "9",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.lite),
 			creditAmount: null,
 		});
 
@@ -663,7 +664,7 @@ describe("computeSelfRefundEligibility", () => {
 		});
 		const tx = await seedTransaction({
 			type: "dev_plan_reset_pass",
-			amount: "29",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
 			creditAmount: null,
 		});
 
@@ -678,12 +679,12 @@ describe("computeSelfRefundEligibility", () => {
 		});
 		const tx = await seedTransaction({
 			type: "dev_plan_reset_pass",
-			amount: "29",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
 			creditAmount: null,
 		});
 		await seedTransaction({
 			type: "credit_refund",
-			amount: "29",
+			amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
 			creditAmount: "0",
 			stripeRefundId: "re_test_pass",
 			relatedTransactionId: tx.id,

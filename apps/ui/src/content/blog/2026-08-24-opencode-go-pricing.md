@@ -57,9 +57,9 @@ Past a limit, requests drop to the free models — currently Ox Alpha Free, expl
 
 ## The Math per Dollar
 
-Here's the part worth being honest about: **$10 for up to $60 of usage is a 6× ratio, and that's the best ratio of any flat coding plan we know of** — including ours. [DevPass](https://devpass.llmgateway.io) turns every $1 into roughly $3 of usage at provider rates.
+Here's the part worth being honest about: **$10 for up to $60 of usage is a 6× ratio, and that's the best ratio of any flat coding plan we know of** — including ours. [DevPass](https://devpass.llmgateway.io) turns every $1 into $2 of usage at provider rates.
 
-The difference is what the ratio is attached to. Go's 6× ends at $60 of included usage — you can keep going from an opted-in Zen balance, but that's your own money at 1×. There is no bigger plan to move to, and the per-model allocations mean the models you'd most want for hard problems — Grok 4.5, GPT-5.6 Luna, Kimi K3 — stop at $15 each. DevPass's 3× is attached to allowances of ~$87 (Lite, $29), ~$237 (Pro, $79) and ~$537 (Max, $179), with [Claude Opus 5, GPT-5.6 Sol and Gemini 3.1 Pro](https://llmgateway.io/models) in the catalog and opt-in pay-as-you-go overflow past the cap.
+The difference is what the ratio is attached to. Go's 6× ends at $60 of included usage — you can keep going from an opted-in Zen balance, but that's your own money at 1×. There is no bigger plan to move to, and the per-model allocations mean the models you'd most want for hard problems — Grok 4.5, GPT-5.6 Luna, Kimi K3 — stop at $15 each. DevPass's 2× is attached to allowances of $58 (Lite, $29), $158 (Pro, $79) and $358 (Max, $179), with [Claude Opus 5, GPT-5.6 Sol and Gemini 3.1 Pro](https://llmgateway.io/models) in the catalog and opt-in pay-as-you-go overflow past the cap.
 
 So the decision reduces to two questions:
 
