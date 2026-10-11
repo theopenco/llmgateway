@@ -4919,15 +4919,15 @@ async function listAirsideMappings() {
 		);
 }
 
-/** Approved custom carriers: providers that exist only as an Airside claim. */
-async function listAirsideCustomProviders() {
+/** Active Airside carriers; catalogue entries take precedence by provider id. */
+async function listAirsideCarriers() {
 	return await db
 		.select({
 			id: tables.providerClaim.providerId,
 			name: tables.providerClaim.customName,
 		})
 		.from(tables.providerClaim)
-		.where(and(eq(tables.providerClaim.status, "active")));
+		.where(eq(tables.providerClaim.status, "active"));
 }
 
 /**
@@ -4964,7 +4964,7 @@ async function getProviderModelOptions(): Promise<{
 
 	const [airsideMappings, customProviders] = await Promise.all([
 		listAirsideMappings(),
-		listAirsideCustomProviders(),
+		listAirsideCarriers(),
 	]);
 
 	const providerOptions = new Map<
