@@ -89,7 +89,7 @@ function generateLogo(outputPath: string): void {
 	// Wrap in a normalized 24x24 / viewBox 0 0 40 40 SVG with currentColor
 	// Original viewBox is 0 0 218 232, scale to fit 40x40 (scale by 40/232, center horizontally)
 	const scale = 40 / 232;
-	const xOffset = (40 - 218 * scale) / 2;
+	const xOffset = (40 - (218 * scale)) / 2;
 	const lines = [
 		`<svg width="24" height="24" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">`,
 		`<g transform="translate(${xOffset.toFixed(2)}, 0) scale(${scale.toFixed(5)})">`,
@@ -101,8 +101,8 @@ function generateLogo(outputPath: string): void {
 }
 
 function isOpenWeights(modelId: string, family: string): boolean {
-	const openWeightsFamilies = ["meta", "mistral", "deepseek", "alibaba", "minimax"];
-	const openWeightsPatterns = [/llama/i, /gemma/i, /qwen/i, /mixtral/i, /deepseek/i, /nous/i, /minimax/i];
+	const openWeightsFamilies = ["mistral", "deepseek", "alibaba", "minimax"];
+	const openWeightsPatterns = [/llama/i, /gemma/i, /qwen/i, /mixtral/i, /deepseek/i, /nous/i, /minimax/i, /muse-glimmer/i];
 
 	if (openWeightsFamilies.includes(family)) {return true;}
 
