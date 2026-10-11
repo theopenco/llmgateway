@@ -66,6 +66,7 @@ import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
 import { OrgSettingsTab } from "./org-settings-tab";
+import { parseOrganizationTab } from "./organization-tab-values";
 import { OrganizationTabs, OrganizationTabTrigger } from "./organization-tabs";
 import { ProviderAccessTab } from "./provider-access-tab";
 import { ProviderKeysTable } from "./provider-keys-table";
@@ -216,22 +217,7 @@ export default async function OrganizationPage({
 	const alPage = parsePage(searchParamsData?.alPage);
 	const alAction = searchParamsData?.alAction ?? "";
 	const alResource = searchParamsData?.alResource ?? "";
-	const requestedTab = searchParamsData?.tab;
-	const activeTab =
-		requestedTab &&
-		[
-			"transactions",
-			"api-keys",
-			"provider-keys",
-			"members",
-			"logs",
-			"audit-logs",
-			"settings",
-			"guardrails",
-			"sso",
-		].includes(requestedTab)
-			? requestedTab
-			: "transactions";
+	const activeTab = parseOrganizationTab(searchParamsData?.tab);
 	const txLimit = 25;
 	const txOffset = (txPage - 1) * txLimit;
 	const akLimit = 25;
