@@ -338,6 +338,7 @@ import {
 	exclusionReason,
 	getProviderFilterReasons,
 	mergeFilteredProvider,
+	preferContextFittingProviders,
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
@@ -2147,6 +2148,11 @@ chat.openapi(completions, async (c) => {
 	if (tools && tools.length > 0) {
 		routingPromptTokens += Math.round(JSON.stringify(tools).length / 4);
 	}
+
+	// Context a pinned-model request needs (prompt + output budget), used to
+	// steer it away from short-window deployments of the same model. Mirrors
+	// the auto-route default buffer when max_tokens is omitted.
+	const routingRequiredContextSize = routingPromptTokens + (max_tokens ?? 4096);
 
 	// The API surface the caller actually used: "chat-completions" unless
 	// /v1/messages, /v1/responses or /v1/images re-dispatched the request through
@@ -5487,36 +5493,40 @@ chat.openapi(completions, async (c) => {
 					providerId: string;
 					reasons: string[];
 				}> = [];
-				const availableModelProviders = filterEligibleModelProviders(
-					preferConcreteRegionalMappings(
-						applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
-							explicitLocks: buildProviderLockedRegions(providerKeys),
-							requestedRegion,
-						}),
-					),
-					{
-						allProviderVariants: modelInfo.providers,
-						availableProviders,
-						webSearchTool,
-						responseFormatType: response_format?.type,
-						hasImages,
-						hasAudio,
-						audioFormats,
-						hasDocuments,
-						hasAssistantPrefill,
-						toolChoice: tool_choice,
-						maxTokens: max_tokens,
-						reasoningEffort: reasoning_effort,
-						n,
-						stream,
-					},
-					filteredOutProvidersFallback,
-				).filter(
-					(provider) =>
-						!(
-							provider.providerId === usedProvider &&
-							provider.region === usedRegion
+				const availableModelProviders = preferContextFittingProviders(
+					filterEligibleModelProviders(
+						preferConcreteRegionalMappings(
+							applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
+								explicitLocks: buildProviderLockedRegions(providerKeys),
+								requestedRegion,
+							}),
 						),
+						{
+							allProviderVariants: modelInfo.providers,
+							availableProviders,
+							webSearchTool,
+							responseFormatType: response_format?.type,
+							hasImages,
+							hasAudio,
+							audioFormats,
+							hasDocuments,
+							hasAssistantPrefill,
+							toolChoice: tool_choice,
+							maxTokens: max_tokens,
+							reasoningEffort: reasoning_effort,
+							n,
+							stream,
+						},
+						filteredOutProvidersFallback,
+					).filter(
+						(provider) =>
+							!(
+								provider.providerId === usedProvider &&
+								provider.region === usedRegion
+							),
+					),
+					routingRequiredContextSize,
+					filteredOutProvidersFallback,
 				);
 				const uptimeFallbackCandidates = await pickNonRateLimitedCandidates(
 					project.organizationId,
@@ -5769,7 +5779,11 @@ chat.openapi(completions, async (c) => {
 			);
 			const availableModelProviders = await keepCheapestCustomRoutingMapping(
 				dropLowUptimeCustomProviders(
-					eligibleModelProviders,
+					preferContextFittingProviders(
+						eligibleModelProviders,
+						routingRequiredContextSize,
+						filteredOutProvidersDirect,
+					),
 					modelInfo.id,
 					customLowUptimeThreshold,
 					filteredOutProvidersDirect,
