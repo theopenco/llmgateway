@@ -4321,6 +4321,97 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(requestBody.generationConfig.responseSchema).toBeUndefined();
 	});
 
+	test("folds single-member allOf in AI Studio raw JSON Schema", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-3.8-flash",
+			null,
+			"gemini-3.8-flash",
+			[{ role: "user", content: "Extract" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "user",
+					schema: {
+						type: "object",
+						properties: {
+							shipping: {
+								allOf: [{ $ref: "#/$defs/Address" }],
+								description: "Shipping address",
+							},
+							tags: { allOf: [{ type: "string" }, { minLength: 1 }] },
+						},
+						$defs: {
+							Address: {
+								type: "object",
+								properties: { city: { type: "string" } },
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseJsonSchema).toEqual({
+			type: "object",
+			properties: {
+				shipping: {
+					$ref: "#/$defs/Address",
+					description: "Shipping address",
+				},
+				tags: { allOf: [{ type: "string" }, { minLength: 1 }] },
+			},
+			$defs: {
+				Address: {
+					type: "object",
+					properties: { city: { type: "string" } },
+				},
+			},
+		});
+	});
+
+	test("resolves #/definitions refs when the schema also has $defs", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-vertex",
+			"gemini-3.8-flash",
+			null,
+			"gemini-3.8-flash",
+			[{ role: "user", content: "Extract" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "mixed",
+					schema: {
+						type: "object",
+						properties: {
+							a: { $ref: "#/$defs/Item" },
+							b: { $ref: "#/definitions/Item" },
+						},
+						$defs: { Item: { type: "string" } },
+						definitions: { Item: { type: "integer" } },
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseSchema.properties).toEqual({
+			a: { type: "STRING" },
+			b: { type: "INTEGER" },
+		});
+	});
+
 	test("resolves root and nested JSON pointer refs in Google response schemas", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-vertex",

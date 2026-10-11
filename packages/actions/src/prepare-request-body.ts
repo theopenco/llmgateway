@@ -637,10 +637,11 @@ function resolveRef(
 		.slice(2)
 		.split("/")
 		.map((segment) => segment.replace(/~1/g, "/").replace(/~0/g, "~"));
+	// Prefer the namespace the ref names, so #/definitions/X still resolves
+	// when the root also carries $defs.
 	let node: any =
-		first === "$defs" || first === "definitions"
-			? rootDefs
-			: rootSchema?.[first];
+		rootSchema?.[first] ??
+		(first === "$defs" || first === "definitions" ? rootDefs : undefined);
 	for (const segment of rest) {
 		if (!node || typeof node !== "object") {
 			return null;
@@ -4518,7 +4519,7 @@ export async function prepareRequestBody(
 					// get the OpenAPI-subset conversion in responseSchema.
 					if (usedProvider === "google-ai-studio") {
 						requestBody.generationConfig.responseJsonSchema =
-							response_format.json_schema.schema;
+							foldSingleMemberAllOf(response_format.json_schema.schema);
 					} else {
 						requestBody.generationConfig.responseSchema =
 							convertOpenAISchemaToGoogle(response_format.json_schema.schema);
@@ -5159,4 +5160,33 @@ export async function prepareRequestBody(
 	}
 
 	return requestBody;
+}
+/**
+ * Gemini's responseJsonSchema ignores `allOf`, leaving the field unconstrained.
+ * Fold the single-member `allOf` older pydantic emits around described refs
+ * into its parent so the constraint survives.
+ */
+function foldSingleMemberAllOf(schema: any): any {
+	if (Array.isArray(schema)) {
+		return schema.map((item) => foldSingleMemberAllOf(item));
+	}
+	if (!schema || typeof schema !== "object") {
+		return schema;
+	}
+	const result: any = {};
+	for (const [key, value] of Object.entries(schema)) {
+		result[key] = foldSingleMemberAllOf(value);
+	}
+	const member = result.allOf?.[0];
+	if (
+		Array.isArray(result.allOf) &&
+		result.allOf.length === 1 &&
+		member &&
+		typeof member === "object" &&
+		!Array.isArray(member)
+	) {
+		delete result.allOf;
+		return { ...member, ...result };
+	}
+	return result;
 }
