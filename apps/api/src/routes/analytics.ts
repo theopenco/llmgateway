@@ -14,6 +14,11 @@ import {
 	modeSplitSchema,
 } from "@/lib/mode-split.js";
 import { getOrgProjectIds } from "@/lib/org-projects.js";
+import {
+	getOrganizationTimeseries,
+	organizationTimeseriesQuery,
+	organizationTimeseriesSchema,
+} from "@/lib/organization-timeseries.js";
 import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
 import {
 	getRoutingSavings,
@@ -968,6 +973,8 @@ const getOrgActivity = createRoute({
 		query: z.object({
 			...dateRangeQuery,
 			groupBy: orgGroupBySchema.optional(),
+			...organizationTimeseriesQuery,
+			bucket: z.enum(["hour", "day"]).optional(),
 		}),
 	},
 	responses: {
@@ -977,6 +984,7 @@ const getOrgActivity = createRoute({
 					schema: z.object({
 						activity: z.array(orgActivityRowSchema),
 						groupBy: orgGroupBySchema,
+						timeseries: organizationTimeseriesSchema.optional(),
 					}),
 				},
 			},
@@ -1013,6 +1021,44 @@ analytics.openapi(getOrgActivity, async (c) => {
 	if (rangeDaysInclusive(fromStr, toStr) > MAX_ORG_ACTIVITY_RANGE_DAYS) {
 		throw new HTTPException(400, {
 			message: `Date range too large (max ${MAX_ORG_ACTIVITY_RANGE_DAYS} days)`,
+		});
+	}
+
+	const query = c.req.valid("query");
+	if (
+		query.includeTimeseries === "true" ||
+		query.bucket ||
+		query.model ||
+		query.apiKeyId
+	) {
+		const timeseries = await getOrganizationTimeseries({
+			projectIds,
+			startDate,
+			endDate,
+			timeZone,
+			groupBy,
+			bucket: query.bucket ?? "day",
+			model: query.model,
+			apiKeyId: query.apiKeyId,
+			rankBy: query.rankBy,
+			mode: query.mode,
+		});
+		return c.json({
+			groupBy,
+			timeseries,
+			activity: timeseries.points.map((point) => ({
+				date:
+					timeseries.bucket === "day"
+						? new Intl.DateTimeFormat("en-CA", {
+								timeZone,
+								year: "numeric",
+								month: "2-digit",
+								day: "2-digit",
+							}).format(new Date(point.timestamp))
+						: point.timestamp,
+				...point.totals,
+				breakdown: point.entries,
+			})),
 		});
 	}
 
