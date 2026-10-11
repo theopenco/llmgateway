@@ -1260,19 +1260,16 @@ async function refreshLiveStats() {
 	}
 
 	const since = state.watermark;
-	let projects: number;
-	try {
-		projects = await refreshHourStats(getCurrentHourStart(), {
-			since,
-			until,
-			accumulate: true,
-		});
-	} catch (error) {
-		// Some tables may already hold the slice; the next pass must recompute
-		// rather than add it again.
-		await clearLiveRefresh();
-		throw error;
-	}
+	// Drop the watermark before adding the slice: if the pass fails partway,
+	// the process dies, or the watermark write below fails, some tables may
+	// already hold the slice, so the next pass must recompute rather than add
+	// it again.
+	await clearLiveRefresh();
+	const projects = await refreshHourStats(getCurrentHourStart(), {
+		since,
+		until,
+		accumulate: true,
+	});
 	await writeLiveRefresh({ ...state, watermark: until });
 
 	logger.info(

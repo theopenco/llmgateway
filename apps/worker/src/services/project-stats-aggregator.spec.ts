@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { redisClient } from "@llmgateway/cache";
 import { db, eq, inArray, tables } from "@llmgateway/db";
 
 import {
@@ -544,6 +545,32 @@ describe("batched project stats refresh", () => {
 		const [partial, partialModel] = await readAllStats();
 		expect(partial[0]).toMatchObject({ requestCount: 2 });
 		expect(partialModel[0]).toMatchObject({ requestCount: 1 });
+
+		// The retry must not add the slice a second time.
+		vi.setSystemTime(new Date("2026-09-12T10:30:35Z"));
+		await refreshProjectHourlyStats();
+		for (const rows of await readAllStats()) {
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toMatchObject({ requestCount: 2, cost: 0.5 });
+		}
+	});
+
+	test("recomputes fully when the watermark write fails", async () => {
+		await db.insert(tables.log).values(logValues());
+		await refreshProjectHourlyStats();
+		await db
+			.insert(tables.log)
+			.values(logValues({ createdAt: new Date("2026-09-12T10:30:05Z") }));
+		vi.setSystemTime(new Date("2026-09-12T10:30:30Z"));
+
+		// Every table takes the slice, then advancing the watermark fails.
+		vi.spyOn(redisClient, "set").mockRejectedValueOnce(
+			new Error("redis unavailable"),
+		);
+		await expect(refreshProjectHourlyStats()).rejects.toThrow(
+			"redis unavailable",
+		);
+		vi.restoreAllMocks();
 
 		// The retry must not add the slice a second time.
 		vi.setSystemTime(new Date("2026-09-12T10:30:35Z"));
