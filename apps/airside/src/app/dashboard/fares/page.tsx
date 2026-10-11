@@ -21,6 +21,8 @@ import { Slider } from "@/components/ui/slider";
 import { useApi } from "@/lib/fetch-client";
 import { formatPercent } from "@/lib/format";
 
+import { DEFAULT_ROUTING_WEIGHTS } from "@llmgateway/shared/routing-defaults";
+
 import type { paths } from "@/lib/api/v1";
 
 type RoutingSettingsResponse =
@@ -29,12 +31,18 @@ type RoutingSettingsResponse =
 type RoutingSetting = RoutingSettingsResponse["settings"][number];
 
 const DISPATCH_FACTORS = [
-	{ label: "Fares (price)", weight: "0.60" },
-	{ label: "On-time performance (availability)", weight: "0.50" },
-	{ label: "Cache support", weight: "0.20" },
-	{ label: "Runway capacity (throughput)", weight: "0.05" },
-	{ label: "Taxi time (latency)", weight: "0.025" },
-];
+	{ label: "Fares (price)", weight: DEFAULT_ROUTING_WEIGHTS.price },
+	{
+		label: "On-time performance (availability)",
+		weight: DEFAULT_ROUTING_WEIGHTS.uptime,
+	},
+	{
+		label: "Runway capacity (throughput)",
+		weight: DEFAULT_ROUTING_WEIGHTS.throughput,
+	},
+	{ label: "Taxi time (latency)", weight: DEFAULT_ROUTING_WEIGHTS.latency },
+	{ label: "Cache support", weight: DEFAULT_ROUTING_WEIGHTS.cache },
+].filter((factor) => factor.weight > 0);
 
 type ModelRoutingSetting = RoutingSetting["modelOverrides"][number];
 

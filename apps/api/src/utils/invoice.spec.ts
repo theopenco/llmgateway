@@ -466,6 +466,35 @@ describe("generateAndEmailInvoice", () => {
 			}),
 		);
 	});
+
+	it("includes the organization ID in the email body", async () => {
+		const { sendTransactionalEmail } = await import("./email.js");
+
+		await generateAndEmailInvoice(baseInvoiceData);
+
+		expect(sendTransactionalEmail).toHaveBeenCalledWith(
+			expect.objectContaining({
+				html: expect.stringContaining(
+					"<strong>Organization ID:</strong> org-test-id",
+				),
+			}),
+		);
+	});
+
+	it("omits the organization ID when there is none", async () => {
+		const { sendTransactionalEmail } = await import("./email.js");
+
+		await generateAndEmailInvoice({
+			...baseInvoiceData,
+			organizationId: undefined,
+		});
+
+		expect(sendTransactionalEmail).toHaveBeenCalledWith(
+			expect.objectContaining({
+				html: expect.not.stringContaining("Organization ID"),
+			}),
+		);
+	});
 });
 
 describe("isInvoiceableTransaction", () => {

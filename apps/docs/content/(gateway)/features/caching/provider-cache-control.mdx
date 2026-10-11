@@ -74,6 +74,14 @@ You can confirm the cache is working by inspecting `usage.prompt_tokens_details.
 
 In this example, 8,000 of the 8,200 prompt tokens were served from the provider's cache and billed at the cached rate.
 
+### Automatic cache duration
+
+In **Project Settings → Caching** or **DevPass Settings**, choose **Automatic cache duration**: **5 minutes** (default) or **1 hour**. This setting is available only in Automatic mode and applies only when your request contains no client-supplied cache markers.
+
+One hour is used only where the selected model and provider support it; other requests keep their default cache behavior. Client markers on system content, messages, tool definitions, or tool results take precedence, including markers without a TTL. Requests containing them retain the existing marker-handling behavior described below.
+
+The longer duration helps across pauses, but can increase cache-write costs. It does not change gateway response caching, Client-managed or Disabled mode, or zero-data-retention restrictions. Changing modes preserves your saved duration.
+
 ### Pricing and routing
 
 Cached input tokens are billed at the model's published `cached_input` price (typically 10–25% of the regular input price, depending on the provider and model). Output tokens and any non-cached input tokens are billed at the normal rate.
@@ -162,7 +170,7 @@ The first request that creates a cache entry is billed at the provider's cache-w
 
 ### Mixing explicit markers with automatic injection
 
-Anthropic requires cache breakpoints with longer TTLs to appear before shorter ones (blocks are processed in the order `tools`, `system`, `messages`). The markers LLM Gateway injects automatically use the default 5-minute TTL, so they could never legally precede an explicit `ttl: "1h"` marker in your messages. To keep both features compatible:
+Anthropic requires cache breakpoints with longer TTLs to appear before shorter ones (blocks are processed in the order `tools`, `system`, `messages`). When a request contains client markers, automatically added markers retain the default 5-minute TTL, so they could never legally precede an explicit `ttl: "1h"` marker in your messages. To keep both features compatible:
 
 - When your request contains an explicit `ttl: "1h"` marker in the **messages**, LLM Gateway skips its automatic marker injection for that request entirely and forwards only your markers — the same behavior you would get calling the provider directly.
 - A `ttl: "1h"` marker only on the **system** prompt does not disable automatic injection, since 5-minute breakpoints after it still satisfy the ordering rule.

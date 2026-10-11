@@ -1761,6 +1761,78 @@ describe("prepareRequestBody - Anthropic", () => {
 		]);
 	});
 
+	test.each(["passthrough", "auto"] as const)(
+		"Bedrock sorts tool results into toolUse order ahead of the caller's breakpoint (%s)",
+		async (mode) => {
+			const toolCall = (id: string) => ({
+				id,
+				type: "function" as const,
+				function: { name: "read", arguments: "{}" },
+			});
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-5",
+				null,
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				[
+					{ role: "user", content: "Read three files." },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							toolCall("call_1"),
+							toolCall("call_2"),
+							toolCall("call_3"),
+						],
+					},
+					// Results arrive in completion order, as Claude Code sends them.
+					{ role: "tool", tool_call_id: "call_3", content: "three" },
+					{ role: "tool", tool_call_id: "call_1", content: "one" },
+					{
+						role: "tool",
+						tool_call_id: "call_2",
+						content: "two",
+						tool_result_cache_control: { type: "ephemeral" },
+					},
+				],
+				false, // stream
+				undefined, // temperature
+				1024, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				undefined, // reasoning_effort
+				undefined, // supportsReasoning
+				false, // isProd
+				20, // maxImageSizeMB
+				null, // userPlan
+				undefined, // sensitive_word_check
+				undefined, // image_config
+				undefined, // effort
+				undefined, // imageGenerations
+				undefined, // webSearchTool
+				undefined, // reasoning_max_tokens
+				undefined, // useResponsesApi
+				undefined, // prompt_cache_key
+				undefined, // prompt_cache_retention
+				mode, // providerCacheControlMode
+			)) as any;
+
+			const last = requestBody.messages[requestBody.messages.length - 1];
+			expect(
+				last.content.map(
+					(block: any) => block.toolResult?.toolUseId ?? Object.keys(block)[0],
+				),
+			).toEqual(["call_1", "call_2", "call_3", "cachePoint"]);
+			expect(
+				last.content.filter((block: any) => block.cachePoint),
+			).toHaveLength(1);
+		},
+	);
+
 	test("auto-injection leaves budget for the caller's trailing breakpoint", async () => {
 		const long = "A".repeat(30000);
 		const marker = { type: "ephemeral" as const };
@@ -3623,7 +3695,7 @@ describe("prepareRequestBody - Xiaomi thinking", () => {
 
 	test("forwards native effort tiers verbatim without a thinking parameter", async () => {
 		const requestBody = await prepare({
-			model: "mimo-v2.5-pro",
+			model: "mimo-v2.6-pro",
 			reasoningEffort: "high",
 		});
 		expect(requestBody.reasoning_effort).toBe("high");
@@ -3632,7 +3704,7 @@ describe("prepareRequestBody - Xiaomi thinking", () => {
 
 	test("maps none to thinking disabled and never forwards reasoning_effort", async () => {
 		const requestBody = await prepare({
-			model: "mimo-v2.5-pro",
+			model: "mimo-v2.6-pro",
 			reasoningEffort: "none",
 		});
 		expect(requestBody.thinking).toEqual({ type: "disabled" });
@@ -3640,14 +3712,14 @@ describe("prepareRequestBody - Xiaomi thinking", () => {
 	});
 
 	test("keeps the provider default when no reasoning_effort is requested", async () => {
-		const requestBody = await prepare({ model: "mimo-v2.5-pro" });
+		const requestBody = await prepare({ model: "mimo-v2.6-pro" });
 		expect(requestBody.thinking).toBeUndefined();
 		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
 
 	test("forwards unsupported tiers verbatim so the provider rejects them", async () => {
 		const requestBody = await prepare({
-			model: "mimo-v2.5",
+			model: "mimo-v2.6-flash",
 			reasoningEffort: "xhigh",
 		});
 		expect(requestBody.reasoning_effort).toBe("xhigh");
@@ -8700,9 +8772,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("flattens tool message with array content (text + image) to plain string", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{ role: "user", content: "describe this" },
 				{
@@ -8740,9 +8812,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("leaves tool message with plain string content unchanged", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{ role: "user", content: "What is the weather?" },
 				{
@@ -8772,9 +8844,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("leaves user message array content unchanged (images still work)", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{
 					role: "user",
@@ -8818,9 +8890,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("handles tool message with multiple text blocks", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{
 					role: "tool",
@@ -8851,9 +8923,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("handles tool message with only images, no text (empty string)", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[
 				{
 					role: "tool",
@@ -8886,9 +8958,9 @@ describe("prepareRequestBody - Xiaomi", () => {
 	test("applies standard default params (stream_options, temperature, etc.)", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			null,
-			"mimo-v2.5",
+			"mimo-v2.6-flash",
 			[{ role: "user", content: "Hello" }],
 			true,
 			0.7,

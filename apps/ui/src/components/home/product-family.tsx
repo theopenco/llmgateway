@@ -137,7 +137,7 @@ const PRODUCTS: Product[] = [
 		gate: "B",
 		name: "Observability",
 		audience: "Platform & finance teams",
-		body: "Cost, latency, errors and cache hits on every request, with spend by model, provider and API key, and by project on Enterprise. Full prompts and responses when you turn on data retention.",
+		body: "Cost, latency, errors and cache hits on every request, with spend by model, provider and API key, and by project on Enterprise. Full prompts and responses with Enterprise data retention.",
 		href: "/products/observability",
 		track: "observability",
 		cta: "See the dashboards",

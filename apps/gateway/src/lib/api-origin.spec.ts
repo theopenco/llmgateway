@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	API_ORIGIN_HEADER,
+	hasInternalClientCacheMarkers,
 	internalApiOriginHeaders,
 	resolveChatApiOrigin,
 } from "./api-origin.js";
@@ -9,11 +10,15 @@ import {
 import type { ApiOrigin } from "@llmgateway/db";
 import type { Context } from "hono";
 
-function contextWithHeader(value?: string): Context {
+function contextWithHeader(value?: string, cacheMarkers = false): Context {
 	return {
 		req: {
 			header: (name: string) =>
-				name === API_ORIGIN_HEADER ? value : undefined,
+				name === API_ORIGIN_HEADER
+					? value
+					: name === "x-internal-client-cache-markers" && cacheMarkers
+						? "true"
+						: undefined,
 		},
 	} as unknown as Context;
 }
@@ -57,4 +62,32 @@ describe("resolveChatApiOrigin", () => {
 			"chat-completions",
 		);
 	});
+});
+
+describe("internal client cache markers", () => {
+	it("accepts marker presence only from a trusted internal hop", () => {
+		const headers = internalApiOriginHeaders("messages", {
+			hasClientCacheMarkers: true,
+		});
+		expect(headers["x-internal-client-cache-markers"]).toBe("true");
+		expect(
+			hasInternalClientCacheMarkers(
+				contextWithHeader(headers[API_ORIGIN_HEADER], true),
+			),
+		).toBe(true);
+		expect(
+			hasInternalClientCacheMarkers(
+				contextWithHeader(headers[API_ORIGIN_HEADER]),
+			),
+		).toBe(false);
+	});
+
+	it.each([undefined, "messages", "not-the-token:messages"])(
+		"ignores spoofed marker presence with origin %s",
+		(origin) => {
+			expect(
+				hasInternalClientCacheMarkers(contextWithHeader(origin, true)),
+			).toBe(false);
+		},
+	);
 });

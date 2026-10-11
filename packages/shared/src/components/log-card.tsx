@@ -516,8 +516,8 @@ export function LogCard({
 										</TooltipTrigger>
 										<TooltipContent>
 											<p>
-												Enable retention in organization policies to store
-												response content
+												Retain All Data (Enterprise) must be enabled in
+												organization policies to store response content
 											</p>
 										</TooltipContent>
 									</Tooltip>
@@ -1823,8 +1823,8 @@ export function LogCard({
 								</pre>
 							) : !retentionEnabled && isUserFacing ? (
 								<p className="text-sm text-muted-foreground italic">
-									Message data not retained. Enable retention in organization
-									policies to store request messages.
+									Message data not retained. Retain All Data (Enterprise) must
+									be enabled in organization policies to store request messages.
 								</p>
 							) : (
 								<p className="text-sm text-muted-foreground italic">
@@ -1927,8 +1927,9 @@ export function LogCard({
 								</pre>
 							) : !retentionEnabled && isUserFacing ? (
 								<p className="text-sm text-muted-foreground italic">
-									Response content not retained. Enable retention in
-									organization policies to store response data.
+									Response content not retained. Retain All Data (Enterprise)
+									must be enabled in organization policies to store response
+									data.
 								</p>
 							) : (
 								<p className="text-sm text-muted-foreground italic">

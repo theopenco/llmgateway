@@ -50,9 +50,10 @@ const privacyCards: SummaryCard[] = [
 			<>
 				Out of the box we store usage metadata only — tokens, cost, latency and
 				which provider was used — never the content of your prompts or
-				responses. You can optionally turn on full request retention under{" "}
-				<span className="text-foreground font-medium">Settings → Policies</span>{" "}
-				if you want it.
+				responses. Enterprise organizations can optionally turn on full request
+				retention under{" "}
+				<span className="text-foreground font-medium">Settings → Policies</span>
+				.
 			</>
 		),
 	},
