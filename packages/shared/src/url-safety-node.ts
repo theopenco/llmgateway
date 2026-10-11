@@ -72,6 +72,9 @@ export const safeOutboundLookup: LookupFunction = (
 	});
 };
 
+/** getaddrinfo codes meaning the name has no usable record (vs. a resolver failure). */
+const NO_DNS_RECORD_CODES = new Set(["ENOTFOUND", "ENODATA", "ESERVFAIL"]);
+
 let safeUserUrlAgent: Agent | undefined;
 
 function getSafeUserUrlAgent(): Agent {
@@ -94,10 +97,18 @@ async function assertResolvedHostSafe(
 	try {
 		resolved = await lookup(hostname, { all: true });
 	} catch (error) {
+		const code = (error as NodeJS.ErrnoException | undefined)?.code;
 		// A typo or unpublished record is the caller's input, not our failure.
+		// Anything else (EAI_AGAIN, timeouts) is a resolver problem, so don't
+		// send the caller off to check a record that may well exist.
+		const hint = NO_DNS_RECORD_CODES.has(code ?? "")
+			? "Check that its DNS record exists."
+			: `DNS lookup failed${code ? ` (${code})` : ""}. Try again shortly.`;
 		throw new Error(
-			`${label} host ${hostname} could not be resolved. Check that its DNS record exists.`,
-			{ cause: error },
+			`${label} host ${hostname} could not be resolved. ${hint}`,
+			{
+				cause: error,
+			},
 		);
 	}
 	for (const { address } of resolved) {

@@ -80,6 +80,18 @@ describe("assertSafeUserContentUrl", () => {
 			);
 		});
 
+		it("does not blame the DNS record for a transient resolver failure", async () => {
+			lookupMock.mockRejectedValue(
+				Object.assign(new Error("getaddrinfo EAI_AGAIN mcp.example.com"), {
+					code: "EAI_AGAIN",
+				}),
+			);
+
+			await expect(
+				assertSafeResolvedUserUrl("https://mcp.example.com/rpc"),
+			).rejects.toThrow("DNS lookup failed (EAI_AGAIN)");
+		});
+
 		it("accepts hostnames only when every resolved address is public", async () => {
 			lookupMock.mockResolvedValue([
 				{ address: "8.8.8.8", family: 4 },
