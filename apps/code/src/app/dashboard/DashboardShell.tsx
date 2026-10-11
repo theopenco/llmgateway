@@ -23,7 +23,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import DevPassPaymentRecovery from "@/app/dashboard/components/DevPassPaymentRecovery";
-import SurveyReminderDialog from "@/app/dashboard/components/SurveyReminderDialog";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { ProductSwitcher } from "@/components/ProductSwitcher";
@@ -59,6 +58,10 @@ import type { Route } from "next";
 
 const InactivePlanChooser = dynamic(
 	() => import("./components/InactivePlanChooser"),
+);
+
+const SurveyReminderDialog = dynamic(
+	() => import("@/app/dashboard/components/SurveyReminderDialog"),
 );
 
 const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
@@ -543,7 +546,9 @@ export default function DashboardShell({
 				</AlertDialogContent>
 			</AlertDialog>
 
-			<SurveyReminderDialog active={Boolean(hasActivePlan)} />
+			{/* Mounted only for active plans so the chunk is never fetched for
+			    visitors who cannot be surveyed */}
+			{hasActivePlan ? <SurveyReminderDialog /> : null}
 
 			{/* Header */}
 			<header className="border-b border-border/50">
