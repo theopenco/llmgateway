@@ -220,6 +220,80 @@ describe("Lounge connector routes", () => {
 		expect((await request("/gmail", "DELETE")).status).toBe(200);
 		expect(await db.query.loungeConnection.findFirst()).toBeDefined();
 	});
+
+	it("claims a persisted approval once across concurrent clients", async () => {
+		await connect();
+		const chatResponse = await app.request("/chats", {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({ title: "Approval race", model: "auto" }),
+		});
+		const { chat } = await chatResponse.json();
+		const part = {
+			type: "dynamic-tool",
+			toolName: "gmail__search_messages",
+			toolCallId: "race-call",
+			state: "approval-requested",
+			input: { query: "fixture" },
+			approval: { id: "race-approval", signature: "fixture-signature" },
+		};
+		await app.request(`/chats/${chat.id}/messages`, {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				id: "race-message",
+				role: "assistant",
+				tools: JSON.stringify([
+					part,
+					{ type: "tool-other", state: "input-streaming" },
+				]),
+			}),
+		});
+		vi.mocked(fetchSafeUserUrl).mockClear();
+		vi.mocked(fetchSafeUserUrl).mockImplementation(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 25));
+			return Response.json({ messages: [] });
+		});
+		const approve = () =>
+			app.request("/connectors/gmail/tools/search_messages", {
+				method: "POST",
+				headers: {
+					Cookie: cookie,
+					"Content-Type": "application/json",
+					"x-tool-message-id": "race-message",
+					"x-tool-call-id": "race-call",
+					"x-tool-approved": "true",
+				},
+				body: JSON.stringify({ input: { query: "fixture" } }),
+			});
+		const responses = await Promise.all([approve(), approve()]);
+		expect(fetchSafeUserUrl).toHaveBeenCalledTimes(1);
+		expect(responses.map((response) => response.status).sort()).toEqual([
+			200, 409,
+		]);
+		for (const tools of [
+			JSON.stringify([part]),
+			"[]",
+			JSON.stringify([
+				{ ...part, state: "output-error", errorText: "stale result" },
+			]),
+		]) {
+			const staleSave = await app.request(`/chats/${chat.id}/messages`, {
+				method: "POST",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ id: "race-message", role: "assistant", tools }),
+			});
+			expect(staleSave.status).toBe(201);
+			const saved = await staleSave.json();
+			expect(
+				JSON.parse(saved.message.tools).find(
+					(entry: { toolCallId?: string }) => entry.toolCallId === "race-call",
+				).state,
+			).toBe("output-available");
+			expect((await approve()).status).toBe(409);
+		}
+		expect(fetchSafeUserUrl).toHaveBeenCalledTimes(1);
+	});
 	it("updates an assistant approval message without duplicating history", async () => {
 		const chatResponse = await app.request("/chats", {
 			method: "POST",
