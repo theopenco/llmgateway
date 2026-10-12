@@ -15,6 +15,7 @@ import {
 
 import { getDateRangeFromParams } from "@/components/date-range-picker";
 import { useUsageMode } from "@/components/shared/usage-mode-selector";
+import { PromptCacheRatePanel } from "@/components/usage/prompt-cache-rate-panel";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	Card,
@@ -271,6 +272,8 @@ const CustomTooltip = ({
 	return null;
 };
 
+type BreakdownField = "requests" | "cost" | "tokens" | "cacheRate";
+
 interface ActivityChartProps {
 	initialData?: ActivitT;
 	apiKeyId?: string;
@@ -285,11 +288,10 @@ export function ActivityChart({
 	groupBy = "model",
 }: ActivityChartProps) {
 	const searchParams = useSearchParams();
-	const [breakdownField, setBreakdownField] = useState<
-		"requests" | "cost" | "tokens"
-	>("requests");
+	const [breakdownField, setBreakdownField] =
+		useState<BreakdownField>("requests");
 	const [showAllModels, setShowAllModels] = useState(false);
-	const { selectedProject } = useDashboardNavigation();
+	const { selectedProject, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
@@ -376,6 +378,10 @@ export function ActivityChart({
 
 	const seriesNoun = DIMENSION_LABELS[groupBy].noun;
 	const cardTitle = DIMENSION_LABELS[groupBy].cardTitle;
+	const isCacheRate = breakdownField === "cacheRate";
+	const chartDescription = isCacheRate
+		? `Prompt cache rate (cached / total input tokens) per ${seriesNoun} over ${periodLabel}`
+		: `Stacked ${seriesNoun} ${breakdownField} over ${periodLabel}`;
 
 	if (!selectedProject) {
 		return (
@@ -400,9 +406,7 @@ export function ActivityChart({
 			<Card>
 				<CardHeader>
 					<CardTitle>{cardTitle}</CardTitle>
-					<CardDescription>
-						Stacked {seriesNoun} {breakdownField} over {periodLabel}
-					</CardDescription>
+					<CardDescription>{chartDescription}</CardDescription>
 				</CardHeader>
 				<CardContent>
 					<div className="flex h-[350px] items-center justify-center">
@@ -418,9 +422,7 @@ export function ActivityChart({
 			<Card>
 				<CardHeader>
 					<CardTitle>{cardTitle}</CardTitle>
-					<CardDescription>
-						Stacked {seriesNoun} {breakdownField} over {periodLabel}
-					</CardDescription>
+					<CardDescription>{chartDescription}</CardDescription>
 				</CardHeader>
 				<CardContent>
 					<div className="flex h-[350px] items-center justify-center">
@@ -437,7 +439,7 @@ export function ActivityChart({
 				<CardHeader>
 					<CardTitle>{cardTitle}</CardTitle>
 					<CardDescription>
-						Stacked {seriesNoun} {breakdownField} over {periodLabel}
+						{chartDescription}
 						{selectedProject && (
 							<span className="block mt-1 text-sm">
 								Project: {selectedProject.name}
@@ -547,7 +549,7 @@ export function ActivityChart({
 				<div>
 					<CardTitle>{cardTitle}</CardTitle>
 					<CardDescription>
-						Stacked {seriesNoun} {breakdownField} over {periodLabel}
+						{chartDescription}
 						{selectedProject && (
 							<span className="block mt-1 text-sm">
 								Project: {selectedProject.name}
@@ -559,136 +561,150 @@ export function ActivityChart({
 					<Select
 						value={breakdownField}
 						onValueChange={(value) =>
-							setBreakdownField(value as "requests" | "cost" | "tokens")
+							setBreakdownField(value as BreakdownField)
 						}
 					>
-						<SelectTrigger className="w-[140px]">
+						<SelectTrigger className="w-[180px]">
 							<SelectValue placeholder="Select metric" />
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="requests">Requests</SelectItem>
 							<SelectItem value="cost">Cost</SelectItem>
 							<SelectItem value="tokens">Tokens</SelectItem>
+							<SelectItem value="cacheRate">Prompt cache rate</SelectItem>
 						</SelectContent>
 					</Select>
 				</div>
 			</CardHeader>
 			<CardContent>
-				{uniqueSeries.length > 0 && (
-					<div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-						{visibleSeries.map((id) => (
-							<div key={id} className="flex items-center gap-2">
-								<span
-									className="h-2 w-2 rounded-sm"
-									style={{
-										backgroundColor: getSeriesColor(
-											id,
-											uniqueSeries.indexOf(id),
-										),
+				{breakdownField === "cacheRate" ? (
+					<PromptCacheRatePanel
+						projectId={selectedProject.id}
+						isEnterprise={selectedOrganization?.enterpriseAccess === true}
+						groupBy={groupBy}
+						apiKeyId={apiKeyId}
+						timeRange={timeRange}
+						timeZone={displayTimeZone}
+					/>
+				) : (
+					<>
+						{uniqueSeries.length > 0 && (
+							<div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+								{visibleSeries.map((id) => (
+									<div key={id} className="flex items-center gap-2">
+										<span
+											className="h-2 w-2 rounded-sm"
+											style={{
+												backgroundColor: getSeriesColor(
+													id,
+													uniqueSeries.indexOf(id),
+												),
+											}}
+										/>
+										<span className="truncate max-w-[140px]">
+											{getSeriesLabel(id)}
+										</span>
+									</div>
+								))}
+								{uniqueSeries.length > 7 && (
+									<button
+										type="button"
+										onClick={() => setShowAllModels((prev) => !prev)}
+										className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted"
+									>
+										{showAllModels
+											? "Show less"
+											: `+${uniqueSeries.length - 7} more`}
+									</button>
+								)}
+							</div>
+						)}
+
+						<ResponsiveContainer width="100%" height={350}>
+							<BarChart data={chartData}>
+								<CartesianGrid strokeDasharray="3 3" vertical={false} />
+								<XAxis
+									dataKey="date"
+									tickFormatter={(value: string) => {
+										try {
+											return hourly
+												? formatBucketLabel(value, "hourMinute")
+												: formatBucketLabel(value, "monthDay");
+										} catch {
+											return value;
+										}
+									}}
+									stroke="#888888"
+									fontSize={12}
+									tickLine={false}
+									axisLine={false}
+								/>
+								<YAxis
+									stroke="#888888"
+									fontSize={12}
+									tickLine={false}
+									axisLine={false}
+									tickFormatter={(value: number) => {
+										if (breakdownField === "cost") {
+											return `$${Number(value).toFixed(2)}`;
+										}
+										return formatCompactNumber(value);
 									}}
 								/>
-								<span className="truncate max-w-[140px]">
-									{getSeriesLabel(id)}
-								</span>
-							</div>
-						))}
-						{uniqueSeries.length > 7 && (
-							<button
-								type="button"
-								onClick={() => setShowAllModels((prev) => !prev)}
-								className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted"
-							>
-								{showAllModels
-									? "Show less"
-									: `+${uniqueSeries.length - 7} more`}
-							</button>
-						)}
-					</div>
-				)}
-
-				<ResponsiveContainer width="100%" height={350}>
-					<BarChart data={chartData}>
-						<CartesianGrid strokeDasharray="3 3" vertical={false} />
-						<XAxis
-							dataKey="date"
-							tickFormatter={(value: string) => {
-								try {
-									return hourly
-										? formatBucketLabel(value, "hourMinute")
-										: formatBucketLabel(value, "monthDay");
-								} catch {
-									return value;
-								}
-							}}
-							stroke="#888888"
-							fontSize={12}
-							tickLine={false}
-							axisLine={false}
-						/>
-						<YAxis
-							stroke="#888888"
-							fontSize={12}
-							tickLine={false}
-							axisLine={false}
-							tickFormatter={(value: number) => {
-								if (breakdownField === "cost") {
-									return `$${Number(value).toFixed(2)}`;
-								}
-								return formatCompactNumber(value);
-							}}
-						/>
-						<Tooltip
-							content={
-								<CustomTooltip
-									breakdownField={breakdownField}
-									hourly={hourly}
-									groupBy={groupBy}
-								/>
-							}
-							cursor={{
-								fill: "color-mix(in srgb, currentColor 15%, transparent)",
-							}}
-						/>
-
-						{/* Generate a Bar for each unique series in the dataset */}
-						{uniqueSeries.length > 0 ? (
-							uniqueSeries.map((id, index) => (
-								<Bar
-									key={`${id}-${index}`}
-									dataKey={id}
-									name={getSeriesLabel(id)}
-									stackId="series"
-									fill={getSeriesColor(id, index)}
-									radius={
-										index === uniqueSeries.length - 1
-											? [4, 4, 0, 0]
-											: [0, 0, 0, 0]
+								<Tooltip
+									content={
+										<CustomTooltip
+											breakdownField={breakdownField}
+											hourly={hourly}
+											groupBy={groupBy}
+										/>
 									}
+									cursor={{
+										fill: "color-mix(in srgb, currentColor 15%, transparent)",
+									}}
 								/>
-							))
-						) : (
-							<Bar
-								dataKey={
-									breakdownField === "cost"
-										? "cost"
-										: breakdownField === "tokens"
-											? "totalTokens"
-											: "requestCount"
-								}
-								name={
-									breakdownField === "cost"
-										? "Cost"
-										: breakdownField === "tokens"
-											? "Tokens"
-											: "Requests"
-								}
-								fill="currentColor"
-								radius={[4, 4, 0, 0]}
-								className="fill-primary opacity-80 hover:opacity-100 transition-opacity"
-							/>
-						)}
-					</BarChart>
-				</ResponsiveContainer>
+
+								{/* Generate a Bar for each unique series in the dataset */}
+								{uniqueSeries.length > 0 ? (
+									uniqueSeries.map((id, index) => (
+										<Bar
+											key={`${id}-${index}`}
+											dataKey={id}
+											name={getSeriesLabel(id)}
+											stackId="series"
+											fill={getSeriesColor(id, index)}
+											radius={
+												index === uniqueSeries.length - 1
+													? [4, 4, 0, 0]
+													: [0, 0, 0, 0]
+											}
+										/>
+									))
+								) : (
+									<Bar
+										dataKey={
+											breakdownField === "cost"
+												? "cost"
+												: breakdownField === "tokens"
+													? "totalTokens"
+													: "requestCount"
+										}
+										name={
+											breakdownField === "cost"
+												? "Cost"
+												: breakdownField === "tokens"
+													? "Tokens"
+													: "Requests"
+										}
+										fill="currentColor"
+										radius={[4, 4, 0, 0]}
+										className="fill-primary opacity-80 hover:opacity-100 transition-opacity"
+									/>
+								)}
+							</BarChart>
+						</ResponsiveContainer>
+					</>
+				)}
 			</CardContent>
 		</Card>
 	);

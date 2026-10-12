@@ -100,6 +100,7 @@ export async function getOrganizationTimeseries({
 	timeZone = "UTC",
 	model,
 	apiKeyId,
+	apiKeyIds,
 	rankBy = "cost",
 	mode = "total",
 	now = new Date(),
@@ -113,6 +114,8 @@ export async function getOrganizationTimeseries({
 	timeZone?: string;
 	model?: string;
 	apiKeyId?: string;
+	/** Restrict to these keys (developer scope); omits unattributed traffic. */
+	apiKeyIds?: string[];
 	rankBy?: "cost" | "requestCount" | "totalTokens" | "inputTokens";
 	now?: Date;
 	mode?: "total" | "credits" | "api-keys";
@@ -181,10 +184,22 @@ export async function getOrganizationTimeseries({
 					tables.project,
 					eq(tables.project.id, apiKeyHourlyModelStats.projectId),
 				)
-				.where(range(apiKeyHourlyModelStats))
+				.where(
+					and(
+						range(apiKeyHourlyModelStats),
+						apiKeyIds
+							? inArray(apiKeyHourlyModelStats.apiKeyId, apiKeyIds)
+							: undefined,
+					),
+				)
 				.groupBy(sql`1, 2, 3`)
 				.orderBy(sql`1`)
 		: [];
+	if (apiKeyId && apiKeyIds && !apiKeyIds.includes(apiKeyId)) {
+		throw new HTTPException(404, {
+			message: "API key not found in this organization",
+		});
+	}
 	if (apiKeyId) {
 		const key = await db.query.apiKey.findFirst({
 			where: { id: { eq: apiKeyId }, projectId: { in: projectIds } },
@@ -203,7 +218,8 @@ export async function getOrganizationTimeseries({
 			label: `${name ?? "Deleted key"} · ${project ?? "Project"} · ${key.slice(-6)}`,
 		})),
 	};
-	const needsKeys = !!apiKeyId || groupBy === "apiKey" || groupBy === "user";
+	const needsKeys =
+		!!apiKeyId || !!apiKeyIds || groupBy === "apiKey" || groupBy === "user";
 	const table = needsKeys ? apiKeyHourlyModelStats : projectHourlyModelStats;
 	const dimension =
 		groupBy === "model"
@@ -255,6 +271,9 @@ export async function getOrganizationTimeseries({
 						apiKeyId
 							? eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId)
 							: undefined,
+						apiKeyIds
+							? inArray(apiKeyHourlyModelStats.apiKeyId, apiKeyIds)
+							: undefined,
 					),
 				)
 				.groupBy(sql`1, 2, 3`)
@@ -282,7 +301,7 @@ export async function getOrganizationTimeseries({
 		addCounts(total, entry);
 		ranked.set(entry.key, total);
 	}
-	if (needsKeys && !apiKeyId && projectIds.length) {
+	if (needsKeys && !apiKeyId && !apiKeyIds && projectIds.length) {
 		// Key rollups omit platform traffic; retain it as an explicit residual.
 		const totals = await db
 			.select({

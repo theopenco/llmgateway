@@ -9,6 +9,10 @@ import {
 	modeSplitFields,
 	modeSplitSchema,
 } from "@/lib/mode-split.js";
+import {
+	getOrganizationTimeseries,
+	organizationTimeseriesSchema,
+} from "@/lib/organization-timeseries.js";
 import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
 import {
 	getRoutingSavings,
@@ -47,6 +51,7 @@ import {
 	apiKeyHourlyModelStats,
 } from "@llmgateway/db";
 import { deriveStabilityMetrics } from "@llmgateway/shared";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
 import type { AnyColumn } from "@llmgateway/db";
@@ -1424,4 +1429,116 @@ activity.openapi(getRoutingSavingsActivity, async (c) => {
 			...resolveDateRange(from, to, timeZone),
 		}),
 	);
+});
+
+const PROMPT_CACHE_TIME_RANGE_HOURS = {
+	"1h": 1,
+	"4h": 4,
+	"24h": 24,
+	"7d": 7 * 24,
+	"30d": 30 * 24,
+	"365d": 365 * 24,
+} as const;
+
+const getPromptCacheActivity = createRoute({
+	method: "get",
+	path: "/prompt-cache",
+	request: {
+		query: z.object({
+			projectId: z.string(),
+			from: z.string().optional(),
+			to: z.string().optional(),
+			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d", "365d"]).optional(),
+			groupBy: z.enum(["model", "apiKey", "user"]).optional(),
+			bucket: z.enum(["hour", "day"]).optional(),
+			apiKeyId: z.string().max(100).optional(),
+			timezone: timezoneQueryField,
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ timeseries: organizationTimeseriesSchema }),
+				},
+			},
+			description:
+				"Project prompt cache rate (cached / total input tokens) over time. Enterprise only.",
+		},
+	},
+});
+
+activity.openapi(getPromptCacheActivity, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const {
+		projectId,
+		from,
+		to,
+		timeRange,
+		groupBy,
+		bucket,
+		apiKeyId,
+		timezone,
+	} = c.req.valid("query");
+	if (!(await userHasProjectAccess(user.id, projectId))) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this project",
+		});
+	}
+
+	const project = await db.query.project.findFirst({
+		where: { id: { eq: projectId } },
+		with: { organization: true },
+	});
+	if (!project?.organization) {
+		throw new HTTPException(404, { message: "Project not found" });
+	}
+	if (
+		!hasOrganizationEnterpriseAccess(
+			project.organization.id,
+			project.organization.plan,
+		)
+	) {
+		throw new HTTPException(403, {
+			message: "Prompt cache analytics require an enterprise plan",
+		});
+	}
+	if (groupBy === "user") {
+		await requireEnterpriseAdmin(user.id, project.organizationId);
+	}
+
+	const timeZone = timezone ?? "UTC";
+	const rangeMs = timeRange
+		? PROMPT_CACHE_TIME_RANGE_HOURS[timeRange] * 3_600_000
+		: 0;
+	const { startDate, endDate } = timeRange
+		? { endDate: new Date(), startDate: new Date(Date.now() - rangeMs) }
+		: resolveDateRange(from, to, timeZone);
+
+	// Developers only see traffic from their own keys.
+	const scope = await getApiKeyScope(user.id, [projectId]);
+	const apiKeyIds = isKeyScoped(scope) ? scope.ownApiKeyIds : undefined;
+	if (apiKeyId && apiKeyIds && !apiKeyIds.includes(apiKeyId)) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this API key",
+		});
+	}
+
+	const timeseries = await getOrganizationTimeseries({
+		projectIds: apiKeyIds?.length === 0 ? [] : [projectId],
+		startDate,
+		endDate,
+		timeZone,
+		bucket: bucket ?? "hour",
+		groupBy: groupBy ?? "model",
+		modelView: "canonical",
+		apiKeyId,
+		apiKeyIds,
+		rankBy: "inputTokens",
+	});
+	return c.json({ timeseries });
 });

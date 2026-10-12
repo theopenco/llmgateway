@@ -226,6 +226,35 @@ describe("organization timeseries", () => {
 		}
 	});
 
+	it("serves project prompt cache rates to enterprise organizations only", async () => {
+		const path =
+			"/activity/prompt-cache?projectId=cache-project&from=2026-10-01&to=2026-10-01";
+		const headers = { Cookie: cookie };
+		expect((await app.request(path)).status).toBe(401);
+		expect((await app.request(path, { headers })).status).toBe(403);
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: "cache-org",
+			role: "owner",
+		});
+		expect((await app.request(path, { headers })).status).toBe(403);
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise" })
+			.where(eq(tables.organization.id, "cache-org"));
+		const hourly = await app.request(path, { headers });
+		expect(hourly.status).toBe(200);
+		const { timeseries } = await hourly.json();
+		expect(timeseries.bucket).toBe("hour");
+		expect(timeseries.points).toHaveLength(24);
+		expect(timeseries.series).toEqual([{ key: "model", label: "model" }]);
+		const daily = await app.request(path + "&bucket=day", { headers });
+		const point = (await daily.json()).timeseries.points[0];
+		expect(promptCacheRate(point.entries[0])).toBe(10);
+		expect(
+			(await app.request(path + "&apiKeyId=cache-key", { headers })).status,
+		).toBe(200);
+	});
 	it("scopes admin project timeseries to the requested project", async () => {
 		const hour = new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000);
 		await db.insert(tables.projectHourlyModelStats).values(
