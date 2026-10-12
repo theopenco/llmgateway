@@ -164,7 +164,7 @@ const createSystemOne = createRoute({
 	operationId: "v1_systemone",
 	summary: "System One",
 	description:
-		"Evaluate a state against named typed questions and get calibrated yes/no, choice and score answers back. TypeSafe-compatible API.",
+		"Evaluate a state against named typed questions and get calibrated yes/no, choice and score answers back. TypeSafe-compatible API, serving TypeSafe models only. To be deprecated soon in favor of the OpenAI-compatible /v1/decisions, which serves every decision model.",
 	method: "post",
 	path: "/",
 	security: [

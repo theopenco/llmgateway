@@ -1,30 +1,29 @@
 ---
-title: System One
-description: Get typed, probabilistic decisions instead of generated text with the /v1/systemone endpoint
+title: System One (legacy)
+description: The TypeSafe-compatible /v1/systemone endpoint, to be deprecated soon in favor of the OpenAI-compatible /v1/decisions
 icon: SlidersHorizontal
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-<Callout type="info">
-	`/v1/systemone` is the TypeSafe-compatible endpoint and serves TypeSafe models
-	only. New decision models, including `gpt-6-luna-decisions`, ship on the
-	OpenAI-compatible [`/v1/decisions`](/features/decisions) endpoint, which also
-	serves Jev.
+<Callout type="warn" title="Deprecated soon">
+	`/v1/systemone` will be deprecated soon in favor of the OpenAI-compatible
+	[`/v1/decisions`](/features/decisions) endpoint. It keeps working for existing
+	integrations, but it serves TypeSafe models (Jev) only and gets no new models
+	— `gpt-6-luna-decisions` and future decision models are available on
+	`/v1/decisions` only. Jev works on `/v1/decisions` at the same price; see
+	[Migrating from
+	/v1/systemone](/features/decisions#migrating-from-v1systemone).
 </Callout>
 
-LLMGateway exposes a `/v1/systemone` endpoint for **System One** models: models
-that read a state, answer questions you name, and return typed decisions with
-calibrated probabilities. There is no free-form text in the response — every
-answer is a value your code can branch on directly.
+LLMGateway exposes a TypeSafe-compatible `/v1/systemone` endpoint for **System
+One** models: models that read a state, answer questions you name, and return
+typed decisions with calibrated probabilities. There is no free-form text in the
+response — every answer is a value your code can branch on directly.
 
-Use it when a model call exists only to make a decision: routing a support
-ticket, scoring a retrieved passage, checking whether a citation supports a
-claim, or classifying a record. A chat model can do these too, but you then have
-to parse prose, and you get no probability to threshold on.
-
-Browse available decision models on the
-[models page](https://llmgateway.io/models?filters=1).
+New integrations should use [`/v1/decisions`](/features/decisions) instead.
+Requesting a non-TypeSafe decision model here returns a 400 pointing you at
+`/v1/decisions`.
 
 For the full request and response schema, see the
 [API reference](/v1_systemone).
