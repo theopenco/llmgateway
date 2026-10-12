@@ -3,7 +3,7 @@
 import { ArrowUpRight, Check, Copy, Sparkles } from "lucide-react";
 import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import { ProviderLogo } from "@/components/landing/provider-logo";
 import { cn } from "@/lib/utils";
@@ -547,10 +547,16 @@ const LANGS: Lang[] = [
 let highlighterPromise: Promise<Highlighter> | null = null;
 
 function getHighlighter() {
-	highlighterPromise ??= import("shiki").then(({ createHighlighter }) =>
+	// The JS regex engine handles all ten grammars used here, so the default
+	// Oniguruma engine (~450KB of WASM) never has to be downloaded.
+	highlighterPromise ??= Promise.all([
+		import("shiki"),
+		import("shiki/engine/javascript"),
+	]).then(([{ createHighlighter }, { createJavaScriptRegexEngine }]) =>
 		createHighlighter({
 			langs: LANGS,
 			themes: ["github-light", "vitesse-dark"],
+			engine: createJavaScriptRegexEngine(),
 		}),
 	);
 	return highlighterPromise;
@@ -673,6 +679,28 @@ export function DeveloperSnippet() {
 		key: string;
 		tokens: ThemedToken[][];
 	} | null>(null);
+	// Shiki is only fetched once this below-the-fold section nears the
+	// viewport; the server-rendered plain code stays in place until then.
+	const rootRef = useRef<HTMLDivElement>(null);
+	const [nearView, setNearView] = useState(false);
+
+	useEffect(() => {
+		const node = rootRef.current;
+		if (!node) {
+			return;
+		}
+		const observer = new IntersectionObserver(
+			([entry]) => {
+				if (entry.isIntersecting) {
+					setNearView(true);
+					observer.disconnect();
+				}
+			},
+			{ rootMargin: "600px" },
+		);
+		observer.observe(node);
+		return () => observer.disconnect();
+	}, []);
 
 	const section = SECTIONS[sectionIdx];
 	const variant = section.variants[variantIdx] ?? section.variants[0];
@@ -683,6 +711,9 @@ export function DeveloperSnippet() {
 	const tokens = highlighted?.key === key ? highlighted.tokens : null;
 
 	useEffect(() => {
+		if (!nearView) {
+			return;
+		}
 		let cancelled = false;
 		void getHighlighter()
 			.then((highlighter) => {
@@ -703,7 +734,7 @@ export function DeveloperSnippet() {
 		return () => {
 			cancelled = true;
 		};
-	}, [code, snippet.lang, theme, key]);
+	}, [code, snippet.lang, theme, key, nearView]);
 
 	const lines = code.split("\n");
 	const docsExternal = !variant.docs.startsWith("/");
@@ -729,7 +760,7 @@ export function DeveloperSnippet() {
 	};
 
 	return (
-		<div>
+		<div ref={rootRef}>
 			<div className="overflow-hidden rounded-2xl border border-black/10 bg-white text-[#1f1f24] shadow-[0_30px_80px_-40px_rgba(17,17,19,0.35)] dark:border-white/10 dark:bg-[#0b0b0e] dark:text-[#e8e6df] dark:shadow-2xl">
 				<div
 					role="tablist"

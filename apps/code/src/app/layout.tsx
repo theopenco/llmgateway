@@ -109,6 +109,9 @@ export default async function RootLayout({
 			suppressHydrationWarning
 		>
 			<head>
+				{/* The dashboard fetches from the API origin right after hydration
+				    (status polling, usage queries); warm up the connection early. */}
+				<link rel="preconnect" href={config.apiUrl} />
 				<script
 					type="application/ld+json"
 					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
