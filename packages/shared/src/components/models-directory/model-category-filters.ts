@@ -8,6 +8,7 @@ export type ModelCategoryFilter =
 	| "image-to-image"
 	| "video"
 	| "embedding"
+	| "decisions"
 	| "web-search"
 	| "vision"
 	| "reasoning"
@@ -275,6 +276,8 @@ export function applyCategoryFilter(
 			return model.output?.includes("video") === true;
 		case "embedding":
 			return model.output?.includes("embedding") === true;
+		case "decisions":
+			return model.output?.includes("decision") === true;
 		case "web-search":
 			return mappings.some((m) => m.webSearch);
 		case "vision":

@@ -399,6 +399,7 @@ const CAPABILITY_LABEL_BY_FILTER_KEY: Record<string, string> = {
 	audioGeneration: "Speech Generation",
 	embedding: "Embeddings",
 	rerank: "Rerank",
+	decisions: "Decisions",
 	webSearch: "Web Search",
 };
 
@@ -978,6 +979,7 @@ export function AllModels({
 			audioGeneration: searchParams.get("audioGeneration") === "true",
 			embedding: searchParams.get("embedding") === "true",
 			rerank: searchParams.get("rerank") === "true",
+			decisions: searchParams.get("decisions") === "true",
 			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
@@ -1307,6 +1309,12 @@ export function AllModels({
 				return false;
 			}
 			if (filters.capabilities.rerank && !model.output?.includes("rerank")) {
+				return false;
+			}
+			if (
+				filters.capabilities.decisions &&
+				!model.output?.includes("decision")
+			) {
 				return false;
 			}
 			if (
@@ -1752,6 +1760,7 @@ export function AllModels({
 				audioGeneration: false,
 				embedding: false,
 				rerank: false,
+				decisions: false,
 				webSearch: false,
 				free: false,
 				discounted: false,
@@ -1784,6 +1793,7 @@ export function AllModels({
 			audioGeneration: undefined,
 			embedding: undefined,
 			rerank: undefined,
+			decisions: undefined,
 			webSearch: undefined,
 			free: undefined,
 			discounted: undefined,
@@ -1895,6 +1905,12 @@ export function AllModels({
 											<div className="flex items-center gap-2">
 												<Sparkles className="h-4 w-4 text-amber-500" />
 												Multimodal (Vision)
+											</div>
+										</SelectItem>
+										<SelectItem value="decisions">
+											<div className="flex items-center gap-2">
+												<SlidersHorizontal className="h-4 w-4 text-teal-500" />
+												Decisions
 											</div>
 										</SelectItem>
 									</SelectContent>
@@ -2023,6 +2039,12 @@ export function AllModels({
 									label: "Rerank",
 									icon: ListOrdered,
 									color: "text-amber-500",
+								},
+								{
+									key: "decisions",
+									label: "Decisions",
+									icon: SlidersHorizontal,
+									color: "text-teal-500",
 								},
 								{
 									key: "webSearch",
