@@ -362,7 +362,7 @@ adminAirside.openapi(listFilings, async (c) => {
 		return row?.count ?? 0;
 	};
 	const rows = await db.query.providerPriceFiling.findMany({
-		where: query.status ? { status: { eq: query.status } } : undefined,
+		where: query.status ? { status: { eq: query.status } } : {},
 		with: {
 			draftModel: { with: { priceFilings: true } },
 			providerCompany: true,
@@ -372,7 +372,7 @@ adminAirside.openapi(listFilings, async (c) => {
 		offset: query.offset ?? 0,
 	});
 	const routingRows = await db.query.providerRoutingFiling.findMany({
-		where: query.status ? { status: { eq: query.status } } : undefined,
+		where: query.status ? { status: { eq: query.status } } : {},
 		with: { providerCompany: true },
 		orderBy: { createdAt: "desc", id: "desc" },
 		limit,

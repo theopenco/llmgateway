@@ -245,6 +245,36 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	typesafe: "https://api.typesafe.ai",
 };
 
+/**
+ * Path of a provider's typed-decision API, relative to its base URL. OpenAI
+ * serves its own Decisions API; Azure serves Microsoft-Decision-1 on the
+ * Foundry resource behind a TypeSafe-compatible System One route; TypeSafe
+ * serves System One at the root.
+ */
+export function getDecisionsUpstreamPath(provider: ProviderId): string {
+	switch (provider) {
+		case "openai":
+			return "/v1/decisions";
+		case "azure":
+			return "/providers/microsoft/v1/systemone";
+		default:
+			return "/v1/systemone";
+	}
+}
+
+/**
+ * Microsoft Foundry host for an Azure resource. Partner-model routes such as
+ * Microsoft-Decision-1 live here rather than on <resource>.openai.azure.com.
+ */
+export function getAzureFoundryBaseUrl(resource: string): string {
+	if (!/^[a-zA-Z0-9-]{1,64}$/.test(resource)) {
+		throw new Error(
+			"Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens",
+		);
+	}
+	return `https://${resource}.services.ai.azure.com`;
+}
+
 export function getProviderDefaultBaseUrl(
 	provider: ProviderId,
 ): string | undefined {

@@ -338,6 +338,7 @@ import {
 	exclusionReason,
 	getProviderFilterReasons,
 	mergeFilteredProvider,
+	preferContextFittingProviders,
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
@@ -4088,6 +4089,19 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Context a pinned-model request needs (prompt + output budget), used to
+	// steer it away from short-window deployments of the same model. Mirrors
+	// the auto-route default buffer when max_tokens is omitted. Image payloads
+	// count toward the window, so use the image-aware estimate when present;
+	// routingPromptTokens stays text-only because billing relies on that.
+	const routingRequiredContextSize =
+		(hasImages && messages && messages.length > 0
+			? encodeChatMessages(messages, requestedModel) +
+				(tools && tools.length > 0
+					? Math.round(JSON.stringify(tools).length / 4)
+					: 0)
+			: routingPromptTokens) + (max_tokens ?? 4096);
+
 	// Apply routing logic after apiKey and project are available.
 	// "auto" and "smart" share this candidate loop. They differ only in where
 	// the candidate list comes from: "auto" is the fixed built-in set and is
@@ -5326,7 +5340,10 @@ chat.openapi(completions, async (c) => {
 				const candidatesForRouting = await pickNonRateLimitedCandidates(
 					project.organizationId,
 					baseModelId,
-					availableModelProviders,
+					preferContextFittingProviders(
+						availableModelProviders,
+						routingRequiredContextSize,
+					),
 				);
 				const preferredCandidatesForRouting = preferProvidersWithKeys(
 					project.mode,
@@ -5487,36 +5504,40 @@ chat.openapi(completions, async (c) => {
 					providerId: string;
 					reasons: string[];
 				}> = [];
-				const availableModelProviders = filterEligibleModelProviders(
-					preferConcreteRegionalMappings(
-						applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
-							explicitLocks: buildProviderLockedRegions(providerKeys),
-							requestedRegion,
-						}),
-					),
-					{
-						allProviderVariants: modelInfo.providers,
-						availableProviders,
-						webSearchTool,
-						responseFormatType: response_format?.type,
-						hasImages,
-						hasAudio,
-						audioFormats,
-						hasDocuments,
-						hasAssistantPrefill,
-						toolChoice: tool_choice,
-						maxTokens: max_tokens,
-						reasoningEffort: reasoning_effort,
-						n,
-						stream,
-					},
-					filteredOutProvidersFallback,
-				).filter(
-					(provider) =>
-						!(
-							provider.providerId === usedProvider &&
-							provider.region === usedRegion
+				const availableModelProviders = preferContextFittingProviders(
+					filterEligibleModelProviders(
+						preferConcreteRegionalMappings(
+							applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
+								explicitLocks: buildProviderLockedRegions(providerKeys),
+								requestedRegion,
+							}),
 						),
+						{
+							allProviderVariants: modelInfo.providers,
+							availableProviders,
+							webSearchTool,
+							responseFormatType: response_format?.type,
+							hasImages,
+							hasAudio,
+							audioFormats,
+							hasDocuments,
+							hasAssistantPrefill,
+							toolChoice: tool_choice,
+							maxTokens: max_tokens,
+							reasoningEffort: reasoning_effort,
+							n,
+							stream,
+						},
+						filteredOutProvidersFallback,
+					).filter(
+						(provider) =>
+							!(
+								provider.providerId === usedProvider &&
+								provider.region === usedRegion
+							),
+					),
+					routingRequiredContextSize,
+					filteredOutProvidersFallback,
 				);
 				const uptimeFallbackCandidates = await pickNonRateLimitedCandidates(
 					project.organizationId,
@@ -5769,7 +5790,11 @@ chat.openapi(completions, async (c) => {
 			);
 			const availableModelProviders = await keepCheapestCustomRoutingMapping(
 				dropLowUptimeCustomProviders(
-					eligibleModelProviders,
+					preferContextFittingProviders(
+						eligibleModelProviders,
+						routingRequiredContextSize,
+						filteredOutProvidersDirect,
+					),
 					modelInfo.id,
 					customLowUptimeThreshold,
 					filteredOutProvidersDirect,
@@ -7424,6 +7449,10 @@ chat.openapi(completions, async (c) => {
 			webSearchTool,
 			reasoning_effort,
 			reasoning_max_tokens,
+			// Schema documents omitting reasoning.context as equivalent to "auto"
+			reasoning_context:
+				reasoning_context === "auto" ? undefined : reasoning_context,
+			reasoning_mode,
 			prompt_cache_key,
 			prompt_cache_retention,
 			prompt_cache_options,
@@ -7432,6 +7461,11 @@ chat.openapi(completions, async (c) => {
 			// A reply cached without safeguard verdicts must not answer a request
 			// that asked for them, or Claude Code falls back to its billed classifier.
 			anthropic_safeguards: anthropicSafeguards,
+			verbosity,
+			effort,
+			image_config,
+			sensitive_word_check,
+			plugins: plugins?.length ? plugins : undefined,
 		};
 
 		if (stream) {

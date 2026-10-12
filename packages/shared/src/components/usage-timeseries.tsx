@@ -119,69 +119,6 @@ export function OrganizationUsageTimeseries({
 	const { metric, setMetric } = controls;
 	const cache = metric === "cacheRate";
 	const metricLabel = metrics.find((m) => m.key === metric)!.label;
-	// Intl.DateTimeFormat construction is expensive and this runs per axis
-	// tick and per tooltip row, so build the formatter once per bucket/zone.
-	const timeFormat = useMemo(
-		() =>
-			new Intl.DateTimeFormat("en-US", {
-				timeZone,
-				month: "short",
-				day: "numeric",
-				...(controls.bucket === "hour"
-					? { hour: "2-digit" as const, minute: "2-digit" as const }
-					: {}),
-			}),
-		[timeZone, controls.bucket],
-	);
-	const formatTime = (timestamp: string) =>
-		timeFormat.format(new Date(timestamp));
-	const chartData = useMemo(
-		() =>
-			(data?.points ?? []).map((point) => {
-				const row: Record<string, string | number | null> = {
-					timestamp: point.timestamp,
-					volume: point.totals.requestCount,
-				};
-				const entries = new Map(
-					point.entries.map((entry) => [entry.key, entry]),
-				);
-				data?.series.forEach((series, index) => {
-					const entry = entries.get(series.key);
-					if (!entry) {
-						row[`series${index}`] = cache ? null : 0;
-						return;
-					}
-					const key =
-						metric === "cost" && mode !== "total"
-							? mode === "credits"
-								? "creditsCost"
-								: "apiKeysCost"
-							: metric === "requestCount" && mode !== "total"
-								? mode === "credits"
-									? "creditsRequestCount"
-									: "apiKeysRequestCount"
-								: metric;
-					row[`series${index}`] =
-						key === "cacheRate" ? promptCacheRate(entry) : entry[key];
-				});
-				return row;
-			}),
-		[data, cache, metric, mode],
-	);
-	const pointByTime = useMemo(
-		() => new Map(data?.points.map((point) => [point.timestamp, point])),
-		[data],
-	);
-	const rowByTime = useMemo(
-		() => new Map(chartData.map((row) => [row.timestamp, row])),
-		[chartData],
-	);
-	const formatValue = (value: number) =>
-		cache
-			? `${value.toFixed(1)}%`
-			: metric === "cost"
-				? currency.format(value)
-				: formatNumber(value);
 	return (
 		<section
 			className="rounded-xl border bg-card text-card-foreground shadow-sm"
@@ -307,166 +244,257 @@ export function OrganizationUsageTimeseries({
 						No usage for these filters and dates.
 					</div>
 				) : (
-					<>
-						<ResponsiveContainer width="100%" height={320}>
-							<ComposedChart
-								data={chartData}
-								accessibilityLayer
-								margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
-							>
-								<CartesianGrid
-									vertical={false}
-									strokeDasharray="3 3"
-									stroke="currentColor"
-									opacity={0.12}
-								/>
-								<XAxis
-									dataKey="timestamp"
-									tickFormatter={formatTime}
-									minTickGap={45}
-									tick={{ fontSize: 11 }}
-									tickLine={false}
-									axisLine={false}
-								/>
-								<YAxis
-									yAxisId="metric"
-									domain={cache ? [0, 100] : undefined}
-									tickFormatter={(n: number) =>
-										cache
-											? `${n}%`
-											: metric === "cost"
-												? `$${formatCompactNumber(n)}`
-												: formatCompactNumber(n)
-									}
-									tick={{ fontSize: 11 }}
-									tickLine={false}
-									axisLine={false}
-									width={60}
-								/>
-								{cache && (
-									<YAxis
-										yAxisId="volume"
-										orientation="right"
-										tickFormatter={formatCompactNumber}
-										tick={{ fontSize: 11 }}
-										tickLine={false}
-										axisLine={false}
-										width={55}
-									/>
-								)}
-								<Tooltip
-									filterNull={false}
-									content={({ active, label }) => {
-										const point = pointByTime.get(String(label));
-										if (!active || !point) {
-											return null;
-										}
-										const row = rowByTime.get(point.timestamp);
-										return (
-											<div className="max-h-96 max-w-lg overflow-auto rounded-lg border bg-popover p-3 text-xs text-popover-foreground shadow-md">
-												<p className="mb-2 font-semibold">
-													{formatTime(point.timestamp)} ({timeZone})
-													{point.incomplete ? " · Incomplete bucket" : ""}
-												</p>
-												{cache && (
-													<p className="mb-2 text-muted-foreground">
-														{formatNumber(point.totals.requestCount)} requests
-														across all matching traffic
-													</p>
-												)}
-												{data.series.map((series, index) => {
-													const entry = point.entries.find(
-														(entry) => entry.key === series.key,
-													);
-													const counts: UsageCounts = entry ?? {
-														cost: 0,
-														totalTokens: 0,
-														requestCount: 0,
-														inputTokens: 0,
-														cachedTokens: 0,
-														creditsCost: 0,
-														apiKeysCost: 0,
-														creditsRequestCount: 0,
-														apiKeysRequestCount: 0,
-													};
-													const value = row?.[`series${index}`];
-													return (
-														<div key={series.key} className="mt-2">
-															<div className="flex gap-2">
-																<span style={{ color: colors[index] }}>●</span>
-																<span>
-																	{series.label}:{" "}
-																	<strong>
-																		{cache && cacheRateStatus(counts)
-																			? cacheRateStatus(counts)
-																			: formatValue(Number(value ?? 0))}
-																	</strong>
-																</span>
-															</div>
-															{cache && (
-																<p className="ml-4 text-muted-foreground">
-																	{formatNumber(counts.requestCount)} requests ·{" "}
-																	{formatNumber(counts.inputTokens)} input ·{" "}
-																	{formatNumber(counts.cachedTokens)} cached
-																	tokens
-																</p>
-															)}
-														</div>
-													);
-												})}
-											</div>
-										);
-									}}
-								/>
-								{cache && (
-									<Bar
-										yAxisId="volume"
-										dataKey="volume"
-										name="Requests"
-										fill="currentColor"
-										opacity={0.1}
-										isAnimationActive={false}
-									/>
-								)}
-								{data.series.map((series, index) =>
-									cache || lineStyle ? (
-										<Line
-											key={series.key}
-											yAxisId="metric"
-											dataKey={`series${index}`}
-											name={series.label}
-											type="linear"
-											stroke={colors[index]}
-											strokeWidth={2}
-											dot={cache ? { r: 2 } : false}
-											connectNulls={false}
-											isAnimationActive={false}
-										/>
-									) : (
-										<Bar
-											key={series.key}
-											yAxisId="metric"
-											dataKey={`series${index}`}
-											name={series.label}
-											stackId="usage"
-											fill={colors[index]}
-											isAnimationActive={false}
-										/>
-									),
-								)}
-							</ComposedChart>
-						</ResponsiveContainer>
-						<div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-							{cache && <span>▥ Requests (right axis)</span>}
-							{data.series.map((series, index) => (
-								<span key={series.key}>
-									<span style={{ color: colors[index] }}>●</span> {series.label}
-								</span>
-							))}
-						</div>
-					</>
+					<UsageTimeseriesChart
+						data={data}
+						metric={metric}
+						bucket={controls.bucket}
+						mode={mode}
+						timeZone={timeZone}
+						lineStyle={lineStyle}
+					/>
 				)}
 			</div>
 		</section>
+	);
+}
+
+/** Chart body shared by the full usage card and embedded cache-rate views. */
+export function UsageTimeseriesChart({
+	data,
+	metric,
+	bucket,
+	mode = "total",
+	timeZone = "UTC",
+	lineStyle = false,
+}: {
+	data: UsageTimeseries;
+	metric: UsageMetric;
+	bucket: UsageBucket;
+	mode?: "total" | "credits" | "api-keys";
+	timeZone?: string;
+	lineStyle?: boolean;
+}) {
+	const cache = metric === "cacheRate";
+	// Intl.DateTimeFormat construction is expensive and this runs per axis
+	// tick and per tooltip row, so build the formatter once per bucket/zone.
+	const timeFormat = useMemo(
+		() =>
+			new Intl.DateTimeFormat("en-US", {
+				timeZone,
+				month: "short",
+				day: "numeric",
+				...(bucket === "hour"
+					? { hour: "2-digit" as const, minute: "2-digit" as const }
+					: {}),
+			}),
+		[timeZone, bucket],
+	);
+	const formatTime = (timestamp: string) =>
+		timeFormat.format(new Date(timestamp));
+	const chartData = useMemo(
+		() =>
+			(data?.points ?? []).map((point) => {
+				const row: Record<string, string | number | null> = {
+					timestamp: point.timestamp,
+					volume: point.totals.requestCount,
+				};
+				const entries = new Map(
+					point.entries.map((entry) => [entry.key, entry]),
+				);
+				data?.series.forEach((series, index) => {
+					const entry = entries.get(series.key);
+					if (!entry) {
+						row[`series${index}`] = cache ? null : 0;
+						return;
+					}
+					const key =
+						metric === "cost" && mode !== "total"
+							? mode === "credits"
+								? "creditsCost"
+								: "apiKeysCost"
+							: metric === "requestCount" && mode !== "total"
+								? mode === "credits"
+									? "creditsRequestCount"
+									: "apiKeysRequestCount"
+								: metric;
+					row[`series${index}`] =
+						key === "cacheRate" ? promptCacheRate(entry) : entry[key];
+				});
+				return row;
+			}),
+		[data, cache, metric, mode],
+	);
+	const pointByTime = useMemo(
+		() => new Map(data?.points.map((point) => [point.timestamp, point])),
+		[data],
+	);
+	const rowByTime = useMemo(
+		() => new Map(chartData.map((row) => [row.timestamp, row])),
+		[chartData],
+	);
+	const formatValue = (value: number) =>
+		cache
+			? `${value.toFixed(1)}%`
+			: metric === "cost"
+				? currency.format(value)
+				: formatNumber(value);
+	return (
+		<>
+			<ResponsiveContainer width="100%" height={320}>
+				<ComposedChart
+					data={chartData}
+					accessibilityLayer
+					margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+				>
+					<CartesianGrid
+						vertical={false}
+						strokeDasharray="3 3"
+						stroke="currentColor"
+						opacity={0.12}
+					/>
+					<XAxis
+						dataKey="timestamp"
+						tickFormatter={formatTime}
+						minTickGap={45}
+						tick={{ fontSize: 11 }}
+						tickLine={false}
+						axisLine={false}
+					/>
+					<YAxis
+						yAxisId="metric"
+						domain={cache ? [0, 100] : undefined}
+						tickFormatter={(n: number) =>
+							cache
+								? `${n}%`
+								: metric === "cost"
+									? `$${formatCompactNumber(n)}`
+									: formatCompactNumber(n)
+						}
+						tick={{ fontSize: 11 }}
+						tickLine={false}
+						axisLine={false}
+						width={60}
+					/>
+					{cache && (
+						<YAxis
+							yAxisId="volume"
+							orientation="right"
+							tickFormatter={formatCompactNumber}
+							tick={{ fontSize: 11 }}
+							tickLine={false}
+							axisLine={false}
+							width={55}
+						/>
+					)}
+					<Tooltip
+						filterNull={false}
+						content={({ active, label }) => {
+							const point = pointByTime.get(String(label));
+							if (!active || !point) {
+								return null;
+							}
+							const row = rowByTime.get(point.timestamp);
+							return (
+								<div className="max-h-96 max-w-lg overflow-auto rounded-lg border bg-popover p-3 text-xs text-popover-foreground shadow-md">
+									<p className="mb-2 font-semibold">
+										{formatTime(point.timestamp)} ({timeZone})
+										{point.incomplete ? " · Incomplete bucket" : ""}
+									</p>
+									{cache && (
+										<p className="mb-2 text-muted-foreground">
+											{formatNumber(point.totals.requestCount)} requests across
+											all matching traffic
+										</p>
+									)}
+									{data.series.map((series, index) => {
+										const entry = point.entries.find(
+											(entry) => entry.key === series.key,
+										);
+										const counts: UsageCounts = entry ?? {
+											cost: 0,
+											totalTokens: 0,
+											requestCount: 0,
+											inputTokens: 0,
+											cachedTokens: 0,
+											creditsCost: 0,
+											apiKeysCost: 0,
+											creditsRequestCount: 0,
+											apiKeysRequestCount: 0,
+										};
+										const value = row?.[`series${index}`];
+										return (
+											<div key={series.key} className="mt-2">
+												<div className="flex gap-2">
+													<span style={{ color: colors[index] }}>●</span>
+													<span>
+														{series.label}:{" "}
+														<strong>
+															{cache && cacheRateStatus(counts)
+																? cacheRateStatus(counts)
+																: formatValue(Number(value ?? 0))}
+														</strong>
+													</span>
+												</div>
+												{cache && (
+													<p className="ml-4 text-muted-foreground">
+														{formatNumber(counts.requestCount)} requests ·{" "}
+														{formatNumber(counts.inputTokens)} input ·{" "}
+														{formatNumber(counts.cachedTokens)} cached tokens
+													</p>
+												)}
+											</div>
+										);
+									})}
+								</div>
+							);
+						}}
+					/>
+					{cache && (
+						<Bar
+							yAxisId="volume"
+							dataKey="volume"
+							name="Requests"
+							fill="currentColor"
+							opacity={0.1}
+							isAnimationActive={false}
+						/>
+					)}
+					{data.series.map((series, index) =>
+						cache || lineStyle ? (
+							<Line
+								key={series.key}
+								yAxisId="metric"
+								dataKey={`series${index}`}
+								name={series.label}
+								type="linear"
+								stroke={colors[index]}
+								strokeWidth={2}
+								dot={cache ? { r: 2 } : false}
+								connectNulls={false}
+								isAnimationActive={false}
+							/>
+						) : (
+							<Bar
+								key={series.key}
+								yAxisId="metric"
+								dataKey={`series${index}`}
+								name={series.label}
+								stackId="usage"
+								fill={colors[index]}
+								isAnimationActive={false}
+							/>
+						),
+					)}
+				</ComposedChart>
+			</ResponsiveContainer>
+			<div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+				{cache && <span>▥ Requests (right axis)</span>}
+				{data.series.map((series, index) => (
+					<span key={series.key}>
+						<span style={{ color: colors[index] }}>●</span> {series.label}
+					</span>
+				))}
+			</div>
+		</>
 	);
 }

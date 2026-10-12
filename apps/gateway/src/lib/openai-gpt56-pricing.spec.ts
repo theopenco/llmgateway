@@ -39,7 +39,13 @@ describe("OpenAI GPT-5.6 and GPT-6 family pricing", () => {
 	const gpt56Entries = models.flatMap((model) =>
 		model.id.startsWith("gpt-5.6") || model.id.startsWith("gpt-6-")
 			? model.providers
-					.filter((provider) => provider.providerId === "openai")
+					// Decision mappings bill input only (no cache or output charges),
+					// so the chat pricing invariants below don't apply to them.
+					.filter(
+						(provider) =>
+							provider.providerId === "openai" &&
+							!(provider as ProviderModelMapping).decisions,
+					)
 					.map((provider) => ({
 						modelId: model.id,
 						provider: provider as ProviderModelMapping,
