@@ -443,7 +443,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
-		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		privacyPolicyUrl: "https://business.safety.google/processorterms/",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -521,7 +521,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://policies.google.com/privacy",
+		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
