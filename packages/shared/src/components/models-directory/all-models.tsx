@@ -397,9 +397,11 @@ const CAPABILITY_LABEL_BY_FILTER_KEY: Record<string, string> = {
 	imageGeneration: "Image Generation",
 	videoGeneration: "Video Generation",
 	audioGeneration: "Speech Generation",
+	transcription: "Transcription",
 	embedding: "Embeddings",
 	rerank: "Rerank",
 	decisions: "Decisions",
+	searchApi: "Search API",
 	webSearch: "Web Search",
 };
 
@@ -977,9 +979,11 @@ export function AllModels({
 			imageGeneration: searchParams.get("imageGeneration") === "true",
 			videoGeneration: searchParams.get("videoGeneration") === "true",
 			audioGeneration: searchParams.get("audioGeneration") === "true",
+			transcription: searchParams.get("transcription") === "true",
 			embedding: searchParams.get("embedding") === "true",
 			rerank: searchParams.get("rerank") === "true",
 			decisions: searchParams.get("decisions") === "true",
+			searchApi: searchParams.get("searchApi") === "true",
 			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
@@ -1303,6 +1307,12 @@ export function AllModels({
 				return false;
 			}
 			if (
+				filters.capabilities.transcription &&
+				!model.output?.includes("transcription")
+			) {
+				return false;
+			}
+			if (
 				filters.capabilities.embedding &&
 				!model.output?.includes("embedding")
 			) {
@@ -1315,6 +1325,9 @@ export function AllModels({
 				filters.capabilities.decisions &&
 				!model.output?.includes("decision")
 			) {
+				return false;
+			}
+			if (filters.capabilities.searchApi && !model.output?.includes("search")) {
 				return false;
 			}
 			if (
@@ -1758,9 +1771,11 @@ export function AllModels({
 				imageGeneration: false,
 				videoGeneration: false,
 				audioGeneration: false,
+				transcription: false,
 				embedding: false,
 				rerank: false,
 				decisions: false,
+				searchApi: false,
 				webSearch: false,
 				free: false,
 				discounted: false,
@@ -1791,9 +1806,11 @@ export function AllModels({
 			imageGeneration: undefined,
 			videoGeneration: undefined,
 			audioGeneration: undefined,
+			transcription: undefined,
 			embedding: undefined,
 			rerank: undefined,
 			decisions: undefined,
+			searchApi: undefined,
 			webSearch: undefined,
 			free: undefined,
 			discounted: undefined,
@@ -2029,6 +2046,12 @@ export function AllModels({
 									color: "text-rose-500",
 								},
 								{
+									key: "transcription",
+									label: "Transcription",
+									icon: Mic,
+									color: "text-sky-500",
+								},
+								{
 									key: "embedding",
 									label: "Embeddings",
 									icon: Boxes,
@@ -2045,6 +2068,12 @@ export function AllModels({
 									label: "Decisions",
 									icon: SlidersHorizontal,
 									color: "text-teal-500",
+								},
+								{
+									key: "searchApi",
+									label: "Search API",
+									icon: Search,
+									color: "text-sky-500",
 								},
 								{
 									key: "webSearch",
