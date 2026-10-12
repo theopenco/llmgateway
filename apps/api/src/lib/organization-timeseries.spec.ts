@@ -226,6 +226,66 @@ describe("organization timeseries", () => {
 		}
 	});
 
+	it("scopes admin project timeseries to the requested project", async () => {
+		const hour = new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000);
+		await db.insert(tables.projectHourlyModelStats).values(
+			[
+				["cache-project", "400", "100"],
+				["other-project", "9000", "9000"],
+			].map(([projectId, inputTokens, cachedTokens]) => ({
+				projectId,
+				hourTimestamp: hour,
+				usedModel: "provider/recent",
+				usedProvider: "provider",
+				inputTokens,
+				cachedTokens,
+				requestCount: 5,
+			})),
+		);
+		const base =
+			"/admin/organizations/cache-org/projects/cache-project/cost-by-model-timeseries?window=1d&bucket=hour";
+		expect((await app.request(base)).status).toBe(401);
+		const original = process.env.ADMIN_FULL_ACCESS_EMAILS;
+		try {
+			process.env.ADMIN_FULL_ACCESS_EMAILS = "admin@example.com";
+			const headers = { Cookie: cookie };
+			const response = await app.request(base + "&includeTimeseries=true", {
+				headers,
+			});
+			expect(response.status).toBe(200);
+			const { timeseries } = await response.json();
+			const totals = timeseries.points.reduce(
+				(sum: number, point: { totals: { inputTokens: number } }) =>
+					sum + point.totals.inputTokens,
+				0,
+			);
+			expect(totals).toBe(400);
+			const point = timeseries.points.find(
+				(p: { totals: { inputTokens: number } }) => p.totals.inputTokens > 0,
+			);
+			expect(promptCacheRate(point.entries[0])).toBe(25);
+			const source = await app.request(
+				base + "&includeTimeseries=true&groupBy=source",
+				{ headers },
+			);
+			expect(source.status).toBe(200);
+			expect((await source.json()).timeseries).toBeUndefined();
+			expect(
+				(
+					await app.request(
+						"/admin/organizations/other-org/projects/cache-project/cost-by-model-timeseries?includeTimeseries=true",
+						{ headers },
+					)
+				).status,
+			).toBe(404);
+		} finally {
+			if (original === undefined) {
+				delete process.env.ADMIN_FULL_ACCESS_EMAILS;
+			} else {
+				process.env.ADMIN_FULL_ACCESS_EMAILS = original;
+			}
+		}
+	});
 	it("ranks cache series by whole-window input and keeps volume for omitted series", async () => {
 		await db.insert(tables.projectHourlyModelStats).values(
 			Array.from({ length: 12 }, (_, index) => ({
