@@ -217,6 +217,7 @@ export const OPEN_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 // Proprietary models whose family is otherwise open-source (e.g. Meta's
 // API-only Muse Spark models alongside the open Llama family)
 export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
+	"muse-wonder-1.0",
 	"muse-spark-1.1",
 	"muse-spark-1.2",
 	"muse-spark-1.2-contributor",
