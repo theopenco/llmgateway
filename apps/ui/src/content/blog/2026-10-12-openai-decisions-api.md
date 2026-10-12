@@ -2,8 +2,8 @@
 id: "blog-openai-decisions-api"
 slug: "openai-decisions-api"
 date: "2026-10-12"
-title: "OpenAI Decisions API on LLM Gateway: GPT-6 Luna and Jev"
-summary: "LLM Gateway now serves the OpenAI Decisions API at /v1/decisions. GPT-6 Luna Decisions answers typed questions about text and images at $0.10 per million input tokens, Jev runs on the same request shape, and the OpenAI SDKs work with a base URL change."
+title: "OpenAI Decisions API on LLM Gateway: GPT-6 Luna, Microsoft-Decision-1 and Jev"
+summary: "LLM Gateway now serves the OpenAI Decisions API at /v1/decisions. GPT-6 Luna Decisions answers typed questions about text and images at $0.10 per million input tokens, Microsoft-Decision-1 on Azure and Jev run on the same request shape, and the OpenAI SDKs work with a base URL change."
 categories: ["Announcements", "Product"]
 model: "gpt-6-luna-decisions"
 faqs:
@@ -13,6 +13,8 @@ faqs:
     answer: "Send the same request body to https://api.llmgateway.io/v1/decisions with your LLM Gateway API key and model gpt-6-luna-decisions, or point the OpenAI SDK's baseURL at https://api.llmgateway.io/v1 and call decisions.create."
   - question: "What does GPT-6 Luna Decisions cost?"
     answer: "$0.10 per million input tokens, or $0.20 per million when a request has more than 272K input tokens. There are no output, cache-read or cache-write charges."
+  - question: "Which decision models can I use on /v1/decisions?"
+    answer: "gpt-6-luna-decisions from OpenAI ($0.10 per million input tokens, text and images), microsoft-decision-1 on your own Azure resource ($0.042 per million input tokens, text) and jev-1.13.0 from TypeSafe ($0.042 per million input tokens, text). All three use the same request and response shape."
   - question: "What happens to /v1/systemone?"
     answer: "It keeps working for existing integrations but serves TypeSafe models only and will be deprecated soon. Jev is available on /v1/decisions at the same price, and new decision models ship on /v1/decisions only."
 image:
@@ -24,7 +26,7 @@ image:
 
 Three weeks ago we shipped [an LLM decision API](/blog/llm-decision-api) for calls that exist only to produce a value: route this ticket, score this passage, flag this record. It spoke TypeSafe's request format, because Jev was the only decision model around. Since then OpenAI released its own **Decisions API** with GPT-6 Luna behind it — and a different wire format.
 
-Two providers with two shapes for the same job is exactly what a gateway is supposed to hide. **LLM Gateway** now serves the **OpenAI Decisions API** at `/v1/decisions`, with GPT-6 Luna Decisions and Jev behind the same request shape. Switching models is a one-field change, and the OpenAI SDKs work by changing the base URL.
+Two providers with two shapes for the same job is exactly what a gateway is supposed to hide. **LLM Gateway** now serves the **OpenAI Decisions API** at `/v1/decisions`, with GPT-6 Luna Decisions, Microsoft-Decision-1 and Jev behind the same request shape. Switching models is a one-field change, and the OpenAI SDKs work by changing the base URL.
 
 ## What the OpenAI Decisions API does
 
@@ -121,11 +123,13 @@ const decision = await client.decisions.create({
 
 You get the same request logging, per-model cost breakdown, IAM rules, compliance policies and provider key rotation as on every other gateway endpoint, and you can bring your own OpenAI key or pay with gateway credits.
 
-## Jev on the same request shape
+## Microsoft-Decision-1 and Jev on the same request shape
 
 `jev-1.13.0` from TypeSafe AI is available on `/v1/decisions` too, still at $0.042 per million input tokens. The gateway translates the request into TypeSafe's format and the answers back into OpenAI's, so the code above runs against Jev by changing `model`. Jev is text-only, so image parts are rejected with a `400` instead of being silently dropped.
 
-That makes the choice between the two a cost and capability question rather than an integration project: Jev for high-volume text classification at the lowest price, GPT-6 Luna Decisions when you need images or very long input.
+`microsoft-decision-1` is Microsoft's small decision model for classification, routing, ranking and grading, also at $0.042 per million input tokens with a 32K-token context. It runs on your own Azure resource: deploy it in Microsoft Foundry under the deployment name `Microsoft-Decision-1`, add your Azure key and resource to LLM Gateway, and call `azure/microsoft-decision-1`. Like Jev, it takes text only and is translated from the same request shape.
+
+That makes the choice a cost, capability and hosting question rather than an integration project: Jev or Microsoft-Decision-1 for high-volume text classification at the lowest price — Microsoft-Decision-1 when the data should stay in your own Azure tenant — and GPT-6 Luna Decisions when you need images or very long input.
 
 ## /v1/systemone will be deprecated soon
 

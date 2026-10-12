@@ -13,6 +13,8 @@ import { getModelImageConfig, getProviderModelKind } from "@llmgateway/shared";
 
 import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
 import {
+	getAzureFoundryBaseUrl,
+	getDecisionsUpstreamPath,
 	getGoogleVertexPublisherModelPath,
 	getProviderDefaultBaseUrl,
 	getProviderEndpoint,
@@ -489,9 +491,16 @@ export async function validateProviderKey(
 				],
 			};
 		} else if (validationModel.kind === "decision") {
+			const azureResource =
+				provider === "azure" && !baseUrl
+					? (providerKeyOptions?.azure_resource ??
+						providerKeyOptions?.env_config?.resource)
+					: undefined;
 			endpoint = appendPath(
-				getValidationBaseUrl(provider, baseUrl, providerKeyOptions),
-				"v1/systemone",
+				azureResource && !providerKeyOptions?.env_config?.baseUrl
+					? getAzureFoundryBaseUrl(azureResource)
+					: getValidationBaseUrl(provider, baseUrl, providerKeyOptions),
+				getDecisionsUpstreamPath(provider),
 			);
 			payload = {
 				model: validationModel.externalId,

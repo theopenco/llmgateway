@@ -57,7 +57,7 @@ describe("decisions", () => {
 
 	async function seedProviderKey(
 		suffix: string,
-		provider: "openai" | "typesafe",
+		provider: "openai" | "typesafe" | "azure",
 	) {
 		await db.insert(tables.providerKey).values({
 			id: `provider-key-${suffix}`,
@@ -171,6 +171,42 @@ describe("decisions", () => {
 		const log = logs.find((l) => l.usedModel === "typesafe/jev-1.13.0");
 		expect(log?.hasError).toBe(false);
 		expect(log?.apiOrigin).toBe("decisions");
+		expect(Number(log?.cost)).toBeCloseTo(441 * 0.042e-6, 12);
+	});
+
+	test("/v1/decisions serves Microsoft-Decision-1 via Azure's System One route", async () => {
+		await seedApiKey("decisions-azure");
+		await seedProviderKey("decisions-azure", "azure");
+
+		const res = await postDecision("decisions-azure", {
+			model: "azure/microsoft-decision-1",
+			input: "Checkout is down for all EU customers since 09:00.",
+			questions: QUESTIONS,
+		});
+
+		const json = await res.json();
+		expect(res.status, JSON.stringify(json)).toBe(200);
+		expect(json.model).toBe("azure/microsoft-decision-1");
+		expect(json.answers).toEqual([
+			expect.objectContaining({
+				type: "choice",
+				name: "department",
+				choice: "billing",
+			}),
+			{ type: "predicate", name: "urgency", probability: 0.01 },
+			expect.objectContaining({ type: "score", name: "severity", score: 2 }),
+		]);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "azure/microsoft-decision-1");
+		expect(log?.hasError).toBe(false);
+		expect(log?.apiOrigin).toBe("decisions");
+		// Azure is called with the deployment name, which matches the model name.
+		expect(log?.usedModelMapping).toBe("Microsoft-Decision-1");
+		expect(log?.upstreamRequest).toMatchObject({
+			model: "Microsoft-Decision-1",
+			state: "Checkout is down for all EU customers since 09:00.",
+		});
 		expect(Number(log?.cost)).toBeCloseTo(441 * 0.042e-6, 12);
 	});
 

@@ -411,6 +411,31 @@ describe("validateProviderKey model-specific probes", () => {
 		});
 	});
 
+	it("probes Microsoft-Decision-1 on the Azure resource's Foundry host", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey(
+			"azure",
+			"azure-test",
+			undefined,
+			false,
+			{ azure_resource: "my-resource" },
+			"microsoft-decision-1",
+		);
+
+		expect(result).toEqual({ valid: true, model: "microsoft-decision-1" });
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"https://my-resource.services.ai.azure.com/providers/microsoft/v1/systemone",
+		);
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+			model: "Microsoft-Decision-1",
+			state: "Hello",
+			questions: {
+				greeting: { type: "noul", instructions: "Is this a greeting?" },
+			},
+		});
+	});
+
 	it("sends a minimal inline image to the OCR endpoint", async () => {
 		const fetchMock = mockSuccess();
 

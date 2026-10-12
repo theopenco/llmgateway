@@ -5,6 +5,7 @@ import {
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
 
+import { getDecisionsUpstreamPath } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 
 import { handleDecisionRequest } from "./handle-decision-request.js";
@@ -16,6 +17,7 @@ import {
 } from "./typesafe-translation.js";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderId } from "@llmgateway/models";
 
 const inputTextSchema = z.object({
 	type: z.literal("input_text"),
@@ -94,7 +96,7 @@ const questionSchema = z
 const decisionRequestSchema = z.object({
 	model: z.string().openapi({
 		description:
-			"ID of the decision model to use, optionally prefixed with a provider (`openai/gpt-6-luna-decisions`, `typesafe/jev-1.13.0`).",
+			"ID of the decision model to use, optionally prefixed with a provider (`openai/gpt-6-luna-decisions`, `azure/microsoft-decision-1`, `typesafe/jev-1.13.0`).",
 		example: "gpt-6-luna-decisions",
 	}),
 	input: z.union([z.string(), z.array(inputMessageSchema)]).openapi({
@@ -189,6 +191,14 @@ function readUsage(upstream: Record<string, unknown>) {
 	};
 }
 
+/**
+ * OpenAI serves its own Decisions API. TypeSafe and Azure (Microsoft-Decision-1)
+ * speak TypeSafe's System One format, so their requests are translated.
+ */
+function speaksOpenAIDecisions(providerId: string): boolean {
+	return providerId === "openai";
+}
+
 export const decisions = new OpenAPIHono<ServerTypes>();
 
 const createDecision = createRoute({
@@ -278,28 +288,23 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 					`${question.name ?? `#${index + 1}`} (${question.type})`,
 			)
 			.join(", ")}`,
-		buildUpstreamRequest: (providerId, upstreamModel) =>
-			providerId === "typesafe"
+		buildUpstreamRequest: (providerId, upstreamModel) => ({
+			path: getDecisionsUpstreamPath(providerId as ProviderId),
+			body: speaksOpenAIDecisions(providerId)
 				? {
-						path: "/v1/systemone",
-						body: toTypeSafeRequest(upstreamModel, request),
+						model: upstreamModel,
+						input: request.input,
+						questions: request.questions,
+						...(request.safety_identifier !== undefined
+							? { safety_identifier: request.safety_identifier }
+							: {}),
 					}
-				: {
-						path: "/v1/decisions",
-						body: {
-							model: upstreamModel,
-							input: request.input,
-							questions: request.questions,
-							...(request.safety_identifier !== undefined
-								? { safety_identifier: request.safety_identifier }
-								: {}),
-						},
-					},
+				: toTypeSafeRequest(upstreamModel, request),
+		}),
 		normalizeResponse: (providerId, upstream, responseModel) => {
-			const body =
-				providerId === "typesafe"
-					? fromTypeSafeResponse(upstream, request, responseModel)
-					: { ...upstream, model: responseModel };
+			const body = speaksOpenAIDecisions(providerId)
+				? { ...upstream, model: responseModel }
+				: fromTypeSafeResponse(upstream, request, responseModel);
 			return {
 				body,
 				...readUsage(upstream),

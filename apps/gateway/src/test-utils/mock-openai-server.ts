@@ -1552,6 +1552,17 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 	});
 });
 
+// Microsoft Foundry serves Microsoft-Decision-1 behind the same System One
+// shape on the resource host, so reuse the TypeSafe handler.
+mockOpenAIServer.post("/providers/microsoft/v1/systemone", async (c) => {
+	const forwarded = new Request(new URL("/v1/systemone", c.req.url), {
+		method: "POST",
+		headers: c.req.raw.headers,
+		body: await c.req.text(),
+	});
+	return await mockOpenAIServer.fetch(forwarded);
+});
+
 // OpenAI Decisions: POST /v1/decisions takes an ordered array of named
 // predicate/choice/score questions and answers in the same order. Rejects the
 // TypeSafe shape so specs prove the gateway translated the request.

@@ -60,6 +60,7 @@ import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import {
+	getAzureFoundryBaseUrl,
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
 	providerKeyLabel,
@@ -469,14 +470,27 @@ export async function handleDecisionRequest(
 			});
 		}
 
+		const credential = {
+			providerKey: providerKeyInner,
+			managedKey: managedKeyInner,
+		};
+		// Azure has no fixed host: a credential names its resource, and the
+		// decision route lives on that resource's Foundry host.
+		const azureResource =
+			providerId === "azure"
+				? (providerKeyInner?.options?.azure_resource ??
+					getCredentialSetting("azure", "resource", credential, {
+						configIndex,
+						variant: envVariant,
+					}))
+				: undefined;
 		const resolvedBaseUrl =
 			providerKeyInner?.baseUrl ??
-			getCredentialSetting(
-				providerId as Provider,
-				"baseUrl",
-				{ providerKey: providerKeyInner, managedKey: managedKeyInner },
-				{ configIndex, variant: envVariant },
-			) ??
+			getCredentialSetting(providerId as Provider, "baseUrl", credential, {
+				configIndex,
+				variant: envVariant,
+			}) ??
+			(azureResource ? getAzureFoundryBaseUrl(azureResource) : undefined) ??
 			getProviderDefaultBaseUrl(providerId);
 		if (!resolvedBaseUrl) {
 			throw new HTTPException(500, {
