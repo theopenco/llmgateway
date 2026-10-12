@@ -141,6 +141,16 @@ const percentFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 1,
 });
 
+const usdFormatter = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+	maximumFractionDigits: 0,
+});
+
+function formatUsd(value: number): string {
+	return value === 0 ? "—" : usdFormatter.format(value);
+}
+
 function SignInPrompt() {
 	return (
 		<div className="flex min-h-screen items-center justify-center px-4">
@@ -336,6 +346,18 @@ export default async function ContentFilterPage({
 									<TableRow>
 										<TableHead>Organization</TableHead>
 										<TableHead>Billing email</TableHead>
+										<TableHead
+											className="text-right"
+											title="All-time credit top-ups and manual payments, net of refunds"
+										>
+											Top-ups (net)
+										</TableHead>
+										<TableHead
+											className="text-right"
+											title="All-time DevPass, Chat Plan and Pro subscription payments, net of refunds"
+										>
+											Subscriptions
+										</TableHead>
 										<TableHead className="text-right">Sampled</TableHead>
 										<TableHead className="text-right">Violations</TableHead>
 										<TableHead className="text-right">Rate</TableHead>
@@ -364,6 +386,12 @@ export default async function ContentFilterPage({
 											</TableCell>
 											<TableCell className="text-sm">
 												{org.billingEmail ?? "—"}
+											</TableCell>
+											<TableCell className="text-right tabular-nums">
+												{formatUsd(org.topUpNet)}
+											</TableCell>
+											<TableCell className="text-right tabular-nums">
+												{formatUsd(org.subscriptionNet)}
 											</TableCell>
 											<TableCell className="text-right tabular-nums">
 												{formatNumber(org.sampledCount)}
