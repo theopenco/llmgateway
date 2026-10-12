@@ -341,7 +341,8 @@ export function ActivityChart({
 			},
 		},
 		{
-			enabled: !!selectedProject?.id,
+			// The cache-rate view reads its own endpoint.
+			enabled: !!selectedProject?.id && breakdownField !== "cacheRate",
 			initialData: timeRange ? undefined : initialData,
 		},
 	);
@@ -401,13 +402,62 @@ export function ActivityChart({
 		);
 	}
 
+	const cardHeader = (
+		<CardHeader className="flex flex-col gap-4 space-y-0 md:flex-row md:items-center justify-between pb-2">
+			<div>
+				<CardTitle>{cardTitle}</CardTitle>
+				<CardDescription>
+					{chartDescription}
+					{selectedProject && (
+						<span className="block mt-1 text-sm">
+							Project: {selectedProject.name}
+						</span>
+					)}
+				</CardDescription>
+			</div>
+			<div className="flex items-center justify-end space-x-2">
+				<Select
+					value={breakdownField}
+					onValueChange={(value) => setBreakdownField(value as BreakdownField)}
+				>
+					<SelectTrigger className="w-[180px]">
+						<SelectValue placeholder="Select metric" />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="requests">Requests</SelectItem>
+						<SelectItem value="cost">Cost</SelectItem>
+						<SelectItem value="tokens">Tokens</SelectItem>
+						<SelectItem value="cacheRate">Prompt cache rate</SelectItem>
+					</SelectContent>
+				</Select>
+			</div>
+		</CardHeader>
+	);
+
+	// The cache-rate panel loads its own data, so /activity loading, error and
+	// empty states must not hide it (or the non-Enterprise preview).
+	if (isCacheRate) {
+		return (
+			<Card>
+				{cardHeader}
+				<CardContent>
+					<PromptCacheRatePanel
+						projectId={selectedProject.id}
+						isEnterprise={selectedOrganization?.enterpriseAccess === true}
+						groupBy={groupBy}
+						apiKeyId={apiKeyId}
+						timeRange={timeRange}
+						timeZone={displayTimeZone}
+					/>
+				</CardContent>
+			</Card>
+		);
+	}
+
 	if (isLoading) {
 		return (
 			<Card>
-				<CardHeader>
-					<CardTitle>{cardTitle}</CardTitle>
-					<CardDescription>{chartDescription}</CardDescription>
-				</CardHeader>
+				{cardHeader}
 				<CardContent>
 					<div className="flex h-[350px] items-center justify-center">
 						Loading activity data...
@@ -420,10 +470,7 @@ export function ActivityChart({
 	if (error) {
 		return (
 			<Card>
-				<CardHeader>
-					<CardTitle>{cardTitle}</CardTitle>
-					<CardDescription>{chartDescription}</CardDescription>
-				</CardHeader>
+				{cardHeader}
 				<CardContent>
 					<div className="flex h-[350px] items-center justify-center">
 						<p className="text-destructive">Error loading activity data</p>
@@ -436,17 +483,7 @@ export function ActivityChart({
 	if (!data || data.activity.length === 0) {
 		return (
 			<Card>
-				<CardHeader>
-					<CardTitle>{cardTitle}</CardTitle>
-					<CardDescription>
-						{chartDescription}
-						{selectedProject && (
-							<span className="block mt-1 text-sm">
-								Project: {selectedProject.name}
-							</span>
-						)}
-					</CardDescription>
-				</CardHeader>
+				{cardHeader}
 				<CardContent>
 					<div className="flex h-[350px] items-center justify-center">
 						<p className="text-muted-foreground">No activity data available</p>
@@ -545,166 +582,125 @@ export function ActivityChart({
 
 	return (
 		<Card>
-			<CardHeader className="flex flex-col gap-4 space-y-0 md:flex-row md:items-center justify-between pb-2">
-				<div>
-					<CardTitle>{cardTitle}</CardTitle>
-					<CardDescription>
-						{chartDescription}
-						{selectedProject && (
-							<span className="block mt-1 text-sm">
-								Project: {selectedProject.name}
-							</span>
-						)}
-					</CardDescription>
-				</div>
-				<div className="flex items-center justify-end space-x-2">
-					<Select
-						value={breakdownField}
-						onValueChange={(value) =>
-							setBreakdownField(value as BreakdownField)
-						}
-					>
-						<SelectTrigger className="w-[180px]">
-							<SelectValue placeholder="Select metric" />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="requests">Requests</SelectItem>
-							<SelectItem value="cost">Cost</SelectItem>
-							<SelectItem value="tokens">Tokens</SelectItem>
-							<SelectItem value="cacheRate">Prompt cache rate</SelectItem>
-						</SelectContent>
-					</Select>
-				</div>
-			</CardHeader>
+			{cardHeader}
 			<CardContent>
-				{breakdownField === "cacheRate" ? (
-					<PromptCacheRatePanel
-						projectId={selectedProject.id}
-						isEnterprise={selectedOrganization?.enterpriseAccess === true}
-						groupBy={groupBy}
-						apiKeyId={apiKeyId}
-						timeRange={timeRange}
-						timeZone={displayTimeZone}
-					/>
-				) : (
-					<>
-						{uniqueSeries.length > 0 && (
-							<div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-								{visibleSeries.map((id) => (
-									<div key={id} className="flex items-center gap-2">
-										<span
-											className="h-2 w-2 rounded-sm"
-											style={{
-												backgroundColor: getSeriesColor(
-													id,
-													uniqueSeries.indexOf(id),
-												),
-											}}
-										/>
-										<span className="truncate max-w-[140px]">
-											{getSeriesLabel(id)}
-										</span>
-									</div>
-								))}
-								{uniqueSeries.length > 7 && (
-									<button
-										type="button"
-										onClick={() => setShowAllModels((prev) => !prev)}
-										className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted"
-									>
-										{showAllModels
-											? "Show less"
-											: `+${uniqueSeries.length - 7} more`}
-									</button>
-								)}
-							</div>
-						)}
-
-						<ResponsiveContainer width="100%" height={350}>
-							<BarChart data={chartData}>
-								<CartesianGrid strokeDasharray="3 3" vertical={false} />
-								<XAxis
-									dataKey="date"
-									tickFormatter={(value: string) => {
-										try {
-											return hourly
-												? formatBucketLabel(value, "hourMinute")
-												: formatBucketLabel(value, "monthDay");
-										} catch {
-											return value;
-										}
-									}}
-									stroke="#888888"
-									fontSize={12}
-									tickLine={false}
-									axisLine={false}
-								/>
-								<YAxis
-									stroke="#888888"
-									fontSize={12}
-									tickLine={false}
-									axisLine={false}
-									tickFormatter={(value: number) => {
-										if (breakdownField === "cost") {
-											return `$${Number(value).toFixed(2)}`;
-										}
-										return formatCompactNumber(value);
-									}}
-								/>
-								<Tooltip
-									content={
-										<CustomTooltip
-											breakdownField={breakdownField}
-											hourly={hourly}
-											groupBy={groupBy}
-										/>
-									}
-									cursor={{
-										fill: "color-mix(in srgb, currentColor 15%, transparent)",
-									}}
-								/>
-
-								{/* Generate a Bar for each unique series in the dataset */}
-								{uniqueSeries.length > 0 ? (
-									uniqueSeries.map((id, index) => (
-										<Bar
-											key={`${id}-${index}`}
-											dataKey={id}
-											name={getSeriesLabel(id)}
-											stackId="series"
-											fill={getSeriesColor(id, index)}
-											radius={
-												index === uniqueSeries.length - 1
-													? [4, 4, 0, 0]
-													: [0, 0, 0, 0]
-											}
-										/>
-									))
-								) : (
-									<Bar
-										dataKey={
-											breakdownField === "cost"
-												? "cost"
-												: breakdownField === "tokens"
-													? "totalTokens"
-													: "requestCount"
-										}
-										name={
-											breakdownField === "cost"
-												? "Cost"
-												: breakdownField === "tokens"
-													? "Tokens"
-													: "Requests"
-										}
-										fill="currentColor"
-										radius={[4, 4, 0, 0]}
-										className="fill-primary opacity-80 hover:opacity-100 transition-opacity"
+				<>
+					{uniqueSeries.length > 0 && (
+						<div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+							{visibleSeries.map((id) => (
+								<div key={id} className="flex items-center gap-2">
+									<span
+										className="h-2 w-2 rounded-sm"
+										style={{
+											backgroundColor: getSeriesColor(
+												id,
+												uniqueSeries.indexOf(id),
+											),
+										}}
 									/>
-								)}
-							</BarChart>
-						</ResponsiveContainer>
-					</>
-				)}
+									<span className="truncate max-w-[140px]">
+										{getSeriesLabel(id)}
+									</span>
+								</div>
+							))}
+							{uniqueSeries.length > 7 && (
+								<button
+									type="button"
+									onClick={() => setShowAllModels((prev) => !prev)}
+									className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted"
+								>
+									{showAllModels
+										? "Show less"
+										: `+${uniqueSeries.length - 7} more`}
+								</button>
+							)}
+						</div>
+					)}
+
+					<ResponsiveContainer width="100%" height={350}>
+						<BarChart data={chartData}>
+							<CartesianGrid strokeDasharray="3 3" vertical={false} />
+							<XAxis
+								dataKey="date"
+								tickFormatter={(value: string) => {
+									try {
+										return hourly
+											? formatBucketLabel(value, "hourMinute")
+											: formatBucketLabel(value, "monthDay");
+									} catch {
+										return value;
+									}
+								}}
+								stroke="#888888"
+								fontSize={12}
+								tickLine={false}
+								axisLine={false}
+							/>
+							<YAxis
+								stroke="#888888"
+								fontSize={12}
+								tickLine={false}
+								axisLine={false}
+								tickFormatter={(value: number) => {
+									if (breakdownField === "cost") {
+										return `$${Number(value).toFixed(2)}`;
+									}
+									return formatCompactNumber(value);
+								}}
+							/>
+							<Tooltip
+								content={
+									<CustomTooltip
+										breakdownField={breakdownField}
+										hourly={hourly}
+										groupBy={groupBy}
+									/>
+								}
+								cursor={{
+									fill: "color-mix(in srgb, currentColor 15%, transparent)",
+								}}
+							/>
+
+							{/* Generate a Bar for each unique series in the dataset */}
+							{uniqueSeries.length > 0 ? (
+								uniqueSeries.map((id, index) => (
+									<Bar
+										key={`${id}-${index}`}
+										dataKey={id}
+										name={getSeriesLabel(id)}
+										stackId="series"
+										fill={getSeriesColor(id, index)}
+										radius={
+											index === uniqueSeries.length - 1
+												? [4, 4, 0, 0]
+												: [0, 0, 0, 0]
+										}
+									/>
+								))
+							) : (
+								<Bar
+									dataKey={
+										breakdownField === "cost"
+											? "cost"
+											: breakdownField === "tokens"
+												? "totalTokens"
+												: "requestCount"
+									}
+									name={
+										breakdownField === "cost"
+											? "Cost"
+											: breakdownField === "tokens"
+												? "Tokens"
+												: "Requests"
+									}
+									fill="currentColor"
+									radius={[4, 4, 0, 0]}
+									className="fill-primary opacity-80 hover:opacity-100 transition-opacity"
+								/>
+							)}
+						</BarChart>
+					</ResponsiveContainer>
+				</>
 			</CardContent>
 		</Card>
 	);

@@ -1533,7 +1533,12 @@ activity.openapi(getPromptCacheActivity, async (c) => {
 		startDate,
 		endDate,
 		timeZone,
-		bucket: bucket ?? "hour",
+		// Hourly buckets are capped at 30 days; default longer ranges to daily.
+		bucket:
+			bucket ??
+			(endDate.getTime() - startDate.getTime() > 30 * 86_400_000
+				? "day"
+				: "hour"),
 		groupBy: groupBy ?? "model",
 		modelView: "canonical",
 		apiKeyId,

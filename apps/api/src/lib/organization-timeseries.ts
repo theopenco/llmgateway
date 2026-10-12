@@ -160,14 +160,27 @@ export async function getOrganizationTimeseries({
 		bucket === "hour"
 			? sql<string>`to_char(${table.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`
 			: sql<string>`to_char(${table.hourTimestamp} AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}, 'YYYY-MM-DD')`;
-	const modelOptions = projectIds.length
-		? await db
-				.select({ key: canonical(projectHourlyModelStats) })
-				.from(projectHourlyModelStats)
-				.where(range(projectHourlyModelStats))
-				.groupBy(sql`1`)
-				.orderBy(sql`1`)
-		: [];
+	// Key-scoped callers must not see models used only by other keys.
+	const modelOptions = !projectIds.length
+		? []
+		: apiKeyIds
+			? await db
+					.select({ key: canonical(apiKeyHourlyModelStats) })
+					.from(apiKeyHourlyModelStats)
+					.where(
+						and(
+							range(apiKeyHourlyModelStats),
+							inArray(apiKeyHourlyModelStats.apiKeyId, apiKeyIds),
+						),
+					)
+					.groupBy(sql`1`)
+					.orderBy(sql`1`)
+			: await db
+					.select({ key: canonical(projectHourlyModelStats) })
+					.from(projectHourlyModelStats)
+					.where(range(projectHourlyModelStats))
+					.groupBy(sql`1`)
+					.orderBy(sql`1`);
 	const keyOptions = projectIds.length
 		? await db
 				.select({
