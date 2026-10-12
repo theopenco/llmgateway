@@ -194,6 +194,8 @@ export interface ProviderContextOptions {
 	 */
 	clientRequestedServiceTier?: "flex" | "priority" | null;
 	verbosity?: "low" | "medium" | "high";
+	stop?: string | string[];
+	seed?: number;
 }
 
 interface ProjectInfo {
@@ -1010,6 +1012,8 @@ export async function resolveProviderContext(
 		providerMappingForSelected,
 		undefined,
 		options.providerCacheAutoTtl,
+		options.stop,
+		options.seed,
 	);
 
 	// Post-validation of max_tokens in request body

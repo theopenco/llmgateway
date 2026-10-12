@@ -1879,6 +1879,8 @@ chat.openapi(completions, async (c) => {
 		plugins,
 		n,
 		user,
+		stop,
+		seed,
 	} = validationResult.data;
 
 	// Mutable: dev-plan (DevPass) orgs can configure a default service tier in
@@ -7457,6 +7459,8 @@ chat.openapi(completions, async (c) => {
 			// A reply cached without safeguard verdicts must not answer a request
 			// that asked for them, or Claude Code falls back to its billed classifier.
 			anthropic_safeguards: anthropicSafeguards,
+			stop,
+			seed,
 		};
 
 		if (stream) {
@@ -8301,6 +8305,8 @@ chat.openapi(completions, async (c) => {
 			getUsedProviderMapping(),
 			reasoning_mode,
 			providerCacheAutoTtl,
+			stop,
+			seed,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -8516,6 +8522,8 @@ chat.openapi(completions, async (c) => {
 				service_tier,
 				clientRequestedServiceTier: clientRequestedServiceTier(),
 				verbosity,
+				stop,
+				seed,
 			},
 		);
 	}
