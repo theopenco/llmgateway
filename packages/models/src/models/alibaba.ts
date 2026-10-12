@@ -2685,6 +2685,34 @@ export const alibabaModels = [
 		],
 	},
 	{
+		id: "qwen-image-2.1-turbo",
+		name: "Qwen Image 2.1 Turbo",
+		description:
+			"Alibaba's cost-effective Qwen Image 2.1 Turbo model for fast text-to-image generation and multi-image editing with native transparent output.",
+		family: "alibaba",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-10-09"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-image-2.1-turbo",
+				inputPrice: "0",
+				outputPrice: "0",
+				perImagePrice: {
+					default: "0.016",
+				},
+				contextSize: 4500,
+				maxOutput: 4096,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
 		id: "qwen-image-plus",
 		name: "Qwen Image Plus",
 		description:
