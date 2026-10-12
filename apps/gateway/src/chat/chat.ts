@@ -341,6 +341,7 @@ import {
 	preferContextFittingProviders,
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
+	type ContextRequirement,
 } from "./tools/provider-filter-reasons.js";
 import { readTencentImageBody } from "./tools/read-tencent-image-body.js";
 import {
@@ -395,6 +396,7 @@ import {
 import { resolveTieredContentFilterPlan } from "./tools/tiered-content-filter.js";
 import {
 	encodeChatMessages,
+	encodeToolCalls,
 	messageContentToString,
 } from "./tools/tokenizer.js";
 import {
@@ -4094,13 +4096,18 @@ chat.openapi(completions, async (c) => {
 	// the auto-route default buffer when max_tokens is omitted. Image payloads
 	// count toward the window, so use the image-aware estimate when present;
 	// routingPromptTokens stays text-only because billing relies on that.
-	const routingRequiredContextSize =
-		(hasImages && messages && messages.length > 0
-			? encodeChatMessages(messages, requestedModel) +
-				(tools && tools.length > 0
-					? Math.round(JSON.stringify(tools).length / 4)
-					: 0)
-			: routingPromptTokens) + (max_tokens ?? 4096);
+	// Assistant tool-call arguments occupy the window too (whole file writes in
+	// agent sessions) but are not part of routingPromptTokens, so add them here.
+	const routingContextRequirement: ContextRequirement = {
+		promptTokens:
+			(hasImages && messages && messages.length > 0
+				? encodeChatMessages(messages, requestedModel) +
+					(tools && tools.length > 0
+						? Math.round(JSON.stringify(tools).length / 4)
+						: 0)
+				: routingPromptTokens) + encodeToolCalls(messages),
+		outputTokens: max_tokens ?? 4096,
+	};
 
 	// Apply routing logic after apiKey and project are available.
 	// "auto" and "smart" share this candidate loop. They differ only in where
@@ -5342,7 +5349,7 @@ chat.openapi(completions, async (c) => {
 					baseModelId,
 					preferContextFittingProviders(
 						availableModelProviders,
-						routingRequiredContextSize,
+						routingContextRequirement,
 					),
 				);
 				const preferredCandidatesForRouting = preferProvidersWithKeys(
@@ -5536,7 +5543,7 @@ chat.openapi(completions, async (c) => {
 								provider.region === usedRegion
 							),
 					),
-					routingRequiredContextSize,
+					routingContextRequirement,
 					filteredOutProvidersFallback,
 				);
 				const uptimeFallbackCandidates = await pickNonRateLimitedCandidates(
@@ -5792,7 +5799,7 @@ chat.openapi(completions, async (c) => {
 				dropLowUptimeCustomProviders(
 					preferContextFittingProviders(
 						eligibleModelProviders,
-						routingRequiredContextSize,
+						routingContextRequirement,
 						filteredOutProvidersDirect,
 					),
 					modelInfo.id,

@@ -586,7 +586,7 @@ describe("preferContextFittingProviders", () => {
 		const filteredOut: FilteredProvider[] = [];
 		const result = preferContextFittingProviders(
 			[big, small, unknown],
-			262_145,
+			{ promptTokens: 232_145, outputTokens: 30_000 },
 			filteredOut,
 		);
 		expect(result).toEqual([big, unknown]);
@@ -599,17 +599,44 @@ describe("preferContextFittingProviders", () => {
 	});
 
 	it("keeps every candidate when all fit", () => {
-		expect(preferContextFittingProviders([big, small], 100_000)).toEqual([
-			big,
-			small,
-		]);
+		expect(
+			preferContextFittingProviders([big, small], {
+				promptTokens: 100_000,
+				outputTokens: 4096,
+			}),
+		).toEqual([big, small]);
 	});
 
 	it("keeps every candidate when none fit", () => {
 		const filteredOut: FilteredProvider[] = [];
 		expect(
-			preferContextFittingProviders([big, small], 2_000_000, filteredOut),
+			preferContextFittingProviders(
+				[big, small],
+				{ promptTokens: 2_000_000, outputTokens: 4096 },
+				filteredOut,
+			),
 		).toEqual([big, small]);
 		expect(filteredOut).toEqual([]);
+	});
+
+	it("leaves headroom for an underestimated prompt", () => {
+		// 200k + 32k fits 262k on the raw chars/4 estimate, but code-heavy
+		// sessions tokenize closer to 3 chars/token and overflow it.
+		expect(
+			preferContextFittingProviders([small, big], {
+				promptTokens: 200_000,
+				outputTokens: 32_000,
+			}),
+		).toEqual([big]);
+	});
+
+	it("falls back to the raw estimate when nothing fits with headroom", () => {
+		const tiny = mapping({ providerId: "gonka", contextSize: 200_000 });
+		expect(
+			preferContextFittingProviders([small, tiny], {
+				promptTokens: 200_000,
+				outputTokens: 32_000,
+			}),
+		).toEqual([small]);
 	});
 });

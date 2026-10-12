@@ -160,6 +160,21 @@ export function preferToolChoiceCapableProviders(
 }
 
 /**
+ * Context a request needs: the estimated prompt plus the completion budget.
+ */
+export interface ContextRequirement {
+	promptTokens: number;
+	outputTokens: number;
+}
+
+/**
+ * Safety margin on the prompt estimate when matching it against a context
+ * window. chars/4 undercounts code and JSON (closer to 3 chars/token), so a
+ * session estimated at ~200k can really be ~250k and overflow a 262k window.
+ */
+export const CONTEXT_FIT_PROMPT_HEADROOM = 1.25;
+
+/**
  * Narrow a pinned-model candidate list to the mappings whose context window
  * fits the request — but only when at least one of them does.
  *
@@ -174,23 +189,35 @@ export function preferToolChoiceCapableProviders(
  * When nothing fits, the list is returned unchanged so the upstream error
  * stays the source of truth (the estimate is a heuristic).
  *
+ * The prompt estimate is a chars/4 heuristic that undercounts code- and
+ * JSON-heavy agent sessions, so deployments that fit with
+ * {@link CONTEXT_FIT_PROMPT_HEADROOM} on the prompt are preferred first; only
+ * when none do does the raw estimate decide.
+ *
  * Like `preferToolChoiceCapableProviders`, an exclusion is recorded per
  * provider id only when none of its (regional) mappings fit.
  */
 export function preferContextFittingProviders(
 	providers: ProviderModelMapping[],
-	requiredContextSize: number,
+	requirement: ContextRequirement,
 	filteredOut?: FilteredProvider[],
 ): ProviderModelMapping[] {
-	if (requiredContextSize <= 0) {
+	if (requirement.promptTokens <= 0 && requirement.outputTokens <= 0) {
 		return providers;
 	}
 
-	const fitting = providers.filter(
-		(provider) =>
-			provider.contextSize === undefined ||
-			provider.contextSize >= requiredContextSize,
-	);
+	const fitsWith = (headroom: number) =>
+		providers.filter(
+			(provider) =>
+				provider.contextSize === undefined ||
+				provider.contextSize >=
+					Math.ceil(requirement.promptTokens * headroom) +
+						requirement.outputTokens,
+		);
+	let fitting = fitsWith(CONTEXT_FIT_PROMPT_HEADROOM);
+	if (fitting.length === 0) {
+		fitting = fitsWith(1);
+	}
 	if (fitting.length === 0 || fitting.length === providers.length) {
 		return providers;
 	}

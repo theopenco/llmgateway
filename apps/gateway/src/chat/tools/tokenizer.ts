@@ -48,3 +48,32 @@ function warnOnFallbackEstimate(fallback: TokenEstimateFallback): void {
 export function encodeChatMessages(messages: any[], modelId?: string): number {
 	return estimateChatMessageTokens(messages, modelId, warnOnFallbackEstimate);
 }
+
+/**
+ * chars/4 estimate of the assistant tool calls (function name + JSON
+ * arguments) in a conversation, which `encodeChatMessages` does not count.
+ * In coding-agent sessions these carry whole file writes and edits, so leaving
+ * them out undercounts the context a request occupies. Routing-only: billing
+ * fallbacks keep using `encodeChatMessages` unchanged.
+ */
+export function encodeToolCalls(messages: any[] | undefined): number {
+	if (!messages) {
+		return 0;
+	}
+	let length = 0;
+	for (const message of messages) {
+		if (!Array.isArray(message?.tool_calls)) {
+			continue;
+		}
+		for (const call of message.tool_calls) {
+			const fn = call?.function;
+			if (typeof fn?.name === "string") {
+				length += fn.name.length;
+			}
+			if (typeof fn?.arguments === "string") {
+				length += fn.arguments.length;
+			}
+		}
+	}
+	return Math.round(length / 4);
+}
