@@ -127,7 +127,7 @@ You get the same request logging, per-model cost breakdown, IAM rules, complianc
 
 `jev-1.13.0` from TypeSafe AI is available on `/v1/decisions` too, still at $0.042 per million input tokens. The gateway translates the request into TypeSafe's format and the answers back into OpenAI's, so the code above runs against Jev by changing `model`. Jev is text-only, so image parts are rejected with a `400` instead of being silently dropped.
 
-`microsoft-decision-1` is Microsoft's small decision model for classification, routing, ranking and grading, also at $0.042 per million input tokens with a 32K-token context. It runs on your own Azure resource: deploy it in Microsoft Foundry under the deployment name `Microsoft-Decision-1`, add your Azure key and resource to LLM Gateway, and call `azure/microsoft-decision-1`. Like Jev, it takes text only and is translated from the same request shape.
+`microsoft-decision-1` is Microsoft's small decision model for classification, routing, ranking and grading, also at $0.042 per million input tokens with a 32K-token context. It runs on your own Azure resource: deploy it in Microsoft Foundry under the deployment name `Decision-1`, add your Azure key and resource to LLM Gateway, and call `azure/microsoft-decision-1`. Like Jev, it takes text only and is translated from the same request shape.
 
 That makes the choice a cost, capability and hosting question rather than an integration project: Jev or Microsoft-Decision-1 for high-volume text classification at the lowest price — Microsoft-Decision-1 when the data should stay in your own Azure tenant — and GPT-6 Luna Decisions when you need images or very long input.
 

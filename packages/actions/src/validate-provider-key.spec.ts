@@ -428,7 +428,7 @@ describe("validateProviderKey model-specific probes", () => {
 			"https://my-resource.services.ai.azure.com/providers/microsoft/v1/systemone",
 		);
 		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
-			model: "Microsoft-Decision-1",
+			model: "Decision-1",
 			state: "Hello",
 			questions: {
 				greeting: { type: "noul", instructions: "Is this a greeting?" },

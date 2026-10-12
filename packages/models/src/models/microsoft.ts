@@ -13,8 +13,8 @@ export const microsoftModels = [
 			{
 				providerId: "azure",
 				// Azure calls the decision API with the deployment name, so the
-				// Foundry deployment must be named after the model.
-				externalId: "Microsoft-Decision-1",
+				// Foundry deployment must use this name (the portal default).
+				externalId: "Decision-1",
 				inputPrice: "0.042e-6",
 				outputPrice: "0",
 				contextSize: 32768,

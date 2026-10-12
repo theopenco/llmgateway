@@ -201,10 +201,10 @@ describe("decisions", () => {
 		const log = logs.find((l) => l.usedModel === "azure/microsoft-decision-1");
 		expect(log?.hasError).toBe(false);
 		expect(log?.apiOrigin).toBe("decisions");
-		// Azure is called with the deployment name, which matches the model name.
-		expect(log?.usedModelMapping).toBe("Microsoft-Decision-1");
+		// Azure is called with the deployment name, not the model name.
+		expect(log?.usedModelMapping).toBe("Decision-1");
 		expect(log?.upstreamRequest).toMatchObject({
-			model: "Microsoft-Decision-1",
+			model: "Decision-1",
 			state: "Checkout is down for all EU customers since 09:00.",
 		});
 		expect(Number(log?.cost)).toBeCloseTo(441 * 0.042e-6, 12);

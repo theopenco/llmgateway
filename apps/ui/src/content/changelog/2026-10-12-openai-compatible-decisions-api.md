@@ -56,7 +56,7 @@ Answers come back as an array in question order, each echoing its `name`. A ques
 
 ## Microsoft-Decision-1 on Azure
 
-`microsoft-decision-1` is Microsoft's small decision model for classification, routing, ranking and grading, with a 32K-token context. It runs on your own Azure resource: deploy it in Microsoft Foundry under the deployment name `Microsoft-Decision-1`, add your Azure key and resource, and call it as `azure/microsoft-decision-1`. It takes text only.
+`microsoft-decision-1` is Microsoft's small decision model for classification, routing, ranking and grading, with a 32K-token context. It runs on your own Azure resource: deploy it in Microsoft Foundry under the deployment name `Decision-1`, add your Azure key and resource, and call it as `azure/microsoft-decision-1`. It takes text only.
 
 ## Jev on the same endpoint
 
