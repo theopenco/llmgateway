@@ -12,27 +12,18 @@ image:
   height: 1024
 ---
 
-Typed decisions shipped on `/v1/systemone`, which speaks TypeSafe's request
-format. Now that OpenAI has its own Decisions API, a second wire format per
-provider would mean rewriting your integration every time you switch models.
-**`/v1/decisions`** is a new OpenAI-compatible endpoint that serves every
-decision model with one request shape, and the OpenAI SDKs work against it by
-changing the base URL.
+Typed decisions shipped on `/v1/systemone`, which speaks TypeSafe's request format. Now that OpenAI has its own Decisions API, a second wire format per provider would mean rewriting your integration every time you switch models. **`/v1/decisions`** is a new OpenAI-compatible endpoint that serves every decision model with one request shape, and the OpenAI SDKs work against it by changing the base URL.
 
 ## GPT-6 Luna Decisions, with image input
 
-`gpt-6-luna-decisions` is GPT-6 Luna served through OpenAI's Decisions API. It
-reads text or images and answers `predicate`, `choice` and `score` questions
-with calibrated probabilities.
+`gpt-6-luna-decisions` is GPT-6 Luna served through OpenAI's Decisions API. It reads text or images and answers `predicate`, `choice` and `score` questions with calibrated probabilities.
 
 | Model                  | Provider | Input        | Price (input only)                         |
 | ---------------------- | -------- | ------------ | ------------------------------------------ |
 | `gpt-6-luna-decisions` | OpenAI   | Text, images | $0.10 / 1M tokens ($0.20 above 272K input) |
 | `jev-1.13.0`           | TypeSafe | Text         | $0.042 / 1M tokens                         |
 
-Output, cache reads and cache writes are free on both — the response is a set
-of values, not generated text. `gpt-6-luna-decisions` has a 1.05M-token
-context and is in **beta**, matching OpenAI's public beta of the API.
+Output, cache reads and cache writes are free on both — the response is a set of values, not generated text. `gpt-6-luna-decisions` has a 1.05M-token context and is in **beta**, matching OpenAI's public beta of the API.
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/decisions" \
@@ -60,31 +51,17 @@ curl -X POST "https://api.llmgateway.io/v1/decisions" \
   }'
 ```
 
-Answers come back as an array in question order, each echoing its `name`. A
-question the model declines returns `refusal` while the rest are still
-answered. To evaluate an image, send a user message with `input_text` and
-`input_image` parts.
+Answers come back as an array in question order, each echoing its `name`. A question the model declines returns `refusal` while the rest are still answered. To evaluate an image, send a user message with `input_text` and `input_image` parts.
 
 ## Jev on the same endpoint
 
-`jev-1.13.0` works on `/v1/decisions` too, at the same price. The gateway
-translates the request to TypeSafe's format and the answers back, so switching
-between Jev and GPT-6 Luna Decisions is a one-field change. Jev is text-only:
-image parts are rejected with a `400`.
+`jev-1.13.0` works on `/v1/decisions` too, at the same price. The gateway translates the request to TypeSafe's format and the answers back, so switching between Jev and GPT-6 Luna Decisions is a one-field change. Jev is text-only: image parts are rejected with a `400`.
 
 ## /v1/systemone will be deprecated soon
 
-`/v1/systemone` keeps working for existing integrations, but it now serves
-TypeSafe models only and gets no new models. Requesting `gpt-6-luna-decisions`
-there returns a `400` pointing at `/v1/decisions`. We will announce a
-deprecation date separately; the
-[migration guide](https://docs.llmgateway.io/features/decisions#migrating-from-v1systemone)
-maps every field.
+`/v1/systemone` keeps working for existing integrations, but it now serves TypeSafe models only and gets no new models. Requesting `gpt-6-luna-decisions` there returns a `400` pointing at `/v1/decisions`. We will announce a deprecation date separately; the [migration guide](https://docs.llmgateway.io/features/decisions#migrating-from-v1systemone) maps every field.
 
-Both endpoints run the same machinery as the rest of the gateway: IAM rules,
-compliance policies, credit gating, provider key rotation, request logging with
-a per-model cost breakdown, and a per-organization limit of 600 requests per
-minute.
+Both endpoints run the same machinery as the rest of the gateway: IAM rules, compliance policies, credit gating, provider key rotation, request logging with a per-model cost breakdown, and a per-organization limit of 600 requests per minute.
 
 ---
 
