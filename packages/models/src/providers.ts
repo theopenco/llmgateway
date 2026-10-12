@@ -443,7 +443,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
-		privacyPolicyUrl: "https://business.safety.google/processorterms/",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -456,6 +456,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://business.safety.google/processorterms/",
+			},
+		],
 	},
 	{
 		id: "glacier",
@@ -521,7 +527,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -534,6 +540,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://cloud.google.com/terms/data-processing-addendum",
+			},
+		],
 	},
 	{
 		id: "vertex-openai",
@@ -566,7 +578,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		},
 		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -579,6 +591,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://cloud.google.com/terms/data-processing-addendum",
+			},
+		],
 	},
 	{
 		id: "vertex-anthropic",
@@ -613,7 +631,7 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		priority: 0.2,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -626,6 +644,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://cloud.google.com/terms/data-processing-addendum",
+			},
+		],
 	},
 	{
 		id: "quartz",
