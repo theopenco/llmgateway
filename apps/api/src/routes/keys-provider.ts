@@ -61,8 +61,10 @@ import type { ProviderId } from "@llmgateway/models";
 
 export const keysProvider = new OpenAPIHono<ServerTypes>();
 
-// Self-attested compliance posture for a custom provider key. Client-supplied
-// fields only — attestedAt/attestedByUserId are stamped server-side.
+// Self-attested compliance posture for a provider key. Client-supplied fields
+// only — attestedAt/attestedByUserId are stamped server-side. Custom providers
+// are evaluated against it by the compliance policy; on catalogue (BYOK) keys
+// it records the organization's own agreement with the provider.
 export const complianceAttestationSchema = z.object({
 	soc2: z
 		.union([z.literal(1), z.literal(2)])
@@ -430,6 +432,8 @@ const createProviderKeySchema = z.object({
 	// Optional allowlist of canonical model ids this key may serve. Empty/null
 	// means the provider's full catalogue.
 	allowedModels: allowedModelsSchema,
+	// Optional self-attested compliance posture of the account behind the key.
+	complianceAttestation: complianceAttestationSchema.optional(),
 });
 
 // Schema for updating a provider key status / settings
@@ -446,8 +450,8 @@ const updateProviderKeyStatusSchema = z
 		description: z.string().trim().max(200).nullable().optional(),
 		// Custom providers only: restrict requests to catalog-defined models.
 		customModelsOnly: z.boolean().optional(),
-		// Custom providers only: self-attested compliance posture. `null` clears
-		// the attestation (restoring the fail-closed blocked state).
+		// Self-attested compliance posture. `null` clears the attestation (for
+		// custom providers this restores the fail-closed blocked state).
 		complianceAttestation: complianceAttestationSchema.nullable().optional(),
 		// USD spend cap; `null` clears it.
 		usageLimit: createNullableLimitSchema("Usage limit").optional(),
@@ -511,6 +515,7 @@ keysProvider.openapi(create, async (c) => {
 		organizationId,
 		usageLimit,
 		allowedModels: requestedAllowedModels,
+		complianceAttestation,
 	} = c.req.valid("json");
 
 	const allowedModels = normalizeAllowedModels(requestedAllowedModels);
@@ -713,6 +718,10 @@ keysProvider.openapi(create, async (c) => {
 			options,
 			usageLimit: usageLimit ?? null,
 			allowedModels,
+			complianceAttestation: stampComplianceAttestation(
+				complianceAttestation ?? null,
+				user.id,
+			),
 		})
 		.returning();
 
@@ -726,6 +735,7 @@ keysProvider.openapi(create, async (c) => {
 			provider,
 			hasCustomBaseUrl: !!baseUrl,
 			allowedModels,
+			hasComplianceAttestation: !!complianceAttestation,
 		},
 	});
 
@@ -1093,15 +1103,6 @@ keysProvider.openapi(updateStatus, async (c) => {
 			allowedModels,
 			providerKey.options ?? undefined,
 		);
-	}
-
-	if (complianceAttestation !== undefined) {
-		if (providerKey.provider !== "custom") {
-			throw new HTTPException(400, {
-				message:
-					"complianceAttestation can only be set on custom provider keys",
-			});
-		}
 	}
 
 	// Re-enabling an over-limit key without raising or clearing the limit would

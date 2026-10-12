@@ -8,6 +8,7 @@ import {
 	getProviderComplianceFailures,
 	getProviderCountries,
 	getProviderDefinition,
+	getProviderKeyAttestationComplianceFailures,
 	getProviderRefPolicyListFailures,
 	isAttestationCompliant,
 	isLiveMapping,
@@ -983,5 +984,75 @@ describe("getCompliantProvidersForModel", () => {
 				now,
 			),
 		).toEqual([]);
+	});
+});
+
+describe("getProviderKeyAttestationComplianceFailures", () => {
+	const provider = {
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2 as const,
+			iso27001: true,
+			gdpr: true,
+		},
+		headquarters: "US",
+	};
+
+	it("adds no restriction without an attestation or an enabled policy", () => {
+		const zdr = { enabled: true, zeroDataRetention: true };
+		expect(
+			getProviderKeyAttestationComplianceFailures(provider, null, zdr),
+		).toEqual([]);
+		expect(
+			getProviderKeyAttestationComplianceFailures(
+				provider,
+				{ promptLogging: true },
+				{ enabled: false, zeroDataRetention: true },
+			),
+		).toEqual([]);
+	});
+
+	it("lets attested fields override the catalogue data policy", () => {
+		expect(
+			getProviderKeyAttestationComplianceFailures(
+				provider,
+				{ promptLogging: true, retentionPeriod: "30 days" },
+				{ enabled: true, zeroDataRetention: true, blockPromptLogging: true },
+			),
+		).toEqual(["blockPromptLogging", "zeroDataRetention"]);
+		expect(
+			getProviderKeyAttestationComplianceFailures(
+				{
+					...provider,
+					dataPolicy: { ...provider.dataPolicy, apiTraining: null },
+				},
+				{ apiTraining: false },
+				{ enabled: true, blockApiTraining: true },
+			),
+		).toEqual([]);
+	});
+
+	it("falls back to the catalogue for fields left unset", () => {
+		expect(
+			getProviderKeyAttestationComplianceFailures(
+				provider,
+				{ apiTraining: true },
+				{
+					enabled: true,
+					requireSoc2Type2: true,
+					zeroDataRetention: true,
+					allowedCountries: ["US"],
+				},
+			),
+		).toEqual([]);
+		expect(
+			getProviderKeyAttestationComplianceFailures(
+				provider,
+				{ headquarters: "FR" },
+				{ enabled: true, allowedCountries: ["US"] },
+			),
+		).toEqual(["allowedCountries"]);
 	});
 });

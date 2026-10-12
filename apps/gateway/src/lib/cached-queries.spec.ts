@@ -453,6 +453,64 @@ describe("Cached Queries - Gateway Database Access", () => {
 	 * treats index 0 of the query result as primary. Before sortOrder existed
 	 * that just meant "oldest", so an organization could not promote a key.
 	 */
+	describe("BYOK compliance attestations", () => {
+		beforeEach(async () => {
+			await redisClient.flushdb();
+		});
+
+		async function attestPrimary(apiTraining: boolean) {
+			await cdb
+				.update(providerKey)
+				.set({ complianceAttestation: { apiTraining } })
+				.where(eq(providerKey.id, testProviderKeyId));
+		}
+
+		async function setPolicy(enabled: boolean) {
+			await cdb
+				.update(organization)
+				.set({
+					providerCompliancePolicy: { enabled, blockApiTraining: true },
+				})
+				.where(eq(organization.id, testOrgId));
+		}
+
+		it("skips a key whose attestation fails the active policy", async () => {
+			await attestPrimary(true);
+			await setPolicy(true);
+
+			const selected = await findProviderKey(testOrgId, "openai");
+			const active = await findActiveProviderKeys(testOrgId);
+			const byProvider = await findProviderKeysByProviders(testOrgId, [
+				"openai",
+			]);
+
+			expect(selected?.id).toBe("test-provider-key-cached-queries-2");
+			expect(active.map((key) => key.id)).not.toContain(testProviderKeyId);
+			expect(active.map((key) => key.id)).toContain("test-custom-provider-key");
+			expect(byProvider.map((key) => key.id)).toEqual([
+				"test-provider-key-cached-queries-2",
+			]);
+		});
+
+		it("keeps the key when its attestation satisfies the policy", async () => {
+			await attestPrimary(false);
+			await setPolicy(true);
+
+			const selected = await findProviderKey(testOrgId, "openai");
+
+			expect(selected?.id).toBe(testProviderKeyId);
+		});
+
+		it("keeps the key while the policy is disabled", async () => {
+			await attestPrimary(true);
+			await setPolicy(false);
+
+			const selected = await findProviderKey(testOrgId, "openai");
+
+			expect(selected?.id).toBe(testProviderKeyId);
+		});
+	});
+
 	describe("findProviderKey - manual order", () => {
 		// This file seeds through the plain client, which does not invalidate the
 		// cache, while these cases mutate through cdb, which does. Without a

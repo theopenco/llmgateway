@@ -29,6 +29,7 @@ import {
 	endCustomer as endCustomerTable,
 	endUserSession as endUserSessionTable,
 	getEffectiveDiscount,
+	getEffectiveProviders,
 	getEffectiveRateLimit,
 	addApiKeyPeriodDuration,
 	organizationCacheTag,
@@ -52,7 +53,12 @@ import {
 	userProject as userProjectTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
-import { getRegionScopedDefaultRegion, providers } from "@llmgateway/models";
+import {
+	getProviderDefinition,
+	getRegionScopedDefaultRegion,
+	isProviderKeyAttestationCompliant,
+	providers,
+} from "@llmgateway/models";
 import {
 	CONTENT_FILTER_SETTING_ID,
 	parseContentFilterSettings,
@@ -837,6 +843,42 @@ export async function findActiveCustomModels(
  * exclusions narrow it — the "which of my keys could have been used" answer
  * surfaced in routing metadata.
  */
+/**
+ * Drop the organization's own catalogue-provider keys whose compliance
+ * attestation fails its enabled compliance policy, so no selection path
+ * (auto routing, explicit provider requests, retries, non-chat endpoints) can
+ * send traffic through an account the organization declared non-compliant.
+ * Keys without an attestation are kept: the provider-level policy check
+ * already covers them. Custom provider keys are evaluated separately.
+ */
+async function dropNonCompliantByokKeys(
+	organizationId: string,
+	keys: ProviderKey[],
+): Promise<ProviderKey[]> {
+	if (
+		!keys.some((key) => key.provider !== "custom" && key.complianceAttestation)
+	) {
+		return keys;
+	}
+	const policy = (await findOrganizationCachedById(organizationId))
+		?.providerCompliancePolicy;
+	if (!policy?.enabled) {
+		return keys;
+	}
+	const effectiveProviders = await getEffectiveProviders();
+	return keys.filter(
+		(key) =>
+			key.provider === "custom" ||
+			!key.complianceAttestation ||
+			isProviderKeyAttestationCompliant(
+				effectiveProviders.find((provider) => provider.id === key.provider) ??
+					getProviderDefinition(key.provider),
+				key.complianceAttestation,
+				policy,
+			),
+	);
+}
+
 export async function listEligibleProviderKeys(
 	organizationId: string,
 	provider: string,
@@ -866,7 +908,8 @@ export async function listEligibleProviderKeys(
 					asc(providerKeyTable.id),
 				),
 	);
-	return filter ? results.filter(filter) : results;
+	const compliant = await dropNonCompliantByokKeys(organizationId, results);
+	return filter ? compliant.filter(filter) : compliant;
 }
 
 /**
@@ -897,7 +940,7 @@ export async function findProviderKey(
 export async function findActiveProviderKeys(
 	organizationId: string,
 ): Promise<ProviderKey[]> {
-	return await swrWrap(
+	const keys = await swrWrap(
 		`providerKey:active:${organizationId}`,
 		[providerKeyTableName],
 		async () =>
@@ -920,6 +963,7 @@ export async function findActiveProviderKeys(
 					asc(providerKeyTable.id),
 				),
 	);
+	return await dropNonCompliantByokKeys(organizationId, keys);
 }
 
 /**
@@ -933,7 +977,7 @@ export async function findProviderKeysByProviders(
 		return [];
 	}
 	const providersKey = providers.slice().sort().join(",");
-	return await swrWrap(
+	const keys = await swrWrap(
 		`providerKey:byProviders:${organizationId}:${providersKey}`,
 		[providerKeyTableName],
 		async () =>
@@ -957,6 +1001,7 @@ export async function findProviderKeysByProviders(
 					asc(providerKeyTable.id),
 				),
 	);
+	return await dropNonCompliantByokKeys(organizationId, keys);
 }
 
 export interface FindManagedProviderKeyOptions {

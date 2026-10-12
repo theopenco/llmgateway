@@ -445,6 +445,15 @@ export function ProviderKeysList({
 																				{providerKey.name}
 																			</Badge>
 																		)}
+																	{provider.id !== "custom" &&
+																		providerKey.complianceAttestation && (
+																			<Badge
+																				variant="secondary"
+																				className="text-xs"
+																			>
+																				Attested
+																			</Badge>
+																		)}
 																	{provider.id === "custom" &&
 																		(providerKey.complianceAttestation ? (
 																			<Badge

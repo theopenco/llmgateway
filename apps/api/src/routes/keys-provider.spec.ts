@@ -398,6 +398,64 @@ describe("provider keys route", () => {
 		}
 	});
 
+	test("POST /keys/provider stores an optional compliance attestation", async () => {
+		const res = await app.request("/keys/provider", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				provider: "inference.net",
+				token: "inference-attested-token",
+				organizationId: "test-org-id",
+				complianceAttestation: {
+					apiTraining: false,
+					promptLogging: false,
+					retentionPeriod: "0 days",
+					attestedByUserId: "forged-user-id",
+				},
+			}),
+		});
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.providerKey.complianceAttestation).toMatchObject({
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			attestedByUserId: "test-user-id",
+		});
+
+		const providerKey = await db.query.providerKey.findFirst({
+			where: { id: { eq: json.providerKey.id } },
+		});
+		expect(providerKey?.complianceAttestation?.attestedByUserId).toBe(
+			"test-user-id",
+		);
+		expect(providerKey?.complianceAttestation?.attestedAt).toBeTruthy();
+	});
+
+	test("POST /keys/provider without an attestation stores none", async () => {
+		const res = await app.request("/keys/provider", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				provider: "inference.net",
+				token: "inference-unattested-token",
+				organizationId: "test-org-id",
+			}),
+		});
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		const providerKey = await db.query.providerKey.findFirst({
+			where: { id: { eq: json.providerKey.id } },
+		});
+		expect(providerKey?.complianceAttestation).toBeNull();
+	});
+
 	test("POST /keys/provider AAD binds ciphertext to row id + organization", async () => {
 		const res = await app.request("/keys/provider", {
 			method: "POST",
@@ -1009,18 +1067,21 @@ describe("provider keys route", () => {
 			});
 		}
 
-		test("rejects attestation on a non-custom key", async () => {
-			await db
-				.update(tables.organization)
-				.set({ plan: "enterprise" })
-				.where(eq(tables.organization.id, "test-org-id"));
+		test("stores an attestation on a catalogue (BYOK) key", async () => {
+			const res = await patchAttestation("test-provider-key-id", {
+				promptLogging: false,
+				retentionPeriod: "0 days",
+			});
+			expect(res.status).toBe(200);
 
-			const res = await patchAttestation("test-provider-key-id", { soc2: 2 });
-			expect(res.status).toBe(400);
-			const json = await res.json();
-			expect(json.message).toContain(
-				"complianceAttestation can only be set on custom provider keys",
-			);
+			const providerKey = await db.query.providerKey.findFirst({
+				where: { id: { eq: "test-provider-key-id" } },
+			});
+			expect(providerKey?.complianceAttestation).toMatchObject({
+				promptLogging: false,
+				retentionPeriod: "0 days",
+				attestedByUserId: "test-user-id",
+			});
 		});
 
 		test("rejects attestation for non-enterprise organizations", async () => {

@@ -2129,12 +2129,13 @@ export interface ProviderKeyOptions {
 export type ProviderKeyVariant = "default" | "enterprise" | "plans";
 
 /**
- * Org-supplied compliance posture for a custom provider key. LLMGateway does
- * not verify these claims — they are the organization's own attestation about
- * infrastructure it operates, evaluated against its provider compliance
- * policy. Null (the default) keeps the fail-closed behaviour (blocked under
- * any enabled policy). attestedAt / attestedByUserId are written server-side
- * only.
+ * Org-supplied compliance posture for a provider key. LLMGateway does not
+ * verify these claims — they are the organization's own attestation, evaluated
+ * against its provider compliance policy. For custom providers it is the only
+ * source: null (the default) keeps the fail-closed behaviour (blocked under any
+ * enabled policy). For catalogue (BYOK) keys each attested field overrides the
+ * provider's published data policy for that key, and null adds no restriction.
+ * attestedAt / attestedByUserId are written server-side only.
  */
 export interface ProviderKeyComplianceAttestation extends ProviderComplianceAttestation {
 	attestedAt?: string;
@@ -2169,7 +2170,7 @@ export const providerKey = snakeCase.table(
 		// When true (custom providers only), requests through this key are
 		// restricted to models defined in its custom model catalog.
 		customModelsOnly: boolean().notNull().default(false),
-		// Custom providers only. See ProviderKeyComplianceAttestation.
+		// See ProviderKeyComplianceAttestation.
 		complianceAttestation: jsonb().$type<ProviderKeyComplianceAttestation>(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
@@ -2258,10 +2259,6 @@ export const providerKey = snakeCase.table(
 		check(
 			"provider_key_managed_org_scope",
 			sql`(${table.managed} = true AND ${table.organizationId} IS NULL) OR (${table.managed} = false AND ${table.organizationId} IS NOT NULL)`,
-		),
-		check(
-			"provider_key_attestation_custom_only",
-			sql`${table.complianceAttestation} IS NULL OR ${table.provider} = 'custom'`,
 		),
 	],
 );

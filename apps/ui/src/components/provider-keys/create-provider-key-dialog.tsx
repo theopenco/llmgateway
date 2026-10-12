@@ -35,6 +35,11 @@ import {
 import { getProviderModelIds } from "@llmgateway/shared";
 import { MultiModelIdSelector } from "@llmgateway/shared/components";
 
+import {
+	ByokAttestationFields,
+	EMPTY_BYOK_ATTESTATION,
+	toByokAttestationBody,
+} from "./byok-attestation-fields";
 import { CustomProviderEnterpriseNotice } from "./custom-provider-enterprise-notice";
 import { ProviderSelect } from "./provider-select";
 
@@ -79,6 +84,7 @@ export function CreateProviderKeyDialog({
 	);
 	const [usageLimit, setUsageLimit] = useState("");
 	const [allowedModels, setAllowedModels] = useState<string[]>([]);
+	const [attestation, setAttestation] = useState(EMPTY_BYOK_ATTESTATION);
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -234,6 +240,7 @@ export function CreateProviderKeyDialog({
 			organizationId: string;
 			usageLimit?: string;
 			allowedModels?: string[];
+			complianceAttestation?: ReturnType<typeof toByokAttestationBody>;
 		} = {
 			provider: selectedProvider,
 			token: trimmedToken,
@@ -256,6 +263,13 @@ export function CreateProviderKeyDialog({
 		// one, and the field is hidden for it.
 		if (selectedProvider !== "custom" && allowedModels.length > 0) {
 			payload.allowedModels = allowedModels;
+		}
+		const attestationBody =
+			selectedProvider !== "custom"
+				? toByokAttestationBody(attestation)
+				: undefined;
+		if (attestationBody) {
+			payload.complianceAttestation = attestationBody;
 		}
 		// Include region in options for providers that support it. Storing a
 		// region locks routing to it (a data-residency guarantee), so the
@@ -451,6 +465,7 @@ export function CreateProviderKeyDialog({
 			setVertexTokenType("api-key");
 			setUsageLimit("");
 			setAllowedModels([]);
+			setAttestation(EMPTY_BYOK_ATTESTATION);
 		}, 300);
 	};
 
@@ -883,6 +898,14 @@ export function CreateProviderKeyDialog({
 									the spend attributed to it reaches this amount.
 								</p>
 							</div>
+
+							{selectedProvider && selectedProvider !== "custom" && (
+								<ByokAttestationFields
+									provider={selectedProviderDef}
+									value={attestation}
+									onChange={setAttestation}
+								/>
+							)}
 						</>
 					)}
 

@@ -1,0 +1,1 @@
+ALTER TABLE "provider_key" DROP CONSTRAINT "provider_key_attestation_custom_only";

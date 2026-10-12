@@ -2691,6 +2691,53 @@ export function getAttestationComplianceFailures(
 	);
 }
 
+/**
+ * Every reason a catalogue provider key's own attestation fails the policy.
+ *
+ * Unlike custom providers, a BYOK key for a catalogue provider starts from the
+ * provider's published data policy: each attested field overrides the
+ * catalogue value, and a field left unset keeps it. Without an attestation
+ * the key adds no restriction beyond the provider-level check, so this returns
+ * empty. Used to keep auto routing from picking an organization's own key
+ * whose account terms (e.g. prompt logging) violate the policy.
+ */
+export function getProviderKeyAttestationComplianceFailures(
+	provider: Pick<ProviderDefinition, "dataPolicy" | "headquarters"> | undefined,
+	attestation: ProviderComplianceAttestation | null | undefined,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
+	if (!policy.enabled || !attestation) {
+		return [];
+	}
+	const catalogue = provider?.dataPolicy ?? null;
+	return getDataPolicyComplianceFailures(
+		{
+			apiTraining: attestation.apiTraining ?? catalogue?.apiTraining ?? null,
+			promptLogging:
+				attestation.promptLogging ?? catalogue?.promptLogging ?? null,
+			retentionPeriod:
+				attestation.retentionPeriod ?? catalogue?.retentionPeriod ?? null,
+			soc2: attestation.soc2 ?? catalogue?.soc2 ?? null,
+			iso27001: attestation.iso27001 ?? catalogue?.iso27001 ?? null,
+			gdpr: attestation.gdpr ?? catalogue?.gdpr ?? null,
+		},
+		attestation.headquarters ?? provider?.headquarters ?? null,
+		policy,
+	);
+}
+
+/** Whether a catalogue provider key's attestation satisfies the policy. */
+export function isProviderKeyAttestationCompliant(
+	provider: Pick<ProviderDefinition, "dataPolicy" | "headquarters"> | undefined,
+	attestation: ProviderComplianceAttestation | null | undefined,
+	policy: ProviderCompliancePolicy,
+): boolean {
+	return (
+		getProviderKeyAttestationComplianceFailures(provider, attestation, policy)
+			.length === 0
+	);
+}
+
 export interface ProviderCountry {
 	/** ISO 3166-1 alpha-2 country code */
 	code: string;
