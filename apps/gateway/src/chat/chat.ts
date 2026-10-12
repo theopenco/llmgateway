@@ -185,6 +185,7 @@ import {
 	generateStreamingCacheKey,
 	getCache,
 	getStreamingCache,
+	redisClient,
 	setCache,
 	setStreamingCache,
 } from "@llmgateway/cache";
@@ -8211,7 +8212,6 @@ chat.openapi(completions, async (c) => {
 		isGoogleCompatibleProvider(transportProvider) &&
 		!zeroDataRetentionEnabled
 	) {
-		const { redisClient } = await import("@llmgateway/cache");
 		for (const message of messages) {
 			if (
 				message.role === "assistant" &&
