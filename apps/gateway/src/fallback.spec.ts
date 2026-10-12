@@ -529,6 +529,36 @@ describe("fallback and error status code handling", () => {
 			expect(Number(logs[0].cost)).toBeGreaterThan(0);
 		});
 
+		test("skips a cheaper mapping whose context window is too small for the prompt", async () => {
+			await setupCustomAutoRouting();
+			await db
+				.update(tables.customModel)
+				.set({ contextSize: 1_000 })
+				.where(eq(tables.customModel.id, "auto-custom-model"));
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "claude-haiku-4-5",
+					routing: "price",
+					messages: [{ role: "user", content: "x ".repeat(4_000) }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedProvider).toBe("anthropic");
+			const filtered = logs[0].routingMetadata?.filteredProviders ?? [];
+			expect(filtered.find((f) => f.providerId === "custom")?.codes).toContain(
+				"context_size",
+			);
+		});
+
 		test("honors scoring weights with a matching custom model", async () => {
 			await setupCustomAutoRouting();
 			await db.insert(tables.routingConfig).values({
