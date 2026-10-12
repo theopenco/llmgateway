@@ -135,6 +135,17 @@ export function findDecisionMapping(
 	return { match: null, unsupported };
 }
 
+/** Reports a misconfigured Azure resource as a 400 rather than a bare 500. */
+function toAzureFoundryBaseUrl(resource: string): string {
+	try {
+		return getAzureFoundryBaseUrl(resource);
+	} catch {
+		throw new HTTPException(400, {
+			message: `Invalid Azure resource "${resource}": must be 1-64 letters, digits, or hyphens`,
+		});
+	}
+}
+
 async function assertCreditsAvailable(
 	c: Context,
 	organization: InferSelectModel<typeof tables.organization>,
@@ -300,10 +311,6 @@ export async function handleDecisionRequest(
 	} = match;
 	const providerId = decisionMapping.providerId;
 	const upstreamModel = decisionMapping.externalId;
-	const upstreamRequest = endpoint.buildUpstreamRequest(
-		providerId,
-		upstreamModel,
-	);
 	const responseModel = formatUsedModelForDisplay(
 		providerId,
 		modelDefId,
@@ -341,6 +348,13 @@ export async function handleDecisionRequest(
 		apiKeyId: apiKey.id,
 		model: requestedModel,
 	});
+
+	// Translate only once the caller is allowed to use the model, so a denied
+	// caller sees the access error rather than an input error.
+	const upstreamRequest = endpoint.buildUpstreamRequest(
+		providerId,
+		upstreamModel,
+	);
 
 	const failedKeys = createFailedKeyTracker();
 	const routingAttempts: RoutingAttempt[] = [];
@@ -409,6 +423,7 @@ export async function handleDecisionRequest(
 					requiresServiceTier: false,
 					excludedEnvIndices: excludedEnvKeyIndices,
 					excludedProviderKeyIds,
+					model: modelDefId,
 				},
 			);
 			managedKeyInner = platformCredential.managedKey;
@@ -484,13 +499,15 @@ export async function handleDecisionRequest(
 						variant: envVariant,
 					}))
 				: undefined;
+		// The decision route only exists on the Foundry host, so a resource wins
+		// over an Azure base URL, which points at the OpenAI-compatible surface.
 		const resolvedBaseUrl =
+			(azureResource ? toAzureFoundryBaseUrl(azureResource) : undefined) ??
 			providerKeyInner?.baseUrl ??
 			getCredentialSetting(providerId as Provider, "baseUrl", credential, {
 				configIndex,
 				variant: envVariant,
 			}) ??
-			(azureResource ? getAzureFoundryBaseUrl(azureResource) : undefined) ??
 			getProviderDefaultBaseUrl(providerId);
 		if (!resolvedBaseUrl) {
 			throw new HTTPException(500, {

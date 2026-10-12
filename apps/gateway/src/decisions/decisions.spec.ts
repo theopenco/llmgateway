@@ -210,6 +210,32 @@ describe("decisions", () => {
 		expect(Number(log?.cost)).toBeCloseTo(441 * 0.042e-6, 12);
 	});
 
+	test("/v1/decisions reports an invalid Azure resource as a 400", async () => {
+		await seedApiKey("decisions-azure-bad-resource");
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-decisions-azure-bad-resource",
+			...encryptProviderKeyForStorage(
+				"azure-token",
+				"provider-key-decisions-azure-bad-resource",
+				"org-id",
+			),
+			provider: "azure",
+			organizationId: "org-id",
+			options: { azure_resource: "evil.example.com/x" },
+		});
+
+		const res = await postDecision("decisions-azure-bad-resource", {
+			model: "azure/microsoft-decision-1",
+			input: "hello",
+			questions: [QUESTIONS[1]],
+		});
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toContain(
+			"Invalid Azure resource",
+		);
+	});
+
 	test("/v1/decisions rejects image input for a text-only decision model", async () => {
 		await seedApiKey("decisions-jev-image");
 		await seedProviderKey("decisions-jev-image", "typesafe");
@@ -256,7 +282,9 @@ describe("decisions", () => {
 		});
 
 		expect(res.status).toBe(400);
-		expect((await res.json()).success).toBe(false);
+		const json = await res.json();
+		expect(json.error.code).toBe("invalid_parameters");
+		expect(json.error.type).toBe("invalid_request_error");
 	});
 
 	test("/v1/decisions surfaces an upstream failure and logs it", async () => {

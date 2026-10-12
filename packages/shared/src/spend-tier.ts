@@ -74,8 +74,9 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		chatDefaultRpm: 120,
 	},
 	{
-		// Decisions share TypeSafe's ceiling with /v1/systemone (Jev is served on
-		// both), so the per-org limit matches it.
+		// Same per-org limit as /v1/systemone. The two are separate buckets, so
+		// Jev traffic split across both can reach TypeSafe's account-wide 1,200
+		// rpm ceiling; the provider's own 429s then apply.
 		key: "decisions",
 		prefix: "/v1/decisions",
 		defaultRpm: 600,

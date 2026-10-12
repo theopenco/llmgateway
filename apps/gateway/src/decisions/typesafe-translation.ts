@@ -115,6 +115,14 @@ function questionKeys(questions: DecisionQuestion[]): string[] {
 	});
 }
 
+/** System One rates a score question across two to ten levels. */
+const MAX_SYSTEM_ONE_SCORE_LEVELS = 10;
+
+/** Reads an own property only, so inherited names never resolve. */
+function ownValue(record: Record<string, unknown>, key: string): unknown {
+	return Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
 function choiceKey(value: DecisionChoiceValue): string {
 	return String(value);
 }
@@ -124,19 +132,32 @@ function toTypeSafeQuestion(question: DecisionQuestion) {
 		case "predicate":
 			return { type: "noul", instructions: question.instructions };
 		case "choice": {
-			const criteria: Record<string, string | null> = {};
+			const seen = new Set<string>();
+			const entries: [string, string | null][] = [];
 			for (const choice of question.choices) {
 				const key = choiceKey(choice.value);
-				if (key in criteria) {
+				if (seen.has(key)) {
 					throw badRequest(
 						`Choice values must be unique as text for this model: ${key}`,
 					);
 				}
-				criteria[key] = choice.description ?? null;
+				seen.add(key);
+				entries.push([key, choice.description ?? null]);
 			}
-			return { type: "choice", instructions: question.instructions, criteria };
+			// fromEntries defines own properties, so values such as "__proto__"
+			// or "constructor" survive as ordinary keys.
+			return {
+				type: "choice",
+				instructions: question.instructions,
+				criteria: Object.fromEntries(entries),
+			};
 		}
 		case "score":
+			if (question.levels.length > MAX_SYSTEM_ONE_SCORE_LEVELS) {
+				throw badRequest(
+					`This model accepts at most ${MAX_SYSTEM_ONE_SCORE_LEVELS} score levels per question`,
+				);
+			}
 			return {
 				type: "score",
 				instructions: question.instructions,
@@ -201,7 +222,9 @@ function toDecisionAnswer(
 				choice: chosen.value,
 				probabilities: question.choices.map((choice) => ({
 					value: choice.value,
-					probability: Number(probabilities[choiceKey(choice.value)] ?? 0),
+					probability: Number(
+						ownValue(probabilities, choiceKey(choice.value)) ?? 0,
+					),
 				})),
 				confidence: answer.confidence,
 			};
@@ -217,7 +240,7 @@ function toDecisionAnswer(
 				probabilities: question.levels.map((level, index) => ({
 					value: index,
 					label: level.label,
-					probability: Number(probabilities[String(index)] ?? 0),
+					probability: Number(ownValue(probabilities, String(index)) ?? 0),
 				})),
 				confidence: answer.confidence,
 			};
@@ -243,7 +266,7 @@ export function fromTypeSafeResponse(
 	return {
 		model: responseModel,
 		answers: request.questions.map((question, index) =>
-			toDecisionAnswer(question, asRecord(answers[keys[index]])),
+			toDecisionAnswer(question, asRecord(ownValue(answers, keys[index]))),
 		),
 		usage: {
 			input_tokens: inputTokens,

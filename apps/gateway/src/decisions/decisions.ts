@@ -199,7 +199,27 @@ function speaksOpenAIDecisions(providerId: string): boolean {
 	return providerId === "openai";
 }
 
-export const decisions = new OpenAPIHono<ServerTypes>();
+// Schema failures use the OpenAI error envelope, like every other error on
+// this OpenAI-compatible endpoint, instead of zod-openapi's raw issue dump.
+export const decisions = new OpenAPIHono<ServerTypes>({
+	defaultHook: (result, c) => {
+		if (result.success) {
+			return;
+		}
+		const issue = result.error.issues[0];
+		return c.json(
+			{
+				error: {
+					message: `Invalid request parameters: ${issue?.message ?? "unknown"}`,
+					type: "invalid_request_error",
+					param: issue?.path.join(".") || null,
+					code: "invalid_parameters",
+				},
+			},
+			400,
+		);
+	},
+});
 
 const createDecision = createRoute({
 	operationId: "v1_decisions",

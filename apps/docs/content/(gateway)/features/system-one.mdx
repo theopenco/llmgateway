@@ -165,5 +165,6 @@ answer makes them relevant.
 	Decision models only work on `/v1/decisions` and `/v1/systemone`. Requesting
 	one on `/v1/chat/completions` returns a 400 pointing you at the right
 	endpoint, they cannot generate text or call tools, and they are not available
-	in the playground. Input is text only.
+	in the playground. `/v1/systemone` takes text or JSON state only; image input
+	is available on `/v1/decisions` for models that support it.
 </Callout>
