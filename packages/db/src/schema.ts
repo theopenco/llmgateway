@@ -2347,6 +2347,7 @@ export const API_ORIGINS = [
 	"transcriptions",
 	"rerank",
 	"systemone",
+	"decisions",
 	"search",
 ] as const;
 
