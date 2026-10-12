@@ -226,6 +226,122 @@ describe("organization timeseries", () => {
 		}
 	});
 
+	it("serves project prompt cache rates to enterprise organizations only", async () => {
+		const path =
+			"/activity/prompt-cache?projectId=cache-project&from=2026-10-01&to=2026-10-01";
+		const headers = { Cookie: cookie };
+		expect((await app.request(path)).status).toBe(401);
+		expect((await app.request(path, { headers })).status).toBe(403);
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: "cache-org",
+			role: "owner",
+		});
+		expect((await app.request(path, { headers })).status).toBe(403);
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise" })
+			.where(eq(tables.organization.id, "cache-org"));
+		const hourly = await app.request(path, { headers });
+		expect(hourly.status).toBe(200);
+		const { timeseries } = await hourly.json();
+		expect(timeseries.bucket).toBe("hour");
+		expect(timeseries.points).toHaveLength(24);
+		expect(timeseries.series).toEqual([{ key: "model", label: "model" }]);
+		const daily = await app.request(path + "&bucket=day", { headers });
+		const point = (await daily.json()).timeseries.points[0];
+		expect(promptCacheRate(point.entries[0])).toBe(10);
+		// A second key in the same project with a very different cache rate.
+		await db.insert(tables.apiKey).values({
+			id: "other-cache-key",
+			projectId: "cache-project",
+			description: "Other Key",
+			createdBy: "cache-user",
+			...hashApiKeyForStorage("other-cache-token"),
+		});
+		await db.insert(tables.apiKeyHourlyModelStats).values({
+			projectId: "cache-project",
+			apiKeyId: "other-cache-key",
+			hourTimestamp: startDate,
+			usedModel: "provider/other-model",
+			usedProvider: "provider",
+			requestCount: 10,
+			inputTokens: "1000",
+			cachedTokens: "900",
+		});
+		const filtered = await app.request(
+			path + "&bucket=day&apiKeyId=cache-key",
+			{ headers },
+		);
+		expect(filtered.status).toBe(200);
+		const filteredPoint = (await filtered.json()).timeseries.points[0];
+		expect(filteredPoint.totals.inputTokens).toBe(1000);
+		expect(promptCacheRate(filteredPoint.entries[0])).toBe(10);
+		const other = await app.request(
+			path + "&bucket=day&apiKeyId=other-cache-key",
+			{ headers },
+		);
+		expect(
+			promptCacheRate((await other.json()).timeseries.points[0].totals),
+		).toBe(90);
+		// Ranges over 30 days default to daily buckets instead of failing.
+		const long = await app.request(
+			"/activity/prompt-cache?projectId=cache-project&from=2026-08-01&to=2026-10-01",
+			{ headers },
+		);
+		expect(long.status).toBe(200);
+		expect((await long.json()).timeseries.bucket).toBe("day");
+	});
+	it("limits key-scoped developers to their own keys' prompt cache data", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise" })
+			.where(eq(tables.organization.id, "cache-org"));
+		await db.insert(tables.userOrganization).values({
+			id: "cache-dev-membership",
+			userId: "test-user-id",
+			organizationId: "cache-org",
+			role: "developer",
+		});
+		await db.insert(tables.userProject).values({
+			id: "cache-dev-project",
+			userOrganizationId: "cache-dev-membership",
+			projectId: "cache-project",
+		});
+		await db.insert(tables.apiKey).values({
+			id: "dev-own-key",
+			projectId: "cache-project",
+			description: "Own Key",
+			createdBy: "test-user-id",
+			...hashApiKeyForStorage("dev-own-token"),
+		});
+		await db.insert(tables.apiKeyHourlyModelStats).values({
+			projectId: "cache-project",
+			apiKeyId: "dev-own-key",
+			hourTimestamp: startDate,
+			usedModel: "provider/own-model",
+			usedProvider: "provider",
+			requestCount: 6,
+			inputTokens: "200",
+			cachedTokens: "50",
+		});
+		const headers = { Cookie: cookie };
+		const path =
+			"/activity/prompt-cache?projectId=cache-project&from=2026-10-01&to=2026-10-01&bucket=day";
+		const res = await app.request(path, { headers });
+		expect(res.status).toBe(200);
+		const { timeseries } = await res.json();
+		expect(timeseries.series).toEqual([
+			{ key: "own-model", label: "own-model" },
+		]);
+		expect(timeseries.filters.models).toEqual([
+			{ key: "own-model", label: "own-model" },
+		]);
+		expect(timeseries.points[0].totals.inputTokens).toBe(200);
+		expect(
+			(await app.request(path + "&apiKeyId=cache-key", { headers })).status,
+		).toBe(403);
+	});
 	it("scopes admin project timeseries to the requested project", async () => {
 		const hour = new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000);
 		await db.insert(tables.projectHourlyModelStats).values(
