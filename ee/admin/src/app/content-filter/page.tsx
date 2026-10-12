@@ -30,6 +30,7 @@ import {
 	type ContentFilterViolationsSort,
 	type ContentFilterViolationsWindow,
 } from "@/lib/content-filter-ranking";
+import { requireSession } from "@/lib/require-session";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
@@ -141,26 +142,6 @@ const percentFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 1,
 });
 
-function SignInPrompt() {
-	return (
-		<div className="flex min-h-screen items-center justify-center px-4">
-			<div className="w-full max-w-md text-center">
-				<div className="mb-8">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Admin Dashboard
-					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Sign in to access the admin dashboard
-					</p>
-				</div>
-				<Button asChild size="lg" className="w-full">
-					<Link href="/login">Sign In</Link>
-				</Button>
-			</div>
-		</div>
-	);
-}
-
 export default async function ContentFilterPage({
 	searchParams,
 }: {
@@ -172,6 +153,7 @@ export default async function ContentFilterPage({
 		focusModel?: string;
 	}>;
 }) {
+	await requireSession();
 	const params = await searchParams;
 	const window = parseWindow(params?.window);
 	const sort = parseSort(params?.sort);
@@ -196,10 +178,6 @@ export default async function ContentFilterPage({
 				)
 			: null,
 	]);
-
-	if (settings === null || violations === null) {
-		return <SignInPrompt />;
-	}
 
 	const focusLabel = focus?.usedModel ?? focus?.usedProvider;
 
