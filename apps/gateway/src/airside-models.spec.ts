@@ -2686,6 +2686,11 @@ describe("airside-listed models", () => {
 			if (!catalogue.some((provider) => provider.id === "openai")) {
 				catalogue.splice(index, 0, definition);
 			}
+			// Later files sharing this worker's database enumerate openai's
+			// Airside listings, so this one must not outlive the test.
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.modelId, "transition-model"));
 		}
 	});
 });
