@@ -104,6 +104,7 @@ When creating a package in `packages/`, copy `package.json`, `tsconfig.json`, `.
 - Security gating is enforced server-side; UI gates are UX only.
 - Hash or HMAC with an existing deployment secret — `getApiKeyHashSecret()` from `@llmgateway/shared/api-key-hash`, with a domain-separation prefix. New secrets come from required env vars with no default value.
 - Do all money math with `Decimal` from `decimal.js`.
+- Chart tooltips list series by value, descending: use `ChartTooltipContent`, or `sortTooltipPayload`/`sortByValueDesc` from `@llmgateway/shared/chart-tooltip` in a custom tooltip.
 - NEVER query the `log` table from the gateway request path, and never fetch a user-supplied URL with a bare `fetch()` — see the `gateway` skill.
 - `log` can hold billions of rows of high-throughput, sensitive data (prompts and completions). Load the `database` skill before adding any `log` read.
 - Models and provider mappings on `origin/main` are never removed, only deactivated — see the `add-model` skill.

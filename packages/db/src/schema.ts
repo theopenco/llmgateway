@@ -2349,6 +2349,7 @@ export const API_ORIGINS = [
 	"systemone",
 	"decisions",
 	"search",
+	"realtime",
 ] as const;
 
 export type ApiOrigin = (typeof API_ORIGINS)[number];

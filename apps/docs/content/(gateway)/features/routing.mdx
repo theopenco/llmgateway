@@ -146,7 +146,7 @@ For estimated prompts of at least **%routing.thresholds.cachePromptTokens% token
 
 These estimates use the project's **last 24 hours of model usage**, once it includes at least **20 successful requests and 20,000 input tokens**:
 
-- **Cache-hit rate** is cached input tokens divided by total input tokens. Each provider uses its own rate, counted across all of its regions, once it meets the same sample thresholds; otherwise it uses the project's combined rate for that model.
+- **Cache-hit rate** is cached input tokens divided by total input tokens. Each provider uses its own rate, counted across all of its regions, once it meets the same sample thresholds. Other providers assume the best rate observed for that model (from a sampled provider, or from the combined usage of unsampled providers), and never less than the initial workload estimate below, so a provider that does not cache cannot make the alternatives look uncached.
 - **Output:input ratio** uses the project's combined output and input tokens for that model across providers.
 
 Routing caches the usage lookup for 60 seconds. It reads hourly aggregates, which work with payload retention disabled. Hourly buckets containing gateway response-cache hits are excluded because they cannot isolate upstream usage, so projects with response caching enabled may keep using the defaults. During lookup failures, routing uses previously cached observations when available, then falls back to configured estimates. These are workload estimates, not guarantees that a particular prompt will hit a provider's cache.
