@@ -327,6 +327,39 @@ describe("processPromptCacheAlerts", () => {
 		expect(summaries(), "one evaluation summary").toHaveLength(1);
 	});
 
+	it("lets only one of two overlapping runs evaluate a window", async () => {
+		await enable();
+		await insertAgent();
+		await Promise.all([
+			processPromptCacheAlerts(now),
+			processPromptCacheAlerts(now),
+		]);
+		expect(summaries(), "one evaluation summary").toHaveLength(1);
+		expect(await alerts()).toHaveLength(1);
+	});
+
+	it("releases a window for retry after a failed evaluation", async () => {
+		await enable();
+		await insertAgent();
+		const failure = new Error("database unavailable");
+		const findMany = vi
+			.spyOn(db.query.notificationPreference, "findMany")
+			.mockRejectedValueOnce(failure);
+		try {
+			await expect(processPromptCacheAlerts(now)).rejects.toBe(failure);
+		} finally {
+			findMany.mockRestore();
+		}
+		const gate = `prompt_cache_alert:window:${windowEnd.toISOString()}`;
+		const ttl = await redisClient.ttl(gate);
+		expect(ttl, "short retry backoff").toBeGreaterThan(0);
+		expect(ttl, "short retry backoff").toBeLessThanOrEqual(10 * 60);
+
+		await redisClient.del(gate);
+		await processPromptCacheAlerts(later(15 * MINUTE));
+		expect(await alerts(), "retried window").toHaveLength(1);
+	});
+
 	it("tells a coding agent stuck at 60% on its second day, and not on its first", async () => {
 		await enable();
 		await insertAgent({}, [0]);

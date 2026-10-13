@@ -66,6 +66,8 @@ const DAY_MS = 24 * HOUR_MS;
 const WINDOW_MS = DAY_MS;
 const SETTLE_MS = 5 * 60 * 1000;
 const GATE_TTL_SECONDS = (2 * HOUR_MS) / 1000;
+// A failed evaluation releases its window after this backoff instead of the full gate TTL.
+const RETRY_TTL_SECONDS = 10 * 60;
 const SILENT_STREAM_SAMPLES = 5;
 
 interface Window {
@@ -89,7 +91,15 @@ export async function processPromptCacheAlerts(
 ): Promise<void> {
 	const window = completedWindow(now);
 	const gate = `prompt_cache_alert:window:${window.end.toISOString()}`;
-	if (await redisClient.exists(gate)) {
+	// Claim the window atomically so overlapping workers never evaluate it twice.
+	const claimed = await redisClient.set(
+		gate,
+		"1",
+		"EX",
+		GATE_TTL_SECONDS,
+		"NX",
+	);
+	if (claimed === null) {
 		return;
 	}
 	const started = Date.now();
@@ -158,8 +168,15 @@ export async function processPromptCacheAlerts(
 			notifications,
 			durationMs: Date.now() - started,
 		});
-	} finally {
-		await redisClient.set(gate, "1", "EX", GATE_TTL_SECONDS);
+	} catch (error) {
+		try {
+			await redisClient.expire(gate, RETRY_TTL_SECONDS);
+		} catch (expireError) {
+			logger.warn("Failed to shorten prompt cache alert gate", {
+				error: toError(expireError),
+			});
+		}
+		throw error;
 	}
 }
 
