@@ -12,7 +12,7 @@ const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
 const querySchema = z.object({
-	window: z.enum(["7d", "30d"]).default("7d"),
+	window: z.enum(["24h", "7d", "30d"]).default("24h"),
 	tokenType: z.enum(["total", "input", "output"]).default("total"),
 	groupBy: z.enum(["model", "provider"]).default("model"),
 	modelView: z.enum(["canonical", "mapping"]).default("canonical"),
@@ -40,6 +40,8 @@ const responseSchema = querySchema.extend({
 	asOf: z.string(),
 	summary: metricsSchema,
 	days: z.array(daySchema),
+	// UTC hours; only populated for the 24h window.
+	hours: z.array(daySchema),
 	breakdown: z.array(
 		metricsSchema.extend({ key: z.string(), label: z.string() }),
 	),
@@ -77,15 +79,17 @@ interface UsageRow extends Record<string, unknown> {
 }
 
 /** Hourly totals plus minute edges cover exactly the completed-minute window. */
-export function tokenCapacityDailyQuery(
+export function tokenCapacityUsageQuery(
 	query: CapacityQuery,
 	start: Date,
 	end: Date,
+	unit: "hour" | "day",
 ) {
 	const hourly = tables.modelProviderMappingHistoryHourly;
 	const minute = tables.modelProviderMappingHistory;
 	const h = expressions(hourly, query);
 	const m = expressions(minute, query);
+	const trunc = sql.raw(`date_trunc('${unit}', ts)`);
 	const firstHour = new Date(
 		Math.ceil(start.getTime() / HOUR_MS) * HOUR_MS,
 	).toISOString();
@@ -111,13 +115,13 @@ export function tokenCapacityDailyQuery(
 				AND ${m.tokens} > 0
 				AND ${excludeRegionalMappingRows(minute)}
 				${query.mode === "total" ? sql`` : sql`AND ${minute.usedMode} = ${query.mode}`}
-		), daily AS (
-			SELECT key, date_trunc('day', ts) AS day, SUM(tokens)::float8 AS tokens
-			FROM usage GROUP BY GROUPING SETS ((key, date_trunc('day', ts)), (date_trunc('day', ts)))
+		), bucketed AS (
+			SELECT key, ${trunc} AS bucket, SUM(tokens)::float8 AS tokens
+			FROM usage GROUP BY GROUPING SETS ((key, ${trunc}), (${trunc}))
 		)
-		SELECT key, to_char(day, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS timestamp, tokens
-		FROM daily
-		ORDER BY day, key
+		SELECT key, to_char(bucket, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS timestamp, tokens
+		FROM bucketed
+		ORDER BY bucket, key
 	`;
 }
 
@@ -172,18 +176,23 @@ adminTokenCapacity.openapi(
 	async (c) => {
 		const query = c.req.valid("query");
 		const now = new Date();
-		const days = query.window === "30d" ? 30 : 7;
-		const windowMs = days * DAY_MS;
+		const windowMs =
+			query.window === "24h"
+				? DAY_MS
+				: (query.window === "30d" ? 30 : 7) * DAY_MS;
+		const unit = query.window === "24h" ? "hour" : "day";
 		const start = new Date(
 			Math.ceil((now.getTime() - windowMs) / MINUTE_MS) * MINUTE_MS,
 		);
 		const end = new Date(Math.floor(now.getTime() / MINUTE_MS) * MINUTE_MS);
 		const elapsedMinutes = (end.getTime() - start.getTime()) / MINUTE_MS;
-		const daily = (
-			await db.execute<UsageRow>(tokenCapacityDailyQuery(query, start, end))
+		const usage = (
+			await db.execute<UsageRow>(
+				tokenCapacityUsageQuery(query, start, end, unit),
+			)
 		).rows;
 		const keys = [
-			...new Set(daily.flatMap((row) => (row.key === null ? [] : [row.key]))),
+			...new Set(usage.flatMap((row) => (row.key === null ? [] : [row.key]))),
 		];
 		const peaks = (
 			await db.execute<UsageRow>(
@@ -191,31 +200,60 @@ adminTokenCapacity.openapi(
 			)
 		).rows;
 		const peakByKey = new Map(peaks.map((row) => [row.key, row]));
-		const dailyByKey = new Map<string | null, Map<string, number>>();
-		for (const row of daily) {
-			let values = dailyByKey.get(row.key);
+		type Buckets = Map<string | null, Map<string, number>>;
+		const dailyByKey: Buckets = new Map();
+		const hourlyByKey: Buckets = new Map();
+		const add = (
+			buckets: Buckets,
+			key: string | null,
+			timestamp: string,
+			tokens: number,
+		) => {
+			let values = buckets.get(key);
 			if (!values) {
 				values = new Map();
-				dailyByKey.set(row.key, values);
+				buckets.set(key, values);
 			}
-			values.set(row.timestamp, Number(row.tokens));
+			values.set(timestamp, (values.get(timestamp) ?? 0) + tokens);
+		};
+		for (const row of usage) {
+			const tokens = Number(row.tokens);
+			add(
+				dailyByKey,
+				row.key,
+				`${row.timestamp.slice(0, 10)}T00:00:00Z`,
+				tokens,
+			);
+			if (unit === "hour") {
+				add(hourlyByKey, row.key, row.timestamp, tokens);
+			}
 		}
-		const grid: { timestamp: string; partial: boolean }[] = [];
-		for (
-			let time = Math.floor(start.getTime() / DAY_MS) * DAY_MS;
-			time < end.getTime();
-			time += DAY_MS
-		) {
-			grid.push({
-				timestamp: new Date(time).toISOString().replace(".000Z", "Z"),
-				partial: time < start.getTime() || time + DAY_MS > end.getTime(),
-			});
-		}
-		const daysFor = (key: string | null) =>
-			grid.map((day) => ({
-				...day,
-				tokens: dailyByKey.get(key)?.get(day.timestamp) ?? 0,
+		const gridFor = (size: number) => {
+			const grid: { timestamp: string; partial: boolean }[] = [];
+			for (
+				let time = Math.floor(start.getTime() / size) * size;
+				time < end.getTime();
+				time += size
+			) {
+				grid.push({
+					timestamp: new Date(time).toISOString().replace(".000Z", "Z"),
+					partial: time < start.getTime() || time + size > end.getTime(),
+				});
+			}
+			return grid;
+		};
+		const dayGrid = gridFor(DAY_MS);
+		const hourGrid = unit === "hour" ? gridFor(HOUR_MS) : [];
+		const seriesFor = (
+			grid: { timestamp: string; partial: boolean }[],
+			buckets: Buckets,
+			key: string | null,
+		) =>
+			grid.map((bucket) => ({
+				...bucket,
+				tokens: buckets.get(key)?.get(bucket.timestamp) ?? 0,
 			}));
+		const daysFor = (key: string | null) => seriesFor(dayGrid, dailyByKey, key);
 		const metricsFor = (key: string | null) => {
 			const values = daysFor(key);
 			const totalTokens = values.reduce((sum, day) => sum + day.tokens, 0);
@@ -244,6 +282,7 @@ adminTokenCapacity.openapi(
 			asOf: now.toISOString(),
 			summary: metricsFor(null),
 			days: daysFor(null),
+			hours: seriesFor(hourGrid, hourlyByKey, null),
 			breakdown: keys
 				.map((key) => ({
 					key,
