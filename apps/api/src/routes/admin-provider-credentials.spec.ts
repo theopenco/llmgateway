@@ -2495,6 +2495,27 @@ describe("managed credential allowed models", () => {
 		return json.providers.find((entry) => entry.id === provider)?.modelsByKind;
 	}
 
+	test("catalog exposes the carrier's uploaded mark", async () => {
+		const { providerId } = await createCustomCarrier();
+		const iconUrl = `data:image/svg+xml;base64,${"A".repeat(64)}`;
+		await db
+			.update(tables.providerClaim)
+			.set({ iconUrl })
+			.where(eq(tables.providerClaim.providerId, providerId));
+
+		const res = await app.request("/admin/provider-credentials/catalog", {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const json = (await res.json()) as {
+			providers: { id: string; markUrl: string | null }[];
+		};
+		expect(json.providers.find((p) => p.id === providerId)?.markUrl).toBe(
+			iconUrl,
+		);
+		expect(json.providers.find((p) => p.id === "openai")?.markUrl).toBeNull();
+	});
+
 	test("catalog lists each provider's live models for the picker", async () => {
 		const models = await catalogModels("openai");
 		expect(models.length).toBeGreaterThan(0);
