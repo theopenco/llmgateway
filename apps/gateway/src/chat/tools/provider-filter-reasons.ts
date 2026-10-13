@@ -160,55 +160,6 @@ export function preferToolChoiceCapableProviders(
 }
 
 /**
- * Narrow a pinned-model candidate list to the mappings whose context window
- * fits the request — but only when at least one of them does.
- *
- * Deployments of one model can serve very different windows (e.g. 1M on most
- * providers, 262k on another). Without this, a long prompt can be routed to a
- * short-window deployment and fail upstream with a non-retryable
- * context_length_exceeded 400.
- *
- * Mappings with an unknown context size are kept — deliberately unlike auto
- * routing, which assumes 8192 for them: there another model can take the
- * request, here dropping them could empty the list for a pinned model.
- * When nothing fits, the list is returned unchanged so the upstream error
- * stays the source of truth (the estimate is a heuristic).
- *
- * Like `preferToolChoiceCapableProviders`, an exclusion is recorded per
- * provider id only when none of its (regional) mappings fit.
- */
-export function preferContextFittingProviders(
-	providers: ProviderModelMapping[],
-	requiredContextSize: number,
-	filteredOut?: FilteredProvider[],
-): ProviderModelMapping[] {
-	if (requiredContextSize <= 0) {
-		return providers;
-	}
-
-	const fitting = providers.filter(
-		(provider) =>
-			provider.contextSize === undefined ||
-			provider.contextSize >= requiredContextSize,
-	);
-	if (fitting.length === 0 || fitting.length === providers.length) {
-		return providers;
-	}
-
-	if (filteredOut) {
-		const fittingProviderIds = new Set(fitting.map((p) => p.providerId));
-		for (const provider of providers) {
-			if (!fittingProviderIds.has(provider.providerId)) {
-				recordFilteredProvider(filteredOut, provider.providerId, [
-					exclusionReason("context_size"),
-				]);
-			}
-		}
-	}
-	return fitting;
-}
-
-/**
  * Collects the reasons why a provider mapping would be filtered out during routing.
  * Returns an empty array if the provider passes all checks.
  */
