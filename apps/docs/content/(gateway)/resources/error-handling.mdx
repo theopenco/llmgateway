@@ -88,6 +88,11 @@ rate or concurrency limits. These rejections have no inference or storage charge
 Requests rejected before body parsing may have an unknown model and no request payload.
 Unrecognized or missing keys cannot be attributed to an organization and are not recorded.
 
+[Realtime](/features/realtime) follows the same rules: a rejected WebSocket upgrade or
+client secret request, and a turn refused inside an open session (for example by IAM
+rules or exhausted credits), are logged with the **Realtime** API origin. Rejected upgrade
+responses carry an `x-request-id` header matching the log entry.
+
 Logs include a nullable `errorCategory` for distinguishing account restrictions,
 authentication, permissions, billing, rate limits, concurrency limits, validation,
 guardrails, upstream failures, and gateway failures. Older rows may have no category.

@@ -1,22 +1,17 @@
-/**
- * Extracts X-LLMGateway-* headers from the request context
- * Returns a key-value object where keys are the suffix after x-llmgateway- and values are header values
- */
 export function extractCustomHeaders(c: any): Record<string, string> {
+	return customHeadersFrom(c.req.raw.headers.entries());
+}
+
+export function customHeadersFrom(
+	headers: Iterable<[string, string | string[] | undefined]>,
+): Record<string, string> {
 	const customHeaders: Record<string, string> = {};
-
-	// Get all headers from the raw request
-	const headers = c.req.raw.headers;
-
-	// Iterate through all headers
-	for (const [key, value] of headers.entries()) {
-		if (key.toLowerCase().startsWith("x-llmgateway-")) {
-			// Extract the suffix after x-llmgateway- and store with lowercase key
+	for (const [key, value] of headers) {
+		if (value !== undefined && key.toLowerCase().startsWith("x-llmgateway-")) {
 			const suffix = key.toLowerCase().substring("x-llmgateway-".length);
-			customHeaders[suffix] = value;
+			customHeaders[suffix] = Array.isArray(value) ? value.join(", ") : value;
 		}
 	}
-
 	return customHeaders;
 }
 
