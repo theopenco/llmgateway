@@ -281,6 +281,30 @@ test("consumes an uncertain approval when its server claim response is lost", as
 	).toBeNull();
 });
 
+test("an approval answered on another device reloads instead of showing an uncertain result", async () => {
+	const generate = withProposal();
+	post.mockResolvedValue({
+		error: { message: "Already answered" },
+		response: new Response(null, { status: 409 }),
+	});
+	await showChat("chat");
+	await userEvent
+		.setup()
+		.press(
+			screen.getByRole("button", { name: "Approve Gmail: search messages" }),
+		);
+	expect(
+		await screen.findByText(
+			"This request has already been answered. Reload the conversation.",
+		),
+	).toBeTruthy();
+	expect(screen.queryByText(uncertainToolOutcome)).toBeNull();
+	expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+		queryKey: ["get", "/chats/{id}"],
+	});
+	expect(generate).not.toHaveBeenCalled();
+});
+
 test("a lost tool result stays consumed locally and can continue without replaying it", async () => {
 	const generate = withProposal();
 	jest.mocked(client.POST).mockImplementation(async (path) => {

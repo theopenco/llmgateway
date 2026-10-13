@@ -294,6 +294,58 @@ describe("Lounge connector routes", () => {
 		}
 		expect(fetchSafeUserUrl).toHaveBeenCalledTimes(1);
 	});
+	it("keeps a failed persisted approval uncertain and claimed", async () => {
+		await connect();
+		const chatResponse = await app.request("/chats", {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({ title: "Approval failure", model: "auto" }),
+		});
+		const { chat } = await chatResponse.json();
+		await app.request(`/chats/${chat.id}/messages`, {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				id: "failed-message",
+				role: "assistant",
+				tools: JSON.stringify([
+					{
+						type: "dynamic-tool",
+						toolName: "gmail__search_messages",
+						toolCallId: "failed-call",
+						state: "approval-requested",
+						input: { query: "fixture" },
+						approval: { id: "failed-approval", signature: "fixture-signature" },
+					},
+				]),
+			}),
+		});
+		vi.mocked(fetchSafeUserUrl).mockClear();
+		vi.mocked(fetchSafeUserUrl).mockRejectedValue(new Error("Connection lost"));
+		const approve = () =>
+			app.request("/connectors/gmail/tools/search_messages", {
+				method: "POST",
+				headers: {
+					Cookie: cookie,
+					"Content-Type": "application/json",
+					"x-tool-message-id": "failed-message",
+					"x-tool-call-id": "failed-call",
+					"x-tool-approved": "true",
+				},
+				body: JSON.stringify({ input: { query: "fixture" } }),
+			});
+		expect((await approve()).status).toBe(502);
+		const saved = await db.query.message.findFirst({
+			where: { id: "failed-message" },
+		});
+		expect(JSON.parse(saved!.tools!)[0]).toMatchObject({
+			state: "output-error",
+			errorText: expect.stringContaining("could not be confirmed"),
+		});
+		expect((await approve()).status).toBe(409);
+		expect(fetchSafeUserUrl).toHaveBeenCalledTimes(1);
+	});
+
 	it("updates an assistant approval message without duplicating history", async () => {
 		const chatResponse = await app.request("/chats", {
 			method: "POST",

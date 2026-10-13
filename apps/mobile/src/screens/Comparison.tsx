@@ -19,7 +19,7 @@ import {
 } from "@/api/comparison";
 import { continueComparison } from "@/api/comparison-tools";
 import { saveReply } from "@/api/reply";
-import { pendingTool } from "@/api/tool-parts";
+import { pendingTool, ToolAlreadyAnsweredError } from "@/api/tool-parts";
 import { ChatSettings } from "@/components/ChatSettings";
 import { Markdown } from "@/components/Markdown";
 import { MessageBubble } from "@/components/MessageBubble";
@@ -213,6 +213,17 @@ export function Comparison({
 						setDrafts((current) => ({ ...current, [rootId]: reply }));
 					},
 				});
+			} catch (error) {
+				if (error instanceof ToolAlreadyAnsweredError && answer?.messageId) {
+					setToolMessages((current) =>
+						Object.fromEntries(
+							Object.entries(current).filter(
+								([key]) => key !== answer.messageId,
+							),
+						),
+					);
+				}
+				throw error;
 			} finally {
 				if (pendingReply) {
 					setUnsaved((current) => [...new Set([...current, rootId])]);

@@ -2,7 +2,10 @@ import { client } from "@/api/client";
 import { continueComparison } from "@/api/comparison-tools";
 import * as loungeCompletion from "@/api/lounge-completion";
 import { saveReply } from "@/api/reply";
-import { uncertainToolOutcome } from "@/api/tool-parts";
+import {
+	ToolAlreadyAnsweredError,
+	uncertainToolOutcome,
+} from "@/api/tool-parts";
 
 jest.mock("@/api/client", () => ({
 	client: { GET: jest.fn(), POST: jest.fn() },
@@ -165,9 +168,22 @@ test("persists a decline through the claim endpoint before continuing", async ()
 	);
 });
 
-test("does not continue when the server rejects the approval claim", async () => {
+test("reports an already answered claim instead of an uncertain outcome", async () => {
 	(client.POST as jest.Mock).mockResolvedValue({
 		error: { message: "Already claimed" },
+		response: new Response(null, { status: 409 }),
+	});
+	await expect(continueComparison(options())).rejects.toThrow(
+		ToolAlreadyAnsweredError,
+	);
+	expect(saveReply).not.toHaveBeenCalled();
+	expect(loungeCompletion.generateLoungeReply).not.toHaveBeenCalled();
+});
+
+test("keeps a failed claim response uncertain", async () => {
+	(client.POST as jest.Mock).mockResolvedValue({
+		error: { message: uncertainToolOutcome },
+		response: new Response(null, { status: 502 }),
 	});
 	await expect(continueComparison(options())).rejects.toThrow(
 		uncertainToolOutcome,

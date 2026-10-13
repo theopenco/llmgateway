@@ -136,6 +136,13 @@ export function toolOutcome(
 export const uncertainToolOutcome =
 	"The result could not be confirmed. Check the connected app before asking to run this action again.";
 
+export class ToolAlreadyAnsweredError extends Error {
+	constructor() {
+		super("This request has already been answered. Reload the conversation.");
+		this.name = "ToolAlreadyAnsweredError";
+	}
+}
+
 export async function answerToolCall({
 	parts,
 	toolCallId,
@@ -153,9 +160,7 @@ export async function answerToolCall({
 }): Promise<ToolPart[]> {
 	const part = parts.find((item) => item.toolCallId === toolCallId);
 	if (!part || !pendingTool(part)) {
-		throw new Error(
-			"This request has already been answered. Reload the conversation.",
-		);
+		throw new ToolAlreadyAnsweredError();
 	}
 	const replace = (value: ToolPart) =>
 		parts.map((item) => (item.toolCallId === toolCallId ? value : item));
@@ -205,6 +210,9 @@ export async function answerToolCall({
 			},
 		);
 		if (!result.data) {
+			if (messageId && result.response?.status === 409) {
+				throw new ToolAlreadyAnsweredError();
+			}
 			throw new Error("The connector did not return a result.");
 		}
 		if (messageId) {
@@ -220,6 +228,9 @@ export async function answerToolCall({
 		await persist(completed);
 		return completed;
 	} catch (cause) {
+		if (cause instanceof ToolAlreadyAnsweredError) {
+			throw cause;
+		}
 		throw new Error(uncertainToolOutcome, { cause });
 	}
 }

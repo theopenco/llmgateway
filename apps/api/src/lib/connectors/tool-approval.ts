@@ -107,7 +107,14 @@ export async function executePersistedToolApproval({
 				"This tool request has already been answered. Reload the conversation.",
 		});
 	}
-	const output = approved ? await execute() : null;
+	let output: unknown = null;
+	if (approved) {
+		try {
+			output = await execute();
+		} catch (cause) {
+			throw new HTTPException(502, { message: uncertainOutcome, cause });
+		}
+	}
 	return await db.transaction(async (tx) => {
 		const [current] = await tx
 			.select()
@@ -115,7 +122,7 @@ export async function executePersistedToolApproval({
 			.where(eq(tables.message.id, messageId))
 			.for("update");
 		if (!current?.tools) {
-			throw new HTTPException(409, {
+			throw new HTTPException(410, {
 				message: "The conversation changed while the tool was running",
 			});
 		}
