@@ -1,9 +1,16 @@
 "use client";
 
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Loader2, RefreshCw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useDeferredValue, useMemo, useState } from "react";
+import {
+	useCallback,
+	useDeferredValue,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 
 import { LogCard } from "@/components/log-card";
 import { Button } from "@/components/ui/button";
@@ -105,6 +112,7 @@ export function LogsSection({
 	const router = useRouter();
 	const pathname = usePathname();
 	const $fetch = useFetchClient();
+	const queryClient = useQueryClient();
 
 	const provider = searchParams.get("provider") ?? "all";
 	const model = searchParams.get("model") ?? "all";
@@ -188,6 +196,7 @@ export function LogsSection({
 		projectId,
 	]);
 
+	const logsQueryKey = ["admin-logs", orgId, projectId, filters];
 	const {
 		data,
 		error,
@@ -198,7 +207,7 @@ export function LogsSection({
 		fetchNextPage,
 		refetch,
 	} = useInfiniteQuery({
-		queryKey: ["admin-logs", orgId, projectId, filters],
+		queryKey: logsQueryKey,
 		initialPageParam: undefined as string | undefined,
 		queryFn: async ({ pageParam, signal }) => {
 			const query = { limit: 50, cursor: pageParam, ...filters };
@@ -220,11 +229,61 @@ export function LogsSection({
 		},
 		getNextPageParam: (page) =>
 			page.pagination.hasMore ? page.pagination.nextCursor : undefined,
-		// Recent logs: always refetch on mount, cached pages only bridge the gap.
+		// Logs are live, but an infinite-query refetch reruns every loaded page.
+		// Refresh reloads only the first page (below), window focus does not
+		// refetch, and leaving the section drops the cache so a revisit starts
+		// from page one.
 		staleTime: 0,
+		gcTime: 0,
+		refetchOnWindowFocus: false,
 		retry: false,
 	});
+	// A refresh reloads only the first page. The loaded pages are put back if
+	// the refetch fails, so a failed refresh never loses what was on screen;
+	// restoring the cache clears the query's error, so it is kept here, tied to
+	// the query it came from. Changing org, project or filters bumps the
+	// sequence so a refresh still in flight for the old query is ignored.
+	const queryIdentity = JSON.stringify(logsQueryKey);
+	const refreshSeq = useRef(0);
+	const refreshInFlight = useRef<number | null>(null);
+	const [refreshError, setRefreshError] = useState<{
+		queryIdentity: string;
+		error: Error;
+	} | null>(null);
+	useEffect(() => {
+		refreshSeq.current += 1;
+		refreshInFlight.current = null;
+	}, [queryIdentity]);
+	const refresh = async () => {
+		if (refreshInFlight.current === refreshSeq.current) {
+			return;
+		}
+		const seq = refreshSeq.current;
+		refreshInFlight.current = seq;
+		const snapshot = queryClient.getQueryData<typeof data>(logsQueryKey);
+		setRefreshError(null);
+		queryClient.setQueryData<typeof data>(logsQueryKey, (current) =>
+			current
+				? {
+						pages: current.pages.slice(0, 1),
+						pageParams: current.pageParams.slice(0, 1),
+					}
+				: current,
+		);
+		const result = await refetch();
+		if (seq !== refreshSeq.current) {
+			return;
+		}
+		refreshInFlight.current = null;
+		if (result.isError && snapshot) {
+			queryClient.setQueryData<typeof data>(logsQueryKey, snapshot);
+			setRefreshError({ queryIdentity, error: result.error });
+		}
+	};
 	const logs = data?.pages.flatMap((page) => page.logs) ?? [];
+	const loadError =
+		error ??
+		(refreshError?.queryIdentity === queryIdentity ? refreshError.error : null);
 	const refreshing = isFetching && !loading && !loadingMore;
 
 	const selectedModelOption = useMemo(
@@ -624,7 +683,7 @@ export function LogsSection({
 					variant="outline"
 					size="sm"
 					disabled={loading || loadingMore || refreshing}
-					onClick={() => void refetch()}
+					onClick={() => void refresh()}
 					className="gap-2"
 				>
 					<RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
@@ -632,13 +691,13 @@ export function LogsSection({
 				</Button>
 			</div>
 
-			{error && (
+			{loadError && (
 				<div
 					role="alert"
 					className="rounded-lg border border-destructive/50 p-4 text-sm text-destructive"
 				>
 					<p className="font-medium">Failed to load logs</p>
-					<p>{error.message}</p>
+					<p>{loadError.message}</p>
 					<p>
 						{logs.length > 0 ? "Previously loaded logs are still shown. " : ""}
 						Use Refresh to try again.
@@ -650,7 +709,7 @@ export function LogsSection({
 					<Loader2 className="h-4 w-4 animate-spin" />
 					Loading logs...
 				</div>
-			) : logs.length === 0 && !error ? (
+			) : logs.length === 0 && !loadError ? (
 				<div className="rounded-lg border border-dashed border-border/60 p-8 text-center text-sm text-muted-foreground">
 					{projectId
 						? "No logs found for this project."
