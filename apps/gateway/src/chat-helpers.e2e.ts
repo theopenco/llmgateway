@@ -1506,10 +1506,7 @@ function providerEnvOptionsForTests(
 		);
 		return workspaceId ? { alibaba_workspace_id: workspaceId } : undefined;
 	}
-	if (
-		providerId === "google-vertex" &&
-		process.env.LLM_GOOGLE_CLOUD_PROJECT
-	) {
+	if (providerId === "google-vertex" && process.env.LLM_GOOGLE_CLOUD_PROJECT) {
 		// Without a project the API key falls back to the project-less express
 		// path, which Google pins to us-central1; global-only models 404 there.
 		return { google_vertex_project_id: process.env.LLM_GOOGLE_CLOUD_PROJECT };
