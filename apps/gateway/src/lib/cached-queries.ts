@@ -837,13 +837,6 @@ export async function findActiveCustomModels(
 }
 
 /**
- * The organization's own keys for a provider that can serve this request, in
- * selection order (index 0 is the primary). This is exactly the candidate set
- * findProviderKey picks from, before health failover and per-attempt
- * exclusions narrow it — the "which of my keys could have been used" answer
- * surfaced in routing metadata.
- */
-/**
  * Drop the organization's own catalogue-provider keys whose compliance
  * attestation fails its enabled compliance policy, so no selection path
  * (auto routing, explicit provider requests, retries, non-chat endpoints) can
@@ -879,6 +872,13 @@ async function dropNonCompliantByokKeys(
 	);
 }
 
+/**
+ * The organization's own keys for a provider that can serve this request, in
+ * selection order (index 0 is the primary). This is exactly the candidate set
+ * findProviderKey picks from, before health failover and per-attempt
+ * exclusions narrow it — the "which of my keys could have been used" answer
+ * surfaced in routing metadata.
+ */
 export async function listEligibleProviderKeys(
 	organizationId: string,
 	provider: string,
