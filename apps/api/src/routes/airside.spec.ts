@@ -17,6 +17,7 @@ import {
 	tables,
 } from "@llmgateway/db";
 import {
+	getReferenceContextSize,
 	models as catalogueModels,
 	REASONING_EFFORTS,
 	type ModelDefinition,
@@ -1320,6 +1321,88 @@ describe("airside provider portal", () => {
 		expect(res.status).toBe(404);
 	});
 
+	it("rejects listing context sizes far from the model's reference window", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const modelName = "deepseek-v4.1-flash";
+		const referenceContextSize = getReferenceContextSize(modelName)!;
+		expect(referenceContextSize).toBeGreaterThan(400_000);
+
+		const catalogue = await app.request(
+			"/airside/catalogue",
+			json(cookie, undefined, "GET"),
+		);
+		const catalogueModel = (await catalogue.json()).models.find(
+			(entry: { id: string }) => entry.id === modelName,
+		);
+		expect(catalogueModel.referenceContextSize).toBe(referenceContextSize);
+
+		for (const [contextSize, wording] of [
+			[200_000, "below"],
+			[referenceContextSize * 2, "above"],
+		] as const) {
+			const rejected = await createModel(cookie, company.id, {
+				modelName,
+				contextSize,
+			});
+			expect(rejected.status).toBe(400);
+			expect(await rejected.text()).toContain(`10% ${wording}`);
+		}
+
+		const created = await createModel(cookie, company.id, {
+			modelName,
+			contextSize: referenceContextSize,
+		});
+		expect(created.status, await created.clone().text()).toBe(201);
+		const { model } = await created.json();
+		const shrunk = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { contextSize: 200_000 }, "PATCH"),
+		);
+		expect(shrunk.status).toBe(400);
+	});
+
+	it("warns reviewers about a pending listing far below the reference window", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const modelName = "deepseek-v4.1-flash";
+		// Filed before submissions were checked.
+		await db.insert(tables.providerDraftModel).values({
+			id: "legacy-short-window",
+			providerCompanyId: company.id,
+			providerId: "mistral",
+			modelName,
+			externalId: modelName,
+			contextSize: 200_000,
+			streaming: true,
+			status: "draft",
+		});
+		await db.insert(tables.providerPriceFiling).values({
+			id: "legacy-short-window-filing",
+			draftModelId: "legacy-short-window",
+			providerCompanyId: company.id,
+			kind: "initial",
+			inputPrice: "1e-7",
+			outputPrice: "2e-7",
+			status: "pending",
+		});
+
+		const queue = await app.request("/admin/airside/filings?status=pending", {
+			headers: { Cookie: cookie },
+		});
+		expect((await queue.json()).filings[0].contextSizeWarning).toEqual({
+			contextSize: 200_000,
+			referenceContextSize: getReferenceContextSize(modelName),
+			deviation: "below",
+		});
+	});
+
 	it("runs the approval lifecycle through the admin queue", async () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
@@ -1341,6 +1424,7 @@ describe("airside provider portal", () => {
 			kind: "initial",
 			company: expect.objectContaining({ name: "Mistral Ops" }),
 			model: expect.objectContaining({ modelName: "mistral-large-3" }),
+			contextSizeWarning: null,
 		});
 
 		// Approve the initial filing → model activates, pricing becomes current.
@@ -2087,6 +2171,10 @@ describe("airside provider portal", () => {
 		const { providers } = await providersRes.json();
 		const mistral = providers.find((p: { id: string }) => p.id === "mistral");
 		expect(mistral.airsideLogoUrl).toBe(logoUrl);
+
+		const marksRes = await app.request("/internal/provider-marks");
+		expect(marksRes.status).toBe(200);
+		expect((await marksRes.json()).marks).toEqual({ mistral: logoUrl });
 	});
 
 	it("round-trips carrier rate limits on models", async () => {

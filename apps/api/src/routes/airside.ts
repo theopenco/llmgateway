@@ -24,6 +24,7 @@ import {
 	syncAirsideModelMetadata,
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
+import { assertListingContextSize } from "@/lib/airside-context-size.js";
 import { domainPublishesToken } from "@/lib/airside-dns.js";
 import {
 	claimableProvidersForDomains,
@@ -114,6 +115,7 @@ import {
 	tables,
 } from "@llmgateway/db";
 import {
+	getReferenceContextSize,
 	models as catalogueModels,
 	modelIdProblem,
 	PROVIDER_API_FORMATS,
@@ -2658,6 +2660,10 @@ const getCatalogue = createRoute({
 							z.object({
 								id: z.string(),
 								family: z.string(),
+								// Largest context window among the model's catalogue
+								// deployments. Listings more than 10% below it are left
+								// out of routing for requests that don't name a provider.
+								referenceContextSize: z.number().nullable(),
 								prices: z.array(
 									z.object({
 										providerId: z.string(),
@@ -2682,6 +2688,7 @@ airside.openapi(getCatalogue, (c) => {
 		models: catalogueModels.map((model) => ({
 			id: model.id,
 			family: model.family,
+			referenceContextSize: getReferenceContextSize(model.id, [], now) ?? null,
 			prices: model.providers.flatMap((entry) => {
 				const mapping: ProviderModelMapping = entry;
 				if (
@@ -3136,6 +3143,11 @@ airside.openapi(createModel, async (c) => {
 			message: "A model with this name is already listed for the provider.",
 		});
 	}
+	await assertListingContextSize(
+		body.modelName,
+		body.providerId,
+		body.contextSize,
+	);
 	const verification = await db.query.providerModelVerification.findFirst({
 		where: { id: { eq: body.verificationId } },
 	});
@@ -3517,6 +3529,15 @@ airside.openapi(updateModel, async (c) => {
 	}
 	const changes = pickMetadataChanges(body);
 	const updates = diffMetadataChanges(model, changes);
+	// Any edit must leave the listing with an acceptable window, so listings
+	// filed before the check get fixed the next time they change.
+	if (Object.keys(updates).length > 0) {
+		await assertListingContextSize(
+			model.modelName,
+			model.providerId,
+			"contextSize" in updates ? updates.contextSize : model.contextSize,
+		);
+	}
 	// Claiming more than the listing does — a new capability, a higher
 	// limit, extra modes — needs a passing preflight of the edit. The review
 	// can rerun it; narrowing and non-capability edits need none.
@@ -3814,6 +3835,11 @@ airside.openapi(relistModel, async (c) => {
 		throw new HTTPException(404, { message: "Model not found" });
 	}
 	await requireCompanyMembership(user.id, model.providerCompanyId);
+	await assertListingContextSize(
+		model.modelName,
+		model.providerId,
+		model.contextSize,
+	);
 	// cdb: the gateway caches listing resolution off these tables.
 	const row = await cdb
 		.transaction(async (tx) => {

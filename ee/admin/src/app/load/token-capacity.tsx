@@ -2,7 +2,7 @@
 
 import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
 
 import { StatCard } from "@/components/detail-stat-cards";
@@ -67,7 +67,10 @@ function count(value: number | undefined) {
 
 export function TokenCapacity() {
 	const params = useSearchParams();
-	const window = params.get("tokenWindow") === "30d" ? "30d" : "7d";
+	const windowParam = params.get("tokenWindow");
+	const window =
+		windowParam === "7d" || windowParam === "30d" ? windowParam : "24h";
+	const hourly = window === "24h";
 	const tokenType =
 		params.get("tokenType") === "input"
 			? "input"
@@ -93,11 +96,52 @@ export function TokenCapacity() {
 		},
 	);
 	const summary = data?.summary;
+	type BreakdownRow = NonNullable<typeof data>["breakdown"][number];
 	const filters = `${window}:${tokenType}:${groupBy}:${modelView}:${mode}`;
 	const [pagination, setPagination] = useState({ filters, page: 1 });
 	if (pagination.filters !== filters) {
 		setPagination({ filters, page: 1 });
 	}
+	const chartData = (hourly ? data?.hours : data?.days) ?? [];
+	const peakHour = data?.hours
+		.filter((hour) => !hour.partial)
+		.reduce<(typeof data.hours)[number] | null>(
+			(best, hour) => (!best || hour.tokens > best.tokens ? hour : best),
+			null,
+		);
+	const bucketLabel = (timestamp: string) =>
+		hourly ? timestamp.slice(11, 16) : utcDate.format(new Date(timestamp));
+	const metricColumns: [string, (row: BreakdownRow) => ReactNode][] = [
+		["Total tokens", (row) => count(row.totalTokens)],
+		["Avg TPM", (row) => count(row.avgTpm)],
+		[
+			"Peak TPM",
+			(row) => (
+				<>
+					{count(row.peakTpm)}
+					<span className="block whitespace-nowrap text-xs text-muted-foreground">
+						{peakLabel(row.peakMinuteAt, true)}
+					</span>
+				</>
+			),
+		],
+		...(hourly
+			? []
+			: ([
+					["Avg tokens/day", (row) => count(row.avgTokensPerDay)],
+					[
+						"Peak tokens/day",
+						(row) => (
+							<>
+								{count(row.peakTokensPerDay)}
+								<span className="block whitespace-nowrap text-xs text-muted-foreground">
+									{peakLabel(row.peakDayAt)}
+								</span>
+							</>
+						),
+					],
+				] satisfies [string, (row: BreakdownRow) => ReactNode][])),
+	];
 	const totalRows = data?.breakdown.length ?? 0;
 	const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
 	const page = Math.min(pagination.page, totalPages);
@@ -161,8 +205,9 @@ export function TokenCapacity() {
 				<SegmentedUrlSelector
 					param="tokenWindow"
 					value={window}
-					defaultValue="7d"
+					defaultValue="24h"
 					options={[
+						{ value: "24h", label: "24 hours" },
 						{ value: "7d", label: "7 days" },
 						{ value: "30d", label: "30 days" },
 					]}
@@ -233,25 +278,48 @@ export function TokenCapacity() {
 					hint={peakLabel(summary?.peakMinuteAt, true)}
 					loading={isLoading}
 				/>
-				<StatCard
-					label="Average tokens/day"
-					value={count(summary?.avgTokensPerDay)}
-					hint="Window average normalized to 24 hours"
-					loading={isLoading}
-				/>
-				<StatCard
-					label="Peak tokens/day"
-					value={count(summary?.peakTokensPerDay)}
-					hint={peakLabel(summary?.peakDayAt)}
-					loading={isLoading}
-				/>
+				{hourly ? (
+					<>
+						<StatCard
+							label="Total tokens"
+							value={count(summary?.totalTokens)}
+							hint="Last 24 hours"
+							loading={isLoading}
+						/>
+						<StatCard
+							label="Peak tokens/hour"
+							value={count(data ? (peakHour?.tokens ?? 0) : undefined)}
+							hint={peakLabel(
+								peakHour && peakHour.tokens > 0 ? peakHour.timestamp : null,
+								true,
+							)}
+							loading={isLoading}
+						/>
+					</>
+				) : (
+					<>
+						<StatCard
+							label="Average tokens/day"
+							value={count(summary?.avgTokensPerDay)}
+							hint="Window average normalized to 24 hours"
+							loading={isLoading}
+						/>
+						<StatCard
+							label="Peak tokens/day"
+							value={count(summary?.peakTokensPerDay)}
+							hint={peakLabel(summary?.peakDayAt)}
+							loading={isLoading}
+						/>
+					</>
+				)}
 			</section>
 			<Card>
 				<CardHeader>
-					<CardTitle>Daily tokens</CardTitle>
+					<CardTitle>{hourly ? "Hourly tokens" : "Daily tokens"}</CardTitle>
 					<CardDescription>
-						UTC calendar days. Faded bars are partial days and excluded from
-						daily peaks.
+						{hourly
+							? "UTC hours. Faded bars are partial hours and excluded from the hourly peak."
+							: "UTC calendar days. Faded bars are partial days and excluded from daily peaks."}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -265,7 +333,7 @@ export function TokenCapacity() {
 							className="aspect-auto h-[280px] w-full"
 						>
 							<BarChart
-								data={data.days}
+								data={chartData}
 								accessibilityLayer
 								margin={{ left: 12, right: 12 }}
 							>
@@ -275,9 +343,7 @@ export function TokenCapacity() {
 									tickLine={false}
 									axisLine={false}
 									minTickGap={32}
-									tickFormatter={(value: string) =>
-										utcDate.format(new Date(value))
-									}
+									tickFormatter={bucketLabel}
 								/>
 								<YAxis
 									tickLine={false}
@@ -294,7 +360,7 @@ export function TokenCapacity() {
 													: String(value)
 											}
 											labelFormatter={(value) =>
-												`${utcDate.format(new Date(String(value)))} UTC${data.days.find((day) => day.timestamp === value)?.partial ? " · partial day" : ""}`
+												`${peakLabel(String(value), hourly)}${chartData.find((bucket) => bucket.timestamp === value)?.partial ? ` · partial ${hourly ? "hour" : "day"}` : ""}`
 											}
 										/>
 									}
@@ -305,10 +371,10 @@ export function TokenCapacity() {
 									fill="var(--color-tokens)"
 									radius={[3, 3, 0, 0]}
 								>
-									{data.days.map((day) => (
+									{chartData.map((bucket) => (
 										<Cell
-											key={day.timestamp}
-											fillOpacity={day.partial ? 0.4 : 1}
+											key={bucket.timestamp}
+											fillOpacity={bucket.partial ? 0.4 : 1}
 										/>
 									))}
 								</Bar>
@@ -343,13 +409,7 @@ export function TokenCapacity() {
 									<TableHead>
 										{groupBy === "provider" ? "Provider" : "Model"}
 									</TableHead>
-									{[
-										"Total tokens",
-										"Avg TPM",
-										"Peak TPM",
-										"Avg tokens/day",
-										"Peak tokens/day",
-									].map((label) => (
+									{metricColumns.map(([label]) => (
 										<TableHead key={label} className="text-right">
 											{label}
 										</TableHead>
@@ -365,27 +425,14 @@ export function TokenCapacity() {
 										>
 											{row.label}
 										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{count(row.totalTokens)}
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{count(row.avgTpm)}
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{count(row.peakTpm)}
-											<span className="block whitespace-nowrap text-xs text-muted-foreground">
-												{peakLabel(row.peakMinuteAt, true)}
-											</span>
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{count(row.avgTokensPerDay)}
-										</TableCell>
-										<TableCell className="text-right tabular-nums">
-											{count(row.peakTokensPerDay)}
-											<span className="block whitespace-nowrap text-xs text-muted-foreground">
-												{peakLabel(row.peakDayAt)}
-											</span>
-										</TableCell>
+										{metricColumns.map(([label, render]) => (
+											<TableCell
+												key={label}
+												className="text-right tabular-nums"
+											>
+												{render(row)}
+											</TableCell>
+										))}
 									</TableRow>
 								))}
 							</TableBody>
@@ -429,9 +476,9 @@ export function TokenCapacity() {
 				{data
 					? `Recorded usage from ${data.start.slice(0, 16).replace("T", " ")} to ${data.end.slice(0, 16).replace("T", " ")} UTC. `
 					: ""}
-				Peaks use completed UTC minutes and days, not rolling intervals. Gateway
-				response-cache hits are excluded. Usage follows worker refreshes and
-				does not reproduce provider quota accounting. Reload the page for
+				Peaks use completed UTC minutes, hours, and days, not rolling intervals.
+				Gateway response-cache hits are excluded. Usage follows worker refreshes
+				and does not reproduce provider quota accounting. Reload the page for
 				updated measurements.
 			</p>
 		</div>

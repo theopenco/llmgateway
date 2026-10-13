@@ -2046,12 +2046,19 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		where: {
 			id: { eq: id },
 			managed: { eq: true },
-			status: { ne: "deleted" },
 		},
 	});
 
 	if (!existing) {
 		throw new HTTPException(404, { message: "Credential not found" });
+	}
+	// Soft-deleted credentials stay editable (e.g. renamed for the history they
+	// are kept for), but never move back into rotation.
+	const wasDeleted = existing.status === "deleted";
+	if (wasDeleted && body.status !== undefined) {
+		throw new HTTPException(400, {
+			message: "A deleted credential cannot change status.",
+		});
 	}
 	if (body.token !== undefined && existing.provider !== "custom") {
 		const carrier = await findActiveCustomCarrier(existing.provider);
@@ -2187,9 +2194,9 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		});
 	}
 
-	// status <> 'deleted' repeats the read's predicate so a concurrent delete
-	// cannot have this write resurrect (or rotate the token of) a row that was
-	// soft-deleted between the read above and this statement.
+	// The status predicate pins the deleted-or-not state the read saw, so a
+	// concurrent delete cannot have this write resurrect (or rotate the token
+	// of) a row soft-deleted between the read above and this statement.
 	const [updated] = await cdb
 		.update(tables.providerKey)
 		.set(updates)
@@ -2197,7 +2204,9 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			and(
 				eq(tables.providerKey.id, id),
 				eq(tables.providerKey.managed, true),
-				ne(tables.providerKey.status, "deleted"),
+				wasDeleted
+					? eq(tables.providerKey.status, "deleted")
+					: ne(tables.providerKey.status, "deleted"),
 			),
 		)
 		.returning();

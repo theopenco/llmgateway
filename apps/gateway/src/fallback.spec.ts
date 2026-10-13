@@ -529,7 +529,7 @@ describe("fallback and error status code handling", () => {
 			expect(Number(logs[0].cost)).toBeGreaterThan(0);
 		});
 
-		test("skips a cheaper mapping whose context window is too small for the prompt", async () => {
+		test("skips a cheaper mapping far below the model's context window, even for a short prompt", async () => {
 			await setupCustomAutoRouting();
 			await db
 				.update(tables.customModel)
@@ -545,7 +545,7 @@ describe("fallback and error status code handling", () => {
 				body: JSON.stringify({
 					model: "claude-haiku-4-5",
 					routing: "price",
-					messages: [{ role: "user", content: "x ".repeat(4_000) }],
+					messages: [{ role: "user", content: "Hello" }],
 				}),
 			});
 

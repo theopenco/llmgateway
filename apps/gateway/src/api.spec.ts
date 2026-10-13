@@ -3603,6 +3603,100 @@ describe("api", () => {
 		);
 	});
 
+	test.each([false, true])(
+		"/v1/chat/completions retries the dev-plan flex default at standard on flex_unavailable (stream: %s)",
+		async (stream) => {
+			const suffix = stream ? "stream" : "json";
+			await db.insert(tables.apiKey).values({
+				id: `token-id-devplan-flex-unavailable-${suffix}`,
+				...hashApiKeyForStorage(
+					`real-token-devplan-flex-unavailable-${suffix}`,
+				),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const providerKeyId = `provider-key-id-devplan-flex-unavailable-${suffix}`;
+			await db.insert(tables.providerKey).values({
+				id: providerKeyId,
+				...encryptProviderKeyForStorage("sk-test-key", providerKeyId, "org-id"),
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			await harness.setDevPlan({ devPlan: "pro", serviceTier: "flex" });
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token-devplan-flex-unavailable-${suffix}`,
+				},
+				body: JSON.stringify({
+					model: "gpt-5.5",
+					stream,
+					messages: [{ role: "user", content: "TRIGGER_FLEX_UNAVAILABLE" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const body = await res.text();
+			expect(body).toContain("mock response");
+			expect(body).not.toContain("flex_unavailable");
+
+			const logs = await waitForLogs(2);
+			expect(logs.length).toBe(2);
+			const failed = logs.find((log) => log.retried);
+			const succeeded = logs.find((log) => !log.retried);
+			expect(failed?.errorDetails?.responseText).toContain("flex_unavailable");
+			expect(failed?.retriedByLogId).toBe(succeeded?.id);
+			expect(succeeded?.usedProvider).toBe("openai");
+			expect(succeeded?.hasError).toBe(false);
+			expect(succeeded?.usedServiceTier).toBeNull();
+		},
+	);
+
+	test("/v1/chat/completions does not downgrade an explicit flex tier on flex_unavailable", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-explicit-flex-unavailable",
+			...hashApiKeyForStorage("real-token-explicit-flex-unavailable"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-explicit-flex-unavailable",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-explicit-flex-unavailable",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-explicit-flex-unavailable",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-5.5",
+				service_tier: "flex",
+				messages: [{ role: "user", content: "TRIGGER_FLEX_UNAVAILABLE" }],
+			}),
+		});
+
+		expect(res.status).not.toBe(200);
+		const logs = await waitForLogs(1);
+		expect(logs.every((log) => log.hasError)).toBe(true);
+	});
+
 	test("/v1/chat/completions records providers dropped by the dev-plan flex default", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-devplan-flex-filtered",

@@ -18,6 +18,7 @@ import { AppConfigProvider } from "@/lib/config";
 import { SystemBannerProvider } from "@/lib/system-banner-context";
 
 import { TimeZoneProvider } from "@llmgateway/shared";
+import { ProviderMarksProvider } from "@llmgateway/shared/components";
 
 import type { AppConfig } from "@/lib/config-server";
 import type { SystemBanner, TimeZonePreference } from "@llmgateway/shared";
@@ -134,7 +135,9 @@ export function Providers({
 					>
 						<QueryClientProvider client={queryClient}>
 							<PostHogProvider client={posthog}>
-								{children}
+								<ProviderMarksProvider apiUrl={config.apiUrl}>
+									{children}
+								</ProviderMarksProvider>
 								{/* Gated on init: posthog-js drops captures fired before
 						    init(), and the OAuth signup event has exactly one
 						    chance to fire. */}

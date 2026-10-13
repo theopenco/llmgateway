@@ -22,6 +22,7 @@ const CATEGORY_LINKS: ReadonlyArray<{ href: string; label: string }> = [
 	{ href: "/models/tools", label: "Tool-calling models" },
 	{ href: "/models/web-search", label: "Web search models" },
 	{ href: "/models/embeddings", label: "Embedding models" },
+	{ href: "/models/decisions", label: "Decision models" },
 	{ href: "/models/text", label: "Text generation models" },
 	{ href: "/models/text-to-image", label: "Text-to-image models" },
 	{ href: "/models/image-to-image", label: "Image editing models" },

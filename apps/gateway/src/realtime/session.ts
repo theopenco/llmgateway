@@ -37,6 +37,7 @@ import {
 	normalizeTranscriptionUsage,
 	priceTranscriptionUsage,
 } from "./transcription.js";
+import { logRealtimeTurnDenial } from "./turn-denial-log.js";
 
 import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
@@ -833,6 +834,22 @@ export class RealtimeProxySession {
 		}
 	}
 
+	/**
+	 * Refuses one billable turn and logs it like a rejected HTTP request.
+	 */
+	private refuseTurn(code: string, message: string): void {
+		this.sendToClientRaw(buildErrorEvent(code, message));
+		void logRealtimeTurnDenial({
+			gatewayToken: this.gatewayToken,
+			sessionRecordId: this.sessionRecordId,
+			requestedModel: this.requestedModel,
+			source: this.source,
+			userAgent: this.userAgent,
+			code,
+			message,
+		});
+	}
+
 	private async authorizeAccount(
 		match: RealtimeMappingMatch,
 	): Promise<AuthorizeAccountResult> {
@@ -846,20 +863,16 @@ export class RealtimeProxySession {
 
 	private async runGenerationGatesInner(): Promise<boolean> {
 		if (this.sessionSpend.greaterThanOrEqualTo(maxSessionSpendUsd())) {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"session_spend_limit",
-					`This session has reached its spend limit ($${maxSessionSpendUsd()}). Reconnect to start a new session.`,
-				),
+			this.refuseTurn(
+				"session_spend_limit",
+				`This session has reached its spend limit ($${maxSessionSpendUsd()}). Reconnect to start a new session.`,
 			);
 			return false;
 		}
 
 		const authorization = await this.authorizeAccount(this.preflight.match);
 		if (!authorization.ok) {
-			this.sendToClientRaw(
-				buildErrorEvent(authorization.code, authorization.message),
-			);
+			this.refuseTurn(authorization.code, authorization.message);
 			if (authorization.severity === "close") {
 				this.shutdown(1008, authorization.code);
 			}
@@ -869,20 +882,16 @@ export class RealtimeProxySession {
 		if (this.preflight.usedMode === "credits") {
 			const available = await this.availableCredits(authorization.organization);
 			if (available === null) {
-				this.sendToClientRaw(
-					buildErrorEvent(
-						"gate_unavailable",
-						"Unable to verify account state; generation is temporarily unavailable.",
-					),
+				this.refuseTurn(
+					"gate_unavailable",
+					"Unable to verify account state; generation is temporarily unavailable.",
 				);
 				return false;
 			}
 			if (available.lessThanOrEqualTo(0)) {
-				this.sendToClientRaw(
-					buildErrorEvent(
-						"insufficient_credits",
-						"Organization has insufficient credits for further responses.",
-					),
+				this.refuseTurn(
+					"insufficient_credits",
+					"Organization has insufficient credits for further responses.",
 				);
 				return false;
 			}
@@ -894,11 +903,9 @@ export class RealtimeProxySession {
 			this.preflight.match.modelId,
 		);
 		if (!rateLimit.allowed) {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"rate_limit_exceeded",
-					`Provider rate limit exceeded${rateLimit.retryAfter ? `; retry after ${rateLimit.retryAfter}s` : ""}.`,
-				),
+			this.refuseTurn(
+				"rate_limit_exceeded",
+				`Provider rate limit exceeded${rateLimit.retryAfter ? `; retry after ${rateLimit.retryAfter}s` : ""}.`,
 			);
 			return false;
 		}
@@ -936,11 +943,9 @@ export class RealtimeProxySession {
 			return;
 		}
 		if (this.sessionSpend.greaterThanOrEqualTo(maxSessionSpendUsd())) {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"session_spend_limit",
-					`This session has reached its spend limit ($${maxSessionSpendUsd()}). Reconnect to start a new session.`,
-				),
+			this.refuseTurn(
+				"session_spend_limit",
+				`This session has reached its spend limit ($${maxSessionSpendUsd()}). Reconnect to start a new session.`,
 			);
 			this.drainOrShutdown(1008, "session_spend_limit");
 			return;
@@ -952,9 +957,7 @@ export class RealtimeProxySession {
 			if (authorization.severity === "transient") {
 				return;
 			}
-			this.sendToClientRaw(
-				buildErrorEvent(authorization.code, authorization.message),
-			);
+			this.refuseTurn(authorization.code, authorization.message);
 			this.drainOrShutdown(1008, authorization.code);
 			return;
 		}
@@ -969,11 +972,9 @@ export class RealtimeProxySession {
 				transcriptionMatch.modelId,
 			);
 			if (!rateLimit.allowed) {
-				this.sendToClientRaw(
-					buildErrorEvent(
-						"rate_limit_exceeded",
-						`Provider rate limit exceeded${rateLimit.retryAfter ? `; retry after ${rateLimit.retryAfter}s` : ""}.`,
-					),
+				this.refuseTurn(
+					"rate_limit_exceeded",
+					`Provider rate limit exceeded${rateLimit.retryAfter ? `; retry after ${rateLimit.retryAfter}s` : ""}.`,
 				);
 				this.drainOrShutdown(1008, "rate_limit_exceeded");
 				return;
@@ -986,11 +987,9 @@ export class RealtimeProxySession {
 		if (available === null || available.greaterThan(0)) {
 			return;
 		}
-		this.sendToClientRaw(
-			buildErrorEvent(
-				"insufficient_credits",
-				"Organization has insufficient credits to continue this session.",
-			),
+		this.refuseTurn(
+			"insufficient_credits",
+			"Organization has insufficient credits to continue this session.",
 		);
 		this.drainOrShutdown(1008, "insufficient_credits");
 	}

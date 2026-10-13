@@ -2712,13 +2712,16 @@ export async function prepareRequestBody(
 					}
 				}
 
-				// Abuse-attribution identifier. Only OpenAI and Azure (whose v1
-				// surface is what the Responses API path always uses) document
-				// `safety_identifier`; Bedrock Mantle and Meta are excluded because
-				// neither documents it and an unknown field risks a 400.
+				// Abuse-attribution identifier. OpenAI, Azure (whose v1 surface is
+				// what the Responses API path always uses) and Meta document
+				// `safety_identifier`; Bedrock Mantle does not, and an unknown field
+				// risks a 400.
 				if (
 					safety_identifier !== undefined &&
-					(usedProvider === "openai" || usedProvider === "azure")
+					(usedProvider === "openai" ||
+						usedProvider === "azure" ||
+						usedProvider === "meta" ||
+						usedProvider === "meta-contributor")
 				) {
 					responsesBody.safety_identifier = safety_identifier;
 				}
@@ -2840,9 +2843,14 @@ export async function prepareRequestBody(
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
-				if (usedProvider === "openai" || usedProvider === "azure") {
+				if (
+					usedProvider === "openai" ||
+					usedProvider === "azure" ||
+					usedProvider === "meta" ||
+					usedProvider === "meta-contributor"
+				) {
 					if (safety_identifier !== undefined) {
-						if (usedProvider === "openai") {
+						if (usedProvider !== "azure") {
 							requestBody.safety_identifier = safety_identifier;
 						} else {
 							// Azure's deployment-based APIs predate safety_identifier but

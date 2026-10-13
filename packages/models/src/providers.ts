@@ -1746,7 +1746,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "meta",
 		name: "Meta",
-		forwardsSafetyIdentifier: false,
+		forwardsSafetyIdentifier: true,
 		description:
 			"Meta's Model API serving Muse reasoning and image models via an OpenAI-compatible API",
 		env: {
@@ -1789,7 +1789,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "meta-contributor",
 		name: "Meta Contributor",
-		forwardsSafetyIdentifier: false,
+		forwardsSafetyIdentifier: true,
 		description:
 			"Meta's discounted, training-eligible Model API tier for Muse models",
 		env: {

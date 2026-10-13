@@ -39,6 +39,7 @@ import {
 	formatBucketLabelWithZone,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
+import { sortTooltipPayload } from "@llmgateway/shared/chart-tooltip";
 import {
 	formatCompactNumber,
 	formatNumber,
@@ -193,9 +194,11 @@ const CustomTooltip = ({
 	if (active && payload && payload.length) {
 		const data = payload[0].payload;
 		const items = pickBreakdown(data, groupBy);
-		const sortedPayload = payload
-			.filter((entry) => entry.dataKey !== "requestCount" && entry.value > 0)
-			.sort((a, b) => b.value - a.value);
+		const sortedPayload = sortTooltipPayload(
+			payload.filter(
+				(entry) => entry.dataKey !== "requestCount" && entry.value > 0,
+			),
+		);
 		return (
 			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
 				<p className="font-medium">

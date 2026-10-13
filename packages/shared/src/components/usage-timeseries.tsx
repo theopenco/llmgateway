@@ -12,6 +12,7 @@ import {
 	YAxis,
 } from "recharts";
 
+import { sortByValueDesc } from "@/chart-tooltip";
 import { formatCompactNumber, formatNumber } from "@/number-format";
 import {
 	cacheRateStatus,
@@ -275,15 +276,22 @@ export function UsageTimeseriesChart({
 	lineStyle?: boolean;
 }) {
 	const cache = metric === "cacheRate";
+	// Intl.DateTimeFormat construction is expensive and this runs per axis
+	// tick and per tooltip row, so build the formatter once per bucket/zone.
+	const timeFormat = useMemo(
+		() =>
+			new Intl.DateTimeFormat("en-US", {
+				timeZone,
+				month: "short",
+				day: "numeric",
+				...(bucket === "hour"
+					? { hour: "2-digit" as const, minute: "2-digit" as const }
+					: {}),
+			}),
+		[timeZone, bucket],
+	);
 	const formatTime = (timestamp: string) =>
-		new Intl.DateTimeFormat("en-US", {
-			timeZone,
-			month: "short",
-			day: "numeric",
-			...(bucket === "hour"
-				? { hour: "2-digit" as const, minute: "2-digit" as const }
-				: {}),
-		}).format(new Date(timestamp));
+		timeFormat.format(new Date(timestamp));
 	const chartData = useMemo(
 		() =>
 			(data?.points ?? []).map((point) => {
@@ -320,6 +328,10 @@ export function UsageTimeseriesChart({
 	const pointByTime = useMemo(
 		() => new Map(data?.points.map((point) => [point.timestamp, point])),
 		[data],
+	);
+	const rowByTime = useMemo(
+		() => new Map(chartData.map((row) => [row.timestamp, row])),
+		[chartData],
 	);
 	const formatValue = (value: number) =>
 		cache
@@ -382,6 +394,7 @@ export function UsageTimeseriesChart({
 							if (!active || !point) {
 								return null;
 							}
+							const row = rowByTime.get(point.timestamp);
 							return (
 								<div className="max-h-96 max-w-lg overflow-auto rounded-lg border bg-popover p-3 text-xs text-popover-foreground shadow-md">
 									<p className="mb-2 font-semibold">
@@ -394,7 +407,10 @@ export function UsageTimeseriesChart({
 											all matching traffic
 										</p>
 									)}
-									{data.series.map((series, index) => {
+									{sortByValueDesc(
+										data.series.map((series, index) => ({ series, index })),
+										({ index }) => row?.[`series${index}`],
+									).map(({ series, index }) => {
 										const entry = point.entries.find(
 											(entry) => entry.key === series.key,
 										);
@@ -409,9 +425,7 @@ export function UsageTimeseriesChart({
 											creditsRequestCount: 0,
 											apiKeysRequestCount: 0,
 										};
-										const value = chartData.find(
-											(row) => row.timestamp === point.timestamp,
-										)?.[`series${index}`];
+										const value = row?.[`series${index}`];
 										return (
 											<div key={series.key} className="mt-2">
 												<div className="flex gap-2">

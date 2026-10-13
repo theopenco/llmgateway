@@ -8,8 +8,14 @@ import {
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import {
+	CHAT_PLAN_TX_TYPES,
+	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+	firstRowPerInvoiceFilter,
+} from "@/utils/devpass-filter.js";
 
 import {
+	aliasedTable,
 	and,
 	CONTENT_FILTER_STATS_ALL_CATEGORY,
 	contentFilterHourlyModelStats,
@@ -19,6 +25,7 @@ import {
 	eq,
 	gte,
 	inArray,
+	isNotNull,
 	ne,
 	sql,
 	tables,
@@ -137,6 +144,126 @@ function toModelBreakdown(row: {
 	};
 }
 
+// Recurring plan charges: DevPass, Chat Plans and org Pro subscriptions.
+// Cancel/end rows are bookkeeping and never carry a positive amount.
+const SUBSCRIPTION_PAYMENT_TYPES = [
+	...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+	...CHAT_PLAN_TX_TYPES,
+	"subscription_start",
+] as const;
+
+// Sums of NUMERIC strings drift in float math; report whole cents.
+function toDollars(value: number): number {
+	return Math.round(value * 100) / 100;
+}
+
+interface OrganizationRevenue {
+	topUpNet: number;
+	subscriptionNet: number;
+}
+
+/**
+ * All-time money in per organization, so a violation can be weighed against
+ * what the customer is worth. Top-ups mirror the admin org list's
+ * "credits all time": `creditAmount` of top-ups and manual payments plus the
+ * (negative) clawback on their refunds — plan rows store virtual credits there,
+ * so they are excluded. Subscriptions sum `amount` once per Stripe invoice and
+ * subtract refunds booked against those charges.
+ */
+async function loadOrganizationRevenue(
+	organizationIds: string[],
+): Promise<Map<string, OrganizationRevenue>> {
+	const revenue = new Map<string, OrganizationRevenue>();
+	if (organizationIds.length === 0) {
+		return revenue;
+	}
+
+	const refundedCharge = aliasedTable(tables.transaction, "refunded_charge");
+	const [topUpRows, subscriptionRows, subscriptionRefundRows] =
+		await Promise.all([
+			db
+				.select({
+					organizationId: tables.transaction.organizationId,
+					total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`,
+				})
+				.from(tables.transaction)
+				.where(
+					and(
+						inArray(tables.transaction.organizationId, organizationIds),
+						eq(tables.transaction.status, "completed"),
+						inArray(tables.transaction.type, [
+							"credit_topup",
+							"credit_manual_payment",
+							"credit_refund",
+						]),
+					),
+				)
+				.groupBy(tables.transaction.organizationId),
+			db
+				.select({
+					organizationId: tables.transaction.organizationId,
+					total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+				})
+				.from(tables.transaction)
+				.where(
+					and(
+						inArray(tables.transaction.organizationId, organizationIds),
+						eq(tables.transaction.status, "completed"),
+						inArray(tables.transaction.type, SUBSCRIPTION_PAYMENT_TYPES),
+						isNotNull(tables.transaction.amount),
+						sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+						firstRowPerInvoiceFilter(SUBSCRIPTION_PAYMENT_TYPES),
+					),
+				)
+				.groupBy(tables.transaction.organizationId),
+			db
+				.select({
+					organizationId: tables.transaction.organizationId,
+					total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+				})
+				.from(tables.transaction)
+				.innerJoin(
+					refundedCharge,
+					eq(tables.transaction.relatedTransactionId, refundedCharge.id),
+				)
+				.where(
+					and(
+						inArray(tables.transaction.organizationId, organizationIds),
+						eq(tables.transaction.type, "credit_refund"),
+						eq(tables.transaction.status, "completed"),
+						sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+						eq(
+							refundedCharge.organizationId,
+							tables.transaction.organizationId,
+						),
+						eq(refundedCharge.status, "completed"),
+						inArray(refundedCharge.type, SUBSCRIPTION_PAYMENT_TYPES),
+					),
+				)
+				.groupBy(tables.transaction.organizationId),
+		]);
+
+	const entry = (organizationId: string) => {
+		const existing = revenue.get(organizationId);
+		if (existing) {
+			return existing;
+		}
+		const created = { topUpNet: 0, subscriptionNet: 0 };
+		revenue.set(organizationId, created);
+		return created;
+	};
+	for (const row of topUpRows) {
+		entry(row.organizationId).topUpNet += Number(row.total);
+	}
+	for (const row of subscriptionRows) {
+		entry(row.organizationId).subscriptionNet += Number(row.total);
+	}
+	for (const row of subscriptionRefundRows) {
+		entry(row.organizationId).subscriptionNet -= Number(row.total);
+	}
+	return revenue;
+}
+
 const violationsResponseSchema = z
 	.object({
 		window: violationsWindowSchema,
@@ -162,6 +289,12 @@ const violationsResponseSchema = z
 				),
 				topModels: z.array(modelBreakdownSchema),
 				topProviders: z.array(providerBreakdownSchema),
+				// All-time PAYG credits bought (top-ups and manual payments) net of
+				// their refunds, in USD.
+				topUpNet: z.number(),
+				// All-time subscription payments (DevPass, Chat Plan, Pro) net of
+				// their refunds, in USD.
+				subscriptionNet: z.number(),
 			}),
 		),
 		models: z.array(modelBreakdownSchema),
@@ -247,6 +380,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		.limit(TOP_ORGANIZATIONS);
 
 	const organizationIds = orgRows.map((row) => row.organizationId);
+	const revenueByOrg = await loadOrganizationRevenue(organizationIds);
 	const categoryRows =
 		organizationIds.length > 0
 			? await db
@@ -417,6 +551,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		const sampledCount = Number(row.sampledCount);
 		const violationCount = Number(row.violationCount);
 		const blockedCount = Number(row.blockedCount);
+		const revenue = revenueByOrg.get(row.organizationId);
 		return {
 			organizationId: row.organizationId,
 			organizationName: row.organizationName ?? null,
@@ -434,6 +569,8 @@ adminContentFilter.openapi(getViolations, async (c) => {
 				.sort((a, b) => b.violationCount - a.violationCount)
 				.slice(0, TOP_MODELS),
 			topProviders: toProviderBreakdowns(orgModels).slice(0, TOP_PROVIDERS),
+			topUpNet: toDollars(revenue?.topUpNet ?? 0),
+			subscriptionNet: toDollars(revenue?.subscriptionNet ?? 0),
 		};
 	});
 

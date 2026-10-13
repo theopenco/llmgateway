@@ -21,7 +21,9 @@ interface Capacity {
 	start: string;
 	end: string;
 	summary: Metrics;
+	window: string;
 	days: { timestamp: string; tokens: number; partial: boolean }[];
+	hours: { timestamp: string; tokens: number; partial: boolean }[];
 	breakdown: (Metrics & { key: string; label: string })[];
 }
 
@@ -95,7 +97,7 @@ describe("admin token capacity", () => {
 		query: Record<string, string> = {},
 	): Promise<Capacity> {
 		const response = await app.request(
-			`/admin/load/token-capacity?${new URLSearchParams(query)}`,
+			`/admin/load/token-capacity?${new URLSearchParams({ window: "7d", ...query })}`,
 			{ headers: { Cookie: cookie } },
 		);
 		expect(response.status).toBe(200);
@@ -124,6 +126,7 @@ describe("admin token capacity", () => {
 		expect(result.days[0].partial).toBe(true);
 		expect(result.days.at(-1)?.partial).toBe(true);
 		expect(result.days[2].tokens).toBe(0);
+		expect(result.hours).toEqual([]);
 	});
 
 	test("sums simultaneous usage before taking platform/provider peaks", async () => {
@@ -266,6 +269,43 @@ describe("admin token capacity", () => {
 		expect(result.summary.totalTokens).toBe(100);
 		expect(result.summary.peakTpm).toBe(100);
 		expect(result.days).toHaveLength(31);
+	});
+
+	test("defaults to the last 24 hours with hourly buckets", async () => {
+		await insertMinute("2026-10-07T12:34:00Z", 9000, 0); // Before start
+		await insertMinute("2026-10-07T12:40:00Z", 100, 0);
+		await insertHour("2026-10-07T12:00:00Z", 9100, 0); // Excluded boundary hour
+		await insertHour("2026-10-07T13:00:00Z", 500, 0);
+		await insertHour("2026-10-08T05:00:00Z", 200, 0);
+		await insertMinute("2026-10-08T12:33:00Z", 50, 0);
+		const response = await app.request("/admin/load/token-capacity", {
+			headers: { Cookie: cookie },
+		});
+		expect(response.status).toBe(200);
+		const result = (await response.json()) as Capacity;
+		expect(result.window).toBe("24h");
+		expect(result.start).toBe("2026-10-07T12:35:00.000Z");
+		expect(result.summary.totalTokens).toBe(850);
+		expect(result.summary.avgTpm).toBeCloseTo(850 / 1439);
+		expect(result.summary.peakTpm).toBe(100);
+		expect(result.hours).toHaveLength(25);
+		expect(result.hours[0]).toEqual({
+			timestamp: "2026-10-07T12:00:00Z",
+			tokens: 100,
+			partial: true,
+		});
+		expect(result.hours[1]).toEqual({
+			timestamp: "2026-10-07T13:00:00Z",
+			tokens: 500,
+			partial: false,
+		});
+		expect(result.hours.at(-1)).toEqual({
+			timestamp: "2026-10-08T12:00:00Z",
+			tokens: 50,
+			partial: true,
+		});
+		expect(result.days.map((day) => day.tokens)).toEqual([600, 250]);
+		expect(result.summary.peakDayAt).toBeNull();
 	});
 
 	test("returns zero counts and no peak timestamp for an empty window", async () => {

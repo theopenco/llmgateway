@@ -441,6 +441,37 @@ describe("admin provider credentials", () => {
 		]);
 	});
 
+	test("edits a soft-deleted credential without reviving it", async () => {
+		await create({ provider: "openai", token: "sk-retire-me" });
+		const [credential] = await list();
+		const url = `/admin/provider-credentials/${credential.id}`;
+		const patch = (body: unknown) =>
+			app.request(url, {
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+
+		const removed = await app.request(url, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		expect(removed.status).toBe(200);
+
+		const renamed = await patch({ comment: "old prod key" });
+		expect(renamed.status).toBe(200);
+		const { credential: updated } = await renamed.json();
+		expect(updated.comment).toBe("old prod key");
+		expect(updated.status).toBe("deleted");
+
+		const revived = await patch({ status: "active" });
+		expect(revived.status).toBe(400);
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		expect(row?.status).toBe("deleted");
+	});
+
 	test("does not manage organization-owned provider keys", async () => {
 		await db.insert(tables.organization).values({
 			id: "byok-org",
