@@ -3,9 +3,8 @@
 import { createContext, use, useEffect, useState } from "react";
 
 import { CarrierMark } from "./carrier-mark";
-import { Logo } from "./ui/logo";
 
-import type { ReactNode, SVGProps } from "react";
+import type { ReactNode } from "react";
 
 type ProviderMarks = Readonly<Record<string, string>>;
 
@@ -14,8 +13,8 @@ const NO_MARKS: ProviderMarks = {};
 const ProviderMarksContext = createContext<ProviderMarks>(NO_MARKS);
 
 /**
- * Loads the marks Airside carriers uploaded, which `getProviderIcon` renders
- * for providers without a bundled icon.
+ * Loads the marks Airside carriers uploaded, which `getProviderIcon` and
+ * `providerLogoUrls` render in place of the bundled icon.
  */
 export function ProviderMarksProvider({
 	apiUrl,
@@ -52,17 +51,20 @@ export function ProviderMarksProvider({
 	return <ProviderMarksContext value={marks}>{children}</ProviderMarksContext>;
 }
 
-/** A provider's uploaded mark, or the LLM Gateway logo when it has none. */
-export function UploadedProviderMark({
+/**
+ * A provider's uploaded mark, else `children` (its fallback icon). The
+ * fallback is passed as an element so server components can render this.
+ */
+export function ProviderMark({
 	provider,
 	className,
-	...props
-}: SVGProps<SVGSVGElement> & { provider: string }) {
+	children,
+}: {
+	provider: string;
+	className?: string;
+	children: ReactNode;
+}) {
 	const marks = use(ProviderMarksContext);
 	const mark = Object.hasOwn(marks, provider) ? marks[provider] : undefined;
-	return mark ? (
-		<CarrierMark src={mark} className={className} />
-	) : (
-		<Logo className={className} {...props} />
-	);
+	return mark ? <CarrierMark src={mark} className={className} /> : children;
 }

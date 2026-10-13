@@ -2,7 +2,7 @@ import React from "react";
 
 import { cn } from "@/lib/utils";
 
-import { UploadedProviderMark } from "./provider-marks";
+import { ProviderMark } from "./provider-marks";
 import { Logo } from "./ui/logo";
 
 import type { ProviderId } from "@llmgateway/models";
@@ -1653,8 +1653,42 @@ export const ProviderIcons = {
 // Type for provider icon keys
 export type ProviderIconKey = keyof typeof ProviderIcons;
 
-export const providerLogoUrls: Partial<
-	Record<ProviderId | ProviderIconKey, React.FC<React.SVGProps<SVGSVGElement>>>
+type ProviderIconComponent = React.FC<React.SVGProps<SVGSVGElement>>;
+
+// One stable component per provider and fallback, so re-renders don't remount the icon.
+const markedIcons = new WeakMap<
+	ProviderIconComponent,
+	Map<string, ProviderIconComponent>
+>();
+
+/**
+ * Wraps a provider's fallback icon so the mark its Airside carrier uploaded
+ * (via `ProviderMarksProvider`) takes precedence.
+ */
+function withProviderMark(
+	provider: string,
+	Fallback: ProviderIconComponent,
+): ProviderIconComponent {
+	let byProvider = markedIcons.get(Fallback);
+	if (!byProvider) {
+		byProvider = new Map();
+		markedIcons.set(Fallback, byProvider);
+	}
+	let Icon = byProvider.get(provider);
+	if (!Icon) {
+		Icon = (props) => (
+			<ProviderMark provider={provider} className={props.className}>
+				<Fallback {...props} />
+			</ProviderMark>
+		);
+		Icon.displayName = `ProviderMark(${provider})`;
+		byProvider.set(provider, Icon);
+	}
+	return Icon;
+}
+
+const bundledProviderLogos: Partial<
+	Record<ProviderId | ProviderIconKey, ProviderIconComponent>
 > = {
 	atlascloud: ProviderIcons.atlascloud,
 	openai: ProviderIcons.openai,
@@ -1708,6 +1742,14 @@ export const providerLogoUrls: Partial<
 	tencent: ProviderIcons.tencent,
 };
 
+export const providerLogoUrls: Partial<
+	Record<ProviderId | ProviderIconKey, ProviderIconComponent>
+> = Object.fromEntries(
+	Object.entries(bundledProviderLogos).flatMap(([provider, Icon]) =>
+		Icon ? [[provider, withProviderMark(provider, Icon)]] : [],
+	),
+);
+
 export const getProviderLogoDarkModeClasses = () => {
 	return "";
 };
@@ -1728,31 +1770,12 @@ export const getBundledProviderIcon = (
 	return ProviderIcons[normalizedProvider];
 };
 
-// One stable component per provider, so re-renders don't remount the icon.
-const uploadedMarkIcons = new Map<
-	string,
-	React.FC<React.SVGProps<SVGSVGElement>>
->();
-
 /**
- * Icon for a provider: the bundled one, else the mark its Airside carrier
- * uploaded (via `ProviderMarksProvider`), else the LLM Gateway logo.
+ * Icon for a provider: the mark its Airside carrier uploaded, else the bundled
+ * icon, else the LLM Gateway logo.
  */
-export const getProviderIcon = (
-	provider: string,
-): React.FC<React.SVGProps<SVGSVGElement>> => {
-	const bundled = getBundledProviderIcon(provider);
-	if (bundled) {
-		return bundled;
-	}
-	let Icon = uploadedMarkIcons.get(provider);
-	if (!Icon) {
-		Icon = (props) => <UploadedProviderMark provider={provider} {...props} />;
-		Icon.displayName = `UploadedProviderMark(${provider})`;
-		uploadedMarkIcons.set(provider, Icon);
-	}
-	return Icon;
-};
+export const getProviderIcon = (provider: string): ProviderIconComponent =>
+	withProviderMark(provider, getBundledProviderIcon(provider) ?? Logo);
 
 // Maps a model's `family` (e.g. "glm", "google", "meta") to its brand icon so
 // that cards display the model maker's logo rather than whichever provider
