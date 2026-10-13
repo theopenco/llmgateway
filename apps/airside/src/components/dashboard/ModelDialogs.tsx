@@ -46,10 +46,13 @@ import { useApi } from "@/lib/fetch-client";
 import { perMillionToPerToken, perTokenToPerMillion } from "@/lib/format";
 
 import {
+	CONTEXT_TIER_TOLERANCE,
+	getContextSizeDeviation,
 	isValidModelId,
 	modelIdProblem,
 	suggestModelId,
 } from "@llmgateway/models";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
@@ -163,6 +166,51 @@ function QuantizationField({
 					))}
 				</SelectContent>
 			</Select>
+		</div>
+	);
+}
+
+/**
+ * Blocks a listing whose context size is more than 10% away from the largest
+ * window the model is served with; the API rejects it as well.
+ */
+function ContextSizeWarning({
+	contextSize,
+	referenceContextSize,
+	modelName,
+}: {
+	contextSize: string;
+	referenceContextSize: number | null | undefined;
+	modelName: string;
+}) {
+	const value = Number(contextSize);
+	const deviation = getContextSizeDeviation(value, referenceContextSize);
+	if (!deviation || !referenceContextSize) {
+		return null;
+	}
+	const tolerance = `${CONTEXT_TIER_TOLERANCE * 100}%`;
+	return (
+		<div
+			role="alert"
+			data-testid="context-size-warning"
+			className="border-destructive bg-destructive/10 flex gap-3 rounded-md border-2 p-4"
+		>
+			<AlertTriangle className="text-destructive size-6 shrink-0" aria-hidden />
+			<div className="space-y-1 text-sm">
+				<p className="font-semibold">
+					{deviation === "below"
+						? `Context size too far below ${modelName}'s window`
+						: `Context size too far above ${modelName}'s window`}
+				</p>
+				<p>
+					{modelName} is served with up to {formatNumber(referenceContextSize)}{" "}
+					tokens of context. Listings must declare a window within {tolerance}{" "}
+					of it, so {formatNumber(value)} tokens can&apos;t be submitted.{" "}
+					{deviation === "below"
+						? "A deployment with a smaller window can't be listed for this model."
+						: "Declare the window your deployment really accepts: preflight sends a prompt filling about 90% of it."}
+				</p>
+			</div>
 		</div>
 	);
 }
@@ -972,6 +1020,15 @@ export function RegisterModelDialog({
 							toast.error("Load the catalogue before saving.");
 							return;
 						}
+						if (
+							getContextSizeDeviation(
+								Number(contextSize),
+								canonicalModel?.referenceContextSize,
+							)
+						) {
+							toast.error("Fix the context size before saving.");
+							return;
+						}
 						if (verification?.status !== "passed") {
 							queueVerification.mutate({
 								body: {
@@ -1222,6 +1279,11 @@ export function RegisterModelDialog({
 							/>
 						)}
 					</div>
+					<ContextSizeWarning
+						contextSize={contextSize}
+						referenceContextSize={canonicalModel?.referenceContextSize}
+						modelName={trimmedModelName}
+					/>
 
 					{catalogue.isSuccess && !canonicalModel && (
 						<div className="space-y-2">
@@ -1919,6 +1981,15 @@ export function EditModelDialog({
 							toast.error("Load the catalogue before saving.");
 							return;
 						}
+						if (
+							getContextSizeDeviation(
+								Number(contextSize),
+								canonicalModel?.referenceContextSize,
+							)
+						) {
+							toast.error("Fix the context size before saving.");
+							return;
+						}
 						updateModel.mutate({
 							params: { path: { id: model.id } },
 							body: {
@@ -2011,6 +2082,11 @@ export function EditModelDialog({
 							/>
 						)}
 					</div>
+					<ContextSizeWarning
+						contextSize={contextSize}
+						referenceContextSize={canonicalModel?.referenceContextSize}
+						modelName={model.modelName}
+					/>
 					{catalogue.isSuccess && !canonicalModel && (
 						<div className="space-y-2">
 							<Label htmlFor="edit-description">Description</Label>
