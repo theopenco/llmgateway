@@ -1279,6 +1279,20 @@ describe("model verification", () => {
 					usage: { prompt_tokens: promptTokens, completion_tokens: 1 },
 				}),
 			);
+		const promptChars = (request?: RequestInit) =>
+			String(JSON.parse(String(request?.body)).messages?.[0]?.content ?? "")
+				.length;
+		// Reports the prompt at a fixed chars/token, like a real tokenizer.
+		const tokenize = (charsPerToken: number) =>
+			vi.fn<typeof fetch>().mockImplementation(async (_url, request) =>
+				Response.json({
+					...chatBody({ content: "OK" }),
+					usage: {
+						prompt_tokens: Math.ceil(promptChars(request) / charsPerToken),
+						completion_tokens: 1,
+					},
+				}),
+			);
 
 		it("queues a check per declared limit", () => {
 			expect(
@@ -1286,21 +1300,53 @@ describe("model verification", () => {
 			).toEqual(["basic", "context_size", "max_output"]);
 		});
 
-		it("fills the declared window and requests the declared output", async () => {
-			const fetchImplementation = respond(5_000);
+		it.each([3.5, 4.9])(
+			"fills 90%% of the declared window at %s chars per token",
+			async (charsPerToken) => {
+				const fetchImplementation = tokenize(charsPerToken);
+				const result = await runProviderModelVerification({
+					target: limitsTarget,
+					token: "provider-key",
+					fetchImplementation,
+				});
+
+				expect(result.passed).toBe(true);
+				const [, calibration, context, output] =
+					fetchImplementation.mock.calls.map(([, request]) => request);
+				expect(promptChars(calibration)).toBeLessThan(10_000);
+				const probeTokens = promptChars(context) / charsPerToken;
+				expect(probeTokens).toBeGreaterThan(8_900);
+				expect(probeTokens).toBeLessThanOrEqual(9_000);
+				expect(String(output?.body)).toContain("4096");
+			},
+		);
+
+		it("fails the context check when the upstream processes under 80% of the window", async () => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockImplementation(async (_url, request) =>
+					Response.json({
+						...chatBody({ content: "OK" }),
+						usage: {
+							prompt_tokens: Math.min(
+								Math.ceil(promptChars(request) / 4.9),
+								7_500,
+							),
+							completion_tokens: 1,
+						},
+					}),
+				);
 			const result = await runProviderModelVerification({
 				target: limitsTarget,
 				token: "provider-key",
 				fetchImplementation,
 			});
 
-			expect(result.passed).toBe(true);
-			const [, context, output] = fetchImplementation.mock.calls.map(
-				([, request]) => JSON.parse(String(request?.body)),
-			);
-			// 70% of the window at 3 chars per token.
-			expect(context.messages[0].content.length).toBeGreaterThan(21_000);
-			expect(JSON.stringify(output)).toContain("4096");
+			expect(result.checks[1]).toMatchObject({
+				id: "context_size",
+				status: "failed",
+				feedback: expect.stringContaining("7500 input tokens"),
+			});
 		});
 
 		it("fails the context check when the upstream refuses the prompt", async () => {
@@ -1327,7 +1373,7 @@ describe("model verification", () => {
 					id: "context_size",
 					status: "failed",
 					feedback:
-						'Your endpoint refused a test prompt filling about 70% of the declared 10,000-token context size. It answered: "maximum context length is 4096"',
+						'Your endpoint refused a test prompt filling about 90% of the declared 10,000-token context size. It answered: "maximum context length is 4096"',
 				},
 				{ id: "max_output", status: "passed" },
 			]);
@@ -1348,7 +1394,7 @@ describe("model verification", () => {
 		});
 
 		it("caps the prompt for an oversized declared window", async () => {
-			const fetchImplementation = respond(1_500_000);
+			const fetchImplementation = tokenize(4);
 			const result = await runProviderModelVerification({
 				target: { ...limitsTarget, contextSize: 100_000_000 },
 				token: "provider-key",
@@ -1356,8 +1402,8 @@ describe("model verification", () => {
 			});
 
 			expect(result.passed).toBe(true);
-			const context = String(fetchImplementation.mock.calls[1][1]?.body);
-			expect(context.length).toBeLessThan(6_100_000);
+			const context = promptChars(fetchImplementation.mock.calls[2][1]);
+			expect(context).toBeLessThanOrEqual(2_000_000 * 4);
 		});
 
 		it("fails the context check on a failed response envelope", async () => {
@@ -1390,12 +1436,14 @@ describe("model verification", () => {
 				token: "provider-key",
 				fetchImplementation: vi
 					.fn<typeof fetch>()
-					.mockImplementation(async () =>
+					.mockImplementation(async (_url, request) =>
 						Response.json({
 							...chatBody({ content: "OK" }),
 							usage: {
 								input_tokens: 10,
-								cache_creation_input_tokens: 5_000,
+								cache_creation_input_tokens: Math.ceil(
+									promptChars(request) / 4.9,
+								),
 								output_tokens: 1,
 							},
 						}),

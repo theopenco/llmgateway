@@ -16,6 +16,7 @@ import {
 	syncAirsideModelMetadata,
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
+import { referenceContextSizes } from "@/lib/airside-context-size.js";
 import {
 	airsideModelMetadataSchema,
 	type AirsideModelMetadataInput,
@@ -71,6 +72,8 @@ import {
 	tables,
 } from "@llmgateway/db";
 import {
+	getContextSizeDeviation,
+	getReferenceContextSize,
 	models as catalogueModels,
 	providers as catalogueProviders,
 	PROVIDER_API_FORMATS,
@@ -145,6 +148,16 @@ const adminFilingSchema = z.object({
 		name: z.string(),
 		website: z.string().nullable(),
 	}),
+	// Set when a new listing or a context-size change files a window more than
+	// 10% away from the model's reference window (the largest catalogue
+	// deployment, or the largest other listing for models outside it).
+	contextSizeWarning: z
+		.object({
+			contextSize: z.number(),
+			referenceContextSize: z.number(),
+			deviation: z.enum(["below", "above"]),
+		})
+		.nullable(),
 	// The model's currently effective pricing, for diffing update filings.
 	currentPricing: z
 		.object({
@@ -243,7 +256,42 @@ function staticModelNameExists(modelName: string): boolean {
 	);
 }
 
-function serializeAdminFiling(row: FilingWithRelations) {
+/** The context size a filing sets: a new listing's, or a metadata change's. */
+function filedContextSize(row: FilingWithRelations): number | null {
+	if (row.kind === "initial") {
+		return row.draftModel.contextSize;
+	}
+	if (row.kind === "metadata" && row.metadata) {
+		return row.metadata.contextSize ?? null;
+	}
+	return null;
+}
+
+function contextSizeWarningFor(
+	row: FilingWithRelations,
+	listingReference: (
+		modelName: string,
+		providerId: string,
+	) => number | undefined = (modelName) => getReferenceContextSize(modelName),
+) {
+	const contextSize = filedContextSize(row);
+	const referenceContextSize = listingReference(
+		row.draftModel.modelName,
+		row.draftModel.providerId,
+	);
+	const deviation = getContextSizeDeviation(contextSize, referenceContextSize);
+	return deviation && contextSize && referenceContextSize
+		? { contextSize, referenceContextSize, deviation }
+		: null;
+}
+
+function serializeAdminFiling(
+	row: FilingWithRelations,
+	listingReference?: (
+		modelId: string,
+		providerId: string,
+	) => number | undefined,
+) {
 	const approved = [...(row.draftModel.priceFilings ?? [])]
 		.filter((f) => f.status === "approved")
 		.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
@@ -294,6 +342,7 @@ function serializeAdminFiling(row: FilingWithRelations) {
 			name: row.providerCompany.name,
 			website: row.providerCompany.website,
 		},
+		contextSizeWarning: contextSizeWarningFor(row, listingReference),
 		currentPricing: approved
 			? {
 					inputPrice: approved.inputPrice,
@@ -402,9 +451,14 @@ adminAirside.openapi(listFilings, async (c) => {
 			row,
 		]),
 	);
+	const listingReference = await referenceContextSizes(
+		(rows as FilingWithRelations[]).map((row) => ({
+			modelName: row.draftModel.modelName,
+		})),
+	);
 	return c.json({
 		filings: rows.map((row) =>
-			serializeAdminFiling(row as FilingWithRelations),
+			serializeAdminFiling(row as FilingWithRelations, listingReference),
 		),
 		total,
 		pendingCount,
