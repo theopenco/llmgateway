@@ -2348,7 +2348,9 @@ export const API_ORIGINS = [
 	"transcriptions",
 	"rerank",
 	"systemone",
+	"decisions",
 	"search",
+	"realtime",
 ] as const;
 
 export type ApiOrigin = (typeof API_ORIGINS)[number];

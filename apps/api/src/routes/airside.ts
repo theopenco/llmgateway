@@ -24,6 +24,7 @@ import {
 	syncAirsideModelMetadata,
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
+import { assertListingContextSize } from "@/lib/airside-context-size.js";
 import { domainPublishesToken } from "@/lib/airside-dns.js";
 import {
 	claimableProvidersForDomains,
@@ -45,6 +46,7 @@ import {
 } from "@/lib/airside-metadata.js";
 import {
 	assertNoRequiredCleared,
+	effectiveClaimKind,
 	assertEditableProfile,
 	assertRequiredProfile,
 	carrierProfileInputSchema,
@@ -113,6 +115,7 @@ import {
 	tables,
 } from "@llmgateway/db";
 import {
+	getReferenceContextSize,
 	models as catalogueModels,
 	modelIdProblem,
 	PROVIDER_API_FORMATS,
@@ -123,8 +126,8 @@ import {
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
 import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
-import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
+import { assertProviderBaseUrlAllowed } from "./keys-provider.js";
 import { getStripe } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
@@ -505,7 +508,7 @@ function serializeClaim(
 		providerId: row.providerId,
 		providerName:
 			row.customName ?? providerNames.get(row.providerId) ?? row.providerId,
-		kind: row.kind,
+		kind: effectiveClaimKind(row),
 		matchedDomain: row.matchedDomain,
 		customBaseUrl: row.customBaseUrl,
 		status: row.status,
@@ -2248,7 +2251,7 @@ airside.openapi(registerCarrier, async (c) => {
 	// live on a domain the registrant proved — their verified email's domain,
 	// or one their company published our TXT token on. The SSRF guard keeps
 	// the stored URL a safe outbound fetch target (https, public host).
-	await assertSafeProviderUrl(body.baseUrl);
+	await assertProviderBaseUrlAllowed(body.baseUrl);
 	const emailDomain = emailRegistrableDomain(user.email);
 	const claimDomains = await userClaimDomains(user);
 	if (claimDomains.size === 0) {
@@ -2441,15 +2444,15 @@ airside.openapi(updateClaimProfile, async (c) => {
 		});
 	}
 	assertNoRequiredCleared(body);
-	assertEditableProfile(claim.kind, body);
+	assertEditableProfile(effectiveClaimKind(claim), body);
 	if (Object.keys(profileColumns(body)).length === 0) {
 		return c.json({ claim: serializeClaim(claim, providerNamesById) });
 	}
 	const changes =
-		claim.kind === "catalogue"
+		effectiveClaimKind(claim) === "catalogue"
 			? catalogueLinkColumns(effectiveCarrierProfile(claim), body)
 			: profileColumns(body);
-	const [updated] = await db
+	const [updated] = await cdb
 		.update(tables.providerClaim)
 		.set({ ...changes, profileUpdatedAt: new Date() })
 		.where(eq(tables.providerClaim.id, id))
@@ -2548,7 +2551,7 @@ async function requireOwnedCustomClaim(userId: string, claimId: string) {
 		throw new HTTPException(404, { message: "Claim not found" });
 	}
 	await requireCompanyMembership(userId, claim.providerCompanyId);
-	if (claim.kind !== "custom") {
+	if (effectiveClaimKind(claim) !== "custom") {
 		throw new HTTPException(409, {
 			message: "Only registered carriers supply their own provider key.",
 		});
@@ -2657,6 +2660,10 @@ const getCatalogue = createRoute({
 							z.object({
 								id: z.string(),
 								family: z.string(),
+								// Largest context window among the model's catalogue
+								// deployments. Listings more than 10% below it are left
+								// out of routing for requests that don't name a provider.
+								referenceContextSize: z.number().nullable(),
 								prices: z.array(
 									z.object({
 										providerId: z.string(),
@@ -2681,6 +2688,7 @@ airside.openapi(getCatalogue, (c) => {
 		models: catalogueModels.map((model) => ({
 			id: model.id,
 			family: model.family,
+			referenceContextSize: getReferenceContextSize(model.id, [], now) ?? null,
 			prices: model.providers.flatMap((entry) => {
 				const mapping: ProviderModelMapping = entry;
 				if (
@@ -3135,6 +3143,11 @@ airside.openapi(createModel, async (c) => {
 			message: "A model with this name is already listed for the provider.",
 		});
 	}
+	await assertListingContextSize(
+		body.modelName,
+		body.providerId,
+		body.contextSize,
+	);
 	const verification = await db.query.providerModelVerification.findFirst({
 		where: { id: { eq: body.verificationId } },
 	});
@@ -3170,8 +3183,14 @@ airside.openapi(createModel, async (c) => {
 	// carrier's first model brings that key along.
 	const keyOnFile = claim.providerKeyId ?? claim.pendingProviderKeyId;
 	const firstProviderKey =
-		claim.kind === "custom" && !keyOnFile ? body.providerKey : undefined;
-	if (claim.kind === "custom" && !keyOnFile && !firstProviderKey) {
+		effectiveClaimKind(claim) === "custom" && !keyOnFile
+			? body.providerKey
+			: undefined;
+	if (
+		effectiveClaimKind(claim) === "custom" &&
+		!keyOnFile &&
+		!firstProviderKey
+	) {
 		throw new HTTPException(400, {
 			message:
 				"Add your provider key — the key we serve your traffic with. It is smoke-tested against this model and reviewed with it.",
@@ -3180,7 +3199,7 @@ airside.openapi(createModel, async (c) => {
 	if (body.providerKey && !firstProviderKey) {
 		throw new HTTPException(400, {
 			message:
-				claim.kind === "custom"
+				effectiveClaimKind(claim) === "custom"
 					? "A provider key is already on file — replace it under Settings."
 					: "Catalogue carriers are served with platform keys.",
 		});
@@ -3192,7 +3211,7 @@ airside.openapi(createModel, async (c) => {
 			firstProviderKey,
 			verificationTarget(body),
 		);
-	} else if (claim.kind === "custom" && keyOnFile) {
+	} else if (effectiveClaimKind(claim) === "custom" && keyOnFile) {
 		const servingKey = await db.query.providerKey.findFirst({
 			where: { id: { eq: keyOnFile } },
 		});
@@ -3354,7 +3373,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 			message: "Only an active carrier can import its catalogue models.",
 		});
 	}
-	if (claim.kind !== "catalogue") {
+	if (effectiveClaimKind(claim) !== "catalogue") {
 		throw new HTTPException(400, {
 			message: "Custom carriers have no catalogue models to import.",
 		});
@@ -3510,6 +3529,15 @@ airside.openapi(updateModel, async (c) => {
 	}
 	const changes = pickMetadataChanges(body);
 	const updates = diffMetadataChanges(model, changes);
+	// Any edit must leave the listing with an acceptable window, so listings
+	// filed before the check get fixed the next time they change.
+	if (Object.keys(updates).length > 0) {
+		await assertListingContextSize(
+			model.modelName,
+			model.providerId,
+			"contextSize" in updates ? updates.contextSize : model.contextSize,
+		);
+	}
 	// Claiming more than the listing does — a new capability, a higher
 	// limit, extra modes — needs a passing preflight of the edit. The review
 	// can rerun it; narrowing and non-capability edits need none.
@@ -3807,6 +3835,11 @@ airside.openapi(relistModel, async (c) => {
 		throw new HTTPException(404, { message: "Model not found" });
 	}
 	await requireCompanyMembership(user.id, model.providerCompanyId);
+	await assertListingContextSize(
+		model.modelName,
+		model.providerId,
+		model.contextSize,
+	);
 	// cdb: the gateway caches listing resolution off these tables.
 	const row = await cdb
 		.transaction(async (tx) => {

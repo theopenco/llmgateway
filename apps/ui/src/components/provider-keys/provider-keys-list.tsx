@@ -99,6 +99,11 @@ export function ProviderKeysList({
 }: ProviderKeysListProps) {
 	const queryClient = useQueryClient();
 	const api = useApi();
+	const { data: providerFacts } = api.useQuery(
+		"get",
+		"/internal/provider-facts",
+		{},
+	);
 	const { buildOrgUrl } = useDashboardNavigation();
 	const [search, setSearch] = useState("");
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
@@ -135,11 +140,11 @@ export function ProviderKeysList({
 	// platform behind it is undisclosed, so they must not appear as connectable.
 	const availableProviders = useMemo(
 		() =>
-			providers.filter(
+			(providerFacts?.providers ?? providers).filter(
 				(provider) =>
 					provider.id !== "llmgateway" && !isStealthProvider(provider),
 			),
-		[],
+		[providerFacts],
 	);
 
 	const organizationKeys = useMemo(

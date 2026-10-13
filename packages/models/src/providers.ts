@@ -466,7 +466,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
-		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -479,6 +479,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://business.safety.google/processorterms/",
+			},
+		],
 	},
 	{
 		id: "glacier",
@@ -544,7 +550,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://policies.google.com/privacy",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -557,6 +563,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://cloud.google.com/terms/data-processing-addendum",
+			},
+		],
 	},
 	{
 		id: "vertex-openai",
@@ -589,7 +601,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		},
 		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -602,6 +614,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://cloud.google.com/terms/data-processing-addendum",
+			},
+		],
 	},
 	{
 		id: "vertex-anthropic",
@@ -636,7 +654,7 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		priority: 0.2,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
 			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
 		legalEntity: "Google LLC",
@@ -649,6 +667,12 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Addendum",
+				link: "https://cloud.google.com/terms/data-processing-addendum",
+			},
+		],
 	},
 	{
 		id: "quartz",
@@ -1745,7 +1769,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "meta",
 		name: "Meta",
-		forwardsSafetyIdentifier: false,
+		forwardsSafetyIdentifier: true,
 		description:
 			"Meta's Model API serving Muse reasoning and image models via an OpenAI-compatible API",
 		env: {
@@ -1788,7 +1812,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "meta-contributor",
 		name: "Meta Contributor",
-		forwardsSafetyIdentifier: false,
+		forwardsSafetyIdentifier: true,
 		description:
 			"Meta's discounted, training-eligible Model API tier for Muse models",
 		env: {
@@ -2616,9 +2640,9 @@ export function isLiveMapping(
 }
 
 /**
- * Catalogue providers that serve `modelId` under the policy: active,
+ * Providers that serve `modelId` under the policy: active,
  * non-deprecated mappings whose provider has no compliance failures. Unknown
- * providers (e.g. DB-only carriers) fail closed. Empty when the model itself is
+ * providers absent from `definitions` fail closed. Empty when the model itself is
  * blocked by the policy's model lists.
  */
 export function getCompliantProvidersForModel(
@@ -2626,6 +2650,7 @@ export function getCompliantProvidersForModel(
 	mappings: readonly ModelMappingAvailability[],
 	policy: ProviderCompliancePolicy,
 	now: Date = new Date(),
+	definitions: readonly ProviderDefinition[] = providers,
 ): string[] {
 	if (!isModelAllowedByPolicy([modelId], policy)) {
 		return [];
@@ -2635,7 +2660,9 @@ export function getCompliantProvidersForModel(
 		if (!isLiveMapping(mapping, now)) {
 			continue;
 		}
-		const provider = getProviderDefinition(mapping.providerId);
+		const provider = definitions.find(
+			(entry) => entry.id === mapping.providerId,
+		);
 		if (
 			provider &&
 			getProviderComplianceFailures(provider, policy).length === 0
@@ -2723,14 +2750,19 @@ export function countryCodeToFlag(code: string): string {
 		.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
 }
 
-/**
- * Distinct provider-headquarters countries defined in the catalogue, sorted by
- * name. This is the authoritative, closed set of countries the compliance
- * country selector may offer.
- */
-export function getProviderCountries(): ProviderCountry[] {
+const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+
+/** English name for an ISO 3166-1 alpha-2 country code. */
+export function countryName(code: string): string {
+	return PROVIDER_COUNTRY_NAMES[code] ?? regionNames.of(code) ?? code;
+}
+
+/** Distinct provider-headquarters countries, sorted by name. */
+export function getProviderCountries(
+	definitions: readonly ProviderDefinition[] = providers,
+): ProviderCountry[] {
 	const codes = new Set<string>();
-	for (const provider of providers) {
+	for (const provider of definitions) {
 		if (provider.headquarters) {
 			codes.add(provider.headquarters);
 		}
@@ -2738,7 +2770,7 @@ export function getProviderCountries(): ProviderCountry[] {
 	return Array.from(codes)
 		.map((code) => ({
 			code,
-			name: PROVIDER_COUNTRY_NAMES[code] ?? code,
+			name: countryName(code),
 			flag: countryCodeToFlag(code),
 		}))
 		.sort((a, b) => a.name.localeCompare(b.name));

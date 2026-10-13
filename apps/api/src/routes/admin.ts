@@ -16,6 +16,7 @@ import {
 	executeAdminRefund,
 	sumRefundsByTransaction,
 } from "@/lib/admin-refund.js";
+import { effectiveClaimKind } from "@/lib/airside-profile.js";
 import {
 	getContentFilterSettings,
 	listContentFilterProviders,
@@ -49,6 +50,11 @@ import {
 	getModelErrorRateAlertsSettings,
 	setModelErrorRateAlertsSettings,
 } from "@/lib/model-error-rate-alerts.js";
+import {
+	getOrganizationTimeseries,
+	organizationTimeseriesQuery,
+	organizationTimeseriesSchema,
+} from "@/lib/organization-timeseries.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
 	getBucketUnitForWindow,
@@ -567,6 +573,8 @@ const organizationSchema = z.object({
 	projectLimit: z.number().int().nullable().optional(),
 	credits: z.string(),
 	totalCreditsAllTime: z.string().optional(),
+	// All-time DevPass + Chat Plan subscription payments, net of refunds.
+	totalSubscriptionValue: z.string().optional(),
 	totalSpent: z.string().optional(),
 	totalCreditsSpent: z.string().optional(),
 	totalApiKeysSpent: z.string().optional(),
@@ -935,6 +943,7 @@ const sortBySchema = z.enum([
 	"createdAt",
 	"status",
 	"totalCreditsAllTime",
+	"totalSubscriptionValue",
 	"totalSpent",
 	"totalRequests",
 	"totalTokens",
@@ -2781,6 +2790,75 @@ admin.openapi(getOrganizations, async (c) => {
 			.groupBy(tables.transaction.organizationId)
 			.as("all_time_credits");
 
+	// All-time subscription value per org: completed DevPass and Chat Plan
+	// subscription payments (`amount` = dollars charged), net of refunds against
+	// them. Deduplicated per invoice because the first invoice of a subscription
+	// writes both a `*_start` and a `*_renewal` row. Legacy `subscription_*`
+	// rows only count on DevPass orgs, since non-personal org Pro subs still
+	// write them. One-time Reset Pass purchases are not subscriptions.
+	const subscriptionPaymentTypes = [
+		...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+		...LEGACY_DEV_PLAN_TX_TYPES,
+		...CHAT_PLAN_TX_TYPES,
+	];
+	const subscriptionPaymentFilter = (tx: typeof tables.transaction) =>
+		or(
+			inArray(tx.type, [
+				...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+				...CHAT_PLAN_TX_TYPES,
+			]),
+			and(
+				inArray(tx.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
+				eq(tables.organization.kind, "devpass"),
+			),
+		)!;
+	const subscriptionRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"subscription_refund_original_tx",
+	);
+	const subscriptionValueForOrganizations = (organizationIds?: string[]) =>
+		db
+			.select({
+				organizationId: tables.transaction.organizationId,
+				total:
+					sql<string>`COALESCE(SUM(CASE WHEN ${tables.transaction.type} = 'credit_refund' THEN -CAST(${tables.transaction.amount} AS NUMERIC) ELSE CAST(${tables.transaction.amount} AS NUMERIC) END), 0)`.as(
+						"total",
+					),
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.leftJoin(
+				subscriptionRefundOriginalTx,
+				eq(
+					tables.transaction.relatedTransactionId,
+					subscriptionRefundOriginalTx.id,
+				),
+			)
+			.where(
+				and(
+					eq(tables.transaction.status, "completed"),
+					isNotNull(tables.transaction.amount),
+					organizationIds
+						? inArray(tables.transaction.organizationId, organizationIds)
+						: undefined,
+					or(
+						and(
+							subscriptionPaymentFilter(tables.transaction),
+							firstRowPerInvoiceFilter(subscriptionPaymentTypes),
+						),
+						and(
+							eq(tables.transaction.type, "credit_refund"),
+							subscriptionPaymentFilter(subscriptionRefundOriginalTx),
+						),
+					),
+				),
+			)
+			.groupBy(tables.transaction.organizationId)
+			.as("subscription_value");
+
 	// Subquery for usage totals (cost, requests, tokens) per org, scoped to the
 	// selected window.
 	const usageForOrganizations = (organizationIds?: string[]) =>
@@ -2830,6 +2908,7 @@ admin.openapi(getOrganizations, async (c) => {
 			.as("total_spent");
 
 	const allTimeCredits = creditsForOrganizations();
+	const allTimeSubscriptionValue = subscriptionValueForOrganizations();
 	const totalSpentSub = usageForOrganizations();
 
 	const whereClause = and(
@@ -2871,6 +2950,7 @@ admin.openapi(getOrganizations, async (c) => {
 		createdAt: tables.organization.createdAt,
 		status: tables.organization.status,
 		totalCreditsAllTime: sql`COALESCE(CAST(${allTimeCredits.total} AS NUMERIC), 0)`,
+		totalSubscriptionValue: sql`COALESCE(CAST(${allTimeSubscriptionValue.total} AS NUMERIC), 0)`,
 		totalSpent: sql`COALESCE(CAST(${totalSpentSub.total} AS NUMERIC), 0)`,
 		totalRequests: sql`COALESCE(CAST(${totalSpentSub.requestsTotal} AS NUMERIC), 0)`,
 		totalTokens: sql`COALESCE(CAST(${totalSpentSub.tokensTotal} AS NUMERIC), 0)`,
@@ -2904,6 +2984,12 @@ admin.openapi(getOrganizations, async (c) => {
 			eq(tables.organization.id, allTimeCredits.organizationId),
 		);
 	}
+	if (sortBy === "totalSubscriptionValue") {
+		pageQuery = pageQuery.leftJoin(
+			allTimeSubscriptionValue,
+			eq(tables.organization.id, allTimeSubscriptionValue.organizationId),
+		);
+	}
 	const [[countResult], page] = await Promise.all([
 		countQuery.where(whereClause),
 		pageQuery
@@ -2923,6 +3009,8 @@ admin.openapi(getOrganizations, async (c) => {
 		return c.json({ organizations: [], total, totalCredits, limit, offset });
 	}
 	const pageCredits = creditsForOrganizations(organizationIds);
+	const pageSubscriptionValue =
+		subscriptionValueForOrganizations(organizationIds);
 	const pageUsage = usageForOrganizations(organizationIds);
 	const ownerSub = buildOrganizationOwnerSubquery(organizationIds);
 
@@ -2946,6 +3034,10 @@ admin.openapi(getOrganizations, async (c) => {
 			totalCreditsAllTime: sql<string>`COALESCE(${pageCredits.total}, '0')`.as(
 				"totalCreditsAllTime",
 			),
+			totalSubscriptionValue:
+				sql<string>`COALESCE(${pageSubscriptionValue.total}, '0')`.as(
+					"totalSubscriptionValue",
+				),
 			totalSpent: sql<string>`COALESCE(${pageUsage.total}, '0')`.as(
 				"totalSpent",
 			),
@@ -2972,6 +3064,10 @@ admin.openapi(getOrganizations, async (c) => {
 			pageCredits,
 			eq(tables.organization.id, pageCredits.organizationId),
 		)
+		.leftJoin(
+			pageSubscriptionValue,
+			eq(tables.organization.id, pageSubscriptionValue.organizationId),
+		)
 		.leftJoin(pageUsage, eq(tables.organization.id, pageUsage.organizationId))
 		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId))
 		.where(inArray(tables.organization.id, organizationIds));
@@ -2993,6 +3089,7 @@ admin.openapi(getOrganizations, async (c) => {
 			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			credits: String(org.credits),
 			totalCreditsAllTime: String(org.totalCreditsAllTime ?? "0"),
+			totalSubscriptionValue: String(org.totalSubscriptionValue ?? "0"),
 			totalSpent: String(org.totalSpent ?? "0"),
 			totalCreditsSpent: String(org.totalCreditsSpent ?? "0"),
 			totalApiKeysSpent: String(org.totalApiKeysSpent ?? "0"),
@@ -4918,20 +5015,15 @@ async function listAirsideMappings() {
 		);
 }
 
-/** Approved custom carriers: providers that exist only as an Airside claim. */
-async function listAirsideCustomProviders() {
+/** Active Airside carriers; catalogue entries take precedence by provider id. */
+async function listAirsideCarriers() {
 	return await db
 		.select({
 			id: tables.providerClaim.providerId,
 			name: tables.providerClaim.customName,
 		})
 		.from(tables.providerClaim)
-		.where(
-			and(
-				eq(tables.providerClaim.kind, "custom"),
-				eq(tables.providerClaim.status, "active"),
-			),
-		);
+		.where(eq(tables.providerClaim.status, "active"));
 }
 
 /**
@@ -4968,7 +5060,7 @@ async function getProviderModelOptions(): Promise<{
 
 	const [airsideMappings, customProviders] = await Promise.all([
 		listAirsideMappings(),
-		listAirsideCustomProviders(),
+		listAirsideCarriers(),
 	]);
 
 	const providerOptions = new Map<
@@ -5024,7 +5116,6 @@ async function isAirsideProviderId(providerId: string): Promise<boolean> {
 		.where(
 			and(
 				eq(tables.providerClaim.providerId, providerId),
-				eq(tables.providerClaim.kind, "custom"),
 				eq(tables.providerClaim.status, "active"),
 			),
 		)
@@ -10940,7 +11031,10 @@ admin.openapi(getProviderDetail, async (c) => {
 		airside: carrier
 			? {
 					company: { id: carrier.companyId, name: carrier.companyName },
-					claimKind: carrier.claimKind,
+					claimKind: effectiveClaimKind({
+						kind: carrier.claimKind,
+						providerId,
+					}),
 					discountPercent: carrierDiscount,
 					marginPercent: carrierMargin,
 					routingAdjustment: computeAirsideAdjustment(
@@ -11619,7 +11713,12 @@ admin.openapi(getOrgCostByModel, async (c) => {
 
 // --- Cost by model time-series endpoints ---
 
-const costTimeseriesGroupBySchema = z.enum(["model", "source"]);
+const projectCostTimeseriesGroupBySchema = z.enum([
+	"model",
+	"source",
+	"api-key",
+	"user",
+]);
 
 const organizationCostTimeseriesGroupBySchema = z.enum([
 	"model",
@@ -11700,13 +11799,16 @@ const getOrgCostByModelTimeseries = createRoute({
 				.default("model")
 				.optional(),
 			bucket: costTimeseriesBucketSchema.optional(),
+			...organizationTimeseriesQuery,
 		}),
 	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: costByModelTimeseriesResponseSchema.openapi({}),
+					schema: costByModelTimeseriesResponseSchema
+						.extend({ timeseries: organizationTimeseriesSchema.optional() })
+						.openapi({}),
 				},
 			},
 			description:
@@ -11741,6 +11843,33 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 		.where(eq(tables.project.organizationId, orgId));
 
 	const ids = projectIds.map((p) => p.id);
+
+	if (query.includeTimeseries === "true" || query.model || query.apiKeyId) {
+		const timeseries = await getOrganizationTimeseries({
+			projectIds: ids,
+			startDate,
+			endDate: new Date(),
+			bucket: bucketUnit,
+			groupBy: groupBy === "api-key" ? "apiKey" : groupBy,
+			modelView,
+			model: query.model,
+			apiKeyId: query.apiKeyId,
+			rankBy: query.rankBy,
+			mode: query.mode,
+		});
+		return c.json({
+			window,
+			bucket: bucketUnit,
+			modelView,
+			groupBy,
+			models: timeseries.series.map((s) => s.label),
+			data: timeseries.points.map((p) => ({
+				timestamp: p.timestamp,
+				entries: p.entries.map((e) => ({ ...e, model: e.label })),
+			})),
+			timeseries,
+		});
+	}
 
 	if (ids.length === 0) {
 		return c.json({
@@ -11795,18 +11924,22 @@ const getProjectCostByModelTimeseries = createRoute({
 		query: z.object({
 			window: tokenWindowSchema.default("7d").optional(),
 			modelView: costByModelViewSchema.default("mapping").optional(),
-			groupBy: costTimeseriesGroupBySchema.default("model").optional(),
+			groupBy: projectCostTimeseriesGroupBySchema.default("model").optional(),
 			bucket: costTimeseriesBucketSchema.optional(),
+			...organizationTimeseriesQuery,
 		}),
 	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: costByModelTimeseriesResponseSchema.openapi({}),
+					schema: costByModelTimeseriesResponseSchema
+						.extend({ timeseries: organizationTimeseriesSchema.optional() })
+						.openapi({}),
 				},
 			},
-			description: "Project cost breakdown by model or source over time.",
+			description:
+				"Project cost breakdown by model, source, API key, or user over time.",
 		},
 		404: {
 			description: "Project not found.",
@@ -11834,25 +11967,62 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 		throw new HTTPException(404, { message: "Project not found" });
 	}
 
+	if (
+		groupBy !== "source" &&
+		(query.includeTimeseries === "true" || query.model || query.apiKeyId)
+	) {
+		const timeseries = await getOrganizationTimeseries({
+			projectIds: [projectId],
+			startDate,
+			endDate: new Date(),
+			bucket: bucketUnit,
+			groupBy: groupBy === "api-key" ? "apiKey" : groupBy,
+			modelView,
+			model: query.model,
+			apiKeyId: query.apiKeyId,
+			rankBy: query.rankBy,
+			mode: query.mode,
+		});
+		return c.json({
+			window,
+			bucket: bucketUnit,
+			modelView,
+			groupBy,
+			models: timeseries.series.map((s) => s.label),
+			data: timeseries.points.map((p) => ({
+				timestamp: p.timestamp,
+				entries: p.entries.map((e) => ({ ...e, model: e.label })),
+			})),
+			timeseries,
+		});
+	}
+
 	const result =
-		groupBy === "source"
-			? await buildCostBySourceTimeseries({
+		groupBy === "api-key" || groupBy === "user"
+			? await buildCostByApiKeyDimensionTimeseries({
 					bucketUnit,
 					startDate,
-					baseFilter: and(
-						eq(projectHourlySourceStats.projectId, projectId),
-						gte(projectHourlySourceStats.hourTimestamp, startDate),
-					),
+					projectIds: [projectId],
+					groupBy,
 				})
-			: await buildCostByModelTimeseries({
-					modelView,
-					bucketUnit,
-					startDate,
-					baseFilter: and(
-						eq(projectHourlyModelStats.projectId, projectId),
-						gte(projectHourlyModelStats.hourTimestamp, startDate),
-					),
-				});
+			: groupBy === "source"
+				? await buildCostBySourceTimeseries({
+						bucketUnit,
+						startDate,
+						baseFilter: and(
+							eq(projectHourlySourceStats.projectId, projectId),
+							gte(projectHourlySourceStats.hourTimestamp, startDate),
+						),
+					})
+				: await buildCostByModelTimeseries({
+						modelView,
+						bucketUnit,
+						startDate,
+						baseFilter: and(
+							eq(projectHourlyModelStats.projectId, projectId),
+							gte(projectHourlyModelStats.hourTimestamp, startDate),
+						),
+					});
 
 	return c.json({
 		window,
@@ -13964,9 +14134,6 @@ admin.openapi(replyContactSubmission, async (c) => {
 		throw new HTTPException(404, { message: "Submission not found" });
 	}
 
-	const { getResendClient, fromEmail, replyToEmail } =
-		await import("@llmgateway/shared/email");
-
 	const resend = getResendClient();
 	if (!resend) {
 		return c.json(
@@ -14033,9 +14200,6 @@ const sendEmail = createRoute({
 
 admin.openapi(sendEmail, async (c) => {
 	const { to, subject, body: emailBody, category } = c.req.valid("json");
-
-	const { getResendClient, fromEmail, replyToEmail } =
-		await import("@llmgateway/shared/email");
 
 	const resend = getResendClient();
 	if (!resend) {

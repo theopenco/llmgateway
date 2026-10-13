@@ -3498,7 +3498,7 @@ async function seedAirside() {
 				label: "Context size",
 				status: "failed",
 				feedback:
-					'Your endpoint refused a test prompt filling about 70% of the declared 128,000-token context size. It answered: "This model\'s maximum context length is 65536 tokens. However, your messages resulted in 68211 tokens."',
+					'Your endpoint refused a test prompt filling about 90% of the declared 128,000-token context size. It answered: "This model\'s maximum context length is 65536 tokens. However, your messages resulted in 68211 tokens."',
 			},
 			{ id: "max_output", label: "Max output", status: "passed" },
 		],
@@ -3681,7 +3681,8 @@ async function seedAirside() {
 		displayName: "Mistral Large 4",
 		description: "Next-generation flagship, pending listing approval.",
 		family: "mistral",
-		contextSize: 256000,
+		// Matches the catalogue window: listings outside it cannot be edited.
+		contextSize: 1_000_000,
 		maxOutput: 32768,
 		streaming: true,
 		tools: true,

@@ -16,11 +16,13 @@ import {
 	syncAirsideModelMetadata,
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
+import { referenceContextSizes } from "@/lib/airside-context-size.js";
 import {
 	airsideModelMetadataSchema,
 	type AirsideModelMetadataInput,
 	currentMetadataFor,
 } from "@/lib/airside-metadata.js";
+import { effectiveClaimKind } from "@/lib/airside-profile.js";
 import {
 	incidentErrorTypesSchema,
 	incidentsResponseSchema,
@@ -70,6 +72,8 @@ import {
 	tables,
 } from "@llmgateway/db";
 import {
+	getContextSizeDeviation,
+	getReferenceContextSize,
 	models as catalogueModels,
 	providers as catalogueProviders,
 	PROVIDER_API_FORMATS,
@@ -79,7 +83,8 @@ import {
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
 import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
-import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
+
+import { assertProviderBaseUrlAllowed } from "./keys-provider.js";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -143,6 +148,16 @@ const adminFilingSchema = z.object({
 		name: z.string(),
 		website: z.string().nullable(),
 	}),
+	// Set when a new listing or a context-size change files a window more than
+	// 10% away from the model's reference window (the largest catalogue
+	// deployment, or the largest other listing for models outside it).
+	contextSizeWarning: z
+		.object({
+			contextSize: z.number(),
+			referenceContextSize: z.number(),
+			deviation: z.enum(["below", "above"]),
+		})
+		.nullable(),
 	// The model's currently effective pricing, for diffing update filings.
 	currentPricing: z
 		.object({
@@ -241,7 +256,42 @@ function staticModelNameExists(modelName: string): boolean {
 	);
 }
 
-function serializeAdminFiling(row: FilingWithRelations) {
+/** The context size a filing sets: a new listing's, or a metadata change's. */
+function filedContextSize(row: FilingWithRelations): number | null {
+	if (row.kind === "initial") {
+		return row.draftModel.contextSize;
+	}
+	if (row.kind === "metadata" && row.metadata) {
+		return row.metadata.contextSize ?? null;
+	}
+	return null;
+}
+
+function contextSizeWarningFor(
+	row: FilingWithRelations,
+	listingReference: (
+		modelName: string,
+		providerId: string,
+	) => number | undefined = (modelName) => getReferenceContextSize(modelName),
+) {
+	const contextSize = filedContextSize(row);
+	const referenceContextSize = listingReference(
+		row.draftModel.modelName,
+		row.draftModel.providerId,
+	);
+	const deviation = getContextSizeDeviation(contextSize, referenceContextSize);
+	return deviation && contextSize && referenceContextSize
+		? { contextSize, referenceContextSize, deviation }
+		: null;
+}
+
+function serializeAdminFiling(
+	row: FilingWithRelations,
+	listingReference?: (
+		modelId: string,
+		providerId: string,
+	) => number | undefined,
+) {
 	const approved = [...(row.draftModel.priceFilings ?? [])]
 		.filter((f) => f.status === "approved")
 		.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
@@ -292,6 +342,7 @@ function serializeAdminFiling(row: FilingWithRelations) {
 			name: row.providerCompany.name,
 			website: row.providerCompany.website,
 		},
+		contextSizeWarning: contextSizeWarningFor(row, listingReference),
 		currentPricing: approved
 			? {
 					inputPrice: approved.inputPrice,
@@ -360,7 +411,7 @@ adminAirside.openapi(listFilings, async (c) => {
 		return row?.count ?? 0;
 	};
 	const rows = await db.query.providerPriceFiling.findMany({
-		where: query.status ? { status: { eq: query.status } } : undefined,
+		where: query.status ? { status: { eq: query.status } } : {},
 		with: {
 			draftModel: { with: { priceFilings: true } },
 			providerCompany: true,
@@ -370,7 +421,7 @@ adminAirside.openapi(listFilings, async (c) => {
 		offset: query.offset ?? 0,
 	});
 	const routingRows = await db.query.providerRoutingFiling.findMany({
-		where: query.status ? { status: { eq: query.status } } : undefined,
+		where: query.status ? { status: { eq: query.status } } : {},
 		with: { providerCompany: true },
 		orderBy: { createdAt: "desc", id: "desc" },
 		limit,
@@ -400,9 +451,14 @@ adminAirside.openapi(listFilings, async (c) => {
 			row,
 		]),
 	);
+	const listingReference = await referenceContextSizes(
+		(rows as FilingWithRelations[]).map((row) => ({
+			modelName: row.draftModel.modelName,
+		})),
+	);
 	return c.json({
 		filings: rows.map((row) =>
-			serializeAdminFiling(row as FilingWithRelations),
+			serializeAdminFiling(row as FilingWithRelations, listingReference),
 		),
 		total,
 		pendingCount,
@@ -511,7 +567,6 @@ adminAirside.openapi(approveFiling, async (c) => {
 						eq(tables.providerClaim.providerId, model.providerId),
 						eq(tables.providerClaim.providerCompanyId, model.providerCompanyId),
 						eq(tables.providerClaim.status, "active"),
-						eq(tables.providerClaim.kind, "custom"),
 					),
 				)
 				.limit(1)
@@ -706,7 +761,7 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 			catalogueProviders.find((provider) => provider.id === row.providerId)
 				?.name ??
 			row.providerId,
-		kind: row.kind,
+		kind: effectiveClaimKind(row),
 		customName: row.customName,
 		customBaseUrl: row.customBaseUrl,
 		matchedDomain: row.matchedDomain,
@@ -991,7 +1046,7 @@ adminAirside.openapi(approveClaim, async (c) => {
 				message: "This claim has already been reviewed.",
 			});
 		}
-		if (claim.kind === "custom") {
+		if (effectiveClaimKind(claim) === "custom") {
 			// A custom carrier only exists in the DB catalogue: create its
 			// provider row so /providers and /internal/providers list it.
 			await tx
@@ -1255,7 +1310,7 @@ adminAirside.openapi(revokeClaim, async (c) => {
 		await tx
 			.delete(tables.providerRoutingSettings)
 			.where(eq(tables.providerRoutingSettings.providerId, claim.providerId));
-		// A custom carrier's credentials are the carrier's own keys.
+		// Credential ownership follows registration kind, not current transport.
 		if (claim.kind === "custom") {
 			await tx
 				.update(tables.providerKey)
@@ -2114,11 +2169,11 @@ adminAirside.openapi(updateClaimSettings, async (c) => {
 	const body = c.req.valid("json");
 	const claim = await getActiveClaim(id);
 	if (
-		claim.kind !== "custom" &&
-		(body.baseUrl !== undefined || body.description !== undefined)
+		effectiveClaimKind(claim) !== "custom" &&
+		body.description !== undefined
 	) {
 		throw new HTTPException(400, {
-			message: "Only custom carriers have a base URL and description.",
+			message: "Only custom carriers have a description.",
 		});
 	}
 	if (body.baseUrl !== undefined) {
@@ -2127,7 +2182,7 @@ adminAirside.openapi(updateClaimSettings, async (c) => {
 				message: PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
 			});
 		}
-		await assertSafeProviderUrl(body.baseUrl);
+		await assertProviderBaseUrlAllowed(body.baseUrl);
 	}
 	const changes = {
 		...(body.name !== undefined ? { customName: body.name } : {}),

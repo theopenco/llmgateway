@@ -64,6 +64,7 @@ afterEach(async () => {
 async function enqueueVerification(
 	options: {
 		credentialSource?: "supplied" | "carrier" | "managed";
+		claimKind?: "custom" | "catalogue";
 		allowedModels?: string[];
 	} = {},
 ) {
@@ -88,7 +89,7 @@ async function enqueueVerification(
 	await db.insert(tables.providerClaim).values({
 		providerCompanyId: companyId,
 		providerId,
-		kind: "custom",
+		kind: options.claimKind ?? "custom",
 		matchedDomain: "example.com",
 		customBaseUrl: "https://provider.example.com/v1",
 		status: "active",
@@ -272,23 +273,28 @@ async function seedActiveListing(
 }
 
 describe("model verification worker", () => {
-	it("runs a carrier-stored credential off the run's own copy", async () => {
-		const verificationId = await enqueueVerification({
-			credentialSource: "carrier",
-		});
-		let seenToken: string | undefined;
-		const processed = await processNextModelVerification(async (options) => {
-			seenToken = options.token;
-			return { passed: true, checks: [], summary: "ok" };
-		});
+	it.each(["custom", "catalogue"] as const)(
+		"runs a stored credential for a DB-only %s claim",
+		async (claimKind) => {
+			const verificationId = await enqueueVerification({
+				credentialSource: "carrier",
+				claimKind,
+			});
+			let seenToken: string | undefined;
+			const processed = await processNextModelVerification(async (options) => {
+				seenToken = options.token;
+				expect(options.skipEnvVars).toBe(true);
+				return { passed: true, checks: [], summary: "ok" };
+			});
 
-		expect(processed).toBe(true);
-		expect(seenToken).toBe("single-use-provider-key");
-		const stored = await db.query.providerModelVerification.findFirst({
-			where: { id: { eq: verificationId } },
-		});
-		expect(stored?.credentialCiphertext).toBeNull();
-	});
+			expect(processed).toBe(true);
+			expect(seenToken).toBe("single-use-provider-key");
+			const stored = await db.query.providerModelVerification.findFirst({
+				where: { id: { eq: verificationId } },
+			});
+			expect(stored?.credentialCiphertext).toBeNull();
+		},
+	);
 
 	it("claims a queued check, persists feedback, and erases its credential", async () => {
 		const verificationId = await enqueueVerification();

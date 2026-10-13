@@ -4,7 +4,7 @@ import {
 	encryptNotificationChannelConfig,
 	hashCompliancePolicy,
 } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 
 import {
 	deliverOrgAlertChannels,
@@ -38,6 +38,8 @@ async function addMapping(modelId: string, providerId: string) {
 }
 
 beforeEach(async () => {
+	await cdb.delete(tables.providerClaim);
+	await db.delete(tables.providerCompany);
 	await db.delete(tables.organizationAlert);
 	await db.delete(tables.notification);
 	await db.delete(tables.notificationPreference);
@@ -175,6 +177,51 @@ describe("processComplianceAlerts", () => {
 		expect(alerts[0].type).toBe("compliance_downgrade");
 		expect(alerts[0].title).toContain("DeepSeek");
 		expect(alerts[0].message).toContain("used-model");
+	});
+
+	it("uses Airside names for availability and downgrade alerts", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+		const providerId = "airside-alert-carrier";
+		await db
+			.insert(tables.provider)
+			.values({ id: providerId, name: "Old name", description: "" });
+		const [company] = await db
+			.insert(tables.providerCompany)
+			.values({ name: "Test Carrier" })
+			.returning();
+		await cdb.insert(tables.providerClaim).values({
+			providerCompanyId: company.id,
+			providerId,
+			kind: "catalogue",
+			status: "active",
+			matchedDomain: "example.com",
+			customName: "Airside Carrier",
+			customBaseUrl: "https://carrier.example.com",
+			headquarters: "US",
+		});
+		await addMapping("watched-model", providerId);
+		await db
+			.insert(tables.modelAvailabilityWatch)
+			.values({ organizationId: ORG, modelId: "watched-model" });
+		await processComplianceAlerts();
+		const [available] = await db.query.organizationAlert.findMany();
+		expect(available.type).toBe("model_available");
+		expect(available.message).toContain("Airside Carrier");
+
+		await cdb
+			.update(tables.providerClaim)
+			.set({ headquarters: "DE", customName: "Renamed Carrier" })
+			.where(eq(tables.providerClaim.providerId, providerId));
+		await processComplianceAlerts();
+		const downgrade = await db.query.organizationAlert.findFirst({
+			where: {
+				title: { eq: "Renamed Carrier no longer meets your compliance policy" },
+			},
+		});
+		expect(downgrade?.type).toBe("compliance_downgrade");
+		expect(downgrade?.message).toContain(
+			"Renamed Carrier is now excluded from routing",
+		);
 	});
 
 	it("stays silent when the org edits its own policy", async () => {

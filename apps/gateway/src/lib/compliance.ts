@@ -1,5 +1,6 @@
 import { HTTPException } from "hono/http-exception";
 
+import { getEffectiveProviders } from "@llmgateway/db";
 import { logViolation } from "@llmgateway/guardrails";
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -19,6 +20,8 @@ import {
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
+
+import type { ProviderDefinition } from "@llmgateway/models";
 
 interface OrganizationLike {
 	id: string;
@@ -56,6 +59,7 @@ export function getActiveCompliancePolicy(
 
 /** Request-scoped facts the policy needs beyond the catalogue. */
 export interface ComplianceCheckContext {
+	effectiveProviders?: readonly ProviderDefinition[];
 	customAttestation?: ProviderComplianceAttestation | null;
 	/** Routing-prefix name of the custom provider handling this request. */
 	customProviderName?: string;
@@ -79,7 +83,10 @@ export function isProviderIdCompliant(
 			isAttestationCompliant(context?.customAttestation, policy)
 		);
 	}
-	const definition = getProviderDefinition(providerId);
+	const definition =
+		context?.effectiveProviders?.find(
+			(provider) => provider.id === providerId,
+		) ?? getProviderDefinition(providerId);
 	return definition ? isProviderCompliant(definition, policy) : false;
 }
 
@@ -122,7 +129,10 @@ export function getComplianceFailureReasons(
 			...getAttestationComplianceFailures(context?.customAttestation, policy),
 		);
 	} else {
-		const definition = getProviderDefinition(providerId);
+		const definition =
+			context?.effectiveProviders?.find(
+				(provider) => provider.id === providerId,
+			) ?? getProviderDefinition(providerId);
 		failures.push(
 			...(definition
 				? getProviderComplianceFailures(definition, policy)
@@ -199,7 +209,9 @@ export async function assertProviderCompliant(
 	const policy = getActiveCompliancePolicy(organization);
 	if (
 		!policy ||
-		(isProviderIdCompliant(providerId, policy) &&
+		(isProviderIdCompliant(providerId, policy, {
+			effectiveProviders: await getEffectiveProviders(),
+		}) &&
 			isModelIdCompliant(context.modelId, policy))
 	) {
 		return;

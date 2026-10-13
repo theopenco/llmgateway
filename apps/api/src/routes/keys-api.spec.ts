@@ -10,6 +10,10 @@ import {
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
 import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
+import {
+	mostRestrictiveApiKeyLimits,
+	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
+} from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
@@ -997,6 +1001,67 @@ describe("keys route", () => {
 		const json = await res.json();
 		expect(json.message).toMatch(/the key owner's limit of \$10\.00/);
 		expect(json.message).toMatch(/Team page/);
+	});
+
+	test("POST /keys/api accepts the folded limits of a developer's budgets", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				defaultDeveloperMaxApiKeys:
+					SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.maxApiKeys,
+				defaultDeveloperUsageLimit:
+					SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.usageLimit,
+				defaultDeveloperPeriodUsageLimit:
+					SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageLimit,
+				defaultDeveloperPeriodUsageDurationValue:
+					SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationValue,
+				defaultDeveloperPeriodUsageDurationUnit:
+					SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationUnit,
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "developer" })
+			.where(eq(tables.userOrganization.id, "test-user-org-id"));
+		await db.insert(tables.userProject).values({
+			userOrganizationId: "test-user-org-id",
+			projectId: "test-project-id",
+		});
+
+		const budgetRes = await app.request("/team/test-org-id/members/me", {
+			headers: { Cookie: token },
+		});
+		expect(budgetRes.status).toBe(200);
+		const { budget, teamBudget } = await budgetRes.json();
+		const limits = mostRestrictiveApiKeyLimits([teamBudget, budget]);
+		expect(limits).toEqual({
+			usageLimit: null,
+			periodUsageLimit: "500",
+			periodUsageDurationValue: 1,
+			periodUsageDurationUnit: "month",
+		});
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "CLI key",
+				projectId: "test-project-id",
+				...limits,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.apiKey).toMatchObject(limits);
+
+		const apiKey = await db.query.apiKey.findFirst({
+			where: { description: { eq: "CLI key" } },
+		});
+		expect(apiKey).toMatchObject(limits);
 	});
 
 	test("GET /keys/api returns each key owner's effective budget", async () => {

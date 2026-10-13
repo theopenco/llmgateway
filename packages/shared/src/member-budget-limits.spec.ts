@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	mostRestrictiveApiKeyLimits,
+	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
 	validateApiKeyLimitsWithinMemberBudget,
 	type ApiKeyLimitConstraints,
 } from "./member-budget-limits.js";
@@ -145,5 +147,91 @@ describe("validateApiKeyLimitsWithinMemberBudget", () => {
 				periodUsageDurationUnit: "week",
 			}),
 		).toMatch(/Set a recurring usage limit/);
+	});
+});
+
+describe("mostRestrictiveApiKeyLimits", () => {
+	const MEMBER_MONTH: ApiKeyLimitConstraints = {
+		usageLimit: null,
+		periodUsageLimit: SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageLimit,
+		periodUsageDurationValue:
+			SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationValue,
+		periodUsageDurationUnit:
+			SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationUnit,
+	};
+	const TEAM_DAY_10: ApiKeyLimitConstraints = {
+		usageLimit: null,
+		periodUsageLimit: "10",
+		periodUsageDurationValue: 1,
+		periodUsageDurationUnit: "day",
+	};
+	const TEAM_DAY_20: ApiKeyLimitConstraints = {
+		...TEAM_DAY_10,
+		periodUsageLimit: "20",
+	};
+
+	it("returns no limits when no budget has a cap", () => {
+		expect(mostRestrictiveApiKeyLimits([])).toEqual(NO_LIMITS);
+		expect(mostRestrictiveApiKeyLimits([null])).toEqual(NO_LIMITS);
+		expect(mostRestrictiveApiKeyLimits([NO_LIMITS, null])).toEqual(NO_LIMITS);
+	});
+
+	it("keeps the lower all-time cap compared as a decimal, unchanged", () => {
+		expect(
+			mostRestrictiveApiKeyLimits([
+				{ ...NO_LIMITS, usageLimit: "1000" },
+				{ ...NO_LIMITS, usageLimit: "999.50" },
+			]).usageLimit,
+		).toBe("999.50");
+		expect(
+			mostRestrictiveApiKeyLimits([
+				{ ...NO_LIMITS, usageLimit: "100.10" },
+				{ ...NO_LIMITS, usageLimit: "100.9" },
+			]).usageLimit,
+		).toBe("100.10");
+	});
+
+	it("keeps the recurring cap with the lowest hourly rate and its own window", () => {
+		expect(mostRestrictiveApiKeyLimits([TEAM_DAY_10, MEMBER_MONTH])).toEqual(
+			TEAM_DAY_10,
+		);
+		expect(mostRestrictiveApiKeyLimits([TEAM_DAY_20, MEMBER_MONTH])).toEqual(
+			MEMBER_MONTH,
+		);
+	});
+
+	it("ignores a recurring cap that is missing its window", () => {
+		expect(
+			mostRestrictiveApiKeyLimits([{ ...NO_LIMITS, periodUsageLimit: "5" }]),
+		).toEqual(NO_LIMITS);
+	});
+
+	it("produces limits the validator accepts for every budget", () => {
+		const cases: (ApiKeyLimitConstraints | null)[][] = [
+			[null, MEMBER_MONTH],
+			[TEAM_DAY_10, MEMBER_MONTH],
+			[TEAM_DAY_20, MEMBER_MONTH],
+			[
+				{ ...NO_LIMITS, usageLimit: "1000" },
+				{ ...NO_LIMITS, usageLimit: "999.50" },
+			],
+			[{ ...TEAM_DAY_20, usageLimit: "100" }, MEMBER_MONTH],
+		];
+		for (const budgets of cases) {
+			const result = mostRestrictiveApiKeyLimits(budgets);
+			for (const budget of budgets) {
+				if (budget) {
+					expect(
+						validateApiKeyLimitsWithinMemberBudget(result, budget),
+					).toBeNull();
+				}
+			}
+		}
+		expect(
+			validateApiKeyLimitsWithinMemberBudget(MEMBER_MONTH, TEAM_DAY_10),
+		).toEqual(expect.any(String));
+		expect(
+			validateApiKeyLimitsWithinMemberBudget(TEAM_DAY_20, MEMBER_MONTH),
+		).toEqual(expect.any(String));
 	});
 });

@@ -724,6 +724,28 @@ describe("calculateCosts", () => {
 		expect(geoCacheRead.cachedInputCost).toBeCloseTo(0.55);
 	});
 
+	it.each([
+		{ provider: "anthropic", region: null, cachedInputCost: 0.1 },
+		{ provider: "azure-anthropic", region: null, cachedInputCost: 0.1 },
+		{ provider: "aws-bedrock", region: "global", cachedInputCost: 0.1 },
+		{ provider: "aws-bedrock", region: "us", cachedInputCost: 0.11 },
+		{ provider: "aws-bedrock", region: "eu", cachedInputCost: 0.11 },
+	])(
+		"bills 1M cached Claude Sonnet 5.5 tokens on $provider:$region at 0.05x input",
+		async ({ provider, region, cachedInputCost }) => {
+			const result = await calculateCosts(
+				"claude-sonnet-5-5",
+				provider,
+				region,
+				1_000_000,
+				0,
+				1_000_000,
+			);
+
+			expect(result.cachedInputCost).toBeCloseTo(cachedInputCost, 10);
+		},
+	);
+
 	it("should calculate costs with cached tokens for Anthropic (subsequent request - cache read)", async () => {
 		// For Anthropic subsequent request: 4 non-cached + 1659 cache read = 1663 total tokens, 1659 cache reads
 		const result = await calculateCosts(
@@ -1976,6 +1998,27 @@ describe("calculateCosts", () => {
 		expect(result.totalCost).toBeCloseTo(
 			(result.inputCost ?? 0) + 0.09 + (result.requestCost ?? 0),
 		);
+	});
+
+	it("bills Qwen Image 2.1 Turbo at its flat per-image price", async () => {
+		const result = await calculateCosts(
+			"qwen-image-2.1-turbo",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			2,
+			"2048x1024",
+			0,
+		);
+
+		expect(result.inputCost).toBe(0);
+		expect(result.imageOutputCost).toBeCloseTo(0.032);
+		expect(result.outputCost).toBeCloseTo(0.032);
+		expect(result.totalCost).toBeCloseTo(0.032);
 	});
 
 	it("bills Muse at its flat per-image price", async () => {
