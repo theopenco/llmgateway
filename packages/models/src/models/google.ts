@@ -1425,7 +1425,7 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				externalId: "gemini-4-argon",
-				serviceTiers: ["priority"],
+				serviceTiers: ["flex", "priority"],
 				serviceTierRegions: ["global"],
 				inputPrice: "4e-6",
 				outputPrice: "20e-6",
