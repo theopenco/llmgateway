@@ -54,6 +54,7 @@ Options:
 - `FULL_MODE` — include free models and per-effort cases.
 - `LOG_MODE` — log responses.
 - `TEST_WEB_SEARCH` — run `chat-websearch.e2e.ts`; each case bills a real search, so scope it with `TEST_MODELS`.
+- `CONTEXT_ROUTING_TEST` — run `chat-context-routing.e2e.ts`: ~350k-token prompts against every keyed deployment of its models, and routing past short-window deployments. Costs several dollars per run; run that file directly rather than the whole suite.
 
 For mapping-only changes, the only relevant result is a run scoped to those
 mappings (`TEST_MODELS="alibaba/glm-5.2" FULL_MODE=true pnpm test:e2e`). Run the
