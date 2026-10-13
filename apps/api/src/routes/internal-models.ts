@@ -750,6 +750,42 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 	});
 });
 
+const getProviderMarksRoute = createRoute({
+	operationId: "internal_get_provider_marks",
+	summary: "Get uploaded provider marks",
+	description:
+		"Returns the mark (icon, else logo) each active Airside carrier uploaded, keyed by provider id",
+	method: "get",
+	path: "/provider-marks",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ marks: z.record(z.string()) }),
+				},
+			},
+			description: "Uploaded provider marks",
+		},
+	},
+});
+
+internalModels.openapi(getProviderMarksRoute, async (c) => {
+	const claims = await db.query.providerClaim.findMany({
+		where: { status: { eq: "active" } },
+		columns: { providerId: true, logoUrl: true, iconUrl: true },
+	});
+	const marks: Record<string, string> = {};
+	for (const claim of claims) {
+		const mark = claim.iconUrl ?? claim.logoUrl;
+		if (mark) {
+			marks[claim.providerId] = mark;
+		}
+	}
+	c.header("Cache-Control", "public, max-age=300");
+	return c.json({ marks });
+});
+
 // GET /internal/models/{modelId}/benchmarks - Per-provider performance stats
 const providerBenchmarkSchema = z.object({
 	providerId: z.string(),

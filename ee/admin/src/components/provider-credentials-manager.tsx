@@ -17,10 +17,8 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-	createContext,
 	Fragment,
 	useCallback,
-	use,
 	useEffect,
 	useMemo,
 	useRef,
@@ -98,7 +96,6 @@ import {
 	PROVIDER_MODEL_KINDS,
 } from "@llmgateway/shared";
 import {
-	CarrierMark,
 	MultiModelIdSelector,
 	ReorderableItem,
 	ReorderableList,
@@ -193,18 +190,9 @@ interface ProviderCredentialsManagerProps {
 	envPublishedAt: string | null;
 }
 
-/** Airside-uploaded marks by provider id; they take precedence like on the public site. */
-const ProviderMarksContext = createContext<ReadonlyMap<string, string>>(
-	new Map(),
-);
-
 function ProviderIcon({ provider }: { provider: string }) {
-	const markUrl = use(ProviderMarksContext).get(provider);
-	if (markUrl) {
-		return <CarrierMark src={markUrl} className="h-4 w-4 shrink-0" />;
-	}
 	const Icon = getProviderIcon(provider);
-	return <Icon className="h-4 w-4 shrink-0" />;
+	return Icon ? <Icon className="h-4 w-4 shrink-0" /> : null;
 }
 
 function ProviderCell({ provider }: { provider: string }) {
@@ -604,28 +592,7 @@ function ManagedCredentialCells({
 	);
 }
 
-export function ProviderCredentialsManager(
-	props: ProviderCredentialsManagerProps,
-) {
-	const { catalog } = props;
-	const providerMarks = useMemo(
-		() =>
-			new Map(
-				catalog.flatMap((entry) =>
-					entry.markUrl ? [[entry.id, entry.markUrl] as const] : [],
-				),
-			),
-		[catalog],
-	);
-
-	return (
-		<ProviderMarksContext value={providerMarks}>
-			<ProviderCredentialsManagerView {...props} />
-		</ProviderMarksContext>
-	);
-}
-
-function ProviderCredentialsManagerView({
+export function ProviderCredentialsManager({
 	credentials,
 	catalog,
 	envSource,

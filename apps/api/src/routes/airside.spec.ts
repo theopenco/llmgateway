@@ -2087,6 +2087,10 @@ describe("airside provider portal", () => {
 		const { providers } = await providersRes.json();
 		const mistral = providers.find((p: { id: string }) => p.id === "mistral");
 		expect(mistral.airsideLogoUrl).toBe(logoUrl);
+
+		const marksRes = await app.request("/internal/provider-marks");
+		expect(marksRes.status).toBe(200);
+		expect((await marksRes.json()).marks).toEqual({ mistral: logoUrl });
 	});
 
 	it("round-trips carrier rate limits on models", async () => {

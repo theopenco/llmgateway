@@ -223,8 +223,6 @@ const catalogEntrySchema = z.object({
 	name: z.string(),
 	/** A custom Airside carrier; its credential can serve as the carrier's provider key. */
 	carrier: z.boolean(),
-	/** Mark uploaded by the Airside carrier that claimed this provider, if any. */
-	markUrl: z.string().nullable(),
 	/** Env var carrying the API key, shown so admins can find what to migrate. */
 	apiKeyEnvVar: z.string().nullable(),
 	/** Whether that env var is set wherever the reported keys were read from. */
@@ -663,15 +661,6 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 	// published about itself, and fall back to local env only when there is no
 	// snapshot.
 	const inventory = await readProviderEnvInventory();
-	const activeClaims = await db.query.providerClaim.findMany({
-		where: { status: { eq: "active" } },
-	});
-	const markByProvider = new Map(
-		activeClaims.map((claim) => [
-			claim.providerId,
-			claim.iconUrl ?? claim.logoUrl ?? null,
-		]),
-	);
 
 	const entries = providers
 		.filter((provider) => provider.id !== "custom")
@@ -689,7 +678,6 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				id: provider.id,
 				name: provider.name,
 				carrier: false,
-				markUrl: markByProvider.get(provider.id) ?? null,
 				apiKeyEnvVar,
 				apiKeyEnvConfigured: apiKeyEnvCounts.default > 0,
 				regions,
@@ -708,9 +696,9 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 	// Active custom Airside carriers accept managed credentials too: no env
 	// vars, no settings (their endpoint lives on the carrier registration),
 	// and their model list comes from their approved listings.
-	const customCarriers = activeClaims.filter(
-		(claim) => claim.customBaseUrl !== null,
-	);
+	const customCarriers = await db.query.providerClaim.findMany({
+		where: { status: { eq: "active" }, customBaseUrl: { isNotNull: true } },
+	});
 	const customListings = customCarriers.length
 		? await db.query.providerDraftModel.findMany({
 				where: {
@@ -730,7 +718,6 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				id: cl.providerId,
 				name: cl.customName ?? cl.providerId,
 				carrier: true,
-				markUrl: cl.iconUrl ?? cl.logoUrl ?? null,
 				apiKeyEnvVar: null,
 				apiKeyEnvConfigured: false,
 				regions: [],
