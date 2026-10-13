@@ -334,6 +334,18 @@ describe("Lounge connector routes", () => {
 				},
 				body: JSON.stringify({ input: { query: "fixture" } }),
 			});
+		expect((await request("/gmail", "PATCH", { enabled: false })).status).toBe(
+			200,
+		);
+		expect((await approve()).status).toBe(409);
+		const unclaimed = await db.query.message.findFirst({
+			where: { id: "failed-message" },
+		});
+		expect(JSON.parse(unclaimed!.tools!)[0].state).toBe("approval-requested");
+		expect(fetchSafeUserUrl).not.toHaveBeenCalled();
+		expect((await request("/gmail", "PATCH", { enabled: true })).status).toBe(
+			200,
+		);
 		expect((await approve()).status).toBe(502);
 		const saved = await db.query.message.findFirst({
 			where: { id: "failed-message" },

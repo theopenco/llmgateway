@@ -150,6 +150,7 @@ export default async function CanvasPage({
 				selectedOrganization={selectedOrganization}
 				projects={projects}
 				selectedProject={selectedProject}
+				projectsLoadFailed={initialProjectsData === null}
 				initialModelPreference={initialModelPreference}
 			/>
 		</>

@@ -75,7 +75,8 @@ export async function POST(req: Request) {
 
 	const cookieStore = await cookies();
 	const cookieApiKey = getPlaygroundKeyForRequest(cookieStore);
-	const finalApiKey = apiKey?.trim() || headerApiKey || cookieApiKey;
+	const bodyApiKey = typeof apiKey === "string" ? apiKey.trim() : "";
+	const finalApiKey = bodyApiKey || headerApiKey || cookieApiKey;
 	if (!finalApiKey) {
 		return new Response(JSON.stringify({ error: "Missing API key" }), {
 			status: 400,

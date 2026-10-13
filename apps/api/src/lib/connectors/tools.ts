@@ -47,6 +47,13 @@ async function activeConnection(userId: string, id: LoungeConnectorId) {
 	return connection;
 }
 
+export async function assertConnectionReady(
+	userId: string,
+	id: LoungeConnectorId,
+) {
+	await activeConnection(userId, id);
+}
+
 async function refreshConnection(userId: string, id: LoungeConnectorId) {
 	// Serialize rotating refresh tokens across API instances without holding a DB connection.
 	const key = `lounge:refresh:${userId}:${id}`;

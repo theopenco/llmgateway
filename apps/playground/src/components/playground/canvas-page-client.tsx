@@ -87,6 +87,7 @@ interface CanvasPageClientProps {
 	selectedOrganization: Organization | null;
 	projects: Project[];
 	selectedProject: Project | null;
+	projectsLoadFailed: boolean;
 	initialModelPreference?: string | null;
 }
 
@@ -307,6 +308,7 @@ export default function CanvasPageClient({
 	organizations,
 	selectedOrganization,
 	selectedProject,
+	projectsLoadFailed,
 	initialModelPreference,
 }: CanvasPageClientProps) {
 	const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -878,6 +880,35 @@ export default function CanvasPageClient({
 									)}
 								</div>
 
+								{isAuthenticated && !selectedProject && (
+									<div
+										role="alert"
+										className="flex items-center justify-between gap-3 px-4 py-2 text-sm"
+									>
+										<span>
+											{projectsLoadFailed
+												? "Could not load the projects for this organization."
+												: "This organization has no project to generate with."}
+										</span>
+										{projectsLoadFailed ? (
+											<Button
+												variant="outline"
+												size="sm"
+												onClick={() => router.refresh()}
+											>
+												Reload
+											</Button>
+										) : selectedOrganization?.kind === "chat" ? null : (
+											<Button
+												variant="outline"
+												size="sm"
+												onClick={() => handleSelectOrganization(null)}
+											>
+												Use Chat plan
+											</Button>
+										)}
+									</div>
+								)}
 								{keyQuery.isError && (
 									<div
 										role="alert"

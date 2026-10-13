@@ -30,6 +30,7 @@ export async function executePersistedToolApproval({
 	toolName,
 	input,
 	approved,
+	ready,
 	execute,
 }: {
 	userId: string;
@@ -39,6 +40,7 @@ export async function executePersistedToolApproval({
 	toolName: string;
 	input: Record<string, unknown>;
 	approved: boolean;
+	ready: () => Promise<unknown>;
 	execute: () => Promise<unknown>;
 }) {
 	const [message] = await db
@@ -76,6 +78,9 @@ export async function executePersistedToolApproval({
 		throw new HTTPException(400, {
 			message: "The tool request does not match the saved approval",
 		});
+	}
+	if (approved) {
+		await ready();
 	}
 	const claimedParts = parts.map((candidate) =>
 		candidate.toolCallId === toolCallId

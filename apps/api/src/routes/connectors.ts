@@ -19,6 +19,7 @@ import {
 } from "@/lib/connectors/oauth.js";
 import { executePersistedToolApproval } from "@/lib/connectors/tool-approval.js";
 import {
+	assertConnectionReady,
 	callConnectorTool,
 	listConnectorTools,
 } from "@/lib/connectors/tools.js";
@@ -452,6 +453,7 @@ connectors.openapi(
 				toolName,
 				input: c.req.valid("json").input,
 				approved: approved === "true",
+				ready: () => assertConnectionReady(c.get("user")!.id, id),
 				execute: () =>
 					callConnectorTool(
 						c.get("user")!.id,
