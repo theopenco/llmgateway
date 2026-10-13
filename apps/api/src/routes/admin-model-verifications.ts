@@ -7,6 +7,7 @@ import {
 	buildVerificationTarget,
 	enqueueModelVerification,
 	modelVerificationSchema,
+	listingDeclaresPromptCaching,
 	pendingFiledCapabilities,
 	resolveVerificationCredential,
 	serializeVerification,
@@ -99,6 +100,7 @@ function mappingTarget(mapping: MappingRow): ProviderModelVerificationTarget {
 		webSearch: mapping.webSearch,
 		contextSize: mapping.contextSize,
 		maxOutput: mapping.maxOutput,
+		promptCaching: mapping.cachedInputPrice !== null,
 	});
 }
 
@@ -107,6 +109,7 @@ function mappingTarget(mapping: MappingRow): ProviderModelVerificationTarget {
 function draftModelTarget(
 	model: DraftModelRow,
 	filed: CapabilityOverrides,
+	promptCaching: boolean,
 ): ProviderModelVerificationTarget {
 	return buildVerificationTarget({
 		providerId: model.providerId,
@@ -126,6 +129,7 @@ function draftModelTarget(
 		webSearch: model.webSearch,
 		contextSize: model.contextSize,
 		maxOutput: model.maxOutput,
+		promptCaching,
 		...filed,
 	});
 }
@@ -215,7 +219,11 @@ adminModelVerifications.openapi(queueVerification, async (c) => {
 				message: "Delisted mappings cannot be verified.",
 			});
 		}
-		target = draftModelTarget(model, await pendingFiledCapabilities(model.id));
+		target = draftModelTarget(
+			model,
+			await pendingFiledCapabilities(model.id),
+			await listingDeclaresPromptCaching(model.id),
+		);
 		providerCompanyId = model.providerCompanyId;
 	}
 

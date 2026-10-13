@@ -83,6 +83,7 @@ import {
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
 import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
+import { cachedInputPriceWarning } from "@llmgateway/shared/prompt-cache";
 
 import { assertProviderBaseUrlAllowed } from "./keys-provider.js";
 
@@ -158,11 +159,15 @@ const adminFilingSchema = z.object({
 			deviation: z.enum(["below", "above"]),
 		})
 		.nullable(),
+	// Cached input prices unusually close to their input price, default and
+	// per region; usually a typo or the wrong unit.
+	cachedPriceWarnings: z.array(z.string()),
 	// The model's currently effective pricing, for diffing update filings.
 	currentPricing: z
 		.object({
 			inputPrice: z.string(),
 			outputPrice: z.string(),
+			cachedInputPrice: z.string().nullable(),
 			// Live regional fares, so a filing that changes or drops a region
 			// shows the reviewer what it replaces.
 			regionPrices: z
@@ -285,6 +290,32 @@ function contextSizeWarningFor(
 		: null;
 }
 
+function cachedPriceWarnings(
+	row: typeof tables.providerPriceFiling.$inferSelect,
+): string[] {
+	if (row.kind === "metadata") {
+		return [];
+	}
+	const warnings: string[] = [];
+	const fallback = cachedInputPriceWarning(
+		row.inputPrice,
+		row.cachedInputPrice,
+	);
+	if (fallback) {
+		warnings.push(fallback);
+	}
+	for (const entry of row.regionPrices ?? []) {
+		const warning = cachedInputPriceWarning(
+			entry.inputPrice,
+			entry.cachedInputPrice ?? row.cachedInputPrice,
+		);
+		if (warning) {
+			warnings.push(`${entry.region}: ${warning}`);
+		}
+	}
+	return warnings;
+}
+
 function serializeAdminFiling(
 	row: FilingWithRelations,
 	listingReference?: (
@@ -343,10 +374,12 @@ function serializeAdminFiling(
 			website: row.providerCompany.website,
 		},
 		contextSizeWarning: contextSizeWarningFor(row, listingReference),
+		cachedPriceWarnings: cachedPriceWarnings(row),
 		currentPricing: approved
 			? {
 					inputPrice: approved.inputPrice,
 					outputPrice: approved.outputPrice,
+					cachedInputPrice: approved.cachedInputPrice,
 					regionPrices: approved.regionPrices
 						? approved.regionPrices.map((entry) => ({
 								region: entry.region,

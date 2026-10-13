@@ -5797,6 +5797,8 @@ export interface ProviderModelVerificationTarget {
 	/** Declared limits; unset on runs queued before they were verified. */
 	contextSize?: number | null;
 	maxOutput?: number | null;
+	/** The listing declares a cached input price, so repeats must report cache hits. */
+	promptCaching?: boolean;
 }
 
 // One queued verification of an Airside mapping or a catalogue mapping. The

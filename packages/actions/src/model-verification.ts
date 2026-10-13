@@ -46,7 +46,8 @@ export type ModelVerificationCheckId =
 	| "reasoning_budget"
 	| "web_search"
 	| "context_size"
-	| "max_output";
+	| "max_output"
+	| "prompt_caching";
 
 export interface ModelVerificationRequest {
 	model: string;
@@ -399,6 +400,42 @@ function contextCalibrationChars(contextSize: number): number {
 	);
 }
 
+// Above the minimum cacheable prefix of common serving stacks (1,024 tokens
+// on OpenAI-style caches, up to 4,096 on some Anthropic models).
+const PROMPT_CACHE_PREFIX_CHARS = 24_000;
+
+/**
+ * A long system prompt sent repeatedly, so a deployment that caches prompts
+ * reports cached input tokens on a repeat. The run's nonce leads the prefix so
+ * the first request starts cold.
+ */
+export function createPromptCachingVerificationRequest(
+	model: string,
+	nonce: string,
+): ModelVerificationRequest {
+	const filler = CONTEXT_FILLER_SENTENCE.repeat(
+		Math.ceil(PROMPT_CACHE_PREFIX_CHARS / CONTEXT_FILLER_SENTENCE.length),
+	).slice(0, PROMPT_CACHE_PREFIX_CHARS);
+	return {
+		model,
+		messages: [
+			{
+				role: "system",
+				content: `Verification run ${nonce}. Reference text follows.\n\n${filler}`,
+			},
+			{ role: "user", content: "Reply with exactly OK." },
+		],
+		max_tokens: 64,
+	};
+}
+
+/**
+ * Waits before each repeat of the prompt-caching request. Some stacks write
+ * the cache asynchronously or spread requests across replicas, so one
+ * immediate repeat is not enough evidence that caching is missing.
+ */
+export const PROMPT_CACHE_REPEAT_DELAYS_MS = [1_000, 3_000, 5_000, 10_000];
+
 /**
  * Asks for the full declared output budget. An endpoint with a lower cap
  * refuses the request; one that clamps silently cannot be told apart.
@@ -558,6 +595,16 @@ function verificationDefinitions(
 					contextSize,
 				));
 			},
+		});
+	}
+	if (target.promptCaching) {
+		definitions.push({
+			id: "prompt_caching",
+			label: "Prompt caching",
+			request: createPromptCachingVerificationRequest(
+				target.modelName,
+				crypto.randomUUID(),
+			),
 		});
 	}
 	if (target.maxOutput) {
@@ -1072,6 +1119,8 @@ function validateResponse(
 		// reasoning model with no visible text.
 		case "context_size":
 			return validateContextSize(body, target.contextSize ?? 0);
+		case "prompt_caching":
+			return null;
 		case "vision":
 			return /\bred\b/i.test(assistantText)
 				? null
@@ -1296,6 +1345,8 @@ interface CheckContext {
 	keyOnly?: boolean;
 	/** Input tokens the last parsed response reported. */
 	lastInputTokens?: number;
+	/** Cached input tokens the last parsed response reported. */
+	lastCachedTokens?: number;
 }
 
 /**
@@ -1537,6 +1588,60 @@ async function runContextSizeCheck(
 	);
 }
 
+/**
+ * A listing with a cached input price is routed and billed as caching, so a
+ * deployment that never reports cached tokens bills every request at the full
+ * input price while routing ranks it on the cached one. Repeats one prompt
+ * until a response reports cached input tokens.
+ */
+async function runPromptCachingCheck(
+	definition: ModelVerificationDefinition,
+	options: RunModelVerificationOptions,
+	context: CheckContext,
+	reportProbes: ProbeReporter,
+	onTimeout: TimeoutReporter,
+): Promise<CheckOutcome> {
+	const probes: ProviderModelVerificationProbe[] = [];
+	const delays = [0, ...PROMPT_CACHE_REPEAT_DELAYS_MS];
+	for (const [index, delay] of delays.entries()) {
+		if (delay > 0) {
+			await new Promise((resolve) => setTimeout(resolve, delay));
+		}
+		context.lastInputTokens = undefined;
+		context.lastCachedTokens = undefined;
+		const failure = await attemptCheck(definition, options, context, onTimeout);
+		const label = `Request ${index + 1}`;
+		if (failure) {
+			probes.push(probeResult(label, failure));
+			await reportProbes(probes);
+			return { failure, probes };
+		}
+		const cached = context.lastCachedTokens ?? 0;
+		const input = context.lastInputTokens;
+		probes.push({
+			label,
+			status: "passed",
+			feedback: `${cached} of ${input ?? "unreported"} input tokens cached.`,
+		});
+		await reportProbes(probes);
+		if (cached > 0) {
+			return {
+				failure: null,
+				probes,
+				feedback: `Request ${index + 1} reported ${cached} cached input tokens.`,
+			};
+		}
+	}
+	return {
+		failure: {
+			message: `The listing declares a cached input price, but ${delays.length} identical requests reported no cached input tokens. Report cache hits in usage (prompt_tokens_details.cached_tokens for Chat Completions), or remove the cached input price.`,
+			rejected: false,
+			conclusive: true,
+		},
+		probes,
+	};
+}
+
 async function runCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
@@ -1551,6 +1656,15 @@ async function runCheck(
 			options,
 			context,
 			knownUnsupportedReasoningEfforts,
+			reportProbes,
+			onTimeout,
+		);
+	}
+	if (definition.id === "prompt_caching") {
+		return await runPromptCachingCheck(
+			definition,
+			options,
+			context,
 			reportProbes,
 			onTimeout,
 		);
@@ -1785,6 +1899,7 @@ async function executeCheck(
 		context.basicUsage = reportedUsage(body);
 	}
 	context.lastInputTokens = reportedInputTokens(body);
+	context.lastCachedTokens = reportedUsage(body).cached;
 	if (definition.calibration) {
 		return null;
 	}

@@ -205,6 +205,7 @@ async function createModel(
 	cookie: string,
 	providerCompanyId: string,
 	overrides: Record<string, unknown> = {},
+	verifiedPromptCaching?: boolean,
 ) {
 	const body: Record<string, unknown> = {
 		providerCompanyId,
@@ -251,6 +252,10 @@ async function createModel(
 			contextSize:
 				typeof body.contextSize === "number" ? body.contextSize : null,
 			maxOutput: typeof body.maxOutput === "number" ? body.maxOutput : null,
+			promptCaching:
+				verifiedPromptCaching ??
+				(body.pricing as { cachedInputPrice?: string }).cachedInputPrice !==
+					undefined,
 		},
 		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
 		status: "passed",
@@ -1403,6 +1408,41 @@ describe("airside provider portal", () => {
 		});
 	});
 
+	it("warns reviewers about a cached input price close to the input price", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			modelName: "mistral-cache-typo",
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				cachedInputPrice: "1.8e-6",
+				regionPrices: [
+					{ region: "eu", inputPrice: "2e-6", outputPrice: "6e-6" },
+					{
+						region: "us",
+						inputPrice: "2e-6",
+						outputPrice: "6e-6",
+						cachedInputPrice: "2e-7",
+					},
+				],
+			},
+		});
+		expect(created.status, await created.clone().text()).toBe(201);
+
+		const queue = await app.request("/admin/airside/filings?status=pending", {
+			headers: { Cookie: cookie },
+		});
+		const [filing] = (await queue.json()).filings;
+		expect(filing.cachedPriceWarnings).toEqual([
+			expect.stringContaining("Cached input costs 90% of the input price"),
+			expect.stringMatching(/^eu: Cached input costs 90%/),
+		]);
+	});
+
 	it("runs the approval lifecycle through the admin queue", async () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
@@ -1425,6 +1465,7 @@ describe("airside provider portal", () => {
 			company: expect.objectContaining({ name: "Mistral Ops" }),
 			model: expect.objectContaining({ modelName: "mistral-large-3" }),
 			contextSizeWarning: null,
+			cachedPriceWarnings: [],
 		});
 
 		// Approve the initial filing → model activates, pricing becomes current.
@@ -4090,6 +4131,28 @@ describe("airside provider portal", () => {
 			cachedInputPrice: "5e-7",
 			requestPrice: "0.002",
 		});
+	});
+
+	it("requires a prompt-caching preflight for a cached input price", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const res = await createModel(
+			cookie,
+			company.id,
+			{
+				modelName: "mistral-uncached-x",
+				pricing: {
+					inputPrice: "2e-6",
+					outputPrice: "6e-6",
+					cachedInputPrice: "5e-7",
+				},
+			},
+			false,
+		);
+		expect(res.status).toBe(409);
+		expect((await res.json()).message).toContain("changed after verification");
 	});
 
 	it("imports catalogue models as managed listings", async () => {
