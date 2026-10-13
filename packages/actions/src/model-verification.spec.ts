@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+	createPromptCachingVerificationRequest,
 	createQueuedModelVerificationChecks,
 	disprovedCapabilities,
 	decryptModelVerificationCredential,
@@ -1924,6 +1925,51 @@ describe("model verification", () => {
 			expect(String(first.mock.calls[1][1]?.body)).not.toBe(
 				String(second.mock.calls[1][1]?.body),
 			);
+		});
+
+		it("keeps the probe within the declared limits", () => {
+			const roomy = createPromptCachingVerificationRequest("m", "n");
+			const small = createPromptCachingVerificationRequest("m", "n", {
+				contextSize: 4_096,
+				maxOutput: 16,
+			});
+			const length = (request: typeof roomy) =>
+				String(request.messages[0].content).length;
+
+			expect(roomy.max_tokens).toBe(64);
+			expect(length(roomy)).toBeGreaterThan(24_000);
+			expect(small.max_tokens).toBe(16);
+			// Half the window at 3 chars/token, plus the run header.
+			const halfWindowChars = 2_048 * 3;
+			expect(length(small)).toBeLessThan(halfWindowChars + 100);
+			expect(length(small)).toBeGreaterThan(halfWindowChars);
+		});
+
+		it("ignores cached tokens on a failed operation", async () => {
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockImplementation(async (_url, request) => {
+					const caching = String(request?.body).includes("Verification run");
+					const body = chatBody({ content: "OK" }, "stop", {
+						prompt_tokens: 6_000,
+						completion_tokens: 1,
+						prompt_tokens_details: { cached_tokens: caching ? 5_888 : 0 },
+					});
+					return Response.json(
+						caching
+							? { ...body, status: "failed", error: { message: "boom" } }
+							: body,
+					);
+				});
+			const result = await run(fetchImplementation);
+
+			expect(result.passed).toBe(false);
+			expect(
+				result.checks.find(({ id }) => id === "prompt_caching"),
+			).toMatchObject({
+				status: "failed",
+				feedback: expect.stringContaining("boom"),
+			});
 		});
 	});
 });

@@ -537,11 +537,7 @@ function regionFaresToBody(rows: RegionFareRow[]) {
 	}));
 }
 
-/**
- * Optional per-region fares filed alongside the default ones. Riders pin a
- * region with `provider/model:region`; every other request pays the default
- * fares.
- */
+/** Flags a cached input price unusually close to its input price. */
 function CachedPriceWarning({
 	inputPrice,
 	cachedInputPrice,
@@ -561,6 +557,11 @@ function CachedPriceWarning({
 	) : null;
 }
 
+/**
+ * Optional per-region fares filed alongside the default ones. Riders pin a
+ * region with `provider/model:region`; every other request pays the default
+ * fares.
+ */
 function RegionFaresEditor({
 	idPrefix,
 	rows,

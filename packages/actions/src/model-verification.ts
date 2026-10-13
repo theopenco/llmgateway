@@ -403,19 +403,32 @@ function contextCalibrationChars(contextSize: number): number {
 // Above the minimum cacheable prefix of common serving stacks (1,024 tokens
 // on OpenAI-style caches, up to 4,096 on some Anthropic models).
 const PROMPT_CACHE_PREFIX_CHARS = 24_000;
+// Share of a declared window the cache probe may fill, so a small window
+// still accepts every repeat.
+const PROMPT_CACHE_MAX_CONTEXT_SHARE = 0.5;
+const PROMPT_CACHE_MAX_TOKENS = 64;
 
 /**
  * A long system prompt sent repeatedly, so a deployment that caches prompts
  * reports cached input tokens on a repeat. The run's nonce leads the prefix so
- * the first request starts cold.
+ * the first request starts cold. The prompt and output budget stay within the
+ * declared limits.
  */
 export function createPromptCachingVerificationRequest(
 	model: string,
 	nonce: string,
+	limits: { contextSize?: number | null; maxOutput?: number | null } = {},
 ): ModelVerificationRequest {
+	const prefixChars = limits.contextSize
+		? Math.min(
+				PROMPT_CACHE_PREFIX_CHARS,
+				Math.floor(limits.contextSize * PROMPT_CACHE_MAX_CONTEXT_SHARE) *
+					CONTEXT_FALLBACK_CHARS_PER_TOKEN,
+			)
+		: PROMPT_CACHE_PREFIX_CHARS;
 	const filler = CONTEXT_FILLER_SENTENCE.repeat(
-		Math.ceil(PROMPT_CACHE_PREFIX_CHARS / CONTEXT_FILLER_SENTENCE.length),
-	).slice(0, PROMPT_CACHE_PREFIX_CHARS);
+		Math.ceil(prefixChars / CONTEXT_FILLER_SENTENCE.length),
+	).slice(0, prefixChars);
 	return {
 		model,
 		messages: [
@@ -425,7 +438,9 @@ export function createPromptCachingVerificationRequest(
 			},
 			{ role: "user", content: "Reply with exactly OK." },
 		],
-		max_tokens: 64,
+		max_tokens: limits.maxOutput
+			? Math.min(PROMPT_CACHE_MAX_TOKENS, limits.maxOutput)
+			: PROMPT_CACHE_MAX_TOKENS,
 	};
 }
 
@@ -604,6 +619,7 @@ function verificationDefinitions(
 			request: createPromptCachingVerificationRequest(
 				target.modelName,
 				crypto.randomUUID(),
+				target,
 			),
 		});
 	}
@@ -1088,16 +1104,24 @@ function reportedInputTokens(body: unknown): number | undefined {
 	return reportedUsage(body).input;
 }
 
-function validateContextSize(
-	body: unknown,
-	contextSize: number,
-): string | null {
-	// A 200 can still carry a failed operation, e.g. a Responses envelope.
+/** A 200 can still carry a failed operation, e.g. a Responses envelope. */
+function failedOperationMessage(body: unknown): string | null {
 	if (isRecord(body) && (body.error || body.status === "failed")) {
 		const message = isRecord(body.error) ? body.error.message : body.error;
 		return typeof message === "string" && message
 			? message.slice(0, 500)
 			: "The provider reported a failed response.";
+	}
+	return null;
+}
+
+function validateContextSize(
+	body: unknown,
+	contextSize: number,
+): string | null {
+	const failed = failedOperationMessage(body);
+	if (failed) {
+		return failed;
 	}
 	const reported = reportedInputTokens(body);
 	const expected = Math.floor(
@@ -1119,8 +1143,9 @@ function validateResponse(
 		// reasoning model with no visible text.
 		case "context_size":
 			return validateContextSize(body, target.contextSize ?? 0);
+		// Cached-token evidence only counts from a successful response.
 		case "prompt_caching":
-			return null;
+			return failedOperationMessage(body);
 		case "vision":
 			return /\bred\b/i.test(assistantText)
 				? null
