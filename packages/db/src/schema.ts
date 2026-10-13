@@ -4424,6 +4424,9 @@ export const contentFilterHourlyStats = snakeCase.table(
 		// Rows written before classifiers were selectable all ran on OpenAI.
 		classifier: text().notNull().default("openai"),
 		role: text({ enum: contentFilterStatsRoles }).notNull().default("deciding"),
+		// Input the internal classifier read ("full" or "latest_turn"); empty for
+		// other classifiers and for rows written before the scope was recorded.
+		internalScope: text().notNull().default(""),
 		sampledCount: integer().notNull().default(0),
 		violationCount: integer().notNull().default(0),
 		blockedCount: integer().notNull().default(0),
@@ -4440,6 +4443,7 @@ export const contentFilterHourlyStats = snakeCase.table(
 			table.category,
 			table.classifier,
 			table.role,
+			table.internalScope,
 		),
 		index("content_filter_hourly_stats_org_ts_idx").on(
 			table.organizationId,
@@ -4474,6 +4478,8 @@ export const contentFilterHourlyModelStats = snakeCase.table(
 		// Rows written before classifiers were selectable all ran on OpenAI.
 		classifier: text().notNull().default("openai"),
 		role: text({ enum: contentFilterStatsRoles }).notNull().default("deciding"),
+		// Same as contentFilterHourlyStats.internalScope.
+		internalScope: text().notNull().default(""),
 		sampledCount: integer().notNull().default(0),
 		violationCount: integer().notNull().default(0),
 		blockedCount: integer().notNull().default(0),
@@ -4492,6 +4498,7 @@ export const contentFilterHourlyModelStats = snakeCase.table(
 			table.category,
 			table.classifier,
 			table.role,
+			table.internalScope,
 		),
 		index("content_filter_hourly_model_stats_org_ts_idx").on(
 			table.organizationId,
