@@ -2,6 +2,7 @@ import React from "react";
 
 import { cn } from "@/lib/utils";
 
+import { UploadedProviderMark } from "./provider-marks";
 import { Logo } from "./ui/logo";
 
 import type { ProviderId } from "@llmgateway/models";
@@ -1711,10 +1712,10 @@ export const getProviderLogoDarkModeClasses = () => {
 	return "";
 };
 
-// Helper function to get an icon by provider name
-export const getProviderIcon = (
+/** The icon shipped with the app for a provider, if any. */
+export const getBundledProviderIcon = (
 	provider: string,
-): React.FC<React.SVGProps<SVGSVGElement>> => {
+): React.FC<React.SVGProps<SVGSVGElement>> | undefined => {
 	// First try the exact provider name (for keys like "together-ai", "inference.net")
 	if (ProviderIcons[provider as ProviderIconKey]) {
 		return ProviderIcons[provider as ProviderIconKey];
@@ -1724,7 +1725,33 @@ export const getProviderIcon = (
 	const normalizedProvider = provider
 		.toLowerCase()
 		.replace(/[^a-z0-9]/g, "-") as ProviderIconKey;
-	return ProviderIcons[normalizedProvider] || Logo;
+	return ProviderIcons[normalizedProvider];
+};
+
+// One stable component per provider, so re-renders don't remount the icon.
+const uploadedMarkIcons = new Map<
+	string,
+	React.FC<React.SVGProps<SVGSVGElement>>
+>();
+
+/**
+ * Icon for a provider: the bundled one, else the mark its Airside carrier
+ * uploaded (via `ProviderMarksProvider`), else the LLM Gateway logo.
+ */
+export const getProviderIcon = (
+	provider: string,
+): React.FC<React.SVGProps<SVGSVGElement>> => {
+	const bundled = getBundledProviderIcon(provider);
+	if (bundled) {
+		return bundled;
+	}
+	let Icon = uploadedMarkIcons.get(provider);
+	if (!Icon) {
+		Icon = (props) => <UploadedProviderMark provider={provider} {...props} />;
+		Icon.displayName = `UploadedProviderMark(${provider})`;
+		uploadedMarkIcons.set(provider, Icon);
+	}
+	return Icon;
 };
 
 // Maps a model's `family` (e.g. "glm", "google", "meta") to its brand icon so
