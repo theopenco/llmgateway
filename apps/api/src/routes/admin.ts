@@ -143,6 +143,7 @@ import {
 	globalHourlyProviderKeyModelStats,
 	globalProviderKeyModelStats,
 	globalSourceStats,
+	rootModelIdSql,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -4290,12 +4291,7 @@ async function fetchAdminLogs(scope: SQLWrapper, query: AdminLogQuery) {
 	}
 
 	if (query.model) {
-		whereConditions.push(
-			sql`CASE WHEN ${tables.log.usedModel} LIKE '%/%'
-				THEN SPLIT_PART(${tables.log.usedModel}, '/', 2)
-				ELSE ${tables.log.usedModel}
-			END = ${query.model}`,
-		);
+		whereConditions.push(eq(rootModelIdSql(tables.log.usedModel), query.model));
 	}
 
 	if (query.source) {
