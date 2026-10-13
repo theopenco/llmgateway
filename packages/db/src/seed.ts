@@ -3681,7 +3681,8 @@ async function seedAirside() {
 		displayName: "Mistral Large 4",
 		description: "Next-generation flagship, pending listing approval.",
 		family: "mistral",
-		contextSize: 256000,
+		// Matches the catalogue window: listings outside it cannot be edited.
+		contextSize: 1_000_000,
 		maxOutput: 32768,
 		streaming: true,
 		tools: true,
