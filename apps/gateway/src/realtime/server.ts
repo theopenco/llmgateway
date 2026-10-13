@@ -1,5 +1,6 @@
 import { WebSocketServer } from "ws";
 
+import { normalizeSource } from "@/chat/tools/validate-source.js";
 import {
 	reportKeyError,
 	reportKeySuccess,
@@ -186,8 +187,7 @@ function extractSource(req: IncomingMessage): string | null {
 	if (!value) {
 		return null;
 	}
-	const normalized = value.replace(/^https?:\/\//, "").replace(/^www\./, "");
-	return /^[a-zA-Z0-9./-]+$/.test(normalized) ? normalized : null;
+	return normalizeSource(value) ?? null;
 }
 
 /**
