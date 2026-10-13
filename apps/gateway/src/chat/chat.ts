@@ -11578,11 +11578,13 @@ chat.openapi(completions, async (c) => {
 									continue;
 								}
 
-								await rememberReasoningCredential(
-									project.organizationId,
-									transformedData.choices?.[0]?.delta?.reasoning_details,
-									currentReasoningCredential(),
-								);
+								if (usedProviderEncryptsReasoning()) {
+									await rememberReasoningCredential(
+										project.organizationId,
+										transformedData.choices?.[0]?.delta,
+										currentReasoningCredential(),
+									);
+								}
 
 								// A chunk whose finish_reason signals an upstream failure (e.g.
 								// Embercloud's "error") is not a valid OpenAI completion chunk —
@@ -15615,9 +15617,11 @@ chat.openapi(completions, async (c) => {
 	) {
 		transformedResponse.choices[0].message.reasoning_details =
 			parsedResponse.reasoningDetails;
+	}
+	if (usedProviderEncryptsReasoning()) {
 		await rememberReasoningCredential(
 			project.organizationId,
-			parsedResponse.reasoningDetails,
+			transformedResponse.choices?.[0]?.message,
 			currentReasoningCredential(),
 		);
 	}

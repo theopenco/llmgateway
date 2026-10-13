@@ -551,15 +551,17 @@ Automatic retry to a different provider is disabled when:
 Retries can still happen within the same provider when multiple keys are
 configured and the current key fails with a retryable error.
 
-### Encrypted reasoning stays on its key
+### Provider-bound reasoning stays on its key
 
-OpenAI and Azure only accept replayed encrypted reasoning on the account that
-produced it: another OpenAI organization or Azure resource rejects it with
-`The encrypted content for item rs_... could not be verified`. The gateway
-remembers which credential produced each encrypted reasoning item, and the turn
-that replays it is sent with that same key. Such a turn is never retried on
-another key. A conversation without a remembered key (older than 24 hours since
-its last turn) uses normal key selection.
+[Provider-bound reasoning](#smart-routing-algorithm) can also be tied to the
+account that produced it. OpenAI encrypted reasoning, for example, is rejected
+by another OpenAI organization or Azure resource with
+`The encrypted content for item rs_... could not be verified`. For every model
+with provider-bound reasoning, the gateway remembers which key produced each
+encrypted reasoning item or thought signature, and the turn that replays it is
+sent with that same key. Such a turn is never retried on another key. A
+conversation without a remembered key (older than 24 hours since its last turn)
+uses normal key selection.
 
 Deleting a provider key keeps it in a **pending deletion** state for 24 hours.
 During that time it serves only conversations that replay reasoning it

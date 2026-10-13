@@ -47,10 +47,11 @@ describe("reasoning credential pinning", () => {
 		token: string;
 		managed: boolean;
 		sortOrder?: number;
+		provider?: string;
 	}) {
 		await cdb.insert(tables.providerKey).values({
 			id: values.id,
-			provider: "openai",
+			provider: values.provider ?? "openai",
 			...encryptProviderKeyForStorage(
 				values.token,
 				values.id,
@@ -203,14 +204,16 @@ describe("reasoning credential pinning", () => {
 		process.env.LLM_OPENAI_API_KEY = "sk-env-a,sk-env-b";
 		await rememberReasoningCredential(
 			"org-id",
-			[
-				{
-					type: "reasoning.encrypted",
-					data: "enc-from-env-b",
-					format: "openai-responses-v1",
-					index: 0,
-				},
-			],
+			{
+				reasoning_details: [
+					{
+						type: "reasoning.encrypted",
+						data: "enc-from-env-b",
+						format: "openai-responses-v1",
+						index: 0,
+					},
+				],
+			},
 			{
 				provider: "openai",
 				source: "env",
@@ -222,6 +225,110 @@ describe("reasoning credential pinning", () => {
 
 		expect((await turn("enc-from-env-b")).status).toBe(200);
 		expect(authorizations).toEqual(["Bearer sk-env-b"]);
+	});
+
+	test("pins Gemini tool-call signatures restored from the cache", async () => {
+		await harness.setProjectMode("api-keys");
+		await seedKey({
+			id: "google-a",
+			token: "google-key-a",
+			managed: false,
+			provider: "google-ai-studio",
+		});
+		const credentials: string[] = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const url = new URL(
+				typeof input === "string"
+					? input
+					: input instanceof URL
+						? input.toString()
+						: input.url,
+			);
+			credentials.push(
+				new Headers(init?.headers).get("x-goog-api-key") ??
+					url.searchParams.get("key") ??
+					"",
+			);
+			return new Response(
+				JSON.stringify({
+					candidates: [
+						{
+							content: {
+								role: "model",
+								parts: [
+									{
+										functionCall: { name: "lookup", args: {} },
+										thoughtSignature: `sig-${credentials.length}`,
+									},
+								],
+							},
+							finishReason: "STOP",
+						},
+					],
+					usageMetadata: {
+						promptTokenCount: 5,
+						candidatesTokenCount: 5,
+						totalTokenCount: 10,
+					},
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			);
+		});
+		const tools = [
+			{
+				type: "function",
+				function: {
+					name: "lookup",
+					parameters: { type: "object", properties: {} },
+				},
+			},
+		];
+		const request = async (messages: unknown[]) =>
+			await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					Authorization: "Bearer real-token",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "google-ai-studio/gemini-3.5-flash",
+					messages,
+					tools,
+				}),
+			});
+		const initial = { role: "user", content: "Look it up." };
+
+		const first = await request([initial]);
+		expect(first.status).toBe(200);
+		const call = (await first.json()).choices[0].message.tool_calls[0];
+		expect(typeof call.id).toBe("string");
+
+		await seedKey({
+			id: "google-b",
+			token: "google-key-b",
+			managed: false,
+			provider: "google-ai-studio",
+			sortOrder: 0,
+		});
+		await markPendingDeletion("google-a");
+
+		// The client drops the signature; the gateway restores it by call id.
+		const { extra_content: _dropped, ...unsigned } = call;
+		expect(
+			(
+				await request([
+					initial,
+					{ role: "assistant", content: null, tool_calls: [unsigned] },
+					{ role: "tool", tool_call_id: call.id, content: "42" },
+				])
+			).status,
+		).toBe(200);
+		expect((await request([initial])).status).toBe(200);
+		expect(credentials).toEqual([
+			"google-key-a",
+			"google-key-a",
+			"google-key-b",
+		]);
 	});
 
 	test("does not retry a pinned turn on another credential", async () => {
