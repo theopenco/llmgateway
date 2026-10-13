@@ -3,7 +3,14 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Loader2, RefreshCw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useDeferredValue, useMemo, useState } from "react";
+import {
+	useCallback,
+	useDeferredValue,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 
 import { LogCard } from "@/components/log-card";
 import { Button } from "@/components/ui/button";
@@ -233,9 +240,26 @@ export function LogsSection({
 	});
 	// A refresh reloads only the first page. The loaded pages are put back if
 	// the refetch fails, so a failed refresh never loses what was on screen;
-	// restoring the cache clears the query's error, so it is kept here.
-	const [refreshError, setRefreshError] = useState<Error | null>(null);
+	// restoring the cache clears the query's error, so it is kept here, tied to
+	// the query it came from. Changing org, project or filters bumps the
+	// sequence so a refresh still in flight for the old query is ignored.
+	const queryIdentity = JSON.stringify(logsQueryKey);
+	const refreshSeq = useRef(0);
+	const refreshInFlight = useRef<number | null>(null);
+	const [refreshError, setRefreshError] = useState<{
+		queryIdentity: string;
+		error: Error;
+	} | null>(null);
+	useEffect(() => {
+		refreshSeq.current += 1;
+		refreshInFlight.current = null;
+	}, [queryIdentity]);
 	const refresh = async () => {
+		if (refreshInFlight.current === refreshSeq.current) {
+			return;
+		}
+		const seq = refreshSeq.current;
+		refreshInFlight.current = seq;
 		const snapshot = queryClient.getQueryData<typeof data>(logsQueryKey);
 		setRefreshError(null);
 		queryClient.setQueryData<typeof data>(logsQueryKey, (current) =>
@@ -247,13 +271,19 @@ export function LogsSection({
 				: current,
 		);
 		const result = await refetch();
+		if (seq !== refreshSeq.current) {
+			return;
+		}
+		refreshInFlight.current = null;
 		if (result.isError && snapshot) {
 			queryClient.setQueryData<typeof data>(logsQueryKey, snapshot);
-			setRefreshError(result.error);
+			setRefreshError({ queryIdentity, error: result.error });
 		}
 	};
 	const logs = data?.pages.flatMap((page) => page.logs) ?? [];
-	const loadError = error ?? refreshError;
+	const loadError =
+		error ??
+		(refreshError?.queryIdentity === queryIdentity ? refreshError.error : null);
 	const refreshing = isFetching && !loading && !loadingMore;
 
 	const selectedModelOption = useMemo(
