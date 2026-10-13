@@ -143,6 +143,7 @@ import {
 	globalHourlyProviderKeyModelStats,
 	globalProviderKeyModelStats,
 	globalSourceStats,
+	rootModelIdSql,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -4290,12 +4291,7 @@ async function fetchAdminLogs(scope: SQLWrapper, query: AdminLogQuery) {
 	}
 
 	if (query.model) {
-		whereConditions.push(
-			sql`CASE WHEN ${tables.log.usedModel} LIKE '%/%'
-				THEN SPLIT_PART(${tables.log.usedModel}, '/', 2)
-				ELSE ${tables.log.usedModel}
-			END = ${query.model}`,
-		);
+		whereConditions.push(eq(rootModelIdSql(tables.log.usedModel), query.model));
 	}
 
 	if (query.source) {
@@ -11713,7 +11709,12 @@ admin.openapi(getOrgCostByModel, async (c) => {
 
 // --- Cost by model time-series endpoints ---
 
-const costTimeseriesGroupBySchema = z.enum(["model", "source"]);
+const projectCostTimeseriesGroupBySchema = z.enum([
+	"model",
+	"source",
+	"api-key",
+	"user",
+]);
 
 const organizationCostTimeseriesGroupBySchema = z.enum([
 	"model",
@@ -11919,18 +11920,22 @@ const getProjectCostByModelTimeseries = createRoute({
 		query: z.object({
 			window: tokenWindowSchema.default("7d").optional(),
 			modelView: costByModelViewSchema.default("mapping").optional(),
-			groupBy: costTimeseriesGroupBySchema.default("model").optional(),
+			groupBy: projectCostTimeseriesGroupBySchema.default("model").optional(),
 			bucket: costTimeseriesBucketSchema.optional(),
+			...organizationTimeseriesQuery,
 		}),
 	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: costByModelTimeseriesResponseSchema.openapi({}),
+					schema: costByModelTimeseriesResponseSchema
+						.extend({ timeseries: organizationTimeseriesSchema.optional() })
+						.openapi({}),
 				},
 			},
-			description: "Project cost breakdown by model or source over time.",
+			description:
+				"Project cost breakdown by model, source, API key, or user over time.",
 		},
 		404: {
 			description: "Project not found.",
@@ -11958,25 +11963,62 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 		throw new HTTPException(404, { message: "Project not found" });
 	}
 
+	if (
+		groupBy !== "source" &&
+		(query.includeTimeseries === "true" || query.model || query.apiKeyId)
+	) {
+		const timeseries = await getOrganizationTimeseries({
+			projectIds: [projectId],
+			startDate,
+			endDate: new Date(),
+			bucket: bucketUnit,
+			groupBy: groupBy === "api-key" ? "apiKey" : groupBy,
+			modelView,
+			model: query.model,
+			apiKeyId: query.apiKeyId,
+			rankBy: query.rankBy,
+			mode: query.mode,
+		});
+		return c.json({
+			window,
+			bucket: bucketUnit,
+			modelView,
+			groupBy,
+			models: timeseries.series.map((s) => s.label),
+			data: timeseries.points.map((p) => ({
+				timestamp: p.timestamp,
+				entries: p.entries.map((e) => ({ ...e, model: e.label })),
+			})),
+			timeseries,
+		});
+	}
+
 	const result =
-		groupBy === "source"
-			? await buildCostBySourceTimeseries({
+		groupBy === "api-key" || groupBy === "user"
+			? await buildCostByApiKeyDimensionTimeseries({
 					bucketUnit,
 					startDate,
-					baseFilter: and(
-						eq(projectHourlySourceStats.projectId, projectId),
-						gte(projectHourlySourceStats.hourTimestamp, startDate),
-					),
+					projectIds: [projectId],
+					groupBy,
 				})
-			: await buildCostByModelTimeseries({
-					modelView,
-					bucketUnit,
-					startDate,
-					baseFilter: and(
-						eq(projectHourlyModelStats.projectId, projectId),
-						gte(projectHourlyModelStats.hourTimestamp, startDate),
-					),
-				});
+			: groupBy === "source"
+				? await buildCostBySourceTimeseries({
+						bucketUnit,
+						startDate,
+						baseFilter: and(
+							eq(projectHourlySourceStats.projectId, projectId),
+							gte(projectHourlySourceStats.hourTimestamp, startDate),
+						),
+					})
+				: await buildCostByModelTimeseries({
+						modelView,
+						bucketUnit,
+						startDate,
+						baseFilter: and(
+							eq(projectHourlyModelStats.projectId, projectId),
+							gte(projectHourlyModelStats.hourTimestamp, startDate),
+						),
+					});
 
 	return c.json({
 		window,
@@ -14088,9 +14130,6 @@ admin.openapi(replyContactSubmission, async (c) => {
 		throw new HTTPException(404, { message: "Submission not found" });
 	}
 
-	const { getResendClient, fromEmail, replyToEmail } =
-		await import("@llmgateway/shared/email");
-
 	const resend = getResendClient();
 	if (!resend) {
 		return c.json(
@@ -14157,9 +14196,6 @@ const sendEmail = createRoute({
 
 admin.openapi(sendEmail, async (c) => {
 	const { to, subject, body: emailBody, category } = c.req.valid("json");
-
-	const { getResendClient, fromEmail, replyToEmail } =
-		await import("@llmgateway/shared/email");
 
 	const resend = getResendClient();
 	if (!resend) {

@@ -17,6 +17,7 @@ import {
 	tables,
 } from "@llmgateway/db";
 import {
+	getReferenceContextSize,
 	models as catalogueModels,
 	REASONING_EFFORTS,
 	type ModelDefinition,
@@ -204,6 +205,7 @@ async function createModel(
 	cookie: string,
 	providerCompanyId: string,
 	overrides: Record<string, unknown> = {},
+	verifiedPromptCaching?: boolean,
 ) {
 	const body: Record<string, unknown> = {
 		providerCompanyId,
@@ -250,6 +252,10 @@ async function createModel(
 			contextSize:
 				typeof body.contextSize === "number" ? body.contextSize : null,
 			maxOutput: typeof body.maxOutput === "number" ? body.maxOutput : null,
+			promptCaching:
+				verifiedPromptCaching ??
+				(body.pricing as { cachedInputPrice?: string }).cachedInputPrice !==
+					undefined,
 		},
 		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
 		status: "passed",
@@ -1320,6 +1326,123 @@ describe("airside provider portal", () => {
 		expect(res.status).toBe(404);
 	});
 
+	it("rejects listing context sizes far from the model's reference window", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const modelName = "deepseek-v4.1-flash";
+		const referenceContextSize = getReferenceContextSize(modelName)!;
+		expect(referenceContextSize).toBeGreaterThan(400_000);
+
+		const catalogue = await app.request(
+			"/airside/catalogue",
+			json(cookie, undefined, "GET"),
+		);
+		const catalogueModel = (await catalogue.json()).models.find(
+			(entry: { id: string }) => entry.id === modelName,
+		);
+		expect(catalogueModel.referenceContextSize).toBe(referenceContextSize);
+
+		for (const [contextSize, wording] of [
+			[200_000, "below"],
+			[referenceContextSize * 2, "above"],
+		] as const) {
+			const rejected = await createModel(cookie, company.id, {
+				modelName,
+				contextSize,
+			});
+			expect(rejected.status).toBe(400);
+			expect(await rejected.text()).toContain(`10% ${wording}`);
+		}
+
+		const created = await createModel(cookie, company.id, {
+			modelName,
+			contextSize: referenceContextSize,
+		});
+		expect(created.status, await created.clone().text()).toBe(201);
+		const { model } = await created.json();
+		const shrunk = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { contextSize: 200_000 }, "PATCH"),
+		);
+		expect(shrunk.status).toBe(400);
+	});
+
+	it("warns reviewers about a pending listing far below the reference window", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const modelName = "deepseek-v4.1-flash";
+		// Filed before submissions were checked.
+		await db.insert(tables.providerDraftModel).values({
+			id: "legacy-short-window",
+			providerCompanyId: company.id,
+			providerId: "mistral",
+			modelName,
+			externalId: modelName,
+			contextSize: 200_000,
+			streaming: true,
+			status: "draft",
+		});
+		await db.insert(tables.providerPriceFiling).values({
+			id: "legacy-short-window-filing",
+			draftModelId: "legacy-short-window",
+			providerCompanyId: company.id,
+			kind: "initial",
+			inputPrice: "1e-7",
+			outputPrice: "2e-7",
+			status: "pending",
+		});
+
+		const queue = await app.request("/admin/airside/filings?status=pending", {
+			headers: { Cookie: cookie },
+		});
+		expect((await queue.json()).filings[0].contextSizeWarning).toEqual({
+			contextSize: 200_000,
+			referenceContextSize: getReferenceContextSize(modelName),
+			deviation: "below",
+		});
+	});
+
+	it("warns reviewers about a cached input price close to the input price", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			modelName: "mistral-cache-typo",
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				cachedInputPrice: "1.8e-6",
+				regionPrices: [
+					{ region: "eu", inputPrice: "2e-6", outputPrice: "6e-6" },
+					{
+						region: "us",
+						inputPrice: "2e-6",
+						outputPrice: "6e-6",
+						cachedInputPrice: "2e-7",
+					},
+				],
+			},
+		});
+		expect(created.status, await created.clone().text()).toBe(201);
+
+		const queue = await app.request("/admin/airside/filings?status=pending", {
+			headers: { Cookie: cookie },
+		});
+		const [filing] = (await queue.json()).filings;
+		expect(filing.cachedPriceWarnings).toEqual([
+			expect.stringContaining("Cached input costs 90% of the input price"),
+			expect.stringMatching(/^eu: Cached input costs 90%/),
+		]);
+	});
+
 	it("runs the approval lifecycle through the admin queue", async () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
@@ -1341,6 +1464,8 @@ describe("airside provider portal", () => {
 			kind: "initial",
 			company: expect.objectContaining({ name: "Mistral Ops" }),
 			model: expect.objectContaining({ modelName: "mistral-large-3" }),
+			contextSizeWarning: null,
+			cachedPriceWarnings: [],
 		});
 
 		// Approve the initial filing → model activates, pricing becomes current.
@@ -1582,6 +1707,44 @@ describe("airside provider portal", () => {
 					"sparse-airside-idle",
 				),
 			);
+	});
+
+	it("filters a fleet model across regions before the incident result limit", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const hour = new Date();
+		hour.setMinutes(0, 0, 0);
+		await db.insert(tables.projectHourlyModelStats).values([
+			...Array.from({ length: 201 }, (_, index) => ({
+				projectId: "test-project-id",
+				hourTimestamp: hour,
+				usedModel: `mistral/other-${index}`,
+				usedProvider: "mistral",
+				requestCount: 10,
+				upstreamErrorCount: 10,
+			})),
+			...["mistral/mistral-large-3", "mistral/mistral-large-3:eu"].map(
+				(usedModel) => ({
+					projectId: "test-project-id",
+					hourTimestamp: hour,
+					usedModel,
+					usedProvider: "mistral",
+					requestCount: 10,
+					upstreamErrorCount: 1,
+				}),
+			),
+		]);
+		const response = await app.request(
+			`/airside/incidents?providerCompanyId=${company.id}&model=mistral/mistral-large-3`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(
+			body.mappings.map((row: { usedModel: string }) => row.usedModel).sort(),
+		).toEqual(["mistral/mistral-large-3", "mistral/mistral-large-3:eu"]);
 	});
 
 	it("returns per-mapping incidents scoped to claimed providers", async () => {
@@ -2087,6 +2250,10 @@ describe("airside provider portal", () => {
 		const { providers } = await providersRes.json();
 		const mistral = providers.find((p: { id: string }) => p.id === "mistral");
 		expect(mistral.airsideLogoUrl).toBe(logoUrl);
+
+		const marksRes = await app.request("/internal/provider-marks");
+		expect(marksRes.status).toBe(200);
+		expect((await marksRes.json()).marks).toEqual({ mistral: logoUrl });
 	});
 
 	it("round-trips carrier rate limits on models", async () => {
@@ -4002,6 +4169,28 @@ describe("airside provider portal", () => {
 			cachedInputPrice: "5e-7",
 			requestPrice: "0.002",
 		});
+	});
+
+	it("requires a prompt-caching preflight for a cached input price", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const res = await createModel(
+			cookie,
+			company.id,
+			{
+				modelName: "mistral-uncached-x",
+				pricing: {
+					inputPrice: "2e-6",
+					outputPrice: "6e-6",
+					cachedInputPrice: "5e-7",
+				},
+			},
+			false,
+		);
+		expect(res.status).toBe(409);
+		expect((await res.json()).message).toContain("changed after verification");
 	});
 
 	it("imports catalogue models as managed listings", async () => {

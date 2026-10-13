@@ -185,6 +185,7 @@ import {
 	generateStreamingCacheKey,
 	getCache,
 	getStreamingCache,
+	redisClient,
 	setCache,
 	setStreamingCache,
 } from "@llmgateway/cache";
@@ -226,6 +227,7 @@ import {
 	type WebSearchTool,
 	expandAllProviderRegions,
 	expandProviderRegions,
+	getContextTierMinSize,
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
@@ -384,6 +386,7 @@ import {
 import {
 	assertServiceTierHonored,
 	getForwardedServiceTier,
+	isFlexUnavailableError,
 	mappingSupportsRequestedServiceTier,
 	providerKeySupportsServiceTier,
 } from "./tools/service-tier.js";
@@ -814,6 +817,8 @@ function filterEligibleModelProviders(
 		reasoningEffort?: string;
 		n?: number;
 		stream?: boolean;
+		/** Unpinned routing only: smallest context window still eligible. */
+		contextTierMinSize?: number;
 	},
 	filteredOut?: FilteredProvider[],
 ): ProviderModelMapping[] {
@@ -846,6 +851,22 @@ function filterEligibleModelProviders(
 			if (filteredOut) {
 				recordFilteredProvider(filteredOut, provider.providerId, [
 					exclusionReason("locked_region"),
+				]);
+			}
+			return false;
+		}
+
+		// Deployments far below the model's full context window would fail long
+		// conversations that the model itself supports, so requests that don't
+		// name a provider skip them.
+		if (
+			options.contextTierMinSize !== undefined &&
+			provider.contextSize !== undefined &&
+			provider.contextSize < options.contextTierMinSize
+		) {
+			if (filteredOut) {
+				recordFilteredProvider(filteredOut, provider.providerId, [
+					exclusionReason("context_size"),
 				]);
 			}
 			return false;
@@ -2842,6 +2863,8 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (isRequestedServiceTier(service_tier)) {
+		// Captured: closures reassign `service_tier`, which defeats narrowing.
+		const routedServiceTier = service_tier;
 		const serviceTierCandidateProviders = modelInfo.providers.filter(
 			(mapping) => providerMatchesRequestedProvider(mapping, requestedProvider),
 		);
@@ -2850,7 +2873,7 @@ chat.openapi(completions, async (c) => {
 				mappingSupportsRequestedServiceTier(
 					modelInfo.id,
 					mapping,
-					service_tier,
+					routedServiceTier,
 					configIndex,
 					envVariant,
 				),
@@ -2895,7 +2918,7 @@ chat.openapi(completions, async (c) => {
 			mappingSupportsRequestedServiceTier(
 				modelInfo.id,
 				mapping,
-				service_tier,
+				routedServiceTier,
 				configIndex,
 				envVariant,
 			);
@@ -5263,6 +5286,10 @@ chat.openapi(completions, async (c) => {
 						await findManagedProviderAvailability(envVariant, baseModelId),
 					);
 
+				const rateLimitContextTierMinSize = getContextTierMinSize(
+					baseModelId,
+					modelInfo.providers,
+				);
 				const availableModelProviders = preferConcreteRegionalMappings(
 					applyPinnedDefaultRegions(iamFilteredModelProviders, {
 						explicitLocks: buildProviderLockedRegions(providerKeys),
@@ -5275,6 +5302,13 @@ chat.openapi(completions, async (c) => {
 					if (
 						provider.providerId === usedProvider &&
 						provider.region === usedRegion
+					) {
+						return false;
+					}
+					if (
+						rateLimitContextTierMinSize !== undefined &&
+						provider.contextSize !== undefined &&
+						provider.contextSize < rateLimitContextTierMinSize
 					) {
 						return false;
 					}
@@ -5509,6 +5543,10 @@ chat.openapi(completions, async (c) => {
 						reasoningEffort: reasoning_effort,
 						n,
 						stream,
+						contextTierMinSize: getContextTierMinSize(
+							baseModelId,
+							modelInfo.providers,
+						),
 					},
 					filteredOutProvidersFallback,
 				).filter(
@@ -5760,6 +5798,10 @@ chat.openapi(completions, async (c) => {
 				toolChoice: tool_choice,
 				maxTokens: max_tokens,
 				reasoningEffort: reasoning_effort,
+				contextTierMinSize: getContextTierMinSize(
+					routedModelId,
+					modelInfo.providers,
+				),
 			};
 			const filteredOutProvidersDirect: FilteredProvider[] = [];
 			const eligibleModelProviders = filterEligibleModelProviders(
@@ -5831,6 +5873,25 @@ chat.openapi(completions, async (c) => {
 						stream,
 						hasAssistantPrefill: false,
 					}).length > 0;
+				const smallerWindowMappings =
+					eligibilityOptions.contextTierMinSize === undefined
+						? []
+						: filterEligibleModelProviders(preparedModelProviders, {
+								...eligibilityOptions,
+								n,
+								stream,
+								contextTierMinSize: undefined,
+							});
+				if (smallerWindowMappings.length > 0) {
+					const pinnable = Array.from(
+						new Set(smallerWindowMappings.map((p) => p.providerId)),
+					)
+						.map((providerId) => `${providerId}/${usedInternalModel}`)
+						.join(", ");
+					throw new HTTPException(400, {
+						message: `No provider serving the full context window of model ${usedInternalModel} is available. Deployments with a smaller window only serve requests that name them: ${pinnable}.`,
+					});
+				}
 				throw new HTTPException(400, {
 					message: hasAudio
 						? `No provider with audio support is available for model ${usedInternalModel}. The request contains audio but none of the ${audience} providers support audio input.`
@@ -7424,6 +7485,10 @@ chat.openapi(completions, async (c) => {
 			webSearchTool,
 			reasoning_effort,
 			reasoning_max_tokens,
+			// Schema documents omitting reasoning.context as equivalent to "auto"
+			reasoning_context:
+				reasoning_context === "auto" ? undefined : reasoning_context,
+			reasoning_mode,
 			prompt_cache_key,
 			prompt_cache_retention,
 			prompt_cache_options,
@@ -7432,6 +7497,11 @@ chat.openapi(completions, async (c) => {
 			// A reply cached without safeguard verdicts must not answer a request
 			// that asked for them, or Claude Code falls back to its billed classifier.
 			anthropic_safeguards: anthropicSafeguards,
+			verbosity,
+			effort,
+			image_config,
+			sensitive_word_check,
+			plugins: plugins?.length ? plugins : undefined,
 		};
 
 		if (stream) {
@@ -8177,7 +8247,6 @@ chat.openapi(completions, async (c) => {
 		isGoogleCompatibleProvider(transportProvider) &&
 		!zeroDataRetentionEnabled
 	) {
-		const { redisClient } = await import("@llmgateway/cache");
 		for (const message of messages) {
 			if (
 				message.role === "assistant" &&
@@ -8631,6 +8700,49 @@ chat.openapi(completions, async (c) => {
 		} catch {
 			return null;
 		}
+	}
+
+	// The coding-plan flex default is a soft cost preference, so when the
+	// provider has no Flex capacity, retry it at standard instead of failing.
+	// A tier the client asked for itself is never downgraded.
+	async function tryResolveStandardTierRetryContext(
+		errorText: string,
+		streamValue: boolean,
+	): Promise<Awaited<ReturnType<typeof resolveProviderContext>> | null> {
+		if (
+			serviceTierSource !== "coding-plan-default" ||
+			service_tier !== "flex" ||
+			!usedProvider ||
+			!isFlexUnavailableError(errorText)
+		) {
+			return null;
+		}
+
+		service_tier = undefined;
+		try {
+			const nextContext = await resolveProviderContextForRetry(
+				{
+					providerId: usedProvider,
+					externalId: usedExternalId,
+					region: usedRegion,
+				},
+				streamValue,
+			);
+			if (!(await consumeProviderRateLimit(usedProvider, false)).rateLimited) {
+				return nextContext;
+			}
+		} catch (error) {
+			logger.warn(
+				"Failed to resolve standard-tier retry after flex_unavailable",
+				{
+					error: toError(error).message,
+					usedProvider,
+					usedInternalModel,
+				},
+			);
+		}
+		service_tier = "flex";
+		return null;
 	}
 
 	// Handle streaming response if requested
@@ -9807,8 +9919,12 @@ chat.openapi(completions, async (c) => {
 
 						let sameProviderRetryContext: Awaited<
 							ReturnType<typeof resolveProviderContext>
-						> | null = null;
+						> | null = await tryResolveStandardTierRetryContext(
+							errorResponseText,
+							true,
+						);
 						if (
+							!sameProviderRetryContext &&
 							shouldRetryAlternateKey(
 								finishReason,
 								res.status,
@@ -10190,8 +10306,12 @@ chat.openapi(completions, async (c) => {
 
 						let sameProviderRetryContext: Awaited<
 							ReturnType<typeof resolveProviderContext>
-						> | null = null;
+						> | null = await tryResolveStandardTierRetryContext(
+							errorResponseText,
+							true,
+						);
 						if (
+							!sameProviderRetryContext &&
 							shouldRetryAlternateKey(
 								errorType,
 								inferredStatusCode,
@@ -14188,8 +14308,12 @@ chat.openapi(completions, async (c) => {
 
 			let sameProviderRetryContext: Awaited<
 				ReturnType<typeof resolveProviderContext>
-			> | null = null;
+			> | null = await tryResolveStandardTierRetryContext(
+				errorResponseText,
+				stream,
+			);
 			if (
+				!sameProviderRetryContext &&
 				shouldRetryAlternateKey(finishReason, res.status, errorResponseText)
 			) {
 				rememberFailedKey(usedProvider, usedRegion, {

@@ -24,6 +24,7 @@ import {
 	syncAirsideModelMetadata,
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
+import { assertListingContextSize } from "@/lib/airside-context-size.js";
 import { domainPublishesToken } from "@/lib/airside-dns.js";
 import {
 	claimableProvidersForDomains,
@@ -76,6 +77,8 @@ import {
 } from "@/lib/mapping-error-shapes.js";
 import {
 	buildVerificationTarget,
+	declaresPromptCaching,
+	listingDeclaresPromptCaching,
 	clearClaimVerificationKey,
 	enqueueModelVerification,
 	modelVerificationSchema,
@@ -114,6 +117,7 @@ import {
 	tables,
 } from "@llmgateway/db";
 import {
+	getReferenceContextSize,
 	models as catalogueModels,
 	modelIdProblem,
 	PROVIDER_API_FORMATS,
@@ -245,6 +249,8 @@ const verificationMappingSchema = z.object({
 	webSearch: z.boolean().optional(),
 	contextSize: z.number().int().positive().nullish(),
 	maxOutput: z.number().int().positive().nullish(),
+	// Set when the listing declares a cached input price.
+	promptCaching: z.boolean().optional(),
 });
 
 /** The capability subset a carrier can preflight before saving an edit. */
@@ -600,6 +606,7 @@ function verificationTarget(
 function draftVerificationTarget(
 	model: DraftModelRow,
 	proposed: CapabilityOverrides = {},
+	promptCaching = false,
 ): ProviderModelVerificationTarget {
 	// `null` is a meaningful proposal for the list-valued fields ("no
 	// restriction" / "parameter unsupported"), so they fall back on undefined
@@ -633,6 +640,7 @@ function draftVerificationTarget(
 				: proposed.contextSize,
 		maxOutput:
 			proposed.maxOutput === undefined ? model.maxOutput : proposed.maxOutput,
+		promptCaching,
 	});
 }
 
@@ -2658,6 +2666,10 @@ const getCatalogue = createRoute({
 							z.object({
 								id: z.string(),
 								family: z.string(),
+								// Largest context window among the model's catalogue
+								// deployments. Listings more than 10% below it are left
+								// out of routing for requests that don't name a provider.
+								referenceContextSize: z.number().nullable(),
 								prices: z.array(
 									z.object({
 										providerId: z.string(),
@@ -2682,6 +2694,7 @@ airside.openapi(getCatalogue, (c) => {
 		models: catalogueModels.map((model) => ({
 			id: model.id,
 			family: model.family,
+			referenceContextSize: getReferenceContextSize(model.id, [], now) ?? null,
 			prices: model.providers.flatMap((entry) => {
 				const mapping: ProviderModelMapping = entry;
 				if (
@@ -2917,10 +2930,14 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 	}
 	// Without an explicit proposal, verify what the listing currently claims —
 	// including a capability edit still awaiting review.
-	const target = draftVerificationTarget(model, {
-		...(await pendingFiledCapabilities(model.id)),
-		...proposed,
-	});
+	const target = draftVerificationTarget(
+		model,
+		{
+			...(await pendingFiledCapabilities(model.id)),
+			...proposed,
+		},
+		await listingDeclaresPromptCaching(model.id),
+	);
 	const credential = await resolveVerificationCredential(target, apiKey, claim);
 	if (apiKey) {
 		await saveClaimVerificationKey(claim, apiKey);
@@ -3136,6 +3153,11 @@ airside.openapi(createModel, async (c) => {
 			message: "A model with this name is already listed for the provider.",
 		});
 	}
+	await assertListingContextSize(
+		body.modelName,
+		body.providerId,
+		body.contextSize,
+	);
 	const verification = await db.query.providerModelVerification.findFirst({
 		where: { id: { eq: body.verificationId } },
 	});
@@ -3158,9 +3180,12 @@ airside.openapi(createModel, async (c) => {
 			message: "This verification has already been used.",
 		});
 	}
-	if (
-		!verificationTargetsMatch(verification.target, verificationTarget(body))
-	) {
+	// A cached input price is a claim the preflight has to prove.
+	const target = verificationTarget({
+		...body,
+		promptCaching: declaresPromptCaching(body.pricing),
+	});
+	if (!verificationTargetsMatch(verification.target, target)) {
 		throw new HTTPException(409, {
 			message:
 				"The mapping changed after verification. Run verification again.",
@@ -3194,21 +3219,13 @@ airside.openapi(createModel, async (c) => {
 	}
 	if (firstProviderKey) {
 		await assertProviderKeyIsSeparate(claim, firstProviderKey);
-		await assertProviderKeyServes(
-			claim,
-			firstProviderKey,
-			verificationTarget(body),
-		);
+		await assertProviderKeyServes(claim, firstProviderKey, target);
 	} else if (effectiveClaimKind(claim) === "custom" && keyOnFile) {
 		const servingKey = await db.query.providerKey.findFirst({
 			where: { id: { eq: keyOnFile } },
 		});
 		if (servingKey) {
-			await assertProviderKeyServes(
-				claim,
-				readProviderKey(servingKey),
-				verificationTarget(body),
-			);
+			await assertProviderKeyServes(claim, readProviderKey(servingKey), target);
 		}
 	}
 
@@ -3517,6 +3534,15 @@ airside.openapi(updateModel, async (c) => {
 	}
 	const changes = pickMetadataChanges(body);
 	const updates = diffMetadataChanges(model, changes);
+	// Any edit must leave the listing with an acceptable window, so listings
+	// filed before the check get fixed the next time they change.
+	if (Object.keys(updates).length > 0) {
+		await assertListingContextSize(
+			model.modelName,
+			model.providerId,
+			"contextSize" in updates ? updates.contextSize : model.contextSize,
+		);
+	}
 	// Claiming more than the listing does — a new capability, a higher
 	// limit, extra modes — needs a passing preflight of the edit. The review
 	// can rerun it; narrowing and non-capability edits need none.
@@ -3814,6 +3840,11 @@ airside.openapi(relistModel, async (c) => {
 		throw new HTTPException(404, { message: "Model not found" });
 	}
 	await requireCompanyMembership(user.id, model.providerCompanyId);
+	await assertListingContextSize(
+		model.modelName,
+		model.providerId,
+		model.contextSize,
+	);
 	// cdb: the gateway caches listing resolution off these tables.
 	const row = await cdb
 		.transaction(async (tx) => {
@@ -4448,6 +4479,7 @@ const incidentsRoute = createRoute({
 			providerId: z.string().optional(),
 			/** Exact `used_model` (`provider/model[:region]`). */
 			mapping: z.string().optional(),
+			model: z.string().optional(),
 			window: incidentsWindowSchema.default("24h").optional(),
 			/** Include errors and requests served by customers' own keys. */
 			includeByok: z.enum(["true", "false"]).optional(),
@@ -4484,6 +4516,7 @@ airside.openapi(incidentsRoute, async (c) => {
 			providerIds,
 			windowHours,
 			mapping,
+			model: query.model,
 			includeByok: query.includeByok === "true",
 		}),
 	});

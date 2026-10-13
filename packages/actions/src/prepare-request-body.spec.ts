@@ -4196,7 +4196,7 @@ describe("prepareRequestBody - Google AI Studio", () => {
 
 	test("converts json_schema with array type (nullable) to Google schema", async () => {
 		const requestBody = (await prepareRequestBody(
-			"google-ai-studio",
+			"quartz",
 			"gemini-2.5-flash",
 			null,
 			"gemini-2.5-flash",
@@ -4242,9 +4242,359 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		});
 	});
 
-	test("normalizes primitive enums in response schemas", async () => {
+	test("keeps unions and $ref definitions in Google response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"quartz",
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			[{ role: "user", content: "Extract the user info" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "user_info",
+					schema: {
+						type: "object",
+						properties: {
+							nickname: { anyOf: [{ type: "string" }, { type: "null" }] },
+							id: { anyOf: [{ type: "string" }, { type: "integer" }] },
+							address: { $ref: "#/$defs/Address" },
+							previous: { type: "array", items: { $ref: "#/$defs/Address" } },
+						},
+						required: ["nickname", "id", "address"],
+						$defs: {
+							Address: {
+								type: "object",
+								properties: { city: { type: "string" } },
+								required: ["city"],
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		const address = {
+			type: "OBJECT",
+			properties: { city: { type: "STRING" } },
+			required: ["city"],
+		};
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				nickname: { type: "STRING", nullable: true },
+				id: { anyOf: [{ type: "STRING" }, { type: "INTEGER" }] },
+				address,
+				previous: { type: "ARRAY", items: address },
+			},
+			required: ["nickname", "id", "address"],
+		});
+	});
+
+	test("folds Optional[Model] and collapses recursive $ref in Google response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"quartz",
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			[{ role: "user", content: "Extract the tree" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "tree",
+					schema: {
+						type: "object",
+						properties: {
+							root: {
+								anyOf: [{ $ref: "#/definitions/Node" }, { type: "null" }],
+								description: "Tree root",
+								default: null,
+							},
+						},
+						required: ["root"],
+						definitions: {
+							Node: {
+								type: "object",
+								properties: {
+									value: { type: "string" },
+									child: { $ref: "#/definitions/Node", description: "Next" },
+								},
+								required: ["value"],
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				root: {
+					type: "OBJECT",
+					description: "Tree root",
+					nullable: true,
+					properties: {
+						value: { type: "STRING" },
+						child: { type: "OBJECT", description: "Next" },
+					},
+					required: ["value"],
+				},
+			},
+			required: ["root"],
+		});
+	});
+
+	test("sends AI Studio response schemas as raw JSON Schema", async () => {
+		const schema = {
+			type: "object",
+			properties: {
+				name: { type: ["string", "null"] },
+				reports: { type: "array", items: { $ref: "#" } },
+				address: { $ref: "#/$defs/Address" },
+			},
+			required: ["name"],
+			additionalProperties: false,
+			$defs: {
+				Address: { type: "object", properties: { city: { type: "string" } } },
+			},
+		};
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
+			"gemini-3.8-flash",
+			null,
+			"gemini-3.8-flash",
+			[{ role: "user", content: "Extract" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ type: "json_schema", json_schema: { name: "org", schema: schema } },
+		)) as any;
+
+		expect(requestBody.generationConfig.responseMimeType).toBe(
+			"application/json",
+		);
+		expect(requestBody.generationConfig.responseJsonSchema).toEqual(schema);
+		expect(requestBody.generationConfig.responseSchema).toBeUndefined();
+	});
+
+	test("folds single-member allOf in AI Studio raw JSON Schema", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-3.8-flash",
+			null,
+			"gemini-3.8-flash",
+			[{ role: "user", content: "Extract" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "user",
+					schema: {
+						type: "object",
+						properties: {
+							shipping: {
+								allOf: [{ $ref: "#/$defs/Address" }],
+								description: "Shipping address",
+							},
+							tags: { allOf: [{ type: "string" }, { minLength: 1 }] },
+						},
+						$defs: {
+							Address: {
+								type: "object",
+								properties: { city: { type: "string" } },
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseJsonSchema).toEqual({
+			type: "object",
+			properties: {
+				shipping: {
+					$ref: "#/$defs/Address",
+					description: "Shipping address",
+				},
+				tags: { allOf: [{ type: "string" }, { minLength: 1 }] },
+			},
+			$defs: {
+				Address: {
+					type: "object",
+					properties: { city: { type: "string" } },
+				},
+			},
+		});
+	});
+
+	test("resolves #/definitions refs when the schema also has $defs", async () => {
+		const requestBody = (await prepareRequestBody(
+			"quartz",
+			"gemini-3.8-flash",
+			null,
+			"gemini-3.8-flash",
+			[{ role: "user", content: "Extract" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "mixed",
+					schema: {
+						type: "object",
+						properties: {
+							a: { $ref: "#/$defs/Item" },
+							b: { $ref: "#/definitions/Item" },
+						},
+						$defs: { Item: { type: "string" } },
+						definitions: { Item: { type: "integer" } },
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseSchema.properties).toEqual({
+			a: { type: "STRING" },
+			b: { type: "INTEGER" },
+		});
+	});
+
+	test("resolves root and nested JSON pointer refs in Google response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"quartz",
+			"gemini-3.8-flash",
+			null,
+			"gemini-3.8-flash",
+			[{ role: "user", content: "Extract" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "org",
+					schema: {
+						type: "object",
+						properties: {
+							name: { type: "string" },
+							reports: { type: "array", items: { $ref: "#" } },
+							city: { $ref: "#/$defs/Address/properties/city" },
+						},
+						required: ["name"],
+						$defs: {
+							Address: {
+								type: "object",
+								properties: { city: { type: "string", description: "City" } },
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				name: { type: "STRING" },
+				reports: {
+					type: "ARRAY",
+					items: {
+						type: "OBJECT",
+						properties: {
+							name: { type: "STRING" },
+							reports: { type: "ARRAY", items: { type: "OBJECT" } },
+							city: { type: "STRING", description: "City" },
+						},
+						required: ["name"],
+					},
+				},
+				city: { type: "STRING", description: "City" },
+			},
+			required: ["name"],
+		});
+	});
+
+	test("folds a single-member allOf in Google response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"quartz",
+			"gemini-3.8-flash",
+			null,
+			"gemini-3.8-flash",
+			[{ role: "user", content: "Extract" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "user",
+					schema: {
+						type: "object",
+						properties: {
+							address: {
+								allOf: [{ $ref: "#/definitions/Address" }],
+								description: "Home address",
+							},
+						},
+						definitions: {
+							Address: {
+								type: "object",
+								properties: { city: { type: "string" } },
+								required: ["city"],
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				address: {
+					type: "OBJECT",
+					description: "Home address",
+					properties: { city: { type: "STRING" } },
+					required: ["city"],
+				},
+			},
+		});
+	});
+
+	test("normalizes primitive enums in response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"quartz",
 			"gemini-3.7-flash",
 			null,
 			"gemini-3.7-flash",
@@ -4274,7 +4624,91 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			requestBody.generationConfig.responseSchema.properties.value,
 		).toEqual({
 			type: "INTEGER",
-			enum: ["3", "5"],
+			description: "Allowed values: 3, 5",
+		});
+	});
+
+	test("keeps string enums in converted Google response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"quartz",
+			"gemini-3.1-pro-preview",
+			null,
+			"gemini-3.1-pro-preview",
+			[{ role: "user", content: "Choose a value" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "choice",
+					schema: {
+						type: "object",
+						properties: {
+							status: { type: "string", enum: ["open", "closed"] },
+							flag: { type: "boolean", enum: [true], description: "Set" },
+						},
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseSchema.properties).toEqual({
+			status: { type: "STRING", enum: ["open", "closed"] },
+			flag: { type: "BOOLEAN", description: "Set (Allowed values: true)" },
+		});
+	});
+
+	test("sends Vertex response schemas as raw JSON Schema", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-vertex",
+			"gemini-3.8-flash",
+			null,
+			"gemini-3.8-flash",
+			[{ role: "user", content: "Choose a value" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "choice",
+					schema: {
+						type: "object",
+						properties: {
+							value: { type: "integer", enum: [3, 5] },
+							address: { allOf: [{ $ref: "#/$defs/Address" }] },
+						},
+						$defs: {
+							Address: {
+								type: "object",
+								properties: { city: { type: "string" } },
+							},
+						},
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseSchema).toBeUndefined();
+		expect(requestBody.generationConfig.responseJsonSchema).toEqual({
+			type: "object",
+			properties: {
+				value: { type: "integer", enum: [3, 5] },
+				address: { $ref: "#/$defs/Address" },
+			},
+			$defs: {
+				Address: {
+					type: "object",
+					properties: { city: { type: "string" } },
+				},
+			},
 		});
 	});
 

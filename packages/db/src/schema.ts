@@ -17,6 +17,8 @@ import {
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
+import { logErrorSql, rootModelIdSql } from "./log-filters.js";
+
 import type {
 	gatewayContentFilterEvaluationSchema,
 	gatewayContentFilterResponseSchema,
@@ -2347,7 +2349,9 @@ export const API_ORIGINS = [
 	"transcriptions",
 	"rerank",
 	"systemone",
+	"decisions",
 	"search",
+	"realtime",
 ] as const;
 
 export type ApiOrigin = (typeof API_ORIGINS)[number];
@@ -2738,6 +2742,12 @@ export const log = snakeCase.table(
 		index("log_error_used_provider_used_model_created_at_idx")
 			.on(table.usedProvider, table.usedModel, table.createdAt)
 			.where(sql`has_error = true`),
+		// Serves error-filtered log lists per project; the trailing model id lets
+		// a model filter run inside the index. Build CONCURRENTLY out of band in
+		// prod before deploying.
+		index("log_error_project_id_created_at_idx")
+			.on(table.projectId, table.createdAt, rootModelIdSql(table.usedModel))
+			.where(logErrorSql(table)),
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),
@@ -5795,6 +5805,8 @@ export interface ProviderModelVerificationTarget {
 	/** Declared limits; unset on runs queued before they were verified. */
 	contextSize?: number | null;
 	maxOutput?: number | null;
+	/** The listing declares a cached input price, so repeats must report cache hits. */
+	promptCaching?: boolean;
 }
 
 // One queued verification of an Airside mapping or a catalogue mapping. The

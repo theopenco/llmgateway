@@ -16,6 +16,7 @@ import {
 	syncAirsideModelMetadata,
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
+import { referenceContextSizes } from "@/lib/airside-context-size.js";
 import {
 	airsideModelMetadataSchema,
 	type AirsideModelMetadataInput,
@@ -71,6 +72,8 @@ import {
 	tables,
 } from "@llmgateway/db";
 import {
+	getContextSizeDeviation,
+	getReferenceContextSize,
 	models as catalogueModels,
 	providers as catalogueProviders,
 	PROVIDER_API_FORMATS,
@@ -80,6 +83,7 @@ import {
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
 import { AIRSIDE_BILLING_MODES } from "@llmgateway/shared/airside-billing";
+import { cachedInputPriceWarning } from "@llmgateway/shared/prompt-cache";
 
 import { assertProviderBaseUrlAllowed } from "./keys-provider.js";
 
@@ -145,11 +149,25 @@ const adminFilingSchema = z.object({
 		name: z.string(),
 		website: z.string().nullable(),
 	}),
+	// Set when a new listing or a context-size change files a window more than
+	// 10% away from the model's reference window (the largest catalogue
+	// deployment, or the largest other listing for models outside it).
+	contextSizeWarning: z
+		.object({
+			contextSize: z.number(),
+			referenceContextSize: z.number(),
+			deviation: z.enum(["below", "above"]),
+		})
+		.nullable(),
+	// Cached input prices unusually close to their input price, default and
+	// per region; usually a typo or the wrong unit.
+	cachedPriceWarnings: z.array(z.string()),
 	// The model's currently effective pricing, for diffing update filings.
 	currentPricing: z
 		.object({
 			inputPrice: z.string(),
 			outputPrice: z.string(),
+			cachedInputPrice: z.string().nullable(),
 			// Live regional fares, so a filing that changes or drops a region
 			// shows the reviewer what it replaces.
 			regionPrices: z
@@ -243,7 +261,68 @@ function staticModelNameExists(modelName: string): boolean {
 	);
 }
 
-function serializeAdminFiling(row: FilingWithRelations) {
+/** The context size a filing sets: a new listing's, or a metadata change's. */
+function filedContextSize(row: FilingWithRelations): number | null {
+	if (row.kind === "initial") {
+		return row.draftModel.contextSize;
+	}
+	if (row.kind === "metadata" && row.metadata) {
+		return row.metadata.contextSize ?? null;
+	}
+	return null;
+}
+
+function contextSizeWarningFor(
+	row: FilingWithRelations,
+	listingReference: (
+		modelName: string,
+		providerId: string,
+	) => number | undefined = (modelName) => getReferenceContextSize(modelName),
+) {
+	const contextSize = filedContextSize(row);
+	const referenceContextSize = listingReference(
+		row.draftModel.modelName,
+		row.draftModel.providerId,
+	);
+	const deviation = getContextSizeDeviation(contextSize, referenceContextSize);
+	return deviation && contextSize && referenceContextSize
+		? { contextSize, referenceContextSize, deviation }
+		: null;
+}
+
+function cachedPriceWarnings(
+	row: typeof tables.providerPriceFiling.$inferSelect,
+): string[] {
+	if (row.kind === "metadata") {
+		return [];
+	}
+	const warnings: string[] = [];
+	const fallback = cachedInputPriceWarning(
+		row.inputPrice,
+		row.cachedInputPrice,
+	);
+	if (fallback) {
+		warnings.push(fallback);
+	}
+	for (const entry of row.regionPrices ?? []) {
+		const warning = cachedInputPriceWarning(
+			entry.inputPrice,
+			entry.cachedInputPrice ?? row.cachedInputPrice,
+		);
+		if (warning) {
+			warnings.push(`${entry.region}: ${warning}`);
+		}
+	}
+	return warnings;
+}
+
+function serializeAdminFiling(
+	row: FilingWithRelations,
+	listingReference?: (
+		modelId: string,
+		providerId: string,
+	) => number | undefined,
+) {
 	const approved = [...(row.draftModel.priceFilings ?? [])]
 		.filter((f) => f.status === "approved")
 		.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
@@ -294,10 +373,13 @@ function serializeAdminFiling(row: FilingWithRelations) {
 			name: row.providerCompany.name,
 			website: row.providerCompany.website,
 		},
+		contextSizeWarning: contextSizeWarningFor(row, listingReference),
+		cachedPriceWarnings: cachedPriceWarnings(row),
 		currentPricing: approved
 			? {
 					inputPrice: approved.inputPrice,
 					outputPrice: approved.outputPrice,
+					cachedInputPrice: approved.cachedInputPrice,
 					regionPrices: approved.regionPrices
 						? approved.regionPrices.map((entry) => ({
 								region: entry.region,
@@ -362,7 +444,7 @@ adminAirside.openapi(listFilings, async (c) => {
 		return row?.count ?? 0;
 	};
 	const rows = await db.query.providerPriceFiling.findMany({
-		where: query.status ? { status: { eq: query.status } } : undefined,
+		where: query.status ? { status: { eq: query.status } } : {},
 		with: {
 			draftModel: { with: { priceFilings: true } },
 			providerCompany: true,
@@ -372,7 +454,7 @@ adminAirside.openapi(listFilings, async (c) => {
 		offset: query.offset ?? 0,
 	});
 	const routingRows = await db.query.providerRoutingFiling.findMany({
-		where: query.status ? { status: { eq: query.status } } : undefined,
+		where: query.status ? { status: { eq: query.status } } : {},
 		with: { providerCompany: true },
 		orderBy: { createdAt: "desc", id: "desc" },
 		limit,
@@ -402,9 +484,14 @@ adminAirside.openapi(listFilings, async (c) => {
 			row,
 		]),
 	);
+	const listingReference = await referenceContextSizes(
+		(rows as FilingWithRelations[]).map((row) => ({
+			modelName: row.draftModel.modelName,
+		})),
+	);
 	return c.json({
 		filings: rows.map((row) =>
-			serializeAdminFiling(row as FilingWithRelations),
+			serializeAdminFiling(row as FilingWithRelations, listingReference),
 		),
 		total,
 		pendingCount,

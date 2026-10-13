@@ -191,6 +191,8 @@ describe("admin content filter violations", () => {
 							violationRate: 0.25,
 						},
 					],
+					topUpNet: 0,
+					subscriptionNet: 0,
 				},
 				{
 					organizationId: "cf-org-b",
@@ -221,6 +223,8 @@ describe("admin content filter violations", () => {
 							violationRate: 0.05,
 						},
 					],
+					topUpNet: 0,
+					subscriptionNet: 0,
 				},
 			],
 			models: [
@@ -438,6 +442,112 @@ describe("admin content filter violations", () => {
 			sampledCount: 35,
 			violationCount: 6,
 			blockedCount: 1,
+		});
+	});
+
+	test("reports each organization's net top-ups and subscription value", async () => {
+		await db.insert(tables.transaction).values([
+			// Top-ups net of their refund's credit clawback.
+			{
+				id: "cf-topup",
+				organizationId: "cf-org-a",
+				type: "credit_topup",
+				amount: "52.50",
+				creditAmount: "50",
+				status: "completed",
+			},
+			{
+				organizationId: "cf-org-a",
+				type: "credit_manual_payment",
+				amount: "20",
+				creditAmount: "20",
+				status: "completed",
+			},
+			{
+				organizationId: "cf-org-a",
+				type: "credit_refund",
+				amount: "10",
+				creditAmount: "-10",
+				status: "completed",
+				relatedTransactionId: "cf-topup",
+			},
+			// Never counted: failed, gifted.
+			{
+				organizationId: "cf-org-a",
+				type: "credit_topup",
+				amount: "100",
+				creditAmount: "100",
+				status: "failed",
+			},
+			{
+				organizationId: "cf-org-a",
+				type: "credit_gift",
+				creditAmount: "25",
+				status: "completed",
+			},
+			// DevPass charges: dollars count, the plan's virtual credits do not.
+			{
+				organizationId: "cf-org-b",
+				type: "dev_plan_start",
+				amount: "29",
+				creditAmount: "87",
+				status: "completed",
+				stripeInvoiceId: "inv_cf_1",
+			},
+			// Zero-amount and bookkeeping rows never count.
+			{
+				organizationId: "cf-org-b",
+				type: "dev_plan_cancel",
+				amount: "0",
+				status: "completed",
+			},
+			{
+				id: "cf-devpass-upgrade",
+				organizationId: "cf-org-b",
+				type: "dev_plan_upgrade",
+				amount: "50",
+				status: "completed",
+				stripeInvoiceId: "inv_cf_2",
+			},
+			{
+				organizationId: "cf-org-b",
+				type: "credit_refund",
+				amount: "20",
+				creditAmount: "0",
+				status: "completed",
+				relatedTransactionId: "cf-devpass-upgrade",
+			},
+			{
+				organizationId: "cf-org-b",
+				type: "chat_plan_renewal",
+				amount: "10",
+				status: "completed",
+				stripeInvoiceId: "inv_cf_3",
+			},
+		]);
+
+		const res = await app.request(
+			"/admin/content-filter/violations?window=24h",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		const revenue = Object.fromEntries(
+			body.organizations.map(
+				(org: {
+					organizationId: string;
+					topUpNet: number;
+					subscriptionNet: number;
+				}) => [
+					org.organizationId,
+					{ topUpNet: org.topUpNet, subscriptionNet: org.subscriptionNet },
+				],
+			),
+		);
+		expect(revenue).toEqual({
+			"cf-org-a": { topUpNet: 60, subscriptionNet: 0 },
+			// 29 + 50 - 20 refunded + 10.
+			"cf-org-b": { topUpNet: 0, subscriptionNet: 69 },
 		});
 	});
 

@@ -39,16 +39,49 @@ export default async function CanvasPage({
 		cookieStore.get(CANVAS_MODEL_COOKIE)?.value,
 	);
 
-	const [models, providers, initialOrganizationsData] = await Promise.all([
+	// Ensure the dedicated Chat org exists, then list it so it can back the
+	// default billing context for the playground. Its response already names
+	// the Chat org, so the default selection's projects fetch can start as
+	// soon as it resolves instead of after the org list.
+	const chatOrgPromise = fetchServerData<{
+		organizationId: string;
+		projectId: string;
+	}>("GET", "/playground/chat-org");
+
+	const [
+		models,
+		providers,
+		initialOrganizationsData,
+		orgIdProjectsData,
+		chatOrgData,
+		chatOrgProjectsData,
+	] = await Promise.all([
 		fetchModels(),
 		fetchProviders(),
-		// Ensure the dedicated Chat org exists, then list it so it can back the
-		// default billing context for the playground.
-		fetchServerData("GET", "/playground/chat-org").then(() =>
+		chatOrgPromise.then(() =>
 			fetchServerData("GET", "/orgs", {
 				params: { query: { includeChat: "true" } },
 			}),
 		),
+		orgId
+			? fetchServerData("GET", "/orgs/{id}/projects", {
+					params: {
+						path: {
+							id: orgId,
+						},
+					},
+				})
+			: null,
+		chatOrgPromise,
+		orgId
+			? null
+			: chatOrgPromise.then((chatOrg) =>
+					chatOrg
+						? fetchServerData("GET", "/orgs/{id}/projects", {
+								params: { path: { id: chatOrg.organizationId } },
+							})
+						: null,
+				),
 	]);
 
 	const allOrganizations = (
@@ -73,14 +106,19 @@ export default async function CanvasPage({
 		return <PlaygroundSeoSection variant="canvas" />;
 	}
 
-	const initialProjectsData = (await fetchServerData(
-		"GET",
-		"/orgs/{id}/projects",
-		{
-			params: { path: { id: selectedOrganization.id } },
-		},
-	)) as { projects: Project[] } | null;
-	const projects = initialProjectsData?.projects ?? [];
+	let initialProjectsData = (
+		orgId === selectedOrganization.id
+			? orgIdProjectsData
+			: selectedOrganization.id === chatOrgData?.organizationId
+				? chatOrgProjectsData
+				: null
+	) as { projects: Project[] } | null;
+
+	initialProjectsData ??= (await fetchServerData("GET", "/orgs/{id}/projects", {
+		params: { path: { id: selectedOrganization.id } },
+	})) as { projects: Project[] } | null;
+
+	const projects = (initialProjectsData?.projects ?? []) as Project[];
 
 	let selectedProject: Project | null = null;
 	if (projectId && orgId === selectedOrganization.id) {

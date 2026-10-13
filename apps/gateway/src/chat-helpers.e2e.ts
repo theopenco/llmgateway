@@ -220,6 +220,14 @@ export const filteredModels = models
 		(model) =>
 			!model.providers.some((p) => (p as ProviderModelMapping).rerank === true),
 	)
+	// Filter out typed-decision models (they use the dedicated /v1/decisions
+	// endpoint, not chat completions)
+	.filter(
+		(model) =>
+			!model.providers.some(
+				(p) => (p as ProviderModelMapping).decisions === true,
+			),
+	)
 	// Filter out search models (they use the dedicated /v1/search endpoint,
 	// not chat completions, and are covered by search.e2e.ts)
 	.filter(
@@ -549,6 +557,91 @@ export const embeddingModels = models
 		);
 		for (const provider of expandedProviders) {
 			if (!provider.embeddings) {
+				continue;
+			}
+
+			// Skip deactivated / deprecated provider mappings
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
+						continue;
+					}
+				}
+				// TEST_MODELS/TEST_PROVIDERS takes precedence over test: "skip"
+			} else {
+				if (provider.test === "skip") {
+					continue;
+				}
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
+				if (
+					(provider.stability === "unstable" ||
+						provider.stability === "experimental") &&
+					!fullMode &&
+					provider.test !== "only"
+				) {
+					continue;
+				}
+			}
+
+			// If we have any "only" providers, skip those not marked as "only"
+			if (hasOnlyModels && provider.test !== "only") {
+				continue;
+			}
+
+			testCases.push({
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+				provider,
+				originalModel: model.id,
+			});
+		}
+		return testCases;
+	});
+
+// Typed-decision models are excluded from filteredModels above (they use the
+// dedicated /v1/decisions endpoint). Build a separate list of decision
+// provider/model mappings for decisions.e2e.ts, applying the same filters as
+// embeddingModels.
+export const decisionModels = models
+	.filter((model) => !["custom", "auto"].includes(model.id))
+	.filter((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) => provider.decisions === true,
+		),
+	)
+	// If any model has test: "only", only include those models
+	.filter((model) => {
+		if (hasOnlyModels) {
+			return model.providers.some(
+				(provider: ProviderModelMapping) => provider.test === "only",
+			);
+		}
+		return true;
+	})
+	.flatMap((model) => {
+		const testCases = [];
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
+			if (!provider.decisions) {
 				continue;
 			}
 
@@ -1412,6 +1505,11 @@ function providerEnvOptionsForTests(
 			"eu-frankfurt",
 		);
 		return workspaceId ? { alibaba_workspace_id: workspaceId } : undefined;
+	}
+	if (providerId === "google-vertex" && process.env.LLM_GOOGLE_CLOUD_PROJECT) {
+		// Without a project the API key falls back to the project-less express
+		// path, which Google pins to us-central1; global-only models 404 there.
+		return { google_vertex_project_id: process.env.LLM_GOOGLE_CLOUD_PROJECT };
 	}
 	if (providerId === "azure-ai-foundry") {
 		const resource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;

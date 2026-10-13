@@ -441,6 +441,37 @@ describe("admin provider credentials", () => {
 		]);
 	});
 
+	test("edits a soft-deleted credential without reviving it", async () => {
+		await create({ provider: "openai", token: "sk-retire-me" });
+		const [credential] = await list();
+		const url = `/admin/provider-credentials/${credential.id}`;
+		const patch = (body: unknown) =>
+			app.request(url, {
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+
+		const removed = await app.request(url, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		expect(removed.status).toBe(200);
+
+		const renamed = await patch({ comment: "old prod key" });
+		expect(renamed.status).toBe(200);
+		const { credential: updated } = await renamed.json();
+		expect(updated.comment).toBe("old prod key");
+		expect(updated.status).toBe("deleted");
+
+		const revived = await patch({ status: "active" });
+		expect(revived.status).toBe(400);
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		expect(row?.status).toBe("deleted");
+	});
+
 	test("does not manage organization-owned provider keys", async () => {
 		await db.insert(tables.organization).values({
 			id: "byok-org",
@@ -2625,10 +2656,12 @@ describe("managed credential allowed models", () => {
 	test("save-time validation skips the probe when no allowed model can chat", async () => {
 		vi.stubEnv("E2E_TEST", "true");
 
-		const nonChatModel = (await catalogModels("openai")).find(
-			(modelId) =>
-				getPinnedValidationModel("openai", modelId)?.chatCapable === false,
-		);
+		// Decision models are probeable via their own endpoint, so they don't
+		// count as "no allowed model can be probed".
+		const nonChatModel = (await catalogModels("openai")).find((modelId) => {
+			const pinned = getPinnedValidationModel("openai", modelId);
+			return pinned?.chatCapable === false && pinned.kind !== "decision";
+		});
 		expect(nonChatModel).toBeDefined();
 
 		const res = await create({

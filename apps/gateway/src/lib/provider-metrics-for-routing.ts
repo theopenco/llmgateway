@@ -46,11 +46,16 @@ export async function getProviderMetricsForRouting(
 			);
 			const tokenMix = usage.get(key);
 			if (tokenMix) {
+				const { sampled, cacheHitRate, cacheOutputRatio } = tokenMix;
 				metrics.set(key, {
 					...candidate,
 					totalRequests: 0,
 					...metrics.get(key),
-					...tokenMix,
+					// Never assume an unsampled provider caches worse than cold start.
+					cacheHitRate: sampled
+						? cacheHitRate
+						: Math.max(cacheHitRate, thresholds.cacheHitRate),
+					cacheOutputRatio,
 				});
 			}
 		}

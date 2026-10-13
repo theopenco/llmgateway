@@ -135,7 +135,9 @@ carried through all of it.
 
 This applies to a tier you requested yourself. The optional coding-plan default
 tier is a cost preference rather than a requirement, so a request that cannot be
-served at that tier runs at standard instead of failing; `used_service_tier` in
+served at that tier runs at standard instead of failing. That includes a provider
+temporarily out of Flex capacity (OpenAI's `flex_unavailable`): the request is
+retried on the same provider at standard. `used_service_tier` in
 the response metadata always reports what was actually served. A tier sent on
 the request always takes precedence over that default, within the tiers the plan
 allows.
