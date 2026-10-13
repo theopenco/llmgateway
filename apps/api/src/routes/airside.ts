@@ -111,6 +111,7 @@ import {
 	eq,
 	gte,
 	inArray,
+	REMOVED_PROVIDER_KEY_STATUSES,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -546,7 +547,10 @@ async function carrierKeySummaries(
 		return new Map();
 	}
 	const keys = await db.query.providerKey.findMany({
-		where: { id: { in: ids }, status: { ne: "deleted" } },
+		where: {
+			id: { in: ids },
+			status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
+		},
 		columns: { id: true, tokenMasked: true, createdAt: true },
 	});
 	return new Map(
@@ -574,7 +578,7 @@ async function credentialedProviderIds(
 	const keys = await db.query.providerKey.findMany({
 		where: {
 			managed: { eq: true },
-			status: { ne: "deleted" },
+			status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
 			provider: { in: providerIds },
 		},
 		columns: { provider: true },
