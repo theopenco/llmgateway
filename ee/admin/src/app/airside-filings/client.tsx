@@ -897,7 +897,10 @@ export function AirsideFilingsClient() {
 									<Fragment key={filing.id}>
 										<TableRow
 											className={
-												filing.contextSizeWarning ? "border-b-0" : undefined
+												filing.contextSizeWarning ||
+												filing.cachedPriceWarnings.length > 0
+													? "border-b-0"
+													: undefined
 											}
 											data-testid={`filing-${filing.model.providerId}-${filing.model.modelName}`}
 										>
@@ -981,6 +984,20 @@ export function AirsideFilingsClient() {
 																: ""}
 															{formatPerMillion(filing.outputPrice)}
 														</div>
+														{filing.cachedInputPrice ||
+														filing.currentPricing?.cachedInputPrice ? (
+															<div>
+																cached:{" "}
+																{filing.currentPricing &&
+																filing.currentPricing.cachedInputPrice !==
+																	filing.cachedInputPrice
+																	? `${filing.currentPricing.cachedInputPrice ? formatPerMillion(filing.currentPricing.cachedInputPrice) : "none"} → `
+																	: ""}
+																{filing.cachedInputPrice
+																	? formatPerMillion(filing.cachedInputPrice)
+																	: "none"}
+															</div>
+														) : null}
 														{(() => {
 															const current = new Map(
 																(filing.currentPricing?.regionPrices ?? []).map(
@@ -1123,6 +1140,24 @@ export function AirsideFilingsClient() {
 															{filing.contextSizeWarning.deviation === "below"
 																? `Filed with ${formatNumber(filing.contextSizeWarning.contextSize)} tokens, while ${filing.model.modelName} is served with up to ${formatNumber(filing.contextSizeWarning.referenceContextSize)}. Deployments more than ${CONTEXT_TIER_TOLERANCE * 100}% below that only serve requests for ${filing.model.providerId}/${filing.model.modelName}, not the bare model id. Confirm the carrier's real window before approving.`
 																: `Filed with ${formatNumber(filing.contextSizeWarning.contextSize)} tokens, more than ${CONTEXT_TIER_TOLERANCE * 100}% above the ${formatNumber(filing.contextSizeWarning.referenceContextSize)} tokens of any other deployment of ${filing.model.modelName}. Long prompts will be routed to it, so verify the claim before approving.`}
+														</AlertDescription>
+													</Alert>
+												</TableCell>
+											</TableRow>
+										) : null}
+										{filing.cachedPriceWarnings.length > 0 ? (
+											<TableRow className="hover:bg-transparent">
+												<TableCell colSpan={9} className="pt-0">
+													<Alert
+														className="border-2 border-amber-500 bg-amber-500/10"
+														data-testid={`cached-price-warning-${filing.id}`}
+													>
+														<AlertTriangle />
+														<AlertTitle>Unusual cached input price</AlertTitle>
+														<AlertDescription>
+															{filing.cachedPriceWarnings.map((warning) => (
+																<div key={warning}>{warning}</div>
+															))}
 														</AlertDescription>
 													</Alert>
 												</TableCell>
