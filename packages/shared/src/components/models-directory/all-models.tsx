@@ -90,7 +90,10 @@ import {
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
-import { matchesCapability } from "./capability-filters";
+import {
+	matchesCapability,
+	matchesOutputCapabilities,
+} from "./capability-filters";
 import {
 	formatDeprecationDate,
 	formatPerImagePriceRange,
@@ -1288,46 +1291,7 @@ export function AllModels({
 			) {
 				return false;
 			}
-			if (
-				filters.capabilities.imageGeneration &&
-				!model.output?.includes("image")
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.videoGeneration &&
-				!model.output?.includes("video")
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.audioGeneration &&
-				!model.output?.includes("audio")
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.transcription &&
-				!model.output?.includes("transcription")
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.embedding &&
-				!model.output?.includes("embedding")
-			) {
-				return false;
-			}
-			if (filters.capabilities.rerank && !model.output?.includes("rerank")) {
-				return false;
-			}
-			if (
-				filters.capabilities.decisions &&
-				!model.output?.includes("decision")
-			) {
-				return false;
-			}
-			if (filters.capabilities.searchApi && !model.output?.includes("search")) {
+			if (!matchesOutputCapabilities(filters.capabilities, model.output)) {
 				return false;
 			}
 			if (
@@ -1683,6 +1647,7 @@ export function AllModels({
 				setCopiedModel(key);
 				setTimeout(() => setCopiedModel(null), 2000);
 			} catch (err) {
+				// eslint-disable-next-line no-console
 				console.error("Failed to copy text:", err);
 			}
 		},
