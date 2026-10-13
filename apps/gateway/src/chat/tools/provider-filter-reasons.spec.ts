@@ -9,7 +9,6 @@ import {
 	exclusionReason,
 	getProviderFilterReasons,
 	mergeFilteredProvider,
-	preferContextFittingProviders,
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 	type FilteredProvider,
@@ -574,42 +573,5 @@ describe("preferToolChoiceCapableProviders", () => {
 				reasoningEffort: "none",
 			}),
 		).toEqual([canopywaveLike, capable]);
-	});
-});
-
-describe("preferContextFittingProviders", () => {
-	const big = mapping({ providerId: "fireworks", contextSize: 1_048_576 });
-	const small = mapping({ providerId: "reka-ai", contextSize: 262_144 });
-	const unknown = mapping({ providerId: "custom" });
-
-	it("drops short-window deployments when a larger one fits", () => {
-		const filteredOut: FilteredProvider[] = [];
-		const result = preferContextFittingProviders(
-			[big, small, unknown],
-			262_145,
-			filteredOut,
-		);
-		expect(result).toEqual([big, unknown]);
-		expect(filteredOut).toEqual([
-			expect.objectContaining({
-				providerId: "reka-ai",
-				codes: ["context_size"],
-			}),
-		]);
-	});
-
-	it("keeps every candidate when all fit", () => {
-		expect(preferContextFittingProviders([big, small], 100_000)).toEqual([
-			big,
-			small,
-		]);
-	});
-
-	it("keeps every candidate when none fit", () => {
-		const filteredOut: FilteredProvider[] = [];
-		expect(
-			preferContextFittingProviders([big, small], 2_000_000, filteredOut),
-		).toEqual([big, small]);
-		expect(filteredOut).toEqual([]);
 	});
 });

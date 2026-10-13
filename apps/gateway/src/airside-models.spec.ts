@@ -1469,6 +1469,49 @@ describe("airside-listed models", () => {
 		expect(secondLog?.routingMetadata?.selectionReason).toBe("session-sticky");
 	});
 
+	test("bare-id routing skips a listing far below the model's context window", async () => {
+		const token = "airside-context-tier";
+		await setupCustomCarrier(token);
+		await setupCustomCarrier("airside-tier-cloud", {
+			providerId: "acme-cloud",
+		});
+		await setupCustomCarrier("airside-tier-third", {
+			providerId: "acme-third",
+		});
+		for (const providerId of ["acme-cloud", "acme-third"]) {
+			await materializeTestMapping({
+				providerId,
+				modelId: "sky-large",
+				apiFormat: "openai-chat-completions",
+				inputPrice: "30e-6",
+				outputPrice: "90e-6",
+				contextSize: 256000,
+			});
+		}
+		for (const providerId of ["acme-sky", "acme-cloud", "acme-third"]) {
+			await setRoutingUptime("sky-large", providerId, 100);
+		}
+		await clearCache();
+
+		const bare = await carrierRequest(token, "sky-large");
+		expect(bare.status, await bare.text()).toBe(200);
+		const bareLog = await waitForLogByRequestId(`${token}-request`);
+		expect(["acme-cloud", "acme-third"]).toContain(bareLog?.usedProvider);
+		expect(
+			bareLog?.routingMetadata?.filteredProviders?.find(
+				(filtered) => filtered.providerId === "acme-sky",
+			)?.codes,
+		).toContain("context_size");
+
+		const pinned = await carrierRequest(
+			"airside-tier-cloud",
+			"acme-sky/sky-large",
+		);
+		expect(pinned.status, await pinned.text()).toBe(200);
+		const pinnedLog = await waitForLogByRequestId("airside-tier-cloud-request");
+		expect(pinnedLog?.usedProvider).toBe("acme-sky");
+	});
+
 	test.each([false, true])(
 		"fallback switches Airside endpoints and credentials (stream=%s)",
 		async (stream) => {

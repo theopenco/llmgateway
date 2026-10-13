@@ -227,6 +227,7 @@ import {
 	type WebSearchTool,
 	expandAllProviderRegions,
 	expandProviderRegions,
+	getContextTierMinSize,
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
@@ -339,7 +340,6 @@ import {
 	exclusionReason,
 	getProviderFilterReasons,
 	mergeFilteredProvider,
-	preferContextFittingProviders,
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
@@ -816,6 +816,8 @@ function filterEligibleModelProviders(
 		reasoningEffort?: string;
 		n?: number;
 		stream?: boolean;
+		/** Unpinned routing only: smallest context window still eligible. */
+		contextTierMinSize?: number;
 	},
 	filteredOut?: FilteredProvider[],
 ): ProviderModelMapping[] {
@@ -848,6 +850,22 @@ function filterEligibleModelProviders(
 			if (filteredOut) {
 				recordFilteredProvider(filteredOut, provider.providerId, [
 					exclusionReason("locked_region"),
+				]);
+			}
+			return false;
+		}
+
+		// Deployments far below the model's full context window would fail long
+		// conversations that the model itself supports, so requests that don't
+		// name a provider skip them.
+		if (
+			options.contextTierMinSize !== undefined &&
+			provider.contextSize !== undefined &&
+			provider.contextSize < options.contextTierMinSize
+		) {
+			if (filteredOut) {
+				recordFilteredProvider(filteredOut, provider.providerId, [
+					exclusionReason("context_size"),
 				]);
 			}
 			return false;
@@ -4090,19 +4108,6 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Context a pinned-model request needs (prompt + output budget), used to
-	// steer it away from short-window deployments of the same model. Mirrors
-	// the auto-route default buffer when max_tokens is omitted. Image payloads
-	// count toward the window, so use the image-aware estimate when present;
-	// routingPromptTokens stays text-only because billing relies on that.
-	const routingRequiredContextSize =
-		(hasImages && messages && messages.length > 0
-			? encodeChatMessages(messages, requestedModel) +
-				(tools && tools.length > 0
-					? Math.round(JSON.stringify(tools).length / 4)
-					: 0)
-			: routingPromptTokens) + (max_tokens ?? 4096);
-
 	// Apply routing logic after apiKey and project are available.
 	// "auto" and "smart" share this candidate loop. They differ only in where
 	// the candidate list comes from: "auto" is the fixed built-in set and is
@@ -5278,6 +5283,10 @@ chat.openapi(completions, async (c) => {
 						await findManagedProviderAvailability(envVariant, baseModelId),
 					);
 
+				const rateLimitContextTierMinSize = getContextTierMinSize(
+					baseModelId,
+					modelInfo.providers,
+				);
 				const availableModelProviders = preferConcreteRegionalMappings(
 					applyPinnedDefaultRegions(iamFilteredModelProviders, {
 						explicitLocks: buildProviderLockedRegions(providerKeys),
@@ -5290,6 +5299,13 @@ chat.openapi(completions, async (c) => {
 					if (
 						provider.providerId === usedProvider &&
 						provider.region === usedRegion
+					) {
+						return false;
+					}
+					if (
+						rateLimitContextTierMinSize !== undefined &&
+						provider.contextSize !== undefined &&
+						provider.contextSize < rateLimitContextTierMinSize
 					) {
 						return false;
 					}
@@ -5341,10 +5357,7 @@ chat.openapi(completions, async (c) => {
 				const candidatesForRouting = await pickNonRateLimitedCandidates(
 					project.organizationId,
 					baseModelId,
-					preferContextFittingProviders(
-						availableModelProviders,
-						routingRequiredContextSize,
-					),
+					availableModelProviders,
 				);
 				const preferredCandidatesForRouting = preferProvidersWithKeys(
 					project.mode,
@@ -5505,40 +5518,40 @@ chat.openapi(completions, async (c) => {
 					providerId: string;
 					reasons: string[];
 				}> = [];
-				const availableModelProviders = preferContextFittingProviders(
-					filterEligibleModelProviders(
-						preferConcreteRegionalMappings(
-							applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
-								explicitLocks: buildProviderLockedRegions(providerKeys),
-								requestedRegion,
-							}),
-						),
-						{
-							allProviderVariants: modelInfo.providers,
-							availableProviders,
-							webSearchTool,
-							responseFormatType: response_format?.type,
-							hasImages,
-							hasAudio,
-							audioFormats,
-							hasDocuments,
-							hasAssistantPrefill,
-							toolChoice: tool_choice,
-							maxTokens: max_tokens,
-							reasoningEffort: reasoning_effort,
-							n,
-							stream,
-						},
-						filteredOutProvidersFallback,
-					).filter(
-						(provider) =>
-							!(
-								provider.providerId === usedProvider &&
-								provider.region === usedRegion
-							),
+				const availableModelProviders = filterEligibleModelProviders(
+					preferConcreteRegionalMappings(
+						applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
+							explicitLocks: buildProviderLockedRegions(providerKeys),
+							requestedRegion,
+						}),
 					),
-					routingRequiredContextSize,
+					{
+						allProviderVariants: modelInfo.providers,
+						availableProviders,
+						webSearchTool,
+						responseFormatType: response_format?.type,
+						hasImages,
+						hasAudio,
+						audioFormats,
+						hasDocuments,
+						hasAssistantPrefill,
+						toolChoice: tool_choice,
+						maxTokens: max_tokens,
+						reasoningEffort: reasoning_effort,
+						n,
+						stream,
+						contextTierMinSize: getContextTierMinSize(
+							baseModelId,
+							modelInfo.providers,
+						),
+					},
 					filteredOutProvidersFallback,
+				).filter(
+					(provider) =>
+						!(
+							provider.providerId === usedProvider &&
+							provider.region === usedRegion
+						),
 				);
 				const uptimeFallbackCandidates = await pickNonRateLimitedCandidates(
 					project.organizationId,
@@ -5782,6 +5795,10 @@ chat.openapi(completions, async (c) => {
 				toolChoice: tool_choice,
 				maxTokens: max_tokens,
 				reasoningEffort: reasoning_effort,
+				contextTierMinSize: getContextTierMinSize(
+					routedModelId,
+					modelInfo.providers,
+				),
 			};
 			const filteredOutProvidersDirect: FilteredProvider[] = [];
 			const eligibleModelProviders = filterEligibleModelProviders(
@@ -5791,11 +5808,7 @@ chat.openapi(completions, async (c) => {
 			);
 			const availableModelProviders = await keepCheapestCustomRoutingMapping(
 				dropLowUptimeCustomProviders(
-					preferContextFittingProviders(
-						eligibleModelProviders,
-						routingRequiredContextSize,
-						filteredOutProvidersDirect,
-					),
+					eligibleModelProviders,
 					modelInfo.id,
 					customLowUptimeThreshold,
 					filteredOutProvidersDirect,
@@ -5857,6 +5870,25 @@ chat.openapi(completions, async (c) => {
 						stream,
 						hasAssistantPrefill: false,
 					}).length > 0;
+				const smallerWindowMappings =
+					eligibilityOptions.contextTierMinSize === undefined
+						? []
+						: filterEligibleModelProviders(preparedModelProviders, {
+								...eligibilityOptions,
+								n,
+								stream,
+								contextTierMinSize: undefined,
+							});
+				if (smallerWindowMappings.length > 0) {
+					const pinnable = Array.from(
+						new Set(smallerWindowMappings.map((p) => p.providerId)),
+					)
+						.map((providerId) => `${providerId}/${usedInternalModel}`)
+						.join(", ");
+					throw new HTTPException(400, {
+						message: `No provider serving the full context window of model ${usedInternalModel} is available. Deployments with a smaller window only serve requests that name them: ${pinnable}.`,
+					});
+				}
 				throw new HTTPException(400, {
 					message: hasAudio
 						? `No provider with audio support is available for model ${usedInternalModel}. The request contains audio but none of the ${audience} providers support audio input.`
