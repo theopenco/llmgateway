@@ -1179,12 +1179,27 @@ keysProvider.openapi(updateStatus, async (c) => {
 		);
 	}
 
-	// Update the provider key
+	// Update the provider key. The status predicate keeps a DELETE that lands
+	// between the read above and this write from being undone (e.g. a status
+	// edit flipping a "pending_deletion" key back to "active").
 	const [updatedProviderKey] = await cdb
 		.update(tables.providerKey)
 		.set(updates)
-		.where(eq(tables.providerKey.id, id))
+		.where(
+			and(
+				eq(tables.providerKey.id, id),
+				notInArray(tables.providerKey.status, [
+					...REMOVED_PROVIDER_KEY_STATUSES,
+				]),
+			),
+		)
 		.returning();
+
+	if (!updatedProviderKey) {
+		throw new HTTPException(404, {
+			message: "Provider key not found",
+		});
+	}
 
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
 	if (status !== undefined && providerKey.status !== status) {

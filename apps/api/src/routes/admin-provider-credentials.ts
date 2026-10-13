@@ -2075,6 +2075,21 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			message: "A deleted credential cannot change status.",
 		});
 	}
+	// A credential pending deletion still serves conversations pinned to it by
+	// replayed reasoning, which only verifies on the exact account that
+	// produced it — so what it sends upstream must not change until teardown.
+	if (
+		existing.status === "pending_deletion" &&
+		(body.token !== undefined ||
+			body.config !== undefined ||
+			body.region !== undefined ||
+			body.variant !== undefined)
+	) {
+		throw new HTTPException(400, {
+			message:
+				"A credential pending deletion cannot change its token, config, region or variant.",
+		});
+	}
 	if (body.token !== undefined && existing.provider !== "custom") {
 		const carrier = await findActiveCustomCarrier(existing.provider);
 		if (carrier) {

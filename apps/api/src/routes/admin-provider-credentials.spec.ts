@@ -474,10 +474,20 @@ describe("admin provider credentials", () => {
 
 		const revived = await patch({ status: "active" });
 		expect(revived.status).toBe(400);
+
+		// Pinned conversations still use it, so what it sends stays fixed.
+		const rotated = await patch({ token: "sk-rotated", skipValidation: true });
+		expect(rotated.status).toBe(400);
+		const moved = await patch({ region: "eu" });
+		expect(moved.status).toBe(400);
+
 		const row = await db.query.providerKey.findFirst({
 			where: { id: { eq: credential.id } },
 		});
 		expect(row?.status).toBe("pending_deletion");
+		const [stored] = await list("?includeDeleted=true");
+		expect(stored.maskedToken).toBe(credential.maskedToken);
+		expect(stored.region).toBe(credential.region);
 	});
 
 	test("does not manage organization-owned provider keys", async () => {
