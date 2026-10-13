@@ -149,15 +149,14 @@ export function preserveAnsweredToolCalls(
 	if (!existing || incoming === undefined) {
 		return incoming;
 	}
+	const answered = (state: unknown) =>
+		["output-available", "output-error", "output-denied"].includes(
+			String(state),
+		);
 	const previous = partsSchema.parse(JSON.parse(existing));
 	const next = incoming ? partsSchema.parse(JSON.parse(incoming)) : [];
 	for (const part of previous) {
-		if (
-			typeof part.toolCallId !== "string" ||
-			!["output-available", "output-error", "output-denied"].includes(
-				String(part.state),
-			)
-		) {
+		if (typeof part.toolCallId !== "string" || !answered(part.state)) {
 			continue;
 		}
 		const index = next.findIndex(
@@ -165,7 +164,7 @@ export function preserveAnsweredToolCalls(
 		);
 		if (index === -1) {
 			next.push(part);
-		} else {
+		} else if (part.state !== "output-error" || !answered(next[index].state)) {
 			next[index] = part;
 		}
 	}

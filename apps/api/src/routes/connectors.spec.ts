@@ -311,7 +311,11 @@ describe("Lounge connector routes", () => {
 			sources: "[]",
 			metadata: { source: "fixture" },
 		};
-		for (const state of ["approval-requested", "output-available"]) {
+		for (const state of [
+			"approval-requested",
+			"output-error",
+			"output-available",
+		]) {
 			const response = await app.request(`/chats/${chat.id}/messages`, {
 				method: "POST",
 				headers: { Cookie: cookie, "Content-Type": "application/json" },

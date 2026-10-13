@@ -126,7 +126,8 @@ export async function GET(
 
 	const headers: Record<string, string> = {
 		"Content-Type": response.headers.get("Content-Type") ?? "video/mp4",
-		"Cache-Control": "private, max-age=3600",
+		"Cache-Control":
+			response.status === 416 ? "no-store" : "private, max-age=3600",
 		"Accept-Ranges": "bytes",
 	};
 
