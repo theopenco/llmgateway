@@ -670,6 +670,35 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 		}
 	}
 
+	// OpenAI sheds Flex capacity with `flex_unavailable`; streaming requests
+	// get it as an immediate `error` event. Standard-tier requests still pass.
+	if (
+		userMessage.includes("TRIGGER_FLEX_UNAVAILABLE") &&
+		body.service_tier === "flex"
+	) {
+		const flexError = {
+			type: "resource_unavailable",
+			code: "flex_unavailable",
+			message:
+				"Flex processing is temporarily unavailable. Please try again later or use standard processing.",
+			param: null,
+		};
+		if (body.stream === true) {
+			return streamSSE(c, async (stream) => {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						type: "error",
+						error: flexError,
+						sequence_number: 0,
+					}),
+					id: "0",
+				});
+			});
+		}
+		c.status(429);
+		return c.json({ error: flexError });
+	}
+
 	// Azure (and OpenAI) silently serve a premium request at standard when the
 	// tier is unavailable, echoing `service_tier: "default"`. The echoed tier,
 	// not the requested one, is what the gateway must bill.

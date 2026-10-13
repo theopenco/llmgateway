@@ -386,6 +386,7 @@ import {
 import {
 	assertServiceTierHonored,
 	getForwardedServiceTier,
+	isFlexUnavailableError,
 	mappingSupportsRequestedServiceTier,
 	providerKeySupportsServiceTier,
 } from "./tools/service-tier.js";
@@ -2844,6 +2845,8 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (isRequestedServiceTier(service_tier)) {
+		// Captured: closures reassign `service_tier`, which defeats narrowing.
+		const routedServiceTier = service_tier;
 		const serviceTierCandidateProviders = modelInfo.providers.filter(
 			(mapping) => providerMatchesRequestedProvider(mapping, requestedProvider),
 		);
@@ -2852,7 +2855,7 @@ chat.openapi(completions, async (c) => {
 				mappingSupportsRequestedServiceTier(
 					modelInfo.id,
 					mapping,
-					service_tier,
+					routedServiceTier,
 					configIndex,
 					envVariant,
 				),
@@ -2897,7 +2900,7 @@ chat.openapi(completions, async (c) => {
 			mappingSupportsRequestedServiceTier(
 				modelInfo.id,
 				mapping,
-				service_tier,
+				routedServiceTier,
 				configIndex,
 				envVariant,
 			);
@@ -8667,6 +8670,49 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// The coding-plan flex default is a soft cost preference, so when the
+	// provider has no Flex capacity, retry it at standard instead of failing.
+	// A tier the client asked for itself is never downgraded.
+	async function tryResolveStandardTierRetryContext(
+		errorText: string,
+		streamValue: boolean,
+	): Promise<Awaited<ReturnType<typeof resolveProviderContext>> | null> {
+		if (
+			serviceTierSource !== "coding-plan-default" ||
+			service_tier !== "flex" ||
+			!usedProvider ||
+			!isFlexUnavailableError(errorText)
+		) {
+			return null;
+		}
+
+		service_tier = undefined;
+		try {
+			const nextContext = await resolveProviderContextForRetry(
+				{
+					providerId: usedProvider,
+					externalId: usedExternalId,
+					region: usedRegion,
+				},
+				streamValue,
+			);
+			if (!(await consumeProviderRateLimit(usedProvider, false)).rateLimited) {
+				return nextContext;
+			}
+		} catch (error) {
+			logger.warn(
+				"Failed to resolve standard-tier retry after flex_unavailable",
+				{
+					error: toError(error).message,
+					usedProvider,
+					usedInternalModel,
+				},
+			);
+		}
+		service_tier = "flex";
+		return null;
+	}
+
 	// Handle streaming response if requested
 	// For image generation models, we skip real streaming and use fake streaming later
 	// For stream-only models where the client didn't request streaming, use the non-streaming path
@@ -9841,8 +9887,12 @@ chat.openapi(completions, async (c) => {
 
 						let sameProviderRetryContext: Awaited<
 							ReturnType<typeof resolveProviderContext>
-						> | null = null;
+						> | null = await tryResolveStandardTierRetryContext(
+							errorResponseText,
+							true,
+						);
 						if (
+							!sameProviderRetryContext &&
 							shouldRetryAlternateKey(
 								finishReason,
 								res.status,
@@ -10224,8 +10274,12 @@ chat.openapi(completions, async (c) => {
 
 						let sameProviderRetryContext: Awaited<
 							ReturnType<typeof resolveProviderContext>
-						> | null = null;
+						> | null = await tryResolveStandardTierRetryContext(
+							errorResponseText,
+							true,
+						);
 						if (
+							!sameProviderRetryContext &&
 							shouldRetryAlternateKey(
 								errorType,
 								inferredStatusCode,
@@ -14222,8 +14276,12 @@ chat.openapi(completions, async (c) => {
 
 			let sameProviderRetryContext: Awaited<
 				ReturnType<typeof resolveProviderContext>
-			> | null = null;
+			> | null = await tryResolveStandardTierRetryContext(
+				errorResponseText,
+				stream,
+			);
 			if (
+				!sameProviderRetryContext &&
 				shouldRetryAlternateKey(finishReason, res.status, errorResponseText)
 			) {
 				rememberFailedKey(usedProvider, usedRegion, {
